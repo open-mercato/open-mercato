@@ -1054,6 +1054,46 @@ result is suppressed. Saving a role whose ACL has no `updatedAt` now re-reads th
 anything is written) and refuses to overwrite it when someone else changed it ("Reload the page and
 apply your changes again"); a role ACL with `updatedAt` keeps using the optimistic lock.
 
+### Change simulator: price-row backtest ("Simulate impact" on the price row edit form)
+
+The catalog price row edit form gains "Simulate impact": it backtests the form's unsaved net and/or
+gross amount of an existing price row against the order and quote lines recorded with that row and
+changes nothing. Spec: [`2026-10-08-insights-change-simulator`](.ai/specs/2026-10-08-insights-change-simulator.md) (S9).
+
+**Action for operators.** Run `yarn generate` (the new `catalog/insights.simulate.ts` contribution
+and the sales line families are aggregated into `insights-simulate.generated.ts`). No migration and
+no new ACL feature: the backtest needs `insights.simulator.run` and `catalog.pricing.manage`; order
+lines are included only for `sales.orders.view` holders and quote lines only for `sales.quotes.view`
+holders (a family the requester may not read is left out with a caveat, also when the result is
+read later).
+
+**Action for module authors.** A module recording document lines that reference catalog price rows
+can contribute a line family with `registerCatalogPriceLineSource` (`@open-mercato/core/modules/catalog/lib/simulation/priceLineSources`)
+from its own `insights.simulate.ts`, as sales does. Simulation kinds may now read one record's own
+audit history (`readRecordHistory` on the slice context) and attach decimal `measures` and
+per-group `requiredFeatures` to result groups (both optional). The "Why?" line price helpers of
+`sales/lib/explain/linePriceProvider.ts` gained exports; their behaviour is unchanged. A kind's
+module may word its results itself (this kind counts lines, the role preview users and API keys)
+through the i18n keys `<module>.simulation.groupTotal`, `.groupSuppressed`, `.result.title`,
+`.result.privacyNote`, `.result.emptyTitle`, `.result.emptyDescription` and `.fidelity.<value>`;
+missing keys fall back to the generic wording, which counts events.
+
+**Behavior notes.** Lines are found through the `metadata.priceId` the browser line dialog writes
+(an order converted from such a quote keeps it): lines created through the API or by AI tools carry
+none and are invisible (the coverage counts them for the row's product). A line counts as priced
+from the row when its stored unit price equals the row's amount at the line's creation (read from
+the row's last 200 changes); a price that differs from every amount the row ever had is a manual
+override and is excluded; a price equal to an earlier amount of the row (e.g. an order converted
+from a quote, dated at the conversion), a row change within 5 ms of the line's creation, a line
+without a recorded net/gross entry, another unit of measure or another currency is "cannot tell".
+Orders and quotes are reported separately, per currency (never converted) and per net/gross entry;
+revenue is unit price × quantity as stored (quantities constant). The dialog proposes the amount
+the save will store (net when filled in, else gross); the other one is derived on save through the
+tax calculation, so lines priced in it are "cannot tell". The applied decision is verified against
+the saved row's amounts and currency. Privacy: when any count is below the threshold the coverage
+counts are hidden, and, as for every kind, the run detail's `budgets.recordsUsed` is `null` whenever
+a group or cell is suppressed or a group is left out for the viewer.
+
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
 Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).

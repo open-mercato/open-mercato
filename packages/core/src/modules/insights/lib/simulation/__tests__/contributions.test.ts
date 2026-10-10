@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { SIMULATION_EVENT_ID_PATTERN } from '@open-mercato/shared/modules/insights/simulate'
+import { listCatalogPriceLineSources } from '@open-mercato/core/modules/catalog/lib/simulation/priceLineSources'
 import { simulateConfigPlugin } from '../../../generators'
 import { getSimulationKind, listSimulationEventAdapters, registerSimulateConfigEntries, resetSimulationRegistryForTests } from '../registry'
 
@@ -15,9 +16,9 @@ function discoverConventionFiles(): Array<{ moduleId: string; file: string }> {
 describe('insights.simulate.ts contributions of the core modules', () => {
   beforeEach(() => resetSimulationRegistryForTests())
 
-  it('are discovered by the generator convention and register the rule and trigger backtests, the role permission preview and the event adapters', async () => {
+  it('are discovered by the generator convention and register the rule, trigger and price backtests, the role permission preview, the price line sources and the event adapters', async () => {
     const discovered = discoverConventionFiles()
-    expect(discovered.map((entry) => entry.moduleId).sort()).toEqual(['auth', 'business_rules', 'customers', 'sales', 'workflows'])
+    expect(discovered.map((entry) => entry.moduleId).sort()).toEqual(['auth', 'business_rules', 'catalog', 'customers', 'sales', 'workflows'])
     const entries = []
     for (const entry of discovered) {
       const exported = (await import(entry.file)) as { default?: unknown; simulateConfig?: unknown }
@@ -39,6 +40,14 @@ describe('insights.simulate.ts contributions of the core modules', () => {
     expect(aclKind?.definition.ttlHours).toBe(24)
     expect(aclKind?.definition.accessLogResourceKind).toBe('insights.simulation.permission_preview')
     expect(aclKind?.definition.liveRecords?.requiredFeatures).toEqual(['auth.users.list'])
+    const priceKind = getSimulationKind('catalog.price_backtest')
+    expect(priceKind?.moduleId).toBe('catalog')
+    expect(priceKind?.definition.requiredFeatures).toEqual(['catalog.pricing.manage'])
+    expect(priceKind?.definition.artifactKind).toBe('catalog.price')
+    expect(listCatalogPriceLineSources().map((source) => [source.family, source.requiredFeatures])).toEqual([
+      ['orders', ['sales.orders.view']],
+      ['quotes', ['sales.quotes.view']],
+    ])
     const adapters = listSimulationEventAdapters()
     expect(adapters.map((adapter) => adapter.eventId)).toEqual(expect.arrayContaining([
       'customers.deal.updated',

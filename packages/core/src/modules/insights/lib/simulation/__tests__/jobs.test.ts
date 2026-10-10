@@ -222,6 +222,7 @@ describe('runSimulationSlice', () => {
       expect(ctx.budget).toEqual({ recordsRemaining: 49_990, sliceDeadlineAt: NOW + 15_000, runDeadlineAt: NOW + 100_000, maxBatchRows: 100, maxBatchBytes: 1000 })
       expect(ctx.window).toEqual({ from: new Date('2026-07-01T00:00:00Z'), to: new Date('2026-10-01T00:00:00Z') })
       expect(ctx.eventAdapters[0].payloadFrom({} as never, { scope: ctx.scope })).toEqual({ payload: { id: 'x' }, unknownPaths: ['title'], valuePaths: [] })
+      expect(typeof ctx.readRecordHistory).toBe('function')
       return { status: 'continue', state: { cursor: 'c2' }, recordsProcessed: 40, progress: 0.42 }
     })
     const enqueue = jest.fn(async () => undefined)
@@ -295,6 +296,26 @@ describe('runSimulationSlice', () => {
     const patch = updateActiveSimulationRun.mock.calls.at(-1)?.[4] as Record<string, unknown>
     expect(patch).toEqual(expect.objectContaining({ coverageJson: { observed_rows: 30 }, caveats: ['test_module.caveat'] }))
     expect((patch.resultJson as { summary?: unknown }).summary).toEqual({ warnings: ['test_module.warning'], counts: { pages_lost: 1 }, lists: { features_lost: ['a.b'] } })
+  })
+
+  it('hides coverage that breaks down cells as soon as one cell is suppressed, and keeps it for other kinds', async () => {
+    const result = {
+      groups: [{ key: 'test_module.thing.updated', cells: [{ key: 'fires', count: 30 }, { key: 'does_not_fire', count: 2 }] }],
+      coverage: { observed_rows: 32, reason_a: 2 },
+      caveats: ['test_module.caveat'],
+      fidelity: 'observed' as const,
+      truncated: false,
+    }
+    loadSimulationRunForWorker.mockResolvedValue(makeRun())
+    kindRun.mockResolvedValue({ status: 'done', recordsProcessed: 32, result: { ...result, coverageBreaksDownCells: true } })
+    await expect(runSimulationSlice(makeContainer(makeProgress()).container, PAYLOAD, deps())).resolves.toBe('completed')
+    const hidden = updateActiveSimulationRun.mock.calls.at(-1)?.[4] as Record<string, unknown>
+    expect(hidden).toEqual(expect.objectContaining({ coverageJson: {}, caveats: ['test_module.caveat', 'insights.simulation.caveats.coverageHiddenCells'] }))
+    loadSimulationRunForWorker.mockResolvedValue(makeRun())
+    kindRun.mockResolvedValue({ status: 'done', recordsProcessed: 32, result })
+    await expect(runSimulationSlice(makeContainer(makeProgress()).container, PAYLOAD, deps())).resolves.toBe('completed')
+    const kept = updateActiveSimulationRun.mock.calls.at(-1)?.[4] as Record<string, unknown>
+    expect(kept).toEqual(expect.objectContaining({ coverageJson: { observed_rows: 32, reason_a: 2 }, caveats: ['test_module.caveat'] }))
   })
 
   it('lets the queue retry when the RBAC service fails instead of cancelling the run as forbidden', async () => {

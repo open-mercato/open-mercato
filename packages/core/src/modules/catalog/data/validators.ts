@@ -537,6 +537,28 @@ export const priceUpdateSchema = z
   .superRefine(priceQuantityRangeRefinement)
   .superRefine(priceValidityWindowRefinement)
 
+/**
+ * Change simulator proposal of the price backtest (`catalog.price_backtest`): new amounts of an
+ * EXISTING price row, each validated like a price row amount. `currencyCode` is the row's own
+ * currency (a currency change is not an amount change and is refused); an amount left out is
+ * not part of the proposal (the row's save derives it through the tax calculation). Any other
+ * field is refused.
+ */
+export const catalogPriceBacktestProposalSchema = z
+  .object({
+    priceId: uuid(),
+    currencyCode: currencyCodeSchema,
+    unitPriceNet: catalogPriceAmountSchema.optional(),
+    unitPriceGross: catalogPriceAmountSchema.optional(),
+  })
+  .strict()
+  .refine((input) => input.unitPriceNet !== undefined || input.unitPriceGross !== undefined, {
+    message: 'catalog.simulation.validation.amountRequired',
+    path: ['unitPriceNet'],
+  })
+
+export type CatalogPriceBacktestProposal = z.infer<typeof catalogPriceBacktestProposalSchema>
+
 export const categoryCreateSchema = scoped.extend({
   name: z.string().trim().min(1).max(255),
   slug: slugSchema.optional().nullable(),

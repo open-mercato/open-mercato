@@ -134,6 +134,20 @@ export const injectionTable: ModuleInjectionTable = {
       priority: 100,
     },
   ],
+  'crud-form:catalog.catalog_product_price:header': [
+    {
+      widgetId: 'insights.injection.price-simulate',
+      kind: 'stack',
+      priority: 100,
+    },
+  ],
+  'crud-form:catalog.catalog_product_price': [
+    {
+      widgetId: 'insights.injection.price-simulation-apply',
+      kind: 'stack',
+      priority: 100,
+    },
+  ],
 }
 
 export default injectionTable

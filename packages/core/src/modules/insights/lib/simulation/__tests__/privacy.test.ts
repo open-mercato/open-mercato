@@ -68,3 +68,68 @@ describe('simulation k-suppression (S14)', () => {
     expect(result.cells.every((cell) => cell.count === 0 && cell.suppressed === null)).toBe(true)
   })
 })
+
+describe('simulation measures and group features (7d)', () => {
+  const PRICE_CELLS = ['priced_from_row', 'manual_override', 'cannot_tell']
+  const measures = [
+    { key: 'current_revenue', cell: 'priced_from_row', value: '200.00', currencyCode: 'EUR' },
+    { key: 'simulated_revenue', cell: 'priced_from_row', value: '240.00', currencyCode: 'EUR' },
+    { key: 'revenue_delta', cell: 'priced_from_row', value: '40.00', currencyCode: 'EUR' },
+  ]
+
+  function priceGroup(counts: Record<string, number>, extra: Record<string, unknown> = {}) {
+    return {
+      key: 'orders:EUR:net',
+      sampleResourceKind: 'sales.order',
+      cells: Object.entries(counts).map(([key, count]) => ({ key, count })),
+      measures,
+      requiredFeatures: ['sales.orders.view'],
+      ...extra,
+    }
+  }
+
+  it('keeps the measures of a visible cell and the group features', () => {
+    const result = suppressSimulationGroup(priceGroup({ priced_from_row: 12, manual_override: 10, cannot_tell: 0 }), 10, PRICE_CELLS)
+    expect(result.measures).toEqual(measures)
+    expect(result.requiredFeatures).toEqual(['sales.orders.view'])
+  })
+
+  it('drops the measures of a cell hidden below k or complementarily, and of a suppressed group', () => {
+    expect(suppressSimulationGroup(priceGroup({ priced_from_row: 3, manual_override: 40 }), 10, PRICE_CELLS).measures).toEqual([])
+    const complementary = suppressSimulationGroup(priceGroup({ priced_from_row: 12, manual_override: 40, cannot_tell: 2 }), 10, PRICE_CELLS)
+    expect(complementary.cells.find((cell) => cell.key === 'priced_from_row')?.suppressed).toBe('complementary')
+    expect(complementary.measures).toEqual([])
+    const whole = suppressSimulationGroup(priceGroup({ priced_from_row: 4 }), 10, PRICE_CELLS)
+    expect(whole).toEqual(expect.objectContaining({ suppressed: true, measures: [], requiredFeatures: ['sales.orders.view'] }))
+  })
+
+  it('keeps a measure of a zero cell (it describes no record)', () => {
+    const result = suppressSimulationGroup(priceGroup({ priced_from_row: 0, manual_override: 15 }), 10, PRICE_CELLS)
+    expect(result.measures).toHaveLength(3)
+  })
+
+  it('sanitizes measures: unknown cells, malformed keys, values or currencies, duplicates and the cap', () => {
+    const result = suppressSimulationGroup(priceGroup({ priced_from_row: 20 }, {
+      measures: [
+        { key: 'current_revenue', cell: 'priced_from_row', value: '1.5', currencyCode: 'eur' },
+        { key: 'current_revenue', cell: 'priced_from_row', value: '9.9', currencyCode: 'EUR' },
+        { key: 'Bad Key', cell: 'priced_from_row', value: '1' },
+        { key: 'other', cell: 'not_a_cell', value: '1' },
+        { key: 'nan', cell: 'priced_from_row', value: 'NaN' },
+        { key: 'exp', cell: 'priced_from_row', value: '1e5' },
+        ...Array.from({ length: 30 }, (_, index) => ({ key: `m${index}`, cell: 'priced_from_row', value: String(index), currencyCode: 'USD' })),
+      ],
+      requiredFeatures: ['sales.orders.view', '', 'sales.orders.view'],
+    }), 10, PRICE_CELLS)
+    expect(result.measures?.[0]).toEqual({ key: 'current_revenue', cell: 'priced_from_row', value: '1.5', currencyCode: null })
+    expect(result.measures?.some((measure) => measure.key === 'Bad Key' || measure.key === 'other' || measure.key === 'nan' || measure.key === 'exp')).toBe(false)
+    expect(result.measures).toHaveLength(16)
+    expect(result.requiredFeatures).toEqual(['sales.orders.view'])
+  })
+
+  it('adds no measure or feature keys to groups of kinds that declare none', () => {
+    const result = suppressSimulationGroup(group({ fires: 12 }), 10, CELLS)
+    expect(result).not.toHaveProperty('measures')
+    expect(result).not.toHaveProperty('requiredFeatures')
+  })
+})

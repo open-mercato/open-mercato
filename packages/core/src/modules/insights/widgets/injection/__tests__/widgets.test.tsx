@@ -68,6 +68,8 @@ describe('insights injection widgets', () => {
       'backend:record:current',
       'crud-form:business_rules.rule',
       'crud-form:business_rules.rule:header',
+      'crud-form:catalog.catalog_product_price',
+      'crud-form:catalog.catalog_product_price:header',
       'crud-form:customers.company:field:*:after',
       'crud-form:customers.company:header',
       'crud-form:customers.customer_deal:field:*:after',

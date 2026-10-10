@@ -958,6 +958,13 @@ const simulationResultCellSchema = z.object({
   samples: z.array(simulationSampleSchema).describe('Sample record ids still visible to the caller (resolved live).'),
 })
 
+const simulationResultMeasureSchema = z.object({
+  key: z.string(),
+  cell: z.string().describe('The cell whose records the aggregate describes; present only while that cell is visible.'),
+  value: z.string().describe('Plain decimal string.'),
+  currencyCode: z.string().nullable().describe('ISO currency code of a money amount (never converted between currencies).'),
+})
+
 const simulationResultGroupSchema = z.object({
   key: z.string(),
   labelKey: z.string().nullable(),
@@ -967,6 +974,7 @@ const simulationResultGroupSchema = z.object({
   cells: z.array(simulationResultCellSchema),
   warnings: z.array(z.string()).describe('i18n keys'),
   flags: z.array(z.string()),
+  measures: z.array(simulationResultMeasureSchema).optional().describe('Decimal aggregates of visible cells (e.g. revenue of a price backtest).'),
 })
 
 export const simulationRunSummarySchema = z.object({
@@ -1019,7 +1027,7 @@ export const simulationRunDetailSchema = simulationRunSummarySchema.extend({
   budgets: z.object({
     maxRecords: z.number(),
     maxDurationMs: z.number(),
-    recordsUsed: z.number().nullable().describe('Null when any group or cell of the result is suppressed (it could reveal a suppressed count).'),
+    recordsUsed: z.number().nullable().describe('Records read; null when any group or cell of the result is suppressed or a group is hidden from the viewer (it could reveal a suppressed or hidden count).'),
     elapsedMs: z.number(),
   }),
   decisions: z.array(simulationDecisionViewSchema),

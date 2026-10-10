@@ -1,6 +1,7 @@
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { shortId } from '../xray/format'
 import { ROLE_ACL_PREVIEW_SIMULATION_KIND, TRIGGER_BACKTEST_SIMULATION_KIND, simulationKindModule } from './api'
+import { PRICE_BACKTEST_SIMULATION_KIND, describePriceBacktestGroup } from './priceBacktest'
 import { describeRoleAclGroup } from './roleAclPreview'
 import { describeTriggerBacktestGroup } from './triggerBacktest'
 import type { SimulationRequestError } from './types'
@@ -129,21 +130,59 @@ export function simulationGroupHeading(
     }
     return { title: t('insights.simulation.ui.result.triggerGroupTitle', { name }), subtitle: described.eventPattern }
   }
+  if (kind === PRICE_BACKTEST_SIMULATION_KIND) {
+    const described = describePriceBacktestGroup(group.key)
+    const family = group.labelKey ? t(group.labelKey, described.family) : described.family
+    if (!described.currencyCode || !described.basis) return { title: family, subtitle: null }
+    const moduleId = simulationKindModule(kind)
+    return {
+      title: t('insights.simulation.ui.result.priceGroupTitle', { family, currency: described.currencyCode }),
+      subtitle: moduleId ? t(`${moduleId}.simulation.basis.${described.basis}`, described.basis) : described.basis,
+    }
+  }
   return { title: simulationGroupLabel(group.key, group.labelKey, t), subtitle: group.labelKey ? group.key : null }
 }
 
-/** "{count} events", or the owning module's own wording (`<module>.simulation.groupTotal`). */
-export function simulationGroupTotalLabel(kind: string, count: string, t: TranslateFn): string {
-  const fallback = t('insights.simulation.ui.result.eventsTotal', { count })
+/**
+ * A result wording the kind's owning module may override (`<module>.simulation.<key>`: a price
+ * backtest counts lines, a permission preview users and API keys), else the generic insights text
+ * `fallbackKey` (worded for events). Every kind-specific heading, total and note goes through here.
+ */
+export function simulationKindText(kind: string, key: string, fallbackKey: string, t: TranslateFn, params?: Record<string, string | number>): string {
+  const fallback = params ? t(fallbackKey, params) : t(fallbackKey)
   const moduleId = simulationKindModule(kind)
-  return moduleId ? t(`${moduleId}.simulation.groupTotal`, fallback, { count }) : fallback
+  return moduleId ? t(`${moduleId}.simulation.${key}`, fallback, params) : fallback
 }
 
-/** "Fewer than {k} events — hidden", or the owning module's wording (`<module>.simulation.groupSuppressed`). */
+/** A group's total: `<module>.simulation.groupTotal`, else "{count} events". */
+export function simulationGroupTotalLabel(kind: string, count: string, t: TranslateFn): string {
+  return simulationKindText(kind, 'groupTotal', 'insights.simulation.ui.result.eventsTotal', t, { count })
+}
+
+/** A suppressed group's note: `<module>.simulation.groupSuppressed`, else "Fewer than {k} events — hidden". */
 export function simulationGroupSuppressedLabel(kind: string, k: string, t: TranslateFn): string {
-  const fallback = t('insights.simulation.ui.result.groupSuppressed', { k })
-  const moduleId = simulationKindModule(kind)
-  return moduleId ? t(`${moduleId}.simulation.groupSuppressed`, fallback, { k }) : fallback
+  return simulationKindText(kind, 'groupSuppressed', 'insights.simulation.ui.result.groupSuppressed', t, { k })
+}
+
+/** The result heading and privacy note: `<module>.simulation.result.title` / `.privacyNote`, else the generic ones. */
+export function simulationResultHeading(kind: string, k: string, t: TranslateFn): { title: string; privacyNote: string } {
+  return {
+    title: simulationKindText(kind, 'result.title', 'insights.simulation.ui.result.title', t),
+    privacyNote: simulationKindText(kind, 'result.privacyNote', 'insights.simulation.ui.result.privacyNote', t, { k }),
+  }
+}
+
+/** The empty state of a completed run without groups: `<module>.simulation.result.emptyTitle` / `.emptyDescription`, else the generic ones. */
+export function simulationEmptyResult(kind: string, t: TranslateFn): { title: string; description: string } {
+  return {
+    title: simulationKindText(kind, 'result.emptyTitle', 'insights.simulation.ui.result.emptyTitle', t),
+    description: simulationKindText(kind, 'result.emptyDescription', 'insights.simulation.ui.result.emptyDescription', t),
+  }
+}
+
+/** The fidelity note of a queued run's result: `<module>.simulation.fidelity.<value>`, else the generic one. */
+export function simulationFidelityText(kind: string, fidelity: SimulationFidelityValue, t: TranslateFn): string {
+  return simulationKindText(kind, `fidelity.${fidelity}`, `insights.simulation.ui.fidelity.${fidelity}`, t)
 }
 
 /** A label of a result-summary count or list: `<module>.simulation.summary.<key>`, else the raw key. */
@@ -164,32 +203,59 @@ export function simulationRecordCountLabel(kind: string, key: string, t: Transla
   return moduleId ? t(`${moduleId}.simulation.records.counts.${key}`, key) : key
 }
 
-/** The empty state of a completed run without groups: the owning module's wording, else the generic one. */
-/** The result heading and privacy note, or the owning module's wording (`<module>.simulation.result.title` / `.privacyNote`). */
-export function simulationResultHeading(kind: string, k: string, t: TranslateFn): { title: string; privacyNote: string } {
-  const title = t('insights.simulation.ui.result.title')
-  const privacyNote = t('insights.simulation.ui.result.privacyNote', { k })
-  const moduleId = simulationKindModule(kind)
-  if (!moduleId) return { title, privacyNote }
-  return {
-    title: t(`${moduleId}.simulation.result.title`, title),
-    privacyNote: t(`${moduleId}.simulation.result.privacyNote`, privacyNote, { k }),
-  }
+function translateIfPresent(key: string, t: TranslateFn): string | null {
+  const value = t(key)
+  return value === key ? null : value
 }
 
-export function simulationEmptyResult(kind: string, t: TranslateFn): { title: string; description: string } {
-  const moduleId = simulationKindModule(kind)
-  const title = t('insights.simulation.ui.result.emptyTitle')
-  const description = t('insights.simulation.ui.result.emptyDescription')
-  if (!moduleId) return { title, description }
-  return {
-    title: t(`${moduleId}.simulation.result.emptyTitle`, title),
-    description: t(`${moduleId}.simulation.result.emptyDescription`, description),
+/**
+ * A coverage count's label: the kind module's own label (`<module>.simulation.coverage.<key>`), else
+ * the generic one (`insights.simulation.coverage.<key>`); a `<group prefix>_<item>` key of a kind
+ * whose groups are keyed `<group prefix>:…` (e.g. `orders_lines_scanned` of a price backtest) is
+ * labelled "<group label>: <item label>". Unknown keys stay readable as the raw key.
+ */
+export function simulationCoverageLabel(
+  key: string,
+  t: TranslateFn,
+  context?: { kind?: string | null; groups?: ReadonlyArray<{ key: string; labelKey?: string | null }> },
+): string {
+  const moduleId = context?.kind ? simulationKindModule(context.kind) : null
+  const own = moduleId ? translateIfPresent(`${moduleId}.simulation.coverage.${key}`, t) : null
+  if (own) return own
+  const generic = translateIfPresent(`insights.simulation.coverage.${key}`, t)
+  if (generic) return generic
+  if (moduleId) {
+    for (const group of context?.groups ?? []) {
+      const prefix = group.key.split(':')[0]
+      if (!prefix || !group.labelKey || !key.startsWith(`${prefix}_`)) continue
+      const item = translateIfPresent(`${moduleId}.simulation.coverage.${key.slice(prefix.length + 1)}`, t)
+      if (item) return t('insights.simulation.ui.coverage.familyItem', { family: t(group.labelKey, prefix), item })
+    }
   }
+  return key
 }
 
-export function simulationCoverageLabel(key: string, t: TranslateFn): string {
-  return t(`insights.simulation.coverage.${key}`, key)
+/** A measure label of a kind: `<module>.simulation.measures.<key>`, else the raw key. */
+export function simulationMeasureLabel(kind: string, measureKey: string, t: TranslateFn): string {
+  const moduleId = simulationKindModule(kind)
+  return moduleId ? t(`${moduleId}.simulation.measures.${measureKey}`, measureKey) : measureKey
+}
+
+/**
+ * A measure value in the viewer's locale: a money amount in its own currency (never converted), a
+ * plain decimal otherwise; a `…_delta` measure shows its sign. Falls back to the stored text.
+ */
+export function formatSimulationMeasure(measure: { key: string; value: string; currencyCode: string | null }, locale: string): string {
+  const amount = Number(measure.value)
+  if (!Number.isFinite(amount)) return measure.value
+  const signDisplay = measure.key.endsWith('_delta') ? 'exceptZero' : 'auto'
+  try {
+    return new Intl.NumberFormat(locale, measure.currencyCode
+      ? { style: 'currency', currency: measure.currencyCode, minimumFractionDigits: 2, maximumFractionDigits: 4, signDisplay }
+      : { minimumFractionDigits: 2, maximumFractionDigits: 4, signDisplay }).format(amount)
+  } catch {
+    return measure.value
+  }
 }
 
 /** An i18n key carried by a result (warnings, caveats); unknown keys stay readable as the raw key. */

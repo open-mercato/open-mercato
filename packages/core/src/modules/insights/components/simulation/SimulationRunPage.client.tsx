@@ -26,6 +26,7 @@ import {
   readSimulationFidelity,
   simulationCoverageLabel,
   simulationEmptyResult,
+  simulationFidelityText,
   simulationResultHeading,
   simulationKindLabel,
   translateSimulationKey,
@@ -86,7 +87,7 @@ function RunHeader({ run }: { run: SimulationRunDetail }) {
   )
 }
 
-function FidelityNote({ fidelity }: { fidelity: string | null }) {
+function FidelityNote({ kind, fidelity }: { kind: string; fidelity: string | null }) {
   const t = useT()
   const value = readSimulationFidelity(fidelity)
   if (!value) return null
@@ -96,13 +97,21 @@ function FidelityNote({ fidelity }: { fidelity: string | null }) {
       <span>
         <span className="font-medium">{t('insights.simulation.ui.run.fidelityLabel', { fidelity: t(`insights.simulation.fidelity.${value}`) })}</span>
         {' '}
-        <span className="text-muted-foreground">{t(`insights.simulation.ui.fidelity.${value}`)}</span>
+        <span className="text-muted-foreground">{simulationFidelityText(kind, value, t)}</span>
       </span>
     </p>
   )
 }
 
-function CoverageList({ coverage }: { coverage: Record<string, number> | null }) {
+function CoverageList({
+  coverage,
+  kind,
+  groups,
+}: {
+  coverage: Record<string, number> | null
+  kind?: string
+  groups?: ReadonlyArray<{ key: string; labelKey?: string | null }>
+}) {
   const t = useT()
   const locale = useLocale()
   const entries = Object.entries(coverage ?? {}).filter(([, value]) => typeof value === 'number' && Number.isFinite(value))
@@ -114,7 +123,7 @@ function CoverageList({ coverage }: { coverage: Record<string, number> | null })
       <dl className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
         {entries.map(([key, value]) => (
           <div key={key} className="flex items-baseline justify-between gap-3 border-b py-1" data-coverage={key}>
-            <dt className="text-muted-foreground">{simulationCoverageLabel(key, t)}</dt>
+            <dt className="text-muted-foreground">{simulationCoverageLabel(key, t, { kind, groups })}</dt>
             <dd className="font-medium tabular-nums">{formatCount(value, locale)}</dd>
           </div>
         ))}
@@ -355,12 +364,12 @@ export function SimulationRunPageClient({ runId }: { runId: string }) {
           <AlertDescription>{runError ?? t('insights.simulation.ui.run.cancelledDescription')}</AlertDescription>
         </Alert>
       ) : null}
-      {detail.status === 'completed' && detail.execution !== 'inline' ? <FidelityNote fidelity={detail.fidelity} /> : null}
+      {detail.status === 'completed' && detail.execution !== 'inline' ? <FidelityNote kind={detail.kind} fidelity={detail.fidelity} /> : null}
       <RunResult run={detail} groupLabels={records.data?.groupLabels ?? null} />
       {detail.status === 'completed' && detail.hasLiveRecords ? (
         <SimulationLiveRecords kind={detail.kind} records={records} page={recordsPage} onPageChange={setRecordsPage} />
       ) : null}
-      {detail.status === 'completed' ? <CoverageList coverage={detail.coverage} /> : null}
+      {detail.status === 'completed' ? <CoverageList coverage={detail.coverage} kind={detail.kind} groups={detail.result?.groups} /> : null}
       <CaveatList caveats={detail.caveats} />
       <DecisionSection run={detail} busy={busy !== null} onDiscard={() => { void handleDiscard() }} />
     </div>

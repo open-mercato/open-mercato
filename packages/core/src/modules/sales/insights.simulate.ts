@@ -5,7 +5,17 @@ import {
   type SimulationEventAdapter,
   type SimulationEventPayload,
 } from '@open-mercato/shared/modules/insights/simulate'
+import { registerCatalogPriceLineSource } from '@open-mercato/core/modules/catalog/lib/simulation/priceLineSources'
+import { salesPriceLineSources } from './lib/simulation/priceLineSources'
 import './events'
+
+/**
+ * The order and quote line families of the catalog price backtest (`catalog.price_backtest`):
+ * sales finds and classifies the lines that reference a price row; catalog owns the kind. Loaded
+ * wherever the simulate registry loads (app and worker processes); a disabled sales module
+ * registers nothing.
+ */
+for (const source of salesPriceLineSources) registerCatalogPriceLineSource(source)
 
 type SalesDocumentCreatedSpec = {
   eventPrefix: string

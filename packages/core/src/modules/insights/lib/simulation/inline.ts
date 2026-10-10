@@ -11,13 +11,11 @@ import type {
   SimulationServiceResolver,
 } from '@open-mercato/shared/modules/insights/simulate'
 import { SIMULATION_LIMITS } from './constants'
-import { createAuditScanner, withPastValuePolicy } from './context'
+import { createAuditScanner, createRecordHistoryReader, withPastValuePolicy } from './context'
 import {
-  SIMULATION_COVERAGE_HIDDEN_CAVEAT,
   resolveKAnonymity,
-  sanitizeCoverage,
-  sanitizeI18nKeys,
   sanitizeSimulationSummary,
+  storedSimulationCoverage,
   type StoredSimulationResult,
 } from './jobs'
 import { suppressSimulationGroups } from './privacy'
@@ -195,6 +193,7 @@ export async function runInlineSimulation(
       hasFeatures: request.hasFeatures,
       eventAdapters: withPastValuePolicy(listSimulationEventAdapters(), false),
       scanAuditLog: createAuditScanner(trx, encryption, request.scope, window, SIMULATION_LIMITS.maxBatchBytes),
+      readRecordHistory: createRecordHistoryReader(trx, encryption, request.scope),
       inline: { organizationIds: request.organizationIds, resolve: request.resolve },
     }
     return request.definition.run(request.input, context)
@@ -206,13 +205,11 @@ export async function runInlineSimulation(
   const suppressed = suppressSimulationGroups(Array.isArray(result.groups) ? result.groups : [], k, request.definition.cellKeys)
   const groups = await confirmSimulationSamples(container, em, request.scope, request.requesterUserId, request.hasFeatures, suppressed)
   const summary = sanitizeSimulationSummary(result.summary)
-  const coverage = sanitizeCoverage(result.coverage)
-  const coverageHidden = Object.keys(coverage).length > 0 && groups.some((group) => group.suppressed)
-  const caveats = sanitizeI18nKeys(result.caveats)
+  const visible = storedSimulationCoverage(result, groups)
   return {
     stored: { k, truncated: result.truncated === true, groups, ...(summary ? { summary } : {}) },
-    coverage: coverageHidden ? {} : coverage,
-    caveats: coverageHidden ? [...caveats, SIMULATION_COVERAGE_HIDDEN_CAVEAT] : caveats,
+    coverage: visible.coverage,
+    caveats: visible.caveats,
     fidelity: typeof result.fidelity === 'string' ? result.fidelity : 'none',
     recordsProcessed: Math.max(0, Math.floor(Number.isFinite(slice.recordsProcessed) ? slice.recordsProcessed : 0)),
     startedAt,
