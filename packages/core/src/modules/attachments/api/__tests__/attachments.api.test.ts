@@ -213,6 +213,23 @@ describe('attachments API', () => {
     expect(payload.error).toMatch(/active content/i)
   })
 
+  it('rejects a clean .svg logo on the generic route, even with an allowVectorImage form field', async () => {
+    const { POST: upload } = await loadHandlers()
+    const file = new File(
+      [Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>', 'utf8')],
+      'logo.svg',
+      { type: 'image/svg+xml' },
+    )
+    const req = new Request('http://x/api/attachments', {
+      method: 'POST',
+      body: fdWith(file, { fieldKey: '', allowVectorImage: 'true' }),
+    })
+    const res = await upload(req)
+    expect(res.status).toBe(400)
+    const payload = await res.json()
+    expect(payload.error).toMatch(/active content/i)
+  })
+
   it('accepts allowed small pdf', async () => {
     const { POST: upload } = await loadHandlers()
     const file = new File([new Uint8Array([1,2,3])], 'doc.pdf', { type: 'application/pdf' })
@@ -520,6 +537,32 @@ describe('attachments API', () => {
     expect(res.status).toBe(403)
     const payload = await res.json()
     expect(payload.error).toMatch(/public storage partitions/i)
+  })
+
+  it('previews a sanitised vector image through the file route in the GET list', async () => {
+    const { GET: list } = await loadHandlers()
+    mockEm.find.mockResolvedValue([
+      {
+        id: 'att-svg',
+        entityId: 'example:todo',
+        recordId: 'r1',
+        organizationId: 'org',
+        tenantId: 't1',
+        fileName: 'logo.svg',
+        mimeType: 'image/svg+xml',
+        url: '/api/attachments/file/att-svg',
+        fileSize: 10,
+        createdAt: '2024-01-01T00:00:00.000Z',
+        partitionCode: 'privateAttachments',
+        storageMetadata: {
+          vectorImage: { sanitizer: 'dompurify', sanitizerVersion: '3.4.11', policyVersion: 1, sha256: 'a'.repeat(64) },
+        },
+      },
+    ])
+    const res = await list(new Request('http://x/api/attachments?entityId=example:todo&recordId=r1'))
+    expect(res.status).toBe(200)
+    const payload = await res.json()
+    expect(payload.items[0].thumbnailUrl).toBe('/api/attachments/file/att-svg')
   })
 
   it('lists attachments with sanitized metadata via GET', async () => {

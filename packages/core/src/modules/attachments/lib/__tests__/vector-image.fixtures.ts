@@ -1,0 +1,917 @@
+export const TINY_PNG_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+
+const SVG_OPEN = '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 100 100">'
+
+function wrap(body: string): string {
+  return `${SVG_OPEN}${body}</svg>`
+}
+
+export const BENIGN_LOGO = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 200 80" preserveAspectRatio="xMidYMid meet" width="200" height="80">
+  <title>Brand mark</title>
+  <defs>
+    <style>.mark{fill:url(#brand-gradient);stroke:#1d3557;stroke-width:2}.word{font-family:Helvetica,Arial,sans-serif;font-size:24px;fill:#1d3557}</style>
+    <linearGradient id="brand-gradient" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#e63946"/><stop offset="1" stop-color="#457b9d"/></linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#ffffff" stop-opacity="0.8"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/></radialGradient>
+    <clipPath id="badge-clip"><circle cx="40" cy="40" r="36"/></clipPath>
+    <mask id="fade"><rect width="200" height="80" fill="url(#glow)"/></mask>
+    <path id="leaf" d="M0 0 C10 -10 20 -10 30 0 C20 10 10 10 0 0 Z"/>
+  </defs>
+  <g clip-path="url(#badge-clip)">
+    <rect class="mark" x="4" y="4" width="72" height="72"/>
+    <use href="#leaf" x="25" y="40"/>
+    <use xlink:href="#leaf" x="25" y="30" transform="rotate(20 40 40)"/>
+  </g>
+  <image x="150" y="10" width="40" height="40" href="data:image/png;base64,${TINY_PNG_BASE64}"/>
+  <text class="word" x="90" y="48" mask="url(#fade)" style="letter-spacing:1px">Brand</text>
+</svg>`
+
+export const EDITOR_EXPORT_LOGO = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with a vector editor -->
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:dc="http://purl.org/dc/elements/1.1/" viewBox="0 0 64 64" version="1.1" sodipodi:docname="mark.svg" inkscape:version="1.3">
+  <sodipodi:namedview id="namedview1" pagecolor="#ffffff" inkscape:zoom="4"/>
+  <metadata><rdf:RDF><dc:title>Mark</dc:title></rdf:RDF></metadata>
+  <g inkscape:label="Layer 1" inkscape:groupmode="layer" id="layer1">
+    <path d="M8 8 H56 V56 H8 Z" style="fill:#2a9d8f;stroke:none" sodipodi:nodetypes="ccccc"/>
+  </g>
+</svg>`
+
+export const MASKED_LOGO = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <defs>
+    <mask id="reveal" maskUnits="userSpaceOnUse" x="0" y="0" width="120" height="120">
+      <rect width="120" height="120" fill="white"/>
+      <circle cx="60" cy="60" r="24" fill="black"/>
+    </mask>
+  </defs>
+  <g mask="url(#reveal)">
+    <rect width="120" height="120" rx="16" fill="#264653"/>
+  </g>
+</svg>`
+
+export const FILTERED_RASTER_LOGO = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <filter id="texture" x="0" y="0" width="1" height="1">
+      <feImage href="data:image/png;base64,${TINY_PNG_BASE64}" result="grain" preserveAspectRatio="none"/>
+      <feComposite in="SourceGraphic" in2="grain" operator="in"/>
+    </filter>
+  </defs>
+  <rect width="64" height="64" fill="#e76f51" filter="url(#texture)"/>
+</svg>`
+
+export const CDATA_STYLED_LOGO = `<?xml version="1.0" encoding="utf-8"?>
+<svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" viewBox="0 0 100 40">
+<style type="text/css"><![CDATA[
+	.st0{fill:#E30613;}
+	.st1{fill:#1D1D1B;}
+	path.st1, rect.st1{stroke:none;}
+]]></style>
+<rect class="st0" width="40" height="40"/>
+<g><rect class="st1" x="50" width="50" height="40"/></g>
+</svg>`
+
+export const INKSCAPE_LOGO = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="64mm"
+   height="64mm"
+   viewBox="0 0 64 64"
+   version="1.1"
+   id="svg1"
+   inkscape:version="1.3.2 (091e20e, 2023-11-25, custom)"
+   sodipodi:docname="mark.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="mm" />
+  <defs
+     id="defs1" />
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1">
+    <rect
+       style="fill:#2a9d8f;stroke:none;stroke-width:0.264583"
+       id="rect1"
+       width="48"
+       height="48"
+       x="8"
+       y="8" />
+  </g>
+</svg>
+`
+
+export const INKSCAPE_PLAIN_LOGO = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="64mm"
+   height="64mm"
+   viewBox="0 0 64 64"
+   version="1.1"
+   id="svg1"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs1" />
+  <g
+     id="layer1">
+    <rect
+       style="fill:#2a9d8f;stroke:none;stroke-width:0.264583"
+       id="rect1"
+       width="48"
+       height="48"
+       x="8"
+       y="8" />
+  </g>
+</svg>
+`
+
+export const NON_STANDARD_XLINK_PREFIX_LOGO = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:x="http://www.w3.org/1999/xlink" viewBox="0 0 10 10"><defs><path id="leaf" d="M0 0h5v5z"/></defs><use x:href="#leaf"/></svg>`
+
+export const CLOBBERING_ID_LOGO = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><defs>${['title', 'body', 'images', 'links', 'fonts', 'style', 'name', 'action'].map((id) => `<linearGradient id="${id}"><stop offset="0" stop-color="#123456"/></linearGradient>`).join('')}</defs>${['title', 'body', 'images', 'links', 'fonts', 'style', 'name', 'action'].map((id) => `<rect width="1" height="1" fill="url(#${id})"/>`).join('')}</svg>`
+
+export const ACCESSIBLE_LOGO = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" role="img" aria-labelledby="title desc"><title id="title">Brand</title><desc id="desc">The brand mark</desc><rect width="10" height="10" fill="#123456"/></svg>`
+
+export const ILLUSTRATOR_CLIPPED_LOGO = `<?xml version="1.0" encoding="utf-8"?>
+<svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 200 80" style="enable-background:new 0 0 200 80;" xml:space="preserve">
+<style type="text/css">
+  .st0{fill:url(#SVGID_1_);}
+  .st1{clip-path:url(#SVGID_3_);}
+  .st2{fill:url(#SVGID_4_);}
+  .st3{fill:#1D3557;}
+</style>
+<linearGradient id="SVGID_1_" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="80" y2="80">
+  <stop offset="0" style="stop-color:#E63946"/>
+  <stop offset="1" style="stop-color:#457B9D"/>
+</linearGradient>
+<rect class="st0" width="80" height="80" rx="12"/>
+<g>
+  <defs><rect id="SVGID_2_" x="90" y="10" width="100" height="60"/></defs>
+  <clipPath id="SVGID_3_"><use xlink:href="#SVGID_2_" style="overflow:visible;"/></clipPath>
+  <g class="st1">
+    <pattern id="SVGID_4_" width="8" height="8" patternUnits="userSpaceOnUse"><rect width="4" height="4" class="st3"/><circle cx="6" cy="6" r="2" class="st3"/></pattern>
+${'    <path class="st2" d="M90 10h20v20H90z"/>\n'.repeat(40)}  </g>
+</g>
+<defs><marker id="arrow" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto"><path d="M0 0L6 3L0 6z" class="st3"/></marker></defs>
+<path class="st3" d="M10 70L70 70" marker-end="url(#arrow)" stroke="#1D3557"/>
+<path class=" st3 " d="M10 74L70 74"/>
+</svg>`
+
+export type MaliciousFixture = {
+  name: string
+  svg: string
+  code:
+    | 'vector_image_unsafe_content'
+    | 'vector_image_external_reference'
+    | 'vector_image_entity_declaration'
+    | 'vector_image_too_complex'
+}
+
+export const MALICIOUS_FIXTURES: MaliciousFixture[] = [
+  {
+    name: 'script element',
+    svg: wrap('<rect width="10" height="10"/><script>alert(document.domain)</script>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'XHTML-namespaced script element',
+    svg: wrap('<rect width="10" height="10"/><html:script xmlns:html="http://www.w3.org/1999/xhtml">alert(1)</html:script>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'script hidden inside a foreign-namespace wrapper',
+    svg: wrap('<rect width="10" height="10"/><x:wrapper xmlns:x="urn:example:editor"><script>alert(1)</script></x:wrapper>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'script hidden inside metadata',
+    svg: wrap('<metadata><script>alert(1)</script></metadata><rect width="10" height="10"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'onload handler',
+    svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" onload="alert(1)"><rect width="10" height="10"/></svg>',
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'onclick handler on a shape',
+    svg: wrap('<rect width="10" height="10" onclick="alert(1)"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'foreignObject with HTML',
+    svg: wrap('<foreignObject width="100" height="100"><div xmlns="http://www.w3.org/1999/xhtml"><img src="x" onerror="alert(1)"/></div></foreignObject>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'javascript: link',
+    svg: wrap('<a href="javascript:alert(1)"><rect width="10" height="10"/></a>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'obfuscated javascript: xlink',
+    svg: wrap('<a xlink:href=" java&#x09;script:alert(1)"><rect width="10" height="10"/></a>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'external xlink:href on image',
+    svg: wrap('<image width="10" height="10" xlink:href="https://tracker.example.com/pixel.png"/>'),
+    code: 'vector_image_external_reference',
+  },
+  {
+    name: 'non-raster data: image',
+    svg: wrap('<image width="10" height="10" href="data:image/svg+xml;base64,PHN2Zz48L3N2Zz4="/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'raster data: URI whose bytes are not that raster',
+    svg: wrap('<image width="10" height="10" href="data:image/png;base64,PHN2Zz48L3N2Zz4="/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'feImage with an external href',
+    svg: wrap('<filter id="f"><feImage href="https://tracker.example.com/grain.png"/></filter><rect width="10" height="10" filter="url(#f)"/>'),
+    code: 'vector_image_external_reference',
+  },
+  {
+    name: 'feImage with a PNG data: URI whose bytes are not a PNG',
+    svg: wrap('<filter id="f"><feImage href="data:image/png;base64,PHN2Zz48L3N2Zz4="/></filter><rect width="10" height="10" filter="url(#f)"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'feImage declaring JPEG while carrying PNG bytes',
+    svg: wrap(`<filter id="f"><feImage href="data:image/jpeg;base64,${TINY_PNG_BASE64}"/></filter><rect width="10" height="10" filter="url(#f)"/>`),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'comment opener hidden in a CSS string before an external url()',
+    svg: wrap('<style>a{content:"/*"} rect{fill:url(https://evil.example/p.svg#p)} /*"*/</style><rect width="10" height="10"/>'),
+    code: 'vector_image_external_reference',
+  },
+  {
+    name: 'comment opener hidden in a CSS string before an external @font-face',
+    svg: wrap('<style>x{content:"/*"} @font-face{font-family:f;src:url(https://evil.example/f.woff)} text{font-family:f} /*"*/</style><text>Brand</text>'),
+    code: 'vector_image_external_reference',
+  },
+  {
+    name: 'comment opener hidden in a style attribute string',
+    svg: wrap(`<rect width="10" height="10" style='font-family:"/*"; fill:url(https://evil.example/p.svg#p); /*"*/'/>`),
+    code: 'vector_image_external_reference',
+  },
+  {
+    name: 'comment opener hidden in a single-quoted CSS string',
+    svg: wrap(`<style>a{content:'/*'} rect{fill:url(https://evil.example/p.svg#p)} /*'*/</style><rect width="10" height="10"/>`),
+    code: 'vector_image_external_reference',
+  },
+  {
+    name: 'CSS string left unterminated at a newline',
+    svg: wrap('<style>a{content:"/*\n} rect{fill:url(https://evil.example/p.svg#p)} /*"*/</style><rect width="10" height="10"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'CSS string left unterminated at the end of the stylesheet',
+    svg: wrap('<style>rect{fill:#000} a{content:"url(https://evil.example/p.svg#p)</style><rect width="10" height="10"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'escaped quote keeping a CSS string open',
+    svg: wrap('<style>a{content:"\\"/*"} rect{fill:url(https://evil.example/p.svg#p)} /*"*/</style><rect width="10" height="10"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'comment inside an unquoted url()',
+    svg: wrap('<style>rect{fill:url(/*x*/https://evil.example/p.svg#p)}</style><rect width="10" height="10"/>'),
+    code: 'vector_image_external_reference',
+  },
+  {
+    name: 'external url() hidden after a quoted url() containing a comment opener',
+    svg: wrap('<style>rect{fill:url("#a/*")} circle{fill:url(https://evil.example/p.svg#p)} /*")*/</style><rect id="a" width="10" height="10"/><circle r="2"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'DOCTYPE whose public id contains > ahead of an internal subset',
+    svg: '<?xml version="1.0"?><!DOCTYPE svg PUBLIC "-//x>y//EN" "z" [ <!ATTLIST svg onload CDATA #FIXED "alert(1)"> ]><svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>',
+    code: 'vector_image_entity_declaration',
+  },
+  {
+    name: 'DOCTYPE whose single-quoted system id contains > ahead of an internal subset',
+    svg: `<?xml version="1.0"?><!DOCTYPE svg SYSTEM 'a>b' [ <!ATTLIST svg onload CDATA #FIXED "alert(1)"> ]><svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>`,
+    code: 'vector_image_entity_declaration',
+  },
+  {
+    name: 'stylesheet hidden by a comment split across nested <g> elements',
+    svg: wrap('<style><g>/*</g>rect{fill:url(https://evil.example/p.svg#p)}<g>*/</g></style><rect width="10" height="10"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'stylesheet hidden by a comment split across nested <title> elements',
+    svg: wrap('<style><title>/*</title>rect{fill:url(https://evil.example/p.svg#p)}<title>*/</title></style><rect width="10" height="10"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'stylesheet hidden by a comment split across nested <desc> elements',
+    svg: wrap('<style><desc>/*</desc>rect{fill:url(https://evil.example/p.svg#p)}<desc>*/</desc></style><rect width="10" height="10"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'stylesheet hidden by a comment split across nested <tspan> elements',
+    svg: wrap('<style><tspan>/*</tspan>rect{fill:url(https://evil.example/p.svg#p)}<tspan>*/</tspan></style><rect width="10" height="10"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'stylesheet hidden by a CSS string split across nested elements',
+    svg: wrap('<style><g>a{content:"</g>rect{fill:url(https://evil.example/p.svg#p)}<g>"}</g></style><rect width="10" height="10"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: '@import hidden by a comment split across nested elements',
+    svg: wrap('<style><g>/*</g>@import "https://evil.example/x.css";<g>*/</g></style><rect width="10" height="10"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'url( split by an XML comment inside <style>',
+    svg: wrap('<style>rect{fill:u<!---->rl(https://evil.example/p.svg#p)}</style><rect width="10" height="10"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'url( split by a processing instruction inside <style>',
+    svg: wrap('<style>rect{fill:u<?x?>rl(https://evil.example/p.svg#p)}</style><rect width="10" height="10"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'CDATA and an element mixed inside <style>',
+    svg: wrap('<style><![CDATA[/*]]><g/><![CDATA[*/rect{fill:url(https://evil.example/p.svg#p)}]]></style><rect width="10" height="10"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: '<use> chain whose href differs from an xlink:href decoy',
+    svg: referenceChain(20, 10, (level) => `xlink:href="#leaf" href="#l${level - 1}"`),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: '<use> self-cycle hidden behind an xlink:href decoy',
+    svg: wrap('<g id="a"><use xlink:href="#b" href="#a"/></g><g id="b"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: '<use> amplifying a large referenced subtree',
+    svg: wrap(`<defs><g id="l0">${'<rect/>'.repeat(1000)}</g>${[1, 2, 3].map((level) => `<g id="l${level}">${`<use href="#l${level - 1}"/>`.repeat(10)}</g>`).join('')}</defs><use href="#l3"/>`),
+    code: 'vector_image_too_complex',
+  },
+  {
+    name: '<use> amplifying a large referenced subtree through xlink:href',
+    svg: wrap(`<defs><g id="l0">${'<rect/>'.repeat(1000)}</g>${[1, 2, 3].map((level) => `<g id="l${level}">${`<use xlink:href="#l${level - 1}"/>`.repeat(10)}</g>`).join('')}</defs><use xlink:href="#l3"/>`),
+    code: 'vector_image_too_complex',
+  },
+  {
+    name: 'DOCTYPE quote opened inside a comment ahead of a real internal subset',
+    svg: `<!-- <!DOCTYPE " --><!DOCTYPE svg [ ]>${wrap('<rect width="1" height="1"/>')}`,
+    code: 'vector_image_entity_declaration',
+  },
+  {
+    name: 'url() whose target starts with an ideographic space',
+    svg: wrap('<defs><linearGradient id="a"/></defs><rect width="10" height="10" fill="url(\u3000#a)"/>'),
+    code: 'vector_image_external_reference',
+  },
+  {
+    name: 'quoted url() whose target starts with a space',
+    svg: wrap('<defs><linearGradient id="a"/></defs><style>rect{fill:url(" #a")}</style><rect width="10" height="10"/>'),
+    code: 'vector_image_external_reference',
+  },
+  {
+    name: 'href whose target starts with an ideographic space',
+    svg: wrap('<defs><path id="a" d="M0 0h1"/></defs><use href="\u3000#a"/>'),
+    code: 'vector_image_external_reference',
+  },
+  {
+    name: 'paint attribute with a non-ASCII space DOMPurify would trim away',
+    svg: wrap('<defs><linearGradient id="a"/></defs><rect width="10" height="10" fill="　url(#a)"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'animateTransform whose attributeName targets href',
+    svg: wrap('<a href="#safe"><animateTransform attributeName="href" type="rotate" from="0" to="1"/><rect id="safe" width="10" height="10"/></a>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'animateMotion whose attributeName targets xlink:href',
+    svg: wrap('<a xlink:href="#safe"><animateMotion attributeName="xlink:href" path="M0 0h1"/><rect id="safe" width="10" height="10"/></a>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'external url() in a style element',
+    svg: wrap('<style>rect{fill:url(https://tracker.example.com/paint.svg#p)}</style><rect width="10" height="10"/>'),
+    code: 'vector_image_external_reference',
+  },
+  {
+    name: 'external url() in a style attribute',
+    svg: wrap('<rect width="10" height="10" style="fill:url(\'https://tracker.example.com/paint.svg#p\')"/>'),
+    code: 'vector_image_external_reference',
+  },
+  {
+    name: 'external url() in a presentation attribute',
+    svg: wrap('<rect width="10" height="10" fill="url(https://tracker.example.com/paint.svg#p)"/>'),
+    code: 'vector_image_external_reference',
+  },
+  {
+    name: '@import in a style element',
+    svg: wrap('<style>@import url("https://fonts.example.com/brand.css"); text{font-family:Brand}</style><text>Brand</text>'),
+    code: 'vector_image_external_reference',
+  },
+  {
+    name: 'CSS escape smuggling url()',
+    svg: wrap('<style>rect{fill:\\75 rl(https://tracker.example.com/p.svg#p)}</style><rect width="10" height="10"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'image-set() with a bare string URL',
+    svg: wrap('<rect width="10" height="10" style="mask-image:image-set(\'https://tracker.example.com/m.png\' 1x)"/>'),
+    code: 'vector_image_external_reference',
+  },
+  {
+    name: 'DOCTYPE with entity expansion (billion laughs)',
+    svg: `<?xml version="1.0"?>
+<!DOCTYPE svg [
+  <!ENTITY lol "lol">
+  <!ENTITY lol1 "&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;">
+  <!ENTITY lol2 "&lol1;&lol1;&lol1;&lol1;&lol1;&lol1;&lol1;&lol1;&lol1;&lol1;">
+  <!ENTITY lol3 "&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;">
+]>
+<svg xmlns="http://www.w3.org/2000/svg"><text>&lol3;</text></svg>`,
+    code: 'vector_image_entity_declaration',
+  },
+  {
+    name: 'external entity',
+    svg: `<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><svg xmlns="http://www.w3.org/2000/svg"><text>&xxe;</text></svg>`,
+    code: 'vector_image_entity_declaration',
+  },
+  {
+    name: 'use referencing an external document',
+    svg: wrap('<use href="https://assets.example.com/sprite.svg#icon"/>'),
+    code: 'vector_image_external_reference',
+  },
+  {
+    name: 'set animating href',
+    svg: wrap('<a href="#safe"><set attributeName="href" to="javascript:alert(1)"/><rect id="safe" width="10" height="10"/></a>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'animate targeting xlink:href',
+    svg: wrap('<a xlink:href="#safe"><animate attributeName="xlink:href" values="javascript:alert(1)"/><rect id="safe" width="10" height="10"/></a>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'iframe element',
+    svg: wrap('<iframe xmlns="http://www.w3.org/1999/xhtml" src="https://example.com"></iframe>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'embed element',
+    svg: wrap('<embed xmlns="http://www.w3.org/1999/xhtml" src="https://example.com/x.swf"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'object element',
+    svg: wrap('<object xmlns="http://www.w3.org/1999/xhtml" data="https://example.com/x.html"></object>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'xml-stylesheet processing instruction',
+    svg: `<?xml version="1.0"?><?xml-stylesheet href="https://example.com/brand.css" type="text/css"?>${wrap('<rect width="10" height="10"/>')}`,
+    code: 'vector_image_external_reference',
+  },
+  {
+    name: 'class with a non-ASCII space DOMPurify would trim away',
+    svg: wrap('<style>.x{fill:#123456}</style><rect class="\u3000x" width="1" height="1"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'id with a non-ASCII space DOMPurify would trim away',
+    svg: wrap('<defs><linearGradient id="\u00a0a"/></defs><rect width="1" height="1"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'id with an edge space DOMPurify would trim away',
+    svg: wrap('<defs><linearGradient id=" a"/></defs><rect width="1" height="1"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'nested patterns through fill',
+    svg: nestedPaintServers('pattern', (level) => `fill="url(#p${level})"`),
+    code: 'vector_image_too_complex',
+  },
+  {
+    name: 'nested patterns through a style attribute',
+    svg: nestedPaintServers('pattern', (level) => `style="fill:url(#p${level})"`),
+    code: 'vector_image_too_complex',
+  },
+  {
+    name: 'nested patterns through stylesheet classes',
+    svg: nestedPaintServers('pattern', (level) => `class="c${level}"`, Array.from({ length: 8 }, (_, level) => `.c${level}{fill:url(#p${level})}`).join('')),
+    code: 'vector_image_too_complex',
+  },
+  {
+    name: 'nested patterns through stylesheet classes inside @media',
+    svg: nestedPaintServers('pattern', (level) => `class="c${level}"`, `@media all{${Array.from({ length: 8 }, (_, level) => `.c${level}{fill:url(#p${level})}`).join('')}}`),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'a mid-path marker fed through a custom property and var()',
+    svg: wrap(`<defs><marker id="m">${'<rect width="1" height="1"/>'.repeat(200)}</marker></defs><g style="--m:url(#m)"><path style="marker-mid:var(--m)" d="M0 0${'l1 1'.repeat(2000)}"/></g>`),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'a custom property declared in a stylesheet',
+    svg: wrap('<style>svg{--m:url(#m)}</style><defs><marker id="m"><rect width="1" height="1"/></marker></defs><path d="M0 0l1 1"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'var() in a presentation attribute',
+    svg: wrap('<defs><marker id="m"><rect width="1" height="1"/></marker></defs><path marker-mid="var(--m)" d="M0 0l1 1"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: '2,000 selectors by 2,000 custom-property references in one rule',
+    svg: wrap(`<style>${Array.from({ length: 2000 }, (_, index) => `.c${index}`).join(',')}{${Array.from({ length: 2000 }, (_, index) => `--v${index}:url(#i${index})`).join(';')}}</style><rect width="1" height="1"/>`),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: '20,000 nested @media blocks',
+    svg: wrap(`<style>${'@media{'.repeat(20000)}${'}'.repeat(20000)}</style><rect width="1" height="1"/>`),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: '20,000 unclosed nested @media blocks',
+    svg: wrap(`<style>${'@media{'.repeat(20000)}</style><rect width="1" height="1"/>`),
+    code: 'vector_image_unsafe_content',
+  },
+  ...[
+    ['a child combinator', 'g > .a'],
+    ['a descendant combinator', 'g .a'],
+    ['a pseudo-class', ':root'],
+    ['a pseudo-element', '.a::before'],
+    ['an attribute selector', '[class~=a]'],
+    ['a namespace selector', 'svg|rect'],
+  ].map(([label, selector]): MaliciousFixture => ({
+    name: `a stylesheet selector with ${label}`,
+    svg: wrap(`<defs><linearGradient id="g"/></defs><style>${selector}{fill:url(#g)}</style><rect class="a" width="1" height="1"/>`),
+    code: 'vector_image_unsafe_content',
+  })),
+  {
+    name: 'a nested stylesheet rule',
+    svg: wrap('<defs><linearGradient id="g"/></defs><style>g{.a{fill:url(#g)}}</style><rect class="a" width="1" height="1"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'an unclosed stylesheet rule',
+    svg: wrap('<defs><linearGradient id="g"/></defs><style>.a{fill:url(#g)</style><rect class="a" width="1" height="1"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'a mid-path marker rule hidden from a second reader by /* inside an unquoted url()',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><style>.a{fill:url(#x/*)} path{marker-mid:url(#m)} .z{fill:url(#y*/)}</style><defs><marker id="m">${'<circle r="1"/>'.repeat(400)}</marker></defs><path d="M0 0${' l1 0'.repeat(20000)}" stroke="black"/></svg>`,
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'an at-rule, a combinator and a pseudo-class hidden by /* inside an unquoted url()',
+    svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><style>.a{fill:url(#x/*)} path{marker-mid:url(#m)} @media all { rect{fill:blue} } svg > circle:first-of-type{fill:orange} .z{fill:url(#y*/)}</style><defs><marker id="m" markerWidth="4" markerHeight="4"><circle r="1"/></marker></defs><path d="M10 10 L30 30 L50 10 L70 30" stroke="black" fill="none"/><rect x="10" y="50" width="30" height="30" fill="green"/></svg>',
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'harmless rules between /* and */ inside two unquoted url()s',
+    svg: wrap('<style>.a{fill:url(#x/*)} .b{fill:#123456} .z{fill:url(#y*/)}</style><rect class="b" width="1" height="1"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'a vendor-prefixed url() whose /* a browser reads as a comment',
+    svg: wrap('<style>.a{fill:-webkit-url(#x/*)} path{marker-mid:url(#m)} .z{fill:red*/}</style><rect width="1" height="1"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: '@import hidden by /* inside an unquoted url()',
+    svg: wrap(`<style>.a{fill:url(#x/*)} @import 'https://evil.example/x.css'; .z{fill:url(#y*/)}</style><rect width="1" height="1"/>`),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: '@font-face hidden by /* inside an unquoted url()',
+    svg: wrap('<style>.a{fill:url(#x/*)} @font-face{font-family:f;src:local(Arial)} .z{fill:url(#y*/)}</style><text>a</text>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'a pseudo-element hidden by /* inside an unquoted url()',
+    svg: wrap(`<style>.a{fill:url(#x/*)} svg::after{content:'x'} .z{fill:url(#y*/)}</style><rect width="1" height="1"/>`),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'a pseudo-class in a second stylesheet after /* inside an unquoted url()',
+    svg: wrap('<style>.a{fill:url(#x/*)}</style><style>rect:hover{fill:red} .z{fill:url(#y*/)}</style><rect width="1" height="1"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'a mid-path marker rule in a second stylesheet after /* inside an unquoted url()',
+    svg: wrap(`<style><![CDATA[.a{fill:url(#x/*)}]]></style><style><![CDATA[path{marker-mid:url(#m)} .z{fill:url(#y*/)}]]></style><defs><marker id="m">${'<rect width="1" height="1"/>'.repeat(400)}</marker></defs><path d="M0 0${'l1 1'.repeat(20000)}"/>`),
+    code: 'vector_image_unsafe_content',
+  },
+  ...[
+    ['an escaped dot in a selector', '.a\\2e b{fill:red}'],
+    ['an escaped colon in a selector', 'rect\\3a hover{fill:red}'],
+    ['an escaped at-sign', '\\@media{}'],
+    ['an escaped brace in a selector', '.a\\{x{fill:red}'],
+    ['an escape inside url()', '.a{fill:url(#x\\29 )}'],
+    ['CDO and CDC tokens', '&lt;!-- .a{fill:red} -->'],
+    ['a comment inside a selector', 'rect/**/:hover{fill:red}'],
+    ['a string left open to the end', '.a{font-family:"x}'],
+    ['a rule left open to the end', '.a{fill:red'],
+    ['@charset', '@charset "utf-8"; .a{fill:red}'],
+    ['a } inside parentheses', '.a{fill:rgb(1}2)} .b{fill:red}'],
+    ['a rule closed while a parenthesis is open', '.a{fill:rgb(1;} .b{fill:red}'],
+  ].map(([label, css]): MaliciousFixture => ({
+    name: `a stylesheet parse differential: ${label}`,
+    svg: wrap(`<style>${css}</style><rect class="a" width="1" height="1"/>`),
+    code: 'vector_image_unsafe_content',
+  })),
+  ...[
+    ['percent-encoded', '%61'],
+    ['entity-encoded percent', '&#x25;61'],
+    ['non-ASCII', '\u00e1'],
+    ['with a { and a }', 'a}x{y'],
+    ['with a ;', 'a;b'],
+  ].flatMap(([form, fragment]): MaliciousFixture[] => [
+    ['an href', `<defs><g id="a"><rect width="1" height="1"/></g></defs><use href="#${fragment}"/>`],
+    ['an xlink:href', `<defs><g id="a"><rect width="1" height="1"/></g></defs><use xlink:href="#${fragment}"/>`],
+    ['a stylesheet url()', `<defs><linearGradient id="a"/></defs><style>rect{fill:url(#${fragment})}</style><rect width="1" height="1"/>`],
+    ['a style attribute url()', `<defs><linearGradient id="a"/></defs><rect style="fill:url(#${fragment})" width="1" height="1"/>`],
+    ['a presentation attribute url()', `<defs><linearGradient id="a"/></defs><rect fill="url(#${fragment})" width="1" height="1"/>`],
+  ].map(([channel, body]) => ({
+    name: `a ${form} fragment in ${channel}`,
+    svg: wrap(body!),
+    code: 'vector_image_unsafe_content' as const,
+  }))),
+  {
+    name: 'an xml:id referenced by <use>, which the id lookup would not see',
+    svg: wrap('<defs><rect xml:id="b" width="1" height="1"/></defs><use href="#b"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'ten-wide <use> chain eight levels deep written with percent-encoded fragments',
+    svg: wrap(`<defs><g id="a0"><rect width="1" height="1"/></g>${Array.from({ length: 8 }, (_, index) => `<g id="a${index + 1}">${`<use href="#%61${index}"/>`.repeat(10)}</g>`).join('')}</defs><use href="#a8"/>`),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'path data in the CSS d property feeding mid-path markers',
+    svg: wrap(`<style>path{d:path("M0 0${' l1 1'.repeat(2000)}");marker-mid:url(#m)}</style><defs><marker id="m">${'<rect width="1" height="1"/>'.repeat(100)}</marker></defs><path/>`),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'path data in a style attribute d property',
+    svg: wrap(`<defs><marker id="m"><rect width="1" height="1"/></marker></defs><path style="d:path('M0 0 l1 1');marker-mid:url(#m)"/>`),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'a url() inside if() that a reader without function depth would give to another property',
+    svg: wrap('<defs><marker id="m"><rect width="1" height="1"/></marker></defs><style>path{marker-mid:if(supports(display: block): url(#m))}</style><path d="M0 0l1 1"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'a ; inside a function ahead of a mid-path marker url() (refused by the function allowlist)',
+    svg: wrap(`<style>path{marker-mid:x(;) url(#m)}</style><defs><marker id="m">${'<rect width="1" height="1"/>'.repeat(400)}</marker></defs><path d="M0 0${'l1 1'.repeat(20000)}"/>`),
+    code: 'vector_image_unsafe_content',
+  },
+  ...[
+    ['mask-image in a stylesheet', '<style>.i{mask-image:url(#m)}</style><mask id="m"><rect width="1" height="1"/></mask><rect class="i" width="1" height="1"/>'],
+    ['background in a style attribute', '<linearGradient id="m"/><rect style="background:url(#m)" width="1" height="1"/>'],
+    ['a cursor attribute', '<cursor id="m"/><rect cursor="url(#m)" width="1" height="1"/>'],
+    ['a fragment href on <image>', '<image href="#m"/><rect id="m" width="1" height="1"/>'],
+  ].map(([label, body]): MaliciousFixture => ({
+    name: `a url() or reference where none may be: ${label}`,
+    svg: wrap(body!),
+    code: 'vector_image_unsafe_content',
+  })),
+  ...['animateTransform', 'animateMotion', 'animateColor'].map((element): MaliciousFixture => ({
+    name: `SMIL animation: <${element}>`,
+    svg: wrap(`<rect width="1" height="1"><${element} attributeName="transform" type="rotate" from="0" to="360" dur="1s" repeatCount="indefinite"/></rect>`),
+    code: 'vector_image_unsafe_content',
+  })),
+  {
+    name: 'an embedded PNG whose header declares 14,000 x 14,000 pixels',
+    svg: wrap(`<image href="data:image/png;base64,${(() => {
+      const bytes = Buffer.from(TINY_PNG_BASE64, 'base64')
+      bytes.writeUInt32BE(14000, 16)
+      bytes.writeUInt32BE(14000, 20)
+      return bytes.toString('base64')
+    })()}"/>`),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'more filter primitives than the cap',
+    svg: wrap(`<filter id="f">${'<feOffset dx="1"/>'.repeat(33)}</filter><rect width="1" height="1" filter="url(#f)"/>`),
+    code: 'vector_image_too_complex',
+  },
+  ...['5', '1 5'].map((radius): MaliciousFixture => ({
+    name: `an feMorphology radius of ${radius}`,
+    svg: wrap(`<filter id="f"><feMorphology operator="dilate" radius="${radius}"/></filter><rect width="1" height="1" filter="url(#f)"/>`),
+    code: 'vector_image_too_complex',
+  })),
+  {
+    name: 'a blurred rect drawn 1,000 times through <use>',
+    svg: wrap(`<defs><filter id="b"><feGaussianBlur stdDeviation="40"/></filter><rect id="r" width="800" height="800" filter="url(#b)"/>${[1, 2, 3].map((level) => `<g id="l${level}">${`<use href="#${level === 1 ? 'r' : `l${level - 1}`}"/>`.repeat(10)}</g>`).join('')}</defs><use href="#l3"/>`),
+    code: 'vector_image_too_complex',
+  },
+  {
+    name: 'a 200,000-character path drawn ten times through <use>',
+    svg: wrap(`<defs><path id="p" d="M0 0${' L1 2'.repeat(40000)}"/></defs>${'<use href="#p"/>'.repeat(10)}`),
+    code: 'vector_image_too_complex',
+  },
+  {
+    name: 'ten thousand full-size rects through <use>',
+    svg: wrap(`<defs><rect id="r" width="800" height="800" fill-opacity="0.01"/>${[1, 2, 3, 4].map((level) => `<g id="l${level}">${`<use href="#${level === 1 ? 'r' : `l${level - 1}`}"/>`.repeat(10)}</g>`).join('')}</defs><use href="#l4"/>`),
+    code: 'vector_image_too_complex',
+  },
+  ...[
+    ['blur() and drop-shadow() in a stylesheet filter, over 1,000 rects', `<style>rect{filter:blur(40px) blur(40px) drop-shadow(0 0 30px black) blur(40px)}</style>${'<rect width="800" height="800"/>'.repeat(1000)}`],
+    ['blur() in a filter attribute', '<rect width="1" height="1" filter="blur(40px)"/>'],
+    ['blur() in a style attribute filter', '<rect width="1" height="1" style="filter:blur(4px)"/>'],
+    ['a filter url() followed by a filter function', '<filter id="f"><feOffset/></filter><rect width="1" height="1" style="filter:url(#f) blur(4px)"/>'],
+    ['two filter url()s', '<filter id="f"><feOffset/></filter><rect width="1" height="1" style="filter:url(#f) url(#f)"/>'],
+    ['backdrop-filter', '<rect width="1" height="1" style="backdrop-filter:blur(4px)"/>'],
+    ['a gradient in mask-image', '<rect width="1" height="1" style="mask-image:linear-gradient(red, blue)"/>'],
+    ['a gradient in a stylesheet background', '<style>rect{background:radial-gradient(red, blue)}</style><rect width="1" height="1"/>'],
+    ['a CSS function outside the colour allowlist', '<rect width="1" height="1" style="fill:color-mix(in srgb, red, blue)"/>'],
+  ].map(([label, body]): MaliciousFixture => ({
+    name: `CSS render functions: ${label}`,
+    svg: wrap(body!),
+    code: 'vector_image_unsafe_content',
+  })),
+  ...[
+    ['feMorphology under a 1 x 1 viewBox', '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800" viewBox="0 0 1 1"><filter id="m" x="0" y="0" width="1" height="1"><feMorphology operator="dilate" radius="4"/></filter><rect width="1" height="1" filter="url(#m)"/></svg>'],
+    ['eight feMorphology under a 1 x 1 viewBox', `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800" viewBox="0 0 1 1"><filter id="m" x="0" y="0" width="1" height="1">${'<feMorphology operator="dilate" radius="4"/>'.repeat(8)}</filter><rect width="1" height="1" filter="url(#m)"/></svg>`],
+    ['feMorphology with object-bounding-box primitive units', '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800" viewBox="0 0 800 800"><filter id="m" primitiveUnits="objectBoundingBox" x="0" y="0" width="1" height="1"><feMorphology operator="dilate" radius="0.5"/></filter><rect width="800" height="800" filter="url(#m)"/></svg>'],
+    ['a blur with object-bounding-box primitive units', '<svg xmlns="http://www.w3.org/2000/svg"><filter id="b" primitiveUnits="objectBoundingBox"><feGaussianBlur stdDeviation="0.5"/></filter><rect width="1" height="1" filter="url(#b)"/></svg>'],
+    ['feSpecularLighting', '<svg xmlns="http://www.w3.org/2000/svg"><filter id="l"><feSpecularLighting><fePointLight/></feSpecularLighting></filter><rect width="1" height="1" filter="url(#l)"/></svg>'],
+    ['feDiffuseLighting', '<svg xmlns="http://www.w3.org/2000/svg"><filter id="l"><feDiffuseLighting><feDistantLight/></feDiffuseLighting></filter><rect width="1" height="1" filter="url(#l)"/></svg>'],
+  ].map(([label, svg]): MaliciousFixture => ({
+    name: `filter primitives whose cost scales with user units: ${label}`,
+    svg: svg!,
+    code: 'vector_image_too_complex',
+  })),
+  ...[
+    ['a chain of blurs under scale(10)', `<filter id="f">${'<feGaussianBlur stdDeviation="40"/>'.repeat(8)}</filter><g transform="scale(10)"><rect x="-360" y="-360" width="800" height="800" filter="url(#f)"/></g>`],
+    ['a blur under a matrix that stretches', '<filter id="f"><feGaussianBlur stdDeviation="4"/></filter><g transform="matrix(0.9 0.9 -0.9 0.9 0 0)"><rect width="10" height="10" filter="url(#f)"/></g>'],
+    ['a blur under a skew', '<filter id="f"><feGaussianBlur stdDeviation="4"/></filter><g transform="skewX(80)"><rect width="10" height="10" filter="url(#f)"/></g>'],
+    ['a blur inside a nested viewport', '<filter id="f"><feGaussianBlur stdDeviation="4"/></filter><svg width="800" height="800" viewBox="0 0 8 8"><rect width="80" height="80" filter="url(#f)"/></svg>'],
+    ['a blur with an unparseable transform elsewhere', '<filter id="f"><feGaussianBlur stdDeviation="4"/></filter><rect width="10" height="10" filter="url(#f)"/><g transform="scale(1e999)"/>'],
+    ['a blur deviation over 10% of the viewport', '<filter id="f"><feGaussianBlur stdDeviation="11"/></filter><rect width="10" height="10" filter="url(#f)"/>'],
+    ['nine blurs', `<filter id="f">${'<feGaussianBlur stdDeviation="1"/>'.repeat(9)}</filter><rect width="10" height="10" filter="url(#f)"/>`],
+    ['feDisplacementMap', '<filter id="f"><feDisplacementMap in2="SourceGraphic" scale="50"/></filter><rect width="10" height="10" filter="url(#f)"/>'],
+    ['feDropShadow', '<filter id="f"><feDropShadow dx="4" dy="4" stdDeviation="40"/></filter><rect width="10" height="10" filter="url(#f)"/>'],
+  ].map(([label, body]): MaliciousFixture => ({
+    name: `filter cost that grows with the device region: ${label}`,
+    svg: wrap(body!),
+    code: 'vector_image_too_complex',
+  })),
+  ...[
+    ['a GIF whose image descriptor is 20,000 x 20,000 behind a 16 x 16 screen', 'data:image/gif;base64,R0lGODlhEAAQAAAAACwAAAAAIE4gTgACAkwBADs='],
+    ['a WebP', 'data:image/webp;base64,UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA=='],
+    ['a PNG with a second, larger IHDR', 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAAAAAA6mKC9AAAADUlIRFIAAE4gAABOIAgAAAAAxhsZ5QAAAA1JREFUeJxjYBgFyAAAARAAAaCTEaUAAAAASUVORK5CYII='],
+  ].map(([label, uri]): MaliciousFixture => ({
+    name: `an embedded raster that is not a single bounded PNG or JPEG frame: ${label}`,
+    svg: wrap(`<image width="800" height="800" href="${uri}"/>`),
+    code: 'vector_image_unsafe_content',
+  })),
+  {
+    name: 'an embedded animated PNG (acTL)',
+    svg: wrap(`<image href="data:image/png;base64,${(() => {
+      const png = Buffer.from(TINY_PNG_BASE64, 'base64')
+      const actl = Buffer.alloc(20)
+      actl.writeUInt32BE(8, 0)
+      actl.write('acTL', 4, 'latin1')
+      actl.writeUInt32BE(1, 8)
+      return Buffer.concat([png.subarray(0, 33), actl, png.subarray(33)]).toString('base64')
+    })()}"/>`),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'an embedded JPEG whose fill bytes and comment hide a decoy 16 x 16 frame ahead of a 5,000 x 5,000 one',
+    svg: wrap(`<image href="data:image/jpeg;base64,${(() => {
+      const head = Buffer.alloc(607)
+      head.set([0xff, 0xd8, 0xff, 0xff, 0x01, 0xff, 0xfe])
+      head.writeUInt16BE(600, 7)
+      head.set([0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x10, 0x00, 0x10, 0x03, 0x01, 0x22, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01, 0xff, 0xda], 515)
+      const frame = Buffer.from('ffc0001108138813880301220002110103110100ffda000801010000003f00ffd9', 'hex')
+      return Buffer.concat([head, frame]).toString('base64')
+    })()}"/>`),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'eight blurs and translucent rects drawn 23 times through <use>',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100"><defs><filter id="f" x="-1.5" y="-1.5" width="4" height="4">${'<feGaussianBlur stdDeviation="10"/>'.repeat(8)}</filter></defs><rect width="100" height="100" fill="#123456" filter="url(#f)"/><g id="g">${'<rect width="100" height="100" fill="#2a9d8f" fill-opacity="0.5"/>'.repeat(200)}</g>${'<use href="#g"/>'.repeat(22)}</svg>`,
+    code: 'vector_image_too_complex',
+  },
+  {
+    name: 'an embedded hierarchical JPEG (DHP)',
+    svg: wrap(`<image href="data:image/jpeg;base64,${Buffer.from('ffd8ffde000b0800100010010111000000ffc0000b080010001001011100ffda0008010100003f00ffd9', 'hex').toString('base64')}"/>`),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'a stylesheet rule with more selectors than the cap',
+    svg: wrap(`<defs><linearGradient id="g"/></defs><style>${Array.from({ length: 33 }, (_, index) => `.c${index}`).join(',')}{fill:url(#g)}</style><rect class="c0" width="1" height="1"/>`),
+    code: 'vector_image_too_complex',
+  },
+  {
+    name: 'a stylesheet rule with more references than the cap',
+    svg: wrap(`<defs><linearGradient id="g"/></defs><style>.a{${Array.from({ length: 17 }, () => 'fill:url(#g)').join(';')}}</style><rect class="a" width="1" height="1"/>`),
+    code: 'vector_image_too_complex',
+  },
+  {
+    name: 'stylesheet rules whose selectors times references exceed the work cap',
+    svg: wrap(`<defs><linearGradient id="g"/></defs><style>${Array.from({ length: 1251 }, (_, rule) => `${Array.from({ length: 16 }, (_, index) => `.r${rule}s${index}`).join(',')}{fill:url(#g)}`).join('')}</style><rect width="1" height="1"/>`),
+    code: 'vector_image_too_complex',
+  },
+  {
+    name: 'more stylesheet rules than the cap',
+    svg: wrap(`<style>${'.a{fill:#123456}'.repeat(2001)}</style><rect class="a" width="1" height="1"/>`),
+    code: 'vector_image_too_complex',
+  },
+  {
+    name: 'mid-path markers applied by a stylesheet marker shorthand',
+    svg: wrap(`<style>path{marker:url(#m)}</style><defs><marker id="m">${'<rect width="1" height="1"/>'.repeat(1000)}</marker></defs><path d="M0 0${'l1 1'.repeat(20000)}"/>`),
+    code: 'vector_image_too_complex',
+  },
+  {
+    name: 'nested patterns through fill inherited from a group',
+    svg: nestedPaintServers('pattern', () => '', '', (level, rects) => `<g fill="url(#p${level})">${rects}</g>`),
+    code: 'vector_image_too_complex',
+  },
+  {
+    name: 'nested masks',
+    svg: nestedPaintServers('mask', (level) => `mask="url(#p${level})"`),
+    code: 'vector_image_too_complex',
+  },
+  {
+    name: 'nested clip paths',
+    svg: nestedPaintServers('clipPath', (level) => `clip-path="url(#p${level})"`),
+    code: 'vector_image_too_complex',
+  },
+  {
+    name: 'nested filters rendering groups through feImage',
+    svg: wrap(`<defs><g id="g0">${'<rect width="1" height="1"/>'.repeat(200)}</g>${Array.from({ length: 7 }, (_, index) => {
+      const level = index + 1
+      return `<filter id="f${level}"><feImage href="#g${level - 1}"/></filter><g id="g${level}">${`<rect width="1" height="1" filter="url(#f${level})"/>`.repeat(200)}</g>`
+    }).join('')}</defs><use href="#g7"/>`),
+    code: 'vector_image_too_complex',
+  },
+  {
+    name: 'a mid-path marker repeated at every vertex of a long path',
+    svg: wrap(`<defs><marker id="m">${'<rect width="1" height="1"/>'.repeat(1000)}</marker></defs><path marker-mid="url(#m)" d="M0 0${'l1 1'.repeat(20000)}"/>`),
+    code: 'vector_image_too_complex',
+  },
+]
+
+/**
+ * Eight levels of a paint server (or mask, clip path) holding 200 rects that
+ * each reference the level below: about 200^8 rendered elements from 1,600.
+ */
+export function nestedPaintServers(
+  element: 'pattern' | 'mask' | 'clipPath',
+  reference: (level: number) => string,
+  stylesheet = '',
+  group: (level: number, rects: string) => string = (_level, rects) => rects,
+): string {
+  const levels: string[] = [`<${element} id="p0">${'<rect width="1" height="1"/>'.repeat(200)}</${element}>`]
+  for (let level = 1; level < 8; level += 1) {
+    const rects = `<rect width="1" height="1" ${reference(level - 1)}/>`.repeat(200)
+    levels.push(`<${element} id="p${level}">${group(level - 1, rects)}</${element}>`)
+  }
+  const style = stylesheet ? `<style>${stylesheet}</style>` : ''
+  return wrap(`${style}<defs>${levels.join('')}</defs>${group(7, `<rect width="10" height="10" ${reference(7)}/>`)}`)
+}
+
+export function referenceChain(levels: number, fanOut: number, attributes: (level: number) => string): string {
+  const groups = ['<g id="l0"><rect width="1" height="1"/></g>', '<path id="leaf" d="M0 0h1"/>']
+  for (let level = 1; level <= levels; level += 1) {
+    groups.push(`<g id="l${level}">${`<use ${attributes(level)}/>`.repeat(fanOut)}</g>`)
+  }
+  return wrap(`<defs>${groups.join('')}</defs><use href="#l${levels}"/>`)
+}
+
+export function nestedUseBomb(levels: number, fanOut: number): string {
+  const groups: string[] = ['<g id="g0"><rect width="1" height="1"/></g>']
+  for (let level = 1; level <= levels; level += 1) {
+    const uses = Array.from({ length: fanOut }, () => `<use href="#g${level - 1}"/>`).join('')
+    groups.push(`<g id="g${level}">${uses}</g>`)
+  }
+  return wrap(`<defs>${groups.join('')}</defs><use href="#g${levels}"/>`)
+}

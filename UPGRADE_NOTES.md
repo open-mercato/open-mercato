@@ -567,6 +567,77 @@ new application version serves traffic. Until it has run, saving an encryption m
 or through `upsertCanonicalEncryptionMap` fails. Rolling deploys that start new pods before
 migrating must migrate first.
 
+### Attachments accept opt-in sanitised SVG logos; the attachment file path gets its own CSP rule (no action required for most apps)
+
+`attachmentService.createScoped()` gained an optional `allowVectorImage` flag. Without it — every
+existing caller — SVG is still rejected as active content, and the generic `POST /api/attachments`
+route never accepts SVG. With it, the SVG is sanitised server-side and only the sanitised document is
+stored, or the upload is rejected with a `vector_image_*` code (also returned as `code` in the error
+body). See [the spec](.ai/specs/2026-10-05-attachments-sanitised-vector-images.md).
+
+What widened, all additively:
+
+- `CreateScopedAttachmentInput.allowVectorImage?: boolean` and the same option on the scoped upload
+  service (`attachmentScopedUploadService`).
+- New helpers: `resolveAttachmentThumbnailUrl` in `attachments/lib/imageUrls`, and the
+  `attachments/lib/vector-image` and `attachments/lib/vector-image-record` modules.
+- `@open-mercato/core` now depends on `dompurify` and `jsdom`. Both load lazily, only when a vector
+  image is uploaded, and `jsdom` is a Next.js server-external package. Nothing new is fetched for
+  an existing lockfile: both versions were already resolved.
+
+**Action for apps with their own `next.config.ts` headers.** The scaffolded `headers()` changed:
+
+- The app-wide `Content-Security-Policy` rule now uses the source
+  `/:path((?!api/attachments/file/).*)`.
+- `/api/attachments/file/:path*` gets its own rule with
+  `default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox`.
+
+Every response whose raw path starts with `/api/attachments/file/` carries it, including the API
+dispatcher's own 404s and errors. `default-src 'none'` and `sandbox` stay. The added style and
+`data:` image allowances matter only for the sanitised SVG the route serves inline; every other file
+is a raster image or an `application/octet-stream` download. Next.js matches header sources against
+the undecoded path, so a percent-encoded spelling such as `/api/attachments/%66ile/<id>` reaches the
+route without this rule; the route serves a sanitised SVG inline only on the canonical
+`/api/attachments/file/<id>` and as a download on any other spelling.
+
+**Action for standalone apps scaffolded before 2026-08-01** (before the create-app template mirrored
+the app's security headers in `8fcfd248b`). If your `next.config.ts` sets the app-wide
+`Content-Security-Policy` on `/:path*` and has no `/api/attachments/file/:path*` rule, a canonical
+request for a sanitised SVG is served inline under the app-wide CSP — which allows inline script and
+has no `sandbox` — because Next.js keeps the config header over the route's own. Add the two rules
+above before any module stores vector images: narrow the app-wide rule's source to
+`/:path((?!api/attachments/file/).*)` and add the file-path rule with the vector CSP. The scaffolded
+`headers()` in `packages/create-app/template/next.config.ts` is the reference.
+
+Uploaded SVG stylesheets are limited to what logo exporters write: flat rules whose selectors are a
+type, `*`, `.class` or `#id` (compound, in comma lists). At-rules (`@media`, `@keyframes`, …),
+combinators, pseudo-classes, attribute selectors, nesting, custom properties and `var()` are refused
+with `vector_image_unsafe_content`, and a stylesheet over 2,000 rules, 32 selectors or 16 references
+in one rule, or 20,000 selector × reference pairs in total, with `vector_image_too_complex`. Every in-document
+reference (`href="#…"`, `url(#…)`) must name a plain ASCII id — a letter, digit or `_`, then
+letters, digits, `_`, `-` or `.`; other ids are kept but cannot be referenced, and `xml:id` is not
+accepted. `url()` is allowed only in `fill`, `stroke`, `clip-path`, `mask`, `filter` and the marker
+properties, and the only CSS functions are `url()`, `rgb()`, `rgba()`, `hsl()` and `hsla()` (a
+`filter` is one `url()` or `none`). The CSS `d` property, `if()`, SMIL animation, `feMorphology`,
+the lighting primitives, `feConvolveMatrix`, `feDisplacementMap`, `feDropShadow`,
+`primitiveUnits="objectBoundingBox"`, more than 32 filter primitives or 8 blurs, blur deviations
+over 10% of the viewport, blurs next to a stretching transform or nested `viewBox`, and embedded
+rasters other than single-frame PNG or JPEG of at most 4,096 px a side are refused, and documents
+whose estimated drawing work exceeds the bound are `vector_image_too_complex`. Client render cost
+is best effort: see the Threat Model in the spec. Known over-refusals: Figma shadows or glows whose blur
+deviation is 10% or more of the frame's smaller side, blurs under a scaling group or an import
+matrix such as Inkscape's PDF/AI `matrix(1.333…)`, and small icons with large blurs.
+
+`attachmentService.readScoped()` returns a sanitised SVG as an `application/octet-stream` download,
+like any other SVG: a module route outside the file path gets the app-wide CSP, which Next.js keeps
+over the route's own header, so it cannot serve the SVG inline safely. Show a stored SVG with `<img>`
+pointing at the file route, never by inserting its markup into a page.
+
+Next.js keeps a config header over a route handler's header of the same name. So an app that keeps
+`default-src 'none'; sandbox` for that path keeps every existing file working, but a sanitised SVG's
+inline `<style>` and embedded rasters will not apply when the file is opened directly. To fix it,
+mirror the scaffolded `headers()`.
+
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
 Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).

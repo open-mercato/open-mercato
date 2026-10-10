@@ -4,7 +4,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { z } from 'zod'
 import { sql } from 'kysely'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { buildAttachmentFileUrl, buildAttachmentImageUrl, slugifyAttachmentFileName } from '../lib/imageUrls'
+import { buildAttachmentFileUrl, buildAttachmentImageUrl, resolveAttachmentThumbnailUrl, slugifyAttachmentFileName } from '../lib/imageUrls'
 import { ensureDefaultPartitions, resolveDefaultPartitionCode, sanitizePartitionCode } from '../lib/partitions'
 import { Attachment, AttachmentPartition } from '../data/entities'
 import { extractAttachmentContent } from '../lib/textExtraction'
@@ -246,7 +246,7 @@ export async function GET(req: Request) {
         mimeType: a.mimeType ?? null,
         partitionCode: a.partitionCode,
         content: a.content ?? null,
-        thumbnailUrl: buildAttachmentImageUrl(a.id, {
+        thumbnailUrl: resolveAttachmentThumbnailUrl(a, {
           width: 320,
           height: 320,
           slug: slugifyAttachmentFileName(a.fileName),

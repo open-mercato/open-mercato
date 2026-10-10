@@ -138,6 +138,8 @@ describe('attachments file route', () => {
     )
 
     expect(response.status).toBe(404)
+    expect(response.headers.get('Content-Security-Policy')).toBe("default-src 'none'; sandbox")
+    expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff')
     expect(mockEm.findOne).not.toHaveBeenCalled()
     expect(mockStorageRead).not.toHaveBeenCalled()
   })
@@ -195,5 +197,110 @@ describe('attachments file route', () => {
     expect(response.status).toBe(200)
     expect(mockEm.findOne.mock.calls[0][1]).toEqual({ id: 'att-1' })
     expect(mockStorageRead).toHaveBeenCalledWith('privateAttachments', 'stored/file.txt')
+  })
+
+  describe('sanitised vector images', () => {
+    const { createHash } = jest.requireActual('node:crypto') as typeof import('node:crypto')
+    const storedBytes = Buffer.from('data')
+    const vectorRecord = {
+      sanitizer: 'dompurify',
+      sanitizerVersion: '3.4.11',
+      policyVersion: 1,
+      sha256: createHash('sha256').update(storedBytes).digest('hex'),
+      sanitizedAt: '2026-10-05T10:00:00.000Z',
+    }
+
+    function serveAttachment(overrides: Record<string, unknown>) {
+      const record = { ...mockAttachment, fileName: 'logo.svg', mimeType: 'image/svg+xml', ...overrides }
+      mockEm.findOne.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) => {
+        if (where.id === 'att-1') return record
+        if (where.code === 'privateAttachments') return mockPartition
+        return null
+      })
+    }
+
+    async function request(url = 'http://localhost/api/attachments/file/att-1') {
+      return GET(new Request(url) as Parameters<FileRoute['GET']>[0], { params: Promise.resolve({ id: 'att-1' }) })
+    }
+
+    afterEach(() => {
+      mockEm.findOne.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) => {
+        if (where.id === 'att-1') return mockAttachment
+        if (where.code === 'privateAttachments') return mockPartition
+        return null
+      })
+    })
+
+    it('sets the strict CSP on its own JSON error responses', async () => {
+      mockEm.findOne.mockImplementation(async () => null)
+
+      const response = await request()
+
+      expect(response.status).toBe(404)
+      expect(response.headers.get('Content-Security-Policy')).toBe("default-src 'none'; sandbox")
+      expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff')
+    })
+
+    it('serves a recorded vector image inline as image/svg+xml under a sandboxing CSP', async () => {
+      const security = jest.mocked(await import('@open-mercato/core/modules/attachments/lib/security'))
+      security.canRenderInlineAttachment.mockReturnValue(false)
+      serveAttachment({ storageMetadata: { vectorImage: vectorRecord } })
+
+      const response = await request()
+
+      expect(response.headers.get('Content-Type')).toBe('image/svg+xml')
+      expect(response.headers.get('Content-Security-Policy')).toBe(
+        "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox",
+      )
+      expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff')
+      expect(security.buildAttachmentContentDisposition).toHaveBeenCalledWith('logo.svg', 'inline')
+      security.canRenderInlineAttachment.mockReturnValue(true)
+    })
+
+    it.each([
+      ['an encoded path segment', 'http://localhost/api/attachments/%66ile/att-1'],
+      ['encoded slashes', 'http://localhost/api/attachments%2Ffile%2Fatt-1'],
+      ['an encoded module segment', 'http://localhost/api/%61ttachments/file/att-1'],
+      ['an encoded id', 'http://localhost/api/attachments/file/%61tt-1'],
+    ])('downloads a recorded vector image requested through %s, which the sandboxing header rule does not match', async (_label, url) => {
+      const security = jest.mocked(await import('@open-mercato/core/modules/attachments/lib/security'))
+      security.canRenderInlineAttachment.mockReturnValue(false)
+      serveAttachment({ storageMetadata: { vectorImage: vectorRecord } })
+
+      const response = await request(url)
+
+      expect(response.headers.get('Content-Type')).toBe('application/octet-stream')
+      expect(response.headers.get('Content-Security-Policy')).toBe("default-src 'none'; sandbox")
+      expect(security.buildAttachmentContentDisposition).toHaveBeenCalledWith('logo.svg', 'attachment')
+      expect(security.buildAttachmentContentDisposition).not.toHaveBeenCalledWith('logo.svg', 'inline')
+      security.canRenderInlineAttachment.mockReturnValue(true)
+    })
+
+    it('forces a download of a recorded vector image on ?download=1', async () => {
+      const security = jest.mocked(await import('@open-mercato/core/modules/attachments/lib/security'))
+      serveAttachment({ storageMetadata: { vectorImage: vectorRecord } })
+
+      const response = await request('http://localhost/api/attachments/file/att-1?download=1')
+
+      expect(response.headers.get('Content-Type')).toBe('application/octet-stream')
+      expect(security.buildAttachmentContentDisposition).toHaveBeenCalledWith('logo.svg', 'attachment')
+    })
+
+    it.each([
+      ['without a vector record', { storageMetadata: { tags: [] } }],
+      ['whose stored bytes do not match the record', { storageMetadata: { vectorImage: { ...vectorRecord, sha256: '0'.repeat(64) } } }],
+    ])('keeps an SVG row %s download-only', async (_label, overrides) => {
+      const security = jest.mocked(await import('@open-mercato/core/modules/attachments/lib/security'))
+      security.canRenderInlineAttachment.mockReturnValue(false)
+      serveAttachment(overrides)
+
+      const response = await request()
+
+      expect(response.headers.get('Content-Type')).toBe('application/octet-stream')
+      expect(response.headers.get('Content-Security-Policy')).toBe("default-src 'none'; sandbox")
+      expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff')
+      expect(security.buildAttachmentContentDisposition).toHaveBeenCalledWith('logo.svg', 'attachment')
+      security.canRenderInlineAttachment.mockReturnValue(true)
+    })
   })
 })
