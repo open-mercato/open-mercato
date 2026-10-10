@@ -4,6 +4,8 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { toAbsoluteUrl } from '@open-mercato/shared/lib/url'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { getChannelAdapter } from '../../../../../lib/adapter-registry-singleton'
 import { resolveOAuthClientCredentials } from '../../../../../lib/oauth-client-config'
 import {
@@ -15,6 +17,8 @@ import {
   normalizeOAuthReturnUrl,
   OAuthStateError,
 } from '../../../../../lib/oauth-state'
+
+const logger = createLogger('communication_channels').child({ component: 'oauth-initiate' })
 
 export const metadata = {
   path: '/communication_channels/oauth/[provider]/initiate',
@@ -54,6 +58,21 @@ function defaultRedirectUri(req: Request, providerKey: string): string {
   // than the raw request origin, so the redirect_uri matches the value the
   // provider has registered even when the app sits behind a reverse proxy.
   return toAbsoluteUrl(req, `/api/communication_channels/oauth/${providerKey}/callback`)
+}
+
+function oauthStateErrorResponse(err: unknown): Response | null {
+  if (err instanceof OAuthStateError) {
+    if (err.code === 'missing_secret') {
+      logger.error('OAuth state secret is not configured', { err })
+      getTelemetryRuntime()?.reportError(err, {
+        module: 'communication_channels',
+        code: 'communication_channels.missing_secret',
+      })
+      return NextResponse.json({ error: 'OAuth is not available', code: err.code }, { status: 500 })
+    }
+    return NextResponse.json({ error: err.message, code: err.code }, { status: 500 })
+  }
+  return null
 }
 
 export async function POST(req: Request, context: RouteContext): Promise<Response> {
@@ -121,13 +140,20 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
   }
 
   const redirectUri = defaultRedirectUri(req, provider)
-  const stateEnvelope = createOAuthState({
-    userId: auth.sub as string,
-    tenantId: auth.tenantId as string,
-    organizationId: (auth as { orgId?: string | null }).orgId ?? null,
-    providerKey: provider,
-    returnUrl: normalizeOAuthReturnUrl(body.returnUrl, DEFAULT_OAUTH_RETURN_URL),
-  })
+  let stateEnvelope: ReturnType<typeof createOAuthState>
+  try {
+    stateEnvelope = createOAuthState({
+      userId: auth.sub as string,
+      tenantId: auth.tenantId as string,
+      organizationId: (auth as { orgId?: string | null }).orgId ?? null,
+      providerKey: provider,
+      returnUrl: normalizeOAuthReturnUrl(body.returnUrl, DEFAULT_OAUTH_RETURN_URL),
+    })
+  } catch (err) {
+    const response = oauthStateErrorResponse(err)
+    if (response) return response
+    throw err
+  }
 
   let result
   try {
@@ -153,12 +179,21 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
 
   // If the adapter packed extras (PKCE verifier, scopes), bake them into the
   // state cookie now so the callback handler can pass them to exchangeOAuthCode.
-  const finalCookie = result.extra
-    ? (await import('../../../../../lib/oauth-state')).encryptOAuthState({
+  let finalCookie: string
+  if (result.extra) {
+    try {
+      finalCookie = (await import('../../../../../lib/oauth-state')).encryptOAuthState({
         ...stateEnvelope.payload,
         extra: { ...(stateEnvelope.payload.extra ?? {}), ...result.extra },
       })
-    : stateEnvelope.cookie
+    } catch (err) {
+      const response = oauthStateErrorResponse(err)
+      if (response) return response
+      throw err
+    }
+  } else {
+    finalCookie = stateEnvelope.cookie
+  }
 
   const response = NextResponse.json({ authorizeUrl: result.authorizeUrl })
   response.cookies.set({
@@ -184,6 +219,7 @@ export const openApi = {
         { status: 400, description: 'Invalid provider or unsupported (no OAuth)' },
         { status: 401, description: 'Unauthorized' },
         { status: 422, description: 'Invalid request body' },
+        { status: 500, description: 'OAuth state secret missing or state encryption failed' },
         { status: 502, description: 'Adapter failed to build authorize URL' },
       ],
     },
