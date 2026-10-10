@@ -92,6 +92,20 @@ export const injectionTable: ModuleInjectionTable = {
       priority: 100,
     },
   ],
+  'crud-form:business_rules.rule:header': [
+    {
+      widgetId: 'insights.injection.rule-simulate',
+      kind: 'stack',
+      priority: 100,
+    },
+  ],
+  'crud-form:business_rules.rule': [
+    {
+      widgetId: 'insights.injection.rule-simulation-apply',
+      kind: 'stack',
+      priority: 100,
+    },
+  ],
 }
 
 export default injectionTable

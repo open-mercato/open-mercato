@@ -19,6 +19,13 @@ export const features = [
     module: 'insights',
     dependsOn: ['insights.xray.view'],
   },
+  { id: 'insights.simulator.view', title: 'View own change simulations', module: 'insights' },
+  {
+    id: 'insights.simulator.run',
+    title: 'Run change simulations',
+    module: 'insights',
+    dependsOn: ['insights.simulator.view'],
+  },
 ]
 
 export default features

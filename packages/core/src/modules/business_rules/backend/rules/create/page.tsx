@@ -17,6 +17,7 @@ import {
 import { ConditionBuilder } from '../../../components/ConditionBuilder'
 import { ActionBuilder } from '../../../components/ActionBuilder'
 import { buildRulePayload } from '../../../components/utils/formHelpers'
+import { BUSINESS_RULE_FORM_SPOT_ID } from '../../../components/formSpots'
 
 export default function CreateBusinessRulePage() {
   const router = useRouter()
@@ -76,6 +77,7 @@ export default function CreateBusinessRulePage() {
           schema={businessRuleFormSchema}
           fields={fields}
           initialValues={defaultFormValues}
+          injectionSpotId={BUSINESS_RULE_FORM_SPOT_ID}
           onSubmit={handleSubmit}
           cancelHref="/backend/rules"
           groups={formGroups}

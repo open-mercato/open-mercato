@@ -228,6 +228,8 @@
   "auth.acl.features.inbox_ops.settings.manage": "Manage inbox settings",
   "auth.acl.features.insights.explain.access_detail": "접근 설명 세부 정보 보기",
   "auth.acl.features.insights.explain.view": "레코드 값 설명",
+  "auth.acl.features.insights.simulator.run": "변경 시뮬레이션 실행",
+  "auth.acl.features.insights.simulator.view": "내 변경 시뮬레이션 보기",
   "auth.acl.features.insights.xray.manage": "Process X-Ray 관리",
   "auth.acl.features.insights.xray.view": "Process X-Ray 보기",
   "auth.acl.features.insights.xray.view_individuals": "Process X-Ray 개인별 분석 보기",

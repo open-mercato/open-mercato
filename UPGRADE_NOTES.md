@@ -1378,6 +1378,55 @@ trail: call `registerRetainedAccessLogResourceKinds([...])` from your module's `
 `new AccessLogService(em)` in a process that never registers the module) rotates without the
 registered kinds.
 
+### Insights change simulator: migrate, regenerate, sync role ACLs, run the new queue
+
+The change simulator estimates the impact of a configuration change on recorded history before it
+is saved (first kind: the business rule backtest, "Simulate impact" on the rule editor). It
+evaluates, never executes. Spec:
+[`2026-10-08-insights-change-simulator`](.ai/specs/2026-10-08-insights-change-simulator.md).
+
+**Action for operators.**
+
+- Run `yarn db:migrate`. `Migration20261010130000_insights` creates `insights_simulation_runs` and
+  `insights_simulation_decisions` (empty, transactional, indexes inline);
+  `Migration20261010130100_insights` seeds the encryption map `insights:insights_simulation_run`
+  (`input_json`, `result_json`) for every tenant that already has encryption maps (forward-only);
+  `Migration20261010120000_business_rules` builds `rule_execution_logs_simulation_idx` with
+  `CREATE INDEX CONCURRENTLY` (non-transactional, drops an INVALID stub first, blocks no writer).
+- Run `yarn generate`: modules contribute simulators and event adapters through the new
+  `insights.simulate.ts` convention, aggregated into `insights-simulate.generated.ts` and registered
+  in the app and in CLI/worker processes. Without it no simulation kind is available (the
+  capabilities endpoint lists none).
+- Run `yarn mercato auth sync-role-acls`. New features `insights.simulator.view` (own runs) and
+  `insights.simulator.run` (depends on view) are granted to `admin` by default. A rule backtest also
+  needs `business_rules.view`, `business_rules.view_logs` and the view feature of the targeted record
+  type (e.g. `customers.deals.view`); past record values rebuilt from audit history need
+  `audit_logs.view_tenant` (without it those conditions are reported as "cannot tell").
+- Workers must also run the new queue `insights-simulation` (concurrency 2). A daily system schedule
+  ("Change simulator maintenance", no tenant quota) purges expired runs (backtests expire after
+  30 days) and decisions older than 13 months; it is registered by tenant setup and by the first
+  simulation request, and an existing schedule is left as it is.
+- Limits: 2 active runs per user and 5 per tenant (429 `simulation_busy`), 20 requests per user per
+  hour (`RATE_LIMIT_INSIGHTS_SIMULATION_REQUEST_POINTS` / `_DURATION` override the defaults), runs
+  bounded to 50 000 records / 120 s / a 365-day window; slices run read-only with a 5 s statement
+  timeout. A run whose job was lost is failed as `abandoned` after 30 minutes.
+
+**Action for module authors.** Contribute a simulator or event adapters by exporting
+`simulateConfig = defineSimulateConfig({ version: 1, kinds, eventAdapters })` from
+`insights.simulate.ts` (`@open-mercato/shared/modules/insights/simulate`) and run `yarn generate`.
+Every kind and adapter must declare a non-empty `requiredFeatures` (else it is skipped). Simulators
+must stay pure: no commands, action executors or event emitters (the slice runs in a read-only
+transaction). Adapters rebuild the EXACT payload your module emits: list fields the audit entry
+cannot tell in `unknownPaths` and snapshot-derived values in `valuePaths`; never claim an event your
+commands do not emit. `findApplicableRules` gained a trailing optional `at` and the rule evaluation
+context an optional `evaluatedAt`; existing callers are unaffected.
+
+**Behavior notes.** Runs are private to their requester (other users, including administrators,
+get the same 404 as for an unknown run) and bound to one organization. Results hold counts and
+sample record ids only; counts below the organization's X-Ray k-anonymity (default 10, at least 5)
+are shown as "fewer than k". The business rule create and edit forms now publish the injection
+spot `crud-form:business_rules.rule`, and the edit form's values include the rule `id`.
+
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
 Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).

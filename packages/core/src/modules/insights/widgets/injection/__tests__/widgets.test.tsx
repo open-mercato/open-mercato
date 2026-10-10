@@ -64,6 +64,8 @@ describe('insights injection widgets', () => {
     expect(Object.keys(injectionTable).sort((left, right) => left.localeCompare(right))).toEqual([
       'backend:access-denied:after',
       'backend:record:current',
+      'crud-form:business_rules.rule',
+      'crud-form:business_rules.rule:header',
       'crud-form:customers.company:field:*:after',
       'crud-form:customers.company:header',
       'crud-form:customers.customer_deal:field:*:after',

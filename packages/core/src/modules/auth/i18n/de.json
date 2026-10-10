@@ -228,6 +228,8 @@
   "auth.acl.features.inbox_ops.settings.manage": "Manage inbox settings",
   "auth.acl.features.insights.explain.access_detail": "Details zu Zugriffserklärungen anzeigen",
   "auth.acl.features.insights.explain.view": "Datensatzwerte erklären",
+  "auth.acl.features.insights.simulator.run": "Änderungssimulationen ausführen",
+  "auth.acl.features.insights.simulator.view": "Eigene Änderungssimulationen anzeigen",
   "auth.acl.features.insights.xray.manage": "Process X-Ray verwalten",
   "auth.acl.features.insights.xray.view": "Process X-Ray anzeigen",
   "auth.acl.features.insights.xray.view_individuals": "Process-X-Ray-Auswertungen pro Person anzeigen",

@@ -13,23 +13,42 @@ export function resolveSpecialValue(template: string, context: EvaluationContext
 
   // Special date/time values
   if (path === 'today') {
-    const today = context.today || new Date()
+    const today = context.today || context.evaluatedAt || new Date()
     return today.toISOString().split('T')[0] // YYYY-MM-DD
   }
 
   if (path === 'now') {
-    const now = context.now || new Date()
+    const now = context.now || context.evaluatedAt || new Date()
     return now.toISOString()
+  }
+
+  if (isEvaluationClockPath(path)) {
+    return undefined
   }
 
   // Context values (user.id, tenant.id, etc.)
   return getNestedValue(context, path)
 }
 
+/**
+ * `evaluatedAt` only replaces the wall clock of {{today}} / {{now}}; it is never a template value,
+ * so a template resolves exactly as in a context without it.
+ */
+function isEvaluationClockPath(path: string): boolean {
+  return path.replace(/\[(\d+)\]/g, '.$1').split('.')[0] === 'evaluatedAt'
+}
+
 // Field paths come from rule authors, so a segment could name a prototype key.
 // Rejecting these — and requiring own-property access — keeps traversal on the
 // caller's own data instead of the prototype chain.
 const DANGEROUS_KEYS = new Set<string>(['__proto__', 'constructor', 'prototype'])
+
+/**
+ * Whether a path segment names a prototype key that `getNestedValue` refuses to traverse.
+ */
+export function isDangerousPathSegment(segment: string): boolean {
+  return DANGEROUS_KEYS.has(segment)
+}
 
 /**
  * Get nested value from object using dot notation
