@@ -1,5 +1,8 @@
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const organizationId = '22222222-2222-4222-8222-222222222222'
+const ancestorId = '99999999-9999-9999-9999-999999999999'
+const siblingId = '88888888-8888-4888-8888-888888888888'
+const resolveAncestorIdsMock = jest.fn(async () => [ancestorId])
 
 const em = {
   find: jest.fn(),
@@ -19,8 +22,9 @@ jest.mock('../../context', () => ({
     em,
     organizationId,
     tenantId,
-    readableOrganizationIds: [organizationId, '99999999-9999-9999-9999-999999999999'],
+    readableOrganizationIds: [organizationId, ancestorId, siblingId],
     cache: undefined,
+    container: { resolve: (key: string) => key === 'organizationHierarchyService' ? { resolveAncestorIds: resolveAncestorIdsMock } : undefined },
   })),
 }))
 
@@ -35,7 +39,7 @@ jest.mock('../../../../commands/settings', () => ({
 }))
 
 import { GET } from '../route'
-import { resolveDictionaryRouteContext } from '../../context'
+import { mapDictionaryKind, resolveDictionaryRouteContext } from '../../context'
 import { CUSTOMER_DICTIONARY_ORGANIZATION_REQUIRED_CODE } from '../../../../lib/dictionaries'
 
 describe('customer dictionary route', () => {
@@ -86,7 +90,7 @@ describe('customer dictionary route', () => {
         tenantId,
         kind: 'status',
         organizationId: {
-          $in: [organizationId, '99999999-9999-9999-9999-999999999999'],
+          $in: [organizationId, ancestorId, siblingId],
         },
       }),
       expect.objectContaining({
@@ -130,6 +134,62 @@ describe('customer dictionary route', () => {
       expect.any(Request),
       expect.objectContaining({ selectedId: organizationId }),
     )
+  })
+
+  it('returns persisted behavior for activity types', async () => {
+    const behavior = {
+      schemaVersion: 1,
+      baseKind: 'meeting',
+      selectable: true,
+      order: 10,
+      fields: {
+        endTime: true,
+        allDay: true,
+        recurrence: false,
+        location: 'location',
+        people: 'attendees',
+        priority: false,
+        resources: false,
+      },
+      customFieldsetIds: [],
+    }
+    jest.mocked(mapDictionaryKind).mockReturnValueOnce({
+      kind: 'activity-types',
+      mappedKind: 'activity_type',
+    })
+    em.find.mockResolvedValueOnce([{
+      id: 'activity-meeting',
+      value: 'meeting',
+      normalizedValue: 'meeting',
+      label: 'Meeting',
+      organizationId,
+      activityTypeBehavior: behavior,
+    }])
+
+    const response = await GET(
+      new Request('http://localhost/api/customers/dictionaries/activity-types'),
+      { params: { kind: 'activity-types' } },
+    )
+
+    expect(response.status).toBe(200)
+    expect(resolveAncestorIdsMock).toHaveBeenCalledWith({ tenantId, organizationId })
+    expect(em.find).toHaveBeenCalledWith(expect.any(Function), expect.objectContaining({
+      tenantId, kind: 'activity_type', organizationId: { $in: [organizationId, ancestorId] },
+    }), expect.any(Object))
+    await expect(response.json()).resolves.toMatchObject({
+      items: [expect.objectContaining({ value: 'meeting', behavior })],
+    })
+  })
+
+  it('fails closed for activity types when the selected organization is missing', async () => {
+    jest.mocked(mapDictionaryKind).mockReturnValueOnce({ kind: 'activity-types', mappedKind: 'activity_type' })
+    resolveAncestorIdsMock.mockResolvedValueOnce(null)
+    const response = await GET(
+      new Request('http://localhost/api/customers/dictionaries/activity-types'),
+      { params: { kind: 'activity-types' } },
+    )
+    expect(response.status).toBe(403)
+    expect(em.find).not.toHaveBeenCalled()
   })
 
   it('returns a stable error code when organization context is unavailable', async () => {

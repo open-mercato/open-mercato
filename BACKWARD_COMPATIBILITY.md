@@ -212,6 +212,7 @@ Module code resolves services by name from the Awilix container. Renaming a DI r
 - MUST NOT change the interface of a resolved service in a breaking way
 - MAY add new DI registrations freely
 - MAY add optional methods to existing service interfaces
+- `calendarEventTypeRegistry` (Customers): the registration key and the `upsert`, `replace`, `patch`, `remove`, `removeSource`, and `snapshot` operations are STABLE additive contracts. Contributor modules may resolve it softly when Customers is optional.
 
 ### 10. ACL Feature IDs (FROZEN)
 

@@ -17,6 +17,8 @@ import type { ModuleInjectionTable } from '@open-mercato/shared/modules/widgets/
  * exported table value.
  */
 export const injectionTable: ModuleInjectionTable = {
+  'calendar:customers.event-types': 'example.injection.calendar-visit',
+  'crud-form:customers.customer_interaction': 'example.injection.visit-availability',
   // Portal dashboard widgets — showcase widget injection for customer portal
   'portal:dashboard:sections': [
     { widgetId: 'example.injection.portal-stats', priority: 5 },
