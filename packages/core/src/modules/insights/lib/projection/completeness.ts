@@ -1,8 +1,30 @@
 import { sql, type Kysely, type Transaction } from 'kysely'
-import type { ProjectionCursor } from './store'
+import { LEASE_LOCK_TIMEOUT_MS, type ProjectionCursor } from './store'
 import type { ProjectionScope, XrayDatabase } from './types'
 
 export type XrayCursorState = Pick<ProjectionCursor, 'status' | 'scanId' | 'pendingRebuildKeys' | 'lastCreatedAt' | 'contractHashes'>
+
+/** Lock wait of a precompute write transaction (suggestion mining): the projection's lease lock timeout. */
+export const XRAY_WRITE_LOCK_TIMEOUT_MS = LEASE_LOCK_TIMEOUT_MS
+
+/** Statement bound of a precompute write transaction: the projection's fenced commit bound. */
+export const XRAY_WRITE_STATEMENT_TIMEOUT_MS = 30_000
+
+export type XrayWriteTimeouts = { lockTimeoutMs: number; statementTimeoutMs: number }
+
+/**
+ * Bounds the rest of the caller's transaction (`SET LOCAL`, like the projection's fenced commits):
+ * a lock wait longer than `lockTimeoutMs` fails with SQLSTATE 55P03 (`isLockTimeoutError`) and a
+ * statement longer than `statementTimeoutMs` with 57014, instead of holding a connection and the
+ * worker behind a held cursor or suggestion row lock. Run it first in the transaction.
+ */
+export async function setXrayWriteTimeouts(
+  trx: Transaction<XrayDatabase>,
+  timeouts: XrayWriteTimeouts = { lockTimeoutMs: XRAY_WRITE_LOCK_TIMEOUT_MS, statementTimeoutMs: XRAY_WRITE_STATEMENT_TIMEOUT_MS },
+): Promise<void> {
+  await sql`set local lock_timeout = ${sql.lit(Math.max(1, Math.trunc(timeouts.lockTimeoutMs)))}`.execute(trx)
+  await sql`set local statement_timeout = ${sql.lit(Math.max(1, Math.trunc(timeouts.statementTimeoutMs)))}`.execute(trx)
+}
 
 function readKeys(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []

@@ -25,6 +25,15 @@ export const WORKFLOW_DRAFT_FORBIDDEN_ACTIVITY_TYPES = ['CALL_API', 'CALL_WEBHOO
  */
 export const WORKFLOW_DRAFT_ALLOWED_ACTIVITY_TYPES = ['UPDATE_ENTITY', 'WAIT', 'SET_VARIABLE'] as const
 
+/**
+ * The only step types a generated draft may contain (an allowlist): the linear START →
+ * AUTOMATED / WAIT_FOR_TIMER → END shape. Every other step type (SUB_WORKFLOW, USER_TASK,
+ * IF_ELSE, SWITCH, PARALLEL_*, WAIT_FOR_SIGNAL, WAIT_FOR_CONDITION, anything added later) is
+ * refused as `step_not_allowed`; a definition-level `errorHandler` (it can start another
+ * workflow) as `error_handler_not_allowed`.
+ */
+export const WORKFLOW_DRAFT_ALLOWED_STEP_TYPES = ['START', 'AUTOMATED', 'END', 'WAIT_FOR_TIMER'] as const
+
 export type WorkflowDraftScope = { tenantId: string; organizationId: string }
 
 export type WorkflowDraftIssueCode =
@@ -33,6 +42,8 @@ export type WorkflowDraftIssueCode =
   | 'must_be_draft'
   | 'kind_not_allowed'
   | 'grant_not_allowed'
+  | 'error_handler_not_allowed'
+  | 'step_not_allowed'
   | 'credential_activity'
   | 'activity_not_allowed'
   | 'command_not_workflow_safe'
@@ -83,7 +94,8 @@ export type WorkflowDefinitionShape = {
  * module giving up control of what may be generated. `validateDraftDefinition`
  * persists nothing: it applies the `POST /api/workflows/definitions` schema plus
  * the draft policy (disabled, `lifecycle: 'draft'`, plain workflow, no execution
- * grant, only allowlisted activity types — catalogued workflow-safe
+ * grant, no definition-level error handler, only allowlisted step types — START,
+ * AUTOMATED, END, WAIT_FOR_TIMER — and activity types — catalogued workflow-safe
  * UPDATE_ENTITY commands, WAIT, SET_VARIABLE — and never a credential-bearing
  * one). `getDefinitionForScope` exposes only the graph structure of a stored
  * definition, never its config, activities or metadata. `listAutomatedUpdates`
@@ -106,6 +118,8 @@ const guidSchema = z.guid()
 const forbiddenActivityTypes = new Set<string>(WORKFLOW_DRAFT_FORBIDDEN_ACTIVITY_TYPES)
 
 const allowedActivityTypes = new Set<string>(WORKFLOW_DRAFT_ALLOWED_ACTIVITY_TYPES)
+
+const allowedStepTypes = new Set<string>(WORKFLOW_DRAFT_ALLOWED_STEP_TYPES)
 
 function isGuid(value: unknown): value is string {
   return guidSchema.safeParse(value).success
@@ -147,6 +161,21 @@ function collectPolicyIssues(payload: CreateWorkflowDefinitionApiInput): Workflo
   }
   if ((payload.grantedFeatures?.length ?? 0) > 0) {
     issues.push({ path: 'grantedFeatures', code: 'grant_not_allowed', message: 'A draft definition cannot carry an execution grant' })
+  }
+  if (payload.definition.errorHandler) {
+    issues.push({
+      path: 'definition.errorHandler',
+      code: 'error_handler_not_allowed',
+      message: 'A draft definition cannot declare an error handler (it can start another workflow)',
+    })
+  }
+  for (const [stepIndex, step] of payload.definition.steps.entries()) {
+    if (allowedStepTypes.has(step.stepType)) continue
+    issues.push({
+      path: `definition.steps.${stepIndex}.stepType`,
+      code: 'step_not_allowed',
+      message: `Step type ${step.stepType} cannot be generated in a draft`,
+    })
   }
   return issues
 }

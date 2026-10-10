@@ -3,6 +3,7 @@ import { asValue, createContainer } from 'awilix'
 import { createModuleEvents } from '@open-mercato/shared/modules/events'
 import { createWorkflowDraftService } from '@open-mercato/core/modules/workflows/lib/draft-service'
 import { clearWorkflowSafeCommandsForTests, registerWorkflowSafeCommands } from '@open-mercato/core/modules/workflows/lib/workflow-safe-commands'
+import { buildVariantWorkflowDraft } from '../../analytics/variantDraft'
 import { testProcessConfig, testRegistry } from '../../process/__tests__/processTestSupport'
 import type { XrayWorkflowDraftService } from '../../workflowsBridge'
 import {
@@ -264,6 +265,22 @@ describe('the generated draft against the real workflows draft policy', () => {
   it('accepts the suggestion draft (event trigger, context mapping, UPDATE_ENTITY of a workflow-safe command)', async () => {
     const outcome = await prepareSuggestionDraft({ process: automatedDealProcess(), rule: rule(), catalog: crudCatalog, service: realService(), scope: SCOPE, labels })
     expect(outcome).toEqual(expect.objectContaining({ draftable: true, commands: [{ commandId: 'test.deals.update', requiredFeatures: ['test.deals.manage'], enabled: false }] }))
+  })
+
+  it('generates only allowlisted step types, and the variant draft passes the same policy', async () => {
+    const outcome = await prepareSuggestionDraft({ process: automatedDealProcess(), rule: rule(), catalog: crudCatalog, service: realService(), scope: SCOPE, labels })
+    const suggestionSteps = outcome.draftable ? (outcome.payload as { definition: { steps: Array<{ stepType: string }> } }).definition.steps : []
+    expect(suggestionSteps.map((step) => step.stepType)).toEqual(['START', 'AUTOMATED', 'END'])
+    const variant = buildVariantWorkflowDraft({
+      process: automatedDealProcess(),
+      variantHash: 'b'.repeat(64),
+      activityKeys: ['created', 'status:open', 'status:qa_review'],
+      commandId: 'test.deals.update',
+      labels: { workflowName: 'Variant', description: 'Generated', start: 'Start', end: 'End', recordId: 'Record', stepName: (field, value) => `${field} ${value}` },
+    })
+    if (!variant) throw new Error('[internal] expected a variant draft')
+    const validated = await realService().validateDraftDefinition(variant.payload, SCOPE)
+    expect(validated.ok).toBe(true)
   })
 
   it('accepts a conditioned draft and refuses a command outside the catalogue', async () => {

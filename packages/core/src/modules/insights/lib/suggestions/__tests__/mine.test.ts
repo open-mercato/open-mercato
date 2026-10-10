@@ -1,4 +1,6 @@
 import { wilsonLowerBound } from '../../analytics/stats'
+import { XRAY_STATS_GUARDS } from '../../analytics/types'
+import { XRAY_SUGGESTION_THRESHOLDS } from '../constants'
 import { mineSuggestions, settableFields, suggestionSignature, triggerOf, type MiningCase } from '../mine'
 import {
   HOUR_MS,
@@ -85,9 +87,17 @@ describe('mineSuggestions — thresholds (boundaries)', () => {
     expect(mine(dealCases(8, () => ({ followup: qaReview(), ownerChanges: 0 })))).toEqual([])
   })
 
-  it('distinct actors: two people pass, one does not', () => {
-    expect(mine(dealCases(8, (index) => ({ actor: actorOf(index % 2), followup: qaReview() })))[0]?.distinctActorCount).toBe(2)
+  it('distinct actors: three people pass, two do not (one dominant actor is never a rule)', () => {
+    expect(mine(dealCases(8, (index) => ({ actor: actorOf(index % 3), followup: qaReview() })))[0]?.distinctActorCount).toBe(3)
+    expect(mine(dealCases(8, (index) => ({ actor: actorOf(index % 2), followup: qaReview() })))).toEqual([])
     expect(mine(dealCases(8, () => ({ actor: actorOf(1), followup: qaReview() })))).toEqual([])
+  })
+
+  it('distinct actors: the platform threshold is the analytics three-actor rule', () => {
+    expect(XRAY_SUGGESTION_THRESHOLDS.minDistinctActors).toBe(XRAY_STATS_GUARDS.minDistinctActors)
+    const platform = { ...TEST_THRESHOLDS, minDistinctActors: XRAY_SUGGESTION_THRESHOLDS.minDistinctActors }
+    expect(mine(dealCases(8, (index) => ({ actor: actorOf(index % 2), followup: qaReview() })), platform)).toEqual([])
+    expect(mine(dealCases(8, (index) => ({ actor: actorOf(index % 3), followup: qaReview() })), platform)).toHaveLength(1)
   })
 
   it('cases: the supporting cases must reach k', () => {

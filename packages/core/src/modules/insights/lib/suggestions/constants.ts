@@ -1,3 +1,6 @@
+/** Lowest per-organization override of the suggestion support threshold (`suggestionMinSupport`). */
+export const XRAY_SUGGESTION_MIN_SUPPORT_FLOOR = 5
+
 /**
  * Automation suggestion mining thresholds (spec "Automation suggestion mining"). A rule
  * "trigger A (and an optional condition) → follow-up field change B within W" is suggested only
@@ -6,13 +9,16 @@
 export const XRAY_SUGGESTION_THRESHOLDS = {
   /** Trigger occurrences followed by B within W (overridable per organization, never below `minSupportFloor`). */
   minSupport: 20,
-  minSupportFloor: 5,
+  minSupportFloor: XRAY_SUGGESTION_MIN_SUPPORT_FLOOR,
   /** Lower bound of the 95 % Wilson score interval of `support / triggerCount`. */
   minConfidenceLowerBound: 0.6,
   /** Confidence over the base rate of B after any trigger-eligible activity. */
   minLift: 2,
-  /** Distinct people whose manual follow-ups support the rule. */
-  minDistinctActors: 2,
+  /**
+   * Distinct people whose manual follow-ups support the rule: the analytics three-actor rule
+   * (`XRAY_STATS_GUARDS.minDistinctActors`), so one dominant actor's habit is never suggested.
+   */
+  minDistinctActors: 3,
 } as const
 
 export const XRAY_SUGGESTION_LOOKBACK_DAYS = 30
@@ -29,8 +35,17 @@ export const XRAY_SUGGESTION_MAX_PER_PROCESS = 100
 /** An organization is mined again once its last pass is at least this old. */
 export const XRAY_SUGGESTION_INTERVAL_MS = 24 * 60 * 60_000
 
-/** An on-demand (forced) pass is skipped while the last pass is younger than this (coalesces request bursts). */
-export const XRAY_SUGGESTION_FORCED_MIN_INTERVAL_MS = 30_000
+/**
+ * An on-demand (forced) pass is skipped while the last pass is younger than this, so a manager can
+ * start at most one full 30-day pass of an organization per interval on the shared mining queue.
+ */
+export const XRAY_SUGGESTION_FORCED_MIN_INTERVAL_MS = 15 * 60_000
+
+/**
+ * An on-demand request stays pending (a further request enqueues no second job) until the forced
+ * job serving it clears it, or at most this long (a lost or failed job never blocks requests for good).
+ */
+export const XRAY_SUGGESTION_REQUEST_TTL_MS = 15 * 60_000
 
 /** Part of every signature: bump when the meaning of a stored rule changes. */
 export const XRAY_SUGGESTION_SIGNATURE_VERSION = 1

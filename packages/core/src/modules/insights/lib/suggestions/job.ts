@@ -7,18 +7,20 @@ import { loadCaseEvents, runAnalyticsQuery, type AnalyticsDb } from '../analytic
 import { effectiveKAnonymity } from '../analytics/stats'
 import { buildCaseTrace, collapseCaseEvents } from '../analytics/trace'
 import { XRAY_ANALYTICS_LIMITS, XRAY_ROLLUP_STATEMENT_TIMEOUT_MS } from '../analytics/types'
-import { isXrayCursorComplete, lockXrayCursorState, sameContractHashes } from '../projection/completeness'
+import { XRAY_WRITE_LOCK_TIMEOUT_MS, XRAY_WRITE_STATEMENT_TIMEOUT_MS, isXrayCursorComplete, lockXrayCursorState, sameContractHashes, setXrayWriteTimeouts } from '../projection/completeness'
+import { isLockTimeoutError } from '../projection/errors'
 import { isXrayIngestEnabled } from '../projection/killSwitch'
 import { assertXrayScope } from '../projection/payloads'
 import { createServiceResolver, createXrayDatabase, createXrayStore, type XrayContainer } from '../projection/runtime'
 import { loadXraySettings, xrayScopeKey, type XraySettingsSnapshot } from '../projection/settings'
+import type { ProjectionStore } from '../projection/store'
 import type { ProjectionScope } from '../projection/types'
 import { resolveWorkflowDraftService, type XrayWorkflowAutomatedUpdate, type XrayWorkflowDraftService } from '../workflowsBridge'
 import { XRAY_SUGGESTION_LOOKBACK_DAYS, XRAY_SUGGESTION_THRESHOLDS } from './constants'
 import { createDeclaredEventCatalog, isAlreadyAutomated, type SuggestionEventCatalog } from './draft'
 import { neutralSuggestionDraftLabels, prepareSuggestionDraft } from './draftability'
 import { mineSuggestions, type MiningCase, type MiningThresholds } from './mine'
-import { isForcedSuggestionPassAllowed, isSuggestionPassDue, listSuggestionPasses, markSuggestionPass } from './passes'
+import { clearSuggestionRequest, isForcedSuggestionPassAllowed, isSuggestionPassDue, listSuggestionPasses, markSuggestionPass } from './passes'
 import { supersedeMissingSuggestions, upsertSuggestions, type SuggestionUpsert } from './store'
 
 const logger = createLogger('insights').child({ component: 'xray-suggestions' })
@@ -43,6 +45,17 @@ export type XraySuggestionJobOptions = {
   catalog?: SuggestionEventCatalog
   timeoutMs?: number
   maxEvents?: number
+  /** Lock wait of the final write transaction (default `XRAY_WRITE_LOCK_TIMEOUT_MS`). */
+  lockTimeoutMs?: number
+}
+
+type SuggestionPassContext = {
+  container: XrayContainer
+  em: EntityManager
+  db: AnalyticsDb
+  store: ProjectionStore
+  scope: ProjectionScope
+  startedAt: string
 }
 
 /** The thresholds in force for an organization: the platform constants, its support override (never below 5) and its k. */
@@ -104,38 +117,59 @@ function reportBudget(error: Error, scope: ProjectionScope, processKey: string):
 }
 
 /**
- * One automation suggestion mining pass of an organization (queue `insights-xray-suggestions`).
- * Refuses an organization of another tenant before any write. Skips an organization whose
- * settings or kill switch disable X-Ray (or when no process is declared), whose last pass is less
- * than 24 hours old (unless `force`, the on-demand request) and whose projection is incomplete
- * (no pass marker, so the next tick retries). Otherwise, per registered process: loads the cases
- * active in the last 30 days (database clock) under the background analytics statement timeout
- * and event budget, applies the organization's debounce / correction collapse, mines the rules
- * (`mineSuggestions`, thresholds with the organization's support override and k), drops rules
- * already automated by an enabled workflow trigger and assesses each rule's draftability. A process
- * over its budget is skipped (its suggestions are left untouched) and reported. The upserts and
- * the supersession of open rules no longer found (of evaluated processes only) run in one
- * transaction; then the pass is recorded. Idempotent: the same data yields the same rows.
+ * Stores a pass in one transaction bounded by the projection write timeouts, after re-reading the
+ * cursor `FOR SHARE` (still complete, contracts unchanged): upserts, supersession of open rules no
+ * longer found (of evaluated processes only) and the pass marker. `null` when the projection changed
+ * meanwhile or a cursor / suggestion row stayed locked past the lock timeout (nothing is stored and
+ * no pass is recorded, so the next tick retries); any other failure is rethrown.
  */
-export async function runXraySuggestionJob(
-  container: XrayContainer,
+async function storeSuggestionPass(
+  db: AnalyticsDb,
   scope: ProjectionScope,
-  options: XraySuggestionJobOptions = {},
-): Promise<XraySuggestionJobResult> {
+  input: { contractHashes: Record<string, string> | null; evaluated: string[]; upserts: SuggestionUpsert[]; lockTimeoutMs: number },
+): Promise<{ written: number; superseded: number } | null> {
+  try {
+    return await db.transaction().execute(async (trx) => {
+      await setXrayWriteTimeouts(trx, { lockTimeoutMs: input.lockTimeoutMs, statementTimeoutMs: XRAY_WRITE_STATEMENT_TIMEOUT_MS })
+      const current = await lockXrayCursorState(trx, scope)
+      if (!current || !isXrayCursorComplete(current) || !sameContractHashes(current.contractHashes, input.contractHashes)) return null
+      const written = await upsertSuggestions(trx, scope, input.upserts)
+      const superseded = await supersedeMissingSuggestions(trx, scope, input.evaluated, input.upserts.map((upsert) => upsert.signatureHash))
+      await markSuggestionPass(trx, scope)
+      return { written, superseded }
+    })
+  } catch (error) {
+    if (!isLockTimeoutError(error)) throw error
+    logger.debug('X-Ray suggestion mining pass deferred: a cursor or suggestion row stayed locked', { organizationId: scope.organizationId })
+    return null
+  }
+}
+
+/**
+ * Clears the on-demand request a forced job served (recorded up to its start). Never fails the
+ * job: a failure is logged and reported, and the request expires after `XRAY_SUGGESTION_REQUEST_TTL_MS`.
+ */
+async function settleSuggestionRequest(db: AnalyticsDb, scope: ProjectionScope, startedAt: string): Promise<void> {
+  try {
+    await clearSuggestionRequest(db, scope, startedAt)
+  } catch (error) {
+    logger.warn('[internal] Could not clear the on-demand X-Ray suggestion mining request', { organizationId: scope.organizationId, err: error })
+    getTelemetryRuntime()?.reportError(error, { module: 'insights', code: 'insights.xray_suggestion_request_clear_failed' })
+  }
+}
+
+async function runSuggestionPass(context: SuggestionPassContext, options: XraySuggestionJobOptions): Promise<XraySuggestionJobResult> {
+  const { container, em, db, store, scope, startedAt } = context
   const registry = options.registry ?? getProcessRegistry()
-  const em = (container.resolve('em') as EntityManager).fork()
-  await assertXrayScope(em, scope)
   if (!registry.ready || registry.processes.length === 0) return { status: 'no_processes' }
   const settings = await loadXraySettings(em, scope)
   if (!settings.enabled || !(await isXrayIngestEnabled(createServiceResolver(container), scope.tenantId))) return { status: 'disabled' }
-  const db = createXrayDatabase(em)
-  const store = createXrayStore(em)
-  const [passes, dbNow, cursor] = await Promise.all([listSuggestionPasses(db, [scope]), store.now(), store.readCursor(scope)])
+  const [passes, cursor] = await Promise.all([listSuggestionPasses(db, [scope]), store.readCursor(scope)])
   const lastPass = passes.get(xrayScopeKey(scope))
-  const allowed = options.force === true ? isForcedSuggestionPassAllowed(lastPass, dbNow) : isSuggestionPassDue(lastPass, dbNow)
+  const allowed = options.force === true ? isForcedSuggestionPassAllowed(lastPass, startedAt) : isSuggestionPassDue(lastPass, startedAt)
   if (!allowed) return { status: 'not_due' }
   if (!cursor || !isXrayCursorComplete(cursor)) return { status: 'incomplete' }
-  const toMs = Date.parse(dbNow)
+  const toMs = Date.parse(startedAt)
   const window = { fromMs: toMs - XRAY_SUGGESTION_LOOKBACK_DAYS * DAY_MS, toMs }
   const thresholds = suggestionThresholds(settings)
   const debounceMs = Math.max(0, Math.trunc(settings.debounceSeconds)) * 1000
@@ -189,15 +223,44 @@ export async function runXraySuggestionJob(
       })
     }
   }
-  const stored = await db.transaction().execute(async (trx) => {
-    const current = await lockXrayCursorState(trx, scope)
-    if (!current || !isXrayCursorComplete(current) || !sameContractHashes(current.contractHashes, cursor.contractHashes)) return null
-    const writtenRows = await upsertSuggestions(trx, scope, upserts)
-    const supersededRows = await supersedeMissingSuggestions(trx, scope, evaluated, upserts.map((upsert) => upsert.signatureHash))
-    await markSuggestionPass(trx, scope)
-    return { written: writtenRows, superseded: supersededRows }
+  const stored = await storeSuggestionPass(db, scope, {
+    contractHashes: cursor.contractHashes,
+    evaluated,
+    upserts,
+    lockTimeoutMs: options.lockTimeoutMs ?? XRAY_WRITE_LOCK_TIMEOUT_MS,
   })
   if (!stored) return { status: 'incomplete' }
-  const { written, superseded } = stored
-  return { status: 'done', processes: evaluated.length, skippedProcesses, found, alreadyAutomated, written, superseded }
+  return { status: 'done', processes: evaluated.length, skippedProcesses, found, alreadyAutomated, written: stored.written, superseded: stored.superseded }
+}
+
+/**
+ * One automation suggestion mining pass of an organization (queue `insights-xray-suggestions`).
+ * Refuses an organization of another tenant before any write. Skips an organization whose
+ * settings or kill switch disable X-Ray (or when no process is declared), whose last pass is less
+ * than 24 hours old (15 minutes for `force`, the on-demand request) and whose projection is
+ * incomplete (no pass marker, so the next tick retries). Otherwise, per registered process: loads
+ * the cases active in the last 30 days (database clock) under the background analytics statement
+ * timeout and event budget, applies the organization's debounce / correction collapse, mines the
+ * rules (`mineSuggestions`, thresholds with the organization's support override and k), drops rules
+ * already automated by an enabled workflow trigger and assesses each rule's draftability. A process
+ * over its budget is skipped (its suggestions are left untouched) and reported. The upserts, the
+ * supersession of open rules no longer found (of evaluated processes only) and the pass marker are
+ * stored in one transaction bounded by the projection write timeouts; a lock timeout stores nothing
+ * (`incomplete`). A forced job then clears the on-demand request it served, whatever the outcome
+ * (a failure is rethrown with the request kept, so the queue retries it). Idempotent: the same data
+ * yields the same rows.
+ */
+export async function runXraySuggestionJob(
+  container: XrayContainer,
+  scope: ProjectionScope,
+  options: XraySuggestionJobOptions = {},
+): Promise<XraySuggestionJobResult> {
+  const em = (container.resolve('em') as EntityManager).fork()
+  await assertXrayScope(em, scope)
+  const db = createXrayDatabase(em)
+  const store = createXrayStore(em)
+  const startedAt = await store.now()
+  const result = await runSuggestionPass({ container, em, db, store, scope, startedAt }, options)
+  if (options.force === true) await settleSuggestionRequest(db, scope, startedAt)
+  return result
 }

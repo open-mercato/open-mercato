@@ -1,3 +1,5 @@
+/* eslint-disable om-ds/require-loading-state -- Explain request helpers return promises; the calling components own their loading presentation. */
+
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import type {
   ExplainDescriptorsResponse,

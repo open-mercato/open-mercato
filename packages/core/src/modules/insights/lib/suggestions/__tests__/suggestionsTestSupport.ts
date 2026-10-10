@@ -14,7 +14,7 @@ export const TEST_THRESHOLDS: MiningThresholds = {
   minSupport: 5,
   minConfidenceLowerBound: 0.6,
   minLift: 2,
-  minDistinctActors: 2,
+  minDistinctActors: 3,
   minCases: 5,
 }
 

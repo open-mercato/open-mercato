@@ -42,7 +42,7 @@ import type { XrayDatabase } from '../../projection/types'
 import { testProcessConfig, testRegistry } from '../../process/__tests__/processTestSupport'
 import { runXraySuggestionJob } from '../job'
 import type { MinedSuggestion } from '../mine'
-import { clearSuggestionPass, listSuggestionPasses, markSuggestionPass } from '../passes'
+import { claimSuggestionRequest, clearSuggestionPass, clearSuggestionRequest, listSuggestionPasses, markSuggestionPass } from '../passes'
 import { lockXrayCursorState } from '../../projection/completeness'
 import {
   findSuggestion,
@@ -236,6 +236,41 @@ maybe('X-Ray automation suggestions against PostgreSQL', () => {
     expect(state).toEqual({ status: 'idle', scanId: null, pendingRebuildKeys: ['test.deal'], lastCreatedAt: expect.stringMatching(/Z$/), contractHashes: { 'test.deal': 'h1' } })
   })
 
+  describe('on-demand mining requests (marker rows)', () => {
+    async function requestMarkers() {
+      return (await sql<{ organization_id: string; computed_at: string }>`
+        select organization_id::text as organization_id,
+          to_char(computed_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as computed_at
+        from insights_process_rollups where window_key = '__suggestion_request__' order by organization_id
+      `.execute(db)).rows
+    }
+
+    it('claims a request atomically: a second claim while one is pending gets nothing, an expired one is claimed again', async () => {
+      const claimed = await claimSuggestionRequest(db, SCOPE_A)
+      expect(claimed).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/)
+      const concurrent = await Promise.all([claimSuggestionRequest(db, SCOPE_A), claimSuggestionRequest(db, SCOPE_A), claimSuggestionRequest(db, SCOPE_B)])
+      expect(concurrent[0]).toBeNull()
+      expect(concurrent[1]).toBeNull()
+      expect(concurrent[2]).not.toBeNull()
+      expect((await requestMarkers()).map((row) => row.organization_id)).toEqual([ORG_A, ORG_B])
+      expect((await listSuggestionPasses(db, [SCOPE_A])).size).toBe(0)
+      await sql`update insights_process_rollups set computed_at = computed_at - interval '15 minutes' where window_key = '__suggestion_request__' and organization_id = ${ORG_A}`.execute(db)
+      const again = await claimSuggestionRequest(db, SCOPE_A)
+      expect(again).not.toBeNull()
+      expect(again).not.toBe(claimed)
+    })
+
+    it('clears only requests recorded up to the given time, and only of that organization', async () => {
+      const claimed = await claimSuggestionRequest(db, SCOPE_A) as string
+      await claimSuggestionRequest(db, SCOPE_B)
+      await clearSuggestionRequest(db, SCOPE_A, new Date(Date.parse(claimed) - 1000).toISOString())
+      expect((await requestMarkers()).map((row) => row.organization_id)).toEqual([ORG_A, ORG_B])
+      await clearSuggestionRequest(db, SCOPE_A, claimed)
+      expect((await requestMarkers()).map((row) => row.organization_id)).toEqual([ORG_B])
+      expect(await claimSuggestionRequest(db, SCOPE_A)).not.toBeNull()
+    })
+  })
+
   describe('one mining pass end to end', () => {
     function registry() {
       const config = testProcessConfig()
@@ -285,7 +320,11 @@ maybe('X-Ray automation suggestions against PostgreSQL', () => {
     const catalog = { payloadPaths: (eventId: string) => (eventId === 'test.deal.created' ? new Set(['id', 'tenantId', 'organizationId']) : null) }
 
     async function ageMiningPass() {
-      await sql`update insights_process_rollups set computed_at = computed_at - interval '1 minute' where window_key = '__suggestion_pass__'`.execute(db)
+      await sql`update insights_process_rollups set computed_at = computed_at - interval '16 minutes' where window_key = '__suggestion_pass__'`.execute(db)
+    }
+
+    async function requestMarkerCount() {
+      return Number((await sql<{ total: string }>`select count(*)::text as total from insights_process_rollups where window_key = '__suggestion_request__'`.execute(db)).rows[0].total)
     }
 
     it('mines, stores (no actor data at all), records the pass and is idempotent; a vanished rule is superseded', async () => {
@@ -310,14 +349,55 @@ maybe('X-Ray automation suggestions against PostgreSQL', () => {
       expect(await runXraySuggestionJob(container(), SCOPE_A, { registry: registry(), catalog })).toEqual({ status: 'not_due' })
       const version = (await rowOf(String(stored[0].signature_hash))).updated_at
       expect(await runXraySuggestionJob(container(), SCOPE_A, { registry: registry(), catalog, force: true })).toEqual({ status: 'not_due' })
+      await sql`update insights_process_rollups set computed_at = computed_at - interval '14 minutes' where window_key = '__suggestion_pass__'`.execute(db)
+      expect(await runXraySuggestionJob(container(), SCOPE_A, { registry: registry(), catalog, force: true })).toEqual({ status: 'not_due' })
       await ageMiningPass()
+      expect(await claimSuggestionRequest(db, SCOPE_A)).not.toBeNull()
       expect(await runXraySuggestionJob(container(), SCOPE_A, { registry: registry(), catalog, force: true })).toEqual(expect.objectContaining({ written: 1, superseded: 0 }))
+      expect(await requestMarkerCount()).toBe(0)
       expect((await rowOf(String(stored[0].signature_hash))).updated_at.getTime()).toBe(version.getTime())
 
       await sql`update insights_process_events set voided = true where activity_key = 'status:qa_review'`.execute(db)
       await ageMiningPass()
       expect(await runXraySuggestionJob(container(), SCOPE_A, { registry: registry(), catalog, force: true })).toEqual(expect.objectContaining({ found: 0, superseded: 1 }))
       expect((await rowOf(String(stored[0].signature_hash))).status).toBe('superseded')
+    })
+
+    it('keeps a request recorded after the forced job started (its own job is still pending)', async () => {
+      const nowMs = Date.parse((await sql<{ now: string }>`select to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as now`.execute(db)).rows[0].now)
+      await seed(nowMs, 8)
+      await cursor()
+      await claimSuggestionRequest(db, SCOPE_A)
+      await sql`update insights_process_rollups set computed_at = computed_at + interval '1 minute' where window_key = '__suggestion_request__'`.execute(db)
+      expect(await runXraySuggestionJob(container(), SCOPE_A, { registry: registry(), catalog, force: true })).toEqual(expect.objectContaining({ status: 'done' }))
+      expect(await requestMarkerCount()).toBe(1)
+    })
+
+    it('gives up on a locked cursor after its lock timeout: stores nothing, answers incomplete (the next tick retries)', async () => {
+      const nowMs = Date.parse((await sql<{ now: string }>`select to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as now`.execute(db)).rows[0].now)
+      await seed(nowMs, 8)
+      await cursor()
+      const lockPool = new Pool({ connectionString: PG_URL, max: 1, options: `-c search_path=${schema}` })
+      const holder = await lockPool.connect()
+      try {
+        await holder.query('begin')
+        await holder.query('select id from insights_process_cursors where tenant_id = $1 and organization_id = $2 for update', [TENANT, ORG_A])
+        const released = new Promise<void>((resolve) => setTimeout(() => {
+          holder.query('rollback').then(() => resolve(), () => resolve())
+        }, 2000))
+        const startedMs = Date.now()
+        const result = await runXraySuggestionJob(container(), SCOPE_A, { registry: registry(), catalog, lockTimeoutMs: 200 })
+        const elapsedMs = Date.now() - startedMs
+        await released
+        expect(result).toEqual({ status: 'incomplete' })
+        expect(elapsedMs).toBeLessThan(2000)
+        expect((await sql<{ total: string }>`select count(*)::text as total from insights_automation_suggestions`.execute(db)).rows[0].total).toBe('0')
+        expect((await listSuggestionPasses(db, [SCOPE_A])).size).toBe(0)
+      } finally {
+        holder.release()
+        await lockPool.end()
+      }
+      expect(await runXraySuggestionJob(container(), SCOPE_A, { registry: registry(), catalog })).toEqual(expect.objectContaining({ status: 'done', written: 1 }))
     })
 
     it('mines nothing while the projection is incomplete', async () => {

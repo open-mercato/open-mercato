@@ -26,6 +26,7 @@ import type { ActivityTypeEntry } from '../activity-registry'
 import {
   createWorkflowDraftService,
   WORKFLOW_DRAFT_ALLOWED_ACTIVITY_TYPES,
+  WORKFLOW_DRAFT_ALLOWED_STEP_TYPES,
   WORKFLOW_DRAFT_FORBIDDEN_ACTIVITY_TYPES,
   WORKFLOW_DRAFT_SERVICE_KEY,
   type WorkflowDraftIssue,
@@ -555,6 +556,78 @@ describe('workflowDraftService.validateDraftDefinition', () => {
     expect([...WORKFLOW_DRAFT_ALLOWED_ACTIVITY_TYPES]).toEqual(['UPDATE_ENTITY', 'WAIT', 'SET_VARIABLE'])
   })
 
+  test('exposes the step types a draft may contain', () => {
+    expect([...WORKFLOW_DRAFT_ALLOWED_STEP_TYPES]).toEqual(['START', 'AUTOMATED', 'END', 'WAIT_FOR_TIMER'])
+  })
+
+  test.each([
+    ['SUB_WORKFLOW', { subWorkflowConfig: { subWorkflowId: 'other.workflow' } }],
+    ['USER_TASK', {}],
+    ['IF_ELSE', {}],
+    ['WAIT_FOR_SIGNAL', { signalConfig: { signalName: 'approved' } }],
+  ])('rejects a %s step as step_not_allowed (step allowlist)', async (stepType, extra) => {
+    const { countMock, rootEm } = buildEntityManagers(0)
+    const service = buildService(rootEm)
+    const [start, , end] = buildSteps()
+    const payload = buildDraftPayload({
+      definition: {
+        steps: [start, { stepId: 'set_status', stepName: 'Set status', stepType, ...extra }, end],
+        transitions: buildTransitions([updateEntityActivity('set_status_won', 'customers.deals.update')]),
+      },
+    })
+
+    const result = await service.validateDraftDefinition(payload, SCOPE)
+
+    expect(result).toEqual({
+      ok: false,
+      issues: [{ path: 'definition.steps.1.stepType', code: 'step_not_allowed', message: expect.any(String) }],
+    })
+    expect(countMock).not.toHaveBeenCalled()
+  })
+
+  test('accepts a WAIT_FOR_TIMER step between START and END', async () => {
+    const { rootEm } = buildEntityManagers(0)
+    const service = buildService(rootEm)
+    const [start, automated, end] = buildSteps([updateEntityActivity('set_status_won', 'customers.deals.update')])
+    const payload = buildDraftPayload({
+      definition: {
+        steps: [start, { stepId: 'pause', stepName: 'Pause', stepType: 'WAIT_FOR_TIMER', config: { duration: 'PT5M' } }, automated, end],
+        transitions: [
+          { transitionId: 'start_to_pause', fromStepId: 'start', toStepId: 'pause', trigger: 'auto' },
+          { transitionId: 'pause_to_set_status', fromStepId: 'pause', toStepId: 'set_status', trigger: 'auto' },
+          { transitionId: 'set_status_to_end', fromStepId: 'set_status', toStepId: 'end', trigger: 'auto' },
+        ],
+      },
+    })
+
+    const result = await service.validateDraftDefinition(payload, SCOPE)
+
+    expect(result.ok).toBe(true)
+  })
+
+  test.each([
+    ['a handler workflow', { workflowId: 'ops.failure-handler' }],
+    ['a handler step', { stepId: 'end' }],
+  ])('rejects a definition-level error handler (%s) as error_handler_not_allowed', async (_label, errorHandler) => {
+    const { countMock, rootEm } = buildEntityManagers(0)
+    const service = buildService(rootEm)
+    const payload = buildDraftPayload({
+      definition: {
+        steps: buildSteps(),
+        transitions: buildTransitions([updateEntityActivity('set_status_won', 'customers.deals.update')]),
+        errorHandler,
+      },
+    })
+
+    const result = await service.validateDraftDefinition(payload, SCOPE)
+
+    expect(result).toEqual({
+      ok: false,
+      issues: [{ path: 'definition.errorHandler', code: 'error_handler_not_allowed', message: expect.any(String) }],
+    })
+    expect(countMock).not.toHaveBeenCalled()
+  })
+
   test('rejects an UPDATE_ENTITY command that is not catalogued as workflow-safe', async () => {
     const { rootEm } = buildEntityManagers(0)
     const service = buildService(rootEm)
@@ -582,16 +655,18 @@ describe('workflowDraftService.validateDraftDefinition', () => {
   test('collects every policy issue instead of stopping at the first', async () => {
     const { rootEm } = buildEntityManagers(0)
     const service = buildService(rootEm)
+    const [start, automated, end] = buildSteps([
+      { activityId: 'call_partner', activityName: 'Call partner', activityType: 'CALL_API', config: { endpoint: '/api/x' } },
+    ])
     const payload = buildDraftPayload({
       enabled: true,
       lifecycle: 'published',
       kind: 'component',
       grantedFeatures: ['customers.deals.manage'],
       definition: {
-        steps: buildSteps([
-          { activityId: 'call_partner', activityName: 'Call partner', activityType: 'CALL_API', config: { endpoint: '/api/x' } },
-        ]),
+        steps: [start, { ...automated, stepType: 'USER_TASK' }, end],
         transitions: buildTransitions([updateEntityActivity('delete_deal', 'customers.deals.delete')]),
+        errorHandler: { workflowId: 'ops.failure-handler' },
       },
     })
 
@@ -604,6 +679,8 @@ describe('workflowDraftService.validateDraftDefinition', () => {
       'must_be_draft',
       'kind_not_allowed',
       'grant_not_allowed',
+      'error_handler_not_allowed',
+      'step_not_allowed',
       'credential_activity',
       'command_not_workflow_safe',
     ])

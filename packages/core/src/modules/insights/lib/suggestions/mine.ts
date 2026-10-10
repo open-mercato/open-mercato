@@ -273,6 +273,177 @@ function compareSuggestions(left: MinedSuggestion, right: MinedSuggestion): numb
     || compareCodeUnits(left.signatureHash, right.signatureHash)
 }
 
+type BaseCounts = { total: number; byField: Map<string, number> }
+
+/** Per window (ms): rule counts by rule key, base-rate denominators and follow-up hits, plus every trigger seen. */
+type RuleTable = {
+  rules: Map<number, Map<string, RuleCounts>>
+  baseAnchors: Map<number, BaseCounts>
+  baseHits: Map<number, Map<string, number>>
+  triggers: Map<string, MinedTrigger>
+}
+
+type MiningWindows = { ms: readonly number[]; seconds: readonly number[] }
+
+type PairContext = {
+  process: MiningInput['process']
+  fields: ReadonlyMap<string, 'stage' | 'followup'>
+  table: RuleTable
+  windows: MiningWindows
+  thresholds: MiningThresholds
+}
+
+function ruleKeyOf(triggerKey: string, condition: string | null): string {
+  return `${triggerKey}${SEPARATOR}${condition ?? ''}`
+}
+
+/** Fields whose values right after the triggers stay within `maxConditionValues` distinct values (condition candidates). */
+function lowCardinalityFields(anchors: readonly Anchor[], maxConditionValues: number): Set<string> {
+  const valuesByField = new Map<string, Set<string>>()
+  for (const anchor of anchors) {
+    for (const [field, value] of anchor.state) {
+      const values = valuesByField.get(field) ?? new Set<string>()
+      values.add(value)
+      valuesByField.set(field, values)
+    }
+  }
+  return new Set(Array.from(valuesByField.entries())
+    .filter(([, values]) => values.size <= maxConditionValues)
+    .map(([field]) => field))
+}
+
+/**
+ * Counts, per window, each rule's trigger occurrences and supporting follow-ups (count, actors,
+ * cases) under every condition of the occurrence, and the base-rate inputs (occurrences, by trigger
+ * field, and follow-up hits). Occurrences whose window ends after `toMs` are left out for that
+ * window (right-censoring); a conditioned rule never counts a follow-up on its condition's field.
+ */
+function countRules(anchors: readonly Anchor[], conditionFields: ReadonlySet<string>, windowsMs: readonly number[], toMs: number): RuleTable {
+  const table: RuleTable = { rules: new Map(), baseAnchors: new Map(), baseHits: new Map(), triggers: new Map() }
+  for (const windowMs of windowsMs) {
+    table.rules.set(windowMs, new Map())
+    table.baseAnchors.set(windowMs, { total: 0, byField: new Map() })
+    table.baseHits.set(windowMs, new Map())
+  }
+  for (const anchor of anchors) {
+    table.triggers.set(anchor.trigger.activityKey, anchor.trigger)
+    const conditions = conditionKeysOf(anchor, conditionFields)
+    for (const windowMs of windowsMs) {
+      if (anchor.atMs + windowMs > toMs) continue
+      const base = table.baseAnchors.get(windowMs) as BaseCounts
+      base.total += 1
+      if (anchor.field !== null) base.byField.set(anchor.field, (base.byField.get(anchor.field) ?? 0) + 1)
+      const hits = anchor.hitsByWindow.get(windowMs) as Map<string, FollowupHit>
+      const windowBaseHits = table.baseHits.get(windowMs) as Map<string, number>
+      for (const key of hits.keys()) windowBaseHits.set(key, (windowBaseHits.get(key) ?? 0) + 1)
+      const windowRules = table.rules.get(windowMs) as Map<string, RuleCounts>
+      for (const condition of conditions) {
+        const ruleKey = ruleKeyOf(anchor.trigger.activityKey, condition)
+        const counts = windowRules.get(ruleKey) ?? { triggers: 0, support: new Map() }
+        counts.triggers += 1
+        for (const hit of hits.values()) {
+          if (condition !== null && splitKey(condition)[0] === splitKey(hit.key)[0]) continue
+          const support = counts.support.get(hit.key) ?? { count: 0, actors: new Set<string>(), cases: new Set<string>() }
+          support.count += 1
+          support.actors.add(hit.actor)
+          support.cases.add(anchor.caseKey)
+          counts.support.set(hit.key, support)
+        }
+        windowRules.set(ruleKey, counts)
+      }
+    }
+  }
+  return table
+}
+
+/** The statistics of a rule in the smallest window where it passes every threshold, or `null` when no window does. */
+function evaluateRule(
+  table: RuleTable,
+  rule: { triggerKey: string; condition: string | null; followupKey: string },
+  windows: MiningWindows,
+  thresholds: MiningThresholds,
+): Evaluation | null {
+  const [followupField] = splitKey(rule.followupKey)
+  for (const [position, windowMs] of windows.ms.entries()) {
+    const counts = table.rules.get(windowMs)?.get(ruleKeyOf(rule.triggerKey, rule.condition))
+    const support = counts?.support.get(rule.followupKey)
+    if (!counts || !support) continue
+    const base = table.baseAnchors.get(windowMs) as BaseCounts
+    const baseDenominator = base.total - (base.byField.get(followupField) ?? 0)
+    const baseRate = baseDenominator > 0 ? (table.baseHits.get(windowMs)?.get(rule.followupKey) ?? 0) / baseDenominator : 0
+    const ratio = support.count / counts.triggers
+    const evaluation: Evaluation = {
+      windowSeconds: windows.seconds[position],
+      support: support.count,
+      triggerCount: counts.triggers,
+      supportCases: support.cases.size,
+      confidence: wilsonLowerBound(support.count, counts.triggers) ?? 0,
+      confidenceRatio: ratio,
+      baseRate,
+      lift: baseRate > 0 ? ratio / baseRate : 0,
+      distinctActorCount: support.actors.size,
+    }
+    if (passes(evaluation, thresholds)) return evaluation
+  }
+  return null
+}
+
+/** Every (trigger, follow-up) pair seen in any window (`trigger␀␀field␀value`), with the conditions it was seen under (`null` = none). */
+function collectPairs(table: RuleTable): Map<string, Set<string | null>> {
+  const pairs = new Map<string, Set<string | null>>()
+  for (const windowRules of table.rules.values()) {
+    for (const [ruleKey, counts] of windowRules) {
+      const separator = ruleKey.indexOf(SEPARATOR)
+      const triggerKey = ruleKey.slice(0, separator)
+      const conditionPart = ruleKey.slice(separator + 1)
+      for (const followupKey of counts.support.keys()) {
+        const pairKey = `${triggerKey}${SEPARATOR}${SEPARATOR}${followupKey}`
+        const conditions = pairs.get(pairKey) ?? new Set<string | null>()
+        conditions.add(conditionPart.length > 0 ? conditionPart : null)
+        pairs.set(pairKey, conditions)
+      }
+    }
+  }
+  return pairs
+}
+
+/**
+ * The suggestion of one (trigger, follow-up) pair: the unconditioned rule when it passes, otherwise
+ * the passing conditioned rule ranked first (`compareSuggestions`); `null` when none passes.
+ */
+function suggestPair(pairKey: string, conditions: ReadonlySet<string | null>, context: PairContext): MinedSuggestion | null {
+  const pairSeparator = pairKey.indexOf(`${SEPARATOR}${SEPARATOR}`)
+  const triggerKey = pairKey.slice(0, pairSeparator)
+  const followupKey = pairKey.slice(pairSeparator + 2)
+  const [field, value] = splitKey(followupKey)
+  const trigger = context.table.triggers.get(triggerKey) as MinedTrigger
+  const followups: MinedFollowup[] = [{ field, value, activityKind: context.fields.get(field) as 'stage' | 'followup' }]
+  const processKey = context.process.processKey
+  const build = (condition: string | null, evaluation: Evaluation): MinedSuggestion => {
+    const parsedCondition = conditionOf(condition)
+    return {
+      processKey,
+      signatureHash: suggestionSignature({ processKey, trigger, condition: parsedCondition, followups }),
+      trigger,
+      condition: parsedCondition,
+      followups,
+      ...evaluation,
+    }
+  }
+  const evaluate = (condition: string | null): Evaluation | null => evaluateRule(context.table, { triggerKey, condition, followupKey }, context.windows, context.thresholds)
+  const unconditioned = conditions.has(null) ? evaluate(null) : null
+  if (unconditioned) return build(null, unconditioned)
+  const conditioned = Array.from(conditions)
+    .filter((condition): condition is string => condition !== null)
+    .map((condition) => {
+      const evaluation = evaluate(condition)
+      return evaluation ? build(condition, evaluation) : null
+    })
+    .filter((suggestion): suggestion is MinedSuggestion => suggestion !== null)
+    .sort(compareSuggestions)
+  return conditioned[0] ?? null
+}
+
 /**
  * Mines automation suggestions of one process (pure). A rule is "trigger A, optionally under one
  * low-cardinality condition (a settable root field's value right after A), is followed by a manual
@@ -298,131 +469,13 @@ export function mineSuggestions(input: MiningInput): MinedSuggestion[] {
   const windowsMs = windowsSeconds.map((seconds) => seconds * 1000)
   if (windowsMs.length === 0 || fields.size === 0) return []
   const anchors = input.cases.flatMap((miningCase) => collectAnchors(miningCase, fields, input.window, windowsMs))
-  const valuesByField = new Map<string, Set<string>>()
-  for (const anchor of anchors) {
-    for (const [field, value] of anchor.state) {
-      const values = valuesByField.get(field) ?? new Set<string>()
-      values.add(value)
-      valuesByField.set(field, values)
-    }
-  }
-  const maxConditionValues = input.maxConditionValues ?? XRAY_SUGGESTION_MAX_CONDITION_VALUES
-  const conditionFields = new Set(Array.from(valuesByField.entries())
-    .filter(([, values]) => values.size <= maxConditionValues)
-    .map(([field]) => field))
-
-  const rules = new Map<number, Map<string, RuleCounts>>()
-  const baseAnchors = new Map<number, { total: number; byField: Map<string, number> }>()
-  const baseHits = new Map<number, Map<string, number>>()
-  const triggers = new Map<string, MinedTrigger>()
-  for (const windowMs of windowsMs) {
-    rules.set(windowMs, new Map())
-    baseAnchors.set(windowMs, { total: 0, byField: new Map() })
-    baseHits.set(windowMs, new Map())
-  }
-  for (const anchor of anchors) {
-    triggers.set(anchor.trigger.activityKey, anchor.trigger)
-    const conditions = conditionKeysOf(anchor, conditionFields)
-    for (const windowMs of windowsMs) {
-      if (anchor.atMs + windowMs > input.window.toMs) continue
-      const base = baseAnchors.get(windowMs) as { total: number; byField: Map<string, number> }
-      base.total += 1
-      if (anchor.field !== null) base.byField.set(anchor.field, (base.byField.get(anchor.field) ?? 0) + 1)
-      const hits = anchor.hitsByWindow.get(windowMs) as Map<string, FollowupHit>
-      const windowBaseHits = baseHits.get(windowMs) as Map<string, number>
-      for (const key of hits.keys()) windowBaseHits.set(key, (windowBaseHits.get(key) ?? 0) + 1)
-      const windowRules = rules.get(windowMs) as Map<string, RuleCounts>
-      for (const condition of conditions) {
-        const ruleKey = `${anchor.trigger.activityKey}${SEPARATOR}${condition ?? ''}`
-        const counts = windowRules.get(ruleKey) ?? { triggers: 0, support: new Map() }
-        counts.triggers += 1
-        for (const hit of hits.values()) {
-          if (condition !== null && splitKey(condition)[0] === splitKey(hit.key)[0]) continue
-          const support = counts.support.get(hit.key) ?? { count: 0, actors: new Set<string>(), cases: new Set<string>() }
-          support.count += 1
-          support.actors.add(hit.actor)
-          support.cases.add(anchor.caseKey)
-          counts.support.set(hit.key, support)
-        }
-        windowRules.set(ruleKey, counts)
-      }
-    }
-  }
-
-  const evaluate = (triggerKey: string, condition: string | null, followupKey: string): { evaluation: Evaluation; windowSeconds: number } | null => {
-    const [followupField] = splitKey(followupKey)
-    for (const [position, windowMs] of windowsMs.entries()) {
-      const counts = rules.get(windowMs)?.get(`${triggerKey}${SEPARATOR}${condition ?? ''}`)
-      const support = counts?.support.get(followupKey)
-      if (!counts || !support) continue
-      const base = baseAnchors.get(windowMs) as { total: number; byField: Map<string, number> }
-      const baseDenominator = base.total - (base.byField.get(followupField) ?? 0)
-      const baseRate = baseDenominator > 0 ? (baseHits.get(windowMs)?.get(followupKey) ?? 0) / baseDenominator : 0
-      const ratio = support.count / counts.triggers
-      const evaluation: Evaluation = {
-        windowSeconds: windowsSeconds[position],
-        support: support.count,
-        triggerCount: counts.triggers,
-        supportCases: support.cases.size,
-        confidence: wilsonLowerBound(support.count, counts.triggers) ?? 0,
-        confidenceRatio: ratio,
-        baseRate,
-        lift: baseRate > 0 ? ratio / baseRate : 0,
-        distinctActorCount: support.actors.size,
-      }
-      if (passes(evaluation, input.thresholds)) return { evaluation, windowSeconds: windowsSeconds[position] }
-    }
-    return null
-  }
-
-  const pairs = new Map<string, Set<string | null>>()
-  for (const windowRules of rules.values()) {
-    for (const [ruleKey, counts] of windowRules) {
-      const separator = ruleKey.indexOf(SEPARATOR)
-      const triggerKey = ruleKey.slice(0, separator)
-      const conditionPart = ruleKey.slice(separator + 1)
-      for (const followupKey of counts.support.keys()) {
-        const pairKey = `${triggerKey}${SEPARATOR}${SEPARATOR}${followupKey}`
-        const conditions = pairs.get(pairKey) ?? new Set<string | null>()
-        conditions.add(conditionPart.length > 0 ? conditionPart : null)
-        pairs.set(pairKey, conditions)
-      }
-    }
-  }
-
+  const conditionFields = lowCardinalityFields(anchors, input.maxConditionValues ?? XRAY_SUGGESTION_MAX_CONDITION_VALUES)
+  const table = countRules(anchors, conditionFields, windowsMs, input.window.toMs)
+  const context: PairContext = { process: input.process, fields, table, windows: { ms: windowsMs, seconds: windowsSeconds }, thresholds: input.thresholds }
   const suggestions: MinedSuggestion[] = []
-  for (const [pairKey, conditions] of pairs) {
-    const pairSeparator = pairKey.indexOf(`${SEPARATOR}${SEPARATOR}`)
-    const triggerKey = pairKey.slice(0, pairSeparator)
-    const followupKey = pairKey.slice(pairSeparator + 2)
-    const [field, value] = splitKey(followupKey)
-    const trigger = triggers.get(triggerKey) as MinedTrigger
-    const followups: MinedFollowup[] = [{ field, value, activityKind: fields.get(field) as 'stage' | 'followup' }]
-    const build = (condition: string | null, evaluation: Evaluation): MinedSuggestion => {
-      const parsedCondition = conditionOf(condition)
-      return {
-        processKey: input.process.processKey,
-        signatureHash: suggestionSignature({ processKey: input.process.processKey, trigger, condition: parsedCondition, followups }),
-        trigger,
-        condition: parsedCondition,
-        followups,
-        ...evaluation,
-      }
-    }
-    const unconditioned = conditions.has(null) ? evaluate(triggerKey, null, followupKey) : null
-    if (unconditioned) {
-      suggestions.push(build(null, unconditioned.evaluation))
-      continue
-    }
-    const conditioned = Array.from(conditions)
-      .filter((condition): condition is string => condition !== null)
-      .map((condition) => {
-        const result = evaluate(triggerKey, condition, followupKey)
-        return result ? build(condition, result.evaluation) : null
-      })
-      .filter((suggestion): suggestion is MinedSuggestion => suggestion !== null)
-      .sort(compareSuggestions)
-    if (conditioned.length > 0) suggestions.push(conditioned[0])
+  for (const [pairKey, conditions] of collectPairs(table)) {
+    const suggestion = suggestPair(pairKey, conditions, context)
+    if (suggestion) suggestions.push(suggestion)
   }
   return suggestions.sort(compareSuggestions).slice(0, input.maxSuggestions ?? XRAY_SUGGESTION_MAX_PER_PROCESS)
 }
