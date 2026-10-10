@@ -74,7 +74,7 @@
     },
     "analysis": {
       "description": "Business/engagement analysis skills (app specs, platform gap analysis). Opt-in.",
-      "skills": ["om-app-spec-writing", "om-gap-analysis"]
+      "skills": ["om-app-spec-writing", "om-gap-analysis", "om-wcag-guardian"]
     },
     "migration": {
       "description": "One-shot, version-pinned migrations. Install only when needed.",
