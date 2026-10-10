@@ -722,6 +722,8 @@ the order and quote lifecycles with payment and shipment milestones — into new
   `Migration20261008160939_audit_logs` adds the partial index `action_logs_state_change_idx` with
   `CREATE INDEX CONCURRENTLY` (non-transactional, drops a possibly INVALID stub first), so a
   retried deploy is safe; on a very large `action_logs` it takes a while but blocks no writes.
+  `Migration20261008213000_audit_logs` adds `action_logs_scan_idx` (`tenant_id, organization_id,
+  created_at, id`, partial) the same way; it adds one index entry per audited command.
 - Run `yarn generate`: the new `insights.process.ts` convention is aggregated into
   `insights-process.generated.ts`, and the new `bootstrap-registrations.cli.generated.ts` lets
   CLI and worker processes see the X-Ray (and "Why?") declarations. Until it has run, the X-Ray
@@ -731,20 +733,36 @@ the order and quote lifecycles with payment and shipment milestones — into new
   the `admin` default no longer uses `insights.*`, it lists the insights features explicitly; an
   existing admin role that already holds `insights.*` keeps it, remove it by hand if per-person
   breakdowns must stay restricted).
+- Ingest is driven by **one system-scoped scheduler schedule** ("Process X-Ray ingest", every
+  120 s, queue `insights-xray-ingest`). It carries no tenant, so it does not count against
+  `OM_SCHEDULER_MAX_ACTIVE_SCHEDULES_PER_TENANT`. Each tick enqueues one ingest job per
+  organization that has an X-Ray cursor. The schedule is registered by tenant setup, by organization
+  creation and by every backfill; an existing schedule is left as it is, so disabling it in the
+  scheduler (or changing its interval) sticks. Disable it, or use the kill switch, rather than deleting
+  it: a deleted schedule is registered again by the next backfill or new organization.
 - New tenants (`setup.ts`) and organizations created later (`directory.organization.created`)
-  get the per-organization ingest schedule (every 120 s, queue `insights-xray-ingest`).
-  **Organizations that already exist get no schedule until you run**
-  `yarn mercato insights xray:backfill [--tenant <id>] [--org <id>]` once (or
-  `POST /api/insights/xray/backfill` per organization): it registers the schedule and projects the
-  retention window (365 days by default). Add `--inline` to run the backfill in the CLI process
+  get an X-Ray cursor and are ingested from then on. **Organizations that already exist are not
+  ingested until you run** `yarn mercato insights xray:backfill [--tenant <id> [--org <id>] | --all]`
+  once (or `POST /api/insights/xray/backfill` per organization): it creates their cursor and projects
+  the retention window (365 days by default). Add `--inline` to run the backfill in the CLI process
   instead of the `insights-xray-backfill` worker. Workers must run for both queues.
+- Installations that ran an earlier pre-release build registered one schedule per organization.
+  They are removed automatically (through the scheduler service) the first time one of them fires or
+  the system schedule is registered; nothing to do unless the scheduler service lacks
+  `findByModule`/`unregister`, in which case delete the "Process X-Ray ingest" schedules of scope
+  "organization" in the scheduler UI.
 - Kill switch: the feature toggle `insights_xray_ingest` (default on; when the `feature_toggles`
   module is absent ingest stays on). Per organization, `PUT /api/insights/xray/settings`
-  `{ "enabled": false }` stops ingest.
-- When a module changes its `insights.process.ts` declarations, affected organizations report
-  `rebuild_required` (`yarn mercato insights xray:status`) and ingest pauses until
-  `yarn mercato insights xray:rebuild` clears and re-projects them (refused while ingest is
-  disabled).
+  `{ "enabled": false }` stops ingest. In both cases retention pruning continues (once a day,
+  bounded).
+- When a module changes its `insights.process.ts` declarations, the changed processes of every
+  organization are cleared and re-projected automatically (`yarn mercato insights xray:status`
+  shows them as rebuilding); the other processes keep ingesting.
+- `xray:rebuild` and `xray:prune` require `--tenant <id>` (optionally `--org <id>`) or `--all`;
+  `--org` must belong to `--tenant`.
+- `POST /api/insights/xray/backfill` runs the registered mutation guards (resource kind
+  `insights.xray_backfill`, resource id = organization id). `GET /api/insights/xray/status` lists
+  only the processes whose required features (e.g. `sales.orders.view`) the caller holds.
 - Pseudonym key: with tenant data encryption on, actor pseudonyms are keyed by the tenant data
   key; ingest fails (and retries) while the KMS is unhealthy, and an organization whose rows were
   written under another key pauses with `last error` "…written under another key…". After a

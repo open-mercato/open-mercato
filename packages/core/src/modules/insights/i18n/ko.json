@@ -202,6 +202,5 @@
   "insights.xray.errors.invalidBackfill": "잘못된 백필 요청",
   "insights.xray.errors.invalidSettings": "잘못된 Process X-Ray 설정",
   "insights.xray.errors.noProcesses": "Process X-Ray용 프로세스를 선언한 모듈이 없습니다.",
-  "insights.xray.errors.rebuildRequired": "프로세스 선언이 변경되었습니다. 먼저 프로젝션을 다시 빌드하세요.",
   "insights.xray.errors.settingsConflict": "다른 사용자가 설정을 변경했습니다. 새로 고친 후 다시 시도하세요."
 }

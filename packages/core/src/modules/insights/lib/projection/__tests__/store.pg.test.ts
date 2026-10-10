@@ -18,6 +18,7 @@ import {
   ProjectionLeaseLostError,
   ProjectionScanSupersededError,
   createProjectionStore,
+  xrayReconcileOffsets,
   type ProjectionEventInsert,
   type ProjectionStore,
 } from '../store'
@@ -111,6 +112,26 @@ maybe('X-Ray projection store against PostgreSQL', () => {
     const dbNow = Date.parse(await store.now())
     expect(dbNow - Date.parse(first.lastCreatedAt ?? '')).toBeGreaterThanOrEqual(59_000)
     expect(first.lastCreatedAt).toMatch(/\.\d{6}Z$/)
+  })
+
+  it('starts the reconciliation stamps of each organization at its own phase', async () => {
+    await store.ensureCursor(SCOPE, 60_000)
+    await store.ensureCursor({ tenantId: TENANT_ID, organizationId: OTHER_ORG_ID }, 60_000)
+    const rows = await sql<{ organization_id: string; created_ms: string; reconciled_ms: string; full_ms: string }>`
+      select organization_id,
+             (extract(epoch from created_at) * 1000)::bigint::text as created_ms,
+             (extract(epoch from last_reconciled_at) * 1000)::bigint::text as reconciled_ms,
+             (extract(epoch from last_full_reconciled_at) * 1000)::bigint::text as full_ms
+        from insights_process_cursors order by organization_id`.execute(db)
+    expect(rows.rows.map((row) => row.organization_id)).toEqual([ORG_ID, OTHER_ORG_ID].sort())
+    for (const row of rows.rows) {
+      const offsets = xrayReconcileOffsets(row.organization_id)
+      expect(Number(row.created_ms) - Number(row.reconciled_ms)).toBeGreaterThanOrEqual(offsets.reconcileMs - 1)
+      expect(Number(row.created_ms) - Number(row.reconciled_ms)).toBeLessThanOrEqual(offsets.reconcileMs + 1)
+      expect(Number(row.created_ms) - Number(row.full_ms)).toBeGreaterThanOrEqual(offsets.fullReconcileMs - 1)
+      expect(Number(row.created_ms) - Number(row.full_ms)).toBeLessThanOrEqual(offsets.fullReconcileMs + 1)
+    }
+    expect(rows.rows[0].reconciled_ms).not.toBe(rows.rows[1].reconciled_ms)
   })
 
   it('grants the lease to exactly one of many concurrent acquirers', async () => {

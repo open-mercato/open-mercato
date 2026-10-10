@@ -11,42 +11,109 @@ jest.mock('@open-mercato/shared/lib/logger', () => {
 })
 
 import { describeXrayError, isStatementTimeoutError } from '../errors'
-import { XRAY_INGEST_QUEUE, ensureXrayIngestSchedule, xrayIngestScheduleId } from '../queue'
+import {
+  XRAY_FANOUT_KIND,
+  XRAY_INGEST_INTERVAL,
+  XRAY_INGEST_QUEUE,
+  XRAY_INGEST_SCHEDULE_ID,
+  ensureXrayIngestSchedule,
+  isLegacyXrayIngestSchedule,
+} from '../queue'
 
-const SCOPE = { tenantId: '11111111-0000-4000-8000-000000000001', organizationId: '22222222-0000-4000-8000-000000000001' }
+const ORG_A = '22222222-0000-4000-8000-000000000001'
+const ORG_B = '22222222-0000-4000-8000-000000000002'
+const TENANT_A = '11111111-0000-4000-8000-000000000001'
+
+type ScheduleRow = { id: string; scopeType: string; targetQueue: string | null; sourceType: string; sourceModule: string | null; tenantId?: string | null; organizationId?: string | null }
+
+function legacyRow(organizationId: string): ScheduleRow {
+  return { id: `legacy-${organizationId}`, scopeType: 'organization', targetQueue: XRAY_INGEST_QUEUE, sourceType: 'module', sourceModule: 'insights', tenantId: TENANT_A, organizationId }
+}
+
+function schedulerService(rows: ScheduleRow[], options: { exists?: boolean } = {}) {
+  const table = [...rows]
+  return {
+    table,
+    register: jest.fn(async (registration: ScheduleRow) => { table.push({ ...registration }) }),
+    exists: jest.fn(async (id: string) => options.exists ?? table.some((row) => row.id === id)),
+    findByModule: jest.fn(async (moduleId: string, limit = 100) => table.filter((row) => row.sourceModule === moduleId).slice(0, limit)),
+    unregister: jest.fn(async (id: string) => {
+      const index = table.findIndex((row) => row.id === id)
+      if (index >= 0) table.splice(index, 1)
+    }),
+  }
+}
+
+function containerFor(service: unknown) {
+  return { resolve: () => service, hasRegistration: (name: string) => name === 'schedulerService' }
+}
 
 describe('ensureXrayIngestSchedule', () => {
   beforeEach(() => reportErrorMock.mockClear())
 
-  it('upserts the per-organization tick with a stable id', async () => {
-    const register = jest.fn(async () => undefined)
-    const container = { resolve: () => ({ register }), hasRegistration: (name: string) => name === 'schedulerService' }
-    expect(await ensureXrayIngestSchedule(container, SCOPE)).toBe(true)
-    expect(register).toHaveBeenCalledWith(expect.objectContaining({
-      id: xrayIngestScheduleId(SCOPE.organizationId),
-      scopeType: 'organization',
-      tenantId: SCOPE.tenantId,
-      organizationId: SCOPE.organizationId,
+  it('registers one system-scoped fan-out tick with a stable id, outside every tenant quota', async () => {
+    const service = schedulerService([])
+    expect(await ensureXrayIngestSchedule(containerFor(service))).toBe(true)
+    expect(service.register).toHaveBeenCalledTimes(1)
+    const registration = service.register.mock.calls[0][0] as Record<string, unknown>
+    expect(registration).toEqual(expect.objectContaining({
+      id: XRAY_INGEST_SCHEDULE_ID,
+      scopeType: 'system',
+      scheduleType: 'interval',
+      scheduleValue: XRAY_INGEST_INTERVAL,
+      targetType: 'queue',
       targetQueue: XRAY_INGEST_QUEUE,
-      targetPayload: { scope: SCOPE },
+      targetPayload: { kind: XRAY_FANOUT_KIND },
+      sourceType: 'module',
+      sourceModule: 'insights',
     }))
-    expect(xrayIngestScheduleId(SCOPE.organizationId)).toBe(xrayIngestScheduleId(SCOPE.organizationId))
+    expect(registration).not.toHaveProperty('tenantId')
+    expect(registration).not.toHaveProperty('organizationId')
+    expect(registration).not.toHaveProperty('isEnabled')
+    expect(await ensureXrayIngestSchedule(containerFor(service))).toBe(true)
+    expect(service.register).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves an existing (possibly admin-disabled) system schedule untouched', async () => {
+    const service = schedulerService([], { exists: true })
+    expect(await ensureXrayIngestSchedule(containerFor(service))).toBe(true)
+    expect(service.exists).toHaveBeenCalledWith(XRAY_INGEST_SCHEDULE_ID)
+    expect(service.register).not.toHaveBeenCalled()
+  })
+
+  it('removes the per-organization schedules of the previous design through the scheduler service', async () => {
+    const other: ScheduleRow = { id: 'other', scopeType: 'organization', targetQueue: 'insights-other', sourceType: 'module', sourceModule: 'insights' }
+    const userMade: ScheduleRow = { ...legacyRow(ORG_B), id: 'user-made', sourceType: 'user' }
+    const service = schedulerService([legacyRow(ORG_A), legacyRow(ORG_B), other, userMade])
+    expect(await ensureXrayIngestSchedule(containerFor(service))).toBe(true)
+    expect(service.unregister.mock.calls.map(([id]) => id)).toEqual([`legacy-${ORG_A}`, `legacy-${ORG_B}`])
+    expect(service.table.map((row) => row.id)).toEqual(['other', 'user-made', XRAY_INGEST_SCHEDULE_ID])
+  })
+
+  it('keeps the per-organization schedules while the system schedule could not be registered', async () => {
+    const service = schedulerService([legacyRow(ORG_A)])
+    const failure = new Error('scheduler down')
+    service.register.mockRejectedValueOnce(failure)
+    expect(await ensureXrayIngestSchedule(containerFor(service))).toBe(false)
+    expect(service.unregister).not.toHaveBeenCalled()
+    expect(reportErrorMock).toHaveBeenCalledWith(failure, expect.objectContaining({ code: 'insights.xray_schedule_failed' }))
   })
 
   it('works with a resolve-only container (subscriber context) and is a no-op without the scheduler', async () => {
     const register = jest.fn(async () => undefined)
-    expect(await ensureXrayIngestSchedule({ resolve: () => ({ register }) }, SCOPE)).toBe(true)
-    expect(await ensureXrayIngestSchedule({ resolve: () => { throw new Error('not registered') } }, SCOPE)).toBe(false)
-    expect(await ensureXrayIngestSchedule({ resolve: () => ({ register }), hasRegistration: () => false }, SCOPE)).toBe(false)
+    expect(await ensureXrayIngestSchedule({ resolve: () => ({ register }) })).toBe(true)
+    expect(await ensureXrayIngestSchedule({ resolve: () => { throw new Error('not registered') } })).toBe(false)
+    expect(await ensureXrayIngestSchedule({ resolve: () => ({ register }), hasRegistration: () => false })).toBe(false)
     expect(register).toHaveBeenCalledTimes(1)
     expect(reportErrorMock).not.toHaveBeenCalled()
   })
 
-  it('reports a failed registration without throwing', async () => {
-    const failure = new Error('scheduler down')
-    const container = { resolve: () => ({ register: async () => { throw failure } }) }
-    expect(await ensureXrayIngestSchedule(container, SCOPE)).toBe(false)
-    expect(reportErrorMock).toHaveBeenCalledWith(failure, expect.objectContaining({ code: 'insights.xray_schedule_failed' }))
+  it('recognizes only module-owned per-organization ingest rows as legacy', () => {
+    expect(isLegacyXrayIngestSchedule(legacyRow(ORG_A))).toBe(true)
+    expect(isLegacyXrayIngestSchedule({ ...legacyRow(ORG_A), id: XRAY_INGEST_SCHEDULE_ID })).toBe(false)
+    expect(isLegacyXrayIngestSchedule({ ...legacyRow(ORG_A), scopeType: 'system' })).toBe(false)
+    expect(isLegacyXrayIngestSchedule({ ...legacyRow(ORG_A), sourceType: 'user' })).toBe(false)
+    expect(isLegacyXrayIngestSchedule({ ...legacyRow(ORG_A), sourceModule: 'sales' })).toBe(false)
   })
 })
 

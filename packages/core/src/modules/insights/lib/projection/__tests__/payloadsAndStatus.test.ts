@@ -1,4 +1,22 @@
-import { readBackfillPayload, readIngestScope } from '../payloads'
+const findOneWithDecryptionMock = jest.fn()
+const findWithDecryptionMock = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: (...args: unknown[]) => findOneWithDecryptionMock(...args),
+  findWithDecryption: (...args: unknown[]) => findWithDecryptionMock(...args),
+}))
+
+import type { EntityManager } from '@mikro-orm/postgresql'
+import {
+  XrayScopeMismatchError,
+  assertXrayScope,
+  isOrganizationInTenant,
+  readBackfillPayload,
+  readIngestPayload,
+  readIngestScope,
+  resolveOrganizationTenants,
+} from '../payloads'
+import { XRAY_FANOUT_KIND } from '../queue'
 import { toXrayStatusResponse } from '../statusView'
 import { xrayStatusResponseSchema } from '../../../data/validators'
 import type { XrayStatus } from '../jobs'
@@ -6,7 +24,9 @@ import type { ProjectionCursor } from '../store'
 import { XRAY_SETTINGS_DEFAULTS } from '../settings'
 
 const TENANT_ID = '11111111-0000-4000-8000-000000000001'
+const OTHER_TENANT_ID = '11111111-0000-4000-8000-000000000002'
 const ORG_ID = '22222222-0000-4000-8000-000000000001'
+const OTHER_ORG_ID = '22222222-0000-4000-8000-000000000002'
 const SCAN_ID = 'aaaaaaaa-0000-4000-8000-000000000001'
 const CHAIN_ID = 'bbbbbbbb-0000-4000-8000-000000000001'
 
@@ -20,6 +40,72 @@ describe('readIngestScope', () => {
     expect(readIngestScope({ scope: { tenantId: TENANT_ID } })).toBeNull()
     expect(readIngestScope({ tenantId: 'tenant', organizationId: ORG_ID })).toBeNull()
     expect(readIngestScope(null)).toBeNull()
+  })
+
+  it('never pairs the tenant of one source with the organization of another', () => {
+    expect(readIngestScope({ scope: { tenantId: OTHER_TENANT_ID }, tenantId: TENANT_ID, organizationId: ORG_ID })).toEqual({ tenantId: TENANT_ID, organizationId: ORG_ID })
+    expect(readIngestScope({ scope: { organizationId: OTHER_ORG_ID }, tenantId: TENANT_ID })).toBeNull()
+  })
+})
+
+describe('readIngestPayload', () => {
+  it('recognizes the system fan-out tick the scheduler dispatches with an empty scope', () => {
+    expect(readIngestPayload({ kind: XRAY_FANOUT_KIND, scope: { tenantId: null, organizationId: null }, tenantId: null, organizationId: null, _jobOrigin: 'scheduler' }))
+      .toEqual({ kind: 'fanout' })
+  })
+
+  it('reads an organization job and flags one fired by a per-organization schedule of the previous design', () => {
+    expect(readIngestPayload({ scope: { tenantId: TENANT_ID, organizationId: ORG_ID } }))
+      .toEqual({ kind: 'organization', scope: { tenantId: TENANT_ID, organizationId: ORG_ID }, legacySchedule: false })
+    expect(readIngestPayload({ scope: { tenantId: TENANT_ID, organizationId: ORG_ID }, tenantId: TENANT_ID, organizationId: ORG_ID, _jobOrigin: 'scheduler' }))
+      .toEqual({ kind: 'organization', scope: { tenantId: TENANT_ID, organizationId: ORG_ID }, legacySchedule: true })
+  })
+
+  it('rejects a payload without a scope or a known kind', () => {
+    expect(readIngestPayload({ kind: 'other' })).toBeNull()
+    expect(readIngestPayload({ scope: { tenantId: null, organizationId: null }, _jobOrigin: 'scheduler' })).toBeNull()
+    expect(readIngestPayload('nope')).toBeNull()
+  })
+})
+
+describe('X-Ray scope verification', () => {
+  const em = {} as EntityManager
+
+  beforeEach(() => {
+    findOneWithDecryptionMock.mockReset()
+    findWithDecryptionMock.mockReset()
+  })
+
+  it('accepts an organization of the tenant with one scoped lookup', async () => {
+    findOneWithDecryptionMock.mockResolvedValueOnce({ id: ORG_ID })
+    expect(await isOrganizationInTenant(em, { tenantId: TENANT_ID, organizationId: ORG_ID })).toBe(true)
+    expect(findOneWithDecryptionMock).toHaveBeenCalledWith(
+      em,
+      expect.anything(),
+      { id: ORG_ID, tenant: TENANT_ID },
+      undefined,
+      { tenantId: TENANT_ID, organizationId: ORG_ID },
+    )
+  })
+
+  it('rejects an organization of another tenant with an [internal] error', async () => {
+    findOneWithDecryptionMock.mockResolvedValueOnce(null)
+    await expect(assertXrayScope(em, { tenantId: OTHER_TENANT_ID, organizationId: ORG_ID })).rejects.toBeInstanceOf(XrayScopeMismatchError)
+    findOneWithDecryptionMock.mockResolvedValueOnce(null)
+    await expect(assertXrayScope(em, { tenantId: OTHER_TENANT_ID, organizationId: ORG_ID })).rejects.toThrow(/^\[internal\]/)
+  })
+
+  it('resolves the tenant of a page of organizations in one query', async () => {
+    findWithDecryptionMock.mockResolvedValueOnce([
+      { id: ORG_ID, tenant: { id: TENANT_ID } },
+      { id: OTHER_ORG_ID, tenant: OTHER_TENANT_ID },
+    ])
+    const tenants = await resolveOrganizationTenants(em, [ORG_ID, OTHER_ORG_ID, ORG_ID])
+    expect(findWithDecryptionMock).toHaveBeenCalledTimes(1)
+    expect(findWithDecryptionMock.mock.calls[0][2]).toEqual({ id: { $in: [ORG_ID, OTHER_ORG_ID] } })
+    expect(Array.from(tenants.entries())).toEqual([[ORG_ID, TENANT_ID], [OTHER_ORG_ID, OTHER_TENANT_ID]])
+    expect((await resolveOrganizationTenants(em, [])).size).toBe(0)
+    expect(findWithDecryptionMock).toHaveBeenCalledTimes(1)
   })
 })
 

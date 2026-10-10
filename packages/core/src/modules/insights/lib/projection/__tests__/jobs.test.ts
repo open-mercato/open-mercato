@@ -5,13 +5,20 @@ import type { XrayIngestDeps } from '../ingest'
 import type { XraySettingsSnapshot } from '../settings'
 
 const enqueueXrayBackfill = jest.fn(async () => undefined)
-const enqueueXrayIngest = jest.fn(async () => undefined)
+const enqueueXrayIngest = jest.fn(async (_scope: unknown, _delayMs?: number) => undefined)
 const ensureXrayIngestSchedule = jest.fn(async () => true)
-const isXrayIngestEnabled = jest.fn(async () => true)
+const readXrayIngestBacklog = jest.fn(async (): Promise<number | null> => 0)
+const isXrayIngestEnabled = jest.fn(async (_resolve: unknown, _tenantId: string) => true)
 const loadXraySettings = jest.fn(async (): Promise<XraySettingsSnapshot> => settings())
+const listDisabledXrayOrganizations = jest.fn(async (): Promise<Set<string>> => new Set())
+const assertXrayScope = jest.fn(async () => undefined)
+const organizationTenants = new Map<string, string>()
+const resolveOrganizationTenants = jest.fn(async (_em: unknown, organizationIds: string[]) =>
+  new Map(organizationIds.map((id) => [id, organizationTenants.get(id) ?? TENANT_ID])))
 let registry: ProcessRegistrySnapshot = testRegistry()
 let memory = createMemoryStore('2026-10-08T10:00:00.000000Z')
 let logRows: MemoryLogRow[] = []
+let sliceClock: (() => number) | undefined
 const ingestDeps = jest.fn(async (): Promise<{ deps: XrayIngestDeps; em: unknown }> => ({
   em: {},
   deps: {
@@ -22,6 +29,7 @@ const ingestDeps = jest.fn(async (): Promise<{ deps: XrayIngestDeps; em: unknown
     resolveActorDimensions: async () => new Map(),
     redactedFields: new Set<string>(),
     owner: 'worker',
+    ...(sliceClock ? { clock: sliceClock } : {}),
   },
 }))
 
@@ -30,18 +38,32 @@ jest.mock('../queue', () => {
   return {
     ...actual,
     enqueueXrayBackfill: (...args: unknown[]) => enqueueXrayBackfill(...(args as [])),
-    enqueueXrayIngest: (...args: unknown[]) => enqueueXrayIngest(...(args as [])),
+    enqueueXrayIngest: (...args: unknown[]) => enqueueXrayIngest(...(args as [unknown, number?])),
     ensureXrayIngestSchedule: (...args: unknown[]) => ensureXrayIngestSchedule(...(args as [])),
+    readXrayIngestBacklog: (...args: unknown[]) => readXrayIngestBacklog(...(args as [])),
+  }
+})
+
+jest.mock('../payloads', () => {
+  const actual = jest.requireActual('../payloads')
+  return {
+    ...actual,
+    assertXrayScope: (...args: unknown[]) => assertXrayScope(...(args as [])),
+    resolveOrganizationTenants: (...args: unknown[]) => resolveOrganizationTenants(...(args as [unknown, string[]])),
   }
 })
 
 jest.mock('../killSwitch', () => ({
-  isXrayIngestEnabled: (...args: unknown[]) => isXrayIngestEnabled(...(args as [])),
+  isXrayIngestEnabled: (...args: unknown[]) => isXrayIngestEnabled(...(args as [unknown, string])),
 }))
 
 jest.mock('../settings', () => {
   const actual = jest.requireActual('../settings')
-  return { ...actual, loadXraySettings: (...args: unknown[]) => loadXraySettings(...(args as [])) }
+  return {
+    ...actual,
+    loadXraySettings: (...args: unknown[]) => loadXraySettings(...(args as [])),
+    listDisabledXrayOrganizations: (...args: unknown[]) => listDisabledXrayOrganizations(...(args as [])),
+  }
 })
 
 jest.mock('../../process/registry', () => {
@@ -73,17 +95,26 @@ jest.mock('@open-mercato/shared/lib/logger', () => {
 })
 
 import {
+  XRAY_INACTIVE_PRUNE_MAX_BATCHES,
+  XRAY_SCAN_CONTINUATION_DELAY_MS,
   XrayErasureIncompleteError,
+  ensureXrayCursor,
   eraseXrayActor,
   failAbandonedXrayScan,
   rebuildXrayProjection,
   runXrayBackfillJob,
+  runXrayIngestFanout,
   runXrayIngestJob,
   startXrayBackfill,
 } from '../jobs'
+import { XRAY_PRUNE_BATCH } from '../ingest'
+import { XrayScopeMismatchError } from '../payloads'
+import { XRAY_FANOUT_MAX_BACKLOG } from '../queue'
+import { CURSOR_PAGE_SIZE } from '../store'
 import { buildProcessRegistrySnapshot } from '../../process/registry'
 
 const SCOPE = { tenantId: TENANT_ID, organizationId: ORG_ID }
+const OTHER_TENANT_ID = '11111111-0000-4000-8000-000000000002'
 const LABELS = { userId: USER_ID, name: 'Backfill', description: 'Backfill history' }
 
 function projectedEvent(actorPseudonym: string) {
@@ -153,22 +184,95 @@ beforeEach(() => {
   memory = createMemoryStore('2026-10-08T10:00:00.000000Z')
   logRows = []
   registry = testRegistry()
+  sliceClock = undefined
+  organizationTenants.clear()
   jest.clearAllMocks()
   isXrayIngestEnabled.mockResolvedValue(true)
   loadXraySettings.mockResolvedValue(settings())
+  listDisabledXrayOrganizations.mockResolvedValue(new Set())
+  readXrayIngestBacklog.mockResolvedValue(0)
+  assertXrayScope.mockResolvedValue(undefined)
 })
+
+function oldEvent(occurredAt: string) {
+  return { ...projectedEvent(`tk1:${USER_ID}`), occurredAt, sourceLogId: `abababab-0000-4000-8000-${String(Math.floor(Math.random() * 1e12)).padStart(12, '0')}` }
+}
 
 describe('runXrayIngestJob', () => {
   it('skips without declarations, with the kill switch off or with ingest disabled in settings', async () => {
     registry = buildProcessRegistrySnapshot([], [])
-    expect(await runXrayIngestJob(container(null), SCOPE)).toEqual({ status: 'no_processes' })
+    expect(await runXrayIngestJob(container(null), SCOPE)).toEqual({ status: 'no_processes', pruned: 0 })
     registry = testRegistry()
     isXrayIngestEnabled.mockResolvedValueOnce(false)
-    expect(await runXrayIngestJob(container(null), SCOPE)).toEqual({ status: 'disabled' })
+    expect(await runXrayIngestJob(container(null), SCOPE)).toEqual({ status: 'disabled', pruned: 0 })
     loadXraySettings.mockResolvedValueOnce(settings({ enabled: false }))
-    expect(await runXrayIngestJob(container(null), SCOPE)).toEqual({ status: 'disabled' })
+    expect(await runXrayIngestJob(container(null), SCOPE)).toEqual({ status: 'disabled', pruned: 0 })
     expect(ingestDeps).not.toHaveBeenCalled()
     expect(memory.state.cursors).toEqual([])
+  })
+
+  it('keeps pruning the retention window while ingest is disabled, without ingesting', async () => {
+    await runXrayIngestJob(container(null), SCOPE)
+    const cursor = memory.state.cursors[0]
+    memory.state.events.push(oldEvent('2026-08-01T00:00:00.000000Z'), oldEvent('2026-10-08T09:00:00.000000Z'))
+    cursor.lastPrunedAt = '2026-10-06T00:00:00.000000Z'
+    ingestDeps.mockClear()
+    loadXraySettings.mockResolvedValueOnce(settings({ enabled: false }))
+    expect(await runXrayIngestJob(container(null), SCOPE)).toEqual({ status: 'disabled', pruned: 1 })
+    expect(memory.state.events.map((event) => event.occurredAt)).toEqual(['2026-10-08T09:00:00.000000Z'])
+    expect(cursor.lastPrunedAt).toBe('2026-10-08T10:00:00.000000Z')
+    expect(cursor.leaseOwner).toBeNull()
+
+    memory.state.events.push(oldEvent('2026-08-02T00:00:00.000000Z'))
+    isXrayIngestEnabled.mockResolvedValueOnce(false)
+    expect(await runXrayIngestJob(container(null), SCOPE)).toEqual({ status: 'disabled', pruned: 0 })
+    expect(memory.state.events).toHaveLength(2)
+
+    cursor.lastPrunedAt = '2026-10-06T00:00:00.000000Z'
+    registry = buildProcessRegistrySnapshot([], [])
+    expect(await runXrayIngestJob(container(null), SCOPE)).toEqual({ status: 'no_processes', pruned: 1 })
+    expect(ingestDeps).not.toHaveBeenCalled()
+  })
+
+  it('bounds the disabled-path prune and leaves the rest due for the next tick', async () => {
+    await runXrayIngestJob(container(null), SCOPE)
+    const cursor = memory.state.cursors[0]
+    cursor.lastPrunedAt = '2026-10-06T00:00:00.000000Z'
+    const prune = jest.spyOn(memory.store, 'pruneProjectionBatch').mockResolvedValue(XRAY_PRUNE_BATCH)
+    loadXraySettings.mockResolvedValueOnce(settings({ enabled: false }))
+    expect(await runXrayIngestJob(container(null), SCOPE)).toEqual({ status: 'disabled', pruned: XRAY_PRUNE_BATCH * XRAY_INACTIVE_PRUNE_MAX_BATCHES })
+    expect(prune).toHaveBeenCalledTimes(XRAY_INACTIVE_PRUNE_MAX_BATCHES)
+    expect(cursor.lastPrunedAt).toBe('2026-10-06T00:00:00.000000Z')
+    expect(cursor.leaseOwner).toBeNull()
+  })
+
+  it('rejects an organization of another tenant before any write', async () => {
+    assertXrayScope.mockRejectedValue(new XrayScopeMismatchError())
+    await expect(runXrayIngestJob(container(null), SCOPE)).rejects.toBeInstanceOf(XrayScopeMismatchError)
+    await expect(ensureXrayCursor(container(null), SCOPE)).rejects.toBeInstanceOf(XrayScopeMismatchError)
+    const progress = progressService()
+    await expect(startXrayBackfill(container(progress), SCOPE, LABELS)).rejects.toBeInstanceOf(XrayScopeMismatchError)
+    await expect(rebuildXrayProjection(container(progress), SCOPE, LABELS)).rejects.toBeInstanceOf(XrayScopeMismatchError)
+    await expect(runXrayBackfillJob(container(progress), {
+      scope: { ...SCOPE, userId: null },
+      scanId: 'eeeeeeee-0000-4000-8000-000000000001',
+      chainId: 'eeeeeeee-0000-4000-8000-0000000000c1',
+      progressJobId: 'dddddddd-0000-4000-8000-000000000001',
+    })).rejects.toBeInstanceOf(XrayScopeMismatchError)
+    expect(memory.state.cursors).toEqual([])
+    expect(progress.createJob).not.toHaveBeenCalled()
+    expect(progress.markCancelled).not.toHaveBeenCalled()
+    expect(enqueueXrayBackfill).not.toHaveBeenCalled()
+    expect(ensureXrayIngestSchedule).not.toHaveBeenCalled()
+    expect(ingestDeps).not.toHaveBeenCalled()
+  })
+
+  it('creates the cursor of a verified organization once (organization-created subscriber)', async () => {
+    const first = await ensureXrayCursor(container(null), SCOPE)
+    const second = await ensureXrayCursor(container(null), SCOPE)
+    expect(second.id).toBe(first.id)
+    expect(memory.state.cursors).toHaveLength(1)
+    expect(assertXrayScope).toHaveBeenCalledWith(expect.anything(), SCOPE)
   })
 
   it('runs a slice and enqueues a due reconciliation scan', async () => {
@@ -201,6 +305,74 @@ describe('runXrayIngestJob', () => {
     })
     await expect(runXrayIngestJob(container(null), SCOPE)).rejects.toThrow('tenant key')
     expect(cursor.lastError).toBe('[internal] The tenant key for Process X-Ray actor pseudonyms is unavailable')
+  })
+})
+
+describe('runXrayIngestFanout', () => {
+  function orgId(index: number): string {
+    return `22222222-0000-4000-8000-${String(index).padStart(12, '0')}`
+  }
+
+  it('enqueues one ingest job per organization cursor of every tenant, page by page', async () => {
+    const scopes = Array.from({ length: CURSOR_PAGE_SIZE + 1 }, (_, index) => ({ tenantId: TENANT_ID, organizationId: orgId(index + 1) }))
+    scopes.push({ tenantId: OTHER_TENANT_ID, organizationId: orgId(9000) })
+    organizationTenants.set(orgId(9000), OTHER_TENANT_ID)
+    for (const scope of scopes) await memory.store.ensureCursor(scope, 60_000)
+    const listCursors = jest.spyOn(memory.store, 'listCursors')
+    expect(await runXrayIngestFanout(container(null))).toEqual({ status: 'done', enqueued: scopes.length, skipped: 0, stray: 0 })
+    expect(enqueueXrayIngest.mock.calls.map(([scope]) => scope)).toEqual(scopes)
+    expect(listCursors.mock.calls.map(([filter]) => filter)).toEqual([
+      { allTenants: true, after: null, limit: CURSOR_PAGE_SIZE },
+      { allTenants: true, after: scopes[CURSOR_PAGE_SIZE - 1], limit: CURSOR_PAGE_SIZE },
+    ])
+    expect(resolveOrganizationTenants).toHaveBeenCalledTimes(2)
+    expect(memory.state.cursors.every((cursor) => cursor.leaseOwner === null)).toBe(true)
+  })
+
+  it('skips organizations whose settings or tenant kill switch disable X-Ray unless their retention prune is due', async () => {
+    const enabled = { tenantId: TENANT_ID, organizationId: orgId(1) }
+    const disabledFresh = { tenantId: TENANT_ID, organizationId: orgId(2) }
+    const disabledDue = { tenantId: TENANT_ID, organizationId: orgId(3) }
+    const toggledOff = { tenantId: OTHER_TENANT_ID, organizationId: orgId(4) }
+    const toggledOffDue = { tenantId: OTHER_TENANT_ID, organizationId: orgId(5) }
+    organizationTenants.set(orgId(4), OTHER_TENANT_ID)
+    organizationTenants.set(orgId(5), OTHER_TENANT_ID)
+    for (const scope of [enabled, disabledFresh, disabledDue, toggledOff, toggledOffDue]) await memory.store.ensureCursor(scope, 60_000)
+    memory.state.cursors[2].lastPrunedAt = '2026-10-06T00:00:00.000000Z'
+    memory.state.cursors[4].lastPrunedAt = '2026-10-06T00:00:00.000000Z'
+    listDisabledXrayOrganizations.mockResolvedValueOnce(new Set([`${TENANT_ID}|${orgId(2)}`, `${TENANT_ID}|${orgId(3)}`]))
+    isXrayIngestEnabled.mockImplementation(async (_resolve, tenantId) => tenantId !== OTHER_TENANT_ID)
+    expect(await runXrayIngestFanout(container(null))).toEqual({ status: 'done', enqueued: 3, skipped: 2, stray: 0 })
+    expect(enqueueXrayIngest.mock.calls.map(([scope]) => scope)).toEqual([enabled, disabledDue, toggledOffDue])
+    expect(isXrayIngestEnabled.mock.calls.map(([, tenantId]) => tenantId)).toEqual([TENANT_ID, OTHER_TENANT_ID])
+  })
+
+  it('never enqueues a cursor whose organization does not belong to its tenant', async () => {
+    const stray = { tenantId: OTHER_TENANT_ID, organizationId: orgId(1) }
+    const valid = { tenantId: TENANT_ID, organizationId: orgId(2) }
+    await memory.store.ensureCursor(valid, 60_000)
+    await memory.store.ensureCursor(stray, 60_000)
+    organizationTenants.set(orgId(1), TENANT_ID)
+    expect(await runXrayIngestFanout(container(null))).toEqual({ status: 'done', enqueued: 1, skipped: 0, stray: 1 })
+    expect(enqueueXrayIngest.mock.calls.map(([scope]) => scope)).toEqual([valid])
+  })
+
+  it('enqueues only organizations whose prune is due when no process is declared', async () => {
+    await memory.store.ensureCursor({ tenantId: TENANT_ID, organizationId: orgId(1) }, 60_000)
+    await memory.store.ensureCursor({ tenantId: TENANT_ID, organizationId: orgId(2) }, 60_000)
+    memory.state.cursors[1].lastPrunedAt = null
+    registry = buildProcessRegistrySnapshot([], [])
+    expect(await runXrayIngestFanout(container(null))).toEqual({ status: 'done', enqueued: 1, skipped: 1, stray: 0 })
+    expect(enqueueXrayIngest.mock.calls.map(([scope]) => scope)).toEqual([{ tenantId: TENANT_ID, organizationId: orgId(2) }])
+  })
+
+  it('skips the whole tick while the ingest queue still holds the previous ticks', async () => {
+    await memory.store.ensureCursor(SCOPE, 60_000)
+    readXrayIngestBacklog.mockResolvedValueOnce(XRAY_FANOUT_MAX_BACKLOG)
+    expect(await runXrayIngestFanout(container(null))).toEqual({ status: 'backlogged', backlog: XRAY_FANOUT_MAX_BACKLOG })
+    expect(enqueueXrayIngest).not.toHaveBeenCalled()
+    readXrayIngestBacklog.mockResolvedValueOnce(null)
+    expect(await runXrayIngestFanout(container(null))).toEqual({ status: 'done', enqueued: 1, skipped: 0, stray: 0 })
   })
 })
 
@@ -299,6 +471,35 @@ describe('runXrayBackfillJob', () => {
     expect(enqueueXrayBackfill).toHaveBeenLastCalledWith(payload, 5000)
     expect(await runXrayBackfillJob(container(progress), payload, { enqueueContinuation: false })).toBe('lease_busy')
     expect(enqueueXrayBackfill).toHaveBeenCalledTimes(2)
+  })
+
+  it('delays a scan continuation and first nudges a starved incremental ingest so it can take the lease', async () => {
+    const progress = progressService()
+    const payload = await started(progress)
+    let now = 0
+    sliceClock = () => (now += 60_000)
+    expect(await runXrayBackfillJob(container(progress), payload)).toBe('budget_exhausted')
+    expect(enqueueXrayIngest).toHaveBeenCalledWith(SCOPE)
+    expect(enqueueXrayBackfill).toHaveBeenLastCalledWith(payload, XRAY_SCAN_CONTINUATION_DELAY_MS)
+    expect(enqueueXrayIngest.mock.invocationCallOrder[0]).toBeLessThan(enqueueXrayBackfill.mock.invocationCallOrder[enqueueXrayBackfill.mock.invocationCallOrder.length - 1])
+    expect(XRAY_SCAN_CONTINUATION_DELAY_MS).toBeGreaterThanOrEqual(1000)
+    expect(XRAY_SCAN_CONTINUATION_DELAY_MS).toBeLessThanOrEqual(2000)
+
+    enqueueXrayIngest.mockClear()
+    memory.state.cursors[0].lastRunAt = '2026-10-08T09:59:30.000000Z'
+    expect(await runXrayBackfillJob(container(progress), payload)).toBe('budget_exhausted')
+    expect(enqueueXrayIngest).not.toHaveBeenCalled()
+    expect(enqueueXrayBackfill).toHaveBeenLastCalledWith(payload, XRAY_SCAN_CONTINUATION_DELAY_MS)
+
+    memory.state.cursors[0].lastRunAt = null
+    readXrayIngestBacklog.mockResolvedValueOnce(XRAY_FANOUT_MAX_BACKLOG)
+    expect(await runXrayBackfillJob(container(progress), payload)).toBe('budget_exhausted')
+    expect(enqueueXrayIngest).not.toHaveBeenCalled()
+
+    const continuations = enqueueXrayBackfill.mock.calls.length
+    expect(await runXrayBackfillJob(container(progress), payload, { enqueueContinuation: false })).toBe('budget_exhausted')
+    expect(enqueueXrayIngest).not.toHaveBeenCalled()
+    expect(enqueueXrayBackfill).toHaveBeenCalledTimes(continuations)
   })
 
   it('fails the progress job and rethrows so the queue retries from the persisted position', async () => {

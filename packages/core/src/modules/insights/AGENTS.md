@@ -15,6 +15,8 @@ Explains why a record value is what it is ("Why?") from audit history plus the c
 - Contribute X-Ray processes from the OWNING module via `insights.process.ts` (`defineProcessConfig({ version: 1, ... })` from `@open-mercato/shared/modules/insights/process`); verify snapshot paths and change keys against the real command (`CommandBus` capture, see `customers/__tests__/insights.process.test.ts`). User ids go into `followupFields` with `valueKind: 'user'` (pseudonymized), never into stage or milestone fields.
 - Write the projection only through `lib/projection/store.ts` under a lease (`acquireLease` → fenced `commit` → `releaseLease`); keep `lib/process/*` pure; read audit rows only through `ActionLogService.scanDecrypted` / `scanStateChanges`.
 - Bump `PROCESS_DERIVATION_VERSION` (`lib/process/registry.ts`) when derivation rules change: it is part of every per-process contract hash, so each process clears and re-projects itself (`reconcileContracts` in `lib/projection/ingest.ts`; no manual rebuild). Use `compareCodeUnits`, never `localeCompare`, for anything that feeds a hash or a stored order.
+- Verify every externally supplied tenant/organization pair before a write (`assertXrayScope` / `isOrganizationInTenant` in `lib/projection/payloads.ts`: route context, CLI `--tenant/--org`, subscriber, worker and job entry points); never pair a tenant from one payload shape with an organization from another.
+- Drive ingest through the one system schedule (`ensureXrayIngestSchedule`, fan-out in `runXrayIngestFanout`); enroll an organization by creating its cursor (`ensureXrayCursor`), never with a per-organization schedule (tenant quota), and never force-enable an existing schedule.
 
 ## Never
 
@@ -49,13 +51,14 @@ Explains why a record value is what it is ("Why?") from audit history plus the c
 | `ai-tools.ts`, `ai-tools/explain-pack.ts` | Read-only `insights.explain_record` (facts verbatim + deterministic i18n summary; not allowlisted for any agent) |
 | `lib/process/*` | X-Ray: `insights.process.ts` registry (boot-time encryption guard, contract hash), pure activity derivation, value sanitizing/cap, case summary |
 | `lib/projection/*` | X-Ray: store (CAS lease + fencing with lock timeout, erasure ledger + batched per-org erasure), per-process contract hashes (changed/added process → cleared + queued process-limited rebuild scan; removed → rows kept, filtered), windowed ingest/scan slices (single scan job chain), jobs (ingest, backfill, rebuild, prune, erasure), pinned pseudonym key, sanitized errors, settings, kill switch `insights_xray_ingest`, queues/schedule |
-| `workers/xray-*.worker.ts`, `subscribers/xray-*.ts` | Queues `insights-xray-ingest` (2) / `insights-xray-backfill` (1, abandoned-job hook); GDPR erasure ledger on `auth.user.deleted`; ingest schedule on `directory.organization.created` |
-| `api/xray/{status,settings,backfill}`, `commands/xray-settings.ts` | `insights.xray.manage` routes; `insights.xray.settings.save` (optimistic lock + CAS) |
-| `cli.ts` (X-Ray) | `xray:status`, `xray:backfill [--inline]`, `xray:rebuild [--inline]`, `xray:prune` (`--tenant`, `--org`) |
+| `workers/xray-*.worker.ts`, `subscribers/xray-*.ts` | Queues `insights-xray-ingest` (2: system tick `{ kind: 'xray_fanout' }` fanning out one job per cursor, skipped while ≥ 1000 jobs wait; organization jobs; a job of a pre-fan-out per-organization schedule migrates to the system tick) / `insights-xray-backfill` (1, abandoned-job hook, continuations 1.5 s apart, nudges a starved ingest); GDPR erasure ledger on `auth.user.deleted`; cursor of a new organization on `directory.organization.created` |
+| `setup.ts` | `seedDefaults`: both toggles, the system schedule (`XRAY_INGEST_SCHEDULE_ID`, scope `system`, no tenant quota) and the tenant organization's cursor |
+| `api/xray/{status,settings,backfill}`, `commands/xray-settings.ts`, `lib/xrayRoutes.ts` | `insights.xray.manage` routes in the caller's tenant (organization verified, else 400); status lists processes whose `requiredFeatures` the caller holds; backfill runs mutation guards (`insights.xray_backfill`); `insights.xray.settings.save` (optimistic lock + CAS) |
+| `cli.ts` (X-Ray) | `xray:status`, `xray:backfill [--inline]`, `xray:rebuild [--inline]`, `xray:prune`; `--tenant` (`--org` verified) or `--all`; rebuild and prune refuse to run without one |
 
 Verdict semantics: the current value is compared only on the first page (`page.continuation` marks later pages); `OM_INSIGHTS_EXPLAIN_SCAN_MAX` (default 500) bounds rows per request and `truncated` caps confidence at `inferred`.
 
-X-Ray Postgres suite (throwaway DB): `OM_INSIGHTS_XRAY_PG_URL=<url> npx jest src/modules/insights/lib/projection/__tests__/store.pg.test.ts` from `packages/core`.
+X-Ray Postgres suites (throwaway DB; they create and drop their own schema): `OM_INSIGHTS_XRAY_PG_URL=<url> npx jest --config jest.config.cjs --runInBand src/modules/insights/lib/projection/__tests__/store` from `packages/core` (`store.pg.test.ts`, `store.hardening.pg.test.ts`). CI does not run them (no workflow sets the URL; they skip) — run them locally for every change to `store.ts` or the insights migrations.
 
 ## Validation
 

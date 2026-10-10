@@ -10,6 +10,7 @@ import {
   XRAY_KEY_MISMATCH_ERROR,
   XRAY_LEASE_MS,
   XRAY_PRUNE_BATCH,
+  XRAY_PRUNE_INTERVAL_MS,
   XRAY_SETTLE_MS,
   runIngestSlice,
   runScanSlice,
@@ -17,12 +18,16 @@ import {
   type XraySliceResult,
 } from './ingest'
 import { isXrayIngestEnabled } from './killSwitch'
+import { assertXrayScope, resolveOrganizationTenants } from './payloads'
 import { createActorPseudonymizer } from './pseudonym'
 import {
   XRAY_BACKFILL_JOB_TYPE,
+  XRAY_FANOUT_MAX_BACKLOG,
+  XRAY_INGEST_INTERVAL_MS,
   enqueueXrayBackfill,
   enqueueXrayIngest,
   ensureXrayIngestSchedule,
+  readXrayIngestBacklog,
   type XrayBackfillJobPayload,
 } from './queue'
 import {
@@ -32,8 +37,15 @@ import {
   createXrayStore,
   type XrayContainer,
 } from './runtime'
-import { loadXraySettings, type XraySettingsSnapshot } from './settings'
-import type { ProjectionCounts, ProjectionCursor, ProjectionStore } from './store'
+import { listDisabledXrayOrganizations, loadXraySettings, xrayScopeKey, type XraySettingsSnapshot } from './settings'
+import {
+  CURSOR_PAGE_SIZE,
+  ProjectionLeaseLostError,
+  type ProjectionCounts,
+  type ProjectionCursor,
+  type ProjectionLease,
+  type ProjectionStore,
+} from './store'
 import type { ProjectionScope } from './types'
 
 const logger = createLogger('insights').child({ component: 'xray-jobs' })
@@ -43,10 +55,27 @@ const LEASE_BUSY_RETRY_MS = 5000
 const LEASE_LOST_RETRY_MS = 1000
 const CLEAR_BATCH = 5000
 const XRAY_ABANDONED_ERROR = '[internal] The queue abandoned the X-Ray backfill job after its retries'
+const PROJECTION_TABLES = ['insights_process_events', 'insights_process_cases', 'insights_process_rollups'] as const
 
-export type XrayUnavailableReason = 'no_processes' | 'disabled' | 'rebuild_required' | 'lease_busy'
+/** Mutation-guard resource kind of `POST /api/insights/xray/backfill` (resource id: the organization). */
+export const XRAY_BACKFILL_RESOURCE_KIND = 'insights.xray_backfill'
 
-export type XrayIngestJobResult = XraySliceResult | { status: 'disabled' | 'no_processes' }
+/**
+ * Delay before the next slice of a range scan: the lease is free in between, so an incremental
+ * ingest of the organization (nudged when it fell behind) takes it instead of waiting for the scan.
+ */
+export const XRAY_SCAN_CONTINUATION_DELAY_MS = 1500
+
+/** Prune batches (per table, `XRAY_PRUNE_BATCH` rows each) one tick may run while ingest is off. */
+export const XRAY_INACTIVE_PRUNE_MAX_BATCHES = 4
+
+export type XrayUnavailableReason = 'no_processes' | 'disabled' | 'lease_busy'
+
+export type XrayIngestJobResult = XraySliceResult | { status: 'disabled' | 'no_processes'; pruned: number }
+
+export type XrayFanoutResult =
+  | { status: 'backlogged'; backlog: number }
+  | { status: 'done'; enqueued: number; skipped: number; stray: number }
 
 export type XrayBackfillStart =
   | { ok: true; scanId: string; chainId: string; progressJobId: string | null; scheduleRegistered: boolean }
@@ -98,6 +127,61 @@ async function isIngestAllowed(container: XrayContainer, scope: ProjectionScope,
   return { allowed: toggled, settings }
 }
 
+/** Whether the daily retention prune of a cursor is due (same rule as the ingest slice). */
+export function isXrayPruneDue(lastPrunedAt: string | null, dbNow: string): boolean {
+  return !lastPrunedAt || Date.parse(dbNow) - Date.parse(lastPrunedAt) >= XRAY_PRUNE_INTERVAL_MS
+}
+
+/**
+ * Deletes rows older than the retention cutoff under the lease, table by table, until a batch
+ * comes back short or `maxBatches` batches ran. Returns the rows removed and whether every table
+ * was pruned completely.
+ */
+async function pruneUnderLease(
+  store: ProjectionStore,
+  lease: ProjectionLease,
+  cutoff: string,
+  maxBatches: number,
+): Promise<{ removed: number; complete: boolean }> {
+  let removed = 0
+  let batches = 0
+  for (const table of PROJECTION_TABLES) {
+    for (;;) {
+      if (batches >= maxBatches) return { removed, complete: false }
+      const batch = await store.pruneProjectionBatch(lease, XRAY_LEASE_MS, table, cutoff, XRAY_PRUNE_BATCH)
+      removed += batch
+      batches += 1
+      if (batch < XRAY_PRUNE_BATCH) break
+    }
+  }
+  return { removed, complete: true }
+}
+
+/**
+ * Retention while ingest is off (organization settings, kill switch) or no process is
+ * declared: once a day, a bounded prune under the lease, never an ingest. A prune that ran out of
+ * batches leaves `last_pruned_at` untouched, so the next tick continues it.
+ */
+async function pruneInactiveXrayProjection(store: ProjectionStore, scope: ProjectionScope, retentionDays: number): Promise<number> {
+  const cursor = await store.readCursor(scope)
+  if (!cursor) return 0
+  const dbNow = await store.now()
+  if (!isXrayPruneDue(cursor.lastPrunedAt, dbNow)) return 0
+  const lease = await store.acquireLease(cursor, createLeaseOwner(), XRAY_LEASE_MS)
+  if (!lease) return 0
+  try {
+    const cutoff = shiftIso(dbNow, -Math.max(1, retentionDays) * DAY_MS)
+    const outcome = await pruneUnderLease(store, lease, cutoff, XRAY_INACTIVE_PRUNE_MAX_BATCHES)
+    if (outcome.complete) await store.updateCursor(lease, XRAY_LEASE_MS, { last_pruned_at: new Date(Date.parse(dbNow)) })
+    return outcome.removed
+  } catch (error) {
+    if (error instanceof ProjectionLeaseLostError) return 0
+    throw error
+  } finally {
+    await store.releaseLease(lease)
+  }
+}
+
 async function recordCursorError(store: ProjectionStore, scope: ProjectionScope, error: unknown): Promise<void> {
   try {
     const cursor = await store.readCursor(scope)
@@ -118,18 +202,22 @@ function reportUndecryptable(scope: ProjectionScope, result: XraySliceResult): v
 }
 
 /**
- * The scheduled ingest tick of one organization. Skips silently when no process is
- * declared, the kill switch is off or the organization disabled X-Ray. Enqueues the range
- * scan it started or the chain it handed a stalled scan to, and a follow-up tick when the
- * budget ran out.
+ * The ingest job of one organization (enqueued by the system tick). Refuses an organization of
+ * another tenant before any write (`XrayScopeMismatchError`). When no process is declared, the
+ * kill switch is off or the organization disabled X-Ray, it only runs the daily retention prune
+ * (bounded). Otherwise one ingest slice; enqueues the range scan it started or the chain it
+ * handed a stalled scan to, and a follow-up job when the budget ran out.
  */
 export async function runXrayIngestJob(container: XrayContainer, scope: ProjectionScope): Promise<XrayIngestJobResult> {
   const registry = getProcessRegistry()
-  if (!hasProcesses(registry)) return { status: 'no_processes' }
   const em = resolveEm(container)
+  await assertXrayScope(em, scope)
   const gate = await isIngestAllowed(container, scope, em)
-  if (!gate.allowed) return { status: 'disabled' }
   const store = createXrayStore(em)
+  if (!hasProcesses(registry) || !gate.allowed) {
+    const pruned = await pruneInactiveXrayProjection(store, scope, gate.settings.retentionDays)
+    return { status: hasProcesses(registry) ? 'disabled' : 'no_processes', pruned }
+  }
   let result: XraySliceResult
   try {
     const { deps } = await createXrayIngestDeps(container, scope, registry)
@@ -155,10 +243,101 @@ export async function runXrayIngestJob(container: XrayContainer, scope: Projecti
 }
 
 /**
+ * The system tick (one job per interval for the whole installation): pages through every
+ * organization cursor and enqueues one ingest job per organization. Skips cursors whose
+ * organization does not belong to their tenant (stray rows, logged), and organizations whose
+ * settings or tenant kill switch disable X-Ray (or every organization when no process is
+ * declared) unless their daily retention prune is due. The whole tick is skipped while the ingest
+ * queue still holds `XRAY_FANOUT_MAX_BACKLOG` waiting jobs, so a backlog never grows by a full
+ * round per interval. Organizations get their cursor from tenant setup, organization creation or
+ * a backfill.
+ */
+export async function runXrayIngestFanout(container: XrayContainer): Promise<XrayFanoutResult> {
+  const backlog = await readXrayIngestBacklog()
+  if (backlog !== null && backlog >= XRAY_FANOUT_MAX_BACKLOG) {
+    logger.warn('[internal] X-Ray ingest tick skipped: the ingest queue still holds the previous ticks', { backlog })
+    return { status: 'backlogged', backlog }
+  }
+  const active = hasProcesses(getProcessRegistry())
+  const em = resolveEm(container)
+  const store = createXrayStore(em)
+  const resolve = createServiceResolver(container)
+  const toggles = new Map<string, Promise<boolean>>()
+  const toggleFor = (tenantId: string): Promise<boolean> => {
+    const cached = toggles.get(tenantId)
+    if (cached) return cached
+    const pending = isXrayIngestEnabled(resolve, tenantId)
+    toggles.set(tenantId, pending)
+    return pending
+  }
+  const dbNow = await store.now()
+  let after: ProjectionScope | null = null
+  let enqueued = 0
+  let skipped = 0
+  let stray = 0
+  for (;;) {
+    const page: ProjectionCursor[] = await store.listCursors({ allTenants: true, after, limit: CURSOR_PAGE_SIZE })
+    if (page.length === 0) break
+    const scopes = page.map((cursor) => ({ tenantId: cursor.tenantId, organizationId: cursor.organizationId }))
+    const [tenants, disabled] = await Promise.all([
+      resolveOrganizationTenants(em, scopes.map((scope) => scope.organizationId)),
+      active ? listDisabledXrayOrganizations(em, scopes) : Promise.resolve(new Set<string>()),
+    ])
+    for (const [index, cursor] of page.entries()) {
+      const scope = scopes[index]
+      if (tenants.get(scope.organizationId) !== scope.tenantId) {
+        stray += 1
+        continue
+      }
+      const enabled = active && !disabled.has(xrayScopeKey(scope)) && await toggleFor(scope.tenantId)
+      if (!enabled && !isXrayPruneDue(cursor.lastPrunedAt, dbNow)) {
+        skipped += 1
+        continue
+      }
+      await enqueueXrayIngest(scope)
+      enqueued += 1
+    }
+    if (page.length < CURSOR_PAGE_SIZE) break
+    after = scopes[scopes.length - 1]
+  }
+  if (stray > 0) {
+    logger.warn('[internal] X-Ray ingest tick skipped cursors whose organization does not belong to their tenant', { cursors: stray })
+  }
+  return { status: 'done', enqueued, skipped, stray }
+}
+
+/**
+ * Creates the organization's cursor (idempotent) once the organization is verified to belong to
+ * the tenant, so the system tick ingests it from now on. Used for new organizations.
+ */
+export async function ensureXrayCursor(container: XrayContainer, scope: ProjectionScope): Promise<ProjectionCursor> {
+  const em = resolveEm(container)
+  await assertXrayScope(em, scope)
+  return createXrayStore(em).ensureCursor(scope, XRAY_SETTLE_MS)
+}
+
+/**
+ * Tenant setup: makes sure the system ingest tick exists and creates the cursor of the tenant's
+ * organization. Best-effort (setup never fails on X-Ray); failures are logged and reported, and
+ * the organization can still be enrolled by a backfill.
+ */
+export async function seedXrayIngest(container: XrayContainer, scope: ProjectionScope): Promise<void> {
+  await ensureXrayIngestSchedule(container)
+  try {
+    await ensureXrayCursor(container, scope)
+  } catch (error) {
+    logger.warn('[internal] Could not create the Process X-Ray cursor of the organization', { organizationId: scope.organizationId, err: error })
+    getTelemetryRuntime()?.reportError(error, { module: 'insights', code: 'insights.xray_cursor_seed_failed' })
+  }
+}
+
+/**
  * Starts (or restarts) a full backfill of the organization's retention window as a resumable
- * range scan tracked by a ProgressJob, and makes sure the ingest schedule exists. A previous
- * scan of the organization is superseded and its progress job cancelled. The backfill reads up
- * to the current time (no settle lag): rows committed later are caught by incremental ingest.
+ * range scan tracked by a ProgressJob, creates the organization's cursor (so the system tick
+ * ingests it) and makes sure the system tick exists. Refuses an organization of another tenant
+ * before any write. A previous scan of the organization is superseded and its progress job
+ * cancelled. The backfill reads up to the current time (no settle lag): rows committed later are
+ * caught by incremental ingest.
  */
 export async function startXrayBackfill(
   container: XrayContainer,
@@ -168,6 +347,7 @@ export async function startXrayBackfill(
   const registry = getProcessRegistry()
   if (!hasProcesses(registry)) return { ok: false, reason: 'no_processes' }
   const em = resolveEm(container)
+  await assertXrayScope(em, scope)
   const gate = await isIngestAllowed(container, scope, em)
   if (!gate.allowed) return { ok: false, reason: 'disabled' }
   const store = createXrayStore(em)
@@ -206,7 +386,7 @@ export async function startXrayBackfill(
     const previousJobId = cursor.scanProgressJobId
     await safely('cancel_superseded', () => progress.markCancelled(previousJobId, progressContext))
   }
-  const scheduleRegistered = await ensureXrayIngestSchedule(container, scope)
+  const scheduleRegistered = await ensureXrayIngestSchedule(container)
   if (options.enqueue !== false) {
     await enqueueXrayBackfill({
       scope: { tenantId: scope.tenantId, organizationId: scope.organizationId, userId: options.userId },
@@ -259,12 +439,30 @@ async function cancelIfSuperseded(
   if (cursor?.scanProgressJobId !== jobId) await safely('mark_cancelled', () => progress.markCancelled(jobId, progressContext))
 }
 
+function isIngestStarved(cursor: ProjectionCursor, dbNow: string): boolean {
+  return !cursor.lastRunAt || Date.parse(dbNow) - Date.parse(cursor.lastRunAt) >= XRAY_INGEST_INTERVAL_MS
+}
+
 /**
- * One slice of a range scan job: drops a job of a replaced scan or chain, checks
- * cancellation, runs `runScanSlice` and either finishes the ProgressJob or enqueues the
- * continuation (unless `enqueueContinuation` is false, for callers that drive the slices
- * themselves). Failures fail the progress job and rethrow so the queue retries from the
- * persisted scan position (a retry revives the job).
+ * Enqueues an incremental ingest of the organization ahead of the next scan slice when its main
+ * pass has not advanced for an ingest interval (the scan kept the lease), unless the ingest queue
+ * is backlogged (the job would wait behind the backlog anyway).
+ */
+async function nudgeStarvedIngest(store: ProjectionStore, cursor: ProjectionCursor, scope: ProjectionScope): Promise<void> {
+  if (!isIngestStarved(cursor, await store.now())) return
+  const backlog = await readXrayIngestBacklog()
+  if (backlog !== null && backlog >= XRAY_FANOUT_MAX_BACKLOG) return
+  await enqueueXrayIngest(scope)
+}
+
+/**
+ * One slice of a range scan job: refuses an organization of another tenant, drops a job of a
+ * replaced scan or chain, checks cancellation, runs `runScanSlice` and either finishes the
+ * ProgressJob or enqueues the continuation (unless `enqueueContinuation` is false, for callers
+ * that drive the slices themselves) after `XRAY_SCAN_CONTINUATION_DELAY_MS`; when the
+ * organization's incremental ingest has not advanced for an ingest interval, an ingest job is
+ * enqueued first so it takes the lease in that gap. Failures fail the progress job and rethrow so
+ * the queue retries from the persisted scan position (a retry revives the job).
  */
 export async function runXrayBackfillJob(
   container: XrayContainer,
@@ -276,6 +474,7 @@ export async function runXrayBackfillJob(
   const progress = resolveProgress(container)
   const progressContext: ProgressServiceContext = { ...scope, userId: payload.scope.userId ?? null }
   const em = resolveEm(container)
+  await assertXrayScope(em, scope)
   const store = createXrayStore(em)
   const current = await store.readCursor(scope)
   if (!current || current.scanId !== payload.scanId) {
@@ -334,7 +533,10 @@ export async function runXrayBackfillJob(
           ...(percent !== undefined ? { progressPercent: percent } : {}),
         }, progressContext))
       }
-      if (enqueueContinuation) await enqueueXrayBackfill(payload, result.status === 'lease_lost' ? LEASE_LOST_RETRY_MS : 0)
+      if (enqueueContinuation) {
+        if (result.status === 'budget_exhausted') await nudgeStarvedIngest(store, current, scope)
+        await enqueueXrayBackfill(payload, result.status === 'lease_lost' ? LEASE_LOST_RETRY_MS : XRAY_SCAN_CONTINUATION_DELAY_MS)
+      }
       return result.status
     case 'lease_busy':
       await store.touchScan(scope, payload.scanId, payload.chainId)
@@ -391,6 +593,7 @@ export async function rebuildXrayProjection(
   const registry = getProcessRegistry()
   if (!hasProcesses(registry)) return { ok: false, reason: 'no_processes' }
   const em = resolveEm(container)
+  await assertXrayScope(em, scope)
   const gate = await isIngestAllowed(container, scope, em)
   if (!gate.allowed) return { ok: false, reason: 'disabled' }
   const store = createXrayStore(em)
@@ -399,7 +602,7 @@ export async function rebuildXrayProjection(
   if (!lease) return { ok: false, reason: 'lease_busy' }
   try {
     await store.updateCursor(lease, XRAY_LEASE_MS, { contract_hashes: '{}' })
-    for (const table of ['insights_process_events', 'insights_process_cases', 'insights_process_rollups'] as const) {
+    for (const table of PROJECTION_TABLES) {
       let cleared = 0
       do {
         cleared = await store.clearProjectionBatch(lease, XRAY_LEASE_MS, table, CLEAR_BATCH)
@@ -429,21 +632,14 @@ export async function pruneXrayProjection(
   const settings = await loadXraySettings(em, scope)
   const lease = await store.acquireLease(cursor, createLeaseOwner(), XRAY_LEASE_MS)
   if (!lease) return { ok: false, reason: 'lease_busy' }
-  let removed = 0
   const cutoff = shiftIso(await store.now(), -Math.max(1, settings.retentionDays) * DAY_MS)
   try {
-    for (const table of ['insights_process_events', 'insights_process_cases', 'insights_process_rollups'] as const) {
-      let batch = 0
-      do {
-        batch = await store.pruneProjectionBatch(lease, XRAY_LEASE_MS, table, cutoff, XRAY_PRUNE_BATCH)
-        removed += batch
-      } while (batch >= XRAY_PRUNE_BATCH)
-    }
+    const { removed } = await pruneUnderLease(store, lease, cutoff, Number.POSITIVE_INFINITY)
     await store.updateCursor(lease, XRAY_LEASE_MS, { last_pruned_at: new Date() })
+    return { ok: true, removed, cutoff }
   } finally {
     await store.releaseLease(lease)
   }
-  return { ok: true, removed, cutoff }
 }
 
 export async function readXrayStatus(container: XrayContainer, scope: ProjectionScope): Promise<XrayStatus> {

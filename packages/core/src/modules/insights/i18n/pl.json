@@ -202,6 +202,5 @@
   "insights.xray.errors.invalidBackfill": "Nieprawidłowe żądanie uzupełnienia danych",
   "insights.xray.errors.invalidSettings": "Nieprawidłowe ustawienia Process X-Ray",
   "insights.xray.errors.noProcesses": "Żaden moduł nie deklaruje procesu dla Process X-Ray.",
-  "insights.xray.errors.rebuildRequired": "Deklaracje procesów uległy zmianie. Najpierw przebuduj projekcję.",
   "insights.xray.errors.settingsConflict": "Ustawienia zostały zmienione przez kogoś innego. Odśwież i spróbuj ponownie."
 }

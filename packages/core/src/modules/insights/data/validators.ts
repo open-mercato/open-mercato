@@ -457,7 +457,7 @@ export const xrayBackfillResponseSchema = z.object({
   ok: z.literal(true),
   progressJobId: z.string().uuid().nullable(),
   scanId: z.string().uuid(),
-  scheduleRegistered: z.boolean().describe('Whether the per-organization ingest schedule is registered (false when the scheduler module is absent).'),
+  scheduleRegistered: z.boolean().describe('Whether the system ingest tick (one scheduler schedule for every organization) is registered; false when the scheduler module is absent or the registration failed.'),
 })
 
 const xrayScanSchema = z.object({
@@ -487,7 +487,7 @@ export const xrayStatusResponseSchema = z.object({
   registry: z.object({
     ready: z.boolean(),
     contractHash: z.string(),
-    processes: z.array(z.object({ processKey: z.string(), labelKey: z.string(), moduleId: z.string() })),
+    processes: z.array(z.object({ processKey: z.string(), labelKey: z.string(), moduleId: z.string() })).describe('Registered processes whose required features the caller holds in the organization.'),
     rejected: z.number().int().describe('Declarations rejected at boot (see the server log).'),
   }),
   cursor: z
@@ -521,7 +521,7 @@ export const xrayStatusResponseSchema = z.object({
     openCases: z.number().int().nullable(),
     firstOccurredAt: z.string().nullable().describe('Earliest projected activity of the process.'),
     lastOccurredAt: z.string().nullable(),
-  })).describe('Registered processes only.'),
+  })).describe('Registered processes whose required features the caller holds in the organization.'),
   countsTimedOut: z.boolean().describe('True when the per-process counts exceeded their time limit; the counts are then null.'),
   computedThrough: z.string().nullable(),
   coverageFrom: z.string().nullable(),

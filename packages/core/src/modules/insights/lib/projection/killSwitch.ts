@@ -9,7 +9,7 @@ export const XRAY_INGEST_TOGGLE_ID = 'insights_xray_ingest'
 export const XRAY_INGEST_TOGGLE_DEFINITION = {
   identifier: XRAY_INGEST_TOGGLE_ID,
   name: 'Process X-Ray ingest',
-  description: 'Projects audited changes into the Process X-Ray tables. Disable to pause ingest, backfill and reconciliation.',
+  description: 'Projects audited changes into the Process X-Ray tables. Disable to pause ingest, backfill and reconciliation (retention pruning continues).',
   category: 'insights',
   type: 'boolean' as const,
   defaultValue: true,

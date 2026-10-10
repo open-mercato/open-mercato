@@ -83,7 +83,7 @@ describe('insights_field_explain toggle seed', () => {
   it('runs from the module seedDefaults hook alongside the X-Ray ingest toggle and schedule', async () => {
     mockFindOneWithDecryption.mockResolvedValue(null)
     const double = buildEm()
-    const register = jest.fn(async () => undefined)
+    const register = jest.fn(async (_registration: Record<string, unknown>) => undefined)
 
     await setup.seedDefaults?.({
       em: double.em,
@@ -98,9 +98,10 @@ describe('insights_field_explain toggle seed', () => {
     expect(seededIdentifiers).toEqual(['insights_field_explain', 'insights_xray_ingest'])
     expect(double.persist).toHaveBeenCalledTimes(2)
     expect(register).toHaveBeenCalledWith(expect.objectContaining({
-      tenantId: 'tenant-1',
-      organizationId: 'org-1',
+      scopeType: 'system',
       targetQueue: 'insights-xray-ingest',
+      targetPayload: { kind: 'xray_fanout' },
     }))
+    expect(register.mock.calls[0][0]).not.toHaveProperty('tenantId')
   })
 })

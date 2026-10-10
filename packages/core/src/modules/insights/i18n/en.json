@@ -202,6 +202,5 @@
   "insights.xray.errors.invalidBackfill": "Invalid backfill request",
   "insights.xray.errors.invalidSettings": "Invalid Process X-Ray settings",
   "insights.xray.errors.noProcesses": "No module declares a process for Process X-Ray.",
-  "insights.xray.errors.rebuildRequired": "The process declarations changed. Rebuild the projection first.",
   "insights.xray.errors.settingsConflict": "The settings were changed by someone else. Reload and try again."
 }

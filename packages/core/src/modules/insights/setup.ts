@@ -2,14 +2,14 @@ import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 
 export const setup: ModuleSetupConfig = {
   async seedDefaults(ctx) {
-    const [{ seedInsightsFieldExplainToggle }, { seedXrayIngestToggle }, { ensureXrayIngestSchedule }] = await Promise.all([
+    const [{ seedInsightsFieldExplainToggle }, { seedXrayIngestToggle }, { seedXrayIngest }] = await Promise.all([
       import('./lib/fieldExplainToggleSeed'),
       import('./lib/projection/killSwitch'),
-      import('./lib/projection/queue'),
+      import('./lib/projection/jobs'),
     ])
     await seedInsightsFieldExplainToggle(ctx.em, ctx.container)
     await seedXrayIngestToggle(ctx.em, ctx.container)
-    await ensureXrayIngestSchedule(ctx.container, { tenantId: ctx.tenantId, organizationId: ctx.organizationId })
+    await seedXrayIngest(ctx.container, { tenantId: ctx.tenantId, organizationId: ctx.organizationId })
   },
   defaultRoleFeatures: {
     superadmin: ['insights.*'],

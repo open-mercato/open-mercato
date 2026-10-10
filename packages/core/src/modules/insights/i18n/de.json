@@ -202,6 +202,5 @@
   "insights.xray.errors.invalidBackfill": "Ungültige Nachbefüllungsanfrage",
   "insights.xray.errors.invalidSettings": "Ungültige Process-X-Ray-Einstellungen",
   "insights.xray.errors.noProcesses": "Kein Modul deklariert einen Prozess für Process X-Ray.",
-  "insights.xray.errors.rebuildRequired": "Die Prozessdeklarationen haben sich geändert. Bauen Sie die Projektion zuerst neu auf.",
   "insights.xray.errors.settingsConflict": "Die Einstellungen wurden von jemand anderem geändert. Laden Sie neu und versuchen Sie es erneut."
 }

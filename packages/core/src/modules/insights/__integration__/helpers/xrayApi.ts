@@ -48,7 +48,9 @@ export type XrayStatusBody = {
   ingestEnabled: boolean
   registry: { ready: boolean; contractHash: string; processes: Array<{ processKey: string }>; rejected: number }
   cursor: { status: string; contractMatches: boolean; computedThrough: string | null; scan: { id: string } | null } | null
-  processes: Array<{ processKey: string; n: number; voidedEvents: number; cases: number; openCases: number }>
+  /** Counts are null when they hit their statement timeout (`countsTimedOut`). */
+  processes: Array<{ processKey: string; n: number | null; voidedEvents: number | null; cases: number | null; openCases: number | null }>
+  countsTimedOut: boolean
   computedThrough: string | null
 }
 
@@ -175,19 +177,13 @@ export async function deleteProjectedCases(caseIds: Array<string | null>): Promi
 }
 
 /**
- * Removes every X-Ray row of an organization created only for a test, starting with the ingest
- * schedule a backfill registers for it, so no later tick re-creates its cursor.
+ * Removes every X-Ray row of an organization created only for a test. Ingest is driven by one
+ * system tick that only enqueues organizations with a cursor, so deleting the cursor (with the
+ * organization) ends its ingest.
  */
 export async function deleteXrayOrganizationState(organizationId: string | null): Promise<void> {
   if (!organizationId) return
   await withClient(async (client) => {
-    const scheduler = await client.query<{ name: string | null }>("select to_regclass('public.scheduled_jobs')::text as name")
-    if (scheduler.rows[0]?.name) {
-      await client.query(
-        "delete from scheduled_jobs where organization_id = $1 and source_module = 'insights' and target_queue = $2",
-        [organizationId, XRAY_INGEST_QUEUE],
-      )
-    }
     for (const table of ['insights_process_events', 'insights_process_cases', 'insights_process_rollups', 'insights_process_cursors', 'insights_process_settings']) {
       await client.query(`delete from ${table} where organization_id = $1`, [organizationId])
     }
