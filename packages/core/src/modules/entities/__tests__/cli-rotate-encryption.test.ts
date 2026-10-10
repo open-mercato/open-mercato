@@ -13,6 +13,7 @@ registerEntityIds({
 
 const execute = jest.fn()
 const find = jest.fn()
+const getAllMetadata = jest.fn()
 
 jest.mock('@open-mercato/core/modules/entities/lib/install-from-ce', () => ({
   installCustomEntitiesFromModules: jest.fn(async () => ({ processed: 0, synchronized: 0, fieldChanges: 0, skipped: 0 })),
@@ -73,40 +74,44 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
     resolve: () => ({
       getConnection: () => ({ execute }),
       getMetadata: () => ({
-        getAll: () => ([{
-          className: 'AccessLog',
-          name: 'AccessLog',
-          tableName: 'access_logs',
-          primaryKeys: ['id'],
-          properties: {
-            resourceId: {
-              name: 'resourceId',
-              fieldNames: ['resource_id'],
-              columnTypes: ['text'],
-              type: 'text',
-            },
-            contextJson: {
-              name: 'contextJson',
-              fieldNames: ['context_json'],
-              columnTypes: ['jsonb'],
-              type: 'jsonb',
-            },
-          },
-        }]),
+        getAll: () => getAllMetadata(),
       }),
       find: (...args: any[]) => find(...args),
     }),
   }),
 }))
 
+const accessLogMetadata = {
+  className: 'AccessLog',
+  name: 'AccessLog',
+  tableName: 'access_logs',
+  primaryKeys: ['id'],
+  properties: {
+    resourceId: {
+      name: 'resourceId',
+      fieldNames: ['resource_id'],
+      columnTypes: ['text'],
+      type: 'text',
+    },
+    contextJson: {
+      name: 'contextJson',
+      fieldNames: ['context_json'],
+      columnTypes: ['jsonb'],
+      type: 'jsonb',
+    },
+  },
+}
+
 describe('entities rotate-encryption-key CLI', () => {
   let cli: Array<{ command: string; run: (args: string[]) => Promise<void> }>
 
   beforeEach(() => {
     jest.clearAllMocks()
+    getAllMetadata.mockReturnValue([accessLogMetadata])
     getDek.mockImplementation(defaultGetDek)
     encryptEntityPayload.mockImplementation(defaultEncryptEntityPayload)
     process.env.TENANT_DATA_ENCRYPTION = 'yes'
+    delete process.env.TENANT_DATA_ENCRYPTION_OLD_KEY
     cli = require('@open-mercato/core/modules/entities/cli').default
   })
 
@@ -166,13 +171,15 @@ describe('entities rotate-encryption-key CLI', () => {
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
 
-    await rotate.run(['--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1'])
+    await expect(
+      rotate.run(['--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1']),
+    ).rejects.toThrow('could not be rotated')
 
     // The unopenable field must not reach the encrypt path at all.
     expect(encryptEntityPayload.mock.calls[0][1]).not.toHaveProperty('resource_id')
     // Only the select ran — no UPDATE re-wrapped the ciphertext.
     expect(execute).toHaveBeenCalledTimes(1)
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('opens under neither --old-key nor the current tenant key'))
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('opens under neither the previous nor the current tenant key'))
 
     logSpy.mockRestore()
     warnSpy.mockRestore()
@@ -320,5 +327,168 @@ describe('entities rotate-encryption-key CLI', () => {
     expect(execute).toHaveBeenCalledTimes(2) // select + update
 
     logSpy.mockRestore()
+  })
+
+  it('reads the previous key from the environment without requiring it in argv', async () => {
+    const rotate = cli.find((c: any) => c.command === 'rotate-encryption-key')!
+    process.env.TENANT_DATA_ENCRYPTION_OLD_KEY = 'old-secret'
+    singleMapFixture()
+    execute.mockResolvedValueOnce([
+      { id: 'row-1', resource_id: shapeValidCiphertext('cipher'), context_json: null },
+    ])
+    ;(decryptWithAesGcm as jest.Mock).mockReturnValueOnce('resource-value')
+
+    await rotate.run(['--tenant', 'tenant-1', '--org', 'org-1'])
+
+    expect(decryptWithAesGcm).toHaveBeenCalledTimes(1)
+    expect(execute).toHaveBeenCalledTimes(2)
+  })
+
+  it('warns when the legacy --old-key argument carries key material', async () => {
+    const rotate = cli.find((c: any) => c.command === 'rotate-encryption-key')!
+    singleMapFixture()
+    execute.mockResolvedValueOnce([])
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await rotate.run(['--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1'])
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('TENANT_DATA_ENCRYPTION_OLD_KEY'))
+    warnSpy.mockRestore()
+  })
+
+  it('rejects conflicting environment and argv keys before accessing data', async () => {
+    const rotate = cli.find((c: any) => c.command === 'rotate-encryption-key')!
+    process.env.TENANT_DATA_ENCRYPTION_OLD_KEY = 'environment-secret'
+
+    await expect(
+      rotate.run(['--old-key', 'argument-secret', '--tenant', 'tenant-1']),
+    ).rejects.toThrow('contain different values')
+
+    expect(find).not.toHaveBeenCalled()
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it('rejects disabled encryption instead of returning a successful result', async () => {
+    const rotate = cli.find((c: any) => c.command === 'rotate-encryption-key')!
+    process.env.TENANT_DATA_ENCRYPTION = 'no'
+
+    await expect(
+      rotate.run(['--tenant', 'tenant-1']),
+    ).rejects.toThrow('TENANT_DATA_ENCRYPTION is disabled')
+
+    expect(find).not.toHaveBeenCalled()
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it('does not print key-derived fingerprints in debug mode', async () => {
+    const rotate = cli.find((c: any) => c.command === 'rotate-encryption-key')!
+    process.env.TENANT_DATA_ENCRYPTION_OLD_KEY = 'old-secret'
+    singleMapFixture()
+    execute.mockResolvedValueOnce([])
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
+
+    await rotate.run(['--tenant', 'tenant-1', '--org', 'org-1', '--debug'])
+
+    const output = logSpy.mock.calls.flat().map(String).join('\n').toLowerCase()
+    expect(output).not.toContain('fingerprint')
+    expect(getDek).not.toHaveBeenCalled()
+    logSpy.mockRestore()
+  })
+
+  it('fails before querying mapped rows when entity metadata is missing', async () => {
+    const rotate = cli.find((c: any) => c.command === 'rotate-encryption-key')!
+    singleMapFixture()
+    getAllMetadata.mockReturnValue(new Map())
+
+    const error = await rotate
+      .run(['--tenant', 'tenant-1', '--org', 'org-1'])
+      .then(() => null, (e: Error) => e)
+
+    expect(error).toBeInstanceOf(Error)
+    expect(error!.message).toContain('audit_logs:access_log')
+    expect(error!.message).toContain('No rows were changed')
+    // The remediation has to be in the message: rotation has no --entity flag to route around a
+    // stale map with, so an operator who cannot act on this text cannot rotate at all.
+    expect(error!.message).toContain('is the module that owns it still enabled?')
+    expect(error!.message).toContain('encryption_maps')
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  // A map with no mapped fields has nothing to rotate, so skipping it cannot silently leave a
+  // field sealed under the old key — the failure mode the preflight exists to prevent.
+  it('skips a map that declares no encrypted fields instead of failing the run', async () => {
+    const rotate = cli.find((c: any) => c.command === 'rotate-encryption-key')!
+    find.mockImplementation(async (entity: any) => {
+      if (entity === EncryptionMap) {
+        return [
+          {
+            id: 'map-empty',
+            entityId: 'audit_logs:other_log',
+            tenantId: 'tenant-1',
+            organizationId: 'org-1',
+            fieldsJson: [],
+            deletedAt: null,
+          },
+          {
+            id: 'map-1',
+            entityId: 'audit_logs:access_log',
+            tenantId: 'tenant-1',
+            organizationId: 'org-1',
+            fieldsJson: [{ field: 'resource_id' }],
+            deletedAt: null,
+          },
+        ]
+      }
+      if (entity === Organization) return [{ id: 'org-1', tenantId: 'tenant-1' }]
+      return []
+    })
+    execute.mockResolvedValueOnce([{ id: 'row-1', resource_id: 'plain-value' }])
+
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation()
+    await rotate.run(['--tenant', 'tenant-1', '--org', 'org-1'])
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('declares no encrypted fields'))
+    expect(execute).toHaveBeenCalled()
+    warnSpy.mockRestore()
+  })
+
+  // encryption.mdx ("Backfilling system-scoped records") states that these commands walk
+  // encryption_maps and skip every row without a tenant, because a tenant key cannot open
+  // system-scoped ciphertext. A preflight that aborts on one would contradict the shipped docs
+  // and leave the operator no way to rotate the rest of the scope.
+  it('skips a tenantless map, as the system-scoped backfill docs promise, instead of failing', async () => {
+    const rotate = cli.find((c: any) => c.command === 'rotate-encryption-key')!
+    find.mockImplementation(async (entity: any) => {
+      if (entity === EncryptionMap) {
+        return [
+          {
+            id: 'map-systemish',
+            entityId: 'audit_logs:other_log',
+            tenantId: null,
+            organizationId: null,
+            fieldsJson: [{ field: 'resource_id' }],
+            deletedAt: null,
+          },
+          {
+            id: 'map-1',
+            entityId: 'audit_logs:access_log',
+            tenantId: 'tenant-1',
+            organizationId: 'org-1',
+            fieldsJson: [{ field: 'resource_id' }],
+            deletedAt: null,
+          },
+        ]
+      }
+      if (entity === Organization) return [{ id: 'org-1', tenantId: 'tenant-1' }]
+      return []
+    })
+    execute.mockResolvedValueOnce([{ id: 'row-1', resource_id: 'plain-value' }])
+
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation()
+    await rotate.run(['--tenant', 'tenant-1', '--org', 'org-1'])
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('backfill-system-encryption'))
+    expect(execute).toHaveBeenCalled()
+    warnSpy.mockRestore()
   })
 })
