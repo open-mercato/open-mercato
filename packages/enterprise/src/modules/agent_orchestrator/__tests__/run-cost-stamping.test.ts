@@ -161,6 +161,53 @@ describe('runs.complete / runs.fail — additive confidence + usage/cost stamps'
     expect(row.currency).toBe('USD')
   })
 
+  it('stamps cachedInputTokens alongside inputTokens, and an absent value leaves the column untouched (#6240)', async () => {
+    const { em, storeFor } = createFakeEm()
+    const row = seedRunningRun(storeFor, { cachedInputTokens: null })
+    await completeAgentRunCommand.execute(
+      {
+        runId: RUN_ID,
+        status: 'ok',
+        output: { kind: 'research', data: {} },
+        resultKind: 'research',
+        inputTokens: 456_684,
+        cachedInputTokens: 391_095,
+        outputTokens: 5_138,
+      },
+      makeCtx(em),
+    )
+    expect(row.inputTokens).toBe(456_684)
+    expect(row.cachedInputTokens).toBe(391_095)
+
+    const legacy = createFakeEm()
+    const legacyRow = seedRunningRun(legacy.storeFor, { cachedInputTokens: null })
+    await failAgentRunCommand.execute(
+      { runId: RUN_ID, errorMessage: 'boom', inputTokens: 500, outputTokens: 100 },
+      makeCtx(legacy.em),
+    )
+    // Unknown stays unknown: never backfilled to 0.
+    expect(legacyRow.cachedInputTokens).toBeNull()
+  })
+
+  it('clamps a cached share larger than the input it is a subset of', async () => {
+    const { em, storeFor } = createFakeEm()
+    const row = seedRunningRun(storeFor, { cachedInputTokens: null })
+    await failAgentRunCommand.execute(
+      { runId: RUN_ID, errorMessage: 'boom', inputTokens: 100, cachedInputTokens: 400 },
+      makeCtx(em),
+    )
+    expect(row.inputTokens).toBe(100)
+    expect(row.cachedInputTokens).toBe(100)
+  })
+
+  it('rejects a negative cachedInputTokens stamp', async () => {
+    const { em, storeFor } = createFakeEm()
+    seedRunningRun(storeFor)
+    await expect(
+      failAgentRunCommand.execute({ runId: RUN_ID, errorMessage: 'boom', cachedInputTokens: -1 }, makeCtx(em)),
+    ).rejects.toThrow()
+  })
+
   it('runs.fail without stamps leaves columns untouched (BC)', async () => {
     const { em, storeFor } = createFakeEm()
     const row = seedRunningRun(storeFor, { inputTokens: 11, costMinor: 22 })

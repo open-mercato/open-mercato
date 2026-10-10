@@ -57,6 +57,7 @@ export class AgentRun {
     | 'confidence'
     | 'inputTokens'
     | 'outputTokens'
+    | 'cachedInputTokens'
     | 'costMinor'
     | 'currency'
     | 'latencyMs'
@@ -154,6 +155,10 @@ export class AgentRun {
 
   @Property({ name: 'output_tokens', type: 'integer', nullable: true })
   outputTokens?: number | null
+
+  /** Cached SUBSET of `inputTokens` (not an addition); null = unknown, never assumed 0. */
+  @Property({ name: 'cached_input_tokens', type: 'integer', nullable: true })
+  cachedInputTokens?: number | null
 
   /** Backed by a `bigint` column; hydrate as `number` (safe under Number.MAX_SAFE_INTEGER for minor-unit costs) instead of MikroORM's default JS `bigint`. */
   @Property({ name: 'cost_minor', type: new BigIntType('number'), nullable: true })
