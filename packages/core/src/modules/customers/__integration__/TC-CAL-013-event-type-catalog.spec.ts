@@ -110,6 +110,58 @@ test.describe('TC-CAL-013: scoped event-type catalog and command enforcement', (
     }
   })
 
+  test('requires confirmation when the calendar editor sends explicit nulls for fields the new type hides', async ({ request }) => {
+    let token: string | null = null
+    let personId: string | null = null
+    let meetingId: string | null = null
+    try {
+      token = await getAuthToken(request, 'admin')
+      personId = await createPersonFixture(request, token, {
+        firstName: 'Calendar', lastName: `EditorSwitch${Date.now()}`, displayName: `Calendar editor switch QA ${Date.now()}`,
+      })
+      const created = await apiRequest(request, 'POST', '/api/customers/interactions', {
+        token,
+        data: {
+          entityId: personId, interactionType: 'meeting', title: 'Editor type switch QA',
+          scheduledAt: '2026-10-05T09:00:00.000Z', durationMinutes: 60, location: 'Room 3',
+        },
+      })
+      expect(created.status(), await created.text()).toBe(201)
+      meetingId = (await created.json() as { id?: string }).id ?? null
+      expect(meetingId).toBeTruthy()
+
+      const authToken = token
+      const readRow = async () => {
+        const list = await apiRequest(request, 'GET', '/api/customers/interactions?entityId=' + personId +
+          '&from=2026-10-05T00%3A00%3A00Z&to=2026-10-06T00%3A00%3A00Z', { token: authToken })
+        expect(list.status(), await list.text()).toBe(200)
+        return ((await list.json()) as { items?: Array<{ id: string; interactionType: string; durationMinutes?: number | null; location?: string | null }> })
+          .items?.find((item) => item.id === meetingId)
+      }
+      const editorPayload = {
+        id: meetingId, interactionType: 'note', enforceSelectableType: true,
+        location: null, durationMinutes: null, allDay: null, recurrenceRule: null, recurrenceEnd: null, participants: null,
+      }
+
+      const proposed = await apiRequest(request, 'PUT', '/api/customers/interactions', { token, data: editorPayload })
+      expect(proposed.status(), await proposed.text()).toBe(409)
+      expect(await proposed.json()).toMatchObject({
+        code: 'calendar_type_change_confirmation_required',
+        fields: expect.arrayContaining(['durationMinutes', 'location']),
+      })
+      expect(await readRow()).toMatchObject({ interactionType: 'meeting', durationMinutes: 60, location: 'Room 3' })
+
+      const confirmed = await apiRequest(request, 'PUT', '/api/customers/interactions', {
+        token, data: { ...editorPayload, confirmDiscardInapplicableValues: true },
+      })
+      expect(confirmed.status(), await confirmed.text()).toBe(200)
+      expect(await readRow()).toMatchObject({ interactionType: 'note', durationMinutes: null, location: null })
+    } finally {
+      await deleteEntityIfExists(request, token, '/api/customers/interactions', meetingId)
+      await deleteEntityIfExists(request, token, '/api/customers/people', personId)
+    }
+  })
+
   test('switches type in one call for a caller that does not opt into selectable-type enforcement', async ({ request }) => {
     let token: string | null = null
     let personId: string | null = null

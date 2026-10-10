@@ -298,6 +298,34 @@ describe('interaction calendar-type command enforcement', () => {
     expect(em.flush).toHaveBeenCalledTimes(1)
   })
 
+  it('asks before clearing stored values the calendar editor sends as explicit nulls on a type change (#7165)', async () => {
+    const { interaction, em, context } = makeContext()
+    interaction.linkedEntities = [{ type: 'deal', id: 'deal', label: 'Deal' }]
+    findOneWithDecryptionMock.mockResolvedValue(interaction)
+    loadCustomFieldSnapshotMock.mockResolvedValue({})
+    const command = registeredCommands.get('customers.interactions.update')!
+    const editorPayload = {
+      id: INTERACTION,
+      interactionType: 'note',
+      location: null,
+      durationMinutes: null,
+      allDay: null,
+      recurrenceRule: null,
+      recurrenceEnd: null,
+      participants: null,
+      enforceSelectableType: true,
+    }
+    await expect(command.execute(editorPayload, context)).rejects.toMatchObject({
+      status: 409,
+      body: { code: 'calendar_type_change_confirmation_required', fields: ['durationMinutes', 'location'] },
+    })
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(interaction).toMatchObject({ interactionType: 'meeting', durationMinutes: 30, location: 'Office' })
+    await command.execute({ ...editorPayload, confirmDiscardInapplicableValues: true }, context)
+    expect(interaction).toMatchObject({ interactionType: 'note', durationMinutes: null, location: null })
+    expect(em.flush).toHaveBeenCalledTimes(1)
+  })
+
   it('lets a legacy caller change type without a confirmation round trip and clears nothing it did not send', async () => {
     const { interaction, em, context } = makeContext()
     findOneWithDecryptionMock.mockResolvedValue(interaction)

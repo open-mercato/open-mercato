@@ -1,5 +1,5 @@
 import { calendarEventTypes } from '../../../calendar-event-types'
-import { clearInapplicableCoreFields, findInapplicableCoreFields, preserveHiddenCoreValuesOnSameTypeEdit } from '../interactionApplicability'
+import { clearInapplicableCoreFields, findInapplicableCoreFields, omitHiddenCoreClears, preserveHiddenCoreValuesOnSameTypeEdit } from '../interactionApplicability'
 
 const meeting = calendarEventTypes.find((type) => type.key === 'meeting')!
 const note = calendarEventTypes.find((type) => type.key === 'note')!
@@ -42,6 +42,21 @@ describe('calendar interaction field applicability', () => {
       location: null,
       linkedEntities: [{ type: 'deal', id: 'deal' }],
     })
+  })
+
+  it('drops explicit nulls only for fields the target type hides', () => {
+    expect(omitHiddenCoreClears(noResourceNote, {
+      title: 'Kept',
+      location: null,
+      durationMinutes: null,
+      allDay: null,
+      recurrenceRule: null,
+      recurrenceEnd: null,
+      participants: null,
+      priority: 10,
+    })).toEqual({ title: 'Kept', priority: 10 })
+    expect(omitHiddenCoreClears(meeting.behavior, { location: null, durationMinutes: null }))
+      .toEqual({ location: null, durationMinutes: null })
   })
 
   it('preserves hidden values when the same type is edited', () => {

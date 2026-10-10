@@ -52,6 +52,25 @@ export function clearInapplicableCoreFields(
 }
 
 /**
+ * Under the selectable-type opt-in an explicit `null` for a field the type hides
+ * means "not shown", not "clear it". Dropping it lets a type change judge the
+ * stored value, so the destructive clear is confirmed instead of silent.
+ */
+export function omitHiddenCoreClears(
+  behavior: CalendarEventTypeBehavior,
+  patch: InteractionCoreValues,
+): Record<string, unknown> {
+  const result = { ...patch }
+  for (const [rule, names] of CORE_FIELD_RULES) {
+    if (behavior.fields[rule]) continue
+    for (const name of names) if (result[name] === null) delete result[name]
+  }
+  if (behavior.fields.location === 'none' && result.location === null) delete result.location
+  if (behavior.fields.people === 'none' && result.participants === null) delete result.participants
+  return result
+}
+
+/**
  * `ignoreHiddenClears` belongs to the selectable-type opt-in: only a caller that
  * declares `enforceSelectableType` has its explicit `null` clears of fields the
  * type hides dropped. Retaining stored resource links is unconditional — it
@@ -63,15 +82,7 @@ export function preserveHiddenCoreValuesOnSameTypeEdit(
   patch: InteractionCoreValues,
   options: { ignoreHiddenClears?: boolean } = { ignoreHiddenClears: true },
 ): Record<string, unknown> {
-  const result = { ...patch }
-  if (options.ignoreHiddenClears !== false) {
-    for (const [rule, names] of CORE_FIELD_RULES) {
-      if (behavior.fields[rule]) continue
-      for (const name of names) if (result[name] === null) delete result[name]
-    }
-    if (behavior.fields.location === 'none' && result.location === null) delete result.location
-    if (behavior.fields.people === 'none' && result.participants === null) delete result.participants
-  }
+  const result = options.ignoreHiddenClears !== false ? omitHiddenCoreClears(behavior, patch) : { ...patch }
   if (!behavior.fields.resources && result.linkedEntities !== undefined) {
     const existingLinks = Array.isArray(current.linkedEntities) ? current.linkedEntities : []
     const retainedResources = existingLinks.filter((link) =>

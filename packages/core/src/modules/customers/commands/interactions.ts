@@ -53,7 +53,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { loadCustomFieldDefinitionIndex } from '@open-mercato/shared/lib/crud/custom-fields'
 import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth/principal-service'
 import { resolveCatalogEventType, resolveScopedCalendarEventTypes } from '../lib/calendar/eventTypeResolver'
-import { clearInapplicableCoreFields, findInapplicableCoreFields, preserveHiddenCoreValuesOnSameTypeEdit } from '../lib/calendar/interactionApplicability'
+import { clearInapplicableCoreFields, findInapplicableCoreFields, omitHiddenCoreClears, preserveHiddenCoreValuesOnSameTypeEdit } from '../lib/calendar/interactionApplicability'
 import { calendarEventTypes, type CalendarEventTypeBehavior } from '../calendar-event-types'
 import { canonicalCalendarTimezone } from '../lib/calendar/timezone'
 
@@ -809,7 +809,8 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
         priority: interaction.priority,
         linkedEntities: interaction.linkedEntities,
       }
-      const coreValues = { ...currentCoreValues, ...parsed }
+      const typeChangeFields = changingType && enforceSelectableType ? omitHiddenCoreClears(behavior, parsed) : parsed
+      const coreValues = { ...currentCoreValues, ...typeChangeFields }
       const inapplicableCore = findInapplicableCoreFields(behavior, changingType ? coreValues : parsed)
       const confirmsDiscard = parsed.confirmDiscardInapplicableValues === true
       const currentCustom = changingType && (enforceSelectableType || confirmsDiscard)
@@ -860,7 +861,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
       // dropping custom fields outside the type's fieldsets) is part of the opt-in
       // contract too: a legacy caller's write is accepted as sent.
       const sameTypeFields = changingType
-        ? parsed
+        ? typeChangeFields
         : preserveHiddenCoreValuesOnSameTypeEdit(behavior, currentCoreValues, parsed, {
           ignoreHiddenClears: enforceSelectableType,
         })
