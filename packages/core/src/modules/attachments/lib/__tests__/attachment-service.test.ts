@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import sharp from 'sharp'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { Attachment, AttachmentPartition } from '../../data/entities'
@@ -23,6 +24,11 @@ jest.mock('../partitions', () => ({
 }))
 
 jest.mock('../ocrQueue', () => ({ requestOcrProcessing: jest.fn(async () => undefined) }))
+
+const mockRenderImageRendition = jest.fn()
+jest.mock('../imageRendition', () => ({
+  renderImageRendition: (...args: unknown[]) => mockRenderImageRendition(...args),
+}))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: async (em: { findOne: (...args: unknown[]) => unknown }, ...args: unknown[]) =>
@@ -76,6 +82,8 @@ function createHarness(options: {
   attachment?: Attachment | null
   storeError?: Error
   readError?: Error
+  /** Bytes the storage driver returns on read. */
+  readBuffer?: Buffer
   /**
    * Simulates a regression that drops the scope columns from the Attachment
    * lookup, so the authorization layer can be exercised on its own.
@@ -96,7 +104,7 @@ function createHarness(options: {
     }),
     read: jest.fn(async () => {
       if (options.readError) throw options.readError
-      return { buffer: Buffer.from('file'), contentType: 'text/plain' }
+      return { buffer: options.readBuffer ?? Buffer.from('file'), contentType: 'text/plain' }
     }),
     delete: jest.fn(async () => undefined),
     toLocalPath: jest.fn(),
@@ -615,4 +623,205 @@ describe('DefaultAttachmentService', () => {
     expect(em.remove).not.toHaveBeenCalled()
     expect(driver.delete).not.toHaveBeenCalled()
   })
+})
+
+describe('DefaultAttachmentService.readScopedForOwner', () => {
+  const ATTACHMENT_ID = '7f1c2a9e-5b3d-4e8f-9a1b-2c3d4e5f6a7b'
+  const ownerInput = {
+    attachmentId: ATTACHMENT_ID,
+    tenantId: 'tenant-1',
+    organizationId: 'org-1',
+    expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+    expectedPartitionCode: 'privateAttachments',
+  }
+  const ownedAttachment = (overrides: Record<string, unknown> = {}) => attachment({ id: ATTACHMENT_ID, ...overrides })
+
+  it('reads the owner\'s attachment without a principal, scoped at the database boundary', async () => {
+    const { service, em } = createHarness({ attachment: ownedAttachment() })
+
+    const result = await service.readScopedForOwner(ownerInput)
+
+    expect(result.buffer.toString('utf8')).toBe('file')
+    expect(result.contentDisposition).toMatch(/^attachment;/)
+    const attachmentLookup = em.findOne.mock.calls.find(([entity]: unknown[]) => entity === Attachment)
+    expect(attachmentLookup?.[1]).toEqual({ id: ATTACHMENT_ID, tenantId: 'tenant-1', organizationId: 'org-1' })
+  })
+
+  it('serves an inline-safe image inline, like readScoped', async () => {
+    const { service } = createHarness({
+      attachment: ownedAttachment({ fileName: 'logo.png', mimeType: 'image/png' }),
+    })
+
+    const result = await service.readScopedForOwner(ownerInput)
+
+    expect(result.contentDisposition).toMatch(/^inline;/)
+  })
+
+  it('returns an SVG row as a download, never inline, even one carrying a sanitised-vector record', async () => {
+    const { service } = createHarness({
+      attachment: ownedAttachment({
+        fileName: 'logo.svg',
+        mimeType: 'image/svg+xml',
+        storageMetadata: { vectorImage: { sanitizer: 'dompurify', sanitizerVersion: '3.4.11', policyVersion: 1, sha256: '0'.repeat(64), sanitizedAt: '2026-10-07T00:00:00.000Z' } },
+      }),
+    })
+
+    const result = await service.readScopedForOwner(ownerInput)
+
+    expect(result.contentType).toBe('application/octet-stream')
+    expect(result.contentDisposition).toMatch(/^attachment;/)
+  })
+
+  it.each([
+    ['a different owner entity', { expectedOwner: { entityId: 'catalog:catalog_product', recordId: 'document-1' } }],
+    ['a different owner record', { expectedOwner: { entityId: 'documents:document', recordId: 'document-2' } }],
+    ['a different tenant', { tenantId: 'tenant-2' }],
+    ['a different organization', { organizationId: 'org-2' }],
+    ['a different partition', { expectedPartitionCode: 'productsMedia' }],
+    ['an assignment the row does not carry', { expectedAssignment: { type: 'documents:document', id: 'document-2' } }],
+  ])('refuses %s', async (_label, overrides) => {
+    const { service, factory } = createHarness({ attachment: ownedAttachment() })
+
+    await expectStatus(service.readScopedForOwner({ ...ownerInput, ...overrides }), 404)
+
+    expect(factory.resolveForPartition).not.toHaveBeenCalled()
+  })
+
+  it('pins an omitted partition to the default partition of the owner entity', async () => {
+    const partitions = jest.requireMock('../partitions') as { resolveDefaultPartitionCode: jest.Mock }
+    partitions.resolveDefaultPartitionCode.mockClear()
+    const withoutPartition = {
+      attachmentId: ownerInput.attachmentId,
+      tenantId: ownerInput.tenantId,
+      organizationId: ownerInput.organizationId,
+      expectedOwner: ownerInput.expectedOwner,
+    }
+    const served = createHarness({ attachment: ownedAttachment() })
+
+    await expect(served.service.readScopedForOwner(withoutPartition)).resolves.toMatchObject({ fileName: expect.any(String) })
+    expect(partitions.resolveDefaultPartitionCode).toHaveBeenCalledWith('documents:document')
+
+    const elsewhere = createHarness({ attachment: ownedAttachment({ partitionCode: 'productsMedia' }) })
+    await expectStatus(elsewhere.service.readScopedForOwner(withoutPartition), 404)
+    expect(elsewhere.factory.resolveForPartition).not.toHaveBeenCalled()
+  })
+
+  it('refuses a foreign-scope row even if the scoped lookup filter regresses', async () => {
+    const { service, factory } = createHarness({
+      attachment: ownedAttachment({ tenantId: 'tenant-2', organizationId: 'org-2' }),
+      unscopedAttachmentLookup: true,
+    })
+
+    await expectStatus(service.readScopedForOwner(ownerInput), 404)
+
+    expect(factory.resolveForPartition).not.toHaveBeenCalled()
+  })
+
+  it('refuses a partition owned by another tenant', async () => {
+    const { service, factory } = createHarness({
+      attachment: ownedAttachment(),
+      partition: partition({ tenantId: 'tenant-2', organizationId: 'org-2' }),
+    })
+
+    await expectStatus(service.readScopedForOwner(ownerInput), 404)
+
+    expect(factory.resolveForPartition).not.toHaveBeenCalled()
+  })
+
+  it('serves a resized rendition of an inline-safe image through the image pipeline', async () => {
+    mockRenderImageRendition.mockResolvedValueOnce({ ok: true, buffer: Buffer.from('resized') })
+    const { service } = createHarness({
+      attachment: ownedAttachment({ fileName: 'logo.png', mimeType: 'image/png' }),
+    })
+
+    const result = await service.readScopedForOwner({
+      ...ownerInput,
+      rendition: { width: 640, height: 240, cropType: 'contain' },
+    })
+
+    expect(result.buffer.toString('utf8')).toBe('resized')
+    expect(result.contentType).toBe('image/png')
+    expect(result.contentDisposition).toMatch(/^inline;/)
+    expect(mockRenderImageRendition).toHaveBeenCalledWith(expect.objectContaining({
+      attachment: expect.objectContaining({ id: ATTACHMENT_ID, partitionCode: 'privateAttachments', mimeType: 'image/png' }),
+      size: { width: 640, height: 240, cropType: 'contain' },
+    }))
+  })
+
+  it('refuses a rendition of anything the image pipeline does not render', async () => {
+    mockRenderImageRendition.mockClear()
+    const { service, factory } = createHarness({ attachment: ownedAttachment({ mimeType: 'text/plain' }) })
+
+    await expectStatus(service.readScopedForOwner({ ...ownerInput, rendition: { width: 640 } }), 404)
+
+    expect(mockRenderImageRendition).not.toHaveBeenCalled()
+    expect(factory.resolveForPartition).not.toHaveBeenCalled()
+  })
+
+  it('passes on the image pipeline\'s refusal of a damaged image', async () => {
+    mockRenderImageRendition.mockResolvedValueOnce({ ok: false, status: 400, error: 'Image MIME type does not match file content' })
+    const { service } = createHarness({ attachment: ownedAttachment({ mimeType: 'image/png' }) })
+
+    await expectStatus(service.readScopedForOwner({ ...ownerInput, rendition: { width: 640 } }), 400)
+  })
+
+  it('refuses a corrupt image that passes the header checks but fails to decode, instead of failing with a 500', async () => {
+    const actualRendition = jest.requireActual('../imageRendition') as typeof import('../imageRendition')
+    mockRenderImageRendition.mockImplementationOnce(actualRendition.renderImageRendition)
+    const png = await sharp({ create: { width: 64, height: 64, channels: 3, background: { r: 42, g: 157, b: 143 } } })
+      .png()
+      .toBuffer()
+    const pixelDataStart = png.indexOf(Buffer.from('IDAT')) + 4
+    const corruptPng = Buffer.concat([
+      png.subarray(0, pixelDataStart),
+      Buffer.alloc(png.length - pixelDataStart - 12, 0xff),
+      png.subarray(png.length - 12),
+    ])
+    const { service } = createHarness({
+      attachment: ownedAttachment({ fileName: 'logo.png', mimeType: 'image/png' }),
+      readBuffer: corruptPng,
+    })
+
+    await expectStatus(service.readScopedForOwner({
+      ...ownerInput,
+      rendition: { width: 640, height: 240, cropType: 'contain' },
+    }), 422)
+  })
+
+  it('propagates an operational rendition failure instead of answering it as an undecodable image', async () => {
+    const accessDenied = Object.assign(new Error('EACCES: permission denied, open thumbnail'), { code: 'EACCES' })
+    mockRenderImageRendition.mockRejectedValueOnce(accessDenied)
+    const { service } = createHarness({ attachment: ownedAttachment({ fileName: 'logo.png', mimeType: 'image/png' }) })
+
+    await expect(service.readScopedForOwner({ ...ownerInput, rendition: { width: 640 } })).rejects.toBe(accessDenied)
+  })
+
+  it.each([
+    ['a non-UUID id', 'attachment-1'],
+    ['an empty id', ''],
+    ['a UUID followed by injected text', `${'7f1c2a9e-5b3d-4e8f-9a1b-2c3d4e5f6a7b'} or 1=1`],
+  ])('refuses %s before querying', async (_label, attachmentId) => {
+    const { service, em } = createHarness({ attachment: ownedAttachment() })
+
+    await expectStatus(service.readScopedForOwner({ ...ownerInput, attachmentId }), 404)
+
+    expect(em.findOne).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['a blank tenant', { tenantId: ' ' }],
+    ['a blank organization', { organizationId: '' }],
+    ['a blank partition', { expectedPartitionCode: '' }],
+    ['a missing owner record', { expectedOwner: { entityId: 'documents:document', recordId: '' } }],
+  ])('refuses %s with an internal error instead of widening the lookup', async (_label, overrides) => {
+    const { service, em } = createHarness({ attachment: ownedAttachment() })
+
+    await expect(service.readScopedForOwner({ ...ownerInput, ...overrides } as typeof ownerInput)).rejects.toMatchObject({
+      status: 500,
+      body: { error: expect.stringMatching(/^\[internal\] /) },
+    })
+
+    expect(em.findOne).not.toHaveBeenCalled()
+  })
+
 })

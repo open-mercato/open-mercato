@@ -325,6 +325,7 @@
   "checkout.payPage.errors.embeddedUnavailable": "Das Zahlungsformular ist derzeit nicht verfuegbar. Bitte versuche es erneut oder nutze die gehostete Zahlungsseite.",
   "checkout.payPage.errors.loadMessage": "Diese Zahlungsseite konnte nicht geladen werden. Bitte versuche es erneut.",
   "checkout.payPage.errors.loadTitle": "Zahlungslink konnte nicht geladen werden",
+  "checkout.payPage.errors.logoNotFound": "Logo nicht gefunden.",
   "checkout.payPage.errors.password": "Das Passwort konnte nicht verifiziert werden. Bitte versuche es erneut.",
   "checkout.payPage.errors.sessionStart": "Die Zahlungssitzung konnte nicht gestartet werden. Bitte versuche es erneut.",
   "checkout.payPage.errors.submit": "Die Zahlung konnte nicht gestartet werden. Bitte versuche es erneut.",

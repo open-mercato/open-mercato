@@ -556,3 +556,18 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 | Database schema, event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
 
 **Migration path for existing modules**: send `parentId: null` / `childIds: []` where clearing is intended. Trees flattened before the upgrade are not repaired (see UPGRADE_NOTES.md).
+
+---
+
+## Attachment Image Route Answers Undecodable Images 422 (2026-10-07)
+
+The raster pipeline behind `GET /api/attachments/image/{id}` moved into `attachments/lib/imageRendition.ts` so the new `attachmentService.readScopedForOwner({ rendition })` can share it. A stored image that passed the magic-byte and dimension checks but that Sharp cannot decode (a corrupt file with a valid header) used to throw out of the route's `try` and answer the generic `500 { error: 'Failed to render image' }`. The pipeline now classifies only Sharp's decode errors (`isUndecodableImageError`) as a refusal:
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| HTTP response (`GET /api/attachments/image/{id}`) | An undecodable stored image now answers `422 { error: 'Image could not be rendered' }` where it previously answered `500 { error: 'Failed to render image' }`. Memory, storage, thumbnail-cache and encoder failures still answer the same `500`, and are now also reported to telemetry (`attachments.image_rendition_failed`). Every other response is byte-identical | ⚠️ Behaviour change for one error class only. A client that treated the old `500` as retryable now receives a non-retryable `422`; the file was never going to render. Regression-tested in `imageRendition.test.ts` and `imageRendition.failure.test.ts` |
+| OpenAPI (`GET /api/attachments/image/{id}`) | Documents the `422` | ✓ ADDITIVE |
+| Import path / exports (`@open-mercato/core/modules/attachments/lib/imageRendition`) | New module exporting `renderImageRendition` and `isUndecodableImageError` | ✓ ADDITIVE |
+| Event IDs, ACL features, DI names, database schema, CLI commands | No change | ✓ n/a |
+
+**Migration path for existing modules**: no action required. A client that branched on `5xx` for a broken stored image should treat `422` as the same condition.
