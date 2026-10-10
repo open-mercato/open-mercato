@@ -48,6 +48,8 @@ Without `--force`, existing Tpay credentials or integration state are left untou
 
 Select **Tpay** as the payment provider of a checkout link and keep customer details collection enabled: Tpay requires the payer's email address and name, and checkout forwards the values the payer enters. Payments without an email address or name are rejected before anything is sent to Tpay.
 
+The **email**, **first name**, and **last name** customer fields must be marked as required. Until they are, the **Payment** section of the template or link editor shows a warning and saving is rejected. A link saved before this rule keeps working, but you must fix its customer fields the next time you save it.
+
 After paying, the payer returns to the checkout success page, which reads the transaction status from Tpay. A paid transaction becomes **captured**.
 
 ## Limitations
