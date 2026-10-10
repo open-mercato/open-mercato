@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { DealDetailPayload } from './types'
 
 type InjectedTab = {
@@ -25,6 +26,7 @@ export function useDealInjectedTabs({
   data,
   setData,
 }: UseDealInjectedTabsOptions): UseDealInjectedTabsResult {
+  const t = useT()
   const { widgets: injectedTabWidgets } = useInjectionWidgets('detail:customers.deal:tabs', {
     context: injectionContext,
     triggerOnLoad: true,
@@ -36,7 +38,9 @@ export function useDealInjectedTabs({
         .filter((widget) => (widget.placement?.kind ?? 'tab') === 'tab')
         .map((widget) => {
           const tabId = widget.placement?.groupId ?? widget.widgetId
-          const label = widget.placement?.groupLabel ?? widget.module.metadata.title ?? tabId
+          const label = widget.placement?.groupLabel
+            ? t(widget.placement.groupLabel, widget.placement.groupLabel)
+            : widget.module.metadata.title ?? tabId
           const priority = typeof widget.placement?.priority === 'number' ? widget.placement.priority : 0
           const render = () => (
             <widget.module.Widget
@@ -48,7 +52,7 @@ export function useDealInjectedTabs({
           return { id: tabId, label, priority, render }
         })
         .sort((left, right) => right.priority - left.priority),
-    [data, injectedTabWidgets, injectionContext, setData],
+    [data, injectedTabWidgets, injectionContext, setData, t],
   )
 
   const injectedTabMap = React.useMemo(
