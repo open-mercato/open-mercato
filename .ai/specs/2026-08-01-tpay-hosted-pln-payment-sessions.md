@@ -79,7 +79,7 @@ The only change outside the package is additive: the checkout submit route (`pac
 | `clientId` | `text` | yes | Tpay Open API client ID. |
 | `clientSecret` | `secret` | yes | Tpay Open API client secret. |
 | `environment` | `select` (`sandbox`, `production`) | yes, default `sandbox` | Selects a fixed base URL; never a free-form URL. |
-| `notificationUrl` | `text` | no | See Callback URL configuration. |
+| `notificationUrl` | `url` | no | See Callback URL configuration. |
 | `notificationSecurityCode` | `secret` | no | Stored now, consumed only by `.ai/specs/2026-07-26-tpay-full-integration.md`. |
 
 The integration credentials service encrypts the whole credential blob; `secret` controls UI masking only. Base URLs are fixed constants: `production` → `https://api.tpay.com`, `sandbox` → `https://openapi.sandbox.tpay.com`. OAuth uses the fixed path `POST /oauth/auth` (`application/x-www-form-urlencoded`, `client_id`, `client_secret`). A `transactionPaymentUrl` whose origin is not a Tpay-owned HTTPS host is rejected.
@@ -345,6 +345,10 @@ Run against a live Tpay sandbox merchant account on an ephemeral Open Mercato ap
 - User guide: `apps/docs/docs/user-guide/tpay-payments.mdx`.
 
 ## Changelog
+
+### 2026-10-10
+
+- Aligned the `notificationUrl` credential type with the implementation (`url`).
 
 ### 2026-10-09 (implementation)
 

@@ -3,7 +3,9 @@ import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/he
 import {
   TPAY_DUMMY_CLIENT_ID,
   TPAY_DUMMY_CLIENT_SECRET,
+  TPAY_PRECONFIGURED_SKIP_REASON,
   captureTpayBaseline,
+  hasPreconfiguredTpaySecrets,
   readTpayCredentials,
   readTpayEnabled,
   restoreTpayBaseline,
@@ -21,6 +23,7 @@ test.describe('TC-TPAY-001: Tpay credentials and enablement', () => {
   test('saves credentials without exposing the client secret and enables the integration', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const baseline = await captureTpayBaseline(request, token)
+    test.skip(hasPreconfiguredTpaySecrets(baseline), TPAY_PRECONFIGURED_SKIP_REASON)
 
     try {
       await saveTpayDummyCredentials(request, token)

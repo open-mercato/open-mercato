@@ -4,6 +4,8 @@ import { apiRequest } from '@open-mercato/core/modules/core/__integration__/help
 export const TPAY_INTEGRATION_ID = 'gateway_tpay'
 export const TPAY_DUMMY_CLIENT_ID = 'qa-dummy-client-id'
 export const TPAY_DUMMY_CLIENT_SECRET = 'qa-dummy-client-secret-value'
+export const TPAY_PRECONFIGURED_SKIP_REASON =
+  'Tpay secrets are already configured for this tenant; the test cannot restore a write-only secret it cannot read back'
 
 type JsonRecord = Record<string, unknown>
 
@@ -68,6 +70,10 @@ export async function captureTpayBaseline(request: APIRequestContext, token: str
     }
   }
   return { nonSecretCredentials, configuredSecretKeys, isEnabled: await readTpayEnabled(request, token) }
+}
+
+export function hasPreconfiguredTpaySecrets(baseline: TpayBaseline): boolean {
+  return baseline.configuredSecretKeys.length > 0
 }
 
 export async function saveTpayDummyCredentials(request: APIRequestContext, token: string): Promise<void> {

@@ -1,7 +1,9 @@
 import { expect, test } from '@playwright/test'
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
+  TPAY_PRECONFIGURED_SKIP_REASON,
   captureTpayBaseline,
+  hasPreconfiguredTpaySecrets,
   countGatewayTransactions,
   createTpaySession,
   restoreTpayBaseline,
@@ -19,6 +21,7 @@ test.describe('TC-TPAY-003: Tpay session validation', () => {
   test('rejects a non-PLN session before any provider call', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const baseline = await captureTpayBaseline(request, token)
+    test.skip(hasPreconfiguredTpaySecrets(baseline), TPAY_PRECONFIGURED_SKIP_REASON)
 
     try {
       await saveTpayDummyCredentials(request, token)
