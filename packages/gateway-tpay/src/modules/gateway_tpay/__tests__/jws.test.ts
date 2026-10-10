@@ -30,6 +30,8 @@ type Pki = {
   foreignLeafPem: string
   foreignLeafKey: string
   otherLeafKey: string
+  caLeafPem: string
+  caLeafKey: string
   anchors: string
   rootFingerprint: string
 }
@@ -76,6 +78,7 @@ beforeAll(() => {
   issue('foreignintermediate', '/O=Other/CN=Other Sandbox CA', 'foreignroot', 'ca', 3650)
   issue('foreignleaf', `/O=Other/CN=${LEAF_CN}`, 'foreignintermediate', 'leaf', 30)
   issue('otherleaf', `/O=Test/CN=${LEAF_CN}`, 'intermediate', 'leaf', 30)
+  issue('caleaf', `/O=Test/CN=${LEAF_CN}`, 'intermediate', 'ca', 30)
   pki = {
     leafPem: read('leaf.pem'),
     leafKey: read('leaf.key'),
@@ -84,6 +87,8 @@ beforeAll(() => {
     foreignLeafPem: read('foreignleaf.pem'),
     foreignLeafKey: read('foreignleaf.key'),
     otherLeafKey: read('otherleaf.key'),
+    caLeafPem: read('caleaf.pem'),
+    caLeafKey: read('caleaf.key'),
     anchors: `${read('intermediate.pem')}${read('root.pem')}`,
     rootFingerprint: new X509Certificate(read('root.pem')).fingerprint256,
   }
@@ -225,6 +230,11 @@ describe('verifyTpayJws', () => {
   it('rejects a leaf with an unexpected common name', async () => {
     const header = signJws(BODY, pki.wrongCnKey)
     expect(await rejectedCertificateReasonOf(run(header, fetcherFor(pki.wrongCnPem)))).toBe('unexpectedCommonName')
+  })
+
+  it('rejects a leaf that is itself a certificate authority', async () => {
+    const header = signJws(BODY, pki.caLeafKey)
+    expect(await rejectedCertificateReasonOf(run(header, fetcherFor(pki.caLeafPem)))).toBe('invalidCertificate')
   })
 
   it('rejects a leaf issued by a foreign chain', async () => {

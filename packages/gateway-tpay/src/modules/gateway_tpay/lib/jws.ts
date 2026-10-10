@@ -127,7 +127,7 @@ function isIssuedBy(subject: X509Certificate, issuer: X509Certificate): boolean 
 
 function validateLeaf(pem: string, trust: TpayJwsTrustConfig, now: Date): X509Certificate {
   const [leaf] = splitPemCertificates(pem)
-  if (!leaf) throw new TpayJwsError('invalidCertificate')
+  if (!leaf || leaf.ca) throw new TpayJwsError('invalidCertificate')
   if (leaf.publicKey.asymmetricKeyType !== 'rsa') throw new TpayJwsError('invalidCertificate')
   if (commonNameOf(leaf) !== trust.expectedLeafCommonName) throw new TpayJwsError('unexpectedCommonName')
   const anchors = splitPemCertificates(trust.anchors)
