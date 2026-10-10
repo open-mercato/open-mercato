@@ -25,7 +25,7 @@ import { XRAY_SUGGESTION_RESOURCE_KIND } from '../../../../lib/suggestions/const
 import { findSuggestion } from '../../../../lib/suggestions/store'
 import { createXrayDatabase } from '../../../../lib/projection/runtime'
 import { xrayAnalyticsFailure, xrayAnalyticsJson, xrayErrorResponse, type XrayRouteParams } from '../../../../lib/xrayAnalyticsRoutes'
-import { prepareXraySuggestionRoute, toSuggestionView, xraySuggestionNotFound } from '../../../../lib/xraySuggestionRoutes'
+import { prepareXraySuggestionRoute, toSuggestionView, withSuggestionLabels, xraySuggestionNotFound } from '../../../../lib/xraySuggestionRoutes'
 
 const logger = createLogger('insights').child({ component: 'xray-suggestion-route' })
 
@@ -98,7 +98,11 @@ export async function PATCH(req: Request, context: XrayRouteParams) {
     const em = (container.resolve('em') as EntityManager).fork()
     const saved = await findSuggestion(createXrayDatabase(em), suggestion.tenantId, suggestion.id)
     if (!saved) return xraySuggestionNotFound(prepared.translate)
-    const response = xrayAnalyticsJson({ ok: true, result: toSuggestionView(saved, prepared.process) })
+    const [result] = await withSuggestionLabels(
+      { container, userId: auth.sub, translate: prepared.translate, process: prepared.process, access: prepared.access },
+      [toSuggestionView(saved, prepared.process)],
+    )
+    const response = xrayAnalyticsJson({ ok: true, result })
     await runAfterSuccessSafely(guarded)
     return response
   } catch (error) {

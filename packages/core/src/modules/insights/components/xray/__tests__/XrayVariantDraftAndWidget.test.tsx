@@ -97,12 +97,13 @@ const DRAFT = {
   },
   activityStepMap: { 'status:open': 'status_open' },
   skippedActivities: ['created'],
+  activityLabels: { created: 'Deal created', 'status:open': 'Status: Open', 'status:win': 'Status: Won' },
   commands: [{ commandId: 'customers.deals.update', requiredFeatures: ['customers.deals.manage'], enabled: false }],
   workflowIdAvailable: true,
 }
 
 describe('XrayVariantDraftDialog', () => {
-  it('previews the draft for the chosen command, then creates it disabled after confirmation', async () => {
+  it('previews the draft for the chosen command, then creates it disabled after confirmation (no command lookup without workflows.definitions.edit)', async () => {
     respond((request) => {
       if (request.url.pathname === '/api/workflows/commands') return { status: 403, body: { error: 'Insufficient permissions' } }
       if (request.url.pathname.endsWith('/workflow-draft')) return { status: 200, body: DRAFT }
@@ -113,6 +114,7 @@ describe('XrayVariantDraftDialog', () => {
       <XrayVariantDraftDialog
         processKey="customers.deal"
         variant={VARIANT}
+        activityLabels={{ created: 'Created', 'status:open': 'Status: Open', 'status:win': 'Status: Won' }}
         window={{ kind: 'preset', key: '30d' }}
         permissions={{ canManage: true, canViewIndividuals: false, canCreateWorkflows: true, canEditWorkflows: false, canViewWorkflows: true, loading: false }}
         onClose={jest.fn()}
@@ -120,6 +122,9 @@ describe('XrayVariantDraftDialog', () => {
     )
     const dialog = await screen.findByTestId('xray-variant-draft-dialog')
     const commandInput = await within(dialog).findByPlaceholderText('module.entity.update')
+    expect(dialog).toHaveTextContent('Created → Status: Open → Status: Won')
+    expect(within(dialog).getByTestId('xray-commands-unavailable')).toHaveTextContent('workflows.definitions.edit')
+    expect(requests.some((request) => request.url.pathname === '/api/workflows/commands')).toBe(false)
     expect(screen.getByTestId('xray-draft-preview')).toBeDisabled()
     await act(async () => {
       fireEvent.change(commandInput, { target: { value: 'customers.deals.update' } })
@@ -133,7 +138,7 @@ describe('XrayVariantDraftDialog', () => {
     expect(preview?.url.pathname).toBe(`/api/insights/xray/customers.deal/variants/${HASH}/workflow-draft`)
     expect(preview?.body).toEqual({ window: '30d', commandId: 'customers.deals.update' })
     expect(mockRunMutation).not.toHaveBeenCalled()
-    expect(summary).toHaveTextContent('Not part of the draft: Created')
+    expect(summary).toHaveTextContent('Not part of the draft: Deal created')
     expect(summary).toHaveTextContent('Command not enabled for workflows')
 
     await act(async () => {
@@ -162,6 +167,9 @@ describe('XrayVariantDraftDialog', () => {
       />,
     )
     const input = await screen.findByPlaceholderText('module.entity.update')
+    const commandsLookup = requests.find((request) => request.url.pathname === '/api/workflows/commands')
+    expect(commandsLookup?.headers['x-om-forbidden-redirect']).toBe('0')
+    expect(screen.queryByTestId('xray-commands-unavailable')).toBeNull()
     await act(async () => {
       fireEvent.change(input, { target: { value: 'customers.deals.update' } })
     })
@@ -194,7 +202,7 @@ describe('Process health dashboard widget', () => {
         return { status: 200, body: { ...envelope, includeSyncRun: false, truncatedCases: 0, completed: { empty: false, stats: { n: 4, medianMs: null, p90Ms: null, lowConfidence: true }, histogram: [], excludedSyncRun: 0 }, open: null, byOrganization: [] } }
       }
       if (request.url.pathname.endsWith('/bottlenecks')) {
-        return { status: 200, body: { ...envelope, includeSyncRun: false, transitions: { raw: 1, collapsed: 1, measured: 1, excludedSyncRun: 0 }, items: [{ from: 'status:open', to: 'status:win', transitions: 9, rawTransitions: 9, cases: 9, wait: { n: 9, medianMs: 2 * 86_400_000, p90Ms: null, lowConfidence: true }, totalWaitMs: null }], omitted: 0 } }
+        return { status: 200, body: { ...envelope, includeSyncRun: false, transitions: { raw: 1, collapsed: 1, measured: 1, excludedSyncRun: 0 }, items: [{ from: 'status:open', to: 'status:win', transitions: 9, rawTransitions: 9, cases: 9, wait: { n: 9, medianMs: 2 * 86_400_000, p90Ms: null, lowConfidence: true }, totalWaitMs: null }], omitted: 0, activityLabels: { 'status:open': 'Status: Open', 'status:win': 'Status: Won' } } }
       }
       return { status: 404, body: {} }
     })
@@ -229,7 +237,7 @@ describe('Process health dashboard widget', () => {
     expect(deal).toHaveTextContent('42')
     expect(deal).toHaveTextContent('Hidden (privacy)')
     expect(deal).toHaveTextContent('Needs at least 5 cases (n = 4)')
-    expect(deal).toHaveTextContent('Longest wait: status: open → status: win (2 d)')
+    expect(deal).toHaveTextContent('Longest wait: Status: Open → Status: Won (2 d)')
     expect(within(deal).getByRole('link', { name: 'Deal' })).toHaveAttribute('href', '/backend/insights/process-xray/customers.deal?w=30d')
     await waitFor(() => expect(rows[1]).toHaveTextContent('Low confidence'))
   })

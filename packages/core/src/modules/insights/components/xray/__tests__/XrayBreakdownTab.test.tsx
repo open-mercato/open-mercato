@@ -78,6 +78,8 @@ describe('XrayBreakdownTab', () => {
     const breakdownCall = mockApiFetch.mock.calls.map(([input, init]) => recordRequest(input, init)).find((request) => request.url.pathname.endsWith('/breakdown'))
     expect(breakdownCall?.url.searchParams.get('groupBy')).toBe('org')
     expect(screen.getByText('1 h')).toBeInTheDocument()
+    const nameLookup = mockApiFetch.mock.calls.map(([input, init]) => recordRequest(input, init)).find((request) => request.url.pathname === '/api/directory/organizations')
+    expect(nameLookup?.headers['x-om-forbidden-redirect']).toBe('0')
   })
 
   it('offers the per-person view only with the permission and explains why otherwise', async () => {

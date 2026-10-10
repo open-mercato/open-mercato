@@ -52,9 +52,11 @@ const STATUS = {
 }
 
 const requests: RecordedRequest[] = []
+const granted: { features: string[] } = { features: [] }
 
 beforeEach(() => {
   requests.length = 0
+  granted.features = ['insights.xray.view', 'insights.xray.manage', 'workflows.definitions.view']
   mockFlash.mockReset()
   mockApiFetch.mockReset()
   mockApiFetch.mockImplementation(async (input: unknown, init?: RequestInit) => {
@@ -65,6 +67,10 @@ beforeEach(() => {
     }
     if (request.url.pathname === '/api/insights/xray/settings') return fakeResponse(200, { ok: true, result: SETTINGS })
     if (request.url.pathname === '/api/insights/xray/status') return fakeResponse(200, STATUS)
+    if (request.url.pathname === '/api/auth/feature-check') return fakeResponse(200, { ok: true, granted: granted.features })
+    if (request.url.pathname.startsWith('/api/workflows/definitions')) {
+      return fakeResponse(200, { data: [{ id: '55555555-0000-4000-8000-000000000001', workflowId: 'deal_flow', workflowName: 'Deal flow', version: 2 }] })
+    }
     return fakeResponse(200, { items: [], data: [] })
   })
 })
@@ -103,6 +109,33 @@ describe('XraySettingsPageClient', () => {
       fireEvent.click(screen.getByRole('checkbox', { name: /Allow per-person analytics/ }))
     })
     expect(await screen.findByTestId('xray-individuals-warning')).toHaveTextContent('can be used to monitor employees')
+  })
+
+  it('never looks up workflow definitions without workflows.definitions.view: inline hint, disabled field, the form still saves', async () => {
+    granted.features = ['insights.xray.view', 'insights.xray.manage']
+    renderXray(<XraySettingsPageClient />)
+    const retention = await screen.findByDisplayValue('365')
+    expect(await screen.findByTestId('xray-settings-workflow-unavailable')).toHaveTextContent('workflows.definitions.view')
+    const field = document.querySelector<HTMLElement>('[data-crud-field-id="conformanceWorkflowId"]')
+    expect(field?.querySelector('input')).toBeDisabled()
+    await act(async () => {
+      fireEvent.change(retention, { target: { value: '400' } })
+    })
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole('button', { name: 'Save settings' })[0])
+    })
+    await waitFor(() => expect(requests.some((request) => request.method === 'PUT')).toBe(true))
+    expect(requests.some((request) => request.url.pathname.startsWith('/api/workflows/'))).toBe(false)
+    expect(mockFlash).not.toHaveBeenCalledWith(expect.stringMatching(/Access denied/), expect.anything())
+  })
+
+  it('loads the workflow picker with the caller holding workflows.definitions.view, as an optional lookup that never raises the access-denied banner', async () => {
+    renderXray(<XraySettingsPageClient />)
+    await screen.findByDisplayValue('365')
+    await waitFor(() => expect(requests.some((request) => request.url.pathname === '/api/workflows/definitions')).toBe(true))
+    const lookup = requests.find((request) => request.url.pathname === '/api/workflows/definitions')
+    expect(lookup?.headers['x-om-forbidden-redirect']).toBe('0')
+    expect(screen.queryByTestId('xray-settings-workflow-unavailable')).toBeNull()
   })
 
   it('renders the projection status with the backfill action', async () => {

@@ -28,6 +28,8 @@ import { asValue, createContainer, InjectionMode } from 'awilix'
 import { CommandBus, registerCommand, unregisterCommand } from '@open-mercato/shared/lib/commands'
 import { buildChanges } from '@open-mercato/shared/lib/commands/helpers'
 import explainConfig, { SALES_LINE_PRICE_PROVIDER_ID } from '../insights.explain'
+import processConfig from '../insights.process'
+import { SALES_STATUS_VALUE_REFERENCE_KINDS } from '../lib/explain/statusValueResolvers'
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
 const ORG_A = '22222222-2222-4222-8222-222222222222'
@@ -343,6 +345,78 @@ describe('sales insights.explain', () => {
       await expect(listRecordIds(buildContext({ organizationIds: [] }), { limit: 10, afterId: null })).resolves.toEqual([])
       await expect(listRecordIds(buildContext(), { limit: 10, afterId: 'quote-1' })).resolves.toEqual([])
       expect(findWithDecryptionMock).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('status value reference resolvers (Process X-Ray labels)', () => {
+    const ORDER_DICTIONARY_ID = 'aaaaaaaa-0000-4000-8000-000000000001'
+    const SHIPMENT_DICTIONARY_ID = 'aaaaaaaa-0000-4000-8000-000000000002'
+
+    function resolverOf(kind: string) {
+      const resolver = explainConfig.referenceResolvers?.find((entry) => entry.kind === kind)
+      if (!resolver) throw new Error(`[internal] missing resolver ${kind}`)
+      return resolver
+    }
+
+    it('declares one feature-gated resolver per status kind, used by the process declaration', () => {
+      expect(explainConfig.referenceResolvers?.map((entry) => [entry.kind, entry.requiredFeatures])).toEqual([
+        [SALES_STATUS_VALUE_REFERENCE_KINDS.orderStatus, ['sales.orders.view']],
+        [SALES_STATUS_VALUE_REFERENCE_KINDS.quoteStatus, ['sales.quotes.view']],
+        [SALES_STATUS_VALUE_REFERENCE_KINDS.fulfillmentStatus, ['sales.orders.view']],
+        [SALES_STATUS_VALUE_REFERENCE_KINDS.paymentStatus, ['sales.orders.view']],
+        [SALES_STATUS_VALUE_REFERENCE_KINDS.shipmentStatus, ['sales.orders.view']],
+      ])
+      const declared = (processConfig.processes ?? []).flatMap((process) => [
+        ...process.stageFields,
+        ...(process.milestones ?? []).flatMap((milestone) => milestone.fields ?? []),
+      ])
+      expect(declared.map((field) => field.referenceKind)).toEqual([
+        SALES_STATUS_VALUE_REFERENCE_KINDS.orderStatus,
+        SALES_STATUS_VALUE_REFERENCE_KINDS.fulfillmentStatus,
+        SALES_STATUS_VALUE_REFERENCE_KINDS.paymentStatus,
+        SALES_STATUS_VALUE_REFERENCE_KINDS.paymentStatus,
+        SALES_STATUS_VALUE_REFERENCE_KINDS.shipmentStatus,
+        SALES_STATUS_VALUE_REFERENCE_KINDS.quoteStatus,
+      ])
+    })
+
+    it('labels values from the first listed dictionary that holds them, in the scoped organizations', async () => {
+      findWithDecryptionMock
+        .mockResolvedValueOnce([
+          { id: ORDER_DICTIONARY_ID, key: 'sales.order_status' },
+          { id: SHIPMENT_DICTIONARY_ID, key: 'sales.shipment_status' },
+        ])
+        .mockResolvedValueOnce([
+          { dictionary: { id: SHIPMENT_DICTIONARY_ID }, normalizedValue: 'pending', value: 'pending', label: 'Pending shipment', organizationId: ORG_A },
+          { dictionary: { id: SHIPMENT_DICTIONARY_ID }, normalizedValue: 'in_fulfillment', value: 'in_fulfillment', label: 'Shipment label', organizationId: ORG_A },
+          { dictionary: { id: ORDER_DICTIONARY_ID }, normalizedValue: 'in_fulfillment', value: 'in_fulfillment', label: 'In fulfillment', organizationId: ORG_A },
+        ])
+      const details = await resolverOf(SALES_STATUS_VALUE_REFERENCE_KINDS.fulfillmentStatus).resolve(
+        buildContext({ organizationIds: [ORG_A] }),
+        ['in_fulfillment', 'pending', 'unknown_value'],
+      )
+      expect(findWithDecryptionMock.mock.calls[0][2]).toEqual({
+        tenantId: TENANT_ID,
+        key: { $in: ['sales.order_status', 'sales.shipment_status'] },
+        deletedAt: null,
+        organizationId: { $in: [ORG_A] },
+      })
+      expect(findWithDecryptionMock.mock.calls[1][2]).toEqual(expect.objectContaining({
+        tenantId: TENANT_ID,
+        normalizedValue: { $in: ['in_fulfillment', 'pending', 'unknown_value'] },
+        organizationId: { $in: [ORG_A] },
+      }))
+      expect(details).toEqual([
+        expect.objectContaining({ kind: SALES_STATUS_VALUE_REFERENCE_KINDS.fulfillmentStatus, id: 'in_fulfillment', label: 'In fulfillment', organizationId: ORG_A }),
+        expect.objectContaining({ id: 'pending', label: 'Pending shipment' }),
+      ])
+    })
+
+    it('reads nothing for an empty scope and fails soft', async () => {
+      await expect(resolverOf(SALES_STATUS_VALUE_REFERENCE_KINDS.orderStatus).resolve(buildContext({ organizationIds: [] }), ['draft'])).resolves.toEqual([])
+      expect(findWithDecryptionMock).not.toHaveBeenCalled()
+      findWithDecryptionMock.mockRejectedValueOnce(new Error('[internal] database down'))
+      await expect(resolverOf(SALES_STATUS_VALUE_REFERENCE_KINDS.orderStatus).resolve(buildContext(), ['draft'])).resolves.toEqual([])
     })
   })
 })

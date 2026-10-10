@@ -19,18 +19,19 @@ export function XrayReworkTab({ processKey, window, filters, onClearActorFilters
   const resource = useXrayResource<XrayReworkResponse>(xrayAnalyticsUrl(processKey, 'rework', window, filters))
   const formatNumber = React.useCallback((value: number) => formatCount(value, locale), [locale])
 
+  const activityLabels = resource.data?.activityLabels
   const columns = React.useMemo<ColumnDef<XrayReworkStage>[]>(() => [
     {
       accessorKey: 'activityKey',
       header: t('insights.xray.ui.rework.columns.activity'),
-      cell: ({ row }) => <span title={row.original.activityKey}>{formatActivityKey(row.original.activityKey, t)}</span>,
+      cell: ({ row }) => <span title={row.original.activityKey}>{formatActivityKey(row.original.activityKey, t, activityLabels)}</span>,
       meta: { truncate: true, maxWidth: '320px' },
     },
     { accessorKey: 'rework', header: t('insights.xray.ui.rework.columns.rework'), cell: ({ row }) => formatCount(row.original.rework, locale) },
     { accessorKey: 'reworkRaw', header: t('insights.xray.ui.rework.columns.reworkRaw'), cell: ({ row }) => formatCount(row.original.reworkRaw, locale) },
     { accessorKey: 'corrections', header: t('insights.xray.ui.rework.columns.corrections'), cell: ({ row }) => formatCount(row.original.corrections, locale) },
     { accessorKey: 'cases', header: t('insights.xray.ui.rework.columns.cases'), cell: ({ row }) => formatCount(row.original.cases, locale) },
-  ], [locale, t])
+  ], [activityLabels, locale, t])
 
   return (
     <XrayTabResource resource={resource} onClearActorFilters={onClearActorFilters}>

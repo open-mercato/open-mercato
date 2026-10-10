@@ -194,6 +194,31 @@ describe('process contract hash', () => {
     expect(relabeled.contractHash).toBe(first.contractHash)
   })
 
+  it('carries display-only label hints of fields without changing the hash', () => {
+    const first = snapshot(testProcessConfig())
+    const hinted = snapshot(withProcess({
+      stageFields: [
+        { key: 'status', labelKey: 'test.status', valueKind: 'dictionary', snapshotPaths: ['deal.status'], changeKeys: ['deal.status', 'status'], referenceKind: 'test.dictionary.status', valueLabelKeys: { won: 'test.values.won' } },
+        { key: 'stageId', labelKey: 'test.stage', valueKind: 'uuid', snapshotPaths: ['deal.stageId'], changeKeys: ['deal.stageId'], referenceKind: 'test.stage' },
+      ],
+    }))
+    expect(hinted.rejected).toEqual([])
+    expect(hinted.processes[0].stageFields[0]).toEqual(expect.objectContaining({ referenceKind: 'test.dictionary.status', valueLabelKeys: { won: 'test.values.won' } }))
+    expect(hinted.processes[0].stageFields[1].referenceKind).toBe('test.stage')
+    expect(first.processes[0].stageFields[0]).not.toHaveProperty('referenceKind')
+    expect(first.processes[0].stageFields[0]).not.toHaveProperty('valueLabelKeys')
+    expect(hinted.contractHash).toBe(first.contractHash)
+  })
+
+  it('rejects malformed label hints', () => {
+    const field = { key: 'status', labelKey: 'test.status', valueKind: 'dictionary' as const, snapshotPaths: ['deal.status'] }
+    for (const hint of [{ referenceKind: '' }, { referenceKind: 'has space' }, { valueLabelKeys: { 'Not Valid': 'x' } }, { valueLabelKeys: { won: '' } }, { valueLabelKeys: ['won'] }]) {
+      const result = snapshot(withProcess({ stageFields: [{ ...field, ...hint } as never] }))
+      expect(result.processes).toEqual([])
+      expect(result.rejected).toEqual([expect.objectContaining({ reason: 'stageFields contains an invalid field' })])
+    }
+  })
+
   it('changes when a derivation-relevant part changes', () => {
     const first = snapshot(testProcessConfig())
     const exited = snapshot(withProcess({ exits: [{ key: 'converted', labelKey: 'x', commandIds: ['test.convert'], logResourceKinds: ['test.order'], caseIdPaths: ['deal.id'] }] }))

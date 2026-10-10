@@ -34,6 +34,7 @@ import {
 } from '@open-mercato/core/modules/insights/lib/process/activities'
 import processConfig, { CUSTOMERS_DEAL_PROCESS_KEY } from '../insights.process'
 import { defaultEncryptionMaps } from '../encryption'
+import explainConfig, { CUSTOMERS_EXPLAIN_REFERENCE_KINDS } from '../insights.explain'
 import { CLOSED_DEAL_STATUS_LIST } from '../lib/dealStatus'
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
@@ -247,6 +248,17 @@ describe('customers insights.process', () => {
       expect(deal.followupFields?.map(describeField)).toEqual([
         ['ownerUserId', 'user', ['deal.ownerUserId'], ['deal.ownerUserId']],
       ])
+    })
+
+    it('labels status values and pipeline stages through registered explain reference resolvers', () => {
+      const deal = getDeclaredDealProcess()
+      expect(deal.stageFields.map((field) => [field.key, field.referenceKind])).toEqual([
+        ['status', CUSTOMERS_EXPLAIN_REFERENCE_KINDS.dealStatus],
+        ['pipelineStageId', CUSTOMERS_EXPLAIN_REFERENCE_KINDS.pipelineStage],
+      ])
+      const resolverKinds = (explainConfig.referenceResolvers ?? []).map((resolver) => resolver.kind)
+      expect(resolverKinds).toEqual(expect.arrayContaining([CUSTOMERS_EXPLAIN_REFERENCE_KINDS.dealStatus, CUSTOMERS_EXPLAIN_REFERENCE_KINDS.pipelineStage]))
+      expect(deal.followupFields?.[0]?.referenceKind).toBeUndefined()
     })
 
     it('ends a deal on every closed status spelling', () => {

@@ -7,7 +7,7 @@ import type { XrayProcessMapCanvasProps } from './XrayProcessMapCanvas'
 
 function XrayProcessMapPlaceholder() {
   return (
-    <div className="flex h-128 w-full items-center justify-center rounded-lg border border-border bg-muted/30">
+    <div className="flex h-80 w-full items-center justify-center rounded-lg border border-border bg-muted/30">
       <Spinner className="size-6 text-muted-foreground" />
     </div>
   )

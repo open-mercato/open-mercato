@@ -1,6 +1,7 @@
 import { defineProcessConfig, type ProcessFieldDescriptor } from '@open-mercato/shared/modules/insights/process'
 import { E } from '#generated/entities.ids.generated'
 import { SALES_RESOURCE_KIND_ORDER, SALES_RESOURCE_KIND_QUOTE } from './commands/shared'
+import { SALES_STATUS_VALUE_REFERENCE_KINDS } from './lib/explain/statusValueResolvers'
 
 export const SALES_ORDER_PROCESS_KEY = 'sales.order'
 export const SALES_QUOTE_PROCESS_KEY = 'sales.quote'
@@ -8,23 +9,30 @@ export const SALES_QUOTE_CONVERT_COMMAND_ID = 'sales.quotes.convert_to_order'
 
 type SalesDocumentRoot = 'order' | 'quote'
 
-function documentStatusField(root: SalesDocumentRoot, key: 'status' | 'fulfillmentStatus' | 'paymentStatus', labelKey: string): ProcessFieldDescriptor {
+function documentStatusField(
+  root: SalesDocumentRoot,
+  key: 'status' | 'fulfillmentStatus' | 'paymentStatus',
+  labelKey: string,
+  referenceKind: string,
+): ProcessFieldDescriptor {
   return {
     key,
     labelKey,
     valueKind: 'dictionary',
     snapshotPaths: [`${root}.${key}`],
     changeKeys: [key, `${root}.${key}`],
+    referenceKind,
   }
 }
 
-function childStatusField(labelKey: string): ProcessFieldDescriptor {
+function childStatusField(labelKey: string, referenceKind: string): ProcessFieldDescriptor {
   return {
     key: 'status',
     labelKey,
     valueKind: 'dictionary',
     snapshotPaths: ['status'],
     changeKeys: ['status'],
+    referenceKind,
   }
 }
 
@@ -38,7 +46,8 @@ function childStatusField(labelKey: string): ProcessFieldDescriptor {
  * the `converted` exit. Not observed, because those writers record no audit row of the
  * document: order status changes made as a side effect of payment/shipment commands (they
  * appear through the milestones instead) and quote status changes made by
- * `sales.quotes.send` / `sales.quotes.accept`.
+ * `sales.quotes.send` / `sales.quotes.accept`. Status values are labelled in X-Ray through the
+ * sales status value resolvers (`lib/explain/statusValueResolvers.ts`).
  */
 export const processConfig = defineProcessConfig({
   version: 1,
@@ -51,9 +60,9 @@ export const processConfig = defineProcessConfig({
       entityId: E.sales.sales_order,
       requiredFeatures: ['sales.orders.view'],
       stageFields: [
-        documentStatusField('order', 'status', 'sales.insights.fields.status'),
-        documentStatusField('order', 'fulfillmentStatus', 'sales.insights.process.fields.fulfillmentStatus'),
-        documentStatusField('order', 'paymentStatus', 'sales.insights.process.fields.paymentStatus'),
+        documentStatusField('order', 'status', 'sales.insights.fields.status', SALES_STATUS_VALUE_REFERENCE_KINDS.orderStatus),
+        documentStatusField('order', 'fulfillmentStatus', 'sales.insights.process.fields.fulfillmentStatus', SALES_STATUS_VALUE_REFERENCE_KINDS.fulfillmentStatus),
+        documentStatusField('order', 'paymentStatus', 'sales.insights.process.fields.paymentStatus', SALES_STATUS_VALUE_REFERENCE_KINDS.paymentStatus),
       ],
       milestones: [
         {
@@ -64,7 +73,7 @@ export const processConfig = defineProcessConfig({
           parentResourceKinds: [SALES_RESOURCE_KIND_ORDER],
           entityId: E.sales.sales_payment,
           lifecycle: ['created', 'deleted'],
-          fields: [childStatusField('sales.insights.process.milestones.paymentStatus')],
+          fields: [childStatusField('sales.insights.process.milestones.paymentStatus', SALES_STATUS_VALUE_REFERENCE_KINDS.paymentStatus)],
         },
         {
           key: 'shipment',
@@ -74,7 +83,7 @@ export const processConfig = defineProcessConfig({
           parentResourceKinds: [SALES_RESOURCE_KIND_ORDER],
           entityId: E.sales.sales_shipment,
           lifecycle: ['created', 'deleted'],
-          fields: [childStatusField('sales.insights.process.milestones.shipmentStatus')],
+          fields: [childStatusField('sales.insights.process.milestones.shipmentStatus', SALES_STATUS_VALUE_REFERENCE_KINDS.shipmentStatus)],
         },
       ],
       endStates: [{ field: 'status', values: ['fulfilled', 'canceled', 'rejected'] }],
@@ -86,7 +95,7 @@ export const processConfig = defineProcessConfig({
       logResourceKinds: [SALES_RESOURCE_KIND_QUOTE],
       entityId: E.sales.sales_quote,
       requiredFeatures: ['sales.quotes.view'],
-      stageFields: [documentStatusField('quote', 'status', 'sales.insights.fields.status')],
+      stageFields: [documentStatusField('quote', 'status', 'sales.insights.fields.status', SALES_STATUS_VALUE_REFERENCE_KINDS.quoteStatus)],
       exits: [
         {
           key: 'converted',

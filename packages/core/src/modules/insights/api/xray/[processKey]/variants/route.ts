@@ -12,6 +12,7 @@ import {
   runXrayAnalyticsRoute,
   xrayAnalyticsErrorDocs,
   xrayAnalyticsJson,
+  xrayActivityLabelsOf,
   xrayErrorResponse,
   type XrayRouteParams,
 } from '../../../../lib/xrayAnalyticsRoutes'
@@ -25,10 +26,12 @@ export async function GET(req: Request, context: XrayRouteParams) {
     const query = parseXrayQuery(req, xrayVariantsQuerySchema)
     const filters = query ? filtersOfQuery(query) : null
     if (!query || !filters) return xrayErrorResponse(route.translate, 'invalid_request', 400)
-    return xrayAnalyticsJson(await route.analytics.getVariants({
+    const result = await route.analytics.getVariants({
       ...analyticsInputOf(route, query, filters),
       limit: query.limit ?? XRAY_VARIANTS_LIMIT_DEFAULT,
-    }))
+    })
+    const activityLabels = await xrayActivityLabelsOf(route, result.items.flatMap((item) => item.activityKeys))
+    return xrayAnalyticsJson({ ...result, activityLabels })
   })
 }
 

@@ -5,6 +5,7 @@ import {
   xrayProcessPathParamsSchema,
 } from '../../../../data/validators'
 import { sequenceModel } from '../../../../lib/analytics/conformance'
+import type { ConformanceResult } from '../../../../lib/analytics/types'
 import { resolveXrayConformanceModels } from '../../../../lib/xrayConformanceModels'
 import {
   analyticsInputOf,
@@ -13,7 +14,9 @@ import {
   runXrayAnalyticsRoute,
   xrayAnalyticsErrorDocs,
   xrayAnalyticsJson,
+  xrayActivityLabelsOf,
   xrayErrorResponse,
+  type XrayAnalyticsRouteContext,
   type XrayRouteParams,
 } from '../../../../lib/xrayAnalyticsRoutes'
 
@@ -27,6 +30,18 @@ function sequenceOf(value: string | undefined): string[] | null {
   return keys.length > 0 ? keys : null
 }
 
+/** Labels of the activity keys a conformance result discloses (deviation endpoints and unmapped activities). */
+async function conformanceJson(route: XrayAnalyticsRouteContext, result: ConformanceResult) {
+  const keys = result.status === 'ok'
+    ? [
+      ...result.models.flatMap((model) => model.deviations.flatMap((deviation) => [deviation.from, deviation.to])),
+      ...result.unmappedActivities.map((entry) => entry.activityKey),
+    ]
+    : []
+  const activityLabels = await xrayActivityLabelsOf(route, keys.filter((key): key is string => typeof key === 'string'))
+  return xrayAnalyticsJson({ ...result, activityLabels })
+}
+
 export async function GET(req: Request, context: XrayRouteParams) {
   return runXrayAnalyticsRoute(req, context, 'xray.conformance', async (route) => {
     const query = parseXrayQuery(req, xrayConformanceQuerySchema)
@@ -35,11 +50,11 @@ export async function GET(req: Request, context: XrayRouteParams) {
     const input = analyticsInputOf(route, query, filters)
     const sequence = sequenceOf(query.sequence)
     if (sequence) {
-      return xrayAnalyticsJson(await route.analytics.getConformance({ ...input, models: [sequenceModel(sequence)] }))
+      return conformanceJson(route, await route.analytics.getConformance({ ...input, models: [sequenceModel(sequence)] }))
     }
     const resolved = await resolveXrayConformanceModels(route.container, route.access)
     if (!resolved.ok) return xrayErrorResponse(route.translate, resolved.code, 422)
-    return xrayAnalyticsJson(await route.analytics.getConformance({
+    return conformanceJson(route, await route.analytics.getConformance({
       ...input,
       models: resolved.models,
       organizationModelKeys: resolved.organizationModelKeys,

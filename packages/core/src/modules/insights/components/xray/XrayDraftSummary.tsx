@@ -6,13 +6,15 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import type { XrayDraftSummary as XrayDraftSummaryView } from '../../lib/client/xray/draft'
-import { formatActivityKey } from '../../lib/client/xray/format'
+import { formatActivityKey, type XrayActivityLabelMap } from '../../lib/client/xray/format'
 import type { XrayDraftCommand } from '../../lib/client/xray/types'
 
 export type XrayDraftSummaryProps = {
   summary: XrayDraftSummaryView
   commands?: XrayDraftCommand[]
   skippedActivities?: string[]
+  /** Server-resolved labels of the skipped activities (`activityLabels` of the draft response). */
+  activityLabels?: XrayActivityLabelMap
   workflowIdAvailable?: boolean
 }
 
@@ -21,7 +23,7 @@ export type XrayDraftSummaryProps = {
  * automated update steps, the commands it would run (and whether the tenant enabled them for
  * workflows), skipped activities and a taken workflow id.
  */
-export function XrayDraftSummary({ summary, commands = [], skippedActivities = [], workflowIdAvailable = true }: XrayDraftSummaryProps) {
+export function XrayDraftSummary({ summary, commands = [], skippedActivities = [], activityLabels, workflowIdAvailable = true }: XrayDraftSummaryProps) {
   const t = useT()
   const disabledCommands = commands.filter((command) => command.enabled === false)
   return (
@@ -70,7 +72,7 @@ export function XrayDraftSummary({ summary, commands = [], skippedActivities = [
       </section>
       {skippedActivities.length > 0 ? (
         <p className="text-xs text-muted-foreground" data-testid="xray-draft-skipped">
-          {t('insights.xray.ui.draft.skipped', { activities: skippedActivities.map((key) => formatActivityKey(key, t)).join(', ') })}
+          {t('insights.xray.ui.draft.skipped', { activities: skippedActivities.map((key) => formatActivityKey(key, t, activityLabels)).join(', ') })}
         </p>
       ) : null}
       {disabledCommands.length > 0 ? (

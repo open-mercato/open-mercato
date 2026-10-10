@@ -1326,7 +1326,28 @@ Module Configs), the dashboard widget `insights.dashboard.processHealth` and the
   their dashboard (or an administrator assigns it to roles).
 - Creating a draft workflow from a suggestion or a variant uses `POST /api/workflows/definitions` as
   the signed-in user, so it needs `workflows.definitions.create`; marking the suggestion as drafted
-  needs `insights.xray.manage`.
+  needs `insights.xray.manage`. The settings page offers the conformance workflow picker only with
+  `workflows.definitions.view`, and the variant dialog lists workflow commands only with
+  `workflows.definitions.edit` (otherwise a disabled field / free text with a hint, no
+  access-denied banner).
+
+**Action for API consumers.** The analytics responses that disclose activity keys add
+`activityLabels` (activity key → human-readable label, resolved on the server; the raw keys stay
+authoritative): map (visible nodes and start / end only), variants, bottlenecks, rework,
+conformance, cases, variant workflow drafts, suggestion list / `PATCH` items and the
+`insights.xray_variants` AI tool. `GET …/cases` gains `suppressed: boolean`: a drill-down by
+`activityKey` / `variantHash` lists only a cell the map / variants show for the same window,
+filters and viewer, and only when the listed population itself passes the k / three-actor rule;
+otherwise it answers an empty page with `suppressed: true` and `n: 0` (a drill-down may also answer
+the map / variants 422s). Listings without a drill-down are unchanged. `GET …/cases` also accepts
+`variantHashes` (comma-separated, at most 20) to list every recorded path of a variant at once.
+
+**Action for module authors.** A process field may name an explain reference resolver with the
+optional `referenceKind` (dictionary values or record UUIDs → labels; batched, feature-checked with
+the resolver's `requiredFeatures`, scoped to the caller) and static value labels with
+`valueLabelKeys` (stored value → i18n key). Both are display-only and never change the contract
+hash. The customers deal process labels its status and pipeline stage this way; sales registers the
+reference kinds `sales.status_value.{order,quote,fulfillment,payment,shipment}`.
 
 ### Access-log rotation keeps registered resource kinds under the core retention
 

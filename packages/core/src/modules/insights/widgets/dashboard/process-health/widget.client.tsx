@@ -37,6 +37,8 @@ export type ProcessHealthRow = {
   process: XrayProcessItem
   durations: XrayDurationsResponse | null
   bottleneck: XrayBottleneckItem | null
+  /** Server-resolved labels of the bottleneck's activities. */
+  activityLabels: Record<string, string>
 }
 
 export type ProcessHealthData = {
@@ -52,7 +54,7 @@ export async function loadProcessHealth(signal?: AbortSignal): Promise<ProcessHe
   if (!processes.ok) throw new Error(`[internal] Process X-Ray processes request failed with status ${processes.error.httpStatus ?? 'unknown'}`)
   const top = [...processes.body.items].sort((left, right) => right.n - left.n).slice(0, PROCESS_HEALTH_TOP)
   const rows = await Promise.all(top.map(async (process): Promise<ProcessHealthRow> => {
-    if (process.n === 0) return { process, durations: null, bottleneck: null }
+    if (process.n === 0) return { process, durations: null, bottleneck: null, activityLabels: {} }
     const [durations, bottlenecks] = await Promise.all([
       xrayRequest<XrayDurationsResponse>(`${xrayProcessApiPath(process.processKey, 'durations')}${query}`, init),
       xrayRequest<XrayBottlenecksResponse>(`${xrayProcessApiPath(process.processKey, 'bottlenecks')}${query}`, init),
@@ -60,7 +62,7 @@ export async function loadProcessHealth(signal?: AbortSignal): Promise<ProcessHe
     const bottleneck = bottlenecks.ok
       ? bottlenecks.body.items.find((item) => item.wait.medianMs !== null) ?? null
       : null
-    return { process, durations: durations.ok ? durations.body : null, bottleneck }
+    return { process, durations: durations.ok ? durations.body : null, bottleneck, activityLabels: bottlenecks.ok ? bottlenecks.body.activityLabels ?? {} : {} }
   }))
   return { rows, incomplete: processes.body.incomplete }
 }
@@ -75,7 +77,7 @@ function cycleTimeText(row: ProcessHealthRow, t: TranslateFn, locale: string): s
 function ProcessHealthItem({ row }: { row: ProcessHealthRow }) {
   const t = useT()
   const locale = useLocale()
-  const { process, bottleneck } = row
+  const { process, bottleneck, activityLabels } = row
   return (
     <li className="space-y-1 rounded-md border border-border p-3" data-testid="xray-process-health-row" data-process-key={process.processKey}>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -108,8 +110,8 @@ function ProcessHealthItem({ row }: { row: ProcessHealthRow }) {
         <p className="inline-flex items-center gap-1 text-xs text-muted-foreground">
           <Hourglass className="size-3" aria-hidden="true" />
           {t('insights.xray.ui.widget.bottleneck', {
-            from: formatActivityKey(bottleneck.from, t),
-            to: formatActivityKey(bottleneck.to, t),
+            from: formatActivityKey(bottleneck.from, t, activityLabels),
+            to: formatActivityKey(bottleneck.to, t, activityLabels),
             wait: formatDurationMs(bottleneck.wait.medianMs, t) ?? '—',
           })}
         </p>

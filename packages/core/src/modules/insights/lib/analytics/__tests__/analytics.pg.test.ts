@@ -13,6 +13,7 @@ import { Pool } from 'pg'
 import { createCacheService } from '@open-mercato/cache'
 import { Migration20261008180752_insights } from '../../../migrations/Migration20261008180752_insights'
 import { summarizeCase } from '../../process/caseSummary'
+import { compareCodeUnits } from '../../process/registry'
 import { testRegistry } from '../../process/__tests__/processTestSupport'
 import type { XrayDatabase } from '../../projection/types'
 import {
@@ -30,6 +31,7 @@ import {
   type AnalyticsOrgSettings,
   type AnalyticsRequestInput,
   type AnalyticsViewer,
+  type CaseListResult,
   type XrayAnalyticsDeps,
 } from '../index'
 import { loadCaseEvents, listActiveProcessKeys, runAnalyticsQuery } from '../query'
@@ -646,6 +648,79 @@ maybe('X-Ray analytics against PostgreSQL', () => {
     expect(variants.items[0].rawVariantHashes).toEqual([stored[0].variant_hash])
     const drill = await analytics.listCases({ ...request({ window }), variantHashes: variants.items[0].rawVariantHashes })
     expect(drill.n).toBe(6)
+  })
+
+  it('applies the cell rule of the map and the variants (served rollups included) to case drill-downs', async () => {
+    const analytics = analyticsWith()
+    const startMs = NOW - 20 * DAY_MS
+    const seedDeal = async (index: number, steps: string[], priority: boolean): Promise<string> => {
+      const caseId = randomUUID()
+      const atMs = startMs + index * HOUR_MS
+      const actor = actorOf((index % 3) + 1)
+      const rows = [
+        ...creation(caseId, atMs, { actor }, ORG_A),
+        ...steps.map((key, position) => stepRow(caseId, { key, atMs: atMs + (position + 1) * DAY_MS, actor }, ORG_A)),
+      ]
+      if (priority) rows.push(stepRow(caseId, { key: 'priority:high', kind: 'followup', atMs: atMs + DAY_MS + HOUR_MS, actor }, ORG_A))
+      await seedCase(rows)
+      return caseId
+    }
+    const won: string[] = []
+    const qualifiedLost: string[] = []
+    const lost: string[] = []
+    for (let index = 0; index < 7; index += 1) won.push(await seedDeal(index, ['status:qualified', 'status:won'], index < 2))
+    for (let index = 0; index < 6; index += 1) qualifiedLost.push(await seedDeal(index, ['status:qualified', 'status:lost'], false))
+    for (let index = 0; index < 2; index += 1) lost.push(await seedDeal(index, ['status:lost'], false))
+    await insertCursor(ORG_A, NOW - HOUR_MS)
+    const idsOf = (page: CaseListResult) => page.items.map((item) => item.caseId).sort(compareCodeUnits)
+    const sortedIds = (caseIds: string[]) => [...caseIds].sort(compareCodeUnits)
+    const hidden = expect.objectContaining({ processKey: dealProcess.processKey, organizationIds: [ORG_A], suppressed: true, n: 0, items: [], nextCursor: null, incomplete: false })
+
+    const map = await analytics.getProcessMap(request())
+    expect(map.nodes.map((node) => node.activityKey).sort(compareCodeUnits)).toEqual(['created', 'status:lost', 'status:open', 'status:qualified'])
+    expect(map.suppressed.complementary).toBeGreaterThan(0)
+    for (const activityKey of ['priority:high', 'status:won']) {
+      const page = await analytics.listCases({ ...request(), activityKey })
+      expect(page).toEqual(hidden)
+      expect(Date.parse(page.computedThrough ?? '')).toBe(NOW - HOUR_MS)
+    }
+    const lostPage = await analytics.listCases({ ...request(), activityKey: 'status:lost' })
+    expect(lostPage).toEqual(expect.objectContaining({ suppressed: false, n: 8 }))
+    expect(idsOf(lostPage)).toEqual(sortedIds([...qualifiedLost, ...lost]))
+
+    const storedHash = async (caseId: string) => (await db.selectFrom('insights_process_cases').select('variant_hash').where('case_id', '=', caseId).executeTakeFirstOrThrow()).variant_hash
+    const hashes = { won: await storedHash(won[0]), qualifiedLost: await storedHash(qualifiedLost[0]), lost: await storedHash(lost[0]) }
+    const variants = await analytics.getVariants({ ...request(), limit: 100 })
+    expect(variants.items.map((item) => item.rawVariantHashes)).toEqual([[hashes.won]])
+    expect(variants.suppressed).toEqual(expect.objectContaining({ minCases: 1, complementary: 1 }))
+    const wonPage = await analytics.listCases({ ...request(), variantHash: hashes.won })
+    expect(wonPage).toEqual(expect.objectContaining({ suppressed: false, n: 7 }))
+    expect(idsOf(wonPage)).toEqual(sortedIds(won))
+    for (const variantHash of [hashes.qualifiedLost, hashes.lost, 'f'.repeat(64)]) {
+      expect(await analytics.listCases({ ...request(), variantHash })).toEqual(hidden)
+    }
+    expect(await analytics.listCases({ ...request(), variantHashes: [hashes.won, hashes.qualifiedLost] })).toEqual(hidden)
+    expect(await analytics.listCases(request())).toEqual(expect.objectContaining({ suppressed: false, n: 15 }))
+
+    expect(await analytics.computeRollups({ tenantId: TENANT, organizationId: ORG_A })).toEqual({ processes: 1, written: 3, skipped: 0 })
+    const later: string[] = []
+    for (let index = 20; index < 25; index += 1) later.push(await seedDeal(index, [], true))
+    const served = await analytics.getProcessMap(request())
+    expect(served.source).toBe('rollup')
+    expect(served.nodes.map((node) => node.activityKey)).not.toContain('priority:high')
+    expect(await analytics.listCases({ ...request(), activityKey: 'priority:high' })).toEqual(hidden)
+    await analytics.invalidate({ tenantId: TENANT, organizationId: ORG_A })
+    const live = await analytics.getProcessMap(request())
+    expect(live.source).toBe('live')
+    expect(live.nodes.map((node) => node.activityKey)).toEqual(expect.arrayContaining(['priority:high', 'status:won']))
+    const priorityPage = await analytics.listCases({ ...request(), activityKey: 'priority:high' })
+    expect(priorityPage).toEqual(expect.objectContaining({ suppressed: false, n: 7 }))
+    expect(idsOf(priorityPage)).toEqual(sortedIds([...won.slice(0, 2), ...later]))
+    expect(idsOf(await analytics.listCases({ ...request(), activityKey: 'status:won' }))).toEqual(sortedIds(won))
+    expect(await analytics.listCases({ ...request(), activityKey: 'priority:high', statuses: ['completed'] })).toEqual(hidden)
+    const openPriority = await analytics.listCases({ ...request(), activityKey: 'priority:high', statuses: ['open'] })
+    expect(openPriority).toEqual(expect.objectContaining({ suppressed: false, n: 5 }))
+    expect(idsOf(openPriority)).toEqual(sortedIds(later))
   })
 
   it('reports an incomplete projection (no cursor, backfill, running scan, settings-only organization) without computedThrough', async () => {

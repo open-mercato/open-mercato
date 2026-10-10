@@ -21,6 +21,7 @@ import {
   linePriceProvider,
   readLinePriceMode,
 } from './lib/explain/linePriceProvider'
+import { salesStatusValueResolvers } from './lib/explain/statusValueResolvers'
 
 export { SALES_LINE_PRICE_PROVIDER_ID }
 
@@ -265,6 +266,7 @@ export const explainConfig = defineExplainConfig({
     },
   ],
   providers: [linePriceProvider],
+  referenceResolvers: salesStatusValueResolvers,
 })
 
 export default explainConfig
