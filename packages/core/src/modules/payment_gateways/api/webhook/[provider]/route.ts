@@ -151,7 +151,6 @@ async function receiveWebhook(
       scope: { organizationId: string; tenantId: string }
       event: Awaited<ReturnType<typeof registration.handler>>
     }> = []
-    let lastVerificationError: unknown = null
     let verificationUnavailable = false
 
     for (const candidate of candidates) {
@@ -179,7 +178,6 @@ async function receiveWebhook(
         })
         verifiedMatches.push({ transaction: candidate, scope: candidateScope, event: candidateEvent })
       } catch (error: unknown) {
-        lastVerificationError = error
         if (error instanceof WebhookVerificationUnavailableError) verificationUnavailable = true
       }
     }
@@ -196,11 +194,16 @@ async function receiveWebhook(
       return 'verification_failed'
     }
 
-    const [match] = verifiedMatches
-    if (!match) {
-      logger.warn('Webhook verification failed', { providerKey, err: lastVerificationError })
-      return verificationUnavailable ? 'verification_unavailable' : 'verification_failed'
+    if (verificationUnavailable && verifiedMatches.length === 1) {
+      logger.warn('Webhook candidate left unverified; ambiguity cannot be ruled out', {
+        providerKey,
+        candidateCount: candidates.length,
+      })
+      return 'verification_unavailable'
     }
+
+    const [match] = verifiedMatches
+    if (!match) return verificationUnavailable ? 'verification_unavailable' : 'verification_failed'
 
     const jobPayload = markQueueJobOrigin({
       providerKey,
@@ -231,8 +234,8 @@ async function receiveWebhook(
     }
 
     return 'accepted'
-  } catch (err: unknown) {
-    logger.warn('Webhook verification failed', { providerKey, err })
+  } catch (error: unknown) {
+    reportWebhookError(error, 'payment_gateways.webhook_unexpected_failure')
     return 'verification_failed'
   }
 }
