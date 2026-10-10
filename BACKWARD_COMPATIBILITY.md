@@ -746,3 +746,17 @@ Phase 7a of [`.ai/specs/2026-10-08-insights-change-simulator.md`](.ai/specs/2026
 | Queues / jobs / schedules | Queue `insights-simulation` (concurrency 2; slice payload `{ runId, tenantId, organizationId }` only, maintenance payload `{ kind: 'simulation_maintenance' }`); ProgressJob type `insights.simulation` (generic name, `meta = { runId }`, not cancellable from the progress bar: runs are cancelled through `POST …/cancel`); system schedule "Change simulator maintenance" (`1d`) | ✓ ADDITIVE |
 
 **Migration path for existing modules**: none. A module opts in by adding `insights.simulate.ts` and running `yarn generate`. Operators: see UPGRADE_NOTES.md.
+
+### Change Simulator — Phase 7b (workflow trigger backtest, 2026-10-10)
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| §1 Auto-discovery convention `insights.simulate.ts` | New contribution from `workflows`: kind `workflows.trigger_backtest` (artifact kind `workflows.definition`, required feature `workflows.definitions.view`, cells `would_start` / `would_not_start` / `debounced` / `cannot_tell`) | ✓ ADDITIVE; kind id FROZEN once shipped |
+| §2 Types (`@open-mercato/shared/modules/insights/simulate`) | Optional `artifactId?: string \| null` on `SimulationValidationContext` (the requested id, before `readArtifactVersion` resolves it) | ✓ ADDITIVE; STABLE |
+| §2/§3 workflows exports | New pure module `workflows/lib/trigger-filter.ts` (`compareTriggerFilterValue`, `constantTriggerFilterResult`, `readOwnTriggerPayloadPath`, `getTriggerPayloadValue`, `evaluateTriggerFilterCondition(s)`, `isSafeWorkflowRegexPattern`) — production's filter code moved there verbatim, `evaluateFilterConditions` / `mapEventToContext` in `lib/event-trigger-service` keep their signatures and behaviour (tests); `subscribers/event-trigger` exports `WORKFLOW_TRIGGER_EXCLUDED_EVENT_PREFIXES` and `isWorkflowTriggerExcludedEvent` (same list, same behaviour); `data/validators` exports `workflowTriggerBacktestProposalSchema`; `lib/simulation/trigger-backtest` and `lib/editor-injection` are new | ✓ ADDITIVE; STABLE |
+| customers / sales `insights.simulate.ts` | Now import their own `events.ts` (declares the module's events wherever the simulate registry loads, e.g. worker processes); no export changed | ✓ ADDITIVE |
+| §6 Widget spot IDs | `workflows.definition.editor:toolbar` (toolbar actions) and `workflows.definition.editor:banner` (banners; receives `onAfterSave` after an explicit Save; `onDataChange` may replace `triggers` / `enabled` / `version` only, validated) published by the workflow visual editor. Context `{ formId, recordId, codeOnly }`, data `{ workflowId, version, enabled, triggers, startPreConditions }` | ✓ ADDITIVE; FROZEN once shipped |
+| §6 Widget IDs | `insights.injection.workflow-simulate` (toolbar), `insights.injection.workflow-simulation-apply` (banner; `onAfterSave` records the `applied` decision) | ✓ ADDITIVE; STABLE (override targets) |
+| §7 / §8 / §9 / §10 / §11 | No new routes, tables, DI keys, ACL features, events or notifications (the kind runs through the 7a routes, queue and tables) | ✓ n/a |
+
+**Migration path**: none; `yarn generate` registers the new contribution. Operators: see UPGRADE_NOTES.md.

@@ -308,3 +308,59 @@ describe('POST /api/insights/simulations/{id}/cancel and /decision', () => {
     expect((await decisionPost(request('POST', `${BASE}/${RUN_ID}/decision`, { decision: 'applied' }), params(RUN_ID))).status).toBe(409)
   })
 })
+
+describe('workflows trigger backtest through the simulation routes', () => {
+  const triggerProposal = {
+    workflowId: 'deal_followup',
+    version: 1,
+    enabled: true,
+    triggers: [{ triggerId: 'deal_events', name: 'Deal events', eventPattern: 'customers.deal.*', enabled: true, priority: 0 }],
+    startPreConditions: [],
+  }
+
+  beforeEach(async () => {
+    const workflows = await import('../../../workflows/insights.simulate')
+    const customers = await import('../../../customers/insights.simulate')
+    registerSimulateConfigEntries([
+      { moduleId: 'workflows', config: workflows.default },
+      { moduleId: 'customers', config: customers.default },
+    ])
+  })
+
+  it('answers 403 without workflows.definitions.view and lists the kind\'s features', async () => {
+    grantedFeatures = ['insights.simulator.*', 'customers.*']
+    const response = await requestPost(request('POST', BASE, { kind: 'workflows.trigger_backtest', artifactId: null, proposal: triggerProposal, window: { days: 30 } }))
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual({ error: 't:insights.simulation.errors.forbidden', code: 'forbidden', requiredFeatures: ['workflows.definitions.view'] })
+    expect(commandExecuteMock).not.toHaveBeenCalled()
+    grantedFeatures = ['insights.simulator.*', 'workflows.definitions.view']
+    expect((await requestPost(request('POST', BASE, { kind: 'workflows.trigger_backtest', artifactId: null, proposal: triggerProposal, window: { days: 30 } }))).status).toBe(202)
+  })
+
+  it('lists the trigger backtest only for viewers of workflow definitions', async () => {
+    grantedFeatures = ['insights.simulator.*', 'workflows.definitions.view']
+    const allowed = await (await capabilitiesGet(request('GET', `${BASE}/capabilities`))).json()
+    expect(allowed.kinds.map((kind: { kind: string }) => kind.kind)).toContain('workflows.trigger_backtest')
+    grantedFeatures = ['insights.simulator.*', 'workflows.instances.view']
+    const denied = await (await capabilitiesGet(request('GET', `${BASE}/capabilities`))).json()
+    expect(denied.kinds.map((kind: { kind: string }) => kind.kind)).not.toContain('workflows.trigger_backtest')
+  })
+
+  it('answers the identical 404 for a trigger backtest run whose definition or record features the caller lost', async () => {
+    const stored = storedRun({ kind: 'workflows.trigger_backtest', artifactKind: 'workflows.definition', inputJson: triggerProposal, resultJson: { k: 10, truncated: false, groups: [] } })
+    findSimulationRunMock.mockResolvedValue(stored)
+    grantedFeatures = ['insights.simulator.*', 'workflows.definitions.view', 'customers.deals.view']
+    expect((await detailGet(request('GET', `${BASE}/${RUN_ID}`), params(RUN_ID))).status).toBe(200)
+    findSimulationRunMock.mockResolvedValue(null)
+    const missing = await detailGet(request('GET', `${BASE}/${RUN_ID}`), params(RUN_ID))
+    findSimulationRunMock.mockResolvedValue(stored)
+    grantedFeatures = ['insights.simulator.*', 'customers.deals.view']
+    const noDefinitions = await detailGet(request('GET', `${BASE}/${RUN_ID}`), params(RUN_ID))
+    grantedFeatures = ['insights.simulator.*', 'workflows.definitions.view']
+    const noRecords = await detailGet(request('GET', `${BASE}/${RUN_ID}`), params(RUN_ID))
+    const decision = await decisionPost(request('POST', `${BASE}/${RUN_ID}/decision`, { decision: 'applied' }), params(RUN_ID))
+    const bodies = await Promise.all([missing, noDefinitions, noRecords, decision].map((response) => response.json()))
+    expect([missing.status, noDefinitions.status, noRecords.status, decision.status]).toEqual([404, 404, 404, 404])
+    for (const body of bodies) expect(body).toEqual({ error: 't:insights.simulation.errors.run_not_found', code: 'run_not_found' })
+  })
+})

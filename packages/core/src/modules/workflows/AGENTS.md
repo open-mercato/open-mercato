@@ -1008,6 +1008,12 @@ if (tenantId) invalidateTriggerCache(tenantId, organizationId ?? undefined)
 
 This covers definition create/update/delete **and** `POST .../[id]/customize` (code projection → embedded row), `POST .../[id]/reset-to-code` (embedded row → code projection) and `POST .../[id]/publish` (the minted version becomes the one triggers resolve to). Invalidate for the **written row's own** tenant/organization rather than the caller's — `customize` looks an override up by `(workflowId, tenantId)`, so it can revive a row owned by a sibling organization. Omitting `organizationId` clears every organization under the tenant.
 
+### Trigger Backtest (change simulator, 7b)
+
+- Filter semantics live in the PURE `lib/trigger-filter.ts`, shared by `evaluateFilterConditions` and the backtest (`lib/simulation/trigger-backtest.ts`, contributed through `insights.simulate.ts`). Change an operator only there; the parity suite (`lib/__tests__/trigger-filter.test.ts`) must stay green, and `constantTriggerFilterResult` must keep claiming only value-independent outcomes.
+- The backtest reads payloads with `readOwnTriggerPayloadPath` (prototype paths → `cannot_tell`), skips `WORKFLOW_TRIGGER_EXCLUDED_EVENT_PREFIXES` (exported by `subscribers/event-trigger.ts` — change the list only there), and mirrors debounce (`shouldDebounceTrigger`), `maxConcurrentInstances`, required START pre-conditions and version liveness (`loadEmbeddedTriggers`); a pattern selecting declared events no adapter rebuilds is partial (`triggerEventCompleteness`). The differential suite (`lib/simulation/__tests__/trigger-backtest.differential.test.ts`) replays sequences through the real `processEventTriggers` and must stay green. Mirror any change to those in the backtest and bump `TRIGGER_BACKTEST_VERSION`. It only evaluates: never import the executor or `event-trigger-service` there (zero-side-effect test).
+- The visual editor publishes `workflows.definition.editor:toolbar` / `:banner` (`lib/editor-injection.ts`); banner widgets get `onAfterSave` after an explicit Save and may replace only `triggers`, `enabled`, `version` through `onDataChange`.
+
 ## Widget Injection
 
 The module injects an order-approval widget into the sales module:

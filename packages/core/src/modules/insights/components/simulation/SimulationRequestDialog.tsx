@@ -47,6 +47,8 @@ export type SimulationRequestDialogProps = {
   description: string
   /** Called once per run when it completes. */
   onCompleted?: (runId: string) => void
+  /** What applying means in the owning editor (defaults to the rule editor's wording). */
+  decisionHint?: string
 }
 
 function RequestErrorNotice({ error }: { error: SimulationRequestError }) {
@@ -92,6 +94,7 @@ export function SimulationRequestDialog({
   title,
   description,
   onCompleted,
+  decisionHint,
 }: SimulationRequestDialogProps) {
   const t = useT()
   const locale = useLocale()
@@ -249,10 +252,10 @@ export function SimulationRequestDialog({
                   <EmptyState size="sm" variant="subtle" title={t('insights.simulation.ui.result.emptyTitle')} description={t('insights.simulation.ui.result.emptyDescription')} />
                 ) : (
                   detail.result.groups.map((group) => (
-                    <SimulationGroupHeadline key={group.key} kind={detail.kind} group={group} k={detail.result?.k ?? 0} />
+                    <SimulationGroupHeadline key={group.key} kind={detail.kind} group={group} k={detail.result?.k ?? 0} proposal={detail.proposal} />
                   ))
                 )}
-                <p className="text-xs text-muted-foreground">{t('insights.simulation.ui.simulate.decisionHint')}</p>
+                <p className="text-xs text-muted-foreground">{decisionHint ?? t('insights.simulation.ui.simulate.decisionHint')}</p>
               </div>
             ) : null}
           </div>

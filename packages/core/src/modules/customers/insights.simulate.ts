@@ -7,6 +7,7 @@ import {
   type SimulationEventAdapterContext,
   type SimulationEventPayload,
 } from '@open-mercato/shared/modules/insights/simulate'
+import './events'
 
 type CrudCommandRole = 'create' | 'update' | 'delete'
 
@@ -263,6 +264,10 @@ function createDealClosureAdapter(outcome: DealClosureOutcome): SimulationEventA
  * outcome (`win` → won, `loose` → lost); the payload values come from the after snapshot. The
  * amount is unknown when it cannot tell whether the update re-sent an unchanged amount (the
  * emitted string keeps the input form, the snapshot keeps the stored form).
+ *
+ * The module's events are imported here so the declared event catalog is complete wherever the
+ * simulator runs (worker processes do not load the app's event registry); the trigger backtest
+ * relies on it to tell whether a pattern selects events these adapters do not rebuild.
  */
 export const simulateConfig = defineSimulateConfig({
   version: 1,

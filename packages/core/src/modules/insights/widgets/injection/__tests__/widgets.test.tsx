@@ -76,6 +76,8 @@ describe('insights injection widgets', () => {
       'crud-form:customers.person:header',
       'detail:customers.deal:status-badges',
       'version-history:entry:after',
+      'workflows.definition.editor:banner',
+      'workflows.definition.editor:toolbar',
     ])
     expect(recordWhyModule.metadata.features).toEqual(['insights.explain.view'])
     expect(logCauseModule.metadata.features).toEqual(['insights.explain.view'])
