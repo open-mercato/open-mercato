@@ -14,10 +14,10 @@ const WRITABLE_KINDS = new Set(['implementation', 'regression'])
 const RELEASE_SUPPORTED_RUNNERS = ['codex', 'claude']
 const RELEASE_VALIDATION_COMMANDS = ['yarn generate', 'yarn typecheck', 'yarn lint', 'yarn build']
 const RELEASE_VALIDATION_OUTPUT_ROOTS = new Map([
-  ['yarn generate', ['.mercato/generated']],
+  ['yarn generate', ['.mercato/cache', '.mercato/generated']],
   ['yarn typecheck', ['tsconfig.tsbuildinfo']],
   ['yarn lint', []],
-  ['yarn build', ['.mercato/generated', '.mercato/next', 'next-env.d.ts', 'tsconfig.tsbuildinfo']],
+  ['yarn build', ['.mercato/cache', '.mercato/generated', '.mercato/next', 'next-env.d.ts', 'tsconfig.tsbuildinfo']],
 ])
 const RUNNERS = new Set(RELEASE_SUPPORTED_RUNNERS)
 const ALLOWED_VALIDATION_COMMANDS = new Set(RELEASE_VALIDATION_COMMANDS)
@@ -33,7 +33,7 @@ export const ROUTING_STEP_SLACK_MS = 60_000
 const COPY_EXCLUDED_PREFIXES = [
   '.git', '.next', '.turbo', '.cache', 'build', 'coverage', 'dist', 'node_modules', 'out',
   '.ai/framework-context', '.ai/harness/results', '.ai/reports',
-  '.mercato/generated', '.mercato/next', 'next-env.d.ts', 'tsconfig.tsbuildinfo',
+  '.mercato/cache', '.mercato/generated', '.mercato/next', 'next-env.d.ts', 'tsconfig.tsbuildinfo',
 ]
 const SAFE_ENV_TEMPLATES = new Set(['.env.example', '.env.sample', '.env.template'])
 const SENSITIVE_AUTH_FILES = new Set(['.git-credentials', '.netrc', '.npmrc', '.pypirc', '.yarnrc', '.yarnrc.yml', '.yarnrc.yaml'])

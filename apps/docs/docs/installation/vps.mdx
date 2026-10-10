@@ -5,6 +5,10 @@ description: Deploy a production-ready Open Mercato stack to any Linux server or
 
 Deploy the complete Open Mercato stack — application, PostgreSQL, Redis, and Meilisearch — to any Linux server using Docker Compose.
 
+:::info Shared production gate
+Complete the provider-neutral [Production Readiness checklist](../deployment/production-readiness) before sending production traffic here. This guide keeps the VPS-specific Compose, nginx, networking, and volume procedures.
+:::
+
 [![Watch: Deploy Open Mercato on a VPS](https://img.youtube.com/vi/xau17YBP9ek/maxresdefault.jpg)](https://www.youtube.com/watch?v=xau17YBP9ek)
 
 ---
@@ -224,17 +228,15 @@ Use [Certbot](https://certbot.eff.org/) for free Let's Encrypt certificates.
 
 ---
 
-## Production security checklist
+## VPS-specific readiness checks
 
-- [ ] `JWT_SECRET` — strong random value (`openssl rand -hex 32`), set in the `.env` next to the compose file
-- [ ] `JWT_LEGACY_GRACE_MINUTES` — `0` on a fresh install; on an upgraded one, closed again after the migration window
-- [ ] `POSTGRES_PASSWORD` — strong random value
-- [ ] `MEILISEARCH_MASTER_KEY` — strong random value
-- [ ] `NODE_ENV=production`
-- [ ] Database and Redis ports **not** exposed to the public internet
-- [ ] HTTPS configured via reverse proxy
-- [ ] Automated daily backups scheduled for the PostgreSQL volume
-- [ ] Docker resource limits configured for containers
+Use the shared [Production Readiness checklist](../deployment/production-readiness) for the complete security, access, observability, rollout, and rollback gate. For this Compose topology, also verify:
+
+- [ ] The repository-root `.env` used by Compose contains the production values; do not rely on `apps/mercato/.env` to override values passed by the Compose file.
+- [ ] `JWT_SECRET`, `POSTGRES_PASSWORD`, and `MEILISEARCH_MASTER_KEY` are unique strong values. Set `JWT_LEGACY_GRACE_MINUTES=0` for a fresh install, or close the temporary migration window after an upgrade.
+- [ ] PostgreSQL, Redis, and Meilisearch remain on the private Docker network and are not published to the internet.
+- [ ] The nginx routes and body-size limits match the enabled webhook providers and application limits.
+- [ ] Named-volume backups, a restore rehearsal, container resource limits, and disk-space alerts cover this host.
 
 ---
 

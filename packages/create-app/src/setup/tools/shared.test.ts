@@ -86,6 +86,7 @@ test('recursive shared emission produces a complete hash-owned standalone harnes
 
   for (const relativePath of [
     'AGENTS.md',
+    '.ai/guides/production-deployment.md',
     '.ai/harness/cases.json',
     '.ai/harness/fixtures/seeds.json',
     '.ai/harness/release-result.schema.json',
@@ -131,6 +132,14 @@ test('recursive shared emission produces a complete hash-owned standalone harnes
   )
   assert.equal(manifest.files.find((entry) => entry.path === '.ai/lessons.md')?.userEditable, true)
   assert.equal(manifest.files.find((entry) => entry.path === '.ai/lessons/_template.md')?.userEditable, true)
+  assert.equal(
+    manifest.files.find((entry) => entry.path === '.ai/guides/production-deployment.md')?.source,
+    'generated',
+  )
+  assert.equal(
+    manifest.files.find((entry) => entry.path === '.ai/guides/production-deployment.md')?.userEditable,
+    false,
+  )
   assert.equal(manifest.files.find((entry) => entry.path === 'scripts/check-lessons.mjs')?.userEditable, false)
   const lessonCheck = spawnSync(
     process.execPath,
