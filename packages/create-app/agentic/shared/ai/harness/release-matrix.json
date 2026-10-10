@@ -32,7 +32,11 @@
     "runners": {
       "codex": { "modelSelector": "default" },
       "claude": { "modelSelector": "sonnet" }
-    }
+    },
+    "timeoutFloors": [
+      { "runner": "claude", "timeoutMs": 600000 },
+      { "runner": "codex", "modelPattern": "gpt-*-mini*", "reasoningEffort": "high", "timeoutMs": 900000 }
+    ]
   },
   "writable": [
     { "caseId": "OMH-009" },
