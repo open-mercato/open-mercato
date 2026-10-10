@@ -31,6 +31,7 @@ import { formatCurrency } from '@open-mercato/ui/utils/format'
 import { KpiCard, Sparkline } from '@open-mercato/ui/backend/charts'
 import { ProjectTeamDrawer } from '../../../../../lib/time-tracking-ui/ProjectTeamDrawer'
 import { NoProjectAccess } from '../../../../../lib/time-tracking-ui/NoProjectAccess'
+import { useProjectAccessScope } from '../../../../../lib/time-tracking-ui/projectAccessScope'
 import { ProjectBudgetCell } from '../../../../../lib/timesheets-projects-ui/ProjectBudgetCell'
 import { computeBudgetBurn } from '../../../../../lib/timesheets-projects/budgetBurn'
 import { resolveProjectColorHex } from '../../../../../lib/timesheets-ui/colors'
@@ -168,6 +169,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   const projectId = params?.id
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
+  const { scopeKey: projectAccessScopeKey } = useProjectAccessScope(projectId)
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const router = useRouter()
   const pathname = usePathname()
@@ -177,7 +179,9 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [isNotFound, setIsNotFound] = React.useState(false)
-  const [accessDenied, setAccessDenied] = React.useState(false)
+  const [accessDeniedScopeKey, setAccessDeniedScopeKey] = React.useState<string | null>(null)
+  const [loadedScopeKey, setLoadedScopeKey] = React.useState<string | null>(null)
+  const accessDenied = accessDeniedScopeKey === projectAccessScopeKey
 
   const [employees, setEmployees] = React.useState<EmployeeAssignment[]>([])
   const [employeesLoading, setEmployeesLoading] = React.useState(false)
@@ -387,7 +391,6 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
       setLoading(true)
       setError(null)
       setIsNotFound(false)
-      setAccessDenied(false)
       try {
         const queryParams = new URLSearchParams({ page: '1', pageSize: '1', ids: projectId! })
         const call = await apiCall<ProjectResponse>(
@@ -396,9 +399,10 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
         // Screen 17: the route answers 404 with this discriminator for a project
         // the caller is not a member of, without naming it.
         if (call.status === 404 && readDenialReason(call.result) === NO_PROJECT_ACCESS_REASON) {
-          if (!cancelled) setAccessDenied(true)
+          if (!cancelled) setAccessDeniedScopeKey(projectAccessScopeKey)
           return
         }
+        if (!cancelled) setAccessDeniedScopeKey(null)
         if (!call.ok) {
           throw new Error(t('staff.timesheets.projects.errors.load', 'Failed to load project.'))
         }
@@ -411,15 +415,19 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
         if (!cancelled) setProject(record)
       } catch (loadError) {
         if (!cancelled) {
+          setAccessDeniedScopeKey(null)
           setError(loadError instanceof Error ? loadError.message : t('staff.timesheets.projects.errors.load', 'Failed to load project.'))
         }
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) {
+          setLoadedScopeKey(projectAccessScopeKey)
+          setLoading(false)
+        }
       }
     }
     loadProject()
     return () => { cancelled = true }
-  }, [projectId, t, scopeVersion])
+  }, [projectId, t, scopeVersion, projectAccessScopeKey])
 
   // --- Load employees with name resolution ---
   const loadEmployees = React.useCallback(async () => {
@@ -649,7 +657,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   }, [handleAddEmployee])
 
   // --- Render ---
-  if (loading) {
+  if (!accessDenied && (loading || loadedScopeKey !== projectAccessScopeKey)) {
     return (
       <Page>
         <PageBody>
