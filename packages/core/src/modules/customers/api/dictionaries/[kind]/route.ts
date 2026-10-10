@@ -24,6 +24,8 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { CUSTOMER_DICTIONARY_ORGANIZATION_REQUIRED_CODE } from '../../../lib/dictionaries'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+import { getTranslationOverlayPlugin } from '@open-mercato/shared/lib/localization/overlay-plugin'
+import { localizeCustomerDictionaryEntries } from '../../../lib/dictionaryLabels'
 
 const logger = createLogger('customers')
 
@@ -39,6 +41,9 @@ const postSchema = z.object({
 
 const querySchema = z.object({
   organizationId: z.string().uuid().optional(),
+  labels: z.enum(['localized', 'base']).optional().describe(
+    'Label projection. `localized` (default) resolves labels for the request locale; `base` returns the stored labels that management screens edit.',
+  ),
 })
 
 export const metadata = {
@@ -51,11 +56,24 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
     const url = new URL(req.url)
     const query = querySchema.parse({
       organizationId: url.searchParams.get('organizationId') ?? undefined,
+      labels: url.searchParams.get('labels') ?? undefined,
     })
-    const { translate, em, organizationId, readableOrganizationIds, tenantId, cache } = await resolveDictionaryRouteContext(req, {
+    const { translate, em, organizationId, readableOrganizationIds, tenantId, cache, container } = await resolveDictionaryRouteContext(req, {
       selectedId: query.organizationId ?? undefined,
     })
     const { kind, mappedKind } = mapDictionaryKind(ctx.params?.kind)
+    const localizeResponse = async (body: z.infer<typeof dictionaryCacheResponseSchema>) => {
+      if (query.labels === 'base') return body
+      const { resolveLocale } = getTranslationOverlayPlugin()
+      const locale = resolveLocale?.(req) ?? (await resolveTranslations()).locale ?? 'en'
+      return {
+        ...body,
+        items: sortDictionaryEntries(
+          await localizeCustomerDictionaryEntries(body.items, { kind: mappedKind, locale, tenantId, container }),
+          resolveDictionaryEntrySortMode(body.sortMode),
+        ),
+      }
+    }
     if (!organizationId) {
       throw new CrudHttpError(400, {
         error: translate('customers.errors.organization_required', 'Organization context is required'),
@@ -76,16 +94,16 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
         sortMode,
         readableOrganizationIds: scopedOrganizationIds,
       })
-      const cached = await cache.get(cacheKey)
-      if (cached) {
-        return NextResponse.json(cached)
+      const cached = dictionaryCacheResponseSchema.safeParse(await cache.get(cacheKey))
+      if (cached.success) {
+        return NextResponse.json(await localizeResponse(cached.data))
       }
     }
 
     const entries = await findWithDecryption(
       em,
       CustomerDictionaryEntry,
-      { tenantId, kind: mappedKind, organizationId: { $in: scopedOrganizationIds } } as any,
+      { tenantId, kind: mappedKind, organizationId: { $in: scopedOrganizationIds } },
       { orderBy: { label: 'asc' } },
       { tenantId, organizationId },
     )
@@ -168,7 +186,7 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
       }
     }
 
-    return NextResponse.json(responseBody)
+    return NextResponse.json(await localizeResponse(responseBody))
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
@@ -299,6 +317,10 @@ const dictionaryListResponseSchema = z.object({
   items: z.array(dictionaryEntrySchema),
 })
 
+const dictionaryCacheResponseSchema = dictionaryListResponseSchema.extend({
+  items: z.array(dictionaryEntrySchema.extend({ label: z.string(), organizationId: z.string() }).passthrough()),
+})
+
 const dictionaryErrorSchema = z.object({
   error: z.string(),
   code: z.string().optional(),
@@ -310,7 +332,8 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'List dictionary entries',
-      description: 'Returns dictionary entries for the requested kind within the currently selected organization.',
+      description: 'Returns dictionary entries for the requested kind within the currently selected organization. Labels are localized for the request locale unless `labels=base` is passed.',
+      query: querySchema,
       responses: [
         { status: 200, description: 'Dictionary entries', schema: dictionaryListResponseSchema },
         { status: 401, description: 'Unauthorized', schema: dictionaryErrorSchema },

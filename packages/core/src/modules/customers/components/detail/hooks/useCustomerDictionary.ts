@@ -2,6 +2,7 @@
 
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useQuery, type QueryClient, type UseQueryResult } from '@tanstack/react-query'
+import { useOptionalLocale } from '@open-mercato/shared/lib/i18n/context'
 import {
   createDictionaryMap,
   normalizeDictionaryEntries,
@@ -26,17 +27,21 @@ const DICTIONARY_STALE_TIME = 5 * 60 * 1000
 
 const BASE_DICTIONARY_QUERY_KEY = ['customers', 'dictionaries'] as const
 
-export const customerDictionaryQueryKey = (kind: CustomerDictionaryKind, scopeVersion = 0, organizationId?: string | null) =>
-  [...BASE_DICTIONARY_QUERY_KEY, kind, `scope:${scopeVersion}`, organizationId ? `org:${organizationId}` : 'org:default'] as const
+function resolveDictionaryLocale(): string {
+  return typeof document === 'undefined' ? 'en' : document.documentElement.lang || 'en'
+}
 
-export const customerDictionaryQueryOptions = (kind: CustomerDictionaryKind, scopeVersion = 0, organizationId?: string | null) => ({
-  queryKey: customerDictionaryQueryKey(kind, scopeVersion, organizationId),
+export const customerDictionaryQueryKey = (kind: CustomerDictionaryKind, scopeVersion = 0, organizationId?: string | null, locale = resolveDictionaryLocale()) =>
+  [...BASE_DICTIONARY_QUERY_KEY, kind, `scope:${scopeVersion}`, organizationId ? `org:${organizationId}` : 'org:default', `locale:${locale}`] as const
+
+export const customerDictionaryQueryOptions = (kind: CustomerDictionaryKind, scopeVersion = 0, organizationId?: string | null, locale = resolveDictionaryLocale()) => ({
+  queryKey: customerDictionaryQueryKey(kind, scopeVersion, organizationId, locale),
   staleTime: DICTIONARY_STALE_TIME,
   gcTime: DICTIONARY_STALE_TIME,
   queryFn: async (): Promise<CustomerDictionaryQueryData> => {
-    const url = organizationId
-      ? `/api/customers/dictionaries/${kind}?organizationId=${encodeURIComponent(organizationId)}`
-      : `/api/customers/dictionaries/${kind}`
+    const params = new URLSearchParams({ locale })
+    if (organizationId) params.set('organizationId', organizationId)
+    const url = `/api/customers/dictionaries/${kind}?${params}`
     const payload = await readApiResultOrThrow<Record<string, unknown>>(
       url,
       undefined,
@@ -87,7 +92,8 @@ export function useCustomerDictionary(
   scopeVersion = 0,
   organizationId?: string | null,
 ): UseQueryResult<CustomerDictionaryQueryData> {
-  return useQuery(customerDictionaryQueryOptions(kind, scopeVersion, organizationId))
+  const locale = useOptionalLocale()
+  return useQuery(customerDictionaryQueryOptions(kind, scopeVersion, organizationId, locale))
 }
 
 export async function invalidateCustomerDictionary(queryClient: QueryClient, kind: CustomerDictionaryKind) {
