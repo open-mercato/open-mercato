@@ -65,6 +65,10 @@ describe('getCustomerAuthFromCookies — session claim binding', () => {
     })
     findOneWithDecryption.mockResolvedValue({
       id: userId,
+      tenantId,
+      organizationId,
+      customerEntityId: null,
+      personEntityId: null,
       sessionsRevokedAt: null,
       deletedAt: null,
       isActive: true,
@@ -104,5 +108,44 @@ describe('getCustomerAuthFromCookies — session claim binding', () => {
       tenantId,
       organizationId,
     })
+  })
+
+  it('re-derives customerEntityId/personEntityId from the DB record, not the token (#2244)', async () => {
+    const dbCustomerEntityId = 'dbdbdbdb-dbdb-4dbd-8dbd-dbdbdbdbdbdb'
+    findOneWithDecryption.mockResolvedValueOnce({
+      id: userId,
+      tenantId,
+      organizationId,
+      customerEntityId: dbCustomerEntityId,
+      personEntityId: null,
+      sessionsRevokedAt: null,
+      deletedAt: null,
+      isActive: true,
+    })
+    const forgedCustomerEntityId = 'fafafafa-fafa-4afa-8afa-fafafafafafa'
+    setCustomerCookie(signCustomerToken({ customerEntityId: forgedCustomerEntityId }))
+
+    const result = await getCustomerAuthFromCookies()
+
+    expect(result).not.toBeNull()
+    expect(result!.customerEntityId).toBe(dbCustomerEntityId)
+    expect(result!.customerEntityId).not.toBe(forgedCustomerEntityId)
+  })
+
+  it('rejects a token whose claimed tenant/org no longer matches the persisted record (#2244)', async () => {
+    const otherTenantId = 'ssssssss-ssss-4sss-8sss-ssssssssssss'
+    findOneWithDecryption.mockResolvedValueOnce({
+      id: userId,
+      tenantId: otherTenantId,
+      organizationId,
+      customerEntityId: null,
+      personEntityId: null,
+      sessionsRevokedAt: null,
+      deletedAt: null,
+      isActive: true,
+    })
+    setCustomerCookie(signCustomerToken())
+
+    await expect(getCustomerAuthFromCookies()).resolves.toBeNull()
   })
 })
