@@ -380,14 +380,31 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   )
 
   // --- Load project ---
+  // The organization switcher settles the scope just after mount, bumping the
+  // scope version from 0 and reloading the project. A screen resolved before
+  // that stays up until the answer arrives: falling back to the full-page
+  // loader would unmount it and drop its local state, such as an access request
+  // the user has just sent. A switch between two known scopes still goes
+  // through the loader, so no screen outlives the scope it was loaded for. The
+  // decision looks at the load this one replaces, settled or not: a version-0
+  // load cancelled by a quick second switch must not let that switch through.
+  const lastLoadRef = React.useRef<{ projectId: string; scopeVersion: number } | null>(null)
   React.useEffect(() => {
     if (!projectId) return
     let cancelled = false
+    const replaced = lastLoadRef.current
+    lastLoadRef.current = { projectId, scopeVersion }
+    const keepScreen = replaced !== null && replaced.projectId === projectId && replaced.scopeVersion === 0
     async function loadProject() {
-      setLoading(true)
-      setError(null)
-      setIsNotFound(false)
-      setAccessDenied(false)
+      if (!keepScreen) setLoading(true)
+      const settle = (outcome: { project?: ProjectRecord; accessDenied?: boolean; isNotFound?: boolean; error?: string }) => {
+        if (cancelled) return
+        setAccessDenied(outcome.accessDenied === true)
+        setIsNotFound(outcome.isNotFound === true)
+        setError(outcome.error ?? null)
+        if (outcome.project) setProject(outcome.project)
+        setLoading(false)
+      }
       try {
         const queryParams = new URLSearchParams({ page: '1', pageSize: '1', ids: projectId! })
         const call = await apiCall<ProjectResponse>(
@@ -396,7 +413,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
         // Screen 17: the route answers 404 with this discriminator for a project
         // the caller is not a member of, without naming it.
         if (call.status === 404 && readDenialReason(call.result) === NO_PROJECT_ACCESS_REASON) {
-          if (!cancelled) setAccessDenied(true)
+          settle({ accessDenied: true })
           return
         }
         if (!call.ok) {
@@ -405,16 +422,12 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
         const payload = call.result
         const record = Array.isArray(payload?.items) ? payload.items[0] : null
         if (!record) {
-          if (!cancelled) setIsNotFound(true)
+          settle({ isNotFound: true })
           return
         }
-        if (!cancelled) setProject(record)
+        settle({ project: record })
       } catch (loadError) {
-        if (!cancelled) {
-          setError(loadError instanceof Error ? loadError.message : t('staff.timesheets.projects.errors.load', 'Failed to load project.'))
-        }
-      } finally {
-        if (!cancelled) setLoading(false)
+        settle({ error: loadError instanceof Error ? loadError.message : t('staff.timesheets.projects.errors.load', 'Failed to load project.') })
       }
     }
     loadProject()
