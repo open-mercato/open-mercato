@@ -29,6 +29,11 @@ import { join } from 'node:path'
 
 const moduleEntities: Record<string, string[]> = {
   auth: ['User', 'Role'],
+  // The three user-editable forms aggregates. Submissions and revisions are
+  // append-only (revisions carry their own `base_revision_id` concurrency
+  // check), actors are an assignment row, and consent/audit rows are
+  // projections — all outside this guard's remit.
+  forms: ['Form', 'FormVersion', 'FormDistribution'],
   catalog: [
     'CatalogProduct',
     'CatalogProductVariant',
