@@ -1,6 +1,6 @@
 # Payment Gateway Webhook Typed Outcomes and Response Formatting
 
-- **Status:** planned
+- **Status:** implemented
 - **Date:** 2026-08-01
 - **Type:** OSS shared/core webhook acknowledgement capability
 - **Hub:** `payment_gateways`
@@ -44,7 +44,9 @@ type WebhookHandlerRegistration = {
 ```
 
 - `accepted` occurs only after synchronous processing succeeds or async enqueue is durable.
-- Invalid/malformed signature/correlation uses `verification_failed`; a typed bounded external verification dependency outage uses `verification_unavailable`.
+- Invalid/malformed signature/correlation uses `verification_failed`; a typed bounded external verification dependency outage uses `verification_unavailable`. Verifiers signal it by throwing `WebhookVerificationUnavailableError`, exported from `@open-mercato/shared/modules/payment_gateways/types`; any other thrown error is `verification_failed`.
+- Without a formatter, `no_candidate`, `verification_failed`, `verification_unavailable`, and `processing_failed` all keep today's JSON `401 { "error": "Webhook verification failed" }`; `payload_too_large` keeps JSON `413`, `rate_limited` keeps the rate limiter's `429` response, and unknown providers keep `404`.
+- With a formatter, `rate_limited` keeps the rate limiter's `Retry-After`/rate-limit headers; the formatter controls status, body, and content type only.
 - Missing candidate and downstream processing/enqueue failures remain distinct retryable outcomes.
 - Rate limiting and optional body-limit rejection use the formatter after registration lookup.
 - Unknown-provider `404` remains framework-owned because no formatter exists.
@@ -110,7 +112,7 @@ No UI changes. Byte-level response and compatibility tests qualify the implement
 
 Land independently with a fixture formatter and full default regression suite. Providers opt in later. Rollback requires disabling formatter consumers first.
 
-Add counters by provider and outcome, formatter validation failure, and emitted status family. Never label metrics with tenant IDs, raw bodies, signatures, or credentials.
+Emit one structured log per request with provider key, outcome, and emitted status (the telemetry runtime has no counter instrument); formatter validation failures also call `reportError` with code `payment_gateways.webhook_formatter_invalid`. Never log tenant IDs, raw bodies, signatures, or credentials.
 
 ## Testing Strategy and Acceptance Criteria
 
@@ -202,6 +204,14 @@ None identified; architecture review remains required for public registration/ro
 Fully compliant — ready for implementation.
 
 ## Changelog
+
+### 2026-10-09 (implementation)
+
+- Implemented: typed outcomes, legacy byte-identical responses, validated `formatResponse` with generic `500` fallback, rate-limit header preservation, `payment_gateways.webhook_processing_failed`/`webhook_formatter_invalid` reporting, structured outcome log, provider-neutral OpenAPI, route tests, docs, and `UPGRADE_NOTES.md`.
+
+### 2026-10-09
+
+- Pre-implementation analysis: `WebhookVerificationUnavailableError`, legacy mapping of every outcome, rate-limit header handling, and structured outcome logs defined.
 
 ### 2026-08-01
 

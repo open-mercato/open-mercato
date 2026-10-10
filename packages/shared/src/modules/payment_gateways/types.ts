@@ -243,6 +243,45 @@ export interface VerifyWebhookInput {
   rawBody: string | Buffer
   headers: Record<string, string | string[] | undefined>
   credentials: Record<string, unknown>
+  /** Platform-resolved payment the webhook is expected to concern, when a locator found one. */
+  candidate?: WebhookCandidateSnapshot
+}
+
+/** Raw request material handed to webhook locator hints. */
+export interface WebhookLocatorContext {
+  rawBody: string | Buffer
+  headers: Record<string, string | string[] | undefined>
+}
+
+export interface WebhookCandidateSnapshot {
+  transactionId: string
+  paymentId: string
+  providerSessionId: string | null
+  amount: string
+  currencyCode: string
+}
+
+export type WebhookResponseOutcome =
+  | 'accepted'
+  | 'no_candidate'
+  | 'verification_failed'
+  | 'verification_unavailable'
+  | 'processing_failed'
+  | 'payload_too_large'
+  | 'rate_limited'
+
+export interface WebhookHttpResponse {
+  status: number
+  body: string | Record<string, unknown>
+  contentType?: string
+}
+
+/** Thrown by a webhook handler when verification cannot be performed (for example a provider outage). */
+export class WebhookVerificationUnavailableError extends Error {
+  constructor(message = 'Webhook verification is unavailable') {
+    super(message)
+    this.name = 'WebhookVerificationUnavailableError'
+  }
 }
 
 export interface WebhookEvent {
@@ -260,9 +299,14 @@ export interface WebhookEvent {
 export interface WebhookHandlerRegistration {
   handler: (input: VerifyWebhookInput) => Promise<WebhookEvent>
   queue?: string
-  readSessionIdHint?: (payload: Record<string, unknown> | null) => string | null
+  readSessionIdHint?: (payload: Record<string, unknown> | null, context?: WebhookLocatorContext) => string | null
+  readPaymentIdHint?: (payload: Record<string, unknown> | null, context?: WebhookLocatorContext) => string | null
   maxBodyBytes?: number
+  rawBody?: WebhookRawBodyMode
+  formatResponse?: (outcome: WebhookResponseOutcome) => WebhookHttpResponse
 }
+
+export type WebhookRawBodyMode = 'text' | 'bytes'
 
 // ── Adapter Registry Options ────────────────────────────────────────────────
 
@@ -353,12 +397,11 @@ export function clearGatewayAdapters(): void {
 export function registerWebhookHandler(
   providerKey: string,
   handler: (input: VerifyWebhookInput) => Promise<WebhookEvent>,
-  options?: {
-    queue?: string
-    readSessionIdHint?: (payload: Record<string, unknown> | null) => string | null
-    maxBodyBytes?: number
-  },
+  options?: Omit<WebhookHandlerRegistration, 'handler'>,
 ): () => void {
+  if (options?.rawBody !== undefined && options.rawBody !== 'text' && options.rawBody !== 'bytes') {
+    throw new Error("[internal] Payment gateway webhook rawBody must be 'text' or 'bytes'")
+  }
   if (
     options?.maxBodyBytes !== undefined
     && (!Number.isSafeInteger(options.maxBodyBytes)
@@ -374,7 +417,10 @@ export function registerWebhookHandler(
     handler,
     queue: options?.queue,
     readSessionIdHint: options?.readSessionIdHint,
+    readPaymentIdHint: options?.readPaymentIdHint,
     maxBodyBytes: options?.maxBodyBytes,
+    rawBody: options?.rawBody,
+    formatResponse: options?.formatResponse,
   })
   return () => {
     webhookHandlerRegistry.delete(providerKey)

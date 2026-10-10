@@ -24,6 +24,23 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.8.1 (unreleased)
 
+### Payment gateway webhooks: opt-in transport, locator and response options; ambiguous matches are rejected
+
+`registerWebhookHandler(...)` accepts new optional options for providers that sign form-encoded bodies or expect a specific acknowledgement:
+
+- `readSessionIdHint(payload, context?)` now also receives `{ rawBody, headers }`.
+- `readPaymentIdHint(payload, context?)` is a second locator, intersected with the session hint.
+- `rawBody: 'bytes'` hands the verifier and locators the exact request bytes as a `Buffer`.
+- `formatResponse(outcome)` maps the route's typed outcomes to a provider-specific status, body and content type.
+
+Verifiers also receive an optional `candidate` snapshot (`transactionId`, `paymentId`, `providerSessionId`, `amount`, `currencyCode`) and may throw `WebhookVerificationUnavailableError` for transient dependency outages.
+
+Registrations that use none of these options keep their current request handling and byte-identical responses.
+
+One behavior is hardened for every provider. The route now verifies every located candidate, up to 10. When more than one stored transaction verifies the same notification, it rejects the request with the existing `401` instead of accepting the first match. If a candidate cannot be checked (its credentials fail to resolve or its verifier reports `WebhookVerificationUnavailableError`) while another verifies, the route also fails closed, because ambiguity cannot be ruled out; the provider's retry settles it once every candidate can be checked. A locator that throws no longer escapes as an unhandled `500`: it is reported and answered with the legacy `401`.
+
+**Action for provider authors:** none unless you want the new options. If your provider can legitimately store several transactions with the same provider session id under credentials that verify each other's signatures, return a more specific locator so a single transaction matches. A provider that locates transactions only by payment id must reject candidates whose `providerSessionId` or `amount` differ from the signed notification, because a retried checkout can leave several transactions for one payment.
+
 ### Catalog product bulk-delete jobs require tenant, organization and user scope (#3826)
 
 The `catalog-product-bulk-delete` worker used to run `catalog.products.delete` with `auth: null`, so
