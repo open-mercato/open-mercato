@@ -13,6 +13,8 @@ import {
   linkDialogPlugin,
   imagePlugin,
   tablePlugin,
+  codeBlockPlugin,
+  codeMirrorPlugin,
   markdownShortcutPlugin,
   diffSourcePlugin,
   toolbarPlugin,
@@ -31,7 +33,24 @@ import {
 } from '@mdxeditor/editor'
 import '@mdxeditor/editor/style.css'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useTheme } from '../../theme'
+
+const CODE_BLOCK_LANGUAGES: Record<string, string> = {
+  js: 'JavaScript',
+  jsx: 'JavaScript (React)',
+  ts: 'TypeScript',
+  tsx: 'TypeScript (React)',
+  json: 'JSON',
+  html: 'HTML',
+  css: 'CSS',
+  sql: 'SQL',
+  python: 'Python',
+  bash: 'Bash',
+  sh: 'Shell',
+  yaml: 'YAML',
+  markdown: 'Markdown',
+}
 
 type MdxEditorImplProps = {
   value?: string
@@ -46,6 +65,7 @@ export default function MdxEditorImpl({ value = '', onChange }: MdxEditorImplPro
   const latestRef = React.useRef<string>(value)
   const typingRef = React.useRef(false)
   const { resolvedTheme } = useTheme()
+  const t = useT()
 
   // External value changes (form reset / async initial load) are pushed into the editor,
   // but never while the user is actively typing (would reset the caret).
@@ -83,6 +103,13 @@ export default function MdxEditorImpl({ value = '', onChange }: MdxEditorImplPro
           linkDialogPlugin(),
           imagePlugin(),
           tablePlugin(),
+          codeBlockPlugin({ defaultCodeBlockLanguage: '' }),
+          codeMirrorPlugin({
+            codeBlockLanguages: {
+              '': t('ui.forms.richtext.plainText', 'Plain text'),
+              ...CODE_BLOCK_LANGUAGES,
+            },
+          }),
           markdownShortcutPlugin(),
           diffSourcePlugin({ viewMode: 'rich-text' }),
           toolbarPlugin({
