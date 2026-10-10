@@ -34,6 +34,9 @@ export const EXAMPLE_INTEGRATION_ACTIVATION_ENTRY: ModuleActivationEntry = {
       nav: {
         groupOrder: ['example.nav.group'],
       },
+      widgets: {
+        injection: { 'example:override-probe:widget': null },
+      },
       routes: {
         api: {
           'GET /api/example/override-probe': {
