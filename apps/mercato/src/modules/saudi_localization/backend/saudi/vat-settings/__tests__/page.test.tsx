@@ -44,6 +44,7 @@ const storedSettings = {
   vatRate: 0.15,
   invoiceQrEnabled: true,
   isComplete: true,
+  canManage: true,
   updatedAt: '2026-01-31T09:15:00.000Z',
 }
 
@@ -137,5 +138,46 @@ describe('SaudiVatSettingsPage', () => {
 
     expect(await screen.findByText('Unable to load the Saudi VAT settings.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
+  })
+
+  /**
+   * The reported defect: the page opened on `settings.view`, so a caller without
+   * `settings.manage` got an editable form whose Save the guard answered with a
+   * 403 — the operator filled it in, saw "Unable to save", and found the values
+   * gone on reload. Read access is what `view` grants, so the values stay on
+   * screen, but nothing offers a write that cannot land.
+   */
+  it('shows view-only callers the settings without offering a doomed save', async () => {
+    apiCallMock.mockResolvedValue({
+      ok: true,
+      result: { ...storedSettings, canManage: false },
+    } as never)
+
+    render(<SaudiVatSettingsPage />)
+
+    await waitFor(() => expect(screen.getByLabelText('Seller name')).toHaveValue('Apex Trading Est.'))
+    expect(screen.getByLabelText('Seller name')).toBeDisabled()
+    expect(screen.getByLabelText('VAT registration number')).toBeDisabled()
+    expect(screen.getByLabelText('VAT rate (%)')).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument()
+    expect(screen.getByText('Read-only view')).toBeInTheDocument()
+    expect(apiCallOrThrowMock).not.toHaveBeenCalled()
+  })
+
+  it('reports a revoked grant as a permission failure and stops offering the write', async () => {
+    apiCallOrThrowMock.mockRejectedValue({ status: 403, message: 'Forbidden' })
+
+    render(<SaudiVatSettingsPage />)
+    await waitFor(() => expect(screen.getByLabelText('Seller name')).toHaveValue('Apex Trading Est.'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(flashMock).toHaveBeenCalledWith(
+        'You do not have permission to change the Saudi VAT settings.',
+        'error',
+      ),
+    )
+    expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument()
   })
 })

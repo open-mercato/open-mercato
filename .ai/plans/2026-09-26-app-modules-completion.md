@@ -244,3 +244,22 @@ permission from the list's own workflow picker; and the untracked
 `TRANSPORT_MODULE_STEP1_COMPLETE.md` at the repo root is stale — it stops at step 1 and points at step 2,
 both long since committed, so the plan file you are reading is the tracker to trust.
 
+## 2026-10-09 — the Arabic rollout reaches `wms`
+
+The three app modules above are done, so the programme continued where the localization
+spec pointed next: `wms` — first of `wms` / `workflows` / `agent_orchestrator` /
+`warranty_claims` in that spec's value order.
+`packages/core/src/modules/wms/i18n/ar.json` now carries all 1 057 keys in `en.json`
+order: the warehouse/location/zone/inventory-profile configuration screens, the inventory
+console (receive, adjust, move, reserve, release, cycle count), the balances, reservations
+and movement-ledger lists, the operational dashboard, the location/lot/SKU detail views,
+the two notification renderers and the catalog/sales widget injections.
+
+Verified: `ar-audit/verify.mjs` → `keys=1057 OK`; `yarn i18n:check-sync` green; the 49
+`wms` suites (300 tests) green; `yarn test:repo-wide-guards` shows only the pre-existing
+enterprise `agent-taxonomy-rename` failure, which scans `agent_orchestrator` migration
+files and is untouched by this slice. The module's UI, API, commands and tests are
+unchanged — this slice is one data file plus this tracker.
+
+`workflows` is the next module in the spec's value order.
+

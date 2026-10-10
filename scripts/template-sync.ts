@@ -200,10 +200,12 @@ const TEMPLATE_DISABLED_MODULE_IDS = [
   'design_system',
   'example',
   'seeds',
+  'financial',
   'fleet_management',
   'hr_management',
   'saudi_localization',
   'transport_operations',
+  'freight_operations',
 ] as const
 const ENABLED_MODULES_DECLARATION = 'export const enabledModules: ModuleEntry[] = ['
 const EXAMPLE_CUSTOMERS_SYNC_GUARD = "if (enabledModules.some((entry) => entry.id === 'example')) {"

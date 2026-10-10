@@ -154,6 +154,8 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'customer_accounts', from: '@open-mercato/core' },
   { id: 'portal', from: '@open-mercato/core' },
   { id: 'ratelimit_probe', from: '@app' },
+  { id: 'vehicle_rentals', from: '@app' },
+  { id: 'student_transport', from: '@app' },
 ]
 
 // Official modules activated via official-modules.json / official-modules.local.json

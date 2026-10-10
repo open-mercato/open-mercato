@@ -1,8 +1,10 @@
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { SAUDI_STANDARD_VAT_RATE, isValidSaudiVatNumber } from './saudi/vat'
 import {
+  SAUDI_DEFAULT_FILING_FREQUENCY,
   saudiVatSettingsInputSchema,
   saudiVatSettingsStoredSchema,
+  type SaudiFilingFrequency,
   type SaudiVatSettingsInput,
 } from '../data/validators'
 
@@ -25,6 +27,8 @@ export type SaudiVatSettings = {
   commercialRegistrationNumber: string | null
   vatRate: number
   invoiceQrEnabled: boolean
+  /** Which ZATCA filing period the VAT return is built for. */
+  filingFrequency: SaudiFilingFrequency
 }
 
 export const SAUDI_VAT_SETTINGS_DEFAULTS: SaudiVatSettings = {
@@ -33,6 +37,7 @@ export const SAUDI_VAT_SETTINGS_DEFAULTS: SaudiVatSettings = {
   commercialRegistrationNumber: null,
   vatRate: SAUDI_STANDARD_VAT_RATE,
   invoiceQrEnabled: true,
+  filingFrequency: SAUDI_DEFAULT_FILING_FREQUENCY,
 }
 
 export type SaudiVatSettingsScope = {
@@ -52,6 +57,7 @@ export function mergeSaudiVatSettings(value: unknown): SaudiVatSettings {
     commercialRegistrationNumber: stored.commercialRegistrationNumber ?? null,
     vatRate: stored.vatRate ?? SAUDI_VAT_SETTINGS_DEFAULTS.vatRate,
     invoiceQrEnabled: stored.invoiceQrEnabled ?? SAUDI_VAT_SETTINGS_DEFAULTS.invoiceQrEnabled,
+    filingFrequency: stored.filingFrequency ?? SAUDI_VAT_SETTINGS_DEFAULTS.filingFrequency,
   }
 }
 
@@ -101,6 +107,7 @@ export async function writeSaudiVatSettings(
     commercialRegistrationNumber: input.commercialRegistrationNumber ?? null,
     vatRate: input.vatRate,
     invoiceQrEnabled: input.invoiceQrEnabled,
+    filingFrequency: input.filingFrequency,
   }
   const record = await configService.setValue(SAUDI_VAT_SETTINGS_MODULE_ID, SAUDI_VAT_SETTINGS_KEY, settings, scope)
   return { settings, updatedAt: record?.updatedAt ?? null }

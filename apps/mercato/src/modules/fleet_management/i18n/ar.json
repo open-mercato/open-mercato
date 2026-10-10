@@ -43,6 +43,8 @@
   "fleet_management.errors.return_failed": "تعذّر إرجاع المركبة",
   "fleet_management.errors.vehicle_in_custody": "المركبة المحدّدة في عهدة موظف آخر بالفعل.",
   "fleet_management.errors.vehicle_not_found": "لم يتم العثور على المركبة.",
+  "fleet_management.errors.vehicle_plate_taken": "توجد مركبة أخرى تستخدم رقم اللوحة نفسه.",
+  "fleet_management.errors.vehicle_sequence_taken": "توجد مركبة أخرى تستخدم الرقم التسلسلي نفسه.",
   "fleet_management.errors.vehicle_unavailable": "المركبة المحدّدة غير متاحة.",
   "fleet_management.nav.group": "الأسطول",
   "fleet_management.vehicles.actions.backToList": "العودة إلى المركبات",

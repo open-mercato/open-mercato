@@ -13,7 +13,18 @@ export type FleetAssignmentStatus = (typeof FLEET_ASSIGNMENT_STATUSES)[number]
 @Entity({ tableName: 'fleet_vehicles' })
 @Index({ name: 'fleet_vehicles_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
 @Index({ name: 'fleet_vehicles_status_idx', properties: ['organizationId', 'status'] })
-@Index({ name: 'fleet_vehicles_plate_unique_idx', properties: ['organizationId', 'tenantId', 'plateNumber'], options: { unique: true, where: 'deleted_at IS NULL' } })
+// `expression`, not `options: { unique: true, where }` — see the note in
+// `transport_operations/data/entities.ts`: the options form emits a plain index.
+@Index({
+  name: 'fleet_vehicles_plate_unique_idx',
+  expression:
+    'create unique index "fleet_vehicles_plate_unique_idx" on "fleet_vehicles" ("organization_id", "tenant_id", "plate_number") where deleted_at is null',
+})
+@Index({
+  name: 'fleet_vehicles_sequence_unique_idx',
+  expression:
+    'create unique index "fleet_vehicles_sequence_unique_idx" on "fleet_vehicles" ("organization_id", "tenant_id", "sequence_number") where deleted_at is null and sequence_number is not null',
+})
 export class FleetVehicle {
   [OptionalProps]?: 'status' | 'currentOdometer' | 'createdAt' | 'updatedAt' | 'deletedAt'
 

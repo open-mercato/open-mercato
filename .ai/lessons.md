@@ -46,6 +46,7 @@ This catalog indexes 147 focused lessons. Route the task first, then read only r
 
 ### module-data
 
+- [A partial unique index needs the expression form, or it is not unique](lessons/partial-unique-indexes-need-the-expression-form.md) — area:module-data,database-migrations; module:transport_operations,fleet_management,financial,staff,entities; topic:database-migrations,data-integrity
 - [Auto-discovery routing surprises only a running app catches](lessons/api-route-files-must-sit-directly-under-the-resource.md) — area:module-data,backend-ui,testing; module:documents,cli,ui; topic:auto-discovery,generated-files,error-states
 - [Local tooling gotchas: stale snapshots and ephemeral restarts](lessons/db-generate-re-emits-an-unrelated-stale-snapshot.md) — area:module-data,testing,debugging; module:cli,ai_assistant; topic:database-migrations,dev-runtime,regeneration
 - [`dbMigrate` must not write migration snapshots during initialize flows](lessons/dbmigrate-must-not-write-migration-snapshots-during.md) — area:module-data,architecture; module:cli,create_app; topic:generated-files,database-migrations,runtime-startup

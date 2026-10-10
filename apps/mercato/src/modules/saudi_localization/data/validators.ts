@@ -17,6 +17,16 @@ const sellerNameSchema = z
     message: `Must fit in ${SAUDI_SELLER_NAME_MAX_BYTES} UTF-8 bytes (the ZATCA QR limit)`,
   })
 
+/**
+ * ZATCA files VAT monthly or quarterly depending on turnover band. The band is
+ * the tenant's to know, so the screen offers the two and the default is the
+ * common case.
+ */
+export const SAUDI_FILING_FREQUENCIES = ['monthly', 'quarterly'] as const
+export type SaudiFilingFrequency = (typeof SAUDI_FILING_FREQUENCIES)[number]
+
+export const SAUDI_DEFAULT_FILING_FREQUENCY: SaudiFilingFrequency = 'quarterly'
+
 /** What the settings screen sends: a full replacement of the record. */
 export const saudiVatSettingsInputSchema = z.object({
   sellerName: sellerNameSchema,
@@ -30,6 +40,9 @@ export const saudiVatSettingsInputSchema = z.object({
     .transform((value) => value ?? null),
   vatRate: z.number().min(0).max(1).default(SAUDI_STANDARD_VAT_RATE),
   invoiceQrEnabled: z.boolean().default(true),
+  // Optional so a record written before this field existed still parses, and a
+  // caller that does not manage filing keeps the default rather than clearing it.
+  filingFrequency: z.enum(SAUDI_FILING_FREQUENCIES).default(SAUDI_DEFAULT_FILING_FREQUENCY),
 })
 
 export type SaudiVatSettingsInput = z.infer<typeof saudiVatSettingsInputSchema>
@@ -45,6 +58,7 @@ export const saudiVatSettingsStoredSchema = z.object({
   commercialRegistrationNumber: z.string().nullish(),
   vatRate: z.number().min(0).max(1).optional(),
   invoiceQrEnabled: z.boolean().optional(),
+  filingFrequency: z.enum(SAUDI_FILING_FREQUENCIES).optional(),
 })
 
 export type SaudiVatSettingsStored = z.infer<typeof saudiVatSettingsStoredSchema>

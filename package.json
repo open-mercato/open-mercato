@@ -45,6 +45,7 @@
     "db:migrate": "turbo run db:migrate --filter=@open-mercato/app",
     "db:greenfield": "turbo run db:greenfield --filter=@open-mercato/app",
     "initialize": "turbo run initialize --filter=@open-mercato/app",
+    "ready": "yarn template:sync:fix && yarn generate && yarn db:migrate && yarn mercato auth sync-role-acls && yarn i18n:check-sync && node scripts/repo-wide-guards.mjs",
     "seed:defaults": "yarn workspace @open-mercato/app seed:defaults",
     "om": "node packages/starter/bin/om-start.mjs",
     "infra:up": "node packages/starter/bin/om-start.mjs infra up",

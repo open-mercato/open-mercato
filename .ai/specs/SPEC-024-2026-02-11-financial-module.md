@@ -4,6 +4,11 @@
 **Module:** `financial`
 **Status:** Specification
 
+> **Build plan:** the phased, Saudi-first build of this document is specified in
+> [`2026-10-09-financial-module-program.md`](2026-10-09-financial-module-program.md).
+> This file remains the architectural reference; the program spec is the buildable
+> re-cut (Saudi Arabia replaces Poland as the first country plugin).
+
 > **Note:** This specification documents the **planned Financial Management module** for the Open Mercato ERP system. It defines a three-layer architecture (Core Engine, Localization Contracts, Country Plugins) to support multi-country financial operations with country-specific tax, invoicing, payroll, and compliance requirements.
 
 ## Overview

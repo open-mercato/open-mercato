@@ -6,14 +6,15 @@ export class Migration20260923144609_wms extends Migration {
 
   override up(): void | Promise<void> {
     this.addSql(`alter table "wms_sales_order_warehouse_assignments" drop constraint if exists "wms_sowa_warehouse_id_foreign";`);
+    this.addSql(`alter table "wms_sales_order_warehouse_assignments" drop constraint if exists "wms_sales_order_warehouse_assignments_warehouse_id_foreign";`);
 
     this.addSql(`alter table "wms_sales_order_warehouse_assignments" add constraint "wms_sales_order_warehouse_assignments_warehouse_id_foreign" foreign key ("warehouse_id") references "wms_warehouses" ("id");`);
 
-    this.addSql(`alter table "wms_inventory_reservations" add "idempotency_key" text null;`);
-    this.addSql(`create unique index "wms_inventory_reservations_idempotency_unique_idx" on "wms_inventory_reservations" ("organization_id", "idempotency_key") where idempotency_key is not null and deleted_at is null and status = 'active';`);
+    this.addSql(`alter table "wms_inventory_reservations" add column if not exists "idempotency_key" text null;`);
+    this.addSql(`create unique index if not exists "wms_inventory_reservations_idempotency_unique_idx" on "wms_inventory_reservations" ("organization_id", "idempotency_key") where idempotency_key is not null and deleted_at is null and status = 'active';`);
 
-    this.addSql(`alter table "wms_inventory_movements" add "idempotency_key" text null;`);
-    this.addSql(`create unique index "wms_inventory_movements_idempotency_unique_idx" on "wms_inventory_movements" ("organization_id", "idempotency_key") where idempotency_key is not null and deleted_at is null;`);
+    this.addSql(`alter table "wms_inventory_movements" add column if not exists "idempotency_key" text null;`);
+    this.addSql(`create unique index if not exists "wms_inventory_movements_idempotency_unique_idx" on "wms_inventory_movements" ("organization_id", "idempotency_key") where idempotency_key is not null and deleted_at is null;`);
   }
 
   override down(): void | Promise<void> {

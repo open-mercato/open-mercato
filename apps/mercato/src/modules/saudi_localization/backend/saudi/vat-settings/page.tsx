@@ -12,6 +12,14 @@
  * Every write goes through `runMutation` (the page cannot use `CrudForm` â€” the
  * record has no list, no create and no delete) so mutation guards and injected
  * validation run exactly as they do on a CRUD screen.
+ *
+ * Read and write are separate grants: the screen opens on
+ * `saudi_localization.settings.view`, the save needs `settings.manage`. A caller
+ * holding only the first must still be able to read the seller identity, which is
+ * what `view` promises, so the API reports which of the two states applies and
+ * the form degrades to a read-only view instead of offering a Save the guard will
+ * refuse. Disabling the inputs matters as much as hiding the button: an editable
+ * form that silently discards the edit is the same defect with a later error.
  */
 
 import * as React from 'react'
@@ -22,6 +30,13 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
@@ -37,13 +52,17 @@ const RESOURCE_KIND = 'saudi_localization.settings'
 const RESOURCE_ID = 'vat'
 const DEFAULT_RATE_PERCENT = '15'
 
+type FilingFrequency = 'monthly' | 'quarterly'
+
 type VatSettingsResponse = {
   sellerName: string
   vatRegistrationNumber: string
   commercialRegistrationNumber: string | null
   vatRate: number
   invoiceQrEnabled: boolean
+  filingFrequency: FilingFrequency
   isComplete: boolean
+  canManage: boolean
   updatedAt: string | null
 }
 
@@ -60,6 +79,7 @@ type FormState = {
   commercialRegistrationNumber: string
   vatRatePercent: string
   invoiceQrEnabled: boolean
+  filingFrequency: FilingFrequency
 }
 
 const EMPTY_FORM: FormState = {
@@ -68,6 +88,7 @@ const EMPTY_FORM: FormState = {
   commercialRegistrationNumber: '',
   vatRatePercent: DEFAULT_RATE_PERCENT,
   invoiceQrEnabled: true,
+  filingFrequency: 'quarterly',
 }
 
 function toFormState(settings: VatSettingsResponse): FormState {
@@ -77,6 +98,7 @@ function toFormState(settings: VatSettingsResponse): FormState {
     commercialRegistrationNumber: settings.commercialRegistrationNumber ?? '',
     vatRatePercent: String(Number((settings.vatRate * 100).toFixed(2))),
     invoiceQrEnabled: settings.invoiceQrEnabled,
+    filingFrequency: settings.filingFrequency ?? 'quarterly',
   }
 }
 
@@ -99,6 +121,7 @@ export default function SaudiVatSettingsPage() {
   const [form, setForm] = React.useState<FormState>(EMPTY_FORM)
   const [updatedAt, setUpdatedAt] = React.useState<string | null>(null)
   const [isComplete, setIsComplete] = React.useState(false)
+  const [canManage, setCanManage] = React.useState(false)
   const [isLoading, setIsLoading] = React.useState(true)
   const [isSaving, setIsSaving] = React.useState(false)
   const [loadError, setLoadError] = React.useState<string | null>(null)
@@ -115,6 +138,7 @@ export default function SaudiVatSettingsPage() {
     }
     setForm(toFormState(call.result))
     setIsComplete(call.result.isComplete)
+    setCanManage(call.result.canManage === true)
     setUpdatedAt(call.result.updatedAt)
     setIsLoading(false)
   }, [t])
@@ -129,6 +153,9 @@ export default function SaudiVatSettingsPage() {
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    // No Save control is rendered without the grant; this keeps a stray submit
+    // (an Enter key in a field, an injected script) from reaching the guard.
+    if (!canManage) return
     const ratePercent = parseRatePercent(form.vatRatePercent)
     if (ratePercent === null) {
       setRateError(t('saudi_localization.errors.invalid_rate', 'Enter a VAT rate between 0 and 100.'))
@@ -143,6 +170,7 @@ export default function SaudiVatSettingsPage() {
       commercialRegistrationNumber: form.commercialRegistrationNumber.trim() || null,
       vatRate: ratePercent / 100,
       invoiceQrEnabled: form.invoiceQrEnabled,
+      filingFrequency: form.filingFrequency,
     }
 
     try {
@@ -171,9 +199,24 @@ export default function SaudiVatSettingsPage() {
       }
       setForm(toFormState(call.result))
       setIsComplete(call.result.isComplete)
+      setCanManage(call.result.canManage === true)
       setUpdatedAt(call.result.updatedAt)
       flash(t('saudi_localization.vat_settings.messages.saved', 'Saudi VAT settings saved.'), 'success')
-    } catch {
+    } catch (error) {
+      // A 403 means the grant was revoked under the operator (or the page was
+      // opened before the grant landed). Say so instead of reporting a failure
+      // whose cause is invisible, and stop offering the write.
+      if ((error as { status?: number } | null)?.status === 403) {
+        setCanManage(false)
+        flash(
+          t(
+            'saudi_localization.errors.forbidden',
+            'You do not have permission to change the Saudi VAT settings.',
+          ),
+          'error',
+        )
+        return
+      }
       flash(t('saudi_localization.errors.save_failed', 'Unable to save the Saudi VAT settings.'), 'error')
     } finally {
       setIsSaving(false)
@@ -207,6 +250,20 @@ export default function SaudiVatSettingsPage() {
 
         {!isLoading && !loadError ? (
           <form onSubmit={handleSubmit} className="grid gap-6">
+            {!canManage ? (
+              <Alert variant="info">
+                <AlertTitle>
+                  {t('saudi_localization.vat_settings.read_only.title', 'Read-only view')}
+                </AlertTitle>
+                <AlertDescription>
+                  {t(
+                    'saudi_localization.vat_settings.read_only.body',
+                    'You can see the seller VAT identity but not change it. Ask an administrator for the "Manage Saudi VAT settings" permission to edit these values.',
+                  )}
+                </AlertDescription>
+              </Alert>
+            ) : null}
+
             {!isComplete ? (
               <Alert variant="warning">
                 <AlertTitle>{t('saudi_localization.vat_settings.incomplete.title', 'VAT settings are incomplete')}</AlertTitle>
@@ -237,6 +294,7 @@ export default function SaudiVatSettingsPage() {
                     onChange={(event) => update('sellerName', event.target.value)}
                     required
                     maxLength={255}
+                    disabled={!canManage}
                   />
                   <p className="text-xs text-muted-foreground">
                     {t(
@@ -257,6 +315,7 @@ export default function SaudiVatSettingsPage() {
                     required
                     inputMode="numeric"
                     maxLength={15}
+                    disabled={!canManage}
                   />
                   <p className="text-xs text-muted-foreground">
                     {t('saudi_localization.vat_settings.fields.vat_number_hint', '15 digits, starting and ending with 3.')}
@@ -272,6 +331,7 @@ export default function SaudiVatSettingsPage() {
                     value={form.commercialRegistrationNumber}
                     onChange={(event) => update('commercialRegistrationNumber', event.target.value)}
                     maxLength={20}
+                    disabled={!canManage}
                   />
                 </div>
               </CardContent>
@@ -290,6 +350,7 @@ export default function SaudiVatSettingsPage() {
                     onChange={(event) => update('vatRatePercent', event.target.value)}
                     required
                     inputMode="decimal"
+                    disabled={!canManage}
                   />
                   {rateError ? <p className="text-xs text-destructive">{rateError}</p> : null}
                   <p className="text-xs text-muted-foreground">
@@ -297,9 +358,39 @@ export default function SaudiVatSettingsPage() {
                   </p>
                 </div>
 
+                <div className="grid gap-2">
+                  <Label htmlFor="saudi-filing-frequency">
+                    {t('saudi_localization.vat_settings.fields.filing_frequency', 'VAT filing period')}
+                  </Label>
+                  <Select
+                    value={form.filingFrequency}
+                    onValueChange={(value) => update('filingFrequency', value as FilingFrequency)}
+                    disabled={!canManage}
+                  >
+                    <SelectTrigger id="saudi-filing-frequency">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="monthly">
+                        {t('saudi_localization.vat_settings.filing_frequency.monthly', 'Monthly')}
+                      </SelectItem>
+                      <SelectItem value="quarterly">
+                        {t('saudi_localization.vat_settings.filing_frequency.quarterly', 'Quarterly')}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {t(
+                      'saudi_localization.vat_settings.fields.filing_frequency_hint',
+                      'ZATCA sets the period by turnover band. The VAT return is built for this period.',
+                    )}
+                  </p>
+                </div>
+
                 <SwitchField
                   id="saudi-invoice-qr"
                   checked={form.invoiceQrEnabled}
+                  disabled={!canManage}
                   onCheckedChange={(checked) => update('invoiceQrEnabled', checked)}
                   label={t('saudi_localization.vat_settings.fields.invoice_qr', 'Print the ZATCA QR code on invoices')}
                   description={t(
@@ -310,12 +401,14 @@ export default function SaudiVatSettingsPage() {
               </CardContent>
             </Card>
 
-            <div className="flex justify-end">
-              <Button type="submit" disabled={isSaving}>
-                {isSaving ? <Spinner size="sm" /> : <Save className="size-4 me-2" />}
-                {t('saudi_localization.vat_settings.actions.save', 'Save')}
-              </Button>
-            </div>
+            {canManage ? (
+              <div className="flex justify-end">
+                <Button type="submit" disabled={isSaving}>
+                  {isSaving ? <Spinner size="sm" /> : <Save className="size-4 me-2" />}
+                  {t('saudi_localization.vat_settings.actions.save', 'Save')}
+                </Button>
+              </div>
+            ) : null}
           </form>
         ) : null}
       </PageBody>

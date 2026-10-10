@@ -18,7 +18,11 @@ import {
   updateVehicleSchema,
 } from '../data/validators'
 import { registerCrudCommands } from './crud'
-import { assertVehicleAssignable, type FleetScope } from '../lib/fleetService'
+import {
+  assertFleetVehicleIdentityUnique,
+  assertVehicleAssignable,
+  type FleetScope,
+} from '../lib/fleetService'
 
 export function makeEvents<TEntity extends object>(entity: string): CrudEventsConfig<TEntity> {
   return {
@@ -78,6 +82,22 @@ registerCrudCommands({
   updateSchema: updateVehicleSchema,
   toCreateData: (input) => input,
   toUpdateData: patched,
+  beforeCreate: async (input, scope, ctx) => {
+    await assertFleetVehicleIdentityUnique(ctx.container.resolve('em') as EntityManager, scope, {
+      plateNumber: input.plateNumber,
+      sequenceNumber: input.sequenceNumber,
+    })
+  },
+  beforeUpdate: async (input, current, scope, ctx) => {
+    await assertFleetVehicleIdentityUnique(ctx.container.resolve('em') as EntityManager, scope, {
+      // Falling back to the stored value matters on a partial update: an edit
+      // that only changes the model still has to be checked against the plate
+      // and sequence the row keeps.
+      plateNumber: input.plateNumber ?? current.plateNumber,
+      sequenceNumber: input.sequenceNumber ?? current.sequenceNumber,
+      excludeId: current.id,
+    })
+  },
   events: fleetVehicleEvents,
   indexer: fleetVehicleIndexer,
 })

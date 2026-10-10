@@ -116,3 +116,50 @@ export function createFleetService(em: EntityManager): FleetService {
     getDashboardSummary: (scope) => getFleetDashboardSummary(em, scope),
   }
 }
+/**
+ * Uniqueness of a fleet vehicle's identity fields — the plate and the sequence
+ * number the fleet numbers its vehicles by.
+ *
+ * These are the two values an operator reads a vehicle by, and a duplicate makes
+ * both ambiguous: two rows answer to "A B C 1234", and a maintenance log, an
+ * assignment or an Istimara renewal can land on the wrong one. The database
+ * carries unique indexes on both (see the entity's `@Index` expressions) as the
+ * guarantee; checking here produces a 409 that names the field instead of a 500
+ * from the constraint.
+ *
+ * `sequenceNumber` is nullable — a fleet that does not number its vehicles is not
+ * made to. An empty string is treated as absent so a form that clears the field
+ * does not create a second "no sequence" row that then clashes.
+ */
+export async function assertFleetVehicleIdentityUnique(
+  em: EntityManager,
+  scope: FleetScope,
+  input: { plateNumber?: unknown; sequenceNumber?: unknown; excludeId?: string | null },
+): Promise<void> {
+  const plateNumber = typeof input.plateNumber === 'string' ? input.plateNumber.trim() : ''
+  const rawSequence = typeof input.sequenceNumber === 'string' ? input.sequenceNumber.trim() : ''
+  const sequenceNumber = rawSequence.length > 0 ? rawSequence : null
+  const exclude = input.excludeId ? { id: { $ne: input.excludeId } } : {}
+
+  if (plateNumber) {
+    const clash = await em.findOne(FleetVehicle, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      plateNumber,
+      deletedAt: null,
+      ...exclude,
+    })
+    if (clash) await raiseFleetError(409, 'vehicle_plate_taken', 'Another vehicle already uses this plate number.')
+  }
+
+  if (sequenceNumber) {
+    const clash = await em.findOne(FleetVehicle, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      sequenceNumber,
+      deletedAt: null,
+      ...exclude,
+    })
+    if (clash) await raiseFleetError(409, 'vehicle_sequence_taken', 'Another vehicle already uses this sequence number.')
+  }
+}

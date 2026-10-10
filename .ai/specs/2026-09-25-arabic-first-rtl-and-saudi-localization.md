@@ -183,9 +183,9 @@ high-visibility surfaces first: `dashboards` ✅, `notifications` ✅, `currenci
 `dictionaries` ✅, `progress` ✅, `api_keys` ✅, `phone_calls` ✅, `audit_logs` ✅,
 `directory` ✅, `onboarding` ✅, `feature_toggles` ✅, `integrations` ✅,
 `sync_excel` ✅, `portal` ✅ (141), then the large ones in their own slices: `auth` ✅ (718,
-455 of which are the ACL matrix), `catalog` ✅ (724), `sales` (1 494),
+455 of which are the ACL matrix), `catalog` ✅ (724), `wms` ✅ (1 057), `sales` (1 494),
 `customers` (2 880), `staff` (2 066). Still without an `ar.json` and therefore
-English-only for Arabic users, in rough value order: `wms` (1 057), `workflows` (2 262),
+English-only for Arabic users, in rough value order: `workflows` (2 262),
 `agent_orchestrator` (1 493), `warranty_claims` (1 268), `resources` (768), `eudr` (749),
 `planner` (563), `security` (485), `business_rules` (399), `customer_accounts` (363),
 `messages` (262), `entities` (258), `configs` (201), `inbox_ops` (195), `attachments` (183),
@@ -450,3 +450,16 @@ new ACL features (`saudi_localization.*`) and built on `makeCrudRoute`.
   `useLocale()` into their helpers. The decimal-input parser was already locale-aware
   (`parseLocaleNumber`), so the remaining work is the `sales` surfaces and the deliberate,
   documented pins in the gallery and docs fixtures.
+- **2026-10-09 (Phase 2, the WMS module)** — `wms` ships 1 057 Arabic keys: the warehouse,
+  location, zone and inventory-profile configuration screens, the inventory console
+  (receive, adjust, move, reserve, release, cycle count), the balances, reservations and
+  movement-ledger lists, the operational dashboard, the location/lot/SKU detail views, the
+  low-stock and reservation-shortfall notification renderers, and the catalog/sales widget
+  injections. One value needed a decision the brief could not make for it: the two
+  `…activity.titles.generic` keys are placeholder-only templates (`{type} {quantity}× {sku}`)
+  whose `{type}` the caller fills with an already-translated label, so they carry no words to
+  translate — they read `حركة {type} · {quantity}× {sku}` to stay non-empty in Arabic while
+  leaving every placeholder byte-identical. Values that stay Latin are only the acronyms and
+  symbols the brief exempts (`SKU`, `RMA`, `WMS`, `FEFO`/`FIFO`/`LIFO`, `…`, `—`), and the
+  key order matches `en.json` exactly (`ar-audit/verify.mjs` → `keys=1057 OK`);
+  `yarn i18n:check-sync` stays green and all 49 `wms` test suites (300 tests) pass.

@@ -43,6 +43,8 @@
   "fleet_management.errors.return_failed": "Unable to return the vehicle",
   "fleet_management.errors.vehicle_in_custody": "The selected vehicle is already in another employee custody.",
   "fleet_management.errors.vehicle_not_found": "Vehicle not found.",
+  "fleet_management.errors.vehicle_plate_taken": "Another vehicle already uses this plate number.",
+  "fleet_management.errors.vehicle_sequence_taken": "Another vehicle already uses this sequence number.",
   "fleet_management.errors.vehicle_unavailable": "The selected vehicle is not available.",
   "fleet_management.nav.group": "Fleet",
   "fleet_management.vehicles.actions.backToList": "Back to vehicles",

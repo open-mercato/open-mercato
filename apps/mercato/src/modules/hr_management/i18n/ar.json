@@ -111,6 +111,7 @@
   "hr_management.attendance.permission.submitting": "جارٍ الإرسال…",
   "hr_management.attendance.permission.success": "تم طلب الإذن.",
   "hr_management.attendance.permission.title": "طلب إذن لتأخير",
+  "hr_management.attendance.permission.workflowNone": "اختر مسار الموافقة",
   "hr_management.attendance.status.absent": "غائب",
   "hr_management.attendance.status.holiday": "عطلة",
   "hr_management.attendance.status.late": "متأخر",

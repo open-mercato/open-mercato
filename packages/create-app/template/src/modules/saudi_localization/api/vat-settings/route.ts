@@ -11,9 +11,11 @@ import {
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { saudiVatSettingsInputSchema } from '../../data/validators'
+import { SAUDI_FILING_FREQUENCIES, saudiVatSettingsInputSchema } from '../../data/validators'
 import {
   SAUDI_VAT_SETTINGS_KEY,
   isSaudiVatSettingsComplete,
@@ -32,6 +34,7 @@ export const metadata = {
 }
 
 const SETTINGS_RESOURCE_KIND = 'saudi_localization.settings'
+const MANAGE_FEATURE = 'saudi_localization.settings.manage'
 
 type SettingsContext = {
   container: Awaited<ReturnType<typeof createRequestContainer>>
@@ -39,6 +42,14 @@ type SettingsContext = {
   organizationId: string | null
   actorId: string
   scope: SaudiVatSettingsScope
+  /**
+   * Whether the caller may write. The screen is reachable with `settings.view`
+   * alone, so it has to be told which of the two states it is in: reporting it
+   * here keeps the read-only rendering authoritative (the permission is decided
+   * by the same RBAC service the PUT guard uses, in the caller's own
+   * organization scope) instead of the browser guessing from a nav entry.
+   */
+  canManage: boolean
 }
 
 async function resolveSettingsContext(req: Request): Promise<SettingsContext> {
@@ -56,11 +67,19 @@ async function resolveSettingsContext(req: Request): Promise<SettingsContext> {
     'system'
   const organizationId = auth.orgId ?? null
 
+  const rbac = container.resolve<RbacService>('rbacService')
+  const featureContext = await resolveFeatureCheckContext({ container, auth, request: req })
+  const canManage = await rbac.userHasAllFeatures(auth.sub, [MANAGE_FEATURE], {
+    tenantId: featureContext.scope.tenantId ?? auth.tenantId ?? null,
+    organizationId: featureContext.organizationId,
+  })
+
   return {
     container,
     tenantId: auth.tenantId,
     organizationId,
     actorId,
+    canManage,
     // Tenant-scoped: the VAT number belongs to the legal entity the tenant
     // invoices from. The platform falls back to the instance-global row, so a
     // tenant that configured nothing still reads the shipped defaults.
@@ -72,15 +91,20 @@ function configService(context: SettingsContext): ModuleConfigService {
   return context.container.resolve('moduleConfigService') as ModuleConfigService
 }
 
-function toResponse(record: SaudiVatSettingsRecord) {
-  return { ...record.settings, isComplete: isSaudiVatSettingsComplete(record.settings), updatedAt: record.updatedAt }
+function toResponse(record: SaudiVatSettingsRecord, canManage: boolean) {
+  return {
+    ...record.settings,
+    isComplete: isSaudiVatSettingsComplete(record.settings),
+    canManage,
+    updatedAt: record.updatedAt,
+  }
 }
 
 async function GET(req: Request) {
   try {
     const context = await resolveSettingsContext(req)
     const record = await readSaudiVatSettingsRecord(configService(context), context.scope)
-    return NextResponse.json(toResponse(record))
+    return NextResponse.json(toResponse(record, context.canManage))
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
     logger.error('saudi_localization.vat_settings.GET failed', { err })
@@ -136,7 +160,9 @@ async function PUT(req: Request) {
       })
     }
 
-    return NextResponse.json(toResponse(record))
+    // A completed write proves `settings.manage`, so the response keeps the
+    // same shape as the read without a second RBAC lookup.
+    return NextResponse.json(toResponse(record, true))
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
     if (err instanceof z.ZodError) {
@@ -160,7 +186,11 @@ const settingsResponseSchema = z.object({
   commercialRegistrationNumber: z.string().nullable(),
   vatRate: z.number(),
   invoiceQrEnabled: z.boolean(),
+  /** ZATCA filing period the VAT return is built for. */
+  filingFrequency: z.enum(SAUDI_FILING_FREQUENCIES),
   isComplete: z.boolean(),
+  /** Whether the caller holds `saudi_localization.settings.manage`. */
+  canManage: z.boolean(),
   /** Version to send back on the next write; `null` before the first one. */
   updatedAt: z.string().nullable(),
 })

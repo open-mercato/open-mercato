@@ -304,6 +304,23 @@ Read responses: every `GET /api/sales/orders` payload carries
 
 ## Changelog
 
+- **2026-10-10 — the settings screen offered a save it could not perform.** The page
+  opened on `saudi_localization.settings.view` while the `PUT` behind it requires
+  `settings.manage` (this spec's own split), so a caller holding only `view` — the
+  `employee` default role — got a fully editable form whose Save answered
+  `403 {"requiredFeatures":["saudi_localization.settings.manage"]}`, showed "Unable to
+  save", and reverted on reload; `module_configs` had no `saudi_localization` row as a
+  result. `GET` now reports `canManage` (decided by the same `rbacService` call the
+  `PUT` guard makes, in the caller's own organization scope, via
+  `resolveFeatureCheckContext`), and the screen renders **read-only** for a caller
+  without the grant: inputs disabled, no Save control, a note saying why, and a `403`
+  that names the missing permission instead of a generic failure. Read access is what
+  `settings.view` promises, so nobody loses the screen. `filingFrequency`
+  (`monthly` | `quarterly`, optional, default `quarterly`) was added to the record at
+  the same time — it is the period the VAT return in
+  [`2026-10-09-financial-saudi-plugin.md`](2026-10-09-financial-saudi-plugin.md) is
+  built for, and it is a stored tenant setting rather than a constant because ZATCA
+  sets the band by turnover.
 - **2026-09-27 — the API URLs in this spec were wrong, and so was the code.** The route files
   declared short prefixes (`/saudi/vat-settings`) while the runtime manifest matches
   `metadata.path` verbatim, so every Saudi endpoint answered at `/api/saudi/…` and 404'd at the

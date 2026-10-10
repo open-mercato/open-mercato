@@ -81,3 +81,47 @@ export function createTransportService(em: EntityManager): TransportService {
     },
   }
 }
+
+/**
+ * Uniqueness of a vehicle's identity fields.
+ *
+ * The database carries unique indexes for these (see the entity's `@Index`
+ * expressions) and they remain the backstop, but a constraint violation surfaces
+ * as a 500 with a driver message and no field to fix. Checking here turns it into
+ * a 409 that names the plate or the VIN, which is what an operator can act on.
+ *
+ * The check runs inside the writing command's transaction, so it narrows the race
+ * rather than closing it — two simultaneous creates can both pass and one then
+ * fails on the index. That is the correct division: this is the message, the
+ * index is the guarantee. `excludeId` lets an update keep its own values.
+ */
+export async function assertVehicleIdentityUnique(
+  em: EntityManager,
+  scope: TransportScope,
+  input: { plateNumber?: unknown; vin?: unknown; excludeId?: string | null },
+): Promise<void> {
+  const plateNumber = typeof input.plateNumber === 'string' ? input.plateNumber.trim() : ''
+  const vin = typeof input.vin === 'string' ? input.vin.trim() : ''
+
+  if (plateNumber) {
+    const clash = await em.findOne(TransportVehicle, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      plateNumber,
+      deletedAt: null,
+      ...(input.excludeId ? { id: { $ne: input.excludeId } } : {}),
+    })
+    if (clash) await raiseTransportError(409, 'vehicle_plate_taken', 'Another vehicle already uses this plate number.')
+  }
+
+  if (vin) {
+    const clash = await em.findOne(TransportVehicle, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      vin,
+      deletedAt: null,
+      ...(input.excludeId ? { id: { $ne: input.excludeId } } : {}),
+    })
+    if (clash) await raiseTransportError(409, 'vehicle_vin_taken', 'Another vehicle already uses this VIN.')
+  }
+}

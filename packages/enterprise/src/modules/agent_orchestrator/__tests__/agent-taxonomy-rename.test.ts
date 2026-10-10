@@ -47,7 +47,7 @@ function walk(dir: string, found: string[] = []): string[] {
       continue
     }
     if (!SCANNED_EXTENSIONS.has(path.extname(entry.name))) continue
-    if (EXEMPT_SEGMENTS.some((segment) => full.includes(segment))) continue
+    if (EXEMPT_SEGMENTS.some((segment) => full.replace(/\\/g, '/').includes(segment))) continue
     if (EXEMPT_FILES.includes(entry.name)) continue
     found.push(full)
   }

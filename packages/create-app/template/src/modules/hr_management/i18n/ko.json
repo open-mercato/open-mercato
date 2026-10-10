@@ -111,6 +111,7 @@
   "hr_management.attendance.permission.submitting": "Sending…",
   "hr_management.attendance.permission.success": "Permission requested.",
   "hr_management.attendance.permission.title": "Request a lateness permission",
+  "hr_management.attendance.permission.workflowNone": "Select a workflow",
   "hr_management.attendance.status.absent": "Absent",
   "hr_management.attendance.status.holiday": "Holiday",
   "hr_management.attendance.status.late": "Late",

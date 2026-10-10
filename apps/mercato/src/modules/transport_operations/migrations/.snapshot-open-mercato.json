@@ -1202,16 +1202,13 @@
           "unique": true
         },
         {
-          "columnNames": [
-            "organization_id",
-            "tenant_id",
-            "plate_number"
-          ],
-          "composite": true,
+          "columnNames": [],
+          "composite": false,
           "constraint": false,
           "keyName": "transport_vehicles_plate_unique_idx",
           "primary": false,
-          "unique": false
+          "unique": false,
+          "expression": "create unique index \"transport_vehicles_plate_unique_idx\" on \"transport_vehicles\" (\"organization_id\", \"tenant_id\", \"plate_number\") where deleted_at is null"
         },
         {
           "columnNames": [
@@ -1236,16 +1233,13 @@
           "unique": false
         },
         {
-          "columnNames": [
-            "organization_id",
-            "tenant_id",
-            "vin"
-          ],
-          "composite": true,
+          "columnNames": [],
+          "composite": false,
           "constraint": false,
           "keyName": "transport_vehicles_vin_unique_idx",
           "primary": false,
-          "unique": false
+          "unique": false,
+          "expression": "create unique index \"transport_vehicles_vin_unique_idx\" on \"transport_vehicles\" (\"organization_id\", \"tenant_id\", \"vin\") where deleted_at is null"
         }
       ],
       "checks": [

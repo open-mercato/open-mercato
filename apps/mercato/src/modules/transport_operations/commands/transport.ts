@@ -11,7 +11,11 @@ import {
   updateVehicleSchema,
 } from '../data/validators'
 import { registerCrudCommands } from './crud'
-import { assertTripAssignmentAvailable, type TransportScope } from '../lib/transportService'
+import {
+  assertTripAssignmentAvailable,
+  assertVehicleIdentityUnique,
+  type TransportScope,
+} from '../lib/transportService'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
@@ -75,6 +79,22 @@ registerCrudCommands({
   updateSchema: updateVehicleSchema,
   toCreateData: (input) => input,
   toUpdateData: (input) => Object.fromEntries(Object.entries(input).filter(([key]) => key !== 'id')),
+  beforeCreate: async (input, scope, ctx) => {
+    await assertVehicleIdentityUnique(ctx.container.resolve('em') as EntityManager, scope, {
+      plateNumber: input.plateNumber,
+      vin: input.vin,
+    })
+  },
+  beforeUpdate: async (input, current, scope, ctx) => {
+    await assertVehicleIdentityUnique(ctx.container.resolve('em') as EntityManager, scope, {
+      // A partial update that does not touch the plate must still be checked
+      // against the plate the row already has, or an edit that only changes the
+      // model would silently keep a value that clashes with a newer row.
+      plateNumber: input.plateNumber ?? current.plateNumber,
+      vin: input.vin ?? current.vin,
+      excludeId: current.id,
+    })
+  },
   events: transportVehicleEvents,
   indexer: transportVehicleIndexer,
 })

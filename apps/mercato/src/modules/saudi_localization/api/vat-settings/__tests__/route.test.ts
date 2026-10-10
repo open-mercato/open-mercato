@@ -7,6 +7,7 @@ const runCrudMutationGuardAfterSuccessMock = jest.fn()
 const enforceOptimisticLockMock = jest.fn()
 const getRecordMock = jest.fn()
 const setValueMock = jest.fn()
+const userHasAllFeaturesMock = jest.fn()
 
 const container = {
   resolve: jest.fn((name: string) => {
@@ -16,9 +17,19 @@ const container = {
         setValue: (...args: unknown[]) => setValueMock(...args),
       }
     }
+    if (name === 'rbacService') {
+      return { userHasAllFeatures: (...args: unknown[]) => userHasAllFeaturesMock(...args) }
+    }
     throw new Error(`Unexpected container resolve: ${name}`)
   }),
 }
+
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveFeatureCheckContext: jest.fn(async () => ({
+    scope: { tenantId: '11111111-1111-4111-8111-111111111111' },
+    organizationId: '22222222-2222-4222-8222-222222222222',
+  })),
+}))
 
 let authValue: Record<string, unknown> | null = { tenantId, sub: userId, orgId: organizationId }
 
@@ -57,6 +68,7 @@ const validBody = {
   commercialRegistrationNumber: '1010101010',
   vatRate: 0.15,
   invoiceQrEnabled: true,
+  filingFrequency: 'quarterly' as const,
 }
 
 const makePutRequest = (body: unknown) =>
@@ -89,6 +101,7 @@ describe('saudi VAT settings route', () => {
     enforceOptimisticLockMock.mockResolvedValue(undefined)
     getRecordMock.mockResolvedValue(null)
     setValueMock.mockResolvedValue(configRecord(validBody, WRITTEN_UPDATED_AT))
+    userHasAllFeaturesMock.mockResolvedValue(true)
   })
 
   it('rejects unauthenticated requests', async () => {
@@ -109,12 +122,39 @@ describe('saudi VAT settings route', () => {
       commercialRegistrationNumber: null,
       vatRate: 0.15,
       invoiceQrEnabled: true,
+      filingFrequency: 'quarterly',
       isComplete: false,
+      canManage: true,
       updatedAt: null,
     })
     expect(getRecordMock).toHaveBeenCalledWith(
       'saudi_localization',
       'vat',
+      { tenantId, organizationId },
+    )
+  })
+
+  /**
+   * The screen is reachable with `settings.view` alone, so a read-only caller
+   * must still get the values — and must be told, by the same RBAC decision the
+   * PUT guard makes, that the write is not theirs to make.
+   */
+  it('reports canManage false for a view-only caller and still returns the values', async () => {
+    userHasAllFeaturesMock.mockResolvedValue(false)
+    getRecordMock.mockResolvedValue(configRecord(validBody, STORED_UPDATED_AT))
+
+    const response = await GET(new Request('http://localhost/api/saudi_localization/vat-settings'))
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      ...validBody,
+      isComplete: true,
+      canManage: false,
+      updatedAt: STORED_UPDATED_AT,
+    })
+    expect(userHasAllFeaturesMock).toHaveBeenCalledWith(
+      userId,
+      ['saudi_localization.settings.manage'],
       { tenantId, organizationId },
     )
   })
@@ -127,6 +167,7 @@ describe('saudi VAT settings route', () => {
     await expect(response.json()).resolves.toEqual({
       ...validBody,
       isComplete: true,
+      canManage: true,
       updatedAt: STORED_UPDATED_AT,
     })
   })
@@ -140,6 +181,7 @@ describe('saudi VAT settings route', () => {
     await expect(response.json()).resolves.toEqual({
       ...validBody,
       isComplete: true,
+      canManage: true,
       updatedAt: WRITTEN_UPDATED_AT,
     })
     expect(setValueMock).toHaveBeenCalledWith(

@@ -181,6 +181,10 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'transport_operations', from: '@app' },
   { id: 'hr_management', from: '@app' },
   { id: 'fleet_management', from: '@app' },
+  { id: 'financial', from: '@app' },
+  { id: 'freight_operations', from: '@app' },
+  { id: 'vehicle_rentals', from: '@app' },
+  { id: 'student_transport', from: '@app' },
 ]
 
 // Official modules activated via official-modules.json / official-modules.local.json

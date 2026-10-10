@@ -13,8 +13,20 @@ export type TripScheduleStatus = (typeof TRIP_SCHEDULE_STATUSES)[number]
 @Entity({ tableName: 'transport_vehicles' })
 @Index({ name: 'transport_vehicles_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
 @Index({ name: 'transport_vehicles_status_idx', properties: ['organizationId', 'status'] })
-@Index({ name: 'transport_vehicles_plate_unique_idx', properties: ['organizationId', 'tenantId', 'plateNumber'], options: { unique: true, where: 'deleted_at IS NULL' } })
-@Index({ name: 'transport_vehicles_vin_unique_idx', properties: ['organizationId', 'tenantId', 'vin'], options: { unique: true, where: 'deleted_at IS NULL' } })
+// The `expression` form, not `options: { unique: true, where }`: the latter
+// compiles to a **plain** index under this MikroORM version, so the constraint
+// the name promises was not there and duplicate plates were accepted. A unique
+// index with a partial predicate has to be written as SQL.
+@Index({
+  name: 'transport_vehicles_plate_unique_idx',
+  expression:
+    'create unique index "transport_vehicles_plate_unique_idx" on "transport_vehicles" ("organization_id", "tenant_id", "plate_number") where deleted_at is null',
+})
+@Index({
+  name: 'transport_vehicles_vin_unique_idx',
+  expression:
+    'create unique index "transport_vehicles_vin_unique_idx" on "transport_vehicles" ("organization_id", "tenant_id", "vin") where deleted_at is null',
+})
 export class TransportVehicle {
   [OptionalProps]?: 'status' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
