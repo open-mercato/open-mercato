@@ -25,6 +25,8 @@ import { isStatementTimeoutError } from './errors'
 import { comparePseudonymKeys, type ActorPseudonymizer } from './pseudonym'
 import {
   MAX_LOG_ID,
+  XRAY_FULL_RECONCILE_INTERVAL_MS,
+  XRAY_RECONCILE_INTERVAL_MS,
   ProjectionLeaseLostError,
   ProjectionScanSupersededError,
   type CursorAdvance,
@@ -62,9 +64,8 @@ export const XRAY_WINDOW_INITIAL_MS = 60 * 60_000
 export const XRAY_WINDOW_MIN_MS = 1_000
 export const XRAY_WINDOW_MAX_MS = 7 * DAY_MS
 export const XRAY_WINDOW_FAST_PROBE_MS = 1_000
-export const XRAY_RECONCILE_INTERVAL_MS = DAY_MS
+export { XRAY_FULL_RECONCILE_INTERVAL_MS, XRAY_RECONCILE_INTERVAL_MS }
 export const XRAY_RECONCILE_WINDOW_MS = 2 * DAY_MS
-export const XRAY_FULL_RECONCILE_INTERVAL_MS = 7 * DAY_MS
 export const XRAY_PRUNE_INTERVAL_MS = DAY_MS
 export const XRAY_PRUNE_BATCH = 5000
 export const XRAY_SCAN_STALL_MS = 10 * 60_000

@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { InsightsProcessSettings } from '../../data/entities'
 import type { ProjectionScope } from './types'
 
@@ -65,4 +65,35 @@ export async function findXraySettingsRecord(em: EntityManager, scope: Projectio
 /** Effective settings of one organization; a missing or soft-deleted row yields the defaults. */
 export async function loadXraySettings(em: EntityManager, scope: ProjectionScope): Promise<XraySettingsSnapshot> {
   return toXraySettingsSnapshot(await findXraySettingsRecord(em, scope))
+}
+
+export function xrayScopeKey(scope: ProjectionScope): string {
+  return `${scope.tenantId}|${scope.organizationId}`
+}
+
+/**
+ * Organizations of a page of scopes (any tenants) whose saved settings disable X-Ray, as
+ * `xrayScopeKey` values (one query; organizations without settings use the defaults: enabled).
+ */
+export async function listDisabledXrayOrganizations(em: EntityManager, scopes: readonly ProjectionScope[]): Promise<Set<string>> {
+  const disabled = new Set<string>()
+  if (scopes.length === 0) return disabled
+  const wanted = new Set(scopes.map(xrayScopeKey))
+  const records = await findWithDecryption(
+    em,
+    InsightsProcessSettings,
+    {
+      tenantId: { $in: Array.from(new Set(scopes.map((scope) => scope.tenantId))) },
+      organizationId: { $in: Array.from(new Set(scopes.map((scope) => scope.organizationId))) },
+      enabled: false,
+      deletedAt: null,
+    },
+    undefined,
+    { tenantId: null, organizationId: null },
+  )
+  for (const record of records) {
+    const key = xrayScopeKey({ tenantId: record.tenantId, organizationId: record.organizationId })
+    if (wanted.has(key)) disabled.add(key)
+  }
+  return disabled
 }

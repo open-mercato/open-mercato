@@ -1,5 +1,22 @@
+const seedXrayIngestMock = jest.fn(async () => undefined)
+const seedXrayIngestToggleMock = jest.fn(async () => undefined)
+const seedFieldExplainToggleMock = jest.fn(async () => undefined)
+
+jest.mock('../lib/projection/jobs', () => ({
+  seedXrayIngest: (...args: unknown[]) => seedXrayIngestMock(...(args as [])),
+}))
+
+jest.mock('../lib/projection/killSwitch', () => ({
+  seedXrayIngestToggle: (...args: unknown[]) => seedXrayIngestToggleMock(...(args as [])),
+}))
+
+jest.mock('../lib/fieldExplainToggleSeed', () => ({
+  seedInsightsFieldExplainToggle: (...args: unknown[]) => seedFieldExplainToggleMock(...(args as [])),
+}))
+
 import fs from 'node:fs'
 import path from 'node:path'
+import type { InitSetupContext } from '@open-mercato/shared/modules/setup'
 import { hasAllFeatures } from '@open-mercato/shared/security/features'
 import features from '../acl'
 import setup from '../setup'
@@ -29,5 +46,17 @@ describe('Process X-Ray access control', () => {
       const dictionary = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'auth', 'i18n', `${locale}.json`), 'utf8')) as Record<string, string>
       for (const id of XRAY_FEATURES) expect({ locale, id, labelled: typeof dictionary[`auth.acl.features.${id}`] === 'string' }).toEqual({ locale, id, labelled: true })
     }
+  })
+})
+
+describe('Process X-Ray tenant setup', () => {
+  it('seeds both toggles, the system ingest tick and the cursor of the tenant organization', async () => {
+    const container = { resolve: jest.fn() }
+    const em = {}
+    const ctx = { em, container, tenantId: '11111111-0000-4000-8000-000000000001', organizationId: '22222222-0000-4000-8000-000000000001' } as unknown as InitSetupContext
+    await setup.seedDefaults?.(ctx)
+    expect(seedFieldExplainToggleMock).toHaveBeenCalledWith(em, container)
+    expect(seedXrayIngestToggleMock).toHaveBeenCalledWith(em, container)
+    expect(seedXrayIngestMock).toHaveBeenCalledWith(container, { tenantId: ctx.tenantId, organizationId: ctx.organizationId })
   })
 })

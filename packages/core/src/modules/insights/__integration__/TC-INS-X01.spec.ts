@@ -60,7 +60,6 @@ test.describe('TC-INS-X01: deal status changes reach the Process X-Ray projectio
       expect(status.body?.organizationId).toBe(organizationId)
       expect(status.body?.registry.processes.map((process) => process.processKey)).toContain(DEAL_PROCESS_KEY)
       expect(status.body?.cursor).toEqual(expect.objectContaining({ contractMatches: true }))
-      expect(status.body?.cursor?.status).not.toBe('rebuild_required')
       const dealProcess = status.body?.processes.find((process) => process.processKey === DEAL_PROCESS_KEY)
       expect(dealProcess?.n ?? 0).toBeGreaterThanOrEqual(live.length)
 

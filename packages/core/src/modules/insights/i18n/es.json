@@ -202,6 +202,5 @@
   "insights.xray.errors.invalidBackfill": "Solicitud de relleno histórico no válida",
   "insights.xray.errors.invalidSettings": "Configuración de Process X-Ray no válida",
   "insights.xray.errors.noProcesses": "Ningún módulo declara un proceso para Process X-Ray.",
-  "insights.xray.errors.rebuildRequired": "Las declaraciones de procesos han cambiado. Reconstruye primero la proyección.",
   "insights.xray.errors.settingsConflict": "Otra persona ha cambiado la configuración. Recarga e inténtalo de nuevo."
 }

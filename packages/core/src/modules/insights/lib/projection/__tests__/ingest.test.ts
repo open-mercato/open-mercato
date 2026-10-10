@@ -11,9 +11,12 @@ jest.mock('@open-mercato/shared/lib/logger', () => {
 })
 
 import type { ProcessDescriptor, ProcessModuleConfig } from '@open-mercato/shared/modules/insights/process'
+import { xrayReconcileOffsets } from '../store'
 import {
+  XRAY_FULL_RECONCILE_INTERVAL_MS,
   XRAY_KEY_MISMATCH_ERROR,
   XRAY_OVERLAP_MS,
+  XRAY_RECONCILE_INTERVAL_MS,
   XRAY_OVERLAP_STEP_MS,
   XRAY_PAGE_LIMIT,
   XRAY_SETTLE_MS,
@@ -619,6 +622,27 @@ describe('runIngestSlice — maintenance', () => {
     expect(stale.status).toBe('stale_chain')
     const again = await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
     expect(again.scanResumed).toBeNull()
+  })
+
+  it('spreads the first reconciliations of organizations created together over their intervals', async () => {
+    const harness = setup({ now: at(0) })
+    const first = await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    const second = await runIngestSlice(harness.deps, { tenantId: TENANT_ID, organizationId: OTHER_ORG_ID }, { retentionDays: 30 })
+    expect([first.scanStarted, second.scanStarted]).toEqual([null, null])
+    const [firstCursor, secondCursor] = harness.memory.state.cursors
+    for (const [cursor, organizationId] of [[firstCursor, ORG_ID], [secondCursor, OTHER_ORG_ID]] as const) {
+      const offsets = xrayReconcileOffsets(organizationId)
+      expect(offsets.reconcileMs).toBeGreaterThanOrEqual(0)
+      expect(offsets.reconcileMs).toBeLessThan(XRAY_RECONCILE_INTERVAL_MS)
+      expect(offsets.fullReconcileMs).toBeGreaterThanOrEqual(0)
+      expect(offsets.fullReconcileMs).toBeLessThan(XRAY_FULL_RECONCILE_INTERVAL_MS)
+      expect(Number.isInteger(offsets.reconcileMs) && Number.isInteger(offsets.fullReconcileMs)).toBe(true)
+      expect(cursor.lastReconciledAt).toBe(shiftIso(at(0), -offsets.reconcileMs))
+      expect(cursor.lastFullReconciledAt).toBe(shiftIso(at(0), -offsets.fullReconcileMs))
+    }
+    expect(firstCursor.lastReconciledAt).not.toBe(secondCursor.lastReconciledAt)
+    expect(firstCursor.lastFullReconciledAt).not.toBe(secondCursor.lastFullReconciledAt)
+    expect(xrayReconcileOffsets(ORG_ID.toUpperCase())).toEqual(xrayReconcileOffsets(ORG_ID))
   })
 
   it('never lets a due reconciliation replace a running scan', async () => {

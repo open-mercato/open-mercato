@@ -3,7 +3,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { failAbandonedXrayScan, runXrayBackfillJob } from '../lib/projection/jobs'
-import { readBackfillPayload } from '../lib/projection/payloads'
+import { XrayScopeMismatchError, readBackfillPayload } from '../lib/projection/payloads'
 
 const logger = createLogger('insights').child({ component: 'xray-backfill-worker' })
 
@@ -31,7 +31,8 @@ export const metadata: WorkerMeta = {
 /**
  * One slice of a resumable range scan (backfill, nightly or weekly reconciliation). The scan
  * position is persisted after every page, so a killed or retried job resumes where the last
- * committed page ended; a slice that runs out of budget enqueues the next one.
+ * committed page ended; a slice that runs out of budget enqueues the next one. A job whose
+ * organization does not belong to its tenant is dropped (a retry cannot fix it).
  */
 export default async function handle(job: QueuedJob<unknown>, _ctx: JobContext): Promise<void> {
   const payload = readBackfillPayload(job.payload)
@@ -44,6 +45,10 @@ export default async function handle(job: QueuedJob<unknown>, _ctx: JobContext):
     const status = await runXrayBackfillJob(container, payload)
     logger.debug('X-Ray backfill slice finished', { organizationId: payload.scope.organizationId, scanId: payload.scanId, status })
   } catch (error) {
+    if (error instanceof XrayScopeMismatchError) {
+      logger.warn(error.message, { tenantId: payload.scope.tenantId, organizationId: payload.scope.organizationId })
+      return
+    }
     logger.error('[internal] X-Ray backfill slice failed', { organizationId: payload.scope.organizationId, scanId: payload.scanId, err: error })
     getTelemetryRuntime()?.reportError(error, { module: 'insights', code: 'insights.xray_backfill_failed' })
     throw error

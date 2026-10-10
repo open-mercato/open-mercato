@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { sql, type Kysely, type Transaction, type UpdateObject } from 'kysely'
 import { PROCESS_LEGACY_CAUSE_KIND } from '@open-mercato/shared/modules/insights/process'
 import { compareCodeUnits, type RegisteredProcess } from '../process/registry'
@@ -35,6 +35,28 @@ export const ERASURE_BATCH_SIZE = 5000
 
 /** Cursors per page of a system-wide cursor listing. */
 export const CURSOR_PAGE_SIZE = 500
+
+const DAY_MS = 24 * 60 * 60_000
+
+/** Interval of the 48 h reconciliation scan of an organization. */
+export const XRAY_RECONCILE_INTERVAL_MS = DAY_MS
+
+/** Interval of the full (retention window) reconciliation scan of an organization. */
+export const XRAY_FULL_RECONCILE_INTERVAL_MS = 7 * DAY_MS
+
+/**
+ * Deterministic per-organization phase of the reconciliation stamps of a new cursor, each in
+ * `[0, interval)`: the cursor starts as if reconciled that long ago, so organizations created
+ * together (tenant setup, bulk imports) reconcile at different times instead of all at once.
+ */
+export function xrayReconcileOffsets(organizationId: string): { reconcileMs: number; fullReconcileMs: number } {
+  const digest = createHash('sha256').update(`insights:xray-reconcile:${organizationId.toLowerCase()}`).digest()
+  const fraction = (offset: number) => digest.readUInt32BE(offset) / 0x1_0000_0000
+  return {
+    reconcileMs: Math.floor(fraction(0) * XRAY_RECONCILE_INTERVAL_MS),
+    fullReconcileMs: Math.floor(fraction(4) * XRAY_FULL_RECONCILE_INTERVAL_MS),
+  }
+}
 
 export class ProjectionLeaseLostError extends Error {
   constructor() {
@@ -818,10 +840,12 @@ export function createProjectionStore(db: Kysely<XrayDatabase>) {
   /**
    * Creates the organization's cursor (idempotent) at `now - settleMs`, covered from that
    * time on, without contracts: the first slice adopts the current ones (the projection of a
-   * new cursor is empty, so there is nothing to rebuild).
+   * new cursor is empty, so there is nothing to rebuild). The reconciliation stamps start at a
+   * per-organization phase (`xrayReconcileOffsets`).
    */
   async function ensureCursor(scope: ProjectionScope, settleMs: number): Promise<ProjectionCursor> {
     const start = sql<Date>`now() - (${settleMs}::int * interval '1 millisecond')`
+    const offsets = xrayReconcileOffsets(scope.organizationId)
     await db
       .insertInto('insights_process_cursors')
       .values({
@@ -839,8 +863,8 @@ export function createProjectionStore(db: Kysely<XrayDatabase>) {
         status: 'idle',
         scan_processed_count: 0,
         lease_token: 0,
-        last_reconciled_at: sql<Date>`now()`,
-        last_full_reconciled_at: sql<Date>`now()`,
+        last_reconciled_at: sql<Date>`now() - (${offsets.reconcileMs}::bigint * interval '1 millisecond')`,
+        last_full_reconciled_at: sql<Date>`now() - (${offsets.fullReconcileMs}::bigint * interval '1 millisecond')`,
         last_pruned_at: sql<Date>`now()`,
         created_at: sql<Date>`now()`,
         updated_at: sql<Date>`now()`,
