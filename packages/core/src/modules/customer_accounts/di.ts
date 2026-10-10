@@ -1,6 +1,11 @@
 import { asClass, asFunction } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import type { CacheStrategy } from '@open-mercato/cache'
+import {
+  TENANT_MODULE_AVAILABILITY_DI_KEY,
+  type TenantModuleAvailability,
+} from '@open-mercato/shared/security/tenantModuleAvailability'
 import { CustomerUserService } from '@open-mercato/core/modules/customer_accounts/services/customerUserService'
 import { CustomerSessionService } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
 import { CustomerTokenService } from '@open-mercato/core/modules/customer_accounts/services/customerTokenService'
@@ -24,7 +29,19 @@ export function register(container: AppContainer) {
   container.register({ customerUserService: asClass(CustomerUserService).scoped() })
   container.register({ customerSessionService: asClass(CustomerSessionService).scoped() })
   container.register({ customerTokenService: asClass(CustomerTokenService).scoped() })
-  container.register({ customerRbacService: asClass(CustomerRbacService).scoped() })
+  container.register({
+    customerRbacService: asFunction(function customerRbacServiceFactory(cradle: {
+      em: EntityManager
+      cache: CacheStrategy
+      [TENANT_MODULE_AVAILABILITY_DI_KEY]: TenantModuleAvailability | null
+    }) {
+      return new CustomerRbacService(
+        cradle.em,
+        cradle.cache,
+        container.hasRegistration(TENANT_MODULE_AVAILABILITY_DI_KEY) ? cradle[TENANT_MODULE_AVAILABILITY_DI_KEY] : null,
+      )
+    }).scoped().proxy(),
+  })
   container.register({ customerInvitationService: asClass(CustomerInvitationService).scoped() })
   container.register({
     domainMappingService: asFunction(

@@ -139,7 +139,7 @@ Effective permissions = User ACL (if exists) OR aggregated Role ACLs.
 
 ### Portal Admin Flag
 
-`isPortalAdmin: true` on a role/user ACL bypasses stored-grant matching (equivalent to staff `isSuperAdmin`). Nulled ACL features and disabled modules remain denied.
+`isPortalAdmin: true` on a role/user ACL bypasses stored-grant matching (equivalent to staff `isSuperAdmin`). Nulled ACL features, disabled modules, and modules unavailable to the tenant (per-tenant module availability; a portal feature belongs to the module that declares it in `defaultCustomerRoleFeatures` or `requireCustomerFeatures`) remain denied.
 
 ### Default Roles (seeded on tenant creation)
 

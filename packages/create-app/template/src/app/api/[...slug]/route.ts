@@ -148,10 +148,22 @@ function normalizeLoadedMetadata(
   return { [method]: metadata }
 }
 
+async function isRouteModuleAvailable(
+  rbac: Pick<RbacService, 'getUnavailableModuleIds'>,
+  routeModuleId: string | null | undefined,
+  tenantId: string | null,
+  userId: string,
+): Promise<boolean> {
+  if (!routeModuleId || typeof rbac.getUnavailableModuleIds !== 'function') return true
+  const unavailableModuleIds = await rbac.getUnavailableModuleIds(tenantId, userId)
+  return !unavailableModuleIds.includes(routeModuleId)
+}
+
 export async function checkAuthorization(
   methodMetadata: MethodMetadata | null,
   auth: AuthContext,
-  req: NextRequest
+  req: NextRequest,
+  routeModuleId?: string | null,
 ): Promise<NextResponse | null> {
   const { t } = await resolveTranslations()
   const requiresAuthentication = methodMetadata?.requireAuth !== false
@@ -221,7 +233,12 @@ export async function checkAuthorization(
     const ok = await rbac.userHasAllFeatures(auth.sub, requiredFeatures, {
       tenantId: featureContext.scope.tenantId ?? auth.tenantId ?? null,
       organizationId,
-    })
+    }) && await isRouteModuleAvailable(
+      rbac,
+      routeModuleId,
+      featureContext.scope.tenantId ?? auth.tenantId ?? null,
+      auth.sub,
+    )
     if (!ok) {
       try {
         const acl = await rbac.loadAcl(auth.sub, { tenantId: featureContext.scope.tenantId ?? auth.tenantId ?? null, organizationId })
@@ -381,7 +398,7 @@ async function handleRequest(
   })
 
   const methodMetadata = extractMethodMetadata(routeMetadata, method)
-  const authError = await checkAuthorization(methodMetadata, auth, req)
+  const authError = await checkAuthorization(methodMetadata, auth, req, match.route.moduleId)
   if (authError) {
     // Auth could not be verified because of a transient/unexpected failure (DB
     // unavailable, pool exhausted, timeout). Do NOT clear the session cookies or

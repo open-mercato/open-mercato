@@ -32,9 +32,13 @@ export async function POST(req: Request) {
     tenantId: auth.tenantId,
     organizationId: auth.orgId,
   })
+  const unavailableModuleIds = typeof customerRbacService.getUnavailableModuleIds === 'function'
+    ? await customerRbacService.getUnavailableModuleIds(auth.tenantId)
+    : undefined
   const granted = body.features.filter((feature) => authorizeFeatures([feature], {
     grantedFeatures: acl.features,
     unrestricted: acl.isPortalAdmin,
+    unavailableModuleIds,
   }))
 
   return NextResponse.json({ ok: true, granted })

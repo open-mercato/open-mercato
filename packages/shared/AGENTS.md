@@ -221,6 +221,7 @@ import {
 - Use `authorizeFeatures(required, subject)` only when the caller already has an ACL snapshot. It owns removed-feature, disabled-module, unrestricted-user, scope, and wildcard ordering.
 - Use `resolveEffectiveFeatures(grants)` for browser capability payloads. It returns concrete IDs and never wildcards.
 - Raw `loadAcl` / `getGrantedFeatures` remain valid for ACL management and infrastructure inspection, not as authorization entrypoints.
+- Per-tenant module availability (`@open-mercato/shared/security/tenantModuleAvailability`): an app-registered `tenantModuleAvailabilityProvider` denies, per tenant, the features of governed modules (feature guards only, not data isolation). Realm services apply it; a snapshot caller MUST pass `unavailableModuleIds: await rbacService.getUnavailableModuleIds(tenantId, userId)` to `authorizeFeatures`. See `.ai/specs/2026-10-05-tenant-module-availability.md`.
 
 The low-level helpers remain pure for browser checks over effective projections and isolated grant-matching utilities:
 

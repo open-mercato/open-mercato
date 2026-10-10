@@ -54,6 +54,7 @@ const mockResolveTranslations = jest.fn<Promise<TranslationContext>, []>()
 const mockEmFind = jest.fn<Promise<unknown[]>, [unknown, unknown, unknown?]>()
 const mockGetEffectiveFeatures = jest.fn<Promise<string[]>, [string, { tenantId: string | null; organizationId: string | null }]>()
 const mockUserHasAllFeatures = jest.fn<Promise<boolean>, [string, string[], { tenantId: string | null; organizationId: string | null }]>()
+let mockGetUnavailableModuleIds: jest.Mock<Promise<string[]>, [string | null, (string | null)?]> | null = null
 const mockCacheSet = jest.fn<Promise<void>, [string, unknown, { tags: string[]; ttl?: number }]>()
 const mockCacheGet = jest.fn<Promise<null>, [string]>()
 const mockApplySidebarPreference = jest.fn(<T extends SidebarGroup>(groups: T[]) => groups)
@@ -87,6 +88,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
         return {
           getEffectiveFeatures: mockGetEffectiveFeatures,
           userHasAllFeatures: mockUserHasAllFeatures,
+          ...(mockGetUnavailableModuleIds ? { getUnavailableModuleIds: mockGetUnavailableModuleIds } : {}),
         }
       }
       if (key === 'cache') {
@@ -520,6 +522,51 @@ describe('GET /api/auth/admin/nav', () => {
     const allOrganizationsKey = mockCacheGet.mock.calls[mockCacheGet.mock.calls.length - 1][0]
     expect(allOrganizationsKey).toMatch(/^nav:sidebar:v7:[^:]+:pl:user-1:tenant-1:org-1:__all__$/)
     expect(allOrganizationsKey).not.toBe(concreteSelectionKey)
+  })
+
+  describe('cache key follows per-tenant module availability', () => {
+    afterEach(() => {
+      mockGetUnavailableModuleIds = null
+    })
+
+    async function lastCacheGetKey(): Promise<string> {
+      mockGetBackendRouteManifests.mockReturnValue([])
+      setupCustomEntities([])
+      const response = await GET(makeRequest())
+      expect(response.status).toBe(200)
+      return mockCacheGet.mock.calls[mockCacheGet.mock.calls.length - 1][0]
+    }
+
+    it('keeps the legacy key when no module is unavailable to the tenant', async () => {
+      expect(await lastCacheGetKey()).toMatch(/^nav:sidebar:v7:[^:]+:pl:user-1:tenant-1:org-1:org-1$/)
+      mockGetUnavailableModuleIds = jest.fn(async () => [])
+      expect(await lastCacheGetKey()).toMatch(/^nav:sidebar:v7:[^:]+:pl:user-1:tenant-1:org-1:org-1$/)
+    })
+
+    it('stops serving a navigation payload cached before a module became unavailable', async () => {
+      mockGetUnavailableModuleIds = jest.fn(async () => [])
+      const availableKey = await lastCacheGetKey()
+      mockGetUnavailableModuleIds.mockResolvedValue(['sales', 'catalog'])
+      const restrictedKey = await lastCacheGetKey()
+
+      expect(restrictedKey).not.toBe(availableKey)
+      expect(restrictedKey.endsWith(':unavailable=catalog,sales')).toBe(true)
+      expect(mockGetUnavailableModuleIds).toHaveBeenCalledWith('tenant-1', 'user-1')
+    })
+
+    it('asks for the principal tenant RBAC evaluates when the scope carries no tenant', async () => {
+      mockGetAuthFromRequest.mockResolvedValue({ sub: 'user-1', tenantId: null, orgId: null, roles: [] })
+      mockResolveFeatureCheckContext.mockResolvedValue({
+        organizationId: null,
+        scope: { tenantId: null, selectedId: null },
+        allowedOrganizationIds: null,
+      })
+      mockGetUnavailableModuleIds = jest.fn(async (tenantId: string | null, userId?: string | null) => (
+        tenantId === null && userId === 'user-1' ? ['sales'] : []
+      ))
+
+      expect((await lastCacheGetKey()).endsWith(':unavailable=sales')).toBe(true)
+    })
   })
 
   it('uses per-feature RBAC checks for sidebar inclusion, not only the raw ACL snapshot', async () => {

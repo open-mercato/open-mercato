@@ -556,3 +556,22 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 | Database schema, event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
 
 **Migration path for existing modules**: send `parentId: null` / `childIds: []` where clearing is intended. Trees flattened before the upgrade are not repaired (see UPGRADE_NOTES.md).
+
+---
+
+## Per-Tenant Module Availability (2026-10-05)
+
+[`.ai/specs/2026-10-05-tenant-module-availability.md`](.ai/specs/2026-10-05-tenant-module-availability.md) lets an app deny, per tenant, the features of modules it marks unavailable through an optional DI provider. **All changes are additive**; with no provider registered every code path and result is unchanged.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Import paths (§4) | New `@open-mercato/shared/security/tenantModuleAvailability` | ✓ ADDITIVE |
+| Type definitions (§2) | `FeaturePolicySubject.unavailableModuleIds?`; new provider, service and context types | ✓ ADDITIVE (optional fields) |
+| Function signatures (§3) | `resolveEffectiveFeatures(granted, options?)`; new `filterGrantsByModuleAvailability`; `RbacService` / `CustomerRbacService` gain an optional trailing constructor parameter and `getUnavailableModuleIds`; the app's exported `checkAuthorization(metadata, auth, req, routeModuleId?)` gains an optional parameter | ✓ ADDITIVE (optional parameters, new exports and methods) |
+| DI service names (§9) | New `tenantModuleAvailabilityProvider` (registered by apps) and `tenantModuleAvailability` (registered by `auth`, `null` without a provider). `customerRbacService` keeps its key and scoped lifetime; its factory resolves `em` and `cache` as before and `tenantModuleAvailability` only when registered | ✓ ADDITIVE |
+| API routes (§7) | New test-only `GET /api/module_availability_probe/ping`, `PUT /api/module_availability_probe/availability` and `POST /api/module_availability_probe/markers` (runs the test-only command `module_availability_probe.markers.record`) in the reference app and template; all answer 404 outside `OM_TEST_MODE` | ✓ ADDITIVE |
+| Response schemas, DB schema, event IDs, ACL features, CLI commands, generated files | No change | ✓ n/a |
+
+**Contract commitments**: the features of a module the provider marks unavailable for the tenant in scope are denied before super-admin, portal-admin and wildcard grants wherever the realm RBAC services, the route and page guards, or the feature-check endpoints evaluate them, and audit-log replay of the module's commands is refused. This is feature-guard enforcement, not data isolation: the spec lists the readers, routes without feature guards, subscribers and workers it does not cover. A provider failure fails closed only for the modules listed in its `governedModuleIds`.
+
+**Migration path**: none required. ACL-snapshot consumers that want to honour a provider pass `unavailableModuleIds: await rbacService.getUnavailableModuleIds(tenantId, userId)` to `authorizeFeatures`.

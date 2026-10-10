@@ -10,6 +10,7 @@ const mockReplayEm = {
 const mockRbac = {
   userHasAllFeatures: jest.fn(),
   userHasAllFeaturesWithEntityManager: jest.fn(),
+  getUnavailableModuleIds: jest.fn(async (): Promise<string[]> => []),
 }
 const mockLogs = {
   findById: jest.fn(),
@@ -464,5 +465,31 @@ describe('POST /api/audit_logs/audit-logs/actions/redo', () => {
 
     expect(res.status).toBe(400)
     await expect(res.json()).resolves.toEqual({ error: 'Redo failed' })
+  })
+
+  it('refuses to redo a command of a module unavailable to the caller tenant', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+    const log = {
+      id: 'log-sales',
+      commandId: 'sales.orders.create',
+      executionState: 'undone',
+      actorUserId: 'user-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      commandPayload: { __redoInput: { foo: 'bar' } },
+      contextJson: null,
+    }
+    mockLogs.findById.mockResolvedValue(log)
+    mockLogs.latestUndoneForActor.mockResolvedValue(log)
+    mockCommandBus.execute.mockResolvedValue({ logEntry: null, replaySourceFinalized: true })
+    mockRbac.getUnavailableModuleIds.mockResolvedValue(['sales'])
+    try {
+      const res = await POST(makeRequest({ logId: 'log-sales' }))
+      expect(res.status).toBe(400)
+      expect(mockCommandBus.execute).not.toHaveBeenCalled()
+    } finally {
+      mockRbac.getUnavailableModuleIds.mockResolvedValue([])
+    }
   })
 })
