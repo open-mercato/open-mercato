@@ -34,6 +34,15 @@ jobs:
     # Only allow release preparation from main branch
     if: github.ref == 'refs/heads/main'
 
+    # This job installs dependencies and then commits in the same checkout, and the
+    # root postinstall initializes husky wherever a .git directory exists — CI included.
+    # Without this opt-out the release commit below would fire .husky/pre-commit and
+    # stage its i18n / template --fix output into "chore: release vX.Y.Z", contradicting
+    # that step's own "only tracked manifests change here" invariant. Do not remove:
+    # scripts/__tests__/husky-init-lifecycle.test.mjs guards it.
+    env:
+      HUSKY: '0'
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
