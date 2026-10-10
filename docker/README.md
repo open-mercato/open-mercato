@@ -142,6 +142,43 @@ Copy `.env.example` to `.env` and adjust as needed:
 cp .env.example .env
 ```
 
+The infra stack (`starters/docker/compose.infra.yml`) publishes Postgres, Redis,
+Meilisearch, OpenCode, Keycloak, LocalStack and Verdaccio on `127.0.0.1` only.
+They use dev-default credentials, and on Linux Docker-published ports bypass
+ufw/iptables `INPUT` rules, so binding to all interfaces would expose them on a
+VPS. To reach them from another machine, opt in explicitly:
+
+```bash
+OM_DOCKER_BIND_ADDRESS=0.0.0.0
+```
+
+### Local Verdaccio for standalone fullapp builds on native Linux
+
+A standalone app scaffolded with `--verdaccio` builds and runs its fullapp
+containers against `host.docker.internal:4873` (the template Dockerfile and
+dev entrypoint rewrite `localhost` registry URLs to that host). On Docker
+Desktop that reaches the loopback-bound registry. On native Linux,
+`host.docker.internal` maps to the Docker bridge gateway, which a `127.0.0.1`
+binding does not serve.
+
+Bind only the registry to the bridge gateway. It stays reachable from the host
+and from containers, and is not published on public interfaces:
+
+```bash
+# Docker bridge gateway address, usually 172.17.0.1
+ip -4 -o addr show docker0 | awk '{print $4}' | cut -d/ -f1
+
+# .env next to the infra compose file
+OM_VERDACCIO_BIND_ADDRESS=172.17.0.1
+# host-side registry scripts then need the same address
+VERDACCIO_URL=http://172.17.0.1:4873
+```
+
+Scaffold with `--registry http://172.17.0.1:4873` instead of `--verdaccio` so
+the generated `.yarnrc.yml` already points at an address containers can reach.
+The registry config allows anonymous publish of `@open-mercato/*`, so do not
+bind it to `0.0.0.0` on a machine reachable from the internet.
+
 ## Windows + Docker Developer Command Cookbook
 
 Windows users who develop through Docker can run any monorepo command using the `docker:*` wrapper scripts. These scripts detect the active container automatically and execute the command inside it — no WSL required.
