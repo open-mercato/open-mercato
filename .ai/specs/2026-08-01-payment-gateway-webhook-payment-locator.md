@@ -71,6 +71,7 @@ Selection rules:
 - Verification may compare the raw signed values with snapshot amount/currency/correlation before returning an event.
 - Continue through all bounded candidates after a verification failure. Exactly one successful verifier selects its stored scope.
 - Zero successes fails closed. More than one success is an ambiguity and fails closed; never accept the first verified candidate silently.
+- A candidate that could not be checked (credential resolution failure or `WebhookVerificationUnavailableError`) blocks acceptance of a single other match: the route returns `verification_unavailable` so the provider retries once every candidate can be checked.
 - Ambiguity maps to the `verification_failed` outcome (legacy JSON `401`), logs at error level with the provider key and candidate count only, and calls `reportError` with code `payment_gateways.webhook_ambiguous_candidates`.
 - `candidate.amount` is the stored `GatewayTransaction.amount` numeric string unchanged (4 decimal places, e.g. `"12.3400"`); providers compare it numerically.
 
@@ -187,6 +188,10 @@ None identified; protected type/route architecture approval remains required.
 Fully compliant — ready for implementation after raw locator context.
 
 ## Changelog
+
+### 2026-10-10
+
+- Review follow-up: an unchecked candidate blocks acceptance of a single verified match (`verification_unavailable`).
 
 ### 2026-10-09 (implementation)
 

@@ -808,7 +808,7 @@ describe('payment gateway webhook route security', () => {
       expect(formatted.status).toBe(503)
     })
 
-    test('skips a candidate whose credentials cannot be resolved and accepts the verified one', async () => {
+    test('fails closed when one candidate cannot be verified even if another verifies', async () => {
       const handler = jest.fn(async () => ({ eventType: 'payment.captured', eventId: 'evt_1', data: {}, idempotencyKey: 'evt_1', timestamp: new Date() }))
       ;(getWebhookHandler as jest.Mock).mockReturnValue({ handler, readSessionIdHint: () => 'sess_1' })
       ;(findWithDecryption as jest.Mock).mockResolvedValueOnce([
@@ -819,18 +819,34 @@ describe('payment gateway webhook route security', () => {
         .mockRejectedValueOnce(new Error('decryption failed'))
         .mockResolvedValueOnce({ secret: 'tenant_1' })
 
-      const response = await POST(createMockRequest('{}'), { params: { provider: 'stripe' } })
+      const legacy = await POST(createMockRequest('{}'), { params: { provider: 'stripe' } })
 
-      expect(response.status).toBe(202)
+      expect(legacy.status).toBe(401)
       expect(handler).toHaveBeenCalledTimes(1)
-      expect(processPaymentGatewayWebhookJob).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({ transactionId: 'txn_1', scope: { organizationId: 'org_1', tenantId: 'tenant_1' } }),
-      )
+      expect(processPaymentGatewayWebhookJob).not.toHaveBeenCalled()
       expect(mockReportError).toHaveBeenCalledWith(expect.any(Error), {
         module: 'payment_gateways',
         code: 'payment_gateways.webhook_credentials_failed',
       })
+
+      const formatResponse = jest.fn((outcome: WebhookResponseOutcome) => ({ status: 503, body: outcome }))
+      ;(getWebhookHandler as jest.Mock).mockReturnValue({ handler, readSessionIdHint: () => 'sess_1', formatResponse })
+      ;(findWithDecryption as jest.Mock).mockResolvedValueOnce([
+        transaction({ id: 'txn_other', organizationId: 'org_2', tenantId: 'tenant_2' }),
+        transaction(),
+      ])
+      mockCredentialsService.resolve
+        .mockResolvedValueOnce({ secret: 'tenant_2' })
+        .mockResolvedValueOnce({ secret: 'tenant_1' })
+      handler
+        .mockRejectedValueOnce(new WebhookVerificationUnavailableError())
+        .mockResolvedValueOnce({ eventType: 'payment.captured', eventId: 'evt_1', data: {}, idempotencyKey: 'evt_1', timestamp: new Date() })
+
+      const formatted = await POST(createMockRequest('{}'), { params: { provider: 'tpay' } })
+
+      expect(formatResponse).toHaveBeenCalledWith('verification_unavailable')
+      expect(formatted.status).toBe(503)
+      expect(processPaymentGatewayWebhookJob).not.toHaveBeenCalled()
     })
 
     test('classifies credential resolution failure without a verified candidate as verification_unavailable', async () => {
