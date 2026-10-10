@@ -1,6 +1,11 @@
 import fs from 'fs/promises'
 import path from 'path'
 import { createRequire } from 'module'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveMaxOcrPages, resolvePdfPageIterationLimit } from './ocrLimits'
+import { extractSpreadsheetText } from './spreadsheetText'
+
+const logger = createLogger('attachments').child({ component: 'text-extraction' })
 
 // NOTE: child_process is intentionally NOT imported here.
 // This module MUST NOT shell out to any external binary for content extraction.
@@ -46,6 +51,20 @@ function isDocx(mimeType: string, ext: string): boolean {
   )
 }
 
+const SPREADSHEET_MIME_TYPES = new Set([
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.template',
+  'application/vnd.ms-excel.sheet.macroenabled.12',
+  'application/vnd.ms-excel.template.macroenabled.12',
+])
+
+const SPREADSHEET_EXTENSIONS = new Set(['.xlsx', '.xlsm', '.xltx', '.xltm'])
+
+function isSpreadsheet(mimeType: string, ext: string): boolean {
+  // Open XML workbooks only; macros are never read or executed.
+  return SPREADSHEET_MIME_TYPES.has(mimeType) || SPREADSHEET_EXTENSIONS.has(ext)
+}
+
 async function extractPlainText(filePath: string): Promise<string | null> {
   try {
     const text = await fs.readFile(filePath, 'utf8')
@@ -68,8 +87,17 @@ async function extractPdfText(filePath: string): Promise<string | null> {
     })
     const pdfDocument = await loadingTask.promise
     const textParts: string[] = []
+    const maxPages = resolveMaxOcrPages()
+    const pageLimit = resolvePdfPageIterationLimit(pdfDocument.numPages, maxPages)
+    if (pdfDocument.numPages > pageLimit) {
+      logger.warn('PDF page count exceeds text-extraction cap; truncating', {
+        numPages: pdfDocument.numPages,
+        maxPages: pageLimit,
+        filePath,
+      })
+    }
     try {
-      for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
+      for (let pageNumber = 1; pageNumber <= pageLimit; pageNumber += 1) {
         const page = await pdfDocument.getPage(pageNumber)
         try {
           const textContent = await page.getTextContent()
@@ -126,7 +154,11 @@ export async function extractAttachmentContent(params: ExtractParams): Promise<s
     return extractDocxText(filePath)
   }
 
-  // XLSX, PPTX, MSG and other Office formats: no safe pure-JS extractor available yet.
+  if (isSpreadsheet(normalized, ext)) {
+    return extractSpreadsheetText(filePath)
+  }
+
+  // Legacy XLS/XLSB, ODS, PPTX, MSG and other Office formats: no safe pure-JS extractor available yet.
   // Return null rather than shelling out to an external binary.
   return null
 }
