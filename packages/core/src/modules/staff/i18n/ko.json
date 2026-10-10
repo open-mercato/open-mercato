@@ -1155,6 +1155,7 @@
   "staff.time_tracking.entries.source.mobile": "모바일",
   "staff.time_tracking.entries.source.timer": "타이머",
   "staff.time_tracking.entries.summary.count": "합계 (전체 {total}건 중 {visible}건)",
+  "staff.time_tracking.entries.summary.filteredCount": "일치하는 항목 {total}건 전체 합계",
   "staff.time_tracking.entries.summary.multiCurrencyHint": "이 기록들은 두 가지 이상의 통화로 청구되므로 합산하지 않고 따로 표시합니다.",
   "staff.time_tracking.entries.table.durationAria": "기록 소요 시간",
   "staff.time_tracking.entries.table.noTask": "작업 없음",
