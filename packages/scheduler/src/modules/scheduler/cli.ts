@@ -120,6 +120,7 @@ const runCommand: ModuleCli = {
     const scheduleId = rest[0]
     if (!scheduleId) {
       writeErrorLine('Usage: mercato scheduler run <schedule-id>')
+      process.exitCode = 1
       return
     }
 
@@ -129,6 +130,7 @@ const runCommand: ModuleCli = {
     const job = await em.findOne(ScheduledJob, { id: scheduleId, deletedAt: null })
     if (!job) {
       writeErrorLine(`Schedule not found: ${scheduleId}`)
+      process.exitCode = 1
       return
     }
 

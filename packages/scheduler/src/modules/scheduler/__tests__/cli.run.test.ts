@@ -53,6 +53,7 @@ function loadRunCommand() {
 
 describe('mercato scheduler run', () => {
   const previousStrategy = process.env.QUEUE_STRATEGY
+  const previousExitCode = process.exitCode
   let stdout: jest.SpyInstance
   let stderr: jest.SpyInstance
 
@@ -67,6 +68,7 @@ describe('mercato scheduler run', () => {
   afterEach(() => {
     stdout.mockRestore()
     stderr.mockRestore()
+    process.exitCode = previousExitCode
     if (previousStrategy === undefined) delete process.env.QUEUE_STRATEGY
     else process.env.QUEUE_STRATEGY = previousStrategy
   })
@@ -110,6 +112,16 @@ describe('mercato scheduler run', () => {
 
     expect(stderr).toHaveBeenCalledWith(`Schedule not found: ${SCHEDULE_ID}\n`)
     expect(createQueue).not.toHaveBeenCalled()
+    expect(process.exitCode).toBe(1)
+  })
+
+  it('prints usage and exits non-zero when the schedule id is missing', async () => {
+    await loadRunCommand().run([])
+
+    expect(stderr).toHaveBeenCalledWith('Usage: mercato scheduler run <schedule-id>\n')
+    expect(findOne).not.toHaveBeenCalled()
+    expect(createQueue).not.toHaveBeenCalled()
+    expect(process.exitCode).toBe(1)
   })
 
   it('closes the queue and fails when the enqueue fails', async () => {
