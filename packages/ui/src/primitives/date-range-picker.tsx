@@ -15,6 +15,7 @@ import {
   type DateRangePresetItem,
 } from './date-picker-helpers'
 import { formatWithPublicDateFormat, resolvePublicDateFormat } from './date-format'
+import { useDateFnsLocale } from './date-locale'
 
 export type { DateRangePresetItem } from './date-picker-helpers'
 
@@ -32,6 +33,10 @@ export type DateRangePickerProps = {
   minDate?: Date
   maxDate?: Date
   numberOfMonths?: 1 | 2
+  /**
+   * date-fns locale for month/weekday names, the first day of the week and the
+   * formatted range. Defaults to the active `I18nProvider` locale.
+   */
   locale?: Locale
   formatRange?: (value: DateRange, locale?: Locale) => string
   className?: string
@@ -78,7 +83,7 @@ export function DateRangePicker({
   minDate,
   maxDate,
   numberOfMonths = 2,
-  locale,
+  locale: localeProp,
   formatRange,
   className,
   popoverClassName,
@@ -89,6 +94,8 @@ export function DateRangePicker({
   'aria-describedby': ariaDescribedBy,
 }: DateRangePickerProps) {
   const t = useT()
+  const appLocale = useDateFnsLocale()
+  const locale = localeProp ?? appLocale
   const [open, setOpen] = React.useState(false)
   const [draft, setDraft] = React.useState<DateRange | null>(value ?? null)
   const [activePresetId, setActivePresetId] = React.useState<string | null>(null)
