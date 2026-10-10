@@ -16,6 +16,8 @@
     "@open-mercato/channel-gmail -> @open-mercato/ui -> react-is": "Pre-existing: satisfied transitively in the scaffolded app today. Not a fresh break, but it is undeclared — see the `followUp` note above",
     "@open-mercato/channel-imap -> @open-mercato/core -> @open-mercato/ai-assistant": "Workspace peer the scaffolded app installs directly from its own package.json",
     "@open-mercato/channel-imap -> @open-mercato/ui -> react-is": "Pre-existing: satisfied transitively in the scaffolded app today. Not a fresh break, but it is undeclared — see the `followUp` note above",
+    "@open-mercato/channel-ms365 -> @open-mercato/core -> @open-mercato/ai-assistant": "Workspace peer the scaffolded app installs directly from its own package.json",
+    "@open-mercato/channel-ms365 -> @open-mercato/ui -> react-is": "Pre-existing: satisfied transitively in the scaffolded app today. Not a fresh break, but it is undeclared — see the `followUp` note above",
     "@open-mercato/checkout -> @open-mercato/core -> @open-mercato/ai-assistant": "Workspace peer the scaffolded app installs directly from its own package.json",
     "@open-mercato/checkout -> @open-mercato/ui -> react-is": "Pre-existing: satisfied transitively in the scaffolded app today. Not a fresh break, but it is undeclared — see the `followUp` note above",
     "@open-mercato/documents -> @open-mercato/ui -> react-is": "Pre-existing: satisfied transitively in the scaffolded app today. Not a fresh break, but it is undeclared — see the `followUp` note above",
