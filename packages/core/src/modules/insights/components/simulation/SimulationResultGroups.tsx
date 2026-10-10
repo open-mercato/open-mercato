@@ -11,7 +11,7 @@ import { isSafeInternalHref } from '../../lib/client/explainApi'
 import {
   simulationCellLabel,
   simulationFlagLabel,
-  simulationGroupLabel,
+  simulationGroupHeading,
   translateSimulationKey,
 } from '../../lib/client/simulation/format'
 import type { SimulationResultCell, SimulationResultGroup, SimulationSample } from '../../lib/client/simulation/types'
@@ -111,13 +111,25 @@ function SampleLinks({ samples }: { samples: readonly SimulationSample[] }) {
   )
 }
 
+type SimulationGroupProps = {
+  kind: string
+  group: SimulationResultGroup
+  k: number
+  /** The run's own proposal: kind-specific headings read labels from it (e.g. trigger names). */
+  proposal?: unknown
+}
+
 /** The compact form of a group (the "Simulate impact" dialog): total, one count per outcome, warnings. */
-export function SimulationGroupHeadline({ kind, group, k }: { kind: string; group: SimulationResultGroup; k: number }) {
+export function SimulationGroupHeadline({ kind, group, k, proposal }: SimulationGroupProps) {
   const t = useT()
+  const heading = simulationGroupHeading(kind, group, proposal, t)
   return (
     <section className="space-y-2 rounded-md border p-3" data-testid="simulation-group-headline" data-group={group.key}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="text-sm font-medium">{simulationGroupLabel(group.key, group.labelKey, t)}</h3>
+        <div className="min-w-0">
+          <h3 className="text-sm font-medium">{heading.title}</h3>
+          {heading.subtitle && heading.subtitle !== group.key ? <p className="text-xs text-muted-foreground">{heading.subtitle}</p> : null}
+        </div>
         <GroupTotal group={group} k={k} />
       </div>
       <dl className="grid grid-cols-1 gap-x-4 gap-y-1 text-sm sm:grid-cols-2">
@@ -134,14 +146,15 @@ export function SimulationGroupHeadline({ kind, group, k }: { kind: string; grou
 }
 
 /** One result group of the result page: total, outcomes with their counts and live-resolved samples, warnings and flags. */
-export function SimulationGroupSection({ kind, group, k }: { kind: string; group: SimulationResultGroup; k: number }) {
+export function SimulationGroupSection({ kind, group, k, proposal }: SimulationGroupProps) {
   const t = useT()
+  const heading = simulationGroupHeading(kind, group, proposal, t)
   return (
     <section className="space-y-3 rounded-lg border bg-card p-4" data-testid="simulation-group" data-group={group.key}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div className="min-w-0">
-          <h3 className="text-base font-semibold">{simulationGroupLabel(group.key, group.labelKey, t)}</h3>
-          {group.labelKey ? <p className="font-mono text-xs text-muted-foreground">{group.key}</p> : null}
+          <h3 className="text-base font-semibold">{heading.title}</h3>
+          {heading.subtitle ? <p className={heading.subtitle === group.key ? 'font-mono text-xs text-muted-foreground' : 'text-xs text-muted-foreground'}>{heading.subtitle}</p> : null}
         </div>
         <GroupTotal group={group} k={k} />
       </div>

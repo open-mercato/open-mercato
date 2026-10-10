@@ -173,10 +173,16 @@ export type SimulationInputFeaturesContext = {
   eventAdapters: readonly RegisteredSimulationEventAdapter[]
 }
 
+/**
+ * `artifactId` is the artifact id exactly as the requester sent it (null for an unsaved artifact),
+ * before `readArtifactVersion` resolved it, so a kind can refuse ids it cannot simulate (e.g.
+ * `not_customized` for a code-defined artifact).
+ */
 export type SimulationValidationContext = {
   em: EntityManager
   scope: SimulationScope
   eventAdapters: readonly RegisteredSimulationEventAdapter[]
+  artifactId?: string | null
 }
 
 /**

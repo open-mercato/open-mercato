@@ -8,6 +8,7 @@ export const SIMULATION_RUN_RESOURCE_KIND = 'insights.simulation_run'
 export const SIMULATION_DECISION_RESOURCE_KIND = 'insights.simulation_decision'
 
 export const RULE_BACKTEST_SIMULATION_KIND = 'business_rules.rule_backtest'
+export const TRIGGER_BACKTEST_SIMULATION_KIND = 'workflows.trigger_backtest'
 
 export const SIMULATION_POLL_INTERVAL_MS = 2000
 export const SIMULATION_LIST_PAGE_SIZE = 20

@@ -20,6 +20,8 @@ export const SIMULATIONS_PATH = '/api/insights/simulations'
 export const SIMULATION_QUEUE = 'insights-simulation'
 export const RULES_PATH = '/api/business_rules/rules'
 export const RULE_BACKTEST_KIND = 'business_rules.rule_backtest'
+export const TRIGGER_BACKTEST_KIND = 'workflows.trigger_backtest'
+export const WORKFLOW_DEFINITIONS_PATH = '/api/workflows/definitions'
 
 /** What a rule backtest needs: the simulator, the rule definitions and logs, and the targeted record type. */
 export const SIMULATOR_FEATURES = [
@@ -32,6 +34,19 @@ export const SIMULATOR_FEATURES = [
   'customers.deals.manage',
   'progress.view',
   'progress.cancel',
+]
+
+/** What a trigger backtest of deal events needs, plus authoring and applying the definition. */
+export const WORKFLOW_SIMULATOR_FEATURES = [
+  'insights.simulator.view',
+  'insights.simulator.run',
+  'workflows.definitions.view',
+  'workflows.definitions.create',
+  'workflows.definitions.edit',
+  'workflows.definitions.delete',
+  'customers.deals.view',
+  'customers.deals.manage',
+  'progress.view',
 ]
 
 const RUN_TIMEOUT_MS = 60_000
@@ -233,7 +248,62 @@ export async function requestProgressJobCancellation(progressJobId: string): Pro
   })
 }
 
-/** Removes runs, decisions, progress jobs, rule logs and rules of the fixture organizations, then the rest of the fixture. */
+export type TriggerFixture = {
+  triggerId: string
+  name: string
+  eventPattern: string
+  enabled?: boolean
+  priority?: number
+  config?: Record<string, unknown> | null
+}
+
+/** A minimal START → END workflow definition carrying `triggers`. */
+export function workflowDefinitionPayload(workflowId: string, input: { enabled: boolean; triggers: TriggerFixture[] }): Record<string, unknown> {
+  return {
+    workflowId,
+    workflowName: `QA trigger simulation ${workflowId}`,
+    version: 1,
+    enabled: input.enabled,
+    definition: {
+      steps: [
+        { stepId: 'start', stepName: 'Start', stepType: 'START' },
+        { stepId: 'end', stepName: 'End', stepType: 'END' },
+      ],
+      transitions: [{ transitionId: 'start-to-end', fromStepId: 'start', toStepId: 'end', trigger: 'auto' }],
+      triggers: input.triggers.map((trigger) => ({ enabled: true, priority: 0, ...trigger })),
+    },
+  }
+}
+
+/** The trigger backtest proposal the workflow editor submits for a definition (`workflows.trigger_backtest`). */
+export function triggerProposal(workflowId: string, input: { enabled: boolean; triggers: TriggerFixture[]; version?: number }): Record<string, unknown> {
+  return {
+    workflowId,
+    version: input.version ?? 1,
+    enabled: input.enabled,
+    triggers: input.triggers.map((trigger) => ({ enabled: true, priority: 0, ...trigger })),
+    startPreConditions: [],
+  }
+}
+
+export async function readWorkflowDefinition(request: APIRequestContext, token: string, definitionId: string): Promise<{ updatedAt: string; definition: Record<string, unknown> }> {
+  const read = await simulationCall<{ data?: { updatedAt?: string; definition?: Record<string, unknown> } }>(request, token, 'GET', `${WORKFLOW_DEFINITIONS_PATH}/${definitionId}`)
+  expect(read.status, `GET ${WORKFLOW_DEFINITIONS_PATH}/${definitionId}: ${read.text}`).toBe(200)
+  expect(read.body?.data?.updatedAt, 'the definition exposes updatedAt').toBeTruthy()
+  return { updatedAt: read.body?.data?.updatedAt as string, definition: read.body?.data?.definition ?? {} }
+}
+
+export async function countWorkflowInstances(organizationId: string, workflowId: string): Promise<number> {
+  return withClient(async (client) => {
+    const result = await client.query<{ count: number }>(
+      'select count(*)::int as count from workflow_instances where organization_id = $1 and workflow_id = $2',
+      [organizationId, workflowId],
+    )
+    return result.rows[0]?.count ?? 0
+  })
+}
+
+/** Removes runs, decisions, progress jobs, rule logs, rules and workflow rows of the fixture organizations, then the rest of the fixture. */
 export async function cleanupSimulationFixture(request: APIRequestContext, fixture: SimulationFixture): Promise<void> {
   for (const organizationId of fixture.simulationOrganizationIds) {
     await withClient(async (client) => {
@@ -242,6 +312,8 @@ export async function cleanupSimulationFixture(request: APIRequestContext, fixtu
       await client.query(`delete from progress_jobs where organization_id = $1 and job_type = 'insights.simulation'`, [organizationId])
       await client.query('delete from rule_execution_logs where organization_id = $1', [organizationId])
       await client.query('delete from business_rules where organization_id = $1', [organizationId])
+      await client.query('delete from workflow_instances where organization_id = $1', [organizationId])
+      await client.query('delete from workflow_definitions where organization_id = $1', [organizationId])
     }).catch(() => undefined)
   }
   await cleanupXrayAnalyticsFixture(request, fixture)

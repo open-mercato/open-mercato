@@ -213,7 +213,7 @@ function RunResult({ run }: { run: SimulationRunDetail }) {
       {result.groups.length === 0 ? (
         <EmptyState variant="subtle" title={t('insights.simulation.ui.result.emptyTitle')} description={t('insights.simulation.ui.result.emptyDescription')} />
       ) : (
-        result.groups.map((group) => <SimulationGroupSection key={group.key} kind={run.kind} group={group} k={result.k} />)
+        result.groups.map((group) => <SimulationGroupSection key={group.key} kind={run.kind} group={group} k={result.k} proposal={run.proposal} />)
       )}
     </section>
   )

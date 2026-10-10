@@ -1427,6 +1427,38 @@ sample record ids only; counts below the organization's X-Ray k-anonymity (defau
 are shown as "fewer than k". The business rule create and edit forms now publish the injection
 spot `crud-form:business_rules.rule`, and the edit form's values include the rule `id`.
 
+### Change simulator: workflow trigger backtest ("Simulate impact" in the workflow editor)
+
+The workflow visual editor gains "Simulate impact": it backtests the editor's current, unsaved
+event triggers (patterns, filters, debounce, concurrency limit) against recorded events and starts
+no workflow. Spec: [`2026-10-08-insights-change-simulator`](.ai/specs/2026-10-08-insights-change-simulator.md) (S7).
+
+**Action for operators.** Run `yarn generate` (the new `workflows/insights.simulate.ts`
+contribution is aggregated into `insights-simulate.generated.ts`). No migration and no new ACL
+feature: the backtest needs `insights.simulator.run`, `workflows.definitions.view` and the view
+feature of every record type its triggers listen to (e.g. `customers.deals.view`; a `*` trigger
+needs all of them).
+
+**Action for module authors.** The workflow editor publishes two additive injection spots,
+`workflows.definition.editor:toolbar` and `workflows.definition.editor:banner` (banner widgets get
+`onAfterSave` after an explicit Save). The trigger filter code moved from
+`workflows/lib/event-trigger-service.ts` to the pure `workflows/lib/trigger-filter.ts`;
+`evaluateFilterConditions` and `mapEventToContext` keep their exports and behaviour. The trigger
+subscriber now exports `WORKFLOW_TRIGGER_EXCLUDED_EVENT_PREFIXES` (unchanged list). A module that
+contributes simulation event adapters should import its own `events.ts` from `insights.simulate.ts`
+(as `customers` and `sales` now do): worker processes do not load the app's event registry, and the
+trigger backtest needs the declared events to tell whether a pattern selects events no adapter
+rebuilds (otherwise such patterns are reported as partly covered).
+
+**Behavior notes.** Results are three-valued per trigger and event: `would_start`,
+`would_not_start`, `debounced`, `cannot_tell`. A trigger with `maxConcurrentInstances`, required
+START pre-conditions or a filter on a value the history cannot rebuild is "cannot tell"; a
+code-defined workflow must be customized first (422 `not_customized`). Debounce is simulated per
+trigger and record like production, but production keeps windows in memory per process, so
+restarts or several workers can start more than the simulation counts. A pattern that also selects
+events no adapter can rebuild (e.g. `sales.order.*`, `*`) is reported as partly covered, and its
+debounced matches as "cannot tell".
+
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
 Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).

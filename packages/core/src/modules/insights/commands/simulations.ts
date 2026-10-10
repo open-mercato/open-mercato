@@ -120,7 +120,7 @@ const requestSimulationCommand: CommandHandler<SimulationRequestCommandInput, Si
     if (!(await hasFeatures(runFeatures))) throw await httpError(403, 'forbidden', { requiredFeatures: runFeatures })
     const em = resolveEm(ctx)
     if (definition.validate) {
-      const validation = await definition.validate(parsed.data, { em, scope, eventAdapters: listSimulationEventAdapters() })
+      const validation = await definition.validate(parsed.data, { em, scope, eventAdapters: listSimulationEventAdapters(), artifactId: input.artifactId })
       if (!validation.ok) throw await httpError(422, validation.code)
     }
     const version = await definition.readArtifactVersion({ em, scope }, { artifactId: input.artifactId, input: parsed.data })

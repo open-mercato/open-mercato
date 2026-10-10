@@ -1,5 +1,6 @@
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
-import { simulationKindModule } from './api'
+import { TRIGGER_BACKTEST_SIMULATION_KIND, simulationKindModule } from './api'
+import { describeTriggerBacktestGroup } from './triggerBacktest'
 import type { SimulationRequestError } from './types'
 
 /** Route error codes with a translated message (`insights.simulation.errors.<code>`). */
@@ -84,6 +85,36 @@ export function simulationFlagLabel(kind: string, flag: string, t: TranslateFn):
 
 export function simulationGroupLabel(groupKey: string, labelKey: string | null | undefined, t: TranslateFn): string {
   return labelKey ? t(labelKey, groupKey) : groupKey
+}
+
+export type SimulationGroupHeading = {
+  title: string
+  subtitle: string | null
+}
+
+/**
+ * The heading of a result group: the group label with its raw key underneath when the label is
+ * translated; for a trigger backtest the event and the trigger (name from the run's own proposal,
+ * and the pattern it listens to).
+ */
+export function simulationGroupHeading(
+  kind: string,
+  group: { key: string; labelKey?: string | null },
+  proposal: unknown,
+  t: TranslateFn,
+): SimulationGroupHeading {
+  if (kind === TRIGGER_BACKTEST_SIMULATION_KIND) {
+    const described = describeTriggerBacktestGroup(group.key, proposal)
+    const name = described.name ?? described.triggerId
+    if (described.eventId) {
+      return {
+        title: described.eventId,
+        subtitle: t('insights.simulation.ui.result.triggerGroupSubtitle', { name, pattern: described.eventPattern ?? '' }),
+      }
+    }
+    return { title: t('insights.simulation.ui.result.triggerGroupTitle', { name }), subtitle: described.eventPattern }
+  }
+  return { title: simulationGroupLabel(group.key, group.labelKey, t), subtitle: group.labelKey ? group.key : null }
 }
 
 export function simulationCoverageLabel(key: string, t: TranslateFn): string {

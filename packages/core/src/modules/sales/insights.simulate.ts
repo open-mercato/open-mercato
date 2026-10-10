@@ -5,6 +5,7 @@ import {
   type SimulationEventAdapter,
   type SimulationEventPayload,
 } from '@open-mercato/shared/modules/insights/simulate'
+import './events'
 
 type SalesDocumentCreatedSpec = {
   eventPrefix: string
@@ -65,6 +66,10 @@ function createSalesDocumentCreatedAdapter(spec: SalesDocumentCreatedSpec): Simu
  * user) and when the entry carries its cause, and is unknown otherwise.
  * `sales.order.confirmed` / `.cancelled` are not adapted: they are emitted without a tenant
  * scope in the emit options, so the rule and workflow triggers never evaluate them.
+ *
+ * The module's events are imported here so the declared event catalog is complete wherever the
+ * simulator runs (worker processes do not load the app's event registry); the trigger backtest
+ * relies on it to tell whether a pattern selects events these adapters do not rebuild.
  */
 export const simulateConfig = defineSimulateConfig({
   version: 1,

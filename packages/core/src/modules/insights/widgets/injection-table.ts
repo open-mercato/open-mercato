@@ -106,6 +106,20 @@ export const injectionTable: ModuleInjectionTable = {
       priority: 100,
     },
   ],
+  'workflows.definition.editor:toolbar': [
+    {
+      widgetId: 'insights.injection.workflow-simulate',
+      kind: 'stack',
+      priority: 100,
+    },
+  ],
+  'workflows.definition.editor:banner': [
+    {
+      widgetId: 'insights.injection.workflow-simulation-apply',
+      kind: 'stack',
+      priority: 100,
+    },
+  ],
 }
 
 export default injectionTable
