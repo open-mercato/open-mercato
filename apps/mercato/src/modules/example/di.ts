@@ -58,6 +58,10 @@ export function register(container: AppContainer) {
       }
     },
   })
+  registerGatewayAdapter({
+    ...mockGatewayAdapter,
+    providerKey: 'mock_payer_required',
+  })
   registerWebhookHandler('mock', mockGatewayAdapter.verifyWebhook, {
     readSessionIdHint: readMockWebhookSessionId,
   })
@@ -65,6 +69,9 @@ export function register(container: AppContainer) {
     readSessionIdHint: readMockWebhookSessionId,
   })
   registerWebhookHandler('mock_processing', mockGatewayAdapter.verifyWebhook, {
+    readSessionIdHint: readMockWebhookSessionId,
+  })
+  registerWebhookHandler('mock_payer_required', mockGatewayAdapter.verifyWebhook, {
     readSessionIdHint: readMockWebhookSessionId,
   })
   registerPaymentGatewayDescriptor({
@@ -122,6 +129,16 @@ export function register(container: AppContainer) {
           ],
         },
       ],
+      supportedCurrencies: '*',
+      supportedPaymentTypes: [{ value: 'mock', label: 'Mock payment' }],
+      presentation: 'either',
+    },
+  })
+  registerPaymentGatewayDescriptor({
+    providerKey: 'mock_payer_required',
+    label: 'Mock Gateway (payer email and name required)',
+    requiresPayerFields: ['email', 'name'],
+    sessionConfig: {
       supportedCurrencies: '*',
       supportedPaymentTypes: [{ value: 'mock', label: 'Mock payment' }],
       presentation: 'either',
