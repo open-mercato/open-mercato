@@ -20,7 +20,7 @@ This guide explains how to connect Tpay to Open Mercato and accept PLN payments 
    - **Client ID** and **Client Secret** — from the Tpay API key.
    - **Environment** — `Sandbox` for sandbox credentials, `Production` for live credentials. Open Mercato uses Tpay's fixed sandbox or production API address for the selected environment.
    - **Notification URL** (optional) — the public HTTPS address Tpay will notify about payment results. It must not contain credentials, a query string, or a fragment, and production requires port 443. Leave it empty if the Tpay Merchant Panel already defines the notification address.
-   - **Notification Security Code** (optional) — stored now for the upcoming notification handling.
+   - **Notification Security Code** — the security code from **Tpay Merchant Panel → Settings → Notifications → Security**. Required for payment notifications; without it every notification is rejected.
 3. Save and run the health check. A healthy result means Open Mercato obtained an access token from Tpay with these credentials.
 4. Enable the integration.
 
@@ -50,8 +50,39 @@ Select **Tpay** as the payment provider of a checkout link and keep customer det
 
 After paying, the payer returns to the checkout success page, which reads the transaction status from Tpay. A paid transaction becomes **captured**.
 
+## Payment notifications
+
+Tpay confirms each paid transaction with a server-to-server notification. Open Mercato settles the payment from that notification, so a payment is captured even when the payer closes the browser on Tpay's page.
+
+1. In the Tpay Merchant Panel, set the notification address to `https://<your-domain>/api/payment_gateways/webhook/tpay` (or fill **Notification URL** in the integration, which Tpay uses when overriding is allowed). The address must be public HTTPS on port 443, without redirects.
+2. Copy the notification security code (Tpay Merchant Panel → Settings → Notifications → Security) into **Notification Security Code**. Without it every notification is rejected and the integration health check reports a degraded status.
+3. Save the integration.
+
+Each notification is checked before anything changes:
+
+- the MD5 checksum built with your security code;
+- Tpay's JWS signature, using Tpay's production or sandbox certificate according to the integration **Environment**;
+- the transaction it refers to (`tr_crc` is the payment id Open Mercato sent to Tpay), its amount, and its currency.
+
+| Situation | Response to Tpay | Effect |
+| --- | --- | --- |
+| Verified and processed | `200 TRUE` | Payment captured (or refunded for a chargeback) once, even if Tpay repeats the notification |
+| Transaction not found yet, certificate download or validation failed, or processing failed | `503 FALSE` | Tpay retries later |
+| Invalid checksum or signature, amount/currency mismatch, underpayment | `400 FALSE` | Nothing changes; Tpay keeps retrying — check the security code and the integration environment |
+
+An overpayment still captures the expected amount; the paid amount is kept in the transaction details.
+
+## Scheduled status check
+
+When the Tpay integration is enabled for an organization, Open Mercato registers a scheduled job (**Tpay payment status reconciliation**, every 5 minutes) that asks Tpay for the current status of that organization's Tpay transactions that are still open (pending, authorized, or partially captured). It repairs payments whose notification never arrived, for example because the notification address was misconfigured or Tpay exhausted its retries.
+
+- The job is created or re-enabled when you enable the integration and disabled when you disable it. You can also pause it in the scheduler.
+- Re-running tenant setup (`seed:defaults`) keeps an existing job as you left it. Enabling or disabling the integration rewrites the job with the default 5-minute interval.
+- Each run checks up to 100 open transactions (pending, authorized, or partially captured), starting with the ones checked least recently, so every open payment is checked in turn.
+- It needs the scheduler module. Without it, notifications and the return-page check still work.
+
 ## Limitations
 
 - **PLN only.** Sessions in any other currency are rejected.
-- **No payment notifications yet.** The status is read when the payer returns to the checkout page. If the payer closes the browser on Tpay's page, the transaction stays pending until notification handling and scheduled status checks are added.
+- **One Tpay transaction per payment.** If a payment was retried and Tpay holds several transactions with the same amount for it, notifications cannot tell them apart and are rejected; the scheduled status check settles such payments instead (within about 5 minutes).
 - **No refunds, cancellation, or manual capture** from Open Mercato. Use the Tpay Merchant Panel for these operations.

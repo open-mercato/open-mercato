@@ -11,6 +11,7 @@
   "gateway_tpay.feature.configure": "Tpay-Einstellungen konfigurieren",
   "gateway_tpay.feature.view": "Tpay-Konfiguration anzeigen",
   "gateway_tpay.health.healthy": "Die Tpay-Verbindung ist in Ordnung.",
+  "gateway_tpay.health.notificationsDisabled": "Die Tpay-Verbindung funktioniert, aber Zahlungsbenachrichtigungen werden abgelehnt, bis der Sicherheitscode für Benachrichtigungen festgelegt ist.",
   "gateway_tpay.health.unhealthy": "Die Tpay-Verbindung ist fehlgeschlagen. Prüfen Sie die Zugangsdaten.",
   "gateway_tpay.title": "Tpay"
 }

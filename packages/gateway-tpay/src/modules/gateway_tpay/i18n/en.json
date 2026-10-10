@@ -11,6 +11,7 @@
   "gateway_tpay.feature.configure": "Configure Tpay settings",
   "gateway_tpay.feature.view": "View Tpay configuration",
   "gateway_tpay.health.healthy": "Tpay connection is healthy.",
+  "gateway_tpay.health.notificationsDisabled": "Tpay connection works, but payment notifications are rejected until the notification security code is set.",
   "gateway_tpay.health.unhealthy": "Tpay connection failed. Check the credentials.",
   "gateway_tpay.title": "Tpay"
 }
