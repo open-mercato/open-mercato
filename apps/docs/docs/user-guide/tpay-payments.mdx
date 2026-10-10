@@ -1,0 +1,57 @@
+---
+title: Tpay Payment Gateway
+description: Connect Tpay to accept PLN payments on Tpay's hosted payment page.
+sidebar_label: Tpay Payments
+---
+
+This guide explains how to connect Tpay to Open Mercato and accept PLN payments through Tpay's hosted payment page. The payer is redirected to Tpay, chooses a payment method there (online transfer, BLIK, and other methods enabled on your Tpay account), and returns to your checkout page.
+
+## Before you start
+
+- A Tpay merchant account. For testing, create a sandbox account in the Tpay sandbox panel.
+- An Open API key from **Tpay Merchant Panel → Integrations → API** (Client ID and Secret).
+- The `gateway_tpay` module enabled in your application's `modules.ts`.
+- The `integrations.credentials.manage` and `payment_gateways.manage` features enabled for your role.
+
+## Configure the integration
+
+1. Navigate to **External Systems → Integrations** and click **Configure** on the Tpay card.
+2. Fill in the credentials:
+   - **Client ID** and **Client Secret** — from the Tpay API key.
+   - **Environment** — `Sandbox` for sandbox credentials, `Production` for live credentials. Open Mercato uses Tpay's fixed sandbox or production API address for the selected environment.
+   - **Notification URL** (optional) — the public HTTPS address Tpay will notify about payment results. It must not contain credentials, a query string, or a fragment, and production requires port 443. Leave it empty if the Tpay Merchant Panel already defines the notification address.
+   - **Notification Security Code** (optional) — stored now for the upcoming notification handling.
+3. Save and run the health check. A healthy result means Open Mercato obtained an access token from Tpay with these credentials.
+4. Enable the integration.
+
+## Optional env preconfiguration
+
+```env
+OM_INTEGRATION_TPAY_CLIENT_ID=...
+OM_INTEGRATION_TPAY_CLIENT_SECRET=...
+OM_INTEGRATION_TPAY_ENVIRONMENT=sandbox
+OM_INTEGRATION_TPAY_NOTIFICATION_URL=
+OM_INTEGRATION_TPAY_NOTIFICATION_SECURITY_CODE=
+OM_INTEGRATION_TPAY_ENABLED=true
+OM_INTEGRATION_TPAY_FORCE_PRECONFIGURE=false
+```
+
+Client ID and Client Secret are required together. In standalone apps created with `create-mercato-app`, the module is opt-in: uncomment `gateway_tpay` in `src/modules.ts`. New tenants pick the preset up automatically. To apply it to an existing tenant:
+
+```bash
+yarn mercato gateway_tpay configure-from-env --tenant <tenantId> --org <organizationId> [--force]
+```
+
+Without `--force`, existing Tpay credentials or integration state are left untouched.
+
+## Using Tpay in checkout
+
+Select **Tpay** as the payment provider of a checkout link and keep customer details collection enabled: Tpay requires the payer's email address and name, and checkout forwards the values the payer enters. Payments without an email address or name are rejected before anything is sent to Tpay.
+
+After paying, the payer returns to the checkout success page, which reads the transaction status from Tpay. A paid transaction becomes **captured**.
+
+## Limitations
+
+- **PLN only.** Sessions in any other currency are rejected.
+- **No payment notifications yet.** The status is read when the payer returns to the checkout page. If the payer closes the browser on Tpay's page, the transaction stays pending until notification handling and scheduled status checks are added.
+- **No refunds, cancellation, or manual capture** from Open Mercato. Use the Tpay Merchant Panel for these operations.
