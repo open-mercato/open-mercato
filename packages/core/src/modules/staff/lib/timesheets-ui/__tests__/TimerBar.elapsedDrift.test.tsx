@@ -32,6 +32,20 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCallOrThrow: jest.fn(),
 }))
 
+// TimerBar now also reads the shared timesheet preference to seed its picker
+// (#3750). This test is about the elapsed counter, so the preference is stubbed
+// as settled-and-empty rather than exercising its fetch.
+jest.mock('../useTimesheetPreference', () => ({
+  useTimesheetPreference: () => ({
+    lastProjectId: null,
+    updatedAt: null,
+    isLoading: false,
+    isFetching: false,
+    error: null,
+    save: jest.fn().mockResolvedValue(undefined),
+  }),
+}))
+
 // The active timer is now owned by the shared useActiveTimesheetTimer hook
 // (issue #3307). This test isolates TimerBar's own elapsed-counter logic, so it
 // stubs the hook with a running timer instead of exercising its data fetching.

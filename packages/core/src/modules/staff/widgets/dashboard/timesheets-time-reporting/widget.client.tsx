@@ -7,6 +7,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useActiveTimesheetTimer } from '../../../lib/timesheets-ui/useActiveTimesheetTimer'
+import { useTimesheetPreference } from '../../../lib/timesheets-ui/useTimesheetPreference'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { startTimerEntry } from '../../../lib/timesheets-ui/startTimer'
 import { resolveTimerActionError } from '../../../lib/timesheets-ui/timerErrors'
@@ -52,13 +53,17 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
   const hydrated = React.useMemo(() => hydrateSettings(settings), [settings])
 
   const [projects, setProjects] = React.useState<ProjectOption[]>([])
-  const [selectedProjectId, setSelectedProjectId] = React.useState<string | null>(hydrated.lastProjectId)
+  // Seeded asynchronously — see the seed effect below. Initialising from
+  // `hydrated.lastProjectId` here would keep the legacy per-widget memory as the
+  // source of truth and defeat the point of the shared preference.
+  const [selectedProjectId, setSelectedProjectId] = React.useState<string | null>(null)
   const [notes, setNotes] = React.useState('')
   const [elapsed, setElapsed] = React.useState('00:00:00')
   const [loading, setLoading] = React.useState(true)
   const [actionLoading, setActionLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const didLoadRef = React.useRef(false)
+  const hasSeededRef = React.useRef(false)
   const activeTimer = useActiveTimesheetTimer()
   const {
     staffMemberId,
@@ -71,6 +76,13 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
     error: activeTimerError,
     refresh: refreshActiveTimer,
   } = activeTimer
+  const preference = useTimesheetPreference(staffMemberId)
+  const {
+    lastProjectId: sharedLastProjectId,
+    isLoading: preferenceLoading,
+    error: preferenceError,
+    save: savePreference,
+  } = preference
 
   const loadState = React.useCallback(async () => {
     onRefreshStateChange?.(true)
@@ -122,6 +134,61 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
     void Promise.allSettled([loadState(), refreshActiveTimer()])
   }, [loadState, refreshActiveTimer, refreshToken])
 
+  // Seed the picker from the shared preference, falling back to the legacy
+  // per-widget setting.
+  //
+  // The settings used to arrive as props, so the seed could run synchronously in
+  // the `useState` initialiser. A fetched preference reintroduces the race the
+  // TimerBar solves the same way: wait for the sources to settle, seed at most
+  // once per mount, and only while the selection is still null — a deliberate
+  // `<select>` change always beats a late-arriving fetch.
+  React.useEffect(() => {
+    if (hasSeededRef.current) return
+    if (loading || activeTimerLoading) return
+    // A failed active-timer lookup leaves `staffMemberId` null even though the
+    // query has stopped loading. Seeding here would skip the preference wait
+    // below, latch the ref on the legacy value, and lock the shared preference
+    // out for the rest of the mount once the query recovers on its next
+    // interval. An unresolved member id is "not settled yet", not "no member".
+    if (activeTimerError) return
+    if (projects.length === 0) return
+    if (selectedProjectId !== null) return
+    // Genuinely no staff member: nothing is coming from the shared store, so the
+    // legacy setting is the only memory available.
+    if (staffMemberId && preferenceLoading) return
+    // Same guard the TimerBar applies, for the same reason: a failed fetch settles
+    // with `lastProjectId: null`, so falling through to the legacy value here would
+    // latch it for the rest of the mount even after the query recovers. The stakes
+    // are higher on this surface than the symmetry suggests — the TimerBar writes
+    // only the shared store, so a member who starts timers from the timesheets page
+    // has a legacy value that is legitimately stale, and preselecting it invites the
+    // wrong project to be started. An unresolved preference is "not settled yet",
+    // not "no preference"; the honest state is no seed, which costs one click.
+    if (staffMemberId && preferenceError) return
+
+    hasSeededRef.current = true
+    // Read-through fallback: the shared store wins, the legacy setting covers
+    // members whose only memory predates it, and the next successful start
+    // writes that value through so the row self-heals.
+    const candidate = sharedLastProjectId ?? hydrated.lastProjectId
+    // An id the `<select>` cannot display would render a blank selection with an
+    // enabled Start button — strictly worse than no seed.
+    if (candidate && projects.some((project) => project.id === candidate)) {
+      setSelectedProjectId(candidate)
+    }
+  }, [
+    loading,
+    activeTimerLoading,
+    activeTimerError,
+    projects,
+    selectedProjectId,
+    staffMemberId,
+    preferenceLoading,
+    preferenceError,
+    sharedLastProjectId,
+    hydrated.lastProjectId,
+  ])
+
   // Tick elapsed time
   React.useEffect(() => {
     if (!timerRunning || !timerStartedAt) {
@@ -164,7 +231,15 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
         mutationPayload: startPayload,
       })
 
+      // Dual write for the deprecation window: the shared preference is the new
+      // source of truth, and the legacy widget setting keeps being written so a
+      // rollback does not lose the member's default (see `UPGRADE_NOTES.md`).
       onSettingsChange({ ...hydrated, lastProjectId: selectedProjectId })
+      // Non-blocking and non-surfacing: the timer is already running, so a failed
+      // preference write must not fail the start. The next start corrects it.
+      void savePreference(selectedProjectId).catch((prefErr: unknown) => {
+        logger.warn('staff.timesheets.timeReporting.preferenceWriteFailed', { err: prefErr })
+      })
       await refreshActiveTimer()
     } catch (err) {
       logger.error('staff.timesheets.timeReporting.start', { err })
@@ -172,7 +247,7 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
     } finally {
       setActionLoading(false)
     }
-  }, [selectedProjectId, staffMemberId, timerRunning, notes, runMutation, retryLastMutation, hydrated, onSettingsChange, refreshActiveTimer, t])
+  }, [selectedProjectId, staffMemberId, timerRunning, notes, runMutation, retryLastMutation, hydrated, onSettingsChange, savePreference, refreshActiveTimer, t])
 
   const handleStop = React.useCallback(async () => {
     if (!activeEntryId || !staffMemberId) return

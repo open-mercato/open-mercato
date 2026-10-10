@@ -88,4 +88,116 @@ export async function createTimeEntryFixture(
   return body.id as string
 }
 
+export async function getSelfStaffMemberId(
+  request: APIRequestContext,
+  token: string,
+): Promise<string> {
+  const response = await apiRequest(request, 'GET', '/api/staff/team-members/self', { token })
+  expect(response.ok(), 'GET /api/staff/team-members/self should succeed').toBeTruthy()
+  const body = (await response.json()) as { member?: { id?: string } }
+  const staffMemberId = body.member?.id ?? ''
+  expect(staffMemberId.length > 0, 'Caller must have a staff member profile').toBeTruthy()
+  return staffMemberId
+}
+
+/**
+ * Stops every timer currently running for the member.
+ *
+ * Timer state is per-member and survives across specs, so a suite that asserts
+ * the not-running branch must clear it first rather than assume it.
+ */
+export async function stopRunningTimers(
+  request: APIRequestContext,
+  token: string,
+  staffMemberId: string,
+): Promise<void> {
+  const response = await apiRequest(
+    request,
+    'GET',
+    `/api/staff/timesheets/time-entries?staffMemberId=${encodeURIComponent(staffMemberId)}&running=true&pageSize=50`,
+    { token },
+  )
+  if (!response.ok()) return
+  const body = (await response.json()) as { items?: Array<{ id?: string }> }
+  for (const entry of body.items ?? []) {
+    if (!entry.id) continue
+    await apiRequest(
+      request,
+      'POST',
+      `/api/staff/timesheets/time-entries/${encodeURIComponent(entry.id)}/timer-stop`,
+      { token },
+    ).catch(() => {})
+  }
+}
+
+/**
+ * Deletes every time entry the member logged against a project.
+ *
+ * A timer started through the UI never hands its entry id back to the spec, so
+ * cleanup has to find the entry by project. Deleting the project alone leaves the
+ * entry live under a soft-deleted parent.
+ */
+export async function deleteTimeEntriesForProject(
+  request: APIRequestContext,
+  token: string,
+  staffMemberId: string,
+  projectId: string | null,
+): Promise<void> {
+  if (!projectId) return
+  const response = await apiRequest(
+    request,
+    'GET',
+    `/api/staff/timesheets/time-entries?staffMemberId=${encodeURIComponent(staffMemberId)}&projectId=${encodeURIComponent(projectId)}&pageSize=100`,
+    { token },
+  )
+  if (!response.ok()) return
+  const body = (await response.json()) as { items?: Array<{ id?: string }> }
+  for (const entry of body.items ?? []) {
+    if (!entry.id) continue
+    await apiRequest(request, 'DELETE', `/api/staff/timesheets/time-entries?id=${encodeURIComponent(entry.id)}`, {
+      token,
+    }).catch(() => {})
+  }
+}
+
+export async function startTimerFixture(
+  request: APIRequestContext,
+  token: string,
+  input: { staffMemberId: string; timeProjectId: string; date: string; notes?: string | null },
+): Promise<string> {
+  const response = await apiRequest(request, 'POST', '/api/staff/timesheets/time-entries/start-timer', {
+    token,
+    data: {
+      staffMemberId: input.staffMemberId,
+      timeProjectId: input.timeProjectId,
+      date: input.date,
+      notes: input.notes ?? null,
+    },
+  })
+  expect(response.ok(), `Failed to start timer fixture: ${response.status()}`).toBeTruthy()
+  const body = (await response.json()) as { id?: string }
+  expect(typeof body.id === 'string' && body.id.length > 0).toBeTruthy()
+  return body.id as string
+}
+
+export async function readTimesheetPreference(
+  request: APIRequestContext,
+  token: string,
+): Promise<{ lastProjectId: string | null; updatedAt: string | null }> {
+  const response = await apiRequest(request, 'GET', '/api/staff/timesheets/my-preferences', { token })
+  expect(response.ok(), `GET my-preferences should succeed: ${response.status()}`).toBeTruthy()
+  return (await response.json()) as { lastProjectId: string | null; updatedAt: string | null }
+}
+
+export async function setTimesheetPreference(
+  request: APIRequestContext,
+  token: string,
+  lastProjectId: string | null,
+) {
+  return apiRequest(request, 'PUT', '/api/staff/timesheets/my-preferences', {
+    token,
+    data: { lastProjectId },
+  })
+}
+
 export { deleteStaffEntityIfExists }
