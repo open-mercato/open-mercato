@@ -80,11 +80,13 @@ import {
   RETURN_ADJUSTMENT_EXCEEDS_REMAINING_NET_MESSAGE,
   quoteCreateSchema,
   quoteLineCreateSchema,
+  quoteLineUpdateSchema,
   quoteAdjustmentCreateSchema,
   orderCreateSchema,
   ORDER_PAYMENT_LEDGER_WARNING_CODE,
   resolveSuppliedOrderPaymentLedgerFields,
   orderLineCreateSchema,
+  orderLineUpdateSchema,
   orderAdjustmentCreateSchema,
   invoiceCreateSchema,
   invoiceUpdateSchema,
@@ -7182,6 +7184,22 @@ const orderLineUpsertSchema = orderLineCreateSchema.extend({
   id: z.string().uuid().optional(),
 });
 
+const orderLinePartialUpdateSchema = orderLineUpdateSchema.extend({
+  orderId: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  tenantId: z.string().uuid(),
+});
+
+type OrderLineUpsertInput =
+  | z.infer<typeof orderLineUpsertSchema>
+  | z.infer<typeof orderLinePartialUpdateSchema>;
+
+function parseOrderLineUpsert(rawBody: Record<string, unknown>): OrderLineUpsertInput {
+  return rawBody.id === undefined
+    ? orderLineUpsertSchema.parse(rawBody)
+    : orderLinePartialUpdateSchema.parse(rawBody);
+}
+
 const orderLineDeleteSchema = z.object({
   id: z.string().uuid(),
   orderId: z.string().uuid(),
@@ -7190,6 +7208,18 @@ const orderLineDeleteSchema = z.object({
 const quoteLineUpsertSchema = quoteLineCreateSchema.extend({
   id: z.string().uuid().optional(),
 });
+
+const quoteLinePartialUpdateSchema = quoteLineUpdateSchema.extend({
+  quoteId: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  tenantId: z.string().uuid(),
+});
+
+function parseQuoteLineUpsert(rawBody: Record<string, unknown>) {
+  return rawBody.id === undefined
+    ? quoteLineUpsertSchema.parse(rawBody)
+    : quoteLinePartialUpdateSchema.parse(rawBody);
+}
 
 const quoteLineDeleteSchema = z.object({
   id: z.string().uuid(),
@@ -7387,7 +7417,7 @@ async function assertShippedOrderLineEditable(
   em: EntityManager,
   order: SalesOrder,
   existingSnapshot: SalesLineSnapshot | null,
-  parsed: z.infer<typeof orderLineUpsertSchema>,
+  parsed: OrderLineUpsertInput,
 ): Promise<void> {
   const lineId = existingSnapshot?.id;
   if (!existingSnapshot || !lineId) return;
@@ -7478,7 +7508,7 @@ const orderLineUpsertCommand: CommandHandler<
   },
   async execute(input, ctx) {
     const rawBody = (input?.body as Record<string, unknown> | undefined) ?? {};
-    const parsed = orderLineUpsertSchema.parse(rawBody);
+    const parsed = parseOrderLineUpsert(rawBody);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     const order = await findOneWithDecryption(em, SalesOrder, {
       id: parsed.orderId,
@@ -7501,6 +7531,7 @@ const orderLineUpsertCommand: CommandHandler<
     const existingSnapshot = parsed.id
       ? (lineSnapshots.find((line) => line.id === parsed.id) ?? null)
       : null;
+    if (parsed.id && !existingSnapshot) orderLineUpsertSchema.parse(rawBody);
     await assertOrderAcceptsNewLine(order, existingSnapshot);
     await assertShippedOrderLineEditable(em, order, existingSnapshot, parsed);
     const priceMode =
@@ -7975,7 +8006,7 @@ const quoteLineUpsertCommand: CommandHandler<
   },
   async execute(input, ctx) {
     const rawBody = (input?.body as Record<string, unknown> | undefined) ?? {};
-    const parsed = quoteLineUpsertSchema.parse(rawBody);
+    const parsed = parseQuoteLineUpsert(rawBody);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     const quote = await findOneWithDecryption(em, SalesQuote, {
       id: parsed.quoteId,
@@ -7997,6 +8028,7 @@ const quoteLineUpsertCommand: CommandHandler<
     const existingSnapshot = parsed.id
       ? (lineSnapshots.find((line) => line.id === parsed.id) ?? null)
       : null;
+    if (parsed.id && !existingSnapshot) quoteLineUpsertSchema.parse(rawBody);
     const priceMode =
       parsed.priceMode === "gross"
         ? "gross"
