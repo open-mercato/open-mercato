@@ -221,6 +221,8 @@
   "auth.acl.features.inbox_ops.settings.manage": "Zarządzaj ustawieniami skrzynki odbiorczej",
   "auth.acl.features.insights.explain.access_detail": "Wyświetl szczegóły wyjaśnień dostępu",
   "auth.acl.features.insights.explain.view": "Wyjaśniaj wartości rekordów",
+  "auth.acl.features.insights.simulator.run": "Uruchamiaj symulacje zmian",
+  "auth.acl.features.insights.simulator.view": "Wyświetlaj własne symulacje zmian",
   "auth.acl.features.insights.xray.manage": "Zarządzaj Process X-Ray",
   "auth.acl.features.insights.xray.view": "Wyświetlaj Process X-Ray",
   "auth.acl.features.insights.xray.view_individuals": "Wyświetlaj zestawienia Process X-Ray dla poszczególnych osób",

@@ -1,8 +1,11 @@
 import type { BusinessRule } from '../data/entities'
 import { evaluateExpression, type EvaluationContext, type ConditionExpression } from './expression-evaluator'
+import { isRuleEffective } from './rule-effective-window'
 import { createLogger, isLevelEnabled } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('business_rules').child({ component: 'rule-evaluator' })
+
+export { isRuleEffective }
 
 /**
  * Rule evaluation context
@@ -129,7 +132,7 @@ export async function evaluateSingleRule(
     }
 
     // Check effective date range
-    if (!isRuleEffective(rule)) {
+    if (!isRuleEffective(rule, context?.evaluatedAt)) {
       logger.debug('Rule is not effective (outside date range)', { ruleId: rule.ruleId })
       return {
         rule,
@@ -206,25 +209,6 @@ export function sortRulesByPriority(rules: BusinessRule[]): BusinessRule[] {
     // If priority is the same, sort by ruleId for stability
     return a.ruleId.localeCompare(b.ruleId)
   })
-}
-
-/**
- * Check if rule is within its effective date range
- */
-function isRuleEffective(rule: BusinessRule): boolean {
-  const now = new Date()
-
-  // Check effectiveFrom
-  if (rule.effectiveFrom && rule.effectiveFrom > now) {
-    return false
-  }
-
-  // Check effectiveTo
-  if (rule.effectiveTo && rule.effectiveTo < now) {
-    return false
-  }
-
-  return true
 }
 
 /**

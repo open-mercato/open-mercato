@@ -869,3 +869,197 @@ export const xrayConformanceResponseSchema = z.discriminatedUnion('status', [
 ])
 
 export const xrayCasesResponseSchema = caseListResultSchema.extend(activityLabelsShape)
+
+export const SIMULATION_RUN_STATUS_VALUES = ['queued', 'running', 'completed', 'failed', 'cancelled'] as const
+
+export const SIMULATION_DECISION_VALUES = ['applied', 'discarded'] as const
+
+const simulationKindIdSchema = z.string().trim().min(3).max(129).regex(/^[a-z][a-z0-9_]{0,63}\.[a-z][a-z0-9_]{0,63}$/)
+
+const simulationIsoTimestampSchema = z.string().trim().refine((value) => !Number.isNaN(Date.parse(value)), { message: 'Invalid timestamp' })
+
+export const simulationWindowSchema = z.union([
+  z.object({ days: z.number().int().min(1).max(365) }).strict(),
+  z.object({ from: simulationIsoTimestampSchema, to: simulationIsoTimestampSchema }).strict(),
+])
+
+export const simulationRequestSchema = z
+  .object({
+    kind: simulationKindIdSchema.describe('Simulation kind, e.g. `business_rules.rule_backtest` (see `GET /api/insights/simulations/capabilities`).'),
+    artifactId: z.string().trim().min(1).max(200).nullable().optional().describe('Id of the artifact the proposal changes; null/absent for an unsaved artifact (apply = create).'),
+    proposal: z.unknown().describe('The proposed artifact definition, validated by the owning module (rule backtest: the full business rule definition).'),
+    window: simulationWindowSchema.optional().describe('History window: `{ days }` ending now (default 90, max 365) or an absolute `{ from, to }` of at most 365 days.'),
+  })
+  .strict()
+
+export type SimulationRequestBody = z.infer<typeof simulationRequestSchema>
+
+export const simulationRequestCommandSchema = z.object({
+  tenantId: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  userId: z.string().uuid(),
+  kind: simulationKindIdSchema,
+  artifactId: z.string().trim().min(1).max(200).nullable(),
+  proposal: z.unknown(),
+  windowFrom: simulationIsoTimestampSchema,
+  windowTo: simulationIsoTimestampSchema,
+})
+
+export type SimulationRequestCommandInput = z.infer<typeof simulationRequestCommandSchema>
+
+export const simulationRunPathParamsSchema = z.object({
+  id: z.string().uuid(),
+})
+
+export const simulationListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).max(10_000).optional(),
+  pageSize: z.coerce.number().int().min(1).max(100).optional(),
+})
+
+export const simulationCancelCommandSchema = z.object({
+  tenantId: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  runId: z.string().uuid(),
+  userId: z.string().uuid(),
+  allowForeign: z.boolean(),
+})
+
+export type SimulationCancelCommandInput = z.infer<typeof simulationCancelCommandSchema>
+
+export const simulationDecisionSchema = z.object({
+  decision: z.enum(SIMULATION_DECISION_VALUES),
+}).strict()
+
+export const simulationDecisionCommandSchema = z.object({
+  tenantId: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  runId: z.string().uuid(),
+  userId: z.string().uuid(),
+  decision: z.enum(SIMULATION_DECISION_VALUES),
+})
+
+export type SimulationDecisionCommandInput = z.infer<typeof simulationDecisionCommandSchema>
+
+export const simulationErrorSchema = z.object({
+  error: z.string(),
+  code: z.string(),
+  issues: z.array(z.object({ path: z.string(), message: z.string() })).optional(),
+})
+
+const simulationSampleSchema = z.object({
+  id: z.string(),
+  href: z.string().nullable(),
+})
+
+const simulationResultCellSchema = z.object({
+  key: z.string(),
+  count: z.number().int().nullable().describe('Null when suppressed.'),
+  suppressed: z.enum(['below_k', 'complementary']).nullable().describe('`below_k`: fewer than k records; `complementary`: hidden so a suppressed cell cannot be derived from the total.'),
+  samples: z.array(simulationSampleSchema).describe('Sample record ids still visible to the caller (resolved live).'),
+})
+
+const simulationResultGroupSchema = z.object({
+  key: z.string(),
+  labelKey: z.string().nullable(),
+  sampleResourceKind: z.string().nullable(),
+  total: z.number().int().nullable(),
+  suppressed: z.boolean(),
+  cells: z.array(simulationResultCellSchema),
+  warnings: z.array(z.string()).describe('i18n keys'),
+  flags: z.array(z.string()),
+})
+
+export const simulationRunSummarySchema = z.object({
+  id: z.string().uuid(),
+  kind: z.string(),
+  kindLabelKey: z.string().nullable(),
+  status: z.enum(SIMULATION_RUN_STATUS_VALUES),
+  artifactKind: z.string(),
+  artifactId: z.string().nullable(),
+  progressJobId: z.string().uuid().nullable(),
+  fidelity: z.string().nullable(),
+  errorCode: z.string().nullable(),
+  windowFrom: z.string(),
+  windowTo: z.string(),
+  createdAt: z.string(),
+  startedAt: z.string().nullable(),
+  completedAt: z.string().nullable(),
+  expiresAt: z.string(),
+})
+
+export const simulationDecisionViewSchema = z.object({
+  decision: z.enum(SIMULATION_DECISION_VALUES),
+  verified: z.boolean().nullable(),
+  artifactId: z.string().nullable(),
+  artifactUpdatedAtAfter: z.string().nullable(),
+  createdAt: z.string(),
+})
+
+export const simulationRunDetailSchema = simulationRunSummarySchema.extend({
+  cellKeys: z.array(z.string()),
+  proposal: z.unknown().describe('The caller\'s own proposal.'),
+  result: z.object({
+    k: z.number().int(),
+    truncated: z.boolean(),
+    groups: z.array(simulationResultGroupSchema),
+  }).nullable(),
+  coverage: z.record(z.string(), z.number()).nullable(),
+  caveats: z.array(z.string()).describe('i18n keys'),
+  budgets: z.object({
+    maxRecords: z.number(),
+    maxDurationMs: z.number(),
+    recordsUsed: z.number(),
+    elapsedMs: z.number(),
+  }),
+  decisions: z.array(simulationDecisionViewSchema),
+  applyHref: z.string().nullable(),
+  canDecide: z.boolean(),
+})
+
+export const simulationRunResponseSchema = z.object({
+  ok: z.literal(true),
+  result: simulationRunDetailSchema,
+})
+
+export const simulationListResponseSchema = z.object({
+  items: z.array(simulationRunSummarySchema),
+  total: z.number().int(),
+  page: z.number().int(),
+  pageSize: z.number().int(),
+  totalPages: z.number().int(),
+})
+
+export const simulationRequestResponseSchema = z.object({
+  ok: z.literal(true),
+  runId: z.string().uuid(),
+  progressJobId: z.string().uuid().nullable(),
+  status: z.enum(SIMULATION_RUN_STATUS_VALUES),
+  deduplicated: z.boolean(),
+})
+
+export const simulationCapabilitiesResponseSchema = z.object({
+  canRun: z.boolean(),
+  kinds: z.array(z.object({
+    kind: z.string(),
+    artifactKind: z.string(),
+    labelKey: z.string(),
+    cellKeys: z.array(z.string()),
+  })),
+  limits: z.object({
+    defaultWindowDays: z.number().int(),
+    maxWindowDays: z.number().int(),
+    maxRecords: z.number().int(),
+    maxDurationMs: z.number().int(),
+  }),
+})
+
+export const simulationDecisionResponseSchema = z.object({
+  ok: z.literal(true),
+  decision: simulationDecisionViewSchema,
+})
+
+export const simulationCancelResponseSchema = z.object({
+  ok: z.literal(true),
+  runId: z.string().uuid(),
+  status: z.enum(SIMULATION_RUN_STATUS_VALUES),
+})

@@ -4,6 +4,7 @@ import { runWithCacheTenant, type CacheStrategy } from '@open-mercato/cache'
 import type { EventBus } from '@open-mercato/events'
 import { BusinessRule, RuleExecutionLog, type RuleType } from '../data/entities'
 import * as ruleEvaluator from './rule-evaluator'
+import { isRuleEffective } from './rule-effective-window'
 import * as actionExecutor from './action-executor'
 import type { RuleEvaluationContext } from './rule-evaluator'
 import type { ActionContext, ActionExecutionOutcome } from './action-executor'
@@ -33,7 +34,7 @@ const EXECUTION_RESULT_FAILURE = 'FAILURE'
 /**
  * Execution limits
  */
-const MAX_RULES_PER_EXECUTION = 100
+export const MAX_RULES_PER_EXECUTION = 100
 const MAX_SINGLE_RULE_TIMEOUT_MS = 30000  // 30 seconds
 const MAX_TOTAL_EXECUTION_TIMEOUT_MS = 60000  // 60 seconds
 const RULE_DISCOVERY_CACHE_TTL = 5 * 60 * 1000
@@ -640,11 +641,16 @@ function runInRuleCausationFrame<T>(rule: BusinessRule, runId: string, run: () =
 
 /**
  * Find all applicable rules for the given criteria
+ *
+ * `at` replays the effective-window filter at a historical instant (simulations); it
+ * defaults to the current time. The discovery cache stores ids before that filter, so `at`
+ * never affects what is cached.
  */
 export async function findApplicableRules(
   em: EntityManager,
   options: RuleDiscoveryOptions,
   cacheOptions: RuleDiscoveryCacheOptions = {},
+  at?: Date,
 ): Promise<BusinessRule[]> {
   // Validate input
   ruleDiscoveryOptionsSchema.parse(options)
@@ -693,16 +699,8 @@ export async function findApplicableRules(
   }
 
   // Filter by effective date range
-  const now = new Date()
-  return rules.filter((rule) => {
-    if (rule.effectiveFrom && rule.effectiveFrom > now) {
-      return false
-    }
-    if (rule.effectiveTo && rule.effectiveTo < now) {
-      return false
-    }
-    return true
-  })
+  const effectiveAt = at ?? new Date()
+  return rules.filter((rule) => isRuleEffective(rule, effectiveAt))
 }
 
 /**

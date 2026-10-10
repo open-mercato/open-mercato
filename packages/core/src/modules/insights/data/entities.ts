@@ -510,3 +510,180 @@ export class InsightsAutomationSuggestion {
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt: Date | null = null
 }
+
+export const SIMULATION_RUN_STATUSES = ['queued', 'running', 'completed', 'failed', 'cancelled'] as const
+
+export type SimulationRunStatus = (typeof SIMULATION_RUN_STATUSES)[number]
+
+export const SIMULATION_DECISIONS = ['applied', 'discarded'] as const
+
+export type SimulationDecisionValue = (typeof SIMULATION_DECISIONS)[number]
+
+export const SIMULATION_ERROR_CODES = [
+  'forbidden',
+  'kind_unavailable',
+  'statement_timeout',
+  'decryption_unavailable',
+  'abandoned',
+  'internal',
+] as const
+
+export type SimulationErrorCode = (typeof SIMULATION_ERROR_CODES)[number]
+
+/**
+ * One change-simulation run, private to its requester and bound to exactly one verified
+ * organization. `input_json` (the proposal) and `result_json` (the continuation state while
+ * queued/running, then the k-suppressed result: aggregates and confirmed sample ids only) are
+ * encrypted. The row is immutable once terminal; `updated_at` only moves while queued/running
+ * and is the compare-and-set version of every slice write. The partial unique index dedupes
+ * active and completed runs by `inputs_hash`; failed and cancelled runs never block a retry.
+ */
+@Entity({ tableName: 'insights_simulation_runs' })
+@Index({
+  name: 'insights_simulation_runs_requester_idx',
+  expression: 'create index "insights_simulation_runs_requester_idx" on "insights_simulation_runs" ("tenant_id", "organization_id", "requested_by_user_id", "created_at" desc)',
+})
+@Index({ name: 'insights_simulation_runs_expires_idx', properties: ['expiresAt'] })
+@Index({
+  name: 'insights_simulation_runs_active_idx',
+  expression: 'create index "insights_simulation_runs_active_idx" on "insights_simulation_runs" ("tenant_id", "requested_by_user_id") where "status" in (\'queued\', \'running\')',
+})
+@Index({
+  name: 'insights_simulation_runs_dedupe_unique',
+  expression: 'create unique index "insights_simulation_runs_dedupe_unique" on "insights_simulation_runs" ("tenant_id", "organization_id", "kind", "inputs_hash") where "status" in (\'queued\', \'running\', \'completed\')',
+})
+export class InsightsSimulationRun {
+  [OptionalProps]?: 'status' | 'caveats' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'kind', type: 'text' })
+  kind!: string
+
+  @Property({ name: 'status', type: 'text', default: 'queued' })
+  status: SimulationRunStatus = 'queued'
+
+  @Property({ name: 'progress_job_id', type: 'uuid', nullable: true })
+  progressJobId: string | null = null
+
+  @Property({ name: 'requested_by_user_id', type: 'uuid' })
+  requestedByUserId!: string
+
+  @Property({ name: 'input_json', type: 'jsonb' })
+  inputJson!: unknown
+
+  @Property({ name: 'inputs_hash', type: 'text' })
+  inputsHash!: string
+
+  @Property({ name: 'artifact_kind', type: 'text' })
+  artifactKind!: string
+
+  @Property({ name: 'artifact_id', type: 'text', nullable: true })
+  artifactId: string | null = null
+
+  @Property({ name: 'artifact_version_json', type: 'jsonb', nullable: true })
+  artifactVersionJson: { updatedAt: string | null; fingerprint: string | null } | null = null
+
+  @Property({ name: 'proposal_fingerprint', type: 'text' })
+  proposalFingerprint!: string
+
+  @Property({ name: 'window_from', type: Date })
+  windowFrom!: Date
+
+  @Property({ name: 'window_to', type: Date })
+  windowTo!: Date
+
+  @Property({ name: 'budgets_json', type: 'jsonb' })
+  budgetsJson!: Record<string, unknown>
+
+  @Property({ name: 'fidelity', type: 'text', nullable: true })
+  fidelity: string | null = null
+
+  @Property({ name: 'coverage_json', type: 'jsonb', nullable: true })
+  coverageJson: Record<string, number> | null = null
+
+  @Property({ name: 'result_json', type: 'jsonb', nullable: true })
+  resultJson: unknown = null
+
+  @Property({ name: 'caveats', type: 'jsonb', default: '[]' })
+  caveats: string[] = []
+
+  @Property({ name: 'engine_version', type: 'integer' })
+  engineVersion!: number
+
+  @Property({ name: 'contribution_version', type: 'integer' })
+  contributionVersion!: number
+
+  @Property({ name: 'error_code', type: 'text', nullable: true })
+  errorCode: SimulationErrorCode | null = null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'started_at', type: Date, nullable: true })
+  startedAt: Date | null = null
+
+  @Property({ name: 'completed_at', type: Date, nullable: true })
+  completedAt: Date | null = null
+
+  @Property({ name: 'expires_at', type: Date })
+  expiresAt!: Date
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+/**
+ * An append-only decision on a completed simulation run (`applied` or `discarded`). Tenant and
+ * organization are copied from the run; `artifact_updated_at_after` and `verified` are set by the
+ * server from the live artifact (S15). There is no FK to the run, so decisions outlive the run
+ * purge (retained 13 months); `decided_by_user_id` is rewritten to an `erased:<uuid>` token when
+ * the user is deleted.
+ */
+@Entity({ tableName: 'insights_simulation_decisions' })
+@Unique({ name: 'insights_simulation_decisions_run_decision_unique', properties: ['runId', 'decision'] })
+@Index({ name: 'insights_simulation_decisions_decider_idx', properties: ['tenantId', 'decidedByUserId'] })
+@Index({ name: 'insights_simulation_decisions_created_idx', properties: ['createdAt'] })
+export class InsightsSimulationDecision {
+  [OptionalProps]?: 'createdAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'run_id', type: 'uuid' })
+  runId!: string
+
+  @Property({ name: 'decision', type: 'text' })
+  decision!: SimulationDecisionValue
+
+  @Property({ name: 'decided_by_user_id', type: 'text' })
+  decidedByUserId!: string
+
+  @Property({ name: 'artifact_kind', type: 'text' })
+  artifactKind!: string
+
+  @Property({ name: 'artifact_id', type: 'text', nullable: true })
+  artifactId: string | null = null
+
+  @Property({ name: 'artifact_updated_at_after', type: Date, nullable: true })
+  artifactUpdatedAtAfter: Date | null = null
+
+  @Property({ name: 'verified', type: 'boolean', nullable: true })
+  verified: boolean | null = null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+}

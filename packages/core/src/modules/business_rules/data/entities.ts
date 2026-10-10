@@ -105,6 +105,11 @@ export class BusinessRule {
   expression:
     'create index "rule_execution_logs_run_idx" on "rule_execution_logs" ("tenant_id", "run_id") where "run_id" is not null',
 })
+@Index({
+  name: 'rule_execution_logs_simulation_idx',
+  expression:
+    'create index "rule_execution_logs_simulation_idx" on "rule_execution_logs" ("tenant_id", "organization_id", "entity_type", "executed_at") where "run_id" is not null',
+})
 export class RuleExecutionLog {
   [OptionalProps]?: 'executedAt'
 

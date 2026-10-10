@@ -196,6 +196,37 @@ export const updateBusinessRuleSchema = z
 
 export type UpdateBusinessRuleInput = z.input<typeof updateBusinessRuleSchema>
 
+const DEFINITION_EMPTY_STRING_FIELDS = ['description', 'ruleCategory', 'eventType', 'effectiveFrom', 'effectiveTo'] as const
+
+function normalizeDefinitionEmptyStrings(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value
+  const normalized: Record<string, unknown> = { ...(value as Record<string, unknown>) }
+  for (const field of DEFINITION_EMPTY_STRING_FIELDS) {
+    if (normalized[field] === '') normalized[field] = null
+  }
+  return normalized
+}
+
+/**
+ * A complete business rule definition without its scope or audit fields (`id`, `tenantId`,
+ * `organizationId`, `createdBy`): what a proposed rule looks like before it is saved, e.g. the
+ * input of a rule backtest. Empty strings in the optional text and date fields become `null`.
+ */
+export const businessRuleDefinitionSchema = z.preprocess(
+  normalizeDefinitionEmptyStrings,
+  z
+    .object({
+      ...businessRuleBaseFields,
+      conditionExpression: conditionExpressionSchema.optional().nullable(),
+      successActions: actionsArraySchema,
+      failureActions: actionsArraySchema,
+    })
+    .omit({ tenantId: true, organizationId: true, createdBy: true })
+    .superRefine((data, ctx) => refineEffectiveDateRange(data, ctx)),
+)
+
+export type BusinessRuleDefinitionInput = z.infer<typeof businessRuleDefinitionSchema>
+
 // Factory functions for i18n-aware schemas (used in API routes with resolveTranslations)
 export function createLocalizedBusinessRuleSchema(t: TranslatorFn) {
   const conditionSchema = createConditionExpressionSchema(t)
