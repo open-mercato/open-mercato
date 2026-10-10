@@ -8,6 +8,7 @@ import { createServiceResolver, type XrayContainer } from '../projection/runtime
 import type { ProjectionScope, XrayDatabase } from '../projection/types'
 import { buildBottlenecks } from './bottlenecks'
 import { buildBreakdown } from './breakdown'
+import { areVariantHashesVisible, caseDrillDownOf, hasCaseDrillDown, isActivityNodeVisible, type CaseDrillDown } from './caseDrillDown'
 import {
   analyticsCacheTags,
   buildAnalyticsCacheKey,
@@ -47,7 +48,7 @@ import { buildRework } from './rework'
 import { markRollupsInvalidated, readFreshRollup, upsertRollup } from './rollups'
 import { createEntityManagerSettingsLoader, type XraySettingsLoader } from './settings'
 import { buildVariants, limitVariants } from './variants'
-import { isLowConfidence } from './stats'
+import { isLowConfidence, suppressionReason } from './stats'
 import { resolveDefaultWindow, resolveWindow, toWindowView, type ResolvedWindow } from './window'
 import {
   XRAY_ANALYTICS_LIMITS,
@@ -194,8 +195,11 @@ function canonicalScope(scope: ProjectionScope): ProjectionScope {
  * permission fingerprint, settings and parameters (single-flight, tag invalidation); default
  * windows of a single, completely projected organization are served from fresh rollups when
  * available. Per-person breakdowns pass the individuals gate and write an access log row before
- * any data is read or served (cache hits included). Feature checks of the process root
- * (`requiredFeatures`) are the caller's job (RBAC).
+ * any data is read or served (cache hits included). Case drill-downs (`listCases` with
+ * `activityKey` / `variantHash(es)`) list only cells the map / variants of the same request
+ * show, and only when the listed population itself passes the k / three-actor rule; any other
+ * drill-down answers an empty page with `suppressed: true` and `n: 0`. Feature
+ * checks of the process root (`requiredFeatures`) are the caller's job (RBAC).
  */
 export function createXrayAnalytics(deps: XrayAnalyticsDeps): XrayAnalytics {
   const registryOf = deps.registry ?? getProcessRegistry
@@ -365,8 +369,7 @@ export function createXrayAnalytics(deps: XrayAnalyticsDeps): XrayAnalytics {
     })
   }
 
-  async function getProcessMap(input: AnalyticsRequestInput): Promise<ProcessMapResult> {
-    const prepared = await prepare(analyticsRequestSchema, input)
+  function processMapOf(prepared: PreparedRequest<AnalyticsRequest>): Promise<ProcessMapResult> {
     return cached(prepared, 'map', {}, processMapResultSchema, false, () => rolledUp(
       prepared,
       (metrics) => metrics.results.map,
@@ -374,14 +377,38 @@ export function createXrayAnalytics(deps: XrayAnalyticsDeps): XrayAnalytics {
     ))
   }
 
-  async function getVariants(input: VariantsRequestInput): Promise<VariantsResult> {
-    const prepared = await prepare(variantsRequestSchema, input)
-    const limit = prepared.request.limit
+  function variantsOf(prepared: PreparedRequest<AnalyticsRequest>, limit: number): Promise<VariantsResult> {
     return cached(prepared, 'variants', { limit }, variantsResultSchema, false, () => rolledUp(
       prepared,
       (metrics) => limitVariants(metrics.results.variants, limit),
       () => computeLive(prepared, { census: false }, (dataset) => buildVariants(dataset.prepared, dataset.context, limit)),
     ))
+  }
+
+  async function getProcessMap(input: AnalyticsRequestInput): Promise<ProcessMapResult> {
+    return processMapOf(await prepare(analyticsRequestSchema, input))
+  }
+
+  async function getVariants(input: VariantsRequestInput): Promise<VariantsResult> {
+    const prepared = await prepare(variantsRequestSchema, input)
+    return variantsOf(prepared, prepared.request.limit)
+  }
+
+  /**
+   * Whether the cells a case listing drills into are shown by the map and the variants of the
+   * same prepared request (scope, window, time zone, filters, viewer, settings): computed exactly
+   * like `getProcessMap` / `getVariants` (same cache entries and rollups), the variants at the
+   * maximum limit. A too-narrow actor filter is refused by their live computation, or by the
+   * listing's own check when the cell comes from the cache.
+   */
+  async function isDrillDownVisible(prepared: PreparedRequest<AnalyticsRequest>, drillDown: CaseDrillDown): Promise<boolean> {
+    if (drillDown.activityKey !== null) {
+      const map = await processMapOf(prepared)
+      if (!isActivityNodeVisible(map, drillDown.activityKey)) return false
+    }
+    if (drillDown.variantHashes.length === 0) return true
+    const variants = await variantsOf(prepared, XRAY_ANALYTICS_LIMITS.maxVariants)
+    return areVariantHashesVisible(variants, drillDown.variantHashes)
   }
 
   async function getDurations(input: AnalyticsRequestInput): Promise<DurationsResult> {
@@ -459,10 +486,13 @@ export function createXrayAnalytics(deps: XrayAnalyticsDeps): XrayAnalytics {
     const request = prepared.request
     const after = request.cursor ? decodeCaseCursor(request.cursor) : null
     if (request.cursor && !after) throw new AnalyticsInvalidRequestError(['cursor'])
+    const drillDown = caseDrillDownOf(request)
+    const suppressed = hasCaseDrillDown(drillDown) && !(await isDrillDownVisible(prepared, drillDown))
     const base = {
       processKey: prepared.process.processKey,
       organizationIds: prepared.organizationIds,
       window: toWindowView(prepared.window),
+      suppressed,
     }
     if (prepared.empty) return { ...base, n: 0, computedThrough: null, incomplete: false, items: [], nextCursor: null }
     const scope = { tenantId: request.scope.tenantId, organizationIds: prepared.organizationIds }
@@ -476,6 +506,7 @@ export function createXrayAnalytics(deps: XrayAnalyticsDeps): XrayAnalytics {
         k: prepared.settings.kAnonymity,
       })
       const state = await readProjectionState(trx, scope)
+      if (suppressed) return { ...base, n: 0, computedThrough: state.computedThrough, incomplete: state.incomplete, items: [], nextCursor: null }
       const page = await listCaseIds(trx, {
         scope,
         processKey: prepared.process.processKey,
@@ -483,10 +514,8 @@ export function createXrayAnalytics(deps: XrayAnalyticsDeps): XrayAnalytics {
         from: prepared.window.from,
         to: prepared.window.to,
         statuses: request.statuses,
-        variantHashes: request.variantHash || request.variantHashes
-          ? sortedUnique([...(request.variantHash ? [request.variantHash] : []), ...(request.variantHashes ?? [])])
-          : undefined,
-        activityKey: request.activityKey,
+        variantHashes: drillDown.variantHashes.length > 0 ? drillDown.variantHashes : undefined,
+        activityKey: drillDown.activityKey ?? undefined,
         eventFilters: {
           causeKinds: request.filters.causeKinds,
           actorRoleIds: request.filters.actorRoleIds,
@@ -494,7 +523,11 @@ export function createXrayAnalytics(deps: XrayAnalyticsDeps): XrayAnalytics {
         },
         after,
         pageSize: Math.min(request.pageSize, XRAY_ANALYTICS_LIMITS.maxPageSize),
+        measureActors: hasCaseDrillDown(drillDown),
       })
+      if (hasCaseDrillDown(drillDown) && suppressionReason({ cases: page.total, actors: page.actors ?? 0 }, prepared.settings.kAnonymity) !== null) {
+        return { ...base, suppressed: true, n: 0, computedThrough: state.computedThrough, incomplete: state.incomplete, items: [], nextCursor: null }
+      }
       const last = page.items[page.items.length - 1]
       return {
         ...base,

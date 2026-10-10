@@ -7,6 +7,7 @@ import {
   runXrayAnalyticsRoute,
   xrayAnalyticsErrorDocs,
   xrayAnalyticsJson,
+  xrayActivityLabelsOf,
   xrayErrorResponse,
   type XrayRouteParams,
 } from '../../../../lib/xrayAnalyticsRoutes'
@@ -20,7 +21,9 @@ export async function GET(req: Request, context: XrayRouteParams) {
     const query = parseXrayQuery(req, xrayAnalyticsQuerySchema)
     const filters = query ? filtersOfQuery(query) : null
     if (!query || !filters) return xrayErrorResponse(route.translate, 'invalid_request', 400)
-    return xrayAnalyticsJson(await route.analytics.getRework(analyticsInputOf(route, query, filters)))
+    const result = await route.analytics.getRework(analyticsInputOf(route, query, filters))
+    const activityLabels = await xrayActivityLabelsOf(route, result.byStage.map((stage) => stage.activityKey))
+    return xrayAnalyticsJson({ ...result, activityLabels })
   })
 }
 

@@ -59,8 +59,10 @@ async function putLayout(request: APIRequestContext, token: string, items: Array
  *   - UI /backend/insights/process-xray (process list: n, open cases, computedThrough)
  *   - UI /backend/insights/process-xray/customers.deal (KPIs; tabs Map, Variants, Bottlenecks,
  *     Rework, Conformance, Breakdown, Suggestions — each renders without an error banner)
- *   - UI /backend/insights/process-xray/customers.deal/cases (ids of the seeded deals)
- *   - UI /backend/insights/process-xray/settings (CrudForm values + projection status)
+ *   - UI /backend/insights/process-xray/customers.deal/cases (ids of the seeded deals; a step drill-down
+ *     by its server label; a drill-down into a cell the map does not show answers "Hidden for privacy")
+ *   - UI /backend/insights/process-xray/settings (CrudForm values + projection status; no workflow
+ *     lookup and no access-denied banner without workflows.definitions.view)
  *   - UI /backend/insights/process-xray/suggestions
  *   - UI /backend dashboard with the "Process health" widget (PUT /api/dashboards/layout)
  *   - GET /api/insights/xray/processes, /{processKey}/{map,variants,durations,bottlenecks,rework,conformance,breakdown,cases},
@@ -111,7 +113,12 @@ test.describe('TC-INS-X10: Process X-Ray pages and dashboard widget', () => {
         await expect(page.getByTestId('xray-kpis')).toContainText('Cases')
         await expect(page.getByTestId('xray-process-map')).toBeVisible({ timeout: UI_TIMEOUT_MS })
         await expect(page.getByTestId('xray-result-n').first()).toContainText(`${ACTORS * DEALS_PER_ACTOR} cases`)
-        await expect(page.locator('[data-testid="xray-map-node-activity"][data-activity-key="status:win"]')).toBeVisible()
+        const winNode = page.locator('[data-testid="xray-map-node-activity"][data-activity-key="status:win"]')
+        await expect(winNode).toBeVisible()
+        await expect(winNode, 'steps show their declared field label, resolved on the server').toContainText(/Status: (Win|win)/)
+        const mapHeight = Number(await page.getByTestId('xray-process-map').getAttribute('data-map-height'))
+        expect(mapHeight).toBeGreaterThanOrEqual(320)
+        expect(mapHeight).toBeLessThanOrEqual(640)
         await page.getByRole('radio', { name: 'Raw' }).click()
         await expect(page.getByRole('radio', { name: 'Raw' })).toHaveAttribute('aria-checked', 'true')
         await expectNoErrorBanner(page, 'map')
@@ -122,7 +129,7 @@ test.describe('TC-INS-X10: Process X-Ray pages and dashboard widget', () => {
         {
           name: 'Variants',
           ready: async (scope) => {
-            await expect(scope.getByRole('row').filter({ hasText: 'status: qa_review' }).first()).toBeVisible({ timeout: UI_TIMEOUT_MS })
+            await expect(scope.getByRole('row').filter({ hasText: /Status: qa_review/ }).first()).toBeVisible({ timeout: UI_TIMEOUT_MS })
           },
         },
         {
@@ -179,12 +186,26 @@ test.describe('TC-INS-X10: Process X-Ray pages and dashboard widget', () => {
         await screenshot(page, testInfo, 'x10-cases-light')
       })
 
+      await test.step('cases page — drill-downs follow the privacy rule of the map', async () => {
+        await page.goto(`${PROCESS_PATH}/cases?w=30d&activity=${encodeURIComponent('status:win')}`, { waitUntil: 'domcontentloaded' })
+        await expect(page.getByText(seededDealIds[0], { exact: true })).toBeVisible({ timeout: UI_TIMEOUT_MS })
+        await expect(page.getByTestId('xray-cases-drilldown')).toContainText(/Step: Status: (Win|win)/)
+        await page.goto(`${PROCESS_PATH}/cases?w=30d&activity=${encodeURIComponent('status:lost')}`, { waitUntil: 'domcontentloaded' })
+        await expect(page.getByTestId('xray-cases-suppressed')).toBeVisible({ timeout: UI_TIMEOUT_MS })
+        await expect(page.getByTestId('xray-result-n')).toHaveCount(0)
+        for (const dealId of seededDealIds) await expect(page.getByText(dealId, { exact: true })).toHaveCount(0)
+        await expectNoErrorBanner(page, 'hidden drill-down')
+        await screenshot(page, testInfo, 'x10-cases-hidden-light')
+      })
+
       await test.step('settings page', async () => {
         await page.goto(`${LIST_PATH}/settings`, { waitUntil: 'domcontentloaded' })
         await expect(page.getByTestId('xray-settings-page')).toBeVisible({ timeout: UI_TIMEOUT_MS })
         await expect(page.locator('[data-crud-field-id="kAnonymity"] input')).toHaveValue('5', { timeout: UI_TIMEOUT_MS })
         await expect(page.getByTestId('xray-status-panel')).toContainText('Projection status')
         await expect(page.getByTestId('xray-backfill')).toBeEnabled({ timeout: UI_TIMEOUT_MS })
+        await expect(page.getByTestId('xray-settings-workflow-unavailable'), 'no workflow lookup without workflows.definitions.view').toBeVisible({ timeout: UI_TIMEOUT_MS })
+        await expect(page.getByText(/Access denied/)).toHaveCount(0)
         await expectNoErrorBanner(page, 'settings')
         await screenshot(page, testInfo, 'x10-settings-light')
       })

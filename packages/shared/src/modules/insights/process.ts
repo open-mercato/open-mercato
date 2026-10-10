@@ -55,6 +55,19 @@ export type ProcessFieldDescriptor = {
   valueKind: ProcessFieldValueKind
   snapshotPaths: string[]
   changeKeys?: string[]
+  /**
+   * Display only (never part of the contract hash): the kind of an `insights.explain.ts`
+   * reference resolver (`referenceResolvers`) that turns the stored values of this field
+   * (dictionary values or record UUIDs) into labels for Process X-Ray. Resolved per request in
+   * one batch per kind, gated by the resolver's `requiredFeatures` and scoped to the caller's
+   * tenant and organizations; a value it does not resolve keeps a neutral fallback label.
+   */
+  referenceKind?: string
+  /**
+   * Display only (never part of the contract hash): i18n keys of known stored values (e.g. the
+   * members of an `enum` field), keyed by the stored value. Used before `referenceKind`.
+   */
+  valueLabelKeys?: Record<string, string>
 }
 
 /**

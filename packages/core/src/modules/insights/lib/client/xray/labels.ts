@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { buildQueryString } from './api'
-import { xrayRequest } from './hooks'
+import { xrayOptionalLookupInit, xrayRequest } from './hooks'
 
 export type XrayLabelOption = { value: string; label: string }
 
@@ -31,11 +31,12 @@ function toOptions(body: unknown): XrayLabelOption[] {
 /**
  * Names of roles, teams and organizations for the breakdown and the actor filters, read from the
  * owning modules' list APIs as the viewer. Best effort: a module that is disabled or a list the
- * viewer may not read yields no options, and the UI falls back to shortened ids.
+ * viewer may not read yields no options (a 403 raises no access-denied banner), and the UI falls
+ * back to shortened ids.
  */
 async function loadOptions(url: string, signal?: AbortSignal): Promise<XrayLabelOption[]> {
   try {
-    const result = await xrayRequest<unknown>(url, signal ? { signal } : undefined)
+    const result = await xrayRequest<unknown>(url, xrayOptionalLookupInit(signal))
     return result.ok ? toOptions(result.body) : []
   } catch {
     return []

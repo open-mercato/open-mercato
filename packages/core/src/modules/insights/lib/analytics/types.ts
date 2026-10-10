@@ -182,7 +182,12 @@ export type ConformanceRequestInput = z.input<typeof conformanceRequestSchema>
  * A case-id listing of the analytics population of the window. `variantHash` / `variantHashes`
  * drill into variants by the STORED `variant_hash` of the cases (the `rawVariantHashes` a
  * variants item reports, not its collapsed `variantHash`) and restrict the listing to cases
- * completed in the window, like the variants.
+ * completed in the window, like the variants. A drill-down lists only a cell the analytics show
+ * for the same scope, window, time zone, filters and viewer: the `activityKey` node of the map,
+ * and every requested hash in the `rawVariantHashes` of a reported variant (variants at the
+ * maximum limit). The listed population itself (narrower when statuses, an activity with a
+ * variant, or one stored hash of a collapsed variant are requested) must pass the same k /
+ * three-actor rule; otherwise the page is empty with `suppressed: true`.
  */
 export const listCasesRequestSchema = analyticsRequestSchema.extend({
   pageSize: z.number().int().min(1).max(XRAY_ANALYTICS_LIMITS.maxPageSize).default(XRAY_ANALYTICS_LIMITS.defaultPageSize),
@@ -479,6 +484,7 @@ export const caseListResultSchema = z.object({
   n: count(),
   computedThrough: z.string().nullable(),
   incomplete: z.boolean(),
+  suppressed: z.boolean().describe('True when the drill-down (`activityKey`, `variantHash` / `variantHashes`) targets a cell the map or the variants do not show for the same scope, window, time zone, filters and viewer (fewer than k cases or three actors, complementary suppression, or beyond the display caps): the page is then empty (`items: []`, `nextCursor: null`, `n: 0`). Always false without a drill-down.'),
   items: z.array(z.object({ caseId: z.string(), organizationId: z.string() })),
   nextCursor: z.string().nullable(),
 })

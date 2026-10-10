@@ -3,12 +3,13 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { ArrowLeft, ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { ArrowLeft, ChevronLeft, ChevronRight, EyeOff, X } from 'lucide-react'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { LoadingMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { PageHeader } from '@open-mercato/ui/backend/Page'
+import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
@@ -37,6 +38,7 @@ type CaseStatusFilter = (typeof CASE_STATUSES)[number]
 const VARIANT_HASH_PATTERN = /^[0-9a-f]{64}$/
 const ACTIVITY_KEY_MAX = 200
 const VARIANT_HASHES_MAX = 20
+const ALL_RECORDED_PATHS = 'all'
 
 type CasesUrlState = {
   window: XrayWindowState
@@ -61,7 +63,7 @@ function readCasesUrlState(params: { get: (name: string) => string | null } | nu
     status: (CASE_STATUSES as readonly string[]).includes(status) ? status as CaseStatusFilter : 'all',
     activityKey: activity.length > 0 && activity.length <= ACTIVITY_KEY_MAX ? activity : null,
     variantHashes,
-    variantHash: variantHashes.includes(selected) ? selected : variantHashes[0] ?? null,
+    variantHash: variantHashes.includes(selected) ? selected : null,
     moreVariants: variantHashes.length > 0 && params?.get('more') === '1',
   }
 }
@@ -111,6 +113,7 @@ export function XrayCasesPageClient({ processKey }: { processKey: string }) {
     status: state.status === 'all' ? undefined : state.status,
     activityKey: state.activityKey,
     variantHash: state.variantHash,
+    variantHashes: state.variantHash || state.variantHashes.length === 0 ? null : state.variantHashes.join(','),
   }) : null)
   const organizationIds = React.useMemo(() => (cases.data?.items ?? []).map((item) => item.organizationId), [cases.data])
   const organizationLabels = useXrayLabels('org', organizationIds)
@@ -173,16 +176,17 @@ export function XrayCasesPageClient({ processKey }: { processKey: string }) {
         <div className="flex flex-wrap items-center gap-2" data-testid="xray-cases-drilldown">
           {state.activityKey ? (
             <Button type="button" size="sm" variant="outline" onClick={() => update({ activityKey: null })} aria-label={t('insights.xray.ui.cases.clearActivity')}>
-              {t('insights.xray.ui.cases.activityFilter', { activity: formatActivityKey(state.activityKey, t) })}
+              {t('insights.xray.ui.cases.activityFilter', { activity: formatActivityKey(state.activityKey, t, cases.data?.activityLabels) })}
               <X className="size-3" aria-hidden="true" />
             </Button>
           ) : null}
           {state.variantHashes.length > 1 ? (
-            <Select value={state.variantHash ?? undefined} onValueChange={(next) => update({ variantHash: next })}>
+            <Select value={state.variantHash ?? ALL_RECORDED_PATHS} onValueChange={(next) => update({ variantHash: next === ALL_RECORDED_PATHS ? null : next })}>
               <SelectTrigger size="sm" className="w-auto" aria-label={t('insights.xray.ui.cases.recordedPath')}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value={ALL_RECORDED_PATHS}>{t('insights.xray.ui.cases.recordedPathAll', { total: state.variantHashes.length })}</SelectItem>
                 {state.variantHashes.map((hash, index) => (
                   <SelectItem key={hash} value={hash}>{t('insights.xray.ui.cases.recordedPathOption', { index: index + 1, total: state.variantHashes.length })}</SelectItem>
                 ))}
@@ -199,14 +203,23 @@ export function XrayCasesPageClient({ processKey }: { processKey: string }) {
       ) : null}
       {state.variantHashes.length > 1 ? <p className="text-xs text-muted-foreground">{t('insights.xray.ui.cases.recordedPathHelp')}</p> : null}
       {state.moreVariants ? <p className="text-xs text-muted-foreground" data-testid="xray-cases-more-paths">{t('insights.xray.ui.cases.morePaths', { count: state.variantHashes.length })}</p> : null}
-      {cases.data ? <XrayResultMeta meta={cases.data} /> : null}
+      {cases.data?.suppressed ? (
+        <Alert status="information" size="default" icon={<EyeOff aria-hidden="true" />} data-testid="xray-cases-suppressed">
+          <AlertTitle>{t('insights.xray.ui.cases.suppressedTitle')}</AlertTitle>
+          <AlertDescription>{t('insights.xray.ui.cases.suppressedDescription')}</AlertDescription>
+        </Alert>
+      ) : cases.data ? (
+        <XrayResultMeta meta={{ n: cases.data.n, computedThrough: cases.data.computedThrough, incomplete: cases.data.incomplete, window: cases.data.window }} />
+      ) : null}
       <DataTable<XrayCaseItem>
         embedded
         columns={columns}
         data={cases.data?.items ?? []}
         isLoading={cases.loading}
         error={cases.error ? describeXrayError(cases.error, t) : null}
-        emptyState={<EmptyState variant="subtle" title={t('insights.xray.ui.cases.emptyTitle')} description={t('insights.xray.ui.cases.emptyDescription')} />}
+        emptyState={cases.data?.suppressed
+          ? <EmptyState variant="subtle" title={t('insights.xray.ui.cases.suppressedTitle')} description={t('insights.xray.ui.cases.suppressedEmpty')} />
+          : <EmptyState variant="subtle" title={t('insights.xray.ui.cases.emptyTitle')} description={t('insights.xray.ui.cases.emptyDescription')} />}
       />
       <nav className="flex items-center justify-end gap-2" aria-label={t('insights.xray.ui.cases.pagination')}>
         <Button

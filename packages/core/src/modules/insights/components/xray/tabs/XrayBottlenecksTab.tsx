@@ -25,15 +25,18 @@ export function XrayBottlenecksTab({ processKey, window, filters, onClearActorFi
     <span className="text-xs text-muted-foreground">{t('insights.xray.ui.stats.tooFew', { n: formatCount(n, locale), minimum })}</span>
   ), [locale, t])
 
+  const activityLabels = resource.data?.activityLabels
   const columns = React.useMemo<ColumnDef<XrayBottleneckItem>[]>(() => [
     {
       id: 'transition',
       header: t('insights.xray.ui.bottlenecks.columns.transition'),
-      cell: ({ row }) => (
-        <span title={`${row.original.from} → ${row.original.to}`}>
-          {t('insights.xray.ui.map.transition', { from: formatActivityKey(row.original.from, t), to: formatActivityKey(row.original.to, t) })}
-        </span>
-      ),
+      cell: ({ row }) => {
+        const transition = t('insights.xray.ui.map.transition', {
+          from: formatActivityKey(row.original.from, t, activityLabels),
+          to: formatActivityKey(row.original.to, t, activityLabels),
+        })
+        return <span title={transition}>{transition}</span>
+      },
       meta: { truncate: true, maxWidth: '420px' },
     },
     {
@@ -68,7 +71,7 @@ export function XrayBottlenecksTab({ processKey, window, filters, onClearActorFi
         ? <span className="text-xs text-muted-foreground">{t('insights.xray.ui.stats.lowConfidenceShort')}</span>
         : <span className="text-xs text-muted-foreground">{t('insights.xray.ui.stats.sufficient')}</span>),
     },
-  ], [locale, t, tooFew])
+  ], [activityLabels, locale, t, tooFew])
 
   return (
     <XrayTabResource resource={resource} onClearActorFilters={onClearActorFilters}>
@@ -77,7 +80,10 @@ export function XrayBottlenecksTab({ processKey, window, filters, onClearActorFi
           .filter((item) => item.wait.medianMs !== null)
           .slice(0, CHART_ITEMS)
           .map((item) => ({
-            transition: `${formatActivityKey(item.from, t)} → ${formatActivityKey(item.to, t)}`,
+            transition: t('insights.xray.ui.map.transition', {
+              from: formatActivityKey(item.from, t, data.activityLabels),
+              to: formatActivityKey(item.to, t, data.activityLabels),
+            }),
             medianHours: Math.round(((item.wait.medianMs ?? 0) / HOUR_MS) * 10) / 10,
           }))
         return (

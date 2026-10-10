@@ -214,6 +214,18 @@ describe('GET /api/insights/xray/suggestions', () => {
     expect(JSON.stringify(response.body)).not.toMatch(/pseudonym|actorId|tk1:/)
   })
 
+  it('labels each rule (trigger, condition, follow-ups) server-side, keeping the raw keys', async () => {
+    listSuggestionsMock.mockResolvedValueOnce({
+      items: [suggestion({ condition: { field: 'status', value: 'open' }, followups: [{ field: 'status', value: 'qa_review', activityKind: 'stage', commandId: null }] })],
+      total: 1,
+    })
+    const response = await call(listGet, request('GET', '/api/insights/xray/suggestions'))
+    const [item] = response.body.items as Array<{ trigger: { activityKey: string }; activityLabels: Record<string, string> }>
+    expect(item.trigger.activityKey).toBe('created')
+    expect(Object.keys(item.activityLabels).sort()).toEqual(['created', 'status:open', 'status:qa_review'])
+    expect(item.activityLabels.created).toBe('insights.xray.ui.activity.created')
+  })
+
   it('honours wildcard grants (insights.*, customers.*)', async () => {
     grants.byOrganization = { [ORG_A]: ['insights.*', 'customers.*'] }
     await call(listGet, request('GET', '/api/insights/xray/suggestions'))
@@ -297,6 +309,7 @@ describe('PATCH /api/insights/xray/suggestions/{id}', () => {
     const response = await call(suggestionPatch, request('PATCH', path, { status: 'drafted', draftedArtifactId: WORKFLOW_ID }, lock), { id: SUGGESTION_ID })
     expect(response.status).toBe(200)
     expect(response.body).toEqual({ ok: true, result: expect.objectContaining({ status: 'drafted', draftedArtifactId: WORKFLOW_ID, updatedAt: '2026-10-10T10:00:01.000Z' }) })
+    expect(Object.keys((response.body.result as { activityLabels: Record<string, string> }).activityLabels).sort()).toEqual(['created', 'status:qa_review'])
     expect(runRouteMutationGuardsMock).toHaveBeenCalledWith(expect.objectContaining({
       auth: { userId: USER_ID, tenantId: TENANT_ID, organizationId: ORG_A },
       input: { resourceKind: 'insights.xray_suggestion', resourceId: SUGGESTION_ID, operation: 'update', mutationPayload: { status: 'drafted', draftedArtifactId: WORKFLOW_ID } },

@@ -241,6 +241,14 @@ export function readMutationError(error: unknown): { status: number | null; code
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const WORKFLOW_OPTIONS_LIMIT = 50
 
+/**
+ * Request init of a best-effort lookup in another module (names, pickers): a 403 is answered as
+ * "not available" (`x-om-forbidden-redirect: 0`), never as the global access-denied banner.
+ */
+export function xrayOptionalLookupInit(signal?: AbortSignal): RequestInit {
+  return { headers: { 'x-om-forbidden-redirect': '0' }, ...(signal ? { signal } : {}) }
+}
+
 export type XrayOption = { value: string; label: string }
 
 type WorkflowDefinitionItem = { id?: unknown; workflowId?: unknown; workflowName?: unknown; version?: unknown }
@@ -255,13 +263,16 @@ function workflowDefinitionOption(item: WorkflowDefinitionItem): XrayOption | nu
 
 /** Stored workflow definitions of the organization for the conformance picker (code-only definitions have no id to compare with). */
 export async function loadWorkflowDefinitionOptions(query?: string): Promise<XrayOption[]> {
-  const call = await apiCall<{ data?: WorkflowDefinitionItem[] }>(`${WORKFLOW_DEFINITIONS_API_PATH}${buildQueryString({ search: query, limit: WORKFLOW_OPTIONS_LIMIT })}`)
+  const call = await apiCall<{ data?: WorkflowDefinitionItem[] }>(
+    `${WORKFLOW_DEFINITIONS_API_PATH}${buildQueryString({ search: query, limit: WORKFLOW_OPTIONS_LIMIT })}`,
+    xrayOptionalLookupInit(),
+  )
   if (!call.ok || !Array.isArray(call.result?.data)) return []
   return call.result.data.map(workflowDefinitionOption).filter((option): option is XrayOption => option !== null)
 }
 
 export async function resolveWorkflowDefinitionLabel(id: string): Promise<string> {
-  const call = await apiCall<{ data?: WorkflowDefinitionItem }>(`${WORKFLOW_DEFINITIONS_API_PATH}/${encodeURIComponent(id)}`)
+  const call = await apiCall<{ data?: WorkflowDefinitionItem }>(`${WORKFLOW_DEFINITIONS_API_PATH}/${encodeURIComponent(id)}`, xrayOptionalLookupInit())
   const option = call.ok && call.result?.data ? workflowDefinitionOption(call.result.data) : null
   return option?.label ?? id
 }
@@ -271,7 +282,7 @@ export type XrayWorkflowCommandOption = { commandId: string; labelKey: string | 
 /** The workflow-safe UPDATE_ENTITY commands (needs `workflows.definitions.edit`; none without access). */
 export async function loadWorkflowCommandOptions(signal?: AbortSignal): Promise<XrayWorkflowCommandOption[]> {
   try {
-    const call = await apiCall<{ items?: unknown }>(WORKFLOW_COMMANDS_API_PATH, signal ? { signal } : undefined)
+    const call = await apiCall<{ items?: unknown }>(WORKFLOW_COMMANDS_API_PATH, xrayOptionalLookupInit(signal))
     const items = call.ok && Array.isArray(call.result?.items) ? call.result.items : []
     const options: XrayWorkflowCommandOption[] = []
     for (const item of items) {

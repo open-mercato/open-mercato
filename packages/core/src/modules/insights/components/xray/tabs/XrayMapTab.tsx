@@ -11,7 +11,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
 import { xrayAnalyticsUrl, xrayProcessPagePath } from '../../../lib/client/xray/api'
 import { formatActivityKey, formatCount } from '../../../lib/client/xray/format'
-import { XRAY_GRAPH_MODES, buildProcessGraph, type XrayGraphEdge, type XrayGraphMode } from '../../../lib/client/xray/graph'
+import { XRAY_GRAPH_MODES, buildProcessGraph, type XrayGraphEdge, type XrayGraphMode, type XrayGraphModel } from '../../../lib/client/xray/graph'
 import { useXrayResource } from '../../../lib/client/xray/hooks'
 import type { XrayMapResponse } from '../../../lib/client/xray/types'
 import { serializeWindow } from '../../../lib/client/xray/window'
@@ -20,16 +20,39 @@ import { XrayProcessMap, type XrayMapSelection } from '../XrayProcessMap'
 import { XrayResultMeta } from '../XrayResultMeta'
 import { XrayTabResource, type XrayTabProps } from './shared'
 
+type EndpointLabels = {
+  labelOf: (activityKey: string) => string
+  isHidden: (activityKey: string) => boolean
+}
+
+/**
+ * Labels of map endpoints: the server label of a visible step (client fallback without one) and
+ * a placeholder for a step hidden for privacy, which never shows its name.
+ */
+function useEndpointLabels(data: XrayMapResponse | null, graph: XrayGraphModel | null): EndpointLabels {
+  const t = useT()
+  return React.useMemo(() => {
+    const hidden = new Set((graph?.nodes ?? []).filter((node) => node.kind === 'hidden').map((node) => node.activityKey))
+    const labels = data?.activityLabels
+    return {
+      isHidden: (activityKey: string) => hidden.has(activityKey),
+      labelOf: (activityKey: string) => (hidden.has(activityKey) ? t('insights.xray.ui.map.hiddenStep') : formatActivityKey(activityKey, t, labels)),
+    }
+  }, [data?.activityLabels, graph, t])
+}
+
 function SelectionDetails({
   selection,
   data,
   processKey,
   windowParam,
+  labelOf,
 }: {
   selection: XrayMapSelection
   data: XrayMapResponse
   processKey: string
   windowParam: string
+  labelOf: EndpointLabels['labelOf']
 }) {
   const t = useT()
   const locale = useLocale()
@@ -40,7 +63,7 @@ function SelectionDetails({
     const edge = data.edges.find((candidate) => candidate.from === selection.from && candidate.to === selection.to)
     return (
       <div className="rounded-lg border border-border bg-card p-4 text-sm" data-testid="xray-map-selection">
-        <p className="font-medium">{t('insights.xray.ui.map.transition', { from: formatActivityKey(selection.from, t), to: formatActivityKey(selection.to, t) })}</p>
+        <p className="font-medium">{t('insights.xray.ui.map.transition', { from: labelOf(selection.from), to: labelOf(selection.to) })}</p>
         {edge ? (
           <p className="text-muted-foreground">
             {t('insights.xray.ui.map.edgeCounts', {
@@ -58,7 +81,7 @@ function SelectionDetails({
   return (
     <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-border bg-card p-4 text-sm" data-testid="xray-map-selection">
       <div className="space-y-1">
-        <p className="font-medium" title={selection.activityKey}>{formatActivityKey(selection.activityKey, t)}</p>
+        <p className="font-medium" title={node ? selection.activityKey : undefined}>{node ? labelOf(selection.activityKey) : t('insights.xray.ui.map.hiddenStep')}</p>
         {node ? (
           <p className="text-muted-foreground">
             {t('insights.xray.ui.map.nodeDetails', {
@@ -94,6 +117,7 @@ export function XrayMapTab({ processKey, window, filters, onClearActorFilters }:
   const [selection, setSelection] = React.useState<XrayMapSelection>(null)
   const resource = useXrayResource<XrayMapResponse>(xrayAnalyticsUrl(processKey, 'map', window, filters))
   const model = React.useMemo(() => (resource.data ? buildProcessGraph(resource.data, mode) : null), [mode, resource.data])
+  const endpoints = useEndpointLabels(resource.data, model)
 
   React.useEffect(() => setSelection(null), [resource.data])
 
@@ -101,13 +125,13 @@ export function XrayMapTab({ processKey, window, filters, onClearActorFilters }:
     {
       accessorKey: 'from',
       header: t('insights.xray.ui.map.columns.from'),
-      cell: ({ row }) => <span title={row.original.from}>{formatActivityKey(row.original.from, t)}</span>,
+      cell: ({ row }) => <span title={endpoints.isHidden(row.original.from) ? undefined : row.original.from}>{endpoints.labelOf(row.original.from)}</span>,
       meta: { truncate: true, maxWidth: '240px' },
     },
     {
       accessorKey: 'to',
       header: t('insights.xray.ui.map.columns.to'),
-      cell: ({ row }) => <span title={row.original.to}>{formatActivityKey(row.original.to, t)}</span>,
+      cell: ({ row }) => <span title={endpoints.isHidden(row.original.to) ? undefined : row.original.to}>{endpoints.labelOf(row.original.to)}</span>,
       meta: { truncate: true, maxWidth: '240px' },
     },
     {
@@ -125,7 +149,7 @@ export function XrayMapTab({ processKey, window, filters, onClearActorFilters }:
       header: t('insights.xray.ui.map.columns.cause'),
       cell: ({ row }) => <XrayCauseBadge causeClass={row.original.causeClass} />,
     },
-  ], [locale, t])
+  ], [endpoints, locale, t])
 
   return (
     <XrayTabResource resource={resource} onClearActorFilters={onClearActorFilters}>
@@ -169,8 +193,8 @@ export function XrayMapTab({ processKey, window, filters, onClearActorFilters }:
                     {t('insights.xray.ui.map.hiddenNote', { count: formatCount(graph.hiddenNodes, locale) })}
                   </p>
                 ) : null}
-                <XrayProcessMap model={graph} onSelectionChange={setSelection} />
-                <SelectionDetails selection={selection} data={data} processKey={processKey} windowParam={serializeWindow(window)} />
+                <XrayProcessMap model={graph} labels={data.activityLabels} onSelectionChange={setSelection} />
+                <SelectionDetails selection={selection} data={data} processKey={processKey} windowParam={serializeWindow(window)} labelOf={endpoints.labelOf} />
                 {data.omitted.nodes > 0 || data.omitted.edges > 0 ? (
                   <p className="text-xs text-muted-foreground">
                     {t('insights.xray.ui.map.omitted', { nodes: formatCount(data.omitted.nodes, locale), edges: formatCount(data.omitted.edges, locale) })}

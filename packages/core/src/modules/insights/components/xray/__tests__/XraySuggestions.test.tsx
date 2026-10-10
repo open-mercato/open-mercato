@@ -143,6 +143,24 @@ describe('XraySuggestionsSection', () => {
     expect(Object.fromEntries(listRequest.url.searchParams)).toEqual({ status: 'open', page: '1', pageSize: '20' })
   })
 
+  it('describes each rule with the server-resolved activity labels', async () => {
+    respond(() => ({
+      status: 200,
+      body: {
+        items: [suggestion({
+          condition: { field: 'pipelineStageId', value: '66666666-0000-4000-8000-000000000001' },
+          activityLabels: { created: 'Deal created', 'status:qa_review': 'Status: QA review', 'pipelineStageId:66666666-0000-4000-8000-000000000001': 'Pipeline stage: Qualification' },
+        })],
+        total: 1,
+        page: 1,
+        pageSize: 20,
+        totalPages: 1,
+      },
+    }))
+    renderXray(<XraySuggestionsSection permissions={PERMISSIONS} />)
+    expect(await screen.findByText(/After Deal created, people set Status: QA review/)).toHaveTextContent('Pipeline stage: Qualification')
+  })
+
   it('dismisses with the optimistic-lock header of the shown version and surfaces a 409 conflict', async () => {
     respond((request) => {
       if (request.method === 'PATCH') {

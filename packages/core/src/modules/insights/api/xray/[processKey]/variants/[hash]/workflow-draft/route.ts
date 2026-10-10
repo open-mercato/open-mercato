@@ -13,6 +13,7 @@ import {
   readRouteParam,
   runXrayAnalyticsRoute,
   xrayAnalyticsErrorDocs,
+  xrayActivityLabelsOf,
   xrayAnalyticsJson,
   xrayErrorResponse,
   type XrayRouteParams,
@@ -92,6 +93,7 @@ export async function POST(req: Request, context: XrayRouteParams) {
       })
       if (!allowed) return xrayErrorResponse(translate, 'command_forbidden', 403)
     }
+    const activityLabels = await xrayActivityLabelsOf(route, variant.activityKeys)
     return xrayAnalyticsJson({
       ok: true,
       persisted: false,
@@ -105,6 +107,7 @@ export async function POST(req: Request, context: XrayRouteParams) {
       payload: validation.payload,
       activityStepMap: draft.activityStepMap,
       skippedActivities: draft.skippedActivities,
+      activityLabels,
       commands: validation.commands,
       workflowIdAvailable: validation.workflowIdAvailable,
     })

@@ -34,11 +34,15 @@ export function XrayVariantsTab({ processKey, window, filters, onClearActorFilte
   const resource = useXrayResource<XrayVariantsResponse>(xrayAnalyticsUrl(processKey, 'variants', window, filters, { limit: XRAY_VARIANTS_LIMIT }))
   const windowParam = serializeWindow(window)
 
+  const activityLabels = resource.data?.activityLabels
   const columns = React.useMemo<ColumnDef<XrayVariantItem>[]>(() => [
     {
       id: 'path',
       header: t('insights.xray.ui.variants.columns.path'),
-      cell: ({ row }) => <span title={row.original.activityKeys.join(' → ')}>{formatActivitySequence(row.original.activityKeys, t)}</span>,
+      cell: ({ row }) => {
+        const path = formatActivitySequence(row.original.activityKeys, t, activityLabels)
+        return <span title={path}>{path}</span>
+      },
       meta: { truncate: true, maxWidth: '480px' },
     },
     {
@@ -71,7 +75,7 @@ export function XrayVariantsTab({ processKey, window, filters, onClearActorFilte
         )
       },
     },
-  ], [locale, t])
+  ], [activityLabels, locale, t])
 
   return (
     <XrayTabResource resource={resource} onClearActorFilters={onClearActorFilters}>
@@ -115,6 +119,7 @@ export function XrayVariantsTab({ processKey, window, filters, onClearActorFilte
           <XrayVariantDraftDialog
             processKey={processKey}
             variant={draftVariant}
+            activityLabels={data.activityLabels}
             window={window}
             permissions={permissions}
             onClose={() => setDraftVariant(null)}

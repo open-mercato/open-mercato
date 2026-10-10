@@ -20,6 +20,7 @@ import {
   type XrayAnalyticsAccess,
 } from './xrayAnalyticsAccess'
 import { readRouteParam, xrayErrorResponse, type XrayRouteParams } from './xrayAnalyticsRoutes'
+import { resolveXrayActivityLabels } from './xrayActivityLabels'
 
 const triggerSchema = z.object({
   activityKey: z.string().min(1),
@@ -97,6 +98,50 @@ export function toSuggestionView(stored: StoredSuggestion, process: Pick<Registe
     createdAt: stored.createdAt,
     updatedAt: stored.updatedAt,
   }
+}
+
+/** The activity keys a suggestion's rule shows: the trigger and `<field>:<value>` of the condition and follow-ups. */
+export function suggestionActivityKeys(view: Pick<XraySuggestionView, 'trigger' | 'condition' | 'followups'>): string[] {
+  const keys = [view.trigger.activityKey]
+  if (view.condition) keys.push(`${view.condition.field}:${view.condition.value}`)
+  for (const followup of view.followups) keys.push(`${followup.field}:${followup.value}`)
+  return keys
+}
+
+export type XraySuggestionLabelScope = {
+  container: AwilixContainer
+  userId: string
+  translate: TranslateFn
+  locale?: string | null
+  process: RegisteredProcess
+  access: Pick<XrayAnalyticsAccess, 'tenantId' | 'organizationIds' | 'rbacOrganizationId'>
+}
+
+/**
+ * The views with `activityLabels` of their rules (one label batch for the views of one process,
+ * scoped to the caller like the analytics routes). Never throws: unlabelled keys are left out.
+ */
+export async function withSuggestionLabels(scope: XraySuggestionLabelScope, views: XraySuggestionView[]): Promise<XraySuggestionView[]> {
+  if (views.length === 0) return views
+  const labels = await resolveXrayActivityLabels(
+    {
+      container: scope.container,
+      process: scope.process,
+      tenantId: scope.access.tenantId,
+      organizationIds: scope.access.organizationIds,
+      rbacOrganizationId: scope.access.rbacOrganizationId,
+      userId: scope.userId,
+      translate: scope.translate,
+      locale: scope.locale ?? null,
+    },
+    views.flatMap(suggestionActivityKeys),
+  )
+  return views.map((view) => ({
+    ...view,
+    activityLabels: Object.fromEntries(
+      suggestionActivityKeys(view).flatMap((key) => (Object.prototype.hasOwnProperty.call(labels, key) ? [[key, labels[key]]] : [])),
+    ),
+  }))
 }
 
 export type XraySuggestionRouteContext = {

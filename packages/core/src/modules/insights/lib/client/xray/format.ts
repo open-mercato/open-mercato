@@ -24,13 +24,26 @@ function formatActivityValue(value: string, t: TranslateFn): string {
   return shortId(value)
 }
 
+/** Server-resolved activity labels of a response (`activityLabels`), keyed by activity key. */
+export type XrayActivityLabelMap = Readonly<Record<string, string>> | null | undefined
+
+function serverLabel(key: string, labels: XrayActivityLabelMap): string | null {
+  if (!labels || !Object.prototype.hasOwnProperty.call(labels, key)) return null
+  const label = labels[key]
+  return typeof label === 'string' && label.trim().length > 0 ? label : null
+}
+
 /**
- * A readable label of a projected activity key. Keys are declared identifiers (`created`,
- * `status:won`, `ownerUserId:changed`, `<milestone>.created`), never free text; UUID values are
- * shortened (the full key stays available as the title) and the reserved values `other` / `none`
- * are translated. The result is plain text (React escapes it).
+ * A readable label of a projected activity key: the server-resolved label of the response
+ * (`activityLabels`, translated declaration labels and dictionary / record labels) when present,
+ * else a client fallback. Keys are declared identifiers (`created`, `status:won`,
+ * `ownerUserId:changed`, `<milestone>.created`), never free text; in the fallback UUID values
+ * are shortened (the full key stays available as the title) and the reserved values `other` /
+ * `none` are translated. The result is plain text (React escapes it).
  */
-export function formatActivityKey(key: string, t: TranslateFn): string {
+export function formatActivityKey(key: string, t: TranslateFn, labels?: XrayActivityLabelMap): string {
+  const resolved = serverLabel(key, labels)
+  if (resolved) return resolved
   if (key === XRAY_MAP_START_KEY) return t('insights.xray.ui.activity.start')
   if (key === XRAY_MAP_END_KEY) return t('insights.xray.ui.activity.end')
   if (key === 'created') return t('insights.xray.ui.activity.created')
@@ -45,8 +58,8 @@ export function formatActivityKey(key: string, t: TranslateFn): string {
   return key
 }
 
-export function formatActivitySequence(keys: readonly string[], t: TranslateFn): string {
-  return keys.map((key) => formatActivityKey(key, t)).join(' → ')
+export function formatActivitySequence(keys: readonly string[], t: TranslateFn, labels?: XrayActivityLabelMap): string {
+  return keys.map((key) => formatActivityKey(key, t, labels)).join(' → ')
 }
 
 export function formatCount(value: number, locale?: string | null): string {

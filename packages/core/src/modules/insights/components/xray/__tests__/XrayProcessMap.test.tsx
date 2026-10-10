@@ -43,7 +43,7 @@ jest.mock('@xyflow/react', () => {
       {nodes.map((node) => {
         const Component = nodeTypes[node.type ?? '']
         return (
-          <div key={node.id} data-testid={`flow-node-${node.id}`} aria-label={node.ariaLabel}>
+          <div key={node.id} data-testid={`flow-node-${node.id}`} aria-label={node.ariaLabel} data-width={String(node.width ?? '')} data-height={String(node.height ?? '')}>
             <Component id={node.id} data={node.data} />
             <button type="button" onClick={() => onSelectionChange?.({ nodes: [node], edges: [] })}>{`select ${node.id}`}</button>
           </div>
@@ -57,6 +57,8 @@ jest.mock('@xyflow/react', () => {
           data-target={edge.target}
           data-dashed={edge.style?.strokeDasharray ? 'true' : 'false'}
           data-label={String(edge.label ?? '')}
+          data-marker={JSON.stringify(edge.markerEnd ?? null)}
+          aria-label={edge.ariaLabel}
         />
       ))}
       {children}
@@ -110,6 +112,7 @@ function mapResponse() {
       { from: 'status:open', to: 'status:win', raw: 6, collapsed: 0, cases: 6, causes: causes(6) },
     ],
     omitted: { nodes: 0, edges: 0 },
+    activityLabels: { __start__: 'Start', __end__: 'End', created: 'Created', 'status:open': 'Status: In review', 'status:win': 'Status: Won' },
   }
 }
 
@@ -142,7 +145,11 @@ describe('XrayMapTab', () => {
 
     const hidden = screen.getByTestId('flow-node-node:status:lost')
     expect(within(hidden).getByText('Hidden (privacy)')).toBeInTheDocument()
-    expect(hidden).toHaveAttribute('aria-label', 'status: lost: counts hidden for privacy')
+    expect(within(hidden).getByText('Hidden step')).toBeInTheDocument()
+    expect(hidden).toHaveAttribute('aria-label', 'Hidden step: counts hidden for privacy')
+    const hiddenNode = within(hidden).getByTestId('xray-map-node-hidden')
+    expect(hiddenNode).not.toHaveTextContent(/lost/i)
+    expect(hiddenNode).not.toHaveAttribute('data-activity-key')
     const edges = screen.getAllByTestId('flow-edge')
     const dashed = edges.find((edge) => edge.getAttribute('data-target') === 'node:status:lost')
     expect(dashed).toHaveAttribute('data-dashed', 'true')
@@ -152,6 +159,36 @@ describe('XrayMapTab', () => {
     expect(screen.getByTestId('xray-suppressed')).toHaveTextContent('2 hidden (privacy)')
     expect(screen.getByTestId('xray-map-hidden-note')).toHaveTextContent('1 steps are hidden (privacy)')
     expect(screen.getByTestId('xray-computed-through')).toBeInTheDocument()
+  })
+
+  it('shows the server labels on nodes and transitions, keeps the placeholder for hidden steps and sizes the map for readability', async () => {
+    mockApiFetch.mockResolvedValue(fakeResponse(200, mapResponse()))
+    renderMapTab()
+    await screen.findByTestId('react-flow')
+    const open = screen.getByTestId('flow-node-node:status:open')
+    expect(within(open).getByText('Status: In review')).toBeInTheDocument()
+    expect(open.getAttribute('aria-label')).toMatch(/^Status: In review: /)
+    expect(Number(open.getAttribute('data-width'))).toBeGreaterThanOrEqual(176)
+    expect(Number(open.getAttribute('data-height'))).toBeGreaterThan(0)
+    for (const edge of screen.getAllByTestId('flow-edge')) {
+      expect(JSON.parse(edge.getAttribute('data-marker') ?? 'null')).toEqual(expect.objectContaining({ markerUnits: 'userSpaceOnUse', width: 28, height: 28 }))
+    }
+    const intoHidden = screen.getAllByTestId('flow-edge').find((edge) => edge.getAttribute('data-target') === 'node:status:lost')
+    expect(intoHidden?.getAttribute('aria-label')).toMatch(/^Status: In review to Hidden step: /)
+    const map = screen.getByTestId('xray-process-map')
+    const height = Number(map.getAttribute('data-map-height'))
+    expect(height).toBeGreaterThanOrEqual(320)
+    expect(height).toBeLessThanOrEqual(640)
+    expect(map.style.height).toBe(`${height}px`)
+    const table = screen.getByRole('table')
+    expect(within(table).getAllByText('Status: In review').length).toBeGreaterThan(0)
+    expect(within(table).getByText('Hidden step')).toBeInTheDocument()
+    expect(within(table).queryByText(/status: lost/i)).toBeNull()
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'select node:status:lost' }))
+    })
+    expect(screen.getByTestId('xray-map-selection')).toHaveTextContent('Hidden step')
+    expect(screen.getByTestId('xray-map-selection')).not.toHaveTextContent(/lost/i)
   })
 
   it('switches between collapsed and raw counting', async () => {

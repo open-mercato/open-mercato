@@ -315,6 +315,14 @@ describe('Process X-Ray analytics routes — query parsing', () => {
     }))
     await call(casesGet, get('/api/insights/xray/test.deal/cases'), { processKey: 'test.deal' })
     expect(lastInput(facade.listCases)).toEqual(expect.objectContaining({ pageSize: 50, cursor: null }))
+    const otherHash = 'b'.repeat(64)
+    await call(casesGet, get(`/api/insights/xray/test.deal/cases?variantHashes=${HASH},${otherHash},${HASH}`), { processKey: 'test.deal' })
+    expect(lastInput(facade.listCases)).toEqual(expect.objectContaining({ variantHashes: [HASH, otherHash] }))
+    const before = facade.listCases.mock.calls.length
+    for (const variantHashes of ['not-a-hash', Array.from({ length: 21 }, (_, index) => index.toString(16).padStart(64, '0')).join(',')]) {
+      expect((await call(casesGet, get(`/api/insights/xray/test.deal/cases?variantHashes=${variantHashes}`), { processKey: 'test.deal' })).status).toBe(400)
+    }
+    expect(facade.listCases.mock.calls.length).toBe(before)
   })
 
   it('forwards the variants limit and the breakdown grouping', async () => {
@@ -538,6 +546,7 @@ describe('POST /api/insights/xray/{processKey}/variants/{hash}/workflow-draft', 
       skippedActivities: ['created', 'ownerUserId:changed'],
       workflowIdAvailable: true,
     }))
+    expect(Object.keys(response.body.activityLabels as Record<string, string>).sort()).toEqual(['created', 'status:open', 'status:won'])
   })
 
   it('answers 404 for a variant that is not visible and 400 for a malformed hash or body', async () => {
@@ -599,5 +608,58 @@ describe('GET /api/insights/xray/{processKey}/durations', () => {
     facade.getDurations.mockRejectedValueOnce(new AnalyticsFilterTooNarrowError())
     const response = await call(durationsGet, get(`/api/insights/xray/test.deal/durations?actorRoleIds=${ORG_B}`), { processKey: 'test.deal' })
     expect(response).toEqual(expect.objectContaining({ status: 422, body: { error: 'insights.xray.errors.filter_too_narrow', code: 'filter_too_narrow', hint: 'widen_actor_filter' } }))
+  })
+})
+
+describe('Process X-Ray analytics routes — activity labels', () => {
+  const params = { processKey: 'test.deal' }
+  const cause = { human: 1, automated: 0, legacy: 0, other: 0 }
+
+  function labelsOf(body: Record<string, unknown>): Record<string, string> {
+    return body.activityLabels as Record<string, string>
+  }
+
+  it('labels the visible map nodes and the start / end markers, never an endpoint whose node is suppressed', async () => {
+    facade.getProcessMap.mockResolvedValueOnce(envelope({
+      nodes: [{ activityKey: 'created', activityKind: 'lifecycle', raw: 9, collapsed: 9, cases: 9, causes: cause }, { activityKey: 'status:won', activityKind: 'stage', raw: 9, collapsed: 9, cases: 9, causes: cause }],
+      edges: [{ from: 'created', to: 'status:secret', raw: 9, collapsed: 9, cases: 9, causes: cause }],
+    }))
+    const response = await call(mapGet, get('/api/insights/xray/test.deal/map'), params)
+    expect(response.status).toBe(200)
+    expect(Object.keys(labelsOf(response.body)).sort()).toEqual(['__end__', '__start__', 'created', 'status:won'])
+    expect(labelsOf(response.body)['status:won']).toContain('insights.xray.ui.activity.fieldValue')
+    expect(response.body.nodes).toHaveLength(2)
+  })
+
+  it('labels the activities of variants, bottlenecks, rework and conformance results, keeping raw keys', async () => {
+    facade.getVariants.mockResolvedValueOnce(envelope({ items: [{ variantHash: HASH, rawVariantHashes: [], rawVariantHashesTruncated: false, activityKeys: ['created', 'status:open'], cases: 9, share: 1, cycleTime: {} }] }))
+    facade.getBottlenecks.mockResolvedValueOnce(envelope({ items: [{ from: 'status:open', to: 'status:won', transitions: 9 }] }))
+    facade.getRework.mockResolvedValueOnce(envelope({ byStage: [{ activityKey: 'status:open', rework: 3 }] }))
+    facade.getConformance.mockResolvedValueOnce(envelope({
+      status: 'ok',
+      models: [{ key: 'm', deviations: [{ kind: 'invalid_transition', from: 'status:open', to: null, cases: 9 }] }],
+      unmappedActivities: [{ activityKey: 'deleted', events: 9 }],
+    }))
+    const variants = await call(variantsGet, get('/api/insights/xray/test.deal/variants'), params)
+    expect(Object.keys(labelsOf(variants.body)).sort()).toEqual(['created', 'status:open'])
+    expect((variants.body.items as Array<{ activityKeys: string[] }>)[0].activityKeys).toEqual(['created', 'status:open'])
+    const bottlenecks = await call(bottlenecksGet, get('/api/insights/xray/test.deal/bottlenecks'), params)
+    expect(Object.keys(labelsOf(bottlenecks.body)).sort()).toEqual(['status:open', 'status:won'])
+    const rework = await call(reworkGet, get('/api/insights/xray/test.deal/rework'), params)
+    expect(Object.keys(labelsOf(rework.body))).toEqual(['status:open'])
+    const conformance = await call(conformanceGet, get('/api/insights/xray/test.deal/conformance?sequence=created,status:open'), params)
+    expect(Object.keys(labelsOf(conformance.body)).sort()).toEqual(['deleted', 'status:open'])
+    facade.getConformance.mockResolvedValueOnce(envelope({ status: 'refused', reason: 'no_cases', coverage: null, minCoverage: 0.8 }))
+    const refused = await call(conformanceGet, get('/api/insights/xray/test.deal/conformance?sequence=created'), params)
+    expect(labelsOf(refused.body)).toEqual({})
+  })
+
+  it('labels the drilled activity of a case listing only when the cell is not suppressed', async () => {
+    facade.listCases.mockResolvedValueOnce(envelope({ items: [], nextCursor: null, suppressed: false }))
+    const visible = await call(casesGet, get('/api/insights/xray/test.deal/cases?activityKey=status:won'), params)
+    expect(Object.keys(labelsOf(visible.body))).toEqual(['status:won'])
+    facade.listCases.mockResolvedValueOnce(envelope({ n: 0, items: [], nextCursor: null, suppressed: true }))
+    const hidden = await call(casesGet, get('/api/insights/xray/test.deal/cases?activityKey=status:secret'), params)
+    expect(hidden.body).toEqual(expect.objectContaining({ suppressed: true, n: 0, items: [], activityLabels: {} }))
   })
 })

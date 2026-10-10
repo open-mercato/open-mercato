@@ -1,5 +1,12 @@
-import { buildProcessGraph, dominantCause } from '../graph'
-import { layoutProcessGraph } from '../graphLayout'
+import { XRAY_GRAPH_NODE_MAX_WIDTH, XRAY_GRAPH_NODE_MIN_WIDTH, buildProcessGraph, dominantCause, estimateLabelWidth, graphNodeSize } from '../graph'
+import {
+  XRAY_MAP_MAX_HEIGHT,
+  XRAY_MAP_MIN_HEIGHT,
+  XRAY_MAP_READABLE_ZOOM,
+  initialMapViewport,
+  layoutProcessGraph,
+  processMapHeight,
+} from '../graphLayout'
 import { filterQueryParams, xrayAnalyticsUrl, EMPTY_XRAY_FILTERS } from '../api'
 import { formatActivityKey, formatDurationMs } from '../format'
 import { cycleTimeFigure } from '../durations'
@@ -63,12 +70,61 @@ describe('buildProcessGraph', () => {
     expect(dominantCause({ human: 0, automated: 0, legacy: 0, other: 0, byKind: {} })).toBe('none')
   })
 
-  it('lays every node out without overlap', () => {
+  it('lays the graph out top to bottom with boxes sized from the labels and no overlap', () => {
     const graph = buildProcessGraph(map, 'raw')
-    const positions = layoutProcessGraph(graph)
-    expect(positions.size).toBe(graph.nodes.length)
-    const xs = graph.nodes.map((node) => positions.get(node.id)?.x ?? Number.NaN)
-    expect(xs.every((value) => Number.isFinite(value))).toBe(true)
+    const labels: Record<string, string> = { 'status:open': 'Status: A rather long open status label' }
+    const layout = layoutProcessGraph(graph, (node) => labels[node.activityKey] ?? node.activityKey)
+    expect(layout.boxes.size).toBe(graph.nodes.length)
+    const boxOf = (key: string) => layout.boxes.get(graph.nodes.find((node) => node.activityKey === key)?.id ?? '')
+    const start = boxOf('__start__')
+    const created = boxOf('created')
+    const open = boxOf('status:open')
+    expect(start && created && open).toBeTruthy()
+    expect(start!.y + start!.height).toBeLessThanOrEqual(created!.y)
+    expect(created!.y + created!.height).toBeLessThanOrEqual(open!.y)
+    expect(open!.width).toBeGreaterThan(created!.width)
+    const boxes = Array.from(layout.boxes.values())
+    for (const [index, left] of boxes.entries()) {
+      for (const right of boxes.slice(index + 1)) {
+        const overlaps = left.x < right.x + right.width && right.x < left.x + left.width && left.y < right.y + right.height && right.y < left.y + left.height
+        expect(overlaps).toBe(false)
+      }
+    }
+    expect(layout.bounds.height).toBeGreaterThan(0)
+  })
+
+  it('sizes node boxes from their label within bounds (wide glyphs count double)', () => {
+    expect(estimateLabelWidth('상태')).toBeGreaterThan(estimateLabelWidth('ab'))
+    expect(graphNodeSize({ kind: 'activity' }, 'x').width).toBe(XRAY_GRAPH_NODE_MIN_WIDTH)
+    expect(graphNodeSize({ kind: 'activity' }, 'x'.repeat(200)).width).toBe(XRAY_GRAPH_NODE_MAX_WIDTH)
+    expect(graphNodeSize({ kind: 'hidden' }, 'Hidden step').height).toBeLessThan(graphNodeSize({ kind: 'activity' }, 'Hidden step').height)
+    expect(graphNodeSize({ kind: 'start' }, 'Start').height).toBeLessThan(graphNodeSize({ kind: 'activity' }, 'Start').height)
+  })
+
+  it('keeps labels readable: the initial zoom never drops below the readable zoom and long maps start at the top', () => {
+    const chain = {
+      nodes: Array.from({ length: 7 }, (_, index) => ({ activityKey: `status:s${index}`, activityKind: 'stage', ...cell(10, 10) })),
+      edges: [
+        { from: '__start__', to: 'status:s0', ...cell(10, 10) },
+        ...Array.from({ length: 6 }, (_, index) => ({ from: `status:s${index}`, to: `status:s${index + 1}`, ...cell(10, 10) })),
+        { from: 'status:s6', to: '__end__', ...cell(10, 10) },
+      ],
+    }
+    const graph = buildProcessGraph(chain, 'raw')
+    const layout = layoutProcessGraph(graph, (node) => `Status: step ${node.activityKey}`)
+    const height = processMapHeight(layout)
+    expect(height).toBe(XRAY_MAP_MAX_HEIGHT)
+    const startId = graph.nodes.find((node) => node.kind === 'start')?.id ?? null
+    const viewport = initialMapViewport(layout, { width: 900, height }, startId)
+    expect(viewport.zoom).toBe(XRAY_MAP_READABLE_ZOOM)
+    const startBox = layout.boxes.get(startId ?? '')
+    expect(startBox).toBeDefined()
+    expect(startBox!.y * viewport.zoom + viewport.y).toBeGreaterThanOrEqual(0)
+    expect(startBox!.y * viewport.zoom + viewport.y).toBeLessThan(64)
+
+    const short = layoutProcessGraph(buildProcessGraph({ nodes: [chain.nodes[0]], edges: [chain.edges[0]] }, 'raw'), () => 'Created')
+    expect(processMapHeight(short)).toBe(XRAY_MAP_MIN_HEIGHT)
+    expect(initialMapViewport(short, { width: 900, height: XRAY_MAP_MIN_HEIGHT }, null).zoom).toBe(1)
   })
 })
 
@@ -129,6 +185,15 @@ describe('X-Ray formatting', () => {
     expect(formatActivityKey('pipelineStageId:12345678-1234-4123-8123-123456789012', translate))
       .toBe('insights.xray.ui.activity.fieldValue:{"field":"pipelineStageId","value":"12345678…"}')
     expect(formatActivityKey('quote.created', translate)).toBe('quote.created')
+  })
+
+  it('prefers the server label of the response and ignores blank or inherited entries', () => {
+    const labels = { 'status:won': 'Status: Won', 'status:blank': '  ' }
+    expect(formatActivityKey('status:won', translate, labels)).toBe('Status: Won')
+    expect(formatActivityKey('status:blank', translate, labels)).toBe('insights.xray.ui.activity.fieldValue:{"field":"status","value":"blank"}')
+    expect(formatActivityKey('created', translate, labels)).toBe('insights.xray.ui.activity.created')
+    expect(formatActivityKey('constructor', translate, labels)).toBe('constructor')
+    expect(formatActivityKey('created', translate, null)).toBe('insights.xray.ui.activity.created')
   })
 
   it('formats durations with their two largest units', () => {

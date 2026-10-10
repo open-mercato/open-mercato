@@ -12,6 +12,7 @@ import {
   loadWorkflowDefinitionOptions,
   resolveWorkflowDefinitionLabel,
   saveXraySettings,
+  useXrayPermissions,
   useXrayResource,
 } from '../../lib/client/xray/hooks'
 import type { XraySettings, XraySettingsResponse, XraySettingsUpdate } from '../../lib/client/xray/types'
@@ -128,6 +129,8 @@ export function XraySettingsPageClient() {
   const settings = resource.data?.result ?? null
   const initialValues = React.useMemo(() => (settings ? valuesOf(settings) : null), [settings])
   const timeZones = React.useMemo(() => supportedTimeZones(), [])
+  const permissions = useXrayPermissions()
+  const canPickWorkflow = !permissions.loading && permissions.canViewWorkflows
 
   const fields = React.useMemo<CrudField[]>(() => [
     { id: 'enabled', type: 'checkbox', label: t('insights.xray.ui.settings.fields.enabled'), description: t('insights.xray.ui.settings.fields.enabledHelp') },
@@ -167,15 +170,29 @@ export function XraySettingsPageClient() {
       label: t('insights.xray.ui.settings.fields.suggestionMinSupport'),
       description: t('insights.xray.ui.settings.fields.suggestionMinSupportHelp'),
     },
-    {
-      id: 'conformanceWorkflowId',
-      type: 'combobox',
-      label: t('insights.xray.ui.settings.fields.conformanceWorkflowId'),
-      description: t('insights.xray.ui.settings.fields.conformanceWorkflowIdHelp'),
-      allowCustomValues: false,
-      loadOptions: loadWorkflowDefinitionOptions,
-      resolveLabel: resolveWorkflowDefinitionLabel,
-    },
+    canPickWorkflow
+      ? {
+        id: 'conformanceWorkflowId',
+        type: 'combobox',
+        label: t('insights.xray.ui.settings.fields.conformanceWorkflowId'),
+        description: t('insights.xray.ui.settings.fields.conformanceWorkflowIdHelp'),
+        allowCustomValues: false,
+        loadOptions: loadWorkflowDefinitionOptions,
+        resolveLabel: resolveWorkflowDefinitionLabel,
+      }
+      : {
+        id: 'conformanceWorkflowId',
+        type: 'text',
+        label: t('insights.xray.ui.settings.fields.conformanceWorkflowId'),
+        description: permissions.loading
+          ? t('insights.xray.ui.settings.fields.conformanceWorkflowIdHelp')
+          : (
+            <span data-testid="xray-settings-workflow-unavailable">
+              {t('insights.xray.ui.settings.fields.conformanceWorkflowIdUnavailable')}
+            </span>
+          ),
+        disabled: true,
+      },
     {
       id: 'activityStepMap',
       type: 'custom',
@@ -186,7 +203,7 @@ export function XraySettingsPageClient() {
         <XrayActivityStepMapEditor value={value} onChange={setValue} disabled={disabled} error={error ? t(error) : undefined} />
       ),
     },
-  ], [t, timeZones])
+  ], [canPickWorkflow, permissions.loading, t, timeZones])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
     { id: 'projection', title: t('insights.xray.ui.settings.groups.projection'), column: 1, fields: ['enabled', 'retentionDays', 'debounceSeconds', 'timeZone'] },

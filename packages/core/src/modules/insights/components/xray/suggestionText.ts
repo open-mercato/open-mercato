@@ -27,14 +27,18 @@ export function describeNotDraftableReason(reason: string | null | undefined, t:
   return t('insights.xray.ui.suggestions.reasons.unknown')
 }
 
-/** The rule of a suggestion as one sentence of declared identifiers (never record values). */
-export function describeSuggestionRule(suggestion: Pick<XraySuggestion, 'trigger' | 'condition' | 'followups'>, t: TranslateFn): string {
-  const trigger = formatActivityKey(suggestion.trigger.activityKey, t)
-  const followups = suggestion.followups.map((followup) => formatActivityKey(`${followup.field}:${followup.value}`, t)).join(', ')
+/**
+ * The rule of a suggestion as one sentence: the server-resolved labels of its activities
+ * (`activityLabels`), else readable forms of the declared identifiers.
+ */
+export function describeSuggestionRule(suggestion: Pick<XraySuggestion, 'trigger' | 'condition' | 'followups' | 'activityLabels'>, t: TranslateFn): string {
+  const labels = suggestion.activityLabels
+  const trigger = formatActivityKey(suggestion.trigger.activityKey, t, labels)
+  const followups = suggestion.followups.map((followup) => formatActivityKey(`${followup.field}:${followup.value}`, t, labels)).join(', ')
   const base = t('insights.xray.ui.suggestions.rule', { trigger, followups })
   if (!suggestion.condition) return base
   return t('insights.xray.ui.suggestions.ruleWithCondition', {
     rule: base,
-    condition: formatActivityKey(`${suggestion.condition.field}:${suggestion.condition.value}`, t),
+    condition: formatActivityKey(`${suggestion.condition.field}:${suggestion.condition.value}`, t, labels),
   })
 }

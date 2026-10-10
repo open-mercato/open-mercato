@@ -39,6 +39,7 @@ import {
 } from '@open-mercato/core/modules/insights/lib/process/activities'
 import processConfig, { SALES_ORDER_PROCESS_KEY, SALES_QUOTE_CONVERT_COMMAND_ID, SALES_QUOTE_PROCESS_KEY } from '../insights.process'
 import { defaultEncryptionMaps } from '../encryption'
+import { SALES_STATUS_VALUE_REFERENCE_KINDS } from '../lib/explain/statusValueResolvers'
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
 const ORG_ID = '22222222-2222-4222-8222-222222222222'
@@ -454,9 +455,9 @@ describe('sales insights.process', () => {
     })
 
     it.each([
-      ['payment', 'sales.payment', 'sales:sales_payment'],
-      ['shipment', 'sales.shipment', 'sales:sales_shipment'],
-    ])('declares the %s milestone under the order audit rows', (key, resourceKind, entityId) => {
+      ['payment', 'sales.payment', 'sales:sales_payment', SALES_STATUS_VALUE_REFERENCE_KINDS.paymentStatus],
+      ['shipment', 'sales.shipment', 'sales:sales_shipment', SALES_STATUS_VALUE_REFERENCE_KINDS.shipmentStatus],
+    ])('declares the %s milestone under the order audit rows', (key, resourceKind, entityId, referenceKind) => {
       const milestone = getDeclaredMilestone(key)
       expect(milestone).toEqual({
         key,
@@ -473,6 +474,7 @@ describe('sales insights.process', () => {
             valueKind: 'dictionary',
             snapshotPaths: ['status'],
             changeKeys: ['status'],
+            referenceKind,
           },
         ],
       })

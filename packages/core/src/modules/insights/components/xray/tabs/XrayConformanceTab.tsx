@@ -15,7 +15,7 @@ import { FormField } from '@open-mercato/ui/primitives/form-field'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
 import { XRAY_SETTINGS_PAGE_PATH, xrayAnalyticsUrl } from '../../../lib/client/xray/api'
-import { formatActivityKey, formatCount, formatPercent } from '../../../lib/client/xray/format'
+import { formatActivityKey, formatCount, formatPercent, type XrayActivityLabelMap } from '../../../lib/client/xray/format'
 import { useXrayResource } from '../../../lib/client/xray/hooks'
 import type { XrayConformanceModel, XrayConformanceResponse } from '../../../lib/client/xray/types'
 import { XrayErrorNotice } from '../XrayErrorNotice'
@@ -30,15 +30,15 @@ export function parseSequenceInput(value: string): string[] {
   return value.split(',').map((key) => key.trim()).filter((key) => key.length > 0)
 }
 
-function ModelResult({ model }: { model: XrayConformanceModel }) {
+function ModelResult({ model, activityLabels }: { model: XrayConformanceModel; activityLabels?: XrayActivityLabelMap }) {
   const t = useT()
   const locale = useLocale()
   const columns = React.useMemo<ColumnDef<Deviation>[]>(() => [
     { accessorKey: 'kind', header: t('insights.xray.ui.conformance.columns.kind'), cell: ({ row }) => t(`insights.xray.ui.conformance.deviation.${row.original.kind}`) },
-    { id: 'from', header: t('insights.xray.ui.conformance.columns.from'), cell: ({ row }) => (row.original.from ? formatActivityKey(row.original.from, t) : '—') },
-    { id: 'to', header: t('insights.xray.ui.conformance.columns.to'), cell: ({ row }) => (row.original.to ? formatActivityKey(row.original.to, t) : '—') },
+    { id: 'from', header: t('insights.xray.ui.conformance.columns.from'), cell: ({ row }) => (row.original.from ? formatActivityKey(row.original.from, t, activityLabels) : '—') },
+    { id: 'to', header: t('insights.xray.ui.conformance.columns.to'), cell: ({ row }) => (row.original.to ? formatActivityKey(row.original.to, t, activityLabels) : '—') },
     { accessorKey: 'cases', header: t('insights.xray.ui.conformance.columns.cases'), cell: ({ row }) => formatCount(row.original.cases, locale) },
-  ], [locale, t])
+  ], [activityLabels, locale, t])
   const sourceLabel = model.source.kind === 'sequence'
     ? t('insights.xray.ui.conformance.sourceSequence')
     : t('insights.xray.ui.conformance.sourceWorkflow', { version: model.source.version ?? '—' })
@@ -158,11 +158,11 @@ export function XrayConformanceTab({ processKey, window, filters, onClearActorFi
               {t('insights.xray.ui.conformance.coverage', { coverage: formatPercent(data.coverage, locale), minimum: formatPercent(data.minCoverage, locale) })}
               {data.unresolvedCases > 0 ? ` ${t('insights.xray.ui.conformance.unresolved', { count: formatCount(data.unresolvedCases, locale) })}` : ''}
             </p>
-            {data.models.map((model) => <ModelResult key={model.key} model={model} />)}
+            {data.models.map((model) => <ModelResult key={model.key} model={model} activityLabels={data.activityLabels} />)}
             {data.unmappedActivities.length > 0 ? (
               <p className="text-xs text-muted-foreground" data-testid="xray-conformance-unmapped">
                 {t('insights.xray.ui.conformance.unmapped', {
-                  activities: data.unmappedActivities.map((item) => formatActivityKey(item.activityKey, t)).join(', '),
+                  activities: data.unmappedActivities.map((item) => formatActivityKey(item.activityKey, t, data.activityLabels)).join(', '),
                 })}
               </p>
             ) : null}

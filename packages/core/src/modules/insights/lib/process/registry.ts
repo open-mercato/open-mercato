@@ -46,6 +46,10 @@ export type RegisteredProcessField = {
   valueKind: ProcessFieldDescriptor['valueKind']
   snapshotPaths: string[]
   changeKeys: string[]
+  /** Display only (see `ProcessFieldDescriptor.referenceKind`); excluded from the contract hash. */
+  referenceKind?: string
+  /** Display only (see `ProcessFieldDescriptor.valueLabelKeys`); excluded from the contract hash. */
+  valueLabelKeys?: Record<string, string>
 }
 
 export type RegisteredProcessMilestone = {
@@ -231,6 +235,20 @@ function findEncryptedField(
   return null
 }
 
+const REFERENCE_KIND_PATTERN = /^\S{1,200}$/
+
+/** Optional value label keys: stored values (identifier pattern) to non-empty i18n keys. */
+function readValueLabelKeys(value: unknown): Record<string, string> | null | undefined {
+  if (value === undefined) return undefined
+  if (!isPlainObject(value)) return null
+  const labels: Record<string, string> = {}
+  for (const [stored, labelKey] of Object.entries(value)) {
+    if (!PROCESS_ACTIVITY_VALUE_PATTERN.test(stored) || !isNonEmptyString(labelKey)) return null
+    labels[stored] = labelKey.trim()
+  }
+  return labels
+}
+
 function readField(value: unknown): RegisteredProcessField | null {
   if (!isPlainObject(value)) return null
   if (!isNonEmptyString(value.key) || !PROCESS_DECLARATION_KEY_PATTERN.test(value.key)) return null
@@ -240,12 +258,17 @@ function readField(value: unknown): RegisteredProcessField | null {
   if (!snapshotPaths || snapshotPaths.length === 0) return null
   const changeKeys = readStringList(value.changeKeys)
   if (!changeKeys) return null
+  if (value.referenceKind !== undefined && (typeof value.referenceKind !== 'string' || !REFERENCE_KIND_PATTERN.test(value.referenceKind))) return null
+  const valueLabelKeys = readValueLabelKeys(value.valueLabelKeys)
+  if (valueLabelKeys === null) return null
   return {
     key: value.key,
     labelKey: value.labelKey,
     valueKind: value.valueKind as ProcessFieldDescriptor['valueKind'],
     snapshotPaths,
     changeKeys,
+    ...(typeof value.referenceKind === 'string' ? { referenceKind: value.referenceKind } : {}),
+    ...(valueLabelKeys ? { valueLabelKeys } : {}),
   }
 }
 

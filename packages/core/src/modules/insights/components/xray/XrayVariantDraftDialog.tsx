@@ -28,7 +28,7 @@ import {
   type XrayRequestError,
 } from '../../lib/client/xray/api'
 import { summarizeDraftPayload } from '../../lib/client/xray/draft'
-import { formatActivitySequence } from '../../lib/client/xray/format'
+import { formatActivitySequence, type XrayActivityLabelMap } from '../../lib/client/xray/format'
 import type { XrayVariantItem, XrayWorkflowDraftResponse } from '../../lib/client/xray/types'
 import { windowQueryParams, type XrayWindowState } from '../../lib/client/xray/window'
 import { XrayDraftSummary } from './XrayDraftSummary'
@@ -50,6 +50,8 @@ const COMMAND_ID_PATTERN = /^[a-z0-9_.:-]{1,200}$/i
 export type XrayVariantDraftDialogProps = {
   processKey: string
   variant: XrayVariantItem | null
+  /** Server-resolved labels of the variants response (`activityLabels`). */
+  activityLabels?: XrayActivityLabelMap
   window: XrayWindowState
   permissions: XrayPermissions
   onClose: () => void
@@ -61,7 +63,7 @@ export type XrayVariantDraftDialogProps = {
  * stores nothing), reviews it and, after a confirmation, creates it as themselves through
  * `POST /api/workflows/definitions`. Cmd/Ctrl+Enter runs the current step, Escape cancels.
  */
-export function XrayVariantDraftDialog({ processKey, variant, window, permissions, onClose }: XrayVariantDraftDialogProps) {
+export function XrayVariantDraftDialog({ processKey, variant, activityLabels, window, permissions, onClose }: XrayVariantDraftDialogProps) {
   const t = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const { createWorkflowDefinition } = useXrayMutations(XRAY_VARIANT_DRAFT_CONTEXT_ID)
@@ -91,13 +93,17 @@ export function XrayVariantDraftDialog({ processKey, variant, window, permission
   }, [variant?.variantHash])
 
   React.useEffect(() => {
-    if (!open) return
+    if (!open || permissions.loading) return
+    if (!permissions.canEditWorkflows) {
+      setCommands([])
+      return
+    }
     const controller = new AbortController()
     loadWorkflowCommandOptions(controller.signal).then((options) => {
       if (!controller.signal.aborted) setCommands(options)
     })
     return () => controller.abort()
-  }, [open])
+  }, [open, permissions.canEditWorkflows, permissions.loading])
 
   React.useEffect(() => () => previewAbortRef.current?.abort(), [])
 
@@ -177,7 +183,7 @@ export function XrayVariantDraftDialog({ processKey, variant, window, permission
         {ConfirmDialogElement}
         <DialogHeader>
           <DialogTitle>{t('insights.xray.ui.variants.draftTitle')}</DialogTitle>
-          <DialogDescription>{variant ? formatActivitySequence(variant.activityKeys, t) : null}</DialogDescription>
+          <DialogDescription>{variant ? formatActivitySequence(variant.activityKeys, t, activityLabels) : null}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           {commands === null ? <LoadingMessage label={t('insights.xray.ui.variants.loadingCommands')} /> : null}
@@ -185,7 +191,9 @@ export function XrayVariantDraftDialog({ processKey, variant, window, permission
             <div className="grid gap-3 md:grid-cols-2">
               <FormField
                 label={t('insights.xray.ui.variants.command')}
-                description={t('insights.xray.ui.variants.commandHelp')}
+                description={permissions.canEditWorkflows
+                  ? t('insights.xray.ui.variants.commandHelp')
+                  : <span data-testid="xray-commands-unavailable">{t('insights.xray.ui.variants.commandsUnavailable')}</span>}
                 required
                 disabled={previewing || busy}
               >
@@ -219,6 +227,7 @@ export function XrayVariantDraftDialog({ processKey, variant, window, permission
               summary={summary}
               commands={preview.commands}
               skippedActivities={preview.skippedActivities}
+              activityLabels={{ ...activityLabels, ...preview.activityLabels }}
               workflowIdAvailable={preview.workflowIdAvailable}
             />
           ) : null}

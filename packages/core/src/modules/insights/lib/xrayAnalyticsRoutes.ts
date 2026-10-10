@@ -21,6 +21,7 @@ import {
   type XrayAnalyticsAccess,
 } from './xrayAnalyticsAccess'
 import { xrayInternalError, xrayJson } from './xrayRoutes'
+import { resolveXrayActivityLabels, type XrayActivityLabels } from './xrayActivityLabels'
 
 export type XrayRouteParams = { params?: unknown } | undefined
 
@@ -31,6 +32,7 @@ export type XrayAnalyticsRouteContext = {
   access: XrayAnalyticsAccess
   analytics: XrayAnalytics
   translate: TranslateFn
+  locale?: string | null
 }
 
 export type XrayWindowQuery = {
@@ -124,7 +126,7 @@ export function analyticsInputOf(context: XrayAnalyticsRouteContext, query: Xray
  * caller may not see answer the same 404 body. A caller without a resolved tenant gets 403.
  */
 export async function prepareXrayAnalyticsRoute(req: Request, routeContext: XrayRouteParams): Promise<XrayAnalyticsRouteContext | NextResponse> {
-  const { t: translate } = await resolveTranslations()
+  const { t: translate, locale } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.sub) return xrayErrorResponse(translate, 'unauthorized', 401)
   const processKey = await readRouteParam(routeContext, 'processKey')
@@ -139,7 +141,27 @@ export async function prepareXrayAnalyticsRoute(req: Request, routeContext: Xray
   })
   if (!access) return xrayErrorResponse(translate, 'tenant_required', 403)
   if (!access.visible) return xrayProcessNotFound(translate)
-  return { container, auth, process, access, analytics: createXrayAnalyticsFromContainer(container), translate }
+  return { container, auth, process, access, analytics: createXrayAnalyticsFromContainer(container), translate, locale }
+}
+
+/**
+ * Server-side labels of the activity keys a response discloses (see `resolveXrayActivityLabels`),
+ * scoped to the route's caller. Never throws; keys it cannot label are left out.
+ */
+export function xrayActivityLabelsOf(context: XrayAnalyticsRouteContext, keys: Iterable<string>): Promise<XrayActivityLabels> {
+  return resolveXrayActivityLabels(
+    {
+      container: context.container,
+      process: context.process,
+      tenantId: context.access.tenantId,
+      organizationIds: context.access.organizationIds,
+      rbacOrganizationId: context.access.rbacOrganizationId,
+      userId: context.auth.sub,
+      translate: context.translate,
+      locale: context.locale ?? null,
+    },
+    keys,
+  )
 }
 
 /**

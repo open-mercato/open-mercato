@@ -1,6 +1,7 @@
 import { defineProcessConfig } from '@open-mercato/shared/modules/insights/process'
 import { E } from '#generated/entities.ids.generated'
 import { CLOSED_DEAL_STATUS_LIST } from './lib/dealStatus'
+import { CUSTOMERS_EXPLAIN_REFERENCE_KINDS } from './insights.explain'
 
 export const CUSTOMERS_DEAL_PROCESS_KEY = 'customers.deal'
 
@@ -11,7 +12,8 @@ export const CUSTOMERS_DEAL_PROCESS_KEY = 'customers.deal'
  * (`deal.*` in `snapshot_before` / `snapshot_after`, deep change keys derived by the command
  * bus). A deal ends when its status reaches a closed status. Automation suggestions may draft
  * `customers.deals.update` (workflow-safe; `status` and `pipelineStageId` are inputs of the same
- * name, the deal id goes into `id`).
+ * name, the deal id goes into `id`). Status values and pipeline stages are labelled in X-Ray
+ * through the deal status and pipeline stage reference resolvers of `insights.explain.ts`.
  */
 export const processConfig = defineProcessConfig({
   version: 1,
@@ -30,6 +32,7 @@ export const processConfig = defineProcessConfig({
           valueKind: 'dictionary',
           snapshotPaths: ['deal.status'],
           changeKeys: ['deal.status'],
+          referenceKind: CUSTOMERS_EXPLAIN_REFERENCE_KINDS.dealStatus,
         },
         {
           key: 'pipelineStageId',
@@ -37,6 +40,7 @@ export const processConfig = defineProcessConfig({
           valueKind: 'uuid',
           snapshotPaths: ['deal.pipelineStageId'],
           changeKeys: ['deal.pipelineStageId'],
+          referenceKind: CUSTOMERS_EXPLAIN_REFERENCE_KINDS.pipelineStage,
         },
       ],
       followupFields: [

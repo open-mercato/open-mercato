@@ -39,10 +39,19 @@ export type XrayGraphModel = {
   hiddenNodes: number
 }
 
-export const XRAY_GRAPH_NODE_WIDTH = 220
-export const XRAY_GRAPH_NODE_HEIGHT = 72
-export const XRAY_GRAPH_TERMINAL_WIDTH = 120
+export const XRAY_GRAPH_NODE_MIN_WIDTH = 176
+export const XRAY_GRAPH_NODE_MAX_WIDTH = 320
+export const XRAY_GRAPH_NODE_HEIGHT = 84
+export const XRAY_GRAPH_HIDDEN_NODE_HEIGHT = 60
+export const XRAY_GRAPH_TERMINAL_MIN_WIDTH = 96
+export const XRAY_GRAPH_TERMINAL_MAX_WIDTH = 200
 export const XRAY_GRAPH_TERMINAL_HEIGHT = 40
+
+const NODE_HORIZONTAL_CHROME_PX = 44
+const TERMINAL_HORIZONTAL_CHROME_PX = 40
+const NARROW_GLYPH_PX = 7.6
+const WIDE_GLYPH_PX = 14
+const WIDE_GLYPH_FROM = 0x1100
 
 const DOMINANT_SHARE = 0.6
 
@@ -144,8 +153,28 @@ export function buildProcessGraph(map: Pick<XrayMapResponse, 'nodes' | 'edges'>,
   return { nodes: ordered, edges, hiddenNodes: ordered.filter((node) => node.kind === 'hidden').length }
 }
 
-export function graphNodeSize(node: Pick<XrayGraphNode, 'kind'>): { width: number; height: number } {
-  return node.kind === 'start' || node.kind === 'end'
-    ? { width: XRAY_GRAPH_TERMINAL_WIDTH, height: XRAY_GRAPH_TERMINAL_HEIGHT }
-    : { width: XRAY_GRAPH_NODE_WIDTH, height: XRAY_GRAPH_NODE_HEIGHT }
+/** Approximate rendered width (px) of a label in the map's `text-sm` font; wide (e.g. Hangul, CJK) glyphs count double. */
+export function estimateLabelWidth(label: string): number {
+  let width = 0
+  for (const glyph of label) width += (glyph.codePointAt(0) ?? 0) >= WIDE_GLYPH_FROM ? WIDE_GLYPH_PX : NARROW_GLYPH_PX
+  return Math.ceil(width)
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
+}
+
+/**
+ * The box of a node derived from its label: wide enough for the label (within bounds; longer
+ * labels are truncated with the full text as the title), with a fixed height per node kind.
+ */
+export function graphNodeSize(node: Pick<XrayGraphNode, 'kind'>, label: string): { width: number; height: number } {
+  const text = estimateLabelWidth(label)
+  if (node.kind === 'start' || node.kind === 'end') {
+    return { width: clamp(text + TERMINAL_HORIZONTAL_CHROME_PX, XRAY_GRAPH_TERMINAL_MIN_WIDTH, XRAY_GRAPH_TERMINAL_MAX_WIDTH), height: XRAY_GRAPH_TERMINAL_HEIGHT }
+  }
+  return {
+    width: clamp(text + NODE_HORIZONTAL_CHROME_PX, XRAY_GRAPH_NODE_MIN_WIDTH, XRAY_GRAPH_NODE_MAX_WIDTH),
+    height: node.kind === 'hidden' ? XRAY_GRAPH_HIDDEN_NODE_HEIGHT : XRAY_GRAPH_NODE_HEIGHT,
+  }
 }

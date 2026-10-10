@@ -455,6 +455,8 @@ export type CaseListQuery = {
   eventFilters?: CaseEventFilters
   after: CaseListCursor | null
   pageSize: number
+  /** Also count the distinct actors of the listed population (`CaseListPage.actors`), for the drill-down cell rule. */
+  measureActors?: boolean
 }
 
 export type ActorFilterFacts = {
@@ -525,6 +527,8 @@ export async function loadActorFilterCensus(
 
 export type CaseListPage = {
   total: number
+  /** Distinct actor pseudonyms of the population's matching events (only with `measureActors`). */
+  actors?: number
   items: Array<{ caseId: string; organizationId: string; lastActivityAt: string }>
   hasMore: boolean
 }
@@ -606,6 +610,7 @@ export async function listCaseIds(trx: AnalyticsDb | AnalyticsTrx, query: CaseLi
   const counted = await sql<{ total: string | number }>`
     select count(*) as total from insights_process_cases cases where ${filters}
   `.execute(trx)
+  const actors = query.measureActors ? await countListedActors(trx, query, filters) : undefined
   const after = query.after
   const page = await sql<{ case_id: string; organization_id: string; last_activity_at: string }>`
     select cases.case_id::text as case_id, cases.organization_id::text as organization_id,
@@ -619,7 +624,32 @@ export async function listCaseIds(trx: AnalyticsDb | AnalyticsTrx, query: CaseLi
   const rows = page.rows.slice(0, query.pageSize)
   return {
     total: toNumber(counted.rows[0]?.total),
+    ...(actors === undefined ? {} : { actors }),
     items: rows.map((row) => ({ caseId: row.case_id, organizationId: row.organization_id, lastActivityAt: row.last_activity_at })),
     hasMore: page.rows.length > query.pageSize,
   }
+}
+
+/**
+ * Distinct actor pseudonyms behind a listed population: the non-voided events of the listed
+ * cases that make them match (the activity and the event filters, in the window; for a variant
+ * drill-down without an activity, every event before the window end, like the variants).
+ * Events without an identifiable actor (automation) are not counted.
+ */
+async function countListedActors(trx: AnalyticsDb | AnalyticsTrx, query: CaseListQuery, filters: RawBuilder<unknown>): Promise<number> {
+  const variantOnly = hasValues(query.variantHashes) && !query.activityKey
+  const result = await sql<{ actors: string | number }>`
+    select count(distinct events.actor_pseudonym) as actors
+    from insights_process_cases cases
+    join insights_process_events events
+      on events.tenant_id = cases.tenant_id and events.organization_id = cases.organization_id
+      and events.process_key = cases.process_key and events.case_id = cases.case_id
+    where ${filters}
+      and not events.voided
+      and events.occurred_at < ${query.to}::timestamptz
+      ${variantOnly ? sql`` : sql`and events.occurred_at >= ${query.from}::timestamptz`}
+      ${query.activityKey ? sql`and events.activity_key = ${query.activityKey}` : sql``}
+      ${eventFilterPredicate('events', query.eventFilters ?? {})}
+  `.execute(trx)
+  return toNumber(result.rows[0]?.actors)
 }
