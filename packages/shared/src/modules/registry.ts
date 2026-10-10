@@ -223,6 +223,23 @@ export type ModuleInfo = {
   copyright?: string
   // Optional hard dependencies: module ids that must be enabled
   requires?: string[]
+  /**
+   * Module ids this module USES when they are present and works without when they are not.
+   *
+   * `requires` is a hard gate: a missing entry fails `yarn generate` with `process.exit(1)`, which is right for
+   * a dependency the module cannot function without. It was the only form available, so a module with a
+   * degradable dependency had to declare it hard — and then could not be installed at all without it. Marketing
+   * automation is the case that forced this: it enriches campaigns with order history when `sales` is present,
+   * and a CRM-only installation could not enable it even to send a birthday email.
+   *
+   * Declaring a dependency here is a promise the CODE keeps, not a hint: every feature that reads the optional
+   * module's data must check at runtime and degrade visibly, because its tables do not exist when it is absent.
+   * A declaration without that check turns a clear generator failure into a query error at request time, which
+   * is strictly worse.
+   *
+   * Additive and ignored by the dependency check, so every existing module behaves exactly as before.
+   */
+  optionalRequires?: string[]
   // Whether this module can be ejected into the app's src/modules/ for customization
   ejectable?: boolean
 }
