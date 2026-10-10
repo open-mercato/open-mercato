@@ -26,7 +26,7 @@ import {
   readTimeTrackingSettings,
   type TimeTrackingSettings,
 } from '../lib/time-tracking/settings'
-import { resolveProjectAccess, type ProjectAccess } from '../lib/time-tracking/access'
+import { isProjectAccessibleOnDate, resolveProjectAccess, type ProjectAccess } from '../lib/time-tracking/access'
 // Imported for the command ids AND for the registration side effect: the tag
 // commands must be in the registry before this file asks the bus to run one.
 import { staffTimeTagCommandIds, TAG_TARGET_LOCKED_CODE } from './timesheets-tags'
@@ -298,8 +298,10 @@ export async function resolveRoundedMinutes(
   })
 }
 
+type EntryAccessCaller = Pick<CommandRuntimeContext, 'auth' | 'container'>
+
 async function resolveGrantedFeatures(
-  ctx: CommandRuntimeContext,
+  ctx: EntryAccessCaller,
   tenantId: string,
   organizationId: string,
 ): Promise<string[]> {
@@ -318,7 +320,7 @@ async function resolveGrantedFeatures(
 
 async function resolveEntryProjectAccess(
   em: EntityManager,
-  ctx: CommandRuntimeContext,
+  ctx: EntryAccessCaller,
   tenantId: string,
   organizationId: string,
   settings: TimeTrackingSettings,
@@ -333,31 +335,82 @@ async function resolveEntryProjectAccess(
   })
 }
 
+export type TimeEntryWriteAccess = {
+  access: ProjectAccess
+  hasManageAll: boolean
+}
+
+export type TimeEntryWriteTarget = {
+  projectId: string | null
+  entryStaffMemberId: string
+  date: Date | string | null | undefined
+}
+
+export type TimeEntryWriteDenial = 'notAssigned' | 'outsideAssignmentWindow' | 'notOwner'
+
+/**
+ * Resolved once per request so the grid bulk save answers every row with the same
+ * access the single-entry commands use.
+ */
+export async function resolveTimeEntryWriteAccess(
+  em: EntityManager,
+  ctx: EntryAccessCaller,
+  tenantId: string,
+  organizationId: string,
+  settings: TimeTrackingSettings,
+): Promise<TimeEntryWriteAccess> {
+  return {
+    access: await resolveEntryProjectAccess(em, ctx, tenantId, organizationId, settings),
+    hasManageAll: await callerHasManageAll(ctx),
+  }
+}
+
 /**
  * Every entry write intersects the caller's project access. An entry that names a
- * project is writable by a project manager or an assigned member; an entry with no
+ * project is writable by a project manager or by a member assigned to it today
+ * (D-12) whose assignment also covers the entry's own date; an entry with no
  * project belongs to nobody else, so only the member who logged it may touch it.
  * `staff.timesheets.manage_all` stays a superset of both, which is what it has
  * always meant on this route.
  */
-async function assertEntryProjectAccess(params: {
-  access: ProjectAccess
-  hasManageAll: boolean
-  projectId: string | null
-  entryStaffMemberId: string
-}): Promise<void> {
-  if (params.hasManageAll || params.access.canManageAll) return
-  const { translate } = await resolveTranslations()
-  if (params.projectId) {
-    if (params.access.projectIds.includes(params.projectId)) return
-    throw new CrudHttpError(403, {
-      error: translate('staff.timesheets.errors.notAssigned', 'You are not assigned to this project.'),
-    })
+export function resolveTimeEntryWriteDenial(
+  write: TimeEntryWriteAccess,
+  target: TimeEntryWriteTarget,
+): TimeEntryWriteDenial | null {
+  if (write.hasManageAll || write.access.canManageAll) return null
+  if (target.projectId) {
+    if (!write.access.projectIds.includes(target.projectId)) return 'notAssigned'
+    return isProjectAccessibleOnDate(write.access, target.projectId, target.date) ? null : 'outsideAssignmentWindow'
   }
-  if (params.access.staffMemberId && params.access.staffMemberId === params.entryStaffMemberId) return
-  throw new CrudHttpError(403, {
-    error: translate('staff.timesheets.errors.notOwner', 'You can only manage your own time entries.'),
-  })
+  if (write.access.staffMemberId && write.access.staffMemberId === target.entryStaffMemberId) return null
+  return 'notOwner'
+}
+
+export function translateTimeEntryWriteDenial(
+  denial: TimeEntryWriteDenial,
+  translate: (key: string, fallback: string) => string,
+): string {
+  switch (denial) {
+    case 'notAssigned':
+      return translate('staff.timesheets.errors.notAssigned', 'You are not assigned to this project.')
+    case 'outsideAssignmentWindow':
+      return translate(
+        'staff.timesheets.errors.outsideAssignmentWindow',
+        'This date is outside your assignment to this project.',
+      )
+    case 'notOwner':
+      return translate('staff.timesheets.errors.notOwner', 'You can only manage your own time entries.')
+  }
+}
+
+async function assertEntryProjectAccess(
+  write: TimeEntryWriteAccess,
+  target: TimeEntryWriteTarget,
+): Promise<void> {
+  const denial = resolveTimeEntryWriteDenial(write, target)
+  if (!denial) return
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(403, { error: translateTimeEntryWriteDenial(denial, translate) })
 }
 
 /**
@@ -809,12 +862,10 @@ const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEn
     await assertTaskBelongsToProject(task, project?.id ?? null)
 
     const settings = await readEntrySettings(ctx, parsed.tenantId)
-    await assertEntryProjectAccess({
-      access: await resolveEntryProjectAccess(em, ctx, parsed.tenantId, parsed.organizationId, settings),
-      hasManageAll: await callerHasManageAll(ctx),
-      projectId: project?.id ?? null,
-      entryStaffMemberId: effectiveStaffMemberId,
-    })
+    await assertEntryProjectAccess(
+      await resolveTimeEntryWriteAccess(em, ctx, parsed.tenantId, parsed.organizationId, settings),
+      { projectId: project?.id ?? null, entryStaffMemberId: effectiveStaffMemberId, date: parsed.date },
+    )
 
     const now = new Date()
     const entry = em.create(StaffTimeEntry, {
@@ -1172,21 +1223,22 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
     await assertTaskBelongsToProject(task, nextProjectId)
 
     const settings = await readEntrySettings(ctx, entry.tenantId)
-    const access = await resolveEntryProjectAccess(em, ctx, entry.tenantId, entry.organizationId, settings)
-    // Both ends of a move are checked: a caller may not lift an entry out of a
-    // project they cannot see, nor drop one into a project they cannot see.
-    await assertEntryProjectAccess({
-      access,
+    const write: TimeEntryWriteAccess = {
+      access: await resolveEntryProjectAccess(em, ctx, entry.tenantId, entry.organizationId, settings),
       hasManageAll,
+    }
+    // Both ends of a move are checked: a caller may not lift an entry out of a
+    // project or day they cannot write, nor drop one into one they cannot write.
+    await assertEntryProjectAccess(write, {
       projectId: entry.timeProjectId ?? null,
       entryStaffMemberId: entry.staffMemberId,
+      date: entry.date,
     })
-    if (projectChanged) {
-      await assertEntryProjectAccess({
-        access,
-        hasManageAll,
+    if (projectChanged || parsed.date !== undefined) {
+      await assertEntryProjectAccess(write, {
         projectId: nextProjectId,
         entryStaffMemberId: entry.staffMemberId,
+        date: parsed.date ?? entry.date,
       })
     }
 
@@ -1394,12 +1446,10 @@ const deleteTimeEntryCommand: CommandHandler<{ id?: string }, { timeEntryId: str
     }
 
     const settings = await readEntrySettings(ctx, entry.tenantId)
-    await assertEntryProjectAccess({
-      access: await resolveEntryProjectAccess(em, ctx, entry.tenantId, entry.organizationId, settings),
-      hasManageAll,
-      projectId: entry.timeProjectId ?? null,
-      entryStaffMemberId: entry.staffMemberId,
-    })
+    await assertEntryProjectAccess(
+      { access: await resolveEntryProjectAccess(em, ctx, entry.tenantId, entry.organizationId, settings), hasManageAll },
+      { projectId: entry.timeProjectId ?? null, entryStaffMemberId: entry.staffMemberId, date: entry.date },
+    )
 
     entry.deletedAt = new Date()
     entry.updatedAt = new Date()
