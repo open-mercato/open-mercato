@@ -914,6 +914,54 @@ describe('server dev managed process exits', () => {
     consoleLogSpy.mockRestore()
   })
 
+  it('starts next dev with NODE_ENV=development (#6948)', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    process.env.AUTO_SPAWN_WORKERS = 'false'
+
+    jest.doMock('node:fs', () => {
+      const actual = jest.requireActual('node:fs')
+      return {
+        ...actual,
+        existsSync: jest.fn((candidate: string) =>
+          pathIncludes(candidate, 'next/dist/bin/next') || pathIncludes(candidate, '@open-mercato/cli/bin/mercato'),
+        ),
+        unlinkSync: jest.fn(),
+      }
+    })
+    jest.doMock('../lib/generators', () => ({
+      generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      resolveEnvironment: () => ({
+        appDir: '/tmp/test-app',
+        rootDir: '/tmp/test-root',
+      }),
+      createResolver: () => ({}),
+    }))
+    jest.doMock('child_process', () =>
+      buildMockChildProcessModule((args) =>
+        pathIncludes(args[0] ?? '', 'next/dist/bin/next') ? { code: null, signal: 'SIGTERM' } : undefined,
+      ),
+    )
+
+    const mercato = await import('../mercato')
+    await mercato.run(['node', 'mercato', 'server', 'dev'])
+    const { spawn } = await import('child_process')
+    const nextSpawns = (spawn as jest.Mock).mock.calls.filter((call) =>
+      pathIncludes(call[1]?.[0] ?? '', 'next/dist/bin/next'),
+    )
+
+    expect(nextSpawns.length).toBeGreaterThan(0)
+    for (const call of nextSpawns) {
+      expect((call[2] as { env: NodeJS.ProcessEnv }).env.NODE_ENV).toBe('development')
+    }
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
   it('fails loudly when a managed child exits cleanly but unexpectedly', async () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
