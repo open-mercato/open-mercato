@@ -274,4 +274,17 @@ describe('payment gateway service — status polling rotation', () => {
     expect(store[0].lastPolledAt).not.toBeNull()
     expect(store[0].unifiedStatus).toBe('pending')
   })
+
+  it('rethrows the provider error when recording the poll time after a failed read also fails', async () => {
+    const store = buildStore(1)
+    const { service, getStatus, nativeUpdate } = buildService(store, () => 'pending')
+    const providerError = new Error('provider unavailable')
+    getStatus.mockRejectedValueOnce(providerError)
+    nativeUpdate.mockRejectedValueOnce(new Error('database unavailable'))
+
+    await expect(
+      service.getPaymentStatus('txn_1', { organizationId: 'org_1', tenantId: 'tenant_1' }),
+    ).rejects.toBe(providerError)
+    expect(nativeUpdate).toHaveBeenCalledTimes(1)
+  })
 })

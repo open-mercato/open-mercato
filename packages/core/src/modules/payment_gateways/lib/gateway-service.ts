@@ -705,7 +705,15 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
           credentials,
         })
       } catch (error) {
-        await stampLastPolledAt(transaction, new Date())
+        try {
+          await stampLastPolledAt(transaction, new Date())
+        } catch (stampError) {
+          logger.warn('Failed to record last poll time after a failed status read', {
+            transactionId: transaction.id,
+            providerKey: transaction.providerKey,
+            err: stampError,
+          })
+        }
         throw error
       }
 
