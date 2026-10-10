@@ -1,6 +1,6 @@
 import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
+import { registerCommand, type CommandHandler, type CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
@@ -18,6 +18,8 @@ import {
   toXraySettingsSnapshot,
   type XraySettingsSnapshot,
 } from '../lib/projection/settings'
+import { canonicalIanaTimeZone } from '../lib/analytics/window'
+import { resolveWorkflowDraftService } from '../lib/workflowsBridge'
 
 export const XRAY_SETTINGS_SAVE_COMMAND_ID = 'insights.xray.settings.save'
 
@@ -41,9 +43,35 @@ function settingsChanges(input: XraySettingsSaveInput): Partial<InsightsProcessS
   if (input.kAnonymity !== undefined) changes.kAnonymity = Math.max(input.kAnonymity, XRAY_K_ANONYMITY_MIN)
   if (input.debounceSeconds !== undefined) changes.debounceSeconds = input.debounceSeconds
   if (input.individualsEnabled !== undefined) changes.individualsEnabled = input.individualsEnabled
+  if (input.timeZone !== undefined) changes.timeZone = canonicalIanaTimeZone(input.timeZone) ?? XRAY_SETTINGS_DEFAULTS.timeZone
   if (input.conformanceWorkflowId !== undefined) changes.conformanceWorkflowId = input.conformanceWorkflowId
   if (input.activityStepMap !== undefined) changes.activityStepMap = input.activityStepMap
   return changes
+}
+
+/**
+ * A conformance workflow must be a stored definition of the same tenant AND organization, read
+ * through the workflows module's soft-optional `workflowDraftService` (422 when it is absent or
+ * the definition does not resolve in that scope; the error never says which).
+ */
+async function assertConformanceWorkflow(ctx: CommandRuntimeContext, input: XraySettingsSaveInput): Promise<void> {
+  const workflowId = input.conformanceWorkflowId
+  if (workflowId === undefined || workflowId === null) return
+  const { translate } = await resolveTranslations()
+  const service = resolveWorkflowDraftService(ctx.container)
+  if (!service) {
+    throw new CrudHttpError(422, {
+      error: translate('insights.xray.errors.workflows_unavailable', 'Workflows are not available, so a conformance workflow cannot be set.'),
+      code: 'workflows_unavailable',
+    })
+  }
+  const definition = await service.getDefinitionForScope(workflowId, { tenantId: input.tenantId, organizationId: input.organizationId })
+  if (!definition) {
+    throw new CrudHttpError(422, {
+      error: translate('insights.xray.errors.conformance_workflow_not_found', 'The conformance workflow does not exist in this organization.'),
+      code: 'conformance_workflow_not_found',
+    })
+  }
 }
 
 async function conflictWithCurrent(em: EntityManager, input: XraySettingsSaveInput, expected: Date | null): Promise<never> {
@@ -74,6 +102,7 @@ const saveXraySettingsCommand: CommandHandler<XraySettingsSaveInput, SaveXraySet
     const input = xraySettingsSaveSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, input.tenantId)
     ensureOrganizationScope(ctx, input.organizationId)
+    await assertConformanceWorkflow(ctx, input)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
     const existing = await findXraySettingsRecord(em, scope)
@@ -106,6 +135,7 @@ const saveXraySettingsCommand: CommandHandler<XraySettingsSaveInput, SaveXraySet
       kAnonymity: XRAY_SETTINGS_DEFAULTS.kAnonymity,
       debounceSeconds: XRAY_SETTINGS_DEFAULTS.debounceSeconds,
       individualsEnabled: XRAY_SETTINGS_DEFAULTS.individualsEnabled,
+      timeZone: XRAY_SETTINGS_DEFAULTS.timeZone,
       conformanceWorkflowId: XRAY_SETTINGS_DEFAULTS.conformanceWorkflowId,
       activityStepMap: XRAY_SETTINGS_DEFAULTS.activityStepMap,
       ...changes,

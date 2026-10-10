@@ -7,6 +7,9 @@ import {
   EXPLAIN_VALUE_KINDS,
   EXPLAIN_VERDICTS,
 } from '@open-mercato/shared/modules/insights/explain'
+import { canonicalIanaTimeZone } from '../lib/analytics/window'
+import { PROCESS_KEY_PATTERN } from '@open-mercato/shared/modules/insights/process'
+import { processSummaryResultSchema, resolvedWindowSchema } from '../lib/analytics/types'
 
 export const EXPLAIN_PAGE_LIMIT_MAX = 100
 export const EXPLAIN_PAGE_LIMIT_DEFAULT = 20
@@ -409,6 +412,13 @@ const xrayActivityStepMapSchema = z
     message: `At most ${XRAY_STEP_MAP_MAX_ENTRIES} activity mappings are allowed`,
   })
 
+export const xrayTimeZoneSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .refine((value) => canonicalIanaTimeZone(value) !== null, { message: 'Unknown IANA time zone' })
+
 export const xraySettingsUpdateSchema = z
   .object({
     enabled: z.boolean().optional().describe('Projects this organization\'s audited changes into Process X-Ray (default true).'),
@@ -416,6 +426,7 @@ export const xraySettingsUpdateSchema = z
     kAnonymity: z.number().int().min(XRAY_K_ANONYMITY_FLOOR).max(1000).optional().describe('Minimum number of cases per reported cell (default 10, minimum 5).'),
     debounceSeconds: z.number().int().min(0).max(86400).optional().describe('Window in which a change and its correction collapse into one step at query time (default 120).'),
     individualsEnabled: z.boolean().optional().describe('Allows per-person breakdowns for users with `insights.xray.view_individuals` (default false).'),
+    timeZone: xrayTimeZoneSchema.optional().describe('IANA time zone of the default 7/30/90-day windows and their precomputed rollups (default `UTC`); stored in its canonical spelling.'),
     conformanceWorkflowId: z.string().uuid().nullable().optional().describe('Workflow definition the process is compared against.'),
     activityStepMap: xrayActivityStepMapSchema.nullable().optional().describe('Maps activity keys to workflow step ids for conformance.'),
   })
@@ -436,6 +447,7 @@ export const xraySettingsSchema = z.object({
   kAnonymity: z.number().int(),
   debounceSeconds: z.number().int(),
   individualsEnabled: z.boolean(),
+  timeZone: z.string(),
   conformanceWorkflowId: z.string().uuid().nullable(),
   activityStepMap: z.record(z.string(), z.string()).nullable(),
   updatedAt: z.string().nullable().describe('Version token for optimistic locking; null until the settings are first saved.'),
@@ -528,3 +540,153 @@ export const xrayStatusResponseSchema = z.object({
 })
 
 export type XrayStatusResponse = z.infer<typeof xrayStatusResponseSchema>
+
+export const XRAY_ANALYTICS_PAGE_SIZE_MAX = 100
+export const XRAY_ANALYTICS_PAGE_SIZE_DEFAULT = 50
+export const XRAY_VARIANTS_LIMIT_MAX = 100
+export const XRAY_VARIANTS_LIMIT_DEFAULT = 20
+export const XRAY_BREAKDOWN_GROUP_VALUES = ['org', 'role', 'team', 'user'] as const
+export const XRAY_CASE_STATUS_VALUES = ['open', 'completed', 'deleted'] as const
+
+const XRAY_CSV_MAX_LENGTH = 4000
+
+const xrayWindowFields = {
+  window: z.enum(['7d', '30d', '90d']).optional().describe('Default window (calendar days in the time zone, today included); `30d` when neither `window` nor `from`/`to` is given.'),
+  from: z.string().max(64).optional().describe('Start of a custom window (ISO 8601 date-time); requires `to`. At most 180 days; longer windows answer 422 `window_too_large`.'),
+  to: z.string().max(64).optional().describe('End (exclusive) of a custom window (ISO 8601 date-time); requires `from`.'),
+  timeZone: z.string().max(64).optional().describe('IANA time zone of the window; defaults to the organizations\' configured X-Ray time zone (UTC when they differ).'),
+}
+
+const xrayFilterFields = {
+  causeKinds: z.string().max(XRAY_CSV_MAX_LENGTH).optional().describe('Comma-separated cause kinds (`user`, `workflow`, `legacy`, …).'),
+  actorRoleIds: z.string().max(XRAY_CSV_MAX_LENGTH).optional().describe('Comma-separated role ids; refused with 422 `filter_too_narrow` when a value or the filtered population covers fewer than k cases or three actors.'),
+  actorTeamIds: z.string().max(XRAY_CSV_MAX_LENGTH).optional().describe('Comma-separated team ids (same rule as `actorRoleIds`).'),
+  includeSyncRun: z.string().max(8).optional().describe('`true` includes `sync_run` steps in duration statistics.'),
+}
+
+function windowSelectionIssue(value: { window?: string; from?: string; to?: string }, ctx: z.RefinementCtx): void {
+  const custom = value.from !== undefined || value.to !== undefined
+  if (custom && (value.from === undefined || value.to === undefined)) {
+    ctx.addIssue({ code: 'custom', message: 'from and to must be given together', path: [value.from === undefined ? 'from' : 'to'] })
+  }
+  if (custom && value.window !== undefined) {
+    ctx.addIssue({ code: 'custom', message: 'window cannot be combined with from/to', path: ['window'] })
+  }
+}
+
+export const xrayProcessesQuerySchema = z.object(xrayWindowFields).superRefine(windowSelectionIssue)
+
+export const xrayAnalyticsQuerySchema = z.object({ ...xrayWindowFields, ...xrayFilterFields }).superRefine(windowSelectionIssue)
+
+export type XrayAnalyticsQuery = z.infer<typeof xrayAnalyticsQuerySchema>
+
+export const xrayVariantsQuerySchema = z
+  .object({
+    ...xrayWindowFields,
+    ...xrayFilterFields,
+    limit: z.coerce.number().int().min(1).max(XRAY_VARIANTS_LIMIT_MAX).optional().describe(`Most frequent variants returned (default ${XRAY_VARIANTS_LIMIT_DEFAULT}, at most ${XRAY_VARIANTS_LIMIT_MAX}).`),
+  })
+  .superRefine(windowSelectionIssue)
+
+export const xrayBreakdownQuerySchema = z
+  .object({
+    ...xrayWindowFields,
+    ...xrayFilterFields,
+    groupBy: z.enum(XRAY_BREAKDOWN_GROUP_VALUES).optional().describe('`org` (default), `role`, `team`, or `user` (requires `insights.xray.view_individuals` and the organization setting `individualsEnabled`; every read writes an access log row first).'),
+  })
+  .superRefine(windowSelectionIssue)
+
+export const xrayConformanceQuerySchema = z
+  .object({
+    ...xrayWindowFields,
+    ...xrayFilterFields,
+    sequence: z.string().max(XRAY_CSV_MAX_LENGTH).optional().describe('Comma-separated expected activity keys (an ad-hoc designed sequence). Without it, each organization\'s configured conformance workflow (`conformanceWorkflowId` + `activityStepMap`) is used.'),
+  })
+  .superRefine(windowSelectionIssue)
+
+export const xrayCasesQuerySchema = z
+  .object({
+    ...xrayWindowFields,
+    ...xrayFilterFields,
+    pageSize: z.coerce.number().int().min(1).max(XRAY_ANALYTICS_PAGE_SIZE_MAX).optional().describe(`Page size (default ${XRAY_ANALYTICS_PAGE_SIZE_DEFAULT}, at most ${XRAY_ANALYTICS_PAGE_SIZE_MAX}).`),
+    cursor: z.string().min(1).max(400).optional().describe('`nextCursor` of the previous page.'),
+    status: z.string().max(100).optional().describe('Comma-separated case statuses (`open`, `completed`, `deleted`).'),
+    variantHash: z.string().regex(/^[0-9a-f]{64}$/).optional().describe('A stored variant hash (`rawVariantHashes` of a variant): cases completed in the window with that variant.'),
+    activityKey: z.string().min(1).max(200).optional().describe('Cases with this activity in the window.'),
+  })
+  .superRefine(windowSelectionIssue)
+
+const XRAY_WORKFLOW_INPUT_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9_]{0,63}$/
+
+export const xrayWorkflowDraftRequestSchema = z
+  .object({
+    ...xrayWindowFields,
+    commandId: z.string().trim().min(1).max(200).describe('Workflow-safe UPDATE_ENTITY command that updates the case root (e.g. `customers.deals.update`); the caller must hold its features.'),
+    recordIdInputKey: z.string().regex(XRAY_WORKFLOW_INPUT_KEY_PATTERN).optional().describe('Command input key receiving `{{context.recordId}}` (default `id`).'),
+    inputKeys: z
+      .record(z.string().regex(XRAY_WORKFLOW_INPUT_KEY_PATTERN), z.string().regex(XRAY_WORKFLOW_INPUT_KEY_PATTERN))
+      .refine((value) => Object.keys(value).length <= 50, { message: 'At most 50 input key mappings are allowed' })
+      .optional()
+      .describe('Stage field key → command input key (default: the field key).'),
+    workflowId: z.string().min(1).max(100).regex(/^[a-z0-9._-]+$/).optional().describe('Workflow id of the draft (default derived from the process and the variant).'),
+    workflowName: z.string().trim().min(1).max(255).optional(),
+  })
+  .strict()
+  .superRefine(windowSelectionIssue)
+
+export type XrayWorkflowDraftRequest = z.infer<typeof xrayWorkflowDraftRequestSchema>
+
+export const xrayProcessPathParamsSchema = z.object({
+  processKey: z.string().regex(PROCESS_KEY_PATTERN).describe('Registered process key, e.g. `customers.deal`.'),
+})
+
+export const xrayVariantPathParamsSchema = xrayProcessPathParamsSchema.extend({
+  hash: z.string().regex(/^[0-9a-f]{64}$/).describe('`variantHash` of an item of the variants listing.'),
+})
+
+export const xrayAnalyticsErrorSchema = z.object({
+  error: z.string(),
+  code: z.string(),
+  hint: z.string().nullable().optional().describe('What to do instead, e.g. `run_background_analysis` (window or event budget too large) or `widen_actor_filter`.'),
+  issues: z.array(z.object({ path: z.string(), code: z.string() })).optional(),
+})
+
+const xrayProcessSummaryItemSchema = processSummaryResultSchema.extend({
+  labelKey: z.string(),
+  moduleId: z.string(),
+  resourceKind: z.string(),
+})
+
+export const xrayProcessesResponseSchema = z.object({
+  items: z.array(xrayProcessSummaryItemSchema).describe('Registered processes whose `insights.xray.view` and declared `requiredFeatures` the caller holds, with headline counts.'),
+  n: z.number().int().nonnegative().describe('Cases with activity in the window, summed over the listed processes.'),
+  computedThrough: z.string().nullable().describe('Oldest projection position of the listed processes; null while any is incomplete.'),
+  incomplete: z.boolean(),
+})
+
+export const xrayWorkflowDraftResponseSchema = z.object({
+  ok: z.literal(true),
+  persisted: z.literal(false).describe('Nothing is stored: create the draft through `POST /api/workflows/definitions`.'),
+  processKey: z.string(),
+  variantHash: z.string(),
+  variantCases: z.number().int().nonnegative().describe('Cases of the variant in the window.'),
+  window: resolvedWindowSchema,
+  n: z.number().int().nonnegative().describe('Completed cases of the variants population in the window.'),
+  computedThrough: z.string().nullable(),
+  incomplete: z.boolean(),
+  payload: z.record(z.string(), z.unknown()).describe('Validated, disabled (`enabled: false`, `lifecycle: draft`) workflow definition for `POST /api/workflows/definitions`; only UPDATE_ENTITY activities.'),
+  activityStepMap: z.record(z.string(), z.string()).describe('Activity key → generated step id (usable as the conformance `activityStepMap`).'),
+  skippedActivities: z.array(z.string()).describe('Variant activities that cannot be expressed as an update of the case root (lifecycle, follow-up, milestone, `other`/`none` values).'),
+  commands: z.array(z.object({ commandId: z.string(), requiredFeatures: z.array(z.string()) })),
+  workflowIdAvailable: z.boolean().describe('False when the tenant already has a definition with this `workflowId` (the create call would answer 409).'),
+})
+
+export {
+  bottlenecksResultSchema as xrayBottlenecksResponseSchema,
+  breakdownResultSchema as xrayBreakdownResponseSchema,
+  caseListResultSchema as xrayCasesResponseSchema,
+  conformanceResultSchema as xrayConformanceResponseSchema,
+  processMapResultSchema as xrayMapResponseSchema,
+  reworkResultSchema as xrayReworkResponseSchema,
+  variantsResultSchema as xrayVariantsResponseSchema,
+} from '../lib/analytics/types'

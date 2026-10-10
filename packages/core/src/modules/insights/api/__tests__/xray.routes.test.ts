@@ -18,11 +18,15 @@ const runRouteMutationGuardsMock = jest.fn()
 const startXrayBackfillMock = jest.fn()
 const readXrayStatusMock = jest.fn()
 const userHasAllFeaturesMock = jest.fn(async (_userId: string, _features: readonly string[], _scope?: unknown) => true)
+const commandExecuteMock = jest.fn()
+const invalidateXrayAnalyticsMock = jest.fn(async (..._args: unknown[]) => undefined)
+const findXraySettingsRecordMock = jest.fn(async (..._args: unknown[]) => null)
 
 const container = {
   resolve: (name: string): unknown => {
     if (name === 'em') return { fork: () => ({}) }
     if (name === 'rbacService') return { userHasAllFeatures: userHasAllFeaturesMock }
+    if (name === 'commandBus') return { execute: commandExecuteMock }
     throw new Error(`[internal] unexpected service ${name}`)
   },
 }
@@ -71,6 +75,15 @@ jest.mock('../../lib/projection/jobs', () => {
   }
 })
 
+jest.mock('../../lib/analytics/index', () => ({
+  invalidateXrayAnalytics: (...args: unknown[]) => invalidateXrayAnalyticsMock(...args),
+}))
+
+jest.mock('../../lib/projection/settings', () => {
+  const actual = jest.requireActual('../../lib/projection/settings')
+  return { ...actual, findXraySettingsRecord: (...args: unknown[]) => findXraySettingsRecordMock(...args) }
+})
+
 jest.mock('../../lib/process/registry', () => {
   const actual = jest.requireActual('../../lib/process/registry')
   return {
@@ -90,6 +103,8 @@ jest.mock('../../lib/process/registry', () => {
 
 import { POST as backfillPost } from '../xray/backfill/route'
 import { GET as statusGet } from '../xray/status/route'
+import { PUT as settingsPut } from '../xray/settings/route'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 function request(method: string, url: string, body?: unknown): Request {
   return new Request(url, {
@@ -222,5 +237,33 @@ describe('X-Ray route scope', () => {
     expect(isOrganizationInTenantMock).toHaveBeenCalledWith(expect.anything(), { tenantId: TENANT_ID, organizationId: OTHER_ORG_ID })
     expect(runRouteMutationGuardsMock).not.toHaveBeenCalled()
     expect(startXrayBackfillMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('PUT /api/insights/xray/settings — analytics invalidation', () => {
+  function savedSettings() {
+    return { ...XRAY_SETTINGS_DEFAULTS, id: 'settings-1', settingsId: 'settings-1', updatedAt: '2026-10-10T10:00:00.000Z', timeZone: 'Europe/Warsaw' }
+  }
+
+  it('invalidates the organization\'s analytics after a successful save', async () => {
+    commandExecuteMock.mockResolvedValueOnce({ result: savedSettings() })
+    const response = await settingsPut(request('PUT', 'http://localhost/api/insights/xray/settings', { timeZone: 'Europe/Warsaw' }))
+    expect(response.status).toBe(200)
+    expect((await response.json()).result).toEqual(expect.objectContaining({ timeZone: 'Europe/Warsaw' }))
+    expect(commandExecuteMock).toHaveBeenCalledWith('insights.xray.settings.save', expect.objectContaining({ input: expect.objectContaining({ timeZone: 'Europe/Warsaw' }) }))
+    expect(invalidateXrayAnalyticsMock).toHaveBeenCalledWith(container, { tenantId: TENANT_ID, organizationId: ORG_ID })
+  })
+
+  it('keeps the save when the invalidation fails (reported), and never invalidates a refused save', async () => {
+    commandExecuteMock.mockResolvedValueOnce({ result: savedSettings() })
+    invalidateXrayAnalyticsMock.mockRejectedValueOnce(new Error('cache down'))
+    expect((await settingsPut(request('PUT', 'http://localhost/api/insights/xray/settings', { kAnonymity: 12 }))).status).toBe(200)
+    expect(reportErrorMock).toHaveBeenCalledWith(expect.any(Error), expect.objectContaining({ code: 'insights.xray_analytics_invalidation_failed' }))
+    invalidateXrayAnalyticsMock.mockClear()
+    commandExecuteMock.mockRejectedValueOnce(new CrudHttpError(422, { error: 'nope', code: 'conformance_workflow_not_found' }))
+    const refused = await settingsPut(request('PUT', 'http://localhost/api/insights/xray/settings', { conformanceWorkflowId: '55555555-0000-4000-8000-000000000001' }))
+    expect(refused.status).toBe(422)
+    expect(invalidateXrayAnalyticsMock).not.toHaveBeenCalled()
+    expect((await settingsPut(request('PUT', 'http://localhost/api/insights/xray/settings', { timeZone: '+01:00' }))).status).toBe(400)
   })
 })

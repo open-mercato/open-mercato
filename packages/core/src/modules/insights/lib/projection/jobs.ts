@@ -5,6 +5,9 @@ import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import type { ProgressService, ProgressServiceContext } from '@open-mercato/core/modules/progress/lib/progressService'
 import { getProcessRegistry, type ProcessRegistrySnapshot } from '../process/registry'
+import { createXrayAnalyticsFromContainer, invalidateXrayAnalytics } from '../analytics/index'
+import { readProjectionState, runAnalyticsQuery } from '../analytics/query'
+import { isRollupPassDue, listRollupPasses, markRollupPass, pruneStaleRollups } from '../analytics/rollups'
 import { describeXrayError } from './errors'
 import {
   XRAY_KEY_MISMATCH_ERROR,
@@ -26,13 +29,16 @@ import {
   XRAY_INGEST_INTERVAL_MS,
   enqueueXrayBackfill,
   enqueueXrayIngest,
+  enqueueXrayRollup,
   ensureXrayIngestSchedule,
   readXrayIngestBacklog,
+  readXrayRollupBacklog,
   type XrayBackfillJobPayload,
 } from './queue'
 import {
   createLeaseOwner,
   createServiceResolver,
+  createXrayDatabase,
   createXrayIngestDeps,
   createXrayStore,
   type XrayContainer,
@@ -75,7 +81,11 @@ export type XrayIngestJobResult = XraySliceResult | { status: 'disabled' | 'no_p
 
 export type XrayFanoutResult =
   | { status: 'backlogged'; backlog: number }
-  | { status: 'done'; enqueued: number; skipped: number; stray: number }
+  | { status: 'done'; enqueued: number; skipped: number; stray: number; rollupsEnqueued: number }
+
+export type XrayRollupJobResult =
+  | { status: 'disabled' | 'no_processes' | 'not_due' | 'incomplete'; pruned: number }
+  | { status: 'done'; processes: number; written: number; skipped: number; pruned: number }
 
 export type XrayBackfillStart =
   | { ok: true; scanId: string; chainId: string; progressJobId: string | null; scheduleRegistered: boolean }
@@ -105,6 +115,20 @@ function resolveEm(container: XrayContainer): EntityManager {
 
 function resolveProgress(container: XrayContainer): ProgressService | undefined {
   return createServiceResolver(container)<ProgressService>('progressService')
+}
+
+/**
+ * Invalidates the organization's analytics (rollup marker + cached results) after its projection
+ * changed under them. Never throws: a failure is logged and reported, and stale results then
+ * expire on their own (cache TTL, rollup age).
+ */
+async function invalidateAnalyticsSafely(container: XrayContainer, scope: ProjectionScope, reason: string): Promise<void> {
+  try {
+    await invalidateXrayAnalytics(container, scope)
+  } catch (error) {
+    logger.warn('[internal] Could not invalidate the X-Ray analytics of an organization', { organizationId: scope.organizationId, reason, err: error })
+    getTelemetryRuntime()?.reportError(error, { module: 'insights', code: 'insights.xray_analytics_invalidation_failed', attributes: { reason } })
+  }
 }
 
 async function safely(action: string, run: () => Promise<unknown>): Promise<void> {
@@ -227,6 +251,7 @@ export async function runXrayIngestJob(container: XrayContainer, scope: Projecti
     throw error
   }
   reportUndecryptable(scope, result)
+  if (result.voided > 0) await invalidateAnalyticsSafely(container, scope, 'voided')
   if (result.scanStarted) {
     await enqueueXrayBackfill({ scope, scanId: result.scanStarted.scanId, chainId: result.scanStarted.chainId, progressJobId: null })
   }
@@ -247,10 +272,12 @@ export async function runXrayIngestJob(container: XrayContainer, scope: Projecti
  * organization cursor and enqueues one ingest job per organization. Skips cursors whose
  * organization does not belong to their tenant (stray rows, logged), and organizations whose
  * settings or tenant kill switch disable X-Ray (or every organization when no process is
- * declared) unless their daily retention prune is due. The whole tick is skipped while the ingest
- * queue still holds `XRAY_FANOUT_MAX_BACKLOG` waiting jobs, so a backlog never grows by a full
- * round per interval. Organizations get their cursor from tenant setup, organization creation or
- * a backfill.
+ * declared) unless their daily retention prune is due. Enabled organizations whose last rollup
+ * pass is older than `XRAY_ROLLUP_INTERVAL_MS` (or missing) also get a rollup job, unless the
+ * rollup queue already holds `XRAY_FANOUT_MAX_BACKLOG` waiting jobs. The whole tick is skipped
+ * while the ingest queue still holds `XRAY_FANOUT_MAX_BACKLOG` waiting jobs, so a backlog never
+ * grows by a full round per interval. Organizations get their cursor from tenant setup,
+ * organization creation or a backfill.
  */
 export async function runXrayIngestFanout(container: XrayContainer): Promise<XrayFanoutResult> {
   const backlog = await readXrayIngestBacklog()
@@ -271,17 +298,22 @@ export async function runXrayIngestFanout(container: XrayContainer): Promise<Xra
     return pending
   }
   const dbNow = await store.now()
+  const rollupBacklog = active ? await readXrayRollupBacklog() : null
+  const scheduleRollups = active && (rollupBacklog === null || rollupBacklog < XRAY_FANOUT_MAX_BACKLOG)
+  const kysely = createXrayDatabase(em)
   let after: ProjectionScope | null = null
   let enqueued = 0
   let skipped = 0
   let stray = 0
+  let rollupsEnqueued = 0
   for (;;) {
     const page: ProjectionCursor[] = await store.listCursors({ allTenants: true, after, limit: CURSOR_PAGE_SIZE })
     if (page.length === 0) break
     const scopes = page.map((cursor) => ({ tenantId: cursor.tenantId, organizationId: cursor.organizationId }))
-    const [tenants, disabled] = await Promise.all([
+    const [tenants, disabled, rollupPasses] = await Promise.all([
       resolveOrganizationTenants(em, scopes.map((scope) => scope.organizationId)),
       active ? listDisabledXrayOrganizations(em, scopes) : Promise.resolve(new Set<string>()),
+      scheduleRollups ? listRollupPasses(kysely, scopes) : Promise.resolve(new Map<string, string>()),
     ])
     for (const [index, cursor] of page.entries()) {
       const scope = scopes[index]
@@ -290,6 +322,10 @@ export async function runXrayIngestFanout(container: XrayContainer): Promise<Xra
         continue
       }
       const enabled = active && !disabled.has(xrayScopeKey(scope)) && await toggleFor(scope.tenantId)
+      if (enabled && scheduleRollups && isRollupPassDue(rollupPasses.get(xrayScopeKey(scope)), dbNow)) {
+        await enqueueXrayRollup(scope)
+        rollupsEnqueued += 1
+      }
       if (!enabled && !isXrayPruneDue(cursor.lastPrunedAt, dbNow)) {
         skipped += 1
         continue
@@ -303,7 +339,34 @@ export async function runXrayIngestFanout(container: XrayContainer): Promise<Xra
   if (stray > 0) {
     logger.warn('[internal] X-Ray ingest tick skipped cursors whose organization does not belong to their tenant', { cursors: stray })
   }
-  return { status: 'done', enqueued, skipped, stray }
+  return { status: 'done', enqueued, skipped, stray, rollupsEnqueued }
+}
+
+/**
+ * One rollup pass of an organization (queue `insights-xray-rollup`, enqueued by the system tick).
+ * Refuses an organization of another tenant. Skips an organization whose settings or kill switch
+ * disable X-Ray (or when no process is declared), whose last pass is not due yet (a duplicate job
+ * finds the fresh pass marker) or whose projection is incomplete (backfill, rebuild or range scan
+ * running: such rollups would be served right after it finishes). Otherwise computes the
+ * 7/30/90-day rollups in the organization's time zone, prunes rollups of windows that ended and
+ * records the pass. Idempotent: rollups are upserted per window and never overwrite newer ones.
+ */
+export async function runXrayRollupJob(container: XrayContainer, scope: ProjectionScope): Promise<XrayRollupJobResult> {
+  const registry = getProcessRegistry()
+  const em = resolveEm(container)
+  await assertXrayScope(em, scope)
+  if (!hasProcesses(registry)) return { status: 'no_processes', pruned: 0 }
+  const gate = await isIngestAllowed(container, scope, em)
+  if (!gate.allowed) return { status: 'disabled', pruned: 0 }
+  const db = createXrayDatabase(em)
+  const [passes, dbNow] = await Promise.all([listRollupPasses(db, [scope]), createXrayStore(em).now()])
+  if (!isRollupPassDue(passes.get(xrayScopeKey(scope)), dbNow)) return { status: 'not_due', pruned: 0 }
+  const pruned = await pruneStaleRollups(db, scope)
+  const state = await runAnalyticsQuery(db, (trx) => readProjectionState(trx, { tenantId: scope.tenantId, organizationIds: [scope.organizationId] }))
+  if (state.incomplete) return { status: 'incomplete', pruned }
+  const pass = await createXrayAnalyticsFromContainer(container).computeRollups(scope, { timeZone: gate.settings.timeZone })
+  await markRollupPass(db, scope)
+  return { status: 'done', ...pass, pruned }
 }
 
 /**
@@ -427,6 +490,12 @@ async function endScan(
   }
 }
 
+/**
+ * Cancels the progress job of a scan that another scan replaced. A cursor without any scan means
+ * the scan ended and whoever ended it settles the progress job (completion, `endScan`, a
+ * rebuild's reset), so nothing is cancelled: otherwise a duplicate delivery of the job that
+ * finished the scan could cancel it between the scan's completion and `completeJob`.
+ */
 async function cancelIfSuperseded(
   store: ProjectionStore,
   progress: ProgressService | undefined,
@@ -436,7 +505,8 @@ async function cancelIfSuperseded(
   const jobId = payload.progressJobId
   if (!progress || !jobId) return
   const cursor = await store.readCursor({ tenantId: payload.scope.tenantId, organizationId: payload.scope.organizationId })
-  if (cursor?.scanProgressJobId !== jobId) await safely('mark_cancelled', () => progress.markCancelled(jobId, progressContext))
+  if (!cursor || cursor.scanId === null) return
+  if (cursor.scanProgressJobId !== jobId) await safely('mark_cancelled', () => progress.markCancelled(jobId, progressContext))
 }
 
 function isIngestStarved(cursor: ProjectionCursor, dbNow: string): boolean {
@@ -515,46 +585,54 @@ export async function runXrayBackfillJob(
   }
   reportUndecryptable(scope, result)
   const jobId = payload.progressJobId
-  switch (result.status) {
-    case 'completed':
-      if (progress && jobId) {
-        await safely('update_progress', () => progress.updateProgress(jobId, { processedCount: result.scanProgress?.processed ?? 0, progressPercent: 100 }, progressContext))
-        await safely('complete_job', () => progress.completeJob(jobId, {
-          resultSummary: { processed: result.scanProgress?.processed ?? 0, scanId: payload.scanId },
-        }, progressContext))
-      }
-      return result.status
-    case 'budget_exhausted':
-    case 'lease_lost':
-      if (progress && jobId) {
-        const percent = progressPercent(result)
-        await safely('update_progress', () => progress.updateProgress(jobId, {
-          processedCount: result.scanProgress?.processed ?? 0,
-          ...(percent !== undefined ? { progressPercent: percent } : {}),
-        }, progressContext))
-      }
-      if (enqueueContinuation) {
-        if (result.status === 'budget_exhausted') await nudgeStarvedIngest(store, current, scope)
-        await enqueueXrayBackfill(payload, result.status === 'lease_lost' ? LEASE_LOST_RETRY_MS : XRAY_SCAN_CONTINUATION_DELAY_MS)
-      }
-      return result.status
-    case 'lease_busy':
-      await store.touchScan(scope, payload.scanId, payload.chainId)
-      if (progress && jobId) await safely('heartbeat', async () => progress.touchJobHeartbeat?.(jobId, progressContext))
-      if (enqueueContinuation) await enqueueXrayBackfill(payload, LEASE_BUSY_RETRY_MS)
-      return result.status
-    case 'superseded':
-      await cancelIfSuperseded(store, progress, payload, progressContext)
-      return result.status
-    case 'stale_chain':
-      return result.status
-    case 'key_mismatch':
-      await endScan(store, progress, payload, progressContext, XRAY_KEY_MISMATCH_ERROR, 'failed')
-      return result.status
-    default:
-      await endScan(store, progress, payload, progressContext, `[internal] Process X-Ray backfill stopped: ${result.status}`, 'failed')
-      return result.status
+  const slice = result
+  const settle = async (): Promise<XraySliceResult['status']> => {
+    switch (slice.status) {
+      case 'completed':
+        if (progress && jobId) {
+          await safely('update_progress', () => progress.updateProgress(jobId, { processedCount: slice.scanProgress?.processed ?? 0, progressPercent: 100 }, progressContext))
+          await safely('complete_job', () => progress.completeJob(jobId, {
+            resultSummary: { processed: slice.scanProgress?.processed ?? 0, scanId: payload.scanId },
+          }, progressContext))
+        }
+        return slice.status
+      case 'budget_exhausted':
+      case 'lease_lost':
+        if (progress && jobId) {
+          const percent = progressPercent(slice)
+          await safely('update_progress', () => progress.updateProgress(jobId, {
+            processedCount: slice.scanProgress?.processed ?? 0,
+            ...(percent !== undefined ? { progressPercent: percent } : {}),
+          }, progressContext))
+        }
+        if (enqueueContinuation) {
+          if (slice.status === 'budget_exhausted') await nudgeStarvedIngest(store, current, scope)
+          await enqueueXrayBackfill(payload, slice.status === 'lease_lost' ? LEASE_LOST_RETRY_MS : XRAY_SCAN_CONTINUATION_DELAY_MS)
+        }
+        return slice.status
+      case 'lease_busy':
+        await store.touchScan(scope, payload.scanId, payload.chainId)
+        if (progress && jobId) await safely('heartbeat', async () => progress.touchJobHeartbeat?.(jobId, progressContext))
+        if (enqueueContinuation) await enqueueXrayBackfill(payload, LEASE_BUSY_RETRY_MS)
+        return slice.status
+      case 'superseded':
+        await cancelIfSuperseded(store, progress, payload, progressContext)
+        return slice.status
+      case 'stale_chain':
+        return slice.status
+      case 'key_mismatch':
+        await endScan(store, progress, payload, progressContext, XRAY_KEY_MISMATCH_ERROR, 'failed')
+        return slice.status
+      default:
+        await endScan(store, progress, payload, progressContext, `[internal] Process X-Ray backfill stopped: ${slice.status}`, 'failed')
+        return slice.status
+    }
   }
+  const status = await settle()
+  if (slice.voided > 0 || slice.status === 'completed') {
+    await invalidateAnalyticsSafely(container, scope, slice.status === 'completed' ? 'scan_completed' : 'voided')
+  }
+  return status
 }
 
 /**
@@ -611,6 +689,7 @@ export async function rebuildXrayProjection(
     await store.resetCursor(lease, XRAY_LEASE_MS, XRAY_SETTLE_MS)
   } finally {
     await store.releaseLease(lease)
+    await invalidateAnalyticsSafely(container, scope, 'rebuild')
   }
   const progress = resolveProgress(container)
   if (progress && cursor.scanProgressJobId) {
@@ -694,6 +773,9 @@ export async function eraseXrayActor(container: XrayContainer, tenantId: string,
     keyFingerprint: pseudonymizer.fingerprint,
     userValueFields: userValueFields(getProcessRegistry()),
   })
+  for (const cursor of await store.listCursors({ tenantId })) {
+    await invalidateAnalyticsSafely(container, { tenantId: cursor.tenantId, organizationId: cursor.organizationId }, 'erasure')
+  }
   if (outcome.mismatchedOrganizationIds.length > 0) throw new XrayErasureIncompleteError()
   return outcome.updated
 }

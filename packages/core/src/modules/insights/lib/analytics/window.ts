@@ -73,6 +73,23 @@ export function cachedTimeZoneFormatterCount(): number {
   return formatters.size
 }
 
+const IANA_TIME_ZONE_PATTERN = /^[A-Za-z][A-Za-z0-9_+-]*(?:\/[A-Za-z0-9_+-]+)*$/
+
+/**
+ * The canonical spelling of an IANA time zone name (e.g. `europe/warsaw` → `Europe/Warsaw`),
+ * or `null` for anything else: unknown zones and offset strings such as `+01:00`, which the
+ * runtime may accept but which are not zone names.
+ */
+export function canonicalIanaTimeZone(value: string): string | null {
+  const trimmed = value.trim()
+  if (trimmed.length === 0 || trimmed.length > 64 || !IANA_TIME_ZONE_PATTERN.test(trimmed)) return null
+  try {
+    return formatterFor(trimmed).resolvedOptions().timeZone
+  } catch {
+    return null
+  }
+}
+
 /** The IANA zone in its canonical spelling; an unknown zone is an invalid window. */
 export function assertTimeZone(timeZone: string): string {
   try {

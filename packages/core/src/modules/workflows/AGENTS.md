@@ -947,6 +947,7 @@ Treat a regression here as a broken feature, not a nit.
 | `activityExecutor` | Execute or enqueue activities (called by transition handler) |
 | `conditionHandler` | Evaluate and wake WAIT_FOR_CONDITION waiters (`evaluateWaitCondition` from the queue backstop, `wakeConditionWaiters` from a context write) |
 | `eventLogger` | Log workflow events for audit trail |
+| `workflowDraftService` | Validate a disabled draft definition another module proposes (persists nothing; rejects credential-bearing activities and non-workflow-safe UPDATE_ENTITY commands) and read a definition's structure scoped to tenant + organization (insights Process X-Ray conformance) |
 
 ## Adding a New Activity Type
 

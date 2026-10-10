@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { hostname } from 'node:os'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { Kysely } from 'kysely'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { isUuid } from '@open-mercato/shared/lib/causation/types'
@@ -38,8 +39,13 @@ export function createServiceResolver(container: XrayContainer): ServiceResolver
   }
 }
 
+/** The Kysely handle of the X-Ray tables on an entity manager's connection. */
+export function createXrayDatabase(em: EntityManager): Kysely<XrayDatabase> {
+  return em.getKysely<XrayDatabase>()
+}
+
 export function createXrayStore(em: EntityManager): ProjectionStore {
-  return createProjectionStore(em.getKysely<XrayDatabase>())
+  return createProjectionStore(createXrayDatabase(em))
 }
 
 export function createLeaseOwner(): string {

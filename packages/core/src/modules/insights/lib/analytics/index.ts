@@ -37,6 +37,7 @@ import {
   listActiveProcessKeys,
   listCaseIds,
   listTenantXrayOrganizations,
+  loadProcessSummaryCounts,
   readProjectionState,
   runAnalyticsQuery,
   type AnalyticsDb,
@@ -46,6 +47,7 @@ import { buildRework } from './rework'
 import { markRollupsInvalidated, readFreshRollup, upsertRollup } from './rollups'
 import { createEntityManagerSettingsLoader, type XraySettingsLoader } from './settings'
 import { buildVariants, limitVariants } from './variants'
+import { isLowConfidence } from './stats'
 import { resolveDefaultWindow, resolveWindow, toWindowView, type ResolvedWindow } from './window'
 import {
   XRAY_ANALYTICS_LIMITS,
@@ -62,6 +64,7 @@ import {
   durationsResultSchema,
   listCasesRequestSchema,
   processMapResultSchema,
+  processSummaryResultSchema,
   reworkResultSchema,
   variantsRequestSchema,
   variantsResultSchema,
@@ -77,6 +80,7 @@ import {
   type DurationsResult,
   type ListCasesRequestInput,
   type ProcessMapResult,
+  type ProcessSummaryResult,
   type ReworkResult,
   type RollupMetrics,
   type ScopeSettings,
@@ -114,6 +118,7 @@ export type RollupPassResult = {
 const logger = createLogger('insights').child({ component: 'xray-analytics' })
 
 export type XrayAnalytics = {
+  getSummary: (input: AnalyticsRequestInput) => Promise<ProcessSummaryResult>
   getProcessMap: (input: AnalyticsRequestInput) => Promise<ProcessMapResult>
   getVariants: (input: VariantsRequestInput) => Promise<VariantsResult>
   getDurations: (input: AnalyticsRequestInput) => Promise<DurationsResult>
@@ -122,6 +127,7 @@ export type XrayAnalytics = {
   getConformance: (input: ConformanceRequestInput) => Promise<ConformanceResult>
   getBreakdown: (input: BreakdownRequestInput) => Promise<BreakdownResult>
   listCases: (input: ListCasesRequestInput) => Promise<CaseListResult>
+  /** Default-window rollups of one organization, in its settings' time zone unless one is given; a disabled organization is skipped. */
   computeRollups: (scope: ProjectionScope, options?: { timeZone?: string }) => Promise<RollupPassResult>
   invalidate: (scope: ProjectionScope) => Promise<void>
 }
@@ -179,7 +185,8 @@ function canonicalScope(scope: ProjectionScope): ProjectionScope {
  * validated with zod (tenant, organization, role, team and viewer ids lower-cased); the
  * process must be registered (only registered process keys are read); the organization scope
  * mirrors `resolveOrganizationScopeFilter` (`null` = tenant-wide, `[]` = nothing, a list =
- * `organization_id IN (...)`); the window is ≤ 180 days; reads run in a read-only snapshot
+ * `organization_id IN (...)`), minus organizations whose settings disable X-Ray; the window is
+ * ≤ 180 days, in the organizations' settings time zone unless the request names one; reads run in a read-only snapshot
  * under a 5 s statement timeout; results carry `n`, `lowConfidence`, `computedThrough`,
  * `incomplete` and suppression markers. Actor role / team filters must pass the k /
  * three-actor rule value by value (`AnalyticsFilterTooNarrowError`), on every operation except
@@ -197,10 +204,17 @@ export function createXrayAnalytics(deps: XrayAnalyticsDeps): XrayAnalytics {
   const timeoutMs = deps.timeoutMs ?? XRAY_STATEMENT_TIMEOUT_MS
   const rollupTimeoutMs = deps.rollupTimeoutMs ?? XRAY_ROLLUP_STATEMENT_TIMEOUT_MS
 
-  async function resolveSettings(tenantId: string, organizationIds: string[] | null): Promise<ScopeSettings> {
-    if (organizationIds !== null && organizationIds.length === 0) return foldScopeSettings([], new Map())
-    const scopeOrganizations = organizationIds ?? await listTenantXrayOrganizations(deps.db, tenantId)
-    return foldScopeSettings(scopeOrganizations, await deps.loadSettings(tenantId, scopeOrganizations))
+  async function resolveScope(tenantId: string, organizationIds: string[] | null): Promise<{ organizationIds: string[] | null; settings: ScopeSettings }> {
+    if (organizationIds !== null && organizationIds.length === 0) return { organizationIds, settings: foldScopeSettings([], new Map()) }
+    if (organizationIds === null) {
+      const tenantOrganizations = await listTenantXrayOrganizations(deps.db, tenantId)
+      const loaded = await deps.loadSettings(tenantId, tenantOrganizations)
+      const enabled = tenantOrganizations.filter((organizationId) => loaded.get(organizationId.toLowerCase())?.enabled !== false)
+      return { organizationIds: null, settings: foldScopeSettings(enabled, loaded) }
+    }
+    const loaded = await deps.loadSettings(tenantId, organizationIds)
+    const enabled = organizationIds.filter((organizationId) => loaded.get(organizationId.toLowerCase())?.enabled !== false)
+    return { organizationIds: enabled, settings: foldScopeSettings(enabled, loaded) }
   }
 
   async function prepare<TSchema extends ZodType<AnalyticsRequest>>(
@@ -214,9 +228,9 @@ export function createXrayAnalytics(deps: XrayAnalyticsDeps): XrayAnalytics {
     if (!process) throw new AnalyticsProcessNotFoundError()
     precheck?.(request)
     const nowMs = clock()
-    const window = resolveWindow(request.window, { nowMs, timeZone: request.timeZone })
-    const organizationIds = request.scope.organizationIds === null ? null : sortedUnique(request.scope.organizationIds)
-    const settings = await resolveSettings(request.scope.tenantId, organizationIds)
+    const requested = request.scope.organizationIds === null ? null : sortedUnique(request.scope.organizationIds)
+    const { organizationIds, settings } = await resolveScope(request.scope.tenantId, requested)
+    const window = resolveWindow(request.window, { nowMs, timeZone: request.timeZone ?? settings.timeZone })
     return {
       request,
       registry,
@@ -314,6 +328,43 @@ export function createXrayAnalytics(deps: XrayAnalyticsDeps): XrayAnalytics {
     return live()
   }
 
+  async function getSummary(input: AnalyticsRequestInput): Promise<ProcessSummaryResult> {
+    const prepared = await prepare(analyticsRequestSchema, input)
+    if (!hasDefaultFilters(prepared.request.filters)) throw new AnalyticsInvalidRequestError(['filters'])
+    const scope = { tenantId: prepared.request.scope.tenantId, organizationIds: prepared.organizationIds }
+    const openCasesAsOf = new Date(Math.min(prepared.window.toMs, prepared.nowMs)).toISOString()
+    const base = {
+      processKey: prepared.process.processKey,
+      organizationIds: prepared.organizationIds,
+      window: toWindowView(prepared.window),
+      kAnonymity: prepared.settings.kAnonymity,
+      openCasesAsOf,
+    }
+    return cached(prepared, 'summary', {}, processSummaryResultSchema, false, async () => {
+      if (prepared.empty) return { ...base, n: 0, lowConfidence: isLowConfidence(0), computedThrough: null, incomplete: false, openCases: 0 }
+      return runAnalyticsQuery(deps.db, async (trx) => {
+        const state = await readProjectionState(trx, scope)
+        const counts = await loadProcessSummaryCounts(trx, {
+          scope,
+          processKey: prepared.process.processKey,
+          registeredKeys: prepared.registeredKeys,
+          from: prepared.window.from,
+          to: prepared.window.to,
+          asOf: openCasesAsOf,
+        })
+        const openVisible = counts.openCases === 0 || counts.openCases >= prepared.settings.kAnonymity
+        return {
+          ...base,
+          n: counts.cases,
+          lowConfidence: isLowConfidence(counts.cases),
+          computedThrough: state.computedThrough,
+          incomplete: state.incomplete,
+          openCases: openVisible ? counts.openCases : null,
+        }
+      }, { timeoutMs })
+    })
+  }
+
   async function getProcessMap(input: AnalyticsRequestInput): Promise<ProcessMapResult> {
     const prepared = await prepare(analyticsRequestSchema, input)
     return cached(prepared, 'map', {}, processMapResultSchema, false, () => rolledUp(
@@ -362,12 +413,19 @@ export function createXrayAnalytics(deps: XrayAnalyticsDeps): XrayAnalytics {
 
   async function getConformance(input: ConformanceRequestInput): Promise<ConformanceResult> {
     const prepared = await prepare(conformanceRequestSchema, input)
-    const { models, caseModelKeys } = prepared.request
-    return cached(prepared, 'conformance', { models, caseModelKeys: caseModelKeys ?? null }, conformanceResultSchema, false, () => computeLive(
+    const { models, caseModelKeys, organizationModelKeys } = prepared.request
+    return cached(
       prepared,
-      { census: false },
-      (dataset) => buildConformance(dataset.prepared, dataset.context, { models, caseModelKeys }),
-    ))
+      'conformance',
+      { models, caseModelKeys: caseModelKeys ?? null, organizationModelKeys: organizationModelKeys ?? null },
+      conformanceResultSchema,
+      false,
+      () => computeLive(
+        prepared,
+        { census: false },
+        (dataset) => buildConformance(dataset.prepared, dataset.context, { models, caseModelKeys, organizationModelKeys }),
+      ),
+    )
   }
 
   async function getBreakdown(input: BreakdownRequestInput): Promise<BreakdownResult> {
@@ -454,9 +512,11 @@ export function createXrayAnalytics(deps: XrayAnalyticsDeps): XrayAnalytics {
     if (!registry.ready || registry.processes.length === 0) return { processes: 0, written: 0, skipped: 0 }
     const scope = canonicalScope(requestedScope)
     const nowMs = clock()
-    const timeZone = options.timeZone ?? 'UTC'
     const registeredKeys = registry.processes.map((process) => process.processKey)
-    const settings = foldScopeSettings([scope.organizationId], await deps.loadSettings(scope.tenantId, [scope.organizationId]))
+    const loaded = await deps.loadSettings(scope.tenantId, [scope.organizationId])
+    if (loaded.get(scope.organizationId)?.enabled === false) return { processes: 0, written: 0, skipped: 0 }
+    const settings = foldScopeSettings([scope.organizationId], loaded)
+    const timeZone = options.timeZone ?? settings.timeZone
     const widest = resolveDefaultWindow('90d', nowMs, timeZone)
     const active = await runAnalyticsQuery(deps.db, (trx) => listActiveProcessKeys(trx, {
       tenantId: scope.tenantId,
@@ -530,6 +590,7 @@ export function createXrayAnalytics(deps: XrayAnalyticsDeps): XrayAnalytics {
   }
 
   return {
+    getSummary,
     getProcessMap,
     getVariants,
     getDurations,

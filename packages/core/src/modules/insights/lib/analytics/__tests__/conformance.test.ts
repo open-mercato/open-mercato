@@ -117,6 +117,47 @@ describe('X-Ray conformance', () => {
     expect(shown.models[0]).toEqual(expect.objectContaining({ n: 11, conformingCases: 6, transitions: { total: 28, allowed: 23 } }))
   })
 
+  it('reports unmapped activities as cells: hidden below k cases or three actors, with complementary suppression', () => {
+    const widespread = Array.from({ length: 6 }, (_unused, index) => trace(index + 1, [...EXPECTED, 'priority:high']))
+    const lone = trace(30, [...EXPECTED, 'stage:secret'], 1)
+    const visible = evaluateConformance([...widespread, ...Array.from({ length: 6 }, (_unused, index) => trace(index + 40, [...EXPECTED, 'stage:shared']))], { models: [sequenceModel(EXPECTED)], k: 5 })
+    if (visible.status !== 'ok') throw new Error('[internal] expected an evaluation')
+    expect(visible.unmappedActivities).toEqual([{ activityKey: 'priority:high', events: 6 }, { activityKey: 'stage:shared', events: 6 }])
+
+    const single = evaluateConformance([...widespread, lone], { models: [sequenceModel(EXPECTED)], k: 5 })
+    if (single.status !== 'ok') throw new Error('[internal] expected an evaluation')
+    expect(single.unmappedActivities).toEqual([])
+    expect(single.suppression.summary()).toEqual(expect.objectContaining({ minCases: expect.any(Number), complementary: expect.any(Number) }))
+    expect(single.suppression.summary().complementary).toBeGreaterThanOrEqual(1)
+
+    const fewActors = evaluateConformance(Array.from({ length: 6 }, (_unused, index) => trace(index + 1, [...EXPECTED, 'priority:high'], 2)), { models: [sequenceModel(EXPECTED)], k: 5 })
+    if (fewActors.status !== 'ok') throw new Error('[internal] expected an evaluation')
+    expect(fewActors.unmappedActivities).toEqual([])
+    expect(fewActors.suppression.summary().minActors).toBeGreaterThanOrEqual(1)
+  })
+
+  it('compares each organization with its own model and leaves organizations without one unresolved', () => {
+    const otherOrganization = '22222222-0000-4000-8000-000000000002'
+    const thirdOrganization = '22222222-0000-4000-8000-000000000003'
+    const inOrganization = (index: number, organizationId: string): ConformanceTrace => ({ ...trace(index, EXPECTED), organizationId })
+    const traces = [
+      ...Array.from({ length: 5 }, (_unused, index) => trace(index + 1, EXPECTED)),
+      ...Array.from({ length: 5 }, (_unused, index) => inOrganization(index + 10, otherOrganization)),
+      inOrganization(20, thirdOrganization),
+    ]
+    const strict = designedModelSchema.parse({ ...sequenceModel(['created', 'status:won'], undefined, 'strict'), activityStepMap: { created: 'created', 'status:won': 'status:won', 'status:open': 'created', 'status:qualified': 'created' } })
+    const evaluation = evaluateConformance(traces, {
+      models: [sequenceModel(EXPECTED), strict],
+      organizationModelKeys: { '22222222-0000-4000-8000-000000000001': 'sequence', [otherOrganization]: 'strict' },
+      k: 5,
+    })
+    if (evaluation.status !== 'ok') throw new Error('[internal] expected an evaluation')
+    expect(evaluation.unresolvedCases).toBe(1)
+    expect(evaluation.models.map((model) => [model.key, model.n, model.conformingCases])).toEqual([['sequence', 5, 5], ['strict', 5, 5]])
+    const single = evaluateConformance([inOrganization(30, thirdOrganization)], { models: [sequenceModel(EXPECTED)], organizationModelKeys: {}, k: 5 })
+    expect(single).toEqual(expect.objectContaining({ status: 'refused', reason: 'no_cases' }))
+  })
+
   it('validates designed models', () => {
     expect(designedModelSchema.safeParse({
       key: 'broken',

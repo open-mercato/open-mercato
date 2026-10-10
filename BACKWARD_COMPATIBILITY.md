@@ -662,6 +662,21 @@ Phase 5 of [`.ai/specs/2026-10-08-insights-process-xray.md`](.ai/specs/2026-10-0
 
 **Migration path for existing modules**: none. A module opts in by adding `insights.process.ts` and running `yarn generate`. Operators run the migrations, `yarn mercato auth sync-role-acls`, and optionally `yarn mercato insights xray:backfill` (see UPGRADE_NOTES.md).
 
+### Insights Process X-Ray analytics API (Phase 6B-1, 2026-10-10)
+
+Phase 6B-1 of [`.ai/specs/2026-10-08-insights-process-xray.md`](.ai/specs/2026-10-08-insights-process-xray.md) exposes the X-Ray analytics. Every surface below is new or additive.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| §7 API routes | `GET /api/insights/xray/processes`; `GET /api/insights/xray/{processKey}/map`, `/variants`, `/bottlenecks`, `/rework`, `/conformance`, `/breakdown?groupBy=org\|role\|team\|user`, `/cases` (all `requireFeatures: ['insights.xray.view']` plus the process's `requiredFeatures`; unknown and invisible processes answer the same 404 `process_not_found`; errors `{ error, code, hint }`); `POST /api/insights/xray/{processKey}/variants/{hash}/workflow-draft` (validated disabled draft, persists nothing). `PUT /api/insights/xray/settings` accepts `timeZone` and may answer 422 `conformance_workflow_not_found` / `workflows_unavailable`; settings and status responses gain `timeZone` | ✓ ADDITIVE; STABLE |
+| §8 Database schema | `insights_process_settings.time_zone` (`text not null default 'UTC'`), added to the unreleased `Migration20261008180752_insights`; rollup marker rows `window_key = '__rollup_pass__'` in `insights_process_rollups` | ✓ ADDITIVE |
+| §9 DI service names | `workflowDraftService` (workflows module, request-scoped): `validateDraftDefinition(payload, { tenantId, organizationId })` (persists nothing; schema + draft policy: `enabled: false`, `lifecycle: 'draft'`, no execution grant, no credential-bearing activity, only catalogued workflow-safe UPDATE_ENTITY commands) and `getDefinitionForScope(id, { tenantId, organizationId })` (structure only) | ✓ ADDITIVE; STABLE |
+| §12 AI tool IDs | `insights.xray_summary`, `insights.xray_variants` (read-only, `requiredFeatures: ['insights.xray.view']`, not allowlisted for any agent) | ✓ ADDITIVE; FROZEN once shipped |
+| Queues | `insights-xray-rollup` (concurrency 1), fed by the existing system ingest tick | ✓ ADDITIVE |
+| Event IDs, widget spot IDs, ACL feature IDs, notification IDs, CLI commands, generated files | No change | ✓ n/a |
+
+**Migration path**: none for modules. Operators run the rollup worker queue (see UPGRADE_NOTES.md).
+
 ### Retained access-log resource kinds (Process X-Ray analytics, 2026-10-10)
 
 | Surface | Change | Classification |

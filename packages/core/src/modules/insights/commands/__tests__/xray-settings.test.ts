@@ -60,11 +60,18 @@ function createEm(): FakeEm {
   return em
 }
 
-function ctx(em: FakeEm, headers: Record<string, string> = {}): CommandRuntimeContext {
+const WORKFLOW_ID = '55555555-0000-4000-8000-000000000001'
+const draftService = {
+  validateDraftDefinition: jest.fn(),
+  getDefinitionForScope: jest.fn(),
+}
+
+function ctx(em: FakeEm, headers: Record<string, string> = {}, options: { workflows?: boolean } = {}): CommandRuntimeContext {
   return {
     container: {
       resolve: (name: string) => {
         if (name === 'em') return em
+        if (name === 'workflowDraftService' && options.workflows !== false) return draftService
         throw new Error(`[internal] unexpected ${name}`)
       },
     },
@@ -141,6 +148,39 @@ describe('insights.xray.settings.save', () => {
     findXraySettingsRecordMock.mockResolvedValueOnce(null)
     await expect(saveXraySettingsCommand.execute({ ...input, kAnonymity: 4 }, ctx(em))).rejects.toThrow()
     await expect(saveXraySettingsCommand.execute({ ...input, retentionDays: 1 }, ctx(em))).rejects.toThrow()
+  })
+
+  it('stores a canonical IANA time zone and refuses an unknown one or an offset', async () => {
+    const em = createEm()
+    findXraySettingsRecordMock.mockResolvedValueOnce(null)
+    await saveXraySettingsCommand.execute({ ...input, timeZone: 'europe/warsaw' }, ctx(em))
+    expect(em.create).toHaveBeenCalledWith(InsightsProcessSettings, expect.objectContaining({ timeZone: 'Europe/Warsaw' }))
+    await expect(saveXraySettingsCommand.execute({ ...input, timeZone: 'Mars/Olympus_Mons' }, ctx(em))).rejects.toThrow()
+    await expect(saveXraySettingsCommand.execute({ ...input, timeZone: '+01:00' }, ctx(em))).rejects.toThrow()
+  })
+
+  it('accepts a conformance workflow only when it resolves in the same tenant and organization', async () => {
+    const em = createEm()
+    draftService.getDefinitionForScope.mockReset()
+    draftService.getDefinitionForScope.mockResolvedValueOnce({ id: WORKFLOW_ID, workflowId: 'deals', version: 1, enabled: true, steps: [], transitions: [] })
+    findXraySettingsRecordMock.mockResolvedValueOnce(null)
+    await saveXraySettingsCommand.execute({ ...input, conformanceWorkflowId: WORKFLOW_ID }, ctx(em))
+    expect(draftService.getDefinitionForScope).toHaveBeenCalledWith(WORKFLOW_ID, { tenantId: TENANT_ID, organizationId: ORG_ID })
+    expect(em.create).toHaveBeenCalledWith(InsightsProcessSettings, expect.objectContaining({ conformanceWorkflowId: WORKFLOW_ID }))
+
+    draftService.getDefinitionForScope.mockResolvedValueOnce(null)
+    em.create.mockClear()
+    await expect(saveXraySettingsCommand.execute({ ...input, conformanceWorkflowId: WORKFLOW_ID }, ctx(em)))
+      .rejects.toMatchObject({ status: 422, body: expect.objectContaining({ code: 'conformance_workflow_not_found' }) })
+    await expect(saveXraySettingsCommand.execute({ ...input, conformanceWorkflowId: WORKFLOW_ID }, ctx(em, {}, { workflows: false })))
+      .rejects.toMatchObject({ status: 422, body: expect.objectContaining({ code: 'workflows_unavailable' }) })
+    expect(em.create).not.toHaveBeenCalled()
+    expect(em.nativeUpdate).not.toHaveBeenCalled()
+
+    findXraySettingsRecordMock.mockResolvedValueOnce(null)
+    draftService.getDefinitionForScope.mockClear()
+    await saveXraySettingsCommand.execute({ ...input, conformanceWorkflowId: null }, ctx(em, {}, { workflows: false }))
+    expect(draftService.getDefinitionForScope).not.toHaveBeenCalled()
   })
 
   it('refuses another tenant or organization than the caller scope', async () => {

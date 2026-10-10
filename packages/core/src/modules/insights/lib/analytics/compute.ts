@@ -21,6 +21,7 @@ import { toWindowView, type ResolvedWindow } from './window'
 import {
   XRAY_ANALYTICS_LIMITS,
   XRAY_DEFAULT_DEBOUNCE_SECONDS,
+  XRAY_DEFAULT_TIME_ZONE,
   XRAY_STATS_GUARDS,
   type AnalyticsFilters,
   type AnalyticsOrgSettings,
@@ -54,10 +55,11 @@ function debounceMsOf(settings: AnalyticsOrgSettings | undefined): number {
 
 /**
  * Folds the settings of every organization in scope into the values one call applies: the
- * strictest k (never below the minimum), each organization's own debounce window, and the
- * individuals switch only when every organization enabled it (fail closed). Organization ids
- * are compared lower-case. The fingerprint keys caches and rollups, so a settings change never
- * serves results computed under old ones.
+ * strictest k (never below the minimum), each organization's own debounce window, the
+ * individuals switch only when every organization enabled it (fail closed) and the time zone
+ * the organizations share (UTC when they differ). Organization ids are compared lower-case.
+ * The fingerprint keys caches and rollups, so a settings change never serves results computed
+ * under old ones.
  */
 export function foldScopeSettings(
   organizationIds: readonly string[],
@@ -79,8 +81,10 @@ export function foldScopeSettings(
     canonical.push([organizationId, k, debounceMs, settings?.individualsEnabled === true])
   })
   const individualsEnabled = sorted.length > 0 && sorted.every((organizationId) => settingsByOrganization.get(organizationId)?.individualsEnabled === true)
+  const zones = new Set(sorted.map((organizationId) => settingsByOrganization.get(organizationId)?.timeZone ?? XRAY_DEFAULT_TIME_ZONE))
+  const timeZone = zones.size === 1 ? Array.from(zones)[0] : XRAY_DEFAULT_TIME_ZONE
   const fingerprint = createHash('sha256').update(JSON.stringify({ kAnonymity, canonical })).digest('hex')
-  return { organizationIds: sorted, kAnonymity, debounceMsByOrganization, individualsEnabled, fingerprint }
+  return { organizationIds: sorted, kAnonymity, debounceMsByOrganization, individualsEnabled, timeZone, fingerprint }
 }
 
 export function createBuildContext(input: LiveComputeInput, state: ProjectionState): BuildContext {

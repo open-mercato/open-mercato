@@ -53,6 +53,7 @@ export function toXrayStatusResponse(status: XrayStatus, nowMs: number = Date.no
       kAnonymity: status.settings.kAnonymity,
       debounceSeconds: status.settings.debounceSeconds,
       individualsEnabled: status.settings.individualsEnabled,
+      timeZone: status.settings.timeZone,
       conformanceWorkflowId: status.settings.conformanceWorkflowId,
       activityStepMap: status.settings.activityStepMap,
       updatedAt: status.settings.updatedAt,
