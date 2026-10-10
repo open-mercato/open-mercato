@@ -494,7 +494,14 @@ export function DictionariesManager() {
       </div>
 
       <Dialog open={dialog != null} onOpenChange={(open) => (open ? undefined : closeDialog())}>
-        <DialogContent>
+        <DialogContent
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && !submitting) {
+              event.preventDefault()
+              void handleSubmit()
+            }
+          }}
+        >
           <DialogHeader>
             <DialogTitle>
               {dialog?.mode === 'create'

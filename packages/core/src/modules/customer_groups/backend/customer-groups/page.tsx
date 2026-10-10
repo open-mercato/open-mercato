@@ -303,7 +303,13 @@ export default function CustomerGroupsPage() {
         setReloadToken((token) => token + 1)
       } catch (error) {
         if (surfaceRecordConflict(error, t, { onRefresh: () => setReloadToken((token) => token + 1) })) return
-        flash(t('customer_groups.groups.list.flash.deleteError', 'Could not delete the customer group'), 'error')
+        const serverMessage = (error as { error?: unknown } | null)?.error
+        flash(
+          typeof serverMessage === 'string' && serverMessage.trim()
+            ? serverMessage
+            : t('customer_groups.groups.list.flash.deleteError', 'Could not delete the customer group'),
+          'error',
+        )
       }
     },
     [t, confirmDialog, mutationContextId, retryLastMutation, runMutation],

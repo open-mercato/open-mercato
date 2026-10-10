@@ -45,7 +45,7 @@ async function resolveOne(
   mapItem: (item: RemoteItem) => ComboboxOption | null,
 ): Promise<string> {
   const options = await loadOptions(path, { [idParam]: id, pageSize: '1' }, mapItem)
-  return options[0]?.label ?? id
+  return options.find((option) => option.value === id)?.label ?? id
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -211,7 +211,7 @@ export function PricePriceKindSelect({
       allowCustomValues={false}
       placeholder={t('catalog.prices.select.priceKind.placeholder', 'Select a price kind…')}
       loadSuggestions={(query) => loadOptions('/api/catalog/price-kinds', buildLookupParams(query, '20'), mapItem)}
-      resolveLabel={(id) => resolveOne('/api/catalog/price-kinds', 'id', id, mapItem)}
+      resolveLabel={(id) => resolveOne('/api/catalog/price-kinds', 'ids', id, mapItem)}
     />
   )
 }
