@@ -1,0 +1,445 @@
+---
+title: Authoring Document Templates
+description: Add document templates to your own module step by step, using the working invoices example — service, templates, convention file, translations and the Documents tab.
+---
+
+# Authoring templates
+
+A module contributes documents with three things it owns: a **document service** that loads and normalizes its records, one **template** per output format, and the **`document-generators.ts`** convention file that hands the templates to the engine. A thin **widget** then shows the documents panel on the module's detail page.
+
+This page walks through the complete, working invoices example that ships with the documentation. Copy it into your module and rename it.
+
+## File layout
+
+```
+src/modules/invoices/
+  document-generators.ts                     ← convention file, picked up by `yarn generate`
+  document-generators/
+    services/
+      invoices-document-service.ts           ← extends BaseDocumentService
+    templates/
+      types.ts                               ← normalized data shape shared by every format
+      invoice.pdf.tsx                        ← React-PDF template
+      invoice.markdown.ts                    ← Markdown template
+  i18n/{en,pl,de,es,ko}.json                 ← template labels and document labels
+  widgets/
+    injection/invoice-documents-tab/
+      widget.ts                              ← widget descriptor (features, requiredModules)
+      widget.client.tsx                      ← renders ResourceDocumentsPanel lazily
+    injection-table.ts                       ← puts the widget on the detail page's :tabs spot
+```
+
+Domain code stays in the owning module. The engine package contains only the registry, renderers, API, history and UI.
+
+## Step 1: Define the template data
+
+Every format of a service receives the same normalized, format-neutral object. Type it once:
+
+```ts title="document-generators/templates/types.ts"
+export interface InvoiceTemplateData {
+  locale: string
+  isDraft: boolean
+  labels: {
+    title: string
+    number: string
+    total: string
+    draftWatermark: string
+  }
+  document: { id: string; number: string }
+  totals: { total: number; currency: string }
+}
+```
+
+Put translated labels in the data. Templates never call `translate` themselves.
+
+## Step 2: Write the document service
+
+Extend `BaseDocumentService` from `@open-mercato/shared/modules/document-generators`. The service registers its templates in the constructor and implements the pipeline the engine calls for every preview and generation.
+
+```ts title="document-generators/services/invoices-document-service.ts"
+import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { BaseDocumentService, buildDocumentFilename } from '@open-mercato/shared/modules/document-generators'
+import type {
+  DocumentDataInput,
+  DocumentFetchContext,
+  TemplateNormalizationInput,
+} from '@open-mercato/shared/modules/document-generators'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { Invoice } from '../../data/entities'
+import type { InvoiceTemplateData } from '../templates/types'
+
+const requestSchema = z.object({ id: z.string().uuid() })
+
+export class InvoicesDocumentService extends BaseDocumentService {
+  readonly id = 'invoices'
+  readonly label = 'Invoices'
+  readonly module = 'invoices'
+  readonly resourceKind = 'invoices.invoice'
+
+  constructor() {
+    super()
+    this.registerTemplate({
+      id: 'invoices.invoice',
+      label: 'invoices.documents.templates.invoice.label',
+      description: 'invoices.documents.templates.invoice.description',
+      documentType: 'invoice',
+      format: 'pdf',
+      tags: ['invoices'],
+      requiredFeatures: ['invoices.view'],
+      filename: ({ data }) => buildDocumentFilename(data, 'invoice', 'pdf'),
+      load: async () => ({
+        type: 'react-pdf',
+        component: (await import('../templates/invoice.pdf')).default,
+      }),
+    })
+    this.registerTemplate({
+      id: 'invoices.invoice-markdown',
+      label: 'invoices.documents.templates.invoiceMarkdown.label',
+      description: 'invoices.documents.templates.invoiceMarkdown.description',
+      documentType: 'invoice',
+      format: 'md',
+      tags: ['invoices', 'markdown'],
+      requiredFeatures: ['invoices.view'],
+      filename: ({ data }) => buildDocumentFilename(data, 'invoice', 'md'),
+      load: async () => ({
+        type: 'markdown',
+        render: (await import('../templates/invoice.markdown')).render,
+      }),
+    })
+  }
+
+  override async fetchData(
+    { data }: { data: unknown },
+    { container, auth }: DocumentFetchContext,
+  ): Promise<Invoice> {
+    const parsed = requestSchema.safeParse(data)
+    if (!parsed.success) {
+      throw new CrudHttpError(400, { error: 'invalid_request', details: parsed.error.flatten() })
+    }
+    const tenantId = auth?.tenantId
+    const organizationId = auth?.orgId
+    if (!tenantId || !organizationId) {
+      throw new CrudHttpError(403, { error: 'organization_scope_required' })
+    }
+    const scope = { tenantId, organizationId }
+    const em = (container.resolve('em') as EntityManager).fork()
+    const invoice = await findOneWithDecryption(
+      em,
+      Invoice,
+      { id: parsed.data.id, ...scope, deletedAt: null },
+      {},
+      scope,
+    )
+    if (!invoice) throw new CrudHttpError(404, { error: 'not_found' })
+    return invoice
+  }
+
+  toTemplateData({ data, locale, translate }: TemplateNormalizationInput): InvoiceTemplateData & Record<string, unknown> {
+    const invoice = data as Invoice
+    return {
+      locale,
+      isDraft: invoice.status === 'draft',
+      labels: {
+        title: translate('invoices.documents.templates.invoice.labels.title', 'Invoice'),
+        number: translate('invoices.documents.templates.invoice.labels.number', 'Number'),
+        total: translate('invoices.documents.templates.invoice.labels.total', 'Total'),
+        draftWatermark: translate('invoices.documents.templates.invoice.labels.draftWatermark', 'DRAFT'),
+      },
+      document: { id: invoice.id, number: invoice.number },
+      totals: { total: Number(invoice.totalAmount), currency: invoice.currencyCode },
+    }
+  }
+
+  resourceId({ data }: DocumentDataInput): string {
+    return String((data as { document?: { id?: unknown } }).document?.id ?? '')
+  }
+
+  override resourceLabel({ data }: DocumentDataInput): string | undefined {
+    const number = (data as { document?: { number?: unknown } }).document?.number
+    return typeof number === 'string' && number.length > 0 ? number : undefined
+  }
+}
+```
+
+### Service members
+
+| Member | Required | Meaning |
+|--------|----------|---------|
+| `id`, `label` | yes | Service identity, used for grouping and diagnostics. Convention: the plural category, for example `invoices`. |
+| `module` | yes | The owning module id; the catalogue groups templates by it. |
+| `resourceKind` | yes | The resource the service documents, for example `invoices.invoice`. It must match the `resourceKind` your detail page puts in the widget context. |
+| `registerTemplate(entry)` | yes | Called in the constructor once per template. Protected; templates are registered only by their service. |
+| `fetchData(input, { container, auth })` | override | Loads the source record. The default returns `data` unchanged, so every real service overrides it. |
+| `toTemplateData({ data, locale, translate })` | yes | Maps the fetched record to the normalized template data. |
+| `resourceId({ data })` | yes | Returns the canonical source-record id from the **normalized** data. History never accepts identity from the client. |
+| `resourceLabel({ data })` | optional | A human-readable label for history, for example the document number. Stored encrypted. |
+| `getEntries()` | inherited | Merges service-level identity and normalization into flat registry entries for the convention file. |
+
+### Template entry fields
+
+| Field | Meaning |
+|-------|---------|
+| `id` | Globally unique, namespaced as `<module>.<template>`. A duplicate id stops bootstrap. |
+| `label`, `description` | Translation keys (literal strings also work through the translator fallback). |
+| `documentType` | Business purpose, for example `invoice` or `offer`. |
+| `format` | `pdf` or `md`. Required; the engine never infers it. |
+| `tags` | Free-form tags; the catalogue and widgets can filter by them. |
+| `requiredFeatures` | Features of the owning module the caller needs. Checked before `fetchData` runs. |
+| `filename({ data })` | The download filename, including the extension of this format. |
+| `load()` | Returns `{ type: 'react-pdf', component }` or `{ type: 'markdown', render }`. Always use dynamic `import()` so template code stays out of unrelated bundles. |
+| `version`, `archivedVersions` | Optional. See [versioning a template](#versioning-a-template). |
+| `note` | Optional free-text hint shown as a catalogue column. |
+
+### Rules for `fetchData`
+
+- Validate `data` yourself and accept only the record id. Ignore any other client-supplied fields.
+- Scope every query by `auth.tenantId` and `auth.orgId`, and use `findOneWithDecryption` / `findWithDecryption` so encrypted fields are readable.
+- Throw `CrudHttpError` with one of the three error codes the engine recognizes: `invalid_request` (answered as `400 invalid_request`), `organization_scope_required` (answered as `409 organization_required`) and `not_found` (answered as `404 not_found`) for a record that is absent or out of scope. Any other error becomes `500 render_failed`, with the cause logged rather than returned. The engine never falls back to raw request data.
+- Load related data (lines, addresses, channel) here, not in the template.
+
+### Rules for `toTemplateData`
+
+- Use the `locale` and `translate` you receive. Do not add your own locale fallback.
+- Keep numbers as numbers and dates as ISO strings; templates format them with the request locale.
+- Decide `isDraft` from the source status here.
+
+## Step 3: Write the templates
+
+### PDF
+
+React-PDF primitives, the theme and `DraftWatermark` come from the engine's barrels:
+
+```tsx title="document-generators/templates/invoice.pdf.tsx"
+import { Document, Page, Text, View, StyleSheet } from '@open-mercato/document-generators/modules/document_generators/providers/react-pdf/index'
+import { documentTheme, DraftWatermark } from '@open-mercato/document-generators/modules/document_generators/templates/shared/index'
+import { formatMoney } from '@open-mercato/document-generators/modules/document_generators/utils/index'
+import type { InvoiceTemplateData } from './types'
+
+const { colors, spacing, fontSize } = documentTheme
+
+const styles = StyleSheet.create({
+  page: { padding: spacing.xl, fontSize: fontSize.body, color: colors.foreground },
+  title: { fontSize: fontSize.title, fontWeight: 'bold', marginBottom: spacing.md },
+  row: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.xs },
+  muted: { color: colors.muted },
+})
+
+export default function InvoicePdf({ data }: { data: Record<string, unknown> }) {
+  const { labels, document: info, totals, locale, isDraft } = data as unknown as InvoiceTemplateData
+  return (
+    <Document title={`${labels.title} ${info.number}`}>
+      <Page size="A4" style={styles.page}>
+        {isDraft ? <DraftWatermark label={labels.draftWatermark} /> : null}
+        <Text style={styles.title}>{`${labels.title} ${info.number}`}</Text>
+        <View style={styles.row}>
+          <Text style={styles.muted}>{labels.number}</Text>
+          <Text>{info.number}</Text>
+        </View>
+        <View style={styles.row}>
+          <Text style={styles.muted}>{labels.total}</Text>
+          <Text>{formatMoney(totals.total, totals.currency, locale)}</Text>
+        </View>
+      </Page>
+    </Document>
+  )
+}
+```
+
+Do not set `fontFamily` on the page. The barrel's `Page` applies the font the application configured (built-in Helvetica by default), and every `Text` inherits it, so the same template renders Polish, Czech or Cyrillic text once the application registers a Unicode font. See [Fonts](./fonts). Set `fontFamily` only on an element that must use one specific registered family. Never import `@react-pdf/renderer` directly; use the `providers/react-pdf` barrel so the dependency stays inside the engine and the configured font is applied.
+
+### Markdown
+
+A Markdown template exports a `render(data)` function that returns a string:
+
+```ts title="document-generators/templates/invoice.markdown.ts"
+import { escapeInline, formatMoney } from '@open-mercato/document-generators/modules/document_generators/utils/index'
+import type { InvoiceTemplateData } from './types'
+
+export function render(data: Record<string, unknown>): string {
+  const { labels, document: info, totals, locale, isDraft } = data as unknown as InvoiceTemplateData
+  const out: string[] = [`# ${escapeInline(labels.title)} ${escapeInline(info.number)}`, '']
+  if (isDraft) out.push(`> **${escapeInline(labels.draftWatermark)}**`, '')
+  out.push(`- **${escapeInline(labels.number)}:** ${escapeInline(info.number)}`)
+  out.push(`- **${escapeInline(labels.total)}:** ${escapeInline(formatMoney(totals.total, totals.currency, locale))}`)
+  return `${out.join('\n')}\n`
+}
+```
+
+Escape every interpolated value with `escapeInline` (or `escapeTableCell` inside tables). Markdown is a structural format, so raw customer names, addresses or notes could otherwise change the document's structure. PDF has no such hazard because React-PDF renders text nodes, not markup.
+
+## Step 4: Add the convention file
+
+```ts title="document-generators.ts"
+import type { TemplateEntry } from '@open-mercato/shared/modules/document-generators'
+import { InvoicesDocumentService } from './document-generators/services/invoices-document-service'
+
+export const templates: TemplateEntry[] = [...new InvoicesDocumentService().getEntries()]
+```
+
+Run `yarn generate`. The engine's generator plugin writes `document-generators.generated.ts` and registers the entries at bootstrap. Never edit the generated file.
+
+## Step 5: Add translations
+
+Add the template labels, descriptions and document labels to your module's `i18n/<locale>.json`:
+
+```json title="i18n/en.json"
+{
+  "invoices.documents.generators.tabLabel": "Documents",
+  "invoices.documents.templates.invoice.label": "Invoice (PDF)",
+  "invoices.documents.templates.invoice.description": "Printable PDF invoice for this record.",
+  "invoices.documents.templates.invoice.labels.title": "Invoice",
+  "invoices.documents.templates.invoice.labels.number": "Number",
+  "invoices.documents.templates.invoice.labels.total": "Total",
+  "invoices.documents.templates.invoice.labels.draftWatermark": "DRAFT",
+  "invoices.documents.templates.invoiceMarkdown.label": "Invoice (Markdown)",
+  "invoices.documents.templates.invoiceMarkdown.description": "Plain-text Markdown version of the invoice."
+}
+```
+
+Translations stay in the owning module's standard dictionaries; templates do not load private locale files.
+
+## Step 6: Show the Documents tab
+
+A thin widget renders the engine's `ResourceDocumentsPanel` (template list plus this record's history) lazily, so the engine UI is loaded only when the tab opens:
+
+```tsx title="widgets/injection/invoice-documents-tab/widget.client.tsx"
+"use client"
+
+import * as React from 'react'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
+
+const ResourceDocumentsPanel = React.lazy(
+  () => import('@open-mercato/document-generators/modules/document_generators/components/ResourceDocumentsPanel'),
+)
+
+const RESOURCE_KIND = 'invoices.invoice'
+
+type ResourceContext = { resourceKind?: unknown; resourceId?: unknown }
+
+export const InvoiceDocumentsTabWidget: React.FC<InjectionWidgetComponentProps<unknown, unknown>> = ({ context }) => {
+  const { resourceKind, resourceId } = (context ?? {}) as ResourceContext
+  if (resourceKind !== RESOURCE_KIND || typeof resourceId !== 'string' || !resourceId) return null
+  return (
+    <React.Suspense fallback={<div className="flex h-24 items-center justify-center"><Spinner /></div>}>
+      <ResourceDocumentsPanel resourceKind={RESOURCE_KIND} resourceId={resourceId} />
+    </React.Suspense>
+  )
+}
+
+export default InvoiceDocumentsTabWidget
+```
+
+```ts title="widgets/injection/invoice-documents-tab/widget.ts"
+import type { InjectionWidgetModule } from '@open-mercato/shared/modules/widgets/injection'
+import InvoiceDocumentsTabWidget from './widget.client'
+
+const widget: InjectionWidgetModule = {
+  metadata: {
+    id: 'invoices.injection.document-generators-invoice-tab',
+    title: 'Documents',
+    description: 'Generate documents from this invoice and browse its generated history',
+    features: ['document_generators.documents.view', 'invoices.view'],
+    priority: 40,
+    requiredModules: ['document_generators'],
+  },
+  Widget: InvoiceDocumentsTabWidget,
+}
+
+export default widget
+```
+
+```ts title="widgets/injection-table.ts"
+import type { ModuleInjectionTable } from '@open-mercato/shared/modules/widgets/injection'
+
+export const injectionTable: ModuleInjectionTable = {
+  'invoices.document.detail:tabs': [
+    {
+      widgetId: 'invoices.injection.document-generators-invoice-tab',
+      kind: 'tab',
+      groupLabel: 'invoices.documents.generators.tabLabel',
+      priority: 40,
+    },
+  ],
+}
+
+export default injectionTable
+```
+
+- `requiredModules: ['document_generators']` hides the tab when the engine module is disabled. Without it, a user with wildcard features would get a panel whose API routes do not exist.
+- Use your own detail page's `:tabs` spot. Do not add widgets to the Sales spots: Sales already owns the order and quote **Documents** tabs.
+- The widget sends only the record id; the engine and your service build everything else server-side.
+
+Run `yarn generate` again after adding the widget and injection-table entry.
+
+## Step 7: Emit the deleted event
+
+Retention follows the source record. When an invoice is deleted, emit the standard `invoices.invoice.deleted` event with `{ id, tenantId, organizationId }`. A `makeCrudRoute` route emits it when it declares an `events` config for the entity, and the event should be declared in the module's `events.ts`. The engine then removes the invoice's stored files and anonymizes its history rows. Without the event, generated documents outlive their record.
+
+## Helpers
+
+Pick helpers by **where the code runs**:
+
+| Helper | Import from | Runs in |
+|--------|-------------|---------|
+| `buildDocumentFilename`, `sanitizeDocumentFilename` | `@open-mercato/shared/modules/document-generators` | the service (`filename`) |
+| `toText`, `firstText`, `toNumber`, `toIso` | `@open-mercato/shared/modules/document-generators` | `fetchData` / `toTemplateData` |
+| `toSnapshotRecord` | `@open-mercato/shared/modules/document-generators` | `toTemplateData` (JSON snapshot columns) |
+| `buildLabels(keys, defaults, prefix, translate)` | `@open-mercato/shared/modules/document-generators` | `toTemplateData` |
+| `isDraftStatus(status, draftStatuses)` | `@open-mercato/shared/modules/document-generators` | `toTemplateData` |
+| `formatDate`, `formatMoney`, `escapeInline`, `escapeTableCell` | `@open-mercato/document-generators/modules/document_generators/utils/index` | templates |
+| `documentTheme`, `DraftWatermark`, `OpenMercatoLogo` | `@open-mercato/document-generators/modules/document_generators/templates/shared/index` | PDF templates |
+| `Document`, `Page`, `Text`, `View`, `StyleSheet`, … | `@open-mercato/document-generators/modules/document_generators/providers/react-pdf/index` | PDF templates |
+
+Service and normalization code imports only from `@open-mercato/shared`, so declaring templates never requires the optional engine package. Template code imports the engine, which is safe because templates load lazily and only when the engine renders.
+
+## Versioning a template
+
+Changing the output of a released template changes what re-generating an old document produces. To keep the old output reproducible:
+
+1. Copy the current renderer to a new file, for example `invoice.v1.pdf.tsx`.
+2. Bump `version` on the entry and list the copy in `archivedVersions`:
+
+```ts
+this.registerTemplate({
+  id: 'invoices.invoice',
+  version: '2',
+  archivedVersions: [
+    { version: '1', load: async () => ({ type: 'react-pdf', component: (await import('../templates/invoice.v1.pdf')).default }) },
+  ],
+  // ...the other fields
+})
+```
+
+Archived versions reuse the service's normalization, identity and filename; only the renderer differs. The preview dialog shows a version selector when a template has archived versions.
+
+## Quick-start checklist
+
+1. Copy the example into `src/modules/<your_module>/` and rename `Invoice*` / `invoices.*`.
+2. Edit `types.ts` to the data your template needs.
+3. Implement `fetchData` (scoped, decrypted) and `toTemplateData` in the service.
+4. Design the PDF and/or Markdown template.
+5. Register each template with a namespaced `id`, `requiredFeatures`, `filename` and a lazy `load`.
+6. Export the entries from `document-generators.ts`.
+7. Add translations in every locale your module ships.
+8. Add the widget and `injection-table.ts` entry on your detail page's `:tabs` spot, with `requiredModules: ['document_generators']`.
+9. Make sure deleting a record emits `<resourceKind>.deleted`.
+10. Run `yarn generate` and verify the tab, preview, download and history.
+
+## Reference source files
+
+The complete example lives in `apps/docs/static/examples/document-generators/invoices/` in the Open Mercato repository and is published with the documentation:
+
+- [`document-generators.ts`](pathname:///examples/document-generators/invoices/document-generators.ts)
+- [document service](pathname:///examples/document-generators/invoices/document-generators/services/invoices-document-service.ts)
+- [template data types](pathname:///examples/document-generators/invoices/document-generators/templates/types.ts)
+- [PDF template](pathname:///examples/document-generators/invoices/document-generators/templates/invoice.pdf.tsx)
+- [Markdown template](pathname:///examples/document-generators/invoices/document-generators/templates/invoice.markdown.ts)
+- [widget descriptor](pathname:///examples/document-generators/invoices/widgets/injection/invoice-documents-tab/widget.ts)
+- [widget component](pathname:///examples/document-generators/invoices/widgets/injection/invoice-documents-tab/widget.client.tsx)
+- [injection table](pathname:///examples/document-generators/invoices/widgets/injection-table.ts)
+- [English translations](pathname:///examples/document-generators/invoices/i18n/en.json)
+
+The example assumes an `Invoice` entity with `number`, `status`, `currencyCode` and `totalAmount`. Adapt the entity and field names to your module.

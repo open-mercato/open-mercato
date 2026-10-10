@@ -136,6 +136,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'payment_gateways', from: '@open-mercato/core' },
   { id: 'checkout', from: '@open-mercato/checkout' },
   { id: 'documents', from: '@open-mercato/documents' },
+  { id: 'document_generators', from: '@open-mercato/document-generators' },
   { id: 'gateway_stripe', from: '@open-mercato/gateway-stripe' },
   { id: 'gateway_tpay', from: '@open-mercato/gateway-tpay' },
   // Per-user email channels for the Communications Hub (SPEC-045d / email

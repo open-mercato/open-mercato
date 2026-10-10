@@ -21429,5 +21429,88 @@
       "OMH-194",
       "OMH-195"
     ]
+  },
+  {
+    "id": "OMH-238",
+    "title": "Reuse installed document generators instead of building a private PDF invoice pipeline",
+    "family": "architecture",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "high",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, the finance team wants a printable PDF invoice for every sales order and a PDF offer for every quote, plus a Markdown variant for email. Staff must preview a document before downloading it, every generation must be recorded in a per-organization history with the template and version used, previously generated files must be re-downloadable, and customer data in stored documents must be erased when the source order or quote is deleted. Decide the smallest safe design against what the installed modules already provide, keep tenant, organization, and record-level visibility boundaries intact, state the access-control posture for listing templates, previewing, generating, viewing history, and downloading stored files, and identify the smallest relevant validation. Do not add your own PDF renderer, template registry, generation-history table, or file-storage path before establishing whether an installed module already owns this capability.",
+    "tags": [
+      "architecture",
+      "module-facts",
+      "reuse-installed",
+      "document-generation"
+    ],
+    "owner": {
+      "kind": "facts",
+      "path": ".ai/guides/modules/document_generators/index.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-04"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "architecture"
+      ],
+      "allowedExtra": [
+        "module-data",
+        "backend-ui",
+        "umes",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-help"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/architecture.md",
+        ".ai/skills/om-help/SKILL.md",
+        ".ai/guides/modules/document_generators/index.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/contracts.md",
+        ".ai/guides/extensions.md",
+        ".ai/guides/backend-ui.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "requiredDecisions": [
+      "facts-first",
+      "reuse-installed-document-generators",
+      "template-access-policy",
+      "tenant-scope",
+      "acl-features",
+      "smallest-validation"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 8,
+    "maxInitialContextBytes": 53248,
+    "maxTotalContextBytes": 147456,
+    "relatedCases": [
+      "OMH-002",
+      "OMH-194",
+      "OMH-234"
+    ]
   }
 ]

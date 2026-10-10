@@ -1,0 +1,116 @@
+---
+title: Contributing to Document Generators
+description: Local setup, package structure, boundaries and tests for the document generators engine.
+---
+
+# Contributing
+
+## Local setup
+
+The package is developed in the Open Mercato monorepo and verified end-to-end in the Mercato app:
+
+```bash
+# from the monorepo root
+yarn dev
+```
+
+`yarn dev` rebuilds changed packages through the shared package watcher, so no separate watch command is needed. After a change, open a sales order or quote, select the **Documents** tab and check preview, download and history. Run `yarn generate` after changing a module's `document-generators.ts` or the engine's generator plugin.
+
+## Boundaries
+
+- **Engine (`packages/document-generators`)**: registry, renderers, API routes, history, stored-file handling, retention, backend pages, reusable UI and the template-authoring toolkit (`templates/shared`, `providers/react-pdf`, `utils`). It never imports Core or a business module and never contains domain-named code or `sales.*` resource kinds.
+- **Shared contracts (`packages/shared/src/modules/document-generators`)**: `BaseDocumentService`, the declaration types and the stateless declaration/normalization helpers in `utils/`. Domain modules depend only on this to declare templates.
+- **Owning modules (for example Sales)**: document services, templates, translations, detail-page widgets and their integration coverage.
+
+`@react-pdf/renderer` stays inside the engine. Templates reach it only through `providers/react-pdf`.
+
+## Package structure
+
+```
+packages/document-generators/src/modules/document_generators/
+  api/
+    _shared/                      ← request context, JSON/organization guards, error mapping, document responses
+    document-generators/
+      templates/route.ts          ← GET catalogue
+      templates/options/route.ts  ← GET filter facets
+      preview/route.ts            ← POST side-effect-free render
+      generate/route.ts           ← POST render, store, record history, download
+      documents/route.ts          ← GET scoped history
+      documents/[id]/file/route.ts← GET stored file
+  backend/document-generators/    ← overview, templates and history pages
+  components/                     ← TemplatesList, HistoryList, ResourceDocumentsPanel, PreviewPanel, …
+  data/                           ← GeneratedDocument entity and zod validators
+  hooks/                          ← React Query keys, URL builders and filter state
+  lib/
+    interfaces.ts                 ← render and registry runtime types
+    template-registry.ts          ← register / list / load module templates
+    template-versions.ts          ← current and archived version resolution
+    template-errors.ts            ← named template failures
+    template-access-policy.ts     ← requiredFeatures checks and catalogue filtering
+    stored-documents.ts           ← private attachment storage of generated files
+  providers/react-pdf/            ← React-PDF primitives for template authors
+  services/
+    document-renderer.ts          ← dispatches by format
+    pdf-rendering-service/        ← React-PDF sources → bytes
+    markdown-rendering-service/   ← Markdown sources → bytes
+    generation-history-service/   ← history persistence and queries
+    generated-document-retention-service/ ← erasure when a source record is deleted
+  subscribers/source-erasure.ts   ← listens to <resourceKind>.deleted
+  templates/shared/               ← documentTheme, DraftWatermark, OpenMercatoLogo
+  utils/                          ← formatting, Markdown escaping and download helpers
+  generators.ts                   ← generator plugin for document-generators.ts files
+  acl.ts, setup.ts, encryption.ts, i18n/, migrations/
+```
+
+`lib/` holds engine pieces with state or behaviour; `utils/` holds stateless helpers.
+
+## Adding an output format
+
+1. Add a renderer service under `services/<format>-rendering-service/` that turns a `DocumentRenderInput` into `{ buffer, format, mimeType }`, with its source and input types colocated in its `types.ts`.
+2. Add it to the format map in `services/document-renderer.ts`. The registry stays format-neutral.
+3. Templates of that format return `{ type: '<source type>', … }` from `load()` and declare the new `format`.
+
+## Testing
+
+Unit tests and integration tests use separate toolchains: `yarn test` (Jest) never runs `.spec.ts` files, and Playwright never runs `.test.ts` files.
+
+### Unit tests (Jest)
+
+Unit tests live in `__tests__/` folders next to the code and need no running app:
+
+```bash
+yarn workspace @open-mercato/document-generators test
+```
+
+Sales document services, templates and tabs have their own tests in `packages/core`, and the shared helpers in `packages/shared`:
+
+```bash
+cd packages/core && npx jest src/modules/sales/document-generators
+cd packages/shared && npx jest src/modules/document-generators
+```
+
+### Integration tests (Playwright)
+
+`TC-DOCUMENT-*` specs live in `packages/document-generators/src/modules/document_generators/__integration__/`. They create their own fixtures through the API, need a running app with the `sales` module and an `admin` account, and read the base URL from `BASE_URL` (default `http://localhost:3000`).
+
+```bash
+# terminal 1
+yarn dev
+
+# terminal 2: only this module's specs
+OM_INTEGRATION_MODULES=document_generators npx playwright test \
+  --config .ai/qa/tests/playwright.config.ts packages/document-generators/src/modules/document_generators/__integration__
+
+# a single spec, fail-fast while iterating
+OM_INTEGRATION_MODULES=document_generators npx playwright test \
+  --config .ai/qa/tests/playwright.config.ts TC-DOCUMENT-022 --retries=0
+```
+
+Setting `OM_INTEGRATION_MODULES` keeps Playwright from discovering every module's specs, which makes listing slow. Reports, traces and screenshots are written to `.ai/qa/test-results/`, which is git-ignored.
+
+## Checklist for a change
+
+1. Keep domain code in its owning module, and engine code domain-neutral.
+2. Update the [example module](./authoring.mdx#reference-source-files) under `apps/docs/static/examples/document-generators/` when the authoring contract changes.
+3. Update these pages and the spec `.ai/specs/2026-08-10-document-generators.md`.
+4. Run `yarn generate`, the unit tests above and the affected `TC-DOCUMENT-*` specs.
