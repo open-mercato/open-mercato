@@ -24,6 +24,8 @@ type VariantsBody = { n: number; items: Array<{ variantHash: string; activityKey
 
 type DraftActivity = { activityType: string; config: { commandId: string; input: Record<string, unknown> } }
 
+type DraftCommand = { commandId: string; requiredFeatures: string[]; enabled?: boolean }
+
 type DraftBody = {
   ok: boolean
   persisted: boolean
@@ -35,7 +37,7 @@ type DraftBody = {
   }
   activityStepMap: Record<string, string>
   skippedActivities: string[]
-  commands: Array<{ commandId: string; requiredFeatures: string[] }>
+  commands: DraftCommand[]
   workflowIdAvailable: boolean
 }
 
@@ -96,7 +98,7 @@ test.describe('TC-INS-X05: X-Ray variant workflow draft', () => {
       const statusSteps = ['status:open', 'status:qa_review', 'status:win'].map((key) => body.activityStepMap[key])
       expect(statusSteps.every((stepId) => typeof stepId === 'string' && stepIds.includes(stepId))).toBe(true)
       expect(statusSteps.map((stepId) => stepIds.indexOf(stepId))).toEqual([...statusSteps.map((stepId) => stepIds.indexOf(stepId))].sort((left, right) => left - right))
-      expect(body.commands).toEqual([{ commandId: 'customers.deals.update', requiredFeatures: ['customers.deals.manage'] }])
+      expect(body.commands).toEqual([{ commandId: 'customers.deals.update', requiredFeatures: ['customers.deals.manage'], enabled: false }])
       const persisted = await withClient(async (client) => (await client.query('select id from workflow_definitions where workflow_id = $1', [workflowId])).rows)
       expect(persisted, 'the draft route persists nothing').toEqual([])
 

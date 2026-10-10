@@ -59,6 +59,13 @@ export type RegisteredProcessMilestone = {
   fields: RegisteredProcessField[]
 }
 
+/** Normalized automation hints of a process (see `ProcessAutomationDescriptor`). */
+export type RegisteredProcessAutomation = {
+  updateCommandId: string
+  recordIdInputKey: string
+  fieldInputKeys: Record<string, string>
+}
+
 export type RegisteredProcess = {
   moduleId: string
   processKey: string
@@ -72,6 +79,7 @@ export type RegisteredProcess = {
   milestones: RegisteredProcessMilestone[]
   exits: ProcessExitDescriptor[]
   endStates: ProcessEndStateDescriptor[]
+  automation: RegisteredProcessAutomation | null
 }
 
 export type RegisteredActorDimensionProvider = {
@@ -333,6 +341,39 @@ function readEndStates(value: unknown, stageKeys: ReadonlySet<string>): ProcessE
   return endStates
 }
 
+const AUTOMATION_COMMAND_ID_PATTERN = /^[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+$/
+
+const AUTOMATION_INPUT_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9_]{0,63}$/
+
+const DEFAULT_RECORD_ID_INPUT_KEY = 'id'
+
+/**
+ * The automation hints of a declaration: a command id, an optional record id input key and
+ * input keys of declared root fields that may be set (stage fields and follow-up fields that do
+ * not hold user ids). Every field keeps its own key unless mapped; two fields never share an
+ * input key and none uses the record id key.
+ */
+function readAutomation(value: unknown, settableFieldKeys: ReadonlySet<string>): RegisteredProcessAutomation | null | string {
+  if (value === undefined) return null
+  if (!isPlainObject(value)) return 'automation is not an object'
+  if (typeof value.updateCommandId !== 'string' || !AUTOMATION_COMMAND_ID_PATTERN.test(value.updateCommandId)) return 'automation.updateCommandId is invalid'
+  const recordIdInputKey = value.recordIdInputKey === undefined ? DEFAULT_RECORD_ID_INPUT_KEY : value.recordIdInputKey
+  if (typeof recordIdInputKey !== 'string' || !AUTOMATION_INPUT_KEY_PATTERN.test(recordIdInputKey)) return 'automation.recordIdInputKey is invalid'
+  if (value.fieldInputKeys !== undefined && !isPlainObject(value.fieldInputKeys)) return 'automation.fieldInputKeys must be an object'
+  const mapped = isPlainObject(value.fieldInputKeys) ? value.fieldInputKeys : {}
+  const fieldInputKeys: Record<string, string> = {}
+  for (const fieldKey of Array.from(settableFieldKeys).sort(compareCodeUnits)) fieldInputKeys[fieldKey] = fieldKey
+  for (const [fieldKey, inputKey] of Object.entries(mapped)) {
+    if (!settableFieldKeys.has(fieldKey)) return `automation.fieldInputKeys names ${fieldKey}, which is not a settable root field`
+    if (typeof inputKey !== 'string' || !AUTOMATION_INPUT_KEY_PATTERN.test(inputKey)) return `automation.fieldInputKeys.${fieldKey} is invalid`
+    fieldInputKeys[fieldKey] = inputKey
+  }
+  const inputKeys = Object.values(fieldInputKeys)
+  if (new Set(inputKeys).size !== inputKeys.length) return 'automation.fieldInputKeys maps two fields to one input key'
+  if (inputKeys.includes(recordIdInputKey)) return 'automation.fieldInputKeys uses the record id input key'
+  return { updateCommandId: value.updateCommandId, recordIdInputKey, fieldInputKeys }
+}
+
 function readProcess(
   moduleId: string,
   value: unknown,
@@ -374,6 +415,9 @@ function readProcess(
   if (exits.some((exit) => milestones.some((milestone) => milestone.key === exit.key))) return reject('an exit key collides with a milestone key')
   const endStates = readEndStates(value.endStates, new Set(stageFields.map((field) => field.key)))
   if (!endStates) return reject('endStates must name declared stage fields and identifier values')
+  const settableFieldKeys = new Set([...stageFields, ...followupFields.filter((field) => field.valueKind !== 'user')].map((field) => field.key))
+  const automation = readAutomation(value.automation, settableFieldKeys)
+  if (typeof automation === 'string') return reject(automation)
   const rootTarget: GuardTarget = { entityId: value.entityId, resourceKinds: [value.resourceKind, ...rootLogKinds] }
   for (const field of [...stageFields, ...followupFields]) {
     const encrypted = findEncryptedField(field, rootTarget, moduleId, index)
@@ -399,6 +443,7 @@ function readProcess(
     milestones,
     exits,
     endStates,
+    automation,
   }
 }
 

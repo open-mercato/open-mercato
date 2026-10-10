@@ -822,6 +822,50 @@ module). Responses of the settings and status routes gain `timeZone`.
 A module that proposes workflow drafts resolves it softly by name and must not import workflows
 internals.
 
+### Insights Process X-Ray automation suggestions
+
+Phase 6B-2 of [`2026-10-08-insights-process-xray`](.ai/specs/2026-10-08-insights-process-xray.md)
+mines repeated manual follow-ups ("after a deal is created, users set its status to X within
+10 minutes") into automation suggestions: `GET /api/insights/xray/suggestions`,
+`GET /api/insights/xray/suggestions/{id}/draft` (a validated, DISABLED draft workflow, persists
+nothing), `PATCH /api/insights/xray/suggestions/{id}` (dismissed / drafted / open, optimistic lock)
+and `POST /api/insights/xray/suggestions/mine` (on demand, `insights.xray.manage`).
+
+**Action for operators.**
+
+- Workers must also run the new queue `insights-xray-suggestions` (concurrency 1). The existing
+  system ingest tick enqueues one mining pass per enabled, completely projected organization at
+  most once a day (no new schedule). The tick no longer enqueues rollup (or mining) jobs for an
+  organization whose projection is incomplete (backfill, range scan or pending rebuild).
+- `insights_automation_suggestions` gains `trigger_activity_key`, `window_seconds`,
+  `trigger_count` (and a NOT NULL `updated_at`; the status index now covers `process_key`), and
+  `insights_process_settings` gains `suggestion_min_support` — all in the unreleased X-Ray
+  migration. A development database that applied a pre-release build of
+  `Migration20261008180752_insights` must recreate the (never written) suggestions table from the
+  migration's statements and add `suggestion_min_support int null` to `insights_process_settings`
+  (or use a fresh database); released installations get both with the migration.
+- `PUT /api/insights/xray/settings` accepts `suggestionMinSupport` (5 … 100000, `null` = 20).
+
+**Action for module authors.** A process can opt into draftable suggestions with the optional
+`automation: { updateCommandId, recordIdInputKey?, fieldInputKeys? }` key of its
+`insights.process.ts` declaration (a workflow-safe UPDATE_ENTITY command of the case root; the
+customers deal process declares `customers.deals.update`). It never changes the projection (not
+part of the contract hash). The workflows `workflowDraftService` gains
+`listAutomatedUpdates(scope)` (what enabled event triggers already automate) and its draft policy
+is now an allowlist: only `UPDATE_ENTITY`, `WAIT` and `SET_VARIABLE` activities may be generated
+(any other type is refused as `activity_not_allowed`; credential-bearing types stay
+`credential_activity`). Its validated `commands` gain `enabled` (whether the tenant enabled the
+command for workflows; a draft whose command is not enabled is still valid, its runs fail until an
+administrator ticks the command in Workflow settings).
+
+**Behavior notes.** Only manual (`cause_kind = 'user'`, not via a sync run) changes count;
+corrections and debounced intermediate values are collapsed first; a suggestion stores counts only
+(no actor id or pseudonym), so GDPR erasure needs nothing for it. Mining never reopens a dismissed
+or drafted suggestion; an open one that is no longer found (or whose process is rebuilt) becomes
+`superseded`. Every X-Ray route now answers its 500 in the standard shape
+`{ error, code: 'internal_error', hint: null }`. A per-person breakdown (`groupBy=user`) is limited
+to the organizations where the caller holds `insights.xray.view_individuals`.
+
 ### Access-log rotation keeps registered resource kinds under the core retention
 
 `AccessLogService` rotation used to keep only `auth.user` / `auth.role` rows for

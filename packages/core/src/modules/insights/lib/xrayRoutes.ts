@@ -5,6 +5,8 @@ import { getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/a
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { organizationScopeRequiredResponse } from '@open-mercato/shared/lib/auth/organizationScope'
@@ -108,8 +110,20 @@ export async function resolveVisibleXrayProcessKeys(context: XrayRouteContext): 
   return visible
 }
 
-export function xrayInternalError(error: unknown, route: string): NextResponse {
+/**
+ * The logged and reported 500 of every X-Ray route, in the standard error shape
+ * (`{ error, code: 'internal_error', hint: null }`, translated message); the cause never reaches
+ * the body.
+ */
+export async function xrayInternalError(error: unknown, route: string, translate?: TranslateFn | null): Promise<NextResponse> {
   logger.error('[internal] Process X-Ray request failed', { route, err: error })
   getTelemetryRuntime()?.reportError(error, { module: 'insights', code: 'insights.xray_route_failed', attributes: { route } })
-  return xrayJson({ error: 'internal_error' }, 500)
+  let message = 'internal_error'
+  try {
+    const t = translate ?? (await resolveTranslations()).t
+    message = t('insights.xray.errors.internal_error')
+  } catch (translationError) {
+    logger.warn('[internal] Could not translate the Process X-Ray internal error', { route, err: translationError })
+  }
+  return xrayJson({ error: message, code: 'internal_error', hint: null }, 500)
 }

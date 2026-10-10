@@ -409,6 +409,9 @@ export class InsightsProcessSettings {
   @Property({ name: 'time_zone', type: 'text', default: 'UTC' })
   timeZone: string = 'UTC'
 
+  @Property({ name: 'suggestion_min_support', type: 'integer', nullable: true })
+  suggestionMinSupport: number | null = null
+
   @Property({ name: 'conformance_workflow_id', type: 'uuid', nullable: true })
   conformanceWorkflowId: string | null = null
 
@@ -425,10 +428,16 @@ export class InsightsProcessSettings {
   deletedAt: Date | null = null
 }
 
-/** Mined automation suggestions (Phase 6 writes them; status changes use the optimistic lock). */
+/**
+ * A mined automation suggestion of one organization: trigger activity (+ optional condition) →
+ * follow-up field change within `window_seconds`, with support, trigger count, Wilson lower
+ * bound of the confidence, lift and the number of distinct actors (a count only: no actor ids
+ * or pseudonyms are stored). Upserted by `signature_hash`; status changes by users use the
+ * optimistic lock on `updated_at`.
+ */
 @Entity({ tableName: 'insights_automation_suggestions' })
 @Unique({ name: 'insights_automation_suggestions_signature_unique', properties: ['tenantId', 'organizationId', 'signatureHash'] })
-@Index({ name: 'insights_automation_suggestions_status_idx', properties: ['tenantId', 'organizationId', 'status'] })
+@Index({ name: 'insights_automation_suggestions_status_idx', properties: ['tenantId', 'organizationId', 'processKey', 'status'] })
 export class InsightsAutomationSuggestion {
   [OptionalProps]?: 'status' | 'draftable' | 'createdAt' | 'updatedAt'
 
@@ -447,6 +456,9 @@ export class InsightsAutomationSuggestion {
   @Property({ name: 'signature_hash', type: 'text' })
   signatureHash!: string
 
+  @Property({ name: 'trigger_activity_key', type: 'text' })
+  triggerActivityKey!: string
+
   @Property({ name: 'trigger_json', type: 'jsonb' })
   triggerJson!: Record<string, unknown>
 
@@ -456,8 +468,14 @@ export class InsightsAutomationSuggestion {
   @Property({ name: 'followups_json', type: 'jsonb' })
   followupsJson!: Record<string, unknown>[]
 
+  @Property({ name: 'window_seconds', type: 'integer' })
+  windowSeconds!: number
+
   @Property({ name: 'support', type: 'integer' })
   support!: number
+
+  @Property({ name: 'trigger_count', type: 'integer' })
+  triggerCount!: number
 
   @Property({ name: 'confidence', type: 'float' })
   confidence!: number
@@ -486,8 +504,8 @@ export class InsightsAutomationSuggestion {
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
-  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date(), nullable: true })
-  updatedAt: Date | null = new Date()
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt: Date | null = null

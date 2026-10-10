@@ -129,10 +129,37 @@ export type InsightsProcessSettingsTable = {
   k_anonymity: number
   debounce_seconds: number
   individuals_enabled: boolean
+  suggestion_min_support: number | null
   conformance_workflow_id: string | null
   activity_step_map: Json<Record<string, string> | null>
   created_at: Timestamp
   updated_at: NullableTimestamp
+  deleted_at: NullableTimestamp
+}
+
+export type InsightsAutomationSuggestionsTable = {
+  id: Generated<string>
+  tenant_id: string
+  organization_id: string
+  process_key: string
+  signature_hash: string
+  trigger_activity_key: string
+  trigger_json: Json<Record<string, unknown>>
+  condition_json: NullableJson<Record<string, unknown>>
+  followups_json: Json<Array<Record<string, unknown>>>
+  window_seconds: number
+  support: number
+  trigger_count: number
+  confidence: number
+  lift: number
+  distinct_actor_count: number
+  status: string
+  draftable: boolean
+  not_draftable_reason: string | null
+  drafted_artifact_id: string | null
+  computed_at: Timestamp
+  created_at: Timestamp
+  updated_at: Timestamp
   deleted_at: NullableTimestamp
 }
 
@@ -151,6 +178,7 @@ export type XrayDatabase = {
   insights_process_rollups: InsightsProcessRollupsTable
   insights_process_settings: InsightsProcessSettingsTable
   insights_process_erasures: InsightsProcessErasuresTable
+  insights_automation_suggestions: InsightsAutomationSuggestionsTable
 }
 
 export type ProjectionScope = {

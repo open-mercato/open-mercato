@@ -5,7 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { xrayProcessesQuerySchema, xrayProcessesResponseSchema } from '../../../data/validators'
 import { createXrayAnalyticsFromContainer, type ProcessSummaryResult } from '../../../lib/analytics/index'
-import { getProcessRegistry } from '../../../lib/process/registry'
+import { compareCodeUnits, getProcessRegistry } from '../../../lib/process/registry'
 import { scopeRequestView } from '../../../lib/routeHelpers'
 import { resolveXrayAnalyticsAccess, xrayProcessFeatures, type XrayAnalyticsAccess } from '../../../lib/xrayAnalyticsAccess'
 import {
@@ -58,7 +58,7 @@ export async function GET(req: Request) {
     }
     if (!tenantResolved) return xrayErrorResponse(translate, 'tenant_required', 403)
     const incomplete = items.some((item) => item.incomplete)
-    const positions = items.map((item) => item.computedThrough).filter((value): value is string => value !== null).sort()
+    const positions = items.map((item) => item.computedThrough).filter((value): value is string => value !== null).sort(compareCodeUnits)
     return xrayAnalyticsJson({
       items,
       n: items.reduce((total, item) => total + item.n, 0),

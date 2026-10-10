@@ -8,6 +8,9 @@ export const XRAY_SETTINGS_RESOURCE_KIND = 'insights.xray_settings'
 
 export const XRAY_K_ANONYMITY_MIN = 5
 
+/** Lowest per-organization override of the suggestion support threshold (`suggestionMinSupport`). */
+export const XRAY_SUGGESTION_MIN_SUPPORT_FLOOR = 5
+
 export const XRAY_SETTINGS_DEFAULTS = {
   enabled: true,
   retentionDays: 365,
@@ -15,6 +18,7 @@ export const XRAY_SETTINGS_DEFAULTS = {
   debounceSeconds: 120,
   individualsEnabled: false,
   timeZone: 'UTC',
+  suggestionMinSupport: null as number | null,
   conformanceWorkflowId: null as string | null,
   activityStepMap: null as Record<string, string> | null,
 }
@@ -26,6 +30,7 @@ export type XraySettingsValues = {
   debounceSeconds: number
   individualsEnabled: boolean
   timeZone: string
+  suggestionMinSupport: number | null
   conformanceWorkflowId: string | null
   activityStepMap: Record<string, string> | null
 }
@@ -51,6 +56,9 @@ export function toXraySettingsSnapshot(record: InsightsProcessSettings | null): 
     debounceSeconds: record.debounceSeconds,
     individualsEnabled: record.individualsEnabled,
     timeZone: canonicalIanaTimeZone(record.timeZone ?? '') ?? XRAY_SETTINGS_DEFAULTS.timeZone,
+    suggestionMinSupport: typeof record.suggestionMinSupport === 'number'
+      ? Math.max(record.suggestionMinSupport, XRAY_SUGGESTION_MIN_SUPPORT_FLOOR)
+      : null,
     conformanceWorkflowId: record.conformanceWorkflowId ?? null,
     activityStepMap: record.activityStepMap ?? null,
   }

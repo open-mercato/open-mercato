@@ -124,13 +124,19 @@ export const XRAY_ROLLUP_INTERVAL_MS = 15 * 60_000
 /** Rows one stale-rollup prune removes at most (the next pass continues). */
 export const XRAY_ROLLUP_PRUNE_BATCH = 5000
 
-/** Records a finished rollup pass of an organization (database clock). */
-export async function markRollupPass(db: AnalyticsDb, scope: ProjectionScope): Promise<void> {
+/**
+ * Marker row (per organization) recording when its last automation suggestion mining pass
+ * finished; kept with the rollup markers (cleared by a rebuild, never pruned as a window).
+ */
+export const XRAY_SUGGESTION_PASS_WINDOW_KEY = '__suggestion_pass__'
+
+/** Records a finished pass of an organization under a marker window key (database clock). */
+export async function markPassMarker(db: AnalyticsDb | AnalyticsTrx, scope: ProjectionScope, windowKey: string): Promise<void> {
   await sql`
     insert into insights_process_rollups
       (tenant_id, organization_id, process_key, window_key, window_start, window_end, computed_at, metrics, created_at)
     values (
-      ${scope.tenantId}, ${scope.organizationId}, ${XRAY_ROLLUP_ALL_PROCESSES}, ${XRAY_ROLLUP_PASS_WINDOW_KEY},
+      ${scope.tenantId}, ${scope.organizationId}, ${XRAY_ROLLUP_ALL_PROCESSES}, ${windowKey},
       ${MARKER_WINDOW_START}::timestamptz, now(), now(), '{}'::jsonb, now()
     )
     on conflict (tenant_id, organization_id, process_key, window_key, window_start) do update
@@ -139,10 +145,11 @@ export async function markRollupPass(db: AnalyticsDb, scope: ProjectionScope): P
 }
 
 /**
- * When each organization's last rollup pass finished (ISO), keyed `tenantId|organizationId`
- * in lower case; organizations without a pass are absent. One query for a page of scopes.
+ * When each organization's last pass under a marker window key finished (ISO), keyed
+ * `tenantId|organizationId` in lower case; organizations without a pass are absent. One query for
+ * a page of scopes.
  */
-export async function listRollupPasses(db: AnalyticsDb | AnalyticsTrx, scopes: readonly ProjectionScope[]): Promise<Map<string, string>> {
+export async function listPassMarkers(db: AnalyticsDb | AnalyticsTrx, scopes: readonly ProjectionScope[], windowKey: string): Promise<Map<string, string>> {
   const passes = new Map<string, string>()
   if (scopes.length === 0) return passes
   const result = await sql<{ tenant_id: string; organization_id: string; computed_at: string }>`
@@ -153,11 +160,24 @@ export async function listRollupPasses(db: AnalyticsDb | AnalyticsTrx, scopes: r
       as wanted(tenant_id, organization_id)
       on wanted.tenant_id = rollups.tenant_id and wanted.organization_id = rollups.organization_id
     where rollups.process_key = ${XRAY_ROLLUP_ALL_PROCESSES}
-      and rollups.window_key = ${XRAY_ROLLUP_PASS_WINDOW_KEY}
+      and rollups.window_key = ${windowKey}
       and rollups.window_start = ${MARKER_WINDOW_START}::timestamptz
   `.execute(db)
   for (const row of result.rows) passes.set(`${row.tenant_id.toLowerCase()}|${row.organization_id.toLowerCase()}`, row.computed_at)
   return passes
+}
+
+/** Records a finished rollup pass of an organization (database clock). */
+export async function markRollupPass(db: AnalyticsDb, scope: ProjectionScope): Promise<void> {
+  await markPassMarker(db, scope, XRAY_ROLLUP_PASS_WINDOW_KEY)
+}
+
+/**
+ * When each organization's last rollup pass finished (ISO), keyed `tenantId|organizationId`
+ * in lower case; organizations without a pass are absent. One query for a page of scopes.
+ */
+export async function listRollupPasses(db: AnalyticsDb | AnalyticsTrx, scopes: readonly ProjectionScope[]): Promise<Map<string, string>> {
+  return listPassMarkers(db, scopes, XRAY_ROLLUP_PASS_WINDOW_KEY)
 }
 
 /** Whether an organization's rollups are due: no pass yet, or the last one is older than the interval. */

@@ -20,6 +20,8 @@ import type { ActorDimensions, XrayIngestDeps } from './ingest'
 import { createActorPseudonymizer } from './pseudonym'
 import type { ServiceResolver } from './killSwitch'
 import { createProjectionStore, type ProjectionStore } from './store'
+import { supersedeProcessSuggestions } from '../suggestions/store'
+import { clearSuggestionPass } from '../suggestions/passes'
 import type { ProjectionScope, XrayDatabase } from './types'
 
 const logger = createLogger('insights').child({ component: 'xray-runtime' })
@@ -157,6 +159,16 @@ export async function createXrayIngestDeps(
       resolveActorDimensions: createActorDimensionResolver(registry, { em, tenantId: scope.tenantId, organizationId: scope.organizationId }),
       redactedFields,
       owner: createLeaseOwner(),
+      onProcessRebuild: async (rebuildScope, processKeys) => {
+        try {
+          const db = createXrayDatabase(em)
+          await supersedeProcessSuggestions(db, rebuildScope, processKeys)
+          await clearSuggestionPass(db, rebuildScope)
+        } catch (error) {
+          logger.warn('[internal] Could not supersede the X-Ray suggestions of rebuilt processes', { organizationId: rebuildScope.organizationId, processKeys, err: error })
+          getTelemetryRuntime()?.reportError(error, { module: 'insights', code: 'insights.xray_suggestions_supersede_failed', attributes: { reason: 'contract_change' } })
+        }
+      },
     },
   }
 }

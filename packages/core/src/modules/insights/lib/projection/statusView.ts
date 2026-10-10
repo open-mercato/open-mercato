@@ -54,6 +54,7 @@ export function toXrayStatusResponse(status: XrayStatus, nowMs: number = Date.no
       debounceSeconds: status.settings.debounceSeconds,
       individualsEnabled: status.settings.individualsEnabled,
       timeZone: status.settings.timeZone,
+      suggestionMinSupport: status.settings.suggestionMinSupport,
       conformanceWorkflowId: status.settings.conformanceWorkflowId,
       activityStepMap: status.settings.activityStepMap,
       updatedAt: status.settings.updatedAt,

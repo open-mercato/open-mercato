@@ -83,6 +83,8 @@ function viewerFeatures(acl: { isSuperAdmin: boolean; features: string[] }): str
  * organizations where they hold them), and every check runs through the wildcard-aware
  * `rbacService.userHasAllFeatures` at the feature-check organization. Fails closed: `null`
  * without a subject or a resolved tenant, `visible: false` without the RBAC service.
+ * `viewer.canViewIndividuals` is checked at the feature-check organization only, which does not
+ * cover a multi-organization scope: per-person reads use `resolveXrayIndividualsAccess`.
  */
 export async function resolveXrayAnalyticsAccess(params: {
   container: AwilixContainer
@@ -123,4 +125,51 @@ export async function resolveXrayAnalyticsAccess(params: {
       canViewIndividuals,
     },
   }
+}
+
+function freshScopeRequestView(request: ScopeRequestView): ScopeRequestView {
+  const view: ScopeRequestView = {}
+  if (request.headers) view.headers = request.headers
+  if (request.cookies) view.cookies = request.cookies
+  return view
+}
+
+function intersectOrganizationIds(scope: string[] | null, narrowed: string[] | null): string[] | null {
+  if (narrowed === null) return scope
+  if (scope === null) return narrowed
+  const allowed = new Set(narrowed)
+  return scope.filter((organizationId) => allowed.has(organizationId))
+}
+
+/**
+ * Access for a per-person read (`groupBy=user`) of one process, derived from the granted view
+ * `access`. The organization scope is resolved again for the view features plus
+ * `insights.xray.view_individuals` (on a fresh request view, so the scope bound for the view
+ * features is not reused): a scope without a selected organization is NARROWED to the
+ * organizations where the caller holds all of them, and the feature check runs, wildcard-aware,
+ * at the feature-check organization (the selected one, else the caller's own). The per-person
+ * scope is that narrowed scope intersected with the view scope, so it is never wider than the
+ * view, and every organization in it holds the feature. Fails closed: `null` when the view is
+ * not visible, the caller lacks the features at the feature-check organization (e.g. the
+ * selected organization), the tenant differs, or no organization remains.
+ */
+export async function resolveXrayIndividualsAccess(params: {
+  container: AwilixContainer
+  auth: AuthContext | null | undefined
+  request: ScopeRequestView
+  process: Pick<RegisteredProcess, 'requiredFeatures'>
+  access: XrayAnalyticsAccess
+}): Promise<XrayAnalyticsAccess | null> {
+  if (!params.access.visible) return null
+  const individuals = await resolveXrayAnalyticsAccess({
+    container: params.container,
+    auth: params.auth,
+    request: freshScopeRequestView(params.request),
+    requiredFeatures: [...xrayProcessFeatures(params.process), XRAY_VIEW_INDIVIDUALS_FEATURE],
+  })
+  if (!individuals || !individuals.visible || !individuals.viewer.canViewIndividuals) return null
+  if (individuals.tenantId !== params.access.tenantId) return null
+  const organizationIds = intersectOrganizationIds(params.access.organizationIds, individuals.organizationIds)
+  if (organizationIds !== null && organizationIds.length === 0) return null
+  return { ...individuals, organizationIds }
 }

@@ -405,6 +405,8 @@ export const XRAY_RETENTION_DAYS_MIN = 7
 export const XRAY_RETENTION_DAYS_MAX = 3650
 export const XRAY_K_ANONYMITY_FLOOR = 5
 export const XRAY_STEP_MAP_MAX_ENTRIES = 500
+export const XRAY_SUGGESTION_MIN_SUPPORT_FLOOR = 5
+export const XRAY_SUGGESTION_MIN_SUPPORT_MAX = 100000
 
 const xrayActivityStepMapSchema = z
   .record(z.string().trim().min(1).max(200), z.string().trim().min(1).max(200))
@@ -427,6 +429,7 @@ export const xraySettingsUpdateSchema = z
     debounceSeconds: z.number().int().min(0).max(86400).optional().describe('Window in which a change and its correction collapse into one step at query time (default 120).'),
     individualsEnabled: z.boolean().optional().describe('Allows per-person breakdowns for users with `insights.xray.view_individuals` (default false).'),
     timeZone: xrayTimeZoneSchema.optional().describe('IANA time zone of the default 7/30/90-day windows and their precomputed rollups (default `UTC`); stored in its canonical spelling.'),
+    suggestionMinSupport: z.number().int().min(XRAY_SUGGESTION_MIN_SUPPORT_FLOOR).max(XRAY_SUGGESTION_MIN_SUPPORT_MAX).nullable().optional().describe('Overrides the support threshold of automation suggestions for this organization (default `null` = 20 supporting trigger occurrences in 30 days, minimum 5).'),
     conformanceWorkflowId: z.string().uuid().nullable().optional().describe('Workflow definition the process is compared against.'),
     activityStepMap: xrayActivityStepMapSchema.nullable().optional().describe('Maps activity keys to workflow step ids for conformance.'),
   })
@@ -448,6 +451,7 @@ export const xraySettingsSchema = z.object({
   debounceSeconds: z.number().int(),
   individualsEnabled: z.boolean(),
   timeZone: z.string(),
+  suggestionMinSupport: z.number().int().nullable().describe('Support threshold override of automation suggestions; null = the platform default (20).'),
   conformanceWorkflowId: z.string().uuid().nullable(),
   activityStepMap: z.record(z.string(), z.string()).nullable(),
   updatedAt: z.string().nullable().describe('Version token for optimistic locking; null until the settings are first saved.'),
@@ -677,8 +681,142 @@ export const xrayWorkflowDraftResponseSchema = z.object({
   payload: z.record(z.string(), z.unknown()).describe('Validated, disabled (`enabled: false`, `lifecycle: draft`) workflow definition for `POST /api/workflows/definitions`; only UPDATE_ENTITY activities.'),
   activityStepMap: z.record(z.string(), z.string()).describe('Activity key → generated step id (usable as the conformance `activityStepMap`).'),
   skippedActivities: z.array(z.string()).describe('Variant activities that cannot be expressed as an update of the case root (lifecycle, follow-up, milestone, `other`/`none` values).'),
-  commands: z.array(z.object({ commandId: z.string(), requiredFeatures: z.array(z.string()) })),
+  commands: z.array(z.object({
+    commandId: z.string(),
+    requiredFeatures: z.array(z.string()),
+    enabled: z.boolean().optional().describe('Whether the tenant enabled the command for workflows (Workflow settings); a draft with a disabled command is valid but its runs fail until it is enabled.'),
+  })),
   workflowIdAvailable: z.boolean().describe('False when the tenant already has a definition with this `workflowId` (the create call would answer 409).'),
+})
+
+export const XRAY_SUGGESTIONS_PAGE_SIZE_MAX = 100
+export const XRAY_SUGGESTIONS_PAGE_SIZE_DEFAULT = 50
+export const XRAY_SUGGESTION_STATUS_VALUES = ['open', 'dismissed', 'drafted', 'superseded'] as const
+export const XRAY_SUGGESTION_UPDATE_STATUS_VALUES = ['open', 'dismissed', 'drafted'] as const
+
+export const xraySuggestionsQuerySchema = z
+  .object({
+    processKey: z.string().regex(PROCESS_KEY_PATTERN).optional().describe('Only suggestions of this process (unknown or invisible processes list nothing).'),
+    status: z.enum(XRAY_SUGGESTION_STATUS_VALUES).optional().describe('Only suggestions with this status (default: every status).'),
+    page: z.coerce.number().int().min(1).max(10_000).optional().describe('1-based page (default 1).'),
+    pageSize: z.coerce.number().int().min(1).max(XRAY_SUGGESTIONS_PAGE_SIZE_MAX).optional().describe(`Page size (default ${XRAY_SUGGESTIONS_PAGE_SIZE_DEFAULT}, at most ${XRAY_SUGGESTIONS_PAGE_SIZE_MAX}).`),
+  })
+  .strict()
+
+export type XraySuggestionsQuery = z.infer<typeof xraySuggestionsQuerySchema>
+
+export const xraySuggestionPathParamsSchema = z.object({
+  id: z.string().uuid().describe('Suggestion id.'),
+})
+
+export const xraySuggestionDraftQuerySchema = z
+  .object({
+    workflowId: z.string().min(1).max(100).regex(/^[a-z0-9._-]+$/).optional().describe('Workflow id of the draft (default `xray.s.<processKey>.<signature prefix>`).'),
+    workflowName: z.string().trim().min(1).max(255).optional(),
+  })
+  .strict()
+
+function draftedArtifactIssue(value: { status: string; draftedArtifactId?: string | null }, ctx: z.RefinementCtx): void {
+  if (value.status === 'drafted' && !value.draftedArtifactId) {
+    ctx.addIssue({ code: 'custom', message: 'draftedArtifactId is required when the status is drafted', path: ['draftedArtifactId'] })
+  }
+  if (value.status !== 'drafted' && value.draftedArtifactId) {
+    ctx.addIssue({ code: 'custom', message: 'draftedArtifactId is only accepted with the drafted status', path: ['draftedArtifactId'] })
+  }
+}
+
+const xraySuggestionUpdateFields = {
+  status: z.enum(XRAY_SUGGESTION_UPDATE_STATUS_VALUES).describe('`dismissed`, `drafted` (with `draftedArtifactId`) or `open` (reopen). A superseded suggestion cannot be changed.'),
+  draftedArtifactId: z.string().uuid().nullable().optional().describe('The workflow definition created from the draft; must belong to the suggestion\'s tenant and organization.'),
+}
+
+export const xraySuggestionUpdateSchema = z.object(xraySuggestionUpdateFields).strict().superRefine(draftedArtifactIssue)
+
+export type XraySuggestionUpdateInput = z.infer<typeof xraySuggestionUpdateSchema>
+
+export const xraySuggestionUpdateCommandSchema = z
+  .object({
+    ...xraySuggestionUpdateFields,
+    tenantId: z.string().uuid(),
+    organizationId: z.string().uuid(),
+    id: z.string().uuid(),
+  })
+  .strict()
+  .superRefine(draftedArtifactIssue)
+
+export type XraySuggestionUpdateCommandInput = z.infer<typeof xraySuggestionUpdateCommandSchema>
+
+export const xraySuggestionMineRequestSchema = z.object({}).strict()
+
+export const xraySuggestionSchema = z.object({
+  id: z.string().uuid(),
+  processKey: z.string(),
+  processLabelKey: z.string(),
+  organizationId: z.string().uuid(),
+  status: z.enum(XRAY_SUGGESTION_STATUS_VALUES),
+  trigger: z.object({
+    activityKey: z.string(),
+    activityKind: z.string(),
+    field: z.string().nullable(),
+    value: z.string().nullable(),
+    eventId: z.string().nullable().describe('Workflow trigger event when the trigger is expressible (only the creation of the case root is).'),
+  }),
+  condition: z.object({ field: z.string(), value: z.string() }).nullable().describe('Optional low-cardinality condition: a root field\'s value right after the trigger.'),
+  followups: z.array(z.object({
+    field: z.string(),
+    value: z.string(),
+    activityKind: z.string(),
+    commandId: z.string().nullable(),
+  })).describe('The manual follow-up field change(s) (one per suggestion).'),
+  windowSeconds: z.number().int().positive().describe('Smallest of 600 / 3600 / 86400 s within which every threshold holds.'),
+  support: z.number().int().nonnegative().describe('Trigger occurrences followed by the follow-up within the window (last 30 days).'),
+  triggerCount: z.number().int().nonnegative().describe('Trigger occurrences whose window ended before the mining time.'),
+  confidence: z.number().min(0).max(1).describe('95 % Wilson lower bound of support / triggerCount.'),
+  lift: z.number().nonnegative().describe('support / triggerCount over the base rate of the follow-up after any trigger-eligible activity.'),
+  distinctActorCount: z.number().int().nonnegative().describe('People behind the supporting follow-ups (a count only; no identities are stored).'),
+  draftable: z.boolean(),
+  notDraftableReason: z.string().nullable().describe('`trigger_not_expressible`, `condition_not_expressible`, `no_command`, `workflows_unavailable`, `command_not_workflow_safe` or `draft_invalid` (as of the last mining pass).'),
+  draftedArtifactId: z.string().uuid().nullable(),
+  computedAt: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string().describe('Version token for optimistic locking (`x-om-ext-optimistic-lock-expected-updated-at`).'),
+})
+
+export type XraySuggestionView = z.infer<typeof xraySuggestionSchema>
+
+export const xraySuggestionsResponseSchema = z.object({
+  items: z.array(xraySuggestionSchema),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  pageSize: z.number().int().positive(),
+  totalPages: z.number().int().nonnegative(),
+})
+
+export const xraySuggestionResponseSchema = z.object({
+  ok: z.literal(true),
+  result: xraySuggestionSchema,
+})
+
+export const xraySuggestionDraftResponseSchema = z.object({
+  ok: z.literal(true),
+  persisted: z.literal(false).describe('Nothing is stored: create the draft through `POST /api/workflows/definitions`.'),
+  suggestionId: z.string().uuid(),
+  processKey: z.string(),
+  draftable: z.boolean(),
+  reason: z.string().nullable().describe('Why no draft is returned (`command_forbidden` when the caller lacks the command\'s features, otherwise as `notDraftableReason`).'),
+  payload: z.record(z.string(), z.unknown()).optional().describe('Validated, disabled (`enabled: false`, `lifecycle: draft`) workflow definition with an event trigger and UPDATE_ENTITY steps only.'),
+  commands: z.array(z.object({
+    commandId: z.string(),
+    requiredFeatures: z.array(z.string()),
+    enabled: z.boolean().optional().describe('Whether the tenant enabled the command for workflows (Workflow settings); runs of a disabled command fail until it is enabled.'),
+  })).optional(),
+  workflowIdAvailable: z.boolean().optional(),
+  issues: z.array(z.object({ path: z.string(), code: z.string() })).optional(),
+})
+
+export const xraySuggestionMineResponseSchema = z.object({
+  ok: z.literal(true),
+  enqueued: z.literal(true),
 })
 
 export {

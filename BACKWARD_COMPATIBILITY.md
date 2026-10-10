@@ -677,6 +677,22 @@ Phase 6B-1 of [`.ai/specs/2026-10-08-insights-process-xray.md`](.ai/specs/2026-1
 
 **Migration path**: none for modules. Operators run the rollup worker queue (see UPGRADE_NOTES.md).
 
+### Insights Process X-Ray automation suggestions (Phase 6B-2, 2026-10-10)
+
+Phase 6B-2 of [`.ai/specs/2026-10-08-insights-process-xray.md`](.ai/specs/2026-10-08-insights-process-xray.md) mines automation suggestions. Every surface below is new or additive.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| §1 Auto-discovery (`insights.process.ts`) / §2 Types | Optional `ProcessDescriptor.automation` (`ProcessAutomationDescriptor`: `updateCommandId`, optional `recordIdInputKey`, optional `fieldInputKeys`); invalid hints reject the declaration like any invalid field; not part of the contract hash | ✓ ADDITIVE (optional field) |
+| §7 API routes | `GET /api/insights/xray/suggestions` and `GET …/suggestions/{id}/draft` (`insights.xray.view` + the process's features), `PATCH …/suggestions/{id}` (`insights.xray.manage`, optimistic lock, mutation guards `insights.xray_suggestion`), `POST …/suggestions/mine` (`insights.xray.manage`, mutation guards `insights.xray_suggestion_mining`); unknown and invisible suggestions answer the same 404 `suggestion_not_found`. `PUT /api/insights/xray/settings` accepts `suggestionMinSupport`; settings and status responses gain it. Every X-Ray route's 500 body becomes `{ error, code: 'internal_error', hint: null }` (was `{ error: 'internal_error' }`) | ✓ ADDITIVE; STABLE |
+| §8 Database schema | `insights_automation_suggestions` (created empty in Phase 5, never written before) gains `trigger_activity_key`, `window_seconds`, `trigger_count`, NOT NULL `updated_at`, status index over `(tenant_id, organization_id, process_key, status)`; `insights_process_settings.suggestion_min_support` (nullable); all in the unreleased `Migration20261008180752_insights`. Pass marker rows `window_key = '__suggestion_pass__'` in `insights_process_rollups` | ✓ ADDITIVE |
+| §9 DI service names | `workflowDraftService.listAutomatedUpdates({ tenantId, organizationId })` (additive method; insights treats it as optional). `validateDraftDefinition` now allows only `UPDATE_ENTITY`, `WAIT`, `SET_VARIABLE` (new issue code `activity_not_allowed`) and its `commands` gain `enabled` (tenant enablement, tier 2); it was introduced unreleased in Phase 6B-1, so no shipped caller relied on the denylist | ✓ ADDITIVE; STABLE |
+| Commands | `insights.xray.suggestion.update` (audited, not undoable) | ✓ ADDITIVE |
+| Queues | `insights-xray-suggestions` (concurrency 1), fed by the existing system ingest tick | ✓ ADDITIVE |
+| Event IDs, widget spot IDs, ACL feature IDs, notification IDs, AI tool IDs, CLI commands, generated files | No change | ✓ n/a |
+
+**Migration path**: none for modules (the `automation` hint is opt-in). Operators run the suggestions worker queue (see UPGRADE_NOTES.md).
+
 ### Retained access-log resource kinds (Process X-Ray analytics, 2026-10-10)
 
 | Surface | Change | Classification |

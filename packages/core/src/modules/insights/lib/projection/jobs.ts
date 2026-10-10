@@ -8,6 +8,10 @@ import { getProcessRegistry, type ProcessRegistrySnapshot } from '../process/reg
 import { createXrayAnalyticsFromContainer, invalidateXrayAnalytics } from '../analytics/index'
 import { readProjectionState, runAnalyticsQuery } from '../analytics/query'
 import { isRollupPassDue, listRollupPasses, markRollupPass, pruneStaleRollups } from '../analytics/rollups'
+import { isSuggestionPassDue, listSuggestionPasses } from '../suggestions/passes'
+import { supersedeProcessSuggestions } from '../suggestions/store'
+import { clearSuggestionPass } from '../suggestions/passes'
+import { isXrayCursorComplete } from './completeness'
 import { describeXrayError } from './errors'
 import {
   XRAY_KEY_MISMATCH_ERROR,
@@ -30,9 +34,11 @@ import {
   enqueueXrayBackfill,
   enqueueXrayIngest,
   enqueueXrayRollup,
+  enqueueXraySuggestionMining,
   ensureXrayIngestSchedule,
   readXrayIngestBacklog,
   readXrayRollupBacklog,
+  readXraySuggestionsBacklog,
   type XrayBackfillJobPayload,
 } from './queue'
 import {
@@ -81,7 +87,7 @@ export type XrayIngestJobResult = XraySliceResult | { status: 'disabled' | 'no_p
 
 export type XrayFanoutResult =
   | { status: 'backlogged'; backlog: number }
-  | { status: 'done'; enqueued: number; skipped: number; stray: number; rollupsEnqueued: number }
+  | { status: 'done'; enqueued: number; skipped: number; stray: number; rollupsEnqueued: number; suggestionsEnqueued: number }
 
 export type XrayRollupJobResult =
   | { status: 'disabled' | 'no_processes' | 'not_due' | 'incomplete'; pruned: number }
@@ -128,6 +134,23 @@ async function invalidateAnalyticsSafely(container: XrayContainer, scope: Projec
   } catch (error) {
     logger.warn('[internal] Could not invalidate the X-Ray analytics of an organization', { organizationId: scope.organizationId, reason, err: error })
     getTelemetryRuntime()?.reportError(error, { module: 'insights', code: 'insights.xray_analytics_invalidation_failed', attributes: { reason } })
+  }
+}
+
+/**
+ * Marks the organization's open automation suggestions of the cleared processes (all when
+ * `null`) as superseded and forgets its last mining pass: their evidence is gone until the
+ * projection is rebuilt, and the first tick after that mines again. Never throws: a failure is
+ * logged and reported (the next mining pass supersedes them anyway).
+ */
+async function supersedeSuggestionsSafely(em: EntityManager, scope: ProjectionScope, processKeys: string[] | null, reason: string): Promise<void> {
+  try {
+    const db = createXrayDatabase(em)
+    await supersedeProcessSuggestions(db, scope, processKeys)
+    await clearSuggestionPass(db, scope)
+  } catch (error) {
+    logger.warn('[internal] Could not supersede the X-Ray suggestions of an organization', { organizationId: scope.organizationId, reason, err: error })
+    getTelemetryRuntime()?.reportError(error, { module: 'insights', code: 'insights.xray_suggestions_supersede_failed', attributes: { reason } })
   }
 }
 
@@ -272,12 +295,14 @@ export async function runXrayIngestJob(container: XrayContainer, scope: Projecti
  * organization cursor and enqueues one ingest job per organization. Skips cursors whose
  * organization does not belong to their tenant (stray rows, logged), and organizations whose
  * settings or tenant kill switch disable X-Ray (or every organization when no process is
- * declared) unless their daily retention prune is due. Enabled organizations whose last rollup
- * pass is older than `XRAY_ROLLUP_INTERVAL_MS` (or missing) also get a rollup job, unless the
- * rollup queue already holds `XRAY_FANOUT_MAX_BACKLOG` waiting jobs. The whole tick is skipped
- * while the ingest queue still holds `XRAY_FANOUT_MAX_BACKLOG` waiting jobs, so a backlog never
- * grows by a full round per interval. Organizations get their cursor from tenant setup,
- * organization creation or a backfill.
+ * declared) unless their daily retention prune is due. Enabled organizations whose projection is
+ * complete (`isXrayCursorComplete`: no backfill, range scan or pending rebuild, so the job is not
+ * skipped and re-enqueued every tick) also get a rollup job when their last rollup pass is older
+ * than `XRAY_ROLLUP_INTERVAL_MS` (or missing) and an automation suggestion mining job when their
+ * last mining pass is older than 24 hours (or missing), each unless its queue already holds
+ * `XRAY_FANOUT_MAX_BACKLOG` waiting jobs. The whole tick is skipped while the ingest queue still
+ * holds `XRAY_FANOUT_MAX_BACKLOG` waiting jobs, so a backlog never grows by a full round per
+ * interval. Organizations get their cursor from tenant setup, organization creation or a backfill.
  */
 export async function runXrayIngestFanout(container: XrayContainer): Promise<XrayFanoutResult> {
   const backlog = await readXrayIngestBacklog()
@@ -300,20 +325,24 @@ export async function runXrayIngestFanout(container: XrayContainer): Promise<Xra
   const dbNow = await store.now()
   const rollupBacklog = active ? await readXrayRollupBacklog() : null
   const scheduleRollups = active && (rollupBacklog === null || rollupBacklog < XRAY_FANOUT_MAX_BACKLOG)
+  const suggestionsBacklog = active ? await readXraySuggestionsBacklog() : null
+  const scheduleSuggestions = active && (suggestionsBacklog === null || suggestionsBacklog < XRAY_FANOUT_MAX_BACKLOG)
   const kysely = createXrayDatabase(em)
   let after: ProjectionScope | null = null
   let enqueued = 0
   let skipped = 0
   let stray = 0
   let rollupsEnqueued = 0
+  let suggestionsEnqueued = 0
   for (;;) {
     const page: ProjectionCursor[] = await store.listCursors({ allTenants: true, after, limit: CURSOR_PAGE_SIZE })
     if (page.length === 0) break
     const scopes = page.map((cursor) => ({ tenantId: cursor.tenantId, organizationId: cursor.organizationId }))
-    const [tenants, disabled, rollupPasses] = await Promise.all([
+    const [tenants, disabled, rollupPasses, suggestionPasses] = await Promise.all([
       resolveOrganizationTenants(em, scopes.map((scope) => scope.organizationId)),
       active ? listDisabledXrayOrganizations(em, scopes) : Promise.resolve(new Set<string>()),
       scheduleRollups ? listRollupPasses(kysely, scopes) : Promise.resolve(new Map<string, string>()),
+      scheduleSuggestions ? listSuggestionPasses(kysely, scopes) : Promise.resolve(new Map<string, string>()),
     ])
     for (const [index, cursor] of page.entries()) {
       const scope = scopes[index]
@@ -322,9 +351,14 @@ export async function runXrayIngestFanout(container: XrayContainer): Promise<Xra
         continue
       }
       const enabled = active && !disabled.has(xrayScopeKey(scope)) && await toggleFor(scope.tenantId)
-      if (enabled && scheduleRollups && isRollupPassDue(rollupPasses.get(xrayScopeKey(scope)), dbNow)) {
+      const complete = enabled && isXrayCursorComplete(cursor)
+      if (complete && scheduleRollups && isRollupPassDue(rollupPasses.get(xrayScopeKey(scope)), dbNow)) {
         await enqueueXrayRollup(scope)
         rollupsEnqueued += 1
+      }
+      if (complete && scheduleSuggestions && isSuggestionPassDue(suggestionPasses.get(xrayScopeKey(scope)), dbNow)) {
+        await enqueueXraySuggestionMining(scope)
+        suggestionsEnqueued += 1
       }
       if (!enabled && !isXrayPruneDue(cursor.lastPrunedAt, dbNow)) {
         skipped += 1
@@ -339,7 +373,7 @@ export async function runXrayIngestFanout(container: XrayContainer): Promise<Xra
   if (stray > 0) {
     logger.warn('[internal] X-Ray ingest tick skipped cursors whose organization does not belong to their tenant', { cursors: stray })
   }
-  return { status: 'done', enqueued, skipped, stray, rollupsEnqueued }
+  return { status: 'done', enqueued, skipped, stray, rollupsEnqueued, suggestionsEnqueued }
 }
 
 /**
@@ -628,11 +662,13 @@ export async function runXrayBackfillJob(
         return slice.status
     }
   }
-  const status = await settle()
-  if (slice.voided > 0 || slice.status === 'completed') {
-    await invalidateAnalyticsSafely(container, scope, slice.status === 'completed' ? 'scan_completed' : 'voided')
+  try {
+    return await settle()
+  } finally {
+    if (slice.voided > 0 || slice.status === 'completed') {
+      await invalidateAnalyticsSafely(container, scope, slice.status === 'completed' ? 'scan_completed' : 'voided')
+    }
   }
-  return status
 }
 
 /**
@@ -690,6 +726,7 @@ export async function rebuildXrayProjection(
   } finally {
     await store.releaseLease(lease)
     await invalidateAnalyticsSafely(container, scope, 'rebuild')
+    await supersedeSuggestionsSafely(em, scope, null, 'rebuild')
   }
   const progress = resolveProgress(container)
   if (progress && cursor.scanProgressJobId) {

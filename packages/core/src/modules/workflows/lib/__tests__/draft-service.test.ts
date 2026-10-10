@@ -3,9 +3,21 @@ import { asValue, createContainer, type AwilixContainer } from 'awilix'
 import { z } from 'zod'
 
 const findOneWithDecryptionMock = jest.fn()
+const findWithDecryptionMock = jest.fn()
+const loadTriggersForTenantMock = jest.fn()
+const getAllCodeWorkflowsMock = jest.fn((): Array<{ workflowId: string; definition: unknown }> => [])
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) => findOneWithDecryptionMock(...args),
+  findWithDecryption: (...args: unknown[]) => findWithDecryptionMock(...args),
+}))
+
+jest.mock('../event-trigger-service', () => ({
+  loadTriggersForTenant: (...args: unknown[]) => loadTriggersForTenantMock(...args),
+}))
+
+jest.mock('../code-registry', () => ({
+  getAllCodeWorkflows: () => getAllCodeWorkflowsMock(),
 }))
 
 import { WorkflowDefinition } from '../../data/entities'
@@ -13,6 +25,7 @@ import { register as registerWorkflowsDi } from '../../di'
 import type { ActivityTypeEntry } from '../activity-registry'
 import {
   createWorkflowDraftService,
+  WORKFLOW_DRAFT_ALLOWED_ACTIVITY_TYPES,
   WORKFLOW_DRAFT_FORBIDDEN_ACTIVITY_TYPES,
   WORKFLOW_DRAFT_SERVICE_KEY,
   type WorkflowDraftIssue,
@@ -161,6 +174,117 @@ describe('workflowDraftService contract', () => {
     const service = container.resolve<WorkflowDraftService>(WORKFLOW_DRAFT_SERVICE_KEY)
     expect(typeof service.validateDraftDefinition).toBe('function')
     expect(typeof service.getDefinitionForScope).toBe('function')
+    expect(typeof service.listAutomatedUpdates).toBe('function')
+  })
+})
+
+describe('workflowDraftService.listAutomatedUpdates', () => {
+  const CODE_DEFINITION_ID = '77777777-7777-4777-8777-777777777777'
+  const LEGACY_DEFINITION_ID = '88888888-8888-4888-8888-888888888888'
+
+  function trigger(overrides: Record<string, unknown>) {
+    return {
+      id: 'trigger-1',
+      triggerId: 'on_deal',
+      name: 'On deal',
+      eventPattern: 'customers.deal.created',
+      config: null,
+      enabled: true,
+      priority: 0,
+      workflowDefinitionId: DEFINITION_ID,
+      workflowId: 'sales.deal-pipeline',
+      workflowVersion: 3,
+      source: 'embedded',
+      tenantId: TENANT_ID,
+      organizationId: ORG_A,
+      ...overrides,
+    }
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    getAllCodeWorkflowsMock.mockReturnValue([])
+    clearWorkflowSafeCommandsForTests()
+    registerWorkflowSafeCommands([
+      { commandId: 'customers.deals.update', requiredFeatures: ['customers.deals.manage'], defaultEnabled: true },
+      { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'], defaultEnabled: true },
+      { commandId: 'catalog.products.update', requiredFeatures: ['catalog.products.manage'] },
+    ])
+  })
+
+  afterAll(() => {
+    clearWorkflowSafeCommandsForTests()
+  })
+
+  test('skips commands that cannot run: not catalogued, or not enabled for the tenant', async () => {
+    const { rootEm } = buildEntityManagers(0)
+    const service = buildService(rootEm)
+    loadTriggersForTenantMock.mockResolvedValueOnce([trigger({})])
+    const stored = buildStoredDefinition()
+    stored.definition = {
+      steps: [{
+        stepId: 'set',
+        stepType: 'AUTOMATED',
+        activities: [
+          { activityType: 'UPDATE_ENTITY', config: { commandId: 'catalog.products.update', input: { status: 'x' } } },
+          { activityType: 'UPDATE_ENTITY', config: { commandId: 'customers.deals.delete', input: { id: 'x' } } },
+          { activityType: 'UPDATE_ENTITY', config: { commandId: 'customers.deals.update', input: { status: 'x' } } },
+        ],
+      }],
+      transitions: [],
+    }
+    findWithDecryptionMock.mockResolvedValueOnce([stored])
+
+    expect((await service.listAutomatedUpdates(SCOPE)).map((entry) => entry.commandId)).toEqual(['customers.deals.update'])
+  })
+
+  test('lists the UPDATE_ENTITY command and input keys of every enabled trigger (embedded, legacy, code), never values', async () => {
+    const { forkedEm, rootEm } = buildEntityManagers(0)
+    const service = buildService(rootEm)
+    loadTriggersForTenantMock.mockResolvedValueOnce([
+      trigger({}),
+      trigger({ id: 'legacy-1', eventPattern: 'customers.deal.*', workflowDefinitionId: LEGACY_DEFINITION_ID, workflowId: 'legacy.flow', source: 'legacy' }),
+      trigger({ id: 'code-1', eventPattern: 'customers.*', workflowDefinitionId: CODE_DEFINITION_ID, workflowId: 'code.flow', source: 'code' }),
+      trigger({ id: 'disabled-1', enabled: false, eventPattern: 'customers.deal.deleted' }),
+    ])
+    const legacy = buildStoredDefinition({ id: LEGACY_DEFINITION_ID, workflowId: 'legacy.flow' })
+    legacy.definition = {
+      steps: [{ stepId: 'set', stepType: 'AUTOMATED', activities: [{ activityId: 'a', activityType: 'UPDATE_ENTITY', config: { commandId: 'customers.deals.update', input: { pipelineStageId: 'x', id: '{{context.id}}' } } }] }],
+      transitions: [],
+    }
+    findWithDecryptionMock.mockResolvedValueOnce([buildStoredDefinition(), legacy])
+    getAllCodeWorkflowsMock.mockReturnValue([{
+      workflowId: 'code.flow',
+      definition: { steps: [{ stepId: 's', activities: [{ activityType: 'UPDATE_ENTITY', config: { commandId: 'sales.orders.update', input: { status: 'done' } } }, { activityType: 'WAIT', config: { duration: 'PT1M' } }] }], transitions: [] },
+    }])
+
+    const result = await service.listAutomatedUpdates(SCOPE)
+
+    expect(loadTriggersForTenantMock).toHaveBeenCalledWith(forkedEm, TENANT_ID, ORG_A)
+    expect(findWithDecryptionMock).toHaveBeenCalledWith(
+      forkedEm,
+      WorkflowDefinition,
+      { id: { $in: [DEFINITION_ID, LEGACY_DEFINITION_ID] }, tenantId: TENANT_ID, organizationId: ORG_A, deletedAt: null },
+      undefined,
+      { tenantId: TENANT_ID, organizationId: ORG_A },
+    )
+    expect(result).toEqual([
+      { workflowDefinitionId: DEFINITION_ID, workflowId: 'sales.deal-pipeline', eventPattern: 'customers.deal.created', commandId: 'customers.deals.update', inputKeys: ['id', 'status'] },
+      { workflowDefinitionId: LEGACY_DEFINITION_ID, workflowId: 'legacy.flow', eventPattern: 'customers.deal.*', commandId: 'customers.deals.update', inputKeys: ['id', 'pipelineStageId'] },
+      { workflowDefinitionId: CODE_DEFINITION_ID, workflowId: 'code.flow', eventPattern: 'customers.*', commandId: 'sales.orders.update', inputKeys: ['status'] },
+    ])
+    expect(JSON.stringify(result)).not.toMatch(/won|done|context/)
+  })
+
+  test('ignores rows of another scope and returns nothing for invalid scope ids without querying', async () => {
+    const { rootEm } = buildEntityManagers(0)
+    const service = buildService(rootEm)
+    loadTriggersForTenantMock.mockResolvedValueOnce([trigger({})])
+    findWithDecryptionMock.mockResolvedValueOnce([buildStoredDefinition({ organizationId: ORG_B })])
+
+    await expect(service.listAutomatedUpdates(SCOPE)).resolves.toEqual([])
+    await expect(service.listAutomatedUpdates({ tenantId: 'tenant', organizationId: ORG_A })).resolves.toEqual([])
+    expect(loadTriggersForTenantMock).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -187,7 +311,7 @@ describe('workflowDraftService.validateDraftDefinition', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.commands).toEqual([
-      { commandId: 'customers.deals.update', requiredFeatures: ['customers.deals.manage'] },
+      { commandId: 'customers.deals.update', requiredFeatures: ['customers.deals.manage'], enabled: false },
     ])
     expect(result.workflowIdAvailable).toBe(true)
     expect(result.payload.workflowId).toBe('insights.deal-won-draft')
@@ -203,6 +327,35 @@ describe('workflowDraftService.validateDraftDefinition', () => {
       tenantId: TENANT_ID,
     })
     expect(countMock.mock.contexts[0]).toBe(forkedEm)
+  })
+
+  test('reports whether the tenant enabled each command (tier 2): a saved setting, else the grandfathered default', async () => {
+    const { rootEm } = buildEntityManagers(0)
+    clearWorkflowSafeCommandsForTests()
+    registerWorkflowSafeCommands([
+      { commandId: 'customers.deals.update', requiredFeatures: ['customers.deals.manage'] },
+      { commandId: 'catalog.products.update', requiredFeatures: ['catalog.products.manage'], defaultEnabled: true },
+    ])
+    const payload = buildDraftPayload({
+      definition: {
+        steps: buildSteps([updateEntityActivity('update_product', 'catalog.products.update')]),
+        transitions: buildTransitions([updateEntityActivity('set_status_won', 'customers.deals.update')]),
+      },
+    })
+    const unset = await buildService(rootEm).validateDraftDefinition(payload, SCOPE)
+    expect(unset.ok && unset.commands.map((command) => [command.commandId, command.enabled])).toEqual([
+      ['catalog.products.update', true],
+      ['customers.deals.update', false],
+    ])
+    const getValue = jest.fn(async () => ['customers.deals.update'])
+    const container: AwilixContainer = createContainer()
+    container.register({ em: asValue(rootEm as unknown as EntityManager), moduleConfigService: asValue({ getValue, setValue: jest.fn() }) })
+    const saved = await createWorkflowDraftService(container).validateDraftDefinition(payload, SCOPE)
+    expect(saved.ok && saved.commands.map((command) => [command.commandId, command.enabled])).toEqual([
+      ['catalog.products.update', false],
+      ['customers.deals.update', true],
+    ])
+    expect(getValue).toHaveBeenCalledWith('workflows', 'update_entity_enabled_commands', { scope: { tenantId: TENANT_ID } })
   })
 
   test('reports the workflow id as taken when the tenant already has a definition with it', async () => {
@@ -234,8 +387,8 @@ describe('workflowDraftService.validateDraftDefinition', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.commands).toEqual([
-      { commandId: 'catalog.products.update', requiredFeatures: ['catalog.products.manage', 'catalog.products.view'] },
-      { commandId: 'customers.deals.update', requiredFeatures: ['customers.deals.manage'] },
+      { commandId: 'catalog.products.update', requiredFeatures: ['catalog.products.manage', 'catalog.products.view'], enabled: false },
+      { commandId: 'customers.deals.update', requiredFeatures: ['customers.deals.manage'], enabled: false },
     ])
   })
 
@@ -352,6 +505,54 @@ describe('workflowDraftService.validateDraftDefinition', () => {
       },
     ])
     expect(countMock).not.toHaveBeenCalled()
+  })
+
+  test.each([
+    ['SEND_EMAIL', { to: 'ops@example.test', subject: 'Deal won' }],
+    ['EXECUTE_FUNCTION', { functionName: 'recalculate' }],
+    ['INVOKE_AGENT', { agentId: 'deal_reviewer', onResult: { alwaysAsk: true } }],
+    ['EMIT_EVENT', { eventName: 'customers.deal.reviewed' }],
+  ])('rejects a %s activity as activity_not_allowed (allowlist, not a denylist)', async (activityType, config) => {
+    const { countMock, rootEm } = buildEntityManagers(0)
+    const service = buildService(rootEm)
+    const payload = buildDraftPayload({
+      definition: {
+        steps: buildSteps([{ activityId: 'side_effect', activityName: 'Side effect', activityType, config }]),
+        transitions: buildTransitions([updateEntityActivity('set_status_won', 'customers.deals.update')]),
+      },
+    })
+
+    const result = await service.validateDraftDefinition(payload, SCOPE)
+
+    expect(result).toEqual({
+      ok: false,
+      issues: [{ path: 'definition.steps.1.activities.0.activityType', code: 'activity_not_allowed', message: expect.any(String) }],
+    })
+    expect(countMock).not.toHaveBeenCalled()
+  })
+
+  test('accepts WAIT and SET_VARIABLE activities next to UPDATE_ENTITY', async () => {
+    const { rootEm } = buildEntityManagers(0)
+    const service = buildService(rootEm)
+    const payload = buildDraftPayload({
+      definition: {
+        steps: buildSteps([
+          { activityId: 'pause', activityName: 'Pause', activityType: 'WAIT', config: { duration: 'PT5M' } },
+          { activityId: 'remember', activityName: 'Remember', activityType: 'SET_VARIABLE', config: { assignments: [{ path: 'reviewed', value: true }] } },
+        ]),
+        transitions: buildTransitions([updateEntityActivity('set_status_won', 'customers.deals.update')]),
+      },
+    })
+
+    const result = await service.validateDraftDefinition(payload, SCOPE)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.commands).toEqual([{ commandId: 'customers.deals.update', requiredFeatures: ['customers.deals.manage'], enabled: false }])
+  })
+
+  test('exposes the activity types a draft may contain', () => {
+    expect([...WORKFLOW_DRAFT_ALLOWED_ACTIVITY_TYPES]).toEqual(['UPDATE_ENTITY', 'WAIT', 'SET_VARIABLE'])
   })
 
   test('rejects an UPDATE_ENTITY command that is not catalogued as workflow-safe', async () => {
