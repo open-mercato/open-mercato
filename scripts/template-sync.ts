@@ -190,6 +190,7 @@ const SYNC_INTERNAL_PACKAGE_KEYS = [
   // module resolution the moment the flag is flipped.
   '@open-mercato/enterprise',
   '@open-mercato/gateway-stripe',
+  '@open-mercato/gateway-tpay',
   '@open-mercato/sync-akeneo',
 ] as const
 // Modules whose source ships in every scaffold but must stay runtime-disabled there.
@@ -305,6 +306,15 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // task, not a one-line edit. Enabling is therefore a maintainer call about that harness
   // work, same as channel_discord's byte-budget call below.
   // { id: 'customer_groups', from: '@open-mercato/core' },`,
+  },
+  gateway_tpay: {
+    source: `  { id: 'gateway_tpay', from: '@open-mercato/gateway-tpay' },`,
+    template: `  // Tpay payment gateway (.ai/specs/2026-08-01-tpay-hosted-pln-payment-sessions.md).
+  // The package ships with the scaffold as an opt-in provider. Enabling it by
+  // default makes the scaffold ship the module's fact-sheet, which then needs an
+  // AI-harness evaluation case (packages/create-app/src/lib/module-facts-build.test.ts),
+  // so enabling is a maintainer call, not a one-line edit.
+  // { id: 'gateway_tpay', from: '@open-mercato/gateway-tpay' },`,
   },
   channel_discord: {
     source: `  // Discord bot channel (SPEC 2026-06-19) — two-way Discord via REST + a
