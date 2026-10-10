@@ -39,6 +39,8 @@ import {
   withScopedCustomerDealLinkWhere,
 } from '../../lib/personCompanyLinkTable'
 import { normalizeCompanyProfilePayload } from './payload'
+import { parseCompanyDomainFilter } from '../../lib/companyDomain'
+import { COMPANY_DOMAIN_LOOKUP_LIMIT, findCompanyIdsByDomain } from '../../lib/findCompanyIdsByDomain'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -53,6 +55,7 @@ const listSchema = z
     email: z.string().optional(),
     emailStartsWith: z.string().optional(),
     emailContains: z.string().optional(),
+    domain: z.string().optional().describe('Exact company domain such as acme.com; subdomains do not match'),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
     status: z.string().optional(),
@@ -131,6 +134,14 @@ const crud = makeCrudRoute({
       updatedAt: 'updated_at',
     },
     buildFilters: async (query, ctx) => {
+      const domain = typeof query.domain === 'string' ? parseCompanyDomainFilter(query.domain) : null
+      if (typeof query.domain === 'string' && !domain) {
+        const { translate } = await resolveTranslations()
+        throw new CrudHttpError(400, {
+          error: translate('customers.errors.invalid_domain', 'Invalid domain: pass a bare domain such as acme.com'),
+          code: 'invalid_domain',
+        })
+      }
       const advancedFilterTree = consumeAdvancedFilterState(query)
       const filters: Record<string, unknown> = { kind: { $eq: 'company' } }
       if (query.id) filters.id = { $eq: query.id }
@@ -191,6 +202,31 @@ const crud = makeCrudRoute({
             { next_interaction_name: { $ilike: searchPattern } },
           ]
         }
+      }
+      if (domain) {
+        const lookup = await findCompanyIdsByDomain(ctx.container.resolve('em') as EntityManager, domain, {
+          tenantId: ctx.auth?.tenantId ?? null,
+          organizationIds: ctx.organizationIds,
+          selectedOrganizationId: ctx.selectedOrganizationId,
+          decryptionOrganizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+          includeDeleted: parseBooleanToken(typeof query.withDeleted === 'string' ? query.withDeleted : null) === true,
+        })
+        if (lookup.status === 'scope-too-large') {
+          const { translate } = await resolveTranslations()
+          throw new CrudHttpError(422, {
+            error: translate(
+              'customers.errors.domain_lookup_too_broad',
+              'Too many companies in scope to check this domain exactly. Narrow the organization scope and try again.',
+            ),
+            code: 'domain_lookup_too_broad',
+          })
+        }
+        const domainIds = lookup.companyIds
+        const searchIds = (filters.id as { $in?: unknown } | undefined)?.$in
+        applyEntityIdRestriction(
+          filters,
+          Array.isArray(searchIds) ? domainIds.filter((id) => searchIds.includes(id)) : domainIds,
+        )
       }
       if (query.status) {
         filters.status = { $eq: query.status }
@@ -527,7 +563,7 @@ const companyCreateResponseSchema = z.object({
   companyId: z.string().uuid().nullable(),
 })
 
-export const openApi = createCustomersCrudOpenApi({
+const companiesCrudOpenApi = createCustomersCrudOpenApi({
   resourceName: 'Company',
   pluralName: 'Companies',
   querySchema: listSchema,
@@ -558,3 +594,37 @@ export const openApi = createCustomersCrudOpenApi({
     ],
   },
 })
+
+export const openApi = {
+  ...companiesCrudOpenApi,
+  methods: {
+    ...companiesCrudOpenApi.methods,
+    ...(companiesCrudOpenApi.methods?.GET
+      ? {
+          GET: {
+            ...companiesCrudOpenApi.methods.GET,
+            errors: [
+              ...(companiesCrudOpenApi.methods.GET.errors ?? []),
+              {
+                status: 400,
+                description:
+                  'Invalid query parameters. A `domain` value that is not a domain name (a URL, an email address or an empty value) returns `code: "invalid_domain"`.',
+                schema: z.union([
+                  z.object({ error: z.string(), code: z.literal('invalid_domain') }),
+                  z.object({ error: z.string(), details: z.array(z.unknown()).optional() }),
+                ]),
+              },
+              {
+                status: 422,
+                description: `\`domain_lookup_too_broad\` when more than ${COMPANY_DOMAIN_LOOKUP_LIMIT} companies with a domain are in scope, so \`domain\` cannot be checked exactly; \`organization_selection_invalid\` when the selected organization is no longer available.`,
+                schema: z.object({
+                  error: z.string(),
+                  code: z.enum(['domain_lookup_too_broad', 'organization_selection_invalid']),
+                }),
+              },
+            ],
+          },
+        }
+      : {}),
+  },
+} satisfies typeof companiesCrudOpenApi
