@@ -223,6 +223,7 @@
   "wms.backend.inventory.adjust.dialog.submit": "Save adjustment",
   "wms.backend.inventory.adjust.dialog.title": "Adjust inventory",
   "wms.backend.inventory.adjust.errors.deltaZero": "Inventory delta must be non-zero.",
+  "wms.backend.inventory.adjust.errors.insufficientStock": "The adjustment is larger than the available quantity in this location.",
   "wms.backend.inventory.adjust.errors.lot": "Failed to resolve inventory lot.",
   "wms.backend.inventory.adjust.errors.previewBalance": "Failed to load balance preview.",
   "wms.backend.inventory.adjust.errors.submit": "Failed to adjust inventory.",

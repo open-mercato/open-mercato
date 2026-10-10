@@ -223,6 +223,7 @@
   "wms.backend.inventory.adjust.dialog.submit": "Zapisz korektę",
   "wms.backend.inventory.adjust.dialog.title": "Korekta stanu",
   "wms.backend.inventory.adjust.errors.deltaZero": "Delta stanu magazynowego nie może być równa zero.",
+  "wms.backend.inventory.adjust.errors.insufficientStock": "Korekta przekracza ilość dostępną w tej lokalizacji.",
   "wms.backend.inventory.adjust.errors.lot": "Nie udało się rozpoznać partii magazynowej.",
   "wms.backend.inventory.adjust.errors.previewBalance": "Nie udało się załadować podglądu salda.",
   "wms.backend.inventory.adjust.errors.submit": "Nie udało się zaksięgować korekty.",
