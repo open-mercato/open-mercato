@@ -12,7 +12,7 @@ import { DEFAULT_TIME_TRACKING_SETTINGS, type TimeTrackingSettings } from '../..
 
 const settings: TimeTrackingSettings = {
   rounding: { unitMinutes: 15, direction: 'up' },
-  defaults: { billable: true, chainStartFromPreviousEnd: true },
+  defaults: { billable: true, chainStartFromPreviousEnd: true, entryMode: 'task' },
   targets: { dailyHours: 8 },
   warnings: { overlap: true, runningTimer: true },
   access: { assignmentGraceDays: 14 },
@@ -116,8 +116,28 @@ describe('settings draft', () => {
     expect(isSettingsDraftDirty({ ...baseline, roundingUnitMinutes: 5 }, baseline)).toBe(true)
     expect(isSettingsDraftDirty({ ...baseline, roundingDirection: 'nearest' }, baseline)).toBe(true)
     expect(isSettingsDraftDirty({ ...baseline, defaultsBillable: false }, baseline)).toBe(true)
+    expect(isSettingsDraftDirty({ ...baseline, defaultsEntryMode: 'project' }, baseline)).toBe(true)
+    expect(toSettingsPayload({ ...baseline, defaultsEntryMode: 'project' })?.defaults.entryMode).toBe('project')
     expect(isSettingsDraftDirty({ ...baseline, warningsOverlap: false }, baseline)).toBe(true)
     expect(isSettingsDraftDirty({ ...baseline, assignmentGraceDaysText: '0' }, baseline)).toBe(true)
+  })
+
+  it('treats a settings object without entryMode (pre-#6989 shape) as task mode', () => {
+    const legacySettings: TimeTrackingSettings = {
+      ...settings,
+      defaults: { billable: true, chainStartFromPreviousEnd: true },
+    }
+    const draft = toSettingsDraft(legacySettings)
+    expect(draft.defaultsEntryMode).toBe('task')
+    expect(toSettingsPayload(draft)?.defaults.entryMode).toBe('task')
+  })
+
+  it('treats a draft without defaultsEntryMode as task mode', () => {
+    const { defaultsEntryMode: _omitted, ...legacyDraft } = toSettingsDraft(settings)
+    const baseline = toSettingsDraft(settings)
+    expect(isSettingsDraftDirty(legacyDraft, baseline)).toBe(false)
+    expect(isSettingsDraftDirty(legacyDraft, { ...baseline, defaultsEntryMode: 'project' })).toBe(true)
+    expect(toSettingsPayload(legacyDraft)?.defaults.entryMode).toBe('task')
   })
 
   it('exposes the candidate rounding rule the preview is driven by', () => {

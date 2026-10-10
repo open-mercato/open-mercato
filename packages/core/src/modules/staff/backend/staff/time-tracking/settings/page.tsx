@@ -472,6 +472,34 @@ export default function TimeTrackingSettingsPage() {
                 <CardTitle>{t('staff.time_tracking.settings.defaults.title', 'Entry defaults')}</CardTitle>
               </CardHeader>
               <CardContent className="flex flex-col gap-4">
+                <div className="flex flex-col gap-2">
+                  <Label>
+                    {t('staff.time_tracking.settings.defaults.entryMode', 'New entries are logged against')}
+                  </Label>
+                  <SegmentedControl
+                    value={draft.defaultsEntryMode ?? 'task'}
+                    onValueChange={(value) => {
+                      if (value !== 'task' && value !== 'project') return
+                      patchDraft({ defaultsEntryMode: value })
+                    }}
+                    disabled={!canManage}
+                    aria-label={t('staff.time_tracking.settings.defaults.entryMode', 'New entries are logged against')}
+                    data-testid="time-tracking-settings-entry-mode"
+                  >
+                    <SegmentedControlItem value="task">
+                      {t('staff.time_tracking.settings.defaults.entryModeTask', 'a task')}
+                    </SegmentedControlItem>
+                    <SegmentedControlItem value="project">
+                      {t('staff.time_tracking.settings.defaults.entryModeProject', 'a project')}
+                    </SegmentedControlItem>
+                  </SegmentedControl>
+                  <p className="text-xs text-muted-foreground">
+                    {t(
+                      'staff.time_tracking.settings.defaults.entryModeHint',
+                      'Project mode lets people log time to a project without picking a task. Tasks stay optional.',
+                    )}
+                  </p>
+                </div>
                 <SwitchField
                   label={t('staff.time_tracking.settings.defaults.billable', 'New entries are billable')}
                   description={t(

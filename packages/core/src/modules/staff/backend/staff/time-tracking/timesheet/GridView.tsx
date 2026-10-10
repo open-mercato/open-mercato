@@ -915,7 +915,7 @@ function DefaultGridView({
   )
 }
 
-const gridViewPropsSchema: z.ZodType<GridViewProps> = z.object({
+export const gridViewPropsSchema: z.ZodType<GridViewProps> = z.object({
   days: z.array(z.string()),
   projects: z.array(opaqueProp<TimesheetProjectRef>()),
   allAssignedProjects: z.array(opaqueProp<TimesheetProjectRef>()),
