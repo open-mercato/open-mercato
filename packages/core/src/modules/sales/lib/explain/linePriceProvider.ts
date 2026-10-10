@@ -72,9 +72,17 @@ type SnapshotLineState =
   | { present: false }
   | { present: true; amount: bigint | null; priceId: string | null }
 
-type PriceRowState = {
+export type PriceRowState = {
   amount: bigint | null
   currencyCode: string | null
+}
+
+/**
+ * What the price row state readers use of a history entry (a full `ExplainHistoryEntry`, or the
+ * compact entries of the catalog price timeline the change simulator replays).
+ */
+export type PriceHistoryEntry = Pick<ExplainHistoryEntry, 'at' | 'actionType' | 'executionState' | 'snapshotBefore' | 'snapshotAfter'> & {
+  historyAction?: string | null
 }
 
 export type PriceAmountAsOf =
@@ -98,7 +106,7 @@ function readText(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null
 }
 
-function normalizeCurrency(value: unknown): string | null {
+export function normalizeCurrency(value: unknown): string | null {
   const text = readText(value)
   return text ? text.toUpperCase() : null
 }
@@ -164,11 +172,11 @@ function readSnapshotLine(snapshot: unknown, itemId: string, basis: PriceBasis):
   return { present: false }
 }
 
-function readHistoryAction(entry: ExplainHistoryEntry): string | null {
+function readHistoryAction(entry: PriceHistoryEntry): string | null {
   return 'historyAction' in entry && typeof entry.historyAction === 'string' ? entry.historyAction : null
 }
 
-function isUndoTraceEntry(entry: ExplainHistoryEntry): boolean {
+function isUndoTraceEntry(entry: PriceHistoryEntry): boolean {
   return readHistoryAction(entry) === 'undo'
 }
 
@@ -231,7 +239,8 @@ function resolveHistoryReader(ctx: ExplainProviderContext): PriceHistoryReader |
   return candidate
 }
 
-function stateFromEntryAfter(entry: ExplainHistoryEntry, basis: PriceBasis): PriceAmountAsOf {
+/** The price row state an entry left behind (a delete or an undo trace without a snapshot: absent). */
+export function stateFromEntryAfter(entry: PriceHistoryEntry, basis: PriceBasis): PriceAmountAsOf {
   if (entry.snapshotAfter === null || entry.snapshotAfter === undefined) {
     return entry.actionType === 'delete' || isUndoTraceEntry(entry) ? { status: 'absent' } : { status: 'unknown' }
   }
@@ -239,7 +248,8 @@ function stateFromEntryAfter(entry: ExplainHistoryEntry, basis: PriceBasis): Pri
   return state ? { status: 'found', state } : { status: 'unknown' }
 }
 
-function stateBeforeOldestEntry(entry: ExplainHistoryEntry, basis: PriceBasis): PriceAmountAsOf {
+/** The price row state before its oldest entry (a create: absent). */
+export function stateBeforeOldestEntry(entry: PriceHistoryEntry, basis: PriceBasis): PriceAmountAsOf {
   if (entry.snapshotBefore === null || entry.snapshotBefore === undefined) {
     return entry.actionType === 'create' ? { status: 'absent' } : { status: 'unknown' }
   }
@@ -263,8 +273,8 @@ export async function readPriceAmountAsOf(
   const writtenAtMs = readTimestamp(writtenAt)
   const reader = resolveHistoryReader(ctx)
   if (writtenAtMs === null || !reader) return { status: 'unknown' }
+  const scan = startPriceAmountHistoryScan(writtenAtMs, basis)
   let cursor: ActionLogHistoryCursor | null = null
-  let oldest: ExplainHistoryEntry | null = null
   for (let page = 0; page < PRICE_HISTORY_MAX_PAGES; page += 1) {
     const result: ActionLogFieldHistoryPage = await reader.findFieldHistory({
       tenantId: ctx.scope.tenantId,
@@ -274,19 +284,49 @@ export async function readPriceAmountAsOf(
       before: cursor,
       limit: PRICE_HISTORY_PAGE_SIZE,
     })
-    for (const entry of result.entries) {
-      if (entry.executionState === 'failed') continue
-      const at = readTimestamp(entry.at)
-      if (at === null || Math.abs(at - writtenAtMs) <= PRICE_HISTORY_ORDER_TOLERANCE_MS) return { status: 'unknown' }
-      if (at < writtenAtMs) return stateFromEntryAfter(entry, basis)
-      oldest = entry
-    }
-    if (!result.nextBefore) {
-      return oldest ? stateBeforeOldestEntry(oldest, basis) : { status: 'unknown' }
-    }
+    const decided = scanPriceAmountHistoryPage(scan, result.entries)
+    if (decided) return decided
+    if (!result.nextBefore) return finishPriceAmountHistoryScan(scan, true)
     cursor = result.nextBefore
   }
-  return { status: 'unknown' }
+  return finishPriceAmountHistoryScan(scan, false)
+}
+
+/** The progress of a `readPriceAmountAsOf` scan over a price row's history (newest first). */
+export type PriceAmountHistoryScan = {
+  writtenAtMs: number
+  basis: PriceBasis
+  oldest: PriceHistoryEntry | null
+}
+
+export function startPriceAmountHistoryScan(writtenAtMs: number, basis: PriceBasis): PriceAmountHistoryScan {
+  return { writtenAtMs, basis, oldest: null }
+}
+
+/**
+ * Applies one page of the history (newest first) to the scan: the state once decided — the newest
+ * entry before `writtenAtMs`, or `unknown` for an entry within `PRICE_HISTORY_ORDER_TOLERANCE_MS`
+ * of it (its order relative to the write is uncertain) or without a readable time — else null
+ * (read the next page). Failed entries are skipped.
+ */
+export function scanPriceAmountHistoryPage(scan: PriceAmountHistoryScan, entries: readonly PriceHistoryEntry[]): PriceAmountAsOf | null {
+  for (const entry of entries) {
+    if (entry.executionState === 'failed') continue
+    const at = readTimestamp(entry.at)
+    if (at === null || Math.abs(at - scan.writtenAtMs) <= PRICE_HISTORY_ORDER_TOLERANCE_MS) return { status: 'unknown' }
+    if (at < scan.writtenAtMs) return stateFromEntryAfter(entry, scan.basis)
+    scan.oldest = entry
+  }
+  return null
+}
+
+/**
+ * The state when no entry decided it: before the oldest entry when the whole history was read
+ * (`exhausted`), else `unknown`.
+ */
+export function finishPriceAmountHistoryScan(scan: PriceAmountHistoryScan, exhausted: boolean): PriceAmountAsOf {
+  if (!exhausted || !scan.oldest) return { status: 'unknown' }
+  return stateBeforeOldestEntry(scan.oldest, scan.basis)
 }
 
 function unverifiable(

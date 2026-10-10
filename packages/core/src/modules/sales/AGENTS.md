@@ -50,7 +50,8 @@ const calcService = container.resolve('salesCalculationService')
 
 - Dispatches `sales.line.calculate.*` / `sales.document.calculate.*` events
 - Register line/totals calculators or override via DI
-- **Not yet wired:** no code here calls catalog's `selectBestPrice`/`catalogPricingService` — lines are priced directly, not resolved from `CatalogProductPrice`. Out of scope for the pricing-engine spec; future wiring routes through `catalogPricingService` — never reimplement pricing inline.
+- **Not yet wired:** lines are priced directly, not via `selectBestPrice`/`catalogPricingService` (not in the pricing-engine spec); future wiring uses `catalogPricingService` — never reimplement pricing inline.
+- Price backtest (`lib/simulation/price*`) reuses `lib/explain/linePriceProvider`.
 
 ## Data Model Constraints
 

@@ -364,3 +364,88 @@ describe('workflows trigger backtest through the simulation routes', () => {
     for (const body of bodies) expect(body).toEqual({ error: 't:insights.simulation.errors.run_not_found', code: 'run_not_found' })
   })
 })
+
+describe('catalog price backtest through the simulation routes', () => {
+  const PRICE_ID = '66666666-0000-4000-8000-0000000000a1'
+  const priceProposal = { priceId: PRICE_ID, currencyCode: 'EUR', unitPriceNet: '12.00' }
+  const measures = [{ key: 'current_revenue', cell: 'priced_from_row', value: '300.00', currencyCode: 'EUR' }]
+
+  function priceGroup(family: 'orders' | 'quotes') {
+    return {
+      key: `${family}:EUR:net`,
+      labelKey: `sales.simulation.priceBacktest.families.${family}`,
+      sampleResourceKind: family === 'orders' ? 'sales.order' : 'sales.quote',
+      total: 20,
+      suppressed: false,
+      cells: [{ key: 'priced_from_row', count: 20, suppressed: null, sampleIds: [] }],
+      warnings: [],
+      flags: [],
+      measures,
+      requiredFeatures: [family === 'orders' ? 'sales.orders.view' : 'sales.quotes.view'],
+    }
+  }
+
+  beforeEach(async () => {
+    const catalog = await import('../../../catalog/insights.simulate')
+    registerSimulateConfigEntries([{ moduleId: 'catalog', config: catalog.default }])
+  })
+
+  it('needs catalog.pricing.manage to request or list the price backtest', async () => {
+    grantedFeatures = ['insights.simulator.*', 'sales.orders.view']
+    const denied = await requestPost(request('POST', BASE, { kind: 'catalog.price_backtest', artifactId: PRICE_ID, proposal: priceProposal, window: { days: 30 } }))
+    expect(denied.status).toBe(403)
+    expect(await denied.json()).toEqual({ error: 't:insights.simulation.errors.forbidden', code: 'forbidden', requiredFeatures: ['catalog.pricing.manage'] })
+    const hidden = await (await capabilitiesGet(request('GET', `${BASE}/capabilities`))).json()
+    expect(hidden.kinds.map((kind: { kind: string }) => kind.kind)).not.toContain('catalog.price_backtest')
+    grantedFeatures = ['insights.simulator.*', 'catalog.pricing.manage']
+    const shown = await (await capabilitiesGet(request('GET', `${BASE}/capabilities`))).json()
+    expect(shown.kinds).toContainEqual({ kind: 'catalog.price_backtest', artifactKind: 'catalog.price', labelKey: 'catalog.simulation.kind.priceBacktest', cellKeys: ['priced_from_row', 'manual_override', 'cannot_tell'], execution: 'queued' })
+    expect((await requestPost(request('POST', BASE, { kind: 'catalog.price_backtest', artifactId: PRICE_ID, proposal: priceProposal, window: { days: 30 } }))).status).toBe(202)
+  })
+
+  it('re-checks each document family on read: a family the viewer may no longer read is left out with the coverage', async () => {
+    findSimulationRunMock.mockResolvedValue(storedRun({
+      kind: 'catalog.price_backtest',
+      artifactKind: 'catalog.price',
+      artifactId: PRICE_ID,
+      inputJson: { priceId: PRICE_ID, currencyCode: 'EUR', unitPriceNet: 12 },
+      coverageJson: { orders_lines_scanned: 20, quotes_lines_scanned: 20 },
+      caveats: ['catalog.simulation.caveats.priceIdBrowserOnly'],
+      resultJson: { k: 5, truncated: false, groups: [priceGroup('orders'), priceGroup('quotes')] },
+    }))
+    grantedFeatures = ['insights.simulator.*', 'catalog.pricing.manage', 'sales.orders.view', 'sales.quotes.view']
+    const both = (await (await detailGet(request('GET', `${BASE}/${RUN_ID}`), params(RUN_ID))).json()).result
+    expect(both.result.groups.map((group: { key: string }) => group.key)).toEqual(['orders:EUR:net', 'quotes:EUR:net'])
+    expect(both.result.groups[0].measures).toEqual(measures)
+    expect(both.result.groups[0]).not.toHaveProperty('requiredFeatures')
+    expect(both.coverage).toEqual({ orders_lines_scanned: 20, quotes_lines_scanned: 20 })
+    expect(both.caveats).toEqual(['catalog.simulation.caveats.priceIdBrowserOnly'])
+    expect(both.budgets.recordsUsed).toBe(3)
+    grantedFeatures = ['insights.simulator.*', 'catalog.pricing.manage', 'sales.orders.view']
+    const ordersOnly = (await (await detailGet(request('GET', `${BASE}/${RUN_ID}`), params(RUN_ID))).json()).result
+    expect(ordersOnly.result.groups.map((group: { key: string }) => group.key)).toEqual(['orders:EUR:net'])
+    expect(ordersOnly.coverage).toBeNull()
+    expect(ordersOnly.budgets.recordsUsed).toBeNull()
+    expect(ordersOnly.caveats).toEqual(['catalog.simulation.caveats.priceIdBrowserOnly', 'insights.simulation.caveats.groupsHidden'])
+    grantedFeatures = ['insights.simulator.*', 'sales.orders.view', 'sales.quotes.view']
+    expect((await detailGet(request('GET', `${BASE}/${RUN_ID}`), params(RUN_ID))).status).toBe(404)
+  })
+
+  it('withholds the records read of any kind whenever a group or cell of its result is suppressed', async () => {
+    grantedFeatures = ['insights.simulator.*', 'test_module.*']
+    const group = { key: 'test_module.thing.updated', labelKey: null, sampleResourceKind: null, total: 30, suppressed: false, warnings: [], flags: [] }
+    findSimulationRunMock.mockResolvedValue(storedRun({
+      coverageJson: {},
+      caveats: ['test_module.caveat', 'insights.simulation.caveats.coverageHidden'],
+      resultJson: { k: 10, truncated: false, groups: [{ ...group, total: null, suppressed: true, cells: [{ key: 'fires', count: null, suppressed: 'below_k', sampleIds: [] }] }] },
+    }))
+    const groupHidden = (await (await detailGet(request('GET', `${BASE}/${RUN_ID}`), params(RUN_ID))).json()).result
+    expect(groupHidden.budgets).toEqual({ maxRecords: 50_000, maxDurationMs: 120_000, recordsUsed: null, elapsedMs: 100 })
+    findSimulationRunMock.mockResolvedValue(storedRun({ coverageJson: {}, caveats: ['insights.simulation.caveats.coverageHiddenCells'] }))
+    const cellHidden = (await (await detailGet(request('GET', `${BASE}/${RUN_ID}`), params(RUN_ID))).json()).result
+    expect(cellHidden.budgets.recordsUsed).toBeNull()
+    findSimulationRunMock.mockResolvedValue(storedRun({ resultJson: { k: 10, truncated: false, groups: [{ ...group, cells: [{ key: 'fires', count: 30, suppressed: null, sampleIds: [] }] }] } }))
+    const visible = (await (await detailGet(request('GET', `${BASE}/${RUN_ID}`), params(RUN_ID))).json()).result
+    expect(visible.budgets.recordsUsed).toBe(3)
+  })
+})

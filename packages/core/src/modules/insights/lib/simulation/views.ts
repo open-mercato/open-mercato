@@ -43,7 +43,16 @@ export type SimulationResultCellView = {
   samples: SimulationSample[]
 }
 
-export type SimulationResultGroupView = Omit<SimulationResultGroup, 'cells'> & { cells: SimulationResultCellView[] }
+export type SimulationResultGroupView = Omit<SimulationResultGroup, 'cells' | 'requiredFeatures'> & { cells: SimulationResultCellView[] }
+
+/** Shown when groups of a source the viewer may no longer read are left out (their coverage is hidden too). */
+export const SIMULATION_GROUPS_HIDDEN_CAVEAT = 'insights.simulation.caveats.groupsHidden'
+
+function readGroupFeatures(group: SimulationResultGroup): string[] {
+  return Array.isArray(group.requiredFeatures)
+    ? group.requiredFeatures.filter((feature): feature is string => typeof feature === 'string' && feature.length > 0)
+    : []
+}
 
 export type SimulationRunDetail = SimulationRunSummary & {
   execution: 'queued' | 'inline'
@@ -106,10 +115,12 @@ type Resolver = { resolve: (name: string) => unknown }
 
 /**
  * S14: the number of records a run read can equal the sum of its group totals (e.g. the principals
- * a permission preview evaluated), so it is withheld whenever any group or cell is suppressed —
- * otherwise a suppressed count could be derived by subtraction.
+ * a permission preview evaluated, or the lines a price backtest classified), so it is withheld
+ * whenever any group or cell is suppressed, or a group is left out for the viewer — otherwise a
+ * hidden count could be derived by subtraction.
  */
-function hidesSmallCounts(stored: StoredSimulationResult | null): boolean {
+function withholdsRecordsUsed(stored: StoredSimulationResult | null, hiddenGroups: number): boolean {
+  if (hiddenGroups > 0) return true
   if (!stored) return false
   return stored.groups.some((group) => group.suppressed || (group.cells ?? []).some((cell) => cell.suppressed !== null))
 }
@@ -117,7 +128,9 @@ function hidesSmallCounts(stored: StoredSimulationResult | null): boolean {
 /**
  * The detail view of the caller's own run. Only a completed run carries a result (already
  * k-suppressed when stored); its sample ids are re-checked live for the viewer, so a record the
- * viewer can no longer read disappears from the samples.
+ * viewer can no longer read disappears from the samples, and a group whose source features
+ * (`requiredFeatures`) the viewer lacks is left out — with the run's coverage, which may sum it.
+ * `recordsUsed` (the records read, which also sums the groups) is withheld whenever a count is hidden.
  */
 export async function buildSimulationRunDetail(input: {
   container: Resolver
@@ -132,9 +145,15 @@ export async function buildSimulationRunDetail(input: {
   const scope = { tenantId: run.tenantId, organizationId: run.organizationId }
   const stored = run.status === 'completed' ? readStoredResult(run.resultJson) : null
   let result: SimulationRunDetail['result'] = null
+  let hiddenGroups = 0
   if (stored) {
     const groups: SimulationResultGroupView[] = []
     for (const group of stored.groups) {
+      const groupFeatures = readGroupFeatures(group)
+      if (groupFeatures.length > 0 && !(await input.hasFeatures(groupFeatures))) {
+        hiddenGroups += 1
+        continue
+      }
       const cells: SimulationResultCellView[] = []
       for (const cell of group.cells ?? []) {
         const samples = cell.suppressed
@@ -142,11 +161,22 @@ export async function buildSimulationRunDetail(input: {
           : await resolveSimulationSamples(input.container, input.em, scope, input.viewerUserId, input.hasFeatures, group.sampleResourceKind, cell.sampleIds ?? [])
         cells.push({ key: cell.key, count: cell.count, suppressed: cell.suppressed, samples })
       }
-      groups.push({ ...group, cells })
+      groups.push({
+        key: group.key,
+        labelKey: group.labelKey,
+        sampleResourceKind: group.sampleResourceKind,
+        total: group.total,
+        suppressed: group.suppressed,
+        cells,
+        warnings: group.warnings,
+        flags: group.flags,
+        ...(Array.isArray(group.measures) ? { measures: group.measures } : {}),
+      })
     }
     result = { k: stored.k, truncated: stored.truncated, groups, summary: stored.summary ?? null }
   }
   const budgets = readSimulationBudgets(run.budgetsJson)
+  const storedCaveats = run.status === 'completed' ? [...(run.caveats ?? [])] : []
   let applyHref: string | null = null
   if (run.status === 'completed' && kind.definition.applyHref) {
     try {
@@ -164,12 +194,12 @@ export async function buildSimulationRunDetail(input: {
     cellKeys: [...kind.definition.cellKeys],
     proposal: run.inputJson ?? null,
     result,
-    coverage: run.status === 'completed' ? run.coverageJson ?? null : null,
-    caveats: run.status === 'completed' ? [...(run.caveats ?? [])] : [],
+    coverage: run.status === 'completed' && hiddenGroups === 0 ? run.coverageJson ?? null : null,
+    caveats: run.status === 'completed' ? [...storedCaveats, ...(hiddenGroups > 0 ? [SIMULATION_GROUPS_HIDDEN_CAVEAT] : [])] : [],
     budgets: {
       maxRecords: budgets.maxRecords,
       maxDurationMs: budgets.maxDurationMs,
-      recordsUsed: hidesSmallCounts(stored) ? null : budgets.recordsUsed,
+      recordsUsed: withholdsRecordsUsed(stored, hiddenGroups) ? null : budgets.recordsUsed,
       elapsedMs: budgets.elapsedMs,
     },
     decisions: input.decisions.map(toSimulationDecisionView),

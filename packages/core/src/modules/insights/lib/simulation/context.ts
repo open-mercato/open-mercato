@@ -7,6 +7,8 @@ import type {
   SimulationAuditScanQuery,
   SimulationEventPayload,
   SimulationFeatureCheck,
+  SimulationRecordHistoryPage,
+  SimulationRecordHistoryQuery,
   SimulationScope,
   SimulationWindow,
 } from '@open-mercato/shared/modules/insights/simulate'
@@ -129,6 +131,36 @@ export function createAuditScanner(
       exhausted: page.exhausted,
       payloadBytes: page.payloadBytes,
       undecryptable: page.undecryptable,
+    }
+  }
+}
+
+/**
+ * One record's own audit history for a slice (`readRecordHistory`): decrypted, scoped to the run's
+ * organization, newest first, not bounded by the run window. Bound to the slice's read-only
+ * transaction like the window scanner.
+ */
+export function createRecordHistoryReader(
+  em: EntityManager,
+  encryption: TenantDataEncryptionService | undefined,
+  scope: SimulationScope,
+): (query: SimulationRecordHistoryQuery) => Promise<SimulationRecordHistoryPage> {
+  const service = new ActionLogService(em, encryption)
+  return async (query) => {
+    const resourceKinds = Array.from(new Set(query.resourceKinds.filter((kind) => typeof kind === 'string' && kind.length > 0)))
+    const resourceId = typeof query.resourceId === 'string' ? query.resourceId.trim() : ''
+    if (resourceKinds.length === 0 || resourceId.length === 0) return { entries: [], nextBefore: null }
+    const page = await service.findFieldHistory({
+      tenantId: scope.tenantId,
+      organizationIds: [scope.organizationId],
+      resourceKinds,
+      resourceId,
+      before: query.before,
+      limit: query.limit,
+    })
+    return {
+      entries: page.entries.map((entry) => ({ ...toSimulationAuditEntry(entry), historyAction: entry.historyAction ?? null })),
+      nextBefore: page.nextBefore,
     }
   }
 }

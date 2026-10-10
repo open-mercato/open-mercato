@@ -9,11 +9,13 @@ import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@open-mercato/ui/primitives/table'
 import { isSafeInternalHref } from '../../lib/client/explainApi'
 import {
+  formatSimulationMeasure,
   simulationCellLabel,
   simulationFlagLabel,
   simulationGroupHeading,
   simulationGroupSuppressedLabel,
   simulationGroupTotalLabel,
+  simulationMeasureLabel,
   translateSimulationKey,
 } from '../../lib/client/simulation/format'
 import type { SimulationResultCell, SimulationResultGroup, SimulationSample } from '../../lib/client/simulation/types'
@@ -113,6 +115,36 @@ function SampleLinks({ samples }: { samples: readonly SimulationSample[] }) {
   )
 }
 
+/**
+ * The decimal aggregates of a group (e.g. revenue per currency of a price backtest), each in its own
+ * currency. They are present only while the cell they describe is visible; a group whose measures
+ * were hidden by k-suppression says so. Kinds without measures render nothing.
+ */
+export function SimulationGroupMeasures({ kind, group }: { kind: string; group: SimulationResultGroup }) {
+  const t = useT()
+  const locale = useLocale()
+  const measures = group.measures
+  if (!measures) return null
+  if (group.suppressed || measures.length === 0) {
+    return (
+      <p className="inline-flex items-center gap-1 text-xs text-muted-foreground" data-testid="simulation-measures-hidden">
+        <EyeOff className="size-3" aria-hidden="true" />
+        {t('insights.simulation.ui.result.measuresHidden')}
+      </p>
+    )
+  }
+  return (
+    <dl className="grid grid-cols-1 gap-x-4 gap-y-1 text-sm sm:grid-cols-3" aria-label={t('insights.simulation.ui.result.measures')} data-testid="simulation-measures">
+      {measures.map((measure) => (
+        <div key={`${measure.cell}:${measure.key}`} className="flex items-baseline justify-between gap-2 sm:flex-col sm:items-start sm:justify-start" data-measure={measure.key}>
+          <dt className="text-muted-foreground">{simulationMeasureLabel(kind, measure.key, t)}</dt>
+          <dd className="font-medium tabular-nums">{formatSimulationMeasure(measure, locale)}</dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
 type SimulationGroupProps = {
   kind: string
   group: SimulationResultGroup
@@ -144,6 +176,7 @@ export function SimulationGroupHeadline({ kind, group, k, proposal, groupLabels 
           </div>
         ))}
       </dl>
+      <SimulationGroupMeasures kind={kind} group={group} />
       <SimulationWarnings warnings={group.warnings} />
     </section>
   )
@@ -182,6 +215,7 @@ export function SimulationGroupSection({ kind, group, k, proposal, groupLabels }
           ))}
         </TableBody>
       </Table>
+      <SimulationGroupMeasures kind={kind} group={group} />
     </section>
   )
 }

@@ -794,3 +794,18 @@ Phase 7a of [`.ai/specs/2026-10-08-insights-change-simulator.md`](.ai/specs/2026
 | §8 / §9 / §10 / §11 | No new tables, DI keys, ACL features, events or notifications (inline runs are stored in `insights_simulation_runs` as `completed`, with a per-request inputs hash) | ✓ n/a |
 
 **Migration path**: none; `yarn generate` registers the new contribution and widgets. Operators: see UPGRADE_NOTES.md.
+
+### Change Simulator — Phase 7d (price-row backtest, 2026-10-10)
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| §1 Auto-discovery convention `insights.simulate.ts` | New contribution from `catalog`: kind `catalog.price_backtest` (artifact kind `catalog.price`, required feature `catalog.pricing.manage`, cells `priced_from_row` / `manual_override` / `cannot_tell`, measures `current_revenue` / `simulated_revenue` / `revenue_delta`). `sales/insights.simulate.ts` now also registers the order and quote line families of that kind (no export changed) | ✓ ADDITIVE; kind id FROZEN once shipped |
+| §2 Types (`@open-mercato/shared/modules/insights/simulate`) | Optional `readRecordHistory?(query)` on `SimulationRunContext` (one record's decrypted, organization-scoped history, newest first) with `SimulationRecordHistoryQuery` / `…Page` / `…Entry` / `…Cursor`; optional `measures?: SimulationMeasure[]` and `requiredFeatures?: string[]` on `SimulationGroup` (insights keeps a measure only while its cell is visible after k-suppression and shows a group only to viewers holding its features); optional `coverageBreaksDownCells?: boolean` on `SimulationKindResult` (coverage hidden as soon as any cell is suppressed) | ✓ ADDITIVE; STABLE |
+| §2/§3 catalog exports | `data/validators` exports `catalogPriceBacktestProposalSchema` / `CatalogPriceBacktestProposal`; new `lib/simulation/priceLineSources` (`registerCatalogPriceLineSource`, `listCatalogPriceLineSources`, the `CatalogPriceLineSource` hook contract), `lib/simulation/priceTimeline`, `lib/simulation/price-backtest` | ✓ ADDITIVE; STABLE (the line-source hook is the extension point for other document modules) |
+| §2/§3 sales exports (`lib/explain/linePriceProvider`) | Newly exported, unchanged helpers of the "Why?" line price explanation: `normalizeCurrency`, `stateFromEntryAfter`, `stateBeforeOldestEntry`, types `PriceRowState`, `PriceHistoryEntry`; `readPriceAmountAsOf`'s history scan extracted into `startPriceAmountHistoryScan` / `scanPriceAmountHistoryPage` / `finishPriceAmountHistoryScan` (same results and the same audit reads — existing tests). New `lib/simulation/priceLines`, `priceLineClassification`, `priceLineSources` | ✓ ADDITIVE; STABLE |
+| §6 Widget spot IDs | None new: the catalog price row edit form already publishes `crud-form:catalog.catalog_product_price` and its `:header` child (derived from its `entityId`) | ✓ n/a |
+| §6 Widget IDs | `insights.injection.price-simulate` (header), `insights.injection.price-simulation-apply` (form; `onAfterSave` records the `applied` decision) | ✓ ADDITIVE; STABLE (override targets) |
+| §7 API routes | No new routes. `GET /api/insights/simulations/{id}` result groups may carry `measures`; a group of a source the viewer can no longer read is left out, the run's `coverage` is then `null` and the caveat `insights.simulation.caveats.groupsHidden` is added; `budgets.recordsUsed` is also `null` while such a group is left out (on top of 7c's rule: any suppressed group or cell) | ✓ ADDITIVE (one nullable field) |
+| §8 / §9 / §10 / §11 | No new tables, indexes, DI keys, ACL features, events or notifications | ✓ n/a |
+
+**Migration path**: none; `yarn generate` registers the new contributions. Operators: see UPGRADE_NOTES.md.

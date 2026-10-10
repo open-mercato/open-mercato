@@ -25,7 +25,7 @@ import {
   readSimulationMutationError,
   simulationRunPagePath,
 } from '../../lib/client/simulation/api'
-import { describeSimulationError, describeSimulationRunError, simulationEmptyResult } from '../../lib/client/simulation/format'
+import { describeSimulationError, describeSimulationRunError, simulationEmptyResult, translateSimulationKey } from '../../lib/client/simulation/format'
 import { useSimulationLiveRecords, useSimulationMutations, useSimulationRun } from '../../lib/client/simulation/hooks'
 import type { SimulationCapabilities, SimulationExecution, SimulationRequestError } from '../../lib/client/simulation/types'
 import { formatCount } from '../../lib/client/xray/format'
@@ -69,7 +69,9 @@ function RequestErrorNotice({ error }: { error: SimulationRequestError }) {
           <ul className="mt-1 list-disc space-y-0.5 pl-5">
             {error.issues.map((issue, index) => (
               <li key={`${issue.path}:${index}`}>
-                {issue.path ? t('insights.simulation.ui.simulate.issue', { path: issue.path, message: issue.message }) : issue.message}
+                {issue.path
+                  ? t('insights.simulation.ui.simulate.issue', { path: issue.path, message: translateSimulationKey(issue.message, t) })
+                  : translateSimulationKey(issue.message, t)}
               </li>
             ))}
           </ul>

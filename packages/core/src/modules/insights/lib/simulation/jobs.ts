@@ -23,7 +23,7 @@ import {
   SIMULATION_RUN_FEATURE,
   SIMULATION_TENANT_BUSY_DELAY_MS,
 } from './constants'
-import { SimulationFeatureCheckError, createAuditScanner, createFeatureCheck, withPastValuePolicy } from './context'
+import { SimulationFeatureCheckError, createAuditScanner, createFeatureCheck, createRecordHistoryReader, withPastValuePolicy } from './context'
 import { simulationRunFeatures } from './features'
 import { suppressSimulationGroups, type SimulationResultGroup } from './privacy'
 import { enqueueSimulationSlice, type SimulationSliceJobPayload } from './queue'
@@ -348,6 +348,7 @@ export async function runSimulationSlice(
         hasFeatures,
         eventAdapters: withPastValuePolicy(listSimulationEventAdapters(), pastValuesAllowed),
         scanAuditLog: createAuditScanner(trx, encryption, scope, window, budgets.maxBatchBytes),
+        readRecordHistory: createRecordHistoryReader(trx, encryption, scope),
       }
       return definition.run(parsed.data, context)
     })
@@ -393,6 +394,27 @@ export async function runSimulationSlice(
  */
 export const SIMULATION_COVERAGE_HIDDEN_CAVEAT = 'insights.simulation.caveats.coverageHidden'
 
+/** Coverage that splits result cells (`coverageBreaksDownCells`) is hidden as soon as one cell is suppressed. */
+export const SIMULATION_COVERAGE_HIDDEN_CELLS_CAVEAT = 'insights.simulation.caveats.coverageHiddenCells'
+
+/**
+ * The coverage a completed run keeps (queued and inline runs alike), with the kind's sanitized
+ * caveats: none when a suppressed group could be derived from it by difference, or — for a kind
+ * whose coverage splits cells (`coverageBreaksDownCells`) — when any cell is suppressed; the run
+ * then says why. Nothing to hide adds no caveat.
+ */
+export function storedSimulationCoverage(
+  result: Pick<SimulationKindResult, 'coverage' | 'caveats' | 'coverageBreaksDownCells'>,
+  groups: readonly SimulationResultGroup[],
+): { coverage: Record<string, number>; caveats: string[] } {
+  const coverage = sanitizeCoverage(result.coverage)
+  const caveats = sanitizeI18nKeys(result.caveats)
+  const groupHidden = groups.some((group) => group.suppressed)
+  const cellHidden = result.coverageBreaksDownCells === true && groups.some((group) => group.cells.some((cell) => cell.suppressed !== null))
+  if (Object.keys(coverage).length === 0 || (!groupHidden && !cellHidden)) return { coverage, caveats }
+  return { coverage: {}, caveats: [...caveats, groupHidden ? SIMULATION_COVERAGE_HIDDEN_CAVEAT : SIMULATION_COVERAGE_HIDDEN_CELLS_CAVEAT] }
+}
+
 async function completeRun(
   container: SimulationContainer,
   rootEm: EntityManager,
@@ -410,15 +432,14 @@ async function completeRun(
   const groups = await confirmSimulationSamples(container, em, scope, run.requestedByUserId, hasFeatures, suppressed)
   const summary = sanitizeSimulationSummary(result.summary)
   const stored: StoredSimulationResult = { k, truncated: result.truncated === true, groups, ...(summary ? { summary } : {}) }
-  const coverageHidden = groups.some((group) => group.suppressed)
-  const caveats = sanitizeI18nKeys(result.caveats)
+  const visible = storedSimulationCoverage(result, groups)
   const saved = await updateActiveSimulationRun(rootEm, scope, run.id, run.updatedAt, {
     status: 'completed',
     errorCode: null,
     completedAt: new Date(now()),
     resultJson: stored,
-    coverageJson: coverageHidden ? {} : sanitizeCoverage(result.coverage),
-    caveats: coverageHidden ? [...caveats, SIMULATION_COVERAGE_HIDDEN_CAVEAT] : caveats,
+    coverageJson: visible.coverage,
+    caveats: visible.caveats,
     fidelity: typeof result.fidelity === 'string' ? result.fidelity : 'none',
     budgetsJson: usage,
   }, now())

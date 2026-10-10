@@ -190,6 +190,36 @@ export type SimulationBudget = {
   maxBatchBytes: number
 }
 
+/** Keyset position of a record history read (`(created_at, id)`, newest first). */
+export type SimulationRecordHistoryCursor = {
+  at: string
+  id: string
+}
+
+/**
+ * Reads one record's own audit history, newest first: decrypted, scoped to the run's
+ * organization, NOT bounded by the run window (a state at a time inside the window may have been
+ * written before it). `limit` is clamped by the audit service. The reader applies no feature
+ * check of its own: a kind reads only records its `requiredFeatures` cover and keeps only the
+ * fields it needs (never record values in a result).
+ */
+export type SimulationRecordHistoryQuery = {
+  resourceKinds: string[]
+  resourceId: string
+  before: SimulationRecordHistoryCursor | null
+  limit: number
+}
+
+/** One record history entry; `historyAction` marks undo / redo traces (`undo`, `redo`). */
+export type SimulationRecordHistoryEntry = SimulationAuditEntry & {
+  historyAction: string | null
+}
+
+export type SimulationRecordHistoryPage = {
+  entries: SimulationRecordHistoryEntry[]
+  nextBefore: SimulationRecordHistoryCursor | null
+}
+
 export type SimulationFeatureCheck = (features: readonly string[]) => Promise<boolean>
 
 export type SimulationInputFeaturesContext = {
@@ -246,6 +276,21 @@ export type SimulationRunContext<TState> = {
   eventAdapters: readonly RegisteredSimulationEventAdapter[]
   scanAuditLog: (query: SimulationAuditScanQuery) => Promise<SimulationAuditScanPage>
   inline?: SimulationInlineContext
+  /** One record's own audit history (see `SimulationRecordHistoryQuery`); provided by insights for every slice. */
+  readRecordHistory?: (query: SimulationRecordHistoryQuery) => Promise<SimulationRecordHistoryPage>
+}
+
+/**
+ * A decimal aggregate of one cell (e.g. the revenue of the lines counted in `priced_from_row`):
+ * `value` is a plain decimal string, `currencyCode` the ISO code when it is a money amount. It is
+ * kept only while its cell is visible after k-suppression, so it never describes fewer than k
+ * records.
+ */
+export type SimulationMeasure = {
+  key: string
+  cell: string
+  value: string
+  currencyCode?: string | null
 }
 
 /**
@@ -263,6 +308,9 @@ export type SimulationCell = {
  * One result group (rule backtest: one event id). `warnings` are i18n keys derived from the
  * proposal's configuration; `dataWarnings` are i18n keys derived from the counts and are dropped
  * when the group is suppressed; `flags` are machine-readable markers (e.g. `rule_limit_exceeded`).
+ * `measures` are decimal aggregates of visible cells. `requiredFeatures` are the features of a
+ * source only this group reads (e.g. `sales.orders.view` for order lines): insights shows the group
+ * only to viewers holding them, re-checked on every read.
  */
 export type SimulationGroup = {
   key: string
@@ -272,6 +320,8 @@ export type SimulationGroup = {
   warnings?: string[]
   dataWarnings?: string[]
   flags?: string[]
+  measures?: SimulationMeasure[]
+  requiredFeatures?: string[]
 }
 
 /** Counts describing what was (not) read; keys are kind-defined snake_case identifiers. */
@@ -289,6 +339,11 @@ export type SimulationResultSummary = {
   lists?: Record<string, string[]>
 }
 
+/**
+ * `summary`: kind-level facts that are not counts of records. `coverageBreaksDownCells`: some
+ * coverage counts split result cells (e.g. why lines are `cannot_tell`), so insights hides the
+ * coverage as soon as any cell is suppressed, not only when a whole group is.
+ */
 export type SimulationKindResult = {
   groups: SimulationGroup[]
   coverage: SimulationCoverage
@@ -296,6 +351,7 @@ export type SimulationKindResult = {
   fidelity: SimulationFidelity
   truncated: boolean
   summary?: SimulationResultSummary
+  coverageBreaksDownCells?: boolean
 }
 
 export type SimulationSliceResult<TState> =
