@@ -914,6 +914,13 @@ jobs:
       DOCUMENTS_COLLAB_JWT_SECRET_V2: 'ci-documents-collaboration-v2-secret-32-bytes'
       JWT_SECRET: 'ci-ephemeral-test-jwt-secret-32-chars-min'
       OM_SECURITY_MFA_SETUP_SECRET: 'ci-ephemeral-test-mfa-setup-secret'
+      # The forms module refuses its DEV-ONLY deterministic KMS adapter under
+      # NODE_ENV=production, which is how the ephemeral harness runs the app.
+      # Without a master key `formsEncryptionService` does not resolve and every
+      # route that touches an encrypted payload answers a bare 500 — the whole
+      # public and portal runtime, the submissions inbox, revisions, audit,
+      # anonymize, export, PDF and analytics. Must decode to exactly 32 bytes.
+      FORMS_ENCRYPTION_MASTER_KEY: '63692d657068656d6572616c2d746573742d666f726d732d6d61737465722d31'
       OM_WEBHOOKS_ALLOW_PRIVATE_URLS: '1'
       # The mock inbound webhook adapter now requires a real HMAC-SHA256
       # signature (#2707). The ephemeral harness spawns the app under
