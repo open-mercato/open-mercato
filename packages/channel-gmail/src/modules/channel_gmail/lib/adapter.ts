@@ -42,6 +42,7 @@ import {
   encodeBase64Url,
   getGmailApiClient,
   GmailApiError,
+  type GmailApiClient,
   type GmailGetMessageRawResponse,
 } from './gmail-client'
 import {
@@ -52,9 +53,9 @@ import {
   convertOutboundForGmail,
   type GmailEmailNativeMetadata,
 } from './convert-outbound'
-import { normalizeInboundGmailMessage } from './normalize-inbound'
+import { GMAIL_THREAD_REF_PREFIX, normalizeInboundGmailMessage } from './normalize-inbound'
 import { emailResolveContact } from '@open-mercato/core/modules/communication_channels/lib/email-contact'
-import { decodeCursor, encodeCursor } from '@open-mercato/core/modules/communication_channels/lib/email-mime'
+import { decodeCursor, encodeCursor, stripBrackets } from '@open-mercato/core/modules/communication_channels/lib/email-mime'
 import {
   IMPORT_HISTORY_DEFAULT_SINCE_DAYS,
   IMPORT_HISTORY_DEFAULT_MAX_MESSAGES,
@@ -85,6 +86,29 @@ const logger = createLogger('channel_gmail')
  *     we fall back to `gmail.users.messages.list?labelIds=INBOX` and persist
  *     the new historyId from the next `getProfile` call.
  */
+/**
+ * Gmail replaces the `Message-ID` of a message sent through `users.messages.send`
+ * with one it mints itself, and the send response carries only `id`/`threadId`.
+ * The recipient's reply, and Gmail's own copy picked up by the next poll, both
+ * carry Gmail's id, so the hub must record that one for JWZ threading and
+ * sent-folder dedup to resolve this message. Best-effort: on any failure the
+ * caller falls back to the client-built id.
+ */
+async function readSentMessageId(
+  api: GmailApiClient,
+  auth: { accessToken: string },
+  gmailMessageId: string | undefined,
+): Promise<string | undefined> {
+  if (!gmailMessageId || typeof api.getMessageHeaders !== 'function') return undefined
+  try {
+    const message = await api.getMessageHeaders(auth, gmailMessageId, ['Message-ID'])
+    const header = message.payload?.headers?.find((entry) => entry.name.toLowerCase() === 'message-id')
+    return stripBrackets(header?.value)
+  } catch {
+    return undefined
+  }
+}
+
 class GmailChannelAdapter implements ChannelAdapter {
   readonly providerKey = 'gmail'
   readonly channelType = 'email'
@@ -110,15 +134,20 @@ class GmailChannelAdapter implements ChannelAdapter {
     const rawBase64Url = encodeBase64Url(nativeMeta.rawMessage)
 
     try {
-      const response = await getGmailApiClient().sendRawMessage(
-        { accessToken: userCredentials.accessToken },
-        { rawBase64Url, threadId: nativeMeta.threadId },
-      )
+      const api = getGmailApiClient()
+      const auth = { accessToken: userCredentials.accessToken }
+      const response = await api.sendRawMessage(auth, { rawBase64Url, threadId: nativeMeta.threadId })
+      const sentMessageId = await readSentMessageId(api, auth, response.id)
       return {
         externalMessageId: nativeMeta.messageId ?? response.id,
-        conversationId: response.threadId,
+        conversationId: response.threadId ? `${GMAIL_THREAD_REF_PREFIX}${response.threadId}` : undefined,
         status: 'sent',
-        metadata: { gmailMessageId: response.id, gmailThreadId: response.threadId, labelIds: response.labelIds ?? [] },
+        metadata: {
+          gmailMessageId: response.id,
+          gmailThreadId: response.threadId,
+          labelIds: response.labelIds ?? [],
+          ...(sentMessageId ? { messageId: sentMessageId } : {}),
+        },
       }
     } catch (error) {
       if (error instanceof GmailApiError && error.status === 401) {

@@ -257,7 +257,7 @@ describe('GmailChannelAdapter.sendMessage', () => {
     })
     expect(result.status).toBe('sent')
     expect(result.externalMessageId).toMatch(/^<[^@]+@gmail\.com>$/)
-    expect(result.conversationId).toBe('gm-thread-out')
+    expect(result.conversationId).toBe('gmail-thread:gm-thread-out')
     expect(sent).toHaveLength(1)
     expect(sent[0].threadId).toBe('gm-thread-1')
     // Decoded raw should contain our headers + body.
@@ -268,6 +268,72 @@ describe('GmailChannelAdapter.sendMessage', () => {
     ).toString('utf-8')
     expect(decoded).toContain('To: bob@example.com')
     expect(decoded).toContain('<p>hi</p>')
+  })
+
+  function buildSendApi(overrides: Partial<GmailApiClient> = {}): GmailApiClient {
+    return {
+      listHistory: async () => ({ historyId: '0' }),
+      listMessages: async () => ({}),
+      getMessageRaw: async () => ({ id: '', threadId: '', raw: '' }),
+      sendRawMessage: async () => ({ id: 'gm-out-1', threadId: 'gm-thread-out', labelIds: ['SENT'] }),
+      getProfile: async () => ({ emailAddress: 'alice@gmail.com', historyId: '1' }),
+      trashMessage: async () => undefined,
+      ...overrides,
+    }
+  }
+
+  const sendInput = {
+    content: { text: 'hi', bodyFormat: 'text' as const },
+    credentials: userCredentials,
+    scope: { tenantId: 't', organizationId: 'o' },
+    metadata: { to: ['bob@example.com'], subject: 'Hi' },
+  }
+
+  it('reports the Message-ID Gmail actually sent, which replaces the client-built one', async () => {
+    const headerCalls: Array<{ messageId: string; headerNames: string[] }> = []
+    setGmailApiClient(
+      buildSendApi({
+        getMessageHeaders: async (_auth, messageId, headerNames) => {
+          headerCalls.push({ messageId, headerNames })
+          return {
+            id: messageId,
+            threadId: 'gm-thread-out',
+            payload: { headers: [{ name: 'Message-Id', value: '<CAJ+gmail-minted@mail.gmail.com>' }] },
+          }
+        },
+      }),
+    )
+    const result = await getGmailChannelAdapter().sendMessage(sendInput)
+    expect(result.status).toBe('sent')
+    expect(headerCalls).toEqual([{ messageId: 'gm-out-1', headerNames: ['Message-ID'] }])
+    expect(result.metadata).toMatchObject({
+      messageId: 'CAJ+gmail-minted@mail.gmail.com',
+      gmailMessageId: 'gm-out-1',
+      gmailThreadId: 'gm-thread-out',
+    })
+    expect(result.conversationId).toBe('gmail-thread:gm-thread-out')
+  })
+
+  it('still reports the send as sent when the Message-ID read-back fails', async () => {
+    setGmailApiClient(
+      buildSendApi({
+        getMessageHeaders: async () => {
+          throw new GmailApiError('Gmail API GET failed: backend error', 500, 'backend error')
+        },
+      }),
+    )
+    const result = await getGmailChannelAdapter().sendMessage(sendInput)
+    expect(result.status).toBe('sent')
+    expect(result.externalMessageId).toMatch(/^<[^@]+@gmail\.com>$/)
+    expect(result.metadata).not.toHaveProperty('messageId')
+  })
+
+  it('works with a client that cannot read headers', async () => {
+    setGmailApiClient(buildSendApi())
+    const result = await getGmailChannelAdapter().sendMessage(sendInput)
+    expect(result.status).toBe('sent')
+    expect(result.metadata).not.toHaveProperty('messageId')
+    expect(result.conversationId).toBe('gmail-thread:gm-thread-out')
   })
 
   it('returns failed when send returns 401 (token expired)', async () => {
