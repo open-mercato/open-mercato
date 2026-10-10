@@ -399,6 +399,20 @@ Deleting a user who had customised their sidebar failed on the `user_sidebar_pre
 
 ---
 
+## CRUD Unique-Constraint Violations Answer 409 (2026-09-26)
+
+Relinking an email interaction (`PUT /api/customers/interactions`) onto a CRM record that already had the same `external_message_id` hit the partial unique index `customer_interactions_email_dedupe_uq` and surfaced as a generic `500` ([#6467](https://github.com/open-mercato/open-mercato/issues/6467)). `makeCrudRoute` already mapped foreign-key violations (SQLSTATE 23503) to `409`; this extends the same mapping to unique violations (SQLSTATE 23505). **All changes are additive** and pass the contract-surface checks above:
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Import path / exports (`@open-mercato/shared/lib/db/pg-errors`) | `isUniqueViolation(err)` is hardened to walk the MikroORM `cause`/`previous` chain (previously checked only the top-level error). New export `getUniqueViolationConstraint(err)` | ✓ ADDITIVE (widened detection, new export; nothing removed or renamed) |
+| HTTP response shapes (`makeCrudRoute` handlers) | A handler that throws a Postgres unique-constraint violation now answers `409 { error, code: 'UNIQUE_VIOLATION', requestId }` with an `x-request-id` header, where it previously answered the generic `500 { error, message, requestId }`. The constraint name is logged and reported to telemetry but never returned to the client. The `error` message is now routed through `translate('errors.unique_violation', ...)` instead of a hardcoded string. Every other error class keeps its byte-identical historical answer | ⚠️ Behaviour change for one error class only. No retained response loses a field, but a client that treated the old `500` as retryable now receives a non-retryable `409`. Regression-tested in `crud-factory.test.ts` and `pg-errors.test.ts` |
+| Database schema, event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
+
+**Migration path for existing modules**: no action required. A client that branched on `5xx` for unique-constraint failures should treat `409` with `code: 'UNIQUE_VIOLATION'` as the same condition; it was never retryable. The widened `isUniqueViolation`/`getUniqueViolationConstraint` exports are also consumed by `communication_channels` and `query_index`, which get the same chain-walking detection for free.
+
+---
+
 ## Encrypt Path Rejects Wrong-Key Ciphertext (2026-09-11)
 
 `TenantDataEncryptionService.encryptFields` treats "already encrypted" as "decrypts under the current DEK" — a deliberate anti-forgery choice ([#2720](https://github.com/open-mercato/open-mercato/issues/2720)). Real ciphertext sealed under a *different* key failed that check too and was encrypted a second time, producing a nested envelope that no read path can undo, plus a lookup hash computed over ciphertext ([#5951](https://github.com/open-mercato/open-mercato/issues/5951)). That write is now rejected:

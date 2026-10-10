@@ -1,4 +1,4 @@
-import { getForeignKeyViolationConstraint, isForeignKeyViolation, isTransientDbError, isUniqueViolation, readPgSqlState } from '../pg-errors'
+import { getForeignKeyViolationConstraint, getUniqueViolationConstraint, isForeignKeyViolation, isTransientDbError, isUniqueViolation, readPgSqlState } from '../pg-errors'
 
 describe('isTransientDbError', () => {
   it('is true for the max_connections SQLSTATE', () => {
@@ -102,6 +102,62 @@ describe('getForeignKeyViolationConstraint', () => {
     expect(getForeignKeyViolationConstraint({ code: '23503' })).toBeNull()
     expect(getForeignKeyViolationConstraint(new Error('something unrelated broke'))).toBeNull()
     expect(getForeignKeyViolationConstraint(null)).toBeNull()
+  })
+})
+
+describe('isUniqueViolation', () => {
+  it('is true for the unique_violation SQLSTATE', () => {
+    expect(isUniqueViolation({ code: '23505' })).toBe(true)
+  })
+
+  it('is true for ORM-wrapped messages that drop the SQLSTATE', () => {
+    expect(
+      isUniqueViolation(
+        new Error('duplicate key value violates unique constraint "customer_interactions_email_dedupe_uq"'),
+      ),
+    ).toBe(true)
+  })
+
+  it('looks through MikroORM wrapper chains (cause / previous)', () => {
+    expect(isUniqueViolation({ message: 'wrapped', cause: { code: '23505' } })).toBe(true)
+    expect(isUniqueViolation({ message: 'wrapped', previous: { code: '23505' } })).toBe(true)
+    expect(isUniqueViolation({ message: 'outer', cause: { message: 'inner', previous: { code: '23505' } } })).toBe(true)
+  })
+
+  it('is false for foreign-key violations, transient errors and non-DB errors', () => {
+    expect(isUniqueViolation({ code: '23503' })).toBe(false)
+    expect(isUniqueViolation({ code: '53300' })).toBe(false)
+    expect(isUniqueViolation(new Error('something unrelated broke'))).toBe(false)
+    expect(isUniqueViolation(null)).toBe(false)
+  })
+})
+
+describe('getUniqueViolationConstraint', () => {
+  const driverMessage = 'duplicate key value violates unique constraint "customer_interactions_email_dedupe_uq"'
+
+  it('reads the pg constraint field from the top-level error', () => {
+    expect(getUniqueViolationConstraint({ code: '23505', constraint: 'customer_interactions_email_dedupe_uq' })).toBe(
+      'customer_interactions_email_dedupe_uq',
+    )
+  })
+
+  it('reads the constraint from a wrapped driver error', () => {
+    expect(
+      getUniqueViolationConstraint({
+        message: 'wrapped',
+        previous: { code: '23505', constraint: 'customer_interactions_email_dedupe_uq' },
+      }),
+    ).toBe('customer_interactions_email_dedupe_uq')
+  })
+
+  it('falls back to the quoted constraint in the driver message', () => {
+    expect(getUniqueViolationConstraint(new Error(driverMessage))).toBe('customer_interactions_email_dedupe_uq')
+  })
+
+  it('is null when nothing identifies the constraint', () => {
+    expect(getUniqueViolationConstraint({ code: '23505' })).toBeNull()
+    expect(getUniqueViolationConstraint(new Error('something unrelated broke'))).toBeNull()
+    expect(getUniqueViolationConstraint(null)).toBeNull()
   })
 })
 
