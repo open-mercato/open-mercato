@@ -82,6 +82,26 @@ export function ActionsDropdown({
   const [anchorRect, setAnchorRect] = React.useState<DOMRect | null>(null)
   const hoverTimeoutRef = React.useRef<NodeJS.Timeout | null>(null)
   const [direction, setDirection] = React.useState<'down' | 'up'>('down')
+  /**
+   * Whether this open should pull focus into the menu. Only a deliberate open
+   * does — a click, or Enter/Space on the trigger, which the browser reports as
+   * a click. A hover open must not steal focus from wherever the user is typing.
+   * Consumed once `anchorRect` is measured, because the panel and its first item
+   * only render after that. Same contract as RowActions (#6771).
+   */
+  const focusOnOpenRef = React.useRef(false)
+  /**
+   * Whether the current open was deliberate. A focused trigger only routes keys
+   * into the menu for such an open — a hover reopen while the trigger still
+   * holds focus from an earlier click must leave Tab and the arrows alone.
+   */
+  const deliberateOpenRef = React.useRef(false)
+
+  /** The menu's enabled items in DOM order, as focusable elements. */
+  const getFocusableItems = React.useCallback((): HTMLElement[] => {
+    if (!menuRef.current) return []
+    return Array.from(menuRef.current.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)'))
+  }, [])
 
   const resolvedLabel = label ?? t('ui.actions.actions', 'Actions')
   const resolvedAriaLabel = ariaLabel ?? resolvedLabel
@@ -108,10 +128,45 @@ export function ActionsDropdown({
       }
     }
     function onKey(event: KeyboardEvent) {
+      const active = document.activeElement
+      const focusWithin = Boolean(
+        (menuRef.current && active && menuRef.current.contains(active)) || (active && active === btnRef.current && deliberateOpenRef.current),
+      )
       if (event.key === 'Escape') {
         setOpen(false)
-        btnRef.current?.focus()
+        if (focusWithin) btnRef.current?.focus()
+        return
       }
+      if (!focusWithin) return
+      const focusables = getFocusableItems()
+      if (!focusables.length) return
+      const activeIndex = focusables.indexOf(active as HTMLElement)
+      let nextIndex: number
+      switch (event.key) {
+        case 'ArrowDown':
+          nextIndex = activeIndex < 0 ? 0 : (activeIndex + 1) % focusables.length
+          break
+        case 'ArrowUp':
+          nextIndex = activeIndex < 0
+            ? focusables.length - 1
+            : (activeIndex - 1 + focusables.length) % focusables.length
+          break
+        case 'Home':
+          nextIndex = 0
+          break
+        case 'End':
+          nextIndex = focusables.length - 1
+          break
+        case 'Tab':
+          nextIndex = event.shiftKey
+            ? (activeIndex <= 0 ? focusables.length - 1 : activeIndex - 1)
+            : (activeIndex < 0 || activeIndex === focusables.length - 1 ? 0 : activeIndex + 1)
+          break
+        default:
+          return
+      }
+      event.preventDefault()
+      focusables[nextIndex]?.focus()
     }
     function onScrollOrResize() {
       updatePosition()
@@ -126,7 +181,19 @@ export function ActionsDropdown({
       window.removeEventListener('scroll', onScrollOrResize, true)
       window.removeEventListener('resize', onScrollOrResize)
     }
-  }, [open, updatePosition])
+  }, [open, updatePosition, getFocusableItems])
+
+  React.useEffect(() => {
+    if (!open) {
+      focusOnOpenRef.current = false
+      deliberateOpenRef.current = false
+      return
+    }
+    if (!anchorRect || !focusOnOpenRef.current) return
+    focusOnOpenRef.current = false
+    const [first] = getFocusableItems()
+    first?.focus()
+  }, [open, anchorRect, getFocusableItems])
 
   React.useEffect(() => {
     return () => {
@@ -172,6 +239,8 @@ export function ActionsDropdown({
         aria-expanded={open}
         aria-label={resolvedAriaLabel}
         onClick={() => {
+          focusOnOpenRef.current = true
+          deliberateOpenRef.current = true
           setOpen((prev) => !prev)
           requestAnimationFrame(updatePosition)
         }}
