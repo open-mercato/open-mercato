@@ -2,14 +2,14 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { InsightsProcessSettings } from '../../data/entities'
 import { canonicalIanaTimeZone } from '../analytics/window'
+import { XRAY_SUGGESTION_MIN_SUPPORT_FLOOR } from '../suggestions/constants'
 import type { ProjectionScope } from './types'
+
+export { XRAY_SUGGESTION_MIN_SUPPORT_FLOOR }
 
 export const XRAY_SETTINGS_RESOURCE_KIND = 'insights.xray_settings'
 
 export const XRAY_K_ANONYMITY_MIN = 5
-
-/** Lowest per-organization override of the suggestion support threshold (`suggestionMinSupport`). */
-export const XRAY_SUGGESTION_MIN_SUPPORT_FLOOR = 5
 
 export const XRAY_SETTINGS_DEFAULTS = {
   enabled: true,

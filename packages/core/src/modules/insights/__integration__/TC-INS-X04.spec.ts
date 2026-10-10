@@ -24,14 +24,18 @@ const SUGGESTIONS_QUEUE = 'insights-xray-suggestions'
 const TIME_SHIFT_MS = 2 * 60 * 60 * 1000
 const MINING_TIMEOUT_MS = 60_000
 const POLL_INTERVAL_MS = 1000
+const FORCED_PASS_INTERVAL_MINUTES = 15
 
-/** Moves the organization's last mining pass one minute back, so the next forced pass is not coalesced with it. */
+/**
+ * Moves the organization's last mining pass just past the forced-pass interval (15 minutes), so the
+ * next on-demand pass is not coalesced with it.
+ */
 async function ageMiningPass(organizationId: string): Promise<void> {
   await withClient(async (client) => {
     await client.query(
-      `update insights_process_rollups set computed_at = computed_at - interval '1 minute'
+      `update insights_process_rollups set computed_at = computed_at - ($2::int * interval '1 minute')
         where organization_id = $1 and process_key = '*' and window_key = '__suggestion_pass__'`,
-      [organizationId],
+      [organizationId, FORCED_PASS_INTERVAL_MINUTES + 1],
     )
   })
 }
@@ -46,17 +50,19 @@ async function readMiningPass(organizationId: string): Promise<string | null> {
 }
 
 /**
- * Requests an on-demand mining pass and waits until a new pass is recorded. The app's own queue
- * worker may consume the job instead of the drain runner, a pass is skipped (no marker) while the
- * projection runs a scan, and forced passes within 30 seconds of the last one are coalesced, so
- * the request is repeated until a new pass marker appears.
+ * Requests an on-demand mining pass and waits until a new pass is recorded. The request is refused
+ * with 409 `projection_incomplete` while the projection still runs a scan (retried), and answered
+ * 202 without a second job while an earlier request's job is pending (the app's own queue worker
+ * may consume the job instead of the drain runner), so the request is repeated until a new pass
+ * marker appears.
  */
 async function mineNow(request: APIRequestContext, token: string, organizationId: string): Promise<void> {
   const before = await readMiningPass(organizationId)
   const deadline = Date.now() + MINING_TIMEOUT_MS
   while (Date.now() < deadline) {
-    const requested = await xrayCall(request, token, 'POST', `${SUGGESTIONS_PATH}/mine`, { selectedOrgId: organizationId, data: {} })
-    expect(requested.status, `POST suggestions/mine: ${requested.text}`).toBe(202)
+    const requested = await xrayCall<{ code?: string }>(request, token, 'POST', `${SUGGESTIONS_PATH}/mine`, { selectedOrgId: organizationId, data: {} })
+    const catchingUp = requested.status === 409 && requested.body?.code === 'projection_incomplete'
+    if (!catchingUp) expect(requested.status, `POST suggestions/mine: ${requested.text}`).toBe(202)
     await drainIntegrationQueue(SUGGESTIONS_QUEUE)
     const after = await readMiningPass(organizationId)
     if (after && after !== before) return
@@ -132,7 +138,7 @@ async function patchSuggestion(
  * TC-INS-X04: Process X-Ray automation suggestion → disabled workflow draft
  * Covers:
  *   - PUT  /api/insights/xray/settings (k = 5, no debounce, `suggestionMinSupport` = 5)
- *   - POST /api/insights/xray/suggestions/mine (on-demand pass, drained from `insights-xray-suggestions`, repeated until a pass is recorded)
+ *   - POST /api/insights/xray/suggestions/mine (on-demand pass, drained from `insights-xray-suggestions`, repeated until a pass is recorded; 409 `projection_incomplete` retried)
  *   - GET  /api/insights/xray/suggestions
  *   - GET  /api/insights/xray/suggestions/{id}/draft
  *   - POST /api/workflows/definitions, GET /api/workflows/definitions/{id}
@@ -140,12 +146,13 @@ async function patchSuggestion(
  *
  * In an organization created for the test, three actors each create three deals through the
  * real API and immediately set their status to `qa_review` by hand (the repeated manual
- * follow-up), then hand the deal over twice (owner changes: other activities, so the follow-up is
- * specific to the creation). After the backfill, the organization's projected activity is moved
- * two hours into the past (a direct update of the throwaway organization's projection rows only):
- * mining counts a trigger only once its follow-up window (10 minutes) has elapsed, and waiting in
- * the test would make it needlessly slow (for the same reason the second on-demand pass moves the
- * last pass marker one minute back: forced passes within 30 s are coalesced). The suggestion
+ * follow-up, by three distinct people: the minimum a suggestion needs), then hand the deal over
+ * twice (owner changes: other activities, so the follow-up is specific to the creation). After the
+ * backfill, the organization's projected activity is moved two hours into the past (a direct
+ * update of the throwaway organization's projection rows only): mining counts a trigger only once
+ * its follow-up window (10 minutes) has elapsed, and waiting in the test would make it needlessly
+ * slow (for the same reason the second on-demand pass moves the last pass marker 16 minutes back:
+ * forced passes within 15 minutes of the last one are coalesced). The suggestion
  * "created → status qa_review" is mined
  * (support 9 of 9, three actors, no identities), its draft is a validated disabled workflow
  * (`customers.deal.created` trigger, one UPDATE_ENTITY of `customers.deals.update`) that the

@@ -133,6 +133,7 @@ import { GET as reworkGet } from '../xray/[processKey]/rework/route'
 import { GET as breakdownGet } from '../xray/[processKey]/breakdown/route'
 import { GET as casesGet } from '../xray/[processKey]/cases/route'
 import { GET as conformanceGet } from '../xray/[processKey]/conformance/route'
+import { GET as durationsGet, metadata as durationsMetadata } from '../xray/[processKey]/durations/route'
 import { POST as workflowDraftPost } from '../xray/[processKey]/variants/[hash]/workflow-draft/route'
 import { metadata as mapMetadata } from '../xray/[processKey]/map/route'
 import { metadata as draftMetadata } from '../xray/[processKey]/variants/[hash]/workflow-draft/route'
@@ -190,6 +191,7 @@ beforeEach(() => {
   facade.getBreakdown.mockResolvedValue(envelope({ items: [] }))
   facade.listCases.mockResolvedValue(envelope({ items: [], nextCursor: null }))
   facade.getConformance.mockResolvedValue(envelope({ status: 'ok', models: [] }))
+  facade.getDurations.mockResolvedValue(envelope({ includeSyncRun: false, completed: null, open: null, byOrganization: [] }))
   facade.getSummary.mockImplementation(async (input: { processKey: string }) => envelope({ processKey: input.processKey, openCases: null, lowConfidence: false, kAnonymity: 10 }))
 })
 
@@ -567,5 +569,35 @@ describe('POST /api/insights/xray/{processKey}/variants/{hash}/workflow-draft', 
     grants.byOrganization[ORG_A] = ['insights.xray.view', 'customers.deals.view']
     const response = await call(workflowDraftPost, post(draftPath, { commandId: 'customers.deals.update' }), params)
     expect(response).toEqual(expect.objectContaining({ status: 403, body: expect.objectContaining({ code: 'command_forbidden' }) }))
+  })
+})
+
+describe('GET /api/insights/xray/{processKey}/durations', () => {
+  it('declares insights.xray.view and reads the cycle times through the facade with the caller scope and filters', async () => {
+    expect(durationsMetadata).toEqual({ GET: { requireAuth: true, requireFeatures: ['insights.xray.view'] } })
+    const response = await call(durationsGet, get('/api/insights/xray/test.deal/durations?window=7d&causeKinds=user&includeSyncRun=true'), { processKey: 'test.deal' })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe('private, no-store')
+    expect(response.body).toEqual(expect.objectContaining({ n: 12, completed: null, open: null }))
+    expect(lastInput(facade.getDurations)).toEqual(expect.objectContaining({
+      scope: { tenantId: TENANT_ID, organizationIds: [ORG_A] },
+      processKey: 'test.deal',
+      window: { windowKey: '7d' },
+      filters: { causeKinds: ['user'], includeSyncRun: true },
+    }))
+  })
+
+  it('answers the shared 404 for an invisible process and 400 for a malformed query without reading', async () => {
+    const invisible = await call(durationsGet, get('/api/insights/xray/test.order/durations'), { processKey: 'test.order' })
+    expect(invisible).toEqual(expect.objectContaining({ status: 404, body: expect.objectContaining({ code: 'process_not_found' }) }))
+    const malformed = await call(durationsGet, get('/api/insights/xray/test.deal/durations?includeSyncRun=perhaps'), { processKey: 'test.deal' })
+    expect(malformed).toEqual(expect.objectContaining({ status: 400, body: expect.objectContaining({ code: 'invalid_request' }) }))
+    expect(facade.getDurations).not.toHaveBeenCalled()
+  })
+
+  it('maps analytics refusals (actor filter too narrow) to 422 without counts', async () => {
+    facade.getDurations.mockRejectedValueOnce(new AnalyticsFilterTooNarrowError())
+    const response = await call(durationsGet, get(`/api/insights/xray/test.deal/durations?actorRoleIds=${ORG_B}`), { processKey: 'test.deal' })
+    expect(response).toEqual(expect.objectContaining({ status: 422, body: { error: 'insights.xray.errors.filter_too_narrow', code: 'filter_too_narrow', hint: 'widen_actor_filter' } }))
   })
 })

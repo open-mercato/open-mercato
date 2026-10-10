@@ -92,6 +92,7 @@ async function readBacklog(name: typeof XRAY_INGEST_QUEUE | typeof XRAY_ROLLUP_Q
     return Number.isFinite(counts.waiting) ? counts.waiting : null
   } catch (error) {
     logger.warn('[internal] Could not read an X-Ray queue backlog', { queue: name, err: error })
+    getTelemetryRuntime()?.reportError(error, { module: 'insights', code: 'insights.xray_queue_backlog_failed', attributes: { queue: name } })
     return null
   }
 }

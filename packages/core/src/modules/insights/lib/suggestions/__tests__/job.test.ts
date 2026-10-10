@@ -7,6 +7,8 @@ const loadXraySettings = jest.fn(async (): Promise<XraySettingsSnapshot> => sett
 const isXrayIngestEnabled = jest.fn(async () => true)
 const listSuggestionPasses = jest.fn(async (): Promise<Map<string, string>> => new Map())
 const markSuggestionPass = jest.fn(async () => undefined)
+const clearSuggestionRequest = jest.fn(async (_db: unknown, _scope: unknown, _through: string) => undefined)
+const setXrayWriteTimeouts = jest.fn(async (_trx: unknown, _timeouts: unknown) => undefined)
 const readCursor = jest.fn(async (): Promise<unknown> => completeCursor())
 const lockXrayCursorState = jest.fn(async (): Promise<unknown> => completeCursor())
 const loadCaseEvents = jest.fn(async (_trx: unknown, _query: { processKey: string; from: string; to: string }): Promise<unknown[]> => [])
@@ -36,7 +38,11 @@ jest.mock('../../projection/runtime', () => {
 })
 jest.mock('../../projection/completeness', () => {
   const actual = jest.requireActual('../../projection/completeness')
-  return { ...actual, lockXrayCursorState: (...args: unknown[]) => lockXrayCursorState(...(args as [])) }
+  return {
+    ...actual,
+    lockXrayCursorState: (...args: unknown[]) => lockXrayCursorState(...(args as [])),
+    setXrayWriteTimeouts: (...args: unknown[]) => setXrayWriteTimeouts(...(args as [unknown, unknown])),
+  }
 })
 jest.mock('../passes', () => {
   const actual = jest.requireActual('../passes')
@@ -44,6 +50,7 @@ jest.mock('../passes', () => {
     ...actual,
     listSuggestionPasses: (...args: unknown[]) => listSuggestionPasses(...(args as [])),
     markSuggestionPass: (...args: unknown[]) => markSuggestionPass(...(args as [])),
+    clearSuggestionRequest: (...args: unknown[]) => clearSuggestionRequest(...(args as [unknown, unknown, string])),
   }
 })
 jest.mock('../../analytics/query', () => ({
@@ -179,7 +186,7 @@ describe('runXraySuggestionJob', () => {
       minSupport: XRAY_SUGGESTION_THRESHOLDS.minSupport,
       minConfidenceLowerBound: 0.6,
       minLift: 2,
-      minDistinctActors: 2,
+      minDistinctActors: 3,
       minCases: 10,
     })
     expect(suggestionThresholds({ suggestionMinSupport: 2, kAnonymity: 1 })).toEqual(expect.objectContaining({ minSupport: 5, minCases: 5 }))
@@ -220,12 +227,61 @@ describe('runXraySuggestionJob', () => {
     expect(markSuggestionPass).not.toHaveBeenCalled()
   })
 
-  it('runs a forced (on-demand) pass even when the last one is fresh, but coalesces a burst within 30 seconds', async () => {
-    listSuggestionPasses.mockResolvedValue(new Map([[`${TENANT}|${ANALYTICS_ORG}`, '2026-10-10T11:59:30.000000Z']]))
+  it('runs a forced (on-demand) pass even when the last one is fresh, but at most one per 15 minutes', async () => {
+    listSuggestionPasses.mockResolvedValue(new Map([[`${TENANT}|${ANALYTICS_ORG}`, '2026-10-10T11:45:00.000000Z']]))
     expect(await runXraySuggestionJob(container, SCOPE, { registry: automatedRegistry(), catalog: crudCatalog, force: true })).toEqual(expect.objectContaining({ status: 'done' }))
-    listSuggestionPasses.mockResolvedValue(new Map([[`${TENANT}|${ANALYTICS_ORG}`, '2026-10-10T11:59:31.000000Z']]))
+    listSuggestionPasses.mockResolvedValue(new Map([[`${TENANT}|${ANALYTICS_ORG}`, '2026-10-10T11:45:01.000000Z']]))
     expect(await runXraySuggestionJob(container, SCOPE, { registry: automatedRegistry(), catalog: crudCatalog, force: true })).toEqual({ status: 'not_due' })
     expect(loadCaseEvents).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['a stored pass', () => undefined, 'done'],
+    ['a coalesced request', () => listSuggestionPasses.mockResolvedValue(new Map([[`${TENANT}|${ANALYTICS_ORG}`, '2026-10-10T11:59:00.000000Z']])), 'not_due'],
+    ['a disabled organization', () => loadXraySettings.mockResolvedValue(settings({ enabled: false })), 'disabled'],
+    ['an incomplete projection', () => readCursor.mockResolvedValue(completeCursor({ status: 'backfilling' })), 'incomplete'],
+  ])('clears the on-demand request it served (up to its start, database clock) after %s', async (_label, arrange, status) => {
+    arrange()
+    expect(await runXraySuggestionJob(container, SCOPE, { registry: automatedRegistry(), catalog: crudCatalog, force: true })).toEqual(expect.objectContaining({ status }))
+    expect(clearSuggestionRequest).toHaveBeenCalledTimes(1)
+    expect(clearSuggestionRequest).toHaveBeenCalledWith(database, SCOPE, '2026-10-10T12:00:00.000000Z')
+  })
+
+  it('leaves the on-demand request to the forced job when a scheduled pass runs', async () => {
+    expect(await runXraySuggestionJob(container, SCOPE, { registry: automatedRegistry(), catalog: crudCatalog })).toEqual(expect.objectContaining({ status: 'done' }))
+    expect(clearSuggestionRequest).not.toHaveBeenCalled()
+  })
+
+  it('keeps the request of a forced pass that failed (the queue retries it; the request expires on its own)', async () => {
+    loadCaseEvents.mockRejectedValueOnce(new Error('connection reset'))
+    await expect(runXraySuggestionJob(container, SCOPE, { registry: automatedRegistry(), catalog: crudCatalog, force: true })).rejects.toThrow('connection reset')
+    expect(clearSuggestionRequest).not.toHaveBeenCalled()
+  })
+
+  it('never fails a stored pass when clearing the request fails (logged and reported)', async () => {
+    const failure = new Error('connection reset')
+    clearSuggestionRequest.mockRejectedValueOnce(failure)
+    expect(await runXraySuggestionJob(container, SCOPE, { registry: automatedRegistry(), catalog: crudCatalog, force: true })).toEqual(expect.objectContaining({ status: 'done' }))
+    expect(reportErrorMock).toHaveBeenCalledWith(failure, expect.objectContaining({ code: 'insights.xray_suggestion_request_clear_failed' }))
+  })
+
+  it('bounds the final write transaction with the projection write timeouts', async () => {
+    await runXraySuggestionJob(container, SCOPE, { registry: automatedRegistry(), catalog: crudCatalog })
+    expect(setXrayWriteTimeouts).toHaveBeenCalledWith(transactionDb, { lockTimeoutMs: 5000, statementTimeoutMs: 30_000 })
+    expect(setXrayWriteTimeouts.mock.invocationCallOrder[0]).toBeLessThan(lockXrayCursorState.mock.invocationCallOrder[0])
+  })
+
+  it('stores nothing and answers incomplete (the next tick retries) when the write transaction hits its lock timeout', async () => {
+    lockXrayCursorState.mockRejectedValueOnce(Object.assign(new Error('canceling statement due to lock timeout'), { code: '55P03' }))
+    expect(await runXraySuggestionJob(container, SCOPE, { registry: automatedRegistry(), catalog: crudCatalog })).toEqual({ status: 'incomplete' })
+    expect(upsertSuggestions).not.toHaveBeenCalled()
+    expect(markSuggestionPass).not.toHaveBeenCalled()
+  })
+
+  it('rethrows a statement timeout of the write transaction (the queue retries)', async () => {
+    upsertSuggestions.mockRejectedValueOnce(Object.assign(new Error('canceling statement due to statement timeout'), { code: '57014' }))
+    await expect(runXraySuggestionJob(container, SCOPE, { registry: automatedRegistry(), catalog: crudCatalog })).rejects.toThrow('statement timeout')
+    expect(markSuggestionPass).not.toHaveBeenCalled()
   })
 
   it.each([

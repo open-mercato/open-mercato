@@ -10,6 +10,7 @@ import {
 import { canonicalIanaTimeZone } from '../lib/analytics/window'
 import { PROCESS_KEY_PATTERN } from '@open-mercato/shared/modules/insights/process'
 import { processSummaryResultSchema, resolvedWindowSchema } from '../lib/analytics/types'
+import { XRAY_SUGGESTION_MIN_SUPPORT_FLOOR } from '../lib/suggestions/constants'
 
 export const EXPLAIN_PAGE_LIMIT_MAX = 100
 export const EXPLAIN_PAGE_LIMIT_DEFAULT = 20
@@ -405,7 +406,7 @@ export const XRAY_RETENTION_DAYS_MIN = 7
 export const XRAY_RETENTION_DAYS_MAX = 3650
 export const XRAY_K_ANONYMITY_FLOOR = 5
 export const XRAY_STEP_MAP_MAX_ENTRIES = 500
-export const XRAY_SUGGESTION_MIN_SUPPORT_FLOOR = 5
+export { XRAY_SUGGESTION_MIN_SUPPORT_FLOOR }
 export const XRAY_SUGGESTION_MIN_SUPPORT_MAX = 100000
 
 const xrayActivityStepMapSchema = z
@@ -824,6 +825,7 @@ export {
   breakdownResultSchema as xrayBreakdownResponseSchema,
   caseListResultSchema as xrayCasesResponseSchema,
   conformanceResultSchema as xrayConformanceResponseSchema,
+  durationsResultSchema as xrayDurationsResponseSchema,
   processMapResultSchema as xrayMapResponseSchema,
   reworkResultSchema as xrayReworkResponseSchema,
   variantsResultSchema as xrayVariantsResponseSchema,

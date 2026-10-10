@@ -118,7 +118,7 @@ export async function createXrayUser(
   request: APIRequestContext,
   fixture: XrayAnalyticsFixture,
   input: { label: string; organizationId: string; roleId: string },
-): Promise<{ token: string; userId: string }> {
+): Promise<{ token: string; userId: string; email: string; password: string }> {
   const email = `qa-${input.label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${uniqueSuffix()}@example.com`
   const privileged = fixture.privilegedRoleIds.includes(input.roleId)
   const userId = await createUserFixture(request, privileged ? await privilegedToken(request, fixture) : fixture.adminToken as string, {
@@ -130,7 +130,7 @@ export async function createXrayUser(
   })
   if (privileged) fixture.privilegedUserIds.push(userId)
   else fixture.userIds.push(userId)
-  return { token: await getAuthToken(request, email, QA_USER_PASSWORD), userId }
+  return { token: await getAuthToken(request, email, QA_USER_PASSWORD), userId, email, password: QA_USER_PASSWORD }
 }
 
 /**

@@ -124,6 +124,7 @@ export async function xrayInternalError(error: unknown, route: string, translate
     message = t('insights.xray.errors.internal_error')
   } catch (translationError) {
     logger.warn('[internal] Could not translate the Process X-Ray internal error', { route, err: translationError })
+    getTelemetryRuntime()?.reportError(translationError, { module: 'insights', code: 'insights.xray_route_translation_failed', attributes: { route } })
   }
   return xrayJson({ error: message, code: 'internal_error', hint: null }, 500)
 }

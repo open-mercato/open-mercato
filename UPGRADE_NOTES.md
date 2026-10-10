@@ -1292,17 +1292,41 @@ part of the contract hash). The workflows `workflowDraftService` gains
 `listAutomatedUpdates(scope)` (what enabled event triggers already automate) and its draft policy
 is now an allowlist: only `UPDATE_ENTITY`, `WAIT` and `SET_VARIABLE` activities may be generated
 (any other type is refused as `activity_not_allowed`; credential-bearing types stay
-`credential_activity`). Its validated `commands` gain `enabled` (whether the tenant enabled the
+`credential_activity`), only `START`, `AUTOMATED`, `END` and `WAIT_FOR_TIMER` steps
+(`step_not_allowed`), and no definition-level `errorHandler` (`error_handler_not_allowed`). Its validated `commands` gain `enabled` (whether the tenant enabled the
 command for workflows; a draft whose command is not enabled is still valid, its runs fail until an
 administrator ticks the command in Workflow settings).
 
-**Behavior notes.** Only manual (`cause_kind = 'user'`, not via a sync run) changes count;
+**Behavior notes.** A suggestion needs at least three distinct people behind its supporting
+follow-ups (the analytics three-actor rule). `POST /api/insights/xray/suggestions/mine` answers 409
+`disabled`, `projection_incomplete`, `no_processes` or `busy` before enqueueing, 202 without a second
+job while an earlier request is pending, and runs at most one forced pass per organization every
+15 minutes. Only manual (`cause_kind = 'user'`, not via a sync run) changes count;
 corrections and debounced intermediate values are collapsed first; a suggestion stores counts only
 (no actor id or pseudonym), so GDPR erasure needs nothing for it. Mining never reopens a dismissed
 or drafted suggestion; an open one that is no longer found (or whose process is rebuilt) becomes
 `superseded`. Every X-Ray route now answers its 500 in the standard shape
 `{ error, code: 'internal_error', hint: null }`. A per-person breakdown (`groupBy=user`) is limited
 to the organizations where the caller holds `insights.xray.view_individuals`.
+
+### Insights Process X-Ray pages and the "Process health" dashboard widget
+
+Phase 6C of [`2026-10-08-insights-process-xray`](.ai/specs/2026-10-08-insights-process-xray.md) adds
+the backend pages `/backend/insights/process-xray` (sidebar "Insights → Process X-Ray"), the process
+page with its analyses, the cases, suggestions and settings pages (settings also under Settings →
+Module Configs), the dashboard widget `insights.dashboard.processHealth` and the additive route
+`GET /api/insights/xray/{processKey}/durations` (`insights.xray.view`).
+
+**Action for operators.**
+
+- Run `yarn generate` (new pages, route and widget registrations). No new ACL feature: the pages use
+  `insights.xray.view` / `insights.xray.manage` from the X-Ray data layer, so roles that already
+  received them through `yarn mercato auth sync-role-acls` see the menu entry.
+- The widget is off by default; users with `dashboards.view` and `insights.xray.view` can add it to
+  their dashboard (or an administrator assigns it to roles).
+- Creating a draft workflow from a suggestion or a variant uses `POST /api/workflows/definitions` as
+  the signed-in user, so it needs `workflows.definitions.create`; marking the suggestion as drafted
+  needs `insights.xray.manage`.
 
 ### Access-log rotation keeps registered resource kinds under the core retention
 

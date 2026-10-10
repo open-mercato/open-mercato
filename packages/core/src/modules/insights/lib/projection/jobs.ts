@@ -8,9 +8,8 @@ import { getProcessRegistry, type ProcessRegistrySnapshot } from '../process/reg
 import { createXrayAnalyticsFromContainer, invalidateXrayAnalytics } from '../analytics/index'
 import { readProjectionState, runAnalyticsQuery } from '../analytics/query'
 import { isRollupPassDue, listRollupPasses, markRollupPass, pruneStaleRollups } from '../analytics/rollups'
-import { isSuggestionPassDue, listSuggestionPasses } from '../suggestions/passes'
+import { clearSuggestionPass, isSuggestionPassDue, listSuggestionPasses } from '../suggestions/passes'
 import { supersedeProcessSuggestions } from '../suggestions/store'
-import { clearSuggestionPass } from '../suggestions/passes'
 import { isXrayCursorComplete } from './completeness'
 import { describeXrayError } from './errors'
 import {

@@ -19,8 +19,7 @@ const runAfterSuccessMock = jest.fn(async () => undefined)
 const commandExecuteMock = jest.fn()
 const listSuggestionsMock = jest.fn()
 const findSuggestionMock = jest.fn()
-const enqueueMiningMock = jest.fn(async () => undefined)
-const miningBacklogMock = jest.fn(async (): Promise<number | null> => 0)
+const requestMiningMock = jest.fn(async (_container: unknown, _scope: unknown): Promise<{ status: string }> => ({ status: 'enqueued' }))
 const isOrganizationInTenantMock = jest.fn(async () => true)
 const grants: { byOrganization: Record<string, string[]> } = { byOrganization: {} }
 const userHasAllFeaturesMock = jest.fn(async (_userId: string, required: string[], scope: { organizationId: string | null }) =>
@@ -62,14 +61,9 @@ jest.mock('../../lib/suggestions/store', () => ({
   listSuggestions: (...args: unknown[]) => listSuggestionsMock(...args),
   findSuggestion: (...args: unknown[]) => findSuggestionMock(...args),
 }))
-jest.mock('../../lib/projection/queue', () => {
-  const actual = jest.requireActual('../../lib/projection/queue')
-  return {
-    ...actual,
-    enqueueXraySuggestionMining: (...args: unknown[]) => enqueueMiningMock(...(args as [])),
-    readXraySuggestionsBacklog: (...args: unknown[]) => miningBacklogMock(...(args as [])),
-  }
-})
+jest.mock('../../lib/suggestions/request', () => ({
+  requestXraySuggestionMining: (...args: unknown[]) => requestMiningMock(...(args as [unknown, unknown])),
+}))
 jest.mock('../../lib/projection/payloads', () => {
   const actual = jest.requireActual('../../lib/projection/payloads')
   return { ...actual, isOrganizationInTenant: (...args: unknown[]) => isOrganizationInTenantMock(...(args as [])) }
@@ -191,7 +185,7 @@ beforeEach(() => {
     commands: [{ commandId: 'customers.deals.update', requiredFeatures: ['customers.deals.manage'] }],
     workflowIdAvailable: true,
   }))
-  miningBacklogMock.mockResolvedValue(0)
+  requestMiningMock.mockResolvedValue({ status: 'enqueued' })
   isOrganizationInTenantMock.mockResolvedValue(true)
 })
 
@@ -349,22 +343,38 @@ describe('PATCH /api/insights/xray/suggestions/{id}', () => {
 describe('POST /api/insights/xray/suggestions/mine', () => {
   const path = '/api/insights/xray/suggestions/mine'
 
-  it('enqueues a forced pass of the selected organization after the guards', async () => {
+  it('requests a forced pass of the selected organization after the guards', async () => {
     const response = await call(minePost as unknown as Handler, request('POST', path, {}))
     expect(response).toEqual({ status: 202, body: { ok: true, enqueued: true } })
-    expect(enqueueMiningMock).toHaveBeenCalledWith({ tenantId: TENANT_ID, organizationId: ORG_A }, { force: true })
+    expect(requestMiningMock).toHaveBeenCalledWith(container, { tenantId: TENANT_ID, organizationId: ORG_A })
     expect(runRouteMutationGuardsMock).toHaveBeenCalledWith(expect.objectContaining({
       input: expect.objectContaining({ resourceKind: 'insights.xray_suggestion_mining', resourceId: ORG_A, operation: 'update' }),
     }))
+    expect(runRouteMutationGuardsMock.mock.invocationCallOrder[0]).toBeLessThan(requestMiningMock.mock.invocationCallOrder[0])
     expect(runAfterSuccessMock).toHaveBeenCalled()
   })
 
-  it('refuses a blocked guard, a backlogged queue and an invalid body without enqueueing', async () => {
+  it('answers 202 without a second job while a requested pass is still pending (idempotent)', async () => {
+    requestMiningMock.mockResolvedValueOnce({ status: 'pending' })
+    expect(await call(minePost as unknown as Handler, request('POST', path, {}))).toEqual({ status: 202, body: { ok: true, enqueued: true } })
+    expect(runAfterSuccessMock).toHaveBeenCalled()
+  })
+
+  it.each([
+    ['disabled', 'Process X-Ray ingest is disabled for this organization.'],
+    ['projection_incomplete', 'The process projection is still catching up. Try again once the backfill has finished.'],
+    ['no_processes', 'No module declares a process for Process X-Ray.'],
+    ['busy', 'Process X-Ray is busy. Try again in a moment.'],
+  ])('refuses with 409 %s (translated) and runs no after-success callback', async (code, message) => {
+    requestMiningMock.mockResolvedValueOnce({ status: code })
+    expect(await call(minePost as unknown as Handler, request('POST', path, {}))).toEqual({ status: 409, body: { error: message, code } })
+    expect(runAfterSuccessMock).not.toHaveBeenCalled()
+  })
+
+  it('refuses a blocked guard and an invalid body without requesting a pass', async () => {
     runRouteMutationGuardsMock.mockResolvedValueOnce({ ok: false, response: Response.json({ error: 'blocked' }, { status: 422 }) })
     expect((await call(minePost as unknown as Handler, request('POST', path, {}))).status).toBe(422)
-    miningBacklogMock.mockResolvedValueOnce(1000)
-    expect((await call(minePost as unknown as Handler, request('POST', path, {}))).body).toEqual(expect.objectContaining({ code: 'busy' }))
     expect((await call(minePost as unknown as Handler, request('POST', path, { force: true }))).status).toBe(400)
-    expect(enqueueMiningMock).not.toHaveBeenCalled()
+    expect(requestMiningMock).not.toHaveBeenCalled()
   })
 })
