@@ -24,6 +24,37 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.8.1 (unreleased)
 
+### `db:migrate` now serializes on an advisory lock, and `mercato upgrade` exists
+
+`mercato db migrate` (so `yarn db:migrate`) applies migrations while holding
+`pg_try_advisory_lock(0x4F4D, 0x5547)`. A solo run behaves exactly as before. A second run started
+while a first is in flight now waits — retrying every 5 seconds — and then exits non-zero naming the
+lock, instead of two migrators racing onto the same schema. Both share the lock with the new
+`mercato upgrade` command, so no entrypoint can bypass serialization.
+
+One requirement this places on your infrastructure:
+
+- **The database URL used by migrations must be a direct connection, never a transaction-mode
+  pooler.** PgBouncer and friends in transaction mode hand successive statements to different backend
+  sessions, which silently drops a session-level advisory lock while the caller still believes it
+  holds it — two deploys would then migrate concurrently with no error anywhere. If your
+  `DATABASE_URL` points at a transaction-mode pooler, point the migration step at the direct URL.
+
+Two new optional flags: `--lock-timeout=<seconds>` (default `600`) bounds the wait, and `--no-lock`
+skips acquisition for local use. Neither changes existing invocations.
+
+`mercato upgrade` is additive and nothing calls it for you yet: it applies migrations and then
+reconciles what the running image declares — custom field and entity definitions, role ACL features,
+feature toggles — under that one lock. It is the command a deploy should run against an existing
+database, where `yarn db:migrate` alone leaves definitions and grants un-applied. Deploy scripts
+still default to `yarn db:migrate`; switching that default is a separate change. See
+[`apps/docs/docs/cli/upgrade.mdx`](apps/docs/docs/cli/upgrade.mdx) for the full surface, the
+pre-rollout placement and the stuck-lock runbook.
+
+`upgrade` deliberately does **not** run module `setup.seedDefaults` — those hooks are not idempotent
+and re-running them can overwrite tenant configuration. The `--with-seed-defaults` flag runs them
+anyway for an operator who has read the hazards; it must never be wired into a deploy script.
+
 ### Catalog product bulk-delete jobs require tenant, organization and user scope (#3826)
 
 The `catalog-product-bulk-delete` worker used to run `catalog.products.delete` with `auth: null`, so

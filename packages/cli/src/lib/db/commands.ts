@@ -334,6 +334,13 @@ export interface DbOptions {
   quiet?: boolean
 }
 
+export interface MigrateOptions extends DbOptions {
+  /** Skip advisory-lock acquisition (`--no-lock`). Local use only. */
+  noLock?: boolean
+  /** Seconds to retry lock acquisition before failing (`--lock-timeout=<seconds>`). */
+  lockTimeoutSeconds?: number
+}
+
 export interface GreenfieldOptions extends DbOptions {
   yes: boolean
 }
@@ -443,7 +450,43 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
   await warnAboutMissingEncryptionMapBackfills(ordered, resolver)
 }
 
-export async function dbMigrate(resolver: PackageResolver, options: DbOptions = {}): Promise<void> {
+/**
+ * The public migration entrypoint: applies pending migrations while holding the upgrade advisory
+ * lock, so a direct `yarn db:migrate` serializes against a concurrent `mercato upgrade` and against
+ * another `db:migrate`. A solo run is unaffected; a concurrent one waits and then fails loudly
+ * instead of racing two migrators onto the same schema.
+ *
+ * Callers that already hold the lock must use {@link dbMigrateUnlocked}. Acquiring here while
+ * holding it there would self-deadlock undetectably: advisory-lock re-entrancy is per-session, the
+ * outer holder sits on its own dedicated connection, and the inner acquisition would run on a
+ * different one — so it would wait forever on a session that is itself blocked in application code,
+ * which Postgres's deadlock detector cannot see.
+ */
+export async function dbMigrate(
+  resolver: PackageResolver,
+  options: MigrateOptions = {},
+): Promise<void> {
+  const { withUpgradeLock } = await import('../upgrade-lock')
+  await withUpgradeLock(() => dbMigrateUnlocked(resolver, options), {
+    skip: options.noLock,
+    timeoutSeconds: options.lockTimeoutSeconds,
+    onSkip: () => console.warn('⚠️  --no-lock: applying migrations without the upgrade lock.'),
+    onWait: (_attempt, elapsedSeconds) =>
+      console.log(
+        `⏳ Waiting for the upgrade lock (another migrate or upgrade run is in progress, ${Math.round(elapsedSeconds)}s elapsed)...`,
+      ),
+  })
+}
+
+/**
+ * The lock-free migration primitive. Exported for exactly one caller — `mercato upgrade`, which
+ * invokes it while already holding the lock — and for tests. Deploy scripts and operators want
+ * {@link dbMigrate}.
+ */
+export async function dbMigrateUnlocked(
+  resolver: PackageResolver,
+  options: DbOptions = {},
+): Promise<void> {
   const modules = resolver.loadEnabledModules()
   const ordered = sortModules(modules)
   const results: string[] = []
@@ -718,9 +761,14 @@ export async function dbGreenfield(resolver: PackageResolver, options: Greenfiel
   console.log('Generating fresh migrations for all modules...')
   await dbGenerate(resolver)
 
-  // Apply migrations
+  // Apply migrations.
+  //
+  // Deliberately the lock-free primitive. Greenfield has already dropped every table by this point,
+  // outside any lock, so taking one for the final phase alone would protect nothing while implying
+  // the whole destructive sequence was serialized. The upgrade lock covers the deployment migration
+  // entrypoints — `db:migrate` and `mercato upgrade`; this is a local reset command.
   console.log('Applying migrations...')
-  await dbMigrate(resolver)
+  await dbMigrateUnlocked(resolver)
 
   console.log('Greenfield reset complete! Fresh migrations generated and applied.')
 }

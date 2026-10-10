@@ -4,19 +4,15 @@ sidebar_label: yarn db:migrate
 description: Applies all per-module database migrations and refreshes generated metadata.
 ---
 
-`yarn db:migrate` performs three steps in sequence:
+`yarn db:migrate` is an alias for `mercato db migrate`: it runs MikroORM migrations for every enabled module in alphabetical order, and nothing else.
 
-1. `mercato generate` – regenerates module registries, dependency injection bindings, entity ID maps, ORM entities, and API client.
-2. `mercato db migrate` – runs MikroORM migrations for every enabled module in alphabetical order.
-3. `mercato entities install --global` – ensures global custom entity and field definitions are synchronized.
-
-You can also run migrations directly via the CLI:
+In particular it does **not** run generators and does **not** install custom entity or field definitions. If you need the schema *and* the definitions and grants the current code declares — the usual case after upgrading Open Mercato or enabling a module — use [`yarn mercato upgrade`](./upgrade), which applies migrations and then reconciles those definitions under the same lock.
 
 ```bash
-# Using yarn script (includes generators + entity install)
+# Migrations only
 yarn db:migrate
 
-# Using CLI directly (migrations only)
+# Equivalent
 yarn mercato db migrate
 ```
 
@@ -24,9 +20,26 @@ yarn mercato db migrate
 
 ```bash
 yarn db:migrate
+
+# Wait at most 60s for a concurrent migrate or upgrade run to finish
+yarn mercato db migrate --lock-timeout=60
+
+# Local runs against a database nothing else is touching
+yarn mercato db migrate --no-lock
 ```
 
 The command relies on `DATABASE_URL` for database connectivity.
+
+## Serialization
+
+Migrations run while holding `pg_try_advisory_lock(0x4F4D, 0x5547)` — the same lock [`mercato upgrade`](./upgrade) takes. A solo run is unaffected. A second run started while a first is in flight waits, retrying every 5 seconds, and then exits non-zero naming the lock instead of applying the same migration twice.
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `--lock-timeout=<seconds>` | How long to retry lock acquisition before exiting non-zero. | `600` |
+| `--no-lock` | Skip lock acquisition. For local use only — never a deploy. | off |
+
+The lock connection must use a direct database URL, never a transaction-mode pooler; see [Advisory Locking](./upgrade#advisory-locking) for why, and for the stuck-lock runbook.
 
 ## When to Run
 
@@ -43,5 +56,6 @@ The script prints progress for each module with a progress bar showing migration
 ## Troubleshooting
 
 - **Migration errors** — inspect the failing module's migration file in `packages/<module>/src/modules/<module>/migrations`. You can retry once the issue is resolved.
-- **Custom entity sync errors** — ensure Redis (if configured) is reachable so cache invalidation succeeds, or run `yarn mercato entities install --force` afterwards.
+- **Definitions still missing after a successful migrate** — expected: this command only applies schema. Run [`yarn mercato upgrade`](./upgrade), or `yarn mercato entities install` on its own.
+- **Lock timeout** — another migrate or upgrade run holds the lock. See the [stuck-lock runbook](./upgrade#stuck-lock-runbook).
 - **Long-running migrations** — consider running `yarn db:migrate` with `NODE_ENV=production` pointing to a managed database that has appropriate resources.
