@@ -94,8 +94,10 @@ jobs:
           yarn pkg-pr-new publish --comment=update --no-template --yarn --packageManager=yarn
           './packages/ai-assistant'
           './packages/cache'
+          './packages/channel-brevo'
           './packages/channel-gmail'
           './packages/channel-imap'
+          './packages/channel-mailjet'
           './packages/channel-apns'
           './packages/channel-expo'
           './packages/channel-fcm'

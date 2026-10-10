@@ -1,0 +1,61 @@
+# Execution Plan: EU Transactional Email Providers
+
+Source doc: `.ai/specs/2026-10-09-eu-transactional-email-providers.md` (spec PR #7129)
+Issue: #5556
+
+## Goal
+
+Ship tested Brevo and Mailjet system-email provider packages on the existing Communications Hub without changing stable email, hub, database, or HTTP contracts.
+
+## Scope
+
+- Add independent `@open-mercato/channel-brevo` and `@open-mercato/channel-mailjet` packages.
+- Implement outbound email mapping, credential validation, bounded health checks, env presets, integration metadata, ACLs, and tests.
+- Wire both packages into the monorepo app and create-app template.
+- Document selection and canonical provider env variables.
+- Refresh generated registries and validate compatibility with Resend/SES.
+
+## Non-goals
+
+- No generic SMTP adapter.
+- No inbound email, webhooks, delivery receipts, marketing-email, or contact-list support.
+- No provider-specific UI component, database migration, or shared/core adapter-contract change.
+- No claim that installing a provider makes an operator GDPR-compliant.
+
+## Risks
+
+- Provider error bodies may contain unsafe or excessive detail; adapters will cap and sanitize surfaced text.
+- Mailjet can return message-level failures in a successful HTTP response; the adapter must inspect message status.
+- App/template discovery can drift; module/package/env wiring will be mirrored and template-sync verified.
+- Provider terms can change independently of code; docs use factual, qualified wording and link official sources.
+
+## Progress
+
+> Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
+
+### Phase 1: Brevo connector
+
+- [x] 1.1 Add the Brevo provider package and contract tests — 012cf0e0e
+- [x] 1.2 Implement Brevo send, health, and env-preset tests — 012cf0e0e
+
+### Phase 2: Mailjet connector
+
+- [x] 2.1 Add the Mailjet provider package and contract tests — f1c78dac2
+- [x] 2.2 Implement Mailjet send, health, and env-preset tests — f1c78dac2
+
+### Phase 3: Distribution and documentation
+
+- [x] 3.1 Wire both packages into app and template discovery — 632bd34b5d
+- [x] 3.2 Document provider selection, privacy boundary, and env presets — 632bd34b5d
+
+### Phase 4: Verification and review
+
+- [x] 4.1 Refresh generated artifacts and run focused validation — e4c3fe1cc
+- [x] 4.2 Run the configured validation gate and address review findings — eb14fd92b
+
+## Validation Notes
+
+- Provider typechecks and tests pass: Brevo 23/23, Mailjet 29/29.
+- Generation, package builds, app build, template sync, dependency checks, and i18n sync/usage checks pass.
+- An independent re-review approved the exact implementation head after reproducing the Mailjet size boundary and checking CLI reruns, secret-safe logs, partial presets, and documentation.
+- The full local test gate reached 42/48 package tasks and failed only two reproducible assertions in unchanged progress-service files. Focused provider tests pass, and GitHub CI remains authoritative for the repository-wide gate.

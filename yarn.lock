@@ -8627,11 +8627,13 @@ __metadata:
     "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/cache": "workspace:*"
     "@open-mercato/channel-apns": "workspace:*"
+    "@open-mercato/channel-brevo": "workspace:*"
     "@open-mercato/channel-discord": "workspace:*"
     "@open-mercato/channel-expo": "workspace:*"
     "@open-mercato/channel-fcm": "workspace:*"
     "@open-mercato/channel-gmail": "workspace:*"
     "@open-mercato/channel-imap": "workspace:*"
+    "@open-mercato/channel-mailjet": "workspace:*"
     "@open-mercato/channel-resend": "workspace:*"
     "@open-mercato/channel-ses": "workspace:*"
     "@open-mercato/checkout": "workspace:*"
@@ -8757,6 +8759,34 @@ __metadata:
   peerDependencies:
     "@mikro-orm/postgresql": ^7.0.14
     "@open-mercato/shared": "workspace:*"
+    react: ^19.0.0
+    react-dom: ^19.0.0
+  languageName: unknown
+  linkType: soft
+
+"@open-mercato/channel-brevo@workspace:*, @open-mercato/channel-brevo@workspace:packages/channel-brevo":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/channel-brevo@workspace:packages/channel-brevo"
+  dependencies:
+    "@open-mercato/ai-assistant": "workspace:*"
+    "@open-mercato/core": "workspace:*"
+    "@open-mercato/shared": "workspace:*"
+    "@open-mercato/ui": "workspace:*"
+    "@types/jest": "npm:^30.0.0"
+    "@types/react": "npm:^19.2.18"
+    "@types/react-dom": "npm:^19.2.5"
+    esbuild: "npm:^0.28.2"
+    glob: "npm:^13.0.6"
+    jest: "npm:^30.4.2"
+    react: "npm:19.2.8"
+    react-dom: "npm:19.2.8"
+    ts-jest: "npm:^29.4.11"
+    typescript: "npm:7.0.2"
+  peerDependencies:
+    "@mikro-orm/postgresql": ^7.0.14
+    "@open-mercato/ai-assistant": "workspace:*"
+    "@open-mercato/shared": "workspace:*"
+    "@open-mercato/ui": "workspace:*"
     react: ^19.0.0
     react-dom: ^19.0.0
   languageName: unknown
@@ -8896,6 +8926,34 @@ __metadata:
   peerDependencies:
     "@mikro-orm/postgresql": ^7.0.14
     "@open-mercato/shared": "workspace:*"
+    react: ^19.0.0
+    react-dom: ^19.0.0
+  languageName: unknown
+  linkType: soft
+
+"@open-mercato/channel-mailjet@workspace:*, @open-mercato/channel-mailjet@workspace:packages/channel-mailjet":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/channel-mailjet@workspace:packages/channel-mailjet"
+  dependencies:
+    "@open-mercato/ai-assistant": "workspace:*"
+    "@open-mercato/core": "workspace:*"
+    "@open-mercato/shared": "workspace:*"
+    "@open-mercato/ui": "workspace:*"
+    "@types/jest": "npm:^30.0.0"
+    "@types/react": "npm:^19.2.18"
+    "@types/react-dom": "npm:^19.2.5"
+    esbuild: "npm:^0.28.2"
+    glob: "npm:^13.0.6"
+    jest: "npm:^30.4.2"
+    react: "npm:19.2.8"
+    react-dom: "npm:19.2.8"
+    ts-jest: "npm:^29.4.11"
+    typescript: "npm:7.0.2"
+  peerDependencies:
+    "@mikro-orm/postgresql": ^7.0.14
+    "@open-mercato/ai-assistant": "workspace:*"
+    "@open-mercato/shared": "workspace:*"
+    "@open-mercato/ui": "workspace:*"
     react: ^19.0.0
     react-dom: ^19.0.0
   languageName: unknown

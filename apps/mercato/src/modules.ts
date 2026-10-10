@@ -141,6 +141,8 @@ export const enabledModules: ModuleEntry[] = [
   // Per-user email channels for the Communications Hub (SPEC-045d / email
   // integration spec). Each provider package registers its `ChannelAdapter`
   // at import time via `setup.ts`; the hub picks them up by `providerKey`.
+  { id: 'channel_brevo', from: '@open-mercato/channel-brevo' },
+  { id: 'channel_mailjet', from: '@open-mercato/channel-mailjet' },
   { id: 'channel_resend', from: '@open-mercato/channel-resend' },
   { id: 'channel_ses', from: '@open-mercato/channel-ses' },
   { id: 'channel_imap', from: '@open-mercato/channel-imap' },

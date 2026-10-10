@@ -29,8 +29,10 @@ ADMIN_EMAIL=ops@your-domain.com
 ```
 
 - `SELF_SERVICE_ONBOARDING_ENABLED` - explicit opt-in toggle (defaults to `false`).
-- `SYSTEM_EMAIL_PROVIDER` - outbound system email provider registered through Communications Hub. Omit it or set `resend` for Resend; set `ses` for Amazon SES.
+- `SYSTEM_EMAIL_PROVIDER` - outbound system email provider registered through Communications Hub. Supported values are `resend` (also the default when omitted), `brevo`, `mailjet`, and `ses`.
 - `RESEND_API_KEY` - required when `SYSTEM_EMAIL_PROVIDER` is unset or `resend`.
+- `OM_INTEGRATION_BREVO_API_KEY` - required when `SYSTEM_EMAIL_PROVIDER=brevo`; optionally set `OM_INTEGRATION_BREVO_FROM_ADDRESS`.
+- `OM_INTEGRATION_MAILJET_API_KEY` / `OM_INTEGRATION_MAILJET_SECRET_KEY` - required when `SYSTEM_EMAIL_PROVIDER=mailjet`; optionally set `OM_INTEGRATION_MAILJET_FROM_ADDRESS`.
 - `AWS_SES_REGION` / `AWS_REGION` - required AWS region when `SYSTEM_EMAIL_PROVIDER=ses`; `AWS_SES_REGION` takes precedence.
 - `NOTIFICATIONS_EMAIL_FROM` - optional notification-specific sender override. If set, it is used before `EMAIL_FROM`.
 - `EMAIL_FROM` - default sender address visible to the recipient.
@@ -38,6 +40,8 @@ ADMIN_EMAIL=ops@your-domain.com
 - `ADMIN_EMAIL` - receives a notification each time someone submits the form and is also the final sender fallback when neither sender-specific variable is set.
 
 For Amazon SES, the sender address must belong to a verified SES identity and the runtime must have AWS credentials through the standard AWS SDK credential chain, such as an instance role or environment credentials.
+
+Brevo and Mailjet publish EU data-hosting and data-processing terms, but choosing either connector does not by itself make a deployment GDPR compliant. Confirm the provider agreement, lawful basis, retention, recipient consent, and production configuration for your organization.
 
 Sender precedence for Open Mercato emails is:
 
