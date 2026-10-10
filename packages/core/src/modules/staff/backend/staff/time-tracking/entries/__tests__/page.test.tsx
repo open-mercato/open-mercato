@@ -405,7 +405,7 @@ describe('time entries list — locked rows (screen 10 note 4)', () => {
     expect(within(actions).queryByTestId('row-action-delete')).toBeNull()
     expect(within(actions).queryByTestId('row-action-duplicate')).toBeNull()
     const reportLink = within(actions).getByTestId('row-action-show-report') as HTMLAnchorElement
-    expect(reportLink.getAttribute('href')).toContain(REPORT_ID)
+    expect(reportLink.getAttribute('href')).toBe(`/backend/staff/time-tracking/reports/${REPORT_ID}`)
   })
 })
 
