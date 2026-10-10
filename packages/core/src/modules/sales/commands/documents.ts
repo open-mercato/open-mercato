@@ -146,6 +146,7 @@ import { loadShippedQuantityByLine } from "../lib/shipments/snapshots";
 import { resolveDictionaryEntryValue, resolveCachedDictionaryEntryValue } from "../lib/dictionaries";
 import type { CacheStrategy } from "@open-mercato/cache";
 import { resolveStatusEntryIdByValue } from "../lib/statusHelpers";
+import { resequenceLinesForUpsert } from "../lib/lineOrdering";
 import { SalesDocumentNumberGenerator } from "../services/salesDocumentNumberGenerator";
 import { loadSalesSettings } from "./settings";
 import { notificationTypes } from "../notifications";
@@ -7664,14 +7665,16 @@ const orderLineUpsertCommand: CommandHandler<
       (existingSnapshot as any)?.promotionSnapshot ??
       null;
 
-    let nextLines = parsed.id
+    const mergedLines = parsed.id
       ? lineSnapshots.map((line) =>
           line.id === parsed.id ? updatedSnapshot : line,
         )
       : [...lineSnapshots, updatedSnapshot];
-    nextLines = nextLines
-      .sort((a, b) => (a.lineNumber ?? 0) - (b.lineNumber ?? 0))
-      .map((line, index) => ({ ...line, lineNumber: index + 1 }));
+    const nextLines = resequenceLinesForUpsert(
+      mergedLines,
+      lineId,
+      parsed.lineNumber ?? null,
+    );
 
     const sourceInputs = nextLines.map((line, index) => ({
       ...line,
@@ -8157,14 +8160,16 @@ const quoteLineUpsertCommand: CommandHandler<
       (existingSnapshot as any)?.promotionSnapshot ??
       null;
 
-    let nextLines = parsed.id
+    const mergedLines = parsed.id
       ? lineSnapshots.map((line) =>
           line.id === parsed.id ? updatedSnapshot : line,
         )
       : [...lineSnapshots, updatedSnapshot];
-    nextLines = nextLines
-      .sort((a, b) => (a.lineNumber ?? 0) - (b.lineNumber ?? 0))
-      .map((line, index) => ({ ...line, lineNumber: index + 1 }));
+    const nextLines = resequenceLinesForUpsert(
+      mergedLines,
+      lineId,
+      parsed.lineNumber ?? null,
+    );
 
     const sourceInputs = nextLines.map((line, index) => ({
       ...line,
