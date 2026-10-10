@@ -34,6 +34,8 @@ export const XRAY_STATS_GUARDS = {
 
 export const XRAY_DEFAULT_DEBOUNCE_SECONDS = 120
 
+export const XRAY_DEFAULT_TIME_ZONE = 'UTC'
+
 export const XRAY_CONFORMANCE_MIN_COVERAGE = 0.6
 
 export const XRAY_WINDOW_KEYS = ['7d', '30d', '90d'] as const
@@ -110,7 +112,7 @@ export const analyticsRequestSchema = z.object({
   scope: analyticsScopeSchema,
   processKey: z.string().regex(PROCESS_KEY_PATTERN),
   window: windowInputSchema,
-  timeZone: z.string().min(1).max(64).default('UTC'),
+  timeZone: z.string().min(1).max(64).optional(),
   filters: analyticsFiltersSchema.default({}),
   viewer: analyticsViewerSchema,
 })
@@ -167,6 +169,10 @@ export const conformanceRequestSchema = analyticsRequestSchema.extend({
   caseModelKeys: z
     .record(z.string().uuid(), z.string().min(1).max(200))
     .transform((keys) => Object.fromEntries(Object.entries(keys).map(([caseId, modelKey]) => [caseId.toLowerCase(), modelKey])))
+    .optional(),
+  organizationModelKeys: z
+    .record(z.string().uuid(), z.string().min(1).max(200))
+    .transform((keys) => Object.fromEntries(Object.entries(keys).map(([organizationId, modelKey]) => [organizationId.toLowerCase(), modelKey])))
     .optional(),
 })
 
@@ -445,6 +451,27 @@ export const conformanceResultSchema = z.discriminatedUnion('status', [
 
 export type ConformanceResult = z.infer<typeof conformanceResultSchema>
 
+/**
+ * Headline figures of one process: `n` is the number of cases with a non-voided event in the
+ * window (always returned, like every `n`); `openCases` are the cases open at `openCasesAsOf`
+ * (the window end, or now if earlier), withheld (`null`) when fewer than k but not zero, like
+ * the open-case cell of the durations.
+ */
+export const processSummaryResultSchema = z.object({
+  processKey: z.string(),
+  organizationIds: z.array(z.string()).nullable(),
+  window: resolvedWindowSchema,
+  n: count(),
+  lowConfidence: z.boolean(),
+  computedThrough: z.string().nullable(),
+  incomplete: z.boolean(),
+  kAnonymity: count(),
+  openCases: count().nullable(),
+  openCasesAsOf: z.string(),
+})
+
+export type ProcessSummaryResult = z.infer<typeof processSummaryResultSchema>
+
 export const caseListResultSchema = z.object({
   processKey: z.string(),
   organizationIds: z.array(z.string()).nullable(),
@@ -478,18 +505,27 @@ export type RollupMetrics = z.infer<typeof rollupMetricsSchema>
 
 export type RollupOperation = keyof RollupMetrics['results']
 
-/** Effective per-organization analytics settings (from `insights_process_settings`). */
+/**
+ * Effective per-organization analytics settings (from `insights_process_settings`). A missing
+ * `enabled` means enabled; a missing `timeZone` means UTC.
+ */
 export type AnalyticsOrgSettings = {
   kAnonymity: number
   debounceSeconds: number
   individualsEnabled: boolean
+  enabled?: boolean
+  timeZone?: string
 }
 
-/** Settings of every organization an analytics call covers, folded to the strictest values. */
+/**
+ * Settings of every organization an analytics call covers, folded to the strictest values.
+ * `timeZone` is the organizations' common time zone (UTC when they differ or none is covered).
+ */
 export type ScopeSettings = {
   organizationIds: string[]
   kAnonymity: number
   debounceMsByOrganization: ReadonlyMap<string, number>
   individualsEnabled: boolean
+  timeZone: string
   fingerprint: string
 }

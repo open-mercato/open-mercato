@@ -4,6 +4,7 @@ import type { AnalyticsDb, AnalyticsTrx } from './query'
 import type { ResolvedWindow } from './window'
 import {
   XRAY_ROLLUP_METRICS_VERSION,
+  XRAY_WINDOW_KEYS,
   rollupMetricsSchema,
   type RollupMetrics,
 } from './types'
@@ -112,4 +113,76 @@ export async function markRollupsInvalidated(db: AnalyticsDb, scope: ProjectionS
       set window_end = greatest(insights_process_rollups.window_end, excluded.window_end),
         computed_at = greatest(insights_process_rollups.computed_at, excluded.computed_at)
   `.execute(db)
+}
+
+/** Marker row (per organization) recording when its last rollup pass finished. */
+export const XRAY_ROLLUP_PASS_WINDOW_KEY = '__rollup_pass__'
+
+/** An organization's rollups are recomputed once its last pass is older than this. */
+export const XRAY_ROLLUP_INTERVAL_MS = 15 * 60_000
+
+/** Rows one stale-rollup prune removes at most (the next pass continues). */
+export const XRAY_ROLLUP_PRUNE_BATCH = 5000
+
+/** Records a finished rollup pass of an organization (database clock). */
+export async function markRollupPass(db: AnalyticsDb, scope: ProjectionScope): Promise<void> {
+  await sql`
+    insert into insights_process_rollups
+      (tenant_id, organization_id, process_key, window_key, window_start, window_end, computed_at, metrics, created_at)
+    values (
+      ${scope.tenantId}, ${scope.organizationId}, ${XRAY_ROLLUP_ALL_PROCESSES}, ${XRAY_ROLLUP_PASS_WINDOW_KEY},
+      ${MARKER_WINDOW_START}::timestamptz, now(), now(), '{}'::jsonb, now()
+    )
+    on conflict (tenant_id, organization_id, process_key, window_key, window_start) do update
+      set window_end = excluded.window_end, computed_at = excluded.computed_at
+  `.execute(db)
+}
+
+/**
+ * When each organization's last rollup pass finished (ISO), keyed `tenantId|organizationId`
+ * in lower case; organizations without a pass are absent. One query for a page of scopes.
+ */
+export async function listRollupPasses(db: AnalyticsDb | AnalyticsTrx, scopes: readonly ProjectionScope[]): Promise<Map<string, string>> {
+  const passes = new Map<string, string>()
+  if (scopes.length === 0) return passes
+  const result = await sql<{ tenant_id: string; organization_id: string; computed_at: string }>`
+    select rollups.tenant_id::text as tenant_id, rollups.organization_id::text as organization_id,
+      to_char(rollups.computed_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as computed_at
+    from insights_process_rollups rollups
+    join unnest(${scopes.map((scope) => scope.tenantId)}::uuid[], ${scopes.map((scope) => scope.organizationId)}::uuid[])
+      as wanted(tenant_id, organization_id)
+      on wanted.tenant_id = rollups.tenant_id and wanted.organization_id = rollups.organization_id
+    where rollups.process_key = ${XRAY_ROLLUP_ALL_PROCESSES}
+      and rollups.window_key = ${XRAY_ROLLUP_PASS_WINDOW_KEY}
+      and rollups.window_start = ${MARKER_WINDOW_START}::timestamptz
+  `.execute(db)
+  for (const row of result.rows) passes.set(`${row.tenant_id.toLowerCase()}|${row.organization_id.toLowerCase()}`, row.computed_at)
+  return passes
+}
+
+/** Whether an organization's rollups are due: no pass yet, or the last one is older than the interval. */
+export function isRollupPassDue(lastPassAt: string | null | undefined, dbNow: string): boolean {
+  if (!lastPassAt) return true
+  return Date.parse(dbNow) - Date.parse(lastPassAt) >= XRAY_ROLLUP_INTERVAL_MS
+}
+
+/**
+ * Deletes rollups of an organization that can never be served again: default windows that
+ * ended (the window of a past local day, or of a time zone no longer configured), at most
+ * `limit` rows. The invalidation and pass markers are kept. Returns the rows removed.
+ */
+export async function pruneStaleRollups(db: AnalyticsDb, scope: ProjectionScope, limit: number = XRAY_ROLLUP_PRUNE_BATCH): Promise<number> {
+  const result = await sql<{ id: string }>`
+    delete from insights_process_rollups
+    where id in (
+      select stale.id from insights_process_rollups stale
+      where stale.tenant_id = ${scope.tenantId}
+        and stale.organization_id = ${scope.organizationId}
+        and stale.window_key = any(${[...XRAY_WINDOW_KEYS]}::text[])
+        and stale.window_end <= now()
+      limit ${Math.max(1, Math.trunc(limit))}
+    )
+    returning id
+  `.execute(db)
+  return result.rows.length
 }

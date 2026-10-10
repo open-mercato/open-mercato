@@ -39,9 +39,27 @@ function toNullableNumber(value: string | number | null | undefined): number | n
   return Number.isFinite(parsed) ? parsed : null
 }
 
-/** `and <alias>.organization_id = any(...)` for an explicit list, nothing for tenant-wide. */
+/**
+ * True unless the organization's saved X-Ray settings (not soft-deleted) disable it: a disabled
+ * organization is never read, whatever rows it still holds until retention prunes them.
+ */
+function enabledOrganization(tenantId: string, organizationColumn: RawBuilder<unknown>): RawBuilder<unknown> {
+  return sql`not exists (
+    select 1 from insights_process_settings disabled_settings
+    where disabled_settings.tenant_id = ${tenantId}
+      and disabled_settings.organization_id = ${organizationColumn}
+      and disabled_settings.enabled = false
+      and disabled_settings.deleted_at is null
+  )`
+}
+
+/**
+ * `and <alias>.organization_id = any(...)` for an explicit list (the callers have already
+ * removed disabled organizations from it); for a tenant-wide reader, every organization of the
+ * tenant except those whose settings disable X-Ray.
+ */
 export function organizationPredicate(alias: string, scope: QueryScope): RawBuilder<unknown> {
-  if (scope.organizationIds === null) return sql``
+  if (scope.organizationIds === null) return sql`and ${enabledOrganization(scope.tenantId, sql.ref(`${alias}.organization_id`))}`
   return sql`and ${sql.ref(`${alias}.organization_id`)} = any(${[...scope.organizationIds]}::uuid[])`
 }
 
@@ -87,13 +105,17 @@ export type ProjectionState = {
 /**
  * The tenant's X-Ray organizations for a tenant-wide reader: those with an ingest cursor
  * (projected events exist only for them) or with a settings row (their k-anonymity and
- * per-person switch must apply even before their first ingest).
+ * per-person switch must apply even before their first ingest), except organizations whose
+ * settings disable X-Ray (they are not read, so they never make the view incomplete).
  */
 function tenantOrganizations(tenantId: string): RawBuilder<unknown> {
   return sql`
-    select cursors.organization_id from insights_process_cursors cursors where cursors.tenant_id = ${tenantId}
-    union
-    select settings.organization_id from insights_process_settings settings where settings.tenant_id = ${tenantId}
+    select candidates.organization_id from (
+      select cursors.organization_id from insights_process_cursors cursors where cursors.tenant_id = ${tenantId}
+      union
+      select settings.organization_id from insights_process_settings settings where settings.tenant_id = ${tenantId}
+    ) candidates(organization_id)
+    where ${enabledOrganization(tenantId, sql.ref('candidates.organization_id'))}
   `
 }
 
@@ -365,6 +387,49 @@ export async function listActiveProcessKeys(
     order by registered.process_key
   `.execute(db)
   return result.rows.map((row) => row.process_key)
+}
+
+export type ProcessSummaryCounts = {
+  cases: number
+  openCases: number
+}
+
+/**
+ * Headline counts of one process in one statement: the cases with a non-voided event in
+ * `[from, to)` and the cases open at `asOf` (started before it, not ended before it).
+ */
+export async function loadProcessSummaryCounts(
+  trx: AnalyticsDb | AnalyticsTrx,
+  query: { scope: QueryScope; processKey: string; registeredKeys: readonly string[]; from: string; to: string; asOf: string },
+): Promise<ProcessSummaryCounts> {
+  if (query.scope.organizationIds !== null && query.scope.organizationIds.length === 0) return { cases: 0, openCases: 0 }
+  if (!query.registeredKeys.includes(query.processKey)) return { cases: 0, openCases: 0 }
+  const scope = query.scope
+  const result = await sql<{ cases: string | number; open_cases: string | number }>`
+    select
+      (
+        select count(*) from (
+          select distinct events.organization_id, events.case_id
+          from insights_process_events events
+          where events.tenant_id = ${scope.tenantId} ${organizationPredicate('events', scope)}
+            and events.process_key = ${query.processKey}
+            and events.process_key = any(${[...query.registeredKeys]}::text[])
+            and not events.voided
+            and events.occurred_at >= ${query.from}::timestamptz
+            and events.occurred_at < ${query.to}::timestamptz
+        ) active_cases
+      ) as cases,
+      (
+        select count(*) from insights_process_cases cases
+        where cases.tenant_id = ${scope.tenantId} ${organizationPredicate('cases', scope)}
+          and cases.process_key = ${query.processKey}
+          and cases.process_key = any(${[...query.registeredKeys]}::text[])
+          and cases.started_at < ${query.asOf}::timestamptz
+          and (cases.ended_at is null or cases.ended_at >= ${query.asOf}::timestamptz)
+      ) as open_cases
+  `.execute(trx)
+  const row = result.rows[0]
+  return { cases: toNumber(row?.cases), openCases: toNumber(row?.open_cases) }
 }
 
 export type CaseListCursor = {

@@ -17,6 +17,7 @@ import { testRegistry } from '../../process/__tests__/processTestSupport'
 import type { XrayDatabase } from '../../projection/types'
 import {
   AnalyticsIndividualsDeniedError,
+  AnalyticsInvalidRequestError,
   AnalyticsProcessNotFoundError,
   AnalyticsTimeoutError,
   AnalyticsTooLargeError,
@@ -32,7 +33,7 @@ import {
   type XrayAnalyticsDeps,
 } from '../index'
 import { loadCaseEvents, listActiveProcessKeys, runAnalyticsQuery } from '../query'
-import { markRollupsInvalidated, upsertRollup } from '../rollups'
+import { isRollupPassDue, listRollupPasses, markRollupPass, markRollupsInvalidated, pruneStaleRollups, upsertRollup } from '../rollups'
 import { normalizeCauseKind, type AnalyticsEventRow } from '../trace'
 import { XRAY_MAP_END, rollupMetricsSchema } from '../types'
 import { DAY_MS, HOUR_MS, actorOf, creation, dealProcess, stepRow } from './analyticsTestSupport'
@@ -665,6 +666,97 @@ maybe('X-Ray analytics against PostgreSQL', () => {
     settings.set(ORG_C, { kAnonymity: 7, debounceSeconds: 120, individualsEnabled: false })
     const tenantWide = await analytics.getProcessMap(request({ scope: { tenantId: TENANT, organizationIds: null } }))
     expect(tenantWide).toEqual(expect.objectContaining({ kAnonymity: 7, computedThrough: null, incomplete: true }))
+  })
+
+  it('excludes organizations whose settings disable X-Ray; a disabled settings-only organization never makes a tenant-wide view incomplete', async () => {
+    const analytics = analyticsWith()
+    await insertCursor(ORG_A, NOW - HOUR_MS)
+    await insertCursor(ORG_B, NOW - HOUR_MS)
+    await seedDeals(6, { startMs: NOW - 10 * DAY_MS, durationDays: 2 })
+    await seedDeals(6, { startMs: NOW - 10 * DAY_MS, durationDays: 2, organizationId: ORG_B })
+    const tenantWide = request({ scope: { tenantId: TENANT, organizationIds: null } })
+    expect(await analytics.getProcessMap(tenantWide)).toEqual(expect.objectContaining({ n: 12, incomplete: false }))
+    await sql`insert into insights_process_settings (tenant_id, organization_id, enabled, created_at, updated_at) values (${TENANT}, ${ORG_B}, false, now(), now())`.execute(db)
+    settings.set(ORG_B, { kAnonymity: 5, debounceSeconds: 120, individualsEnabled: false, enabled: false })
+    expect(await analytics.getProcessMap(tenantWide)).toEqual(expect.objectContaining({ n: 6, incomplete: false, organizationIds: null }))
+    expect((await analytics.listCases(tenantWide)).n).toBe(6)
+    expect(await analytics.getProcessMap(request({ scope: { tenantId: TENANT, organizationIds: [ORG_A, ORG_B] } })))
+      .toEqual(expect.objectContaining({ n: 6, organizationIds: [ORG_A] }))
+    expect(await analytics.getProcessMap(request({ scope: { tenantId: TENANT, organizationIds: [ORG_B] } })))
+      .toEqual(expect.objectContaining({ n: 0, organizationIds: [], incomplete: false }))
+    await sql`insert into insights_process_settings (tenant_id, organization_id, enabled, created_at, updated_at) values (${TENANT}, ${ORG_C}, false, now(), now())`.execute(db)
+    settings.set(ORG_C, { kAnonymity: 9, debounceSeconds: 120, individualsEnabled: false, enabled: false })
+    const withDisabledSettingsOnly = await analytics.getProcessMap(tenantWide)
+    expect(withDisabledSettingsOnly).toEqual(expect.objectContaining({ n: 6, incomplete: false, kAnonymity: 5 }))
+    expect(Date.parse(withDisabledSettingsOnly.computedThrough ?? '')).toBe(NOW - HOUR_MS)
+    await sql`update insights_process_settings set deleted_at = now() where organization_id = ${ORG_B}`.execute(db)
+    settings.delete(ORG_B)
+    expect((await analytics.getProcessMap(tenantWide)).n).toBe(12)
+  })
+
+  it('summarizes a process: cases with activity in the window, open cases withheld below k, projection state', async () => {
+    const analytics = analyticsWith()
+    await seedDeals(6, { startMs: NOW - 10 * DAY_MS, durationDays: 2 })
+    await seedDeals(2, { startMs: NOW - 5 * DAY_MS, durationDays: null })
+    expect(await analytics.getSummary(request())).toEqual(expect.objectContaining({
+      processKey: dealProcess.processKey,
+      organizationIds: [ORG_A],
+      n: 8,
+      lowConfidence: true,
+      openCases: null,
+      kAnonymity: 5,
+      computedThrough: null,
+      incomplete: true,
+      openCasesAsOf: new Date(NOW).toISOString(),
+    }))
+    await insertCursor(ORG_A, NOW - HOUR_MS)
+    await seedDeals(3, { startMs: NOW - 4 * DAY_MS, durationDays: null })
+    const summary = await analytics.getSummary(request())
+    expect(summary).toEqual(expect.objectContaining({ n: 11, openCases: 5, incomplete: false }))
+    expect(Date.parse(summary.computedThrough ?? '')).toBe(NOW - HOUR_MS)
+    expect(await analytics.getSummary(request({ scope: { tenantId: TENANT, organizationIds: [] } }))).toEqual(expect.objectContaining({ n: 0, openCases: 0, organizationIds: [] }))
+    expect((await analytics.getSummary(request({ scope: { tenantId: OTHER_TENANT, organizationIds: [ORG_A] } }))).n).toBe(0)
+    await expect(analytics.getSummary(request({ filters: { causeKinds: ['user'] } }))).rejects.toBeInstanceOf(AnalyticsInvalidRequestError)
+  })
+
+  it('computes rollups in the organization time zone, records passes and prunes ended windows but never the markers', async () => {
+    const analytics = analyticsWith()
+    const scope = { tenantId: TENANT, organizationId: ORG_A }
+    settings.set(ORG_A, { kAnonymity: 5, debounceSeconds: 120, individualsEnabled: false, timeZone: 'Europe/Warsaw' })
+    await insertCursor(ORG_A, NOW - HOUR_MS)
+    await seedDeals(6, { startMs: NOW - 5 * DAY_MS, durationDays: 2 })
+    expect(await analytics.computeRollups(scope)).toEqual({ processes: 1, written: 3, skipped: 0 })
+    const zones = await db.selectFrom('insights_process_rollups').select(['window_key', 'metrics']).where('process_key', '=', dealProcess.processKey).execute()
+    expect(zones.map((row) => rollupMetricsSchema.parse(row.metrics).timeZone)).toEqual(['Europe/Warsaw', 'Europe/Warsaw', 'Europe/Warsaw'])
+    expect(await analytics.getProcessMap(request({ window: { windowKey: '7d' } }))).toEqual(expect.objectContaining({ source: 'rollup', window: expect.objectContaining({ timeZone: 'Europe/Warsaw' }) }))
+    expect((await analytics.getProcessMap(request({ window: { windowKey: '7d' }, timeZone: 'UTC' }))).source).toBe('live')
+
+    expect(await listRollupPasses(db, [scope])).toEqual(new Map())
+    await markRollupPass(db, scope)
+    const passes = await listRollupPasses(db, [scope, { tenantId: TENANT, organizationId: ORG_B }, { tenantId: OTHER_TENANT, organizationId: ORG_A }])
+    expect(Array.from(passes.keys())).toEqual([`${TENANT}|${ORG_A}`])
+    const passAt = passes.get(`${TENANT}|${ORG_A}`) ?? ''
+    expect(isRollupPassDue(passAt, new Date(Date.parse(passAt) + 14 * 60_000).toISOString())).toBe(false)
+    expect(isRollupPassDue(passAt, new Date(Date.parse(passAt) + 15 * 60_000).toISOString())).toBe(true)
+    expect(isRollupPassDue(undefined, passAt)).toBe(true)
+
+    const stored = await db.selectFrom('insights_process_rollups').select(['metrics']).where('window_key', '=', '7d').executeTakeFirstOrThrow()
+    const yesterday = resolveDefaultWindow('7d', NOW - DAY_MS, 'Europe/Warsaw')
+    await sql`update insights_process_rollups set window_end = now() + interval '1 day' where window_key in ('7d', '30d', '90d')`.execute(db)
+    await sql`insert into insights_process_rollups (tenant_id, organization_id, process_key, window_key, window_start, window_end, computed_at, metrics, created_at)
+      values (${TENANT}, ${ORG_A}, ${dealProcess.processKey}, '7d', ${yesterday.from}::timestamptz, now() - interval '1 hour', now() - interval '1 day', ${JSON.stringify(stored.metrics)}::jsonb, now())`.execute(db)
+    await sql`insert into insights_process_rollups (tenant_id, organization_id, process_key, window_key, window_start, window_end, computed_at, metrics, created_at)
+      values (${TENANT}, ${ORG_B}, ${dealProcess.processKey}, '7d', ${yesterday.from}::timestamptz, now() - interval '1 hour', now() - interval '1 day', '{}'::jsonb, now())`.execute(db)
+    await markRollupsInvalidated(db, scope)
+    await sql`update insights_process_rollups set window_end = now() - interval '1 day' where window_key in ('__invalidated__', '__rollup_pass__')`.execute(db)
+    expect(await pruneStaleRollups(db, scope)).toBe(1)
+    const left = await db.selectFrom('insights_process_rollups').select(['organization_id', 'window_key', 'window_start']).orderBy('organization_id').orderBy('window_key').execute()
+    expect(left.filter((row) => row.organization_id === ORG_A).map((row) => row.window_key)).toEqual(['30d', '7d', '90d', '__invalidated__', '__rollup_pass__'])
+    expect(left.filter((row) => row.organization_id === ORG_B)).toHaveLength(1)
+    expect(await pruneStaleRollups(db, scope)).toBe(0)
+
+    settings.set(ORG_A, { kAnonymity: 5, debounceSeconds: 120, individualsEnabled: false, enabled: false })
+    expect(await analytics.computeRollups(scope)).toEqual({ processes: 0, written: 0, skipped: 0 })
   })
 
   it('never moves the rollup invalidation marker backwards', async () => {

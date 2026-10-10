@@ -380,7 +380,7 @@ export class InsightsProcessRollup {
 @Entity({ tableName: 'insights_process_settings' })
 @Unique({ name: 'insights_process_settings_scope_unique', properties: ['tenantId', 'organizationId'] })
 export class InsightsProcessSettings {
-  [OptionalProps]?: 'enabled' | 'retentionDays' | 'kAnonymity' | 'debounceSeconds' | 'individualsEnabled' | 'createdAt' | 'updatedAt'
+  [OptionalProps]?: 'enabled' | 'retentionDays' | 'kAnonymity' | 'debounceSeconds' | 'individualsEnabled' | 'timeZone' | 'createdAt' | 'updatedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -405,6 +405,9 @@ export class InsightsProcessSettings {
 
   @Property({ name: 'individuals_enabled', type: 'boolean', default: false })
   individualsEnabled: boolean = false
+
+  @Property({ name: 'time_zone', type: 'text', default: 'UTC' })
+  timeZone: string = 'UTC'
 
   @Property({ name: 'conformance_workflow_id', type: 'uuid', nullable: true })
   conformanceWorkflowId: string | null = null

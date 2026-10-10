@@ -70,7 +70,7 @@ function isConfidence(value: unknown): value is ExplainConfidence {
 
 const ENCODED_DATA_MAX_LENGTH = 120
 
-function encodeAsData(value: string): string {
+export function encodeAsData(value: string): string {
   const bounded = value.length > ENCODED_DATA_MAX_LENGTH ? `${value.slice(0, ENCODED_DATA_MAX_LENGTH - 1)}…` : value
   return JSON.stringify(bounded)
 }
@@ -155,7 +155,7 @@ export function buildOverviewSummary(body: ExplainOverviewResponse, t: Translate
   }
 }
 
-function buildToolAuth(ctx: InsightsToolContext, userId: string, tenantId: string): NonNullable<AuthContext> {
+export function buildToolAuth(ctx: InsightsToolContext, userId: string, tenantId: string): NonNullable<AuthContext> {
   return {
     sub: userId,
     userId,
@@ -164,7 +164,7 @@ function buildToolAuth(ctx: InsightsToolContext, userId: string, tenantId: strin
   }
 }
 
-function buildScopeRequest(ctx: InsightsToolContext) {
+export function buildScopeRequest(ctx: InsightsToolContext) {
   return {
     cookies: {
       get: (name: string): { value: string } | undefined => {

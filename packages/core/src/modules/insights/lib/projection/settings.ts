@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { InsightsProcessSettings } from '../../data/entities'
+import { canonicalIanaTimeZone } from '../analytics/window'
 import type { ProjectionScope } from './types'
 
 export const XRAY_SETTINGS_RESOURCE_KIND = 'insights.xray_settings'
@@ -13,6 +14,7 @@ export const XRAY_SETTINGS_DEFAULTS = {
   kAnonymity: 10,
   debounceSeconds: 120,
   individualsEnabled: false,
+  timeZone: 'UTC',
   conformanceWorkflowId: null as string | null,
   activityStepMap: null as Record<string, string> | null,
 }
@@ -23,6 +25,7 @@ export type XraySettingsValues = {
   kAnonymity: number
   debounceSeconds: number
   individualsEnabled: boolean
+  timeZone: string
   conformanceWorkflowId: string | null
   activityStepMap: Record<string, string> | null
 }
@@ -47,6 +50,7 @@ export function toXraySettingsSnapshot(record: InsightsProcessSettings | null): 
     kAnonymity: Math.max(record.kAnonymity, XRAY_K_ANONYMITY_MIN),
     debounceSeconds: record.debounceSeconds,
     individualsEnabled: record.individualsEnabled,
+    timeZone: canonicalIanaTimeZone(record.timeZone ?? '') ?? XRAY_SETTINGS_DEFAULTS.timeZone,
     conformanceWorkflowId: record.conformanceWorkflowId ?? null,
     activityStepMap: record.activityStepMap ?? null,
   }

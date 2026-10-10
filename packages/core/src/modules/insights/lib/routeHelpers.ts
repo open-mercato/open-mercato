@@ -17,7 +17,7 @@ export type PreparedExplainRequest = {
 
 type RequestCookieReader = { get: (name: string) => { value: string } | undefined }
 
-type ExplainScopeRequestView = {
+export type ExplainScopeRequestView = {
   headers: Headers
   cookies?: RequestCookieReader
 }
@@ -40,7 +40,7 @@ function readRequestCookies(req: Request): RequestCookieReader | undefined {
  * against a fresh view lets explain narrow the scope by the features of the resource it
  * actually reads.
  */
-function scopeRequestView(req: Request): ExplainScopeRequestView {
+export function scopeRequestView(req: Request): ExplainScopeRequestView {
   const cookies = readRequestCookies(req)
   return cookies ? { headers: req.headers, cookies } : { headers: req.headers }
 }

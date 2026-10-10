@@ -29,6 +29,7 @@ export type ConformanceTrace = {
 export type ConformanceOptions = {
   models: readonly DesignedProcessModel[]
   caseModelKeys?: Readonly<Record<string, string>>
+  organizationModelKeys?: Readonly<Record<string, string>>
   k: number
   minCoverage?: number
 }
@@ -43,6 +44,13 @@ export type ConformanceEvaluation =
     unmappedActivities: Array<{ activityKey: string; events: number }>
     suppression: SuppressionTally
   }
+
+type UnmappedCell = {
+  activityKey: string
+  events: number
+  cases: Set<string>
+  actors: Set<string>
+}
 
 type DeviationCell = {
   kind: ConformanceDeviationKind
@@ -80,9 +88,25 @@ export function sequenceModel(
   }
 }
 
+function assignedKey(keys: Readonly<Record<string, string>> | undefined, id: string): string | undefined {
+  if (!keys) return undefined
+  for (const candidate of [id, id.toLowerCase()]) {
+    if (Object.prototype.hasOwnProperty.call(keys, candidate)) return keys[candidate]
+  }
+  return undefined
+}
+
+/**
+ * The model a trace is compared with: the one assigned to its case (`caseModelKeys`, e.g. the
+ * definition version the case executed), else the one assigned to its organization
+ * (`organizationModelKeys`, e.g. each organization's configured workflow). When organization
+ * assignments are given they are authoritative (a case of an organization without one is
+ * unresolved); otherwise a single model applies to every case.
+ */
 function resolveModel(trace: ConformanceTrace, options: ConformanceOptions): DesignedProcessModel | null {
-  const assigned = options.caseModelKeys?.[trace.caseId]
+  const assigned = assignedKey(options.caseModelKeys, trace.caseId) ?? assignedKey(options.organizationModelKeys, trace.organizationId)
   if (assigned !== undefined) return options.models.find((model) => model.key === assigned) ?? null
+  if (options.organizationModelKeys) return null
   return options.models.length === 1 ? options.models[0] : null
 }
 
@@ -176,17 +200,19 @@ function evaluateModel(
 
 /**
  * Compares completed traces with the designed model of the definition version each case
- * executed (`caseModelKeys`; a single model applies to every case). Coverage is the share of
- * observed steps that map onto a designed step; below `minCoverage` (60 %) the comparison is
- * refused rather than reporting a meaningless fitness. Unmapped steps are skipped, consecutive
- * steps mapping to one designed step are merged. A trace conforms when it starts at a start
- * step, moves only along designed transitions and ends at an end step.
+ * executed (`caseModelKeys`), of its organization (`organizationModelKeys`), or the single
+ * model given. Coverage is the share of observed steps that map onto a designed step; below
+ * `minCoverage` (60 %) the comparison is refused rather than reporting a meaningless fitness.
+ * Unmapped steps are skipped, consecutive steps mapping to one designed step are merged. A
+ * trace conforms when it starts at a start step, moves only along designed transitions and
+ * ends at an end step. Unmapped activities are cells like any other (k cases and three distinct
+ * actors, complementary suppression): a hidden one never shows its event count.
  */
 export function evaluateConformance(traces: readonly ConformanceTrace[], options: ConformanceOptions): ConformanceEvaluation {
   const tally = createSuppressionTally()
   const minCoverage = options.minCoverage ?? XRAY_CONFORMANCE_MIN_COVERAGE
   const byModel = new Map<string, { model: DesignedProcessModel; traces: ConformanceTrace[] }>()
-  const unmapped = new Map<string, number>()
+  const unmapped = new Map<string, UnmappedCell>()
   let unresolvedCases = 0
   let observed = 0
   let mapped = 0
@@ -199,10 +225,18 @@ export function evaluateConformance(traces: readonly ConformanceTrace[], options
     const entry = byModel.get(model.key) ?? { model, traces: [] }
     byModel.set(model.key, entry)
     entry.traces.push(trace)
+    const caseKey = `${trace.organizationId}:${trace.caseId}`
     for (const activityKey of trace.activityKeys) {
       observed += 1
-      if (Object.prototype.hasOwnProperty.call(model.activityStepMap, activityKey)) mapped += 1
-      else unmapped.set(activityKey, (unmapped.get(activityKey) ?? 0) + 1)
+      if (Object.prototype.hasOwnProperty.call(model.activityStepMap, activityKey)) {
+        mapped += 1
+        continue
+      }
+      const cell = unmapped.get(activityKey) ?? { activityKey, events: 0, cases: new Set<string>(), actors: new Set<string>() }
+      unmapped.set(activityKey, cell)
+      cell.events += 1
+      cell.cases.add(caseKey)
+      for (const actor of trace.actors) cell.actors.add(actor)
     }
   }
   if (byModel.size === 0) return { status: 'refused', reason: 'no_cases', coverage: null, suppression: tally }
@@ -211,8 +245,13 @@ export function evaluateConformance(traces: readonly ConformanceTrace[], options
   const models = Array.from(byModel.values())
     .sort((left, right) => left.model.key.localeCompare(right.model.key))
     .map((entry) => evaluateModel(entry.model, entry.traces, options.k, tally))
-  const unmappedActivities = Array.from(unmapped.entries())
-    .map(([activityKey, events]) => ({ activityKey, events }))
+  const unmappedActivities = suppressCells(
+    Array.from(unmapped.values()),
+    (cell) => ({ key: cell.activityKey, cases: cell.cases, actors: cell.actors }),
+    options.k,
+    tally,
+  ).visible
+    .map((cell) => ({ activityKey: cell.activityKey, events: cell.events }))
     .sort((left, right) => right.events - left.events || left.activityKey.localeCompare(right.activityKey))
     .slice(0, XRAY_ANALYTICS_LIMITS.maxUnmappedActivities)
   return { status: 'ok', coverage, unresolvedCases, models, unmappedActivities, suppression: tally }

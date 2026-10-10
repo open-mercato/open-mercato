@@ -27,6 +27,7 @@ describe('X-Ray analytics settings identifiers', () => {
       kAnonymity: 7,
       debounceSeconds: 30,
       individualsEnabled: true,
+      timeZone: 'europe/warsaw',
       conformanceWorkflowId: null,
       activityStepMap: null,
       deletedAt: null,
@@ -35,7 +36,34 @@ describe('X-Ray analytics settings identifiers', () => {
     const loader = createEntityManagerSettingsLoader({} as EntityManager)
     const loaded = await loader(TENANT.toUpperCase(), [ORG.toUpperCase(), ORG])
     expect(findMock).toHaveBeenCalledWith(expect.anything(), expect.anything(), { tenantId: TENANT, organizationId: { $in: [ORG] } }, undefined, { tenantId: TENANT })
-    expect(Array.from(loaded.entries())).toEqual([[ORG, { kAnonymity: 7, debounceSeconds: 30, individualsEnabled: true }]])
+    expect(Array.from(loaded.entries())).toEqual([[ORG, { kAnonymity: 7, debounceSeconds: 30, individualsEnabled: true, enabled: true, timeZone: 'Europe/Warsaw' }]])
+  })
+
+  it('reports a disabled organization and falls back to UTC for an unknown stored time zone', async () => {
+    findMock.mockResolvedValue([{
+      tenantId: TENANT,
+      organizationId: ORG,
+      enabled: false,
+      retentionDays: 365,
+      kAnonymity: 10,
+      debounceSeconds: 120,
+      individualsEnabled: false,
+      timeZone: 'Mars/Olympus_Mons',
+      conformanceWorkflowId: null,
+      activityStepMap: null,
+      deletedAt: null,
+      updatedAt: null,
+    }] as never)
+    const loaded = await createEntityManagerSettingsLoader({} as EntityManager)(TENANT, [ORG])
+    expect(loaded.get(ORG)).toEqual(expect.objectContaining({ enabled: false, timeZone: 'UTC' }))
+  })
+
+  it('folds the time zone the organizations share, UTC when they differ', () => {
+    const zoned = (timeZone?: string): AnalyticsOrgSettings => ({ kAnonymity: 10, debounceSeconds: 120, individualsEnabled: false, ...(timeZone ? { timeZone } : {}) })
+    expect(foldScopeSettings([ORG, OTHER_ORG], new Map([[ORG, zoned('Europe/Warsaw')], [OTHER_ORG, zoned('Europe/Warsaw')]])).timeZone).toBe('Europe/Warsaw')
+    expect(foldScopeSettings([ORG, OTHER_ORG], new Map([[ORG, zoned('Europe/Warsaw')], [OTHER_ORG, zoned('America/New_York')]])).timeZone).toBe('UTC')
+    expect(foldScopeSettings([ORG, OTHER_ORG], new Map([[ORG, zoned('Europe/Warsaw')]])).timeZone).toBe('UTC')
+    expect(foldScopeSettings([], new Map()).timeZone).toBe('UTC')
   })
 
   it('folds settings keyed by lower-case ids for upper-case scope ids', () => {

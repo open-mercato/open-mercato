@@ -2,7 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { isUuid } from '@open-mercato/shared/lib/causation/types'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
-import { XRAY_FANOUT_KIND, type XrayBackfillJobPayload, type XrayIngestJobPayload } from './queue'
+import { XRAY_FANOUT_KIND, type XrayBackfillJobPayload, type XrayIngestJobPayload, type XrayRollupJobPayload } from './queue'
 import type { ProjectionScope } from './types'
 
 export type XrayIngestPayload =
@@ -64,6 +64,13 @@ export function readBackfillPayload(payload: unknown): XrayBackfillJobPayload | 
     chainId: candidate.chainId,
     progressJobId,
   }
+}
+
+/** A rollup queue job (`{ scope: { tenantId, organizationId } }`); anything else is refused. */
+export function readRollupPayload(payload: unknown): XrayRollupJobPayload | null {
+  if (!payload || typeof payload !== 'object') return null
+  const scope = readScopePair((payload as Partial<XrayRollupJobPayload>).scope)
+  return scope ? { scope } : null
 }
 
 /** Whether the directory organization exists in that tenant (one scoped lookup). */

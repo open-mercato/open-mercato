@@ -8,6 +8,8 @@ import { isCrudHttpError, translateCrudErrorBody } from '@open-mercato/shared/li
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import {
   xrayErrorSchema,
   xraySettingsResponseSchema,
@@ -17,11 +19,28 @@ import {
 } from '../../../data/validators'
 import { XRAY_SETTINGS_SAVE_COMMAND_ID, type SaveXraySettingsResult } from '../../../commands/xray-settings'
 import { XRAY_SETTINGS_RESOURCE_KIND, findXraySettingsRecord, loadXraySettings, type XraySettingsSnapshot } from '../../../lib/projection/settings'
-import { resolveXrayRouteContext, xrayInternalError, xrayJson } from '../../../lib/xrayRoutes'
+import { invalidateXrayAnalytics } from '../../../lib/analytics/index'
+import { resolveXrayRouteContext, xrayInternalError, xrayJson, type XrayRouteContext } from '../../../lib/xrayRoutes'
+
+const logger = createLogger('insights').child({ component: 'xray-settings-route' })
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['insights.xray.manage'] },
   PUT: { requireAuth: true, requireFeatures: ['insights.xray.manage'] },
+}
+
+/**
+ * Drops the organization's cached analytics and marks its rollups stale after a settings save
+ * (privacy thresholds, debounce, time zone, enabled flag). Never fails the save: results keyed by
+ * the old settings fingerprint are not served anyway, and the rest expire on their own.
+ */
+async function invalidateAnalyticsAfterSave(context: XrayRouteContext): Promise<void> {
+  try {
+    await invalidateXrayAnalytics(context.container, context.scope)
+  } catch (error) {
+    logger.warn('[internal] Could not invalidate the X-Ray analytics after a settings save', { organizationId: context.scope.organizationId, err: error })
+    getTelemetryRuntime()?.reportError(error, { module: 'insights', code: 'insights.xray_analytics_invalidation_failed', attributes: { reason: 'settings' } })
+  }
 }
 
 function toResult(settings: XraySettingsSnapshot) {
@@ -31,6 +50,7 @@ function toResult(settings: XraySettingsSnapshot) {
     kAnonymity: settings.kAnonymity,
     debounceSeconds: settings.debounceSeconds,
     individualsEnabled: settings.individualsEnabled,
+    timeZone: settings.timeZone,
     conformanceWorkflowId: settings.conformanceWorkflowId,
     activityStepMap: settings.activityStepMap,
     updatedAt: settings.updatedAt,
@@ -86,6 +106,7 @@ export async function PUT(req: Request) {
       input: commandInput,
       ctx: context.commandContext,
     })
+    await invalidateAnalyticsAfterSave(context)
     await guarded.runAfterSuccess()
     return xrayJson({ ok: true, result: toResult(result) })
   } catch (error) {
@@ -117,7 +138,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     PUT: {
       summary: 'Update Process X-Ray settings',
-      description: 'Partially updates the settings. Send the last `updatedAt` in `x-om-ext-optimistic-lock-expected-updated-at`; a stale token answers 409 with `code: optimistic_lock_conflict`.',
+      description: 'Partially updates the settings. Send the last `updatedAt` in `x-om-ext-optimistic-lock-expected-updated-at`; a stale token answers 409 with `code: optimistic_lock_conflict`. `timeZone` must be an IANA zone (stored canonically). A `conformanceWorkflowId` must be a workflow definition of the same tenant and organization. A successful save invalidates the organization\'s cached analytics and rollups.',
       requestBody: { contentType: 'application/json', schema: xraySettingsUpdateSchema },
       responses: [{ status: 200, description: 'Saved settings', schema: xraySettingsResponseSchema }],
       errors: [
@@ -125,6 +146,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 401, description: 'Authentication required', schema: xrayErrorSchema },
         { status: 403, description: 'Missing `insights.xray.manage` or no organization access', schema: xrayErrorSchema },
         { status: 409, description: 'The settings were changed by someone else (optimistic lock)', schema: xrayErrorSchema },
+        { status: 422, description: 'The conformance workflow is not a definition of this tenant and organization (`conformance_workflow_not_found`), or the workflows module is unavailable (`workflows_unavailable`)', schema: xrayErrorSchema },
       ],
     },
   },

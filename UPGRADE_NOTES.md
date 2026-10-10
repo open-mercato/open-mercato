@@ -1226,6 +1226,40 @@ re-projection (backfill, reconciliation, rebuild) applies the ledger. Audit rows
 columns cannot be opened are skipped (logged), never projected as ciphertext. Retention removes
 cases inactive for longer than `retentionDays`.
 
+### Insights Process X-Ray analytics API, rollups and AI tools
+
+Phase 6B-1 of [`2026-10-08-insights-process-xray`](.ai/specs/2026-10-08-insights-process-xray.md)
+exposes the X-Ray analytics: `GET /api/insights/xray/processes` and
+`GET /api/insights/xray/{processKey}/map|variants|bottlenecks|rework|conformance|breakdown|cases`
+(all `insights.xray.view` plus the process's own view feature, e.g. `customers.deals.view`), and
+`POST /api/insights/xray/{processKey}/variants/{hash}/workflow-draft`, which returns a validated,
+disabled draft workflow payload and persists nothing (create it through
+`POST /api/workflows/definitions`). Read-only AI tools `insights.xray_summary` and
+`insights.xray_variants` are registered (not allowlisted for any agent).
+
+**Action for operators.**
+
+- Workers must also run the new queue `insights-xray-rollup` (concurrency 1). The existing system
+  ingest tick enqueues one rollup pass per enabled organization at most every 15 minutes (no new
+  schedule); without the worker every analytics read is computed live.
+- `insights_process_settings` gains `time_zone` (`text`, default `UTC`) in the X-Ray migration.
+  Development databases that applied a pre-release build of `Migration20261008180752_insights`
+  need `alter table insights_process_settings add column if not exists time_zone text not null default 'UTC';`
+  (or a fresh database); released installations get it with the migration.
+- Organizations whose X-Ray settings are disabled are now excluded from every analytics read
+  (their projected rows stay until retention prunes them).
+
+**Action for API consumers.** `PUT /api/insights/xray/settings` accepts `timeZone` (IANA zone,
+stored canonically; it sets the boundaries of the 7/30/90-day windows and their rollups) and
+answers 422 `conformance_workflow_not_found` when `conformanceWorkflowId` is not a workflow
+definition of the same tenant and organization (`workflows_unavailable` without the workflows
+module). Responses of the settings and status routes gain `timeZone`.
+
+**Action for module authors.** The workflows module registers the additive DI service
+`workflowDraftService` (`validateDraftDefinition(payload, scope)`, `getDefinitionForScope(id, scope)`).
+A module that proposes workflow drafts resolves it softly by name and must not import workflows
+internals.
+
 ### Access-log rotation keeps registered resource kinds under the core retention
 
 `AccessLogService` rotation used to keep only `auth.user` / `auth.role` rows for
