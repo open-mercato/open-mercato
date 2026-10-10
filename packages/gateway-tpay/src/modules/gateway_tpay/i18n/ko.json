@@ -1,0 +1,16 @@
+{
+  "gateway_tpay.description": "Tpay를 통해 PLN 호스팅 결제, BLIK, 카드, 계좌 이체를 받으세요.",
+  "gateway_tpay.description.fallback": "Tpay 결제",
+  "gateway_tpay.errors.currencyNotSupported": "Tpay는 PLN 결제만 지원합니다.",
+  "gateway_tpay.errors.invalidAmount": "결제 금액이 올바르지 않습니다.",
+  "gateway_tpay.errors.invalidNotificationUrl": "알림 URL이 올바르지 않습니다.",
+  "gateway_tpay.errors.payerEmailRequired": "결제자 이메일 주소가 필요합니다.",
+  "gateway_tpay.errors.payerNameRequired": "결제자 이름이 필요합니다.",
+  "gateway_tpay.errors.providerUnavailable": "Tpay를 일시적으로 사용할 수 없습니다. 나중에 다시 시도하세요.",
+  "gateway_tpay.errors.unsupportedOperation": "Tpay에서 지원하지 않는 작업입니다.",
+  "gateway_tpay.feature.configure": "Tpay 설정 구성",
+  "gateway_tpay.feature.view": "Tpay 구성 보기",
+  "gateway_tpay.health.healthy": "Tpay 연결이 정상입니다.",
+  "gateway_tpay.health.unhealthy": "Tpay 연결에 실패했습니다. 자격 증명을 확인하세요.",
+  "gateway_tpay.title": "Tpay"
+}

@@ -69,6 +69,7 @@ import { applyResponseEnrichers, applyResponseEnricherToRecord, resolveListCache
 import type { EnricherContext } from './response-enricher'
 import type { ApiInterceptorMethod, InterceptorRequest, InterceptorResponse } from './api-interceptor'
 import { runApiInterceptorsAfter, runApiInterceptorsBefore } from './interceptor-runner'
+import { resolveApiInterceptorRoutePath } from '../modules/api-route-identity'
 import { mergeIdFilter, parseIdsParam, isIdsParamProvided } from './ids'
 import { buildQueryParams } from './query-params'
 import { mergeAdvancedFilters } from './advanced-filter-integration'
@@ -825,17 +826,6 @@ function snapshotEntity(entity: unknown): Record<string, unknown> | undefined {
   return safeClone(entity) as Record<string, unknown>
 }
 
-function normalizeInterceptorRoutePath(request: Request): string {
-  try {
-    const pathname = new URL(request.url).pathname
-    if (pathname.startsWith('/api/')) return pathname.slice(5)
-    if (pathname === '/api') return ''
-    return pathname.replace(/^\/+/, '')
-  } catch {
-    return ''
-  }
-}
-
 function toInterceptorHeaders(headers: Headers): Record<string, string> {
   const output: Record<string, string> = {}
   headers.forEach((value, key) => {
@@ -1064,7 +1054,7 @@ function safeClone<T>(value: T): T {
 }
 
 function collectScopeOrganizationIds(ctx: CrudCtx): Array<string | null> {
-  if (Array.isArray(ctx.organizationIds) && ctx.organizationIds.length > 0) {
+  if (Array.isArray(ctx.organizationIds)) {
     return Array.from(new Set(ctx.organizationIds))
   }
   const fallback = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
@@ -1094,7 +1084,7 @@ function buildCrudCacheKey(
   const scopeIds = collectScopeOrganizationIds(ctx)
   const scopeSegment = scopeIds.length
     ? scopeIds.map((id) => normalizeTagSegment(id)).sort((a, b) => a.localeCompare(b)).join(',')
-    : 'none'
+    : 'empty'
   const segments = [
     'crud',
     normalizeTagSegment(resource),
@@ -1452,12 +1442,20 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     if (!interceptorContext) {
       return { errorResponse: null, requestPayload, metadataByInterceptor: {} }
     }
+    const routePath = resolveApiInterceptorRoutePath(args.request)
+    if (routePath === null) {
+      return {
+        errorResponse: json({ error: 'Bad request' }, { status: 400 }),
+        requestPayload,
+        metadataByInterceptor: {},
+      }
+    }
     const contextWithHeaders = {
       ...interceptorContext,
       extensionHeaders: parseExtensionHeaders(requestPayload.headers),
     }
     const result = await runApiInterceptorsBefore({
-      routePath: normalizeInterceptorRoutePath(args.request),
+      routePath,
       method: args.method,
       request: requestPayload,
       context: contextWithHeaders,
@@ -1480,8 +1478,12 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
   }): Promise<{ ok: boolean; statusCode: number; body: Record<string, unknown>; headers: Record<string, string> } | null> {
     const interceptorContext = await buildInterceptorContext(args.ctx)
     if (!interceptorContext) return { ok: true, statusCode: args.statusCode, body: args.body, headers: args.headers ?? {} }
+    const routePath = resolveApiInterceptorRoutePath(args.request)
+    if (routePath === null) {
+      return { ok: false, statusCode: 400, body: { error: 'Bad request' }, headers: {} }
+    }
     const result = await runApiInterceptorsAfter({
-      routePath: normalizeInterceptorRoutePath(args.request),
+      routePath,
       method: args.method,
       request: args.requestPayload,
       response: {
@@ -1558,10 +1560,16 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           orgId: scopedOrgId ?? null,
         }
       : null
-    const fallbackOrgId = scopedOrgId ?? rawAuth?.orgId ?? null
+    const fallbackOrgId = scope ? scopedOrgId : (rawAuth?.orgId ?? null)
+    const hasExplicitEmptyScope = Boolean(scope && (
+      (Array.isArray(scope.filterIds) && scope.filterIds.length === 0)
+      || (Array.isArray(scope.allowedIds) && scope.allowedIds.length === 0)
+    ))
     const rawScopeIds = scope?.filterIds
     const scopedIds = Array.isArray(rawScopeIds) ? rawScopeIds.filter((id): id is string => typeof id === 'string' && id.length > 0) : null
-    if (!scope) {
+    if (hasExplicitEmptyScope) {
+      organizationIds = []
+    } else if (!scope) {
       organizationIds = fallbackOrgId ? [fallbackOrgId] : null
     } else if (scopedIds === null) {
       organizationIds = scope.allowedIds === null ? null : (fallbackOrgId ? [fallbackOrgId] : null)
@@ -1572,7 +1580,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       let canUseFallback = false
       if (allowedIds === null) {
         canUseFallback = true
-      } else if (allowedIds.includes(fallbackOrgId) || allowedIds.length === 0) {
+      } else if (allowedIds.includes(fallbackOrgId)) {
         canUseFallback = true
       }
       if (canUseFallback) {
@@ -1664,6 +1672,25 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       let validated = opts.list.schema.parse(rawQueryParams)
       profiler.mark('query_validated')
 
+      if (ormCfg.orgField && Array.isArray(ctx.organizationIds) && ctx.organizationIds.length === 0) {
+        profiler.mark('scope_blocked')
+        logForbidden({
+          resourceKind,
+          action: 'list',
+          reason: 'organization_scope_empty',
+          userId: ctx.auth?.sub ?? null,
+          tenantId: ctx.auth?.tenantId ?? null,
+          organizationIds: ctx.organizationIds,
+        })
+        const page = Number((validated as Record<string, unknown>).page ?? 1) || 1
+        const pageSize = Math.min(
+          Math.max(Number((validated as Record<string, unknown>).pageSize ?? 50) || 50, 1),
+          100,
+        )
+        finishProfile({ result: 'scope_blocked', itemCount: 0, total: 0 })
+        return json({ items: [], total: 0, page, pageSize, totalPages: 0 })
+      }
+
       const beforeInterceptors = await applyInterceptorsBefore({
         ctx,
         request,
@@ -1730,7 +1757,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         if (Array.isArray(payload)) return
         const items = Array.isArray((payload as any).items) ? (payload as any).items : []
         const tags = new Set<string>()
-        const scopeOrgIds = collectScopeOrganizationIds(ctx)
+        const scopeOrgIds = ormCfg.orgField ? collectScopeOrganizationIds(ctx) : [null]
         const crudSegment = deriveCrudSegmentTag(resourceKind, request)
         for (const target of resourceTargets) {
           for (const tag of buildCollectionTags(target, tenantForScope, scopeOrgIds)) {

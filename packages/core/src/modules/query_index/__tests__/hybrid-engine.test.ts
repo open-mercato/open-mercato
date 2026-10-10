@@ -772,6 +772,7 @@ describe('HybridQueryEngine', () => {
       expect.objectContaining({ id: 'user-1', name: 'encrypted-name' }),
       't1',
       'org1',
+      { em: expect.anything() },
     )
     expect(result.items).toEqual([
       expect.objectContaining({ id: 'user-1', name: 'Alice Owner' }),

@@ -96,6 +96,19 @@ export const features = [
     module: 'customers',
     dependsOn: ['customers.interactions.view'],
   },
+  // Conversation sharing (2026-08-25). Lets a mailbox OWNER hand their own email
+  // history with one Person to the team. This is NOT an oversight capability and
+  // deliberately does not depend on `customers.email.view_private`: holding it
+  // grants no access to anyone else's private email, only the ability to share
+  // your own. The write route derives the share's owner from the authenticated
+  // caller, so the `customers.*` wildcard admins already hold cannot escalate
+  // into sharing another user's mailbox.
+  {
+    id: 'customers.email.share_conversation',
+    title: 'Share your own email conversation with the team',
+    module: 'customers',
+    dependsOn: ['customers.people.view'],
+  },
 ]
 
 export default features

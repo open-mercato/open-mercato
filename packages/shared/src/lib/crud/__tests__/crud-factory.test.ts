@@ -16,6 +16,10 @@ import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { registerApiInterceptors } from '@open-mercato/shared/lib/crud/interceptor-registry'
 import {
+  findApiRouteManifestMatch,
+  type ApiRouteManifestEntry,
+} from '@open-mercato/shared/modules/registry'
+import {
   clearOptimisticLockReadersForTests,
   getAllOptimisticLockReaders,
   registerOptimisticLockReaders,
@@ -185,17 +189,28 @@ const accessLogService = {
   log: jest.fn(async () => {}),
 }
 
+const crudCacheStore = new Map<string, unknown>()
+const crudCache = {
+  get: jest.fn(async (key: string) => crudCacheStore.get(key) ?? null),
+  set: jest.fn(async (key: string, value: unknown) => { crudCacheStore.set(key, value) }),
+  delete: jest.fn(async (key: string) => { crudCacheStore.delete(key) }),
+  deleteByTags: jest.fn(async () => 0),
+}
+
+const resolveContainerValue = jest.fn((name: string) => ({
+  em,
+  queryEngine,
+  cache: crudCache,
+  eventBus: mockEventBus,
+  dataEngine: mockDataEngine,
+  accessLogService,
+  commandBus,
+  crudMutationGuardService,
+} as any)[name])
+
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
-    resolve: (name: string) => ({
-      em,
-      queryEngine,
-      eventBus: mockEventBus,
-      dataEngine: mockDataEngine,
-      accessLogService,
-      commandBus,
-      crudMutationGuardService,
-    } as any)[name],
+    resolve: resolveContainerValue,
   })
 }))
 
@@ -235,6 +250,7 @@ describe('CRUD Factory', () => {
     idSeq = 1
     jest.clearAllMocks()
     accessLogService.log.mockClear()
+    crudCacheStore.clear()
     mockDataEngine.__pendingSideEffects = []
     mockDataEngine.__defaultIndexer = null
     mockDataEngine.__indexedDefaultEntityClass = false
@@ -307,6 +323,44 @@ describe('CRUD Factory', () => {
         queryKeys: expect.arrayContaining(['page', 'pageSize', 'sortField', 'sortDir']),
       }),
     }))
+  })
+
+  it('GET returns an empty page before hooks, cache, query engine, EM, RBAC, or data engine for explicit empty scope', async () => {
+    const beforeList = jest.fn()
+    const emptyScopeRoute = makeCrudRoute({
+      metadata: { GET: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId' },
+      indexer: { entityType: 'example.todo' },
+      list: {
+        schema: querySchema,
+        entityId: 'example.todo',
+        fields: ['id', 'title'],
+        buildFilters: () => ({} as any),
+      },
+      hooks: { beforeList },
+    })
+    mockOrganizationScopeOverride = {
+      tenantId: defaultTenantId,
+      selectedId: defaultOrganizationId,
+      filterIds: [],
+      allowedIds: [defaultOrganizationId],
+    }
+
+    const response = await emptyScopeRoute.GET(new Request('http://x/api/example/todos?page=4&pageSize=15'))
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      items: [],
+      total: 0,
+      page: 4,
+      pageSize: 15,
+      totalPages: 0,
+    })
+    expect(beforeList).not.toHaveBeenCalled()
+    expect(resolveContainerValue).not.toHaveBeenCalled()
+    expect(crudCache.get).not.toHaveBeenCalled()
+    expect(queryEngine.query).not.toHaveBeenCalled()
+    expect(mockDataEngine.createOrmEntity).not.toHaveBeenCalled()
+    expect(accessLogService.log).not.toHaveBeenCalled()
   })
 
   it('GET spreads totalIsCapped only when the engine reports a capped count', async () => {
@@ -1234,7 +1288,7 @@ describe('CRUD Factory', () => {
     expect(db[created.id].deletedAt).toBeInstanceOf(Date)
   })
 
-  it('trims padded selected organization ids when scope resolution falls back from empty filter ids', async () => {
+  it('denies mutations instead of falling back from empty filter ids', async () => {
     const created = em.create(Todo, { title: 'Scoped', organizationId: defaultOrganizationId, tenantId: defaultTenantId }) as Rec
     created.id = '123e4567-e89b-12d3-a456-426614174052'
     await em.persist(created).flush()
@@ -1251,27 +1305,41 @@ describe('CRUD Factory', () => {
       headers: { 'content-type': 'application/json' },
     }))
 
-    expect(updateResponse.status).toBe(200)
-    expect(mockDataEngine.updateOrmEntity).toHaveBeenLastCalledWith(expect.objectContaining({
-      where: {
-        id: created.id,
-        organizationId: defaultOrganizationId,
-        tenantId: defaultTenantId,
-        deletedAt: null,
-      },
-    }))
+    expect(updateResponse.status).toBe(403)
+    expect(mockDataEngine.updateOrmEntity).not.toHaveBeenCalled()
 
     const deleteResponse = await route.DELETE(new Request(`http://x/api/example/todos?id=${created.id}`, { method: 'DELETE' }))
 
-    expect(deleteResponse.status).toBe(200)
-    expect(mockDataEngine.deleteOrmEntity).toHaveBeenLastCalledWith(expect.objectContaining({
-      where: {
-        id: created.id,
-        organizationId: defaultOrganizationId,
-        tenantId: defaultTenantId,
-        deletedAt: null,
-      },
+    expect(deleteResponse.status).toBe(403)
+    expect(mockDataEngine.deleteOrmEntity).not.toHaveBeenCalled()
+  })
+
+  it('does not call data services when the resolved organization scope is explicitly empty', async () => {
+    mockOrganizationScopeOverride = {
+      selectedId: null,
+      filterIds: [],
+      allowedIds: [],
+      tenantId: defaultTenantId,
+    }
+
+    const listResponse = await route.GET(new Request('http://x/api/example/todos?page=1&pageSize=10'))
+    expect(listResponse.status).toBe(200)
+    await expect(listResponse.json()).resolves.toEqual({
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 10,
+      totalPages: 0,
+    })
+    expect(queryEngine.query).not.toHaveBeenCalled()
+
+    const createResponse = await route.POST(new Request('http://x/api/example/todos', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Blocked' }),
+      headers: { 'content-type': 'application/json' },
     }))
+    expect(createResponse.status).toBe(403)
+    expect(mockDataEngine.createOrmEntity).not.toHaveBeenCalled()
   })
 
   it('PUT mutation guard uses route resource identity instead of spoofed lock headers', async () => {
@@ -1984,6 +2052,135 @@ describe('CRUD Factory', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body._interceptor).toEqual({ ok: true, count: 1 })
+  })
+
+  it('preserves exact and prefix interceptor identity through cloned and reconstructed aliases', async () => {
+    const beforeCalls: string[] = []
+    const afterCalls: string[] = []
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.canonical-prefix-policy',
+            targetRoute: 'example/*',
+            methods: ['GET', 'POST'],
+            priority: 100,
+            async before(request) {
+              beforeCalls.push(`prefix:${request.url}`)
+              return { ok: true }
+            },
+            async after(request) {
+              afterCalls.push(`prefix:${request.url}`)
+              return { merge: { canonicalPrefixPolicyApplied: true } }
+            },
+          },
+          {
+            id: 'example.canonical-route-policy',
+            targetRoute: 'example/todos',
+            methods: ['GET', 'POST'],
+            async before(request) {
+              beforeCalls.push(`exact:${request.url}`)
+              if (request.method === 'POST') {
+                return { ok: false, statusCode: 451, message: 'Denied by canonical policy' }
+              }
+              return { ok: true }
+            },
+            async after(request) {
+              afterCalls.push(`exact:${request.url}`)
+              return { merge: { canonicalPolicyApplied: true } }
+            },
+          },
+        ],
+      },
+    ])
+
+    const manifest: ApiRouteManifestEntry[] = [{
+      moduleId: 'example',
+      kind: 'route-file',
+      path: '/example/todos',
+      methods: ['GET', 'POST'],
+      load: async () => ({}),
+    }]
+    const aliases = [
+      { urlPath: '/api/example/todos', dispatcherPath: '/example/todos', transform: (request: Request) => request },
+      { urlPath: '/api/EXAMPLE/TODOS', dispatcherPath: '/EXAMPLE/TODOS', transform: (request: Request) => request.clone() },
+      { urlPath: '/api/%65xample/%74odos', dispatcherPath: '/example/todos', transform: (request: Request) => new Request(request.url, request) },
+    ]
+
+    for (const alias of aliases) {
+      const postRequest = new Request(`http://x${alias.urlPath}?source=alias`, {
+        method: 'POST',
+        body: JSON.stringify({ title: 'Must not be created' }),
+        headers: { 'content-type': 'application/json' },
+      })
+      expect(findApiRouteManifestMatch(manifest, 'POST', alias.dispatcherPath, postRequest)).toBeDefined()
+      const denied = await route.POST(alias.transform(postRequest))
+      expect(denied.status).toBe(451)
+      await expect(denied.json()).resolves.toMatchObject({ error: 'Denied by canonical policy' })
+
+      const getRequest = new Request(`http://x${alias.urlPath}?page=1&pageSize=10`)
+      expect(findApiRouteManifestMatch(manifest, 'GET', alias.dispatcherPath, getRequest)).toBeDefined()
+      const allowed = await route.GET(alias.transform(getRequest))
+      expect(allowed.status).toBe(200)
+      await expect(allowed.json()).resolves.toMatchObject({
+        canonicalPolicyApplied: true,
+        canonicalPrefixPolicyApplied: true,
+      })
+    }
+
+    expect(beforeCalls).toHaveLength(12)
+    expect(afterCalls).toHaveLength(6)
+    expect(mockDataEngine.createOrmEntity).not.toHaveBeenCalled()
+  })
+
+  it('fails a malformed unbound request before interceptor selection or mutation', async () => {
+    const before = jest.fn(async () => ({ ok: true }))
+    registerApiInterceptors([{
+      moduleId: 'example',
+      interceptors: [{
+        id: 'example.malformed-path-probe',
+        targetRoute: 'example/*',
+        methods: ['POST'],
+        before,
+      }],
+    }])
+
+    const response = await route.POST(new Request('http://x/api/example/%ZZ', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Must not be created' }),
+      headers: { 'content-type': 'application/json' },
+    }))
+
+    expect(response.status).toBe(400)
+    expect(before).not.toHaveBeenCalled()
+    expect(mockDataEngine.createOrmEntity).not.toHaveBeenCalled()
+  })
+
+  it('fails closed for an attacker-supplied route identity header', async () => {
+    const before = jest.fn(async () => ({ ok: true }))
+    registerApiInterceptors([{
+      moduleId: 'example',
+      interceptors: [{
+        id: 'example.forged-identity-probe',
+        targetRoute: 'example/*',
+        methods: ['POST'],
+        before,
+      }],
+    }])
+
+    const response = await route.POST(new Request('http://x/api/example/todos', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Must not be created' }),
+      headers: {
+        'content-type': 'application/json',
+        'x-open-mercato-route-identity': 'attacker-controlled',
+      },
+    }))
+
+    expect(response.status).toBe(400)
+    expect(before).not.toHaveBeenCalled()
+    expect(mockDataEngine.createOrmEntity).not.toHaveBeenCalled()
   })
 
   // The command DELETE path used to hand before-interceptors the body only, so a

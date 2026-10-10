@@ -8,16 +8,20 @@ import { createIntegrationLogService } from './lib/log-service'
 import { createHealthService } from './lib/health-service'
 import type { IntegrationStateService } from './lib/state-service'
 import type { IntegrationLogService } from './lib/log-service'
+import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 
 type Cradle = {
   em: EntityManager
   integrationStateService: IntegrationStateService
   integrationLogService: IntegrationLogService
+  tenantEncryptionService: TenantDataEncryptionService
 }
 
 export function register(container: AppContainer) {
   container.register({
-    integrationCredentialsService: asFunction(({ em }: Cradle) => createCredentialsService(em)).scoped().proxy(),
+    integrationCredentialsService: asFunction(({ em, tenantEncryptionService }: Cradle) =>
+      createCredentialsService(em, tenantEncryptionService),
+    ).scoped().proxy(),
     integrationStateService: asFunction(({ em }: Cradle) => createIntegrationStateService(em)).scoped().proxy(),
     integrationLogService: asFunction(({ em }: Cradle) => createIntegrationLogService(em)).scoped().proxy(),
     integrationHealthService: asFunction(({ integrationStateService, integrationLogService }: Cradle) =>
