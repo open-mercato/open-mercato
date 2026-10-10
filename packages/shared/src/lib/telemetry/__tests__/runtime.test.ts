@@ -1,8 +1,12 @@
 import {
   captureTelemetryTrace,
+  collectTelemetryMetrics,
   getTelemetryRuntime,
   isTelemetryBackendEnabled,
+  recordTelemetryMetric,
+  registerTelemetryMetricCollector,
   registerTelemetryRuntime,
+  resetTelemetryMetricCollectors,
   resetTelemetryRuntime,
   withTelemetrySpan,
   type TelemetryRuntime,
@@ -117,6 +121,90 @@ describe('telemetry runtime registry', () => {
     resetTelemetryRuntime()
 
     expect(getTelemetryRuntime()).toBeUndefined()
+  })
+})
+
+describe('telemetry metric bridge', () => {
+  afterEach(() => {
+    resetTelemetryMetricCollectors()
+    resetTelemetryRuntime()
+  })
+
+  it('returns false without allocating a provider point when metrics are unavailable', () => {
+    expect(recordTelemetryMetric({
+      kind: 'gauge',
+      name: 'db.client.connection.max',
+      value: 20,
+      unit: '{connection}',
+    })).toBe(false)
+  })
+
+  it('forwards metric points through the optional runtime method', () => {
+    const points: Parameters<NonNullable<TelemetryRuntime['recordMetric']>>[0][] = []
+    registerTelemetryRuntime(createRuntime({ recordMetric: (point) => points.push(point) }))
+
+    const recorded = recordTelemetryMetric({
+      kind: 'histogram',
+      name: 'db.client.connection.wait_time',
+      value: 0.25,
+      labels: { pool: 'primary' },
+      unit: 's',
+    })
+
+    expect(recorded).toBe(true)
+    expect(points).toEqual([{
+      kind: 'histogram',
+      name: 'db.client.connection.wait_time',
+      value: 0.25,
+      labels: { pool: 'primary' },
+      unit: 's',
+    }])
+  })
+
+  it('collects registered metric owners and stops after disposal', () => {
+    const first = jest.fn()
+    const second = jest.fn()
+    const disposeFirst = registerTelemetryMetricCollector(first)
+    registerTelemetryMetricCollector(second)
+
+    collectTelemetryMetrics()
+    disposeFirst()
+    collectTelemetryMetrics()
+
+    expect(first).toHaveBeenCalledTimes(1)
+    expect(second).toHaveBeenCalledTimes(2)
+  })
+
+  it('uses a snapshot so collectors can dispose during collection', () => {
+    const calls: string[] = []
+    let disposeSecond = () => {}
+    registerTelemetryMetricCollector(() => {
+      calls.push('first')
+      disposeSecond()
+    })
+    disposeSecond = registerTelemetryMetricCollector(() => {
+      calls.push('second')
+    })
+
+    collectTelemetryMetrics()
+    collectTelemetryMetrics()
+
+    expect(calls).toEqual(['first', 'second', 'first'])
+  })
+
+  it('isolates collector failures and reports them without skipping later collectors', () => {
+    const failure = new Error('[internal] collector failed')
+    const nextCollector = jest.fn()
+    const onError = jest.fn()
+    registerTelemetryMetricCollector(() => {
+      throw failure
+    })
+    registerTelemetryMetricCollector(nextCollector)
+
+    collectTelemetryMetrics(onError)
+
+    expect(onError).toHaveBeenCalledWith(failure)
+    expect(nextCollector).toHaveBeenCalledTimes(1)
   })
 })
 
