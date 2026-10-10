@@ -10,6 +10,11 @@ import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorato
   expression:
     'create unique index "api_keys_opencode_session_id_uq" on "api_keys" ("opencode_session_id") where "opencode_session_id" is not null and "deleted_at" is null',
 })
+@Index({
+  name: 'api_keys_session_token_hash_uq',
+  expression:
+    'create unique index "api_keys_session_token_hash_uq" on "api_keys" ("session_token_hash") where "session_token_hash" is not null and "deleted_at" is null',
+})
 export class ApiKey {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -38,9 +43,15 @@ export class ApiKey {
   @Property({ name: 'created_by', type: 'uuid', nullable: true })
   createdBy?: string | null
 
-  /** Session token for ephemeral session-scoped keys (used by AI chat) */
-  @Property({ name: 'session_token', type: 'text', nullable: true })
-  sessionToken?: string | null
+  /**
+   * SHA-256 hash of the session token for ephemeral session-scoped keys (used by AI chat).
+   * The raw token is a bearer credential — the same one that unlocks the decrypted API key
+   * secret and the user's ACL on the MCP server — so, like `customer_accounts` session
+   * tokens, only its hash is persisted. It is returned to the caller once, at issuance, and
+   * never stored or logged in the clear (see #2254).
+   */
+  @Property({ name: 'session_token_hash', type: 'text', nullable: true })
+  sessionTokenHash?: string | null
 
   /** User ID who owns this session (for ephemeral keys) */
   @Property({ name: 'session_user_id', type: 'uuid', nullable: true })

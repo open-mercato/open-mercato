@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto'
+import { randomBytes, createHash } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { hash, compare } from 'bcryptjs'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
@@ -228,6 +228,17 @@ export function generateSessionToken(): string {
 }
 
 /**
+ * Hash a session token for storage/lookup (#2254). The session token is a bearer credential —
+ * it unlocks the decrypted API key secret and the user's ACL on the MCP server — so, mirroring
+ * `customer_accounts`' `hashToken`, only its hash is ever persisted. 128 bits of entropy from
+ * `generateSessionToken` is sufficient for a plain SHA-256 (no bcrypt cost needed, and a slow
+ * hash would just add latency to every MCP tool call that resolves a session).
+ */
+export function hashSessionToken(sessionToken: string): string {
+  return createHash('sha256').update(sessionToken).digest('hex')
+}
+
+/**
  * Create an ephemeral API key scoped to a chat session.
  * The key inherits the user's roles and expires after ttlMinutes (default 30).
  * The API key secret is encrypted and stored so it can be recovered for API calls.
@@ -244,12 +255,16 @@ export async function createSessionApiKey(
   // Encrypt the secret for later retrieval (used by MCP server for API calls)
   const encryptedSecret = await encryptSessionSecret(secret, input.tenantId ?? null)
 
+  // Hash before storage (#2254) — the row (and its `name` column, previously embedding the raw
+  // token for operator visibility) must never carry the live bearer credential in the clear.
+  const sessionTokenHash = hashSessionToken(input.sessionToken)
+
   const roleIds = Array.from(new Set(input.userRoles.filter(Boolean))).sort((left, right) => left.localeCompare(right))
   let record!: ApiKey
   await withAtomicFlush(em, [async () => {
     await lockRoleWriterAuthorizationState(em, roleIds)
     record = em.create(ApiKey, {
-      name: `__session_${input.sessionToken}__`,
+      name: `__session_${sessionTokenHash.slice(0, 12)}__`,
       description: 'Ephemeral session API key for AI chat',
       tenantId: input.tenantId ?? null,
       organizationId: input.organizationId ?? null,
@@ -257,7 +272,7 @@ export async function createSessionApiKey(
       keyPrefix: prefix,
       rolesJson: roleIds,
       createdBy: input.userId,
-      sessionToken: input.sessionToken,
+      sessionTokenHash,
       sessionUserId: input.userId,
       sessionSecretEncrypted: encryptedSecret,
       expiresAt,
@@ -283,8 +298,9 @@ export async function findApiKeyBySessionToken(
 ): Promise<ApiKey | null> {
   if (!sessionToken) return null
 
+  // Looked up by hash, never by the raw token (#2254).
   const record = await em.findOne(ApiKey, {
-    sessionToken,
+    sessionTokenHash: hashSessionToken(sessionToken),
     deletedAt: null,
   })
 
@@ -392,14 +408,16 @@ export async function deleteSessionApiKey(
   em: EntityManager,
   sessionToken: string
 ): Promise<void> {
-  const candidate = await em.findOne(ApiKey, { sessionToken, deletedAt: null })
+  // Looked up and re-checked by hash, never by the raw token (#2254).
+  const sessionTokenHash = hashSessionToken(sessionToken)
+  const candidate = await em.findOne(ApiKey, { sessionTokenHash, deletedAt: null })
   if (!candidate) return
   let deletedId: string | null = null
   await withAtomicFlush(em, [async () => {
     const records = await lockAuthorizationApiKeyRows(em, [String(candidate.id)])
     const record = records.find((entry) => (
       String(entry.id) === String(candidate.id)
-      && entry.sessionToken === sessionToken
+      && entry.sessionTokenHash === sessionTokenHash
       && !entry.deletedAt
     ))
     if (!record) return
