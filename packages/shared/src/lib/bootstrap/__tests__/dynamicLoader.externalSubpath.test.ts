@@ -49,7 +49,7 @@ describe('createCliBundlePlugins — externalized package subpaths', () => {
   let appRoot: string
 
   beforeEach(() => {
-    appRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'om-external-subpath-'))
+    appRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-external-subpath-')))
     fs.writeFileSync(path.join(appRoot, 'package.json'), JSON.stringify({ name: 'app', type: 'module' }))
     writePackage(appRoot, 'legacy-pkg', { main: 'index.js' }, {
       'index.js': "module.exports = 'legacy-root'\n",
