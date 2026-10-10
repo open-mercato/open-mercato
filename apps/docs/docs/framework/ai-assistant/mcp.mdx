@@ -24,10 +24,15 @@ The server runs in one of two modes depending on how you intend to use it:
 | Alias for | `mercato ai_assistant mcp:dev` | `mercato ai_assistant mcp:serve-http` |
 | Use for | Claude Code / local testing | In-app web chat |
 | Port | **3001** (override with `MCP_DEV_PORT`) | — |
+| Bind address | **`127.0.0.1`** (loopback) — override with `MCP_DEV_HOST` | **`127.0.0.1`** (loopback) — override with `MCP_HTTP_HOST` env var or `--host` flag |
 | Endpoint | `http://localhost:3001/mcp` | — |
 | Health | `http://localhost:3001/health` | — |
 | Auth | A single API key, read **once** at startup | Two-tier: server key + per-user session tokens, checked per tool call |
 | Key source | `.mcp.json` → `mcpServers.open-mercato.headers.x-api-key` (no env fallback) | `MCP_SERVER_API_KEY` env var + session tokens |
+
+:::caution Loopback by default — think before widening it
+Both servers bind to `127.0.0.1` unless you explicitly override the host. The one exception is `yarn dev` on native Linux, which binds `0.0.0.0` so the OpenCode container can reach the host over the bridge IP (Docker Desktop keeps loopback); `MCP_HTTP_HOST` overrides either way. The dev server especially: it authenticates a single API key **once** at startup and reuses that same superadmin-equivalent context for every request afterward, with no per-request ACL re-check. Exposing either server beyond loopback (a LAN, a misconfigured firewall, a cloud security group) turns a leaked or brute-forced key into admin-equivalent access to tenant data. Only widen the bind address for a deployment topology that genuinely needs it (e.g. a Docker bridge address), and pair it with a firewall and a strong, rotated `MCP_SERVER_API_KEY`.
+:::
 
 :::note
 You do **not** need `MCP_SERVER_API_KEY` for `mcp:dev`. The `MCP_SERVER_API_KEY not set` message on the in-app AI Assistant **Settings page** is only a status badge for the production/web-chat path — it does **not** block Claude Code connecting via `mcp:dev`.

@@ -25,6 +25,20 @@ export function shouldStartMcp({ args = [], env = {}, appOnly = false } = {}) {
   return true
 }
 
+/**
+ * Bind address for the host-side MCP server `yarn dev` spawns. Loopback unless the
+ * OpenCode sidecar needs to reach it: on native Linux `host-gateway` resolves to the
+ * bridge IP, which a loopback-only socket refuses, so there (and only there) the server
+ * binds 0.0.0.0. Docker Desktop reaches host loopback, so it keeps the default. An
+ * explicit MCP_HTTP_HOST always wins. Returns `null` for "no --host flag, use default".
+ */
+export function resolveDevMcpHost({ platform = process.platform, env = {} } = {}) {
+  const explicit = typeof env.MCP_HTTP_HOST === 'string' ? env.MCP_HTTP_HOST.trim() : ''
+  if (explicit) return explicit
+  if (platform === 'linux') return '0.0.0.0'
+  return null
+}
+
 export function resolveMcpPort(env = {}) {
   const raw = typeof env.MCP_PORT === 'string' ? env.MCP_PORT.trim() : ''
   if (!raw) return MCP_DEFAULT_PORT
