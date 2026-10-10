@@ -34,7 +34,7 @@ export const setup: ModuleSetupConfig = {
       const scope = { tenantId, organizationId }
       const enabled = await createIntegrationStateService(em).isEnabled('gateway_tpay', scope)
       if (!enabled) return
-      await syncTpayReconciliationSchedule({ container, scope, enabled: true })
+      await syncTpayReconciliationSchedule({ container, scope, enabled: true, onlyIfMissing: true })
     } catch (error) {
       getTelemetryRuntime()?.reportError(error, {
         module: 'gateway_tpay',

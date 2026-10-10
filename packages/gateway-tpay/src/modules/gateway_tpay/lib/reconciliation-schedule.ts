@@ -30,6 +30,7 @@ export type TpayReconciliationScheduleRegistration = {
 
 type SchedulerServiceLike = {
   register: (registration: TpayReconciliationScheduleRegistration) => Promise<void>
+  exists?: (scheduleId: string) => Promise<boolean>
 }
 
 export type ScheduleContainer = {
@@ -89,10 +90,12 @@ export async function syncTpayReconciliationSchedule(params: {
   container: ScheduleContainer | undefined
   scope: TpayScheduleScope
   enabled: boolean
+  onlyIfMissing?: boolean
 }): Promise<boolean> {
-  const { container, scope, enabled } = params
+  const { container, scope, enabled, onlyIfMissing = false } = params
   const schedulerService = resolveSchedulerService(container)
   if (!schedulerService) return false
+  if (onlyIfMissing && (await schedulerService.exists?.(tpayReconciliationScheduleId(scope)))) return false
   await schedulerService.register(buildTpayReconciliationSchedule(scope, enabled))
   return true
 }

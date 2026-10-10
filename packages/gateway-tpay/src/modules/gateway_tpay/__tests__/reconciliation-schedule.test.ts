@@ -36,12 +36,17 @@ const OTHER_ORG = '33333333-3333-4333-8333-333333333333'
 const TENANT = '22222222-2222-4222-8222-222222222222'
 const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
-function buildContainer(register = jest.fn().mockResolvedValue(undefined), hasScheduler = true) {
+function buildContainer(
+  register = jest.fn().mockResolvedValue(undefined),
+  hasScheduler = true,
+  exists = jest.fn().mockResolvedValue(false),
+) {
   return {
     register,
+    exists,
     container: {
       hasRegistration: jest.fn((name: string) => hasScheduler && name === 'schedulerService'),
-      resolve: jest.fn().mockReturnValue({ register }),
+      resolve: jest.fn().mockReturnValue({ register, exists }),
     },
   }
 }
@@ -85,6 +90,17 @@ describe('gateway_tpay reconciliation schedule', () => {
       sourceModule: 'gateway_tpay',
       isEnabled: true,
     })
+  })
+
+  it('upserts an existing schedule unless onlyIfMissing is requested', async () => {
+    const { register, exists, container } = buildContainer(undefined, true, jest.fn().mockResolvedValue(true))
+    const scope = { tenantId: TENANT, organizationId: ORG }
+    await expect(syncTpayReconciliationSchedule({ container, scope, enabled: true })).resolves.toBe(true)
+    expect(exists).not.toHaveBeenCalled()
+    await expect(
+      syncTpayReconciliationSchedule({ container, scope, enabled: true, onlyIfMissing: true }),
+    ).resolves.toBe(false)
+    expect(register).toHaveBeenCalledTimes(1)
   })
 
   it('registers a disabled schedule when the integration is disabled', async () => {
@@ -172,6 +188,14 @@ describe('gateway_tpay setup seedDefaults', () => {
     await runSeed(container)
     expect(mockIsEnabled).toHaveBeenCalledWith('gateway_tpay', { tenantId: TENANT, organizationId: ORG })
     expect(register).toHaveBeenCalledWith(expect.objectContaining({ isEnabled: true, organizationId: ORG }))
+  })
+
+  it('keeps an existing schedule untouched so operator edits survive a re-seed', async () => {
+    mockIsEnabled.mockResolvedValue(true)
+    const { register, exists, container } = buildContainer(undefined, true, jest.fn().mockResolvedValue(true))
+    await runSeed(container)
+    expect(exists).toHaveBeenCalledWith(tpayReconciliationScheduleId({ tenantId: TENANT, organizationId: ORG }))
+    expect(register).not.toHaveBeenCalled()
   })
 
   it('does not register when the integration is disabled', async () => {
