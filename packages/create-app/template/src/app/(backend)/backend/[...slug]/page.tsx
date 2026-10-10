@@ -5,6 +5,7 @@ import { findRouteManifestMatch, getBackendRouteManifests, registerBackendRouteM
 import { backendRouteFacades } from '@/.mercato/generated/backend-route-shards.generated'
 import { bootstrap } from '@/bootstrap'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
+import { SELECTED_ORGANIZATION_COOKIE } from '@open-mercato/shared/lib/scope/cookies'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { ApplyBreadcrumb } from '@open-mercato/ui/backend/AppShell'
 import { AccessDeniedMessage } from '@open-mercato/ui/backend/detail'
@@ -82,7 +83,7 @@ export default async function BackendCatchAll(props: BackendParams) {
       const rbac = scopeContainer.resolve('rbacService') as RbacService
       let organizationIdForCheck: string | null = auth.orgId ?? null
       const cookieStore = await cookies()
-      const cookieSelected = cookieStore.get('om_selected_org')?.value ?? null
+      const cookieSelected = cookieStore.get(SELECTED_ORGANIZATION_COOKIE)?.value ?? null
       let tenantIdForCheck: string | null = auth.tenantId ?? null
       try {
         const { organizationId, allowedOrganizationIds, scope } = await resolveFeatureCheckContext({ container: scopeContainer, auth, selectedId: cookieSelected })

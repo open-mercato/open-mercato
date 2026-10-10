@@ -342,6 +342,27 @@ describe('super-admin tenant cookie override', () => {
     expect((auth as { actorOrgId?: string | null }).actorOrgId).toBe(superAdminAuth.orgId)
   })
 
+  // The ORGANIZATION cookie reads the opposite way round from the tenant one above, and
+  // deliberately so: a blank value is an APPLIED override meaning "all organizations",
+  // where a missing cookie is no override at all. Nothing writes a blank organization
+  // cookie today — the switcher writes the `__all__` sentinel — so this pins a
+  // difference that is currently only reachable by hand, and it is the difference
+  // `readScopeCookieRaw` exists to preserve. Collapsing absent and blank inside the
+  // reader silently turns the first case into the second.
+  it('treats a blank organization cookie as an applied all-organizations override', async () => {
+    const auth = await authFor('auth_token=jwt-token; om_selected_org=')
+
+    expect(auth?.orgId).toBeNull()
+    expect((auth as { actorOrgId?: string | null }).actorOrgId).toBe(superAdminAuth.orgId)
+  })
+
+  it('treats a missing organization cookie as no override at all', async () => {
+    const auth = await authFor('auth_token=jwt-token')
+
+    expect(auth?.orgId).toBe(superAdminAuth.orgId)
+    expect(auth).not.toHaveProperty('actorOrgId')
+  })
+
   it('leaves a non-super-admin session untouched by a blank tenant cookie', async () => {
     const staffAuth = { ...superAdminAuth, roles: ['employee'], isSuperAdmin: false }
     verifyJwt.mockReturnValue(staffAuth)
