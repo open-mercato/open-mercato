@@ -3551,17 +3551,17 @@ function DataTableImpl<T extends RowData>({
   const tableScrollWrapperClassName = embedded ? '' : 'overflow-auto'
 
   const virtualScrollRef = React.useRef<HTMLDivElement>(null)
-  // Measure the horizontal scroll viewport so the empty state can center within
+  // Measure the horizontal scroll viewport so the empty and error states can center within
   // the visible area instead of within the (often wider, overflowing) table.
   const [tableScrollEl, setTableScrollEl] = React.useState<HTMLDivElement | null>(null)
-  const [emptyStateViewportWidth, setEmptyStateViewportWidth] = React.useState<number | null>(null)
+  const [scrollViewportWidth, setScrollViewportWidth] = React.useState<number | null>(null)
   const setTableScrollWrapperRef = React.useCallback((node: HTMLDivElement | null) => {
     setTableScrollEl(node)
     virtualScrollRef.current = node
   }, [])
   React.useEffect(() => {
     if (!tableScrollEl || typeof ResizeObserver === 'undefined') return
-    const update = () => setEmptyStateViewportWidth(tableScrollEl.clientWidth)
+    const update = () => setScrollViewportWidth(tableScrollEl.clientWidth)
     update()
     const observer = new ResizeObserver(update)
     observer.observe(tableScrollEl)
@@ -3799,8 +3799,13 @@ function DataTableImpl<T extends RowData>({
               </TableRow>
             ) : error ? (
               <TableRow>
-                <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0)} className="h-24 text-center text-destructive">
-                  {error}
+                <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0)} className="p-0">
+                  <div
+                    className={cn('sticky left-0 flex min-h-24 items-center justify-center px-4 text-center text-destructive', scrollViewportWidth ? '' : 'w-fit')}
+                    style={scrollViewportWidth ? { width: scrollViewportWidth } : undefined}
+                  >
+                    {error}
+                  </div>
                 </TableCell>
               </TableRow>
             ) : allRows.length ? (
@@ -3976,8 +3981,8 @@ function DataTableImpl<T extends RowData>({
               <TableRow>
                 <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0)} className="p-0">
                   <div
-                    className={cn('sticky left-0 flex justify-center py-6', emptyStateViewportWidth ? '' : 'w-fit')}
-                    style={emptyStateViewportWidth ? { width: emptyStateViewportWidth } : undefined}
+                    className={cn('sticky left-0 flex justify-center py-6', scrollViewportWidth ? '' : 'w-fit')}
+                    style={scrollViewportWidth ? { width: scrollViewportWidth } : undefined}
                   >
                     {filterAwareEmptyState?.active ? (
                       <FilteredEmptyResults
