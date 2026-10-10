@@ -31,12 +31,13 @@ export type ResolvedWindow = {
   timeZone: string
 }
 
+/** Upper bound of the formatter cache (above the number of IANA zones; defensive). */
+export const XRAY_TIME_ZONE_FORMATTER_CACHE_LIMIT = 1024
+
 const formatters = new Map<string, Intl.DateTimeFormat>()
 
-function formatterFor(timeZone: string): Intl.DateTimeFormat {
-  const cached = formatters.get(timeZone)
-  if (cached) return cached
-  const formatter = new Intl.DateTimeFormat('en-US', {
+function createFormatter(timeZone: string): Intl.DateTimeFormat {
+  return new Intl.DateTimeFormat('en-US', {
     timeZone,
     hourCycle: 'h23',
     year: 'numeric',
@@ -46,20 +47,39 @@ function formatterFor(timeZone: string): Intl.DateTimeFormat {
     minute: '2-digit',
     second: '2-digit',
   })
-  formatters.set(timeZone, formatter)
+}
+
+/**
+ * The zoned formatter of a time zone, cached under the zone's canonical name only (any other
+ * spelling, e.g. `europe/warsaw`, is resolved but never becomes a cache key), and evicting the
+ * oldest entry beyond `XRAY_TIME_ZONE_FORMATTER_CACHE_LIMIT`. Throws `RangeError` for an unknown zone.
+ */
+function formatterFor(timeZone: string): Intl.DateTimeFormat {
+  const cached = formatters.get(timeZone)
+  if (cached) return cached
+  const formatter = createFormatter(timeZone)
+  const canonical = formatter.resolvedOptions().timeZone
+  const existing = formatters.get(canonical)
+  if (existing) return existing
+  if (formatters.size >= XRAY_TIME_ZONE_FORMATTER_CACHE_LIMIT) {
+    const oldest = formatters.keys().next()
+    if (!oldest.done) formatters.delete(oldest.value)
+  }
+  formatters.set(canonical, formatter)
   return formatter
+}
+
+export function cachedTimeZoneFormatterCount(): number {
+  return formatters.size
 }
 
 /** The IANA zone in its canonical spelling; an unknown zone is an invalid window. */
 export function assertTimeZone(timeZone: string): string {
-  let canonical: string
   try {
-    canonical = formatterFor(timeZone).resolvedOptions().timeZone
+    return formatterFor(timeZone).resolvedOptions().timeZone
   } catch {
     throw new AnalyticsInvalidWindowError('invalid_time_zone')
   }
-  formatterFor(canonical)
-  return canonical
 }
 
 export function zonedDateParts(utcMs: number, timeZone: string): ZonedParts {

@@ -55,6 +55,7 @@ Explains why a record value is what it is ("Why?") from audit history plus the c
 | `setup.ts` | `seedDefaults`: both toggles, the system schedule (`XRAY_INGEST_SCHEDULE_ID`, scope `system`, no tenant quota) and the tenant organization's cursor |
 | `api/xray/{status,settings,backfill}`, `commands/xray-settings.ts`, `lib/xrayRoutes.ts` | `insights.xray.manage` routes in the caller's tenant (organization verified, else 400); status lists processes whose `requiredFeatures` the caller holds; backfill runs mutation guards (`insights.xray_backfill`); `insights.xray.settings.save` (optimistic lock + CAS) |
 | `cli.ts` (X-Ray) | `xray:status`, `xray:backfill [--inline]`, `xray:rebuild [--inline]`, `xray:prune`; `--tenant` (`--org` verified) or `--all`; rebuild and prune refuse to run without one |
+| `lib/analytics/*` | X-Ray read side (`createXrayAnalytics`): k + 3-actor cells with complementary suppression (`stats.suppressCells`), actor-filter guard, `incomplete`/`computedThrough`, per-person access log first (kind kept under core retention via `registerRetainedAccessLogResourceKinds` in `di.ts`), shared cache generation; PG suite `__tests__/analytics.pg.test.ts` (`OM_INSIGHTS_XRAY_PG_URL`) |
 
 Verdict semantics: the current value is compared only on the first page (`page.continuation` marks later pages); `OM_INSIGHTS_EXPLAIN_SCAN_MAX` (default 500) bounds rows per request and `truncated` caps confidence at `inferred`.
 

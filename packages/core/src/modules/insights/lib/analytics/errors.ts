@@ -6,8 +6,9 @@ export type XrayAnalyticsErrorCode =
   | 'result_too_large'
   | 'process_not_found'
   | 'individuals_denied'
+  | 'filter_too_narrow'
 
-export type XrayAnalyticsErrorHint = 'run_background_analysis' | 'narrow_filters' | null
+export type XrayAnalyticsErrorHint = 'run_background_analysis' | 'narrow_filters' | 'widen_actor_filter' | null
 
 export type IndividualsDeniedReason =
   | 'feature_missing'
@@ -97,6 +98,18 @@ export class AnalyticsIndividualsDeniedError extends XrayAnalyticsError {
     super('individuals_denied', 403, `Per-person X-Ray analytics are not available (${reason})`)
     this.name = 'AnalyticsIndividualsDeniedError'
     this.reason = reason
+  }
+}
+
+/**
+ * An actor role or team filter that would single out a small group: a requested value, or the
+ * filtered population as a whole, covers fewer than k cases or fewer than three distinct actors
+ * in the scope and window. The message carries no counts.
+ */
+export class AnalyticsFilterTooNarrowError extends XrayAnalyticsError {
+  constructor() {
+    super('filter_too_narrow', 422, 'The X-Ray actor filter matches too few cases or actors', 'widen_actor_filter')
+    this.name = 'AnalyticsFilterTooNarrowError'
   }
 }
 

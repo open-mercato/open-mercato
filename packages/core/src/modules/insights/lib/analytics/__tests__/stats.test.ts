@@ -11,6 +11,7 @@ import {
   rate,
   sortAscending,
   summarizeDurations,
+  suppressCells,
   suppressionReason,
   wilsonLowerBound,
 } from '../stats'
@@ -69,7 +70,44 @@ describe('X-Ray analytics statistics', () => {
     tally.record('min_cases')
     tally.record('min_actors')
     tally.record('min_cases')
-    expect(tally.summary()).toEqual({ cells: 3, minCases: 2, minActors: 1 })
+    tally.record('complementary')
+    expect(tally.summary()).toEqual({ cells: 4, minCases: 2, minActors: 1, complementary: 1 })
+  })
+
+  it('suppresses the smallest visible siblings until the suppressed cells together pass the thresholds', () => {
+    const cell = (key: string, cases: string[], actors: string[]) => ({ key, cases: new Set(cases), actors: new Set(actors) })
+    const many = (prefix: string, count: number) => Array.from({ length: count }, (_unused, index) => `${prefix}${index}`)
+    const cells = [
+      cell('big', many('b', 9), ['a1', 'a2', 'a3']),
+      cell('small', ['s1'], ['a9']),
+      cell('mid-b', many('m', 6), ['a1', 'a2', 'a3']),
+      cell('mid-a', many('n', 6), ['a1', 'a2', 'a3']),
+    ]
+    const tally = createSuppressionTally()
+    const outcome = suppressCells(cells, (entry) => entry, 5, tally)
+    expect(outcome.anySuppressed).toBe(true)
+    expect(outcome.visible.map((entry) => entry.key)).toEqual(['big', 'mid-b'])
+    expect(tally.summary()).toEqual({ cells: 2, minCases: 1, minActors: 0, complementary: 1 })
+    const untouched = createSuppressionTally()
+    expect(suppressCells(cells.filter((entry) => entry.key !== 'small'), (entry) => entry, 5, untouched)).toEqual({ visible: [cells[0], cells[2], cells[3]], anySuppressed: false })
+    expect(untouched.summary().cells).toBe(0)
+    const allSmall = createSuppressionTally()
+    expect(suppressCells([cell('x', ['c1'], ['a1']), cell('y', ['c2'], ['a2'])], (entry) => entry, 5, allSmall).visible).toEqual([])
+    expect(allSmall.summary()).toEqual({ cells: 2, minCases: 2, minActors: 0, complementary: 0 })
+    const counted = createSuppressionTally()
+    const census = suppressCells([{ key: 'a', cases: 3, actors: 0 }, { key: 'b', cases: 3, actors: 0 }, { key: 'c', cases: 9, actors: 0 }], (entry) => entry, 5, counted)
+    expect(census.visible.map((entry) => entry.key)).toEqual(['c'])
+    expect(counted.summary()).toEqual({ cells: 2, minCases: 2, minActors: 0, complementary: 0 })
+    const people = createSuppressionTally()
+    const perPerson = suppressCells(
+      [cell('p1', many('p', 9), ['a1']), cell('p2', many('q', 6), ['a2']), cell('p3', many('r', 3), ['a3'])].map((entry) => ({ ...entry, actorRule: false })),
+      (entry) => entry,
+      5,
+      people,
+      { unionActorRule: false },
+    )
+    expect(perPerson.visible.map((entry) => entry.key)).toEqual(['p1'])
+    expect(people.summary()).toEqual({ cells: 2, minCases: 1, minActors: 0, complementary: 1 })
   })
 
   it('buckets ages into the histogram', () => {

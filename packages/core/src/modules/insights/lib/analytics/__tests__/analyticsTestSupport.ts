@@ -1,6 +1,6 @@
 import { testRegistry } from '../../process/__tests__/processTestSupport'
 import type { BuildContext } from '../envelope'
-import { buildCaseTrace, prepareCase, type AnalyticsEventRow, type PreparedCase } from '../trace'
+import { buildCaseTrace, prepareCase, type AnalyticsEventRow, type CaseRowSummary, type PreparedCase } from '../trace'
 import type { ResolvedWindow } from '../window'
 import type { AnalyticsFilters } from '../types'
 
@@ -83,7 +83,7 @@ export function prepareRows(
   caseId: string,
   rows: AnalyticsEventRow[],
   window: ResolvedWindow,
-  options: { debounceMs?: number; filters?: AnalyticsFilters; organizationId?: string } = {},
+  options: { debounceMs?: number; filters?: AnalyticsFilters; organizationId?: string; caseRow?: CaseRowSummary | null } = {},
 ): PreparedCase {
   const sorted = [...rows].sort((left, right) => Date.parse(left.occurredAt) - Date.parse(right.occurredAt)
     || left.sourceLogId.localeCompare(right.sourceLogId)
@@ -92,7 +92,7 @@ export function prepareRows(
     organizationId: options.organizationId ?? ANALYTICS_ORG,
     caseId,
     rows: sorted,
-    caseRow: null,
+    caseRow: options.caseRow ?? null,
     process: dealProcess,
     window,
     perCaseLimit: 500,
@@ -111,6 +111,7 @@ export function buildContext(window: ResolvedWindow, options: { k?: number; incl
       organizationIds: [ANALYTICS_ORG],
       window: { from: window.from, to: window.to, windowKey: window.windowKey, timeZone: window.timeZone },
       computedThrough: null,
+      incomplete: false,
       kAnonymity: k,
       source: 'live',
     },

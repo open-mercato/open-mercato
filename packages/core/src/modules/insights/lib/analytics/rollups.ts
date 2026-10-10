@@ -97,7 +97,8 @@ export async function upsertRollup(
  * Invalidates every rollup of an organization (after an undo voided events, or after a
  * rebuild): stamps the marker with the database clock, so rows computed from a snapshot that
  * started before it are never served, including rows written later by a computation that was
- * already running.
+ * already running. The marker only moves forward (`greatest`), so a concurrent invalidation
+ * that committed later with an earlier clock reading never reopens stale rollups.
  */
 export async function markRollupsInvalidated(db: AnalyticsDb, scope: ProjectionScope): Promise<void> {
   await sql`
@@ -108,6 +109,7 @@ export async function markRollupsInvalidated(db: AnalyticsDb, scope: ProjectionS
       ${MARKER_WINDOW_START}::timestamptz, clock_timestamp(), clock_timestamp(), '{}'::jsonb, now()
     )
     on conflict (tenant_id, organization_id, process_key, window_key, window_start) do update
-      set window_end = excluded.window_end, computed_at = excluded.computed_at
+      set window_end = greatest(insights_process_rollups.window_end, excluded.window_end),
+        computed_at = greatest(insights_process_rollups.computed_at, excluded.computed_at)
   `.execute(db)
 }

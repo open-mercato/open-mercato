@@ -1,5 +1,5 @@
 import { buildEnvelope, type BuildContext } from './envelope'
-import { createSuppressionTally, summarizeDurations, suppressionReason } from './stats'
+import { createSuppressionTally, summarizeDurations, suppressCells } from './stats'
 import { addCause, emptyCauseCounts, type AnalyticsEvent, type PreparedCase } from './trace'
 import { XRAY_NONE_GROUP, type BreakdownResult, type CauseCounts, type XrayBreakdownGroup } from './types'
 
@@ -27,7 +27,9 @@ function groupsOf(event: AnalyticsEvent, groupBy: XrayBreakdownGroup, organizati
  * organization, never pooled across organizations (Simpson's paradox). An event of an actor
  * in several roles counts in each role (`overlapping`). Steps without an actor or dimension
  * fall into `none`. Group cells need k cases and, except a person's own cell, three distinct
- * actors; the step wait excludes `sync_run` transitions unless requested.
+ * actors, with complementary suppression across the items (the union of suppressed cells needs
+ * k cases and, outside the per-person view, three actors); the step wait excludes `sync_run`
+ * transitions unless requested.
  */
 export function buildBreakdown(cases: readonly PreparedCase[], context: BuildContext, groupBy: XrayBreakdownGroup): BreakdownResult {
   const population = cases.filter((prepared) => prepared.touchesWindow)
@@ -77,32 +79,36 @@ export function buildBreakdown(cases: readonly PreparedCase[], context: BuildCon
     })
   }
   const tally = createSuppressionTally()
-  const items: BreakdownResult['items'] = []
-  for (const cell of cells.values()) {
-    const personCell = groupBy === 'user' && cell.group !== XRAY_NONE_GROUP
-    const reason = suppressionReason({ cases: cell.cases.size, actors: cell.actors.size }, context.k, { actorRule: !personCell })
-    if (reason) {
-      tally.record(reason)
-      continue
-    }
-    items.push({
-      organizationId: cell.organizationId,
-      group: cell.group,
-      raw: cell.raw,
-      collapsed: cell.collapsed,
-      cases: cell.cases.size,
-      actors: cell.actors.size,
-      causes: cell.causes,
-      stepWait: summarizeDurations(cell.waits),
-    })
-  }
+  const perPerson = groupBy === 'user'
+  const outcome = suppressCells(
+    Array.from(cells.values()),
+    (cell) => ({
+      key: JSON.stringify([cell.organizationId, cell.group]),
+      cases: cell.cases,
+      actors: cell.actors,
+      actorRule: !(perPerson && cell.group !== XRAY_NONE_GROUP),
+    }),
+    context.k,
+    tally,
+    { unionActorRule: !perPerson },
+  )
+  const items: BreakdownResult['items'] = outcome.visible.map((cell) => ({
+    organizationId: cell.organizationId,
+    group: cell.group,
+    raw: cell.raw,
+    collapsed: cell.collapsed,
+    cases: cell.cases.size,
+    actors: cell.actors.size,
+    causes: cell.causes,
+    stepWait: summarizeDurations(cell.waits),
+  }))
   items.sort((left, right) => left.organizationId.localeCompare(right.organizationId)
     || right.collapsed - left.collapsed
     || left.group.localeCompare(right.group))
   return {
     ...buildEnvelope(context.envelope, population.length, tally.summary()),
     groupBy,
-    perPerson: groupBy === 'user',
+    perPerson,
     overlapping: groupBy === 'role',
     includeSyncRun: context.includeSyncRun,
     items,

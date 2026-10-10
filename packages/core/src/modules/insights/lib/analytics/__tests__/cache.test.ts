@@ -9,6 +9,7 @@ import {
   createAnalyticsCacheState,
   organizationCacheTag,
   permissionFingerprint,
+  type AnalyticsCache,
 } from '../cache'
 import type { AnalyticsViewer } from '../types'
 import { ANALYTICS_ORG, ANALYTICS_OTHER_ORG } from './analyticsTestSupport'
@@ -103,6 +104,49 @@ describe('X-Ray analytics cache', () => {
     expect(await stale).toEqual({ value: 1 })
     expect(await fresh).toEqual({ value: 2 })
     expect(await analytics.getOrCompute(entry, async () => ({ value: 3 }))).toEqual({ value: 2 })
+  })
+
+  it('lets an invalidation from another process block a stale write through the shared cache', async () => {
+    const shared = createCacheService({ strategy: 'memory' })
+    const web = createAnalyticsCache(shared, createAnalyticsCacheState())
+    const worker = createAnalyticsCache(shared, createAnalyticsCacheState())
+    const entry = { key: keyFor(ADMIN), tenantId: TENANT, tags: analyticsCacheTags([ANALYTICS_ORG]), schema: valueSchema }
+    const gate = deferred<{ value: number }>()
+    const stale = web.getOrCompute(entry, () => gate.promise)
+    await new Promise((resolve) => setImmediate(resolve))
+    await worker.invalidate(TENANT, [ANALYTICS_ORG])
+    gate.resolve({ value: 1 })
+    expect(await stale).toEqual({ value: 1 })
+    expect(await web.getOrCompute(entry, async () => ({ value: 2 }))).toEqual({ value: 2 })
+    expect(await worker.getOrCompute(entry, async () => ({ value: 3 }))).toEqual({ value: 2 })
+  })
+
+  it('removes a value whose write raced an invalidation', async () => {
+    const memory = createCacheService({ strategy: 'memory' })
+    const entry = { key: keyFor(ADMIN), tenantId: TENANT, tags: analyticsCacheTags([ANALYTICS_ORG]), schema: valueSchema }
+    let invalidator: AnalyticsCache | null = null
+    let raced = false
+    const racing: CacheStrategy = {
+      get: (key, options) => memory.get(key, options),
+      set: async (key, value, options) => {
+        if (key === entry.key && !raced) {
+          raced = true
+          await invalidator?.invalidate(TENANT, [ANALYTICS_ORG])
+        }
+        await memory.set(key, value, options)
+      },
+      has: (key) => memory.has(key),
+      delete: (key) => memory.delete(key),
+      deleteByTags: (tags) => memory.deleteByTags(tags),
+      clear: () => memory.clear(),
+      keys: (pattern) => memory.keys(pattern),
+      stats: () => memory.stats(),
+    }
+    const web = createAnalyticsCache(racing, createAnalyticsCacheState())
+    invalidator = createAnalyticsCache(memory, createAnalyticsCacheState())
+    expect(await web.getOrCompute(entry, async () => ({ value: 1 }))).toEqual({ value: 1 })
+    expect(raced).toBe(true)
+    expect(await web.getOrCompute(entry, async () => ({ value: 2 }))).toEqual({ value: 2 })
   })
 
   it('propagates a failed computation to every waiter without caching it', async () => {

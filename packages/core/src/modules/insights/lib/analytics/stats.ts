@@ -116,26 +116,105 @@ export function suppressionReason(cell: CellPrivacyFacts, k: number, options: { 
 }
 
 export type SuppressionTally = {
-  record: (reason: SuppressionReason) => void
+  record: (reason: SuppressionReason | 'complementary') => void
   summary: () => SuppressionSummary
 }
 
 export function createSuppressionTally(): SuppressionTally {
   let minCases = 0
   let minActors = 0
+  let complementary = 0
   return {
     record(reason) {
       if (reason === 'min_cases') minCases += 1
-      else minActors += 1
+      else if (reason === 'min_actors') minActors += 1
+      else complementary += 1
     },
     summary() {
-      return { cells: minCases + minActors, minCases, minActors }
+      return { cells: minCases + minActors + complementary, minCases, minActors, complementary }
     },
   }
 }
 
 export function emptySuppression(): SuppressionSummary {
-  return { cells: 0, minCases: 0, minActors: 0 }
+  return { cells: 0, minCases: 0, minActors: 0, complementary: 0 }
+}
+
+/**
+ * The privacy facts of one reported cell: its cases and actors as identifier sets (cells that
+ * can overlap) or as counts (cells of disjoint populations, e.g. per-organization censuses).
+ */
+export type PrivacyCellFacts = {
+  key: string
+  cases: ReadonlySet<string> | number
+  actors: ReadonlySet<string> | number
+  actorRule?: boolean
+}
+
+function sizeOf(value: ReadonlySet<string> | number): number {
+  return typeof value === 'number' ? value : value.size
+}
+
+function createFactsUnion() {
+  const cases = new Set<string>()
+  const actors = new Set<string>()
+  let countedCases = 0
+  let countedActors = 0
+  return {
+    add(facts: PrivacyCellFacts): void {
+      if (typeof facts.cases === 'number') countedCases += facts.cases
+      else for (const caseKey of facts.cases) cases.add(caseKey)
+      if (typeof facts.actors === 'number') countedActors += facts.actors
+      else for (const actor of facts.actors) actors.add(actor)
+    },
+    facts(): CellPrivacyFacts {
+      return { cases: cases.size + countedCases, actors: actors.size + countedActors }
+    },
+  }
+}
+
+/**
+ * Primary and complementary suppression of the cells of one result dimension. A cell failing
+ * the k / distinct-actor rule is suppressed. When some (not all) cells are suppressed, their
+ * union must pass the same rule as a single cell, so no total, `n` or sibling reported next to
+ * them can be subtracted down to a small group; otherwise the smallest visible cells (fewest
+ * cases, then fewest actors, then key) are suppressed too, one at a time, until the union
+ * passes or nothing is left. `unionActorRule: false` applies only the case threshold to the
+ * union (the per-person view). Visible cells keep their input order.
+ */
+export function suppressCells<TCell>(
+  cells: readonly TCell[],
+  factsOf: (cell: TCell) => PrivacyCellFacts,
+  k: number,
+  tally: SuppressionTally,
+  options: { unionActorRule?: boolean } = {},
+): { visible: TCell[]; anySuppressed: boolean } {
+  const facts = cells.map(factsOf)
+  const suppressed = new Set<number>()
+  const union = createFactsUnion()
+  facts.forEach((cell, index) => {
+    const reason = suppressionReason({ cases: sizeOf(cell.cases), actors: sizeOf(cell.actors) }, k, { actorRule: cell.actorRule ?? true })
+    if (!reason) return
+    tally.record(reason)
+    suppressed.add(index)
+    union.add(cell)
+  })
+  if (suppressed.size > 0 && suppressed.size < cells.length) {
+    const unionRule = { actorRule: options.unionActorRule ?? true }
+    const siblings = facts
+      .map((cell, index) => ({ cell, index }))
+      .filter((entry) => !suppressed.has(entry.index))
+      .sort((left, right) => sizeOf(left.cell.cases) - sizeOf(right.cell.cases)
+        || sizeOf(left.cell.actors) - sizeOf(right.cell.actors)
+        || left.cell.key.localeCompare(right.cell.key))
+    for (const sibling of siblings) {
+      if (!suppressionReason(union.facts(), k, unionRule)) break
+      tally.record('complementary')
+      suppressed.add(sibling.index)
+      union.add(sibling.cell)
+    }
+  }
+  return { visible: cells.filter((_cell, index) => !suppressed.has(index)), anySuppressed: suppressed.size > 0 }
 }
 
 export function ageBucket(ms: number): XrayAgeBucket {

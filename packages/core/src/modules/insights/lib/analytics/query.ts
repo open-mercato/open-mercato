@@ -79,26 +79,62 @@ export async function readTransactionNow(trx: AnalyticsDb | AnalyticsTrx): Promi
   return value
 }
 
-/**
- * The instant through which the projection is complete for every organization in scope: the
- * oldest ingest cursor position (`null` when no organization has been projected yet).
- */
-export async function readComputedThrough(trx: AnalyticsDb | AnalyticsTrx, scope: QueryScope): Promise<string | null> {
-  const result = await sql<{ computed_through: string | null }>`
-    select ${iso(sql`min(cursors.last_created_at)`)} as computed_through
-    from insights_process_cursors cursors
-    where cursors.tenant_id = ${scope.tenantId} ${organizationPredicate('cursors', scope)}
-  `.execute(trx)
-  return result.rows[0]?.computed_through ?? null
+export type ProjectionState = {
+  computedThrough: string | null
+  incomplete: boolean
 }
 
-/** Organizations of the tenant with a projection (an ingest cursor), for tenant-wide readers. */
-export async function listProjectedOrganizations(db: AnalyticsDb | AnalyticsTrx, tenantId: string): Promise<string[]> {
+/**
+ * The tenant's X-Ray organizations for a tenant-wide reader: those with an ingest cursor
+ * (projected events exist only for them) or with a settings row (their k-anonymity and
+ * per-person switch must apply even before their first ingest).
+ */
+function tenantOrganizations(tenantId: string): RawBuilder<unknown> {
+  return sql`
+    select cursors.organization_id from insights_process_cursors cursors where cursors.tenant_id = ${tenantId}
+    union
+    select settings.organization_id from insights_process_settings settings where settings.tenant_id = ${tenantId}
+  `
+}
+
+/**
+ * How far the projection is complete for the organizations in scope (each listed organization,
+ * or every X-Ray organization of the tenant). `computedThrough` is the oldest ingest cursor
+ * position; the scope is `incomplete` (and `computedThrough` is `null`) when an organization has
+ * no cursor yet, is backfilling or waiting for a rebuild (`status <> 'idle'`), runs a range scan
+ * (backfill or reconciliation), or when the tenant has no X-Ray organization at all.
+ */
+export async function readProjectionState(trx: AnalyticsDb | AnalyticsTrx, scope: QueryScope): Promise<ProjectionState> {
+  if (scope.organizationIds !== null && scope.organizationIds.length === 0) return { computedThrough: null, incomplete: false }
+  const scoped = scope.organizationIds === null
+    ? tenantOrganizations(scope.tenantId)
+    : sql`select distinct listed.organization_id from unnest(${[...scope.organizationIds]}::uuid[]) as listed(organization_id)`
+  const result = await sql<{ computed_through: string | null; organizations: string | number; pending: string | number }>`
+    with scoped(organization_id) as (${scoped})
+    select ${iso(sql`min(cursors.last_created_at)`)} as computed_through,
+      count(*) as organizations,
+      count(*) filter (
+        where cursors.id is null
+          or cursors.last_created_at is null
+          or cursors.status <> 'idle'
+          or cursors.scan_id is not null
+      ) as pending
+    from scoped
+    left join insights_process_cursors cursors
+      on cursors.tenant_id = ${scope.tenantId}
+      and cursors.organization_id = scoped.organization_id
+  `.execute(trx)
+  const row = result.rows[0]
+  const incomplete = !row || toNumber(row.organizations) === 0 || toNumber(row.pending) > 0
+  return { computedThrough: incomplete ? null : row.computed_through ?? null, incomplete }
+}
+
+/** The tenant's X-Ray organizations (ingest cursor or settings row), for tenant-wide readers. */
+export async function listTenantXrayOrganizations(db: AnalyticsDb | AnalyticsTrx, tenantId: string): Promise<string[]> {
   const result = await sql<{ organization_id: string }>`
-    select cursors.organization_id::text as organization_id
-    from insights_process_cursors cursors
-    where cursors.tenant_id = ${tenantId}
-    order by cursors.organization_id
+    select organizations.organization_id::text as organization_id
+    from (${tenantOrganizations(tenantId)}) organizations(organization_id)
+    order by organizations.organization_id
   `.execute(db)
   return result.rows.map((row) => row.organization_id)
 }
@@ -121,6 +157,7 @@ type EventQueryRow = {
   case_started_at: string | null
   case_ended_at: string | null
   case_status: string | null
+  case_variant_hash: string | null
 }
 
 export type CaseEventGroup = {
@@ -172,7 +209,8 @@ export async function loadCaseEvents(trx: AnalyticsDb | AnalyticsTrx, query: Eve
       picked.followup_field, picked.followup_value,
       ${iso(sql`cases.started_at`)} as case_started_at,
       ${iso(sql`cases.ended_at`)} as case_ended_at,
-      cases.status as case_status
+      cases.status as case_status,
+      cases.variant_hash as case_variant_hash
     from window_cases
     cross join lateral (
       select events.activity_key, events.activity_kind, events.occurred_at, events.source_log_id, events.seq,
@@ -206,7 +244,7 @@ export async function loadCaseEvents(trx: AnalyticsDb | AnalyticsTrx, query: Eve
         caseId: row.case_id,
         rows: [],
         caseRow: row.case_started_at || row.case_status
-          ? { startedAt: row.case_started_at, endedAt: row.case_ended_at, status: row.case_status }
+          ? { startedAt: row.case_started_at, endedAt: row.case_ended_at, status: row.case_status, variantHash: row.case_variant_hash }
           : null,
       }
       groups.push(current)
@@ -301,21 +339,30 @@ export async function loadOpenCensus(
   return { asOf: query.asOf, overall: toCensusCell(overall), byOrganization }
 }
 
-/** Registered processes with non-voided events since `since` in one organization. */
+/**
+ * Registered processes with non-voided events since `since` in one organization: one bounded
+ * index probe (`exists … limit 1`) per registered key. Callers run it inside
+ * `runAnalyticsQuery` (read-only, under the statement timeout).
+ */
 export async function listActiveProcessKeys(
   db: AnalyticsDb | AnalyticsTrx,
   query: { tenantId: string; organizationId: string; registeredKeys: readonly string[]; since: string },
 ): Promise<string[]> {
-  if (query.registeredKeys.length === 0) return []
+  const keys = Array.from(new Set(query.registeredKeys))
+  if (keys.length === 0) return []
   const result = await sql<{ process_key: string }>`
-    select distinct events.process_key
-    from insights_process_events events
-    where events.tenant_id = ${query.tenantId}
-      and events.organization_id = ${query.organizationId}
-      and events.process_key = any(${[...query.registeredKeys]}::text[])
-      and not events.voided
-      and events.occurred_at >= ${query.since}::timestamptz
-    order by events.process_key
+    select registered.process_key
+    from unnest(${keys}::text[]) as registered(process_key)
+    where exists (
+      select 1 from insights_process_events events
+      where events.tenant_id = ${query.tenantId}
+        and events.organization_id = ${query.organizationId}
+        and events.process_key = registered.process_key
+        and not events.voided
+        and events.occurred_at >= ${query.since}::timestamptz
+      limit 1
+    )
+    order by registered.process_key
   `.execute(db)
   return result.rows.map((row) => row.process_key)
 }
@@ -345,36 +392,137 @@ export type CaseListQuery = {
   pageSize: number
 }
 
+export type ActorFilterFacts = {
+  cases: number
+  actors: number
+}
+
+export type ActorFilterCensus = {
+  population: ActorFilterFacts
+  roles: ReadonlyMap<string, ActorFilterFacts>
+  teams: ReadonlyMap<string, ActorFilterFacts>
+}
+
+/**
+ * Cases and distinct actors of the in-window, non-voided events matching all requested event
+ * filters (the filtered population), and of each requested role and team value on its own
+ * (with the other filters kept). A value without a matching event is absent from its map.
+ */
+export async function loadActorFilterCensus(
+  trx: AnalyticsDb | AnalyticsTrx,
+  query: { scope: QueryScope; processKey: string; registeredKeys: readonly string[]; from: string; to: string; filters: CaseEventFilters },
+): Promise<ActorFilterCensus> {
+  const empty: ActorFilterCensus = { population: { cases: 0, actors: 0 }, roles: new Map(), teams: new Map() }
+  if (query.scope.organizationIds !== null && query.scope.organizationIds.length === 0) return empty
+  if (!query.registeredKeys.includes(query.processKey)) return empty
+  const scope = query.scope
+  const caseKey = sql`matched.organization_id::text || ':' || matched.case_id::text`
+  const result = await sql<{ dimension: string; value: string | null; cases: string | number; actors: string | number }>`
+    with matched as (
+      select events.organization_id, events.case_id, events.actor_pseudonym, events.actor_role_ids, events.actor_team_id
+      from insights_process_events events
+      where events.tenant_id = ${scope.tenantId} ${organizationPredicate('events', scope)}
+        and events.process_key = ${query.processKey}
+        and events.process_key = any(${[...query.registeredKeys]}::text[])
+        and not events.voided
+        and events.occurred_at >= ${query.from}::timestamptz
+        and events.occurred_at < ${query.to}::timestamptz
+        ${eventFilterPredicate('events', query.filters)}
+    )
+    select 'population' as dimension, null::text as value,
+      count(distinct ${caseKey}) as cases, count(distinct matched.actor_pseudonym) as actors
+    from matched
+    union all
+    select 'role' as dimension, roles.role_id as value,
+      count(distinct ${caseKey}) as cases, count(distinct matched.actor_pseudonym) as actors
+    from matched
+    cross join lateral unnest(matched.actor_role_ids) as roles(role_id)
+    where roles.role_id = any(${[...(query.filters.actorRoleIds ?? [])]}::text[])
+    group by roles.role_id
+    union all
+    select 'team' as dimension, matched.actor_team_id::text as value,
+      count(distinct ${caseKey}) as cases, count(distinct matched.actor_pseudonym) as actors
+    from matched
+    where matched.actor_team_id = any(${[...(query.filters.actorTeamIds ?? [])]}::uuid[])
+    group by matched.actor_team_id
+  `.execute(trx)
+  const roles = new Map<string, ActorFilterFacts>()
+  const teams = new Map<string, ActorFilterFacts>()
+  let population: ActorFilterFacts = empty.population
+  for (const row of result.rows) {
+    const facts = { cases: toNumber(row.cases), actors: toNumber(row.actors) }
+    if (row.dimension === 'population') population = facts
+    else if (row.dimension === 'role' && row.value) roles.set(row.value.toLowerCase(), facts)
+    else if (row.dimension === 'team' && row.value) teams.set(row.value.toLowerCase(), facts)
+  }
+  return { population, roles, teams }
+}
+
 export type CaseListPage = {
   total: number
   items: Array<{ caseId: string; organizationId: string; lastActivityAt: string }>
   hasMore: boolean
 }
 
-function eventExistsClause(query: CaseListQuery): RawBuilder<unknown> {
-  const filters = query.eventFilters ?? {}
-  const hasCauses = Boolean(filters.causeKinds && filters.causeKinds.length > 0)
-  const hasRoles = Boolean(filters.actorRoleIds && filters.actorRoleIds.length > 0)
-  const hasTeams = Boolean(filters.actorTeamIds && filters.actorTeamIds.length > 0)
-  if (!query.activityKey && !hasCauses && !hasRoles && !hasTeams) return sql``
+function hasValues(values: readonly string[] | undefined): values is readonly string[] {
+  return Array.isArray(values) && values.length > 0
+}
+
+/** `and <alias>.cause_kind / actor_role_ids / actor_team_id …` for the requested event filters. */
+function eventFilterPredicate(alias: string, filters: CaseEventFilters): RawBuilder<unknown> {
+  const column = (name: string) => sql.ref(`${alias}.${name}`)
+  return sql`
+    ${hasValues(filters.causeKinds) ? sql`and ${column('cause_kind')} = any(${[...filters.causeKinds]}::text[])` : sql``}
+    ${hasValues(filters.actorRoleIds) ? sql`and ${column('actor_role_ids')} && ${[...filters.actorRoleIds]}::text[]` : sql``}
+    ${hasValues(filters.actorTeamIds) ? sql`and ${column('actor_team_id')} = any(${[...filters.actorTeamIds]}::uuid[])` : sql``}
+  `
+}
+
+function hasEventFilters(filters: CaseEventFilters): boolean {
+  return hasValues(filters.causeKinds) || hasValues(filters.actorRoleIds) || hasValues(filters.actorTeamIds)
+}
+
+function caseEventExists(query: CaseListQuery, predicate: RawBuilder<unknown>): RawBuilder<unknown> {
   return sql`and exists (
     select 1 from insights_process_events events
     where events.tenant_id = cases.tenant_id and events.organization_id = cases.organization_id
       and events.process_key = cases.process_key and events.case_id = cases.case_id
       and not events.voided
-      and events.occurred_at >= ${query.from}::timestamptz and events.occurred_at < ${query.to}::timestamptz
-      ${query.activityKey ? sql`and events.activity_key = ${query.activityKey}` : sql``}
-      ${hasCauses ? sql`and events.cause_kind = any(${[...(filters.causeKinds ?? [])]}::text[])` : sql``}
-      ${hasRoles ? sql`and events.actor_role_ids && ${[...(filters.actorRoleIds ?? [])]}::text[]` : sql``}
-      ${hasTeams ? sql`and events.actor_team_id = any(${[...(filters.actorTeamIds ?? [])]}::uuid[])` : sql``}
+      and events.occurred_at < ${query.to}::timestamptz
+      ${predicate}
   )`
 }
 
 /**
- * Case ids (only) of the process active in the window (started before its end, last activity
- * after its start), newest activity first, keyset-paginated on `(last_activity_at, case_id)`.
- * `variantHashes` match the stored (raw) variant; `activityKey` and the event filters require
- * a non-voided matching event in the window.
+ * The listing predicates that mirror the analytics populations. Always: a non-voided event in
+ * the window (the cases the analytics read). With event filters or an activity key: such an
+ * event in the window (the population of the map, rework, bottlenecks and breakdown). For a
+ * variant drill-down: the case completed in the window and has a matching event before the
+ * window end (the population of the variants).
+ */
+function populationClauses(query: CaseListQuery): RawBuilder<unknown> {
+  const filters = query.eventFilters ?? {}
+  const variantDrillDown = hasValues(query.variantHashes)
+  const inWindow = sql`and events.occurred_at >= ${query.from}::timestamptz`
+  const windowEvent = caseEventExists(query, inWindow)
+  const completed = variantDrillDown
+    ? sql`and cases.status = 'completed' and cases.ended_at >= ${query.from}::timestamptz and cases.ended_at < ${query.to}::timestamptz`
+    : sql``
+  if (!query.activityKey && !hasEventFilters(filters)) return sql`${windowEvent} ${completed}`
+  const matching = caseEventExists(query, sql`
+    ${variantDrillDown && !query.activityKey ? sql`` : inWindow}
+    ${query.activityKey ? sql`and events.activity_key = ${query.activityKey}` : sql``}
+    ${eventFilterPredicate('events', filters)}
+  `)
+  return sql`${windowEvent} ${completed} ${matching}`
+}
+
+/**
+ * Case ids (only) of the analytics population of the window (see `populationClauses`; the
+ * summary bounds `started_at < to` and `last_activity_at >= from` are implied prefilters),
+ * newest activity first, keyset-paginated on `(last_activity_at, case_id)`. `variantHashes`
+ * match the stored `variant_hash` (as `rawVariantHashes` of the variants report it), read from
+ * the current case summary.
  */
 export async function listCaseIds(trx: AnalyticsDb | AnalyticsTrx, query: CaseListQuery): Promise<CaseListPage> {
   if (query.scope.organizationIds !== null && query.scope.organizationIds.length === 0) return { total: 0, items: [], hasMore: false }
@@ -388,7 +536,7 @@ export async function listCaseIds(trx: AnalyticsDb | AnalyticsTrx, query: CaseLi
     and cases.last_activity_at >= ${query.from}::timestamptz
     ${query.statuses && query.statuses.length > 0 ? sql`and cases.status = any(${[...query.statuses]}::text[])` : sql``}
     ${query.variantHashes && query.variantHashes.length > 0 ? sql`and cases.variant_hash = any(${[...query.variantHashes]}::text[])` : sql``}
-    ${eventExistsClause(query)}
+    ${populationClauses(query)}
   `
   const counted = await sql<{ total: string | number }>`
     select count(*) as total from insights_process_cases cases where ${filters}

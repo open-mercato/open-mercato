@@ -15,7 +15,14 @@ import {
   permissionFingerprint,
   type AnalyticsCacheState,
 } from './cache'
-import { emptyDataset, foldScopeSettings, loadLiveDataset, type LiveComputeInput, type LiveDataset } from './compute'
+import {
+  assertActorFiltersAllowed,
+  emptyDataset,
+  foldScopeSettings,
+  loadLiveDataset,
+  type LiveComputeInput,
+  type LiveDataset,
+} from './compute'
 import { buildConformance } from './conformance'
 import { buildProcessMap } from './dfg'
 import { buildDurations } from './durations'
@@ -29,8 +36,8 @@ import { assertIndividualsAllowed, isAccessLogWriter, recordIndividualsAccess, t
 import {
   listActiveProcessKeys,
   listCaseIds,
-  listProjectedOrganizations,
-  readComputedThrough,
+  listTenantXrayOrganizations,
+  readProjectionState,
   runAnalyticsQuery,
   type AnalyticsDb,
   type CaseListCursor,
@@ -163,17 +170,25 @@ function sortedUnique(values: readonly string[]): string[] {
   return Array.from(new Set(values)).sort((left, right) => left.localeCompare(right))
 }
 
+function canonicalScope(scope: ProjectionScope): ProjectionScope {
+  return { tenantId: scope.tenantId.toLowerCase(), organizationId: scope.organizationId.toLowerCase() }
+}
+
 /**
  * Process X-Ray analytics over the projection (insights_process_* tables). Every call: input
- * validated with zod; the process must be registered (only registered process keys are read);
- * the organization scope mirrors `resolveOrganizationScopeFilter` (`null` = tenant-wide, `[]` =
- * nothing, a list = `organization_id IN (...)`); the window is ≤ 180 days; reads run in a
- * read-only snapshot under a 5 s statement timeout; results carry `n`, `lowConfidence`,
- * `computedThrough` and suppression markers. Results are cached per tenant, organization
- * filter, permission fingerprint, settings and parameters (single-flight, tag invalidation);
- * default windows of a single organization are served from fresh rollups when available.
- * Per-person breakdowns pass the individuals gate and write an access log row first.
- * Feature checks of the process root (`requiredFeatures`) are the caller's job (RBAC).
+ * validated with zod (tenant, organization, role, team and viewer ids lower-cased); the
+ * process must be registered (only registered process keys are read); the organization scope
+ * mirrors `resolveOrganizationScopeFilter` (`null` = tenant-wide, `[]` = nothing, a list =
+ * `organization_id IN (...)`); the window is ≤ 180 days; reads run in a read-only snapshot
+ * under a 5 s statement timeout; results carry `n`, `lowConfidence`, `computedThrough`,
+ * `incomplete` and suppression markers. Actor role / team filters must pass the k /
+ * three-actor rule value by value (`AnalyticsFilterTooNarrowError`), on every operation except
+ * the explicit per-person breakdown. Results are cached per tenant, organization filter,
+ * permission fingerprint, settings and parameters (single-flight, tag invalidation); default
+ * windows of a single, completely projected organization are served from fresh rollups when
+ * available. Per-person breakdowns pass the individuals gate and write an access log row before
+ * any data is read or served (cache hits included). Feature checks of the process root
+ * (`requiredFeatures`) are the caller's job (RBAC).
  */
 export function createXrayAnalytics(deps: XrayAnalyticsDeps): XrayAnalytics {
   const registryOf = deps.registry ?? getProcessRegistry
@@ -184,7 +199,7 @@ export function createXrayAnalytics(deps: XrayAnalyticsDeps): XrayAnalytics {
 
   async function resolveSettings(tenantId: string, organizationIds: string[] | null): Promise<ScopeSettings> {
     if (organizationIds !== null && organizationIds.length === 0) return foldScopeSettings([], new Map())
-    const scopeOrganizations = organizationIds ?? await listProjectedOrganizations(deps.db, tenantId)
+    const scopeOrganizations = organizationIds ?? await listTenantXrayOrganizations(deps.db, tenantId)
     return foldScopeSettings(scopeOrganizations, await deps.loadSettings(tenantId, scopeOrganizations))
   }
 
@@ -230,14 +245,14 @@ export function createXrayAnalytics(deps: XrayAnalyticsDeps): XrayAnalytics {
 
   async function computeLive<TRequest extends AnalyticsRequest, TResult>(
     prepared: PreparedRequest<TRequest>,
-    options: { census: boolean },
+    options: { census: boolean; perPerson?: boolean },
     build: (dataset: LiveDataset) => TResult,
   ): Promise<TResult> {
     const input = liveInput(prepared)
     if (prepared.empty) return build(emptyDataset(input))
     return runAnalyticsQuery(
       deps.db,
-      async (trx) => build(await loadLiveDataset(trx, input, { census: options.census, maxEvents: deps.maxEvents })),
+      async (trx) => build(await loadLiveDataset(trx, input, { census: options.census, maxEvents: deps.maxEvents, perPerson: options.perPerson })),
       { timeoutMs },
     )
   }
@@ -246,13 +261,17 @@ export function createXrayAnalytics(deps: XrayAnalyticsDeps): XrayAnalytics {
     const organizationIds = prepared.organizationIds
     if (!prepared.window.windowKey || organizationIds === null || organizationIds.length !== 1) return null
     if (!hasDefaultFilters(prepared.request.filters)) return null
-    return runAnalyticsQuery(deps.db, (trx) => readFreshRollup(trx, {
-      scope: { tenantId: prepared.request.scope.tenantId, organizationId: organizationIds[0] },
-      processKey: prepared.process.processKey,
-      window: prepared.window,
-      contractHash: prepared.registry.contractHash,
-      settingsFingerprint: prepared.settings.fingerprint,
-    }), { timeoutMs })
+    return runAnalyticsQuery(deps.db, async (trx) => {
+      const state = await readProjectionState(trx, { tenantId: prepared.request.scope.tenantId, organizationIds })
+      if (state.incomplete) return null
+      return readFreshRollup(trx, {
+        scope: { tenantId: prepared.request.scope.tenantId, organizationId: organizationIds[0] },
+        processKey: prepared.process.processKey,
+        window: prepared.window,
+        contractHash: prepared.registry.contractHash,
+        settingsFingerprint: prepared.settings.fingerprint,
+      })
+    }, { timeoutMs })
   }
 
   function cached<TRequest extends AnalyticsRequest, TResult>(
@@ -284,13 +303,14 @@ export function createXrayAnalytics(deps: XrayAnalyticsDeps): XrayAnalytics {
     )
   }
 
-  async function rolledUp<TResult>(
+  async function rolledUp<TResult extends { incomplete: boolean }>(
     prepared: PreparedRequest<AnalyticsRequest>,
     pick: (metrics: RollupMetrics) => TResult,
     live: () => Promise<TResult>,
   ): Promise<TResult> {
     const metrics = await readRollup(prepared)
-    if (metrics) return pick(metrics)
+    const stored = metrics ? pick(metrics) : null
+    if (stored && !stored.incomplete) return stored
     return live()
   }
 
@@ -358,13 +378,8 @@ export function createXrayAnalytics(deps: XrayAnalyticsDeps): XrayAnalytics {
     })
     const groupBy = prepared.request.groupBy
     const perPerson = groupBy === 'user'
-    if (perPerson) assertIndividualsAllowed(prepared.request.viewer, prepared.settings)
-    const result = await cached(prepared, 'breakdown', { groupBy }, breakdownResultSchema, perPerson, () => computeLive(
-      prepared,
-      { census: false },
-      (dataset) => buildBreakdown(dataset.prepared, dataset.context, groupBy),
-    ))
     if (perPerson) {
+      assertIndividualsAllowed(prepared.request.viewer, prepared.settings)
       await recordIndividualsAccess(deps.accessLog ?? null, {
         tenantId: prepared.request.scope.tenantId,
         organizationIds: prepared.settings.organizationIds,
@@ -374,7 +389,11 @@ export function createXrayAnalytics(deps: XrayAnalyticsDeps): XrayAnalytics {
         window: toWindowView(prepared.window),
       })
     }
-    return result
+    return cached(prepared, 'breakdown', { groupBy }, breakdownResultSchema, perPerson, () => computeLive(
+      prepared,
+      { census: false, perPerson },
+      (dataset) => buildBreakdown(dataset.prepared, dataset.context, groupBy),
+    ))
   }
 
   async function listCases(input: ListCasesRequestInput): Promise<CaseListResult> {
@@ -387,10 +406,18 @@ export function createXrayAnalytics(deps: XrayAnalyticsDeps): XrayAnalytics {
       organizationIds: prepared.organizationIds,
       window: toWindowView(prepared.window),
     }
-    if (prepared.empty) return { ...base, n: 0, computedThrough: null, items: [], nextCursor: null }
+    if (prepared.empty) return { ...base, n: 0, computedThrough: null, incomplete: false, items: [], nextCursor: null }
     const scope = { tenantId: request.scope.tenantId, organizationIds: prepared.organizationIds }
     return runAnalyticsQuery(deps.db, async (trx) => {
-      const computedThrough = await readComputedThrough(trx, scope)
+      await assertActorFiltersAllowed(trx, {
+        scope,
+        processKey: prepared.process.processKey,
+        registeredKeys: prepared.registeredKeys,
+        window: prepared.window,
+        filters: request.filters,
+        k: prepared.settings.kAnonymity,
+      })
+      const state = await readProjectionState(trx, scope)
       const page = await listCaseIds(trx, {
         scope,
         processKey: prepared.process.processKey,
@@ -414,27 +441,29 @@ export function createXrayAnalytics(deps: XrayAnalyticsDeps): XrayAnalytics {
       return {
         ...base,
         n: page.total,
-        computedThrough,
+        computedThrough: state.computedThrough,
+        incomplete: state.incomplete,
         items: page.items.map((item) => ({ caseId: item.caseId, organizationId: item.organizationId })),
         nextCursor: page.hasMore && last ? encodeCaseCursor({ at: last.lastActivityAt, id: last.caseId }) : null,
       }
     }, { timeoutMs })
   }
 
-  async function computeRollups(scope: ProjectionScope, options: { timeZone?: string } = {}): Promise<RollupPassResult> {
+  async function computeRollups(requestedScope: ProjectionScope, options: { timeZone?: string } = {}): Promise<RollupPassResult> {
     const registry = registryOf()
     if (!registry.ready || registry.processes.length === 0) return { processes: 0, written: 0, skipped: 0 }
+    const scope = canonicalScope(requestedScope)
     const nowMs = clock()
     const timeZone = options.timeZone ?? 'UTC'
     const registeredKeys = registry.processes.map((process) => process.processKey)
     const settings = foldScopeSettings([scope.organizationId], await deps.loadSettings(scope.tenantId, [scope.organizationId]))
     const widest = resolveDefaultWindow('90d', nowMs, timeZone)
-    const active = await listActiveProcessKeys(deps.db, {
+    const active = await runAnalyticsQuery(deps.db, (trx) => listActiveProcessKeys(trx, {
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
       registeredKeys,
       since: widest.from,
-    })
+    }), { timeoutMs: rollupTimeoutMs })
     let written = 0
     let skipped = 0
     for (const processKey of active) {
@@ -494,7 +523,8 @@ export function createXrayAnalytics(deps: XrayAnalyticsDeps): XrayAnalytics {
     return { processes: active.length, written, skipped }
   }
 
-  async function invalidate(scope: ProjectionScope): Promise<void> {
+  async function invalidate(requestedScope: ProjectionScope): Promise<void> {
+    const scope = canonicalScope(requestedScope)
     await markRollupsInvalidated(deps.db, scope)
     await analyticsCache.invalidate(scope.tenantId, [scope.organizationId])
   }

@@ -3,7 +3,7 @@ import {
   createSuppressionTally,
   isLowConfidence,
   rate,
-  suppressionReason,
+  suppressCells,
   wilsonLowerBound,
   type SuppressionTally,
 } from './stats'
@@ -52,6 +52,12 @@ type DeviationCell = {
   actors: Set<string>
 }
 
+type OutcomeCell = {
+  key: 'conforming' | 'deviating'
+  cases: Set<string>
+  actors: Set<string>
+}
+
 /** A designed model for an ordered list of expected activity keys (each key is its own step). */
 export function sequenceModel(
   activityKeys: readonly string[],
@@ -90,6 +96,12 @@ function mappedSteps(trace: ConformanceTrace, model: DesignedProcessModel): stri
   return steps
 }
 
+/**
+ * One designed model against its traces. The conforming and the deviating cases are two cells
+ * of one partition (`n` is shown): unless both pass the k / distinct-actor thresholds (an empty
+ * side is fine), `conformingCases`, `fitness`, its lower bound and the transition counts are
+ * withheld (`null`). Deviation cells get complementary suppression.
+ */
 function evaluateModel(
   model: DesignedProcessModel,
   traces: readonly ConformanceTrace[],
@@ -100,6 +112,10 @@ function evaluateModel(
   const ends = new Set(model.endSteps)
   const allowed = new Set(model.transitions.map(([from, to]) => JSON.stringify([from, to])))
   const deviations = new Map<string, DeviationCell>()
+  const outcomes: Record<OutcomeCell['key'], OutcomeCell> = {
+    conforming: { key: 'conforming', cases: new Set(), actors: new Set() },
+    deviating: { key: 'deviating', cases: new Set(), actors: new Set() },
+  }
   let conformingCases = 0
   let totalTransitions = 0
   let allowedTransitions = 0
@@ -116,6 +132,9 @@ function evaluateModel(
     const last = steps[steps.length - 1]
     if (last !== undefined && !ends.has(last)) found.push({ kind: 'invalid_end', from: last, to: null })
     if (found.length === 0) conformingCases += 1
+    const outcome = outcomes[found.length === 0 ? 'conforming' : 'deviating']
+    outcome.cases.add(caseKey)
+    for (const actor of trace.actors) outcome.actors.add(actor)
     for (const deviation of found) {
       const key = JSON.stringify([deviation.kind, deviation.from, deviation.to])
       const cell = deviations.get(key) ?? { ...deviation, cases: new Set<string>(), actors: new Set<string>() }
@@ -124,15 +143,20 @@ function evaluateModel(
       for (const actor of trace.actors) cell.actors.add(actor)
     }
   }
-  const visible: ConformanceModelResult['deviations'] = []
-  for (const cell of deviations.values()) {
-    const reason = suppressionReason({ cases: cell.cases.size, actors: cell.actors.size }, k)
-    if (reason) {
-      tally.record(reason)
-      continue
-    }
-    visible.push({ kind: cell.kind, from: cell.from, to: cell.to, cases: cell.cases.size })
-  }
+  const partition = suppressCells(
+    [outcomes.conforming, outcomes.deviating].filter((cell) => cell.cases.size > 0),
+    (cell) => ({ key: cell.key, cases: cell.cases, actors: cell.actors }),
+    k,
+    tally,
+  )
+  const withheld = partition.anySuppressed
+  const deviationOutcome = suppressCells(
+    Array.from(deviations.values()),
+    (cell) => ({ key: JSON.stringify([cell.kind, cell.from, cell.to]), cases: cell.cases, actors: cell.actors }),
+    k,
+    tally,
+  )
+  const visible: ConformanceModelResult['deviations'] = deviationOutcome.visible.map((cell) => ({ kind: cell.kind, from: cell.from, to: cell.to, cases: cell.cases.size }))
   visible.sort((left, right) => right.cases - left.cases
     || left.kind.localeCompare(right.kind)
     || String(left.from).localeCompare(String(right.from))
@@ -141,11 +165,11 @@ function evaluateModel(
     key: model.key,
     source: model.source,
     n: traces.length,
-    conformingCases,
-    fitness: rate(conformingCases, traces.length),
-    fitnessLowerBound: wilsonLowerBound(conformingCases, traces.length),
+    conformingCases: withheld ? null : conformingCases,
+    fitness: withheld ? null : rate(conformingCases, traces.length),
+    fitnessLowerBound: withheld ? null : wilsonLowerBound(conformingCases, traces.length),
     lowConfidence: isLowConfidence(traces.length),
-    transitions: { total: totalTransitions, allowed: allowedTransitions },
+    transitions: withheld ? null : { total: totalTransitions, allowed: allowedTransitions },
     deviations: visible,
   }
 }

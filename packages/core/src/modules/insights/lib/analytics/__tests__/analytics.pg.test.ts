@@ -44,6 +44,11 @@ const TENANT = '11111111-0000-4000-8000-00000000a601'
 const OTHER_TENANT = '11111111-0000-4000-8000-00000000a602'
 const ORG_A = '22222222-0000-4000-8000-00000000a601'
 const ORG_B = '22222222-0000-4000-8000-00000000a602'
+const ORG_C = '22222222-0000-4000-8000-00000000a603'
+const ROLE_BIG = '99999999-0000-4000-8000-00000000a601'
+const ROLE_SOLO = '99999999-0000-4000-8000-00000000a602'
+const TEAM_BIG = '99999999-0000-4000-8000-00000000a611'
+const TEAM_SOLO = '99999999-0000-4000-8000-00000000a612'
 const VIEWER_ID = '33333333-0000-4000-8000-00000000a601'
 const NOW = Date.UTC(2026, 0, 20, 12)
 const registry = testRegistry()
@@ -96,7 +101,7 @@ maybe('X-Ray analytics against PostgreSQL', () => {
   })
 
   beforeEach(async () => {
-    await sql`truncate insights_process_cursors, insights_process_events, insights_process_cases, insights_process_rollups, insights_process_erasures`.execute(db)
+    await sql`truncate insights_process_cursors, insights_process_events, insights_process_cases, insights_process_rollups, insights_process_erasures, insights_process_settings`.execute(db)
     settings = new Map([
       [ORG_A, { kAnonymity: 5, debounceSeconds: 120, individualsEnabled: false }],
       [ORG_B, { kAnonymity: 5, debounceSeconds: 120, individualsEnabled: false }],
@@ -239,25 +244,28 @@ maybe('X-Ray analytics against PostgreSQL', () => {
     }).execute()
   }
 
-  it('withholds medians for small n and reports open cases as right-censored', async () => {
+  it('withholds small duration cells and reports open cases as right-censored', async () => {
     const analytics = analyticsWith()
     await seedDeals(3, { startMs: NOW - 10 * DAY_MS, durationDays: 2 })
     await seedDeals(2, { startMs: NOW - 40 * DAY_MS, durationDays: null })
     await seedDeals(1, { startMs: NOW - 2 * DAY_MS, durationDays: null })
     const small = await analytics.getDurations(request())
-    expect(small.completed.stats).toEqual({ n: 3, medianMs: null, p90Ms: null, lowConfidence: true })
-    expect(small.open.censored).toBe(true)
-    expect(small.open.asOf).toBe(new Date(NOW).toISOString())
-    expect(small.open.stats.n).toBe(3)
-    expect(small.open.stats.medianMs).toBeNull()
-    expect(small.open.histogram.filter((bucket) => bucket.count > 0)).toEqual([
-      { bucket: '1d_7d', count: 1 },
-      { bucket: '30d_90d', count: 2 },
-    ])
+    expect(small.n).toBe(3)
+    expect(small.completed).toBeNull()
+    expect(small.open).toBeNull()
+    expect(small.byOrganization).toEqual([{ organizationId: ORG_A, completed: null, open: null }])
+    expect(small.suppressed.minCases).toBe(4)
+    await seedDeals(3, { startMs: NOW - 45 * DAY_MS, durationDays: null })
     await seedDeals(3, { startMs: NOW - 9 * DAY_MS, durationDays: 2 })
     const enough = await analytics.getDurations(request())
     expect(enough.n).toBe(6)
-    expect(enough.completed.stats).toEqual({ n: 6, medianMs: 2 * DAY_MS, p90Ms: null, lowConfidence: true })
+    expect(enough.completed?.stats).toEqual({ n: 6, medianMs: 2 * DAY_MS, p90Ms: null, lowConfidence: true })
+    expect(enough.open).toEqual(expect.objectContaining({ empty: false, censored: true, asOf: new Date(NOW).toISOString() }))
+    expect(enough.open?.stats).toEqual(expect.objectContaining({ n: 6, p90Ms: null, lowConfidence: true }))
+    expect(enough.open?.histogram.filter((bucket) => bucket.count > 0)).toEqual([
+      { bucket: '1d_7d', count: 1 },
+      { bucket: '30d_90d', count: 5 },
+    ])
     expect(enough.byOrganization).toEqual([expect.objectContaining({ organizationId: ORG_A, completed: expect.objectContaining({ excludedSyncRun: 0 }) })])
   })
 
@@ -273,7 +281,7 @@ maybe('X-Ray analytics against PostgreSQL', () => {
     expect(tenantWide.n).toBe(12)
     expect(tenantWide.organizationIds).toBeNull()
     expect(Date.parse(tenantWide.computedThrough ?? '')).toBe(NOW - 2 * HOUR_MS)
-    expect(tenantWide.completed.stats.medianMs).toBe(6 * DAY_MS)
+    expect(tenantWide.completed?.stats.medianMs).toBe(6 * DAY_MS)
     expect(tenantWide.byOrganization.map((entry) => [entry.organizationId, entry.completed?.stats.medianMs])).toEqual([
       [ORG_A, 2 * DAY_MS],
       [ORG_B, 10 * DAY_MS],
@@ -340,10 +348,10 @@ maybe('X-Ray analytics against PostgreSQL', () => {
     await seedDeals(6, { startMs: NOW - 20 * DAY_MS, durationDays: 2 })
     await seedDeals(1, { startMs: NOW - 15 * DAY_MS, durationDays: 12, createdCause: 'sync_run', createdSync: true })
     const durations = await analytics.getDurations(request())
-    expect(durations.completed.stats).toEqual(expect.objectContaining({ n: 6, medianMs: 2 * DAY_MS }))
-    expect(durations.completed.excludedSyncRun).toBe(1)
+    expect(durations.completed?.stats).toEqual(expect.objectContaining({ n: 6, medianMs: 2 * DAY_MS }))
+    expect(durations.completed?.excludedSyncRun).toBe(1)
     const withSync = await analytics.getDurations(request({ filters: { includeSyncRun: true } }))
-    expect(withSync.completed.stats.n).toBe(7)
+    expect(withSync.completed?.stats.n).toBe(7)
     expect(withSync.includeSyncRun).toBe(true)
     const bottlenecks = await analytics.getBottlenecks(request())
     expect(bottlenecks.transitions.excludedSyncRun).toBe(2)
@@ -434,6 +442,7 @@ maybe('X-Ray analytics against PostgreSQL', () => {
   it('upserts rollups idempotently, serves them for default windows and stops after an invalidation', async () => {
     const analytics = analyticsWith()
     const scope = { tenantId: TENANT, organizationId: ORG_A }
+    await insertCursor(ORG_A, NOW - HOUR_MS)
     await seedDeals(6, { startMs: NOW - 5 * DAY_MS, durationDays: 2 })
     expect(await analytics.computeRollups(scope)).toEqual({ processes: 1, written: 3, skipped: 0 })
     expect(await analytics.computeRollups(scope)).toEqual({ processes: 1, written: 3, skipped: 0 })
@@ -514,8 +523,8 @@ maybe('X-Ray analytics against PostgreSQL', () => {
     expect(new Set(seen).size).toBe(7)
     expect((await analytics.listCases({ ...request(), statuses: ['completed'] })).n).toBe(5)
     expect((await analytics.listCases({ ...request(), activityKey: 'status:won' })).n).toBe(5)
-    const variant = await db.selectFrom('insights_process_cases').select('variant_hash').where('status', '=', 'open').executeTakeFirstOrThrow()
-    expect((await analytics.listCases({ ...request(), variantHash: variant.variant_hash })).n).toBe(2)
+    const openVariant = await db.selectFrom('insights_process_cases').select('variant_hash').where('status', '=', 'open').executeTakeFirstOrThrow()
+    expect((await analytics.listCases({ ...request(), variantHash: openVariant.variant_hash })).n).toBe(0)
     const variants = await analytics.getVariants({ ...request(), limit: 5 })
     expect((await analytics.listCases({ ...request(), variantHashes: variants.items[0].rawVariantHashes })).n).toBe(5)
     expect((await analytics.listCases({ ...request({ filters: { causeKinds: ['workflow'] } }) })).n).toBe(0)
@@ -545,5 +554,128 @@ maybe('X-Ray analytics against PostgreSQL', () => {
     expect((await analytics.getProcessMap(request({ viewer: otherViewer }))).n).toBe(7)
     await analytics.invalidate(scope)
     expect((await analytics.getProcessMap(request())).n).toBe(7)
+  })
+
+  function roleDealRows(startMs: number, actor: string, roleIds: string[], teamId: string | null): AnalyticsEventRow[] {
+    const caseId = randomUUID()
+    const sourceLogId = randomUUID()
+    const shared = { actor, roleIds, teamId }
+    return [
+      stepRow(caseId, { ...shared, key: 'created', kind: 'lifecycle', field: null, value: null, atMs: startMs, sourceLogId, seq: 0 }, ORG_A),
+      stepRow(caseId, { ...shared, key: 'status:open', atMs: startMs, sourceLogId, seq: 1 }, ORG_A),
+      stepRow(caseId, { ...shared, key: 'status:qualified', atMs: startMs + DAY_MS }, ORG_A),
+      stepRow(caseId, { ...shared, key: 'status:won', atMs: startMs + 2 * DAY_MS }, ORG_A),
+    ]
+  }
+
+  async function errorOf(run: () => Promise<unknown>): Promise<unknown> {
+    try {
+      await run()
+      return null
+    } catch (error) {
+      return error
+    }
+  }
+
+  it('refuses role and team filters whose values single out fewer than k cases or three actors, value by value', async () => {
+    for (let index = 0; index < 6; index += 1) {
+      await seedCase(roleDealRows(NOW - 10 * DAY_MS + index * HOUR_MS, actorOf((index % 3) + 1), [ROLE_BIG], TEAM_BIG))
+      await seedCase(roleDealRows(NOW - 9 * DAY_MS + index * HOUR_MS, actorOf(9), [ROLE_SOLO], TEAM_SOLO))
+    }
+    const entries: unknown[] = []
+    const writer: AccessLogWriter = { log: async (entry) => { entries.push(entry); return { id: randomUUID() } } }
+    const individualsViewer: AnalyticsViewer = { ...VIEWER, features: ['insights.xray.view', 'insights.xray.view_individuals'], canViewIndividuals: true }
+    const analytics = analyticsWith({ accessLog: writer })
+    const tooNarrow = expect.objectContaining({ code: 'filter_too_narrow', status: 422, hint: 'widen_actor_filter' })
+    await expect(analytics.getProcessMap(request({ filters: { actorRoleIds: [ROLE_SOLO] } }))).rejects.toEqual(tooNarrow)
+    await expect(analytics.getProcessMap(request({ filters: { actorRoleIds: [ROLE_BIG, ROLE_SOLO] } }))).rejects.toEqual(tooNarrow)
+    await expect(analytics.getVariants({ ...request({ filters: { actorTeamIds: [TEAM_BIG, TEAM_SOLO] } }), limit: 5 })).rejects.toEqual(tooNarrow)
+    await expect(analytics.getDurations(request({ filters: { actorRoleIds: [randomUUID()] } }))).rejects.toEqual(tooNarrow)
+    await expect(analytics.listCases(request({ filters: { actorRoleIds: [ROLE_SOLO] } }))).rejects.toEqual(tooNarrow)
+    await expect(analytics.getBreakdown({ ...request({ viewer: individualsViewer, filters: { actorRoleIds: [ROLE_SOLO] } }), groupBy: 'role' })).rejects.toEqual(tooNarrow)
+    const refused = await errorOf(() => analytics.getRework(request({ filters: { actorTeamIds: [TEAM_SOLO] } })))
+    expect(refused).toEqual(tooNarrow)
+    expect((refused as Error).message).not.toMatch(/\d/)
+    expect((await analytics.getProcessMap(request({ filters: { actorRoleIds: [ROLE_BIG] } }))).n).toBe(6)
+    expect((await analytics.listCases(request({ filters: { actorTeamIds: [TEAM_BIG] } }))).n).toBe(6)
+    expect(entries).toEqual([])
+    settings.set(ORG_A, { kAnonymity: 5, debounceSeconds: 120, individualsEnabled: true })
+    const perPerson = await analyticsWith({ accessLog: writer }).getBreakdown({ ...request({ viewer: individualsViewer, filters: { actorRoleIds: [ROLE_SOLO] } }), groupBy: 'user' })
+    expect(perPerson.items).toEqual([expect.objectContaining({ group: actorOf(9), cases: 6 })])
+    expect(entries).toHaveLength(1)
+  })
+
+  it('applies organization settings and shares cache entries for upper-case identifiers', async () => {
+    settings.set(ORG_A, { kAnonymity: 6, debounceSeconds: 120, individualsEnabled: false })
+    await seedDeals(6, { startMs: NOW - 10 * DAY_MS, durationDays: 2 })
+    const upperScope = { tenantId: TENANT.toUpperCase(), organizationIds: [ORG_A.toUpperCase()] }
+    const upper = await analyticsWith().getProcessMap(request({ scope: upperScope }))
+    expect(upper).toEqual(expect.objectContaining({ kAnonymity: 6, n: 6, organizationIds: [ORG_A] }))
+    const cached = analyticsWith({ cache: createCacheService({ strategy: 'memory' }) })
+    expect((await cached.getProcessMap(request())).n).toBe(6)
+    await seedDeals(1, { startMs: NOW - 4 * DAY_MS, durationDays: 1 })
+    expect((await cached.getProcessMap(request({ scope: upperScope }))).n).toBe(6)
+    await cached.invalidate({ tenantId: TENANT.toUpperCase(), organizationId: ORG_A.toUpperCase() })
+    expect((await cached.getProcessMap(request())).n).toBe(7)
+  })
+
+  it('lists the analytics population and drills into variants through the stored variant hash of cases completed in the window', async () => {
+    const analytics = analyticsWith()
+    const window = { from: new Date(NOW - 20 * DAY_MS).toISOString(), to: new Date(NOW - 5 * DAY_MS).toISOString() }
+    const withPayment = (rows: AnalyticsEventRow[], atMs: number): AnalyticsEventRow[] => [
+      ...rows,
+      stepRow(rows[0].caseId, { key: 'payment.created', kind: 'milestone', field: null, value: null, atMs, actor: rows[0].actorPseudonym }, ORG_A),
+    ]
+    for (let index = 0; index < 6; index += 1) {
+      await seedCase(withPayment(dealRows({ startMs: NOW - 15 * DAY_MS + index * HOUR_MS, durationDays: 2, actor: actorOf((index % 3) + 1) }), NOW - 2 * DAY_MS))
+    }
+    await seedCase(withPayment(dealRows({ startMs: NOW - 15 * DAY_MS, durationDays: 11 }), NOW - 2 * DAY_MS))
+    const outside = randomUUID()
+    await seedCase([
+      ...creation(outside, NOW - 25 * DAY_MS, {}, ORG_A),
+      stepRow(outside, { key: 'status:qualified', atMs: NOW - 3 * DAY_MS }, ORG_A),
+    ])
+    const map = await analytics.getProcessMap(request({ window }))
+    expect(map.n).toBe(7)
+    expect((await analytics.listCases(request({ window }))).n).toBe(map.n)
+    const variants = await analytics.getVariants({ ...request({ window }), limit: 5 })
+    expect(variants.items[0]).toEqual(expect.objectContaining({ cases: 6, rawVariantHashesTruncated: false }))
+    const stored = await db.selectFrom('insights_process_cases').select('variant_hash').where('status', '=', 'completed').execute()
+    expect(new Set(stored.map((row) => row.variant_hash)).size).toBe(1)
+    expect(variants.items[0].rawVariantHashes).toEqual([stored[0].variant_hash])
+    const drill = await analytics.listCases({ ...request({ window }), variantHashes: variants.items[0].rawVariantHashes })
+    expect(drill.n).toBe(6)
+  })
+
+  it('reports an incomplete projection (no cursor, backfill, running scan, settings-only organization) without computedThrough', async () => {
+    await seedDeals(6, { startMs: NOW - 10 * DAY_MS, durationDays: 2 })
+    const analytics = analyticsWith()
+    expect(await analytics.getProcessMap(request())).toEqual(expect.objectContaining({ computedThrough: null, incomplete: true }))
+    await insertCursor(ORG_A, NOW - HOUR_MS)
+    const complete = await analytics.getProcessMap(request())
+    expect(complete).toEqual(expect.objectContaining({ incomplete: false }))
+    expect(Date.parse(complete.computedThrough ?? '')).toBe(NOW - HOUR_MS)
+    await db.updateTable('insights_process_cursors').set({ status: 'backfilling' }).execute()
+    expect(await analytics.getDurations(request())).toEqual(expect.objectContaining({ computedThrough: null, incomplete: true }))
+    await db.updateTable('insights_process_cursors').set({ status: 'idle', scan_id: randomUUID() }).execute()
+    expect(await analytics.listCases(request())).toEqual(expect.objectContaining({ computedThrough: null, incomplete: true }))
+    await db.updateTable('insights_process_cursors').set({ scan_id: null }).execute()
+    expect(await analytics.listCases(request())).toEqual(expect.objectContaining({ incomplete: false }))
+    await sql`insert into insights_process_settings (tenant_id, organization_id, k_anonymity, created_at, updated_at) values (${TENANT}, ${ORG_C}, 7, now(), now())`.execute(db)
+    settings.set(ORG_C, { kAnonymity: 7, debounceSeconds: 120, individualsEnabled: false })
+    const tenantWide = await analytics.getProcessMap(request({ scope: { tenantId: TENANT, organizationIds: null } }))
+    expect(tenantWide).toEqual(expect.objectContaining({ kAnonymity: 7, computedThrough: null, incomplete: true }))
+  })
+
+  it('never moves the rollup invalidation marker backwards', async () => {
+    const scope = { tenantId: TENANT, organizationId: ORG_A }
+    await markRollupsInvalidated(db, scope)
+    await sql`update insights_process_rollups set computed_at = now() + interval '1 hour', window_end = now() + interval '1 hour' where window_key = '__invalidated__'`.execute(db)
+    const marker = () => db.selectFrom('insights_process_rollups').select(['computed_at', 'window_end']).where('window_key', '=', '__invalidated__').executeTakeFirstOrThrow()
+    const before = await marker()
+    await markRollupsInvalidated(db, scope)
+    const after = await marker()
+    expect(new Date(after.computed_at).getTime()).toBe(new Date(before.computed_at).getTime())
+    expect(new Date(after.window_end).getTime()).toBe(new Date(before.window_end).getTime())
   })
 })
