@@ -663,6 +663,17 @@ with the current behaviour registered as the built-in default (no behaviour chan
   `resolve` answers `{ targetMinutesByDate, totalTargetMinutes }` so a contributed
   provider can vary per day; the built-in spreads `targets.dailyHours` over the caller's
   working days and answers `totalTargetMinutes: null` when the tenant set no target.
+- **Wired (#6934)**: providers may add an optional `resolveAsync` (a data-backed provider
+  reads its own table); `resolveTimesheetCapacityAsync` /
+  `timeCapacityResolver.resolveCapacityAsync` prefer it and answer
+  `{ …result, providerId, isBuiltIn }`, every answer validated by `normalizeCapacityResult`.
+  `GET /api/staff/timesheets/capacity?from&to&staffMemberId` (another person requires
+  `staff.timesheets.projects.manage`) feeds the Timesheet footer, per-day load bars (list and
+  calendar) and default expanded day; `my-work` resolves week and month targets the same
+  way. The built-in answer keeps the flat `dailyHours` arithmetic and its "d × h" caption; a
+  contributed one shows its `labelKey`/`label` or a neutral "Target". The
+  `staff.timesheet:period-footer` context gained `periodFrom`, `periodTo`, `staffMemberId`
+  and `capacityProviderId`.
 
 #### EP-41 · `registry` · Report approval / lock policy provider
 - **Edit**: `api/timesheets/reports/[id]/{close,unlock}/route.ts`,
