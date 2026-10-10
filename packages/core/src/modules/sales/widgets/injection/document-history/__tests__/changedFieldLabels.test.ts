@@ -6,6 +6,7 @@ import pl from '../../../../i18n/pl.json'
 import de from '../../../../i18n/de.json'
 import es from '../../../../i18n/es.json'
 import ko from '../../../../i18n/ko.json'
+import pt from '../../../../i18n/pt.json'
 import { CHANGED_FIELD_LABELS, translateChangedField } from '../widget.client'
 
 const dictionaries: Record<string, Record<string, string>> = {
@@ -14,6 +15,7 @@ const dictionaries: Record<string, Record<string, string>> = {
   de: de as Record<string, string>,
   es: es as Record<string, string>,
   ko: ko as Record<string, string>,
+  pt: pt as Record<string, string>,
 }
 
 function translatorFor(locale: string) {
@@ -39,7 +41,7 @@ const DOCUMENT_FIELDS = [
 ]
 
 describe('document history changed-field labels', () => {
-  test('every declared label key ships in all five locale dictionaries', () => {
+  test('every declared label key ships in all six locale dictionaries', () => {
     const missing: string[] = []
     for (const { key } of Object.values(CHANGED_FIELD_LABELS)) {
       for (const [locale, dict] of Object.entries(dictionaries)) {

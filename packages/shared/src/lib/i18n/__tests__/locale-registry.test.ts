@@ -18,7 +18,7 @@ describe('locale registry', () => {
 
   describe('with nothing registered (regression guard)', () => {
     it('serves exactly the locales the platform ships, in order', () => {
-      expect(getSupportedLocales()).toEqual(['en', 'pl', 'es', 'de', 'ko'])
+      expect(getSupportedLocales()).toEqual(['en', 'pl', 'es', 'de', 'ko', 'pt'])
       expect(defaultLocale).toBe('en')
     })
 
@@ -37,13 +37,13 @@ describe('locale registry', () => {
       registerLocales(['cs'])
 
       expect(isSupportedLocale('cs')).toBe(true)
-      expect(getSupportedLocales()).toEqual(['en', 'pl', 'es', 'de', 'ko', 'cs'])
+      expect(getSupportedLocales()).toEqual(['en', 'pl', 'es', 'de', 'ko', 'pt', 'cs'])
     })
 
     it('keeps the shipped locales first so existing ordering is untouched', () => {
       registerLocales(['cs', 'fr'])
 
-      expect(getSupportedLocales().slice(0, 5)).toEqual(['en', 'pl', 'es', 'de', 'ko'])
+      expect(getSupportedLocales().slice(0, 6)).toEqual(['en', 'pl', 'es', 'de', 'ko', 'pt'])
     })
 
     it('normalizes case, whitespace and underscores', () => {
@@ -63,7 +63,7 @@ describe('locale registry', () => {
       registerLocales(['en', 'pl'])
 
       expect(getRegisteredLocales()).toEqual([])
-      expect(getSupportedLocales()).toEqual(['en', 'pl', 'es', 'de', 'ko'])
+      expect(getSupportedLocales()).toEqual(['en', 'pl', 'es', 'de', 'ko', 'pt'])
     })
 
     it('ignores a code that is not a language, rather than throwing', () => {
@@ -113,14 +113,14 @@ describe('locale registry', () => {
       registerLocales(['cs'])
       clearRegisteredLocales()
 
-      expect(getSupportedLocales()).toEqual(['en', 'pl', 'es', 'de', 'ko'])
+      expect(getSupportedLocales()).toEqual(['en', 'pl', 'es', 'de', 'ko', 'pt'])
       expect(isSupportedLocale('cs')).toBe(false)
     })
   })
 
   describe('resolveSupportedLocalesForRequest', () => {
     it('serves the full set when no resolver is registered', async () => {
-      await expect(resolveSupportedLocalesForRequest()).resolves.toEqual(['en', 'pl', 'es', 'de', 'ko'])
+      await expect(resolveSupportedLocalesForRequest()).resolves.toEqual(['en', 'pl', 'es', 'de', 'ko', 'pt'])
     })
 
     it('narrows the served set to the tenant selection', async () => {
@@ -151,19 +151,19 @@ describe('locale registry', () => {
     it('falls back to the full set when the selection matches nothing servable', async () => {
       registerSupportedLocalesResolver(async () => ['cs', 'fr'])
 
-      await expect(resolveSupportedLocalesForRequest()).resolves.toEqual(['en', 'pl', 'es', 'de', 'ko'])
+      await expect(resolveSupportedLocalesForRequest()).resolves.toEqual(['en', 'pl', 'es', 'de', 'ko', 'pt'])
     })
 
     it('treats "no stored selection" as no opinion', async () => {
       registerSupportedLocalesResolver(async () => null)
 
-      await expect(resolveSupportedLocalesForRequest()).resolves.toEqual(['en', 'pl', 'es', 'de', 'ko'])
+      await expect(resolveSupportedLocalesForRequest()).resolves.toEqual(['en', 'pl', 'es', 'de', 'ko', 'pt'])
     })
 
     it('treats an empty selection as no opinion', async () => {
       registerSupportedLocalesResolver(async () => [])
 
-      await expect(resolveSupportedLocalesForRequest()).resolves.toEqual(['en', 'pl', 'es', 'de', 'ko'])
+      await expect(resolveSupportedLocalesForRequest()).resolves.toEqual(['en', 'pl', 'es', 'de', 'ko', 'pt'])
     })
 
     it('normalizes the configured codes before matching', async () => {
@@ -177,7 +177,7 @@ describe('locale registry', () => {
         throw new Error('database unavailable')
       })
 
-      await expect(resolveSupportedLocalesForRequest()).resolves.toEqual(['en', 'pl', 'es', 'de', 'ko'])
+      await expect(resolveSupportedLocalesForRequest()).resolves.toEqual(['en', 'pl', 'es', 'de', 'ko', 'pt'])
     })
 
     describe('keeping the default locale servable', () => {
@@ -207,7 +207,7 @@ describe('locale registry', () => {
         // set is the right answer, not a one-entry set containing only `en`.
         registerSupportedLocalesResolver(async () => ['cs', 'fr'])
 
-        await expect(resolveSupportedLocalesForRequest()).resolves.toEqual(['en', 'pl', 'es', 'de', 'ko'])
+        await expect(resolveSupportedLocalesForRequest()).resolves.toEqual(['en', 'pl', 'es', 'de', 'ko', 'pt'])
       })
 
       it('always contains a locale `detectLocale` is allowed to return', async () => {

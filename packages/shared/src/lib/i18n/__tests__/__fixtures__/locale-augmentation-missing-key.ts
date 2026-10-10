@@ -15,4 +15,5 @@ export const labels: Record<Locale, string> = {
   es: 'Español',
   de: 'Deutsch',
   ko: '한국어',
+  pt: 'Português',
 }
