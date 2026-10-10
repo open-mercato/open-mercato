@@ -58,8 +58,12 @@ const myAdapter: GatewayAdapter = {
     return { eventType: 'payment.captured', eventId: '...', data: {}, idempotencyKey: '...', timestamp: new Date() }
   },
 
-  mapStatus(providerStatus) {
-    // Map provider-specific status to unified status
+  mapStatus(providerStatus, eventType, event) {
+    // Map provider-specific status to unified status.
+    // Webhook processing also passes the event type and the verified event (both optional),
+    // e.g. to tell a partial refund from a full one. Return refunded / partially_refunded only
+    // when the provider confirms captured funds were refunded: webhook sync treats a refund
+    // status on a pending or authorized transaction as proof of capture.
     return 'captured'
   },
 }
@@ -290,7 +294,7 @@ The status endpoint returns both:
 - `status`: the unified Open Mercato payment status
 - `gatewayStatus`: the provider-specific status stored from Stripe
 
-Without webhooks, you can still poll this endpoint, but webhooks are the correct mechanism for keeping authorizations, captures, refunds, failures, and disputes synchronized.
+Without webhooks, you can still poll this endpoint, but webhooks are the correct mechanism for keeping authorizations, captures, refunds, and failures synchronized. Stripe refunds arrive as `charge.refunded`: when the Charge shows refunded captured funds, the transaction moves to `partially_refunded` or `refunded`, measured against the captured amount; after a partial capture, the uncaptured remainder that pre-Basil API versions report as refunded is not counted. From `partially_refunded` only the move to `refunded` is possible. A refund that arrives before the capture webhook moves a `pending` or `authorized` transaction through `captured` to the refund status, and the late capture is ignored. `charge.refund.updated` and dispute events are recorded without changing the unified `status`.
 
 ### 5. Capture, refund, or cancel
 
