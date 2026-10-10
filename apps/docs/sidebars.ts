@@ -502,6 +502,7 @@ const sidebars: SidebarsConfig = {
         },
         "framework/pricing-tax-overrides",
         "framework/rbac/overview",
+        "framework/rbac/tenant-module-availability",
         "framework/feature-toggles/overview",
         {
           type: "category",
