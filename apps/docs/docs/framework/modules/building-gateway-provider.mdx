@@ -182,6 +182,25 @@ export function register(container: AppContainer) {
 }
 ```
 
+### Declare the payer fields your provider needs
+
+Register a descriptor next to the adapter. When the provider cannot create a session without payer data, declare it with the optional `requiresPayerFields` field:
+
+```ts
+import { registerPaymentGatewayDescriptor } from '@open-mercato/shared/modules/payment_gateways/types'
+
+registerPaymentGatewayDescriptor({
+  providerKey: 'myprovider',
+  label: 'My Provider',
+  requiresPayerFields: ['email', 'name'],
+  sessionConfig: {
+    supportedCurrencies: ['PLN'],
+  },
+})
+```
+
+Supported values map to checkout customer fields: `email` → `email`, `name` → `firstName` and `lastName`. Checkout then refuses to save a template or pay link that uses your provider unless customer details are collected with those fields marked as required, and its editor warns about the gap before save. Omit the field when the provider needs no payer data; nothing changes for such providers. Keep your adapter's own runtime check for missing payer data as the last line of defence.
+
 Keep `setup.ts` for tenant initialization concerns such as `defaultRoleFeatures`, seeded configuration, example data, and provider-owned env-backed preconfiguration that persists credentials or defaults. Do not rely on `setup.ts` for runtime adapter registration, because the gateway registry is in-memory and must be populated during app boot.
 
 Recommended provider pattern:
