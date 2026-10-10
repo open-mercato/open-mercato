@@ -253,35 +253,40 @@ Field names are `catalogProductId` / `catalogVariantId`, matching the `catalog_p
 
 ### ADR-7 — Buyer context is resolved once, at the edge
 
-**Decision.** `ecommerce.storeContext.resolve(request)` returns a `BuyerContext` alongside the store, and every downstream price, tax, assortment and availability call takes it as input:
+**Decision.** `storeContextService.resolve(request)` (DI key registered by `ecommerce/di.ts`) returns a `BuyerContext` alongside the store, and every downstream price, tax, assortment and availability call takes it as input. The shape below is the one SPEC-029 §6 owns (amended 2026-10-05 to match it — SPEC-029 v4.6); channel, currency and locale are **not** buyer fields — they live on `StoreContext` (`channel`, `currencyCode`, `effectiveLocale`):
 
 ```typescript
 type BuyerContext = {
   customerUserId: string | null      // customer_accounts.CustomerUser
-  customerId: string | null          // customers.CustomerEntity
-  customerGroupIds: string[]         // customer_groups
-  companyId: string | null           // customers.CustomerCompanyProfile
-  channelId: string | null           // sales.SalesChannel
-  priceKindId: string | null         // catalog.CatalogPriceKind
-  currencyCode: string
-  locale: string
-  taxMode: 'gross' | 'net'           // B2C shows gross, B2B typically net
-  purchaseOnAccount: boolean
+  customerId: string | null          // customers.CustomerEntity — personEntityId ?? customerEntityId ("person wins")
+  companyId: string | null           // CustomerUser.customer_entity_id (the company CustomerEntity)
+  customerIds: string[]              // every customer entity the buyer acts as, person first, then company
+  customerGroupIds: string[]         // customer_groups — union of memberships of all customerIds, priority-ordered
+  isAuthenticated: boolean
+  taxMode: 'gross' | 'net'           // DERIVED from the resolved price kind's CatalogPriceKind.displayMode
+                                     // ('excluding-tax' → 'net', 'including-tax' → 'gross'), SPEC-029 §6.1a — never set independently
+  priceKindId: string | null         // catalog.CatalogPriceKind — group terms override the channel default
+  allowPurchaseOnAccount: boolean
+  approvalRequiredAbove: number | null
+  assortmentScope: EffectiveAssortmentScope   // spec 12 §3.3: null = unrestricted, [] = deny-all
 
   // Amended 2026-09-16 — see "Consequence: the digest is decomposable" below.
   // These carry no information the fields above do not already carry. They are the
   // named, independently-hashable projections of it that every cache key, price
   // projection and price-sort path is built from, so that none of them has to key
   // on the whole context as one opaque value.
-  assortmentScopeHash: string        // digest of the resolved EffectiveAssortmentScope (spec 12 §3.3)
+  assortmentScopeHash: string        // digest of the canonicalized resolved EffectiveAssortmentScope (spec 12 §3.3/§3.7)
   priceScopeKey: string              // digest of (channelId, currencyCode, priceKindId, sorted customerGroupIds)
-  customerOverlayId: string | null   // customerId, and ONLY when that customer has price rows of their own
+  customerOverlayId: string | null   // null when none of customerIds has price rows of its own; otherwise a stable key
+                                     // of exactly those ids, person first, ',' joined
 }
 ```
 
 **Rationale.** B2C and B2B differ in *context*, not in code path. Resolving once at the edge means one place to test tenant isolation, and no module re-deriving "is this a B2B buyer" from partial signals.
 
 **Consequence.** Public read endpoints are no longer purely anonymous — an authenticated B2B session changes prices and assortment. Caching keys MUST include the buyer-context digest, and responses for authenticated contexts MUST be marked private. This is a security-relevant requirement, called out in every child spec's risk section.
+
+**Consequence: the buyer is bound to the store's tenant (added 2026-10-05).** `customer_accounts`' request helper (`getCustomerAuthFromRequest`) takes the tenant from the token's own claims and never compares it with the host. `storeContextService.resolve()` therefore MUST compare the portal token's `tenantId` **and** `orgId` with the resolved store's; on a mismatch it rejects the request with `401` rather than resolving a buyer under a foreign identity. This covers path-prefix stores of two organizations on one host, the shared platform/development host, and a bearer token pointed at the wrong store.
 
 **Consequence: the digest is decomposable, not opaque (amended 2026-09-16).** "Caching keys MUST include the buyer-context digest" is necessary but not sufficient, and the suite already discovered why in miniature: `storefront-public-api.md` §9.1 had to split `priceRange` out of the facet block because the block was cached at the wrong granularity, and the fix worked only because `assortmentScopeHash` existed as a *named sub-component* of the digest rather than as an opaque whole. That was a reactive, one-off fix. This amendment generalizes it into a rule:
 
@@ -299,7 +304,7 @@ The first component carries the same load-bearing property as the third, for the
 
 The load-bearing member is the third one's `null`. In B2B the large majority of authenticated buyers have **no** price rows of their own — for pricing purposes they *are* their group, and may share a bucket, a cache entry and a sort order with every other buyer in it. Only buyers with authored contracts need an individual path. A context that cannot express "this buyer has no overlay" forces every authenticated buyer onto the individual path and throws that away.
 
-**How `customerOverlayId` is computed.** `storeContextService.resolve()` runs one `EXISTS` over `catalog_product_variant_prices` filtered by `customer_id`, served by the partial index in `pricing-engine.md` Phase 2b, and caches the boolean per customer with invalidation on `catalog.prices.create/update/delete`. It is a query, not a denormalized column: a stale `has_contract_prices` flag reading `false` would silently serve a contracted buyer their group's prices, which is the same class of disclosure R1 rates Critical, and a flag reading `true` where it should be `false` would quietly cost the sharing win this component exists to buy. One cached `EXISTS` on an index built for it is cheap enough not to trade correctness for.
+**How `customerOverlayId` is computed.** `storeContextService.resolve()` runs one `EXISTS`-per-id query over `catalog_product_variant_prices` filtered by `customer_id IN customerIds`, served by the customer partial index in `pricing-engine.md` Phase 2b, and caches the result per customer id with invalidation on `catalog.price.created|updated|deleted` (amended 2026-10-05: the event IDs are singular, as declared in `catalog/events.ts`), bounded additionally by a TTL so a missed event cannot hold a stale value indefinitely. The overlay key is the subset of `customerIds` that has rows of its own, person first, `,`-joined; it is `null` when that subset is empty. It is a query, not a denormalized column: a stale `has_contract_prices` flag reading `false` would silently serve a contracted buyer their group's prices, which is the same class of disclosure R1 rates Critical, and a flag reading `true` where it should be `false` would quietly cost the sharing win this component exists to buy. One cached `EXISTS` on an index built for it is cheap enough not to trade correctness for.
 
 **Rejected alternative.** Separate `/api/ecommerce/b2b/*` endpoints. Doubles the API surface and the test matrix for what is one resolver difference.
 
@@ -322,7 +327,7 @@ The load-bearing member is the third one's `null`. In B2B the large majority of 
 **Decision.** When this suite eventually materializes resolved prices — which `storefront-public-api.md` §6.3 already names as the real fix for price sorting and defers to a separate spec — it does so in two pieces with two different cardinalities, and never in one:
 
 1. **Bucket projection.** Key: `(productId, priceScopeKey)`. Cardinality: products × *distinct* `priceScopeKey`s actually in use — channel × currency × price kind × group set. This is the shared, group-level price every buyer without a contract resolves to.
-2. **Customer overlay.** Key: `(customerId, productId)`. Materialized **only for the products that customer has an authored price row for**. Cardinality: the number of contract rows a merchant actually wrote — not products × customers.
+2. **Customer overlay.** Key: `(customerId, productId)`, one entry per id in the buyer's overlay (`BuyerContext.customerOverlayId` names them — person, then company; amended 2026-10-05). Materialized **only for the products that customer has an authored price row for**. Cardinality: the number of contract rows a merchant actually wrote — not products × customers. When a buyer's person and company both carry a row for the same product, the merge applies the person's row over the company's, matching `pricing-engine.md`'s `customerIds` tie-break.
 
 Per-customer prices MUST NOT enter the bucket key space. A sort or price-range facet over a catalogue too large to resolve in memory is a **merge** of a page from the bucket projection with that customer's overlay, not a scan of a per-customer index.
 
@@ -419,7 +424,7 @@ POS's own offline/sync spec (`SPEC-022-2026-02-07-pos-module.md` §3, today a Ph
 | 12 — Buyer-scoped visibility | Amends specs 1, 3 and 5 rather than defining a module of its own; its amendments are **applied in those documents**, not left pending. Owns the multi-group union algebra (a disjunction of conjunctions, not a merged scope object) and the write-side enforcement `cart` otherwise lacked |
 | 1 — Customer groups | Migration strategy for orphaned `customer_group_id` values; credit exposure calculation and its concurrency guarantee; approval policy model |
 | 2 — Availability | Fallback semantics when `wms` is absent; caching and staleness budget; the oversell window and who owns it |
-| 3 — `ecommerce` | Two-hop hostname resolution and its cache invalidation; `BuyerContext` resolver; branding SSR without FOUC |
+| 3 — `ecommerce` | Two-hop hostname resolution (`customer_accounts.domainMappingService`, then one `ecommerce` query) and its cache invalidation; `BuyerContext` resolver incl. the portal-token tenant/org binding (`401` on mismatch) and the person + company `customerIds` union; branding SSR without FOUC |
 | 4 — Public API | Buyer-context cache-key digest and private-response rules; facet cross-exclusion cost; rate limiting for unauthenticated traffic |
 | 5 — Cart | Price snapshot staleness policy and re-pricing triggers; guest→customer merge conflict rules; optimistic locking; TTL and abandonment events; B2B quantity-break re-evaluation |
 | 6 — Promotions | Realignment of the cart interaction API to the actual `cart` contract; code reservation under the cart's locking model |
@@ -521,7 +526,7 @@ Every public namespace MUST be rate limited and MUST include the buyer-context d
 
 | # | Risk | Severity | Area | Failure scenario | Mitigation | Residual |
 |---|---|---|---|---|---|---|
-| R1 | Buyer-context cache bleed | **Critical** | `ecommerce`, `cart` | A B2B contract price or restricted assortment is cached under a key omitting the buyer digest and served to an anonymous visitor or a different customer. Confidential pricing disclosed cross-tenant. | Cache key MUST include a digest of `BuyerContext`; authenticated responses marked `Cache-Control: private`; dedicated cross-context isolation tests are a Phase 1 gate criterion | Low — enforced by test, but a new cached endpoint could forget the digest; mitigated by a shared cache-key helper that takes `BuyerContext` as a required argument |
+| R1 | Buyer-context cache bleed | **Critical** | `ecommerce`, `cart` | A B2B contract price or restricted assortment is cached under a key omitting the buyer digest and served to an anonymous visitor or a different customer. Confidential pricing disclosed cross-tenant. | Cache key MUST include a digest of `BuyerContext`; authenticated responses marked `Cache-Control: private`; dedicated cross-context isolation tests are a Phase 1 gate criterion | Low — enforced by test, but a new cached endpoint could forget the digest; mitigated by a shared cache-key helper that takes the `StoreContext` (and so `BuyerContext`) as a required argument, plus a structural test that bans resolving the `cache` DI token anywhere in `ecommerce` outside that helper (SPEC-029 §6.1, amended 2026-10-05) |
 | R2 | Cart/order total divergence | **High** | `cart`, `sales` | Cart computes tax independently and shows 123,00 zł; the resulting invoice says 123,45 zł. Legal exposure under consumer pricing rules and Omnibus. | ADR-2 mandates `salesCalculationService`; Phase 2 gate requires byte-identical totals; property-based test over the tax matrix | Low |
 | R3 | Orphaned `customer_group_id` values | Medium | `catalog`, `sales` | Existing price rows and tax rates reference group ids with no group. After `CustomerGroup` lands, those rows silently never match, changing effective prices. | No FK constraint in the first release; reconciliation report enumerating orphans; admin surfaces unknown-group rows as invalid rather than hiding them | Medium — depends on tenants acting on the report |
 | R4 | Two checkout models diverge | **High** | `checkout`, `ecommerce` | SPEC-029 §19 is implemented by one team while Simple Checkout is implemented by another; two order-creation paths with different idempotency guarantees produce duplicate orders. | ADR-3 withdraws §19 explicitly; the SPEC-029 rewrite must state the withdrawal in its changelog | Low |
@@ -557,6 +562,14 @@ Every public namespace MUST be rate limited and MUST include the buyer-context d
 ---
 
 ## 13) Changelog
+
+### 2026-10-05
+- **ADR-7 amended to SPEC-029 v4.6's `BuyerContext` shape**, closing the divergence the 2026-08-17 `/om-pre-implement-spec` audit of SPEC-029 found and the 2026-10-05 audit found still open. `channelId`, `currencyCode` and `locale` leave `BuyerContext` (they already live on `StoreContext`); `purchaseOnAccount` becomes `allowPurchaseOnAccount`; `isAuthenticated`, `approvalRequiredAbove` and `assortmentScope` are added. The resolver is named by its DI key, `storeContextService`, instead of `ecommerce.storeContext`.
+- **Buyer identity is the union of person and company** (owner decision D3/D3a, `ANALYSIS-2026-10-05-storefront-release-decisions.md`): `customerId` is the person when there is one, `companyId` is `CustomerUser.customer_entity_id`, and the new `customerIds` lists both, person first. Groups resolve over both; on equal specificity the person wins. `customerOverlayId` becomes the stable key of whichever of those ids carry their own price rows (or `null`); ADR-9's overlay is materialized per id, person over company.
+- `taxMode`'s comment now states the derivation (SPEC-029 §6.1a) instead of "B2C shows gross, B2B typically net".
+- `customerOverlayId` invalidation corrected to the real event IDs `catalog.price.created|updated|deleted` (was `catalog.prices.create/update/delete`, which do not exist), bounded by a TTL as well.
+- New ADR-7 consequence: the portal token's tenant and organization must match the resolved store's, else `401` (owner decision D4).
+- §6.1 row 3 and R1 aligned with the above.
 
 ### 2026-10-02
 - **Merged with spec 14 (offline field mode) from develop.** Both specs landed against the same base, so their numbering is reconciled here: assisted selling keeps row 13 and ADR-10, offline field mode keeps row 14 and ADR-11, and the TLDR, Scope and R7 counts read fourteen specs, eight new modules (spec 14 adds none) and eleven ADRs. The interim note under §6 saying row 13 "is added by its own PR" is dropped now that it is.

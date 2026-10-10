@@ -13,6 +13,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
 import { attachAggregateSearchField, rebuildAggregateSearchField } from './document'
+import { applyIndexDocEnrichers } from './doc-enrichers'
 
 const logger = createLogger('query_index').child({ component: 'indexer' })
 
@@ -197,6 +198,13 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
       }
     }
   } catch {}
+
+  await applyIndexDocEnrichers(db, params.entityType, [{
+    recordId: String(params.recordId),
+    doc,
+    tenantId: params.tenantId ?? null,
+    organizationId: params.organizationId ?? null,
+  }])
 
   // Kept outside the guard below: a failure while building the aggregate search field is a
   // bug in the aggregation or its configuration, and must surface instead of being mistaken

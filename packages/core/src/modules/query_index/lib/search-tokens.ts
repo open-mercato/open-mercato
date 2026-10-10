@@ -10,6 +10,7 @@ import { looksLikeEncryptedPayload } from '@open-mercato/shared/lib/encryption/a
 import { createKmsService, resolveEncryptionMode, type KmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isIndexDocEnrichedKey } from './doc-enrichers'
 
 const logger = createLogger('query_index').child({ component: 'search-tokens' })
 
@@ -166,6 +167,7 @@ function shouldIndexField(
   if (lower.endsWith('_at')) return false
   if (['created_at', 'updated_at', 'deleted_at', 'tenant_id', 'organization_id'].includes(lower)) return false
   if (isSearchFieldBlocklisted(field, entityType, config)) return false
+  if (isIndexDocEnrichedKey(entityType, field)) return false
   return collectTextValues(value).some((text) => text.length > 0)
 }
 

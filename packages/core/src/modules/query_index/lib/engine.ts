@@ -4,6 +4,13 @@ import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { BasicQueryEngine, resolveEntityTableName, resolveRegisteredEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { isOrmBackedSystemEntityId } from '@open-mercato/shared/lib/data/engine'
+import {
+  buildArrayColumnNoOverlapPredicate,
+  buildArrayColumnOverlapPredicate,
+  buildJsonbNoOverlapPredicate,
+  buildJsonbOverlapPredicate,
+  normalizeOverlapValues,
+} from '@open-mercato/shared/lib/query/overlap'
 import { type Kysely, sql, type RawBuilder } from 'kysely'
 import type { EventBus } from '@open-mercato/events'
 import { readCoverageSnapshot, refreshCoverageSnapshot } from './coverage'
@@ -70,7 +77,7 @@ type CustomFieldDefRow = {
 
 /** Operators `buildCfFilterExpression` compiles; anything else yields no predicate. */
 const CF_FILTER_SUPPORTED_OPS = new Set<FilterOp>([
-  'eq', 'ne', 'in', 'nin', 'like', 'ilike', 'exists', 'gt', 'gte', 'lt', 'lte',
+  'eq', 'ne', 'in', 'nin', 'like', 'ilike', 'exists', 'gt', 'gte', 'lt', 'lte', 'overlap', 'noverlap',
 ])
 
 /** Custom field kinds stored numerically (`custom_field_values.value_int`/`value_float`) — sort numerically, not as text (#5674). */
@@ -1007,6 +1014,8 @@ export class HybridQueryEngine implements QueryEngine {
           case 'like': return target.where(column, 'like', value as any)
           case 'ilike': return target.where(column, 'ilike', value as any)
           case 'exists': return value ? target.where(column, 'is not', null) : target.where(column, 'is', null)
+          case 'overlap': return target.where(buildArrayColumnOverlapPredicate(column, value))
+          case 'noverlap': return target.where(buildArrayColumnNoOverlapPredicate(column, value))
           default: return target
         }
       }
@@ -1710,6 +1719,18 @@ export class HybridQueryEngine implements QueryEngine {
           ])
         )
       }
+      case 'noverlap':
+        return sql<boolean>`false`
+      case 'overlap': {
+        const values = normalizeOverlapValues(value)
+        if (!values.length) return sql<boolean>`false`
+        return eb.or(
+          values.flatMap((val) => [
+            sql<boolean>`${textExpr} = ${val}`,
+            arrContains(val),
+          ])
+        )
+      }
       case 'nin': {
         const values = this.toArray(value)
         return sql<boolean>`${textExpr} not in (${sql.join(values.map((v) => sql`${v}`), sql`, `)})`
@@ -1886,6 +1907,18 @@ export class HybridQueryEngine implements QueryEngine {
           ])
         ))
       }
+      case 'noverlap':
+        return q.where(sql<boolean>`false`)
+      case 'overlap': {
+        const vals = normalizeOverlapValues(value)
+        if (!vals.length) return q.where(sql<boolean>`false`)
+        return q.where((eb: any) => eb.or(
+          vals.flatMap((val) => [
+            sql<boolean>`${textExpr} = ${val}`,
+            arrContains(val),
+          ])
+        ))
+      }
       case 'nin': {
         const vals = this.toArray(value)
         return q.where(sql<boolean>`${textExpr} not in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`)
@@ -1954,6 +1987,10 @@ export class HybridQueryEngine implements QueryEngine {
         const vals = this.toArray(value)
         return q.where(sql<boolean>`${textExpr} in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`)
       }
+      case 'overlap':
+        return q.where(buildJsonbOverlapPredicate(`${alias}.doc`, key, value))
+      case 'noverlap':
+        return q.where(buildJsonbNoOverlapPredicate(`${alias}.doc`, key, value))
       case 'nin': {
         const vals = this.toArray(value)
         return q.where(sql<boolean>`${textExpr} not in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`)
@@ -2071,6 +2108,8 @@ export class HybridQueryEngine implements QueryEngine {
       case 'like': return eb(column, 'like', value)
       case 'ilike': return eb(column, 'ilike', value)
       case 'exists': return eb(column, value ? 'is not' : 'is', null)
+      case 'overlap': return buildArrayColumnOverlapPredicate(column, value)
+      case 'noverlap': return buildArrayColumnNoOverlapPredicate(column, value)
       default: return sql<boolean>`true`
     }
   }
@@ -2102,6 +2141,10 @@ export class HybridQueryEngine implements QueryEngine {
         const vals = this.toArray(value)
         return sql<boolean>`${textExpr} in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`
       }
+      case 'overlap':
+        return buildJsonbOverlapPredicate(`${alias}.doc`, key, value)
+      case 'noverlap':
+        return buildJsonbNoOverlapPredicate(`${alias}.doc`, key, value)
       case 'nin': {
         const vals = this.toArray(value)
         return sql<boolean>`${textExpr} not in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`
@@ -2156,6 +2199,14 @@ export class HybridQueryEngine implements QueryEngine {
           next = this.applyColumnFilter(next, column, filter, {
             ...searchRuntime, entity, field: String(filter.field), recordIdColumn: `${alias}.entity_id`,
           })
+          continue
+        }
+        if (filter.op === 'overlap') {
+          next = next.where(buildJsonbOverlapPredicate(`${alias}.doc`, String(filter.field), filter.value))
+          continue
+        }
+        if (filter.op === 'noverlap') {
+          next = next.where(buildJsonbNoOverlapPredicate(`${alias}.doc`, String(filter.field), filter.value))
           continue
         }
         // Unknown field → filter on doc JSON text
@@ -2748,6 +2799,8 @@ export class HybridQueryEngine implements QueryEngine {
             case '$like': add(field, 'like', opVal); break
             case '$ilike': add(field, 'ilike', opVal); break
             case '$exists': add(field, 'exists', opVal); break
+            case '$overlap': add(field, 'overlap', opVal); break
+            case '$noverlap': add(field, 'noverlap', opVal); break
           }
         }
       } else {
@@ -2889,6 +2942,10 @@ export class HybridQueryEngine implements QueryEngine {
         return q.where(col, 'ilike', filter.value as any)
       case 'exists':
         return filter.value ? q.where(col, 'is not', null) : q.where(col, 'is', null)
+      case 'overlap':
+        return q.where(buildArrayColumnOverlapPredicate(col, filter.value))
+      case 'noverlap':
+        return q.where(buildArrayColumnNoOverlapPredicate(col, filter.value))
       default:
         return q
     }

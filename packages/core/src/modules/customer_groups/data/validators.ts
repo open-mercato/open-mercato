@@ -198,6 +198,19 @@ const clearableNonNegativeNumberSchema = z.preprocess(
 
 const currencyCodeSchema = clearableStringSchema(4)
 
+export const assortmentScopeSchema = z
+  .object({
+    categoryIds: z.array(uuid()).optional(),
+    tagIds: z.array(uuid()).optional(),
+    excludeProductIds: z.array(uuid()).optional(),
+    excludeCategoryIds: z.array(uuid()).optional(),
+    excludeTagIds: z.array(uuid()).optional(),
+  })
+  .strict()
+  .nullable()
+
+export type AssortmentScopeInput = z.infer<typeof assortmentScopeSchema>
+
 // Default-free, for the same reason as `customerGroupBaseShape` above.
 const customerGroupTermsBaseShape = {
   organizationId: uuid().nullable().optional(),
@@ -210,6 +223,7 @@ const customerGroupTermsBaseShape = {
   creditCurrencyCode: currencyCodeSchema,
   approvalRequiredAbove: clearableNonNegativeNumberSchema,
   minOrderValue: clearableNonNegativeNumberSchema,
+  assortmentScope: assortmentScopeSchema.optional(),
   metadata: clearableMetadataSchema,
 }
 

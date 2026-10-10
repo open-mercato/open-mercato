@@ -1,3 +1,5 @@
+import { getTranslatableEntityListPath } from '@open-mercato/shared/lib/localization/translatable-fields'
+
 export function formatFieldLabel(field: string): string {
   if (field.includes('.')) {
     const parts = field.split('.')
@@ -45,6 +47,8 @@ function pluralize(word: string): string {
 export function buildEntityListUrl(entityType: string): string | null {
   const [module, entity] = entityType.split(':')
   if (!module || !entity) return null
+  const registeredPath = getTranslatableEntityListPath(entityType)
+  if (registeredPath) return registeredPath
   const prefix = `${module}_`
   const base = entity.startsWith(prefix) ? entity.slice(prefix.length) : entity
   const resource = pluralize(base).replace(/_/g, '-')

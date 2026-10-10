@@ -30,7 +30,14 @@ export const features = [
     module: 'catalog',
     dependsOn: ['catalog.products.view', 'currencies.view'],
   },
+  { id: 'catalog.settings.view', title: 'View catalog settings', module: 'catalog' },
   { id: 'catalog.settings.manage', title: 'Manage catalog settings', module: 'catalog' },
+  {
+    id: 'catalog.price_history.view',
+    title: 'View catalog price history',
+    module: 'catalog',
+    dependsOn: ['catalog.products.view'],
+  },
 ]
 
 export default features

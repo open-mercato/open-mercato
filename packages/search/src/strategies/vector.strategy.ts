@@ -46,6 +46,10 @@ export class VectorSearchStrategy implements SearchStrategy {
   readonly name = 'Vector Search'
   readonly priority = 20 // Medium priority
 
+  get supportsIndexDocFilter(): boolean {
+    return this.vectorDriver.supportsIndexDocFilter === true
+  }
+
   private readonly defaultLimit: number
   private ready = false
   private readyPromise: Promise<void> | null = null
@@ -81,6 +85,7 @@ export class VectorSearchStrategy implements SearchStrategy {
   async search(query: string, options: SearchOptions): Promise<SearchResult[]> {
     const organizationIds = normalizeOrganizationIds(options)
     if (organizationIds && organizationIds.length === 0) return []
+    if (options.indexDocFilter && !this.supportsIndexDocFilter) return []
 
     await this.ensureReady()
     const embedding = await this.embeddingService.createEmbedding(query)
@@ -93,9 +98,11 @@ export class VectorSearchStrategy implements SearchStrategy {
       organizationId?: string | null
       organizationIds?: string[] | null
       entityIds?: EntityId[]
+      indexDocFilter?: SearchOptions['indexDocFilter']
     } = {
       tenantId: options.tenantId,
       entityIds: options.entityTypes as EntityId[],
+      ...(options.indexDocFilter ? { indexDocFilter: options.indexDocFilter } : {}),
     }
 
     if (organizationIds) {
