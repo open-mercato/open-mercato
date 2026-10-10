@@ -122,17 +122,27 @@ export function MoveInventoryDialog({
     () =>
       z
         .object({
-          catalogVariantId: z.string().uuid(),
-          warehouseId: z.string().uuid(),
-          fromLocationId: z.string().uuid(),
-          toLocationId: z.string().uuid(),
+          catalogVariantId: z.string().uuid({
+            error: t('wms.backend.inventory.move.errors.variantRequired', 'Variant is required.'),
+          }),
+          warehouseId: z.string().uuid({
+            error: t('wms.backend.inventory.move.errors.warehouseRequired', 'Warehouse is required.'),
+          }),
+          fromLocationId: z.string().uuid({
+            error: t('wms.backend.inventory.move.errors.fromLocationRequired', 'Source location is required.'),
+          }),
+          toLocationId: z.string().uuid({
+            error: t('wms.backend.inventory.move.errors.toLocationRequired', 'Destination location is required.'),
+          }),
           quantity: z.coerce.number().positive({
             message: t(
               'wms.backend.inventory.move.errors.quantityPositive',
               'Move quantity must be greater than zero.',
             ),
           }),
-          reasonCode: z.enum(MOVE_REASON_CODES),
+          reasonCode: z.enum(MOVE_REASON_CODES, {
+            error: t('wms.backend.inventory.move.errors.reasonRequired', 'Reason is required.'),
+          }),
           notes: z.string().trim().max(500).optional(),
         })
         .superRefine((values, ctx) => {
