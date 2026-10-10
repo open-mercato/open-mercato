@@ -25,8 +25,10 @@ import {
 import { delegateComposeToSender, requiresSenderDelegation } from '../lib/composeSenderDelegation'
 import {
   EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
+  resolveActorFeatures,
   resolveMessageChannelThreadAccess,
 } from '../lib/channelThreadAccess'
+import { resolveChannelThreadWideningIds } from '../lib/channelThreadWidening'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveMessageActionData } from '../lib/actions'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../lib/constants'
@@ -39,7 +41,7 @@ import {
   canUseMessageEmailFeature,
   resolveMessageContext,
 } from '../lib/routeHelpers'
-import { applyMessageParticipantScope } from '../lib/participantScope'
+import { applyMessageParticipantScope, channelThreadVisibilityClause } from '../lib/participantScope'
 import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from './guards'
 import { findMessageIdsBySearchTokens } from '../lib/searchLookup'
 import { MessageCommandExecuteResult } from '../commands/shared'
@@ -144,7 +146,20 @@ export async function GET(req: Request) {
   const params = Object.fromEntries(url.searchParams)
   const input = listMessagesSchema.parse(params)
 
-  const cache = isCrudCacheEnabled() ? resolveCrudCache(ctx.container) : null
+  // Channel-thread widening (#6106). Cached lists are keyed on scope and filters only,
+  // but who may see a channel thread changes with channel sharing, so a request that
+  // widens bypasses the list cache entirely.
+  const channelThreadIds =
+    (input.folder === 'inbox' || input.folder === 'all') && scope.userId && scope.tenantId
+      ? await resolveChannelThreadWideningIds(ctx.container, {
+          userId: scope.userId,
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          features: resolveActorFeatures(ctx.auth),
+        })
+      : []
+
+  const cache = isCrudCacheEnabled() && channelThreadIds.length === 0 ? resolveCrudCache(ctx.container) : null
   const cacheKey = cache ? buildMessageListCacheKey(scope, input) : null
   if (cache && cacheKey) {
     try {
@@ -192,10 +207,21 @@ export async function GET(req: Request) {
     switch (input.folder) {
       case 'inbox':
         joinRecipient()
+        // A message on a channel thread the caller may act on is listed even with no
+        // recipient row (an unassigned conversation). `r.message_id is null` confines
+        // that branch to messages the caller has no row for, so an archived or deleted
+        // row cannot resurface through it (#6106).
         q = q
-          .where('r.message_id', 'is not', null)
-          .where('r.deleted_at', 'is', null)
-          .where('r.archived_at', 'is', null)
+          .where((eb: any) => eb.or([
+            eb.and([
+              eb('r.message_id', 'is not', null),
+              eb('r.deleted_at', 'is', null),
+              eb('r.archived_at', 'is', null),
+            ]),
+            ...(channelThreadIds.length > 0
+              ? [eb.and([eb('r.message_id', 'is', null), channelThreadVisibilityClause(eb, channelThreadIds)])]
+              : []),
+          ]))
           .where('m.is_draft', '=', false)
         break
       case 'archived':
@@ -220,7 +246,7 @@ export async function GET(req: Request) {
       case 'all':
         // Sender-OR-recipient participant scope shared with the
         // communication_channels message enricher — see participantScope.ts (#4133).
-        q = applyMessageParticipantScope(q, scope.userId)
+        q = applyMessageParticipantScope(q, scope.userId, channelThreadIds)
         break
       default: {
         const unsupportedFolder: never = input.folder

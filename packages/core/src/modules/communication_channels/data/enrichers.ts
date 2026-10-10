@@ -5,6 +5,7 @@ import {
   applyMessageParticipantScope,
   type MessagesParticipantScopeDatabase,
 } from '../../messages/lib/participantScope'
+import { resolveChannelThreadWideningIds } from '../../messages/lib/channelThreadWidening'
 import { sanitizeChannelHtml } from '../lib/sanitize-channel-html'
 import {
   CommunicationChannel,
@@ -117,8 +118,18 @@ async function loadParticipantMessageIds(
   if (!userId || messageIds.length === 0) return new Set()
   const organizationId = ctx.organizationId ?? null
 
+  // Same widening as the inbox list route (#6106): every enricher that gates on this
+  // set follows the list exactly, so channel metadata and reactions are never shown
+  // for a message the list would not return, and vice versa.
+  const channelThreadIds = await resolveChannelThreadWideningIds(ctx.container as never, {
+    userId,
+    tenantId: ctx.tenantId as string,
+    organizationId,
+    features: ctx.userFeatures ?? [],
+  })
+
   const db = em.getKysely<MessagesParticipantScopeDatabase>()
-  let participantQuery = applyMessageParticipantScope(db.selectFrom('messages as m'), userId)
+  let participantQuery = applyMessageParticipantScope(db.selectFrom('messages as m'), userId, channelThreadIds)
     .select('m.id')
     .distinct()
     .where('m.id', 'in', messageIds)
