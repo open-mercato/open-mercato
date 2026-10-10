@@ -147,7 +147,7 @@ describe('X-Ray query-time collapse (X4)', () => {
       organizationId: complete.trace.organizationId,
       caseId: CASE,
       rows: [...rows, stepRow(CASE, { key: 'status:lost', atMs: BASE_MS + 4 * DAY_MS })],
-      caseRow: { startedAt: new Date(BASE_MS - 30 * DAY_MS).toISOString(), endedAt: new Date(BASE_MS + 4 * DAY_MS).toISOString(), status: 'completed' },
+      caseRow: { startedAt: new Date(BASE_MS - 30 * DAY_MS).toISOString(), endedAt: new Date(BASE_MS + 4 * DAY_MS).toISOString(), status: 'completed', variantHash: 'stored-hash' },
       process: dealProcess,
       window: WINDOW,
       perCaseLimit: 3,
@@ -156,11 +156,12 @@ describe('X-Ray query-time collapse (X4)', () => {
     expect(cut.events).toHaveLength(3)
     expect(cut.startedAtMs).toBe(BASE_MS - 30 * DAY_MS)
     expect(cut.status).toBe('completed')
+    expect(cut.storedVariantHash).toBe('stored-hash')
     const cutBeforeEnd = buildCaseTrace({
       organizationId: complete.trace.organizationId,
       caseId: CASE,
       rows,
-      caseRow: { startedAt: new Date(BASE_MS).toISOString(), endedAt: new Date(BASE_MS + 40 * DAY_MS).toISOString(), status: 'completed' },
+      caseRow: { startedAt: new Date(BASE_MS).toISOString(), endedAt: new Date(BASE_MS + 40 * DAY_MS).toISOString(), status: 'completed', variantHash: null },
       process: dealProcess,
       window: WINDOW,
       perCaseLimit: 2,

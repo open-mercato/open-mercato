@@ -96,8 +96,25 @@ describe('X-Ray conformance', () => {
     const evaluation = evaluateConformance(traces, { models: [sequenceModel(EXPECTED)], k: 5 })
     if (evaluation.status !== 'ok') throw new Error('[internal] expected an evaluation')
     expect(evaluation.models[0].deviations).toEqual([])
-    expect(evaluation.models[0].conformingCases).toBe(8)
+    expect(evaluation.models[0].conformingCases).toBeNull()
     expect(evaluation.suppression.summary().cells).toBeGreaterThanOrEqual(3)
+  })
+
+  it('withholds the conforming count when the conforming or the deviating cases fall under the thresholds', () => {
+    const deviating = ['created', 'status:open', 'status:won']
+    const withheld = evaluateConformance([
+      ...Array.from({ length: 8 }, (_unused, index) => trace(index + 1, EXPECTED)),
+      trace(50, deviating),
+      trace(51, deviating),
+    ], { models: [sequenceModel(EXPECTED)], k: 5 })
+    if (withheld.status !== 'ok') throw new Error('[internal] expected an evaluation')
+    expect(withheld.models[0]).toEqual(expect.objectContaining({ n: 10, conformingCases: null, fitness: null, fitnessLowerBound: null, transitions: null, deviations: [] }))
+    const shown = evaluateConformance([
+      ...Array.from({ length: 6 }, (_unused, index) => trace(index + 1, EXPECTED)),
+      ...Array.from({ length: 5 }, (_unused, index) => trace(index + 20, deviating)),
+    ], { models: [sequenceModel(EXPECTED)], k: 5 })
+    if (shown.status !== 'ok') throw new Error('[internal] expected an evaluation')
+    expect(shown.models[0]).toEqual(expect.objectContaining({ n: 11, conformingCases: 6, transitions: { total: 28, allowed: 23 } }))
   })
 
   it('validates designed models', () => {

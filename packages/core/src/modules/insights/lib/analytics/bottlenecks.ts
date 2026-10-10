@@ -1,13 +1,15 @@
 import { buildEnvelope, type BuildContext } from './envelope'
-import { createSuppressionTally, summarizeDurations, suppressionReason } from './stats'
+import { createSuppressionTally, summarizeDurations, suppressCells } from './stats'
 import type { PreparedCase } from './trace'
-import { XRAY_ANALYTICS_LIMITS, type BottlenecksResult, type DurationStats } from './types'
+import { XRAY_ANALYTICS_LIMITS, XRAY_STATS_GUARDS, type BottlenecksResult, type DurationStats } from './types'
 
 type WaitCell = {
+  key: string
   from: string
   to: string
   transitions: number
   rawTransitions: number
+  excludedSyncRun: number
   cases: Set<string>
   actors: Set<string>
   waits: number[]
@@ -31,7 +33,10 @@ function compareWaits(left: { wait: DurationStats; transitions: number }, right:
  * one, attributed to the transition whose target lies in the window (each item also carries
  * how often the same pair followed each other before the collapse). Transitions touching a
  * `sync_run` step are excluded from the duration statistics (but still counted) unless
- * requested. Ranked by guarded median wait, then p90, then volume.
+ * requested. `totalWaitMs` needs as many measured waits as a median (5). Ranked by guarded
+ * median wait, then p90, then volume. Transition cells are suppressed under the k /
+ * distinct-actor thresholds with complementary suppression; once one is suppressed, the
+ * `transitions` totals are sums over the visible items only.
  */
 export function buildBottlenecks(cases: readonly PreparedCase[], context: BuildContext): BottlenecksResult {
   const population = cases.filter((prepared) => prepared.touchesWindow)
@@ -56,7 +61,17 @@ export function buildBottlenecks(cases: readonly PreparedCase[], context: BuildC
       if (!target.inWindow) continue
       const source = sequence[position - 1]
       const key = JSON.stringify([source.activityKey, target.activityKey])
-      const cell = cells.get(key) ?? { from: source.activityKey, to: target.activityKey, transitions: 0, rawTransitions: 0, cases: new Set<string>(), actors: new Set<string>(), waits: [] }
+      const cell = cells.get(key) ?? {
+        key,
+        from: source.activityKey,
+        to: target.activityKey,
+        transitions: 0,
+        rawTransitions: 0,
+        excludedSyncRun: 0,
+        cases: new Set<string>(),
+        actors: new Set<string>(),
+        waits: [],
+      }
       cells.set(key, cell)
       collapsed += 1
       cell.transitions += 1
@@ -64,37 +79,40 @@ export function buildBottlenecks(cases: readonly PreparedCase[], context: BuildC
       if (target.actor) cell.actors.add(target.actor)
       if (!context.includeSyncRun && (source.sync || target.sync)) {
         excludedSyncRun += 1
+        cell.excludedSyncRun += 1
         continue
       }
       cell.waits.push(Math.max(0, target.atMs - source.atMs))
       measured += 1
     }
   }
+  for (const cell of cells.values()) cell.rawTransitions = rawCounts.get(cell.key) ?? 0
   const tally = createSuppressionTally()
-  const items: BottlenecksResult['items'] = []
-  for (const [key, cell] of cells) {
-    cell.rawTransitions = rawCounts.get(key) ?? 0
-    const reason = suppressionReason({ cases: cell.cases.size, actors: cell.actors.size }, context.k)
-    if (reason) {
-      tally.record(reason)
-      continue
-    }
-    items.push({
-      from: cell.from,
-      to: cell.to,
-      transitions: cell.transitions,
-      rawTransitions: cell.rawTransitions,
-      cases: cell.cases.size,
-      wait: summarizeDurations(cell.waits),
-      totalWaitMs: cell.waits.reduce((total, wait) => total + wait, 0),
-    })
-  }
+  const outcome = suppressCells(Array.from(cells.values()), (cell) => ({ key: cell.key, cases: cell.cases, actors: cell.actors }), context.k, tally)
+  const items: BottlenecksResult['items'] = outcome.visible.map((cell) => ({
+    from: cell.from,
+    to: cell.to,
+    transitions: cell.transitions,
+    rawTransitions: cell.rawTransitions,
+    cases: cell.cases.size,
+    wait: summarizeDurations(cell.waits),
+    totalWaitMs: cell.waits.length >= XRAY_STATS_GUARDS.minMedianN ? cell.waits.reduce((total, wait) => total + wait, 0) : null,
+  }))
   items.sort((left, right) => compareWaits(left, right) || left.from.localeCompare(right.from) || left.to.localeCompare(right.to))
   const shown = items.slice(0, XRAY_ANALYTICS_LIMITS.maxBottlenecks)
+  const sum = (pick: (cell: WaitCell) => number) => outcome.visible.reduce((total, cell) => total + pick(cell), 0)
+  const transitions = outcome.anySuppressed
+    ? {
+      raw: sum((cell) => cell.rawTransitions),
+      collapsed: sum((cell) => cell.transitions),
+      measured: sum((cell) => cell.waits.length),
+      excludedSyncRun: sum((cell) => cell.excludedSyncRun),
+    }
+    : { raw, collapsed, measured, excludedSyncRun }
   return {
     ...buildEnvelope(context.envelope, population.length, tally.summary()),
     includeSyncRun: context.includeSyncRun,
-    transitions: { raw, collapsed, measured, excludedSyncRun },
+    transitions,
     items: shown,
     omitted: items.length - shown.length,
   }

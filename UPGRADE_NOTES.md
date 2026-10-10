@@ -1226,6 +1226,29 @@ re-projection (backfill, reconciliation, rebuild) applies the ledger. Audit rows
 columns cannot be opened are skipped (logged), never projected as ciphertext. Retention removes
 cases inactive for longer than `retentionDays`.
 
+### Access-log rotation keeps registered resource kinds under the core retention
+
+`AccessLogService` rotation used to keep only `auth.user` / `auth.role` rows for
+`AUDIT_LOGS_CORE_RETENTION_DAYS` (default 7 days) and delete every other `access_logs` row after
+`AUDIT_LOGS_NON_CORE_RETENTION_HOURS` (default 8 hours). Modules can now register additional
+resource kinds that rotate under the core retention with
+`registerRetainedAccessLogResourceKinds(kinds)` (and read the effective list with
+`listRetainedAccessLogResourceKinds()`), both exported from
+`@open-mercato/core/modules/audit_logs/services/accessLogService`. The registry lives on
+`globalThis` and is additive and idempotent. The `insights` module registers
+`insights.xray.individuals` (the access row written before every Process X-Ray per-person read)
+from its DI `register`, so those rows are no longer deleted after 8 hours.
+
+**Action for operators.** None required. Raise `AUDIT_LOGS_CORE_RETENTION_DAYS` if per-person
+analytics reads must stay auditable for longer than 7 days (the setting also governs the core
+`auth.user` / `auth.role` rows).
+
+**Action for module authors.** None unless your module writes `access_logs` rows that form an audit
+trail: call `registerRetainedAccessLogResourceKinds([...])` from your module's `di.ts` `register`
+(it runs in web, worker and CLI processes). A service created outside a request container (plain
+`new AccessLogService(em)` in a process that never registers the module) rotates without the
+registered kinds.
+
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
 Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).

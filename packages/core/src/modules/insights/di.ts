@@ -3,8 +3,10 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
+import { registerRetainedAccessLogResourceKinds } from '@open-mercato/core/modules/audit_logs/services/accessLogService'
 import { ExplainService } from './services/explainService'
 import { AccessExplainService } from './services/accessExplainService'
+import { XRAY_INDIVIDUALS_RESOURCE_KIND } from './lib/analytics/privacy'
 
 type ExplainServiceCradle = {
   em: EntityManager
@@ -13,6 +15,7 @@ type ExplainServiceCradle = {
 }
 
 export function register(container: AppContainer) {
+  registerRetainedAccessLogResourceKinds([XRAY_INDIVIDUALS_RESOURCE_KIND])
   const tryResolve = <TService>(name: string): TService | undefined => {
     try {
       return container.resolve(name) as TService

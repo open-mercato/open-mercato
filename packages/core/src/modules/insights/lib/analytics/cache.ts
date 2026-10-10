@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type { ZodType } from 'zod'
 import { runWithCacheTenant, type CacheStrategy } from '@open-mercato/cache'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -7,16 +7,26 @@ import type { AnalyticsViewer } from './types'
 
 const logger = createLogger('insights').child({ component: 'xray-analytics-cache' })
 
-export const XRAY_ANALYTICS_CACHE_VERSION = 'v1'
+export const XRAY_ANALYTICS_CACHE_VERSION = 'v2'
 
 export const XRAY_ANALYTICS_CACHE_TTL_MS = 120_000
+
+/** Tenant-scoped key of the shared invalidation generation (a random token per invalidation). */
+export const XRAY_ANALYTICS_GENERATION_KEY = `insights:xray:${XRAY_ANALYTICS_CACHE_VERSION}:generation`
+
+/** Lifetime of the generation token: far beyond any computation and the result TTL. */
+export const XRAY_ANALYTICS_GENERATION_TTL_MS = 10 * 60_000
 
 export const XRAY_ANALYTICS_TAG = 'insights:xray:analytics'
 
 export const XRAY_ANALYTICS_TENANT_WIDE_TAG = 'insights:xray:tenant-wide'
 
 export function organizationCacheTag(organizationId: string): string {
-  return `insights:xray:org:${organizationId}`
+  return `insights:xray:org:${organizationId.toLowerCase()}`
+}
+
+function canonicalIds(organizationIds: readonly string[]): string[] {
+  return Array.from(new Set(organizationIds.map((organizationId) => organizationId.toLowerCase()))).sort((left, right) => left.localeCompare(right))
 }
 
 /**
@@ -26,7 +36,7 @@ export function organizationCacheTag(organizationId: string): string {
 export function analyticsCacheTags(organizationIds: readonly string[] | null): string[] {
   const tags = organizationIds === null
     ? [XRAY_ANALYTICS_TENANT_WIDE_TAG]
-    : Array.from(new Set(organizationIds)).sort((left, right) => left.localeCompare(right)).map(organizationCacheTag)
+    : canonicalIds(organizationIds).map(organizationCacheTag)
   return [...tags, XRAY_ANALYTICS_TAG]
 }
 
@@ -68,19 +78,21 @@ export type AnalyticsCacheKeyInput = {
   params: unknown
 }
 
-/** Cache key of one analytics result: tenant, organization filter, permissions, settings, params. */
+/**
+ * Cache key of one analytics result: tenant, organization filter, permissions, settings,
+ * params. Tenant and organization ids are compared lower-case.
+ */
 export function buildAnalyticsCacheKey(input: AnalyticsCacheKeyInput): string {
-  const organizationIds = input.organizationIds === null
-    ? null
-    : Array.from(new Set(input.organizationIds)).sort((left, right) => left.localeCompare(right))
+  const tenantId = input.tenantId.toLowerCase()
+  const organizationIds = input.organizationIds === null ? null : canonicalIds(input.organizationIds)
   const digest = sha256(canonicalJson({
-    tenantId: input.tenantId,
+    tenantId,
     organizationIds,
     permissions: input.permissionFingerprint,
     settings: input.settingsFingerprint,
     params: input.params,
   }))
-  return `insights:xray:${XRAY_ANALYTICS_CACHE_VERSION}:${input.operation}:${input.tenantId}:${digest}`
+  return `insights:xray:${XRAY_ANALYTICS_CACHE_VERSION}:${input.operation}:${tenantId}:${digest}`
 }
 
 type InflightEntry = {
@@ -133,21 +145,62 @@ export type AnalyticsCache = {
   invalidate: (tenantId: string, organizationIds: readonly string[]) => Promise<void>
 }
 
+type GenerationSnapshot = {
+  local: number[]
+  shared: string | null
+  readable: boolean
+}
+
+function sameGeneration(before: GenerationSnapshot, after: GenerationSnapshot): boolean {
+  return before.readable
+    && after.readable
+    && before.shared === after.shared
+    && before.local.length === after.local.length
+    && before.local.every((generation, index) => generation === after.local[index])
+}
+
+function readToken(value: unknown): string | null {
+  if (!value || typeof value !== 'object') return null
+  const token = (value as { token?: unknown }).token
+  return typeof token === 'string' ? token : null
+}
+
 /**
  * Read-through cache of analytics results over the DI cache service (tenant-scoped through
- * `runWithCacheTenant`, tag invalidation per organization) with single-flight: concurrent
- * identical requests share one computation. A result computed while its tags were
- * invalidated is returned but not stored, and an invalidation detaches in-flight
- * computations so later callers start fresh. Cached values are validated against the result
- * schema; a cache failure degrades to a live computation.
+ * `runWithCacheTenant`, tag invalidation per organization) with process-local single-flight:
+ * concurrent identical requests share one computation. Invalidation is ordered "generation
+ * first, then `deleteByTags`": it bumps a process-local generation per tag and writes a fresh
+ * random token under the tenant's shared generation key in the cache service itself, so on a
+ * shared strategy (Redis, SQLite) an invalidation from a worker process is seen by web
+ * processes. A computation stores its result only when the generations read before it started
+ * still hold afterwards, and re-reads them after the write, deleting the entry when an
+ * invalidation slipped in between (an invalidation after that re-read deletes the entry with
+ * its own `deleteByTags`). Any shared-generation read failure skips the write. Residual: the
+ * memory strategy is per process anyway (another process's invalidation never reaches it), and
+ * every entry expires after `XRAY_ANALYTICS_CACHE_TTL_MS` (120 s). The shared generation is
+ * per tenant, so an organization's invalidation also skips writes of other organizations'
+ * computations in flight. Cached values are validated against the result schema; a cache
+ * failure degrades to a live computation.
  */
 export function createAnalyticsCache(cache: CacheStrategy | null, state: AnalyticsCacheState = sharedAnalyticsCacheState()): AnalyticsCache {
-  const generationsOf = (tenantId: string, tags: readonly string[]) => tags.map((tag) => state.generations.get(generationKey(tenantId, tag)) ?? 0)
+  const localGenerations = (tenantId: string, tags: readonly string[]) => tags.map((tag) => state.generations.get(generationKey(tenantId, tag)) ?? 0)
 
-  async function read<TValue>(entry: CachedComputation<TValue>): Promise<TValue | null> {
+  async function snapshot(tenantId: string, tags: readonly string[]): Promise<GenerationSnapshot> {
+    const local = localGenerations(tenantId, tags)
+    if (!cache) return { local, shared: null, readable: true }
+    try {
+      const stored = await runWithCacheTenant(tenantId, () => cache.get(XRAY_ANALYTICS_GENERATION_KEY))
+      return { local, shared: readToken(stored), readable: true }
+    } catch (error) {
+      reportCacheFailure('get_generation', error)
+      return { local, shared: null, readable: false }
+    }
+  }
+
+  async function read<TValue>(entry: CachedComputation<TValue>, tenantId: string): Promise<TValue | null> {
     if (!cache) return null
     try {
-      const stored = await runWithCacheTenant(entry.tenantId, () => cache.get(entry.key))
+      const stored = await runWithCacheTenant(tenantId, () => cache.get(entry.key))
       if (stored === null || stored === undefined) return null
       const parsed = entry.schema.safeParse(stored)
       return parsed.success ? parsed.data : null
@@ -157,10 +210,10 @@ export function createAnalyticsCache(cache: CacheStrategy | null, state: Analyti
     }
   }
 
-  async function write<TValue>(entry: CachedComputation<TValue>, value: TValue): Promise<void> {
+  async function write<TValue>(entry: CachedComputation<TValue>, tenantId: string, value: TValue): Promise<void> {
     if (!cache) return
     try {
-      await runWithCacheTenant(entry.tenantId, () => cache.set(entry.key, structuredClone(value), {
+      await runWithCacheTenant(tenantId, () => cache.set(entry.key, structuredClone(value), {
         ttl: entry.ttlMs ?? XRAY_ANALYTICS_CACHE_TTL_MS,
         tags: [...entry.tags],
       }))
@@ -169,20 +222,34 @@ export function createAnalyticsCache(cache: CacheStrategy | null, state: Analyti
     }
   }
 
+  async function remove(key: string, tenantId: string): Promise<void> {
+    if (!cache) return
+    try {
+      await runWithCacheTenant(tenantId, () => cache.delete(key))
+    } catch (error) {
+      reportCacheFailure('delete', error)
+    }
+  }
+
   async function getOrCompute<TValue>(entry: CachedComputation<TValue>, compute: () => Promise<TValue>): Promise<TValue> {
-    const cached = await read(entry)
+    const tenantId = entry.tenantId.toLowerCase()
+    const cached = await read(entry, tenantId)
     if (cached !== null) return cached
     const running = state.inflight.get(entry.key)
-    if (running && running.tenantId === entry.tenantId) return entry.schema.parse(await running.promise)
-    const before = generationsOf(entry.tenantId, entry.tags)
-    const promise = compute()
-    const inflight: InflightEntry = { tenantId: entry.tenantId, tags: entry.tags, promise }
+    if (running && running.tenantId === tenantId) return entry.schema.parse(await running.promise)
+    const started: { generations: GenerationSnapshot | null } = { generations: null }
+    const promise = (async () => {
+      started.generations = await snapshot(tenantId, entry.tags)
+      return compute()
+    })()
+    const inflight: InflightEntry = { tenantId, tags: entry.tags, promise }
     state.inflight.set(entry.key, inflight)
     try {
       const value = await promise
-      const after = generationsOf(entry.tenantId, entry.tags)
-      if (state.inflight.get(entry.key) === inflight && before.every((generation, index) => generation === after[index])) {
-        await write(entry, value)
+      const before = started.generations
+      if (cache && before && state.inflight.get(entry.key) === inflight && sameGeneration(before, await snapshot(tenantId, entry.tags))) {
+        await write(entry, tenantId, value)
+        if (!sameGeneration(before, await snapshot(tenantId, entry.tags))) await remove(entry.key, tenantId)
       }
       return value
     } finally {
@@ -191,17 +258,23 @@ export function createAnalyticsCache(cache: CacheStrategy | null, state: Analyti
   }
 
   async function invalidate(tenantId: string, organizationIds: readonly string[]): Promise<void> {
-    const tags = [...organizationIds.map(organizationCacheTag), XRAY_ANALYTICS_TENANT_WIDE_TAG]
+    const tenant = tenantId.toLowerCase()
+    const tags = [...canonicalIds(organizationIds).map(organizationCacheTag), XRAY_ANALYTICS_TENANT_WIDE_TAG]
     for (const tag of tags) {
-      const key = generationKey(tenantId, tag)
+      const key = generationKey(tenant, tag)
       state.generations.set(key, (state.generations.get(key) ?? 0) + 1)
     }
     for (const [key, entry] of Array.from(state.inflight.entries())) {
-      if (entry.tenantId === tenantId && entry.tags.some((tag) => tags.includes(tag))) state.inflight.delete(key)
+      if (entry.tenantId === tenant && entry.tags.some((tag) => tags.includes(tag))) state.inflight.delete(key)
     }
     if (!cache) return
     try {
-      await runWithCacheTenant(tenantId, () => cache.deleteByTags(tags))
+      await runWithCacheTenant(tenant, () => cache.set(XRAY_ANALYTICS_GENERATION_KEY, { token: randomUUID() }, { ttl: XRAY_ANALYTICS_GENERATION_TTL_MS }))
+    } catch (error) {
+      reportCacheFailure('set_generation', error)
+    }
+    try {
+      await runWithCacheTenant(tenant, () => cache.deleteByTags(tags))
     } catch (error) {
       reportCacheFailure('delete_by_tags', error)
     }

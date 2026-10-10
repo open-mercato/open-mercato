@@ -34,11 +34,15 @@ export type AnalyticsEventRow = {
   followupValue: string | null
 }
 
-/** The stored case summary, used for cases whose history is longer than the per-case read. */
+/**
+ * The stored case summary: start, end and status for cases whose history is longer than the
+ * per-case read, and the stored `variant_hash` (the drill-down key of `listCases`).
+ */
 export type CaseRowSummary = {
   startedAt: string | null
   endedAt: string | null
   status: string | null
+  variantHash: string | null
 }
 
 export type AnalyticsEvent = {
@@ -76,6 +80,7 @@ export type CaseTrace = {
   endedAt: string | null
   endedAtMs: number | null
   status: CaseStatusAsOf
+  storedVariantHash: string | null
 }
 
 export type CorrectionGroup = {
@@ -201,6 +206,7 @@ export function buildCaseTrace(input: {
   const complete = beforeEnd.length <= input.perCaseLimit
   const rows = complete ? beforeEnd : beforeEnd.slice(beforeEnd.length - input.perCaseLimit)
   const events = toEvents(rows, input.window)
+  const storedVariantHash = input.caseRow?.variantHash ?? null
   if (complete && rows.length > 0) {
     const summary = summarizeCase(input.process, rows.map(toCaseEventRow))
     if (summary) {
@@ -214,6 +220,7 @@ export function buildCaseTrace(input: {
         endedAt: summary.endedAt,
         endedAtMs: summary.endedAt ? parseIsoMs(summary.endedAt) : null,
         status: summary.status,
+        storedVariantHash,
       }
     }
   }
@@ -231,6 +238,7 @@ export function buildCaseTrace(input: {
     endedAt: endedBeforeWindowEnd ? storedEnd : null,
     endedAtMs: endedBeforeWindowEnd ? storedEndMs : null,
     status: endedBeforeWindowEnd ? readStatus(input.caseRow?.status ?? null) : 'open',
+    storedVariantHash,
   }
 }
 

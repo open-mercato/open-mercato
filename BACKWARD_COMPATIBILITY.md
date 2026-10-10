@@ -679,3 +679,12 @@ Phase 5 of [`.ai/specs/2026-10-08-insights-process-xray.md`](.ai/specs/2026-10-0
 | Event IDs, widget spot IDs, notification IDs, AI tool IDs | No change | ✓ n/a |
 
 **Migration path for existing modules**: none. A module opts in by adding `insights.process.ts` and running `yarn generate`. Operators run the migrations, `yarn mercato auth sync-role-acls`, and optionally `yarn mercato insights xray:backfill` (see UPGRADE_NOTES.md).
+
+### Retained access-log resource kinds (Process X-Ray analytics, 2026-10-10)
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| §3 Function signatures / §4 import paths (`@open-mercato/core/modules/audit_logs/services/accessLogService`) | New exports `registerRetainedAccessLogResourceKinds(kinds: readonly string[]): void` (globalThis-backed, additive, idempotent; blank values ignored) and `listRetainedAccessLogResourceKinds(): string[]` (core kinds `auth.user`, `auth.role` plus every registered kind). `AccessLogService` rotation keeps the listed kinds under `AUDIT_LOGS_CORE_RETENTION_DAYS` and deletes every other kind after `AUDIT_LOGS_NON_CORE_RETENTION_HOURS`, as before; existing methods and env variables unchanged | ✓ ADDITIVE; STABLE |
+| Retention behavior | The `insights` module registers `insights.xray.individuals` from its DI `register`, so per-person X-Ray access rows follow the core retention (default 7 days) instead of 8 hours | ✓ ADDITIVE (rows kept longer, never shorter) |
+
+The `audit_logs` module does not import or know the registering modules (the dependency points from `insights` to `audit_logs`, which it already `requires`).

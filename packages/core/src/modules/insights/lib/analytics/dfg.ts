@@ -1,5 +1,5 @@
 import { buildEnvelope, type BuildContext } from './envelope'
-import { createSuppressionTally, suppressionReason } from './stats'
+import { createSuppressionTally, suppressCells } from './stats'
 import { addCause, emptyCauseCounts, type AnalyticsEvent, type PreparedCase } from './trace'
 import { isInWindow } from './window'
 import {
@@ -20,9 +20,9 @@ type MapCell = {
   causes: CauseCounts
 }
 
-type NodeCell = MapCell & { activityKey: string; activityKind: string }
+type NodeCell = MapCell & { activityKey: string; activityKind: string; debounced: number; corrected: number }
 
-type EdgeCell = MapCell & { from: string; to: string }
+type EdgeCell = MapCell & { from: string; to: string; rawCases: Set<string> }
 
 function emptyCell(): MapCell {
   return { raw: 0, collapsed: 0, cases: new Set(), actors: new Set(), causes: emptyCauseCounts() }
@@ -37,14 +37,27 @@ function compareCells(left: MapCell, right: MapCell): number {
   return right.raw - left.raw
 }
 
+function edgeKey(from: string, to: string): string {
+  return JSON.stringify([from, to])
+}
+
+function distinctCasesOf(cells: readonly EdgeCell[]): number {
+  const cases = new Set<string>()
+  for (const cell of cells) for (const caseKey of cell.rawCases) cases.add(caseKey)
+  return cases.size
+}
+
 /**
  * Directly-follows graph of the window. A transition counts when its target event lies in the
  * window (its source may be earlier in the case). Every node and edge carries both the raw
  * count and the count after debounce/correction collapse (X4), and the cause kinds of its
  * collapsed target events (X6: automated steps stay in the graph, `legacy` is never human).
- * `__start__` edges come from complete traces only; `__end__` edges from cases that completed
- * or were deleted in the window. Cells under the k-anonymity / distinct-actor thresholds are
- * suppressed.
+ * A `__start__` edge is drawn only when the (filtered) sequence starts with the first event of
+ * a complete trace, an `__end__` edge only when it ends with the trace's last event and the
+ * case completed or was deleted in the window. Nodes and edges are suppressed under the
+ * k-anonymity / distinct-actor thresholds with complementary suppression per dimension; once
+ * a cell is suppressed, the event totals (nodes) and `casesStarted` / `casesEnded` (edges) are
+ * sums over the visible cells only.
  */
 export function buildProcessMap(cases: readonly PreparedCase[], context: BuildContext): ProcessMapResult {
   const population = cases.filter((prepared) => prepared.touchesWindow)
@@ -58,15 +71,15 @@ export function buildProcessMap(cases: readonly PreparedCase[], context: BuildCo
   const nodeFor = (event: AnalyticsEvent): NodeCell => {
     const existing = nodes.get(event.activityKey)
     if (existing) return existing
-    const created: NodeCell = { ...emptyCell(), activityKey: event.activityKey, activityKind: event.activityKind }
+    const created: NodeCell = { ...emptyCell(), activityKey: event.activityKey, activityKind: event.activityKind, debounced: 0, corrected: 0 }
     nodes.set(event.activityKey, created)
     return created
   }
   const edgeFor = (from: string, to: string): EdgeCell => {
-    const key = JSON.stringify([from, to])
+    const key = edgeKey(from, to)
     const existing = edges.get(key)
     if (existing) return existing
-    const created: EdgeCell = { ...emptyCell(), from, to }
+    const created: EdgeCell = { ...emptyCell(), from, to, rawCases: new Set() }
     edges.set(key, created)
     return created
   }
@@ -76,6 +89,10 @@ export function buildProcessMap(cases: readonly PreparedCase[], context: BuildCo
     if (event.actor) cell.actors.add(event.actor)
     if (mode === 'collapsed') addCause(cell.causes, event)
   }
+  const touchEdge = (cell: EdgeCell, mode: SequenceMode, caseKey: string, event: AnalyticsEvent) => {
+    touch(cell, mode, caseKey, event)
+    if (mode === 'raw') cell.rawCases.add(caseKey)
+  }
 
   for (const prepared of population) {
     const caseKey = caseKeyOf(prepared)
@@ -84,51 +101,62 @@ export function buildProcessMap(cases: readonly PreparedCase[], context: BuildCo
     const endsInWindow = (trace.status === 'completed' || trace.status === 'deleted')
       && trace.endedAtMs !== null
       && isInWindow(trace.endedAtMs, context.window)
-    const sequences: Array<[SequenceMode, AnalyticsEvent[]]> = [['raw', prepared.filteredRaw], ['collapsed', prepared.filteredCollapsed]]
-    for (const [mode, sequence] of sequences) {
+    const sequences: Array<[SequenceMode, AnalyticsEvent[], readonly AnalyticsEvent[]]> = [
+      ['raw', prepared.filteredRaw, trace.events],
+      ['collapsed', prepared.filteredCollapsed, prepared.collapsed],
+    ]
+    for (const [mode, sequence, unfiltered] of sequences) {
+      const traceFirst = unfiltered[0]
+      const traceLast = unfiltered[unfiltered.length - 1]
       sequence.forEach((event, position) => {
         if (!event.inWindow) return
         totals[mode] += 1
         touch(nodeFor(event), mode, caseKey, event)
-        const from = position === 0 ? (trace.complete ? XRAY_MAP_START : null) : sequence[position - 1].activityKey
+        const startsTrace = position === 0 && trace.complete && traceFirst !== undefined && event.index === traceFirst.index
+        const from = position === 0 ? (startsTrace ? XRAY_MAP_START : null) : sequence[position - 1].activityKey
         if (from === null) return
         if (from === XRAY_MAP_START && mode === 'raw') started.add(caseKey)
-        touch(edgeFor(from, event.activityKey), mode, caseKey, event)
+        touchEdge(edgeFor(from, event.activityKey), mode, caseKey, event)
       })
       const last = sequence[sequence.length - 1]
-      if (endsInWindow && last) {
+      if (endsInWindow && last && traceLast !== undefined && last.index === traceLast.index) {
         if (mode === 'raw') ended.add(caseKey)
-        touch(edgeFor(last.activityKey, XRAY_MAP_END), mode, caseKey, last)
+        touchEdge(edgeFor(last.activityKey, XRAY_MAP_END), mode, caseKey, last)
       }
     }
-    totals.debounced += prepared.filteredDebounced.filter((event) => event.inWindow).length
+    for (const event of prepared.filteredDebounced) {
+      if (!event.inWindow) continue
+      totals.debounced += 1
+      const node = nodes.get(event.activityKey)
+      if (node) node.debounced += 1
+    }
     for (const group of prepared.filteredCorrections) {
-      if (group.inWindow) totals.corrected += group.events.length
+      if (!group.inWindow) continue
+      totals.corrected += group.events.length
+      const node = nodes.get(group.activityKey)
+      if (node) node.corrected += group.events.length
     }
   }
 
   const tally = createSuppressionTally()
-  const visible = <TCell extends MapCell>(cells: Iterable<TCell>): TCell[] => {
-    const kept: TCell[] = []
-    for (const cell of cells) {
-      const reason = suppressionReason({ cases: cell.cases.size, actors: cell.actors.size }, context.k)
-      if (reason) tally.record(reason)
-      else kept.push(cell)
-    }
-    return kept
-  }
-  const visibleNodes = visible(nodes.values()).sort((left, right) => compareCells(left, right) || left.activityKey.localeCompare(right.activityKey))
-  const visibleEdges = visible(edges.values()).sort((left, right) => compareCells(left, right)
+  const nodeOutcome = suppressCells(Array.from(nodes.values()), (cell) => ({ key: cell.activityKey, cases: cell.cases, actors: cell.actors }), context.k, tally)
+  const edgeOutcome = suppressCells(Array.from(edges.values()), (cell) => ({ key: edgeKey(cell.from, cell.to), cases: cell.cases, actors: cell.actors }), context.k, tally)
+  const visibleNodes = nodeOutcome.visible.sort((left, right) => compareCells(left, right) || left.activityKey.localeCompare(right.activityKey))
+  const visibleEdges = edgeOutcome.visible.sort((left, right) => compareCells(left, right)
     || left.from.localeCompare(right.from)
     || left.to.localeCompare(right.to))
   const shownNodes = visibleNodes.slice(0, XRAY_ANALYTICS_LIMITS.maxMapNodes)
   const shownEdges = visibleEdges.slice(0, XRAY_ANALYTICS_LIMITS.maxMapEdges)
+  const sumNodes = (pick: (cell: NodeCell) => number) => visibleNodes.reduce((total, cell) => total + pick(cell), 0)
+  const events = nodeOutcome.anySuppressed
+    ? { raw: sumNodes((cell) => cell.raw), collapsed: sumNodes((cell) => cell.collapsed), debounced: sumNodes((cell) => cell.debounced), corrected: sumNodes((cell) => cell.corrected) }
+    : totals
 
   return {
     ...buildEnvelope(context.envelope, population.length, tally.summary()),
-    events: totals,
-    casesStarted: started.size,
-    casesEnded: ended.size,
+    events,
+    casesStarted: edgeOutcome.anySuppressed ? distinctCasesOf(visibleEdges.filter((cell) => cell.from === XRAY_MAP_START)) : started.size,
+    casesEnded: edgeOutcome.anySuppressed ? distinctCasesOf(visibleEdges.filter((cell) => cell.to === XRAY_MAP_END)) : ended.size,
     truncatedCases,
     nodes: shownNodes.map((cell) => ({
       activityKey: cell.activityKey,

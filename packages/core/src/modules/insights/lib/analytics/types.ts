@@ -64,6 +64,9 @@ const VARIANT_HASH_PATTERN = /^[0-9a-f]{64}$/
 
 const count = () => z.number().int().nonnegative()
 
+/** A UUID in its canonical lower-case spelling (the database returns ids lower-case). */
+const canonicalUuid = () => z.string().uuid().transform((value) => value.toLowerCase())
+
 export const isoDateTimeSchema = z
   .string()
   .max(64)
@@ -71,14 +74,14 @@ export const isoDateTimeSchema = z
   .refine((value) => Number.isFinite(Date.parse(value)), { message: 'invalid date-time' })
 
 export const analyticsScopeSchema = z.object({
-  tenantId: z.string().uuid(),
-  organizationIds: z.array(z.string().uuid()).max(XRAY_ANALYTICS_LIMITS.maxOrganizationIds).nullable(),
+  tenantId: canonicalUuid(),
+  organizationIds: z.array(canonicalUuid()).max(XRAY_ANALYTICS_LIMITS.maxOrganizationIds).nullable(),
 })
 
 export type AnalyticsScope = z.infer<typeof analyticsScopeSchema>
 
 export const analyticsViewerSchema = z.object({
-  userId: z.string().uuid().nullable(),
+  userId: canonicalUuid().nullable(),
   features: z.array(z.string().min(1).max(200)).max(5000),
   canViewIndividuals: z.boolean(),
 })
@@ -95,8 +98,8 @@ export type WindowInput = z.infer<typeof windowInputSchema>
 export const analyticsFiltersSchema = z
   .object({
     causeKinds: z.array(z.string().regex(CAUSE_KIND_PATTERN)).min(1).max(20).optional(),
-    actorRoleIds: z.array(z.string().uuid()).min(1).max(50).optional(),
-    actorTeamIds: z.array(z.string().uuid()).min(1).max(50).optional(),
+    actorRoleIds: z.array(canonicalUuid()).min(1).max(50).optional(),
+    actorTeamIds: z.array(canonicalUuid()).min(1).max(50).optional(),
     includeSyncRun: z.boolean().optional(),
   })
   .strict()
@@ -161,11 +164,20 @@ export type DesignedProcessModel = z.infer<typeof designedModelSchema>
 
 export const conformanceRequestSchema = analyticsRequestSchema.extend({
   models: z.array(designedModelSchema).min(1).max(XRAY_ANALYTICS_LIMITS.maxModels),
-  caseModelKeys: z.record(z.string().uuid(), z.string().min(1).max(200)).optional(),
+  caseModelKeys: z
+    .record(z.string().uuid(), z.string().min(1).max(200))
+    .transform((keys) => Object.fromEntries(Object.entries(keys).map(([caseId, modelKey]) => [caseId.toLowerCase(), modelKey])))
+    .optional(),
 })
 
 export type ConformanceRequestInput = z.input<typeof conformanceRequestSchema>
 
+/**
+ * A case-id listing of the analytics population of the window. `variantHash` / `variantHashes`
+ * drill into variants by the STORED `variant_hash` of the cases (the `rawVariantHashes` a
+ * variants item reports, not its collapsed `variantHash`) and restrict the listing to cases
+ * completed in the window, like the variants.
+ */
 export const listCasesRequestSchema = analyticsRequestSchema.extend({
   pageSize: z.number().int().min(1).max(XRAY_ANALYTICS_LIMITS.maxPageSize).default(XRAY_ANALYTICS_LIMITS.defaultPageSize),
   cursor: z.string().min(1).max(400).nullable().optional(),
@@ -213,6 +225,7 @@ export const suppressionSummarySchema = z.object({
   cells: count(),
   minCases: count(),
   minActors: count(),
+  complementary: count(),
 })
 
 export type SuppressionSummary = z.infer<typeof suppressionSummarySchema>
@@ -233,6 +246,7 @@ const envelopeShape = {
   n: count(),
   lowConfidence: z.boolean(),
   computedThrough: z.string().nullable(),
+  incomplete: z.boolean(),
   kAnonymity: count(),
   suppressed: suppressionSummarySchema,
   source: z.enum(['live', 'rollup']),
@@ -276,6 +290,7 @@ export const variantsResultSchema = z.object({
   items: z.array(z.object({
     variantHash: z.string(),
     rawVariantHashes: z.array(z.string()),
+    rawVariantHashesTruncated: z.boolean(),
     activityKeys: z.array(z.string()),
     cases: count(),
     share: z.number().min(0).max(1),
@@ -287,12 +302,14 @@ export const variantsResultSchema = z.object({
 export type VariantsResult = z.infer<typeof variantsResultSchema>
 
 const completedDurationsSchema = z.object({
+  empty: z.boolean(),
   stats: durationStatsSchema,
   histogram: ageHistogramSchema,
   excludedSyncRun: count(),
 })
 
 const openDurationsSchema = z.object({
+  empty: z.boolean(),
   censored: z.literal(true),
   asOf: z.string(),
   stats: durationStatsSchema,
@@ -303,8 +320,8 @@ export const durationsResultSchema = z.object({
   ...envelopeShape,
   includeSyncRun: z.boolean(),
   truncatedCases: count(),
-  completed: completedDurationsSchema,
-  open: openDurationsSchema,
+  completed: completedDurationsSchema.nullable(),
+  open: openDurationsSchema.nullable(),
   byOrganization: z.array(z.object({
     organizationId: z.string(),
     completed: completedDurationsSchema.nullable(),
@@ -325,7 +342,7 @@ export const bottlenecksResultSchema = z.object({
     rawTransitions: count(),
     cases: count(),
     wait: durationStatsSchema,
-    totalWaitMs: z.number().nonnegative(),
+    totalWaitMs: z.number().nonnegative().nullable(),
   })),
   omitted: count(),
 })
@@ -386,11 +403,11 @@ export const conformanceModelResultSchema = z.object({
     version: z.number().int().nullable(),
   }),
   n: count(),
-  conformingCases: count(),
+  conformingCases: count().nullable(),
   fitness: z.number().min(0).max(1).nullable(),
   fitnessLowerBound: z.number().min(0).max(1).nullable(),
   lowConfidence: z.boolean(),
-  transitions: z.object({ total: count(), allowed: count() }),
+  transitions: z.object({ total: count(), allowed: count() }).nullable(),
   deviations: z.array(z.object({
     kind: z.enum(CONFORMANCE_DEVIATION_KINDS),
     from: z.string().nullable(),
@@ -434,13 +451,14 @@ export const caseListResultSchema = z.object({
   window: resolvedWindowSchema,
   n: count(),
   computedThrough: z.string().nullable(),
+  incomplete: z.boolean(),
   items: z.array(z.object({ caseId: z.string(), organizationId: z.string() })),
   nextCursor: z.string().nullable(),
 })
 
 export type CaseListResult = z.infer<typeof caseListResultSchema>
 
-export const XRAY_ROLLUP_METRICS_VERSION = 1
+export const XRAY_ROLLUP_METRICS_VERSION = 2
 
 export const rollupMetricsSchema = z.object({
   version: z.literal(XRAY_ROLLUP_METRICS_VERSION),

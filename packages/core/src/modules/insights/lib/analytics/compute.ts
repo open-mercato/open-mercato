@@ -2,13 +2,17 @@ import { createHash } from 'node:crypto'
 import type { RegisteredProcess } from '../process/registry'
 import type { OpenCensus } from './durations'
 import type { BuildContext } from './envelope'
+import { AnalyticsFilterTooNarrowError } from './errors'
 import {
+  loadActorFilterCensus,
   loadCaseEvents,
   loadOpenCensus,
-  readComputedThrough,
+  readProjectionState,
   readTransactionNow,
+  type ActorFilterFacts,
   type AnalyticsDb,
   type AnalyticsTrx,
+  type ProjectionState,
   type QueryScope,
 } from './query'
 import { effectiveKAnonymity } from './stats'
@@ -17,6 +21,7 @@ import { toWindowView, type ResolvedWindow } from './window'
 import {
   XRAY_ANALYTICS_LIMITS,
   XRAY_DEFAULT_DEBOUNCE_SECONDS,
+  XRAY_STATS_GUARDS,
   type AnalyticsFilters,
   type AnalyticsOrgSettings,
   type ScopeSettings,
@@ -50,14 +55,18 @@ function debounceMsOf(settings: AnalyticsOrgSettings | undefined): number {
 /**
  * Folds the settings of every organization in scope into the values one call applies: the
  * strictest k (never below the minimum), each organization's own debounce window, and the
- * individuals switch only when every organization enabled it (fail closed). The fingerprint
- * keys caches and rollups, so a settings change never serves results computed under old ones.
+ * individuals switch only when every organization enabled it (fail closed). Organization ids
+ * are compared lower-case. The fingerprint keys caches and rollups, so a settings change never
+ * serves results computed under old ones.
  */
 export function foldScopeSettings(
   organizationIds: readonly string[],
-  settingsByOrganization: ReadonlyMap<string, AnalyticsOrgSettings>,
+  loadedSettings: ReadonlyMap<string, AnalyticsOrgSettings>,
 ): ScopeSettings {
-  const sorted = Array.from(new Set(organizationIds)).sort((left, right) => left.localeCompare(right))
+  const settingsByOrganization = new Map<string, AnalyticsOrgSettings>()
+  for (const [organizationId, settings] of loadedSettings) settingsByOrganization.set(organizationId.toLowerCase(), settings)
+  const sorted = Array.from(new Set(organizationIds.map((organizationId) => organizationId.toLowerCase())))
+    .sort((left, right) => left.localeCompare(right))
   const debounceMsByOrganization = new Map<string, number>()
   let kAnonymity = effectiveKAnonymity(undefined)
   const canonical: Array<[string, number, number, boolean]> = []
@@ -74,7 +83,7 @@ export function foldScopeSettings(
   return { organizationIds: sorted, kAnonymity, debounceMsByOrganization, individualsEnabled, fingerprint }
 }
 
-export function createBuildContext(input: LiveComputeInput, computedThrough: string | null): BuildContext {
+export function createBuildContext(input: LiveComputeInput, state: ProjectionState): BuildContext {
   const organizationIds = input.scope.organizationIds === null
     ? null
     : Array.from(new Set(input.scope.organizationIds)).sort((left, right) => left.localeCompare(right))
@@ -86,7 +95,8 @@ export function createBuildContext(input: LiveComputeInput, computedThrough: str
       processKey: input.process.processKey,
       organizationIds,
       window: toWindowView(input.window),
-      computedThrough,
+      computedThrough: state.computedThrough,
+      incomplete: state.incomplete,
       kAnonymity: input.settings.kAnonymity,
       source: input.source,
     },
@@ -101,25 +111,69 @@ function censusAsOf(input: LiveComputeInput): string {
 export function emptyDataset(input: LiveComputeInput): LiveDataset {
   return {
     prepared: [],
-    context: createBuildContext(input, null),
+    context: createBuildContext(input, { computedThrough: null, incomplete: false }),
     census: { asOf: censusAsOf(input), overall: { n: 0, medianMs: null, p90Ms: null, buckets: {} }, byOrganization: new Map() },
     transactionNow: null,
   }
 }
 
+function passesActorRule(facts: ActorFilterFacts | undefined, k: number): boolean {
+  return facts !== undefined && facts.cases >= k && facts.actors >= XRAY_STATS_GUARDS.minDistinctActors
+}
+
 /**
- * Loads one consistent snapshot for the builders: the projection's `computedThrough`, the
- * traces of the cases active in the window (debounce/correction collapse applied per
- * organization's settings, filters applied) and, when asked, the open-case census.
+ * Refuses actor role / team filters that would single out a small group (the k-anonymity and
+ * three-actor rules applied to the filter itself): every requested value on its own (with the
+ * other filters kept), and the filtered population as a whole, must cover at least k cases and
+ * three distinct actors in the scope and window. Checking each value defeats the "tracker"
+ * difference `[R1, R2]` minus `[R2]`. Throws `AnalyticsFilterTooNarrowError` (no counts).
+ */
+export async function assertActorFiltersAllowed(
+  trx: AnalyticsDb | AnalyticsTrx,
+  input: { scope: QueryScope; processKey: string; registeredKeys: readonly string[]; window: ResolvedWindow; filters: AnalyticsFilters; k: number },
+): Promise<void> {
+  const roleIds = input.filters.actorRoleIds ?? []
+  const teamIds = input.filters.actorTeamIds ?? []
+  if (roleIds.length === 0 && teamIds.length === 0) return
+  const census = await loadActorFilterCensus(trx, {
+    scope: input.scope,
+    processKey: input.processKey,
+    registeredKeys: input.registeredKeys,
+    from: input.window.from,
+    to: input.window.to,
+    filters: input.filters,
+  })
+  const narrow = roleIds.some((roleId) => !passesActorRule(census.roles.get(roleId.toLowerCase()), input.k))
+    || teamIds.some((teamId) => !passesActorRule(census.teams.get(teamId.toLowerCase()), input.k))
+    || !passesActorRule(census.population, input.k)
+  if (narrow) throw new AnalyticsFilterTooNarrowError()
+}
+
+/**
+ * Loads one consistent snapshot for the builders: the projection state (`computedThrough`,
+ * `incomplete`), the traces of the cases active in the window (debounce/correction collapse
+ * applied per organization's settings, filters applied) and, when asked, the open-case census.
+ * Actor role / team filters must pass `assertActorFiltersAllowed` first, except on the explicit
+ * per-person path (`perPerson`, which has passed the individuals gate).
  */
 export async function loadLiveDataset(
   trx: AnalyticsDb | AnalyticsTrx,
   input: LiveComputeInput,
-  options: { census: boolean; maxEvents?: number },
+  options: { census: boolean; maxEvents?: number; perPerson?: boolean },
 ): Promise<LiveDataset> {
   if (input.scope.organizationIds !== null && input.scope.organizationIds.length === 0) return emptyDataset(input)
+  if (options.perPerson !== true) {
+    await assertActorFiltersAllowed(trx, {
+      scope: input.scope,
+      processKey: input.process.processKey,
+      registeredKeys: input.registeredKeys,
+      window: input.window,
+      filters: input.filters,
+      k: input.settings.kAnonymity,
+    })
+  }
   const transactionNow = await readTransactionNow(trx)
-  const computedThrough = await readComputedThrough(trx, input.scope)
+  const state = await readProjectionState(trx, input.scope)
   const groups = await loadCaseEvents(trx, {
     scope: input.scope,
     processKey: input.process.processKey,
@@ -139,7 +193,7 @@ export async function loadLiveDataset(
       window: input.window,
       perCaseLimit: XRAY_ANALYTICS_LIMITS.maxEventsPerCase,
     })
-    const debounceMs = input.settings.debounceMsByOrganization.get(group.organizationId) ?? XRAY_DEFAULT_DEBOUNCE_SECONDS * 1000
+    const debounceMs = input.settings.debounceMsByOrganization.get(group.organizationId.toLowerCase()) ?? XRAY_DEFAULT_DEBOUNCE_SECONDS * 1000
     return prepareCase(trace, debounceMs, input.filters)
   })
   const census = options.census
@@ -150,5 +204,5 @@ export async function loadLiveDataset(
       asOf: censusAsOf(input),
     })
     : emptyDataset(input).census
-  return { prepared, context: createBuildContext(input, computedThrough), census, transactionNow }
+  return { prepared, context: createBuildContext(input, state), census, transactionNow }
 }
