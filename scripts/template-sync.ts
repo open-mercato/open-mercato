@@ -326,6 +326,17 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // intact'), and #4983 for the discussion.
   // { id: 'channel_discord', from: '@open-mercato/channel-discord' },`,
   },
+  carrier_inpost: {
+    source: `  { id: 'carrier_inpost', from: '@open-mercato/carrier-inpost' },`,
+    template: `  // InPost shipping carrier provider for the shipping_carriers hub. It stays
+  // disabled in the scaffold for the same reason as forms below: a module enabled
+  // in the template ships a generated fact sheet that the standalone AI harness
+  // must cover with an evaluation case (src/lib/module-facts-build.test.ts), so
+  // enabling it is a maintainer call that follows
+  // .ai/skills/om-refresh-standalone-harness/SKILL.md. Install
+  // @open-mercato/carrier-inpost and uncomment the line to use it.
+  // { id: 'carrier_inpost', from: '@open-mercato/carrier-inpost' },`,
+  },
   forms: {
     source: `  // Audit-grade questionnaire/form primitive — versioned definitions, append-only
   // submissions, role-sliced rendering, public runner + portal + embed surfaces.
