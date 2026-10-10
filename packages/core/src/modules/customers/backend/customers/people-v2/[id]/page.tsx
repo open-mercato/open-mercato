@@ -580,7 +580,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
               <PersonDetailTabs
                 activeTab={activeTab}
                 onTabChange={handleTabChange}
-                injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label }))}
+                injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label, priority: tab.priority }))}
                 activitiesCount={interactionCount}
                 dealsCount={dealCount}
                 companiesCount={companyCount}
