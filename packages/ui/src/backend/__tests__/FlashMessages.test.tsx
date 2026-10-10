@@ -125,6 +125,71 @@ describe('FlashMessages', () => {
     expect(screen.getAllByText('Project team updated.')).toHaveLength(1)
   })
 
+  /**
+   * Regression for #6402: on a full page load a page's mount effect can commit
+   * before any host attaches its listener, so the event used to be dropped and
+   * the user saw nothing. Rendering the flasher first reproduces that ordering.
+   */
+  it('shows a flash dispatched before any host was listening once a host mounts', () => {
+    function FlashesOnMount() {
+      React.useEffect(() => {
+        flash('Channel connected (gmail).', 'success')
+      }, [])
+      return null
+    }
+
+    renderWithProviders(
+      <>
+        <FlashesOnMount />
+        <FlashMessages />
+      </>,
+    )
+
+    expect(screen.getByText('Channel connected (gmail).')).toBeInTheDocument()
+    const badge = document.querySelector('[data-slot="alert-icon-badge"]')
+    expect(badge?.getAttribute('data-status')).toBe('success')
+  })
+
+  it('renders an early flash once when several hosts mount in the same commit', () => {
+    flash('This connection link was already used.', 'error')
+
+    renderWithProviders(
+      <>
+        <FlashMessages />
+        <FlashMessages />
+      </>,
+    )
+
+    expect(screen.getAllByText('This connection link was already used.')).toHaveLength(1)
+    const badge = document.querySelector('[data-slot="alert-icon-badge"]')
+    expect(badge?.getAttribute('data-status')).toBe('error')
+  })
+
+  it('does not replay an early flash to a host that mounts later', () => {
+    flash('Already delivered.', 'success')
+    const first = renderWithProviders(<FlashMessages />)
+    expect(screen.getByText('Already delivered.')).toBeInTheDocument()
+    first.unmount()
+
+    act(() => {
+      jest.advanceTimersByTime(0)
+    })
+
+    renderWithProviders(<FlashMessages />)
+    expect(screen.queryByText('Already delivered.')).not.toBeInTheDocument()
+  })
+
+  it('drops an undelivered flash that is older than the pending window', () => {
+    flash('Too old to show.', 'success')
+
+    act(() => {
+      jest.advanceTimersByTime(5001)
+    })
+
+    renderWithProviders(<FlashMessages />)
+    expect(screen.queryByText('Too old to show.')).not.toBeInTheDocument()
+  })
+
   it('auto-dismisses programmatic flashes', () => {
     renderWithProviders(<FlashMessages />)
 

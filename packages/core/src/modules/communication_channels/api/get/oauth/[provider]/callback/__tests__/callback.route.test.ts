@@ -4,7 +4,7 @@
  * Integration tests for GET /api/communication_channels/oauth/[provider]/callback
  *
  * Covers:
- * 1. Happy path — first callback succeeds and redirects with flash=connected
+ * 1. Happy path — first callback succeeds and redirects with oauth=connected
  * 2. Replay — same state + cookie replayed → redirects with code=replay, no channel row created
  * 3. Cache unavailable — cache DI binding resolves to undefined → redirects with code=state_store_unavailable
  */
@@ -153,7 +153,7 @@ describe('GET /api/communication_channels/oauth/[provider]/callback', () => {
 
   // ── Happy path ──────────────────────────────────────────────────────────────
 
-  it('happy path: first callback → redirect with flash=connected', async () => {
+  it('happy path: first callback → redirect with oauth=connected', async () => {
     const memCache = createMemoryCache()
     mockContainerResolve.mockImplementation((token: string) => {
       if (token === 'cache') return memCache
@@ -169,7 +169,7 @@ describe('GET /api/communication_channels/oauth/[provider]/callback', () => {
     expect(res.status).toBe(302)
     const location = res.headers.get('location')
     expect(location).toBeTruthy()
-    expect(location).toContain('flash=connected')
+    expect(location).toContain('oauth=connected')
     expect(mockCreateConnectedChannelRow).toHaveBeenCalledTimes(1)
   })
 

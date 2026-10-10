@@ -106,7 +106,6 @@
   "communication_channels.profile.flash.connected": "Channel connected.",
   "communication_channels.profile.flash.connectedWithProvider": "Channel connected ({provider}).",
   "communication_channels.profile.flash.error": "Failed to connect channel.",
-  "communication_channels.profile.flash.errorWithCode": "Failed to connect channel — {code}.",
   "communication_channels.profile.flash.replayedState": "This connection link was already used — please start the connection again.",
   "communication_channels.profile.flash.stateStoreUnavailable": "A server error prevented completing the connection. Please try again in a moment.",
   "communication_channels.profile.group": "Profile",

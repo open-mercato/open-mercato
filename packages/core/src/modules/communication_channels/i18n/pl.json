@@ -106,7 +106,6 @@
   "communication_channels.profile.flash.connected": "Kanał połączony.",
   "communication_channels.profile.flash.connectedWithProvider": "Kanał połączony ({provider}).",
   "communication_channels.profile.flash.error": "Nie udało się połączyć kanału.",
-  "communication_channels.profile.flash.errorWithCode": "Nie udało się połączyć kanału — {code}.",
   "communication_channels.profile.flash.replayedState": "Ten link połączenia został już użyty — rozpocznij połączenie ponownie.",
   "communication_channels.profile.flash.stateStoreUnavailable": "Błąd serwera uniemożliwił dokończenie połączenia. Spróbuj ponownie za chwilę.",
   "communication_channels.profile.group": "Profil",
