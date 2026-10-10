@@ -9,7 +9,9 @@ export const CUSTOMERS_DEAL_PROCESS_KEY = 'customers.deal'
  * deletion, its status and pipeline-stage changes, and owner hand-overs (the owner is stored
  * as a pseudonym). Snapshot paths and change keys match what the deal commands record
  * (`deal.*` in `snapshot_before` / `snapshot_after`, deep change keys derived by the command
- * bus). A deal ends when its status reaches a closed status.
+ * bus). A deal ends when its status reaches a closed status. Automation suggestions may draft
+ * `customers.deals.update` (workflow-safe; `status` and `pipelineStageId` are inputs of the same
+ * name, the deal id goes into `id`).
  */
 export const processConfig = defineProcessConfig({
   version: 1,
@@ -47,6 +49,7 @@ export const processConfig = defineProcessConfig({
         },
       ],
       endStates: [{ field: 'status', values: [...CLOSED_DEAL_STATUS_LIST] }],
+      automation: { updateCommandId: 'customers.deals.update' },
     },
   ],
 })

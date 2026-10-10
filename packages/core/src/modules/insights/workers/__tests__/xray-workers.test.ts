@@ -4,6 +4,7 @@ const runXrayBackfillJobMock = jest.fn(async () => 'completed')
 const failAbandonedXrayScanMock = jest.fn(async () => undefined)
 const runXrayRollupJobMock = jest.fn(async (..._args: unknown[]): Promise<unknown> => ({ status: 'done', processes: 1, written: 3, skipped: 0, pruned: 0 }))
 const ensureXrayIngestScheduleMock = jest.fn(async () => true)
+const runXraySuggestionJobMock = jest.fn(async (..._args: unknown[]): Promise<unknown> => ({ status: 'done', processes: 1, skippedProcesses: [], found: 1, alreadyAutomated: 0, written: 1, superseded: 0 }))
 const reportErrorMock = jest.fn()
 const container = { resolve: jest.fn() }
 
@@ -17,6 +18,10 @@ jest.mock('../../lib/projection/jobs', () => ({
   runXrayBackfillJob: (...args: unknown[]) => runXrayBackfillJobMock(...(args as [])),
   failAbandonedXrayScan: (...args: unknown[]) => failAbandonedXrayScanMock(...(args as [])),
   runXrayRollupJob: (...args: unknown[]) => runXrayRollupJobMock(...args),
+}))
+
+jest.mock('../../lib/suggestions/job', () => ({
+  runXraySuggestionJob: (...args: unknown[]) => runXraySuggestionJobMock(...args),
 }))
 
 jest.mock('../../lib/projection/queue', () => {
@@ -37,7 +42,8 @@ jest.mock('@open-mercato/shared/lib/logger', () => {
 import ingestHandler, { metadata as ingestMetadata } from '../xray-ingest.worker'
 import backfillHandler, { metadata as backfillMetadata, onXrayBackfillAbandoned } from '../xray-backfill.worker'
 import rollupHandler, { metadata as rollupMetadata } from '../xray-rollup.worker'
-import { XRAY_BACKFILL_QUEUE, XRAY_FANOUT_KIND, XRAY_INGEST_QUEUE, XRAY_ROLLUP_QUEUE } from '../../lib/projection/queue'
+import suggestionsHandler, { metadata as suggestionsMetadata } from '../xray-suggestions.worker'
+import { XRAY_BACKFILL_QUEUE, XRAY_FANOUT_KIND, XRAY_INGEST_QUEUE, XRAY_ROLLUP_QUEUE, XRAY_SUGGESTIONS_QUEUE } from '../../lib/projection/queue'
 import { XrayScopeMismatchError } from '../../lib/projection/payloads'
 
 const TENANT_ID = '11111111-0000-4000-8000-000000000001'
@@ -133,5 +139,37 @@ describe('X-Ray rollup worker', () => {
     runXrayRollupJobMock.mockRejectedValueOnce(failure)
     await expect(rollupHandler({ id: 'job', createdAt: '', payload: { scope: { tenantId: TENANT_ID, organizationId: ORG_ID } } }, JOB_CONTEXT)).rejects.toBe(failure)
     expect(reportErrorMock).toHaveBeenCalledWith(failure, expect.objectContaining({ code: 'insights.xray_rollup_failed' }))
+  })
+})
+
+describe('X-Ray suggestion mining worker', () => {
+  beforeEach(() => jest.clearAllMocks())
+
+  it('declares the literal suggestions queue with concurrency 1', () => {
+    expect(suggestionsMetadata).toEqual({ queue: XRAY_SUGGESTIONS_QUEUE, id: 'insights:xray-suggestions', concurrency: 1 })
+    expect(XRAY_SUGGESTIONS_QUEUE).toBe('insights-xray-suggestions')
+  })
+
+  it('runs one mining pass for a lower-cased organization scope (forced only on request) and skips malformed payloads', async () => {
+    await suggestionsHandler({ id: 'job', createdAt: '', payload: { scope: { tenantId: TENANT_ID.toUpperCase(), organizationId: ORG_ID } } }, JOB_CONTEXT)
+    expect(runXraySuggestionJobMock).toHaveBeenLastCalledWith(container, { tenantId: TENANT_ID, organizationId: ORG_ID }, { force: false })
+    await suggestionsHandler({ id: 'job', createdAt: '', payload: { scope: { tenantId: TENANT_ID, organizationId: ORG_ID }, force: true } }, JOB_CONTEXT)
+    expect(runXraySuggestionJobMock).toHaveBeenLastCalledWith(container, { tenantId: TENANT_ID, organizationId: ORG_ID }, { force: true })
+    await suggestionsHandler({ id: 'job', createdAt: '', payload: { scope: { tenantId: TENANT_ID }, force: true } }, JOB_CONTEXT)
+    await suggestionsHandler({ id: 'job', createdAt: '', payload: { scope: { tenantId: TENANT_ID, organizationId: ORG_ID }, force: 'yes' } }, JOB_CONTEXT)
+    expect(runXraySuggestionJobMock).toHaveBeenCalledTimes(3)
+    expect(runXraySuggestionJobMock).toHaveBeenLastCalledWith(container, { tenantId: TENANT_ID, organizationId: ORG_ID }, { force: false })
+    await suggestionsHandler({ id: 'job', createdAt: '', payload: null }, JOB_CONTEXT)
+    expect(runXraySuggestionJobMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('drops a job of a mismatched tenant and rethrows other failures (logged and reported) for the queue retry', async () => {
+    runXraySuggestionJobMock.mockRejectedValueOnce(new XrayScopeMismatchError())
+    await expect(suggestionsHandler({ id: 'job', createdAt: '', payload: { scope: { tenantId: TENANT_ID, organizationId: ORG_ID } } }, JOB_CONTEXT)).resolves.toBeUndefined()
+    expect(reportErrorMock).not.toHaveBeenCalled()
+    const failure = new Error('connection reset')
+    runXraySuggestionJobMock.mockRejectedValueOnce(failure)
+    await expect(suggestionsHandler({ id: 'job', createdAt: '', payload: { scope: { tenantId: TENANT_ID, organizationId: ORG_ID } } }, JOB_CONTEXT)).rejects.toBe(failure)
+    expect(reportErrorMock).toHaveBeenCalledWith(failure, expect.objectContaining({ code: 'insights.xray_suggestions_failed' }))
   })
 })

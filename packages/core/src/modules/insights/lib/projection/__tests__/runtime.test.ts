@@ -10,9 +10,19 @@ jest.mock('@open-mercato/shared/lib/logger', () => {
   return { ...actual, createLogger: () => silent }
 })
 
+const supersedeProcessSuggestionsMock = jest.fn(async (..._args: unknown[]) => 1)
+const clearSuggestionPassMock = jest.fn(async (..._args: unknown[]) => undefined)
+
+jest.mock('../../suggestions/store', () => ({ supersedeProcessSuggestions: (...args: unknown[]) => supersedeProcessSuggestionsMock(...args) }))
+jest.mock('../../suggestions/passes', () => ({ clearSuggestionPass: (...args: unknown[]) => clearSuggestionPassMock(...args) }))
+jest.mock('../pseudonym', () => {
+  const actual = jest.requireActual('../pseudonym')
+  return { ...actual, createActorPseudonymizer: async () => ({ mode: 'tenant_key', fingerprint: 'tk1:test', pseudonymize: (id: string) => `tk1:${id}` }) }
+})
+
 import type { ProcessActorDimensionContext, ProcessModuleConfig } from '@open-mercato/shared/modules/insights/process'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { createActorDimensionResolver, resolveRedactedFields } from '../runtime'
+import { createActorDimensionResolver, createXrayIngestDeps, resolveRedactedFields } from '../runtime'
 import { valueCapScope } from '../../process/values'
 import { buildProcessRegistrySnapshot } from '../../process/registry'
 import { ORG_ID, OTHER_USER_ID, TENANT_ID, USER_ID, testRegistry } from '../../process/__tests__/processTestSupport'
@@ -69,5 +79,38 @@ describe('resolveRedactedFields', () => {
 
   it('fails closed when the tenant encryption service is unavailable', async () => {
     await expect(resolveRedactedFields(testRegistry(), undefined, scope, {} as EntityManager)).rejects.toThrow('[internal]')
+  })
+})
+
+describe('createXrayIngestDeps — suggestions of rebuilt processes', () => {
+  const scope = { tenantId: TENANT_ID, organizationId: ORG_ID }
+  const kysely = { kind: 'kysely' }
+  const container = {
+    resolve: (name: string): unknown => {
+      if (name === 'em') return { fork: () => ({ getKysely: () => kysely }) }
+      if (name === 'actionLogService') return {}
+      if (name === 'tenantEncryptionService') return { getEncryptedFieldNames: async () => [] }
+      throw new Error(`[internal] unexpected ${name}`)
+    },
+  }
+
+  beforeEach(() => {
+    supersedeProcessSuggestionsMock.mockClear()
+    clearSuggestionPassMock.mockClear()
+    reportErrorMock.mockClear()
+  })
+
+  it('supersedes the open suggestions of the cleared processes and forgets the mining pass', async () => {
+    const { deps } = await createXrayIngestDeps(container, scope, testRegistry())
+    await deps.onProcessRebuild?.(scope, ['test.deal'])
+    expect(supersedeProcessSuggestionsMock).toHaveBeenCalledWith(kysely, scope, ['test.deal'])
+    expect(clearSuggestionPassMock).toHaveBeenCalledWith(kysely, scope)
+  })
+
+  it('never fails the projection slice when the suggestions cannot be superseded (logged and reported)', async () => {
+    const { deps } = await createXrayIngestDeps(container, scope, testRegistry())
+    supersedeProcessSuggestionsMock.mockRejectedValueOnce(new Error('lock timeout'))
+    await expect(deps.onProcessRebuild?.(scope, ['test.deal'])).resolves.toBeUndefined()
+    expect(reportErrorMock).toHaveBeenCalledWith(expect.any(Error), expect.objectContaining({ code: 'insights.xray_suggestions_supersede_failed' }))
   })
 })

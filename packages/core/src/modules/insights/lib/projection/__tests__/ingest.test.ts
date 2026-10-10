@@ -435,6 +435,29 @@ describe('runIngestSlice — lease, contract and registry', () => {
     expect(steady).toEqual(expect.objectContaining({ contractChange: null, scanStarted: null }))
   })
 
+  it('tells the rebuild hook which processes a contract change clears, before their rows go, and not for a removed process', async () => {
+    const harness = setup({ now: at(0) })
+    const rebuilt: Array<{ keys: string[]; quoteEventsLeft: number }> = []
+    harness.deps.onProcessRebuild = async (scope, processKeys) => {
+      expect(scope).toEqual(SCOPE)
+      rebuilt.push({ keys: processKeys, quoteEventsLeft: harness.memory.state.events.filter((event) => event.processKey === 'test.quote').length })
+    }
+    harness.deps.registry = testRegistry(processConfig(dealProcess(), quoteProcess()))
+    await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    harness.rows.push(quoteRow(at(MINUTE)))
+    harness.setNow(at(5 * MINUTE))
+    await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    expect(rebuilt).toEqual([])
+    harness.deps.registry = testRegistry(processConfig(dealProcess(), quoteProcess({ endStates: [{ field: 'status', values: ['accepted'] }] })))
+    harness.setNow(at(6 * MINUTE))
+    await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    expect(rebuilt).toEqual([{ keys: ['test.quote'], quoteEventsLeft: 2 }])
+    harness.deps.registry = testRegistry(processConfig(quoteProcess({ endStates: [{ field: 'status', values: ['accepted'] }] })))
+    harness.setNow(at(7 * MINUTE))
+    await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    expect(rebuilt).toHaveLength(1)
+  })
+
   it('queues a changed process before clearing it, so a clearing cut short by the budget shows as rebuilding and resumes', async () => {
     let elapsed = 0
     const harness = setup({ now: at(0), clock: () => elapsed })

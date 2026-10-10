@@ -1,14 +1,17 @@
 import { expect, test } from '@playwright/test'
-import { createQaDeal, uniqueSuffix } from './helpers/explainApi'
+import { ALL_ORGANIZATIONS_SELECTION, createQaDeal, uniqueSuffix } from './helpers/explainApi'
 import { DEAL_PROCESS_KEY, putXraySettings, runXrayBackfill } from './helpers/xrayApi'
 import {
   DEAL_ACTOR_FEATURES,
   XRAY_ANALYTICS_BASE,
   cleanupXrayAnalyticsFixture,
+  countIndividualsAccessRows,
+  createTenantWideXrayRole,
   createXrayAnalyticsFixture,
   createXrayOrganization,
   createXrayRole,
   createXrayUser,
+  createXrayUserWithRoles,
   seedDealProcess,
   xrayCall,
 } from './helpers/xrayAnalyticsApi'
@@ -16,6 +19,8 @@ import {
 type MapBody = { n: number; organizationIds: string[] | null; nodes: Array<{ activityKey: string; cases: number }> }
 
 type CasesBody = { n: number; items: Array<{ caseId: string; organizationId: string }> }
+
+type BreakdownBody = { perPerson: boolean; n: number; organizationIds: string[] | null; items: Array<{ organizationId: string }> }
 
 /**
  * TC-INS-X09: Process X-Ray results are isolated between users and organizations
@@ -28,6 +33,11 @@ type CasesBody = { n: number; items: Array<{ caseId: string; organizationId: str
  * analytics cache never hands one viewer's result to another. Both see the same aggregate map. A
  * user restricted to a second organization only ever reads that organization (its own single
  * case), also when it selects the first organization explicitly.
+ *
+ * A viewer holding the view features in every organization but `insights.xray.view_individuals`
+ * only in the first one gets a per-person breakdown narrowed to the first organization when all
+ * organizations are selected (no per-person data or access log of the second one, whose
+ * per-person setting is on too), and 403 `individuals_denied` when it selects the second one.
  */
 test.describe('TC-INS-X09: X-Ray user and organization isolation', () => {
   test('never shares per-person results or another organization\'s data', async ({ request }) => {
@@ -89,8 +99,8 @@ test.describe('TC-INS-X09: X-Ray user and organization isolation', () => {
       expect(outsiderMap.status, `map of the restricted user: ${outsiderMap.text}`).toBe(200)
       expect(outsiderMap.body).toEqual(expect.objectContaining({ n: 1, organizationIds: [otherOrganizationId] }))
       const outsiderSelectingMain = await xrayCall<MapBody>(request, outsider.token, 'GET', mapPath, { selectedOrgId: organizationId })
-      expect(outsiderSelectingMain.status === 404 || outsiderSelectingMain.body?.organizationIds?.includes(organizationId) !== true, 'selecting a foreign organization never reads it').toBe(true)
-      expect(outsiderSelectingMain.body?.n ?? 0).not.toBe(6)
+      expect(outsiderSelectingMain.status, `map of the restricted user selecting a foreign organization: ${outsiderSelectingMain.text}`).toBe(200)
+      expect(outsiderSelectingMain.body, 'selecting a foreign organization falls back to the allowed one and never reads it').toEqual(expect.objectContaining({ n: 1, organizationIds: [otherOrganizationId] }))
       const outsiderCases = await xrayCall<CasesBody>(request, outsider.token, 'GET', `${XRAY_ANALYTICS_BASE}/${DEAL_PROCESS_KEY}/cases`)
       expect(outsiderCases.status).toBe(200)
       expect(outsiderCases.body?.items.map((item) => item.organizationId)).toEqual([otherOrganizationId])
@@ -99,6 +109,58 @@ test.describe('TC-INS-X09: X-Ray user and organization isolation', () => {
       expect(mainCases.body?.n).toBe(6)
       expect(mainCases.body?.items.every((item) => item.organizationId === organizationId)).toBe(true)
       expect(mainCases.body?.items.map((item) => item.caseId)).not.toContain(otherDeal)
+    } finally {
+      await cleanupXrayAnalyticsFixture(request, fixture)
+    }
+  })
+
+  test('narrows a per-person breakdown to the organizations where the viewer holds view_individuals', async ({ request }) => {
+    test.slow()
+    const fixture = createXrayAnalyticsFixture()
+    try {
+      const organizationId = await createXrayOrganization(request, fixture, 'INS-X09 narrowed main')
+      const otherOrganizationId = await createXrayOrganization(request, fixture, 'INS-X09 narrowed other')
+      const mainActorRole = await createXrayRole(request, fixture, { label: 'INS-X09 narrowed main actor', features: DEAL_ACTOR_FEATURES, organizations: [organizationId] })
+      const otherActorRole = await createXrayRole(request, fixture, { label: 'INS-X09 narrowed other actor', features: DEAL_ACTOR_FEATURES, organizations: [otherOrganizationId] })
+      const mainActorTokens: string[] = []
+      const otherActorTokens: string[] = []
+      for (let index = 0; index < 3; index += 1) {
+        mainActorTokens.push((await createXrayUser(request, fixture, { label: `INS-X09 narrowed main actor ${index}`, organizationId, roleId: mainActorRole })).token)
+        otherActorTokens.push((await createXrayUser(request, fixture, { label: `INS-X09 narrowed other actor ${index}`, organizationId: otherOrganizationId, roleId: otherActorRole })).token)
+      }
+      await seedDealProcess(request, fixture, { organizationId, actorTokens: mainActorTokens, dealsPerActor: 2, individualsEnabled: true, label: 'INS-X09 narrowed main' })
+      await seedDealProcess(request, fixture, { organizationId: otherOrganizationId, actorTokens: otherActorTokens, dealsPerActor: 1, individualsEnabled: true, label: 'INS-X09 narrowed other' })
+
+      const viewRole = await createTenantWideXrayRole(request, fixture, { label: 'INS-X09 narrowed view', features: ['insights.xray.view', 'customers.deals.view'] })
+      const individualsRole = await createXrayRole(request, fixture, {
+        label: 'INS-X09 narrowed individuals',
+        features: ['insights.xray.view_individuals'],
+        organizations: [organizationId],
+      })
+      const viewer = await createXrayUserWithRoles(request, fixture, { label: 'INS-X09 narrowed viewer', organizationId, roleIds: [viewRole, individualsRole] })
+
+      const breakdownPath = `${XRAY_ANALYTICS_BASE}/${DEAL_PROCESS_KEY}/breakdown?groupBy=user`
+      const mapPath = `${XRAY_ANALYTICS_BASE}/${DEAL_PROCESS_KEY}/map`
+
+      const otherMap = await xrayCall<MapBody>(request, viewer.token, 'GET', mapPath, { selectedOrgId: otherOrganizationId })
+      expect(otherMap.status, `aggregate map of the second organization: ${otherMap.text}`).toBe(200)
+      expect(otherMap.body, 'the viewer may read the second organization in aggregate').toEqual(expect.objectContaining({ n: 3, organizationIds: [otherOrganizationId] }))
+
+      const allOrganizations = await xrayCall<BreakdownBody>(request, viewer.token, 'GET', breakdownPath, { selectedOrgId: ALL_ORGANIZATIONS_SELECTION })
+      expect(allOrganizations.status, `per-person breakdown over all organizations: ${allOrganizations.text}`).toBe(200)
+      expect(allOrganizations.body, 'the per-person scope is narrowed to the organization holding view_individuals').toEqual(expect.objectContaining({ perPerson: true, n: 6, organizationIds: [organizationId] }))
+      expect(allOrganizations.body?.items.every((item) => item.organizationId === organizationId)).toBe(true)
+
+      const ownOrganization = await xrayCall<BreakdownBody>(request, viewer.token, 'GET', breakdownPath)
+      expect(ownOrganization.status, `per-person breakdown of the own organization: ${ownOrganization.text}`).toBe(200)
+      expect(ownOrganization.body).toEqual(expect.objectContaining({ perPerson: true, n: 6, organizationIds: [organizationId] }))
+
+      const selectedOther = await xrayCall(request, viewer.token, 'GET', breakdownPath, { selectedOrgId: otherOrganizationId })
+      expect(selectedOther.status, `per-person breakdown of the second organization: ${selectedOther.text}`).toBe(403)
+      expect(selectedOther.body).toEqual(expect.objectContaining({ code: 'individuals_denied', hint: null }))
+
+      expect(await countIndividualsAccessRows(otherOrganizationId, viewer.userId), 'no per-person read of the second organization was logged').toBe(0)
+      expect(await countIndividualsAccessRows(organizationId, viewer.userId), 'both per-person reads of the first organization were logged').toBe(2)
     } finally {
       await cleanupXrayAnalyticsFixture(request, fixture)
     }

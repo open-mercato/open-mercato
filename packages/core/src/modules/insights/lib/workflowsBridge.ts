@@ -32,14 +32,25 @@ export type XrayWorkflowDraftValidation =
   | {
     ok: true
     payload: unknown
-    commands: Array<{ commandId: string; requiredFeatures: string[] }>
+    commands: Array<{ commandId: string; requiredFeatures: string[]; enabled?: boolean }>
     workflowIdAvailable: boolean
   }
   | { ok: false; issues: XrayWorkflowDraftIssue[] }
 
+/** One UPDATE_ENTITY an enabled workflow event trigger already runs (no values). */
+export type XrayWorkflowAutomatedUpdate = {
+  workflowDefinitionId: string
+  workflowId: string
+  eventPattern: string
+  commandId: string
+  inputKeys: string[]
+}
+
 export type XrayWorkflowDraftService = {
   validateDraftDefinition: (payload: unknown, scope: XrayWorkflowScope) => Promise<XrayWorkflowDraftValidation>
   getDefinitionForScope: (id: string, scope: XrayWorkflowScope) => Promise<XrayWorkflowDefinitionShape | null>
+  /** Optional (added later than the other methods): an older workflows module without it is treated as automating nothing. */
+  listAutomatedUpdates?: (scope: XrayWorkflowScope) => Promise<XrayWorkflowAutomatedUpdate[]>
 }
 
 function isWorkflowDraftService(value: unknown): value is XrayWorkflowDraftService {

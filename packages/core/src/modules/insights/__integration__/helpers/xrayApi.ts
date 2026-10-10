@@ -184,7 +184,7 @@ export async function deleteProjectedCases(caseIds: Array<string | null>): Promi
 export async function deleteXrayOrganizationState(organizationId: string | null): Promise<void> {
   if (!organizationId) return
   await withClient(async (client) => {
-    for (const table of ['insights_process_events', 'insights_process_cases', 'insights_process_rollups', 'insights_process_cursors', 'insights_process_settings']) {
+    for (const table of ['insights_process_events', 'insights_process_cases', 'insights_process_rollups', 'insights_process_cursors', 'insights_process_settings', 'insights_automation_suggestions']) {
       await client.query(`delete from ${table} where organization_id = $1`, [organizationId])
     }
   })

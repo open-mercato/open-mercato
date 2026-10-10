@@ -2,7 +2,13 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { isUuid } from '@open-mercato/shared/lib/causation/types'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
-import { XRAY_FANOUT_KIND, type XrayBackfillJobPayload, type XrayIngestJobPayload, type XrayRollupJobPayload } from './queue'
+import {
+  XRAY_FANOUT_KIND,
+  type XrayBackfillJobPayload,
+  type XrayIngestJobPayload,
+  type XrayRollupJobPayload,
+  type XraySuggestionJobPayload,
+} from './queue'
 import type { ProjectionScope } from './types'
 
 export type XrayIngestPayload =
@@ -71,6 +77,15 @@ export function readRollupPayload(payload: unknown): XrayRollupJobPayload | null
   if (!payload || typeof payload !== 'object') return null
   const scope = readScopePair((payload as Partial<XrayRollupJobPayload>).scope)
   return scope ? { scope } : null
+}
+
+/** A suggestion mining queue job (`{ scope: { tenantId, organizationId }, force? }`); anything else is refused. */
+export function readSuggestionPayload(payload: unknown): XraySuggestionJobPayload | null {
+  if (!payload || typeof payload !== 'object') return null
+  const candidate = payload as Partial<XraySuggestionJobPayload>
+  const scope = readScopePair(candidate.scope)
+  if (!scope) return null
+  return candidate.force === true ? { scope, force: true } : { scope }
 }
 
 /** Whether the directory organization exists in that tenant (one scoped lookup). */

@@ -344,15 +344,100 @@ describe('Process X-Ray analytics routes — error mapping', () => {
     expect((await call(mapGet, get('/api/insights/xray/test.deal/map'), { processKey: 'test.deal' })).body).toEqual({ error: 'insights.xray.errors.process_not_found', code: 'process_not_found', hint: null })
     facade.getProcessMap.mockRejectedValueOnce(new Error('relation does not exist (secret)'))
     const failed = await call(mapGet, get('/api/insights/xray/test.deal/map'), { processKey: 'test.deal' })
-    expect(failed).toEqual(expect.objectContaining({ status: 500, body: { error: 'internal_error' } }))
+    expect(failed).toEqual(expect.objectContaining({ status: 500, body: { error: 'insights.xray.errors.internal_error', code: 'internal_error', hint: null } }))
+    expect(JSON.stringify(failed.body)).not.toContain('secret')
     expect(reportErrorMock).toHaveBeenCalledWith(expect.any(Error), expect.objectContaining({ code: 'insights.xray_route_failed', attributes: { route: 'xray.map' } }))
   })
 
   it('refuses a per-person breakdown with 403 when the library denies it', async () => {
-    facade.getBreakdown.mockRejectedValueOnce(new AnalyticsIndividualsDeniedError('feature_missing'))
+    grants.byOrganization[ORG_A] = ['insights.xray.view', 'insights.xray.view_individuals', 'customers.deals.view']
+    facade.getBreakdown.mockRejectedValueOnce(new AnalyticsIndividualsDeniedError('setting_disabled'))
     const response = await call(breakdownGet, get('/api/insights/xray/test.deal/breakdown?groupBy=user'), { processKey: 'test.deal' })
+    expect(response).toEqual(expect.objectContaining({ status: 403, body: { error: 'insights.xray.errors.individuals_denied', code: 'individuals_denied', hint: null } }))
+    expect(lastInput(facade.getBreakdown)).toEqual(expect.objectContaining({
+      groupBy: 'user',
+      scope: { tenantId: TENANT_ID, organizationIds: [ORG_A] },
+      viewer: expect.objectContaining({ canViewIndividuals: true }),
+    }))
+  })
+})
+
+describe('Process X-Ray analytics routes — per-person scope', () => {
+  const VIEW = ['insights.xray.view', 'customers.deals.view']
+  const INDIVIDUALS = [...VIEW, 'insights.xray.view_individuals']
+  const breakdownPath = '/api/insights/xray/test.deal/breakdown?groupBy=user'
+
+  function narrowingResolver(options: { selectedId: string | null; candidates: string[]; organizationId: string }) {
+    return async (params: { requiredFeatures: string[] }) => {
+      const filterIds = options.selectedId
+        ? [options.selectedId]
+        : options.candidates.filter((organizationId) => hasAllFeatures(params.requiredFeatures, grants.byOrganization[organizationId] ?? []))
+      return {
+        organizationId: options.organizationId,
+        scope: { selectedId: options.selectedId, filterIds, allowedIds: null, tenantId: TENANT_ID },
+        allowedOrganizationIds: null,
+      }
+    }
+  }
+
+  it('narrows a per-person breakdown to the organizations where the caller holds insights.xray.view_individuals', async () => {
+    grants.byOrganization = { [ORG_A]: INDIVIDUALS, [ORG_B]: VIEW }
+    resolveFeatureCheckContextMock.mockImplementation(narrowingResolver({ selectedId: null, candidates: [ORG_A, ORG_B], organizationId: ORG_A }))
+    const aggregate = await call(breakdownGet, get('/api/insights/xray/test.deal/breakdown?groupBy=org'), { processKey: 'test.deal' })
+    expect(aggregate.status).toBe(200)
+    expect(lastInput(facade.getBreakdown).scope).toEqual({ tenantId: TENANT_ID, organizationIds: [ORG_A, ORG_B] })
+    const perPerson = await call(breakdownGet, get(breakdownPath), { processKey: 'test.deal' })
+    expect(perPerson.status).toBe(200)
+    expect(facade.getBreakdown).toHaveBeenCalledTimes(2)
+    expect(lastInput(facade.getBreakdown)).toEqual(expect.objectContaining({
+      groupBy: 'user',
+      scope: { tenantId: TENANT_ID, organizationIds: [ORG_A] },
+      viewer: expect.objectContaining({ userId: USER_ID, canViewIndividuals: true }),
+    }))
+    const resolverCalls = resolveFeatureCheckContextMock.mock.calls.slice(-2).map((args) => args[0] as { requiredFeatures: string[]; request: unknown })
+    expect(resolverCalls.map((args) => args.requiredFeatures)).toEqual([
+      ['customers.deals.view', 'insights.xray.view'],
+      ['customers.deals.view', 'insights.xray.view', 'insights.xray.view_individuals'],
+    ])
+    expect(resolverCalls[1].request).not.toBe(resolverCalls[0].request)
+  })
+
+  it('keeps the whole scope only when the feature is held in every organization of it', async () => {
+    grants.byOrganization = { [ORG_A]: INDIVIDUALS, [ORG_B]: INDIVIDUALS }
+    resolveFeatureCheckContextMock.mockImplementation(narrowingResolver({ selectedId: null, candidates: [ORG_A, ORG_B], organizationId: ORG_A }))
+    expect((await call(breakdownGet, get(breakdownPath), { processKey: 'test.deal' })).status).toBe(200)
+    expect(lastInput(facade.getBreakdown).scope).toEqual({ tenantId: TENANT_ID, organizationIds: [ORG_A, ORG_B] })
+    grants.superAdmin = true
+    resolveFeatureCheckContextMock.mockImplementation(async () => scopeOf({ selectedId: null, filterIds: null, organizationId: null }))
+    expect((await call(breakdownGet, get(breakdownPath), { processKey: 'test.deal' })).status).toBe(200)
+    expect(lastInput(facade.getBreakdown).scope).toEqual({ tenantId: TENANT_ID, organizationIds: null })
+  })
+
+  it('answers 403 individuals_denied without reading when the feature-check organization lacks the feature', async () => {
+    grants.byOrganization = { [ORG_A]: VIEW, [ORG_B]: INDIVIDUALS }
+    resolveFeatureCheckContextMock.mockImplementation(narrowingResolver({ selectedId: null, candidates: [ORG_A, ORG_B], organizationId: ORG_A }))
+    const response = await call(breakdownGet, get(breakdownPath), { processKey: 'test.deal' })
+    expect(response).toEqual(expect.objectContaining({ status: 403, body: { error: 'insights.xray.errors.individuals_denied', code: 'individuals_denied', hint: null } }))
+    expect(facade.getBreakdown).not.toHaveBeenCalled()
+  })
+
+  it('answers 403 individuals_denied without reading when the selected organization lacks the feature', async () => {
+    grants.byOrganization = { [ORG_A]: INDIVIDUALS, [ORG_B]: VIEW }
+    resolveFeatureCheckContextMock.mockImplementation(narrowingResolver({ selectedId: ORG_B, candidates: [ORG_A, ORG_B], organizationId: ORG_B }))
+    const response = await call(breakdownGet, get(breakdownPath), { processKey: 'test.deal' })
     expect(response).toEqual(expect.objectContaining({ status: 403, body: expect.objectContaining({ code: 'individuals_denied' }) }))
-    expect(lastInput(facade.getBreakdown)).toEqual(expect.objectContaining({ groupBy: 'user', viewer: expect.objectContaining({ canViewIndividuals: false }) }))
+    expect(facade.getBreakdown).not.toHaveBeenCalled()
+  })
+
+  it('answers 403 individuals_denied when no organization of the scope remains', async () => {
+    grants.byOrganization = { [ORG_A]: INDIVIDUALS, [ORG_B]: VIEW }
+    resolveFeatureCheckContextMock.mockImplementation(async (params: { requiredFeatures: string[] }) => {
+      const filterIds = params.requiredFeatures.includes('insights.xray.view_individuals') ? [] : [ORG_B]
+      return { organizationId: ORG_A, scope: { selectedId: null, filterIds, allowedIds: null, tenantId: TENANT_ID }, allowedOrganizationIds: null }
+    })
+    const response = await call(breakdownGet, get(breakdownPath), { processKey: 'test.deal' })
+    expect(response).toEqual(expect.objectContaining({ status: 403, body: expect.objectContaining({ code: 'individuals_denied' }) }))
+    expect(facade.getBreakdown).not.toHaveBeenCalled()
   })
 })
 

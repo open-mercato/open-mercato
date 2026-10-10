@@ -188,3 +188,39 @@ export async function cleanupXrayAnalyticsFixture(request: APIRequestContext, fi
     await deleteOrganizationInDb(organizationId).catch(() => undefined)
   }
 }
+
+/**
+ * A role with exactly `features` in every organization of the tenant (no organization
+ * restriction), created by the super administrator so the admin's own grant scope never limits it.
+ */
+export async function createTenantWideXrayRole(
+  request: APIRequestContext,
+  fixture: XrayAnalyticsFixture,
+  input: { label: string; features: string[] },
+): Promise<string> {
+  const token = await privilegedToken(request, fixture)
+  const roleId = await createRoleFixture(request, token, { name: `QA ${input.label} ${uniqueSuffix()}`, tenantId: fixture.tenantId ?? undefined })
+  fixture.privilegedRoleIds.push(roleId)
+  await setRoleAclFeatures(request, token, { roleId, features: input.features, organizations: null })
+  return roleId
+}
+
+/** A user of `organizationId` holding exactly `roleIds`, logged in (created by the super administrator when any role is privileged). */
+export async function createXrayUserWithRoles(
+  request: APIRequestContext,
+  fixture: XrayAnalyticsFixture,
+  input: { label: string; organizationId: string; roleIds: string[] },
+): Promise<{ token: string; userId: string }> {
+  const email = `qa-${input.label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${uniqueSuffix()}@example.com`
+  const privileged = input.roleIds.some((roleId) => fixture.privilegedRoleIds.includes(roleId))
+  const userId = await createUserFixture(request, privileged ? await privilegedToken(request, fixture) : fixture.adminToken as string, {
+    email,
+    password: QA_USER_PASSWORD,
+    organizationId: input.organizationId,
+    roles: input.roleIds,
+    name: `QA ${input.label}`,
+  })
+  if (privileged) fixture.privilegedUserIds.push(userId)
+  else fixture.userIds.push(userId)
+  return { token: await getAuthToken(request, email, QA_USER_PASSWORD), userId }
+}

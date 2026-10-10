@@ -9,6 +9,7 @@ const logger = createLogger('insights').child({ component: 'xray-queue' })
 export const XRAY_INGEST_QUEUE = 'insights-xray-ingest'
 export const XRAY_BACKFILL_QUEUE = 'insights-xray-backfill'
 export const XRAY_ROLLUP_QUEUE = 'insights-xray-rollup'
+export const XRAY_SUGGESTIONS_QUEUE = 'insights-xray-suggestions'
 export const XRAY_INGEST_INTERVAL_MS = 120_000
 export const XRAY_INGEST_INTERVAL = `${XRAY_INGEST_INTERVAL_MS / 1000}s`
 export const XRAY_BACKFILL_JOB_TYPE = 'insights.xray.backfill'
@@ -32,6 +33,14 @@ export type XrayRollupJobPayload = {
   scope: { tenantId: string; organizationId: string }
 }
 
+/** One automation suggestion mining pass of an organization; `force` ignores the 24-hour interval (on-demand request). */
+export type XraySuggestionJobPayload = {
+  scope: { tenantId: string; organizationId: string }
+  force?: boolean
+}
+
+type XrayQueueName = typeof XRAY_INGEST_QUEUE | typeof XRAY_BACKFILL_QUEUE | typeof XRAY_ROLLUP_QUEUE | typeof XRAY_SUGGESTIONS_QUEUE
+
 export type XrayBackfillJobPayload = {
   scope: { tenantId: string; organizationId: string; userId?: string | null }
   scanId: string
@@ -43,7 +52,7 @@ type JobQueue = Queue<Record<string, unknown>>
 
 const queues = new Map<string, JobQueue>()
 
-export function getXrayQueue(name: typeof XRAY_INGEST_QUEUE | typeof XRAY_BACKFILL_QUEUE | typeof XRAY_ROLLUP_QUEUE): JobQueue {
+export function getXrayQueue(name: XrayQueueName): JobQueue {
   const existing = queues.get(name)
   if (existing) return existing
   const created = createModuleQueue<Record<string, unknown>>(name, { concurrency: name === XRAY_INGEST_QUEUE ? 2 : 1 })
@@ -61,6 +70,15 @@ export async function enqueueXrayRollup(scope: ProjectionScope): Promise<void> {
   await getXrayQueue(XRAY_ROLLUP_QUEUE).enqueue(payload as unknown as Record<string, unknown>)
 }
 
+/** One suggestion mining pass of an organization (queue `insights-xray-suggestions`, concurrency 1). */
+export async function enqueueXraySuggestionMining(scope: ProjectionScope, options: { force?: boolean } = {}): Promise<void> {
+  const payload: XraySuggestionJobPayload = {
+    scope: { tenantId: scope.tenantId, organizationId: scope.organizationId },
+    ...(options.force === true ? { force: true } : {}),
+  }
+  await getXrayQueue(XRAY_SUGGESTIONS_QUEUE).enqueue(payload as unknown as Record<string, unknown>)
+}
+
 export async function enqueueXrayIngest(scope: ProjectionScope, delayMs = 0): Promise<void> {
   await getXrayQueue(XRAY_INGEST_QUEUE).enqueue(
     { scope: { tenantId: scope.tenantId, organizationId: scope.organizationId } },
@@ -68,7 +86,7 @@ export async function enqueueXrayIngest(scope: ProjectionScope, delayMs = 0): Pr
   )
 }
 
-async function readBacklog(name: typeof XRAY_INGEST_QUEUE | typeof XRAY_ROLLUP_QUEUE): Promise<number | null> {
+async function readBacklog(name: typeof XRAY_INGEST_QUEUE | typeof XRAY_ROLLUP_QUEUE | typeof XRAY_SUGGESTIONS_QUEUE): Promise<number | null> {
   try {
     const counts = await getXrayQueue(name).getJobCounts()
     return Number.isFinite(counts.waiting) ? counts.waiting : null
@@ -86,6 +104,11 @@ export async function readXrayIngestBacklog(): Promise<number | null> {
 /** Jobs waiting in the rollup queue; null when the queue cannot tell (the caller then proceeds). */
 export async function readXrayRollupBacklog(): Promise<number | null> {
   return readBacklog(XRAY_ROLLUP_QUEUE)
+}
+
+/** Jobs waiting in the suggestion mining queue; null when the queue cannot tell (the caller then proceeds). */
+export async function readXraySuggestionsBacklog(): Promise<number | null> {
+  return readBacklog(XRAY_SUGGESTIONS_QUEUE)
 }
 
 type ScheduleRowLike = {

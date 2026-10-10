@@ -91,6 +91,20 @@ export type ProcessEndStateDescriptor = {
   values: string[]
 }
 
+/**
+ * Optional hints for Process X-Ray automation suggestions: the workflow-safe UPDATE_ENTITY
+ * command that updates the case root (e.g. `customers.deals.update`), the command input key
+ * receiving the record id (default `id`) and, per root field key (stage fields and non-`user`
+ * follow-up fields), the command input key that sets it (default: the field key). Without it a
+ * suggestion of this process is reported as not draftable (`no_command`). Never affects the
+ * projection (not part of the contract hash).
+ */
+export type ProcessAutomationDescriptor = {
+  updateCommandId: string
+  recordIdInputKey?: string
+  fieldInputKeys?: Record<string, string>
+}
+
 export type ProcessDescriptor = {
   processKey: string
   labelKey: string
@@ -103,6 +117,7 @@ export type ProcessDescriptor = {
   milestones?: ProcessMilestoneDescriptor[]
   exits?: ProcessExitDescriptor[]
   endStates?: ProcessEndStateDescriptor[]
+  automation?: ProcessAutomationDescriptor
 }
 
 export type ProcessActorDimensionContext = {

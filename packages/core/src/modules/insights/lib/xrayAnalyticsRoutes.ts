@@ -9,12 +9,14 @@ import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { RegisteredProcess } from './process/registry'
 import { createXrayAnalyticsFromContainer, isXrayAnalyticsError, type XrayAnalytics } from './analytics/index'
+import { AnalyticsIndividualsDeniedError } from './analytics/errors'
 import type { AnalyticsFilters, AnalyticsRequestInput, WindowInput } from './analytics/types'
 import { xrayAnalyticsErrorSchema } from '../data/validators'
 import { scopeRequestView } from './routeHelpers'
 import {
   findRegisteredProcess,
   resolveXrayAnalyticsAccess,
+  resolveXrayIndividualsAccess,
   xrayProcessFeatures,
   type XrayAnalyticsAccess,
 } from './xrayAnalyticsAccess'
@@ -141,16 +143,35 @@ export async function prepareXrayAnalyticsRoute(req: Request, routeContext: Xray
 }
 
 /**
+ * The route context of a per-person read: the access narrowed by `resolveXrayIndividualsAccess`
+ * to the organizations of the scope where the caller holds `insights.xray.view_individuals`.
+ * Throws `AnalyticsIndividualsDeniedError('feature_missing')` (403 `individuals_denied`) before
+ * anything is read when no organization of the scope allows it or the feature-check organization
+ * (the selected one, else the caller's own) lacks the feature.
+ */
+export async function withXrayIndividualsAccess(req: Request, context: XrayAnalyticsRouteContext): Promise<XrayAnalyticsRouteContext> {
+  const access = await resolveXrayIndividualsAccess({
+    container: context.container,
+    auth: context.auth,
+    request: scopeRequestView(req),
+    process: context.process,
+    access: context.access,
+  })
+  if (!access) throw new AnalyticsIndividualsDeniedError('feature_missing')
+  return { ...context, access }
+}
+
+/**
  * Maps a failure of an analytics route: typed analytics errors to their status with a
  * translated message, `code` and `hint` (an unregistered process to the shared 404), anything
  * else to a logged and reported 500.
  */
-export function xrayAnalyticsFailure(error: unknown, translate: TranslateFn | null, route: string): NextResponse {
+export async function xrayAnalyticsFailure(error: unknown, translate: TranslateFn | null, route: string): Promise<NextResponse> {
   if (translate && isXrayAnalyticsError(error)) {
     if (error.code === 'process_not_found') return xrayProcessNotFound(translate)
     return xrayErrorResponse(translate, error.code, error.status, error.hint)
   }
-  return xrayInternalError(error, route)
+  return xrayInternalError(error, route, translate)
 }
 
 /** Runs a route body with the shared preparation and failure mapping. */

@@ -51,6 +51,7 @@ function toResult(settings: XraySettingsSnapshot) {
     debounceSeconds: settings.debounceSeconds,
     individualsEnabled: settings.individualsEnabled,
     timeZone: settings.timeZone,
+    suggestionMinSupport: settings.suggestionMinSupport,
     conformanceWorkflowId: settings.conformanceWorkflowId,
     activityStepMap: settings.activityStepMap,
     updatedAt: settings.updatedAt,
@@ -138,7 +139,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     PUT: {
       summary: 'Update Process X-Ray settings',
-      description: 'Partially updates the settings. Send the last `updatedAt` in `x-om-ext-optimistic-lock-expected-updated-at`; a stale token answers 409 with `code: optimistic_lock_conflict`. `timeZone` must be an IANA zone (stored canonically). A `conformanceWorkflowId` must be a workflow definition of the same tenant and organization. A successful save invalidates the organization\'s cached analytics and rollups.',
+      description: 'Partially updates the settings. Send the last `updatedAt` in `x-om-ext-optimistic-lock-expected-updated-at`; a stale token answers 409 with `code: optimistic_lock_conflict`. `timeZone` must be an IANA zone (stored canonically). `suggestionMinSupport` (5 … 100000, or null for the default 20) lowers or raises the support threshold of automation suggestions. A `conformanceWorkflowId` must be a workflow definition of the same tenant and organization. A successful save invalidates the organization\'s cached analytics and rollups.',
       requestBody: { contentType: 'application/json', schema: xraySettingsUpdateSchema },
       responses: [{ status: 200, description: 'Saved settings', schema: xraySettingsResponseSchema }],
       errors: [

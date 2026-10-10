@@ -89,6 +89,13 @@ export type XrayIngestDeps = {
   redactedFields: ReadonlySet<string>
   owner: string
   clock?: () => number
+  /**
+   * Called (under the lease, before their rows are cleared) with the processes a contract change
+   * queues for a rebuild, e.g. to supersede their open automation suggestions. Idempotent: a
+   * clearing resumed by the next slice calls it again. Must not throw for an auxiliary failure
+   * (the runtime hook logs and reports it), since a throw fails the projection slice.
+   */
+  onProcessRebuild?: (scope: ProjectionScope, processKeys: string[]) => Promise<void>
 }
 
 export type XraySliceStatus =
@@ -630,7 +637,10 @@ async function reconcileContracts(
     removed: change.removed,
   })
   const rebuild = [...change.changed, ...change.added]
-  if (rebuild.length > 0) await deps.store.queueProcessRebuilds(lease, XRAY_LEASE_MS, rebuild)
+  if (rebuild.length > 0) {
+    await deps.store.queueProcessRebuilds(lease, XRAY_LEASE_MS, rebuild)
+    if (deps.onProcessRebuild) await deps.onProcessRebuild(scope, rebuild)
+  }
   for (const processKey of rebuild) {
     for (const table of PROJECTION_TABLES) {
       for (;;) {

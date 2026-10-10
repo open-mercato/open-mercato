@@ -44,6 +44,7 @@ function settingsChanges(input: XraySettingsSaveInput): Partial<InsightsProcessS
   if (input.debounceSeconds !== undefined) changes.debounceSeconds = input.debounceSeconds
   if (input.individualsEnabled !== undefined) changes.individualsEnabled = input.individualsEnabled
   if (input.timeZone !== undefined) changes.timeZone = canonicalIanaTimeZone(input.timeZone) ?? XRAY_SETTINGS_DEFAULTS.timeZone
+  if (input.suggestionMinSupport !== undefined) changes.suggestionMinSupport = input.suggestionMinSupport
   if (input.conformanceWorkflowId !== undefined) changes.conformanceWorkflowId = input.conformanceWorkflowId
   if (input.activityStepMap !== undefined) changes.activityStepMap = input.activityStepMap
   return changes
@@ -136,6 +137,7 @@ const saveXraySettingsCommand: CommandHandler<XraySettingsSaveInput, SaveXraySet
       debounceSeconds: XRAY_SETTINGS_DEFAULTS.debounceSeconds,
       individualsEnabled: XRAY_SETTINGS_DEFAULTS.individualsEnabled,
       timeZone: XRAY_SETTINGS_DEFAULTS.timeZone,
+      suggestionMinSupport: XRAY_SETTINGS_DEFAULTS.suggestionMinSupport,
       conformanceWorkflowId: XRAY_SETTINGS_DEFAULTS.conformanceWorkflowId,
       activityStepMap: XRAY_SETTINGS_DEFAULTS.activityStepMap,
       ...changes,
