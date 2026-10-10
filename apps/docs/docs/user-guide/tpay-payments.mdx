@@ -78,7 +78,7 @@ When the Tpay integration is enabled for an organization, Open Mercato registers
 
 - The job is created or re-enabled when you enable the integration and disabled when you disable it. You can also pause it in the scheduler.
 - Re-running tenant setup (`seed:defaults`) keeps an existing job as you left it. Enabling or disabling the integration rewrites the job with the default 5-minute interval.
-- Each run checks the 100 open transactions (pending, authorized, or partially captured) that have gone longest without a change. If more than 100 open transactions never change, they can keep newer ones from being checked; Tpay's panel and the return-page check still apply to those payments.
+- Each run checks up to 100 open transactions (pending, authorized, or partially captured), starting with the ones checked least recently, so every open payment is checked in turn.
 - It needs the scheduler module. Without it, notifications and the return-page check still work.
 
 ## Limitations
