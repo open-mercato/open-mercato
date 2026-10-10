@@ -96,6 +96,7 @@ export const adminCreateUserSchema = z.object({
   displayName: displayNameField,
   roleIds: z.array(z.string().uuid()).optional(),
   customerEntityId: z.string().uuid().optional(),
+  organizationId: z.string().uuid().optional(),
 })
 
 export const adminUpdateUserSchema = z.object({
