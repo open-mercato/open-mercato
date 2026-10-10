@@ -329,6 +329,106 @@ describe('POST /api/auth/login with custom route interceptors', () => {
   })
 })
 
+describe('POST /api/auth/login — after-interceptor response headers', () => {
+  beforeEach(() => {
+    registerApiInterceptors([])
+    jest.clearAllMocks()
+  })
+
+  test('carries a header returned by an after interceptor onto the response', async () => {
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.auth.login.header',
+            targetRoute: 'auth/login',
+            methods: ['POST'],
+            async after() {
+              return { headers: { 'x-mfa-challenge': 'c-1' } }
+            },
+          },
+        ],
+      },
+    ])
+
+    const res = await POST(new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password: 'secret' }),
+    }))
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('x-mfa-challenge')).toBe('c-1')
+  })
+
+  test('carries a header accumulated before the throw onto the rejected response', async () => {
+    // Interceptors run in DESCENDING priority, so the header-setter (2) runs before the
+    // thrower (1) and its header is already in the runner's bag when the throw is caught.
+    // Asserting the header rather than only the status is what makes this discriminating:
+    // with a single throwing interceptor the bag is `{}`, and `NextResponse.json(body,
+    // { status: 500, headers: {} })` is indistinguishable from one built without headers.
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.auth.login.header.before-throw',
+            targetRoute: 'auth/login',
+            methods: ['POST'],
+            priority: 2,
+            async after() {
+              return { headers: { 'x-correlation-id': 'c-1' } }
+            },
+          },
+          {
+            id: 'example.auth.login.header.throws',
+            targetRoute: 'auth/login',
+            methods: ['POST'],
+            priority: 1,
+            async after() {
+              throw new Error('boom')
+            },
+          },
+        ],
+      },
+    ])
+
+    const res = await POST(new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password: 'secret' }),
+    }))
+
+    expect(res.status).toBe(500)
+    expect(res.headers.get('x-correlation-id')).toBe('c-1')
+  })
+
+  test('the auth cookies the route sets survive the interceptor headers', async () => {
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.auth.login.header.cookie-safe',
+            targetRoute: 'auth/login',
+            methods: ['POST'],
+            async after() {
+              return { headers: { 'x-example': '1' } }
+            },
+          },
+        ],
+      },
+    ])
+
+    const res = await POST(new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password: 'secret' }),
+    }))
+
+    expect(res.headers.get('x-example')).toBe('1')
+    expect(res.headers.get('set-cookie') ?? '').toContain('auth_token=')
+  })
+})
+
 describe('account enumeration hardening (issue #2242)', () => {
   beforeEach(() => {
     registerApiInterceptors([])
