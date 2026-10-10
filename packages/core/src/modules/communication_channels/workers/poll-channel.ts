@@ -158,6 +158,10 @@ export default async function handle(
       credentials = {}
     }
   }
+  const refreshDeps = {
+    credentialsService,
+    logger: (...args: unknown[]) => logger.warn('credential refresh diagnostic', { channelId: channel.id, details: args }),
+  }
   const refreshed = await refreshCredentialsIfNeeded(
     {
       adapter,
@@ -165,7 +169,7 @@ export default async function handle(
       credentials,
       scope: credentialsScope,
     },
-    { credentialsService },
+    refreshDeps,
   )
   credentials = refreshed.credentials
 
@@ -178,10 +182,12 @@ export default async function handle(
   let normalized: NormalizedInboundMessage[] = []
   let nextCursor: string | undefined
   let hasMore = false
-  try {
-    const result = await adapter.fetchHistory({
+  // Bound here: the `typeof` guard above does not narrow inside the closure.
+  const fetchHistory = adapter.fetchHistory.bind(adapter)
+  const fetchPage = (withCredentials: Record<string, unknown>) =>
+    fetchHistory({
       conversationId: channel.externalIdentifier ?? channel.id,
-      credentials,
+      credentials: withCredentials,
       cursor: channel.lastPolledAt ? channel.lastPolledAt.toISOString() : undefined,
       channelState: (channel.channelState as Record<string, unknown> | null) ?? undefined,
       scope: {
@@ -194,6 +200,25 @@ export default async function handle(
       // since the persisted cursor.
       contactFilter: { addresses: [], sinceDays: 7 },
     })
+  try {
+    let result: Awaited<ReturnType<typeof fetchPage>>
+    try {
+      result = await fetchPage(credentials)
+    } catch (err) {
+      // A 401 right after a refresh that failed (or was skipped because the
+      // stored expiry looked fine) must not cost the channel its connection on
+      // the spot: force one refresh and retry the page once. Only when that
+      // refresh is refused too does the error reach `handlePollError` and mark
+      // the channel `requires_reauth`, as the outbound path already does.
+      if (!isReauthError(classifyOutboundError(err))) throw err
+      const forced = await refreshCredentialsIfNeeded(
+        { adapter, channelId: channel.id, credentials, scope: credentialsScope, force: true },
+        refreshDeps,
+      )
+      if (!forced.refreshed) throw err
+      credentials = forced.credentials
+      result = await fetchPage(credentials)
+    }
     normalized = Array.isArray(result?.messages) ? result.messages : []
     nextCursor = result?.nextCursor
     hasMore = result?.hasMore === true
