@@ -529,6 +529,115 @@ describe('init command failure output', () => {
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
   })
+
+  it('derives admin/employee emails from the --email domain, not the acme.com default (#5806)', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+
+    delete process.env.OM_INIT_ADMIN_EMAIL
+    delete process.env.OM_INIT_EMPLOYEE_EMAIL
+
+    let adminEmailAtSetupTime: string | undefined
+    let employeeEmailAtSetupTime: string | undefined
+    const configsRestoreDefaults = jest.fn().mockResolvedValue(undefined)
+    // Reads OM_INIT_ADMIN_EMAIL/OM_INIT_EMPLOYEE_EMAIL at call time, mirroring what the
+    // real `auth setup` -> setupInitialTenant reads. `runModuleCommand` invokes this
+    // in-process (not spawned), so the env vars `mercato init` sets right before this
+    // call are visible here exactly as they would be for the real command.
+    const authSetup = jest.fn().mockImplementation(async () => {
+      adminEmailAtSetupTime = process.env.OM_INIT_ADMIN_EMAIL
+      employeeEmailAtSetupTime = process.env.OM_INIT_EMPLOYEE_EMAIL
+    })
+    const authSeedRoles = jest.fn().mockResolvedValue(undefined)
+    const entitiesSeedEncryption = jest.fn().mockResolvedValue(undefined)
+    const queryIndexReindex = jest.fn().mockResolvedValue(undefined)
+
+    jest.doMock('child_process', () => ({
+      execSync: jest.fn(),
+    }))
+    jest.doMock('pg', () => ({
+      Client: jest.fn().mockImplementation(() => ({
+        connect: jest.fn().mockResolvedValue(undefined),
+        query: jest.fn().mockResolvedValue({
+          rows: [{ org_id: 'org-1', tenant_id: 'tenant-1' }],
+        }),
+        end: jest.fn().mockResolvedValue(undefined),
+      })),
+    }))
+    jest.doMock('../lib/generators', () => ({
+      generateEntityIds: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistries: jest.fn().mockResolvedValue(undefined),
+      generateModuleEntities: jest.fn().mockResolvedValue(undefined),
+      generateModuleDi: jest.fn().mockResolvedValue(undefined),
+      generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateOpenApi: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/db', () => ({
+      dbMigrate: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      createResolver: () => ({
+        getAppDir: () => '/tmp/test-app',
+      }),
+    }))
+    jest.doMock('@open-mercato/shared/lib/bootstrap/dynamicLoader', () => ({
+      bootstrapFromAppRoot: jest.fn().mockResolvedValue({
+        modules: [
+          {
+            id: 'configs',
+            cli: [{ command: 'restore-defaults', run: configsRestoreDefaults }],
+          },
+          {
+            id: 'auth',
+            cli: [
+              { command: 'setup', run: authSetup },
+              { command: 'seed-roles', run: authSeedRoles },
+            ],
+          },
+          {
+            id: 'entities',
+            cli: [{ command: 'seed-encryption', run: entitiesSeedEncryption }],
+          },
+          {
+            id: 'query_index',
+            cli: [{ command: 'reindex', run: queryIndexReindex }],
+          },
+        ],
+      }),
+    }))
+    jest.doMock('@open-mercato/shared/lib/di/container', () => ({
+      createRequestContainer: jest.fn().mockResolvedValue({
+        resolve: jest.fn().mockReturnValue({}),
+      }),
+    }))
+    jest.doMock(
+      '@open-mercato/core/modules/auth/lib/setup-app',
+      () => ({
+        ensureCustomRoleAcls: jest.fn().mockResolvedValue(undefined),
+      }),
+      { virtual: true },
+    )
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run([
+      'node',
+      'mercato',
+      'init',
+      '--email=superadmin@example.org',
+      '--password=Strong-Pa55!!',
+    ])
+
+    expect(exitCode).toBe(0)
+    expect(authSetup).toHaveBeenCalled()
+    expect(adminEmailAtSetupTime).toBe('admin@example.org')
+    expect(employeeEmailAtSetupTime).toBe('employee@example.org')
+
+    delete process.env.OM_INIT_ADMIN_EMAIL
+    delete process.env.OM_INIT_EMPLOYEE_EMAIL
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
 })
 
 describe('seed:defaults command', () => {
