@@ -103,7 +103,7 @@ function LoopStepRow({ step }: { step: LoopStepRecord }) {
                         <span className="text-muted-foreground/60">{formatMs(tc.durationMs)}</span>
                       ) : null}
                       {tc.error ? (
-                        <span className="text-status-error-fg">error: {tc.error.code}</span>
+                        <span className="text-status-error-text">error: {tc.error.code}</span>
                       ) : null}
                     </div>
                     {tc.args !== undefined ? (
