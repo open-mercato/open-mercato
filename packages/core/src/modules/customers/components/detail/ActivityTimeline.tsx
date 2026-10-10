@@ -4,9 +4,11 @@ import { Check, ListTodo, Phone, Mail, Users, StickyNote, User } from 'lucide-re
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
+import { cn } from '@open-mercato/shared/lib/utils'
 import { AiActionChips } from './AiActionChips'
 import type { InteractionSummary } from './types'
-import { isOpenInteractionStatus } from '../../lib/interactionStatus'
+import { isCanceledInteractionStatus, isOpenInteractionStatus } from '../../lib/interactionStatus'
 
 const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   call: Phone,
@@ -85,6 +87,7 @@ function TimelineEntry({
   const title = activity.title ?? activity.body ?? activity.interactionType
   const duration = activity.duration ? ` (${activity.duration} min)` : ''
   const isOpen = isOpenInteractionStatus(activity.status)
+  const isCanceled = isCanceledInteractionStatus(activity.status)
   const [markingDone, setMarkingDone] = React.useState(false)
 
   const handleMarkDone = React.useCallback(async (event: React.MouseEvent | React.KeyboardEvent) => {
@@ -125,9 +128,21 @@ function TimelineEntry({
         {/* Column 3: Content */}
         <div className="min-w-0 space-y-1.5">
           <div className="flex items-start justify-between gap-2">
-            <span className="block text-[12px] font-semibold leading-tight text-foreground">
-              {title}{duration}
-            </span>
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+              <span
+                className={cn(
+                  'block text-xs font-semibold leading-tight',
+                  isCanceled ? 'text-muted-foreground line-through' : 'text-foreground',
+                )}
+              >
+                {title}{duration}
+              </span>
+              {isCanceled ? (
+                <StatusBadge variant="neutral" className="shrink-0">
+                  {t('customers.interactions.status.canceled', 'Canceled')}
+                </StatusBadge>
+              ) : null}
+            </div>
             {isOpen && onMarkDone ? (
               <Button
                 type="button"

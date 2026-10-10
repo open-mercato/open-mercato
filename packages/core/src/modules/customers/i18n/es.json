@@ -1698,7 +1698,7 @@
   "customers.interactions.legacyAdapters.disabled": "This legacy adapter has been disabled. Use /api/customers/interactions instead.",
   "customers.interactions.list.title": "Interactions",
   "customers.interactions.load.error": "Failed to load interactions.",
-  "customers.interactions.status.canceled": "Canceled",
+  "customers.interactions.status.canceled": "Cancelada",
   "customers.interactions.status.done": "Done",
   "customers.interactions.status.in_progress": "In progress",
   "customers.interactions.status.planned": "Planned",
