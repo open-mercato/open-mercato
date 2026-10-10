@@ -24,6 +24,8 @@
  */
 
 import { execFileSync } from 'node:child_process'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 export const DEFAULT_BASE_REF = 'origin/develop'
 export const DEFAULT_MAX_FILES = 25
@@ -199,6 +201,6 @@ function main() {
   process.stdout.write(`${JSON.stringify(matrix)}\n`)
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main()
 }
