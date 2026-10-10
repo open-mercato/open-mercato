@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 144 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 149 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -33,6 +33,7 @@ This catalog indexes 144 focused lessons. Route the task first, then read only r
 - [Keep mirrored dev runtimes aligned with their process registry type](lessons/keep-mirrored-dev-runtimes-aligned-with-their-process.md) — area:architecture,debugging; module:events,create_app; topic:events,dev-runtime,filters
 - [Keep standalone agentic content in sync with module conventions](lessons/keep-standalone-agentic-content-in-sync-with-module.md) — area:architecture,framework-context; module:create_app,documents,events,cli; topic:auto-discovery,events,generated-files,package-runtime,session-export,testing
 - [Keep standalone template module lists aligned with template package dependencies](lessons/keep-standalone-template-module-lists-aligned-with.md) — area:architecture; module:create_app,cli; topic:generated-files,package-runtime,template-sync
+- [Module-registered schedules can only target workers owned by the same module](lessons/module-schedules-can-only-target-workers-owned-by-the-same-module.md) — area:architecture,integration; module:scheduler,queue,payment_gateways; topic:workers,module-boundaries,provider-lifecycle
 - [Never guard sensitive routes with `requireRoles` on mutable role names](lessons/never-guard-sensitive-routes-with-requireroles-on.md) — area:architecture; module:auth; topic:access-control,data-scoping
 - [Package build scripts must rewrite side-effect ESM imports and declared watch entrypoints must exist](lessons/package-build-scripts-must-rewrite-side-effect-esm.md) — area:architecture,integration; module:checkout; topic:build-output,module-boundaries,package-runtime
 - [Prefer relative intra-package imports inside package CLI/runtime entrypoints](lessons/prefer-relative-intra-package-imports-inside-package.md) — area:architecture; module:cli; topic:package-runtime,runtime-startup,testing
@@ -50,6 +51,7 @@ This catalog indexes 144 focused lessons. Route the task first, then read only r
 - [Local tooling gotchas: stale snapshots and ephemeral restarts](lessons/db-generate-re-emits-an-unrelated-stale-snapshot.md) — area:module-data,testing,debugging; module:cli,ai_assistant; topic:database-migrations,dev-runtime,regeneration
 - [`dbMigrate` must not write migration snapshots during initialize flows](lessons/dbmigrate-must-not-write-migration-snapshots-during.md) — area:module-data,architecture; module:cli,create_app; topic:generated-files,database-migrations,runtime-startup
 - [A self-request needs data committed outside the caller's transaction](lessons/a-self-request-needs-data-committed-outside-the-callers.md) — area:module-data; module:auth,checkout,query_index; topic:data-integrity,query-index,workers
+- [A migration with swapped up/down can silently drop a unique constraint the code relies on](lessons/swapped-migration-up-down-can-silently-drop-a-unique-constraint.md) — area:module-data,debugging,testing; module:payment_gateways; topic:database-migrations,data-integrity,webhooks
 - [Avoid identity-map stale snapshots in command logs](lessons/avoid-identity-map-stale-snapshots-in-command-logs.md) — area:module-data,debugging; module:audit_logs,cache; topic:command-pattern,data-integrity,generated-files
 - [Classify entity metadata by ORM ownership before custom declarations](lessons/classify-entity-metadata-by-orm-ownership-before-custom.md) — area:module-data; module:entities; topic:access-control,filters
 - [Concurrent index migrations must recover from invalid build stubs](lessons/concurrent-index-migrations-must-recover-from-invalid-build-stubs.md) — area:module-data,debugging,testing; module:query_index; topic:concurrency,database-migrations,data-integrity
@@ -58,6 +60,7 @@ This catalog indexes 144 focused lessons. Route the task first, then read only r
 - [Cross-module query precedent is not permission to copy storage coupling](lessons/cross-module-query-precedent-is-not-permission-to-copy.md) — area:module-data,debugging; module:customers; topic:access-control,module-boundaries,testing
 - [CRUD-owned custom-field writes should not emit a second entity event](lessons/crud-owned-custom-field-writes-should-not-emit-a-second.md) — area:module-data,umes; module:entities,query_index,cli; topic:command-pattern,custom-fields,data-integrity
 - [Data-sync run detail should subscribe to its progress job, not just poll it](lessons/data-sync-run-detail-should-subscribe-to-its-progress.md) — area:module-data,integration,debugging; module:data_sync,progress,events; topic:events,realtime,testing
+- [Deterministic module schedule ids must be valid for scheduler validators](lessons/deterministic-schedule-ids-must-pass-scheduler-validators.md) — area:module-data,architecture; module:scheduler; topic:validation-errors,data-integrity
 - [Destination auth requires expanded scopes and atomic reconciliation](lessons/destination-authorization-must-use-expanded-scopes-and-atomic-reconciliation.md) — area:module-data,testing; module:auth,directory; topic:access-control,command-pattern,data-integrity,data-scoping
 - [Do not diagnose unknown-total progress as broken SSE](lessons/do-not-diagnose-unknown-total-progress-as-broken-sse.md) — area:module-data,integration,backend-ui; module:events,progress,catalog; topic:data-import,events,provider-lifecycle
 - [Docker initialization should treat the existing-users CLI abort as already initialized](lessons/docker-initialization-should-treat-the-existing-users.md) — area:module-data,architecture,debugging; module:cli,create_app; topic:package-runtime,runtime-startup,template-sync
@@ -140,6 +143,7 @@ This catalog indexes 144 focused lessons. Route the task first, then read only r
 - [New shared deep import paths should get explicit export-map entries](lessons/new-shared-deep-import-paths-should-get-explicit-export.md) — area:integration,testing,debugging; module:shared; topic:events,package-runtime,testing
 - [Optional native dependencies must report load failures accurately](lessons/optional-native-dependencies-must-report-load-failures.md) — area:integration,module-data,debugging; module:cache; topic:error-states,package-runtime,testing
 - [Provider credentials must never control authenticated cross-origin requests](lessons/provider-credentials-must-never-control-authenticated.md) — area:integration; module:auth,integrations,data_sync; topic:data-import,data-scoping,media
+- [Provider sandboxes may sign notifications with a separate CA](lessons/provider-sandboxes-may-sign-with-a-separate-ca.md) — area:integration; module:payment_gateways,gateway_tpay; topic:network-security,webhooks
 - [Security caches must outlive request-scoped providers and cover reserved IPv6 space](lessons/security-caches-must-outlive-request-scoped-providers.md) — area:integration,umes; module:cache,auth,cli; topic:data-scoping,network-security,provider-lifecycle
 - [Shared security-default changes require a complete consumer audit](lessons/shared-security-default-changes-require-a-complete.md) — area:integration,testing,module-data; module:shared,auth,cache,events,example,create_app; topic:access-control,data-scoping,events
 - [Stabilize flaky integration tests by finding the hang, not by raising the timeout](lessons/stabilize-flaky-integration-tests-by-finding-the-hang.md) — area:integration,testing,backend-ui; module:events,queue,ui,auth,example,record_locks,warranty_claims; topic:events,testing,workers,hydration,component-overrides,timers
@@ -148,6 +152,7 @@ This catalog indexes 144 focused lessons. Route the task first, then read only r
 - [Store integration registry state in `globalThis` for standalone workers](lessons/store-integration-registry-state-in-globalthis-for.md) — area:integration,architecture,testing; module:integrations,shared,create_app; topic:generated-files,module-boundaries,database-migrations
 - [Validate persisted-definition consumers before retiring legacy workflow rows](lessons/validate-persisted-definition-consumers-before-retiring.md) — area:integration,architecture,debugging; module:checkout,webhooks; topic:generated-files,database-migrations,webhooks
 - [Variant hero media should be written after importer flush-heavy work](lessons/variant-hero-media-should-be-written-after-importer.md) — area:integration,module-data; module:catalog,data_sync; topic:data-integrity,data-import,generated-files
+- [Verify provider notification identifiers against real payloads before designing locators](lessons/verify-provider-notification-identifiers-against-real-payloads.md) — area:integration; module:payment_gateways,gateway_tpay; topic:webhooks,data-scoping,provider-lifecycle
 - [Webhook body-limit sweeps must include source-specific receivers](lessons/webhook-body-limit-sweeps-must-include-source-specific-receivers.md) — area:integration,testing,architecture; module:webhooks,payment_gateways,shipping_carriers,communication_channels,inbox_ops; topic:webhooks,network-security,testing
 - [Workspace packages with backend pages must build and export deep TSX entrypoints](lessons/workspace-packages-with-backend-pages-must-build-and.md) — area:integration,architecture; module:platform; topic:build-output,generated-files,module-boundaries
 
