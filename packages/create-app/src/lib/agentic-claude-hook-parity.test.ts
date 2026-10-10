@@ -77,7 +77,7 @@ test('every hook registered in settings.json exists on disk', () => {
   assert.ok(registered.length > 0, 'expected settings.json to register at least one hook')
   for (const hook of new Set(registered)) {
     assert.ok(
-      fs.existsSync(path.join(hooksDir.pathname, hook)),
+      fs.existsSync(new URL(hook, hooksDir)),
       `settings.json registers .claude/hooks/${hook}, which does not exist in the source tree`,
     )
   }

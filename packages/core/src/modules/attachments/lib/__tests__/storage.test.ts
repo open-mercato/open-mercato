@@ -37,7 +37,7 @@ describe('attachments storage root resolution', () => {
     mockCwd(path.join(path.sep, 'home', 'dev', 'worktree'))
     const fromWorktree = resolvePartitionRoot('productsMedia')
 
-    expect(fromAppRoot).toBe(path.join(path.sep, 'var', 'lib', 'mercato', 'attachments', 'productsMedia'))
+    expect(fromAppRoot).toBe(path.resolve(path.sep, 'var', 'lib', 'mercato', 'attachments', 'productsMedia'))
     expect(fromWorktree).toBe(fromAppRoot)
   })
 
@@ -45,7 +45,7 @@ describe('attachments storage root resolution', () => {
     process.env[STORAGE_ROOT_ENV_KEY] = path.join(path.sep, 'var', 'lib', 'mercato', 'attachments')
     process.env[PARTITION_ENV_KEY] = path.join(path.sep, 'mnt', 'media')
 
-    expect(resolvePartitionRoot('productsMedia')).toBe(path.join(path.sep, 'mnt', 'media'))
+    expect(resolvePartitionRoot('productsMedia')).toBe(path.resolve(path.sep, 'mnt', 'media'))
   })
 
   it('ignores a blank base root and falls back to the default', () => {

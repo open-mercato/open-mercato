@@ -756,7 +756,7 @@ describe('Queue - local strategy', () => {
         }
         resolveEventDriven(job.payload.value)
       })
-      fs.renameSync(baseDir, movedDir)
+      fs.renameSync(path.join(baseDir, 'recreated-queue'), movedDir)
       const producer = createQueue<{ value: number }>('recreated-queue', 'local', { baseDir })
 
       try {

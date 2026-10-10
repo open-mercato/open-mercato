@@ -92,7 +92,7 @@ test('preserves explicit assets and executable extensions including query string
 })
 
 test('resolves directory imports against planned outputs and keeps dotted module basenames', () => {
-  const rewritten = rewriteRelativeImports("import { value } from './shared'; export { handler } from './page.meta';", '/build', { knownOutputPaths: new Set(['/build/shared/index.js', '/build/page.meta.js']) })
+  const rewritten = rewriteRelativeImports("import { value } from './shared'; export { handler } from './page.meta';", '/build', { knownOutputPaths: new Set([path.join('/build', 'shared', 'index.js'), path.join('/build', 'page.meta.js')]) })
   assert.equal(rewritten, 'import { value } from "./shared/index.js"; export { handler } from "./page.meta.js";')
 })
 

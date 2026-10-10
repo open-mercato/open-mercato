@@ -20,6 +20,18 @@ const standaloneSkillDirectory = fileURLToPath(
   new URL('../../agentic/shared/ai/skills/om-share-this-session/', import.meta.url),
 )
 
+const FILE_SYMLINK_SKIP_REASON = 'creating a file symlink needs Developer Mode or administrator rights on Windows'
+
+function tryCreateFileSymlink(target: string, link: string): boolean {
+  try {
+    fs.symlinkSync(target, link, 'file')
+    return true
+  } catch (error) {
+    if (process.platform === 'win32' && (error as NodeJS.ErrnoException).code === 'EPERM') return false
+    throw error
+  }
+}
+
 function relativeFiles(root: string, current = root): string[] {
   return fs.readdirSync(current, { withFileTypes: true }).flatMap((entry) => {
     const absolutePath = path.join(current, entry.name)
@@ -513,12 +525,15 @@ test('session-share preparer fails closed for incomplete sessions and unsafe fil
     }
   })
 
-  await t.test('symlink', () => {
+  await t.test('symlink', (subtest) => {
     const fixture = createFixture()
     try {
       fs.writeFileSync(fixture.sessionPath, JSON.stringify([{ type: 'user' }, { type: 'assistant' }]))
       fs.writeFileSync(path.join(fixture.root, 'outside.ts'), 'export {}\n')
-      fs.symlinkSync(path.join(fixture.root, 'outside.ts'), path.join(fixture.root, 'src', 'linked.ts'))
+      if (!tryCreateFileSymlink(path.join(fixture.root, 'outside.ts'), path.join(fixture.root, 'src', 'linked.ts'))) {
+        subtest.skip(FILE_SYMLINK_SKIP_REASON)
+        return
+      }
       fs.writeFileSync(fixture.manifestPath, 'src/linked.ts\n')
       const result = runPreparer(fixture)
       assert.notEqual(result.status, 0)

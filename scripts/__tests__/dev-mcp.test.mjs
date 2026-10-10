@@ -65,7 +65,7 @@ test('resolveMcpKeyFilePath defaults under .mercato/mcp-shared and honors the en
     resolveMcpKeyFilePath({ MCP_SERVER_API_KEY_FILE: 'custom/key' }, cwd),
     path.resolve(cwd, 'custom/key'),
   )
-  const absolute = path.join(path.sep, 'run', 'mcp', 'key')
+  const absolute = path.resolve(path.sep, 'run', 'mcp', 'key')
   assert.equal(resolveMcpKeyFilePath({ MCP_SERVER_API_KEY_FILE: absolute }, cwd), absolute)
 })
 
