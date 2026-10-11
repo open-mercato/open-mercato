@@ -40,8 +40,33 @@ export type TaskEntityLinkRegistration = {
   buildHref: TaskEntityLinkBuilder
 }
 
-const aclRequirements = new Map<string, readonly string[]>()
-const linkBuilders = new Map<string, TaskEntityLinkBuilder>()
+// Parked on globalThis because the writer (a module's `workflows.ts`, evaluated
+// by app bootstrap) and the readers (API routes, the work-inbox provider) can
+// load separate copies of this module from different server bundles; a
+// module-local Map would leave every registration invisible to the readers.
+const GLOBAL_TASK_ENTITY_ACL_KEY = '__openMercatoWorkflowTaskEntityAclRequirements__'
+const GLOBAL_TASK_ENTITY_LINK_KEY = '__openMercatoWorkflowTaskEntityLinkBuilders__'
+
+type GlobalWithTaskEntityRegistry = typeof globalThis & {
+  [GLOBAL_TASK_ENTITY_ACL_KEY]?: Map<string, readonly string[]>
+  [GLOBAL_TASK_ENTITY_LINK_KEY]?: Map<string, TaskEntityLinkBuilder>
+}
+
+function getAclRequirements(): Map<string, readonly string[]> {
+  const globalScope = globalThis as GlobalWithTaskEntityRegistry
+  if (!globalScope[GLOBAL_TASK_ENTITY_ACL_KEY]) {
+    globalScope[GLOBAL_TASK_ENTITY_ACL_KEY] = new Map<string, readonly string[]>()
+  }
+  return globalScope[GLOBAL_TASK_ENTITY_ACL_KEY]
+}
+
+function getLinkBuilders(): Map<string, TaskEntityLinkBuilder> {
+  const globalScope = globalThis as GlobalWithTaskEntityRegistry
+  if (!globalScope[GLOBAL_TASK_ENTITY_LINK_KEY]) {
+    globalScope[GLOBAL_TASK_ENTITY_LINK_KEY] = new Map<string, TaskEntityLinkBuilder>()
+  }
+  return globalScope[GLOBAL_TASK_ENTITY_LINK_KEY]
+}
 
 /** `Notary.Notary_Case` / `notary:notary_case` → `notary:notary_case`. */
 export function normalizeRegisteredTaskEntityId(entityId: unknown): string | null {
@@ -76,7 +101,7 @@ export function registerTaskEntityAclRequirements(
     if (!entityId || !view) {
       throw new Error('[internal] Task entity ACL registrations require an entityId and at least one view feature')
     }
-    aclRequirements.set(entityId, view)
+    getAclRequirements().set(entityId, view)
   }
 }
 
@@ -89,7 +114,7 @@ export function registerTaskEntityLinkBuilders(
     if (!entityId || typeof registration?.buildHref !== 'function') {
       throw new Error('[internal] Task entity link registrations require an entityId and a buildHref function')
     }
-    linkBuilders.set(entityId, registration.buildHref)
+    getLinkBuilders().set(entityId, registration.buildHref)
   }
 }
 
@@ -102,19 +127,19 @@ export function registerTaskEntityLinkBuilders(
  */
 export function resolveRegisteredTaskEntityViewFeatures(entityId: string): string[] | null {
   const normalized = normalizeRegisteredTaskEntityId(entityId)
-  const features = normalized ? aclRequirements.get(normalized) : undefined
+  const features = normalized ? getAclRequirements().get(normalized) : undefined
   return features ? [...features] : null
 }
 
 export function resolveRegisteredTaskEntityLinkBuilder(entityId: string): TaskEntityLinkBuilder | null {
   const normalized = normalizeRegisteredTaskEntityId(entityId)
-  return (normalized ? linkBuilders.get(normalized) : undefined) ?? null
+  return (normalized ? getLinkBuilders().get(normalized) : undefined) ?? null
 }
 
 export function clearTaskEntityRegistrationsForTests(): void {
   if (process.env.NODE_ENV !== 'test') {
     throw new Error('[internal] clearTaskEntityRegistrationsForTests is test-only')
   }
-  aclRequirements.clear()
-  linkBuilders.clear()
+  getAclRequirements().clear()
+  getLinkBuilders().clear()
 }
