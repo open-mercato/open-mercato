@@ -272,6 +272,34 @@ export async function sendSignal(
 
   const now = new Date()
 
+  // Claim the wait before mutating anything (#7185). Every check above reads a
+  // snapshot, so concurrent deliveries of the same signal all pass it; only the
+  // conditional UPDATE is atomic, and exactly one delivery wins it. Pinning the
+  // validated `currentStepId` stops a stale delivery from consuming a LATER wait
+  // the winner has since parked on. Losers surface as WORKFLOW_NOT_PAUSED, which
+  // the instance signal route already maps to 409.
+  const claimed = await em.nativeUpdate(
+    WorkflowInstance,
+    {
+      id: instance.id,
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+      status: 'PAUSED',
+      currentStepId: instance.currentStepId,
+    },
+    { status: 'RUNNING', updatedAt: now },
+  )
+  if (claimed === 0) {
+    throw new SignalError(
+      'Workflow is not paused',
+      'WORKFLOW_NOT_PAUSED',
+      { instanceId, reason: 'claimed_by_concurrent_delivery' }
+    )
+  }
+  // Mirror the claimed row onto the identity-mapped entity so later flushes
+  // cannot write the pre-claim status back.
+  instance.status = 'RUNNING'
+
   // Merge signal payload into workflow context
   if (payload) {
     instance.context = {
@@ -452,14 +480,44 @@ export async function sendSignal(
   await workflowExecutor.executeWorkflow(em, container, instance.id, { userId })
 }
 
+export type SendSignalByCorrelationKeyOptions = Omit<SendSignalOptions, 'instanceId'> & { correlationKey: string }
+
+export interface SignalDeliveryFailure {
+  instanceId: string
+  code: string
+  message: string
+}
+
+export interface SendSignalByCorrelationKeyResult {
+  count: number
+  failures: SignalDeliveryFailure[]
+}
+
 /**
  * Send signal by correlation key (finds all waiting instances)
+ *
+ * Returns only the number of instances that were advanced; use
+ * `sendSignalByCorrelationKeyWithResults` to learn which instances failed.
  */
 export async function sendSignalByCorrelationKey(
   em: EntityManager,
   container: AwilixContainer,
-  options: Omit<SendSignalOptions, 'instanceId'> & { correlationKey: string }
+  options: SendSignalByCorrelationKeyOptions
 ): Promise<number> {
+  const { count } = await sendSignalByCorrelationKeyWithResults(em, container, options)
+  return count
+}
+
+/**
+ * Send signal by correlation key and report every per-instance failure, so a
+ * caller can tell which instances were not advanced (including deliveries that
+ * lost the claim to a concurrent one, reported as `WORKFLOW_NOT_PAUSED`).
+ */
+export async function sendSignalByCorrelationKeyWithResults(
+  em: EntityManager,
+  container: AwilixContainer,
+  options: SendSignalByCorrelationKeyOptions
+): Promise<SendSignalByCorrelationKeyResult> {
   const { correlationKey, signalName, payload, userId, tenantId, organizationId } = options
 
   // Find all paused instances with this correlation key
@@ -477,6 +535,7 @@ export async function sendSignalByCorrelationKey(
   )
 
   let signalsProcessed = 0
+  const failures: SignalDeliveryFailure[] = []
 
   for (const instance of instances) {
     try {
@@ -492,8 +551,15 @@ export async function sendSignalByCorrelationKey(
     } catch (error) {
       // Log error but continue processing other instances
       logger.error('Failed to send signal to instance', { instanceId: instance.id, err: error })
+      // Only a SignalError's message is a deliberate, caller-safe description;
+      // anything else may carry internals and is reported generically.
+      failures.push(
+        error instanceof SignalError
+          ? { instanceId: instance.id, code: error.code, message: error.message }
+          : { instanceId: instance.id, code: 'SIGNAL_DELIVERY_FAILED', message: 'Failed to deliver signal' },
+      )
     }
   }
 
-  return signalsProcessed
+  return { count: signalsProcessed, failures }
 }
