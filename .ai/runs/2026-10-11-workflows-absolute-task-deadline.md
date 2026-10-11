@@ -63,10 +63,10 @@ due date is computed elsewhere still get reminders and breach handling.
 
 ### Phase 1: Engine
 
-- [ ] 1.1 Schema: `deadline.at` + mutual exclusivity; agent review keeps duration-only deadline
-- [ ] 1.2 Resolution + step handler: absolute due date, fail-closed parsing, dry-run report carries it
-- [ ] 1.3 Inspector round trip preserves `deadline.at`
-- [ ] 1.4 Unit tests
+- [x] 1.1 Schema: `deadline.at` + mutual exclusivity; agent review keeps duration-only deadline — 63f2d5c3a
+- [x] 1.2 Resolution + step handler: absolute due date, fail-closed parsing, dry-run report carries it — a81c5ede0
+- [x] 1.3 Inspector round trip preserves `deadline.at` — d6ac898b6
+- [x] 1.4 Unit tests — db534e9b0
 
 ### Phase 2: Docs
 
