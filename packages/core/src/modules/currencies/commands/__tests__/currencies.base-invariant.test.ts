@@ -21,8 +21,22 @@ const GBP_ID = '77777777-7777-4777-8777-777777777777'
 const PLN_ID = '88888888-8888-4888-8888-888888888888'
 const NEW_ID = '99999999-9999-4999-8999-999999999999'
 
-type Row = Record<string, any>
-type Command = Record<string, any>
+type Row = Record<string, unknown>
+type CommandLog = {
+  resourceId?: string | null
+  payload?: unknown
+  snapshotBefore?: unknown
+  snapshotAfter?: unknown
+  redoInput?: unknown
+} | null
+type Command = {
+  prepare?: (input: Row, ctx: unknown) => Promise<Row>
+  execute: (input: Row, ctx: unknown) => Promise<unknown>
+  captureAfter?: (input: Row, result: unknown, ctx: unknown) => Promise<unknown>
+  buildLog: (args: Row) => Promise<CommandLog>
+  undo: (args: Row) => Promise<void>
+  redo?: (args: Row) => Promise<unknown>
+}
 type LogEntry = {
   resourceId: string | null
   payload: unknown
@@ -281,6 +295,60 @@ describe('currencies base-currency invariant (exactly one live base per tenant/o
     expect(rows.find((row) => row.id === USD_ID)?.name).toBe('Dollar')
   })
 
+  it('restores the first recorded predecessor that is still live', async () => {
+    const rows = [makeCurrency(EUR_ID, 'EUR', false), makeCurrency(GBP_ID, 'GBP', false), makeCurrency(USD_ID, 'USD', true)]
+    const { ctx } = buildEnv(rows)
+    const { update, delete: remove } = loadCommands()
+    const snapshot = (id: string, code: string, isBase: boolean) => ({
+      ...makeCurrency(id, code, isBase),
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    })
+    const payload = {
+      undo: {
+        before: snapshot(USD_ID, 'USD', false),
+        after: snapshot(USD_ID, 'USD', true),
+        base: { promoted: true, demotedBaseCurrencyIds: [EUR_ID, GBP_ID] },
+      },
+    }
+    const logEntry: LogEntry = {
+      resourceId: USD_ID,
+      payload,
+      snapshotBefore: snapshot(USD_ID, 'USD', false),
+      snapshotAfter: snapshot(USD_ID, 'USD', true),
+      commandPayload: { __redoInput: { id: USD_ID, isBase: true }, ...payload },
+    }
+    await run(remove, { id: EUR_ID, organizationId: ORG, tenantId: TENANT }, ctx)
+
+    await undo(update, logEntry, ctx)
+    expect(liveBases(rows)).toEqual(['GBP'])
+  })
+
+  it('undo of a legacy log that cleared the base re-promotes it only when the organization has no base', async () => {
+    const rows = [makeCurrency(EUR_ID, 'EUR', false), makeCurrency(USD_ID, 'USD', false)]
+    const { ctx } = buildEnv(rows)
+    const { update } = loadCommands()
+    const snapshot = (isBase: boolean) => ({
+      ...makeCurrency(EUR_ID, 'EUR', isBase),
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    })
+    const logEntry: LogEntry = {
+      resourceId: EUR_ID,
+      payload: { undo: { before: snapshot(true), after: snapshot(false) } },
+      snapshotBefore: snapshot(true),
+      snapshotAfter: snapshot(false),
+      commandPayload: { id: EUR_ID, isBase: false },
+    }
+
+    await undo(update, logEntry, ctx)
+    expect(liveBases(rows)).toEqual(['EUR'])
+
+    rows.forEach((row) => { row.isBase = row.id === USD_ID })
+    await undo(update, logEntry, ctx)
+    expect(liveBases(rows)).toEqual(['USD'])
+  })
+
   it('refuses a legacy promotion log without recorded predecessors while the record is still the base', async () => {
     const rows = [makeCurrency(EUR_ID, 'EUR', false), makeCurrency(USD_ID, 'USD', true)]
     const { ctx } = buildEnv(rows)
@@ -427,7 +495,7 @@ describe('currencies base-currency invariant (exactly one live base per tenant/o
     const rows = [makeCurrency(EUR_ID, 'EUR', true), legacy]
     const { ctx } = buildEnv(rows)
     const { delete: remove } = loadCommands()
-    const before = { ...makeCurrency(USD_ID, 'USD', false), createdAt: legacy.createdAt.toISOString(), updatedAt: legacy.updatedAt.toISOString() }
+    const before = { ...makeCurrency(USD_ID, 'USD', false), createdAt: (legacy.createdAt as Date).toISOString(), updatedAt: (legacy.updatedAt as Date).toISOString() }
     const logEntry: LogEntry = {
       resourceId: USD_ID,
       payload: { undo: { before } },

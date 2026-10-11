@@ -234,6 +234,10 @@ function isPromotionByLegacyLog(payload: CurrencyUndoPayload | null): boolean {
   return payload?.before?.isBase === false && payload?.after?.isBase === true
 }
 
+function isDemotionByLegacyLog(payload: CurrencyUndoPayload | null): boolean {
+  return !payload?.base && payload?.before?.isBase === true && payload?.after?.isBase === false
+}
+
 const createCurrencyCommand: CommandHandler<CurrencyCreateInput, CurrencyCommandResult> = {
   id: 'currencies.currencies.create',
   async execute(input, ctx) {
@@ -363,6 +367,7 @@ const createCurrencyCommand: CommandHandler<CurrencyCreateInput, CurrencyCommand
           if (!record) return
           record.deletedAt = new Date()
           record.isActive = false
+          record.isBase = false
         },
         () => (restoredBaseId ? setBaseFlag(em, scope, [restoredBaseId], true) : undefined),
       ],
@@ -397,7 +402,7 @@ const createCurrencyCommand: CommandHandler<CurrencyCreateInput, CurrencyCommand
               Currency,
               snapshot.id,
               () => reviveSnapshotSeed(snapshot as unknown as Record<string, unknown>),
-              (forkedEm) => readScopedSnapshotRecord(forkedEm, snapshot),
+              (lookupEm) => readScopedSnapshotRecord(lookupEm, snapshot),
             )
             record.isBase = isBase
           },
@@ -572,8 +577,10 @@ const updateCurrencyCommand: CommandHandler<CurrencyUpdateInput, CurrencyCommand
     const promoted = payload?.base ? payload.base.promoted : isPromotionByLegacyLog(payload)
     const predecessorIds = payload?.base?.demotedBaseCurrencyIds ?? []
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const demotedByLegacyLog = isDemotionByLegacyLog(payload)
     let record: Currency | null = null
     let restoredBaseId: string | null = null
+    let repromote = false
 
     await withAtomicFlush(
       em,
@@ -584,6 +591,9 @@ const updateCurrencyCommand: CommandHandler<CurrencyUpdateInput, CurrencyCommand
           if (!current) return
           if (promoted && current.isBase && !current.deletedAt) {
             restoredBaseId = await resolvePredecessorOrRefuse(em, scope, predecessorIds)
+          }
+          if (demotedByLegacyLog && !current.isBase && !current.deletedAt) {
+            repromote = (await findLiveBaseCurrencyIds(em, scope)).length === 0
           }
           record = current
         },
@@ -600,6 +610,7 @@ const updateCurrencyCommand: CommandHandler<CurrencyUpdateInput, CurrencyCommand
             updatedAt: new Date(),
           })
           if (restoredBaseId) record.isBase = false
+          if (repromote) record.isBase = true
         },
         () => (restoredBaseId ? setBaseFlag(em, scope, [restoredBaseId], true) : undefined),
       ],

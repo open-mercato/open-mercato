@@ -11,6 +11,10 @@ import { getTokenContext } from '@open-mercato/core/helpers/integration/generalF
  *   - POST/DELETE /api/currencies/exchange-rates
  *   - POST /api/audit_logs/audit-logs/actions/undo  { undoToken }
  *   - POST /api/audit_logs/audit-logs/actions/redo  { logId }
+ *
+ * Fixtures are removed in afterEach after the prior base is restored. When the organization had no
+ * base currency, the base fixture created in beforeEach stays: a base currency cannot be un-flagged
+ * or deleted by design.
  */
 
 type CurrencyRow = { id: string; code: string; name: string; isBase: boolean };
