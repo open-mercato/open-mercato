@@ -61,6 +61,12 @@ function createExpressionBuilder() {
 
 function createRecordingDb(rows: unknown[] = []) {
   const predicates: Predicate[] = []
+  const tables: string[] = []
+  let currentTable = ''
+  const record = (predicate: Predicate) => {
+    predicates.push(predicate)
+    tables.push(currentTable)
+  }
   const chain: any = {
     select: jest.fn(() => chain),
     groupBy: jest.fn(() => chain),
@@ -70,15 +76,22 @@ function createRecordingDb(rows: unknown[] = []) {
     execute: jest.fn().mockResolvedValue(rows),
     where: jest.fn((columnOrCallback: unknown, op?: unknown, value?: unknown) => {
       if (typeof columnOrCallback === 'function') {
-        predicates.push((columnOrCallback as (eb: unknown) => Predicate)(createExpressionBuilder()))
+        record((columnOrCallback as (eb: unknown) => Predicate)(createExpressionBuilder()))
       } else if (typeof columnOrCallback === 'string' && typeof op === 'string') {
-        predicates.push({ kind: 'cmp', column: columnOrCallback, op, value })
+        record({ kind: 'cmp', column: columnOrCallback, op, value })
       }
       return chain
     }),
   }
-  const db: any = { selectFrom: jest.fn(() => chain) }
-  return { db: db as Kysely<any>, predicates }
+  const db: any = {
+    selectFrom: jest.fn((table: string) => {
+      currentTable = String(table)
+      return chain
+    }),
+  }
+  /** Predicates recorded against one table — the enricher also queries `custom_field_defs`. */
+  const predicatesOn = (table: string) => predicates.filter((_, index) => tables[index] === table)
+  return { db: db as Kysely<any>, predicates, predicatesOn }
 }
 
 /** The one predicate in the recorded tree that constrains `tenant_id`. */
@@ -220,7 +233,7 @@ describe('fetchDocsBatch widens the tenant predicate for declared global entity 
   })
 
   it('adds a NULL-tenant branch listing only the declared types present in the batch', async () => {
-    const { db, predicates } = createRecordingDb([])
+    const { db, predicatesOn } = createRecordingDb([])
     const enrich = createPresenterEnricher(
       db,
       new Map([
@@ -237,7 +250,7 @@ describe('fetchDocsBatch widens the tenant predicate for declared global entity 
       null,
     )
 
-    expect(tenantPredicate(predicates)).toEqual({
+    expect(tenantPredicate(predicatesOn('entity_indexes'))).toEqual({
       kind: 'or',
       items: [
         { kind: 'cmp', column: 'tenant_id', op: '=', value: 'tenant-1' },
@@ -253,7 +266,7 @@ describe('fetchDocsBatch widens the tenant predicate for declared global entity 
   })
 
   it('keeps a plain equality predicate when the batch holds no declared global type', async () => {
-    const { db, predicates } = createRecordingDb([])
+    const { db, predicatesOn } = createRecordingDb([])
     const enrich = createPresenterEnricher(
       db,
       new Map([[SCOPED_TYPE as EntityId, createConfig(SCOPED_TYPE)]]) as never,
@@ -263,7 +276,7 @@ describe('fetchDocsBatch widens the tenant predicate for declared global entity 
 
     await enrich([createResult(SCOPED_TYPE, 'person-1')], 'tenant-1', null)
 
-    expect(tenantPredicate(predicates)).toEqual({
+    expect(tenantPredicate(predicatesOn('entity_indexes'))).toEqual({
       kind: 'cmp',
       column: 'tenant_id',
       op: '=',
@@ -272,7 +285,7 @@ describe('fetchDocsBatch widens the tenant predicate for declared global entity 
   })
 
   it('does not widen for a private tenant-less type whose projection is also stored under NULL', async () => {
-    const { db, predicates } = createRecordingDb([])
+    const { db, predicatesOn } = createRecordingDb([])
     const enrich = createPresenterEnricher(
       db,
       new Map([[PRIVATE_TENANT_LESS_TYPE as EntityId, createConfig(PRIVATE_TENANT_LESS_TYPE)]]) as never,
@@ -282,7 +295,7 @@ describe('fetchDocsBatch widens the tenant predicate for declared global entity 
 
     await enrich([createResult(PRIVATE_TENANT_LESS_TYPE, 'tenant-row-1')], 'tenant-1', null)
 
-    expect(tenantPredicate(predicates)).toEqual({
+    expect(tenantPredicate(predicatesOn('entity_indexes'))).toEqual({
       kind: 'cmp',
       column: 'tenant_id',
       op: '=',
@@ -291,7 +304,7 @@ describe('fetchDocsBatch widens the tenant predicate for declared global entity 
   })
 
   it('leaves the organization predicate exactly as it was', async () => {
-    const { db, predicates } = createRecordingDb([])
+    const { db, predicatesOn } = createRecordingDb([])
     const enrich = createPresenterEnricher(
       db,
       new Map([[GLOBAL_TYPE as EntityId, createConfig(GLOBAL_TYPE)]]) as never,
@@ -301,7 +314,7 @@ describe('fetchDocsBatch widens the tenant predicate for declared global entity 
 
     await enrich([createResult(GLOBAL_TYPE, 'toggle-1')], 'tenant-1', 'org-1')
 
-    const organizationPredicate = predicates.find((predicate) => (
+    const organizationPredicate = predicatesOn('entity_indexes').find((predicate) => (
       predicate.kind === 'or'
       && predicate.items.every((item) => item.kind === 'cmp' && item.column === 'organization_id')
     ))
