@@ -1,19 +1,20 @@
 ---
 title: Insights
-description: Ask "Why?" about any explainable value and see how work actually flows with Process X-Ray.
+description: Ask "Why?" about any explainable value, see how work actually flows with Process X-Ray, and test configuration changes against history with the Change Simulator.
 sidebar_label: Insights
 ---
 
 # Insights
 
-The **Insights** module answers two questions from the audit history Open Mercato already records:
+The **Insights** module answers three questions from the audit history Open Mercato already records:
 
 - **"Why?"** — why does this field have this value, and who or what set it?
 - **Process X-Ray** — how do deals, orders and quotes actually move through their stages, where do they wait, and which manual follow-ups are repeated often enough to automate?
+- **Change Simulator** — what would happen if I saved this business rule, workflow trigger, role permission or price change?
 
-Both read history; neither changes your data on its own. Their design rule is that **a wrong cause is worse than "unknown"**: when the history cannot prove something, Insights says so instead of guessing.
+All three read history; none of them changes your data on its own. Their design rule is that **a wrong cause is worse than "unknown"**: when the history cannot prove something, Insights says so instead of guessing.
 
-The sidebar group **Insights** contains **Process X-Ray**. "Why?" has no menu entry: it appears on the records it can explain.
+The sidebar group **Insights** contains **Process X-Ray** and **My simulations**. "Why?" has no menu entry: it appears on the records it can explain.
 
 ## Permissions
 
@@ -24,10 +25,12 @@ The sidebar group **Insights** contains **Process X-Ray**. "Why?" has no menu en
 | `insights.xray.view` | Process X-Ray pages, the "Process health" dashboard widget | `superadmin`, `admin` |
 | `insights.xray.manage` | Process X-Ray settings, history backfill, dismissing suggestions, on-demand mining | `superadmin`, `admin` |
 | `insights.xray.view_individuals` | Per-person X-Ray breakdowns (also needs the organization setting, see below) | `superadmin` only |
+| `insights.simulator.view` | Your own simulation runs and results | `superadmin`, `admin` |
+| `insights.simulator.run` | Starting, cancelling and deciding simulations | `superadmin`, `admin` |
 
 `superadmin` receives these through `insights.*`. The `admin` role lists the features one by one, so per-person analytics stay with super administrators unless you grant `insights.xray.view_individuals` explicitly. Nested wildcards such as `insights.xray.*` are **not** honoured — grant the individual features or `insights.*`. After upgrading an existing installation, run `yarn mercato auth sync-role-acls` so existing roles receive the new features.
 
-Insights never widens access: every explanation and process also requires the permission to read the underlying records (for example `customers.deals.view` for deals, `sales.orders.view` for orders).
+Insights never widens access: every explanation, process and simulation also requires the permission to read the underlying records (for example `customers.deals.view` for deals, `sales.orders.view` for orders).
 
 ## "Why?" — explain a value
 
@@ -177,7 +180,7 @@ Per-person analytics can be used to monitor employees. Enable them only with a l
 |---|---|---|
 | Project this organization's history | on | When off, nothing new is projected and analyses exclude the organization; old data is still pruned. |
 | Keep cases for (days) | 365 | 7–3650. |
-| Minimum cases per group (*k*) | 10 | 5–1000. |
+| Minimum cases per group (*k*) | 10 | 5–1000. Also used by the Change Simulator. |
 | Collapse quick changes within (seconds) | 120 | 0–86400. |
 | Time zone | UTC | Day boundaries of the 7/30/90-day windows. |
 | Allow per-person analytics | off | See Privacy. |
@@ -192,19 +195,63 @@ Once a day (and on demand with **Look for suggestions now**, at most once every 
 
 **Review** shows the draft workflow it would create — an event trigger and one update step per follow-up — and, after you confirm, creates it **disabled** through the normal workflow API as you, so your permissions and the audit trail apply; the suggestion is then marked **Drafted** with a link to the definition. Nothing runs until someone reviews and enables the workflow in the workflow editor. A suggestion is marked not draftable, with the reason, when its trigger cannot be expressed as a workflow event (today only the creation of the case record can), when the process declares no workflow-safe update command (the deal process does; the order and quote processes do not), or when you lack the command's permissions. Managers can dismiss and reopen suggestions.
 
+## Change Simulator
+
+The Change Simulator answers "what would this change have done to recorded history?" before you save it. It **evaluates, never executes**: no rule action, workflow, command or event runs.
+
+### The four simulations
+
+| Simulation | Where | Needs (besides `insights.simulator.run`) | Outcomes |
+|---|---|---|---|
+| **Business rule backtest** | **Simulate impact** on the business rule create and edit form | `business_rules.view`, `business_rules.view_logs` and the view permission of the rule's record type | Fires (runs success actions) · Does not fire · Runs failure actions · Cannot tell |
+| **Workflow trigger backtest** | **Simulate impact** in the workflow visual editor toolbar | `workflows.definitions.view` and the view permission of every record type the triggers listen to | Would start the workflow · Would not start · Skipped by debounce · Cannot tell |
+| **Role permission preview** | **Simulate impact** on a role's edit page | `auth.acl.manage`, `auth.users.list` (API keys only with `api_keys.view`) | Gain permissions · Lose permissions · Gain and lose permissions · Unchanged |
+| **Price-row backtest** | **Simulate impact** on the edit form of an existing price row (**Catalog → Price rules**) | `catalog.pricing.manage`; order lines with `sales.orders.view`, quote lines with `sales.quotes.view` | Priced from this row · Price changed by hand (excluded) · Cannot tell (excluded) |
+
+Each dialog simulates what is in the form or editor **now** — unsaved changes included. Backtests let you choose a history window of 30, 90 (default), 180 or 365 days.
+
+- **Rule backtest** replays rule execution logs where they exist ("Observed") and otherwise rebuilds events from the audit history ("Reconstructed"); the result says which. It also warns when the rule would never fire on these events (for example because its event type is missing or different, it is disabled, or it is not effective in the window), when it would run its failure actions on every event, and when more than 100 rules would match an event (which stops every rule for that event).
+- **Trigger backtest** honours filters, debounce windows and the definition's enabled/published state. Triggers with a concurrency limit or required start conditions are "Cannot tell". Code-defined workflows must be customized before they can be simulated.
+- **Role permission preview** is computed at once from the current users, roles and API keys, per organization. It lists the pages, menu entries and API routes gained or lost, warns you when you would lock yourself out, and shows the affected users (and API keys) resolved live with your current permissions — never stored. It covers only the selected organization and the organizations below it where you hold the preview's permissions, even if you can open other organizations. Super administrators are never counted or listed. Every preview, and every look at its affected list, is written to the access log first; if that is not possible the preview is refused.
+- **Price-row backtest** finds order and quote lines recorded with this price row and compares the line price with the row's amount at the time the line was created. Orders and quotes, currencies, and net and gross amounts are reported separately, never summed or converted, with current revenue, simulated revenue and the difference. Lines created through the API or by AI tools carry no link to the price row and are not found; the coverage section counts them.
+
+### Results and privacy
+
+**Insights → My simulations** lists your runs in the selected organization (an organization must be selected). A result page shows the outcome counts per group, sample records you may open, warnings, coverage and caveats.
+
+- **Private.** Runs are visible only to the person who requested them. Anyone else — administrators included — is told the simulation does not exist. Your permissions are checked again every time you open a result.
+- **Small groups are hidden.** Counts below the organization's *k* (from the Process X-Ray settings, default 10, at least 5) read "Fewer than *k*"; a group with fewer than *k* records is hidden entirely, and so are coverage counts that would reveal its size. Amounts are shown only for visible counts.
+- **Counts, not data.** Results store counts and a few confirmed record ids; record values are never stored.
+- **Partial results.** A backtest reads at most 50,000 records in 120 seconds. When it hits that budget the result is marked **Partial result** and covers only part of the window. The **Coverage** section says what was read and what had to be left out.
+- **Fidelity.** "Observed" (from rule execution logs), "Reconstructed" (rebuilt from the audit history by the module that emits the events), "Mixed", or "No events".
+- **Limits.** You can have two simulations running at once (five per tenant) and request twenty per hour. Backtests expire after 30 days, role previews after 24 hours. You can cancel a running backtest.
+- Conditions on past record values need `audit_logs.view_tenant`; without it they are reported as "Cannot tell".
+
+### Applying a simulated change
+
+The simulator never applies anything itself. To apply:
+
+1. On the result page click **Apply in the editor** (or simply save the form where you started the simulation).
+2. The owning editor opens with an **Applying a simulation** banner; **Load the simulated proposal** puts the simulated values back into the form.
+3. Save as usual. The editor's normal conflict check applies: if someone else changed the rule, workflow, role or price row since you loaded it, the save is refused and you reload and simulate again.
+4. Saving records your decision. The server then compares what was saved with what was simulated and marks the decision **Applied — matches the simulation**, **Applied — differs from the simulation** (simulate the saved version again) or **Applied — not verified**.
+
+You can also **Discard** a simulation from its result page.
+
 ## Configuration reference
 
 | Setting | Default | Effect |
 |---|---|---|
 | `OM_CAUSATION` | on | Records the cause of every audited write and carries it across events, queued jobs and automations. `off` is a kill switch: new audit entries carry no cause, so "Why?" treats them like history recorded before cause tracking (at most **Inferred**). |
 | `OM_INSIGHTS_EXPLAIN_SCAN_MAX` | 500 | History entries one "Why?" request reads (at most 5000). |
-| `AUDIT_LOGS_CORE_RETENTION_DAYS` | 7 | Retention of the access-log rows written by per-person X-Ray reads. |
+| `RATE_LIMIT_INSIGHTS_SIMULATION_REQUEST_POINTS` / `_DURATION` | 20 / 3600 s | Simulation requests per user and period. |
+| `AUDIT_LOGS_CORE_RETENTION_DAYS` | 7 | Retention of the access-log rows written by per-person X-Ray reads and role permission previews. |
 | `LOOKUP_HASH_PEPPER` | — | When tenant data encryption is off, X-Ray pseudonyms are keyed with the installation lookup pepper (falling back to the tenant data encryption keys); with no key at all, X-Ray records no people. With tenant data encryption on, a per-tenant key is used. |
 | Feature toggle `insights_field_explain` | on | Kill switch for the **Explain fields** switch and the per-field "?" buttons. |
 | Feature toggle `insights_xray_ingest` | on | Kill switch for Process X-Ray projection (retention pruning continues). |
 
 Both feature toggles are created for new tenants when the feature toggles module is enabled; a missing toggle counts as on. To turn a feature off on an existing installation, create the global boolean toggle with default `false` (see [Feature Toggles](./feature-toggles.mdx)).
 
-Workers must run the queues `insights-xray-ingest`, `insights-xray-backfill`, `insights-xray-rollup` and `insights-xray-suggestions`. Administrators can also use the CLI: `yarn mercato insights explain:coverage`, `xray:status`, `xray:backfill`, `xray:rebuild` and `xray:prune`.
+Workers must run the queues `insights-xray-ingest`, `insights-xray-backfill`, `insights-xray-rollup`, `insights-xray-suggestions` and `insights-simulation`. Administrators can also use the CLI: `yarn mercato insights explain:coverage`, `xray:status`, `xray:backfill`, `xray:rebuild` and `xray:prune`.
 
-For developers — how modules contribute explainable records and processes — see [Insights contracts](../framework/modules/insights.mdx).
+For developers — how modules contribute explainable records, processes and simulators — see [Insights contracts](../framework/modules/insights.mdx).

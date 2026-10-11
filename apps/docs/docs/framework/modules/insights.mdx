@@ -1,19 +1,19 @@
 ---
 title: Insights Contracts
-description: The causation envelope recorded on every audited write, and the convention files insights.explain.ts and insights.process.ts through which modules contribute "Why?" explanations and Process X-Ray processes.
+description: The causation envelope recorded on every audited write, and the three convention files (insights.explain.ts, insights.process.ts, insights.simulate.ts) through which modules contribute "Why?" explanations, Process X-Ray processes and Change Simulator kinds.
 sidebar_label: Insights Contracts
 ---
 
 # Insights Contracts
 
-The `insights` module (`packages/core/src/modules/insights/`) owns no knowledge of other modules' records. It builds two features on top of two foundations:
+The `insights` module (`packages/core/src/modules/insights/`) owns no knowledge of other modules' records. It builds three features on top of two foundations:
 
 | Foundation | Package path | Purpose |
 |---|---|---|
 | **Causation envelope** | `@open-mercato/shared/lib/causation` (isomorphic types) and `@open-mercato/shared/lib/causation/server` (AsyncLocalStorage helpers) | Records *why* each audited write happened — a user, an API key, a workflow step, a business rule, an AI action, a schedule … — and carries that cause across the command bus, queues, events and automations. |
-| **Owner-module contracts** | `@open-mercato/shared/modules/insights/{explain,process,helpers}` | Convention files a module adds to make its records explainable (`insights.explain.ts`) and project its processes (`insights.process.ts`). |
+| **Owner-module contracts** | `@open-mercato/shared/modules/insights/{explain,process,simulate,helpers}` | Convention files a module adds to make its records explainable (`insights.explain.ts`), project its processes (`insights.process.ts`) and simulate changes to its configuration (`insights.simulate.ts`). |
 
-The design rule throughout is that **a false cause is worse than "unknown"**. For the end-user view of both features see the [Insights user guide](../../user-guide/insights.mdx).
+The design rule throughout is that **a false cause is worse than "unknown"**. For the end-user view of the three features see the [Insights user guide](../../user-guide/insights.mdx).
 
 ## Causation envelope
 
@@ -112,14 +112,15 @@ The kill switch `OM_CAUSATION=off` stops resolution, propagation and stamping (n
 
 ## Convention files
 
-Each convention file is discovered by a generator plugin in `insights/generators.ts`. `yarn generate` aggregates them into the app's `.mercato/generated/` directory; the registrations also run in CLI and worker processes (`cli: true`), because the X-Ray workers and the `mercato insights` CLI commands read them. Every registry lives on `globalThis`, validates declarations when they register and keeps the first registration of a duplicate (with a warning).
+Each convention file is discovered by a generator plugin in `insights/generators.ts`. `yarn generate` aggregates them into the app's `.mercato/generated/` directory; the registrations also run in CLI and worker processes (`cli: true`), because the X-Ray workers, the simulation worker and the `mercato insights` CLI commands read them. Every registry lives on `globalThis`, validates declarations when they register and keeps the first registration of a duplicate (with a warning).
 
 | File | Export (or `default`) | Generated registry | Entries export |
 |---|---|---|---|
 | `insights.explain.ts` | `explainConfig` (`defineExplainConfig`) | `insights-explain.generated.ts` | `explainConfigEntries` |
 | `insights.process.ts` | `processConfig` (`defineProcessConfig`) | `insights-process.generated.ts` | `processConfigEntries` |
+| `insights.simulate.ts` | `simulateConfig` (`defineSimulateConfig`) | `insights-simulate.generated.ts` | `simulateConfigEntries` |
 
-Both are `version: 1` contracts (frozen once shipped; optional fields may be added). Declarations without a non-empty `requiredFeatures` are skipped — **fail closed**.
+All three are `version: 1` contracts (frozen once shipped; optional fields may be added). Declarations without a non-empty `requiredFeatures` are skipped — **fail closed**.
 
 ### `insights.explain.ts` — "Why?"
 
@@ -313,15 +314,80 @@ export default processConfig
 
 `sales` declares the order process (status, fulfillment and payment status; payment and shipment milestones) and the quote process (exit `converted`); `auth` contributes the `role` dimension and `staff` the `team` dimension. Verify snapshot paths and change keys against the real command output, as `customers/__tests__/insights.process.test.ts` does with a captured `CommandBus` log.
 
+### `insights.simulate.ts` — Change Simulator
+
+A module contributes simulation **kinds** for configuration it owns and **event adapters** for events it emits. Kinds evaluate, never execute: no commands, action executors or event emitters — each slice runs in a read-only transaction with a statement timeout.
+
+```typescript
+// business_rules/insights.simulate.ts
+import { defineSimulateConfig } from '@open-mercato/shared/modules/insights/simulate'
+import { ruleBacktestKind } from './lib/simulation/rule-backtest'
+
+export const simulateConfig = defineSimulateConfig({
+  version: 1,
+  kinds: [ruleBacktestKind],
+})
+
+export default simulateConfig
+```
+
+A kind (`SimulationKindDefinition`, typed with `defineSimulationKind<TInput, TState>`) declares:
+
+| Member | Purpose |
+|---|---|
+| `kind` | `<module>.<name>`, e.g. `business_rules.rule_backtest` |
+| `artifactKind`, `labelKey` | What is being changed; display label |
+| `requiredFeatures` | Non-empty; must cover every source the kind reads. Checked at request, before every slice and on every read |
+| `inputFeatures?(input, ctx)` | Features a particular proposal reads (e.g. the view feature of the rule's record type) |
+| `inputSchema` | The owning module's zod schema of the proposal |
+| `version` | Part of every run's inputs hash; bump when semantics change |
+| `cellKeys` | Outcome cells of every group, e.g. `fires`, `does_not_fire`, `runs_failure_actions`, `cannot_tell` |
+| `readArtifactVersion(ctx, ref)` | Live `{ artifactId, updatedAt, fingerprint }` of the artifact, scoped to the run's organization |
+| `fingerprintProposal(input)` | Fingerprint compared with the saved artifact when the user records "applied" |
+| `validate?(input, ctx)` | `invalid_proposal`, `unsupported_event_payload`, `not_customized`, `artifact_unavailable` (404), `forbidden` (403) … |
+| `run(input, ctx)` | One slice: returns `{ status: 'continue', state, recordsProcessed }` or `{ status: 'done', result, recordsProcessed }` |
+| `ttlHours?`, `execution?` (`queued` / `inline`), `accessLogResourceKind?`, `liveRecords?`, `applyHref?` | Expiry, inline runs (computed in the request, e.g. `auth.role_acl_preview`; `ctx.inline.organizationIds` and a live-records read cover only the run organization and its descendants where the requester holds the run's features), fail-closed access logging, records resolved live on read, link to the owning editor |
+
+The slice context provides `scanAuditLog` (decrypted, organization-scoped audit entries of the window), `readRecordHistory` (one record's own history), `hasFeatures`, the registered `eventAdapters`, the budget and the previous slice's `state`. A result (`SimulationKindResult`) holds `groups` of count `cells` (with candidate `sampleIds`, optional decimal `measures`, `warnings`, `flags` and per-group `requiredFeatures`), `coverage` counts, `caveats` (i18n keys), `fidelity` and `truncated`. Insights applies k-suppression (the organization's X-Ray `k`), keeps only sample ids the owning module's explain `loadCurrent` confirms, and stores ids and aggregates only. Outcome labels come from `<module>.simulation.cells.<cell>`; a module may override result wording with `<module>.simulation.groupTotal`, `.groupSuppressed`, `.result.title`, `.result.privacyNote`, `.result.emptyTitle`, `.result.emptyDescription` and `.fidelity.<value>`.
+
+**Event adapters** rebuild, from an audit entry, the exact payload the module's event carried — so a backtest evaluates what production evaluated. List paths the entry cannot tell in `unknownPaths` (a condition on them is "cannot tell") and snapshot-derived values in `valuePaths` (unknown for requesters without `audit_logs.view_tenant`); never claim an event your commands do not emit. For generated CRUD payloads use `createCrudEventAdapters`. Trimmed from `sales/insights.simulate.ts`:
+
+```typescript
+import { createCrudEventAdapters, defineSimulateConfig } from '@open-mercato/shared/modules/insights/simulate'
+import './events'
+
+export const simulateConfig = defineSimulateConfig({
+  version: 1,
+  eventAdapters: [
+    ...createCrudEventAdapters({
+      eventPrefix: 'sales.order',
+      logResourceKinds: ['sales.order'],
+      requiredFeatures: ['sales.orders.view'],
+      actions: ['created'],
+      commandIds: { created: ['sales.orders.create'] },
+      syncOrigin: false,
+      extraPayload: actingUserPayload,
+    }),
+  ],
+})
+```
+
+Import your module's `events.ts` from `insights.simulate.ts` (as `customers` and `sales` do): worker processes do not load the app's event registry, and the workflow trigger backtest uses the declared events to tell whether a trigger pattern selects events no adapter can rebuild.
+
+Shipped kinds: `business_rules.rule_backtest`, `workflows.trigger_backtest`, `auth.role_acl_preview` (inline) and `catalog.price_backtest` (document lines contributed by `sales` through `registerCatalogPriceLineSource`). Event adapters: `customers` (people, companies, deals) and `sales` (`sales.order.created`, `sales.quote.created`).
+
+**Apply** always happens in the owning module's own UI and API, as the user, with that module's optimistic lock. The owning editor publishes a spot for the "Simulate impact" dialog and a banner spot whose widgets receive `onAfterSave`; after the save the browser records the `applied` decision and the server compares the live `readArtifactVersion` fingerprint with the simulated one. Spots used today: `crud-form:business_rules.rule` (+ `:header`), `workflows.definition.editor:toolbar` / `:banner`, `auth.role.acl:toolbar` / `:banner`, `crud-form:catalog.catalog_product_price` (+ `:header`).
+
 ## APIs, services and AI tools
 
 | Surface | Details |
 |---|---|
 | "Why?" routes | `GET /api/insights/explain`, `/explain/descriptors`, `/explain/log` (`insights.explain.view` + the resource's features), `/explain/access` (signed-in user; detail with `insights.explain.access_detail`). Never cached. |
 | X-Ray routes | `GET /api/insights/xray/processes`, `/xray/{processKey}/map`, `/variants`, `/durations`, `/bottlenecks`, `/rework`, `/conformance`, `/breakdown`, `/cases`, `POST /xray/{processKey}/variants/{hash}/workflow-draft` (`insights.xray.view`); `/xray/settings`, `/xray/status`, `POST /xray/backfill` (`insights.xray.manage`); `/xray/suggestions/**` (`insights.xray.view` to list and draft, `insights.xray.manage` to dismiss, reopen and mine) |
-| DI services | `explainService`, `accessExplainService`; additive `ActionLogService` reads (`findFieldHistory`, `findHistoryEntryById`, `findLogScopes`, `scanDecrypted`, `scanStateChanges`); `RbacService.explainAccess`; the soft-optional `workflowDraftService` owned by `workflows` |
+| Simulator routes | `GET /api/insights/simulations/capabilities`, `GET`/`POST /api/insights/simulations`, `GET /simulations/{id}`, `POST /simulations/{id}/cancel`, `POST /simulations/{id}/decision`, `GET /simulations/{id}/records` |
+| DI services | `explainService`, `accessExplainService`; additive `ActionLogService` reads (`findFieldHistory`, `findHistoryEntryById`, `findLogScopes`, `scanDecrypted`, `scanStateChanges`); `RbacService.explainAccess` and `RbacService.previewRoleAclChange`; the soft-optional `workflowDraftService` owned by `workflows` |
 | CLI | `mercato insights explain:coverage`, `xray:status`, `xray:backfill [--inline]`, `xray:rebuild`, `xray:prune` (`--tenant` / `--org` or `--all`) |
-| Queues | `insights-xray-ingest`, `insights-xray-backfill`, `insights-xray-rollup`, `insights-xray-suggestions` |
+| Queues | `insights-xray-ingest`, `insights-xray-backfill`, `insights-xray-rollup`, `insights-xray-suggestions`, `insights-simulation` |
 
 AI tools (read-only, `isMutation: false`; registered but **not allowlisted for any agent by default** — add them to an agent's allowlist to use them):
 
@@ -330,11 +396,13 @@ AI tools (read-only, `isMutation: false`; registered but **not allowlisted for a
 | `insights.explain_record` | `insights.explain.view` (+ the resource's features) | Engine facts verbatim (verdict, confidence, chain, gaps, hints) and a deterministic i18n summary; record values stay in the facts as untrusted data |
 | `insights.xray_summary` | `insights.xray.view` | Visible processes with headline counts for a 7/30/90-day window |
 | `insights.xray_variants` | `insights.xray.view` | Top variants of one process with server-resolved `activityLabels`; suppressed cells stay hidden |
+| `insights.simulation_result` | `insights.simulator.view` | The caller's **own** runs and results (counts, measures, coverage, caveats); never starts, cancels or applies a run |
 
 ## Related
 
 - [Commands](../commands/overview.mdx) — the command bus that resolves and stamps causation
 - [Queue workers](../events/queue-workers.mdx) — job metadata and workers
 - [Widget Injection](../widget-injection.md) — field-level CrudForm spots
+- [Concurrency locking](../data-integrity/concurrency-locking.mdx) — the optimistic lock "apply" relies on
 - [RBAC](../rbac/overview.mdx) — feature checks and wildcards
-- Specs: `.ai/specs/2026-10-08-insights-causation-and-explain.md`, `.ai/specs/2026-10-08-insights-process-xray.md`
+- Specs: `.ai/specs/2026-10-08-insights-causation-and-explain.md`, `.ai/specs/2026-10-08-insights-process-xray.md`, `.ai/specs/2026-10-08-insights-change-simulator.md`
