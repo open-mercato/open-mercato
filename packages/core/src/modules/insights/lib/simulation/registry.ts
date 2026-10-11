@@ -2,6 +2,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   SIMULATE_CONFIG_VERSION,
   SIMULATION_EVENT_ID_PATTERN,
+  SIMULATION_EXECUTION_MODES,
   SIMULATION_KIND_PATTERN,
   type RegisteredSimulationEventAdapter,
   type SimulateModuleConfig,
@@ -58,9 +59,16 @@ function isZodLike(value: unknown): boolean {
   return isPlainObject(value) && typeof value.safeParse === 'function'
 }
 
+function isValidLiveRecords(value: unknown): boolean {
+  if (value === undefined) return true
+  if (!isPlainObject(value)) return false
+  return isNonEmptyStringList(value.requiredFeatures) && typeof value.list === 'function'
+}
+
 /**
  * A kind is registered only when it declares everything the orchestrator relies on; above all a
- * non-empty `requiredFeatures` (S2: a kind without them is skipped — fail closed).
+ * non-empty `requiredFeatures` (S2: a kind without them is skipped — fail closed), and for live
+ * records their own non-empty `requiredFeatures`.
  */
 export function isValidSimulationKind(value: unknown): value is SimulationKindDefinition {
   if (!isPlainObject(value)) return false
@@ -77,7 +85,14 @@ export function isValidSimulationKind(value: unknown): value is SimulationKindDe
   if (value.validate !== undefined && typeof value.validate !== 'function') return false
   if (value.inputFeatures !== undefined && typeof value.inputFeatures !== 'function') return false
   if (value.applyHref !== undefined && typeof value.applyHref !== 'function') return false
-  return true
+  if (value.execution !== undefined && !SIMULATION_EXECUTION_MODES.some((mode) => mode === value.execution)) return false
+  if (value.accessLogResourceKind !== undefined && !isNonEmptyString(value.accessLogResourceKind)) return false
+  return isValidLiveRecords(value.liveRecords)
+}
+
+/** Whether a kind is computed at request time (`execution: 'inline'`). */
+export function isInlineSimulationKind(definition: Pick<SimulationKindDefinition, 'execution'>): boolean {
+  return definition.execution === 'inline'
 }
 
 export function isValidSimulationEventAdapter(value: unknown): value is SimulationEventAdapter {

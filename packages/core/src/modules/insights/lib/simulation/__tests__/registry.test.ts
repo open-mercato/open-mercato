@@ -29,6 +29,25 @@ function kind(overrides: Record<string, unknown> = {}) {
 describe('simulation registry', () => {
   beforeEach(() => resetSimulationRegistryForTests())
 
+  it('registers inline kinds with live records, and fails closed on an unknown execution, a blank access-log kind or live records without features', () => {
+    const list = async () => ({ items: [], total: 0 })
+    registerSimulateConfigEntries([{
+      moduleId: 'test_module',
+      config: {
+        version: 1,
+        kinds: [
+          kind({ kind: 'test_module.inline', execution: 'inline', accessLogResourceKind: 'insights.simulation.permission_preview', liveRecords: { requiredFeatures: ['test_module.users'], list } }),
+          kind({ kind: 'test_module.bad_execution', execution: 'later' }),
+          kind({ kind: 'test_module.blank_access_log', accessLogResourceKind: ' ' }),
+          kind({ kind: 'test_module.records_without_features', liveRecords: { requiredFeatures: [], list } }),
+          kind({ kind: 'test_module.records_without_list', liveRecords: { requiredFeatures: ['test_module.users'] } }),
+        ],
+      },
+    }])
+    expect(listSimulationKinds().map((entry) => entry.definition.kind)).toEqual(['test_module.inline'])
+    expect(getSimulationKind('test_module.inline')?.definition.execution).toBe('inline')
+  })
+
   it('registers kinds and event adapters of supported configs', () => {
     registerSimulateConfigEntries([
       { moduleId: 'test_module', config: defineSimulateConfig({ version: 1, kinds: [kind()], eventAdapters: createCrudEventAdapters({ eventPrefix: 'test_module.thing', logResourceKinds: ['test_module.thing'], requiredFeatures: ['test_module.view'] }) }) },

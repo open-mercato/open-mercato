@@ -25,12 +25,17 @@ import {
   readSimulationMutationError,
   simulationRunPagePath,
 } from '../../lib/client/simulation/api'
-import { describeSimulationError, describeSimulationRunError } from '../../lib/client/simulation/format'
-import { useSimulationMutations, useSimulationRun } from '../../lib/client/simulation/hooks'
-import type { SimulationCapabilities, SimulationRequestError } from '../../lib/client/simulation/types'
+import { describeSimulationError, describeSimulationRunError, simulationEmptyResult } from '../../lib/client/simulation/format'
+import { useSimulationLiveRecords, useSimulationMutations, useSimulationRun } from '../../lib/client/simulation/hooks'
+import type { SimulationCapabilities, SimulationExecution, SimulationRequestError } from '../../lib/client/simulation/types'
 import { formatCount } from '../../lib/client/xray/format'
+import { SimulationLiveRecords } from './SimulationLiveRecords'
 import { SimulationGroupHeadline } from './SimulationResultGroups'
+import { SimulationResultSummary } from './SimulationResultSummary'
 import { SimulationStatusBadge } from './SimulationStatusBadge'
+
+/** Live records shown in the dialog (the result page lists them all). */
+const DIALOG_RECORDS_PAGE_SIZE = 10
 
 const UNKNOWN_REQUEST_ERROR: SimulationRequestError = { httpStatus: null, code: null, message: null, issues: [] }
 
@@ -49,6 +54,8 @@ export type SimulationRequestDialogProps = {
   onCompleted?: (runId: string) => void
   /** What applying means in the owning editor (defaults to the rule editor's wording). */
   decisionHint?: string
+  /** `inline` kinds are computed at once from the live configuration: no history window to choose. */
+  execution?: SimulationExecution
 }
 
 function RequestErrorNotice({ error }: { error: SimulationRequestError }) {
@@ -95,6 +102,7 @@ export function SimulationRequestDialog({
   description,
   onCompleted,
   decisionHint,
+  execution = 'queued',
 }: SimulationRequestDialogProps) {
   const t = useT()
   const locale = useLocale()
@@ -110,9 +118,15 @@ export function SimulationRequestDialog({
   const [requestError, setRequestError] = React.useState<SimulationRequestError | null>(null)
   const [submitting, setSubmitting] = React.useState(false)
   const [cancelling, setCancelling] = React.useState(false)
+  const inline = execution === 'inline'
   const run = useSimulationRun(runId, { poll: true })
   const detail = run.data && run.data.id === runId ? run.data : null
   const active = detail ? isActiveSimulationStatus(detail.status) : runId !== null
+  const records = useSimulationLiveRecords(runId, 1, {
+    enabled: detail?.status === 'completed' && detail.hasLiveRecords === true,
+    pageSize: DIALOG_RECORDS_PAGE_SIZE,
+  })
+  const groupLabels = records.data?.groupLabels ?? null
   const statusRef = React.useRef<HTMLDivElement | null>(null)
   const completedRef = React.useRef<string | null>(null)
   const onCompletedRef = React.useRef(onCompleted)
@@ -135,7 +149,9 @@ export function SimulationRequestDialog({
     setSubmitting(true)
     setRequestError(null)
     try {
-      const response = await requestSimulation({ kind, artifactId, proposal: buildProposal(), window: { days: windowDays } })
+      const response = await requestSimulation(inline
+        ? { kind, artifactId, proposal: buildProposal() }
+        : { kind, artifactId, proposal: buildProposal(), window: { days: windowDays } })
       if (!response) {
         setRequestError(UNKNOWN_REQUEST_ERROR)
         return
@@ -147,7 +163,7 @@ export function SimulationRequestDialog({
     } finally {
       setSubmitting(false)
     }
-  }, [artifactId, buildProposal, kind, requestSimulation, runId, submitting, windowDays])
+  }, [artifactId, buildProposal, inline, kind, requestSimulation, runId, submitting, windowDays])
 
   const cancel = React.useCallback(async () => {
     if (!runId || cancelling) return
@@ -181,25 +197,29 @@ export function SimulationRequestDialog({
         </DialogHeader>
         {runId === null ? (
           <div className="space-y-4">
-            <div className="space-y-2">
-              <p id={windowLabelId} className="text-sm font-medium">{t('insights.simulation.ui.simulate.window')}</p>
-              <SegmentedControl
-                value={String(windowDays)}
-                onValueChange={(next) => {
-                  const days = Number(next)
-                  if (windowOptions.some((option) => option === days)) setWindowDays(days)
-                }}
-                aria-labelledby={windowLabelId}
-                disabled={submitting}
-              >
-                {windowOptions.map((days) => (
-                  <SegmentedControlItem key={days} value={String(days)}>
-                    {t('insights.simulation.ui.simulate.windowOption', { days: formatCount(days, locale) })}
-                  </SegmentedControlItem>
-                ))}
-              </SegmentedControl>
-              <p className="text-xs text-muted-foreground">{t('insights.simulation.ui.simulate.windowHelp')}</p>
-            </div>
+            {inline ? (
+              <p className="text-sm text-muted-foreground" data-testid="simulation-request-inline-help">{t('insights.simulation.ui.simulate.inlineHelp')}</p>
+            ) : (
+              <div className="space-y-2">
+                <p id={windowLabelId} className="text-sm font-medium">{t('insights.simulation.ui.simulate.window')}</p>
+                <SegmentedControl
+                  value={String(windowDays)}
+                  onValueChange={(next) => {
+                    const days = Number(next)
+                    if (windowOptions.some((option) => option === days)) setWindowDays(days)
+                  }}
+                  aria-labelledby={windowLabelId}
+                  disabled={submitting}
+                >
+                  {windowOptions.map((days) => (
+                    <SegmentedControlItem key={days} value={String(days)}>
+                      {t('insights.simulation.ui.simulate.windowOption', { days: formatCount(days, locale) })}
+                    </SegmentedControlItem>
+                  ))}
+                </SegmentedControl>
+                <p className="text-xs text-muted-foreground">{t('insights.simulation.ui.simulate.windowHelp')}</p>
+              </div>
+            )}
             {submitting ? <LoadingMessage label={t('insights.simulation.ui.simulate.submitting')} /> : null}
             {requestError ? <RequestErrorNotice error={requestError} /> : null}
           </div>
@@ -248,13 +268,15 @@ export function SimulationRequestDialog({
                     <AlertDescription>{t('insights.simulation.ui.run.truncatedDescription')}</AlertDescription>
                   </Alert>
                 ) : null}
+                <SimulationResultSummary kind={detail.kind} summary={detail.result.summary} compact />
                 {detail.result.groups.length === 0 ? (
-                  <EmptyState size="sm" variant="subtle" title={t('insights.simulation.ui.result.emptyTitle')} description={t('insights.simulation.ui.result.emptyDescription')} />
+                  <EmptyState size="sm" variant="subtle" {...simulationEmptyResult(detail.kind, t)} />
                 ) : (
                   detail.result.groups.map((group) => (
-                    <SimulationGroupHeadline key={group.key} kind={detail.kind} group={group} k={detail.result?.k ?? 0} proposal={detail.proposal} />
+                    <SimulationGroupHeadline key={group.key} kind={detail.kind} group={group} k={detail.result?.k ?? 0} proposal={detail.proposal} groupLabels={groupLabels} />
                   ))
                 )}
+                {detail.hasLiveRecords ? <SimulationLiveRecords kind={detail.kind} records={records} page={1} compact /> : null}
                 <p className="text-xs text-muted-foreground">{decisionHint ?? t('insights.simulation.ui.simulate.decisionHint')}</p>
               </div>
             ) : null}

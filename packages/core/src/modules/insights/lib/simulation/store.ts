@@ -243,6 +243,56 @@ export async function createSimulationRun(em: EntityManager, input: NewSimulatio
   })
 }
 
+export type CompletedSimulationRun = NewSimulationRun & {
+  startedAt: Date
+  completedAt: Date
+  resultJson: unknown
+  coverageJson: Record<string, number>
+  caveats: string[]
+  fidelity: string
+}
+
+/**
+ * Stores the result of an `inline` kind as a completed run (no job, no active-run limits: nothing
+ * is left running). Its inputs hash carries a per-request id, so it never collides with the
+ * dedupe index; `result_json` is sealed by the encryption subscriber.
+ */
+export async function insertCompletedSimulationRun(em: EntityManager, input: CompletedSimulationRun): Promise<InsightsSimulationRun> {
+  const fork = em.fork()
+  const run = fork.create(InsightsSimulationRun, {
+    id: randomUUID(),
+    tenantId: input.scope.tenantId,
+    organizationId: input.scope.organizationId,
+    kind: input.kind,
+    status: 'completed',
+    progressJobId: null,
+    requestedByUserId: input.requesterUserId,
+    inputJson: input.input,
+    inputsHash: input.inputsHash,
+    artifactKind: input.artifactKind,
+    artifactId: input.artifactId,
+    artifactVersionJson: input.artifactVersion,
+    proposalFingerprint: input.proposalFingerprint,
+    windowFrom: input.windowFrom,
+    windowTo: input.windowTo,
+    budgetsJson: input.budgets,
+    fidelity: input.fidelity,
+    coverageJson: input.coverageJson,
+    resultJson: input.resultJson,
+    caveats: input.caveats,
+    engineVersion: input.engineVersion,
+    contributionVersion: input.contributionVersion,
+    errorCode: null,
+    createdAt: input.startedAt,
+    startedAt: input.startedAt,
+    completedAt: input.completedAt,
+    expiresAt: input.expiresAt,
+    updatedAt: input.completedAt,
+  })
+  await fork.flush()
+  return run
+}
+
 /** Records the run's progress job while it is still active (moves its version). */
 export async function attachProgressJob(em: EntityManager, run: InsightsSimulationRun, progressJobId: string): Promise<boolean> {
   const affected = await em.nativeUpdate(

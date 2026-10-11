@@ -27,18 +27,41 @@ export const SIMULATION_FIDELITIES = ['observed', 'reconstructed', 'mixed', 'non
 export type SimulationFidelity = (typeof SIMULATION_FIDELITIES)[number]
 
 /**
- * Codes a kind's `validate` may answer with (the request route maps them to 422 with a
- * translated message). `artifact_not_found` is used by insights when `readArtifactVersion`
- * finds no artifact for an explicit artifact id.
+ * Codes a kind's `validate` may answer with (the request route answers them with a translated
+ * message): `artifact_unavailable` with 404 (the artifact does not exist or is outside the
+ * requester's scope — one answer for both), `forbidden` with 403 (the requester may not apply the
+ * proposal, mirroring the owning module's own write guards), every other code with 422.
+ * `artifact_not_found` is used by insights when `readArtifactVersion` finds no artifact for an
+ * explicit artifact id.
  */
 export const SIMULATION_PROPOSAL_ERROR_CODES = [
   'invalid_proposal',
   'unsupported_event_payload',
   'not_customized',
   'artifact_not_found',
+  'artifact_unavailable',
+  'forbidden',
 ] as const
 
 export type SimulationProposalErrorCode = (typeof SIMULATION_PROPOSAL_ERROR_CODES)[number]
+
+/**
+ * How a kind runs. `queued` (the default): background slices on the `insights-simulation` queue.
+ * `inline`: computed while the request is handled, in the app process, and stored at once as a
+ * completed run (for kinds that read the app's live configuration, e.g. the role permission
+ * preview). Inline runs are never deduplicated: their result depends on live state that the
+ * artifact version does not capture.
+ */
+export const SIMULATION_EXECUTION_MODES = ['queued', 'inline'] as const
+
+export type SimulationExecutionMode = (typeof SIMULATION_EXECUTION_MODES)[number]
+
+/**
+ * The access-log resource kind of permission previews (`auth.role_acl_preview`): insights writes
+ * one row (fail closed) before a preview is computed and before its affected principals are
+ * listed; the kind is kept under the core access-log retention.
+ */
+export const SIMULATION_PERMISSION_PREVIEW_ACCESS_LOG_KIND = 'insights.simulation.permission_preview'
 
 export type SimulationScope = {
   tenantId: string
@@ -173,16 +196,33 @@ export type SimulationInputFeaturesContext = {
   eventAdapters: readonly RegisteredSimulationEventAdapter[]
 }
 
+/** Resolves an app-process service by its DI name (`undefined` when it is not registered). */
+export type SimulationServiceResolver = <TService>(name: string) => TService | undefined
+
 /**
  * `artifactId` is the artifact id exactly as the requester sent it (null for an unsaved artifact),
  * before `readArtifactVersion` resolved it, so a kind can refuse ids it cannot simulate (e.g.
- * `not_customized` for a code-defined artifact).
+ * `not_customized` for a code-defined artifact). `requesterUserId` and `resolve` are present while
+ * a request is handled (a kind that mirrors its owning module's write guards fails closed without
+ * them).
  */
 export type SimulationValidationContext = {
   em: EntityManager
   scope: SimulationScope
   eventAdapters: readonly RegisteredSimulationEventAdapter[]
   artifactId?: string | null
+  requesterUserId?: string
+  resolve?: SimulationServiceResolver
+}
+
+/**
+ * What an `inline` run sees beyond the slice context: the requester's organization scope in the
+ * tenant (`null` = every organization, `[]` = none) and the app-process services. Present only for
+ * inline runs.
+ */
+export type SimulationInlineContext = {
+  organizationIds: readonly string[] | null
+  resolve: SimulationServiceResolver
 }
 
 /**
@@ -190,7 +230,8 @@ export type SimulationValidationContext = {
  * `scanAuditLog` reads decrypted audit entries of the run's organization inside the run window
  * (created_at, id ascending). `hasFeatures` checks the requester's features (wildcard-aware) at
  * the run's organization. `state` is what the previous slice returned (null on the first one).
- * `artifactId` is the artifact the proposal replaces (null for an unsaved artifact).
+ * `artifactId` is the artifact the proposal replaces (null for an unsaved artifact). `inline` is
+ * present only for an `inline` kind, which must answer `done` in its single slice.
  */
 export type SimulationRunContext<TState> = {
   em: EntityManager
@@ -204,6 +245,7 @@ export type SimulationRunContext<TState> = {
   hasFeatures: SimulationFeatureCheck
   eventAdapters: readonly RegisteredSimulationEventAdapter[]
   scanAuditLog: (query: SimulationAuditScanQuery) => Promise<SimulationAuditScanPage>
+  inline?: SimulationInlineContext
 }
 
 /**
@@ -235,12 +277,25 @@ export type SimulationGroup = {
 /** Counts describing what was (not) read; keys are kind-defined snake_case identifiers. */
 export type SimulationCoverage = Record<string, number>
 
+/**
+ * Kind-level facts of a result that are not counts of records, so they are never k-suppressed:
+ * `warnings` are i18n keys shown prominently (e.g. "you would lock yourself out"); `counts` are
+ * non-negative integers under snake_case keys (e.g. `pages_lost`); `lists` hold identifiers from a
+ * public catalog under snake_case keys (e.g. feature ids) — never record values or record ids.
+ */
+export type SimulationResultSummary = {
+  warnings?: string[]
+  counts?: Record<string, number>
+  lists?: Record<string, string[]>
+}
+
 export type SimulationKindResult = {
   groups: SimulationGroup[]
   coverage: SimulationCoverage
   caveats: string[]
   fidelity: SimulationFidelity
   truncated: boolean
+  summary?: SimulationResultSummary
 }
 
 export type SimulationSliceResult<TState> =
@@ -248,12 +303,69 @@ export type SimulationSliceResult<TState> =
   | { status: 'done'; result: SimulationKindResult; recordsProcessed: number }
 
 /**
+ * Context of a live-records read of a completed run: the viewer (the run's requester), the
+ * viewer's current organization scope (`null` = every organization, `[]` = none), the requested
+ * page (`pageSize` ≤ 100) and the app-process services.
+ */
+export type SimulationLiveRecordsContext = {
+  em: EntityManager
+  scope: SimulationScope
+  viewerUserId: string
+  artifactId: string | null
+  organizationIds: readonly string[] | null
+  page: number
+  pageSize: number
+  hasFeatures: SimulationFeatureCheck
+  resolve: SimulationServiceResolver
+}
+
+/**
+ * One record a run concerns, resolved live for the viewer (e.g. a user whose permissions would
+ * change). `type` is kind-defined (label `<module>.simulation.records.types.<type>`), `href` an
+ * app-internal link (anything else is dropped), `groupKeys` the result groups the record belongs
+ * to, `counts` non-negative integers under snake_case keys.
+ */
+export type SimulationLiveRecord = {
+  id: string
+  type: string
+  label: string | null
+  href: string | null
+  groupKeys: string[]
+  counts: Record<string, number>
+}
+
+/**
+ * One page of live records. `notes` are i18n keys about the list (e.g. "the proposal is already in
+ * effect"); `groupLabels` are display names of the result groups resolved live for the viewer.
+ */
+export type SimulationLiveRecordsPage = {
+  items: SimulationLiveRecord[]
+  total: number
+  notes?: string[]
+  groupLabels?: Record<string, string>
+}
+
+/**
+ * Records a completed run concerns, never stored: resolved on every read under the viewer's
+ * current permissions. `requiredFeatures` (non-empty, else the kind is skipped at registration)
+ * are the viewer features the list needs on top of the kind's own.
+ */
+export type SimulationLiveRecordsDefinition<TInput> = {
+  requiredFeatures: string[]
+  list(input: TInput, ctx: SimulationLiveRecordsContext): Promise<SimulationLiveRecordsPage>
+}
+
+/**
  * A simulator. `requiredFeatures` must be non-empty and cover every source the kind reads (a
  * kind without them is skipped at registration); `inputFeatures` adds the features a particular
  * proposal reads (e.g. the view feature of the record type a rule targets). Both are checked at
  * request time, before every slice and on every read. `inputSchema` validates the proposal with
  * the owning module's own schema. `version` is part of every run's inputs hash: bump it when the
- * simulation semantics change. `cellKeys` orders the cells of every group.
+ * simulation semantics change. `cellKeys` orders the cells of every group. `execution` (default
+ * `queued`) selects background slices or an `inline` run computed at request time.
+ * `accessLogResourceKind`, when set, makes insights write one access-log row (fail closed) before a
+ * run is computed and before its live records are listed. `liveRecords` lists the records a
+ * completed run concerns, resolved live on read.
  */
 export type SimulationKindDefinition<TInput = unknown, TState = unknown> = {
   kind: string
@@ -264,12 +376,15 @@ export type SimulationKindDefinition<TInput = unknown, TState = unknown> = {
   version: number
   cellKeys: string[]
   ttlHours?: number
+  execution?: SimulationExecutionMode
+  accessLogResourceKind?: string
   readArtifactVersion(ctx: SimulationArtifactContext, ref: SimulationArtifactRef<TInput>): Promise<SimulationArtifactVersion | null>
   fingerprintProposal(input: TInput): string
   inputFeatures?(input: TInput, ctx: SimulationInputFeaturesContext): string[]
   validate?(input: TInput, ctx: SimulationValidationContext): Promise<SimulationValidationResult>
   run(input: TInput, ctx: SimulationRunContext<TState>): Promise<SimulationSliceResult<TState>>
   applyHref?(ref: { artifactId: string | null; runId: string }): string | null
+  liveRecords?: SimulationLiveRecordsDefinition<TInput>
 }
 
 export type SimulateModuleConfig = {

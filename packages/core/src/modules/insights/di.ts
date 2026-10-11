@@ -6,6 +6,7 @@ import type { ActionLogService } from '@open-mercato/core/modules/audit_logs/ser
 import { registerRetainedAccessLogResourceKinds } from '@open-mercato/core/modules/audit_logs/services/accessLogService'
 import { ExplainService } from './services/explainService'
 import { AccessExplainService } from './services/accessExplainService'
+import { SIMULATION_PERMISSION_PREVIEW_ACCESS_LOG_KIND } from '@open-mercato/shared/modules/insights/simulate'
 import { XRAY_INDIVIDUALS_RESOURCE_KIND } from './lib/analytics/privacy'
 
 type ExplainServiceCradle = {
@@ -15,7 +16,7 @@ type ExplainServiceCradle = {
 }
 
 export function register(container: AppContainer) {
-  registerRetainedAccessLogResourceKinds([XRAY_INDIVIDUALS_RESOURCE_KIND])
+  registerRetainedAccessLogResourceKinds([XRAY_INDIVIDUALS_RESOURCE_KIND, SIMULATION_PERMISSION_PREVIEW_ACCESS_LOG_KIND])
   const tryResolve = <TService>(name: string): TService | undefined => {
     try {
       return container.resolve(name) as TService

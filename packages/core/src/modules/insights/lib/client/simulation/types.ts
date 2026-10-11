@@ -7,6 +7,7 @@ import type {
   simulationDecisionResponseSchema,
   simulationListResponseSchema,
   simulationRequestResponseSchema,
+  simulationRecordsResponseSchema,
   simulationRequestSchema,
   simulationRunDetailSchema,
   simulationRunResponseSchema,
@@ -32,6 +33,11 @@ export type SimulationResultGroup = SimulationRunResult['groups'][number]
 export type SimulationResultCell = SimulationResultGroup['cells'][number]
 export type SimulationSample = SimulationResultCell['samples'][number]
 export type SimulationDecisionView = SimulationRunDetail['decisions'][number]
+export type SimulationResultSummary = NonNullable<SimulationRunResult['summary']>
+export type SimulationExecution = SimulationRunDetail['execution']
+
+export type SimulationRecordsResponse = z.infer<typeof simulationRecordsResponseSchema>
+export type SimulationLiveRecord = SimulationRecordsResponse['items'][number]
 
 export type SimulationDecisionResponse = z.infer<typeof simulationDecisionResponseSchema>
 export type SimulationCancelResponse = z.infer<typeof simulationCancelResponseSchema>

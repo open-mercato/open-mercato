@@ -175,6 +175,33 @@ describe('runSimulationSlice', () => {
     expect(progress.failJob).toHaveBeenCalledWith(JOB_ID, { errorMessage: 'kind_unavailable' }, expect.anything())
   })
 
+  it('never runs an inline kind in the worker: such a run is failed as kind_unavailable', async () => {
+    registerSimulateConfigEntries([{
+      moduleId: 'inline_module',
+      config: {
+        version: 1,
+        kinds: [{
+          kind: 'inline_module.preview',
+          artifactKind: 'inline_module.thing',
+          labelKey: 'inline_module.label',
+          requiredFeatures: ['inline_module.view'],
+          inputSchema: z.object({ id: z.string() }),
+          version: 1,
+          cellKeys: ['gains'],
+          execution: 'inline',
+          readArtifactVersion: async () => null,
+          fingerprintProposal: () => 'fp',
+          run: (input: unknown, ctx: SimulationRunContext<unknown>) => kindRun(input, ctx),
+        }],
+      },
+    }])
+    const progress = makeProgress()
+    loadSimulationRunForWorker.mockResolvedValue(makeRun({ kind: 'inline_module.preview' }))
+    await expect(runSimulationSlice(makeContainer(progress).container, PAYLOAD, deps())).resolves.toBe('kind_unavailable')
+    expect(kindRun).not.toHaveBeenCalled()
+    expect(updateActiveSimulationRun).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.anything(), null, expect.objectContaining({ status: 'failed', errorCode: 'kind_unavailable' }), expect.anything())
+  })
+
   it('requeues a slice while another slice of the tenant holds the lock', async () => {
     const progress = makeProgress()
     loadSimulationRunForWorker.mockResolvedValue(makeRun())
@@ -261,11 +288,13 @@ describe('runSimulationSlice', () => {
         caveats: ['test_module.caveat'],
         fidelity: 'observed',
         truncated: false,
+        summary: { warnings: ['test_module.warning'], counts: { pages_lost: 1 }, lists: { features_lost: ['a.b', 'not valid!'] } },
       },
     })
     await expect(runSimulationSlice(makeContainer(makeProgress()).container, PAYLOAD, deps())).resolves.toBe('completed')
     const patch = updateActiveSimulationRun.mock.calls.at(-1)?.[4] as Record<string, unknown>
     expect(patch).toEqual(expect.objectContaining({ coverageJson: { observed_rows: 30 }, caveats: ['test_module.caveat'] }))
+    expect((patch.resultJson as { summary?: unknown }).summary).toEqual({ warnings: ['test_module.warning'], counts: { pages_lost: 1 }, lists: { features_lost: ['a.b'] } })
   })
 
   it('lets the queue retry when the RBAC service fails instead of cancelling the run as forbidden', async () => {

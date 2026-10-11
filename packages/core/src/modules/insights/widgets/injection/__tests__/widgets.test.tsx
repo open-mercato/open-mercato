@@ -62,6 +62,8 @@ describe('insights injection widgets', () => {
 
   it('declares feature-gated widgets on the documented spots', () => {
     expect(Object.keys(injectionTable).sort((left, right) => left.localeCompare(right))).toEqual([
+      'auth.role.acl:banner',
+      'auth.role.acl:toolbar',
       'backend:access-denied:after',
       'backend:record:current',
       'crud-form:business_rules.rule',

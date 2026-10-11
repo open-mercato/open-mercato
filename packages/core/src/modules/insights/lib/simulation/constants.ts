@@ -68,4 +68,12 @@ export const SIMULATION_MAINTENANCE_INTERVAL = '1d'
 
 export const SIMULATION_LIST_MAX_PAGE_SIZE = 100
 
+/** Live records of a completed run (`GET …/{id}/records`): default and maximum page size. */
+export const SIMULATION_LIVE_RECORDS_DEFAULT_PAGE_SIZE = 50
+
+export const SIMULATION_LIVE_RECORDS_MAX_PAGE_SIZE = 100
+
+/** Access-log `accessType` of a kind's access-log rows: computing a run, listing its live records. */
+export const SIMULATION_ACCESS_LOG_TYPES = { run: 'simulate', records: 'read' } as const
+
 export const SIMULATION_RATE_LIMIT_KEY_PREFIX = 'insights:simulation_request'

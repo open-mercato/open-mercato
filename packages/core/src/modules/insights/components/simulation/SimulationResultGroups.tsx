@@ -12,6 +12,8 @@ import {
   simulationCellLabel,
   simulationFlagLabel,
   simulationGroupHeading,
+  simulationGroupSuppressedLabel,
+  simulationGroupTotalLabel,
   translateSimulationKey,
 } from '../../lib/client/simulation/format'
 import type { SimulationResultCell, SimulationResultGroup, SimulationSample } from '../../lib/client/simulation/types'
@@ -41,20 +43,20 @@ export function SimulationCellCount({ cell, k }: { cell: SimulationResultCell; k
   return <span className="font-medium tabular-nums">{formatCount(cell.count, locale)}</span>
 }
 
-function GroupTotal({ group, k }: { group: SimulationResultGroup; k: number }) {
+function GroupTotal({ kind, group, k }: { kind: string; group: SimulationResultGroup; k: number }) {
   const t = useT()
   const locale = useLocale()
   if (group.suppressed || group.total === null) {
     return (
       <span className="inline-flex items-center gap-1 text-sm text-muted-foreground" data-testid="simulation-group-suppressed">
         <EyeOff className="size-4" aria-hidden="true" />
-        {t('insights.simulation.ui.result.groupSuppressed', { k: formatCount(k, locale) })}
+        {simulationGroupSuppressedLabel(kind, formatCount(k, locale), t)}
       </span>
     )
   }
   return (
     <span className="text-sm text-muted-foreground" data-testid="simulation-group-total">
-      {t('insights.simulation.ui.result.eventsTotal', { count: formatCount(group.total, locale) })}
+      {simulationGroupTotalLabel(kind, formatCount(group.total, locale), t)}
     </span>
   )
 }
@@ -117,12 +119,14 @@ type SimulationGroupProps = {
   k: number
   /** The run's own proposal: kind-specific headings read labels from it (e.g. trigger names). */
   proposal?: unknown
+  /** Display names of groups resolved live with the run's records (e.g. organization names). */
+  groupLabels?: Record<string, string> | null
 }
 
 /** The compact form of a group (the "Simulate impact" dialog): total, one count per outcome, warnings. */
-export function SimulationGroupHeadline({ kind, group, k, proposal }: SimulationGroupProps) {
+export function SimulationGroupHeadline({ kind, group, k, proposal, groupLabels }: SimulationGroupProps) {
   const t = useT()
-  const heading = simulationGroupHeading(kind, group, proposal, t)
+  const heading = simulationGroupHeading(kind, group, proposal, t, groupLabels)
   return (
     <section className="space-y-2 rounded-md border p-3" data-testid="simulation-group-headline" data-group={group.key}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -130,7 +134,7 @@ export function SimulationGroupHeadline({ kind, group, k, proposal }: Simulation
           <h3 className="text-sm font-medium">{heading.title}</h3>
           {heading.subtitle && heading.subtitle !== group.key ? <p className="text-xs text-muted-foreground">{heading.subtitle}</p> : null}
         </div>
-        <GroupTotal group={group} k={k} />
+        <GroupTotal kind={kind} group={group} k={k} />
       </div>
       <dl className="grid grid-cols-1 gap-x-4 gap-y-1 text-sm sm:grid-cols-2">
         {group.cells.map((cell) => (
@@ -146,9 +150,9 @@ export function SimulationGroupHeadline({ kind, group, k, proposal }: Simulation
 }
 
 /** One result group of the result page: total, outcomes with their counts and live-resolved samples, warnings and flags. */
-export function SimulationGroupSection({ kind, group, k, proposal }: SimulationGroupProps) {
+export function SimulationGroupSection({ kind, group, k, proposal, groupLabels }: SimulationGroupProps) {
   const t = useT()
-  const heading = simulationGroupHeading(kind, group, proposal, t)
+  const heading = simulationGroupHeading(kind, group, proposal, t, groupLabels)
   return (
     <section className="space-y-3 rounded-lg border bg-card p-4" data-testid="simulation-group" data-group={group.key}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -156,7 +160,7 @@ export function SimulationGroupSection({ kind, group, k, proposal }: SimulationG
           <h3 className="text-base font-semibold">{heading.title}</h3>
           {heading.subtitle ? <p className={heading.subtitle === group.key ? 'font-mono text-xs text-muted-foreground' : 'text-xs text-muted-foreground'}>{heading.subtitle}</p> : null}
         </div>
-        <GroupTotal group={group} k={k} />
+        <GroupTotal kind={kind} group={group} k={k} />
       </div>
       <SimulationWarnings warnings={group.warnings} />
       <SimulationFlags kind={kind} flags={group.flags} />

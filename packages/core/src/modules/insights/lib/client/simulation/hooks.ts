@@ -15,6 +15,7 @@ import {
   isSimulationRunId,
   readSimulationError,
   simulationListApiPath,
+  simulationRecordsApiPath,
   simulationRunApiPath,
 } from './api'
 import type {
@@ -23,6 +24,7 @@ import type {
   SimulationDecisionResponse,
   SimulationDecisionValue,
   SimulationListResponse,
+  SimulationRecordsResponse,
   SimulationRequestBody,
   SimulationRequestError,
   SimulationRequestResponse,
@@ -159,6 +161,20 @@ export function useSimulationRun(runId: string | null, options: { poll?: boolean
   const url = isSimulationRunId(runId) ? simulationRunApiPath(runId) : null
   const resource = useSimulationResource<SimulationRunResponse>(url, { pollWhile: poll ? isRunStillActive : undefined })
   return { data: resource.data?.result ?? null, error: resource.error, loading: resource.loading, reload: resource.reload }
+}
+
+/**
+ * One page of the live records of one of the viewer's own completed runs (resolved by the owning
+ * module on every read; `null` id or `enabled: false` loads nothing).
+ */
+export function useSimulationLiveRecords(
+  runId: string | null,
+  page: number,
+  options: { enabled?: boolean; pageSize?: number } = {},
+): SimulationResourceState<SimulationRecordsResponse> {
+  const enabled = options.enabled !== false
+  const url = enabled && isSimulationRunId(runId) ? simulationRecordsApiPath(runId, page, options.pageSize) : null
+  return useSimulationResource<SimulationRecordsResponse>(url)
 }
 
 /** A one-off read of one of the viewer's own runs (e.g. to load its proposal into a form). */

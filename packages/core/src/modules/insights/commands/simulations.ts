@@ -1,4 +1,6 @@
+import { randomUUID } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { SimulationKindDefinition, SimulationProposalErrorCode } from '@open-mercato/shared/modules/insights/simulate'
 import { registerCommand, type CommandHandler, type CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -16,6 +18,7 @@ import {
   type SimulationRequestCommandInput,
 } from '../data/validators'
 import {
+  SIMULATION_ACCESS_LOG_TYPES,
   SIMULATION_DECISION_RESOURCE_KIND,
   SIMULATION_DEFAULT_TTL_HOURS,
   SIMULATION_ENGINE_VERSION,
@@ -26,15 +29,23 @@ import {
 import { createFeatureCheck } from '../lib/simulation/context'
 import { simulationRunFeatures, storedRunFeatures } from '../lib/simulation/features'
 import { computeSimulationInputsHash } from '../lib/simulation/hash'
+import {
+  SimulationAccessLogUnavailableError,
+  createServiceResolver,
+  runInlineSimulation,
+  simulationScopeOrganizationIds,
+  writeSimulationAccessLog,
+} from '../lib/simulation/inline'
 import { settleSimulationProgress } from '../lib/simulation/jobs'
 import { enqueueSimulationSlice, ensureSimulationMaintenanceSchedule } from '../lib/simulation/queue'
-import { getSimulationKind, listSimulationEventAdapters } from '../lib/simulation/registry'
+import { getSimulationKind, isInlineSimulationKind, listSimulationEventAdapters } from '../lib/simulation/registry'
 import {
   SimulationBusyError,
   SimulationDecisionExistsError,
   attachProgressJob,
   createSimulationRun,
   findSimulationRun,
+  insertCompletedSimulationRun,
   insertSimulationDecision,
   isActiveSimulationStatus,
   simulationRunBudgets,
@@ -86,11 +97,107 @@ async function httpError(status: number, code: string, extra: Record<string, unk
   return new CrudHttpError(status, { error: t(`insights.simulation.errors.${code}`), code, ...extra })
 }
 
+/** The HTTP status of a kind's validation code: 404 unavailable artifact, 403 forbidden proposal, else 422. */
+export function simulationProposalErrorStatus(code: SimulationProposalErrorCode): number {
+  if (code === 'artifact_unavailable') return 404
+  if (code === 'forbidden') return 403
+  return 422
+}
+
 function zodIssues(error: { issues: Array<{ path: PropertyKey[]; message: string }> }): Array<{ path: string; message: string }> {
   return error.issues.slice(0, 20).map((issue) => ({
     path: issue.path.map((segment) => String(segment)).join('.'),
     message: issue.message,
   }))
+}
+
+type InlineRequest = {
+  definition: SimulationKindDefinition
+  proposal: unknown
+  scope: { tenantId: string; organizationId: string }
+  userId: string
+  artifactId: string | null
+  artifactVersion: { updatedAt: string | null; fingerprint: string | null } | null
+  hasFeatures: ReturnType<typeof createFeatureCheck>
+  resolve: ReturnType<typeof createServiceResolver>
+}
+
+/**
+ * An `inline` kind (S8/S12): the access-log row first when the kind declares one (fail closed: 503
+ * `access_log_unavailable`, nothing is computed), then the kind's single read-only slice in this
+ * process within the requester's organization scope, then the run stored at once as `completed`
+ * (k-suppressed result, the kind's TTL, no job, no dedupe: every request is a fresh preview of the
+ * live state).
+ */
+async function executeInlineRequest(ctx: CommandRuntimeContext, request: InlineRequest): Promise<SimulationRequestResult> {
+  const { definition, scope } = request
+  const requestId = randomUUID()
+  if (definition.accessLogResourceKind) {
+    try {
+      await writeSimulationAccessLog(request.resolve, {
+        scope,
+        actorUserId: request.userId,
+        resourceKind: definition.accessLogResourceKind,
+        resourceId: request.artifactId ?? definition.artifactKind,
+        accessType: SIMULATION_ACCESS_LOG_TYPES.run,
+        context: { kind: definition.kind, requestId },
+      })
+    } catch (error) {
+      if (error instanceof SimulationAccessLogUnavailableError) throw await httpError(503, 'access_log_unavailable')
+      throw error
+    }
+  }
+  const rootEm = ctx.container.resolve('em') as EntityManager
+  const outcome = await runInlineSimulation(ctx.container, rootEm, {
+    definition,
+    input: request.proposal,
+    scope,
+    requesterUserId: request.userId,
+    artifactId: request.artifactId,
+    organizationIds: simulationScopeOrganizationIds(ctx.organizationScope, scope.organizationId),
+    hasFeatures: request.hasFeatures,
+    resolve: request.resolve,
+    now: Date.now,
+  })
+  const evaluatedAt = new Date(outcome.startedAt)
+  const completedAt = new Date(outcome.completedAt)
+  const run = await insertCompletedSimulationRun(resolveEm(ctx), {
+    scope,
+    kind: definition.kind,
+    requesterUserId: request.userId,
+    input: request.proposal,
+    inputsHash: computeSimulationInputsHash({
+      kind: definition.kind,
+      proposal: request.proposal,
+      artifactKind: definition.artifactKind,
+      artifactId: request.artifactId,
+      artifactVersion: request.artifactVersion,
+      windowFrom: evaluatedAt,
+      windowTo: evaluatedAt,
+      engineVersion: SIMULATION_ENGINE_VERSION,
+      contributionVersion: definition.version,
+      requesterUserId: request.userId,
+      organizationId: scope.organizationId,
+      inlineRequestId: requestId,
+    }),
+    artifactKind: definition.artifactKind,
+    artifactId: request.artifactId,
+    artifactVersion: request.artifactVersion,
+    proposalFingerprint: definition.fingerprintProposal(request.proposal),
+    windowFrom: evaluatedAt,
+    windowTo: evaluatedAt,
+    budgets: { ...simulationRunBudgets(), recordsUsed: outcome.recordsProcessed, elapsedMs: Math.max(0, outcome.completedAt - outcome.startedAt), slices: 1 },
+    engineVersion: SIMULATION_ENGINE_VERSION,
+    contributionVersion: definition.version,
+    expiresAt: new Date(completedAt.getTime() + (definition.ttlHours ?? SIMULATION_DEFAULT_TTL_HOURS) * HOUR_MS),
+    startedAt: evaluatedAt,
+    completedAt,
+    resultJson: outcome.stored,
+    coverageJson: outcome.coverage,
+    caveats: outcome.caveats,
+    fidelity: outcome.fidelity,
+  })
+  return { runId: run.id, progressJobId: null, status: 'completed', created: true }
 }
 
 /**
@@ -119,14 +226,34 @@ const requestSimulationCommand: CommandHandler<SimulationRequestCommandInput, Si
     const runFeatures = simulationRunFeatures(definition, parsed.data)
     if (!(await hasFeatures(runFeatures))) throw await httpError(403, 'forbidden', { requiredFeatures: runFeatures })
     const em = resolveEm(ctx)
+    const resolve = createServiceResolver(ctx.container)
     if (definition.validate) {
-      const validation = await definition.validate(parsed.data, { em, scope, eventAdapters: listSimulationEventAdapters(), artifactId: input.artifactId })
-      if (!validation.ok) throw await httpError(422, validation.code)
+      const validation = await definition.validate(parsed.data, {
+        em,
+        scope,
+        eventAdapters: listSimulationEventAdapters(),
+        artifactId: input.artifactId,
+        requesterUserId: input.userId,
+        resolve,
+      })
+      if (!validation.ok) throw await httpError(simulationProposalErrorStatus(validation.code), validation.code)
     }
     const version = await definition.readArtifactVersion({ em, scope }, { artifactId: input.artifactId, input: parsed.data })
     if (input.artifactId && !version) throw await httpError(422, 'artifact_not_found')
     const artifactVersion = version ? { updatedAt: version.updatedAt, fingerprint: version.fingerprint } : null
     const artifactId = version?.artifactId ?? input.artifactId
+    if (isInlineSimulationKind(definition)) {
+      return executeInlineRequest(ctx, {
+        definition,
+        proposal: parsed.data,
+        scope,
+        userId: input.userId,
+        artifactId,
+        artifactVersion,
+        hasFeatures,
+        resolve,
+      })
+    }
     const windowFrom = new Date(input.windowFrom)
     const windowTo = new Date(input.windowTo)
     const now = new Date()

@@ -120,6 +120,20 @@ export const injectionTable: ModuleInjectionTable = {
       priority: 100,
     },
   ],
+  'auth.role.acl:toolbar': [
+    {
+      widgetId: 'insights.injection.role-acl-simulate',
+      kind: 'stack',
+      priority: 100,
+    },
+  ],
+  'auth.role.acl:banner': [
+    {
+      widgetId: 'insights.injection.role-acl-simulation-apply',
+      kind: 'stack',
+      priority: 100,
+    },
+  ],
 }
 
 export default injectionTable
