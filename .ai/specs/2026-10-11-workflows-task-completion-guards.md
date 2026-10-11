@@ -129,7 +129,7 @@ Guards are registered only by host modules; no shipped module registers one, so 
 - Backward compatibility: additive only (new optional function arg, new enum value in a response, new optional response field, new DI name, new error subclass of `UserTaskError`).
 - Tenant scoping: guard scope comes from the scoped task row.
 - No ORM relations, no generated files, no migrations.
-- i18n: new key in all four locales.
+- i18n: new key in every workflows locale (en, de, es, pl, ko).
 
 ## Changelog
 
