@@ -449,6 +449,25 @@ describe('RbacService.previewRoleAclChange — principals', () => {
     expect(preview!.truncated.apiKeys).toBe(false)
   })
 
+  it('limits API keys to the listed API-key organizations: home organization and evaluated organizations ([] = none)', async () => {
+    const { rows, role, liveKey } = fixture()
+    const keyA = uuidOf(6, 20)
+    rows.apiKeys.push({ id: keyA, tenantId: TENANT, organizationId: ORG_A, rolesJson: [role.id], deletedAt: null, expiresAt: null, sessionUserId: null, name: 'key A', keyPrefix: 'omk_a' })
+    const em = createFakeEntityManager(rows)
+    const service = new RbacService(em as never)
+    const proposal = { isSuperAdmin: false, features: ['sales.orders.manage'], organizations: null }
+    const limited = await service.previewRoleAclChange(TENANT, role.id, proposal, { em: em as never, organizationIds: [ORG_A, ORG_B], apiKeyOrganizationIds: [ORG_A] })
+    expect(ids(limited, 'api_key')).toEqual([keyA])
+    expect(ids(limited, 'api_key')).not.toContain(liveKey)
+    const keyOrganizations = (limited?.cohorts ?? []).filter((cohort) => cohort.principalType === 'api_key').flatMap((cohort) => cohort.access.map((access) => access.organizationId))
+    expect(keyOrganizations).toEqual([ORG_A])
+    expect(ids(limited, 'user').length).toBeGreaterThan(0)
+    const none = await service.previewRoleAclChange(TENANT, role.id, proposal, { em: em as never, organizationIds: [ORG_A, ORG_B], apiKeyOrganizationIds: [] })
+    expect(ids(none, 'api_key')).toEqual([])
+    const unlimited = await service.previewRoleAclChange(TENANT, role.id, proposal, { em: em as never, organizationIds: [ORG_A, ORG_B] })
+    expect(ids(unlimited, 'api_key')).toEqual([liveKey, keyA].sort())
+  })
+
   it('replaces only the ACL row the save updates when a role has duplicate rows', async () => {
     const { rows, role, plain } = fixture()
     rows.roleAcls.push({ id: uuidOf(2, 9), role, tenantId: TENANT, isSuperAdmin: false, featuresJson: ['catalog.products.view'], organizationsJson: null })

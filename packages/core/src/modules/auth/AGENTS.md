@@ -82,7 +82,7 @@ Features are string-based permissions: `<module>.<action>` (e.g., `users.view`, 
 ### Role ACL change preview
 
 - `rbacService.previewRoleAclChange(tenantId, roleId, proposed, options)` previews a role ACL save without writing: it reuses the `loadAclWithEntityManager` aggregation helpers (never re-implement precedence elsewhere) and is pinned by parity tests (`services/__tests__/rbacService.previewRoleAclChange*.test.ts`, PG suite on `OM_INSIGHTS_SIMULATION_PG_URL`). Keep both in sync when changing the loader.
-- The change simulator kind `auth.role_acl_preview` lives in `lib/simulation/roleAclPreview.ts` (`insights.simulate.ts`); it mirrors the role ACL write guards and excludes super administrators. The role edit page publishes `auth.role.acl:toolbar` / `:banner` and compares the ACL (`lib/roleAclBaseline.ts`) before writing one without `updatedAt`.
+- The change simulator kind `auth.role_acl_preview` lives in `lib/simulation/roleAclPreview.ts` (`insights.simulate.ts`); it mirrors the role ACL write guards and excludes super administrators, and shows API keys (counts and live records) only in organizations where the requester holds `api_keys.view` (`resolveFeatureOrganizationAccess` → `previewRoleAclChange({ apiKeyOrganizationIds })`), never on the strength of the run-organization check alone. The role edit page publishes `auth.role.acl:toolbar` / `:banner` and compares the ACL (`lib/roleAclBaseline.ts`) before writing one without `updatedAt`.
 
 ### Declarative Guards
 

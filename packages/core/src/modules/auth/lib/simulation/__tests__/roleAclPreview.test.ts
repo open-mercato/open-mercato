@@ -3,7 +3,7 @@ import path from 'node:path'
 import { registerModules } from '@open-mercato/shared/lib/modules/registry'
 import type { Module } from '@open-mercato/shared/modules/registry'
 import type { SimulationRunContext } from '@open-mercato/shared/modules/insights/simulate'
-import type { RoleAclChangePreview } from '@open-mercato/core/modules/auth/services/rbacService'
+import { RbacService, type RoleAclChangePreview } from '@open-mercato/core/modules/auth/services/rbacService'
 import { createFakeEntityManager, emptyRows, uuidOf, type FakeRole, type FakeRows } from '../../../services/__tests__/rbacPreviewFixture'
 import type { GatedSurface } from '../gatedSurface'
 
@@ -61,6 +61,10 @@ function setup(options: { actor?: ActorAcl; roleIsSuperAdmin?: boolean; aclUpdat
   const rbac = {
     previewRoleAclChange: jest.fn(),
     loadAclWithEntityManager: jest.fn(async () => actor),
+    resolveFeatureOrganizationAccess: jest.fn(async () => ({
+      unrestricted: true,
+      filterOrganizationIds: (candidates: ReadonlyArray<{ id: string }>) => candidates.map((candidate) => candidate.id),
+    })),
   }
   const resolve = <T,>(name: string): T | undefined => (name === 'rbacService' ? (rbac as unknown as T) : undefined)
   return { rows, role, foreignRole, em, rbac, resolve }
@@ -403,5 +407,74 @@ describe('auth.role_acl_preview live principals', () => {
     expect((await roleAclPreviewKind.liveRecords!.list(proposal() as never, listContext(env))).notes).toEqual([])
     env.rbac.previewRoleAclChange.mockResolvedValueOnce(null)
     expect(await roleAclPreviewKind.liveRecords!.list(proposal() as never, listContext(env))).toEqual({ items: [], total: 0, notes: [ROLE_ACL_PREVIEW_I18N.caveats.roleUnavailable] })
+  })
+})
+
+describe('auth.role_acl_preview API keys per organization', () => {
+  const ORG_C = '22222222-0000-4000-8000-0000000000c7'
+  const KEY_A = uuidOf(6, 1)
+  const KEY_C = uuidOf(6, 2)
+
+  function apiKeyEnv(apiKeyViewOrganizations: string[]) {
+    const env = setup()
+    env.rows.organizations.push({ id: ORG_C, tenant: { id: TENANT }, tenantId: TENANT, name: 'Gamma', ancestorIds: [ORG_A], deletedAt: null })
+    env.rows.apiKeys.push(
+      { id: KEY_A, tenantId: TENANT, organizationId: ORG_A, rolesJson: [env.role.id], deletedAt: null, expiresAt: null, sessionUserId: null, name: 'Alpha key', keyPrefix: 'omk_a' },
+      { id: KEY_C, tenantId: TENANT, organizationId: ORG_C, rolesJson: [env.role.id], deletedAt: null, expiresAt: null, sessionUserId: null, name: 'Gamma key', keyPrefix: 'omk_c' },
+    )
+    const service = new RbacService(env.em as never)
+    const featureAccess = jest.spyOn(service, 'resolveFeatureOrganizationAccess').mockImplementation(async (_userId, required) => ({
+      unrestricted: false,
+      filterOrganizationIds: (candidates) => candidates
+        .map((candidate) => candidate.id)
+        .filter((id) => required.length === 1 && required[0] === 'api_keys.view' && apiKeyViewOrganizations.includes(id)),
+    }))
+    const resolve = <T,>(name: string): T | undefined => (name === 'rbacService' ? (service as unknown as T) : undefined)
+    return { env, resolve, featureAccess }
+  }
+
+  function inlineRunContext(env: ReturnType<typeof setup>, resolve: <T>(name: string) => T | undefined): SimulationRunContext<null> {
+    return {
+      em: env.em as never,
+      scope: SCOPE,
+      requesterUserId: ACTOR,
+      artifactId: env.role.id,
+      window: { from: new Date(0), to: new Date(0) },
+      budget: { recordsRemaining: 1, sliceDeadlineAt: 0, runDeadlineAt: 0, maxBatchRows: 1, maxBatchBytes: 1 },
+      state: null,
+      now: () => Date.parse('2026-10-10T12:00:00.000Z'),
+      hasFeatures: async () => true,
+      eventAdapters: [],
+      scanAuditLog: async () => ({ entries: [], lastCursor: null, exhausted: true, payloadBytes: 0, undecryptable: 0 }),
+      inline: { organizationIds: [ORG_A, ORG_C], resolve },
+    }
+  }
+
+  const apiKeyGroups = (slice: Awaited<ReturnType<typeof roleAclPreviewKind.run>>) => (slice.status === 'done'
+    ? slice.result.groups.map((group) => group.key).filter((key) => key.endsWith(':api_keys'))
+    : [])
+
+  it('counts API keys only in organizations where the requester holds api_keys.view, not everywhere the run-organization check reaches', async () => {
+    const { env, resolve, featureAccess } = apiKeyEnv([ORG_A])
+    const slice = await roleAclPreviewKind.run(proposal() as never, inlineRunContext(env, resolve) as never)
+    expect(apiKeyGroups(slice)).toEqual([roleAclPreviewGroupKey(ORG_A, 'api_key')])
+    expect(slice.status === 'done' && slice.result.caveats).not.toContain(ROLE_ACL_PREVIEW_I18N.caveats.apiKeysHidden)
+    expect(featureAccess).toHaveBeenCalledWith(ACTOR, ['api_keys.view'], { tenantId: TENANT })
+  })
+
+  it('hides API keys, with the caveat, when no organization of the run grants api_keys.view', async () => {
+    const { env, resolve } = apiKeyEnv([])
+    const slice = await roleAclPreviewKind.run(proposal() as never, inlineRunContext(env, resolve) as never)
+    expect(apiKeyGroups(slice)).toEqual([])
+    expect(slice.status === 'done' && slice.result.caveats).toContain(ROLE_ACL_PREVIEW_I18N.caveats.apiKeysHidden)
+  })
+
+  it('lists live API keys only of organizations where the viewer holds api_keys.view', async () => {
+    const { env, resolve } = apiKeyEnv([ORG_A])
+    const page = await roleAclPreviewKind.liveRecords!.list(proposal() as never, {
+      em: env.em as never, scope: SCOPE, viewerUserId: ACTOR, artifactId: env.role.id, organizationIds: [ORG_A, ORG_C], page: 1, pageSize: 50, hasFeatures: async () => true, resolve,
+    })
+    expect(page.items.filter((item) => item.type === 'api_key').map((item) => item.id)).toEqual([KEY_A])
+    expect(page.items.flatMap((item) => item.groupKeys)).not.toContain(roleAclPreviewGroupKey(ORG_C, 'api_key'))
   })
 })

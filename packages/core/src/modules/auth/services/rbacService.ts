@@ -93,6 +93,12 @@ export type RoleAclChangePreviewOptions = {
   organizationIds?: readonly string[] | null
   /** Only principals whose home organization is listed (`null`/absent = every principal). */
   principalOrganizationIds?: readonly string[] | null
+  /**
+   * API keys are further limited to these organizations: only keys whose home organization is
+   * listed, evaluated only in listed organizations (`null`/absent = no extra limit, `[]` = no API
+   * keys). E.g. the organizations where the requester holds `api_keys.view`.
+   */
+  apiKeyOrganizationIds?: readonly string[] | null
   /** Also evaluates this user at `selfOrganizationId` (returned in `self`, even when excluded from cohorts). */
   selfUserId?: string | null
   selfOrganizationId?: string | null
@@ -1678,6 +1684,13 @@ export class RbacService {
     const isHomeAllowed = (homeOrganizationId: string | null): boolean => (
       principalOrganizations === null || (homeOrganizationId !== null && principalOrganizations.has(homeOrganizationId.toLowerCase()))
     )
+    const apiKeyOrganizations = options.apiKeyOrganizationIds === undefined || options.apiKeyOrganizationIds === null
+      ? null
+      : new Set(options.apiKeyOrganizationIds.map((id) => id.toLowerCase()))
+    const isApiKeyOrganizationAllowed = (organizationId: string | null): boolean => (
+      apiKeyOrganizations === null || (organizationId !== null && apiKeyOrganizations.has(organizationId.toLowerCase()))
+    )
+    const apiKeyEvaluatedOrganizationIds = organizationIds.filter((organizationId) => isApiKeyOrganizationAllowed(organizationId))
 
     const currentAcl = await em.findOne(RoleAcl, { role: editedRoleId, tenantId } as never)
     const currentAclId = currentAcl ? String(currentAcl.id) : null
@@ -1705,7 +1718,7 @@ export class RbacService {
     const inputUserIds = uniqueIds([...users.map((user) => user.id), selfUser ? selfUserId : null])
     const userInputs = await this.loadPreviewUserInputs(em, tenantId, inputUserIds, editedRoleId, currentAclId, proposedGrant)
 
-    const keys = options.includeApiKeys === false
+    const keys = options.includeApiKeys === false || apiKeyOrganizations?.size === 0
       ? []
       : await em.find(ApiKey, { tenantId, deletedAt: null, sessionUserId: null } as never, { fields: ['id', 'organizationId', 'rolesJson', 'expiresAt'] } as never)
     const heldKeys = keys
@@ -1718,7 +1731,7 @@ export class RbacService {
         return { id: String(key.id).toLowerCase(), roleIds, keyOrganizationId, expiresAt: key.expiresAt ?? null }
       })
       .filter((key) => !(key.expiresAt && key.expiresAt.getTime() < nowMs))
-      .filter((key) => key.roleIds.includes(editedRoleId) && isHomeAllowed(key.keyOrganizationId))
+      .filter((key) => key.roleIds.includes(editedRoleId) && isHomeAllowed(key.keyOrganizationId) && isApiKeyOrganizationAllowed(key.keyOrganizationId))
       .sort((left, right) => compareCodeUnits(left.id, right.id))
     const apiKeys = heldKeys.slice(0, ROLE_ACL_PREVIEW_LIMITS.apiKeys)
 
@@ -1769,9 +1782,12 @@ export class RbacService {
         roleScopeOf(inputs.keyOrganizationId),
       )
     )
-    const accessOf = (resolve: (state: 'before' | 'after', organizationId: string) => AclData): RoleAclPreviewAccess[] => {
+    const accessOf = (
+      resolve: (state: 'before' | 'after', organizationId: string) => AclData,
+      evaluatedOrganizationIds: readonly string[] = organizationIds,
+    ): RoleAclPreviewAccess[] => {
       const access: RoleAclPreviewAccess[] = []
-      for (const organizationId of organizationIds) {
+      for (const organizationId of evaluatedOrganizationIds) {
         const before = effectiveIndex(resolve('before', organizationId), organizationId)
         const after = effectiveIndex(resolve('after', organizationId), organizationId)
         if (table.sets[before].length === 0 && table.sets[after].length === 0) continue
@@ -1815,7 +1831,7 @@ export class RbacService {
         principalType: 'api_key',
         principals: [{ id: key.id, homeOrganizationId: key.keyOrganizationId }],
         access: [],
-        compute: () => accessOf((state, organizationId) => resolveApiKeyAcl(inputs, state, organizationId)),
+        compute: () => accessOf((state, organizationId) => resolveApiKeyAcl(inputs, state, organizationId), apiKeyEvaluatedOrganizationIds),
       })
     }
     const evaluatedCohorts: RoleAclPreviewCohort[] = []
