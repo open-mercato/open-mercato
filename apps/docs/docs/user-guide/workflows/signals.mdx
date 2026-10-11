@@ -198,6 +198,30 @@ POST /api/workflows/instances/{instanceId}/signal
 - Handle webhook callbacks without storing instance IDs
 - Coordinate workflows with third-party systems
 
+**Signalling every instance with a key:**
+
+`POST /api/workflows/signals` sends the signal to every paused instance that shares the correlation key. The response reports how many instances advanced and, per instance, every delivery that failed:
+
+```json
+{
+  "success": true,
+  "message": "Signal sent to 2 workflow(s)",
+  "count": 2,
+  "failures": [
+    { "instanceId": "…", "code": "WORKFLOW_NOT_PAUSED", "message": "Workflow is not paused" }
+  ]
+}
+```
+
+## Duplicate and Concurrent Delivery
+
+A paused instance is advanced by exactly one delivery of a signal. When the same signal arrives more than once at the same time — a webhook retried by its sender, at-least-once event delivery, a double-clicked action — the first delivery claims the instance and the others are refused:
+
+- `POST /api/workflows/instances/{instanceId}/signal` answers **409** (`WORKFLOW_NOT_PAUSED`) for the refused deliveries.
+- `POST /api/workflows/signals` lists them under `failures` with the code `WORKFLOW_NOT_PAUSED`.
+
+A refused delivery changes nothing, so a sender retrying a signal it already sent can treat the 409 as "already delivered".
+
 ## Example: Order Fulfillment with Payment Webhook
 
 Here's a complete workflow that waits for payment confirmation:
@@ -304,7 +328,7 @@ Configure timeout behavior with transitions:
 
 - Use correlation keys to identify workflow instances
 - Include all necessary data in the signal payload
-- Handle webhook retries and idempotency
+- Handle webhook retries and idempotency — a 409 on a retried signal means an earlier delivery already advanced the instance
 - Log signal sends for debugging
 
 ### For Administrators
