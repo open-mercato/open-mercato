@@ -39,6 +39,7 @@ type PortalTaskDetailResponse = {
   decisions?: Array<{ id: string; label: unknown }>
   formKey?: string | null
   canComplete?: boolean
+  completionGuard?: { guardId: string; code: string; messageKey: string | null } | null
   error?: string
 }
 
@@ -186,7 +187,15 @@ export default function PortalTaskDetailPage({ params }: Props) {
           />
         ) : (
           <p className="text-sm text-muted-foreground">
-            {isOpen
+            {isOpen && detail.completionGuard
+              ? t(
+                  detail.completionGuard.messageKey ?? 'workflows.portal.tasks.detail.completionGuard',
+                  t(
+                    'workflows.portal.tasks.detail.completionGuard',
+                    'This task cannot be completed yet because a precondition is not met.',
+                  ),
+                )
+              : isOpen
               ? t(
                   'workflows.portal.tasks.detail.readOnly',
                   'You can see this task because it belongs to your company. Only the person it is assigned to can complete it.',

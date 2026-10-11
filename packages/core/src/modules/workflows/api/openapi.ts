@@ -337,6 +337,10 @@ export const portalTaskDetailResponseSchema = z.object({
   canComplete: z
     .boolean()
     .describe('True only for the assignee; a portal admin reading a company member\'s task gets false'),
+  completionGuard: taskCompletionGuardSummarySchema
+    .nullable()
+    .optional()
+    .describe('The completion guard that keeps the assignee from completing, when one vetoes'),
 })
 
 export const portalTaskCompleteRequestSchema = completeTaskRequestSchema

@@ -67,11 +67,14 @@ export type TaskCompletionGuardResult =
 | --- | --- |
 | `POST /api/workflows/tasks/[id]/complete` | `409 { error, code, guardId, messageKey }` |
 | `workflows.tasks.complete` command (notification action) | throws `CrudHttpError(409, same body)`; the notifications action route answers the same 409 |
+| `POST /api/workflows/portal/tasks/[id]/complete` | `409 { ok: false, error, code, guardId, messageKey }` |
 | `taskHandler.completeUserTask(...)` | throws `TaskCompletionBlockedError` with the same code |
 
 ### Affordances
 
 `resolveTaskAffordances(principal, task, decision, completionBlock?)` gains an optional fourth argument. When the visibility decision would allow completion and a block is supplied, `canComplete` is false and `actBlockedReason` is `'completion-guard'`. The guard is consulted only when the caller could otherwise complete the row, so every existing reason keeps its precedence. The task detail route adds `completionGuard: { guardId, code, messageKey } | null`.
+
+The portal task detail (`GET /api/workflows/portal/tasks/[id]`) applies the same preview to the assignee: `canComplete` is false and the additive `completionGuard` field is set, and the portal page shows the host's message instead of the form.
 
 The task detail page renders the guard's `messageKey` (falling back to the generic `workflows.tasks.detail.blocked.completionGuard` sentence) through the existing `TaskActionNotice`.
 
@@ -99,6 +102,8 @@ No entity or migration change.
 ## API Contracts
 
 - `GET /api/workflows/tasks/[id]`: additive `completionGuard` (nullable object); `actBlockedReason` enum gains `completion-guard`.
+- `GET /api/workflows/portal/tasks/[id]`: additive `completionGuard`; `canComplete` also reflects guards.
+- `POST /api/workflows/portal/tasks/[id]/complete`: new `409` on a guard veto (previously such an error would have been a 500).
 - `POST /api/workflows/tasks/[id]/complete`: new `409` body `{ error, code, guardId, messageKey }` when a guard vetoes.
 - No route, event, ACL feature or DI name is removed or renamed. New DI name: `taskCompletionGuards`.
 
@@ -111,6 +116,7 @@ No entity or migration change.
 | `workflows.tasks.complete` command veto → 409 `CrudHttpError` | `commands/__tests__/tasks.test.ts` |
 | `GET /api/workflows/tasks/[id]` `canComplete:false` + `completionGuard`, no mutation | `api/__tests__/taskDetail.route.test.ts` |
 | Task detail notice renders the guard message | `backend/tasks/__tests__/taskDetailPage.test.tsx` |
+| Portal detail `canComplete:false` + `completionGuard`; portal complete veto → 409 | `api/__tests__/portalTasks.route.test.ts` |
 
 Guards are registered only by host modules; no shipped module registers one, so a Playwright scenario would need a test-only module. The unit/route coverage above exercises every path end to end at the handler boundary.
 
@@ -134,3 +140,4 @@ Guards are registered only by host modules; no shipped module registers one, so 
 ## Changelog
 
 - 2026-10-11: Initial spec and implementation (issue #7178).
+- 2026-10-11: Review pass — extended the preview and the 409 mapping to the customer-portal task routes.

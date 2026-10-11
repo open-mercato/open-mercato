@@ -1467,6 +1467,7 @@
   "workflows.portal.tasks.description": "Lo que necesitamos de ti para que tus pedidos sigan avanzando.",
   "workflows.portal.tasks.detail.back": "Volver a las tareas",
   "workflows.portal.tasks.detail.closed": "Esta tarea ya está terminada.",
+  "workflows.portal.tasks.detail.completionGuard": "Esta tarea aún no se puede completar porque no se cumple una condición previa.",
   "workflows.portal.tasks.detail.notFound": "Tarea no disponible",
   "workflows.portal.tasks.detail.notFoundBody": "Esta tarea no está disponible para ti. Puede que se haya completado o reasignado.",
   "workflows.portal.tasks.detail.readOnly": "Ves esta tarea porque pertenece a tu empresa. Solo puede completarla la persona asignada.",

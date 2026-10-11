@@ -13,9 +13,15 @@
  * must be indistinguishable.
  */
 
-import { describe, test, expect, jest, beforeEach } from '@jest/globals'
+import { describe, test, expect, jest, beforeEach, afterAll } from '@jest/globals'
 import { NextRequest } from 'next/server'
 import { UserTask } from '../../data/entities'
+import { TaskCompletionBlockedError } from '../../lib/task-handler'
+import {
+  clearTaskCompletionGuards,
+  registerTaskCompletionGuards,
+} from '../../lib/task-completion-guards'
+import { portalTaskDetailResponseSchema } from '../openapi'
 
 const getCustomerAuthFromRequest = jest.fn<(req: Request) => Promise<unknown>>()
 const requireCustomerFeature = jest.fn<(...args: unknown[]) => Promise<void>>()
@@ -328,6 +334,75 @@ describe('completion', () => {
 
     expect((await runComplete({ comments: 'no form data' })).status).toBe(400)
     expect(completeUserTask).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * Host completion guards (issue #7178) reach the portal too: the assignee's
+ * form closes with the host's message, and a veto on submit is a 409, not a
+ * logged 500.
+ */
+describe('completion guards on the portal', () => {
+  beforeEach(() => {
+    clearTaskCompletionGuards()
+    ;(mockEm as unknown as { fork: () => unknown }).fork = () => ({ findOne: mockEm.findOne, flush: jest.fn() })
+  })
+
+  afterAll(() => clearTaskCompletionGuards())
+
+  test('a vetoing guard closes the assignee\'s form and names itself', async () => {
+    registerTaskCompletionGuards([
+      {
+        moduleId: 'host',
+        guards: [
+          {
+            id: 'host.signed-contract',
+            evaluate: async () => ({ ok: false as const, code: 'CONTRACT_NOT_SIGNED', messageKey: 'host.tasks.contractNotSigned' }),
+          },
+        ],
+      },
+    ])
+    taskRow = makeTask()
+
+    const body = await (await runDetail()).json()
+
+    expect(body).toMatchObject({
+      ok: true,
+      canComplete: false,
+      completionGuard: { guardId: 'host.signed-contract', code: 'CONTRACT_NOT_SIGNED', messageKey: 'host.tasks.contractNotSigned' },
+    })
+    expect(portalTaskDetailResponseSchema.shape.completionGuard.safeParse(body.completionGuard).success).toBe(true)
+    expect(taskRow?.status).toBe('PENDING')
+  })
+
+  test('without a guard the assignee may complete and no guard is reported', async () => {
+    taskRow = makeTask()
+
+    const body = await (await runDetail()).json()
+
+    expect(body).toMatchObject({ ok: true, canComplete: true, completionGuard: null })
+  })
+
+  test('a veto on submit answers 409 with the guard code instead of a 500', async () => {
+    taskRow = makeTask()
+    completeUserTask.mockRejectedValue(
+      new TaskCompletionBlockedError({
+        guardId: 'host.signed-contract',
+        code: 'CONTRACT_NOT_SIGNED',
+        messageKey: 'host.tasks.contractNotSigned',
+        message: null,
+      }),
+    )
+
+    const response = await runComplete()
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toMatchObject({
+      ok: false,
+      code: 'CONTRACT_NOT_SIGNED',
+      guardId: 'host.signed-contract',
+      messageKey: 'host.tasks.contractNotSigned',
+    })
   })
 })
 

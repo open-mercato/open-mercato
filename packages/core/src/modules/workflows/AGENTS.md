@@ -236,7 +236,8 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
   its `body`, the command rethrows it as `CrudHttpError(409, body)`.
 - **Mirrored in `canComplete`.** The task detail route evaluates the same guards in `preview` mode on a
   never-flushed `em.fork()`, ONLY when visibility already allows completion, and feeds the veto into
-  `resolveTaskAffordances` (`actBlockedReason: 'completion-guard'` + `completionGuard`).
+  `resolveTaskAffordances` (`actBlockedReason: 'completion-guard'` + `completionGuard`). The portal
+  detail/complete routes apply the same preview and 409 mapping — a new task surface MUST too.
 - **Fail closed** (`COMPLETION_GUARD_FAILED` on a throw, `TASK_COMPLETION_BLOCKED` on a code-less veto);
   **zero cost** when nothing is registered — the handler loads nothing extra. MUST NOT bypass this by
   completing a `UserTask` row directly (`closeAgentDispositionTask` is the documented non-advancing

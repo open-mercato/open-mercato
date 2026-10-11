@@ -1467,6 +1467,7 @@
   "workflows.portal.tasks.description": "Rzeczy, których od Ciebie potrzebujemy, aby ruszyć dalej z Twoimi zamówieniami.",
   "workflows.portal.tasks.detail.back": "Wróć do zadań",
   "workflows.portal.tasks.detail.closed": "To zadanie zostało już zakończone.",
+  "workflows.portal.tasks.detail.completionGuard": "Tego zadania nie można jeszcze ukończyć, ponieważ warunek wstępny nie jest spełniony.",
   "workflows.portal.tasks.detail.notFound": "Zadanie niedostępne",
   "workflows.portal.tasks.detail.notFoundBody": "To zadanie nie jest dla Ciebie dostępne. Mogło zostać zakończone lub przypisane komuś innemu.",
   "workflows.portal.tasks.detail.readOnly": "Widzisz to zadanie, ponieważ należy do Twojej firmy. Ukończyć je może tylko osoba, do której jest przypisane.",
