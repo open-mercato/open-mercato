@@ -7,6 +7,10 @@
  * guess. Anything not enumerated resolves to `null` and the panel renders the
  * binding as plain text: a wrong link is worse than no link.
  *
+ * Record types owned by other modules (app entities) link through a builder
+ * the owning module registered; that lookup runs server-side and travels to the
+ * client as `binding.href` (`resolveEntityRecordHref`).
+ *
  * Separator spelling is normalized because the same record type is written two
  * ways across the platform: entity ids use `module:entity`
  * (`entities.ids.generated.ts`) while record-detail injection contexts use
@@ -17,6 +21,7 @@ import {
   TASK_ENTITY_TYPE_ALIAS_GROUPS,
   normalizeTaskEntityTypeSpelling,
 } from '../task-entity-aliases'
+import { resolveRegisteredTaskEntityLinkBuilder } from '../task-entity-registry'
 
 const CUSTOMER_PERSON = 'customers:person'
 const CUSTOMER_COMPANY = 'customers:company'
@@ -78,6 +83,61 @@ export function buildEntityRecordHref(
   const canonical = resolveLinkedEntityType(entityType)
   if (!canonical) return null
   return `${ENTITY_DETAIL_PATHS[canonical]}/${encodeURIComponent(entityId)}`
+}
+
+function isSameOriginPath(href: unknown): href is string {
+  return (
+    typeof href === 'string' &&
+    href.startsWith('/') &&
+    !href.startsWith('//') &&
+    !href.startsWith('/\\') &&
+    !/[\u0000-\u001f\s]/.test(href)
+  )
+}
+
+/**
+ * Backend detail href for a bound record, including types whose owning module
+ * registered a link builder (`registerTaskEntityLinkBuilders`).
+ *
+ * The enumerated core links win; a registered builder answers only for the
+ * types they do not cover. Registrations live in the SERVER process, so this is
+ * what API projections call and ship as `binding.href` — the client keeps using
+ * `buildEntityRecordHref` as the fallback for payloads that carry none.
+ *
+ * A builder that throws, or returns anything but a same-origin path, yields
+ * `null`: the binding then renders without a link, never with a wrong or
+ * off-site one.
+ */
+export function resolveEntityRecordHref(
+  entityType: string | null | undefined,
+  entityId: string | null | undefined,
+): string | null {
+  if (!entityType || !entityId) return null
+  const builtIn = buildEntityRecordHref(entityType, entityId)
+  if (builtIn) return builtIn
+  const buildHref = resolveRegisteredTaskEntityLinkBuilder(normalizeEntityType(entityType))
+  if (!buildHref) return null
+  try {
+    const href = buildHref(entityId)
+    return isSameOriginPath(href) ? href : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Each record-shaped binding with its server-resolved `href` added. Anything
+ * that is not a `{ entityType, entityId }` record passes through untouched, so
+ * the projection stays a strict superset of the stored bindings.
+ */
+export function withEntityRecordHrefs(bindings: unknown[] | null): unknown[] | null {
+  if (!bindings) return bindings
+  return bindings.map((binding) => {
+    if (!binding || typeof binding !== 'object' || Array.isArray(binding)) return binding
+    const record = binding as Record<string, unknown>
+    if (typeof record.entityType !== 'string' || typeof record.entityId !== 'string') return binding
+    return { ...record, href: resolveEntityRecordHref(record.entityType, record.entityId) }
+  })
 }
 
 /**

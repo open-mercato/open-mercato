@@ -164,6 +164,10 @@ export const taskActionBlockReasonSchema = z.enum([
  */
 export const userTaskDetailResponseSchema = z.object({
   data: userTaskRowSchema.extend({
+    entityBindings: z
+      .array(z.unknown())
+      .nullable()
+      .describe('Records this task is about; each carries a server-resolved `href` when its record type has a detail page'),
     stepId: z.string().nullable().describe('Definition step the task is parked on'),
     decisions: z.array(userTaskDecisionSchema),
     canComplete: z.boolean().describe('The caller may complete or decide this task'),
@@ -202,6 +206,7 @@ export const workInboxEntityBindingSchema = z.object({
   entityType: z.string(),
   entityId: z.string(),
   label: z.string().nullable().optional(),
+  href: z.string().nullable().optional().describe('Record detail path, when the record type has one'),
 })
 
 export const workInboxActionSchema = z.object({
