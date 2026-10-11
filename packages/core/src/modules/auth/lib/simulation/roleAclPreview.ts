@@ -131,6 +131,44 @@ function resolveRbac(resolve: SimulationServiceResolver | undefined): RbacServic
 }
 
 /**
+ * The organizations of a preview (`null` = every organization of the tenant) whose API keys the
+ * requester may see: those where the requester holds `api_keys.view`, checked per organization
+ * (wildcard-aware `resolveFeatureOrganizationAccess`, organization ancestors included) rather than
+ * only at the run's organization. `[]` without the feature at the run's organization.
+ */
+async function resolveApiKeyOrganizationIds(
+  rbac: RbacService,
+  em: EntityManager,
+  scope: SimulationScope,
+  userId: string,
+  organizationIds: readonly string[] | null,
+  hasFeatures: (features: readonly string[]) => Promise<boolean>,
+): Promise<string[]> {
+  if (organizationIds !== null && organizationIds.length === 0) return []
+  if (!(await hasFeatures([API_KEYS_VIEW_FEATURE]))) return []
+  const organizations = await findWithDecryption(
+    em,
+    Organization,
+    {
+      tenant: scope.tenantId,
+      deletedAt: null,
+      ...(organizationIds !== null ? { id: { $in: [...organizationIds] } } : {}),
+    } as FilterQuery<Organization>,
+    { fields: ['id', 'ancestorIds'] },
+    { tenantId: scope.tenantId, organizationId: null },
+  )
+  const candidates = organizations.map((organization) => ({
+    id: String(organization.id),
+    ancestorIds: Array.isArray(organization.ancestorIds)
+      ? organization.ancestorIds.filter((ancestorId): ancestorId is string => typeof ancestorId === 'string' && ancestorId.length > 0)
+      : [],
+  }))
+  const access = await rbac.resolveFeatureOrganizationAccess(userId, [API_KEYS_VIEW_FEATURE], { tenantId: scope.tenantId })
+  const permitted = access.unrestricted ? candidates.map((candidate) => candidate.id) : access.filterOrganizationIds(candidates)
+  return Array.from(new Set(permitted.map((id) => id.toLowerCase()))).sort(compareCodeUnits)
+}
+
+/**
  * The organization the role ACL save evaluates its write guards at: the requester's own
  * organization (`auth.orgId` of a session, which only super administrators can switch).
  */
@@ -425,12 +463,14 @@ async function organizationLabels(em: EntityManager, scope: SimulationScope, org
 async function listAffectedPrincipals(input: RoleAclPreviewProposal, ctx: SimulationLiveRecordsContext): Promise<SimulationLiveRecordsPage> {
   const rbac = resolveRbac(ctx.resolve)
   if (!rbac) throw new Error('[internal] The RBAC service is not available for the role permission preview')
-  const includeApiKeys = await ctx.hasFeatures([API_KEYS_VIEW_FEATURE])
+  const apiKeyOrganizationIds = await resolveApiKeyOrganizationIds(rbac, ctx.em, ctx.scope, ctx.viewerUserId, ctx.organizationIds, ctx.hasFeatures)
+  const includeApiKeys = apiKeyOrganizationIds.length > 0
   const preview = await rbac.previewRoleAclChange(ctx.scope.tenantId, input.roleId, roleAclProposalSnapshot(input), {
     em: ctx.em,
     organizationIds: ctx.organizationIds,
     principalOrganizationIds: ctx.organizationIds,
     includeApiKeys,
+    apiKeyOrganizationIds,
   })
   if (!preview) return { items: [], total: 0, notes: [ROLE_ACL_PREVIEW_I18N.caveats.roleUnavailable] }
   const notes = preview.currentExists && sameRoleAcl(preview.current, preview.proposed) ? [ROLE_ACL_PREVIEW_I18N.notes.proposalInEffect] : []
@@ -501,7 +541,8 @@ export const roleAclPreviewKind = defineSimulationKind<RoleAclPreviewProposal, n
     const rbac = resolveRbac(ctx.inline.resolve)
     if (!rbac) throw new Error('[internal] The RBAC service is not available for the role permission preview')
     const surfaceLoad: Promise<GatedSurface | null> = loadGatedSurface().catch(() => null)
-    const apiKeysIncluded = await ctx.hasFeatures([API_KEYS_VIEW_FEATURE])
+    const apiKeyOrganizationIds = await resolveApiKeyOrganizationIds(rbac, ctx.em, ctx.scope, ctx.requesterUserId, ctx.inline.organizationIds, ctx.hasFeatures)
+    const apiKeysIncluded = apiKeyOrganizationIds.length > 0
     const preview = await rbac.previewRoleAclChange(ctx.scope.tenantId, input.roleId, roleAclProposalSnapshot(input), {
       em: ctx.em,
       organizationIds: ctx.inline.organizationIds,
@@ -509,6 +550,7 @@ export const roleAclPreviewKind = defineSimulationKind<RoleAclPreviewProposal, n
       selfUserId: ctx.requesterUserId,
       selfOrganizationId: ctx.scope.organizationId,
       includeApiKeys: apiKeysIncluded,
+      apiKeyOrganizationIds,
       now: new Date(ctx.now()),
     })
     const surface = (await surfaceLoad) ?? { items: [], pagesAvailable: false, apiRoutesAvailable: false }
