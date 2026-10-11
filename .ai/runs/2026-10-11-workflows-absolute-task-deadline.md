@@ -70,4 +70,4 @@ due date is computed elsewhere still get reminders and breach handling.
 
 ### Phase 2: Docs
 
-- [ ] 2.1 Docs page + spec changelog
+- [x] 2.1 Docs page + spec changelog — fd33a712a
