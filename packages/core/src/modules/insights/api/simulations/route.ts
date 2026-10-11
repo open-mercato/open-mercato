@@ -15,6 +15,7 @@ import {
   simulationListResponseSchema,
   simulationRequestResponseSchema,
   simulationRequestSchema,
+  type SimulationRequestBody,
   type SimulationRequestCommandInput,
 } from '../../data/validators'
 import { SIMULATION_REQUEST_COMMAND_ID, type SimulationRequestResult } from '../../commands/simulations'
@@ -35,6 +36,7 @@ import {
   simulationError,
   simulationJson,
   simulationRouteFailure,
+  type SimulationRouteContext,
 } from '../../lib/simulation/routes'
 import { listSimulationRuns } from '../../lib/simulation/store'
 import { resolveSimulationWindow } from '../../lib/simulation/window'
@@ -115,12 +117,44 @@ export async function GET(req: Request) {
   }
 }
 
+type CheckedSimulationRequest = {
+  request: SimulationRequestBody
+  window: { from: Date; to: Date }
+}
+
+/**
+ * The body checks of a simulation request, run on the body and again on a payload a mutation
+ * guard transformed: the strict schema, `proposal` ≤ 64 KB and nesting ≤ 64, a registered kind
+ * whose `requiredFeatures` the caller holds (wildcard-aware), and the window.
+ */
+async function checkSimulationRequest(
+  context: SimulationRouteContext,
+  hasFeatures: ReturnType<typeof createFeatureCheck>,
+  candidate: unknown,
+  now: Date,
+): Promise<CheckedSimulationRequest | NextResponse> {
+  const parsed = simulationRequestSchema.safeParse(candidate && typeof candidate === 'object' && !Array.isArray(candidate) ? candidate : {})
+  if (!parsed.success) return simulationError(context.translate, 'invalid_request', 400)
+  const request = parsed.data
+  if (jsonByteLength(request.proposal) > SIMULATION_LIMITS.maxInputBytes) return simulationError(context.translate, 'proposal_too_large', 422)
+  if (jsonDepth(request.proposal, SIMULATION_LIMITS.maxInputDepth) > SIMULATION_LIMITS.maxInputDepth) return simulationError(context.translate, 'invalid_proposal', 422)
+  const registered = getSimulationKind(request.kind)
+  if (!registered) return simulationError(context.translate, 'unsupported_kind', 422)
+  if (!(await hasFeatures(registered.definition.requiredFeatures))) {
+    return simulationError(context.translate, 'forbidden', 403, { requiredFeatures: [...registered.definition.requiredFeatures] })
+  }
+  const window = resolveSimulationWindow(request.window, now)
+  if (!window) return simulationError(context.translate, 'invalid_window', 422)
+  return { request, window }
+}
+
 /**
  * Requests a simulation (`insights.simulation.request`): `insights.simulator.run` (route guard) +
- * the kind's `requiredFeatures` (wildcard-aware), 20 submissions per user per hour, `proposal`
- * ≤ 64 KB and nesting ≤ 64, the registered mutation guards, then dedupe and the active-run limits in
- * the command. 202 for a new run, 200 for the caller's identical live run, and 200 for an `inline`
- * kind, whose run is computed in this request and answered as `completed`.
+ * the body checks of `checkSimulationRequest`, 20 submissions per user per hour, the registered
+ * mutation guards, then dedupe and the active-run limits in the command. A guard-transformed
+ * `kind`/`artifactId` is dispatched only after the body checks pass again on it. 202 for a new
+ * run, 200 for the caller's identical live run, and 200 for an `inline` kind, whose run is
+ * computed in this request and answered as `completed`.
  */
 export async function POST(req: Request) {
   let translate: TranslateFn | null = null
@@ -129,19 +163,10 @@ export async function POST(req: Request) {
     if (context instanceof NextResponse) return context
     translate = context.translate
     const body = await readJsonSafe<unknown>(req, null)
-    const parsed = simulationRequestSchema.safeParse(body && typeof body === 'object' && !Array.isArray(body) ? body : {})
-    if (!parsed.success) return simulationError(context.translate, 'invalid_request', 400)
-    const request = parsed.data
-    if (jsonByteLength(request.proposal) > SIMULATION_LIMITS.maxInputBytes) return simulationError(context.translate, 'proposal_too_large', 422)
-    if (jsonDepth(request.proposal, SIMULATION_LIMITS.maxInputDepth) > SIMULATION_LIMITS.maxInputDepth) return simulationError(context.translate, 'invalid_proposal', 422)
-    const registered = getSimulationKind(request.kind)
-    if (!registered) return simulationError(context.translate, 'unsupported_kind', 422)
+    const now = new Date()
     const hasFeatures = createFeatureCheck(context.container, context.userId, context.scope)
-    if (!(await hasFeatures(registered.definition.requiredFeatures))) {
-      return simulationError(context.translate, 'forbidden', 403, { requiredFeatures: [...registered.definition.requiredFeatures] })
-    }
-    const window = resolveSimulationWindow(request.window, new Date())
-    if (!window) return simulationError(context.translate, 'invalid_window', 422)
+    const checked = await checkSimulationRequest(context, hasFeatures, body, now)
+    if (checked instanceof NextResponse) return checked
     const limited = await enforceRequestRateLimit(context.container, `${context.scope.tenantId}:${context.userId}`, context.translate)
     if (limited) return limited
     const guarded = await runRouteMutationGuards({
@@ -152,10 +177,15 @@ export async function POST(req: Request) {
         resourceKind: SIMULATION_RUN_RESOURCE_KIND,
         resourceId: null,
         operation: 'create',
-        mutationPayload: { kind: request.kind, artifactId: request.artifactId ?? null },
+        mutationPayload: { kind: checked.request.kind, artifactId: checked.request.artifactId ?? null },
       },
     })
     if (!guarded.ok) return guarded.response
+    const accepted = guarded.modifiedPayload
+      ? await checkSimulationRequest(context, hasFeatures, { ...checked.request, ...guarded.modifiedPayload }, now)
+      : checked
+    if (accepted instanceof NextResponse) return accepted
+    const { request, window } = accepted
     const commandBus = context.container.resolve('commandBus') as CommandBus
     const { result } = await commandBus.execute<SimulationRequestCommandInput, SimulationRequestResult>(SIMULATION_REQUEST_COMMAND_ID, {
       input: {

@@ -37,7 +37,8 @@ export const metadata = {
 /**
  * Records `applied` or `discarded` for the caller's completed run (S15/S16). The body carries the
  * decision only; for `applied` the server verifies the live artifact against the simulated
- * proposal.
+ * proposal. A mutation guard may transform the decision: the guarded payload is validated like a
+ * body, and since it is strict, the run stays the one this route resolved and authorized.
  */
 export async function POST(req: Request, routeContext: SimulationRouteParams) {
   let translate: TranslateFn | null = null
@@ -64,6 +65,10 @@ export async function POST(req: Request, routeContext: SimulationRouteParams) {
       input: { resourceKind: SIMULATION_DECISION_RESOURCE_KIND, resourceId: run.id, operation: 'create', mutationPayload: { ...parsed.data } },
     })
     if (!guarded.ok) return guarded.response
+    const decision = guarded.modifiedPayload
+      ? simulationDecisionSchema.safeParse({ ...parsed.data, ...guarded.modifiedPayload })
+      : parsed
+    if (!decision.success) return simulationError(context.translate, 'invalid_request', 400)
     const commandBus = context.container.resolve('commandBus') as CommandBus
     const { result } = await commandBus.execute<SimulationDecisionCommandInput, SimulationDecisionResult>(SIMULATION_DECISION_COMMAND_ID, {
       input: {
@@ -71,7 +76,7 @@ export async function POST(req: Request, routeContext: SimulationRouteParams) {
         organizationId: context.scope.organizationId,
         runId: run.id,
         userId: context.userId,
-        decision: parsed.data.decision,
+        decision: decision.data.decision,
       },
       ctx: context.commandContext,
     })

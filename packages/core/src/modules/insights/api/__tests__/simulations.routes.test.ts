@@ -217,6 +217,61 @@ describe('POST /api/insights/simulations', () => {
     expect(commandExecuteMock).not.toHaveBeenCalled()
   })
 
+  describe('when a mutation guard transforms the payload', () => {
+    const transformed = (modifiedPayload: Record<string, unknown>) =>
+      runRouteMutationGuardsMock.mockResolvedValueOnce({ ok: true, modifiedPayload, runAfterSuccess: async () => undefined })
+
+    beforeEach(() => {
+      registerSimulateConfigEntries([{
+        moduleId: 'other_module',
+        config: {
+          version: 1,
+          kinds: [{
+            kind: 'other_module.backtest',
+            artifactKind: 'other_module.thing',
+            labelKey: 'other_module.label',
+            requiredFeatures: ['other_module.view'],
+            inputSchema: z.object({ name: z.string() }),
+            version: 1,
+            cellKeys: ['fires'],
+            readArtifactVersion: async () => null,
+            fingerprintProposal: () => 'fp',
+            run: async () => ({ status: 'done' as const, recordsProcessed: 0, result: { groups: [], coverage: {}, caveats: [], fidelity: 'none' as const, truncated: false } }),
+            applyHref: ({ runId }: { runId: string }) => `/backend/other?simulationRunId=${runId}`,
+          }],
+        },
+      }])
+    })
+
+    it('dispatches the guarded kind and artifact, not the body\'s', async () => {
+      grantedFeatures = ['insights.simulator.*', 'test_module.*', 'other_module.view']
+      transformed({ kind: 'other_module.backtest', artifactId: 'thing-2' })
+      const response = await requestPost(request('POST', BASE, body))
+      expect(response.status).toBe(202)
+      expect(commandExecuteMock.mock.calls[0][1].input).toEqual(expect.objectContaining({ kind: 'other_module.backtest', artifactId: 'thing-2', proposal: { name: 'p' } }))
+    })
+
+    it('re-checks the features of a guarded kind the body did not name', async () => {
+      transformed({ kind: 'other_module.backtest', artifactId: null })
+      const response = await requestPost(request('POST', BASE, body))
+      expect(response.status).toBe(403)
+      expect(await response.json()).toEqual({ error: 't:insights.simulation.errors.forbidden', code: 'forbidden', requiredFeatures: ['other_module.view'] })
+      expect(commandExecuteMock).not.toHaveBeenCalled()
+    })
+
+    it('validates the guarded payload like a body before anything runs', async () => {
+      transformed({ kind: 'gone_module.kind', artifactId: null })
+      const unknown = await requestPost(request('POST', BASE, body))
+      expect(unknown.status).toBe(422)
+      expect((await unknown.json()).code).toBe('unsupported_kind')
+      transformed({ kind: 'test_module.backtest', artifactId: 42 })
+      expect((await requestPost(request('POST', BASE, body))).status).toBe(400)
+      transformed({ kind: 'test_module.backtest', artifactId: null, extra: 1 })
+      expect((await requestPost(request('POST', BASE, body))).status).toBe(400)
+      expect(commandExecuteMock).not.toHaveBeenCalled()
+    })
+  })
+
   it('passes the command\'s 429 and 422 answers through', async () => {
     commandExecuteMock.mockRejectedValueOnce(new CrudHttpError(429, { error: 'busy', code: 'simulation_busy' }))
     const busy = await requestPost(request('POST', BASE, body))
@@ -306,6 +361,24 @@ describe('POST /api/insights/simulations/{id}/cancel and /decision', () => {
     findSimulationRunMock.mockResolvedValue(storedRun())
     commandExecuteMock.mockRejectedValueOnce(new CrudHttpError(409, { error: 'exists', code: 'decision_exists' }))
     expect((await decisionPost(request('POST', `${BASE}/${RUN_ID}/decision`, { decision: 'applied' }), params(RUN_ID))).status).toBe(409)
+  })
+
+  it('records the guarded decision, validated like a body, and never a guarded run', async () => {
+    findSimulationRunMock.mockResolvedValue(storedRun())
+    commandExecuteMock.mockResolvedValue({ result: { id: 'd1', runId: RUN_ID, decision: { decision: 'discarded', verified: null, artifactId: null, artifactUpdatedAtAfter: null, createdAt: '2026-10-02T00:00:00.000Z' } } })
+    const transformed = (modifiedPayload: Record<string, unknown>) =>
+      runRouteMutationGuardsMock.mockResolvedValueOnce({ ok: true, modifiedPayload, runAfterSuccess: async () => undefined })
+    transformed({ decision: 'discarded' })
+    expect((await decisionPost(request('POST', `${BASE}/${RUN_ID}/decision`, { decision: 'applied' }), params(RUN_ID))).status).toBe(201)
+    expect(commandExecuteMock).toHaveBeenLastCalledWith('insights.simulation.decision.record', expect.objectContaining({ input: expect.objectContaining({ runId: RUN_ID, decision: 'discarded' }) }))
+    commandExecuteMock.mockClear()
+    transformed({ decision: 'approved' })
+    const invalid = await decisionPost(request('POST', `${BASE}/${RUN_ID}/decision`, { decision: 'applied' }), params(RUN_ID))
+    expect(invalid.status).toBe(400)
+    expect((await invalid.json()).code).toBe('invalid_request')
+    transformed({ decision: 'applied', runId: '44444444-0000-4000-8000-0000000000ff' })
+    expect((await decisionPost(request('POST', `${BASE}/${RUN_ID}/decision`, { decision: 'applied' }), params(RUN_ID))).status).toBe(400)
+    expect(commandExecuteMock).not.toHaveBeenCalled()
   })
 })
 
