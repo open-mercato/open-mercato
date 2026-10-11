@@ -237,6 +237,14 @@ describe('USER_TASK creation with deadline.at', () => {
     expect(result.error).toContain('resolved to "soon"')
   })
 
+  test('a long resolved value is truncated in the step error', async () => {
+    const { result } = await runUserTask({ deadline: { at: '{{context.dueAt}}' } }, { dueAt: 'x'.repeat(500) })
+
+    expect(result.status).toBe('FAILED')
+    expect(result.error).toContain(`resolved to "${'x'.repeat(64)}…"`)
+    expect(result.error).not.toContain('x'.repeat(65))
+  })
+
   test('regression: a duration deadline still anchors to task creation', async () => {
     const before = Date.now()
     const { result, task } = await runUserTask({ slaDuration: 'PT4H' }, {})

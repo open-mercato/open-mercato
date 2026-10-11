@@ -825,7 +825,8 @@ async function handleAutomatedStep(
 function resolveUserTaskDeadline(stepId: string, deadline: ResolvedTaskDeadline): Date {
   if (deadline.kind === 'at') {
     if (deadline.dueDate) return deadline.dueDate
-    const resolved = deadline.resolved instanceof Date ? deadline.resolved.toISOString() : String(deadline.resolved)
+    const rendered = deadline.resolved instanceof Date ? deadline.resolved.toISOString() : String(deadline.resolved)
+    const resolved = rendered.length > 64 ? `${rendered.slice(0, 64)}…` : rendered
     throw new StepExecutionError(
       `Invalid user task deadline "at": "${deadline.authored}" resolved to "${resolved}", which is not an ISO date (YYYY-MM-DD) or an ISO datetime with a timezone offset or Z`,
       'INVALID_USER_TASK_DEADLINE',
