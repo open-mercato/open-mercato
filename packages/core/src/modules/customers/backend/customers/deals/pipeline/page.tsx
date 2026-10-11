@@ -53,8 +53,9 @@ import type { RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
 import type { FilterOptionTone } from '@open-mercato/shared/lib/query/advanced-filter'
-import { ViewTabsRow } from './components/ViewTabsRow'
+import { ViewTabsRow, VIEW_TABS_ROW_COMPONENT_ID, type ViewTabsRowProps } from './components/ViewTabsRow'
 import { LANE_WIDTH_CLASS } from './components/constants'
 import { useCurrencyDictionary } from '../../../../components/detail/hooks/useCurrencyDictionary'
 import { FilterBarRow, type KanbanFilterChip } from './components/FilterBarRow'
@@ -419,8 +420,15 @@ export default function DealsKanbanPage(): React.ReactElement {
     QUICK_DEAL_DIALOG_COMPONENT_ID,
     DefaultQuickDealDialog,
   )
+  // Same reason: an app that does not use one of the three views hides it with a
+  // props override on this handle instead of forking all three deals pages.
+  const DealsViewTabsRow = useRegisteredComponent<ViewTabsRowProps>(
+    VIEW_TABS_ROW_COMPONENT_ID,
+    ViewTabsRow,
+  )
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
+  const activeOrgId = useCurrentOrganization()?.id ?? null
   const queryClient = useQueryClient()
 
   const [selectedPipelineId, setSelectedPipelineId] = React.useState<string | null>(null)
@@ -493,9 +501,9 @@ export default function DealsKanbanPage(): React.ReactElement {
   }, [pipelinesQuery.data, selectedPipelineId])
 
   const staffQuery = useQuery<AssignableStaffMember[]>({
-    queryKey: ['customers', 'deals', 'kanban', 'staff', `scope:${scopeVersion}`],
+    queryKey: ['customers', 'deals', 'kanban', 'staff', `scope:${scopeVersion}`, activeOrgId],
     staleTime: 300_000,
-    queryFn: async () => fetchAssignableStaffMembers('', { pageSize: 100 }),
+    queryFn: async () => fetchAssignableStaffMembers('', { pageSize: 100, activeOrgId }),
   })
 
   const ownerNamesById = React.useMemo(() => {
@@ -2408,7 +2416,7 @@ export default function DealsKanbanPage(): React.ReactElement {
   // Async loaders for entity-filter popovers (Owner / People / Companies)
   const loadOwnerOptions = React.useCallback(
     async (query: string, _signal: AbortSignal): Promise<EntityFilterOption[]> => {
-      const items = await fetchAssignableStaffMembers(query ?? '', { pageSize: 100 })
+      const items = await fetchAssignableStaffMembers(query ?? '', { pageSize: 100, activeOrgId })
       const opts: EntityFilterOption[] = items
         .filter((user) => !!user.userId && !!user.displayName)
         .map((user) => ({ value: user.userId!, label: user.displayName! }))
@@ -2420,7 +2428,7 @@ export default function DealsKanbanPage(): React.ReactElement {
       })
       return opts
     },
-    [],
+    [activeOrgId],
   )
   const loadPeopleOptions = React.useCallback(
     async (query: string, signal: AbortSignal): Promise<EntityFilterOption[]> => {
@@ -2558,7 +2566,7 @@ export default function DealsKanbanPage(): React.ReactElement {
   return (
     <Page>
       <PageBody>
-        <ViewTabsRow active="kanban" className="mb-4" />
+        <DealsViewTabsRow active="kanban" className="mb-4" />
         <div className="flex flex-col gap-2">
           <Breadcrumb>
             <BreadcrumbList>

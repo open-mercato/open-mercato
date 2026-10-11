@@ -353,7 +353,7 @@ The unified AI runtime picks the first configured provider from `llmProviderRegi
 | `GROQ_API_KEY` | Groq | `llama-3.3-70b-versatile` | `GROQ_BASE_URL` |
 | `TOGETHER_API_KEY` | Together AI | `meta-llama/Llama-3.3-70B-Instruct-Turbo` | `TOGETHER_BASE_URL` |
 | `FIREWORKS_API_KEY` | Fireworks AI | `accounts/fireworks/models/llama-v3p3-70b-instruct` | `FIREWORKS_BASE_URL` |
-| `AZURE_OPENAI_API_KEY` | Azure OpenAI | `gpt-5-mini` | `AZURE_OPENAI_BASE_URL` (required) |
+| `AZURE_OPENAI_API_KEY` | Azure OpenAI / Foundry | `gpt-5-mini` | `AZURE_OPENAI_RESOURCE_NAME` (preferred) or `AZURE_OPENAI_BASE_URL` — one is required |
 | `LITELLM_API_KEY` | LiteLLM | `gpt-4o-mini` | `LITELLM_BASE_URL` |
 | `OLLAMA_API_KEY` | Ollama (local) | `llama3.3` | `OLLAMA_BASE_URL` |
 | `OPENROUTER_API_KEY` | OpenRouter | `meta-llama/llama-3.3-70b-instruct` | `OPENROUTER_BASE_URL` |
@@ -384,6 +384,8 @@ Per-module overrides (Phase 1 of the same spec — agent-default provider + per-
 |----------|---------|
 | `OM_AI_<MODULE>_MODEL` | Optional. Per-module model override, uppercased from the agent's `moduleId`. Examples: `OM_AI_CATALOG_MODEL=claude-opus-4-20250514`, `OM_AI_INBOX_OPS_MODEL=gpt-4o`. The legacy `<MODULE>_AI_MODEL` form (e.g. `INBOX_OPS_AI_MODEL`) is read as a backward-compatibility fallback. Accepts a slash-qualified `<provider>/<model>` shorthand. |
 | `OM_AI_<MODULE>_PROVIDER` | Optional. Per-module provider override, uppercased from the agent's `moduleId`. Examples: `OM_AI_CATALOG_PROVIDER=openai`, `OM_AI_INBOX_OPS_PROVIDER=anthropic`. The legacy `<MODULE>_AI_PROVIDER` form (e.g. `INBOX_OPS_AI_PROVIDER`) is read as a backward-compatibility fallback. Provider-only preferences can fall through when unconfigured; paired provider/model overrides fail closed. |
+
+Azure is a **native** Responses-API adapter, not an OpenAI-compatible preset: [`.ai/docs/opencode-runtime.md`](../../.ai/docs/opencode-runtime.md).
 
 All new callers MUST use `createModelFactory(container)` from `@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory` — never inline provider SDK calls (`createAnthropic`, `createOpenAI`, `createGoogleGenerativeAI`). The factory enforces the resolution order (caller override → `OM_AI_<MODULE>_MODEL` → `agentDefaultModel` → `OM_AI_MODEL` → provider default) and throws the documented `AiModelFactoryError` codes when misconfigured. See **Model Resolution** below.
 
@@ -773,6 +775,8 @@ interface CommandPaletteContextValue {
 
 ## Running the Stack
 
+Dev modes (**hybrid** default): [`.ai/docs/opencode-runtime.md`](../../.ai/docs/opencode-runtime.md).
+
 ### Choose an MCP Server Mode
 
 | Feature | Dev (`mcp:dev`) — when to use | Production (`mcp:serve`) — when to use |
@@ -830,8 +834,8 @@ yarn mcp:serve
 
 2. Start OpenCode (Docker):
    ```bash
-   docker start opencode-mvp
-   # Or: docker-compose up opencode
+   docker start mercato-opencode
+   # Or: docker compose --project-directory . -f starters/docker/compose.infra.yml up -d opencode
    ```
 
 3. Verify connectivity:
@@ -962,45 +966,9 @@ The module deliberately **does not** call `searchService.bulkIndex(...)` on boot
 
 ## Docker Configuration
 
-### Rules for the OpenCode Container
+MUST keep port 4096 for OpenCode, MUST mount `opencode.json` at `/root/.opencode/opencode.json`, and MUST use `host.docker.internal` (not `localhost`) for Docker→host calls. File-defined agents generate into `docker/opencode/{agents,skills}/`; after editing any `agents/<id>/` file run `yarn generate` and **restart** OpenCode.
 
-When modifying the Docker setup, follow this structure:
-
-```yaml
-# docker-compose.yml
-services:
-  opencode:
-    build: ./docker/opencode
-    container_name: opencode-mvp
-    ports:
-      - "4096:4096"
-    environment:
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-    volumes:
-      - ./docker/opencode/opencode.json:/root/.opencode/opencode.json
-```
-
-MUST keep port 4096 for OpenCode. MUST mount `opencode.json` to `/root/.opencode/opencode.json`.
-
-### OpenCode Config
-
-```json
-{
-  "provider": "anthropic",
-  "model": "claude-sonnet-4-20250514",
-  "mcp": {
-    "open-mercato": {
-      "type": "sse",
-      "url": "http://host.docker.internal:3001/mcp",
-      "headers": {
-        "x-api-key": "omk_..."
-      }
-    }
-  }
-}
-```
-
-MUST use `host.docker.internal` (not `localhost`) for Docker-to-host communication.
+Compose structure, the `opencode.json` MCP block, container paths, propose-only: [`.ai/docs/opencode-runtime.md`](../../.ai/docs/opencode-runtime.md).
 
 ## Rules for the Debug Panel
 
@@ -1491,7 +1459,7 @@ Agents that need multi-step tool loops configure the `loop` block on `AiAgentDef
 
 ### 2026-08-05 - @app module entries are compiled, not raw TS
 
-`compileAndImportGenerated` (`lib/generated-registry-loader.ts`) compiles every `@app` module entry a generated registry references into `<appRoot>/.mercato/generated/app-modules/`, via the new `compileAppSourceFile` in `shared/lib/bootstrap/dynamicLoader` (reuses `loadBootstrapData`'s esbuild bundle and dep cache; packages stay external). The 2026-06-24 fix below only rewrote the specifier to an absolute `.ts` path, which holds only while the target's graph stays inside Node's type stripping — a real module's does not (`./di` is extensionless, `./data/entities` has decorators), so the first app-local `ai-tools.ts` killed the tool registry. Uncompilable modules log and fall back to the raw path. Additive: the artifact map is an optional third `rewriteGeneratedAliasImports` arg.
+`compileAndImportGenerated` (`lib/generated-registry-loader.ts`) compiles every `@app` module entry a generated registry references into `<appRoot>/.mercato/generated/app-modules/`, via the new `compileAppSourceFile` in `shared/lib/bootstrap/dynamicLoader` (reuses `loadBootstrapData`'s esbuild bundle and dep cache; packages stay external). The 2026-06-24 fix below only rewrote the specifier to an absolute `.ts` path, which holds while the target's graph stays inside Node's type stripping — a real module's does not (`./di` is extensionless, `./data/entities` has decorators), so the first app-local `ai-tools.ts` killed the registry. Uncompilable modules log and fall back to the raw path. Additive: the artifact map is an optional third `rewriteGeneratedAliasImports` arg.
 
 ### 2026-06-24 - MCP dev server loads ai-tools for @app local modules (#3524)
 

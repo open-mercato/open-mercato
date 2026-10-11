@@ -1132,6 +1132,20 @@ rule 3), and no variant should be considered done without it.
 
 ## Changelog
 
+### 2026-09-16 — Reconnecting Discord heals the existing channel (#4977)
+
+- **Touch-point 3 is closed.** The identity is carried on `ValidateCredentialsResult.externalIdentifier`
+  rather than a separate `resolveChannelIdentity` method: the connect command already calls
+  `validateCredentials` before persisting anything, so the identity is only accepted for credentials
+  Discord just accepted. The field is optional and additive; providers that omit it keep the
+  `username ?? email ?? fromAddress` derivation unchanged.
+- The Discord adapter reports `discord:<applicationId>`, matching § Data models.
+- Rows connected before the fix carry `external_identifier = NULL` and never match the heal key. When the
+  identifier came from the adapter, the connect flow adopts the user's newest identifier-less row for
+  the provider and marks the older ones `disconnected` (`last_error = superseded_by_reconnect`).
+  Credentials are stored once per user per provider, so those rows were duplicates of the same bot,
+  and a quarantined duplicate (#4979) would otherwise keep its reauth banner forever.
+
 ### 2026-08-26 — The AI auto-reply works end to end (issues #5599, #5601, #5602, #5603)
 
 Four defects found in one manual-QA round of #4391 on head `7db14ebdd`, all on the feature #4778

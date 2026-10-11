@@ -3,7 +3,6 @@
 import * as React from "react";
 import { extensionPoints } from "@open-mercato/core/modules/catalog/extension-points";
 import { useRouter, useSearchParams } from "next/navigation";
-import type { ZodType } from "zod";
 import { Page, PageBody } from "@open-mercato/ui/backend/Page";
 import {
   CrudForm,
@@ -41,7 +40,7 @@ import {
   apiCall,
   readApiResultOrThrow,
 } from "@open-mercato/ui/backend/utils/apiCall";
-import { useT } from "@open-mercato/shared/lib/i18n/context";
+import { useT, useLocale } from "@open-mercato/shared/lib/i18n/context";
 import { E } from "#generated/entities.ids.generated";
 import {
   ProductMediaManager,
@@ -60,7 +59,7 @@ import {
   type ProductUnitConversionDraft,
   type ProductUnitPriceReferenceUnit,
   type ProductUnitRoundingMode,
-  productFormSchema,
+  buildLocaleAwareProductFormSchema,
   createInitialProductFormValues,
   createVariantDraft,
   buildOptionValuesKey,
@@ -88,6 +87,7 @@ import {
 import { ProductUomSection } from "@open-mercato/core/modules/catalog/components/products/ProductUomSection";
 import { ProductComplianceSection } from "@open-mercato/core/modules/catalog/components/products/ProductComplianceSection";
 import { canonicalizeUnitCode } from "@open-mercato/core/modules/catalog/lib/unitCodes";
+import { validateCatalogPriceAmountInput } from "@open-mercato/core/modules/catalog/lib/priceValidation";
 import {
   UNIT_PRICE_REFERENCE_UNITS,
   toTrimmedOrNull,
@@ -100,9 +100,6 @@ import {
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('catalog')
-
-const productFormTypedSchema =
-  productFormSchema as unknown as ZodType<ProductFormValues>;
 
 type VariantPriceRequest = {
   variantDraftId: string;
@@ -233,6 +230,11 @@ function readInboxProductDraft(): InboxProductDraft | null {
 
 export default function CreateCatalogProductPage() {
   const t = useT();
+  const locale = useLocale();
+  const productFormTypedSchema = React.useMemo(
+    () => buildLocaleAwareProductFormSchema(locale),
+    [locale],
+  );
   const router = useRouter();
   const searchParams = useSearchParams();
   const fromInboxAction = searchParams.get("fromInboxAction");
@@ -631,19 +633,23 @@ export default function CreateCatalogProductPage() {
               for (const priceKind of priceKinds) {
                 const value = variant.prices?.[priceKind.id]?.amount?.trim();
                 if (!value) continue;
-                const numeric = Number(value);
-                if (
-                  Number.isNaN(numeric) ||
-                  !Number.isFinite(numeric) ||
-                  numeric < 0
-                ) {
+                const amountValidation = validateCatalogPriceAmountInput(
+                  Number(value),
+                );
+                if (!amountValidation.ok) {
                   throw createCrudFormError(
-                    t(
-                      "catalog.products.create.errors.priceNonNegative",
-                      "Prices must be zero or greater.",
-                    ),
+                    amountValidation.reason === "negative"
+                      ? t(
+                          "catalog.products.create.errors.priceNonNegative",
+                          "Prices must be zero or greater.",
+                        )
+                      : t(
+                          "catalog.variants.form.errors.invalidPrice",
+                          "Provide a valid non-negative price.",
+                        ),
                   );
                 }
+                const numeric = amountValidation.numeric;
                 const currencyCode =
                   typeof priceKind.currencyCode === "string" &&
                   priceKind.currencyCode.trim().length
@@ -1785,6 +1791,7 @@ function ProductBuilder({
                               }
                               placeholder="0.00"
                               min={0}
+                              step="any"
                             />
                           </div>
                         </td>

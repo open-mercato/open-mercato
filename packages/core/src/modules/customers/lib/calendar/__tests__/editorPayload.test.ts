@@ -107,8 +107,8 @@ describe('buildInteractionPayload — meeting', () => {
     expect(parsed.endTime).toBe(state.endTime)
     expect(parsed.description).toBe('Budget split and launch calendar.')
     expect(parsed.participants).toEqual([
-      { userId: '22222222-2222-4222-8222-222222222222', name: 'Anna Kowalska', email: 'anna@acme.test', isCustomer: false },
-      { userId: '33333333-3333-4333-8333-333333333333', name: 'Globex Corp · J. Diaz', email: undefined, isCustomer: true },
+      { userId: '22222222-2222-4222-8222-222222222222', name: 'Anna Kowalska', email: 'anna@acme.test', isCustomer: false, status: 'pending' },
+      { userId: '33333333-3333-4333-8333-333333333333', name: 'Globex Corp · J. Diaz', email: undefined, isCustomer: true, status: 'customer' },
     ])
     expect(parsed.relatedTo?.id).toBe(state.relatedTo?.id)
     expect(parsed.status).toBe('planned')
@@ -124,7 +124,47 @@ describe('buildInteractionPayload — meeting', () => {
     )
     const parsed = parseItemToFormState(itemFromPayload(payload))
     expect(parsed.participants).toEqual([
-      { userId: undefined, name: 'External Guest', email: 'guest@example.org', isCustomer: false },
+      { userId: undefined, name: 'External Guest', email: 'guest@example.org', isCustomer: false, status: 'pending' },
+    ])
+  })
+
+  it('preserves stored participant statuses on a save that does not touch participants', () => {
+    const storedParticipants = [
+      { userId: '22222222-2222-4222-8222-222222222222', name: 'Anna', status: 'accepted' },
+      { userId: '33333333-3333-4333-8333-333333333333', name: 'Globex', status: 'customer' },
+      { userId: '44444444-4444-4444-8444-444444444444', name: 'Tom', status: 'declined' },
+      { name: 'Guest', email: 'guest@example.org', status: 'organizer' },
+      { userId: '55555555-5555-4555-8555-555555555555', name: 'No status' },
+    ]
+    const item = itemFromPayload({
+      ...buildInteractionPayload(makeState({ category: 'meeting' }), { mode: 'create' }),
+      participants: storedParticipants,
+    })
+    const state = parseItemToFormState(item)
+    const payload = buildInteractionPayload({ ...state, title: 'Renamed' }, { mode: 'edit', id: item.id })
+    expect(payload.participants).toEqual([
+      { userId: '22222222-2222-4222-8222-222222222222', name: 'Anna', email: undefined, status: 'accepted' },
+      { userId: '33333333-3333-4333-8333-333333333333', name: 'Globex', email: undefined, status: 'customer' },
+      { userId: '44444444-4444-4444-8444-444444444444', name: 'Tom', email: undefined, status: 'declined' },
+      { userId: undefined, name: 'Guest', email: 'guest@example.org', status: 'organizer' },
+      { userId: '55555555-5555-4555-8555-555555555555', name: 'No status', email: undefined, status: 'pending' },
+    ])
+  })
+
+  it('derives the status from the customer flag when it is toggled', () => {
+    const payload = buildInteractionPayload(
+      makeState({
+        category: 'meeting',
+        participants: [
+          { userId: '22222222-2222-4222-8222-222222222222', name: 'Was customer', isCustomer: false, status: 'customer' },
+          { userId: '33333333-3333-4333-8333-333333333333', name: 'Now customer', isCustomer: true, status: 'accepted' },
+        ],
+      }),
+      { mode: 'edit', id: 'item-1' },
+    )
+    expect(payload.participants).toEqual([
+      { userId: '22222222-2222-4222-8222-222222222222', name: 'Was customer', email: undefined, status: 'pending' },
+      { userId: '33333333-3333-4333-8333-333333333333', name: 'Now customer', email: undefined, status: 'customer' },
     ])
   })
 })

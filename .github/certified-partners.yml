@@ -22,7 +22,7 @@ partners:
   - company: Dev4You
     contributors: [PawelSydorow, Paul-Mlodochowki]
   - company: Fast White Cat
-    contributors: [adeptofvoltron, lbajsarowicz]
+    contributors: [adeptofvoltron, lbajsarowicz, mtytula]
   - company: Freight Tech
     contributors: [fto-aubergine, karolina-fto]
   - company: Full Stack House
@@ -46,9 +46,9 @@ partners:
   - company: Tandemite
     contributors: [mat89c]
   - company: The Good Code
-    contributors: [migsilva89, mpiatko]
+    contributors: [migsilva89, mpiatko, janzaremski]
   - company: they.dev
-    contributors: [pmadajthey]
+    contributors: [pmadajthey, mikolajbogusz-they, WojciechSoczynskiTHEY]
   - company: Univio
     contributors: [gsobczyk, szymonkilar]
   - company: White Label Coders

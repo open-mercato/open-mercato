@@ -285,6 +285,10 @@ test.afterAll(async () => {
 
 test.describe('TC-WC-020: warranty claim SLA escalation sweep', () => {
   test('emits SLA at-risk and breached events, skips paused claims, and applies each escalation tier once', async ({ request }) => {
+    // Multiple drainIntegrationQueue calls each spawn a fresh Node process, which
+    // under CI resource contention can exceed the default 20s test timeout on its
+    // own even though the sweep/escalation flow completes correctly.
+    test.setTimeout(60_000)
     const adminToken = await getAuthToken(request, 'admin')
     const scope = getTokenScope(adminToken)
     const stamp = uniqueLabel('tc-wc-020')

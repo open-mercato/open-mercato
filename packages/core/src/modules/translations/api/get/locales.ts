@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { resolveTranslationsRouteContext } from '@open-mercato/core/modules/translations/api/context'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { locales as defaultLocales } from '@open-mercato/shared/lib/i18n/config'
+import { getSupportedLocales } from '@open-mercato/shared/lib/i18n/locale-set'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -24,7 +25,15 @@ async function GET(req: Request) {
       scope: { tenantId: context.tenantId },
     })
 
-    return NextResponse.json({ locales: Array.isArray(locales) ? locales : [...defaultLocales] })
+    // `servable` is what the application can actually render its own UI in
+    // (platform baseline plus app-registered locales). The stored selection also
+    // drives the content-translation editor, which accepts any ISO 639-1 code, so
+    // the two sets differ and the settings screen has to be able to tell them
+    // apart before it claims a locale was added to the UI language set.
+    return NextResponse.json({
+      locales: Array.isArray(locales) ? locales : [...defaultLocales],
+      servable: [...getSupportedLocales()],
+    })
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
@@ -36,6 +45,7 @@ async function GET(req: Request) {
 
 const responseSchema = z.object({
   locales: z.array(z.string()),
+  servable: z.array(z.string()),
 })
 
 const getDoc: OpenApiMethodDoc = {

@@ -4,9 +4,10 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError, translateCrudErrorBody } from '@open-mercato/shared/lib/crud/errors'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { runRouteMutationGuards, type RouteMutationGuardResult } from '@open-mercato/shared/lib/crud/route-mutation-guard'
@@ -78,7 +79,7 @@ async function resolveEventContext(req: Request): Promise<EventRouteContext> {
     throw new CrudHttpError(401, { error: translate('warranty_claims.errors.unauthorized', 'Unauthorized') })
   }
   const organizationScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  const organizationId = organizationScope?.selectedId ?? auth.orgId ?? null
+  const organizationId = resolveSingleOrganizationIdOrDeny(organizationScope, auth) ?? null
   if (!organizationId) {
     throw new CrudHttpError(400, { error: translate('warranty_claims.errors.organization_required', 'Organization context is required') })
   }
@@ -141,8 +142,8 @@ export async function GET(req: Request) {
     )
     return NextResponse.json({ items: events.map(serializeEvent) })
   } catch (err) {
-    if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
     const { translate } = await resolveTranslations()
+    if (isCrudHttpError(err)) return NextResponse.json(translateCrudErrorBody(err.body, translate), { status: err.status })
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
     }
@@ -175,12 +176,12 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, claimId: result?.claimId ?? commandInput.claimId })
   } catch (err) {
-    if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+    const { translate } = await resolveTranslations()
+    if (isCrudHttpError(err)) return NextResponse.json(translateCrudErrorBody(err.body, translate), { status: err.status })
     const interceptorRejection = getCommandInterceptorHttpRejection(err)
     if (interceptorRejection) {
       return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
-    const { translate } = await resolveTranslations()
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
     }

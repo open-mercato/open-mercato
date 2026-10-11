@@ -744,5 +744,8 @@
   "eudr.supplierPanel.viewSubmissions": "Ver presentaciones",
   "eudr.supplierPanel.warnings": "Con advertencias",
   "eudr.warnings.harvestBeforeCutoff": "Cosecha anterior a la fecha de corte EUDR",
-  "eudr.warnings.speciesMissing": "A una asignación de madera vinculada le falta el nombre científico o común de la especie"
+  "eudr.warnings.speciesMissing": "A una asignación de madera vinculada le falta el nombre científico o común de la especie",
+  "search.entityType.eudr.eudr_due_diligence_statement": "Declaración DDS",
+  "search.entityType.eudr.eudr_evidence_submission": "Envío de evidencia",
+  "search.entityType.eudr.eudr_plot": "Parcela"
 }

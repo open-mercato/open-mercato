@@ -9,10 +9,15 @@ import { dirname, join, resolve } from 'node:path'
  * The web-tier wiring lives in app-owned source files (a dependency bump cannot
  * touch them), so this patches them in place using the same idioms the rest of
  * the CLI uses: JSON edits, detect-before-append for `.env`, a ts-morph edit for
- * `next.config.ts`, and anchored insertion for `instrumentation.ts` + the API
- * dispatcher. When a file's shape is not recognized (a customized dispatcher, an
- * unusual next.config), the step degrades to printing the exact snippet and
- * flags it as a manual step rather than editing code it does not understand.
+ * `next.config.ts`, and anchored insertion for `instrumentation.ts`, the API
+ * dispatcher, `src/modules.ts`, and the backoffice layout. When a file's shape is
+ * not recognized (a customized dispatcher, an unusual next.config, a rewritten
+ * layout), the step degrades to printing the exact snippet and flags it as a
+ * manual step rather than editing code it does not understand.
+ *
+ * "Already wired" is decided per capability, not per file: an app initialized
+ * before browser RUM shipped has the core telemetry block and none of the RUM
+ * wiring, and re-running the command is how it adopts the difference.
  *
  * Worker/scheduler telemetry is not handled here — it ships transitively via
  * `@open-mercato/cli`'s telemetry dependency once the app updates its packages.
@@ -34,7 +39,7 @@ type TelemetryInitOptions = {
   dryRun: boolean
 }
 
-const ENV_BLOCK = `
+const ENV_CORE_BLOCK = `
 # --- Telemetry & Observability (vendor-neutral OTLP: traces, logs, metrics, errors) ---
 # Off by default: leave TELEMETRY_BACKEND unset (or =noop) for a hard no-op
 # (the OpenTelemetry SDK is never loaded). Set to 'console' for local span/metric
@@ -66,22 +71,70 @@ const ENV_BLOCK = `
 # OTEL_RESOURCE_ATTRIBUTES=deployment.environment=local
 `
 
+/**
+ * Appended on its own when an app already carries the core block — an app
+ * initialized before browser RUM shipped must be able to adopt it by re-running
+ * the command.
+ */
+const ENV_BROWSER_BLOCK = `
+# --- Browser RUM (client-side telemetry) ---
+# Document-load and fetch spans exported from the backoffice through a
+# same-origin proxy (/api/telemetry/browser-traces) that adds the collector
+# credential server-side. Off by default; requires an active
+# TELEMETRY_BACKEND + OTLP endpoint above.
+# Read at request time (not NEXT_PUBLIC_*), so toggling needs no rebuild.
+# Browser spans join their server spans only when TELEMETRY_TRUST_INBOUND_TRACE=true
+# above; without it RUM still works, but each page yields two separate traces.
+# Ingest budget: each open tab exports at most 20 batches/min (a 3s batch delay),
+# and the proxy allows 400/min per authenticated user — roughly 20 concurrent tabs.
+# Over that, batches are dropped with 204 rather than a retryable status, so the
+# only symptom is missing spans for that one user, never a client retry storm.
+# TELEMETRY_BROWSER_ENABLED=false
+# TELEMETRY_BROWSER_SAMPLING_RATIO=1.0  # 0.0-1.0 (default 1.0)
+# TELEMETRY_BROWSER_SERVICE_NAME=       # default: <OTEL_SERVICE_NAME>-browser
+`
+
+const ENV_BLOCK = `${ENV_CORE_BLOCK}${ENV_BROWSER_BLOCK}`
+
 const INSTRUMENTATION_TS = `import { isTelemetryBackendEnabled } from '@open-mercato/shared/lib/telemetry/runtime'
 
 export async function register(): Promise<void> {
   // Initialize telemetry (no-op unless TELEMETRY_BACKEND is set). OTEL's NodeSDK
   // is Node-only and incompatible with the edge runtime, so the telemetry
   // bootstrap — which can pull in the SDK — is imported only on the Node.js
-  // runtime. The helper owns init + graceful degrade + shutdown flush.
+  // runtime. The helper owns init + graceful degrade + shutdown flush; a
+  // deliberate configuration failure bubbles here so the host exits loudly.
   if (
     process.env.NEXT_RUNTIME === 'nodejs'
     && isTelemetryBackendEnabled()
   ) {
     const { registerTelemetryForNextjs } = await import('@open-mercato/telemetry/nextjs')
-    await registerTelemetryForNextjs()
+    try {
+      await registerTelemetryForNextjs()
+    } catch (err) {
+      const nodeProcess = process
+      nodeProcess.stderr.write(\`\${err instanceof Error ? err.message : String(err)}\\n\`)
+      nodeProcess.exit(1)
+    }
   }
 }
 `
+
+const MULTILINE_TELEMETRY_GUARD = `  if (
+    process.env.NEXT_RUNTIME === 'nodejs'
+    && isTelemetryBackendEnabled()
+  ) {`
+const INLINE_TELEMETRY_GUARD = `  if (process.env.NEXT_RUNTIME === 'nodejs' && isTelemetryBackendEnabled()) {`
+const LEGACY_NODE_TELEMETRY_GUARD = `  if (process.env.NEXT_RUNTIME === 'nodejs') {`
+const TELEMETRY_DYNAMIC_IMPORT = `    const { registerTelemetryForNextjs } = await import('@open-mercato/telemetry/nextjs')`
+const BARE_TELEMETRY_REGISTRATION = `    await registerTelemetryForNextjs()`
+const GUARDED_TELEMETRY_REGISTRATION = `    try {
+      await registerTelemetryForNextjs()
+    } catch (err) {
+      const nodeProcess = process
+      nodeProcess.stderr.write(\`\${err instanceof Error ? err.message : String(err)}\\n\`)
+      nodeProcess.exit(1)
+    }`
 
 const DISPATCHER_SNIPPET = `  // add near the other imports:
   import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
@@ -155,12 +208,138 @@ function patchEnvFile(appDir: string, relativePath: string, options: TelemetryIn
   const path = join(appDir, relativePath)
   if (!existsSync(path)) return null
   const content = readFileSync(path, 'utf8')
-  if (content.includes('TELEMETRY_BACKEND')) {
+  // Checked key by key, not block by block: an app initialized before browser RUM
+  // shipped has the core keys and none of the browser ones, and re-running the
+  // command is how it adopts them.
+  const hasCore = content.includes('TELEMETRY_BACKEND')
+  const hasBrowser = content.includes('TELEMETRY_BROWSER_ENABLED')
+  if (hasCore && hasBrowser) {
     return { file: relativePath, status: 'skipped', detail: 'TELEMETRY_* block already present' }
   }
-  const next = `${content.replace(/\s*$/, '')}\n${ENV_BLOCK}`
+  const next = `${content.replace(/\s*$/, '')}\n${hasCore ? ENV_BROWSER_BLOCK : ENV_BLOCK}`
   if (!options.dryRun) writeFileSync(path, next)
-  return { file: relativePath, status: 'patched', detail: 'appended commented TELEMETRY_* / OTEL_* block' }
+  return {
+    file: relativePath,
+    status: 'patched',
+    detail: hasCore
+      ? 'appended the missing TELEMETRY_BROWSER_* block'
+      : 'appended commented TELEMETRY_* / OTEL_* block',
+  }
+}
+
+const MODULES_SNIPPET = `  // in the enabledModules array:
+  { id: 'telemetry', from: '@open-mercato/telemetry' },`
+
+/**
+ * Register the `telemetry` module, which owns the same-origin OTLP proxy the
+ * browser exporter posts to. Without it `TELEMETRY_BROWSER_ENABLED` produces a
+ * client that exports into a 404.
+ */
+function patchModules(appDir: string, options: TelemetryInitOptions): StepResult {
+  const file = 'src/modules.ts'
+  const path = join(appDir, file)
+  const content = readFileSync(path, 'utf8')
+  if (/id:\s*'telemetry'/.test(content)) {
+    return { file, status: 'skipped', detail: 'telemetry module already enabled' }
+  }
+  const anchor = content.match(/export\s+const\s+enabledModules[^=]*=\s*\[/)
+  if (!anchor || anchor.index === undefined) {
+    return {
+      file,
+      status: 'manual',
+      detail: 'enabledModules array not found — add the entry by hand',
+      manualSnippet: MODULES_SNIPPET,
+    }
+  }
+  const insertAt = anchor.index + anchor[0].length
+  const block =
+    `\n  // Same-origin OTLP proxy for browser RUM spans; inert unless` +
+    `\n  // TELEMETRY_BROWSER_ENABLED is set alongside an active telemetry backend.` +
+    `\n  { id: 'telemetry', from: '@open-mercato/telemetry' },`
+  if (!options.dryRun) writeFileSync(path, content.slice(0, insertAt) + block + content.slice(insertAt))
+  return { file, status: 'patched', detail: "enabled the 'telemetry' module (browser-traces proxy route)" }
+}
+
+const LAYOUT_FILE = 'src/app/(backend)/backend/layout.tsx'
+
+const LAYOUT_SNIPPET = `  // add near the other imports:
+  import { BrowserTelemetry } from '@open-mercato/telemetry/browser'
+  import { resolveBrowserTelemetryConfig } from '@open-mercato/telemetry/browser/server'
+
+  // in the component body, before the returned JSX:
+  // pass the request's Cookie header when the layout already reads cookies
+  // (only consulted by the integration-test opt-in; production is env-only):
+  const browserTelemetryConfig = resolveBrowserTelemetryConfig({ cookieHeader: cookieStore.toString() })
+
+  // as the last child of <AppShell>:
+  <BrowserTelemetry config={browserTelemetryConfig} />`
+
+/**
+ * The config resolver takes the request's `Cookie` header so an integration spec can opt one page
+ * into browser RUM; production resolution is env-only and never reads it. A scaffolded layout
+ * already awaits `cookies()`, so reuse that binding — but an app that removed it must still get a
+ * layout that compiles, hence the argument-free fallback. Both forms behave identically outside an
+ * `OM_TEST_MODE` environment.
+ */
+function resolveArgument(layout: string): string {
+  const binding = layout.match(/const\s+(\w+)\s*=\s*await\s+cookies\(\)/)
+  return binding ? `{ cookieHeader: ${binding[1]}.toString() }` : ''
+}
+
+/**
+ * Render the client bootstrap in the backoffice shell. The config is resolved
+ * per request (the layout is `force-dynamic`), so RUM toggles per environment
+ * without a rebuild.
+ *
+ * A backoffice layout is the file apps customize most, so this only edits one
+ * that still matches the scaffold shape; anything else gets the snippet.
+ */
+function patchBackendLayout(appDir: string, options: TelemetryInitOptions): StepResult {
+  const path = join(appDir, LAYOUT_FILE)
+  if (!existsSync(path)) {
+    return { file: LAYOUT_FILE, status: 'manual', detail: 'backend layout not found', manualSnippet: LAYOUT_SNIPPET }
+  }
+  const content = readFileSync(path, 'utf8')
+  if (content.includes('<BrowserTelemetry')) {
+    return { file: LAYOUT_FILE, status: 'skipped', detail: 'BrowserTelemetry already rendered' }
+  }
+  const closingShell = content.lastIndexOf('</AppShell>')
+  const returnMatch = content.match(/^([ \t]*)return \(\s*$/m)
+  const lastImport = [...content.matchAll(/^import[^\n]*$/gm)].at(-1)
+  if (closingShell === -1 || !returnMatch || returnMatch.index === undefined || !lastImport) {
+    return {
+      file: LAYOUT_FILE,
+      status: 'manual',
+      detail: 'layout shape not recognized — apply the snippet by hand',
+      manualSnippet: LAYOUT_SNIPPET,
+    }
+  }
+
+  // Edit back to front so each earlier anchor's offset stays valid.
+  const shellIndent = content.slice(0, closingShell).match(/\n([ \t]*)$/)?.[1] ?? '        '
+  let next =
+    content.slice(0, closingShell) +
+    `<BrowserTelemetry config={browserTelemetryConfig} />\n${shellIndent}` +
+    content.slice(closingShell)
+
+  const returnIndent = returnMatch[1]
+  next =
+    next.slice(0, returnMatch.index) +
+    `${returnIndent}// Resolved per request (this layout is force-dynamic), so browser RUM can be\n` +
+    `${returnIndent}// toggled per environment without a rebuild. Null keeps the SDK chunk from\n` +
+    `${returnIndent}// ever being requested.\n` +
+    `${returnIndent}const browserTelemetryConfig = resolveBrowserTelemetryConfig(${resolveArgument(content)})\n\n` +
+    next.slice(returnMatch.index)
+
+  const importInsertAt = (lastImport.index ?? 0) + lastImport[0].length
+  next =
+    next.slice(0, importInsertAt) +
+    `\nimport { BrowserTelemetry } from '@open-mercato/telemetry/browser'` +
+    `\nimport { resolveBrowserTelemetryConfig } from '@open-mercato/telemetry/browser/server'` +
+    next.slice(importInsertAt)
+
+  if (!options.dryRun) writeFileSync(path, next)
+  return { file: LAYOUT_FILE, status: 'patched', detail: 'rendered <BrowserTelemetry /> in the backoffice shell' }
 }
 
 function patchInstrumentation(appDir: string, options: TelemetryInitOptions): StepResult {
@@ -175,17 +354,45 @@ function patchInstrumentation(appDir: string, options: TelemetryInitOptions): St
   }
   const content = readFileSync(path, 'utf8')
   if (content.includes('registerTelemetryForNextjs')) {
-    if (content.includes('isTelemetryBackendEnabled')) {
+    const guardedBootstraps = [MULTILINE_TELEMETRY_GUARD, INLINE_TELEMETRY_GUARD]
+    const safeBootstrap = guardedBootstraps
+      .map((guard) => `${guard}\n${TELEMETRY_DYNAMIC_IMPORT}\n${GUARDED_TELEMETRY_REGISTRATION}`)
+      .find((bootstrap) => content.includes(bootstrap))
+    if (safeBootstrap) {
       return { file, status: 'skipped', detail: 'telemetry already wired' }
     }
-    const migrated =
-      `import { isTelemetryBackendEnabled } from '@open-mercato/shared/lib/telemetry/runtime'\n` +
-      content.replace(
-        `if (process.env.NEXT_RUNTIME === 'nodejs') {`,
-        `if (process.env.NEXT_RUNTIME === 'nodejs' && isTelemetryBackendEnabled()) {`,
+    const guardedLegacyBootstrap = guardedBootstraps
+      .map((guard) => `${guard}\n${TELEMETRY_DYNAMIC_IMPORT}\n${BARE_TELEMETRY_REGISTRATION}`)
+      .find((bootstrap) => content.includes(bootstrap))
+    if (guardedLegacyBootstrap) {
+      const migrated = content.replace(
+        guardedLegacyBootstrap,
+        guardedLegacyBootstrap.replace(BARE_TELEMETRY_REGISTRATION, GUARDED_TELEMETRY_REGISTRATION),
       )
-    if (!options.dryRun) writeFileSync(path, migrated)
-    return { file, status: 'patched', detail: 'added the explicit backend import guard' }
+      if (!options.dryRun) writeFileSync(path, migrated)
+      return { file, status: 'patched', detail: 'wrapped OTLP dependency failures with host termination' }
+    }
+    const nodeOnlyLegacyBootstrap = `${LEGACY_NODE_TELEMETRY_GUARD}\n${TELEMETRY_DYNAMIC_IMPORT}\n${BARE_TELEMETRY_REGISTRATION}`
+    if (content.includes(nodeOnlyLegacyBootstrap)) {
+      const guardedBootstrap = nodeOnlyLegacyBootstrap
+        .replace(LEGACY_NODE_TELEMETRY_GUARD, INLINE_TELEMETRY_GUARD)
+        .replace(BARE_TELEMETRY_REGISTRATION, GUARDED_TELEMETRY_REGISTRATION)
+      const importLine = `import { isTelemetryBackendEnabled } from '@open-mercato/shared/lib/telemetry/runtime'\n`
+      const withBootstrap = content.replace(nodeOnlyLegacyBootstrap, guardedBootstrap)
+      const migrated = withBootstrap.includes(importLine) ? withBootstrap : importLine + withBootstrap
+      if (!options.dryRun) writeFileSync(path, migrated)
+      return {
+        file,
+        status: 'patched',
+        detail: 'added the explicit backend guard and wrapped OTLP dependency failures with host termination',
+      }
+    }
+    return {
+      file,
+      status: 'manual',
+      detail: 'existing telemetry bootstrap needs the canonical Node guard and fail-closed host wrapper',
+      manualSnippet: INSTRUMENTATION_TS,
+    }
   }
   const anchor = content.match(/export\s+async\s+function\s+register\s*\([^)]*\)\s*:\s*Promise<void>\s*\{/)
   if (!anchor || anchor.index === undefined) {
@@ -201,7 +408,13 @@ function patchInstrumentation(appDir: string, options: TelemetryInitOptions): St
     `\n  // Initialize telemetry (no-op unless TELEMETRY_BACKEND is set); Node-only.` +
     `\n  if (process.env.NEXT_RUNTIME === 'nodejs' && isTelemetryBackendEnabled()) {` +
     `\n    const { registerTelemetryForNextjs } = await import('@open-mercato/telemetry/nextjs')` +
-    `\n    await registerTelemetryForNextjs()` +
+    `\n    try {` +
+    `\n      await registerTelemetryForNextjs()` +
+    `\n    } catch (err) {` +
+    `\n      const nodeProcess = process` +
+    `\n      nodeProcess.stderr.write(\`\${err instanceof Error ? err.message : String(err)}\\n\`)` +
+    `\n      nodeProcess.exit(1)` +
+    `\n    }` +
     `\n  }`
   const importLine = `import { isTelemetryBackendEnabled } from '@open-mercato/shared/lib/telemetry/runtime'\n`
   const withImport = content.includes('isTelemetryBackendEnabled')
@@ -427,6 +640,8 @@ export async function runTelemetryInit(args: string[]): Promise<number> {
   results.push(patchInstrumentation(appDir, options))
   results.push(await patchNextConfig(appDir, options))
   results.push(patchDispatcher(appDir, options))
+  results.push(patchModules(appDir, options))
+  results.push(patchBackendLayout(appDir, options))
 
   const icon: Record<StepStatus, string> = { created: '✍️ ', patched: '✅', skipped: '⏭️ ', manual: '⚠️ ' }
   for (const result of results) {

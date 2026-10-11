@@ -42,6 +42,7 @@ import {
   seedAgentRegistryForTests,
 } from '../agent-registry'
 import { registerMcpTool, toolRegistry } from '../tool-registry'
+import { ensureModuleToolsLoaded } from '../tool-loader'
 import type {
   AiPendingActionStatus,
   AiPendingActionQueueMode,
@@ -557,6 +558,15 @@ describe('prepareMutation', () => {
 
 describe('resolveAiAgentTools mutation interception (Step 5.6)', () => {
   let warnSpy: jest.Mock
+
+  // `resolveAiAgentTools` populates the tool registry on first use, which
+  // compiles and imports the generated ai-tools registry. On a cold CI runner
+  // that one-time cost lands inside whichever test happens to run first and
+  // blows the default 5s per-test budget; the loader memoizes, so paying it
+  // here keeps every test below on the default timeout.
+  beforeAll(async () => {
+    await ensureModuleToolsLoaded()
+  }, 120_000)
 
   beforeEach(() => {
     resetAgentRegistryForTests()

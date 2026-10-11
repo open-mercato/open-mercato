@@ -5,7 +5,7 @@ import type { ComponentOverride } from '@open-mercato/shared/modules/widgets/com
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { ComponentOverrideProvider } from '@open-mercato/ui/backend/injection/ComponentOverrideProvider'
 import type { ClientBootstrapProfile } from '@/components/ClientBootstrap'
-import { profileUsesComponentOverrides } from '@/components/ClientBootstrap'
+import { ensureModuleOverridesApplied, profileUsesComponentOverrides } from '@/components/ClientBootstrap'
 
 const logger = createLogger('app').child({ component: 'ComponentOverridesBootstrap' })
 const EMPTY_OVERRIDES: ComponentOverride[] = []
@@ -16,11 +16,27 @@ type LoadedOverrides = {
 
 let overridePromise: Promise<LoadedOverrides> | null = null
 
+/**
+ * The server registers these entries through `applyComponentOverridesToEntries`
+ * (`@open-mercato/shared/lib/bootstrap/factory`). Registering the raw generated list
+ * in the browser would overwrite that filtered registration, so a `widgets.components`
+ * override declared in `src/modules.ts` holds while server-rendered and is undone on
+ * hydration (#5864 — the #5152 defect, one key over). Awaiting the same dispatch the
+ * override-dependent registry groups await fills the component override store before
+ * the filter reads it; the dispatch is fail-soft, so a failure there degrades to the
+ * unfiltered list rather than leaving the page with no overrides at all.
+ */
 function loadOverrides(): Promise<LoadedOverrides> {
   if (overridePromise) return overridePromise
-  const pending = import('@/.mercato/generated/component-overrides.generated').then((generated) => ({
-    overrides: generated.componentOverrideEntries.flatMap((entry) => entry.componentOverrides ?? []),
-  }))
+  const pending = (async () => {
+    await ensureModuleOverridesApplied()
+    const [generated, overrides] = await Promise.all([
+      import('@/.mercato/generated/component-overrides.generated'),
+      import('@open-mercato/shared/modules/overrides'),
+    ])
+    const finalEntries = overrides.applyComponentOverridesToEntries(generated.componentOverrideEntries)
+    return { overrides: finalEntries.flatMap((entry) => entry.componentOverrides ?? []) }
+  })()
   const retryable = pending.catch((err) => {
     if (overridePromise === retryable) overridePromise = null
     throw err

@@ -275,6 +275,11 @@ export const discordCredentialsSchema = z
 The same schema drives `validateCredentials`, so a bad field comes back as a field-level error in the
 connect form rather than as a channel that cannot authenticate.
 
+If your credentials carry no email-shaped `username`, `email` or `fromAddress`, return a stable
+`externalIdentifier` from a successful `validateCredentials` (Discord returns
+`discord:<applicationId>`). The hub keys heal-on-reconnect on that identifier: without it, every
+reconnect inserts a new channel row next to the old one instead of updating it.
+
 ### 3. Write the capability contract — and be honest in it
 
 `capabilities` is not documentation. The hub **routes work on these flags**: a `true` that nothing
@@ -629,6 +634,12 @@ The widget collects the credential fields and posts them to the hub's own connec
 `…/connect/tenant-credentials` for a tenant-wide one), gated by
 `communication_channels.connect_user_channel`. Use `apiCall` and `useGuardedMutation`; never raw
 `fetch`. All user-facing strings go through `useT()` and your module's `i18n/` files.
+
+The hub renders this spot inside the profile page's **Connect channel** dropdown, one provider per
+full-width stacked row, so installing more providers lengthens the list instead of widening the page
+header. Ship a single control sized by the container — a `Button` works; avoid fixed widths — and
+keep any credential `Dialog` inside the widget: the hub keeps injected widgets mounted while the
+dropdown is closed precisely so a dialog opened from a row survives the dropdown closing behind it.
 
 ### 10. Verify it
 
