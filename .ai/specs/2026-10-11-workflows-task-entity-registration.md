@@ -93,6 +93,22 @@ API, entity metadata reads) is deliberately unchanged — widening those is a se
 - `api/__tests__/taskDetail.route.test.ts` — feature holder 200 + href; without feature 404;
   registration removed → 404.
 
+## Integration coverage
+
+`packages/core/src/modules/workflows/__integration__/TC-WF-068.spec.ts`, self-contained (roles,
+users, a Todo, four definitions and instances created through the API, all removed in `finally`).
+Registrations come from the test-only `workflows_entity_probe` app module
+(`apps/mercato/src/modules/workflows_entity_probe/workflows.ts`), which registers only when the
+integration runner sets `OM_INTEGRATION_TEST=true` and is inert otherwise.
+
+| Path | Assertion |
+|---|---|
+| `GET /api/workflows/work-inbox` | Feature holder sees the `example:todo` row with `href=/backend/todos/<id>/edit`; an off-origin builder yields `href: null`; the unregistered type and the non-holder get no row |
+| `GET /api/workflows/tasks/[id]` | Feature holder: same `href`; non-holder and unregistered type: 404, body discloses no binding |
+| `/backend/work-inbox` | `work-inbox-entity-link` carries the href and clicking it opens the Todo edit form |
+| `/backend/tasks/[id]` | "About what" card (`task-context-records`) links to the record; no link for the off-origin builder; non-holder sees "Task not found" |
+
 ## Changelog
 
 - 2026-10-11 — Initial design and implementation (#7180).
+- 2026-10-11 — Detail OpenAPI types `entityBindings` with `workInboxEntityBindingSchema`; TC-WF-068 integration coverage.

@@ -152,6 +152,13 @@ export const taskActionBlockReasonSchema = z.enum([
   'unavailable',
 ])
 
+export const workInboxEntityBindingSchema = z.object({
+  entityType: z.string(),
+  entityId: z.string(),
+  label: z.string().nullable().optional(),
+  href: z.string().nullable().optional().describe('Record detail path, when the record type has one'),
+})
+
 /**
  * Detail projection: the same superset the list returns, plus the derived
  * decision buttons, the definition step id they belong to, and the §6.4 act
@@ -165,7 +172,7 @@ export const taskActionBlockReasonSchema = z.enum([
 export const userTaskDetailResponseSchema = z.object({
   data: userTaskRowSchema.extend({
     entityBindings: z
-      .array(z.unknown())
+      .array(workInboxEntityBindingSchema)
       .nullable()
       .describe('Records this task is about; each carries a server-resolved `href` when its record type has a detail page'),
     stepId: z.string().nullable().describe('Definition step the task is parked on'),
@@ -201,13 +208,6 @@ export const userTaskReassignResponseSchema = z.object({
 // ============================================================================
 
 export const workInboxPrioritySchema = z.enum(['extreme', 'high', 'medium', 'low'])
-
-export const workInboxEntityBindingSchema = z.object({
-  entityType: z.string(),
-  entityId: z.string(),
-  label: z.string().nullable().optional(),
-  href: z.string().nullable().optional().describe('Record detail path, when the record type has one'),
-})
 
 export const workInboxActionSchema = z.object({
   id: z.string(),
