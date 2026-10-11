@@ -21,7 +21,7 @@ import {
   isValidIsoDateString,
 } from './activity-config-schemas'
 import {
-  taskDeadlineSchema,
+  taskDeadlineSpecSchema,
   taskPrioritySchema,
   taskReminderSchema,
 } from './task-primitives'
@@ -66,10 +66,10 @@ export type {
 export {
   taskPrioritySchema,
   taskDeadlineSchema,
-  taskDurationDeadlineSchema,
+  taskDeadlineSpecSchema,
   taskReminderSchema,
 } from './task-primitives'
-export type { TaskPriority, TaskDeadline, TaskDurationDeadline, TaskReminder } from './task-primitives'
+export type { TaskPriority, TaskDeadline, TaskDeadlineSpec, TaskReminder } from './task-primitives'
 
 const uuid = z.uuid()
 
@@ -325,7 +325,7 @@ export const userTaskConfigSchema = z.object({
   entityBindings: z.array(taskEntityBindingSchema).optional(),
   // "When": priority, deadline, reminders, and what happens on breach.
   priority: taskPrioritySchema.optional(),
-  deadline: taskDeadlineSchema.optional(),
+  deadline: taskDeadlineSpecSchema.optional(),
   reminders: z.array(taskReminderSchema).optional(),
   onBreach: taskOnBreachSchema.optional(),
   // "Decisions": buttons bound 1:1 to outgoing routes, plus the subset of form

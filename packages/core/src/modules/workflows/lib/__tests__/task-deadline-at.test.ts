@@ -4,7 +4,7 @@ import { interpolateVariables } from '../activity-executor'
 import { parseAbsoluteDeadline } from '../duration'
 import { resolveTaskDeadline, resolveTaskDeadlineDuration } from '../task-resolution'
 import { computeTaskSlaSchedule, scheduleUserTaskSla } from '../task-sla'
-import { taskDeadlineSchema, workflowStepSchema } from '../../data/validators'
+import { taskDeadlineSchema, taskDeadlineSpecSchema, workflowStepSchema } from '../../data/validators'
 import { agentReviewConfigSchema } from '../../data/activity-config-schemas'
 import type { WorkflowDefinition, WorkflowInstance } from '../../data/entities'
 
@@ -56,22 +56,35 @@ describe('parseAbsoluteDeadline', () => {
   })
 })
 
-describe('taskDeadlineSchema', () => {
-  test('accepts a duration, a literal instant or a template', () => {
+describe('taskDeadlineSchema (legacy duration-only contract)', () => {
+  test('still requires a duration and does not accept an absolute at', () => {
     expect(taskDeadlineSchema.safeParse({ duration: 'P3D' }).success).toBe(true)
-    expect(taskDeadlineSchema.safeParse({ at: '2026-10-20' }).success).toBe(true)
-    expect(taskDeadlineSchema.safeParse({ at: '2026-10-20T15:00:00Z' }).success).toBe(true)
-    expect(taskDeadlineSchema.safeParse({ at: '{{context.dueDate}}' }).success).toBe(true)
+    expect(taskDeadlineSchema.safeParse({}).success).toBe(false)
+    expect(taskDeadlineSchema.safeParse({ at: '2026-10-20' }).success).toBe(false)
+  })
+
+  test('every legacy deadline is also a valid spec', () => {
+    const legacy = { duration: 'PT4H' }
+    expect(taskDeadlineSchema.parse(legacy)).toEqual(taskDeadlineSpecSchema.parse(legacy))
+  })
+})
+
+describe('taskDeadlineSpecSchema', () => {
+  test('accepts a duration, a literal instant or a template', () => {
+    expect(taskDeadlineSpecSchema.safeParse({ duration: 'P3D' }).success).toBe(true)
+    expect(taskDeadlineSpecSchema.safeParse({ at: '2026-10-20' }).success).toBe(true)
+    expect(taskDeadlineSpecSchema.safeParse({ at: '2026-10-20T15:00:00Z' }).success).toBe(true)
+    expect(taskDeadlineSpecSchema.safeParse({ at: '{{context.dueDate}}' }).success).toBe(true)
   })
 
   test('refuses both forms at once, neither form, and an unparseable literal', () => {
-    const both = taskDeadlineSchema.safeParse({ duration: 'P3D', at: '{{context.dueDate}}' })
+    const both = taskDeadlineSpecSchema.safeParse({ duration: 'P3D', at: '{{context.dueDate}}' })
     expect(both.success).toBe(false)
     expect(both.error?.issues[0]?.path).toEqual(['at'])
 
-    expect(taskDeadlineSchema.safeParse({}).success).toBe(false)
-    expect(taskDeadlineSchema.safeParse({ at: 'next tuesday' }).success).toBe(false)
-    expect(taskDeadlineSchema.safeParse({ at: '2026-10-20T15:00:00' }).success).toBe(false)
+    expect(taskDeadlineSpecSchema.safeParse({}).success).toBe(false)
+    expect(taskDeadlineSpecSchema.safeParse({ at: 'next tuesday' }).success).toBe(false)
+    expect(taskDeadlineSpecSchema.safeParse({ at: '2026-10-20T15:00:00' }).success).toBe(false)
   })
 
   test('a step declaring both forms fails save-time validation', () => {

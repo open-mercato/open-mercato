@@ -24,21 +24,19 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.8.1 (unreleased)
 
-### `TaskDeadline.duration` is now optional: a user-task deadline can be an absolute `at` (#7181)
+### Workflows: a user-task deadline can be an absolute `at` — new additive `TaskDeadlineSpec` (#7181)
 
 A `USER_TASK` deadline (`userTaskConfig.deadline`) now takes exactly one of `duration` (anchored to
 task creation, as before) or `at` (an ISO date or an ISO datetime with `Z` or an offset, usually
-interpolated from the run context, e.g. `{{context.dueDate}}`). To express that, the exported type
-`TaskDeadline` (`@open-mercato/core/modules/workflows/data/task-primitives`, re-exported from
-`@open-mercato/core/modules/workflows/data/validators`) changed from `{ duration: string }` to
-`{ duration?: string; at?: string }`. Every definition that was valid before still parses and runs
-unchanged.
+interpolated from the run context, e.g. `{{context.dueDate}}`). The extended form is a NEW export,
+`taskDeadlineSpecSchema` / `TaskDeadlineSpec` (`@open-mercato/core/modules/workflows/data/task-primitives`,
+re-exported from `@open-mercato/core/modules/workflows/data/validators`), and `userTaskConfig.deadline`
+validates against it. Every definition that was valid before still parses and runs unchanged.
 
-**Action for module authors:** code that reads `deadline.duration` from a `TaskDeadline` as a
-`string` no longer type-checks. Narrow first (`if (deadline.duration !== undefined)`), or — when you
-only ever handle duration deadlines — type the value with the new `TaskDurationDeadline` and validate
-it with `taskDurationDeadlineSchema`, which keep the old required-`duration` shape. Code that builds
-a `TaskDeadline` with a `duration` needs no change.
+The existing `taskDeadlineSchema` / `TaskDeadline` contract is unchanged — `{ duration: string }`,
+`duration` required — so no action is needed. Code that handles `userTaskConfig.deadline` itself and
+wants to support the new form should type it as `TaskDeadlineSpec` and check which of `duration` /
+`at` is set.
 
 ### Payment gateway webhooks: opt-in transport, locator and response options; ambiguous matches are rejected
 

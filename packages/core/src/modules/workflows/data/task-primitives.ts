@@ -24,18 +24,31 @@ export const TASK_DEADLINE_AT_ERROR =
   'Deadline "at" must be an ISO date (YYYY-MM-DD) or an ISO datetime with a timezone offset or Z'
 
 /**
- * Business-word deadline. A strict superset of `slaDuration`: an object so the
- * anchor and later qualifiers have somewhere to live, while `slaDuration` keeps
- * working forever as the bare-duration form.
+ * Business-word deadline, anchored to task creation. A strict superset of
+ * `slaDuration`: an object so the anchor and later qualifiers have somewhere to
+ * live, while `slaDuration` keeps working forever as the bare-duration form.
  *
- * Exactly one form per deadline:
+ * This is the duration-only contract and it stays exactly that: consumers read
+ * `deadline.duration` as a `string`. A USER_TASK deadline that may also be an
+ * absolute `at` is the additive `TaskDeadlineSpec` below.
+ */
+export const taskDeadlineSchema = z.object({
+  duration: z.string().min(1),
+})
+export type TaskDeadline = z.infer<typeof taskDeadlineSchema>
+
+/**
+ * A USER_TASK deadline (`userTaskConfig.deadline`): either a `TaskDeadline`
+ * duration or an absolute `at`. Exactly one form per deadline:
  * - `duration` — anchored to task creation (e.g. `P3D`);
  * - `at` — an ABSOLUTE ISO date or datetime, usually interpolated from the run
  *   context (`{{context.dueDate}}`), for deadlines computed elsewhere. Resolved
  *   once, at task creation, by `resolveTaskDeadline` (`lib/task-resolution.ts`).
  *   A literal is validated here; a template is validated once it resolves.
+ *
+ * Every value `taskDeadlineSchema` accepts, this accepts too.
  */
-export const taskDeadlineSchema = z
+export const taskDeadlineSpecSchema = z
   .object({
     duration: z.string().min(1).optional(),
     at: z.string().min(1).optional(),
@@ -63,18 +76,7 @@ export const taskDeadlineSchema = z
       })
     }
   })
-export type TaskDeadline = z.infer<typeof taskDeadlineSchema>
-
-/**
- * The duration-only deadline — the shape `taskDeadlineSchema` had before `at`.
- * The Invoke Agent disposition review (§7.5) keeps it: its deadline is resolved
- * by the agent bridge as a duration, so accepting an `at` there would be config
- * the engine silently ignores.
- */
-export const taskDurationDeadlineSchema = z.object({
-  duration: z.string().min(1),
-})
-export type TaskDurationDeadline = z.infer<typeof taskDurationDeadlineSchema>
+export type TaskDeadlineSpec = z.infer<typeof taskDeadlineSpecSchema>
 
 /** Nudge fired `offset` before the deadline. */
 export const taskReminderSchema = z.object({

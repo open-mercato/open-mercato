@@ -41,8 +41,9 @@ due date is computed elsewhere still get reminders and breach handling.
 
 ## Risks
 
-- `TaskDeadline.duration` becomes optional in the inferred type (additive schema change); in-module
-  readers already guard with optional chaining.
+- Contract: the exported `TaskDeadline` / `taskDeadlineSchema` stay duration-only (maintainer review on
+  #7189). The `at` form lives in the additive `TaskDeadlineSpec` / `taskDeadlineSpecSchema`, used by
+  `userTaskConfig.deadline`; `data/task-primitives.typecheck.tsx` guards `TaskDeadline['duration']` as `string`.
 
 ## Implementation Plan
 

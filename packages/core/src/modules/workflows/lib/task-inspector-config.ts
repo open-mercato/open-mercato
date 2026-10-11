@@ -15,7 +15,7 @@
 
 import { flattenTaskText } from './task-resolution'
 import type {
-  TaskDeadline,
+  TaskDeadlineSpec,
   TaskDecision,
   TaskEntityBinding,
   TaskLocalizedString,
@@ -315,7 +315,7 @@ export function newEntityBindingDraft(): TaskEntityBindingDraft {
 }
 
 export interface TaskDeadlinePersistence {
-  deadline?: TaskDeadline
+  deadline?: TaskDeadlineSpec
   slaDuration?: string
 }
 
