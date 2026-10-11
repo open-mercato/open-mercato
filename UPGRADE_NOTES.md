@@ -24,6 +24,27 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.8.1 (unreleased)
 
+### Warranty claim undo refusals return a localized `error` plus a `code`; claim-line undos refuse stale state
+
+Undoing a `warranty_claims` claim command through `POST /api/audit_logs/audit-logs/actions/undo` used to
+answer `409 { "error": "warranty_claims.errors.conflict" }` with the raw i18n key. It now answers
+`409 { "error": "<localized message>", "code": "warranty_claims.errors.conflict" }`.
+
+Claim-line undos (`warranty_claims.claim_line.create`, `.update`, `.delete`, `.receive`,
+`.release_quarantine`, `.set_assessment`) used to write their stored snapshot over the line whatever had
+happened since. Undoing a line update after the line was received, for example, wiped its grade and
+quarantine hold. They now refuse with `409` and change nothing when:
+
+- the line changed after the operation, the claim was deleted, or the log entry has no after-snapshot
+  (`code: "warranty_claims.errors.conflict"`);
+- the claim status no longer allows the edit, for example a closed claim
+  (`code: "warranty_claims.errors.lineLocked"` or `"warranty_claims.errors.receivingStatusInvalid"`).
+
+Undoing a line delete no longer re-creates a row that is missing. Undoing a set-assessment now
+recomputes the claim header totals.
+
+**Action for API clients:** match undo refusals on `code`, not on `error`.
+
 ### Payment gateway webhooks: opt-in transport, locator and response options; ambiguous matches are rejected
 
 `registerWebhookHandler(...)` accepts new optional options for providers that sign form-encoded bodies or expect a specific acknowledgement:
