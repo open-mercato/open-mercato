@@ -46,9 +46,11 @@ One behavior is hardened for every provider. The route now verifies every locate
 - `PUT /api/currencies/currencies` with `isBase: false` on the current base currency now answers
   `400`. To change the base, promote another currency with `isBase: true`; the previous base is
   demoted in the same transaction.
-- Undoing a create or update that made a currency the base restores the previous base. When that
-  currency was deleted since, or the action-log entry predates this release, the undo answers `409`
-  and changes nothing while the undone currency is still the base. Undoing a create is also refused
+- Undoing a create or update that made a currency the base restores the previous base while the
+  undone currency is still the base; if another currency has become the base since, the base is left
+  unchanged. When no previous base is still live (it was deleted since, there was none, or the
+  action-log entry predates this release), the undo answers `409` and changes nothing while the
+  undone currency is still the base. Undoing a create is also refused
   when that currency is the live base and the create did not replace a base that is still live (for
   example, a currency promoted after it was created).
 - Undoing a currency create while active exchange rates reference it answers `409`. Delete or
