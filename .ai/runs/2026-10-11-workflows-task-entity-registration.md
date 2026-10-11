@@ -54,6 +54,8 @@ non-superadmins holding the registered features, and the Work Inbox / task detai
 
 ## Progress
 
+PR: #7193
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Registry + entity gate
