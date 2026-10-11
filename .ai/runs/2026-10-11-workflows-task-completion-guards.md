@@ -35,19 +35,21 @@ the server-computed `canComplete` / `actBlockedReason` affordances without mutat
 
 ## Progress
 
+PR: #7191
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Spec and registry
 
-- [ ] 1.1 Write the spec
-- [ ] 1.2 Add the completion-guard registry, matcher and evaluator with unit tests
+- [x] 1.1 Write the spec — 4d8da8465
+- [x] 1.2 Add the completion-guard registry, matcher and evaluator with unit tests — 403d40f75
 
 ### Phase 2: Enforcement
 
-- [ ] 2.1 Consult guards inside completeUserTask (direct call path) with tests
-- [ ] 2.2 Map the veto to 409 on the HTTP route and the command with tests
+- [x] 2.1 Consult guards inside completeUserTask (direct call path) with tests — 403d40f75
+- [x] 2.2 Map the veto to 409 on the HTTP route and the command with tests — eaf8e1f8f
 
 ### Phase 3: Affordances and UI
 
-- [ ] 3.1 Feed the non-mutating evaluation into resolveTaskAffordances and the task detail route
-- [ ] 3.2 Render the guard reason on the task detail page, i18n, docs
+- [x] 3.1 Feed the non-mutating evaluation into resolveTaskAffordances and the task detail route — 63537d221
+- [x] 3.2 Render the guard reason on the task detail page, i18n, docs — 63537d221
