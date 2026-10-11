@@ -530,7 +530,7 @@ change makes catalogues unfindable for everyone.
 **Migration path**: reindex each declared catalogue once. `entity_indexes` self-heals
 through the upsert; leftover per-tenant `search_tokens` rows are duplicates of public
 catalogue text and can be deleted. See [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md)
-`0.7.0 → 0.7.1`.
+`0.8.0 → 0.8.1`.
 
 ## Data Sync Start Control Applicability (2026-09-02)
 
