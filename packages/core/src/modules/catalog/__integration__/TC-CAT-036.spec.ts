@@ -43,4 +43,41 @@ test.describe('TC-CAT-036: Product search is accent-insensitive', () => {
       await deleteCatalogProductIfExists(request, token, productId);
     }
   });
+
+  // https://github.com/open-mercato/open-mercato/issues/6465 — unaccent folds
+  // fullwidth ％ ＿ ＼ into LIKE metacharacters, so they must match literally.
+  test('treats fullwidth LIKE look-alikes as literal characters', async ({ request }) => {
+    const stamp = Date.now();
+    const productTitle = `QA TC-CAT-036 huśtawka ${stamp}`;
+    const sku = `QA-CAT-036-FW-${stamp}`;
+    let token: string | null = null;
+    let productId: string | null = null;
+
+    try {
+      token = await getAuthToken(request);
+      productId = await createProductFixture(request, token, { title: productTitle, sku });
+
+      const queries = [
+        `hu＿tawka ${stamp}`,
+        `hu＼stawka ${stamp}`,
+        `％ ${stamp}`,
+        `huśtawka ${stamp}＼`,
+      ];
+
+      for (const search of queries) {
+        const response = await apiRequest(
+          request,
+          'GET',
+          `/api/catalog/products?search=${encodeURIComponent(search)}`,
+          { token },
+        );
+        expect(response.ok(), `Search request failed for "${search}": ${response.status()}`).toBeTruthy();
+        const body = (await response.json()) as { items?: Array<{ id?: string }> };
+        const ids = (body.items ?? []).map((item) => item.id);
+        expect(ids, `Search for "${search}" matched the fixture through a wildcard`).not.toContain(productId);
+      }
+    } finally {
+      await deleteCatalogProductIfExists(request, token, productId);
+    }
+  });
 });

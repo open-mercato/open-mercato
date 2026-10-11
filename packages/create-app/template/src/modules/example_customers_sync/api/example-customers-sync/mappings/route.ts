@@ -5,6 +5,8 @@ import { type Kysely, sql } from 'kysely'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/shared/lib/auth/organizationScope'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -85,10 +87,11 @@ export async function GET(request: Request) {
 
     const container = await createRequestContainer()
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
-    const organizationIds = Array.isArray(scope?.filterIds) && scope.filterIds.length > 0
+    const scopedOrganizationId = resolveSingleOrganizationIdOrDeny(scope, auth)
+    const organizationIds = Array.isArray(scope?.filterIds)
       ? scope.filterIds
-      : auth.orgId
-        ? [auth.orgId]
+      : scopedOrganizationId
+        ? [scopedOrganizationId]
         : []
 
     const em = (container.resolve('em') as EntityManager).fork()
@@ -198,6 +201,9 @@ export async function GET(request: Request) {
       ...(last ? { nextCursor: encodeCursor({ updatedAt: toIsoString(last.updated_at) ?? new Date(0).toISOString(), id: last.id }) } : {}),
     })
   } catch (error) {
+    if (isCrudHttpError(error)) {
+      return NextResponse.json(error.body, { status: error.status })
+    }
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         {
