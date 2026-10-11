@@ -24,6 +24,7 @@ import { POST as claimTask } from '../tasks/[id]/claim/route'
 import { POST as unclaimTask } from '../tasks/[id]/unclaim/route'
 import { POST as completeTask } from '../tasks/[id]/complete/route'
 import { UserTask } from '../../data/entities'
+import { TaskCompletionBlockedError } from '../../lib/task-handler'
 import { makeTaskVisibilityRouteStubs, type TaskVisibilityRouteStubs } from './helpers/taskVisibilityRoute'
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
@@ -266,6 +267,30 @@ describe('acting on work that is not yours', () => {
     expect(status).toBe(403)
     expect(body.code).toBe('TASK_NOT_ACTIONABLE')
     expect(taskHandler.completeUserTask).not.toHaveBeenCalled()
+  })
+})
+
+describe('completion guards on the complete route', () => {
+  test('a guard veto from the handler answers 409 with the guard code', async () => {
+    setTask(makeTask({ assignedTo: USER_ID, assignedToRoles: null }))
+    taskHandler.completeUserTask.mockRejectedValue(
+      new TaskCompletionBlockedError({
+        guardId: 'host.signed-contract',
+        code: 'CONTRACT_NOT_SIGNED',
+        messageKey: 'host.tasks.contractNotSigned',
+        message: 'The contract must be signed first',
+      }) as never,
+    )
+
+    const { status, body } = await bodyAndStatus(await runComplete())
+
+    expect(status).toBe(409)
+    expect(body).toEqual({
+      error: 'The contract must be signed first',
+      code: 'CONTRACT_NOT_SIGNED',
+      guardId: 'host.signed-contract',
+      messageKey: 'host.tasks.contractNotSigned',
+    })
   })
 })
 
