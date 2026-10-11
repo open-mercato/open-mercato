@@ -569,6 +569,7 @@
   "insights.xray.ui.conformance.sequenceLabel": "Expected sequence",
   "insights.xray.ui.conformance.sourceSequence": "Expected sequence",
   "insights.xray.ui.conformance.sourceWorkflow": "Configured workflow (version {version})",
+  "insights.xray.ui.conformance.sourceWorkflowHidden": "Configured workflow",
   "insights.xray.ui.conformance.transitions": "Allowed transitions",
   "insights.xray.ui.conformance.unmapped": "Not mapped to a designed step: {activities}",
   "insights.xray.ui.conformance.unresolved": "{count} cases could not be compared.",

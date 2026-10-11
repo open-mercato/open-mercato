@@ -817,6 +817,12 @@ answers 422 `conformance_workflow_not_found` when `conformanceWorkflowId` is not
 definition of the same tenant and organization (`workflows_unavailable` without the workflows
 module). Responses of the settings and status routes gain `timeZone`.
 
+`GET /api/insights/xray/{processKey}/conformance` discloses a configured workflow's identity only
+to callers holding `workflows.definitions.view` in every organization that configured it: for
+everyone else a workflow model's `source` is `null` (it was always an object) and its `key` is an
+opaque `workflow:hidden:<n>` instead of `workflow:<definitionId>`. Ad-hoc `sequence` models are
+unchanged. Clients must accept `models[].source === null`.
+
 **Action for module authors.** The workflows module registers the additive DI service
 `workflowDraftService` (`validateDraftDefinition(payload, scope)`, `getDefinitionForScope(id, scope)`).
 A module that proposes workflow drafts resolves it softly by name and must not import workflows

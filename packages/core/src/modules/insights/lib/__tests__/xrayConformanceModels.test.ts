@@ -6,7 +6,8 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 
 import { buildWorkflowConformanceModel, workflowModelKey } from '../analytics/workflowModel'
-import { resolveXrayConformanceModels } from '../xrayConformanceModels'
+import { redactXrayConformanceSources, resolveDisclosableXrayModelKeys, resolveXrayConformanceModels } from '../xrayConformanceModels'
+import type { ConformanceResult } from '../analytics/types'
 import { WORKFLOW_DRAFT_SERVICE_KEY, resolveWorkflowDraftService, type XrayWorkflowDefinitionShape } from '../workflowsBridge'
 
 const TENANT_ID = '11111111-0000-4000-8000-000000000001'
@@ -130,5 +131,47 @@ describe('resolveWorkflowDraftService', () => {
     expect(resolveWorkflowDraftService({ resolve: () => ({ validateDraftDefinition: 1 }) })).toBeNull()
     expect(resolveWorkflowDraftService({ resolve: () => { throw new Error('missing') } })).toBeNull()
     expect(resolveWorkflowDraftService({ resolve: () => service, hasRegistration: () => false })).toBeNull()
+  })
+})
+
+describe('conformance workflow identity', () => {
+  const keyA = workflowModelKey(DEFINITION_A)
+  const keyB = workflowModelKey(DEFINITION_B)
+
+  it('discloses a model only when the caller holds workflows.definitions.view in every organization that configured it', async () => {
+    const userHasAllFeatures = jest.fn(async (_userId: string, required: string[], scope: { organizationId: string | null }) => (
+      required.length === 1 && required[0] === 'workflows.definitions.view' && scope.organizationId === ORG_A
+    ))
+    const container = { resolve: () => ({ userHasAllFeatures }) }
+    const shared = await resolveDisclosableXrayModelKeys(container, { userId: 'user-1', tenantId: TENANT_ID, organizationModelKeys: { [ORG_A]: keyA, [ORG_B]: keyA } })
+    expect(shared.size).toBe(0)
+    const split = await resolveDisclosableXrayModelKeys(container, { userId: 'user-1', tenantId: TENANT_ID, organizationModelKeys: { [ORG_A]: keyA, [ORG_B]: keyB } })
+    expect(Array.from(split)).toEqual([keyA])
+    expect(userHasAllFeatures).toHaveBeenCalledWith('user-1', ['workflows.definitions.view'], { tenantId: TENANT_ID, organizationId: ORG_B })
+    expect((await resolveDisclosableXrayModelKeys({ resolve: () => { throw new Error('missing') } }, { userId: 'user-1', tenantId: TENANT_ID, organizationModelKeys: { [ORG_A]: keyA } })).size).toBe(0)
+  })
+
+  it('replaces the source and the definition-bearing key of hidden workflows, keeping sequences and refusals', () => {
+    const model = (key: string, source: { kind: 'workflow' | 'sequence'; definitionId: string | null; version: number | null }) => ({
+      key, source, n: 5, conformingCases: null, fitness: null, fitnessLowerBound: null, lowConfidence: true, transitions: null, deviations: [],
+    })
+    const ok = {
+      processKey: 'test.deal', organizationIds: [ORG_A, ORG_B], n: 5, computedThrough: null, incomplete: false,
+      status: 'ok', coverage: 1, minCoverage: 0.6, truncatedCases: 0, unresolvedCases: 0, unmappedActivities: [],
+      models: [
+        model(keyA, { kind: 'workflow', definitionId: DEFINITION_A, version: 3 }),
+        model(keyB, { kind: 'workflow', definitionId: DEFINITION_B, version: 1 }),
+        model('sequence', { kind: 'sequence', definitionId: null, version: null }),
+      ],
+    } as unknown as ConformanceResult
+    const redacted = redactXrayConformanceSources(ok, new Set([keyB]))
+    expect(redacted.status === 'ok' ? redacted.models.map((entry) => [entry.key, entry.source?.definitionId ?? null]) : null).toEqual([
+      ['workflow:hidden:1', null],
+      [keyB, DEFINITION_B],
+      ['sequence', null],
+    ])
+    expect(JSON.stringify(redacted)).not.toContain(DEFINITION_A)
+    const refused = { status: 'refused' } as unknown as ConformanceResult
+    expect(redactXrayConformanceSources(refused, new Set())).toBe(refused)
   })
 })

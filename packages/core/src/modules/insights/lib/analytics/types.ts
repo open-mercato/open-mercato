@@ -412,7 +412,7 @@ export const conformanceModelResultSchema = z.object({
     kind: z.enum(['workflow', 'sequence']),
     definitionId: z.string().nullable(),
     version: z.number().int().nullable(),
-  }),
+  }).nullable(),
   n: count(),
   conformingCases: count().nullable(),
   fitness: z.number().min(0).max(1).nullable(),

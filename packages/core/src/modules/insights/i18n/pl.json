@@ -569,6 +569,7 @@
   "insights.xray.ui.conformance.sequenceLabel": "Oczekiwana sekwencja",
   "insights.xray.ui.conformance.sourceSequence": "Oczekiwana sekwencja",
   "insights.xray.ui.conformance.sourceWorkflow": "Skonfigurowany przepływ pracy (wersja {version})",
+  "insights.xray.ui.conformance.sourceWorkflowHidden": "Skonfigurowany przepływ pracy",
   "insights.xray.ui.conformance.transitions": "Dozwolone przejścia",
   "insights.xray.ui.conformance.unmapped": "Nieprzypisane do kroku wzorcowego procesu: {activities}",
   "insights.xray.ui.conformance.unresolved": "Nie udało się porównać przypadków: {count}.",

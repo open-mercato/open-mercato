@@ -569,6 +569,7 @@
   "insights.xray.ui.conformance.sequenceLabel": "Secuencia esperada",
   "insights.xray.ui.conformance.sourceSequence": "Secuencia esperada",
   "insights.xray.ui.conformance.sourceWorkflow": "Flujo de trabajo configurado (versión {version})",
+  "insights.xray.ui.conformance.sourceWorkflowHidden": "Flujo de trabajo configurado",
   "insights.xray.ui.conformance.transitions": "Transiciones permitidas",
   "insights.xray.ui.conformance.unmapped": "Sin asignar a un paso diseñado: {activities}",
   "insights.xray.ui.conformance.unresolved": "No se pudieron comparar {count} casos.",
