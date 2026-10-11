@@ -23,6 +23,7 @@
   "directory.branding.flash.saved": "조직 브랜딩이 업데이트되었습니다",
   "directory.branding.loading": "조직 브랜딩을 불러오는 중...",
   "directory.branding.nav": "조직 브랜딩",
+  "directory.branding.organizationRequired": "브랜딩은 한 번에 하나의 조직에 대해 관리할 수 있습니다. 계속하려면 단일 조직을 선택하세요.",
   "directory.branding.previewAlt": "{{name}} 로고 미리보기",
   "directory.branding.title": "조직 브랜딩",
   "directory.branding.url.hint": "외부 이미지 URL을 사용하거나 비워 두면 기본 Open Mercato 로고로 대체됩니다.",

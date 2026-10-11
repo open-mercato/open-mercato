@@ -29,7 +29,11 @@ describe('webhooks delivery worker', () => {
 
     await handler({ payload: jobData }, makeCtx(em))
 
-    expect(mockProcessWebhookDeliveryJob).toHaveBeenCalledWith(em, jobData)
+    expect(mockProcessWebhookDeliveryJob).toHaveBeenCalledWith(
+      em,
+      jobData,
+      expect.objectContaining({ resolver: expect.any(Function) }),
+    )
   })
 
   it('re-throws on job failure so the queue can retry', async () => {

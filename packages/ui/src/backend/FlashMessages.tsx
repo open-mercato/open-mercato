@@ -43,6 +43,54 @@ export function flash(message: string, type: FlashKind = 'info') {
   window.dispatchEvent(evt)
 }
 
+// Two hosts mount `<FlashMessages />` over the same page: `FrontendLayout`
+// wraps the entire app (backend routes included, via `AppProviders`) and
+// `AppShell` mounts its own copy inside `<main>`. Both listen to the same
+// `flash` event, so every backend toast rendered twice — two stacked fixed
+// overlays, each with its own dismiss button, so dismissing one left the other
+// behind. Both mount points are public surfaces third-party apps rely on, so
+// instead of deleting one, only the first host to mount renders; the others
+// keep their state in sync and take over if it unmounts.
+const mountedFlashHostIds: symbol[] = []
+const flashHostListeners = new Set<() => void>()
+
+function notifyFlashHostListeners() {
+  for (const listener of flashHostListeners) listener()
+}
+
+function subscribeFlashHosts(listener: () => void): () => void {
+  flashHostListeners.add(listener)
+  return () => {
+    flashHostListeners.delete(listener)
+  }
+}
+
+function getPrimaryFlashHostId(): symbol | null {
+  return mountedFlashHostIds[0] ?? null
+}
+
+function getServerFlashHostId(): symbol | null {
+  return null
+}
+
+function useIsPrimaryFlashHost(): boolean {
+  const hostIdRef = React.useRef<symbol | null>(null)
+  if (hostIdRef.current === null) hostIdRef.current = Symbol('om-flash-host')
+  const hostId = hostIdRef.current
+
+  React.useEffect(() => {
+    mountedFlashHostIds.push(hostId)
+    notifyFlashHostListeners()
+    return () => {
+      const index = mountedFlashHostIds.indexOf(hostId)
+      if (index >= 0) mountedFlashHostIds.splice(index, 1)
+      notifyFlashHostListeners()
+    }
+  }, [hostId])
+
+  return React.useSyncExternalStore(subscribeFlashHosts, getPrimaryFlashHostId, getServerFlashHostId) === hostId
+}
+
 type HistoryMethod = History['pushState']
 
 function useLocationKey() {
@@ -118,6 +166,7 @@ function useLocationKey() {
 function FlashMessagesInner() {
   const [msg, setMsg] = React.useState<string | null>(null)
   const [kind, setKind] = React.useState<FlashKind>('info')
+  const isPrimaryHost = useIsPrimaryFlashHost()
   const locationKey = useLocationKey()
   const dismissTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -181,7 +230,7 @@ function FlashMessagesInner() {
     setMsg(null)
   }, [clearDismissTimer])
 
-  if (!msg) return null
+  if (!msg || !isPrimaryHost) return null
 
   return (
     <div className="pointer-events-none fixed left-3 right-3 top-3 z-toast sm:left-auto sm:right-4 sm:w-[380px]">

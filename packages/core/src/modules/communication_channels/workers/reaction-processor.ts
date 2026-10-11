@@ -203,7 +203,7 @@ async function callAdapterOutbound(
         credentials,
         scope: {
           tenantId: payload.scope.tenantId,
-          organizationId: payload.scope.organizationId ?? payload.scope.tenantId,
+          organizationId: channel.organizationId ?? null,
         },
       })
     } else {
@@ -218,7 +218,7 @@ async function callAdapterOutbound(
         credentials,
         scope: {
           tenantId: payload.scope.tenantId,
-          organizationId: payload.scope.organizationId ?? payload.scope.tenantId,
+          organizationId: channel.organizationId ?? null,
         },
       })
     }

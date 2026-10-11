@@ -32,11 +32,13 @@ export const SwitchField = React.forwardRef<
   contentClassName,
   className,
   disabled,
+  'aria-describedby': ariaDescribedBy,
   ...switchProps
 }, ref) => {
   // useId is SSR/HMR-stable; counter-based fallbacks drift on hydration.
   const fallbackId = React.useId()
   const id = idProp ?? fallbackId
+  const descriptionId = `${id}-description`
 
   const hasMultiLine = Boolean(description || sublabel || link)
   const switchEl = (
@@ -44,6 +46,7 @@ export const SwitchField = React.forwardRef<
       ref={ref}
       id={id}
       disabled={disabled}
+      aria-describedby={ariaDescribedBy ?? (description ? descriptionId : undefined)}
       className={cn(hasMultiLine && 'mt-0.5', className)}
       {...switchProps}
     />
@@ -68,7 +71,7 @@ export const SwitchField = React.forwardRef<
           {badge ? <span className="inline-flex shrink-0">{badge}</span> : null}
         </div>
         {description ? (
-          <p className="text-xs leading-4 text-muted-foreground">{description}</p>
+          <p id={descriptionId} className="text-xs leading-4 text-muted-foreground">{description}</p>
         ) : null}
       </div>
       {link ? <div className="flex">{link}</div> : null}

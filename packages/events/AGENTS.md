@@ -180,10 +180,28 @@ useAppEvent('mymod.entity.created', (event) => {
   - Recipient role: `recipientRoleId` or `recipientRoleIds` must intersect connection roles
 - Missing `tenantId` in event payload means no delivery
 - SSE sends heartbeats every 30s; client auto-reconnects if no heartbeat within 45s
+- The staff DOM bridge accepts cookie and Bearer authentication only. It rejects `x-api-key` and `Authorization: ApiKey` before opening, and the UI reconnects immediately after the shared organization-scope change signal so the new request carries current selection cookies.
+- SSE re-resolves canonical auth and organization scope from the original request credentials every 30s through the shared `organizationScopeService.resolveForRequest({ auth, request })` DI contract. It closes fail-closed when the scope is rejected or no longer allowed, validation fails, or its user, tenant, selected organization, or roles change. A successful check replaces the connection identity snapshot.
+- Every server stream closes after 5 minutes even when validation succeeds, forcing native `EventSource` reconnect through fresh request authorization. Operators may lower or raise these positive millisecond bounds with `OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS` and `OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS`; invalid values and values below 1000ms fall back to the defaults, and values above Node's safe timer maximum (`2^31-1`ms) are capped there.
 - Max payload size is 4096 bytes per event
 - Client deduplicates events within a 500ms window
 - `isBroadcastEvent(eventId)` checks if an event has `clientBroadcast: true`
 - The `useEventBridge()` hook must be mounted once in the app shell to start receiving events
+
+### Coalescing browser deliveries (bulk writers)
+
+Every emit of a `clientBroadcast: true` event costs a serialized `pg_notify` roundtrip plus a tenant-wide SSE fan-out, so a bulk writer pays both once per record. Declare `broadcastCoalescing: true` to bound that:
+
+```typescript
+{ id: 'mymod.entity.created', label: 'Created', clientBroadcast: true, broadcastCoalescing: true },
+```
+
+- Only the **browser** half coalesces. Inline subscribers, webhooks, workflow triggers and the queue still receive one event per record — the domain event is untouched.
+- Within `OM_BROADCAST_COALESCE_INTERVAL_MS` (default 250, `0` disables process-wide) only the newest payload per audience (event, tenant, organizations, recipient users/roles) reaches the SSE bridges. The first emit of a burst goes out immediately, and a trailing flush is **always** armed, so the last emit is delivered and a DataTable never ends a burst stale.
+- **When to declare it:** only when browser consumers react to the fact that something changed (a list refetch), never to each occurrence. A consumer that must see every record — a per-record toast, a running tally — MUST NOT have its event opted in; suppressed payloads are dropped, not merged.
+- MUST NOT combine with `crossProcessBroadcast` — delaying private coordination would let another process serve stale data. `createModuleEvents` throws on that declaration, and on `broadcastCoalescing` without a browser sink.
+- `isCoalescedBroadcastEvent(eventId)` reports the resolved decision. `progress.job.updated` keeps its own service-local throttle (`OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS`) and is not affected.
+- `registerGlobalEventTap` is not a browser-only sink — it is a public export that any process-local listener can use (integration-test event capture included), not just the two SSE endpoints. For an opted-in event, every tap sees the same coalesced, trailing-flush-guaranteed stream the browser does, never a call per record. Do not rely on a global tap to observe every occurrence of an event that declares `broadcastCoalescing: true`.
 
 ### Private cross-process coordination
 

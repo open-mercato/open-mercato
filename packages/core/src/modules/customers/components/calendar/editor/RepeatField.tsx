@@ -26,7 +26,6 @@ export function RepeatField({
   endType,
   count,
   untilDate,
-  locale,
   onFreqChange,
   onToggleDay,
   onEndTypeChange,
@@ -38,7 +37,6 @@ export function RepeatField({
   endType: EditorRepeatEndType
   count: number
   untilDate: string
-  locale: string
   onFreqChange(next: EditorRepeatFreq): void
   onToggleDay(index: number): void
   onEndTypeChange(next: EditorRepeatEndType): void
@@ -105,7 +103,6 @@ export function RepeatField({
               value={untilDate || ''}
               onChange={onUntilDateChange}
               ariaLabel={t('customers.calendar.editor.repeat.onDate', 'On date')}
-              locale={locale}
             />
           ) : null}
           {endType === 'count' ? (
