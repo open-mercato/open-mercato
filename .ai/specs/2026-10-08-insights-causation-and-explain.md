@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Status | In Progress |
+| Status | Implemented |
 | Owner | insights (new core module) |
 | Related specs | `implemented/SPEC-017-2026-02-03-version-history-panel.md`, `implemented/SPEC-020-2026-02-07-related-entity-version-history.md`, `2026-07-28-audit-log-read-tenant-scope-fail-closed.md`, `2026-06-18-call-openmercato-business-rule-action.md`, `2026-08-07-auth-acl-change-audit-logging.md`, `2026-08-21-scheduler-manual-trigger-audit-logging.md`, `2026-07-20-correlated-workflow-signal-waits.md` |
 | Follow-up specs (planned) | `2026-10-08-insights-process-xray.md`, `2026-10-08-insights-change-simulator.md`, enterprise `enterprise/2026-10-08-agent-orchestrator-causation.md` |
@@ -140,7 +140,7 @@ export const explainConfig = defineExplainConfig({
   }],
   causeResolvers?: [{ kind: CauseKind, requiredFeatures: string[], resolve: (ctx, refs) => Promise<CauseDetail[]> }],
   referenceResolvers?: [{ kind: string, requiredFeatures: string[], resolve: (ctx, refs) => Promise<ReferenceDetail[]> }],
-  providers?: Record<string, ExplainFieldProvider>,
+  providers?: ExplainFieldProvider[],   // { id, explain(ctx) }
 })
 ```
 
@@ -371,6 +371,7 @@ Each phase is one independently reviewable change set (stacked branches).
 - 2026-10-11: Security review fix (access explain): `detail.rolesThatWouldGrant` returned role names, organization lists and features of tenant roles to any `insights.explain.access_detail` holder, enabling role enumeration without `auth.roles.list`. It is now included only when the caller also holds `auth.roles.list` (wildcard-aware `rbacService.userHasAllFeatures` at the caller's feature-check organization) and omitted otherwise (optional in the response schema; the panel hides the row).
 - 2026-10-08: Spec created; open questions resolved with recommended defaults (owner decision: implement end-to-end without further questions).
 - 2026-10-08: Revised after `om-spec-writing` review and `om-pre-implement-spec` audit: phasing and implementation plan, MVP resources, viewer visibility matrix, field-level authorization, scan budget and cache strategy, field-spot resolution rule (bare `crud-form:*` excluded), corrected D4/D10/D11 and propagation paths, correlation fallback in the command bus, kill switch, BC rows for §3/§4/§5/§9/§11/§13, non-partial concurrent indexes mapped to queries.
+- 2026-10-11: Implementation complete (phases 1a–4b); ready for review as two stacked PRs — the causation foundation (phases 1a–1b) and "Why?" (phases 2–4b) — with Process X-Ray and the change simulator stacked on top. Status set to Implemented; the spec stays in the root until the feature is deployed. Contract snippet corrected: `providers` is an array of `{ id, explain }` (`ExplainFieldProvider[]`), as shipped. Still open (not part of this spec's MVP): the enterprise follow-up `enterprise/2026-10-08-agent-orchestrator-causation.md` (agent-run frames) has not been written; writes that bypass the command bus stay coverage hints. Docs: user guide `apps/docs/docs/user-guide/insights.mdx`, framework reference `apps/docs/docs/framework/modules/insights.mdx`.
 - 2026-10-08: Phase 4b implemented. Additions beyond the plan: CrudForm form-level widget context `injectionSpotId` (lets the header switch key explain mode by form), descriptor field `currentPath` (field id → explain key mapping), the field-spot resolution rule documented in BACKWARD_COMPATIBILITY.md §6. `customer_groups` (`noHistory`) gets no field buttons.
 - 2026-10-08: Phase 3 implemented. `sales.line_price` provider (`sales/lib/explain/linePriceProvider.ts`; facts `sales.insights.linePrice.*` with `params.outcome` = `matched_price_row` / `differs` (both at most `inferred`), `no_catalog_link` (`proven`), `unverifiable` (`unknown`: price unavailable, currency mismatch, amount missing, price absent at write); the price row amount is read as of the line write time from the price row's audit history, skipping redo replays and changes within 5 ms of the write), `catalog.price` reference resolver, `RbacService.explainAccess` / `findRolesGrantingFeatures`, `GET /api/insights/explain/access`, DI `accessExplainService`. Field providers run on the first explain page only (a continuation page holds a partial history window). Response addition: access `summary`. Sales line items exposed to explain gain `priceId` / `priceMode`.
 - 2026-10-08: Phase 2 implemented. Contract additions: `itemResourceKinds` on collections, `listRecordIds` on resources, verdict/confidence/gap constant sets, optional history-entry fields; response additions: `causedBy`, `stale`, `orderUncertain`, value `source` (`synthesized` for undo traces), `labelKey`, `dependencies`, `page.continuation`, `viewer.canSeeOwnValues`, summary `logId`.

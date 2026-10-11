@@ -1,0 +1,128 @@
+---
+title: Insights
+description: Ask "Why?" about any explainable value — its recorded history, the cause of each change, and why access is denied.
+sidebar_label: Insights
+---
+
+# Insights
+
+The **Insights** module answers, from the audit history Open Mercato already records:
+
+- **"Why?"** — why does this field have this value, and who or what set it? And why can I not open this page?
+
+It only reads history; it never changes your data. Its design rule is that **a wrong cause is worse than "unknown"**: when the history cannot prove something, Insights says so instead of guessing.
+
+"Why?" has no menu entry: it appears on the records it can explain.
+
+## Permissions
+
+| Feature | What it allows | Granted by default to |
+|---|---|---|
+| `insights.explain.view` | "Why?" on records, fields and audit entries | `superadmin`, `admin`, `employee` |
+| `insights.explain.access_detail` | Detailed access explanations (roles, personal permissions, roles that would grant access — also needs `auth.roles.list` —, recent permission changes) | `superadmin`, `admin` |
+
+`superadmin` receives these through `insights.*`; the `admin` role lists them one by one. Nested wildcards such as `insights.explain.*` are **not** honoured — grant the individual features or `insights.*`. After upgrading an existing installation, run `yarn mercato auth sync-role-acls` so existing roles receive the new features.
+
+Insights never widens access: every explanation also requires the permission to read the underlying records (for example `customers.deals.view` for deals, `sales.orders.view` for orders).
+
+## "Why?" — explain a value
+
+### Where to find it
+
+| Entry point | Where | What it shows |
+|---|---|---|
+| **Why?** button | Detail pages of deals, people, companies, sales orders and sales quotes | A drawer with the record's **explainable fields**; pick one to see its history. **Open as page** opens the same explanation on its own page. |
+| **Why this status?** | Next to the status badge on a deal's detail page | The explanation of the deal status. |
+| **Why did this happen?** | Each entry of a record's version history | The recorded cause of that one change, with a link to explain the whole record. |
+| **Explain fields** switch | Header of the deal, person and company **edit** forms | While the switch is on, a "?" button appears after each explainable field ("Why does … have this value?"). The switch is remembered per browser and form. |
+| **Why can't I open this?** | The access-denied page | Which required permissions you are missing and why (see [Access explanations](#access-explanations)). |
+| Deep link | `/backend/insights/why?resourceKind=…&resourceId=…&field=…` | The explanation as a page. For a field of an order or quote line, add the line: `field=lines.unitPriceNet&itemId=<line id>`. |
+
+Which records and fields are explainable is decided by the module that owns them. Out of the box: deals (status, pipeline stage, value amount and currency, owner, custom fields), people and companies (display name, status, lifecycle stage, custom fields), and sales orders and quotes (status, currency, net and gross totals — calculated from the lines — and, per line, unit price and quantity). Order and quote **line** fields are not listed in the drawer; open them through the deep link (or the API / AI tool) with the line's id.
+
+### Reading an explanation
+
+An explanation shows:
+
+- the **current value**;
+- a **verdict** and a **confidence** (below);
+- a one-sentence **summary**;
+- **Recorded changes** — newest first, each with the old and new value, who made it, and its **cause**. Expand an entry (**Change details**) to see the cause chain, what triggered it ("Triggered by", "Started by"), the correlation id shared by everything that happened in the same request or job, and "On behalf of" for delegated actions;
+- **gaps** (for example "A change between these entries was not recorded") and **notes**;
+- **Load older changes** when the history is longer than one page.
+
+The cause of a change is one of:
+
+| Cause | Meaning |
+|---|---|
+| User | A person saved the change in the UI or through the API with their session. |
+| API key | An integration called the API with an API key. |
+| Agent | An agent running under its own identity (for example an orchestrated AI agent), possibly on behalf of a person ("On behalf of"). |
+| Workflow | A workflow step (the workflow instance is linked when you may see it). |
+| Business rule | A business rule action, including rules that call the Open Mercato API. |
+| AI action | An AI assistant action you or a colleague confirmed. |
+| AI tool | A tool an AI assistant ran. |
+| Data sync | An import or export run of a data sync integration. |
+| Scheduled job | A schedule of the scheduler. |
+| Event handler | A module reacting to an event (for example a subscriber that updates related records). |
+| Undo / Redo | An undo or redo of an earlier change. |
+| System | A system process, such as a CLI command or a resumed workflow. |
+| Unknown cause | Nothing reliable was recorded. |
+
+Changes recorded **before cause tracking** existed are shown as "Recorded as a user action — may have been automation": older history cannot tell a person from an automation that used their account.
+
+Causes link to the workflow, rule, schedule, API key or other source only when you may open it; otherwise you see the kind of cause with "details not available".
+
+### Verdicts
+
+| Verdict | Meaning |
+|---|---|
+| **Explained** | The recorded history accounts for the current value. |
+| **Partially explained** | The history explains the value, but there are gaps (an unrecorded change between two entries, a recorded entry without this value, or only part of the history was read). |
+| **No history record found** | The current value differs from the last recorded value. Something changed it without writing an audit entry — for example a process that writes directly to the database. If the owning module knows such a writer, a note names it. |
+| **No history** | No recorded change touches this value: the history has no entry that sets it, for example because the record was written by a process that records no history. Some modules record no history at all (customer groups, for example) and the explanation says so: "This module does not record history for this value". |
+| **Pending** | The value changed less than two minutes ago and its history entry may not be written yet. Check again shortly. |
+
+"No history record found" and "No history" are statements about the audit trail, not accusations: they say the platform has no evidence, not that someone bypassed it.
+
+### Confidence
+
+| Confidence | When |
+|---|---|
+| **Proven** | The change was recorded with its cause, and the value at that point is consistent with the neighbouring entries and the current value. |
+| **Inferred** | The answer is probably right but rests on weaker evidence: an entry from before cause tracking, a value taken from the change list instead of a full snapshot, a calculated field (such as order totals), a cause derived from the recorded actor, changes recorded within a few milliseconds of each other, a link to another change that is not available, or a history that was only partly scanned. Line price notes ("matched the catalog price row") are never better than inferred. |
+| **Unknown** | The history cannot support an answer. |
+
+Confidence is always shown with an icon and text, never by colour alone.
+
+### What you can see
+
+- Without `audit_logs.view_tenant`, other people appear as "Another user", and the past values of their changes are hidden ("Hidden"). With `audit_logs.view_self` you still see the past values of your own changes. The current value is always shown — you can already read it on the record.
+- Records you cannot open, and records of other organizations, answer "Nothing to explain" — exactly as if they did not exist.
+- Only the most recent 500 history entries are read per request (configurable, see below). When more exist the explanation says "Only the most recent history was scanned", and its confidence is at most **Inferred**.
+
+### Access explanations
+
+On the access-denied page, **Why can't I open this?** lists the permissions the page requires, which of them you are missing, and the reason, for example:
+
+- a required permission is not granted to you;
+- it is granted only in other organizations than the selected one;
+- your personal permission settings replace the permissions of your roles;
+- the module providing it is disabled, or the permission no longer exists;
+- every permission is granted, so access was denied by a rule that cannot be explained here.
+
+Any signed-in user can ask for their own explanation. With `insights.explain.access_detail` the panel also shows where your permissions come from (roles, personal permissions, super administrator, API key), the roles that would grant the missing permissions (only if you may also list roles, `auth.roles.list`) and recent permission changes. Explaining another user's access additionally requires `auth.users.list`.
+
+## Configuration reference
+
+| Setting | Default | Effect |
+|---|---|---|
+| `OM_CAUSATION` | on | Records the cause of every audited write and carries it across events, queued jobs and automations. `off` is a kill switch: new audit entries carry no cause, so "Why?" treats them like history recorded before cause tracking (at most **Inferred**). |
+| `OM_INSIGHTS_EXPLAIN_SCAN_MAX` | 500 | History entries one "Why?" request reads (at most 5000). |
+| Feature toggle `insights_field_explain` | on | Kill switch for the **Explain fields** switch and the per-field "?" buttons. |
+
+The feature toggle is created for new tenants when the feature toggles module is enabled; a missing toggle counts as on. To turn the feature off on an existing installation, create the global boolean toggle with default `false` (see [Feature Toggles](./feature-toggles.mdx)).
+
+Administrators can measure how much of the history can be explained with the CLI: `yarn mercato insights explain:coverage`.
+
+For developers — how modules contribute explainable records — see [Insights contracts](../framework/modules/insights.mdx).
