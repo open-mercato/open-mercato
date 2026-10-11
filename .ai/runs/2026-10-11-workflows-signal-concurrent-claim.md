@@ -37,6 +37,8 @@ Make `sendSignal` advance a `PAUSED` workflow instance exactly once under concur
 
 ## Progress
 
+PR: #7190
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Atomic claim
