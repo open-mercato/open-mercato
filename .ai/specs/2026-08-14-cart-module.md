@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification (rev 8 — proposal seam review fixes) |
+| **Status** | Specification (rev 9 — discount basis and order-scoped gross effects corrected) |
 | **Created** | 2026-08-14 |
 | **Suite** | [Ecommerce Suite Roadmap](./2026-08-14-ecommerce-suite-roadmap.md) — spec 5, Phase 2 |
 | **Modules** | `cart` (new) |
@@ -117,8 +117,8 @@ The mapping is direct because `SalesLineSnapshot` already carries `productId`, `
 
 **Promotion effects split by target**, per SPEC-055 §B.6 — they do not all become adjustment drafts. Only `appliesTo: 'order'` effects (`CART_DISCOUNT`, `DELIVERY_DISCOUNT`) become `SalesAdjustmentDraft`. A `LINE_DISCOUNT` becomes `SalesLineSnapshot.discountAmount` on the matching line, because `SalesAdjustmentDraft` carries no line reference and `sales` currently rejects a line-attributed draft outright (`documents.ts` — *"Line-scoped adjustments are not supported yet."*). Three rules bind this mapping, each of them a mispriced cart if broken:
 
-1. `discountAmount` is **per-unit over the line's full quantity**: assign `|amount| / lineQuantity` — never `unitAmount`, never the raw `amount`, and divide by `lineQuantity` rather than `appliedQuantity`. There is no basis flag to pick: `buildBaseLineResult` (`packages/core/src/modules/sales/lib/calculations.ts:80-123`) reads `discountAmount` as `discountPerUnit` and computes `min(max(discountPerUnit × quantity, 0), netSubtotalBeforeDiscount)` for every document kind. A benefit covering 5 of 8 units at −2.40 has `amount: "-12.00"`, so `discountAmount = 1.50` and `sales` reproduces `1.50 × 8 = 12.00`; assigning `unitAmount` would discount 19.20 and assigning `amount` 96.00. Where `lineQuantity` does not divide the total the 4 dp rounding (`calculations.ts:22-24`) leaves a sub-cent gap — the document total is authoritative, the effect's `amount` is the display figure.
-2. `discountAmount` is a positive magnitude on a **net** basis; take the absolute value, and convert when the effect's `basis` is `'gross'`.
+1. A `LINE_DISCOUNT` becomes `SalesLineSnapshot.discountAmount` as the effect's **line total**: assign `|amount|` and set `discountAmountBasis: 'line'`. `resolveLineDiscountTotal` (`packages/core/src/modules/sales/lib/calculations.ts:97-116`) returns that value unchanged for a `'line'` basis (`:115`); without the flag `discountAmount` is read as a per-unit rate and multiplied by `lineQuantity`, so a line total must never be assigned bare. Never assign `unitAmount`. The flag is caller-only (`packages/core/src/modules/sales/lib/types.ts:60-66`); omitted, it reproduces the API's long-standing per-unit meaning (`packages/core/src/modules/sales/data/validators.ts:345`). `discountPercent` takes precedence: whenever it is set and non-zero the engine uses the percentage and ignores `discountAmount` (`calculations.ts:103-106`).
+2. A discount is a positive magnitude on a **net** basis: take the absolute value, and convert a `'gross'`-basis line effect to net before assigning it. An order-scoped effect (`CART_DISCOUNT`, `DELIVERY_DISCOUNT`) mapped to a `SalesAdjustmentDraft` must carry `metadata.taxRate` with `amountGross` whenever its basis is `'gross'`; the engine then derives `amountNet` from the rate (`packages/core/src/modules/sales/lib/calculations.ts:73-75`), so `amountNet` itself is optional. Tax is reduced only when the rate is present (`calculations.ts:246`) — a net figure supplied without it leaves the tax untouched. With neither a rate nor `amountNet`, the engine reads the gross figure as the net too (`calculations.ts:230`), so the net subtotal drops by the gross figure while tax is untouched and the document total still reconciles. On a cart with several tax rates, a gross order-scoped effect is split into one draft per rate group, allocated pro rata by each group's gross subtotal, each carrying its own `metadata.taxRate`.
 3. Several cumulative promotions on one line sum into that single scalar. Per-promotion attribution on the line does not survive; it lives in `PromotionUsage.effects_snapshot`.
 
 SPEC-055 §B.7 defers giving `SalesAdjustmentDraft` a `lineId` to its own spec against `sales`, on blast-radius grounds — `sales` is shipped code with live orders, quotes and returns, while `cart` and `promotions` are both greenfield.
@@ -688,11 +688,10 @@ The four lifecycle `cart.proposal.*` events carry `{ proposalCartId, targetCartI
 ## 14) Integration Coverage
 
 **Totals correctness (Phase 2 gate):**
-- Cart totals equal the totals of the `SalesOrder` produced from the same lines, across a tax matrix including compound rates, mixed rates within a cart, and rounding boundaries (R1)
+- Cart totals equal the totals of the `SalesOrder` produced from the same lines, across a tax matrix including compound rates, mixed rates within a cart, and rounding boundaries (R1); the net and tax components are asserted against independently computed expected values — for a gross-basis order-scoped effect the net discount is `gross / (1 + rate)` and the tax drops by the difference — rather than against a second run of the same engine, so an effect that reduces net without reducing tax fails the gate
 - Totals stored verbatim; no re-rounding on read
-- Order-scope promotion effects reach `salesCalculationService` as `SalesAdjustmentDraft`, line- and unit-scope effects as `SalesLineSnapshot.discountAmount` carrying `|amount| / lineQuantity`, and both are reflected in totals (SPEC-055 §B.6)
-- A partially covered line (`appliedQuantity < lineQuantity`) discounts `unitAmount × appliedQuantity`, not `unitAmount × lineQuantity` — asserted in all three directions (correct mapping, `unitAmount` assigned directly, raw `amount` assigned) so neither mis-mapping can pass (SPEC-055 A-R6 / `TC-PROM-060`)
-- Where `lineQuantity` does not divide `|amount|` evenly, the byte-identical-totals assertion above compares document totals; the effect's `amount` may differ from the realised discount by up to the 4 dp rounding step
+- Order-scope promotion effects reach `salesCalculationService` as `SalesAdjustmentDraft`, line- and unit-scope effects as `SalesLineSnapshot.discountAmount` carrying the effect's line total (`|amount|` on `discountAmountBasis: 'line'`), and both are reflected in totals (SPEC-055 §B.6)
+- A partially covered line (`appliedQuantity < lineQuantity`) discounts `unitAmount × appliedQuantity`, not `unitAmount × lineQuantity` — asserted in all three directions (correct mapping, `unitAmount` assigned directly, the line total assigned without the `'line'` basis) so neither mis-mapping can pass (SPEC-055 A-R6 / `TC-PROM-060`)
 
 **Pricing:**
 - Snapshot stable across repeated reads within the staleness budget
@@ -838,6 +837,13 @@ Approval routing, bulk lines, admin cart list, abandonment events, **and the who
 ---
 
 ## 18) Changelog
+
+### 2026-10-11 (rev 9 — discount basis and order-scoped gross effects corrected)
+
+Post-merge review of #5384. Rev 5's §3.2 rule 1 was written against a `sales` API that does not exist — it denied the `discountAmountBasis` flag and mandated a per-unit division that makes the Phase 2 byte-identical-totals gate unreachable. `SalesLineDiscountBasis` (`packages/core/src/modules/sales/lib/types.ts:40`), the caller-only `discountAmountBasis` field (`:60-66`) and its honouring in `resolveLineDiscountTotal` (`packages/core/src/modules/sales/lib/calculations.ts:115`) shipped on 2026-08-28 (#5640), twelve days before rev 5 asserted the opposite.
+
+- §3.2 rule 1: replaced with the real contract — a `LINE_DISCOUNT` is mapped as the effect's line total, `discountAmount = |amount|` with `discountAmountBasis: 'line'`; the per-unit division, the residual paragraph and the §14 carve-out that depended on it are deleted.
+- §3.2 rule 2 and §14: an order-scoped gross-basis effect (`CART_DISCOUNT`, `DELIVERY_DISCOUNT`) must carry `metadata.taxRate` with `amountGross`, because the engine reduces tax only when the rate is present (`calculations.ts:246`) and otherwise reads `amountGross` as the net too (`calculations.ts:230`); the Phase 2 gate now asserts the net and tax components against independently computed expected values, not only the document total.
 
 ### 2026-09-30 (§8.2 ordering clarified)
 - **§8.2 states that the idempotency lookup runs before the §8.1 optimistic-lock check.** §8.1's "every mutating command starts with" the lock check read, literally, as the opposite order, under which a retried mutation that had already landed gets a `409` instead of its original result. One sentence, no contract change: cart is unimplemented. Requested by [Offline Field Mode](./2026-09-22-offline-field-mode.md) §3.3, whose chunked replay depends on it; the storefront's own double-tap retry (storefront-app §5.2) depends on it too.
