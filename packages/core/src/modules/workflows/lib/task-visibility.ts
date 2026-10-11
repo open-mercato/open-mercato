@@ -497,8 +497,12 @@ export type TaskAffordances = {
   canReassign: boolean
   /** Why `canComplete` is false, for a caller who can read the row. */
   actBlockedReason: TaskActionBlockReason | null
-  /** The guard veto behind `actBlockedReason: 'completion-guard'`, else null. */
-  completionGuard: TaskCompletionGuardSummary | null
+  /**
+   * The guard veto behind `actBlockedReason: 'completion-guard'`, else null.
+   * Optional so code building a `TaskAffordances` itself keeps compiling;
+   * `resolveTaskAffordances` always sets it.
+   */
+  completionGuard?: TaskCompletionGuardSummary | null
 }
 
 /**
