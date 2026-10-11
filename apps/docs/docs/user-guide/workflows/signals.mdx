@@ -220,7 +220,9 @@ A paused instance is advanced by exactly one delivery of a signal. When the same
 - `POST /api/workflows/instances/{instanceId}/signal` answers **409** (`WORKFLOW_NOT_PAUSED`) for the refused deliveries.
 - `POST /api/workflows/signals` lists them under `failures` with the code `WORKFLOW_NOT_PAUSED`.
 
-A refused delivery changes nothing, so a sender retrying a signal it already sent can treat the 409 as "already delivered".
+A correlation-key delivery is addressed to the wait each instance was parked on when it was listed. If a concurrent delivery has already moved the instance on to a later wait — even one waiting for the same signal name — the late delivery is refused the same way instead of consuming that later wait.
+
+A refused delivery changes nothing, so a sender retrying a signal it already sent can treat the 409 as "already delivered". A delivery that fails before anything of it is recorded hands the wait back, so retrying it delivers the signal rather than being refused.
 
 ## Example: Order Fulfillment with Payment Webhook
 

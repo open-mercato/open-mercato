@@ -110,6 +110,23 @@ describe('Workflow Signals - Phase 9.1', () => {
     },
   }
 
+  const twoWaitDefinition = {
+    ...mockDefinition,
+    definition: {
+      steps: [
+        { stepId: 'start', stepType: 'START' },
+        { stepId: 'wait_approval', stepType: 'WAIT_FOR_SIGNAL', signalConfig: { signalName: 'approval_granted' } },
+        { stepId: 'wait_second', stepType: 'WAIT_FOR_SIGNAL', signalConfig: { signalName: 'approval_granted' } },
+        { stepId: 'end', stepType: 'END' },
+      ],
+      transitions: [
+        { transitionId: 't1', fromStepId: 'start', toStepId: 'wait_approval', trigger: 'auto' },
+        { transitionId: 't2', fromStepId: 'wait_approval', toStepId: 'wait_second', trigger: 'auto' },
+        { transitionId: 't3', fromStepId: 'wait_second', toStepId: 'end', trigger: 'auto' },
+      ],
+    },
+  }
+
   const mockStepInstance = {
     id: 'step-instance-123',
     workflowInstanceId: instanceId,
@@ -351,6 +368,7 @@ describe('Workflow Signals - Phase 9.1', () => {
 
     afterEach(() => {
       mockFindOneWithDecryption.mockReset()
+      mockFindWithDecryption.mockReset()
       mockEm.nativeUpdate.mockReset()
     })
 
@@ -453,6 +471,166 @@ describe('Workflow Signals - Phase 9.1', () => {
         })
       ).rejects.toMatchObject({ code: 'SIGNAL_NAME_MISMATCH' })
       expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
+    })
+
+    it('refuses an expectedStepId delivery when the instance is PAUSED on a later wait for the same signal', async () => {
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce({ ...mockInstance, status: 'PAUSED', currentStepId: 'wait_second' } as any)
+        .mockResolvedValueOnce({ ...twoWaitDefinition } as any)
+
+      await expect(
+        sendSignal(mockEm, mockContainer, {
+          instanceId,
+          expectedStepId: 'wait_approval',
+          signalName: 'approval_granted',
+          userId,
+          tenantId,
+          organizationId,
+        })
+      ).rejects.toMatchObject({ code: 'WORKFLOW_NOT_PAUSED' })
+      expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
+      expect(mockLogWorkflowEvent).not.toHaveBeenCalled()
+      expect(mockExecuteTransition).not.toHaveBeenCalled()
+    })
+
+    it('fan-out does not advance an instance listed on wait1 that a concurrent fan-out already parked on wait2', async () => {
+      mockFindWithDecryption.mockResolvedValueOnce([
+        { ...mockInstance, correlationKey: 'batch-wait', currentStepId: 'wait_approval' },
+      ] as any)
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce({ ...mockInstance, status: 'PAUSED', currentStepId: 'wait_second' } as any)
+        .mockResolvedValueOnce({ ...twoWaitDefinition } as any)
+
+      const result = await sendSignalByCorrelationKeyWithResults(mockEm, mockContainer, {
+        correlationKey: 'batch-wait',
+        signalName: 'approval_granted',
+        userId,
+        tenantId,
+        organizationId,
+      })
+
+      expect(result).toEqual({
+        count: 0,
+        failures: [{ instanceId, code: 'WORKFLOW_NOT_PAUSED', message: 'Workflow is not paused' }],
+      })
+      expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
+      expect(mockLogWorkflowEvent).not.toHaveBeenCalled()
+      expect(mockExecuteTransition).not.toHaveBeenCalled()
+      expect(mockExecuteWorkflow).not.toHaveBeenCalled()
+    })
+
+    it('advances each instance exactly once when three fan-out calls race over two same-signal waits', async () => {
+      const ids = ['instance-a', 'instance-b']
+      const rows = new Map<string, InstanceRow>(ids.map((id) => [id, { status: 'PAUSED', currentStepId: 'wait_approval' }]))
+      const nextStep: Record<string, string> = { wait_approval: 'wait_second', wait_second: 'end' }
+      const signalReceived = new Map<string, number>()
+
+      let listings = 0
+      let releaseListings: () => void = () => {}
+      const allListed = new Promise<void>((resolve) => { releaseListings = resolve })
+      let releaseStraggler: () => void = () => {}
+      const firstTwoSettled = new Promise<void>((resolve) => { releaseStraggler = resolve })
+      mockFindWithDecryption.mockImplementation((async () => {
+        const listed = ids
+          .filter((id) => rows.get(id)!.status === 'PAUSED')
+          .map((id) => ({ ...mockInstance, id, correlationKey: 'batch-race', ...rows.get(id)! }))
+        listings += 1
+        const isStraggler = listings === 3
+        if (isStraggler) releaseListings()
+        await allListed
+        if (isStraggler) await firstTwoSettled
+        return listed
+      }) as any)
+      mockFindOneWithDecryption.mockImplementation((async (_em: unknown, entity: unknown, where: { id?: string; workflowInstanceId?: string }) => {
+        if (entity === WorkflowInstance) {
+          const row = rows.get(where.id as string)
+          return row ? { ...mockInstance, id: where.id, ...row, context: {} } : null
+        }
+        if (entity === WorkflowDefinition) return { ...twoWaitDefinition }
+        if (entity === StepInstance) return { ...mockStepInstance, workflowInstanceId: where.workflowInstanceId }
+        return null
+      }) as any)
+      mockEm.nativeUpdate.mockImplementation(async (_entity: unknown, where: Record<string, unknown>, data: Record<string, unknown>) => {
+        const row = rows.get(where.id as string)
+        if (!row || row.status !== where.status || row.currentStepId !== where.currentStepId) return 0
+        row.status = data.status as string
+        return 1
+      })
+      mockLogWorkflowEvent.mockImplementation(async (_em: unknown, event: { workflowInstanceId: string }) => {
+        signalReceived.set(event.workflowInstanceId, (signalReceived.get(event.workflowInstanceId) ?? 0) + 1)
+        return {}
+      })
+      mockFindValidTransitions.mockImplementation(async (_em: unknown, _instance: unknown, fromStepId: string) => [
+        { transition: { transitionId: `t_${fromStepId}`, fromStepId, toStepId: nextStep[fromStepId], trigger: 'auto' }, isValid: true },
+      ])
+      mockExecuteTransition.mockImplementation(async (_em: unknown, _container: unknown, instance: { id: string }, _from: string, toStepId: string) => {
+        rows.get(instance.id)!.currentStepId = toStepId
+        return { success: true }
+      })
+      mockExecuteWorkflow.mockImplementation(async (_em: unknown, _container: unknown, id: string) => {
+        const row = rows.get(id)!
+        row.status = row.currentStepId === 'end' ? 'COMPLETED' : 'PAUSED'
+        return {}
+      })
+
+      const fanOut = () =>
+        sendSignalByCorrelationKeyWithResults(mockEm, mockContainer, {
+          correlationKey: 'batch-race',
+          signalName: 'approval_granted',
+          userId,
+          tenantId,
+          organizationId,
+        })
+      const firstTwo = Promise.all([fanOut(), fanOut()])
+      const straggler = fanOut()
+      const settled = await firstTwo
+      releaseStraggler()
+      const results = [...settled, await straggler]
+
+      expect(results.reduce((sum, result) => sum + result.count, 0)).toBe(2)
+      const failures = results.flatMap((result) => result.failures)
+      expect(failures).toHaveLength(4)
+      for (const failure of failures) expect(failure.code).toBe('WORKFLOW_NOT_PAUSED')
+      for (const id of ids) {
+        expect(rows.get(id)).toEqual({ status: 'PAUSED', currentStepId: 'wait_second' })
+        expect(signalReceived.get(id)).toBe(1)
+      }
+    })
+
+    it('hands the wait back when the delivery fails before its first write commits, so a retry still lands', async () => {
+      const row: InstanceRow = { status: 'PAUSED', currentStepId: 'wait_approval' }
+      const instance: any = { ...mockInstance, context: { orderId: 'order-123' } }
+      mockFindOneWithDecryption.mockImplementation((async (_em: unknown, entity: unknown) => {
+        if (entity === WorkflowInstance) return instance
+        if (entity === WorkflowDefinition) return { ...mockDefinition }
+        if (entity === StepInstance) return { ...mockStepInstance }
+        return null
+      }) as any)
+      mockEm.nativeUpdate.mockImplementation(async (_entity: unknown, where: Record<string, unknown>, data: Record<string, unknown>) => {
+        if (row.status !== where.status || row.currentStepId !== where.currentStepId) return 0
+        row.status = data.status as string
+        instance.status = row.status
+        return 1
+      })
+      mockLogWorkflowEvent.mockRejectedValueOnce(new Error('flush failed'))
+
+      await expect(deliver()).rejects.toThrow('flush failed')
+
+      expect(row.status).toBe('PAUSED')
+      expect(mockEm.nativeUpdate).toHaveBeenLastCalledWith(
+        WorkflowInstance,
+        expect.objectContaining({ id: instanceId, status: 'RUNNING', currentStepId: 'wait_approval' }),
+        expect.objectContaining({ status: 'PAUSED' }),
+      )
+      expect(instance.status).toBe('PAUSED')
+      expect(instance.context).toEqual({ orderId: 'order-123' })
+      expect(mockExitStep).not.toHaveBeenCalled()
+      expect(mockExecuteTransition).not.toHaveBeenCalled()
+
+      await expect(deliver()).resolves.toBeUndefined()
+      expect(row.status).toBe('RUNNING')
+      expect(mockLogWorkflowEvent).toHaveBeenCalledTimes(2)
+      expect(mockExecuteTransition).toHaveBeenCalledTimes(1)
     })
   })
 
