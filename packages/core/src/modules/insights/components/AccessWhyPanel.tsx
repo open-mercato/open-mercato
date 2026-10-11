@@ -103,9 +103,11 @@ function AccessDetail({ detail }: { detail: AccessDetailView }) {
       <DetailItem label={t('insights.why.access.detail.roles')}>
         <RoleList roles={detail.roles} />
       </DetailItem>
-      <DetailItem label={t('insights.why.access.detail.grantingRoles')}>
-        <RoleList roles={detail.grantingRoles} />
-      </DetailItem>
+      {detail.grantingRoles === null ? null : (
+        <DetailItem label={t('insights.why.access.detail.grantingRoles')}>
+          <RoleList roles={detail.grantingRoles} />
+        </DetailItem>
+      )}
       <DetailItem label={t('insights.why.access.detail.recentChanges')} wide>
         {detail.recentChanges === null ? (
           <span className="text-muted-foreground">{t('insights.why.access.detail.recentChangesHidden')}</span>

@@ -334,7 +334,7 @@ describe('GET /api/insights/explain/access — self', () => {
   })
 
   it('hides super-administrator roles that would grant from callers who are not super administrators', async () => {
-    callerFeatures = ['insights.explain.access_detail']
+    callerFeatures = ['insights.explain.access_detail', 'auth.roles.list']
     explanation = deniedExplanation(true)
     explanation.detail = baseDetail({
       rolesThatWouldGrant: [
@@ -355,6 +355,21 @@ describe('GET /api/insights/explain/access — self', () => {
     ])
   })
 
+  it('omits the roles that would grant from an access_detail holder who may not list roles (auth.roles.list, wildcard-aware)', async () => {
+    callerFeatures = ['insights.explain.access_detail']
+    explanation = deniedExplanation(true)
+    const withheld = await callRoute({ features: 'sales.orders.view' })
+    expect(withheld.status).toBe(200)
+    expect(withheld.body.detail).toEqual(expect.objectContaining({ roles: [expect.objectContaining({ id: ROLE_ID })] }))
+    expect(withheld.body.detail).not.toHaveProperty('rolesThatWouldGrant')
+    expect(JSON.stringify(withheld.body)).not.toContain(OTHER_ROLE_ID)
+    expect(rbacService.userHasAllFeatures).toHaveBeenCalledWith(CALLER_ID, ['auth.roles.list'], { tenantId: TENANT_ID, organizationId: ORG_A })
+
+    callerFeatures = ['insights.explain.access_detail', 'auth.*']
+    const listed = await callRoute({ features: 'sales.orders.view' })
+    expect((listed.body.detail as { rolesThatWouldGrant: Array<{ id: string }> }).rolesThatWouldGrant.map((role) => role.id)).toEqual([OTHER_ROLE_ID])
+  })
+
   it('treats a userId equal to the caller as a self explanation', async () => {
     const { status } = await callRoute({ features: 'sales.orders.view', userId: CALLER_ID.toUpperCase() })
     expect(status).toBe(200)
@@ -373,7 +388,7 @@ describe('GET /api/insights/explain/access — self', () => {
   })
 
   it('returns detail with organizations outside the caller scope redacted for access_detail holders', async () => {
-    callerFeatures = ['insights.explain.access_detail']
+    callerFeatures = ['insights.explain.access_detail', 'auth.roles.list']
     explanation = deniedExplanation(true)
     const { status, body } = await callRoute({ features: 'sales.orders.view' })
     expect(status).toBe(200)
@@ -478,6 +493,15 @@ describe('GET /api/insights/explain/access — another user', () => {
     expect(where).toEqual({ id: TARGET_ID, tenantId: TENANT_ID, deletedAt: null })
     expect(rbacService.explainAccess).toHaveBeenCalledWith(TARGET_ID, ['sales.orders.view'], { tenantId: TENANT_ID, organizationId: ORG_A }, { detail: true })
     expect(body.detail).toMatchObject({ subject: { kind: 'user', id: TARGET_ID, isSelf: false } })
+  })
+
+  it('omits the roles that would grant when explaining another user without auth.roles.list', async () => {
+    callerFeatures = ['insights.explain.access_detail', 'auth.users.list']
+    explanation = deniedExplanation(true)
+    const { status, body } = await callRoute({ features: 'sales.orders.view', userId: TARGET_ID })
+    expect(status).toBe(200)
+    expect(body.detail).toMatchObject({ subject: { kind: 'user', id: TARGET_ID, isSelf: false } })
+    expect(body.detail).not.toHaveProperty('rolesThatWouldGrant')
   })
 
   it('does not report a denial outside RBAC for another user, who was not denied at the path', async () => {
