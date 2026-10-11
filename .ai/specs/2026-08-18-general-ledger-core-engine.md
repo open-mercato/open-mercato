@@ -1303,8 +1303,11 @@ Queries / API).
   with no gap or collision; assert a failed post (e.g. unbalanced)
   does not consume a `sequenceNumber`.
 - Lock vs. post: hold a post open inside its transaction after it read the covering period, start `lockFiscalPeriod` for that period and assert the lock waits for the post to commit; assert a post started after the lock committed is rejected as a locked period.
+  *Deferred (2026-10-11).* `postJournalEntry` has no HTTP route in Phase 1, so a Playwright API test cannot drive it, and this module's Jest suite uses a fake `EntityManager` that cannot show that a row lock makes one transaction wait for another. A real test needs a Jest suite against a real Postgres, which is a new test-infrastructure decision for OM Core and must be on record before it ships. Until then the rule rests on the database (`for share` on the period in the post, `for update` in lock/unlock) and the sequential locked-period rejection is covered by unit tests. Revisit when posting has a caller.
 - Create two overlapping `FiscalPeriod` rows concurrently for one organization and assert exactly one succeeds and the other is rejected as an overlap.
+  *Covered by integration test `TC-GL-004`* (two concurrent overlapping `POST /api/ledger/fiscal-periods` against the real database: one `201`, one `409`, repeated over three disjoint ranges), and sequential rejection of identical, contained, enclosing and boundary-sharing ranges by the Jest suite and the same integration test.
 - Reverse the same entry twice concurrently and assert exactly one `REVERSAL` row exists and the second call fails with the readable "already reversed" error.
+  *Deferred (2026-10-11)*, for the same two reasons as lock vs. post: `reverseJournalEntry` has no HTTP route in Phase 1 and the fake `EntityManager` cannot enforce a unique index. The rule rests on the partial unique index `journal_entries_single_reversal_idx`; the sequential "already reversed" path is covered by unit and BDD tests.
 - Post entries for two different organizations under the same tenant
   and assert their `sequenceNumber` series are independent — each
   organization starts at 1 and neither organization's postings advance
@@ -2466,3 +2469,7 @@ detail still waits on `#6038`, same as before this update.
   sentence under "Corrections are reversals, not undo").
 - Implementation guide brought in line with the `operationDate` lock
   design (M2).
+
+### 2026-10-11 (re-review of the implementation, PR #6340 — @wojciechszyjka)
+
+- **m1.** The three concurrency tests this spec lists are not all in the implementation PR. Overlap rejection (sequential and two concurrent creates) is now covered by a Jest suite and integration test `TC-GL-004`. Lock vs. post and concurrent double reversal are recorded as deferred in the Testing Strategy, with the reason (no HTTP caller for posting/reversal in Phase 1; a fake `EntityManager` cannot show that a lock or unique index serializes anything; a real-database Jest suite is a test-infrastructure decision for OM Core).
