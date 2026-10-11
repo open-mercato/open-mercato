@@ -10,6 +10,7 @@ import {
   TenantDataEncryptionService,
   parseDecryptedFieldValue,
 } from '../tenantDataEncryptionService'
+import { forgetEncryptionPolicyMemo } from '../policyMemo'
 
 const fixedKey = Buffer.alloc(32, 1).toString('base64')
 
@@ -306,6 +307,7 @@ describe('TenantDataEncryptionService system-scoped maps', () => {
     ))
     const service = new TenantDataEncryptionService(
       {
+        execute: jest.fn(async () => []),
         getConnection: () => ({ execute: jest.fn(async () => []) }),
       } as never,
       {
@@ -342,47 +344,373 @@ describe('TenantDataEncryptionService system-scoped maps', () => {
   })
 })
 
+type PolicyRow = {
+  entity_id: string
+  tenant_id: string | null
+  organization_id: string | null
+  fields_json: Array<{ field: string; hashField?: string | null }>
+}
+
+// Evaluates the scope predicate of the single policy statement against an in-memory table:
+// `[entityId, tenantId]` selects every row of the tenant plus the global row (tenant-wide scope,
+// including the all-organizations aggregate); `[entityId, tenantId, organizationId]` selects the
+// exact, tenant-wide and global rows only.
+function selectPolicyRows(table: readonly PolicyRow[], params: readonly unknown[]): PolicyRow[] {
+  const [entityId, tenantId, organizationId] = params
+  return table.filter((row) => {
+    if (row.entity_id !== entityId) return false
+    if (row.tenant_id === null && row.organization_id === null) return true
+    if (row.tenant_id !== (tenantId ?? null)) return false
+    if (params.length === 2) return true
+    return row.organization_id === null || row.organization_id === organizationId
+  })
+}
+
+function makePolicyEm(readTable: () => readonly PolicyRow[]) {
+  const execute = jest.fn(async (_sql: string, params: readonly unknown[] = []) => selectPolicyRows(readTable(), params))
+  return { em: { execute }, execute }
+}
+
 describe('TenantDataEncryptionService.getEncryptedFieldNames', () => {
   it('returns active encryption-map field names for query planning', async () => {
-    const service = new TenantDataEncryptionService({} as never)
-    jest.spyOn(service, 'isEnabled').mockReturnValue(true)
-    ;(service as unknown as {
-      getMap: () => Promise<{ fields: Array<{ field?: unknown }> }>
-    }).getMap = jest.fn(async () => ({
-      fields: [
+    const entityId = 'customers:customer_entity'
+    const { em } = makePolicyEm(() => [{
+      entity_id: entityId,
+      tenant_id: 't1',
+      organization_id: 'org1',
+      fields_json: [
         { field: 'display_name' },
         { field: 'primary_email' },
         { field: '' },
-        { field: null },
+        { field: null as unknown as string },
       ],
-    }))
-
-    await expect(
-      service.getEncryptedFieldNames('customers:customer_entity', 't1', 'org1'),
-    ).resolves.toEqual(['display_name', 'primary_email'])
-  })
-
-  it('returns org-scoped field union for all-organization query planning', async () => {
-    const execute = jest.fn(async (_sql: string, params: unknown[]) => {
-      if (params.length === 3) return []
-      return [
-        { fields_json: [{ field: 'display_name' }, { field: 'primary_email' }] },
-        { fields_json: [{ field: 'display_name' }, { field: 'description' }, { field: '' }] },
-      ]
-    })
-    const service = new TenantDataEncryptionService({
-      getConnection: () => ({ execute }),
-    } as never)
+    }])
+    const service = new TenantDataEncryptionService(em as never)
     jest.spyOn(service, 'isEnabled').mockReturnValue(true)
 
     await expect(
-      service.getEncryptedFieldNames('test:all_org_customer_entity', 'tenant-all', null),
+      service.getEncryptedFieldNames(entityId, 't1', 'org1'),
+    ).resolves.toEqual(['display_name', 'primary_email'])
+  })
+
+  it('returns org-scoped field union for all-organization query planning in one statement', async () => {
+    const entityId = 'test:all_org_customer_entity'
+    const { em, execute } = makePolicyEm(() => [
+      { entity_id: entityId, tenant_id: 'tenant-all', organization_id: 'org-a', fields_json: [{ field: 'display_name' }, { field: 'primary_email' }] },
+      { entity_id: entityId, tenant_id: 'tenant-all', organization_id: 'org-b', fields_json: [{ field: 'display_name' }, { field: 'description' }, { field: '' }] },
+      { entity_id: entityId, tenant_id: 'other-tenant', organization_id: 'org-c', fields_json: [{ field: 'foreign' }] },
+    ])
+    const service = new TenantDataEncryptionService(em as never)
+    jest.spyOn(service, 'isEnabled').mockReturnValue(true)
+
+    await expect(
+      service.getEncryptedFieldNames(entityId, 'tenant-all', null),
     ).resolves.toEqual(['display_name', 'primary_email', 'description'])
 
+    expect(execute).toHaveBeenCalledTimes(1)
     expect(execute).toHaveBeenCalledWith(
-      expect.stringContaining('organization_id is not null'),
-      ['test:all_org_customer_entity', 'tenant-all'],
+      expect.stringContaining('tenant_id is null and organization_id is null'),
+      [entityId, 'tenant-all'],
     )
+  })
+
+  it('resolves the exact, tenant-wide and global fallback chain with one statement', async () => {
+    const entityId = 'test:fallback_chain'
+    let table: PolicyRow[] = [
+      { entity_id: entityId, tenant_id: null, organization_id: null, fields_json: [{ field: 'global' }] },
+      { entity_id: entityId, tenant_id: 'tenant-1', organization_id: null, fields_json: [{ field: 'tenant_wide' }] },
+      { entity_id: entityId, tenant_id: 'tenant-1', organization_id: 'org-1', fields_json: [{ field: 'exact' }] },
+    ]
+    const { em, execute } = makePolicyEm(() => table)
+    const service = new TenantDataEncryptionService(em as never)
+    jest.spyOn(service, 'isEnabled').mockReturnValue(true)
+
+    await expect(service.getEncryptedFieldNames(entityId, 'tenant-1', 'org-1')).resolves.toEqual(['exact'])
+    table = table.filter((row) => row.organization_id !== 'org-1')
+    await expect(service.getEncryptedFieldNames(entityId, 'tenant-1', 'org-1')).resolves.toEqual(['tenant_wide'])
+    table = table.filter((row) => row.tenant_id !== 'tenant-1')
+    await expect(service.getEncryptedFieldNames(entityId, 'tenant-1', 'org-1')).resolves.toEqual(['global'])
+    expect(execute).toHaveBeenCalledTimes(3)
+    for (const [, params] of execute.mock.calls) expect(params).toEqual([entityId, 'tenant-1', 'org-1'])
+  })
+
+  it('fails closed when the EntityManager cannot execute SQL', async () => {
+    const service = new TenantDataEncryptionService({} as never)
+    jest.spyOn(service, 'isEnabled').mockReturnValue(true)
+
+    await expect(service.getEncryptedFieldNames('test:no_executor', 'tenant-1', 'org-1'))
+      .rejects.toThrow('[internal]')
+  })
+})
+
+describe('TenantDataEncryptionService canonical map reads and invalidation', () => {
+  it('re-reads exact and all-organizations policies without waiting for invalidation', async () => {
+    const entityId = 'test:cache_invalidation_hit'
+    const tenantId = 'tenant-cache-invalidation-hit'
+    const organizationId = 'org-cache-invalidation-hit'
+    let exactFields = [{ field: 'existing_exact' }]
+    let aggregateFields = [{ field: 'existing_aggregate' }]
+    const { em } = makePolicyEm(() => [
+      { entity_id: entityId, tenant_id: tenantId, organization_id: organizationId, fields_json: exactFields },
+      { entity_id: entityId, tenant_id: tenantId, organization_id: 'org-aggregate', fields_json: aggregateFields },
+    ])
+    const service = new TenantDataEncryptionService(em as never)
+    jest.spyOn(service, 'isEnabled').mockReturnValue(true)
+
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId))
+      .resolves.toEqual(['existing_exact'])
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, null))
+      .resolves.toEqual(['existing_exact', 'existing_aggregate'])
+
+    exactFields = [{ field: 'existing_exact' }, { field: 'fresh_exact' }]
+    aggregateFields = [{ field: 'existing_aggregate' }, { field: 'fresh_aggregate' }]
+
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId))
+      .resolves.toEqual(['existing_exact', 'fresh_exact'])
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, null))
+      .resolves.toEqual(['existing_exact', 'fresh_exact', 'existing_aggregate', 'fresh_aggregate'])
+
+    await service.invalidateMap(entityId, tenantId, organizationId)
+
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId))
+      .resolves.toEqual(['existing_exact', 'fresh_exact'])
+  })
+
+  it('does not retain an exact miss after a map is committed', async () => {
+    const entityId = 'test:cache_invalidation_miss'
+    const tenantId = 'tenant-cache-invalidation-miss'
+    const organizationId = 'org-cache-invalidation-miss'
+    let table: PolicyRow[] = []
+    const { em } = makePolicyEm(() => table)
+    const service = new TenantDataEncryptionService(em as never)
+    jest.spyOn(service, 'isEnabled').mockReturnValue(true)
+
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId)).resolves.toEqual([])
+    table = [{ entity_id: entityId, tenant_id: tenantId, organization_id: organizationId, fields_json: [{ field: 'fresh_after_miss' }] }]
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId))
+      .resolves.toEqual(['fresh_after_miss'])
+  })
+
+  it('never reads, publishes or deletes shared-cache entries', async () => {
+    const entityId = 'test:canonical_policy_over_shared_cache'
+    const tenantId = 'tenant-canonical-policy'
+    const organizationId = 'org-canonical-policy'
+    const cache = {
+      get: jest.fn(async () => ({ entityId, fields: [{ field: 'stale_shared_cache' }] })),
+      set: jest.fn(async () => undefined),
+      delete: jest.fn(async () => {
+        throw new Error('sensitive backend endpoint')
+      }),
+    }
+    const { em } = makePolicyEm(() => [
+      { entity_id: entityId, tenant_id: tenantId, organization_id: organizationId, fields_json: [{ field: 'fresh_exact' }] },
+    ])
+    const service = new TenantDataEncryptionService(em as never, { cache: cache as never })
+    jest.spyOn(service, 'isEnabled').mockReturnValue(true)
+
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId))
+      .resolves.toEqual(['fresh_exact'])
+    await expect(service.invalidateMap(entityId, tenantId, organizationId)).resolves.toBeUndefined()
+    expect(cache.get).not.toHaveBeenCalled()
+    expect(cache.set).not.toHaveBeenCalled()
+    expect(cache.delete).not.toHaveBeenCalled()
+  })
+})
+
+describe('TenantDataEncryptionService per-unit-of-work policy memo', () => {
+  const originalToggle = process.env.TENANT_DATA_ENCRYPTION
+  const tenantId = 'tenant-memo'
+  const organizationId = 'org-memo'
+
+  beforeEach(() => {
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+  })
+
+  afterEach(() => {
+    if (originalToggle === undefined) delete process.env.TENANT_DATA_ENCRYPTION
+    else process.env.TENANT_DATA_ENCRYPTION = originalToggle
+  })
+
+  function makeService(entityId: string, table: { rows: PolicyRow[] }) {
+    const { execute } = makePolicyEm(() => table.rows)
+    const service = new TenantDataEncryptionService({ execute } as never, {
+      kms: {
+        getTenantDek: jest.fn(async (keyId: string) => ({ tenantId: keyId, key: fixedKey, fetchedAt: Date.now() })),
+        createTenantDek: jest.fn(async () => null),
+        isHealthy: () => true,
+      },
+    } as never)
+    table.rows.push({ entity_id: entityId, tenant_id: tenantId, organization_id: null, fields_json: [{ field: 'secret' }] })
+    return { service, execute }
+  }
+
+  function makeUnitOfWork(execute: jest.Mock) {
+    return { execute } as never
+  }
+
+  it('reads policy once per distinct scope for N decrypts on the same EntityManager', async () => {
+    const entityId = 'test:memo_same_em'
+    const table = { rows: [] as PolicyRow[] }
+    const { service, execute } = makeService(entityId, table)
+    const em = makeUnitOfWork(execute)
+    const ciphertext = encryptWithAesGcm('value', fixedKey).value as string
+
+    const decrypted = await Promise.all(Array.from({ length: 25 }, () => (
+      service.decryptEntityPayload(entityId, { secret: ciphertext }, tenantId, organizationId, { em })
+    )))
+    await service.decryptEntityPayload(entityId, { secret: ciphertext }, tenantId, null, { em })
+    await service.encryptEntityPayload(entityId, { secret: 'value' }, tenantId, organizationId, { em })
+
+    expect(decrypted.every((row) => row.secret === 'value')).toBe(true)
+    expect(execute).toHaveBeenCalledTimes(2)
+    expect(execute.mock.calls.map(([, params]) => params)).toEqual([
+      [entityId, tenantId, organizationId],
+      [entityId, tenantId],
+    ])
+  })
+
+  it('keeps memos of different EntityManagers and transactions independent', async () => {
+    const entityId = 'test:memo_independent_em'
+    const table = { rows: [] as PolicyRow[] }
+    const { service, execute } = makeService(entityId, table)
+    const first = makeUnitOfWork(execute)
+    const second = makeUnitOfWork(execute)
+    const transaction = {}
+    const transactional = { execute, getTransactionContext: () => transaction } as never
+
+    await service.getEncryptedFieldNames(entityId, tenantId, organizationId, { em: first })
+    table.rows[0].fields_json = [{ field: 'secret' }, { field: 'rotated' }]
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId, { em: first }))
+      .resolves.toEqual(['secret'])
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId, { em: second }))
+      .resolves.toEqual(['secret', 'rotated'])
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId, { em: transactional }))
+      .resolves.toEqual(['secret', 'rotated'])
+    expect(execute).toHaveBeenCalledTimes(3)
+  })
+
+  it('never memoizes lookups that fall back to the service EntityManager', async () => {
+    const entityId = 'test:memo_fallback_em'
+    const table = { rows: [] as PolicyRow[] }
+    const { service, execute } = makeService(entityId, table)
+
+    await service.getEncryptedFieldNames(entityId, tenantId, organizationId)
+    await service.getEncryptedFieldNames(entityId, tenantId, organizationId)
+
+    expect(execute).toHaveBeenCalledTimes(2)
+  })
+
+  it('drops the memo when a map write goes through that EntityManager', async () => {
+    const entityId = 'test:memo_write_forget'
+    const table = { rows: [] as PolicyRow[] }
+    const { service, execute } = makeService(entityId, table)
+    const em = makeUnitOfWork(execute)
+
+    await service.getEncryptedFieldNames(entityId, tenantId, organizationId, { em })
+    table.rows[0].fields_json = [{ field: 'secret' }, { field: 'added' }]
+    forgetEncryptionPolicyMemo(em)
+
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId, { em }))
+      .resolves.toEqual(['secret', 'added'])
+    expect(execute).toHaveBeenCalledTimes(2)
+  })
+
+  it('drops every memo of this process when a map is invalidated', async () => {
+    const entityId = 'test:memo_invalidate'
+    const table = { rows: [] as PolicyRow[] }
+    const { service, execute } = makeService(entityId, table)
+    const em = makeUnitOfWork(execute)
+
+    await service.getEncryptedFieldNames(entityId, tenantId, organizationId, { em })
+    table.rows[0].fields_json = [{ field: 'secret' }, { field: 'added' }]
+    await service.invalidateMap(entityId, tenantId, null)
+
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId, { em }))
+      .resolves.toEqual(['secret', 'added'])
+    expect(execute).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not memoize a failed read', async () => {
+    const entityId = 'test:memo_failed_read'
+    const table = { rows: [] as PolicyRow[] }
+    const { service, execute } = makeService(entityId, table)
+    execute.mockRejectedValueOnce(new Error('connection terminated'))
+    const em = makeUnitOfWork(execute)
+
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId, { em }))
+      .rejects.toThrow('connection terminated')
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId, { em }))
+      .resolves.toEqual(['secret'])
+  })
+})
+
+describe('TenantDataEncryptionService duplicate map fail-safe', () => {
+  const originalToggle = process.env.TENANT_DATA_ENCRYPTION
+
+  beforeEach(() => {
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+  })
+
+  afterEach(() => {
+    if (originalToggle === undefined) delete process.env.TENANT_DATA_ENCRYPTION
+    else process.env.TENANT_DATA_ENCRYPTION = originalToggle
+  })
+
+  it('deterministically unions active duplicate rows so no declared field is stored as plaintext', async () => {
+    const entityId = 'test:duplicate_encryption_map'
+    const tenantId = 'tenant-duplicate-map'
+    const execute = jest.fn(async (sql: string) => {
+      expect(sql).toContain('order by organization_id asc, created_at asc, id asc')
+      return [
+        {
+          entity_id: entityId,
+          tenant_id: tenantId,
+          organization_id: 'org-1',
+          fields_json: [
+            { field: 'email' },
+            { field: 'display_name', hashField: 'display_name_hash' },
+          ],
+        },
+        {
+          entity_id: entityId,
+          tenant_id: tenantId,
+          organization_id: 'org-1',
+          fields_json: [
+            { field: 'email', hashField: 'email_hash' },
+            { field: 'phone' },
+          ],
+        },
+      ]
+    })
+    const service = new TenantDataEncryptionService(
+      { execute, getConnection: () => ({ execute }) } as never,
+      {
+        kms: {
+          getTenantDek: jest.fn(async () => ({ tenantId, key: fixedKey, fetchedAt: new Date() })),
+          createTenantDek: jest.fn(async () => null),
+          isHealthy: () => true,
+        },
+      } as never,
+    )
+
+    const encrypted = await service.encryptEntityPayload(
+      entityId,
+      {
+        email: 'person@example.com',
+        email_hash: null,
+        display_name: 'Person',
+        display_name_hash: null,
+        phone: '+48123456789',
+      },
+      tenantId,
+      'org-1',
+    )
+
+    expect(decryptWithAesGcm(encrypted.email as string, fixedKey)).toBe('person@example.com')
+    expect(encrypted.email_hash).toBe(hashForLookup('person@example.com'))
+    expect(decryptWithAesGcm(encrypted.display_name as string, fixedKey)).toBe('Person')
+    expect(encrypted.display_name_hash).toBe(hashForLookup('Person'))
+    expect(decryptWithAesGcm(encrypted.phone as string, fixedKey)).toBe('+48123456789')
   })
 })
 
@@ -400,19 +728,20 @@ describe('TenantDataEncryptionService tenant-wide scope parity (issue #5949)', (
   })
 
   // A base (organization-less) map declaring `display_name`, plus an organization-scoped map that
-  // declares the extra `description` field. `getMap` only ever resolves the base map for
-  // organizationId = null; the all-organizations aggregate is the 2-parameter query.
+  // declares the extra `description` field. At organizationId = null the policy statement also
+  // returns the organization-scoped rows (2-parameter form) for the all-organizations aggregate.
   function makeService(entityId: string) {
-    const execute = jest.fn(async (_sql: string, params: unknown[]) => {
-      if (params.length === 3) {
-        return params[2] === null
-          ? [{ entity_id: entityId, fields_json: [{ field: 'display_name' }] }]
-          : []
-      }
-      return [{ fields_json: [{ field: 'description', hashField: 'description_hash' }] }]
-    })
+    const { execute } = makePolicyEm(() => [
+      { entity_id: entityId, tenant_id: tenantId, organization_id: null, fields_json: [{ field: 'display_name' }] },
+      {
+        entity_id: entityId,
+        tenant_id: tenantId,
+        organization_id: 'org-with-description',
+        fields_json: [{ field: 'description', hashField: 'description_hash' }],
+      },
+    ])
     const service = new TenantDataEncryptionService(
-      { getConnection: () => ({ execute }) } as never,
+      { execute } as never,
       {
         kms: {
           getTenantDek: jest.fn(async (keyId: string) => (
@@ -494,29 +823,12 @@ describe('TenantDataEncryptionService tenant-wide scope parity (issue #5949)', (
     expect(execute).not.toHaveBeenCalledWith(expect.anything(), [entityId, tenantId])
   })
 
-  it('caches the all-organizations aggregate across payload calls', async () => {
-    const entityId = 'test:parity_cached_entity'
+  it('re-reads the all-organizations aggregate across payload calls', async () => {
+    const entityId = 'test:parity_canonical_entity'
     const { service, execute } = makeService(entityId)
 
     await service.encryptEntityPayload(entityId, { description: 'first' }, tenantId, null)
     await service.encryptEntityPayload(entityId, { description: 'second' }, tenantId, null)
-
-    const aggregateReads = execute.mock.calls.filter(([, params]) => (params as unknown[]).length === 2)
-    expect(aggregateReads).toHaveLength(1)
-  })
-
-  it('re-reads the all-organizations aggregate once its memory entry passes the 300s TTL', async () => {
-    const entityId = 'test:parity_expired_cache_entity'
-    const { service, execute } = makeService(entityId)
-    const nowSpy = jest.spyOn(Date, 'now')
-
-    nowSpy.mockReturnValue(1_000_000)
-    await service.encryptEntityPayload(entityId, { description: 'first' }, tenantId, null)
-
-    nowSpy.mockReturnValue(1_000_000 + 300_000 + 1)
-    await service.encryptEntityPayload(entityId, { description: 'second' }, tenantId, null)
-
-    nowSpy.mockRestore()
 
     const aggregateReads = execute.mock.calls.filter(([, params]) => (params as unknown[]).length === 2)
     expect(aggregateReads).toHaveLength(2)
@@ -526,10 +838,15 @@ describe('TenantDataEncryptionService tenant-wide scope parity (issue #5949)', (
 describe('TenantDataEncryptionService map read failures (issue #6334)', () => {
   const tenantId = 'tenant-6334'
   const organizationId = 'org-6334'
-  const mapRow = (entityId: string) => [{ entity_id: entityId, fields_json: [{ field: 'display_name' }] }]
+  const mapRow = (entityId: string) => [{
+    entity_id: entityId,
+    tenant_id: tenantId,
+    organization_id: organizationId,
+    fields_json: [{ field: 'display_name' }],
+  }]
 
   function makeService(execute: jest.Mock) {
-    const service = new TenantDataEncryptionService({ getConnection: () => ({ execute }) } as never)
+    const service = new TenantDataEncryptionService({ execute, getConnection: () => ({ execute }) } as never)
     jest.spyOn(service, 'isEnabled').mockReturnValue(true)
     return service
   }
@@ -547,7 +864,7 @@ describe('TenantDataEncryptionService map read failures (issue #6334)', () => {
       .resolves.toEqual(['display_name'])
   })
 
-  it('lets a caller that joined a failing read fall back to its own read', async () => {
+  it('does not couple a concurrent reader to another failing read', async () => {
     const entityId = 'test:inflight_joined_rejection_entity'
     let rejectFirst: (error: Error) => void = () => {}
     const execute = jest.fn()
@@ -558,11 +875,11 @@ describe('TenantDataEncryptionService map read failures (issue #6334)', () => {
     const owner = service.getEncryptedFieldNames(entityId, tenantId, organizationId)
     const joiner = service.getEncryptedFieldNames(entityId, tenantId, organizationId)
     await new Promise((resolve) => setImmediate(resolve))
-    expect(execute).toHaveBeenCalledTimes(1)
+    expect(execute).toHaveBeenCalledTimes(2)
+    await expect(joiner).resolves.toEqual(['display_name'])
     rejectFirst(new Error('statement timeout'))
 
     await expect(owner).rejects.toThrow('statement timeout')
-    await expect(joiner).resolves.toEqual(['display_name'])
     expect(execute).toHaveBeenCalledTimes(2)
   })
 })
