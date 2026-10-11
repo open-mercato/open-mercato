@@ -118,13 +118,14 @@ async function executeSchedule(
 
   return withCausationFrame(
     buildScheduleCausationFrame(payload.scheduleId),
-    () => runScheduleExecution(payload, ctx),
+    () => runScheduleExecution(payload, ctx, execution),
   )
 }
 
 async function runScheduleExecution(
   payload: ExecuteSchedulePayload,
   ctx: JobContext & HandlerContext,
+  execution: ScheduleExecution,
 ): Promise<void> {
   const { scheduleId } = payload
 
