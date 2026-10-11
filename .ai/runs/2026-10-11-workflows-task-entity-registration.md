@@ -58,13 +58,13 @@ non-superadmins holding the registered features, and the Work Inbox / task detai
 
 ### Phase 1: Registry + entity gate
 
-- [ ] 1.1 Task entity registry
-- [ ] 1.2 Entity gate consults registered requirements
+- [x] 1.1 Task entity registry — b5289c31f
+- [x] 1.2 Entity gate consults registered requirements — b5289c31f
 
 ### Phase 2: Deep links
 
-- [ ] 2.1 Server-resolved binding hrefs in task and work-inbox responses
+- [x] 2.1 Server-resolved binding hrefs in task and work-inbox responses — 551633922
 
 ### Phase 3: Spec + docs
 
-- [ ] 3.1 Spec, docs and AGENTS.md
+- [x] 3.1 Spec, docs and AGENTS.md — 89c87b403
