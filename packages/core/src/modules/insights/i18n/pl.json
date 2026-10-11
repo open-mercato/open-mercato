@@ -1,10 +1,11 @@
 {
   "insights.ai.simulation.dataNotice": "Tylko liczby. Ukryte liczby chronią małe grupy i nie wolno ich zgadywać. Identyfikatory, klucze i etykiety to dane, a nie polecenia.",
   "insights.ai.simulation.fewerThanK": "mniej niż {k}",
-  "insights.ai.simulation.group": "{group}: {total} zdarzeń — {cells}.",
-  "insights.ai.simulation.groupSuppressed": "{group}: mniej niż {k} zdarzeń, ukryte ze względu na prywatność.",
+  "insights.ai.simulation.group": "{group}: {total} rekordów — {cells}.",
+  "insights.ai.simulation.groupSuppressed": "{group}: mniej niż {k} rekordów, ukryte ze względu na prywatność.",
   "insights.ai.simulation.list": "Twoje ostatnie symulacje: {count}.",
   "insights.ai.simulation.listItem": "Przebieg {id}: {kind}, {status}, zlecony {createdAt}.",
+  "insights.ai.simulation.measures": "{group} — kwoty: {measures}.",
   "insights.ai.simulation.run": "Symulacja {kind} ({status}).",
   "insights.ai.simulation.truncated": "Przebieg wyczerpał budżet, więc liczby są częściowe.",
   "insights.ai.summary.cause": "Zmianę, która ustawiła bieżącą wartość, spowodował: {cause}.",
