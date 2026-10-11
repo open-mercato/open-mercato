@@ -263,6 +263,45 @@ Contract notes:
 - **Resolution never throws.** `resolveTaskForm(formKey)` returns `{ kind: 'builtin' }` when no key is authored, `{ kind: 'registered', entry }` on a hit, and `{ kind: 'missing', formKey }` when the author asked for a renderer that is not loaded. `missing` is deliberately distinct from `builtin`: both fall back to the built-in form, but `missing` is something the surface must say out loud rather than quietly render something else. A blank screen is the one outcome this must never produce.
 - The `formKey` is **re-resolved per request** from the instance's pinned definition, never copied onto a column, so a definition that gains a renderer key starts using it with no migration.
 
+## Task Completion Guards
+
+A module that owns a precondition for finishing a task — "the related contract must be signed first" — registers a **completion guard**. The guard is consulted inside `completeUserTask`, before anything is mutated, so it covers every path that completes a task: `POST /api/workflows/tasks/[id]/complete`, the `workflows.tasks.complete` command behind the notification quick action, and in-process `taskHandler` callers. The same guards decide `canComplete` on the task detail, so a UI never offers a completion the handler would refuse.
+
+```typescript
+// my_module/di.ts — register at module-DI load time
+import { registerTaskCompletionGuards } from '@open-mercato/core/modules/workflows/lib/task-completion-guards'
+
+registerTaskCompletionGuards([
+  {
+    moduleId: 'my_module',
+    guards: [
+      {
+        id: 'my_module.contract-signed',
+        workflowId: 'contract-approval',      // optional: string | string[]
+        stepId: 'final-review',               // optional: string | string[]
+        // formKey: 'my_module.contract_form', // optional task-level key
+        async evaluate({ em, tenantId, organizationId, task, mode }) {
+          const signed = await isContractSigned(em, { tenantId, organizationId, bindings: task.entityBindings })
+          return signed
+            ? { ok: true }
+            : { ok: false, code: 'CONTRACT_NOT_SIGNED', messageKey: 'my_module.tasks.contractNotSigned' }
+        },
+      },
+    ],
+  },
+])
+```
+
+Contract notes:
+
+- **Selectors** — every declared selector (`workflowId`, `stepId`, `formKey`) must match; an omitted one matches anything. They are resolved from the instance's pinned definition, never from the request.
+- **Veto** — the first vetoing guard (lowest `priority`, default 50) wins. Every completion path answers `409 { error, code, guardId, messageKey }` with the guard's own `code`; a direct `taskHandler.completeUserTask` call throws `TaskCompletionBlockedError` (a `UserTaskError` whose `code` is the guard's code).
+- **Fail closed** — a guard that throws, or answers anything other than `{ ok: true }`, blocks. A throw yields `COMPLETION_GUARD_FAILED` and is logged; the error itself is never returned to the caller.
+- **Read-only** — `mode` is `complete` inside the handler and `preview` on the task detail, where the guard receives a forked `EntityManager` that is never flushed. Never write from a guard.
+- **Trusted scope** — `tenantId` / `organizationId` come from the already scoped task row.
+- **No guard, no change** — with nothing registered the handler skips the evaluation entirely.
+- Re-registering a `moduleId` replaces that module's guards only. The registry is also resolvable from DI as `taskCompletionGuards`.
+
 ## Structured Validation Error Bodies
 
 Schema failures on the definitions POST/PUT respond `400` with `{ error: 'Validation failed', details: [...] }`. Each `details` entry is normalized by `lib/definition-error-body.ts` to `{ path, code, message, expected?, got? }` — `path` and `message` are preserved from the previous shape, so existing parsers (including `formatWorkflowValidationError`) keep working, while `code`/`expected`/`got` enable precise editor diagnostics.

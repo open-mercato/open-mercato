@@ -1683,6 +1683,7 @@
   "workflows.tasks.description": "Description",
   "workflows.tasks.detail.assignedTo": "Assigned To",
   "workflows.tasks.detail.backToList": "Back to Tasks",
+  "workflows.tasks.detail.blocked.completionGuard": "This task cannot be completed yet because a precondition is not met.",
   "workflows.tasks.detail.blocked.notInYourQueue": "This task is queued to a role you are not a member of, so you cannot complete it.",
   "workflows.tasks.detail.blocked.ownedByAnother": "This task belongs to someone else, so you cannot complete it.",
   "workflows.tasks.detail.blocked.reassignRemedy": "Reassign it to yourself to work on it.",

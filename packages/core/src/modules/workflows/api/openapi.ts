@@ -150,7 +150,15 @@ export const taskActionBlockReasonSchema = z.enum([
   'not-in-your-queue',
   'unowned',
   'unavailable',
+  'completion-guard',
 ])
+
+/** A host completion guard's veto, as the task detail carries it. */
+export const taskCompletionGuardSummarySchema = z.object({
+  guardId: z.string(),
+  code: z.string(),
+  messageKey: z.string().nullable(),
+})
 
 /**
  * Detail projection: the same superset the list returns, plus the derived
@@ -173,6 +181,10 @@ export const userTaskDetailResponseSchema = z.object({
     actBlockedReason: taskActionBlockReasonSchema
       .nullable()
       .describe('Why completion is unavailable; null when it is available'),
+    completionGuard: taskCompletionGuardSummarySchema
+      .nullable()
+      .optional()
+      .describe('The completion guard that vetoes completion when actBlockedReason is completion-guard'),
   }),
 })
 

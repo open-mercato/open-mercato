@@ -70,7 +70,7 @@ import {
 } from '../../../components/work-inbox/EntityContextPanel'
 import {
   WORK_INBOX_OVERDUE_TONE,
-  describeTaskActionBlock,
+  describeTaskActionBlockWithGuard,
   describeWorkInboxPriority,
   describeWorkInboxStatus,
 } from '../../../lib/work-inbox/presentation'
@@ -450,7 +450,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
   const canReassign = task.canReassign ?? false
   const blockDescriptor = canComplete
     ? null
-    : describeTaskActionBlock(task.actBlockedReason ?? 'not-workable')
+    : describeTaskActionBlockWithGuard(task.actBlockedReason ?? 'not-workable', task.completionGuard)
 
   if (isMobile) {
     return (

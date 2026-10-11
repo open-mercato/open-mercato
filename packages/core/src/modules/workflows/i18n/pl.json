@@ -1683,6 +1683,7 @@
   "workflows.tasks.description": "Opis",
   "workflows.tasks.detail.assignedTo": "Przypisane Do",
   "workflows.tasks.detail.backToList": "Powrót do Zadań",
+  "workflows.tasks.detail.blocked.completionGuard": "Tego zadania nie można jeszcze ukończyć, ponieważ warunek wstępny nie jest spełniony.",
   "workflows.tasks.detail.blocked.notInYourQueue": "To zadanie czeka w kolejce roli, do której nie należysz, więc nie możesz go zakończyć.",
   "workflows.tasks.detail.blocked.ownedByAnother": "To zadanie należy do kogoś innego, więc nie możesz go zakończyć.",
   "workflows.tasks.detail.blocked.reassignRemedy": "Przypisz je do siebie, aby móc nad nim pracować.",
