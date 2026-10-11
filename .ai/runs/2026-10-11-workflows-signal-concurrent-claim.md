@@ -41,10 +41,10 @@ Make `sendSignal` advance a `PAUSED` workflow instance exactly once under concur
 
 ### Phase 1: Atomic claim
 
-- [ ] 1.1 Claim the PAUSED instance with a conditional update in sendSignal
-- [ ] 1.2 Concurrency regression test for sendSignal
+- [x] 1.1 Claim the PAUSED instance with a conditional update in sendSignal — 39130dde9
+- [x] 1.2 Concurrency regression test for sendSignal — 39130dde9
 
 ### Phase 2: Correlation-key fan-out failures
 
-- [ ] 2.1 Surface per-instance failures from the correlation-key fan-out
-- [ ] 2.2 Docs and module guide update
+- [x] 2.1 Surface per-instance failures from the correlation-key fan-out — 39130dde9, f77998add
+- [x] 2.2 Docs and module guide update — f77998add
