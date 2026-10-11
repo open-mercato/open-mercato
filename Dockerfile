@@ -70,6 +70,7 @@ COPY packages/eslint-plugin-ds/package.json ./packages/eslint-plugin-ds/
 COPY packages/events/package.json ./packages/events/
 COPY packages/gateway-autopay/package.json ./packages/gateway-autopay/
 COPY packages/gateway-stripe/package.json ./packages/gateway-stripe/
+COPY packages/gateway-tpay/package.json ./packages/gateway-tpay/
 COPY packages/onboarding/package.json ./packages/onboarding/
 COPY packages/queue/package.json ./packages/queue/
 COPY packages/scheduler/package.json ./packages/scheduler/
@@ -183,6 +184,7 @@ COPY packages/eslint-plugin-ds/package.json ./packages/eslint-plugin-ds/
 COPY packages/events/package.json ./packages/events/
 COPY packages/gateway-autopay/package.json ./packages/gateway-autopay/
 COPY packages/gateway-stripe/package.json ./packages/gateway-stripe/
+COPY packages/gateway-tpay/package.json ./packages/gateway-tpay/
 COPY packages/onboarding/package.json ./packages/onboarding/
 COPY packages/queue/package.json ./packages/queue/
 COPY packages/scheduler/package.json ./packages/scheduler/
@@ -371,6 +373,7 @@ COPY --from=builder /app/packages/eslint-plugin-ds/package.json ./packages/eslin
 COPY --from=builder /app/packages/events/package.json ./packages/events/
 COPY --from=builder /app/packages/gateway-autopay/package.json ./packages/gateway-autopay/
 COPY --from=builder /app/packages/gateway-stripe/package.json ./packages/gateway-stripe/
+COPY --from=builder /app/packages/gateway-tpay/package.json ./packages/gateway-tpay/
 COPY --from=builder /app/packages/onboarding/package.json ./packages/onboarding/
 COPY --from=builder /app/packages/queue/package.json ./packages/queue/
 COPY --from=builder /app/packages/scheduler/package.json ./packages/scheduler/

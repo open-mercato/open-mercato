@@ -184,6 +184,23 @@ function requestHostAuthorities(req: Request): string[] {
   return authorities
 }
 
+function readTrimmedString(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function buildPayerSessionMetadata(customerData: Record<string, unknown>): Record<string, string> {
+  const payerMetadata: Record<string, string> = {}
+  const email = readTrimmedString(customerData.email)
+  if (email) payerMetadata.customerEmail = email
+  const name = [readTrimmedString(customerData.firstName), readTrimmedString(customerData.lastName)]
+    .filter((part): part is string => part !== null)
+    .join(' ')
+  if (name) payerMetadata.customerName = name
+  return payerMetadata
+}
+
 function isIdempotencyConflict(error: unknown): boolean {
   const message = error instanceof Error ? error.message : ''
   return message.includes('checkout_transactions_organization_id_tenant_id_link_idempotency_key_index')
@@ -489,13 +506,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
           metadata: {
             checkoutLinkId: link.id,
             checkoutSlug: link.slug,
-            // Some providers (e.g. Autopay) require the payer's email on the
-            // session request itself; checkout already collects and
-            // validates it above, so forward it here rather than have every
-            // such provider invent its own out-of-band way to obtain it.
-            ...(typeof collectedCustomerData.email === 'string' && collectedCustomerData.email
-              ? { customerEmail: collectedCustomerData.email }
-              : {}),
+            ...buildPayerSessionMetadata(collectedCustomerData),
           },
           presentation: rendererKey || rendererSettings || presentationMode
             ? {

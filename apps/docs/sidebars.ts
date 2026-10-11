@@ -140,6 +140,7 @@ const sidebars: SidebarsConfig = {
             "user-guide/checkout",
             "user-guide/stripe-payments",
             "user-guide/autopay-payments",
+            "user-guide/tpay-payments",
             "user-guide/payment-transactions",
           ],
         },
