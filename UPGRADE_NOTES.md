@@ -1459,6 +1459,45 @@ restarts or several workers can start more than the simulation counts. A pattern
 events no adapter can rebuild (e.g. `sales.order.*`, `*`) is reported as partly covered, and its
 debounced matches as "cannot tell".
 
+### Change simulator: role permission preview ("Simulate impact" on the role editor)
+
+The role editor's Access section gains "Simulate impact": it shows which users and API keys would
+gain or lose access, in which organizations, if the permissions in the editor were saved — computed
+at once from the current roles, users and API keys, nothing is changed. Spec:
+[`2026-10-08-insights-change-simulator`](.ai/specs/2026-10-08-insights-change-simulator.md) (S8).
+
+**Action for operators.** Run `yarn generate` (the new `auth/insights.simulate.ts` contribution
+and the two role editor widgets are aggregated into the generated registries). No migration and no
+new ACL feature: the preview needs `insights.simulator.run`, `auth.acl.manage` and
+`auth.users.list` (API keys are listed only to holders of `api_keys.view`). Every preview and every
+read of its affected principals writes an `access_logs` row (resource kind
+`insights.simulation.permission_preview`, kept under the core access-log retention); when the row
+cannot be written the preview is refused (503 `access_log_unavailable`). Previews expire after
+24 hours.
+
+**Action for module authors.** `RbacService` gains `previewRoleAclChange(tenantId, roleId,
+proposed, options?)` (read-only; `loadAclWithEntityManager` and `getEffectiveFeatures` keep their
+behaviour — their aggregation code moved into shared private helpers). The role editor publishes two
+additive injection spots, `auth.role.acl:toolbar` and `auth.role.acl:banner` (banner widgets get
+`onAfterSave` after the role and its ACL were saved, and may load an ACL into the editor through
+`onDataChange`). `AclEditor` accepts the optional `onBaselineChange` and `valueRevision` props. The
+simulate contract (`@open-mercato/shared/modules/insights/simulate`) gained optional fields only:
+`execution: 'inline'`, `accessLogResourceKind`, `liveRecords`, `SimulationKindResult.summary`,
+`SimulationRunContext.inline`, `SimulationValidationContext.requesterUserId` / `resolve`, and the
+validation codes `artifact_unavailable` (404) and `forbidden` (403).
+
+**Behavior notes.** The preview mirrors what the role ACL save would allow (super-admin roles and
+grants for super administrators only, grants within the requester's own, evaluated at the
+requester's own organization like the save) and accepts only grants
+the ACL catalog knows (grants the role already holds are kept as they are). Counts are per
+organization and principal type, k-suppressed like the backtests; super administrators (global or
+hidden) are never counted or listed, nor are principals of organizations outside the requester's
+scope or ephemeral AI-session API keys; API keys are counted only for requesters holding
+`api_keys.view`. A run detail's `budgets.recordsUsed` is `null` whenever a group or cell of its
+result is suppressed. Saving a role whose ACL has no `updatedAt` now re-reads the ACL first (before
+anything is written) and refuses to overwrite it when someone else changed it ("Reload the page and
+apply your changes again"); a role ACL with `updatedAt` keeps using the optimistic lock.
+
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
 Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).

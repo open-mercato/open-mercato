@@ -25,7 +25,13 @@ export async function GET(req: Request) {
       for (const registered of listSimulationKinds()) {
         const definition = registered.definition
         if (!(await hasFeatures(definition.requiredFeatures))) continue
-        kinds.push({ kind: definition.kind, artifactKind: definition.artifactKind, labelKey: definition.labelKey, cellKeys: [...definition.cellKeys] })
+        kinds.push({
+          kind: definition.kind,
+          artifactKind: definition.artifactKind,
+          labelKey: definition.labelKey,
+          cellKeys: [...definition.cellKeys],
+          execution: definition.execution === 'inline' ? 'inline' : 'queued',
+        })
       }
     }
     return simulationJson({
@@ -49,7 +55,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'List the simulation kinds the caller may run',
-      description: 'Kinds whose `requiredFeatures` the caller holds in the selected organization (wildcard-aware), and whether the caller holds `insights.simulator.run`, plus the run limits.',
+      description: 'Kinds whose `requiredFeatures` the caller holds in the selected organization (wildcard-aware) with how each runs (`queued` or `inline`), whether the caller holds `insights.simulator.run`, plus the run limits.',
       responses: [{ status: 200, description: 'Capabilities', schema: simulationCapabilitiesResponseSchema }],
       errors: [
         { status: 400, description: 'No organization selected (`organization_scope_required`)', schema: simulationErrorSchema },

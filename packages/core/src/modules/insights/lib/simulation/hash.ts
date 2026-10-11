@@ -52,6 +52,8 @@ export type SimulationInputsHashSource = {
   contributionVersion: number
   requesterUserId: string
   organizationId: string
+  /** A fresh id per request of an `inline` kind: inline runs are never deduplicated. */
+  inlineRequestId?: string
 }
 
 /**
@@ -74,6 +76,7 @@ export function computeSimulationInputsHash(source: SimulationInputsHashSource):
     contributionVersion: source.contributionVersion,
     requesterUserId: source.requesterUserId.toLowerCase(),
     organizationId: source.organizationId.toLowerCase(),
+    inlineRequestId: source.inlineRequestId,
   })
   return createHash('sha256').update(canonical).digest('hex')
 }

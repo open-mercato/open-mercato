@@ -18,11 +18,87 @@ import {
   roleAclAllowsOrganization,
   type RoleOrganizationScope,
 } from './roleOrganizationScope'
+import { listSuperAdminUserIds } from '../lib/grantChecks'
+import { normalizeRoleAclSnapshot, type RoleAclSnapshot } from '../lib/roleAclFingerprint'
 
 interface AclData {
   isSuperAdmin: boolean
   features: string[]
   organizations: string[] | null
+}
+
+type RoleAclGrant = Pick<RoleAcl, 'isSuperAdmin' | 'featuresJson' | 'organizationsJson'>
+
+export type { RoleAclSnapshot } from '../lib/roleAclFingerprint'
+
+/** Bounds of one `previewRoleAclChange` (deterministic truncation by id, reported in `truncated`). */
+export const ROLE_ACL_PREVIEW_LIMITS = {
+  users: 5000,
+  apiKeys: 1000,
+  organizations: 250,
+} as const
+
+/**
+ * One organization a cohort reaches before or after the change, with its effective feature sets
+ * (indices into `RoleAclChangePreview.featureSets`); equal indices mean an unchanged access.
+ */
+export type RoleAclPreviewAccess = {
+  organizationId: string
+  before: number
+  after: number
+}
+
+/**
+ * Principals holding the role whose ACL inputs are identical (the same roles, per-user ACL and
+ * super-admin standing; for API keys the same roles and key organization), so their access is the
+ * same in every organization. `access` lists the evaluated organizations where the cohort has any
+ * effective feature before or after the change.
+ */
+export type RoleAclPreviewCohort = {
+  principalType: 'user' | 'api_key'
+  principals: Array<{ id: string; homeOrganizationId: string | null }>
+  access: RoleAclPreviewAccess[]
+}
+
+/** The requester's own access at one organization before and after the change. */
+export type RoleAclPreviewSelf = {
+  organizationId: string | null
+  before: number
+  after: number
+  organizationAllowedBefore: boolean
+  organizationAllowedAfter: boolean
+}
+
+/**
+ * `current` is the role's saved ACL (`currentExists` false when the role has no ACL row yet: then
+ * saving creates one, and an absent organization allowlist widens its holders' visibility).
+ */
+export type RoleAclChangePreview = {
+  roleId: string
+  tenantId: string
+  current: RoleAclSnapshot
+  currentExists: boolean
+  proposed: RoleAclSnapshot
+  organizationIds: string[]
+  featureSets: string[][]
+  cohorts: RoleAclPreviewCohort[]
+  self: RoleAclPreviewSelf | null
+  truncated: { users: boolean; apiKeys: boolean; organizations: boolean }
+}
+
+export type RoleAclChangePreviewOptions = {
+  /** Reads run on this manager (e.g. a read-only transaction); defaults to a fork of the service's. */
+  em?: EntityManager
+  /** Organizations to evaluate: `null`/absent = every organization of the tenant, `[]` = none. */
+  organizationIds?: readonly string[] | null
+  /** Only principals whose home organization is listed (`null`/absent = every principal). */
+  principalOrganizationIds?: readonly string[] | null
+  /** Also evaluates this user at `selfOrganizationId` (returned in `self`, even when excluded from cohorts). */
+  selfUserId?: string | null
+  selfOrganizationId?: string | null
+  /** `false` leaves API keys out (e.g. for a requester who may not view API keys). */
+  includeApiKeys?: boolean
+  now?: Date
 }
 
 export const ACCESS_EXPLANATION_REASONS = [
@@ -367,6 +443,184 @@ function roleAclsAuthorizeFeaturesGlobally(
     unrestricted,
     scopeAllowed: scopeAllowed || unrestricted,
   })
+}
+
+/**
+ * The role-aggregated ACL of a human user at one organization, exactly as
+ * `loadAclWithEntityManager` projects it: features of the roles applicable at the organization
+ * (`roleScope` = the organization and its ancestors), the union of role organization allowlists
+ * (an absent list or `__all__` widens to every organization; an empty list adds none), plus the
+ * evaluated organization when a restricted role applies there.
+ */
+function aggregateUserRoleAcls(
+  roleAcls: readonly RoleAclGrant[],
+  roleScope: RoleOrganizationScope,
+  organizationId: string | null,
+): AclData {
+  let isSuperAdmin = false
+  const features: string[] = []
+  let organizations: string[] | null = []
+  let hasApplicableRestrictedRole = false
+  for (const acl of roleAcls) {
+    if (roleAclAllowsOrganization(acl, roleScope)) {
+      isSuperAdmin = isSuperAdmin || acl.isSuperAdmin === true
+      for (const feature of Array.isArray(acl.featuresJson) ? acl.featuresJson : []) {
+        if (!features.includes(feature)) features.push(feature)
+      }
+      if (isRestrictedRoleAcl(acl)) hasApplicableRestrictedRole = true
+    }
+    if (organizations !== null) {
+      if (acl.organizationsJson == null || acl.organizationsJson.includes('__all__')) {
+        organizations = null
+      } else {
+        organizations = Array.from(new Set([...organizations, ...acl.organizationsJson]))
+      }
+    }
+  }
+  if (
+    organizations !== null
+    && organizationId
+    && roleScope
+    && roleScope.size > 0
+    && hasApplicableRestrictedRole
+    && !organizations.includes(organizationId)
+  ) {
+    organizations.push(organizationId)
+  }
+  return { isSuperAdmin, features, organizations }
+}
+
+/**
+ * The role-aggregated ACL of an API key, exactly as `loadAclWithEntityManager` projects it: an
+ * empty role allowlist inherits the key's own binding, a key bound to an organization reaches only
+ * that organization (when its roles reach it), and a super-admin role inside an organization bound
+ * becomes a `*` grant that keeps the bound.
+ */
+function aggregateApiKeyRoleAcls(
+  roleAcls: readonly RoleAclGrant[],
+  roleScope: RoleOrganizationScope,
+  evaluatedOrganizationId: string | null,
+  keyOrganizationId: string | null,
+  keyScope: RoleOrganizationScope,
+): AclData {
+  let isSuperAdmin = false
+  const features: string[] = []
+  let organizations: string[] | null = []
+  let hasApplicableRestrictedRole = false
+  for (const acl of roleAcls) {
+    if (roleAclAllowsOrganization(acl, roleScope)) {
+      isSuperAdmin = isSuperAdmin || acl.isSuperAdmin === true
+      for (const feature of Array.isArray(acl.featuresJson) ? acl.featuresJson : []) {
+        if (!features.includes(feature)) features.push(feature)
+      }
+      if (isRestrictedRoleAcl(acl)) hasApplicableRestrictedRole = true
+    }
+    if (organizations !== null) {
+      if (
+        acl.organizationsJson == null
+        || acl.organizationsJson.length === 0
+        || acl.organizationsJson.includes('__all__')
+      ) {
+        organizations = null
+      } else {
+        organizations = Array.from(new Set([...organizations, ...acl.organizationsJson]))
+      }
+    }
+  }
+  if (
+    organizations !== null
+    && evaluatedOrganizationId
+    && roleScope !== null
+    && roleScope.size > 0
+    && hasApplicableRestrictedRole
+    && !organizations.includes(evaluatedOrganizationId)
+  ) {
+    organizations.push(evaluatedOrganizationId)
+  }
+  if (keyOrganizationId) {
+    organizations = organizations === null
+      || organizations.some((organizationId) => keyScope?.has(organizationId))
+      ? [keyOrganizationId]
+      : []
+  }
+  if (isSuperAdmin && organizations !== null && !features.includes('*')) features.push('*')
+  return { isSuperAdmin: isSuperAdmin && organizations === null, features, organizations }
+}
+
+/** Whether a principal's role grants make them a global super administrator (an unrestricted super-admin role). */
+function hasUnrestrictedSuperAdminGrant(roleAcls: readonly Pick<RoleAcl, 'isSuperAdmin' | 'organizationsJson'>[]): boolean {
+  return roleAcls.some((grant) => grant.isSuperAdmin && !isRestrictedRoleAcl(grant))
+}
+
+function isOrganizationAllowed(acl: AclData, organizationId: string | null): boolean {
+  return acl.isSuperAdmin
+    || !acl.organizations
+    || !organizationId
+    || acl.organizations.includes(organizationId)
+    || acl.organizations.includes('__all__')
+}
+
+/** The concrete active features an ACL grants at an organization (`getEffectiveFeatures`). */
+function projectEffectiveFeatures(acl: AclData, organizationId: string | null): string[] {
+  if (!isOrganizationAllowed(acl, organizationId)) return []
+  return resolveEffectiveFeatures(acl.isSuperAdmin ? ['*'] : acl.features)
+}
+
+const GLOBAL_SUPER_ADMIN_ACL: AclData = { isSuperAdmin: true, features: ['*'], organizations: null }
+
+const PREVIEW_QUERY_CHUNK = 500
+
+function chunkIds(ids: readonly string[]): string[][] {
+  const chunks: string[][] = []
+  for (let index = 0; index < ids.length; index += PREVIEW_QUERY_CHUNK) chunks.push(ids.slice(index, index + PREVIEW_QUERY_CHUNK))
+  return chunks
+}
+
+function compareCodeUnits(left: string, right: string): number {
+  if (left === right) return 0
+  return left < right ? -1 : 1
+}
+
+function readRoleTenantId(value: unknown): string | null {
+  if (value && typeof value === 'object' && 'tenantId' in value) {
+    const tenantId = (value as { tenantId?: unknown }).tenantId
+    return typeof tenantId === 'string' && tenantId.length > 0 ? tenantId : null
+  }
+  return null
+}
+
+function aclKey(acl: AclData): string {
+  const organizations = acl.organizations === null ? null : [...acl.organizations].sort(compareCodeUnits)
+  return JSON.stringify([acl.isSuperAdmin, [...acl.features].sort(compareCodeUnits), organizations])
+}
+
+/** Interns effective feature sets so equal sets share one index (unchanged access ⇔ equal indices). */
+class FeatureSetTable {
+  readonly sets: string[][] = []
+  private readonly byKey = new Map<string, number>()
+
+  intern(features: readonly string[]): number {
+    const sorted = Array.from(new Set(features)).sort(compareCodeUnits)
+    const key = sorted.join('\u0000')
+    const existing = this.byKey.get(key)
+    if (existing !== undefined) return existing
+    const index = this.sets.length
+    this.sets.push(sorted)
+    this.byKey.set(key, index)
+    return index
+  }
+}
+
+type PreviewUserInputs = {
+  globalSuperAdminBefore: boolean
+  globalSuperAdminAfter: boolean
+  userAcl: AclData | null
+  tenantRoleIds: string[]
+}
+
+type PreviewApiKeyInputs = {
+  roleIds: string[]
+  keyOrganizationId: string | null
 }
 
 export class RbacService {
@@ -798,49 +1052,10 @@ export class RbacService {
       const roleAcls = tenantId && roleIds.length
         ? await em.find(RoleAcl, { tenantId, role: { $in: roleIds as never } } as never)
         : []
-      let isSuperAdmin = false
-      const features: string[] = []
-      let organizations: string[] | null = []
-      let hasApplicableRestrictedRole = false
-      for (const acl of roleAcls) {
-        if (roleAclAllowsOrganization(acl, roleScope)) {
-          isSuperAdmin = isSuperAdmin || acl.isSuperAdmin === true
-          for (const feature of Array.isArray(acl.featuresJson) ? acl.featuresJson : []) {
-            if (!features.includes(feature)) features.push(feature)
-          }
-          if (isRestrictedRoleAcl(acl)) hasApplicableRestrictedRole = true
-        }
-        if (organizations !== null) {
-          if (
-            acl.organizationsJson == null
-            || acl.organizationsJson.length === 0
-            || acl.organizationsJson.includes('__all__')
-          ) {
-            organizations = null
-          } else {
-            organizations = Array.from(new Set([...organizations, ...acl.organizationsJson]))
-          }
-        }
-      }
-      if (
-        organizations !== null
-        && evaluatedOrganizationId
-        && roleScope !== null
-        && roleScope.size > 0
-        && hasApplicableRestrictedRole
-        && !organizations.includes(evaluatedOrganizationId)
-      ) {
-        organizations.push(evaluatedOrganizationId)
-      }
-      if (keyOrganizationId) {
-        const keyScope = await resolveRoleOrganizationScopeWithEntityManager(em, tenantId, keyOrganizationId)
-        organizations = organizations === null
-          || organizations.some((organizationId) => keyScope?.has(organizationId))
-          ? [keyOrganizationId]
-          : []
-      }
-      if (isSuperAdmin && organizations !== null && !features.includes('*')) features.push('*')
-      return { isSuperAdmin: isSuperAdmin && organizations === null, features, organizations }
+      const keyScope = keyOrganizationId
+        ? await resolveRoleOrganizationScopeWithEntityManager(em, tenantId, keyOrganizationId)
+        : null
+      return aggregateApiKeyRoleAcls(roleAcls, roleScope, evaluatedOrganizationId, keyOrganizationId, keyScope)
     }
 
     const directGlobalGrant = await em.findOne(
@@ -848,7 +1063,7 @@ export class RbacService {
       { user: userId as never, isSuperAdmin: true } as never,
     )
     if (directGlobalGrant?.isSuperAdmin) {
-      return { isSuperAdmin: true, features: ['*'], organizations: null }
+      return { ...GLOBAL_SUPER_ADMIN_ACL, features: ['*'] }
     }
     const globalLinks = await findWithDecryption(
       em,
@@ -868,8 +1083,8 @@ export class RbacService {
           isSuperAdmin: true,
         } as never,
       )
-      if (globalRoleGrants.some((grant) => grant.isSuperAdmin && !isRestrictedRoleAcl(grant))) {
-        return { isSuperAdmin: true, features: ['*'], organizations: null }
+      if (hasUnrestrictedSuperAdminGrant(globalRoleGrants)) {
+        return { ...GLOBAL_SUPER_ADMIN_ACL, features: ['*'] }
       }
     }
 
@@ -906,37 +1121,7 @@ export class RbacService {
       tenantId,
       scope.organizationId,
     )
-    let isSuperAdmin = false
-    const features: string[] = []
-    let organizations: string[] | null = []
-    let hasApplicableRestrictedRole = false
-    for (const acl of roleAcls) {
-      if (roleAclAllowsOrganization(acl, roleScope)) {
-        isSuperAdmin = isSuperAdmin || acl.isSuperAdmin === true
-        for (const feature of Array.isArray(acl.featuresJson) ? acl.featuresJson : []) {
-          if (!features.includes(feature)) features.push(feature)
-        }
-        if (isRestrictedRoleAcl(acl)) hasApplicableRestrictedRole = true
-      }
-      if (organizations !== null) {
-        if (acl.organizationsJson == null || acl.organizationsJson.includes('__all__')) {
-          organizations = null
-        } else {
-          organizations = Array.from(new Set([...organizations, ...acl.organizationsJson]))
-        }
-      }
-    }
-    if (
-      organizations !== null
-      && scope.organizationId
-      && roleScope
-      && roleScope.size > 0
-      && hasApplicableRestrictedRole
-      && !organizations.includes(scope.organizationId)
-    ) {
-      organizations.push(scope.organizationId)
-    }
-    return { isSuperAdmin, features, organizations }
+    return aggregateUserRoleAcls(roleAcls, roleScope, scope.organizationId)
   }
 
   async userHasAllFeaturesWithEntityManager(
@@ -1255,13 +1440,7 @@ export class RbacService {
     scope: { tenantId: string | null; organizationId: string | null },
   ): Promise<string[]> {
     const acl = await this.loadAcl(userId, scope)
-    const organizationAllowed = acl.isSuperAdmin
-      || !acl.organizations
-      || !scope.organizationId
-      || acl.organizations.includes(scope.organizationId)
-      || acl.organizations.includes('__all__')
-    if (!organizationAllowed) return []
-    return resolveEffectiveFeatures(acl.isSuperAdmin ? ['*'] : acl.features)
+    return projectEffectiveFeatures(acl, scope.organizationId)
   }
 
   /**
@@ -1442,6 +1621,372 @@ export class RbacService {
       result.push(toAccessRoleGrant(acl, { id: roleId, name: namesById.get(roleId) ?? null }, required, roleScope))
     }
     return result.sort(compareRoleGrants)
+  }
+
+  /**
+   * Previews replacing one role's ACL in `tenantId` with `proposed`, without writing anything: the
+   * principals holding the role — users of the tenant and its API keys (`rolesJson`; ephemeral AI
+   * session keys, which mirror a user, are left out) — with their effective features
+   * (`resolveEffectiveFeatures`: wildcard-aware, enabled modules, removed features dropped) in every
+   * evaluated organization, before and after. Each principal follows the
+   * `loadAclWithEntityManager` precedence — a global super-admin grant, then a per-user ACL, then
+   * the role aggregation (`aggregateUserRoleAcls` / `aggregateApiKeyRoleAcls`, shared with the
+   * loader) — on batched, fresh reads of `options.em`; a parity test pins an unchanged proposal to
+   * `loadAclWithEntityManager` for every principal and organization. The proposal replaces the ACL
+   * row the role ACL save updates (`findOne({ role, tenantId })`, created when absent). Global super
+   * administrators and every super-admin user (`listSuperAdminUserIds`) are left out entirely, as
+   * are users whose per-user ACL replaces their roles before and after. `self` evaluates one user
+   * (normally the requester) whatever the exclusions. `null` when the role does not exist in the
+   * tenant.
+   */
+  async previewRoleAclChange(
+    tenantId: string,
+    roleId: string,
+    proposed: RoleAclSnapshot,
+    options: RoleAclChangePreviewOptions = {},
+  ): Promise<RoleAclChangePreview | null> {
+    const em = options.em ?? this.em.fork()
+    const role = await findOneWithDecryption(
+      em,
+      Role,
+      { id: roleId, tenantId, deletedAt: null } as FilterQuery<Role>,
+      undefined,
+      { tenantId, organizationId: null },
+    )
+    if (!role) return null
+    const editedRoleId = String(role.id).toLowerCase()
+    const proposedSnapshot = normalizeRoleAclSnapshot(proposed)
+    const proposedGrant: RoleAclGrant = {
+      isSuperAdmin: proposedSnapshot.isSuperAdmin,
+      featuresJson: [...proposedSnapshot.features],
+      organizationsJson: proposedSnapshot.organizations === null ? null : [...proposedSnapshot.organizations],
+    }
+    const nowMs = (options.now ?? new Date()).getTime()
+
+    const scopes = await this.loadOrganizationScopes(em, tenantId)
+    const roleScopeOf = (organizationId: string | null): RoleOrganizationScope => (
+      organizationId ? scopes.get(organizationId.toLowerCase()) ?? new Set<string>() : null
+    )
+    const requestedOrganizations = options.organizationIds === undefined || options.organizationIds === null
+      ? Array.from(scopes.keys())
+      : Array.from(new Set(options.organizationIds.map((id) => id.toLowerCase()))).filter((id) => scopes.has(id))
+    requestedOrganizations.sort(compareCodeUnits)
+    const organizationIds = requestedOrganizations.slice(0, ROLE_ACL_PREVIEW_LIMITS.organizations)
+    const principalOrganizations = options.principalOrganizationIds === undefined || options.principalOrganizationIds === null
+      ? null
+      : new Set(options.principalOrganizationIds.map((id) => id.toLowerCase()))
+    const isHomeAllowed = (homeOrganizationId: string | null): boolean => (
+      principalOrganizations === null || (homeOrganizationId !== null && principalOrganizations.has(homeOrganizationId.toLowerCase()))
+    )
+
+    const currentAcl = await em.findOne(RoleAcl, { role: editedRoleId, tenantId } as never)
+    const currentAclId = currentAcl ? String(currentAcl.id) : null
+    const current = normalizeRoleAclSnapshot(currentAcl
+      ? { isSuperAdmin: currentAcl.isSuperAdmin, features: currentAcl.featuresJson, organizations: currentAcl.organizationsJson }
+      : null)
+
+    const holderLinks = await findWithDecryption(
+      em,
+      UserRole,
+      { role: editedRoleId } as FilterQuery<UserRole>,
+      undefined,
+      { tenantId, organizationId: null },
+    )
+    const holderIds = uniqueIds(holderLinks.map((link) => readEntityReferenceId(link.user)?.toLowerCase() ?? null))
+    const superAdminUserIds = new Set(Array.from(await listSuperAdminUserIds(em, tenantId)).map((id) => id.toLowerCase()))
+    const holders = (await this.loadPreviewUsers(em, tenantId, holderIds.filter((id) => !superAdminUserIds.has(id))))
+      .filter((user) => isHomeAllowed(user.homeOrganizationId))
+      .sort((left, right) => compareCodeUnits(left.id, right.id))
+    const users = holders.slice(0, ROLE_ACL_PREVIEW_LIMITS.users)
+    const selfUserId = options.selfUserId ? options.selfUserId.toLowerCase() : null
+    const selfUser = selfUserId
+      ? await findOneWithDecryption(em, User, { id: selfUserId } as FilterQuery<User>, { fields: ['id'] }, { tenantId, organizationId: null })
+      : null
+    const inputUserIds = uniqueIds([...users.map((user) => user.id), selfUser ? selfUserId : null])
+    const userInputs = await this.loadPreviewUserInputs(em, tenantId, inputUserIds, editedRoleId, currentAclId, proposedGrant)
+
+    const keys = options.includeApiKeys === false
+      ? []
+      : await em.find(ApiKey, { tenantId, deletedAt: null, sessionUserId: null } as never, { fields: ['id', 'organizationId', 'rolesJson', 'expiresAt'] } as never)
+    const heldKeys = keys
+      .map((key) => {
+        const roleIds = uniqueIds((Array.isArray(key.rolesJson) ? key.rolesJson : [])
+          .map((value) => (typeof value === 'string' && /^[0-9a-f-]{36}$/i.test(value.trim()) ? value.trim().toLowerCase() : null)))
+        const keyOrganizationId = typeof key.organizationId === 'string' && key.organizationId.trim().length > 0
+          ? key.organizationId.trim()
+          : null
+        return { id: String(key.id).toLowerCase(), roleIds, keyOrganizationId, expiresAt: key.expiresAt ?? null }
+      })
+      .filter((key) => !(key.expiresAt && key.expiresAt.getTime() < nowMs))
+      .filter((key) => key.roleIds.includes(editedRoleId) && isHomeAllowed(key.keyOrganizationId))
+      .sort((left, right) => compareCodeUnits(left.id, right.id))
+    const apiKeys = heldKeys.slice(0, ROLE_ACL_PREVIEW_LIMITS.apiKeys)
+
+    const tenantRoleIds = uniqueIds([
+      ...Array.from(userInputs.values()).flatMap((inputs) => inputs.tenantRoleIds),
+      ...apiKeys.flatMap((key) => key.roleIds),
+    ])
+    const roleAclsByRole = new Map<string, RoleAcl[]>()
+    for (const chunk of chunkIds(tenantRoleIds)) {
+      const rows = await em.find(RoleAcl, { tenantId, role: { $in: chunk } } as never)
+      for (const row of rows) {
+        const rowRoleId = readEntityReferenceId(row.role)?.toLowerCase()
+        if (!rowRoleId) continue
+        const list = roleAclsByRole.get(rowRoleId) ?? []
+        list.push(row)
+        roleAclsByRole.set(rowRoleId, list)
+      }
+    }
+    const grantsOf = (roleIds: readonly string[], state: 'before' | 'after'): RoleAclGrant[] => roleIds.flatMap((id): RoleAclGrant[] => {
+      const rows = roleAclsByRole.get(id) ?? []
+      if (state === 'before' || id !== editedRoleId) return rows
+      if (!currentAclId) return [...rows, proposedGrant]
+      return rows.map((row) => (String(row.id) === currentAclId ? proposedGrant : row))
+    })
+
+    const table = new FeatureSetTable()
+    const effectiveIndexByKey = new Map<string, number>()
+    const effectiveIndex = (acl: AclData, organizationId: string | null): number => {
+      const key = `${isOrganizationAllowed(acl, organizationId) ? 1 : 0}|${aclKey({ ...acl, organizations: null })}`
+      const cached = effectiveIndexByKey.get(key)
+      if (cached !== undefined) return cached
+      const index = table.intern(projectEffectiveFeatures(acl, organizationId))
+      effectiveIndexByKey.set(key, index)
+      return index
+    }
+    const resolveUserAcl = (inputs: PreviewUserInputs, state: 'before' | 'after', organizationId: string | null): AclData => {
+      const globalSuperAdmin = state === 'before' ? inputs.globalSuperAdminBefore : inputs.globalSuperAdminAfter
+      if (globalSuperAdmin) return GLOBAL_SUPER_ADMIN_ACL
+      if (inputs.userAcl) return inputs.userAcl
+      return aggregateUserRoleAcls(grantsOf(inputs.tenantRoleIds, state), roleScopeOf(organizationId), organizationId)
+    }
+    const resolveApiKeyAcl = (inputs: PreviewApiKeyInputs, state: 'before' | 'after', organizationId: string): AclData => (
+      aggregateApiKeyRoleAcls(
+        grantsOf(inputs.roleIds, state),
+        roleScopeOf(organizationId),
+        organizationId,
+        inputs.keyOrganizationId,
+        roleScopeOf(inputs.keyOrganizationId),
+      )
+    )
+    const accessOf = (resolve: (state: 'before' | 'after', organizationId: string) => AclData): RoleAclPreviewAccess[] => {
+      const access: RoleAclPreviewAccess[] = []
+      for (const organizationId of organizationIds) {
+        const before = effectiveIndex(resolve('before', organizationId), organizationId)
+        const after = effectiveIndex(resolve('after', organizationId), organizationId)
+        if (table.sets[before].length === 0 && table.sets[after].length === 0) continue
+        access.push({ organizationId, before, after })
+      }
+      return access
+    }
+
+    const cohorts = new Map<string, RoleAclPreviewCohort & { compute: () => RoleAclPreviewAccess[] }>()
+    for (const user of users) {
+      const inputs = userInputs.get(user.id)
+      if (!inputs || inputs.globalSuperAdminBefore) continue
+      if (inputs.userAcl && !inputs.globalSuperAdminAfter) continue
+      const signature = JSON.stringify([
+        'user',
+        inputs.globalSuperAdminAfter,
+        inputs.userAcl ? aclKey(inputs.userAcl) : null,
+        [...inputs.tenantRoleIds].sort(compareCodeUnits),
+      ])
+      const existing = cohorts.get(signature)
+      if (existing) {
+        existing.principals.push({ id: user.id, homeOrganizationId: user.homeOrganizationId })
+        continue
+      }
+      cohorts.set(signature, {
+        principalType: 'user',
+        principals: [{ id: user.id, homeOrganizationId: user.homeOrganizationId }],
+        access: [],
+        compute: () => accessOf((state, organizationId) => resolveUserAcl(inputs, state, organizationId)),
+      })
+    }
+    for (const key of apiKeys) {
+      const inputs: PreviewApiKeyInputs = { roleIds: key.roleIds, keyOrganizationId: key.keyOrganizationId }
+      const signature = JSON.stringify(['api_key', [...inputs.roleIds].sort(compareCodeUnits), inputs.keyOrganizationId])
+      const existing = cohorts.get(signature)
+      if (existing) {
+        existing.principals.push({ id: key.id, homeOrganizationId: key.keyOrganizationId })
+        continue
+      }
+      cohorts.set(signature, {
+        principalType: 'api_key',
+        principals: [{ id: key.id, homeOrganizationId: key.keyOrganizationId }],
+        access: [],
+        compute: () => accessOf((state, organizationId) => resolveApiKeyAcl(inputs, state, organizationId)),
+      })
+    }
+    const evaluatedCohorts: RoleAclPreviewCohort[] = []
+    for (const cohort of cohorts.values()) {
+      const access = cohort.compute()
+      if (access.length === 0) continue
+      evaluatedCohorts.push({ principalType: cohort.principalType, principals: cohort.principals, access })
+    }
+    evaluatedCohorts.sort((left, right) => (
+      left.principalType === right.principalType
+        ? compareCodeUnits(left.principals[0]?.id ?? '', right.principals[0]?.id ?? '')
+        : left.principalType === 'user' ? -1 : 1
+    ))
+
+    let self: RoleAclPreviewSelf | null = null
+    const selfInputs = selfUserId ? userInputs.get(selfUserId) : undefined
+    if (selfInputs) {
+      const selfOrganizationId = options.selfOrganizationId ? options.selfOrganizationId.toLowerCase() : null
+      const before = resolveUserAcl(selfInputs, 'before', selfOrganizationId)
+      const after = resolveUserAcl(selfInputs, 'after', selfOrganizationId)
+      self = {
+        organizationId: selfOrganizationId,
+        before: effectiveIndex(before, selfOrganizationId),
+        after: effectiveIndex(after, selfOrganizationId),
+        organizationAllowedBefore: isOrganizationAllowed(before, selfOrganizationId),
+        organizationAllowedAfter: isOrganizationAllowed(after, selfOrganizationId),
+      }
+    }
+
+    return {
+      roleId: editedRoleId,
+      tenantId,
+      current,
+      currentExists: Boolean(currentAcl),
+      proposed: proposedSnapshot,
+      organizationIds,
+      featureSets: table.sets,
+      cohorts: evaluatedCohorts,
+      self,
+      truncated: {
+        users: holders.length > users.length,
+        apiKeys: heldKeys.length > apiKeys.length,
+        organizations: requestedOrganizations.length > organizationIds.length,
+      },
+    }
+  }
+
+  /** Every live organization of the tenant with its role scope (itself + ancestors), as `resolveRoleOrganizationScopeWithEntityManager` builds it. */
+  private async loadOrganizationScopes(em: EntityManager, tenantId: string): Promise<Map<string, Set<string>>> {
+    const organizations = await findWithDecryption(
+      em,
+      Organization,
+      { tenant: tenantId, deletedAt: null } as FilterQuery<Organization>,
+      { fields: ['id', 'ancestorIds'] },
+      { tenantId, organizationId: null },
+    )
+    const scopes = new Map<string, Set<string>>()
+    for (const organization of organizations) {
+      const id = String(organization.id).toLowerCase()
+      const ancestors = Array.isArray(organization.ancestorIds)
+        ? organization.ancestorIds.filter((value): value is string => typeof value === 'string' && value.length > 0)
+        : []
+      scopes.set(id, new Set([id, ...ancestors]))
+    }
+    return scopes
+  }
+
+  private async loadPreviewUsers(
+    em: EntityManager,
+    tenantId: string,
+    userIds: readonly string[],
+  ): Promise<Array<{ id: string; homeOrganizationId: string | null }>> {
+    const users: Array<{ id: string; homeOrganizationId: string | null }> = []
+    for (const chunk of chunkIds(userIds)) {
+      const rows = await findWithDecryption(
+        em,
+        User,
+        { id: { $in: chunk }, tenantId, deletedAt: null } as FilterQuery<User>,
+        { fields: ['id', 'organizationId'] },
+        { tenantId, organizationId: null },
+      )
+      for (const row of rows) {
+        const homeOrganizationId = typeof row.organizationId === 'string' && row.organizationId.length > 0 ? row.organizationId.toLowerCase() : null
+        users.push({ id: String(row.id).toLowerCase(), homeOrganizationId })
+      }
+    }
+    return users
+  }
+
+  /**
+   * The `loadAclWithEntityManager` inputs of many users at once: their global super-admin standing
+   * (a direct super-admin user ACL in any tenant, or an unrestricted super-admin role in any tenant)
+   * before and after the edited role's ACL becomes `proposedGrant`, their per-user ACL in the tenant
+   * and their roles of the tenant.
+   */
+  private async loadPreviewUserInputs(
+    em: EntityManager,
+    tenantId: string,
+    userIds: readonly string[],
+    editedRoleId: string,
+    currentAclId: string | null,
+    proposedGrant: RoleAclGrant,
+  ): Promise<Map<string, PreviewUserInputs>> {
+    const normalizedTenantId = tenantId.toLowerCase()
+    const directSuperAdmins = new Set<string>()
+    const tenantUserAcls = new Map<string, AclData>()
+    const rolesByUser = new Map<string, { all: string[]; tenant: string[] }>()
+    for (const chunk of chunkIds(userIds)) {
+      const directGrants = await em.find(UserAcl, { user: { $in: chunk }, isSuperAdmin: true } as never)
+      for (const grant of directGrants) {
+        const grantUserId = readEntityReferenceId(grant.user)?.toLowerCase()
+        if (grantUserId && grant.isSuperAdmin) directSuperAdmins.add(grantUserId)
+      }
+      const userAcls = await em.find(UserAcl, { user: { $in: chunk }, tenantId } as never)
+      for (const userAcl of userAcls) {
+        const aclUserId = readEntityReferenceId(userAcl.user)?.toLowerCase()
+        if (!aclUserId || tenantUserAcls.has(aclUserId)) continue
+        tenantUserAcls.set(aclUserId, {
+          isSuperAdmin: userAcl.isSuperAdmin === true,
+          features: Array.isArray(userAcl.featuresJson) ? [...userAcl.featuresJson] : [],
+          organizations: Array.isArray(userAcl.organizationsJson) ? [...userAcl.organizationsJson] : null,
+        })
+      }
+      const links = await findWithDecryption(
+        em,
+        UserRole,
+        { user: { $in: chunk } } as FilterQuery<UserRole>,
+        { populate: ['role'] },
+        { tenantId: null, organizationId: null },
+      )
+      for (const link of links) {
+        const linkUserId = readEntityReferenceId(link.user)?.toLowerCase()
+        const linkRoleId = readEntityReferenceId(link.role)?.toLowerCase()
+        if (!linkUserId || !linkRoleId) continue
+        const entry = rolesByUser.get(linkUserId) ?? { all: [], tenant: [] }
+        entry.all.push(linkRoleId)
+        if (readRoleTenantId(link.role)?.toLowerCase() === normalizedTenantId) entry.tenant.push(linkRoleId)
+        rolesByUser.set(linkUserId, entry)
+      }
+    }
+    const allRoleIds = uniqueIds(Array.from(rolesByUser.values()).flatMap((entry) => entry.all))
+    const superAdminGrantsByRole = new Map<string, Array<RoleAcl>>()
+    for (const chunk of chunkIds(allRoleIds)) {
+      const grants = await em.find(RoleAcl, { role: { $in: chunk }, isSuperAdmin: true } as never)
+      for (const grant of grants) {
+        const grantRoleId = readEntityReferenceId(grant.role)?.toLowerCase()
+        if (!grantRoleId) continue
+        const list = superAdminGrantsByRole.get(grantRoleId) ?? []
+        list.push(grant)
+        superAdminGrantsByRole.set(grantRoleId, list)
+      }
+    }
+    const inputs = new Map<string, PreviewUserInputs>()
+    for (const userId of userIds) {
+      const roles = rolesByUser.get(userId) ?? { all: [], tenant: [] }
+      const grantsBefore = roles.all.flatMap((id) => superAdminGrantsByRole.get(id) ?? [])
+      const grantsAfter: Array<Pick<RoleAcl, 'isSuperAdmin' | 'organizationsJson'>> = roles.all.flatMap((id) => {
+        const grants = superAdminGrantsByRole.get(id) ?? []
+        if (id !== editedRoleId) return grants
+        const kept = currentAclId ? grants.filter((grant) => String(grant.id) !== currentAclId) : grants
+        return proposedGrant.isSuperAdmin ? [...kept, proposedGrant] : kept
+      })
+      const direct = directSuperAdmins.has(userId)
+      inputs.set(userId, {
+        globalSuperAdminBefore: direct || hasUnrestrictedSuperAdminGrant(grantsBefore),
+        globalSuperAdminAfter: direct || hasUnrestrictedSuperAdminGrant(grantsAfter),
+        userAcl: tenantUserAcls.get(userId) ?? null,
+        tenantRoleIds: roles.tenant,
+      })
+    }
+    return inputs
   }
 
   private async resolvePrincipalTenantId(em: EntityManager, userId: string): Promise<string | null> {

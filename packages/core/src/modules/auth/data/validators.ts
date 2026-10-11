@@ -129,6 +129,20 @@ export const featureCheckRequestSchema = z.object({
   features: z.array(z.string().max(128)).max(50).describe('Feature identifiers to check'),
 }).describe('Batch feature check payload')
 
+const ROLE_ACL_ORGANIZATION_TOKEN = /^(__all__|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/
+
+/**
+ * The proposal of the role permission preview (`auth.role_acl_preview`): the role and the ACL its
+ * editor would save — what `PUT /api/auth/roles/acl` replaces (`isSuperAdmin`, features,
+ * organizations; `null` = every organization, `[]` = none, `__all__` allowed).
+ */
+export const roleAclPreviewProposalSchema = z.object({
+  roleId: z.string().uuid(),
+  isSuperAdmin: z.boolean(),
+  features: z.array(z.string().trim().min(1).max(200)).max(2000),
+  organizations: z.array(z.string().trim().regex(ROLE_ACL_ORGANIZATION_TOKEN)).max(1000).nullable(),
+}).strict()
+
 export type UserLoginInput = z.infer<typeof userLoginSchema>
 export type RequestPasswordResetInput = z.infer<typeof requestPasswordResetSchema>
 export type ConfirmPasswordResetInput = z.infer<typeof confirmPasswordResetSchema>
@@ -141,3 +155,4 @@ export type UpdateSidebarVariantInput = z.infer<typeof updateSidebarVariantInput
 export type SidebarVariantRecordResponse = z.infer<typeof sidebarVariantRecordSchema>
 export type UserCreateInput = z.infer<typeof userCreateSchema>
 export type FeatureCheckRequestInput = z.infer<typeof featureCheckRequestSchema>
+export type RoleAclPreviewProposal = z.infer<typeof roleAclPreviewProposalSchema>

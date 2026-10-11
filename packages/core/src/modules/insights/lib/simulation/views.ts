@@ -3,7 +3,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { SimulationFeatureCheck } from '@open-mercato/shared/modules/insights/simulate'
 import type { InsightsSimulationDecision, InsightsSimulationRun, SimulationRunStatus } from '../../data/entities'
-import { readSimulationBudgets, type StoredSimulationResult } from './jobs'
+import { readSimulationBudgets, sanitizeSimulationSummary, type StoredSimulationResult, type StoredSimulationSummary } from './jobs'
 import type { SimulationCellSuppression, SimulationResultGroup } from './privacy'
 import type { RegisteredSimulationKind } from './registry'
 import { resolveSimulationSamples, toInternalHref, type SimulationSample } from './samples'
@@ -46,12 +46,14 @@ export type SimulationResultCellView = {
 export type SimulationResultGroupView = Omit<SimulationResultGroup, 'cells'> & { cells: SimulationResultCellView[] }
 
 export type SimulationRunDetail = SimulationRunSummary & {
+  execution: 'queued' | 'inline'
+  hasLiveRecords: boolean
   cellKeys: string[]
   proposal: unknown
-  result: { k: number; truncated: boolean; groups: SimulationResultGroupView[] } | null
+  result: { k: number; truncated: boolean; groups: SimulationResultGroupView[]; summary: StoredSimulationSummary | null } | null
   coverage: Record<string, number> | null
   caveats: string[]
-  budgets: { maxRecords: number; maxDurationMs: number; recordsUsed: number; elapsedMs: number }
+  budgets: { maxRecords: number; maxDurationMs: number; recordsUsed: number | null; elapsedMs: number }
   decisions: SimulationDecisionView[]
   applyHref: string | null
   canDecide: boolean
@@ -96,10 +98,21 @@ function readStoredResult(value: unknown): StoredSimulationResult | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const record = value as Partial<StoredSimulationResult>
   if (typeof record.k !== 'number' || !Array.isArray(record.groups)) return null
-  return { k: record.k, truncated: record.truncated === true, groups: record.groups }
+  const summary = sanitizeSimulationSummary(record.summary)
+  return { k: record.k, truncated: record.truncated === true, groups: record.groups, ...(summary ? { summary } : {}) }
 }
 
 type Resolver = { resolve: (name: string) => unknown }
+
+/**
+ * S14: the number of records a run read can equal the sum of its group totals (e.g. the principals
+ * a permission preview evaluated), so it is withheld whenever any group or cell is suppressed —
+ * otherwise a suppressed count could be derived by subtraction.
+ */
+function hidesSmallCounts(stored: StoredSimulationResult | null): boolean {
+  if (!stored) return false
+  return stored.groups.some((group) => group.suppressed || (group.cells ?? []).some((cell) => cell.suppressed !== null))
+}
 
 /**
  * The detail view of the caller's own run. Only a completed run carries a result (already
@@ -131,7 +144,7 @@ export async function buildSimulationRunDetail(input: {
       }
       groups.push({ ...group, cells })
     }
-    result = { k: stored.k, truncated: stored.truncated, groups }
+    result = { k: stored.k, truncated: stored.truncated, groups, summary: stored.summary ?? null }
   }
   const budgets = readSimulationBudgets(run.budgetsJson)
   let applyHref: string | null = null
@@ -146,12 +159,19 @@ export async function buildSimulationRunDetail(input: {
   }
   return {
     ...toSimulationRunSummary(run, kind),
+    execution: kind.definition.execution === 'inline' ? 'inline' : 'queued',
+    hasLiveRecords: run.status === 'completed' && Boolean(kind.definition.liveRecords),
     cellKeys: [...kind.definition.cellKeys],
     proposal: run.inputJson ?? null,
     result,
     coverage: run.status === 'completed' ? run.coverageJson ?? null : null,
     caveats: run.status === 'completed' ? [...(run.caveats ?? [])] : [],
-    budgets: { maxRecords: budgets.maxRecords, maxDurationMs: budgets.maxDurationMs, recordsUsed: budgets.recordsUsed, elapsedMs: budgets.elapsedMs },
+    budgets: {
+      maxRecords: budgets.maxRecords,
+      maxDurationMs: budgets.maxDurationMs,
+      recordsUsed: hidesSmallCounts(stored) ? null : budgets.recordsUsed,
+      elapsedMs: budgets.elapsedMs,
+    },
     decisions: input.decisions.map(toSimulationDecisionView),
     applyHref,
     canDecide: run.status === 'completed',

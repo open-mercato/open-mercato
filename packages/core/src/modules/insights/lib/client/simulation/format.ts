@@ -1,11 +1,15 @@
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
-import { TRIGGER_BACKTEST_SIMULATION_KIND, simulationKindModule } from './api'
+import { shortId } from '../xray/format'
+import { ROLE_ACL_PREVIEW_SIMULATION_KIND, TRIGGER_BACKTEST_SIMULATION_KIND, simulationKindModule } from './api'
+import { describeRoleAclGroup } from './roleAclPreview'
 import { describeTriggerBacktestGroup } from './triggerBacktest'
 import type { SimulationRequestError } from './types'
 
 /** Route error codes with a translated message (`insights.simulation.errors.<code>`). */
 export const SIMULATION_KNOWN_ERROR_CODES: ReadonlySet<string> = new Set([
+  'access_log_unavailable',
   'artifact_not_found',
+  'artifact_unavailable',
   'decision_exists',
   'forbidden',
   'internal_error',
@@ -95,14 +99,25 @@ export type SimulationGroupHeading = {
 /**
  * The heading of a result group: the group label with its raw key underneath when the label is
  * translated; for a trigger backtest the event and the trigger (name from the run's own proposal,
- * and the pattern it listens to).
+ * and the pattern it listens to); for a role permission preview the organization (its name from
+ * `groupLabels`, resolved live) and the principal type.
  */
 export function simulationGroupHeading(
   kind: string,
   group: { key: string; labelKey?: string | null },
   proposal: unknown,
   t: TranslateFn,
+  groupLabels?: Record<string, string> | null,
 ): SimulationGroupHeading {
+  if (kind === ROLE_ACL_PREVIEW_SIMULATION_KIND) {
+    const described = describeRoleAclGroup(group.key)
+    const organizationName = groupLabels?.[group.key] ?? null
+    const title = organizationName
+      ?? (described.organizationId
+        ? t('insights.simulation.ui.result.organizationGroupTitle', { id: shortId(described.organizationId) })
+        : group.key)
+    return { title, subtitle: group.labelKey ? t(group.labelKey, group.key) : null }
+  }
   if (kind === TRIGGER_BACKTEST_SIMULATION_KIND) {
     const described = describeTriggerBacktestGroup(group.key, proposal)
     const name = described.name ?? described.triggerId
@@ -115,6 +130,62 @@ export function simulationGroupHeading(
     return { title: t('insights.simulation.ui.result.triggerGroupTitle', { name }), subtitle: described.eventPattern }
   }
   return { title: simulationGroupLabel(group.key, group.labelKey, t), subtitle: group.labelKey ? group.key : null }
+}
+
+/** "{count} events", or the owning module's own wording (`<module>.simulation.groupTotal`). */
+export function simulationGroupTotalLabel(kind: string, count: string, t: TranslateFn): string {
+  const fallback = t('insights.simulation.ui.result.eventsTotal', { count })
+  const moduleId = simulationKindModule(kind)
+  return moduleId ? t(`${moduleId}.simulation.groupTotal`, fallback, { count }) : fallback
+}
+
+/** "Fewer than {k} events — hidden", or the owning module's wording (`<module>.simulation.groupSuppressed`). */
+export function simulationGroupSuppressedLabel(kind: string, k: string, t: TranslateFn): string {
+  const fallback = t('insights.simulation.ui.result.groupSuppressed', { k })
+  const moduleId = simulationKindModule(kind)
+  return moduleId ? t(`${moduleId}.simulation.groupSuppressed`, fallback, { k }) : fallback
+}
+
+/** A label of a result-summary count or list: `<module>.simulation.summary.<key>`, else the raw key. */
+export function simulationSummaryLabel(kind: string, key: string, t: TranslateFn): string {
+  const moduleId = simulationKindModule(kind)
+  return moduleId ? t(`${moduleId}.simulation.summary.${key}`, key) : key
+}
+
+/** A live record's type: `<module>.simulation.records.types.<type>`, else the raw type. */
+export function simulationRecordTypeLabel(kind: string, type: string, t: TranslateFn): string {
+  const moduleId = simulationKindModule(kind)
+  return moduleId ? t(`${moduleId}.simulation.records.types.${type}`, type) : type
+}
+
+/** A live record's count column: `<module>.simulation.records.counts.<key>`, else the raw key. */
+export function simulationRecordCountLabel(kind: string, key: string, t: TranslateFn): string {
+  const moduleId = simulationKindModule(kind)
+  return moduleId ? t(`${moduleId}.simulation.records.counts.${key}`, key) : key
+}
+
+/** The empty state of a completed run without groups: the owning module's wording, else the generic one. */
+/** The result heading and privacy note, or the owning module's wording (`<module>.simulation.result.title` / `.privacyNote`). */
+export function simulationResultHeading(kind: string, k: string, t: TranslateFn): { title: string; privacyNote: string } {
+  const title = t('insights.simulation.ui.result.title')
+  const privacyNote = t('insights.simulation.ui.result.privacyNote', { k })
+  const moduleId = simulationKindModule(kind)
+  if (!moduleId) return { title, privacyNote }
+  return {
+    title: t(`${moduleId}.simulation.result.title`, title),
+    privacyNote: t(`${moduleId}.simulation.result.privacyNote`, privacyNote, { k }),
+  }
+}
+
+export function simulationEmptyResult(kind: string, t: TranslateFn): { title: string; description: string } {
+  const moduleId = simulationKindModule(kind)
+  const title = t('insights.simulation.ui.result.emptyTitle')
+  const description = t('insights.simulation.ui.result.emptyDescription')
+  if (!moduleId) return { title, description }
+  return {
+    title: t(`${moduleId}.simulation.result.emptyTitle`, title),
+    description: t(`${moduleId}.simulation.result.emptyDescription`, description),
+  }
 }
 
 export function simulationCoverageLabel(key: string, t: TranslateFn): string {

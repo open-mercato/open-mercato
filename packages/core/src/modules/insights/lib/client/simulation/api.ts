@@ -9,11 +9,13 @@ export const SIMULATION_DECISION_RESOURCE_KIND = 'insights.simulation_decision'
 
 export const RULE_BACKTEST_SIMULATION_KIND = 'business_rules.rule_backtest'
 export const TRIGGER_BACKTEST_SIMULATION_KIND = 'workflows.trigger_backtest'
+export const ROLE_ACL_PREVIEW_SIMULATION_KIND = 'auth.role_acl_preview'
 
 export const SIMULATION_POLL_INTERVAL_MS = 2000
 export const SIMULATION_LIST_PAGE_SIZE = 20
 export const SIMULATION_WINDOW_DAY_OPTIONS = [30, 90, 180, 365] as const
 export const SIMULATION_RUN_ID_QUERY_PARAM = 'simulationRunId'
+export const SIMULATION_RECORDS_PAGE_SIZE = 50
 
 const ACTIVE_STATUSES: ReadonlySet<SimulationRunStatus> = new Set<SimulationRunStatus>(['queued', 'running'])
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -36,9 +38,15 @@ export function isActiveSimulationStatus(status: SimulationRunStatus | null | un
   return status !== null && status !== undefined && ACTIVE_STATUSES.has(status)
 }
 
-export function simulationRunApiPath(runId: string, sub?: 'cancel' | 'decision'): string {
+export function simulationRunApiPath(runId: string, sub?: 'cancel' | 'decision' | 'records'): string {
   const base = `${SIMULATION_API_BASE}/${encodeURIComponent(runId)}`
   return sub ? `${base}/${sub}` : base
+}
+
+/** One page of the live records of a completed run (`GET …/{id}/records`). */
+export function simulationRecordsApiPath(runId: string, page: number, pageSize: number = SIMULATION_RECORDS_PAGE_SIZE): string {
+  const params = new URLSearchParams({ page: String(Math.max(1, Math.floor(page))), pageSize: String(pageSize) })
+  return `${simulationRunApiPath(runId, 'records')}?${params.toString()}`
 }
 
 export function simulationRunPagePath(runId: string): string {

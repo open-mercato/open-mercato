@@ -270,7 +270,7 @@ describe('GET /api/insights/simulations and /capabilities', () => {
 
   it('lists runnable kinds wildcard-aware, and none without insights.simulator.run', async () => {
     const response = await capabilitiesGet(request('GET', `${BASE}/capabilities`))
-    expect(await response.json()).toEqual(expect.objectContaining({ canRun: true, kinds: [{ kind: 'test_module.backtest', artifactKind: 'test_module.thing', labelKey: 'test_module.label', cellKeys: ['fires'] }] }))
+    expect(await response.json()).toEqual(expect.objectContaining({ canRun: true, kinds: [{ kind: 'test_module.backtest', artifactKind: 'test_module.thing', labelKey: 'test_module.label', cellKeys: ['fires'], execution: 'queued' }] }))
     grantedFeatures = ['insights.simulator.view', 'test_module.*']
     expect(await (await capabilitiesGet(request('GET', `${BASE}/capabilities`))).json()).toEqual(expect.objectContaining({ canRun: false, kinds: [] }))
   })

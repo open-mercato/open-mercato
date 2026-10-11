@@ -119,7 +119,8 @@ export async function GET(req: Request) {
  * Requests a simulation (`insights.simulation.request`): `insights.simulator.run` (route guard) +
  * the kind's `requiredFeatures` (wildcard-aware), 20 submissions per user per hour, `proposal`
  * ≤ 64 KB and nesting ≤ 64, the registered mutation guards, then dedupe and the active-run limits in
- * the command. 202 for a new run, 200 for the caller's identical live run.
+ * the command. 202 for a new run, 200 for the caller's identical live run, and 200 for an `inline`
+ * kind, whose run is computed in this request and answered as `completed`.
  */
 export async function POST(req: Request) {
   let translate: TranslateFn | null = null
@@ -169,13 +170,14 @@ export async function POST(req: Request) {
       },
       ctx: context.commandContext,
     })
+    const queued = result.created && result.status !== 'completed'
     const response = simulationJson({
       ok: true,
       runId: result.runId,
       progressJobId: result.progressJobId,
       status: result.status,
       deduplicated: !result.created,
-    }, result.created ? 202 : 200)
+    }, queued ? 202 : 200)
     await runAfterSuccessSafely(guarded, 'simulations.request')
     return response
   } catch (error) {
@@ -202,19 +204,20 @@ export const openApi: OpenApiRouteDoc = {
     },
     POST: {
       summary: 'Request a change simulation',
-      description: 'Evaluates (never executes) the proposed change against recorded history in a background job tracked by a ProgressJob. Needs `insights.simulator.run` and the kind\'s required features. The proposal is validated by the owning module (422 `invalid_proposal` with `issues`); the artifact version and proposal fingerprint are captured on the server. A live identical run of the caller (same kind, proposal, artifact version, window hour, versions, organization) is returned with 200 instead of a new run. Limits: 2 active runs per user and 5 per tenant (429 `simulation_busy`), 20 requests per user per hour (429 `rate_limited`), proposal ≤ 64 KB. Runs the registered mutation guards (`insights.simulation_run`).',
+      description: 'Evaluates (never executes) the proposed change against recorded history in a background job tracked by a ProgressJob. Needs `insights.simulator.run` and the kind\'s required features. The proposal is validated by the owning module (422 `invalid_proposal` with `issues`); the artifact version and proposal fingerprint are captured on the server. A live identical run of the caller (same kind, proposal, artifact version, window hour, versions, organization) is returned with 200 instead of a new run. An `inline` kind (`auth.role_acl_preview`: needs `auth.acl.manage` + `auth.users.list`) is computed in this request from the live configuration, after an access-log row is written (503 `access_log_unavailable` when it cannot be), and answered with 200 and status `completed` (never deduplicated; `window` is ignored). Limits: 2 active runs per user and 5 per tenant (429 `simulation_busy`), 20 requests per user per hour (429 `rate_limited`), proposal ≤ 64 KB. Runs the registered mutation guards (`insights.simulation_run`).',
       requestBody: { contentType: 'application/json', schema: simulationRequestSchema },
       responses: [
         { status: 202, description: 'Run queued', schema: simulationRequestResponseSchema },
-        { status: 200, description: 'The caller\'s identical live run (deduplicated)', schema: simulationRequestResponseSchema },
+        { status: 200, description: 'The caller\'s identical live run (deduplicated), or the completed run of an inline kind', schema: simulationRequestResponseSchema },
       ],
       errors: [
         { status: 400, description: 'Invalid body or no organization selected (`organization_scope_required`)', schema: simulationErrorSchema },
         { status: 401, description: 'Authentication required', schema: simulationErrorSchema },
-        { status: 403, description: 'Missing `insights.simulator.run` or the kind\'s features (`forbidden`)', schema: simulationErrorSchema },
+        { status: 403, description: 'Missing `insights.simulator.run` or the kind\'s features, or the owning module would refuse to apply the proposal (`forbidden`)', schema: simulationErrorSchema },
+        { status: 404, description: 'The artifact does not exist or is outside the caller\'s scope (`artifact_unavailable`, identical for both)', schema: simulationErrorSchema },
         { status: 422, description: '`unsupported_kind`, `invalid_proposal`, `proposal_too_large`, `invalid_window`, `unsupported_event_payload`, `artifact_not_found`, `not_customized`, or blocked by a mutation guard', schema: simulationErrorSchema },
         { status: 429, description: '`simulation_busy` (active-run limits) or `rate_limited`', schema: simulationErrorSchema },
-        { status: 503, description: 'Rate limiter unavailable (`rate_limit_unavailable`)', schema: simulationErrorSchema },
+        { status: 503, description: 'Rate limiter unavailable (`rate_limit_unavailable`) or the access log of an inline kind cannot be written (`access_log_unavailable`)', schema: simulationErrorSchema },
       ],
     },
   },

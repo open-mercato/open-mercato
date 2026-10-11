@@ -27,7 +27,7 @@ import { SimulationFeatureCheckError, createAuditScanner, createFeatureCheck, wi
 import { simulationRunFeatures } from './features'
 import { suppressSimulationGroups, type SimulationResultGroup } from './privacy'
 import { enqueueSimulationSlice, type SimulationSliceJobPayload } from './queue'
-import { getSimulationKind, listSimulationEventAdapters } from './registry'
+import { getSimulationKind, isInlineSimulationKind, listSimulationEventAdapters } from './registry'
 import { confirmSimulationSamples } from './samples'
 import {
   abandonStaleSimulationRuns,
@@ -72,11 +72,19 @@ export type SimulationJobDeps = {
   runSlice?: <T>(em: EntityManager, tenantId: string, run: (trx: EntityManager) => Promise<T>) => Promise<ReadOnlySliceResult<T>>
 }
 
+/** Kind-level facts of a result (`SimulationResultSummary`), sanitized for storage. */
+export type StoredSimulationSummary = {
+  warnings: string[]
+  counts: Record<string, number>
+  lists: Record<string, string[]>
+}
+
 /** The stored, k-suppressed result of a completed run (`result_json`). */
 export type StoredSimulationResult = {
   k: number
   truncated: boolean
   groups: SimulationResultGroup[]
+  summary?: StoredSimulationSummary
 }
 
 type SimulationBudgetUsage = {
@@ -135,6 +143,33 @@ export function sanitizeCoverage(coverage: unknown): Record<string, number> {
 export function sanitizeI18nKeys(keys: unknown): string[] {
   if (!Array.isArray(keys)) return []
   return Array.from(new Set(keys.filter((key): key is string => typeof key === 'string' && I18N_KEY_PATTERN.test(key)))).slice(0, 32)
+}
+
+const SUMMARY_LIST_VALUE_PATTERN = /^[A-Za-z0-9_.:*-]{1,200}$/
+
+const SUMMARY_MAX_LISTS = 16
+
+const SUMMARY_MAX_LIST_ITEMS = 2000
+
+/**
+ * A kind's result summary as stored: i18n-key warnings, snake_case counts (non-negative integers)
+ * and snake_case lists of catalog identifiers (e.g. feature ids); anything else is dropped, so a
+ * summary can never carry record values. `null` when nothing is left.
+ */
+export function sanitizeSimulationSummary(summary: unknown): StoredSimulationSummary | null {
+  if (!summary || typeof summary !== 'object' || Array.isArray(summary)) return null
+  const record = summary as Record<string, unknown>
+  const warnings = sanitizeI18nKeys(record.warnings)
+  const counts = sanitizeCoverage(record.counts)
+  const lists: Record<string, string[]> = {}
+  const rawLists = record.lists && typeof record.lists === 'object' && !Array.isArray(record.lists) ? (record.lists as Record<string, unknown>) : {}
+  for (const [key, value] of Object.entries(rawLists)) {
+    if (Object.keys(lists).length >= SUMMARY_MAX_LISTS) break
+    if (!COVERAGE_KEY_PATTERN.test(key) || !Array.isArray(value)) continue
+    lists[key] = Array.from(new Set(value.filter((item): item is string => typeof item === 'string' && SUMMARY_LIST_VALUE_PATTERN.test(item)))).slice(0, SUMMARY_MAX_LIST_ITEMS)
+  }
+  if (warnings.length === 0 && Object.keys(counts).length === 0 && Object.keys(lists).length === 0) return null
+  return { warnings, counts, lists }
 }
 
 function classifyError(error: unknown): SimulationErrorCode {
@@ -215,7 +250,7 @@ export async function runInReadOnlySlice<T>(
   }, { readOnly: true })
 }
 
-async function resolveKAnonymity(em: EntityManager, scope: SimulationScope): Promise<number> {
+export async function resolveKAnonymity(em: EntityManager, scope: SimulationScope): Promise<number> {
   const settings = await loadXraySettings(em, scope)
   return effectiveKAnonymity(settings.kAnonymity)
 }
@@ -256,6 +291,10 @@ export async function runSimulationSlice(
     return 'kind_unavailable'
   }
   const definition = registered.definition
+  if (isInlineSimulationKind(definition)) {
+    await finishRun(container, rootEm, run, 'failed', 'kind_unavailable', now)
+    return 'kind_unavailable'
+  }
   const parsed = definition.inputSchema.safeParse(run.inputJson)
   const budgets = readSimulationBudgets(run.budgetsJson)
   if (!parsed.success || budgets.slices >= SIMULATION_MAX_SLICES) {
@@ -369,7 +408,8 @@ async function completeRun(
   const k = await resolveKAnonymity(em, scope)
   const suppressed = suppressSimulationGroups(Array.isArray(result.groups) ? result.groups : [], k, cellKeys)
   const groups = await confirmSimulationSamples(container, em, scope, run.requestedByUserId, hasFeatures, suppressed)
-  const stored: StoredSimulationResult = { k, truncated: result.truncated === true, groups }
+  const summary = sanitizeSimulationSummary(result.summary)
+  const stored: StoredSimulationResult = { k, truncated: result.truncated === true, groups, ...(summary ? { summary } : {}) }
   const coverageHidden = groups.some((group) => group.suppressed)
   const caveats = sanitizeI18nKeys(result.caveats)
   const saved = await updateActiveSimulationRun(rootEm, scope, run.id, run.updatedAt, {

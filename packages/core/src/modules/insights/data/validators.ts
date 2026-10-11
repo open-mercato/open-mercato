@@ -995,20 +995,31 @@ export const simulationDecisionViewSchema = z.object({
   createdAt: z.string(),
 })
 
+export const SIMULATION_EXECUTION_VALUES = ['queued', 'inline'] as const
+
+const simulationResultSummarySchema = z.object({
+  warnings: z.array(z.string()).describe('i18n keys shown prominently (e.g. a self-lockout warning)'),
+  counts: z.record(z.string(), z.number().int()).describe('Kind-level counts that are not record counts (e.g. `pages_lost`)'),
+  lists: z.record(z.string(), z.array(z.string())).describe('Catalog identifiers (e.g. feature ids) — never record values'),
+})
+
 export const simulationRunDetailSchema = simulationRunSummarySchema.extend({
+  execution: z.enum(SIMULATION_EXECUTION_VALUES).describe('`inline` runs were computed at request time from the live configuration (no history window).'),
+  hasLiveRecords: z.boolean().describe('Whether `GET …/{id}/records` lists the records this completed run concerns.'),
   cellKeys: z.array(z.string()),
   proposal: z.unknown().describe('The caller\'s own proposal.'),
   result: z.object({
     k: z.number().int(),
     truncated: z.boolean(),
     groups: z.array(simulationResultGroupSchema),
+    summary: simulationResultSummarySchema.nullable(),
   }).nullable(),
   coverage: z.record(z.string(), z.number()).nullable(),
   caveats: z.array(z.string()).describe('i18n keys'),
   budgets: z.object({
     maxRecords: z.number(),
     maxDurationMs: z.number(),
-    recordsUsed: z.number(),
+    recordsUsed: z.number().nullable().describe('Null when any group or cell of the result is suppressed (it could reveal a suppressed count).'),
     elapsedMs: z.number(),
   }),
   decisions: z.array(simulationDecisionViewSchema),
@@ -1044,6 +1055,7 @@ export const simulationCapabilitiesResponseSchema = z.object({
     artifactKind: z.string(),
     labelKey: z.string(),
     cellKeys: z.array(z.string()),
+    execution: z.enum(SIMULATION_EXECUTION_VALUES),
   })),
   limits: z.object({
     defaultWindowDays: z.number().int(),
@@ -1056,6 +1068,31 @@ export const simulationCapabilitiesResponseSchema = z.object({
 export const simulationDecisionResponseSchema = z.object({
   ok: z.literal(true),
   decision: simulationDecisionViewSchema,
+})
+
+export const simulationRecordsQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).max(10_000).optional(),
+  pageSize: z.coerce.number().int().min(1).max(100).optional(),
+})
+
+const simulationLiveRecordSchema = z.object({
+  id: z.string(),
+  type: z.string().describe('Kind-defined record type, e.g. `user` or `api_key`'),
+  label: z.string().nullable(),
+  href: z.string().nullable(),
+  groupKeys: z.array(z.string()),
+  counts: z.record(z.string(), z.number().int()),
+})
+
+export const simulationRecordsResponseSchema = z.object({
+  ok: z.literal(true),
+  items: z.array(simulationLiveRecordSchema),
+  total: z.number().int(),
+  page: z.number().int(),
+  pageSize: z.number().int(),
+  totalPages: z.number().int(),
+  notes: z.array(z.string()).describe('i18n keys'),
+  groupLabels: z.record(z.string(), z.string()).describe('Display names of result groups, resolved live'),
 })
 
 export const simulationCancelResponseSchema = z.object({

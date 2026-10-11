@@ -25,13 +25,17 @@ import {
   isSimulationNotFound,
   readSimulationFidelity,
   simulationCoverageLabel,
+  simulationEmptyResult,
+  simulationResultHeading,
   simulationKindLabel,
   translateSimulationKey,
 } from '../../lib/client/simulation/format'
-import { useSimulationMutations, useSimulationRun } from '../../lib/client/simulation/hooks'
+import { useSimulationLiveRecords, useSimulationMutations, useSimulationRun } from '../../lib/client/simulation/hooks'
 import type { SimulationDecisionView, SimulationRunDetail } from '../../lib/client/simulation/types'
 import { formatCount, formatXrayDateTime } from '../../lib/client/xray/format'
+import { SimulationLiveRecords } from './SimulationLiveRecords'
 import { SimulationGroupSection } from './SimulationResultGroups'
+import { SimulationResultSummary } from './SimulationResultSummary'
 import { SimulationStatusBadge } from './SimulationStatusBadge'
 
 export const SIMULATION_RUN_CONTEXT_ID = 'insights-simulation:run'
@@ -54,11 +58,14 @@ function RunHeader({ run }: { run: SimulationRunDetail }) {
   const started = formatXrayDateTime(run.startedAt, locale)
   const completed = formatXrayDateTime(run.completedAt, locale)
   const expires = formatXrayDateTime(run.expiresAt, locale)
+  const description = run.execution === 'inline'
+    ? t('insights.simulation.ui.run.computedAt', { at: from })
+    : t('insights.simulation.ui.run.window', { from, to })
   return (
     <div className="space-y-3">
       <PageHeader
         title={simulationKindLabel(run.kind, run.kindLabelKey, t)}
-        description={t('insights.simulation.ui.run.window', { from, to })}
+        description={description}
         actions={(
           <Button asChild variant="outline">
             <Link href={SIMULATION_PAGE_BASE}>
@@ -193,16 +200,17 @@ function DecisionSection({ run, busy, onDiscard }: DecisionSectionProps) {
   )
 }
 
-function RunResult({ run }: { run: SimulationRunDetail }) {
+function RunResult({ run, groupLabels }: { run: SimulationRunDetail; groupLabels: Record<string, string> | null }) {
   const t = useT()
   const locale = useLocale()
   const result = run.result
   if (!result) return null
+  const heading = simulationResultHeading(run.kind, formatCount(result.k, locale), t)
   return (
     <section className="space-y-4" data-testid="simulation-result">
       <div className="space-y-1">
-        <h2 className="text-base font-semibold">{t('insights.simulation.ui.result.title')}</h2>
-        <p className="text-sm text-muted-foreground">{t('insights.simulation.ui.result.privacyNote', { k: formatCount(result.k, locale) })}</p>
+        <h2 className="text-base font-semibold">{heading.title}</h2>
+        <p className="text-sm text-muted-foreground">{heading.privacyNote}</p>
       </div>
       {result.truncated ? (
         <Alert status="warning" size="default" data-testid="simulation-truncated">
@@ -210,10 +218,13 @@ function RunResult({ run }: { run: SimulationRunDetail }) {
           <AlertDescription>{t('insights.simulation.ui.run.truncatedDescription')}</AlertDescription>
         </Alert>
       ) : null}
+      <SimulationResultSummary kind={run.kind} summary={result.summary} />
       {result.groups.length === 0 ? (
-        <EmptyState variant="subtle" title={t('insights.simulation.ui.result.emptyTitle')} description={t('insights.simulation.ui.result.emptyDescription')} />
+        <EmptyState variant="subtle" {...simulationEmptyResult(run.kind, t)} />
       ) : (
-        result.groups.map((group) => <SimulationGroupSection key={group.key} kind={run.kind} group={group} k={result.k} proposal={run.proposal} />)
+        result.groups.map((group) => (
+          <SimulationGroupSection key={group.key} kind={run.kind} group={group} k={result.k} proposal={run.proposal} groupLabels={groupLabels} />
+        ))
       )}
     </section>
   )
@@ -232,6 +243,10 @@ export function SimulationRunPageClient({ runId }: { runId: string }) {
   const { cancelRun, decideRun } = useSimulationMutations(SIMULATION_RUN_CONTEXT_ID)
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [busy, setBusy] = React.useState<'cancel' | 'discard' | null>(null)
+  const [recordsPage, setRecordsPage] = React.useState(1)
+  const records = useSimulationLiveRecords(validId ? runId : null, recordsPage, {
+    enabled: run.data?.status === 'completed' && run.data.hasLiveRecords === true,
+  })
   const reload = run.reload
 
   const handleCancel = React.useCallback(async () => {
@@ -340,8 +355,11 @@ export function SimulationRunPageClient({ runId }: { runId: string }) {
           <AlertDescription>{runError ?? t('insights.simulation.ui.run.cancelledDescription')}</AlertDescription>
         </Alert>
       ) : null}
-      {detail.status === 'completed' ? <FidelityNote fidelity={detail.fidelity} /> : null}
-      <RunResult run={detail} />
+      {detail.status === 'completed' && detail.execution !== 'inline' ? <FidelityNote fidelity={detail.fidelity} /> : null}
+      <RunResult run={detail} groupLabels={records.data?.groupLabels ?? null} />
+      {detail.status === 'completed' && detail.hasLiveRecords ? (
+        <SimulationLiveRecords kind={detail.kind} records={records} page={recordsPage} onPageChange={setRecordsPage} />
+      ) : null}
       {detail.status === 'completed' ? <CoverageList coverage={detail.coverage} /> : null}
       <CaveatList caveats={detail.caveats} />
       <DecisionSection run={detail} busy={busy !== null} onDiscard={() => { void handleDiscard() }} />

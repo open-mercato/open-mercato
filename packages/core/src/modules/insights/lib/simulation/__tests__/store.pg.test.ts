@@ -17,6 +17,7 @@ import { Pool } from 'pg'
 import { InsightsSimulationDecision, InsightsSimulationRun } from '../../../data/entities'
 import { Migration20261010130000_insights } from '../../../migrations/Migration20261010130000_insights'
 import { runInReadOnlySlice } from '../jobs'
+import { runInReadOnlyTransaction } from '../inline'
 import {
   SimulationBusyError,
   SimulationDecisionExistsError,
@@ -26,6 +27,7 @@ import {
   deleteSimulationRunsOfUser,
   eraseSimulationDecider,
   findSimulationRun,
+  insertCompletedSimulationRun,
   insertSimulationDecision,
   listSimulationRuns,
   purgeExpiredSimulationRuns,
@@ -287,6 +289,42 @@ maybe('change simulator store (PostgreSQL)', () => {
     release()
     await expect(first).resolves.toEqual({ acquired: true, value: { timeout: '5s', readOnly: 'on' } })
     await expect(runInReadOnlySlice(em, TENANT, async (trx) => {
+      await sql`insert into ${sql.table(`${schema}.insights_simulation_decisions`)} (id, tenant_id, organization_id, run_id, decision, decided_by_user_id, artifact_kind, created_at) values (gen_random_uuid(), ${TENANT}, ${ORG_A}, gen_random_uuid(), 'applied', 'x', 'k', now())`.execute(trx.getKysely<unknown>())
+      return 'written'
+    })).rejects.toEqual(expect.objectContaining({ code: '25006' }))
+  })
+
+  it('stores inline runs as completed at once, outside the active-run limits and the dedupe of live runs', async () => {
+    await createSimulationRun(em, newRun())
+    const now = new Date()
+    const completed = (inputsHash: string) => insertCompletedSimulationRun(em, {
+      ...newRun({ kind: 'auth.role_acl_preview', inputsHash, windowFrom: now, windowTo: now, expiresAt: new Date(now.getTime() + DAY) }),
+      startedAt: now,
+      completedAt: now,
+      resultJson: { k: 10, truncated: false, groups: [], summary: { warnings: [], counts: { pages_lost: 1 }, lists: {} } },
+      coverageJson: {},
+      caveats: ['auth.simulation.caveats.currentState'],
+      fidelity: 'observed',
+    })
+    const first = await completed(randomUUID())
+    const second = await completed(randomUUID())
+    expect(first.id).not.toBe(second.id)
+    const stored = await findSimulationRun(em.fork(), { scope: { tenantId: TENANT, organizationId: ORG_A }, runId: first.id, requesterUserId: USER_A })
+    expect(stored).toEqual(expect.objectContaining({ status: 'completed', kind: 'auth.role_acl_preview', progressJobId: null }))
+    expect(stored?.resultJson).toEqual(expect.objectContaining({ summary: { warnings: [], counts: { pages_lost: 1 }, lists: {} } }))
+    await expect(createSimulationRun(em, newRun())).resolves.toEqual(expect.objectContaining({ created: true }))
+    await expect(createSimulationRun(em, newRun())).rejects.toBeInstanceOf(SimulationBusyError)
+  })
+
+  it('runs an inline kind in a read-only, statement-bounded transaction without the tenant slice lock', async () => {
+    const inside = await runInReadOnlySlice(em, TENANT, async () => runInReadOnlyTransaction(em, async (trx) => {
+      const db = trx.getKysely<unknown>()
+      const timeout = await sql<{ statement_timeout: string }>`show statement_timeout`.execute(db)
+      const readOnly = await sql<{ transaction_read_only: string }>`show transaction_read_only`.execute(db)
+      return { timeout: timeout.rows[0]?.statement_timeout, readOnly: readOnly.rows[0]?.transaction_read_only }
+    }))
+    expect(inside).toEqual({ acquired: true, value: { timeout: '5s', readOnly: 'on' } })
+    await expect(runInReadOnlyTransaction(em, async (trx) => {
       await sql`insert into ${sql.table(`${schema}.insights_simulation_decisions`)} (id, tenant_id, organization_id, run_id, decision, decided_by_user_id, artifact_kind, created_at) values (gen_random_uuid(), ${TENANT}, ${ORG_A}, gen_random_uuid(), 'applied', 'x', 'k', now())`.execute(trx.getKysely<unknown>())
       return 'written'
     })).rejects.toEqual(expect.objectContaining({ code: '25006' }))
