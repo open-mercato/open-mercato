@@ -30,9 +30,15 @@ function rule(ruleId: string, overrides: Partial<BusinessRule> = {}): BusinessRu
   } as BusinessRule
 }
 
-const currentRule = rule('CURRENT', { effectiveFrom: new Date('2026-10-01T00:00:00.000Z') })
-const expiredRule = rule('EXPIRED', { effectiveTo: new Date('2026-04-01T00:00:00.000Z') })
-const futureRule = rule('FUTURE', { effectiveFrom: new Date('2026-11-01T00:00:00.000Z') })
+const DAY_MS = 24 * 60 * 60 * 1000
+
+function shiftDays(from: Date, days: number): Date {
+  return new Date(from.getTime() + days * DAY_MS)
+}
+
+const currentRule = rule('CURRENT', { effectiveFrom: shiftDays(NOW, -9) })
+const expiredRule = rule('EXPIRED', { effectiveTo: shiftDays(HISTORICAL, 17) })
+const futureRule = rule('FUTURE', { effectiveFrom: shiftDays(NOW, 22) })
 const openRule = rule('OPEN')
 
 function createEm(rules: BusinessRule[]): EntityManager {
