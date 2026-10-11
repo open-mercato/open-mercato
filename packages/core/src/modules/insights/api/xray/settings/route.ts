@@ -60,7 +60,7 @@ function toResult(settings: XraySettingsSnapshot) {
 
 export async function GET(req: Request) {
   try {
-    const context = await resolveXrayRouteContext(req)
+    const context = await resolveXrayRouteContext(req, metadata.GET.requireFeatures)
     if (context instanceof NextResponse) return context
     const em = (context.container.resolve('em') as EntityManager).fork()
     const settings = await loadXraySettings(em, context.scope)
@@ -72,7 +72,7 @@ export async function GET(req: Request) {
 
 export async function PUT(req: Request) {
   try {
-    const context = await resolveXrayRouteContext(req)
+    const context = await resolveXrayRouteContext(req, metadata.PUT.requireFeatures)
     if (context instanceof NextResponse) return context
     const { translate } = await resolveTranslations()
     const body = await readJsonSafe<Record<string, unknown>>(req, {})
@@ -132,7 +132,7 @@ export const openApi: OpenApiRouteDoc = {
       description: 'Returns the effective settings of the selected organization; `updatedAt` is null until they are first saved.',
       responses: [{ status: 200, description: 'Effective settings', schema: xraySettingsResponseSchema }],
       errors: [
-        { status: 400, description: 'No organization is selected', schema: xrayErrorSchema },
+        { status: 400, description: 'No organization is selected, or it is outside the caller\'s organizations or the tenant', schema: xrayErrorSchema },
         { status: 401, description: 'Authentication required', schema: xrayErrorSchema },
         { status: 403, description: 'Missing `insights.xray.manage` or no organization access', schema: xrayErrorSchema },
       ],
@@ -143,7 +143,7 @@ export const openApi: OpenApiRouteDoc = {
       requestBody: { contentType: 'application/json', schema: xraySettingsUpdateSchema },
       responses: [{ status: 200, description: 'Saved settings', schema: xraySettingsResponseSchema }],
       errors: [
-        { status: 400, description: 'Invalid settings or no organization selected', schema: xrayErrorSchema },
+        { status: 400, description: 'Invalid settings, no organization selected, or an organization outside the caller\'s organizations or the tenant', schema: xrayErrorSchema },
         { status: 401, description: 'Authentication required', schema: xrayErrorSchema },
         { status: 403, description: 'Missing `insights.xray.manage` or no organization access', schema: xrayErrorSchema },
         { status: 409, description: 'The settings were changed by someone else (optimistic lock)', schema: xrayErrorSchema },

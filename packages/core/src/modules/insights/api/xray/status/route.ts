@@ -11,7 +11,7 @@ export const metadata = {
 
 export async function GET(req: Request) {
   try {
-    const context = await resolveXrayRouteContext(req)
+    const context = await resolveXrayRouteContext(req, metadata.GET.requireFeatures)
     if (context instanceof NextResponse) return context
     const [status, visible] = await Promise.all([
       readXrayStatus(context.container, context.scope),
@@ -38,7 +38,7 @@ export const openApi: OpenApiRouteDoc = {
       description: 'Returns the ingest cursor (projected through, state, active backfill or reconciliation scan, last error), the registered process declarations and per-process event and case counts. Identifiers and counts only. Processes (and their counts) are listed only when the caller holds the process\'s required features in the organization.',
       responses: [{ status: 200, description: 'Ingest status', schema: xrayStatusResponseSchema }],
       errors: [
-        { status: 400, description: 'No organization is selected, or it does not belong to the tenant', schema: xrayErrorSchema },
+        { status: 400, description: 'No organization is selected, or it is outside the caller\'s organizations or the tenant', schema: xrayErrorSchema },
         { status: 401, description: 'Authentication required', schema: xrayErrorSchema },
         { status: 403, description: 'Missing `insights.xray.manage` or no organization access', schema: xrayErrorSchema },
       ],

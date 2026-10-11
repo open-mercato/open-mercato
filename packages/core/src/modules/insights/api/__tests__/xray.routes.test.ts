@@ -103,7 +103,7 @@ jest.mock('../../lib/process/registry', () => {
 
 import { POST as backfillPost } from '../xray/backfill/route'
 import { GET as statusGet } from '../xray/status/route'
-import { PUT as settingsPut } from '../xray/settings/route'
+import { GET as settingsGet, PUT as settingsPut } from '../xray/settings/route'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 function request(method: string, url: string, body?: unknown): Request {
@@ -207,7 +207,8 @@ describe('GET /api/insights/xray/status — process features', () => {
     const body = await response.json() as { processes: Array<{ processKey: string; n: number | null }>; registry: { processes: Array<{ processKey: string }> } }
     expect(body.processes.map((process) => process.processKey)).toEqual(['test.deal'])
     expect(body.registry.processes.map((process) => process.processKey)).toEqual(['test.deal'])
-    expect(userHasAllFeaturesMock).toHaveBeenCalledTimes(2)
+    expect(userHasAllFeaturesMock).toHaveBeenCalledTimes(3)
+    expect(userHasAllFeaturesMock).toHaveBeenCalledWith(USER_ID, ['insights.xray.manage'], { tenantId: TENANT_ID, organizationId: ORG_ID })
     expect(userHasAllFeaturesMock).toHaveBeenCalledWith(USER_ID, ['sales.orders.view'], { tenantId: TENANT_ID, organizationId: ORG_ID })
     expect(userHasAllFeaturesMock).toHaveBeenCalledWith(USER_ID, ['test.deals.view'], { tenantId: TENANT_ID, organizationId: ORG_ID })
   })
@@ -237,6 +238,40 @@ describe('X-Ray route scope', () => {
     expect(isOrganizationInTenantMock).toHaveBeenCalledWith(expect.anything(), { tenantId: TENANT_ID, organizationId: OTHER_ORG_ID })
     expect(runRouteMutationGuardsMock).not.toHaveBeenCalled()
     expect(startXrayBackfillMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('X-Ray manage routes — organization outside the caller\'s scope', () => {
+  const statusRequest = () => request('GET', 'http://localhost/api/insights/xray/status')
+  const settingsRequest = () => request('GET', 'http://localhost/api/insights/xray/settings')
+
+  it('refuses a home organization outside the caller\'s allowed organizations before reading or writing anything', async () => {
+    getAuthFromRequestMock.mockResolvedValue({ sub: USER_ID, tenantId: TENANT_ID, orgId: OTHER_ORG_ID })
+    resolveOrganizationScopeForRequestMock.mockResolvedValue({ selectedId: null, filterIds: [ORG_ID], allowedIds: [ORG_ID], tenantId: TENANT_ID })
+    for (const response of [await backfillPost(backfillRequest()), await statusGet(statusRequest()), await settingsGet(settingsRequest())]) {
+      expect(response.status).toBe(400)
+      expect(await response.json()).toEqual(expect.objectContaining({ code: 'organization_scope_required' }))
+    }
+    expect(runRouteMutationGuardsMock).not.toHaveBeenCalled()
+    expect(startXrayBackfillMock).not.toHaveBeenCalled()
+    expect(readXrayStatusMock).not.toHaveBeenCalled()
+    expect(findXraySettingsRecordMock).not.toHaveBeenCalled()
+  })
+
+  it('checks insights.xray.manage at the exact organization the route acts on', async () => {
+    resolveOrganizationScopeForRequestMock.mockResolvedValue({ selectedId: null, filterIds: null, allowedIds: null, tenantId: TENANT_ID })
+    userHasAllFeaturesMock.mockImplementation(async (_userId: string, features: readonly string[], scope?: unknown) => (
+      !(features.includes('insights.xray.manage') && (scope as { organizationId: string | null }).organizationId === ORG_ID)
+    ))
+    for (const response of [await backfillPost(backfillRequest()), await statusGet(statusRequest()), await settingsGet(settingsRequest())]) {
+      expect(response.status).toBe(403)
+      expect(await response.json()).toEqual({ error: 'forbidden' })
+    }
+    expect(userHasAllFeaturesMock).toHaveBeenCalledWith(USER_ID, ['insights.xray.manage'], { tenantId: TENANT_ID, organizationId: ORG_ID })
+    expect(runRouteMutationGuardsMock).not.toHaveBeenCalled()
+    expect(startXrayBackfillMock).not.toHaveBeenCalled()
+    expect(readXrayStatusMock).not.toHaveBeenCalled()
+    expect(findXraySettingsRecordMock).not.toHaveBeenCalled()
   })
 })
 
