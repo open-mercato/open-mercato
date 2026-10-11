@@ -725,7 +725,7 @@ export function PhoneNumberField({
           </SelectTrigger>
           <SelectContent align="start">
             {countryOptions.map(({ country: c, label }) => (
-              <SelectItem key={`${c.iso2}-${c.dialCode}`} value={c.iso2}>
+              <SelectItem key={`${c.iso2}-${c.dialCode}`} value={c.iso2} textValue={label}>
                 <SelectItemLeading>
                   <span className="text-base leading-none">{c.flag}</span>
                 </SelectItemLeading>

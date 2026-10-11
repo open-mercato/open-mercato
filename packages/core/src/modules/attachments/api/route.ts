@@ -13,7 +13,7 @@ import { StorageDriverFactory } from '../lib/drivers'
 import { OcrService, shouldUseLlmOcr } from '../lib/ocrService'
 import { clearAttachmentThumbnailCache } from '../lib/thumbnailCache'
 import { assertAttachmentScopeInvariant } from '../lib/access'
-import { resolveAttachmentOrganizationId } from '../lib/requestScope'
+import { resolveAttachmentRequestScope } from '../lib/requestScope'
 import {
   mergeAttachmentMetadata,
   normalizeAttachmentAssignments,
@@ -204,7 +204,9 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
-  const orgId = await resolveAttachmentOrganizationId(container, auth, req)
+  const requestScope = await resolveAttachmentRequestScope(container, auth, req)
+  if (requestScope.denied) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const orgId = requestScope.organizationId
   const filter: Record<string, unknown> = { entityId, recordId, tenantId: auth.tenantId! }
   if (orgId) filter.organizationId = orgId
   const orderBy: Record<string, 'ASC' | 'DESC'> = { createdAt: 'DESC' }
@@ -336,7 +338,9 @@ export async function POST(req: Request) {
   }
   const storageDriverFactory =
     (container.resolve('storageDriverFactory') as StorageDriverFactory | null) ?? new StorageDriverFactory(em)
-  const orgId = await resolveAttachmentOrganizationId(container, auth, req)
+  const uploadScope = await resolveAttachmentRequestScope(container, auth, req)
+  if (uploadScope.denied) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const orgId = uploadScope.organizationId
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   await ensureDefaultPartitions(em)
   // Optional per-field validations
@@ -679,7 +683,9 @@ export async function DELETE(req: Request) {
   // A superadmin browsing with "All organizations" selected has no concrete org,
   // so resolution returns null and the delete falls back to a tenant-only scope
   // (#3764) — letting them remove any attachment in the tenant.
-  const orgId = await resolveAttachmentOrganizationId(container, auth, req)
+  const deleteScope = await resolveAttachmentRequestScope(container, auth, req)
+  if (deleteScope.denied) return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
+  const orgId = deleteScope.organizationId
   const deleteFilter: Record<string, unknown> = { id, tenantId: auth.tenantId! }
   if (orgId) deleteFilter.organizationId = orgId
   const record = await em.findOne(Attachment, deleteFilter)

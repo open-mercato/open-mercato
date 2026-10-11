@@ -73,7 +73,7 @@ class SesChannelAdapter implements ChannelAdapter {
   async sendMessage(input: SendMessageInput): Promise<SendMessageResult> {
     const credentials = sesCredentialsSchema.parse(input.credentials)
     const meta = (input.metadata ?? {}) as Record<string, unknown>
-    const to = Array.isArray(meta.to) ? (meta.to as string[]) : []
+    const to = toAddressList(meta.to).map(sanitizeHeaderValue)
     if (to.length === 0) {
       return { externalMessageId: '', status: 'failed', error: '[internal] Email send requires at least one recipient' }
     }

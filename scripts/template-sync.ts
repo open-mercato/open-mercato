@@ -183,6 +183,7 @@ const SYNC_INTERNAL_PACKAGE_KEYS = [
   // module resolution the moment the flag is flipped.
   '@open-mercato/enterprise',
   '@open-mercato/gateway-stripe',
+  '@open-mercato/gateway-tpay',
   '@open-mercato/sync-akeneo',
 ] as const
 // Modules whose source ships in every scaffold but must stay runtime-disabled there.
@@ -299,6 +300,15 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // work, same as channel_discord's byte-budget call below.
   // { id: 'customer_groups', from: '@open-mercato/core' },`,
   },
+  gateway_tpay: {
+    source: `  { id: 'gateway_tpay', from: '@open-mercato/gateway-tpay' },`,
+    template: `  // Tpay payment gateway (.ai/specs/2026-08-01-tpay-hosted-pln-payment-sessions.md).
+  // The package ships with the scaffold as an opt-in provider. Enabling it by
+  // default makes the scaffold ship the module's fact-sheet, which then needs an
+  // AI-harness evaluation case (packages/create-app/src/lib/module-facts-build.test.ts),
+  // so enabling is a maintainer call, not a one-line edit.
+  // { id: 'gateway_tpay', from: '@open-mercato/gateway-tpay' },`,
+  },
   channel_discord: {
     source: `  // Discord bot channel (SPEC 2026-06-19) — two-way Discord via REST + a
   // provider-owned Gateway worker + a signed Interactions endpoint, plus an
@@ -329,6 +339,26 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // Tracked in TEMPLATE_COMMENTED_MODULES (scripts/template-sync.ts) as a
   // deliberate divergence, not drift.
   // { id: 'ledger', from: '@open-mercato/core' },`,
+  },
+  forms: {
+    source: `  // Audit-grade questionnaire/form primitive — versioned definitions, append-only
+  // submissions, role-sliced rendering, public runner + portal + embed surfaces.
+  // Listed after customer_accounts/portal because its portal pages and public
+  // runner resolve customer auth through them.
+  { id: 'forms', from: '@open-mercato/core' },`,
+    template: `  // Audit-grade questionnaire/form primitive. The module ships with the scaffold
+  // but stays disabled by default, because enabling it here is a governed change
+  // rather than a one-line edit: a module enabled in the template gets a
+  // generated fact sheet, which \`selectModuleFactSheets\` then requires an
+  // evaluation case for in the standalone AI harness
+  // (src/lib/module-facts-build.test.ts, 'every default-controller module fact is
+  // exercised by the evaluation catalog'). Adding that case means re-pinning the
+  // catalog count in cases.schema.json, validators.json, two test literals and
+  // three docs, and re-running the live \`harness:release\` certification whose
+  // results those docs record — see
+  // .ai/skills/om-refresh-standalone-harness/SKILL.md step 9. Enabling is
+  // therefore a maintainer call that follows that skill.
+  // { id: 'forms', from: '@open-mercato/core' },`,
   },
   availability: {
     source: `  // Availability contract, policy module, and provider registry (Phase 1+2).
