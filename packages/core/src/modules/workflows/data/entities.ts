@@ -532,11 +532,22 @@ export class WorkflowInstance {
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
-  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  /**
+   * Strictly increasing on every write: the signal claim pins the value it read
+   * to tell one occurrence of a wait from the next one on the same step (#7185),
+   * so a re-park landing in the same millisecond must still move it forward.
+   */
+  @Property({ name: 'updated_at', type: Date, onUpdate: (instance: WorkflowInstance) => nextWorkflowInstanceUpdatedAt(instance.updatedAt) })
   updatedAt: Date = new Date()
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
+}
+
+function nextWorkflowInstanceUpdatedAt(previous: Date | null | undefined): Date {
+  const now = Date.now()
+  if (!(previous instanceof Date) || Number.isNaN(previous.getTime())) return new Date(now)
+  return new Date(Math.max(now, previous.getTime() + 1))
 }
 
 // ============================================================================

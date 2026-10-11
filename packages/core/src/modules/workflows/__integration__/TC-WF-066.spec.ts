@@ -22,6 +22,8 @@ import {
  * same time are refused (409 on the instance route, `WORKFLOW_NOT_PAUSED` under `failures` on
  * the correlation route), and a correlation-key delivery never consumes a later wait an
  * instance was moved onto by a concurrent delivery — even one waiting for the same signal.
+ * A duplicate that loses the race also never consumes a LATER occurrence of the same wait,
+ * when a loop brings the instance back to it before the duplicate's claim runs.
  */
 const SIGNAL_NAME = 'approval'
 
@@ -43,6 +45,31 @@ function buildTwoWaitSignalDefinitionPayload(timestamp: number) {
         { transitionId: 'start-to-wait1', fromStepId: 'start', toStepId: 'wait1', trigger: 'auto' },
         { transitionId: 'wait1-to-wait2', fromStepId: 'wait1', toStepId: 'wait2', trigger: 'auto' },
         { transitionId: 'wait2-to-end', fromStepId: 'wait2', toStepId: 'end', trigger: 'auto' },
+      ],
+    },
+    enabled: true,
+  }
+}
+
+function buildLoopingSignalDefinitionPayload(timestamp: number) {
+  const id = `qa-wf-signal-loop-${timestamp}`
+  return {
+    workflowId: id,
+    workflowName: `QA Looping Signal Workflow ${timestamp}`,
+    description: `Integration test definition ${id}`,
+    version: 1,
+    definition: {
+      steps: [
+        { stepId: 'start', stepName: 'Start', stepType: 'START' },
+        { stepId: 'wait', stepName: 'Wait', stepType: 'WAIT_FOR_SIGNAL', signalConfig: { signalName: SIGNAL_NAME } },
+        { stepId: 'process', stepName: 'Process', stepType: 'AUTOMATED' },
+        { stepId: 'end', stepName: 'End', stepType: 'END' },
+      ],
+      transitions: [
+        { transitionId: 'start-to-wait', fromStepId: 'start', toStepId: 'wait', trigger: 'auto' },
+        { transitionId: 'wait-to-process', fromStepId: 'wait', toStepId: 'process', trigger: 'auto' },
+        { transitionId: 'process-to-wait', fromStepId: 'process', toStepId: 'wait', trigger: 'auto', priority: 10 },
+        { transitionId: 'process-to-end', fromStepId: 'process', toStepId: 'end', trigger: 'manual' },
       ],
     },
     enabled: true,
@@ -141,6 +168,44 @@ test.describe('TC-WF-066: concurrent signal delivery (#7185)', () => {
       }
     } finally {
       for (const id of instanceIds) await cancelWorkflowInstanceIfExists(request, token, id)
+      await deleteWorkflowDefinitionIfExists(request, token, definitionId)
+    }
+  })
+
+  test('concurrent duplicates never consume the next occurrence of a same-step loop wait', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const timestamp = Date.now()
+    const defPayload = buildLoopingSignalDefinitionPayload(timestamp)
+    let definitionId: string | null = null
+    let instanceId: string | null = null
+
+    try {
+      definitionId = await createWorkflowDefinitionFixture(request, token, defPayload)
+      instanceId = await startWorkflowInstanceFixture(request, token, {
+        workflowId: defPayload.workflowId,
+        correlationKey: `qa-concurrent-loop-${timestamp}`,
+      })
+      const paused = await pollWorkflowInstance(request, token, instanceId, (i) => i.status === 'PAUSED' && i.currentStepId === 'wait')
+      expect(paused?.currentStepId).toBe('wait')
+
+      const targetId = instanceId
+      const responses = await Promise.all(
+        Array.from({ length: 10 }, () =>
+          apiRequest(request, 'POST', `/api/workflows/instances/${encodeURIComponent(targetId)}/signal`, {
+            token,
+            data: { signalName: SIGNAL_NAME, payload: { decidedBy: 'qa' } },
+          }),
+        ),
+      )
+      const statuses = responses.map((response) => response.status())
+      expect(statuses.filter((status) => status === 200), `exactly one delivery wins (got ${statuses.join(',')})`).toHaveLength(1)
+      expect(statuses.filter((status) => status === 409), `every duplicate is refused with 409 (got ${statuses.join(',')})`).toHaveLength(9)
+
+      const reparked = await pollWorkflowInstance(request, token, instanceId, (i) => i.status === 'PAUSED' && i.currentStepId === 'wait')
+      expect(reparked?.currentStepId, 'the loop parks the instance on the same wait again').toBe('wait')
+      expect(await countSignalReceived(request, token, instanceId), 'the new occurrence of the wait is still open').toBe(1)
+    } finally {
+      await cancelWorkflowInstanceIfExists(request, token, instanceId)
       await deleteWorkflowDefinitionIfExists(request, token, definitionId)
     }
   })

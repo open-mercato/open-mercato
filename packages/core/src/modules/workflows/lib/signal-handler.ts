@@ -22,6 +22,7 @@ import {
   type AgentOutcomeKind,
 } from './outcome-routing'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('workflows')
 
@@ -61,6 +62,15 @@ export interface SendSignalOptions {
   expectedStepId?: string
 
   /**
+   * `updatedAt` the caller observed while the instance was parked. Identifies
+   * the OCCURRENCE of the wait, not just its step: every park and every claim
+   * rewrites `updatedAt`, so a delivery addressed to one occurrence is refused
+   * with `WORKFLOW_NOT_PAUSED` once the instance has looped back and parked on
+   * the same step again.
+   */
+  expectedUpdatedAt?: Date
+
+  /**
    * Tenant/org scope
    */
   tenantId: string
@@ -93,6 +103,7 @@ export async function sendSignal(
     agentOutcome,
     agentProposalId,
     expectedStepId,
+    expectedUpdatedAt,
     userId,
     tenantId,
     organizationId,
@@ -212,6 +223,15 @@ export async function sendSignal(
     )
   }
 
+  const observedWaitVersion = expectedUpdatedAt ?? instance.updatedAt
+  if (expectedUpdatedAt !== undefined && !isSameWaitVersion(instance.updatedAt, expectedUpdatedAt)) {
+    throw new SignalError(
+      'Workflow is not paused',
+      'WORKFLOW_NOT_PAUSED',
+      { instanceId, reason: 'wait_changed', currentStepId: instance.currentStepId }
+    )
+  }
+
   // Load workflow definition with tenant/org scope to check current step
   const definition = (await findOneWithDecryption(
     em as PostgreSqlEntityManager,
@@ -287,13 +307,16 @@ export async function sendSignal(
     )
   }
 
-  const now = new Date()
+  const now = nextWaitVersion(observedWaitVersion)
 
   // Claim the wait before mutating anything (#7185). Every check above reads a
   // snapshot, so concurrent deliveries of the same signal all pass it; only the
   // conditional UPDATE is atomic, and exactly one delivery wins it. Pinning the
   // validated `currentStepId` stops a stale delivery from consuming a LATER wait
-  // the winner has since parked on. Losers surface as WORKFLOW_NOT_PAUSED, which
+  // the winner has since parked on, and pinning the observed `updatedAt` stops it
+  // from consuming a later occurrence of the SAME wait once a loop brings the
+  // instance back to it: the claim writes a strictly later `updatedAt` and every
+  // re-park flushes another one. Losers surface as WORKFLOW_NOT_PAUSED, which
   // the instance signal route already maps to 409.
   const claimed = await em.nativeUpdate(
     WorkflowInstance,
@@ -303,6 +326,7 @@ export async function sendSignal(
       organizationId: instance.organizationId,
       status: 'PAUSED',
       currentStepId: instance.currentStepId,
+      ...waitVersionFilter(observedWaitVersion),
     },
     { status: 'RUNNING', updatedAt: now },
   )
@@ -533,7 +557,29 @@ async function releaseSignalClaim(
     )
   } catch (releaseError) {
     logger.error('Failed to release signal claim', { instanceId: instance.id, err: releaseError })
+    getTelemetryRuntime()?.reportError(releaseError, {
+      module: 'workflows',
+      code: 'workflows.signal_claim_release_failed',
+      attributes: { instanceId: instance.id, stepId: claimedStepId },
+    })
   }
+}
+
+// `updated_at` is stored at microsecond precision but read back as a JS Date
+// (milliseconds, truncated), so an occurrence is matched on its millisecond.
+function waitVersionFilter(observed: Date | null | undefined): { updatedAt?: { $gte: Date; $lt: Date } } {
+  if (!(observed instanceof Date) || Number.isNaN(observed.getTime())) return {}
+  return { updatedAt: { $gte: observed, $lt: new Date(observed.getTime() + 1) } }
+}
+
+function isSameWaitVersion(current: Date | null | undefined, expected: Date): boolean {
+  return current instanceof Date && current.getTime() === expected.getTime()
+}
+
+function nextWaitVersion(observed: Date | null | undefined): Date {
+  const now = Date.now()
+  if (!(observed instanceof Date) || Number.isNaN(observed.getTime())) return new Date(now)
+  return new Date(Math.max(now, observed.getTime() + 1))
 }
 
 export type SendSignalByCorrelationKeyOptions = Omit<SendSignalOptions, 'instanceId'> & { correlationKey: string }
@@ -593,8 +639,13 @@ export async function sendSignalByCorrelationKeyWithResults(
   // Snapshot the wait each instance was listed on before delivering anything:
   // re-reads below refresh the identity-mapped entities, and a delivery must
   // only consume the wait it was addressed to, never a later one a concurrent
-  // fan-out has already advanced the instance onto.
-  const targets = instances.map((instance) => ({ id: instance.id, currentStepId: instance.currentStepId }))
+  // fan-out has already advanced the instance onto — nor a later occurrence of
+  // the same wait it has looped back to, which only `updatedAt` tells apart.
+  const targets = instances.map((instance) => ({
+    id: instance.id,
+    currentStepId: instance.currentStepId,
+    updatedAt: instance.updatedAt instanceof Date ? new Date(instance.updatedAt.getTime()) : undefined,
+  }))
 
   let signalsProcessed = 0
   const failures: SignalDeliveryFailure[] = []
@@ -604,6 +655,7 @@ export async function sendSignalByCorrelationKeyWithResults(
       await sendSignal(em, container, {
         instanceId: instance.id,
         expectedStepId: instance.currentStepId,
+        expectedUpdatedAt: instance.updatedAt,
         signalName,
         payload,
         userId,

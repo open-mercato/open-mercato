@@ -11,6 +11,9 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 jest.mock('../workflow-executor', () => ({
   dispatchAgentOutcomeForCurrentStep: jest.fn(),
 }))
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: jest.fn(),
+}))
 
 import {
   findOneWithDecryption,
@@ -23,6 +26,7 @@ import {
   SignalError,
 } from '../signal-handler'
 import { dispatchAgentOutcomeForCurrentStep } from '../workflow-executor'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { StepInstance, WorkflowDefinition, WorkflowInstance } from '../../data/entities'
 
 const mockFindOneWithDecryption = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
@@ -631,6 +635,196 @@ describe('Workflow Signals - Phase 9.1', () => {
       expect(row.status).toBe('RUNNING')
       expect(mockLogWorkflowEvent).toHaveBeenCalledTimes(2)
       expect(mockExecuteTransition).toHaveBeenCalledTimes(1)
+    })
+
+    it('reports a failed claim release through the telemetry runtime and still rethrows the delivery error', async () => {
+      const mockReportError = jest.fn()
+      ;(getTelemetryRuntime as jest.Mock).mockReturnValue({ reportError: mockReportError })
+      mockFindOneWithDecryption.mockImplementation((async (_em: unknown, entity: unknown) => {
+        if (entity === WorkflowInstance) return { ...mockInstance, context: { ...mockInstance.context } }
+        if (entity === WorkflowDefinition) return { ...mockDefinition }
+        if (entity === StepInstance) return { ...mockStepInstance }
+        return null
+      }) as any)
+      const releaseError = new Error('connection reset')
+      mockEm.nativeUpdate.mockResolvedValueOnce(1).mockRejectedValueOnce(releaseError)
+      mockLogWorkflowEvent.mockRejectedValueOnce(new Error('flush failed'))
+
+      try {
+        await expect(deliver()).rejects.toThrow('flush failed')
+      } finally {
+        ;(getTelemetryRuntime as jest.Mock).mockReset()
+      }
+
+      expect(mockEm.nativeUpdate).toHaveBeenCalledTimes(2)
+      expect(mockReportError).toHaveBeenCalledTimes(1)
+      expect(mockReportError).toHaveBeenCalledWith(releaseError, {
+        module: 'workflows',
+        code: 'workflows.signal_claim_release_failed',
+        attributes: { instanceId, stepId: 'wait_approval' },
+      })
+    })
+  })
+
+  describe('Same-step loop (#7185 wait occurrence)', () => {
+    type VersionedRow = { status: string; currentStepId: string; updatedAt: number }
+    const parkedAt = new Date('2026-10-11T08:00:00.000Z').getTime()
+    let dateNowSpy: jest.SpyInstance | undefined
+
+    const loopDefinition = {
+      ...mockDefinition,
+      definition: {
+        steps: [
+          { stepId: 'start', stepType: 'START' },
+          { stepId: 'wait_approval', stepType: 'WAIT_FOR_SIGNAL', signalConfig: { signalName: 'approval_granted' } },
+          { stepId: 'process', stepType: 'AUTOMATED' },
+          { stepId: 'end', stepType: 'END' },
+        ],
+        transitions: [
+          { transitionId: 't1', fromStepId: 'start', toStepId: 'wait_approval', trigger: 'auto' },
+          { transitionId: 't2', fromStepId: 'wait_approval', toStepId: 'process', trigger: 'auto' },
+          { transitionId: 't3', fromStepId: 'process', toStepId: 'wait_approval', trigger: 'auto' },
+        ],
+      },
+    }
+
+    afterEach(() => {
+      mockFindOneWithDecryption.mockReset()
+      mockFindWithDecryption.mockReset()
+      mockEm.nativeUpdate.mockReset()
+      mockExecuteWorkflow.mockReset()
+      mockExecuteTransition.mockReset()
+      mockFindValidTransitions.mockReset()
+      dateNowSpy?.mockRestore()
+      dateNowSpy = undefined
+    })
+
+    const deliver = () =>
+      sendSignal(mockEm, mockContainer, {
+        instanceId,
+        signalName: 'approval_granted',
+        payload: { approved: true },
+        userId,
+        tenantId,
+        organizationId,
+      })
+
+    function matchesClaim(row: VersionedRow, where: Record<string, any>): boolean {
+      if (row.status !== where.status || row.currentStepId !== where.currentStepId) return false
+      const version = where.updatedAt as { $gte: Date; $lt: Date } | undefined
+      if (!version) return true
+      return row.updatedAt >= version.$gte.getTime() && row.updatedAt < version.$lt.getTime()
+    }
+
+    function wireLoopingRow(row: VersionedRow, onReparked: () => void) {
+      mockFindOneWithDecryption.mockImplementation((async (_em: unknown, entity: unknown) => {
+        if (entity === WorkflowInstance) {
+          return { ...mockInstance, status: row.status, currentStepId: row.currentStepId, updatedAt: new Date(row.updatedAt), context: {} }
+        }
+        if (entity === WorkflowDefinition) return { ...loopDefinition }
+        if (entity === StepInstance) return { ...mockStepInstance }
+        return null
+      }) as any)
+      mockFindValidTransitions.mockResolvedValue([
+        { transition: { transitionId: 't2', fromStepId: 'wait_approval', toStepId: 'process', trigger: 'auto' }, isValid: true },
+      ])
+      mockExecuteTransition.mockImplementation(async () => {
+        row.currentStepId = 'process'
+        return { success: true }
+      })
+      mockExecuteWorkflow.mockImplementation(async () => {
+        row.currentStepId = 'wait_approval'
+        row.status = 'PAUSED'
+        row.updatedAt += 1
+        onReparked()
+        return {}
+      })
+    }
+
+    it('refuses a delayed duplicate once the winner has looped back and parked on the same step again', async () => {
+      dateNowSpy = jest.spyOn(Date, 'now').mockReturnValue(parkedAt)
+      const row: VersionedRow = { status: 'PAUSED', currentStepId: 'wait_approval', updatedAt: parkedAt }
+      let markReparked: () => void = () => {}
+      const reparked = new Promise<void>((resolve) => { markReparked = resolve })
+      wireLoopingRow(row, () => markReparked())
+
+      let reads = 0
+      let releaseReads: () => void = () => {}
+      const bothRead = new Promise<void>((resolve) => { releaseReads = resolve })
+      const readInstance = mockFindOneWithDecryption.getMockImplementation()!
+      mockFindOneWithDecryption.mockImplementation((async (...args: Parameters<typeof readInstance>) => {
+        const result = await readInstance(...args)
+        if (args[1] === WorkflowInstance) {
+          reads += 1
+          if (reads >= 2) releaseReads()
+          await bothRead
+        }
+        return result
+      }) as any)
+
+      let claims = 0
+      mockEm.nativeUpdate.mockImplementation(async (_entity: unknown, where: Record<string, any>, data: Record<string, any>) => {
+        claims += 1
+        if (claims > 1) await reparked
+        if (!matchesClaim(row, where)) return 0
+        row.status = data.status
+        row.updatedAt = (data.updatedAt as Date).getTime()
+        return 1
+      })
+
+      const results = await Promise.allSettled([deliver(), deliver()])
+
+      expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
+      const rejected = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+      expect(rejected).toHaveLength(1)
+      expect(rejected[0].reason).toBeInstanceOf(SignalError)
+      expect(rejected[0].reason.code).toBe('WORKFLOW_NOT_PAUSED')
+      expect(mockExecuteTransition).toHaveBeenCalledTimes(1)
+      expect(mockExecuteWorkflow).toHaveBeenCalledTimes(1)
+      expect(mockLogWorkflowEvent).toHaveBeenCalledTimes(1)
+      expect(row.status).toBe('PAUSED')
+      expect(row.currentStepId).toBe('wait_approval')
+
+      const [, claimWhere, claimData] = mockEm.nativeUpdate.mock.calls[0]
+      expect(claimWhere.updatedAt).toEqual({ $gte: new Date(parkedAt), $lt: new Date(parkedAt + 1) })
+      expect((claimData.updatedAt as Date).getTime()).toBeGreaterThan(parkedAt)
+    })
+
+    it('fan-out refuses an instance that looped back to the listed wait before its delivery', async () => {
+      const row: VersionedRow = { status: 'PAUSED', currentStepId: 'wait_approval', updatedAt: parkedAt }
+      wireLoopingRow(row, () => {})
+      mockFindWithDecryption.mockImplementationOnce((async () => {
+        const listed = [{ ...mockInstance, correlationKey: 'loop', status: row.status, currentStepId: row.currentStepId, updatedAt: new Date(row.updatedAt) }]
+        await sendSignal(mockEm, mockContainer, {
+          instanceId,
+          signalName: 'approval_granted',
+          userId,
+          tenantId,
+          organizationId,
+        })
+        return listed
+      }) as any)
+      mockEm.nativeUpdate.mockImplementation(async (_entity: unknown, where: Record<string, any>, data: Record<string, any>) => {
+        if (!matchesClaim(row, where)) return 0
+        row.status = data.status
+        row.updatedAt = (data.updatedAt as Date).getTime()
+        return 1
+      })
+
+      const result = await sendSignalByCorrelationKeyWithResults(mockEm, mockContainer, {
+        correlationKey: 'loop',
+        signalName: 'approval_granted',
+        userId,
+        tenantId,
+        organizationId,
+      })
+
+      expect(result).toEqual({
+        count: 0,
+        failures: [{ instanceId, code: 'WORKFLOW_NOT_PAUSED', message: 'Workflow is not paused' }],
+      })
+      expect(mockExecuteTransition).toHaveBeenCalledTimes(1)
+      expect(row).toMatchObject({ status: 'PAUSED', currentStepId: 'wait_approval' })
     })
   })
 
