@@ -87,6 +87,33 @@ describe('resolveRecordLockSaveErrorDecision (single conflict surface, S3)', () 
     expect(decision.action).toBe('fallback-dialog')
   })
 
+  test.each([
+    ['UNIQUE_VIOLATION', 'A record with the same unique values already exists'],
+    ['FOREIGN_KEY_VIOLATION', 'The record is still referenced by other data, or references a record that does not exist'],
+  ])('ignores a %s 409 — a constraint error is not a concurrent edit (#7104)', (code, error) => {
+    const decision = resolveRecordLockSaveErrorDecision({
+      error: { status: 409, body: { error, code } },
+      eventContextId: formId,
+      formId,
+      currentState,
+    })
+    expect(decision.action).toBe('ignore')
+  })
+
+  test.each([
+    ['UNIQUE_VIOLATION', 'A record with the same unique values already exists'],
+    ['FOREIGN_KEY_VIOLATION', 'The record is still referenced by other data, or references a record that does not exist'],
+  ])('ignores the thrown %s error shape produced by raiseCrudError (#7104)', (code, message) => {
+    const thrown = Object.assign(new Error(message), { status: 409, code, error: message })
+    const decision = resolveRecordLockSaveErrorDecision({
+      error: thrown,
+      eventContextId: formId,
+      formId,
+      currentState,
+    })
+    expect(decision.action).toBe('ignore')
+  })
+
   test('ignores when there is no mounted record state', () => {
     const decision = resolveRecordLockSaveErrorDecision({
       error: ossOptimisticLockError,

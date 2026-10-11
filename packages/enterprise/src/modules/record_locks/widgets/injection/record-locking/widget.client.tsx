@@ -256,6 +256,30 @@ function extractRecordLockConflictPayload(error: unknown): {
   return null
 }
 
+const CONSTRAINT_VIOLATION_CODES = new Set(['UNIQUE_VIOLATION', 'FOREIGN_KEY_VIOLATION'])
+
+function isConstraintViolationError(error: unknown): boolean {
+  const queue: unknown[] = [error]
+  const visited = new Set<unknown>()
+
+  while (queue.length > 0) {
+    const current = queue.shift()
+    if (!current || visited.has(current)) continue
+    visited.add(current)
+    if (!isObjectRecord(current)) continue
+
+    if (typeof current.code === 'string' && CONSTRAINT_VIOLATION_CODES.has(current.code)) return true
+
+    const nested = ['body', 'response', 'data', 'details', 'error', 'cause']
+    for (const key of nested) {
+      const next = current[key]
+      if (next && !visited.has(next)) queue.push(next)
+    }
+  }
+
+  return false
+}
+
 function isRecordDeletedError(error: unknown): boolean {
   const queue: unknown[] = [error]
   const visited = new Set<unknown>()
@@ -309,12 +333,16 @@ function isRecordDeletedError(error: unknown): boolean {
  *                        actionable mounted record, OR the error is a plain OSS
  *                        `optimistic_lock_conflict` 409 already owned by the OSS
  *                        conflict bar via `surfaceRecordConflict` (opening the
- *                        dialog too would render TWO surfaces — #3504/#3505).
+ *                        dialog too would render TWO surfaces — #3504/#3505),
+ *                        OR a unique/foreign-key constraint 409
+ *                        (`UNIQUE_VIOLATION` / `FOREIGN_KEY_VIOLATION`), which
+ *                        is not a concurrent edit.
  *  - `record-deleted`  — the record was deleted by another user.
  *  - `apply-conflict`  — a genuine enterprise `record_lock_conflict` payload;
  *                        open the field-level merge dialog with it.
- *  - `fallback-dialog` — an unrecognized 409 (neither record-lock nor OSS
- *                        optimistic-lock) for the mounted record; open the
+ *  - `fallback-dialog` — any other unrecognized 409 (neither record-lock, OSS
+ *                        optimistic-lock nor a constraint violation) for the
+ *                        mounted record; open the
  *                        degraded fallback dialog (legacy behavior).
  */
 export type RecordLockSaveErrorDecision =
@@ -361,6 +389,7 @@ export function resolveRecordLockSaveErrorDecision(args: {
     // the shared `optimisticLockFloor` detector so this arbitration stays identical to
     // the conflict bar's ownership decision (single source of truth).
     if (isOptimisticLockFloorConflict(error)) return { action: 'ignore' }
+    if (isConstraintViolationError(error)) return { action: 'ignore' }
     if (extractErrorStatus(error) === 409) return { action: 'fallback-dialog' }
     return { action: 'ignore' }
   }
