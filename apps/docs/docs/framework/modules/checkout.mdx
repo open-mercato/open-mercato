@@ -181,6 +181,8 @@ Checkout can send:
 - payment success emails
 - payment error emails
 
+Checkout uses the Communications Hub system email transport. Omit `SYSTEM_EMAIL_PROVIDER` or set it to `resend` for the Resend channel provider, or set `SYSTEM_EMAIL_PROVIDER=ses` for the Amazon SES channel provider.
+
 Checkout email sender resolution follows the same precedence as the notifications system:
 
 1. `NOTIFICATIONS_EMAIL_FROM`

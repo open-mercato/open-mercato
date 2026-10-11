@@ -27,6 +27,7 @@
   "portal.invite.confirmPassword.placeholder": "••••••••",
   "portal.invite.description": "Erstellen Sie Ihr Portalkonto, um diese Einladung anzunehmen.",
   "portal.invite.displayName": "Anzeigename",
+  "portal.invite.error.accountExists": "Diese E-Mail-Adresse hat bereits ein Portalkonto. Melden Sie sich unten an, anstatt die Einladung anzunehmen.",
   "portal.invite.error.displayNameRequired": "Der Anzeigename ist erforderlich.",
   "portal.invite.error.generic": "Annahme der Einladung fehlgeschlagen. Bitte versuchen Sie es erneut.",
   "portal.invite.error.invalidToken": "Ungültige oder abgelaufene Einladung.",

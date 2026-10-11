@@ -323,6 +323,7 @@ export default function CreateVariantPage({ params }: { params?: { productId?: s
         ) : null}
         <CrudForm<VariantFormValues>
           title={formTitle}
+          titleHeadingLevel={1}
           backHref={`/backend/catalog/products/${productId}`}
           fields={[]}
           groups={groups}

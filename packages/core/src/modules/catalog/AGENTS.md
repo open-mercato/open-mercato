@@ -40,10 +40,10 @@ Price layers compose in order: base price → channel override → customer-spec
 
 ```typescript
 import { registerCatalogPricingResolver } from '@open-mercato/core/modules/catalog/lib/pricing'
-registerCatalogPricingResolver(myResolver, { priority: 10 })
+registerCatalogPricingResolver(myResolver, { priority: 10, id: 'my-module.my-resolver' })
 ```
 
-The default pipeline emits `catalog.pricing.resolve.before|after` events.
+The default pipeline emits `catalog.pricing.resolve.before|after` events. `pricingResolvers` lives on `globalThis` (survives duplicated module instances, e.g. a standalone app built from this monorepo); pass a stable `id` so re-registering the same resolver on a dev-mode reload is a no-op instead of appending a duplicate.
 
 ### Price selection order
 
@@ -54,6 +54,10 @@ When multiple price rows match the same context, `selectBestPrice` resolves ties
 3. **`minQuantity`** — direction depends on whether the tied rows share the same resolved kind:
     - **Same kind** (e.g. tier vs tier): **descending** — the row with the larger `minQuantity` wins. This implements the standard volume-discount semantic: for `qty=50` with tiers `minQty=10` ($9) and `minQty=50` ($8), the `minQty=50` row applies (issue #1706).
     - **Different kinds** (e.g. promotion vs tier): **ascending** — the row with the smaller `minQuantity` wins. The `+1 for minQuantity > 1` bonus in `scorePrice` can pull a lower-base kind up to the same total as a higher-base kind (e.g. tier `minQty=3` = 3+1 vs promotion `minQty=1` = 4). Ascending across kinds preserves the kind precedence in those collisions.
+
+### Resolver-chain tie-break
+
+`registerCatalogPricingResolver`'s chain is sorted by `priority` (descending) using a stable sort, so two resolvers registered at the **same priority** run in **registration order** — the first-registered resolver is asked first. This is deterministic and tested (`lib/__tests__/pricing.test.ts`), not an accident of array order; a resolver depending on running before/after a same-priority peer should still set an explicit, distinct `priority` rather than relying on load order.
 
 ## Data Model Constraints
 

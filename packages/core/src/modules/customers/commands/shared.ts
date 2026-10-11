@@ -11,6 +11,10 @@ const logger = createLogger('customers')
 export { ensureOrganizationScope, ensureSameScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 export { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 
+export const CUSTOMER_ENTITY_UNDO_DATE_OPTIONS = {
+  datePaths: ['before.entity.nextInteractionAt'],
+} as const
+
 export function normalizeDictionaryColor(input: unknown): string | null {
   if (typeof input !== 'string') return null
   const trimmed = input.trim()

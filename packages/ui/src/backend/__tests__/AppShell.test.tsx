@@ -3,8 +3,9 @@
  */
 
 import * as React from 'react'
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import { AppShell, ApplyBreadcrumb } from '../AppShell'
+import { saveBrandStyle } from '../../theme/brand-style'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 
 const mockInjectionSpot = jest.fn()
@@ -92,6 +93,7 @@ jest.mock('../devtools', () => ({
 
 const dict = {
   'appShell.productName': 'Mercato',
+  'appShell.skipToMainContent': 'Skip to main content',
   'appShell.menu': 'Menu',
   'appShell.toggleSidebar': 'Toggle sidebar',
   'appShell.collapseSidebar': 'Collapse',
@@ -212,6 +214,19 @@ describe('AppShell', () => {
     )
   })
 
+  it('provides a skip link targeting the focusable main content landmark', () => {
+    renderWithProviders(
+      <AppShell email="demo@example.com" groups={groups}>
+        <div>Child content</div>
+      </AppShell>,
+      { dict },
+    )
+
+    expect(screen.getByRole('link', { name: 'Skip to main content' })).toHaveAttribute('href', '#main-content')
+    expect(screen.getByRole('main')).toHaveAttribute('id', 'main-content')
+    expect(screen.getByRole('main')).toHaveAttribute('tabindex', '-1')
+  })
+
   it('keeps the incoming page breadcrumb when the pathname change and ApplyBreadcrumb land in the same commit', () => {
     const { rerender } = renderWithProviders(
       <AppShell email="demo@example.com" groups={groups}>
@@ -231,6 +246,22 @@ describe('AppShell', () => {
     const activePage = within(breadcrumbNav).getByText((_, el) => el?.getAttribute('data-slot') === 'breadcrumb-page')
     expect(activePage).toHaveTextContent('Roles')
     expect(within(breadcrumbNav).getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/backend')
+  })
+
+  it('applies a local logo immediately and restores the original shell logo', () => {
+    const logo = 'data:image/png;base64,aGVsbG8='
+    renderWithProviders(<AppShell email="demo@example.com" groups={groups} logo={{ src: '/original-logo.png', alt: 'Original brand' }}><div>Body</div></AppShell>, { dict })
+    expect(screen.getByAltText('Original brand')).toHaveAttribute('src', '/original-logo.png')
+    act(() => saveBrandStyle({
+      version: 1,
+      logo,
+      light: { '--primary': '#124488', '--primary-hover': '#113366', '--primary-foreground': '#FFFFFF' },
+      dark: { '--primary': '#AACCFF', '--primary-hover': '#88AADD', '--primary-foreground': '#000000' },
+    }))
+    const brandedImage = screen.getAllByRole('img').find(image => image.getAttribute('src') === logo)
+    expect(brandedImage).toHaveClass('object-contain')
+    act(() => saveBrandStyle(null))
+    expect(screen.getByAltText('Original brand')).toHaveAttribute('src', '/original-logo.png')
   })
 
   it('hides the backend footer status bar when requested', () => {

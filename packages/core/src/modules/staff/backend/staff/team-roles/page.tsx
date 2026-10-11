@@ -297,7 +297,8 @@ export default function StaffTeamRolesPage() {
     <Page>
       <PageBody>
         <DataTable<TeamRoleRow>
-          title={labels.title}
+        title={labels.title}
+        titleHeadingLevel={1}
           data={rows}
           columns={columns}
           isLoading={isLoading}
@@ -418,6 +419,5 @@ function buildTeamRoleRows(items: TeamRoleApiRow[], unassignedLabel: string): Te
   }
   return rows
 }
-
 
 

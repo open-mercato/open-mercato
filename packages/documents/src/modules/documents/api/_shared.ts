@@ -10,6 +10,7 @@ import {
   resolveActiveOrganizationId,
 } from '@open-mercato/shared/lib/auth/organizationScope'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import {
   runRouteMutationGuards,
   type RouteMutationGuardPassed,
@@ -525,6 +526,10 @@ export async function handleDocumentsRouteError(error: unknown, label: string): 
       ? error.body as Record<string, unknown>
       : { error: 'api.errors.internal' }
     return NextResponse.json(await localizeRouteErrorBody(body), { status: error.status })
+  }
+  const interceptorRejection = getCommandInterceptorHttpRejection(error)
+  if (interceptorRejection) {
+    return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
   }
   if (error instanceof z.ZodError) {
     return NextResponse.json(

@@ -25,8 +25,8 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
-import { useCurrencyDictionary } from '@open-mercato/core/modules/customers/components/detail/hooks/useCurrencyDictionary'
 import type { DictionaryOption } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
+import { loadCurrencyOptions } from '../lib/currencyOptions'
 import type { CatalogPriceDisplayMode } from '../data/types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -124,25 +124,11 @@ export function PriceKindSettings() {
   const [form, setForm] = React.useState<PriceKindFormState>(DEFAULT_FORM)
   const [submitting, setSubmitting] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const { data: currencyDictionary, refetch: refetchCurrencyDictionary } = useCurrencyDictionary()
-
-  const currencyOptionsLoader = React.useCallback(async (): Promise<DictionaryOption[]> => {
-    if (currencyDictionary && Array.isArray(currencyDictionary.entries)) {
-      return currencyDictionary.entries.map((entry) => ({
-        value: entry.value,
-        label: entry.label,
-        color: entry.color ?? null,
-        icon: entry.icon ?? null,
-      }))
-    }
-    const payload = await refetchCurrencyDictionary()
-    return payload.entries.map((entry) => ({
-      value: entry.value,
-      label: entry.label,
-      color: entry.color ?? null,
-      icon: entry.icon ?? null,
-    }))
-  }, [currencyDictionary, refetchCurrencyDictionary])
+  const currencyOptionsLoader = React.useCallback(
+    (): Promise<DictionaryOption[]> =>
+      loadCurrencyOptions(t('catalog.priceKinds.form.currency.loadError', 'Unable to load currencies.')),
+    [t],
+  )
 
   const loadItems = React.useCallback(async () => {
     setLoading(true)

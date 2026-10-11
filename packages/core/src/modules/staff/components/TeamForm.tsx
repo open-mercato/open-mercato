@@ -80,6 +80,7 @@ export function TeamForm(props: TeamFormProps) {
   return (
     <CrudForm<TeamFormValues>
       title={title}
+      titleHeadingLevel={1}
       backHref={backHref}
       cancelHref={cancelHref}
       versionHistory={initialValues.id

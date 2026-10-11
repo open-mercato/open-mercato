@@ -5,7 +5,7 @@ import { generateObject } from '../../lib/ai-sdk'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
+import { llmProviderRegistry } from '../../lib/llm-registry'
 import { resolveOpenCodeModel } from '@open-mercato/shared/lib/ai/opencode-provider'
 import { joinProviderModel } from '@open-mercato/shared/lib/ai/model-id'
 import {

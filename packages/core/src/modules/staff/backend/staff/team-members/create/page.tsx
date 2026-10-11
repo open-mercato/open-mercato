@@ -37,6 +37,7 @@ export default function StaffTeamMemberCreatePage() {
       <PageBody>
         <TeamMemberForm
           title={translate('staff.teamMembers.form.createTitle', 'Add team member')}
+          titleHeadingLevel={1}
           backHref="/backend/staff/team-members"
           cancelHref="/backend/staff/team-members"
           submitLabel={translate('staff.teamMembers.form.actions.create', 'Create')}

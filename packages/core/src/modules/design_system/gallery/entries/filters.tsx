@@ -1,11 +1,10 @@
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import * as React from 'react'
+import { SourceFilterParts, SourceFilterPanel, SourceFilterToolbar } from '../demos/source-filters'
+import { sourceFilterExampleCode } from '../demos/source-filters-code.generated'
 import { Download } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import {
-  FilterBar,
-  type FilterDef,
-  type FilterValues,
-} from '@open-mercato/ui/backend/FilterBar'
+import { FilterBar, type FilterDef, type FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { QuickFilters, type FilterPreset } from '@open-mercato/ui/backend/filters/QuickFilters'
 import { ActiveFilterChips } from '@open-mercato/ui/backend/filters/ActiveFilterChips'
 import { AdvancedFilterBuilder } from '@open-mercato/ui/backend/filters/AdvancedFilterBuilder'
@@ -14,11 +13,7 @@ import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { FilteredEmptyResults } from '@open-mercato/ui/backend/filters/FilteredEmptyResults'
 import { SearchEmptyResults } from '@open-mercato/ui/backend/filters/SearchEmptyResults'
 import type { FilterFieldDef } from '@open-mercato/shared/lib/query/advanced-filter'
-import type {
-  AdvancedFilterTree,
-  FilterGroup,
-  FilterRule,
-} from '@open-mercato/shared/lib/query/advanced-filter-tree'
+import type { AdvancedFilterTree, FilterGroup, FilterRule } from '@open-mercato/shared/lib/query/advanced-filter-tree'
 import type { GalleryEntry } from '../types'
 
 // Component titles and variant names are proper nouns from the codebase and
@@ -35,101 +30,231 @@ import type { GalleryEntry } from '../types'
 // Inline demo data — no API calls. Field defs and trees mirror what CRM list
 // pages pass to the advanced filter stack.
 // ---------------------------------------------------------------------------
-
-const demoFilterDefs: FilterDef[] = [
-  { id: 'city', label: 'City', type: 'text', placeholder: 'e.g. Berlin' },
+function FilterBarEntryTrailingItemsPreview() {
+  const t = useT()
+  return (
+    <DemoFilterBar
+      trailingItems={
+        <Button variant="outline" size="sm">
+          <Download />
+          {t('design_system.gallery.samples.content.export')}
+        </Button>
+      }
+    />
+  )
+}
+function ListEmptyStateEntryWithCreateActionPreview() {
+  const t = useT()
+  return (
+    <div className="w-full max-w-xl">
+      <ListEmptyState
+        entityName={t('design_system.gallery.samples.content.companies')}
+        onCreate={() => {}}
+        createLabel={t('design_system.gallery.samples.content.addCompany')}
+      />
+    </div>
+  )
+}
+function ListEmptyStateEntryCustomCopyPreview() {
+  const t = useT()
+  return (
+    <div className="w-full max-w-xl">
+      <ListEmptyState
+        title={t('design_system.gallery.samples.content.noImportsYet')}
+        description={t('design_system.gallery.samples.content.connectASourceOrUploadACsvFileToBringRecordsIn')}
+      />
+    </div>
+  )
+}
+function FilteredEmptyResultsEntryFiltersOnlyPreview() {
+  const t = useT()
+  return (
+    <div className="w-full max-w-xl">
+      <FilteredEmptyResults
+        entityNamePlural={t('design_system.gallery.samples.content.companies')}
+        canRemoveLast
+        onClearAll={() => {}}
+        onRemoveLast={() => {}}
+      />
+    </div>
+  )
+}
+function FilteredEmptyResultsEntryWithSearchPreview() {
+  const t = useT()
+  return (
+    <div className="w-full max-w-xl">
+      <FilteredEmptyResults
+        entityNamePlural={t('design_system.gallery.samples.content.companies')}
+        canRemoveLast
+        onClearAll={() => {}}
+        onRemoveLast={() => {}}
+        onClearSearch={() => {}}
+      />
+    </div>
+  )
+}
+function SearchEmptyResultsEntryWithEntityPreview() {
+  const t = useT()
+  return (
+    <div className="flex w-full max-w-xl justify-center">
+      <SearchEmptyResults
+        query="northwind"
+        entityNamePlural={t('design_system.gallery.samples.content.companies')}
+        onClearSearch={() => {}}
+      />
+    </div>
+  )
+}
+function QuickFiltersEntryPresetsPreview() {
+  const t = useT()
+  return (
+    <div className="w-full max-w-xl">
+      <QuickFilters presets={demoPresets(t)} userId="user-1" onApply={() => {}} />
+    </div>
+  )
+}
+function QuickFiltersEntryUserScopedPreview() {
+  const t = useT()
+  return (
+    <div className="flex w-full max-w-xl flex-col gap-6">
+      <QuickFilters presets={userScopedPresets(t)} userId="user-1" onApply={() => {}} />
+      <QuickFilters presets={userScopedPresets(t)} userId="" onApply={() => {}} />
+    </div>
+  )
+}
+const demoFilterDefs = (t: ReturnType<typeof useT>): FilterDef[] => [
+  {
+    id: 'city',
+    label: t('design_system.gallery.samples.content.city'),
+    type: 'text',
+    placeholder: t('design_system.gallery.samples.content.eGBerlin'),
+  },
   {
     id: 'status',
-    label: 'Status',
+    label: t('design_system.gallery.samples.content.status'),
     type: 'select',
     options: [
-      { value: 'active', label: 'Active' },
-      { value: 'prospect', label: 'Prospect' },
-      { value: 'churned', label: 'Churned' },
+      {
+        value: 'active',
+        label: t('design_system.gallery.samples.content.active'),
+      },
+      {
+        value: 'prospect',
+        label: t('design_system.gallery.samples.content.prospect'),
+      },
+      {
+        value: 'churned',
+        label: t('design_system.gallery.samples.content.churned'),
+      },
     ],
   },
-  { id: 'hasOpenDeals', label: 'Has open deals', type: 'checkbox' },
+  {
+    id: 'hasOpenDeals',
+    label: t('design_system.gallery.samples.content.hasOpenDeals'),
+    type: 'checkbox',
+  },
 ]
-
-const demoFields: FilterFieldDef[] = [
-  { key: 'name', label: 'Name', type: 'text' },
-  { key: 'email', label: 'Email', type: 'text' },
+const demoFields = (t: ReturnType<typeof useT>): FilterFieldDef[] => [
+  {
+    key: 'name',
+    label: t('design_system.gallery.samples.content.name'),
+    type: 'text',
+  },
+  {
+    key: 'email',
+    label: t('design_system.gallery.samples.content.email'),
+    type: 'text',
+  },
   {
     key: 'status',
-    label: 'Status',
+    label: t('design_system.gallery.samples.content.status'),
     type: 'select',
     options: [
-      { value: 'active', label: 'Active', tone: 'success' },
-      { value: 'prospect', label: 'Prospect', tone: 'info' },
-      { value: 'churned', label: 'Churned', tone: 'error' },
+      {
+        value: 'active',
+        label: t('design_system.gallery.samples.content.active'),
+        tone: 'success',
+      },
+      {
+        value: 'prospect',
+        label: t('design_system.gallery.samples.content.prospect'),
+        tone: 'info',
+      },
+      {
+        value: 'churned',
+        label: t('design_system.gallery.samples.content.churned'),
+        tone: 'error',
+      },
     ],
   },
-  { key: 'employees', label: 'Employees', type: 'number' },
+  {
+    key: 'employees',
+    label: t('design_system.gallery.samples.content.employees'),
+    type: 'number',
+  },
 ]
-
 function rule(id: string, field: string, operator: FilterRule['operator'], value: unknown): FilterRule {
-  return { id, type: 'rule', field, operator, value }
+  return {
+    id,
+    type: 'rule',
+    field,
+    operator,
+    value,
+  }
 }
-
 function tree(children: FilterGroup['children']): AdvancedFilterTree {
-  return { root: { id: 'root', type: 'group', combinator: 'and', children } }
+  return {
+    root: {
+      id: 'root',
+      type: 'group',
+      combinator: 'and',
+      children,
+    },
+  }
 }
-
 const ruleChipsTree = tree([
   rule('r1', 'name', 'contains', 'north'),
   rule('r2', 'status', 'is', 'active'),
   rule('r3', 'employees', 'between', [10, 50]),
 ])
-
 const groupChipTree = tree([
   {
     id: 'g1',
     type: 'group',
     combinator: 'or',
-    children: [
-      rule('g1r1', 'status', 'is', 'prospect'),
-      rule('g1r2', 'status', 'is', 'churned'),
-    ],
+    children: [rule('g1r1', 'status', 'is', 'prospect'), rule('g1r2', 'status', 'is', 'churned')],
   },
 ])
-
 const valuelessChipTree = tree([rule('r4', 'email', 'is_empty', null)])
-
 const builderSingleRuleTree = tree([rule('b1', 'status', 'is', 'active')])
-
 const builderNestedTree = tree([
   rule('b2', 'name', 'contains', 'north'),
   {
     id: 'bg1',
     type: 'group',
     combinator: 'or',
-    children: [
-      rule('bg1r1', 'status', 'is', 'prospect'),
-      rule('bg1r2', 'employees', 'greater_than', 100),
-    ],
+    children: [rule('bg1r1', 'status', 'is', 'prospect'), rule('bg1r2', 'employees', 'greater_than', 100)],
   },
 ])
-
-const demoPresets: FilterPreset[] = [
+const demoPresets = (t: ReturnType<typeof useT>): FilterPreset[] => [
   {
     id: 'active-accounts',
-    labelKey: 'Active accounts',
+    labelKey: t('design_system.gallery.samples.content.activeAccounts'),
     iconName: 'filter',
     build: () => tree([rule('p1', 'status', 'is', 'active')]),
   },
   {
     id: 'added-this-week',
-    labelKey: 'Added this week',
+    labelKey: t('design_system.gallery.samples.content.addedThisWeek'),
     iconName: 'clock',
     build: () => tree([rule('p2', 'name', 'is_not_empty', null)]),
   },
 ]
-
-const userScopedPresets: FilterPreset[] = [
-  ...demoPresets,
+const userScopedPresets = (t: ReturnType<typeof useT>): FilterPreset[] => [
+  ...demoPresets(t),
   {
     id: 'my-accounts',
-    labelKey: 'My accounts',
+    labelKey: t('design_system.gallery.samples.content.myAccounts'),
     requiresUser: true,
     build: ({ userId }) => tree([rule('p3', 'name', 'contains', userId)]),
   },
@@ -141,21 +266,18 @@ const userScopedPresets: FilterPreset[] = [
 // these wrappers.
 // ---------------------------------------------------------------------------
 
-function DemoFilterBar({
-  layout,
-  trailingItems,
-}: {
-  layout?: 'stacked' | 'inline'
-  trailingItems?: React.ReactNode
-}) {
+function DemoFilterBar({ layout, trailingItems }: { layout?: 'stacked' | 'inline'; trailingItems?: React.ReactNode }) {
+  const t = useT()
   const [search, setSearch] = React.useState('')
-  const [values, setValues] = React.useState<FilterValues>({ status: 'active' })
+  const [values, setValues] = React.useState<FilterValues>({
+    status: 'active',
+  })
   return (
     <div className="w-full max-w-2xl">
       <FilterBar
         searchValue={search}
         onSearchChange={setSearch}
-        filters={demoFilterDefs}
+        filters={demoFilterDefs(t)}
         values={values}
         onApply={setValues}
         onClear={() => setValues({})}
@@ -165,18 +287,21 @@ function DemoFilterBar({
     </div>
   )
 }
-
 function DemoActiveFilterChips({ initialTree }: { initialTree: AdvancedFilterTree }) {
+  const t = useT()
   const [value, setValue] = React.useState(initialTree)
   const removeNode = (id: string) =>
     setValue((prev) => ({
-      root: { ...prev.root, children: prev.root.children.filter((child) => child.id !== id) },
+      root: {
+        ...prev.root,
+        children: prev.root.children.filter((child) => child.id !== id),
+      },
     }))
   return (
     <div className="w-full max-w-2xl">
       <ActiveFilterChips
         tree={value}
-        fields={demoFields}
+        fields={demoFields(t)}
         popoverOpen={false}
         onRemoveNode={removeNode}
         onOpen={() => {}}
@@ -184,13 +309,13 @@ function DemoActiveFilterChips({ initialTree }: { initialTree: AdvancedFilterTre
     </div>
   )
 }
-
 function DemoAdvancedFilterBuilder({ initialTree }: { initialTree: AdvancedFilterTree }) {
+  const t = useT()
   const [value, setValue] = React.useState(initialTree)
   return (
     <div className="w-full max-w-2xl rounded-lg border bg-popover p-3">
       <AdvancedFilterBuilder
-        fields={demoFields}
+        fields={demoFields(t)}
         value={value}
         onChange={setValue}
         onApply={() => {}}
@@ -199,8 +324,8 @@ function DemoAdvancedFilterBuilder({ initialTree }: { initialTree: AdvancedFilte
     </div>
   )
 }
-
 function DemoFilterEmptyState({ withQuickFilters }: { withQuickFilters?: boolean }) {
+  const t = useT()
   const addConditionRef = React.useRef<HTMLButtonElement | null>(null)
   return (
     <div className="w-full max-w-xl rounded-lg border bg-popover">
@@ -208,15 +333,12 @@ function DemoFilterEmptyState({ withQuickFilters }: { withQuickFilters?: boolean
         onAddCondition={() => {}}
         addConditionRef={addConditionRef}
         quickFilters={
-          withQuickFilters ? (
-            <QuickFilters presets={demoPresets} userId="user-1" onApply={() => {}} />
-          ) : undefined
+          withQuickFilters ? <QuickFilters presets={demoPresets(t)} userId="user-1" onApply={() => {}} /> : undefined
         }
       />
     </div>
   )
 }
-
 const filterBarEntry: GalleryEntry = {
   id: 'filter-bar',
   title: 'FilterBar',
@@ -261,16 +383,7 @@ const filters: FilterDef[] = [
     {
       id: 'trailing-items',
       title: 'With trailing items',
-      render: () => (
-        <DemoFilterBar
-          trailingItems={
-            <Button variant="outline" size="sm">
-              <Download />
-              Export
-            </Button>
-          }
-        />
-      ),
+      render: () => <FilterBarEntryTrailingItemsPreview />,
       code: `import { Download } from 'lucide-react'
 import { FilterBar } from '@open-mercato/ui/backend/FilterBar'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -286,7 +399,6 @@ import { Button } from '@open-mercato/ui/primitives/button'
     },
   ],
 }
-
 const quickFiltersEntry: GalleryEntry = {
   id: 'quick-filters',
   title: 'QuickFilters',
@@ -295,11 +407,7 @@ const quickFiltersEntry: GalleryEntry = {
     {
       id: 'presets',
       title: 'Presets (used inside AdvancedFilterPanel)',
-      render: () => (
-        <div className="w-full max-w-xl">
-          <QuickFilters presets={demoPresets} userId="user-1" onApply={() => {}} />
-        </div>
-      ),
+      render: () => <QuickFiltersEntryPresetsPreview />,
       code: `import { QuickFilters, type FilterPreset } from '@open-mercato/ui/backend/filters/QuickFilters'
 
 const presets: FilterPreset[] = [
@@ -312,12 +420,7 @@ const presets: FilterPreset[] = [
     {
       id: 'user-scoped',
       title: 'User-scoped preset (hidden without userId)',
-      render: () => (
-        <div className="flex w-full max-w-xl flex-col gap-6">
-          <QuickFilters presets={userScopedPresets} userId="user-1" onApply={() => {}} />
-          <QuickFilters presets={userScopedPresets} userId="" onApply={() => {}} />
-        </div>
-      ),
+      render: () => <QuickFiltersEntryUserScopedPreview />,
       code: `import { QuickFilters } from '@open-mercato/ui/backend/filters/QuickFilters'
 
 // Presets with requiresUser: true are hidden when userId is empty.
@@ -325,7 +428,6 @@ const presets: FilterPreset[] = [
     },
   ],
 }
-
 const activeFilterChipsEntry: GalleryEntry = {
   id: 'active-filter-chips',
   title: 'ActiveFilterChips',
@@ -365,7 +467,6 @@ const activeFilterChipsEntry: GalleryEntry = {
     },
   ],
 }
-
 const advancedFilterBuilderEntry: GalleryEntry = {
   id: 'advanced-filter-builder',
   title: 'AdvancedFilterBuilder',
@@ -396,7 +497,6 @@ const advancedFilterBuilderEntry: GalleryEntry = {
     },
   ],
 }
-
 const filterEmptyStateEntry: GalleryEntry = {
   id: 'filter-empty-state',
   title: 'FilterEmptyState',
@@ -425,7 +525,6 @@ import { QuickFilters } from '@open-mercato/ui/backend/filters/QuickFilters'
     },
   ],
 }
-
 const listEmptyStateEntry: GalleryEntry = {
   id: 'list-empty-state',
   title: 'ListEmptyState',
@@ -434,11 +533,7 @@ const listEmptyStateEntry: GalleryEntry = {
     {
       id: 'with-create-action',
       title: 'With create action',
-      render: () => (
-        <div className="w-full max-w-xl">
-          <ListEmptyState entityName="companies" onCreate={() => {}} createLabel="Add company" />
-        </div>
-      ),
+      render: () => <ListEmptyStateEntryWithCreateActionPreview />,
       code: `import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 
 // Pass to DataTable's emptyState for the zero-records case.
@@ -447,14 +542,7 @@ const listEmptyStateEntry: GalleryEntry = {
     {
       id: 'custom-copy',
       title: 'Custom title and description',
-      render: () => (
-        <div className="w-full max-w-xl">
-          <ListEmptyState
-            title="No imports yet"
-            description="Connect a source or upload a CSV file to bring records in."
-          />
-        </div>
-      ),
+      render: () => <ListEmptyStateEntryCustomCopyPreview />,
       code: `import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 
 <ListEmptyState
@@ -464,7 +552,6 @@ const listEmptyStateEntry: GalleryEntry = {
     },
   ],
 }
-
 const filteredEmptyResultsEntry: GalleryEntry = {
   id: 'filtered-empty-results',
   title: 'FilteredEmptyResults',
@@ -473,16 +560,7 @@ const filteredEmptyResultsEntry: GalleryEntry = {
     {
       id: 'filters-only',
       title: 'Filters active',
-      render: () => (
-        <div className="w-full max-w-xl">
-          <FilteredEmptyResults
-            entityNamePlural="companies"
-            canRemoveLast
-            onClearAll={() => {}}
-            onRemoveLast={() => {}}
-          />
-        </div>
-      ),
+      render: () => <FilteredEmptyResultsEntryFiltersOnlyPreview />,
       code: `import { FilteredEmptyResults } from '@open-mercato/ui/backend/filters/FilteredEmptyResults'
 
 // DataTable renders this automatically when filters match nothing.
@@ -496,17 +574,7 @@ const filteredEmptyResultsEntry: GalleryEntry = {
     {
       id: 'with-search',
       title: 'Search and filters active',
-      render: () => (
-        <div className="w-full max-w-xl">
-          <FilteredEmptyResults
-            entityNamePlural="companies"
-            canRemoveLast
-            onClearAll={() => {}}
-            onRemoveLast={() => {}}
-            onClearSearch={() => {}}
-          />
-        </div>
-      ),
+      render: () => <FilteredEmptyResultsEntryWithSearchPreview />,
       code: `import { FilteredEmptyResults } from '@open-mercato/ui/backend/filters/FilteredEmptyResults'
 
 // Passing onClearSearch switches to combined copy and clears both at once.
@@ -520,7 +588,6 @@ const filteredEmptyResultsEntry: GalleryEntry = {
     },
   ],
 }
-
 const searchEmptyResultsEntry: GalleryEntry = {
   id: 'search-empty-results',
   title: 'SearchEmptyResults',
@@ -542,23 +609,51 @@ const searchEmptyResultsEntry: GalleryEntry = {
     {
       id: 'with-entity',
       title: 'With entity label',
-      render: () => (
-        <div className="flex w-full max-w-xl justify-center">
-          <SearchEmptyResults
-            query="northwind"
-            entityNamePlural="companies"
-            onClearSearch={() => {}}
-          />
-        </div>
-      ),
+      render: () => <SearchEmptyResultsEntryWithEntityPreview />,
       code: `import { SearchEmptyResults } from '@open-mercato/ui/backend/filters/SearchEmptyResults'
 
 <SearchEmptyResults query={search} entityNamePlural="companies" onClearSearch={() => setSearch('')} />`,
     },
   ],
 }
-
 export const entries: GalleryEntry[] = [
+  {
+    id: 'filter-toolbar',
+    title: 'Filter Compositions',
+    importPath: '@open-mercato/ui/primitives/filter-toolbar',
+    figmaNodeId: '4370:6018',
+    descriptionKey: 'design_system.entries.filterToolbar.description',
+    variants: [
+      {
+        id: 'table',
+        title: 'Horizontal / table',
+        render: () => <SourceFilterToolbar type="table" />,
+        code: sourceFilterExampleCode('<SourceFilterToolbar type="table" />'),
+      },
+      {
+        id: 'calendar',
+        title: 'Horizontal / calendar',
+        render: () => <SourceFilterToolbar type="calendar" />,
+        code: sourceFilterExampleCode('<SourceFilterToolbar type="calendar" />'),
+      },
+      {
+        id: 'vertical-parts',
+        title: 'Vertical / items, header and footer',
+        render: () => <SourceFilterParts />,
+        code: sourceFilterExampleCode('<SourceFilterParts />'),
+      },
+      {
+        id: 'vertical-panel',
+        title: 'Vertical / apply draft filters',
+        render: () => (
+          <div className="w-[640px] max-w-full rounded-lg border border-border">
+            <SourceFilterPanel />
+          </div>
+        ),
+        code: sourceFilterExampleCode('<SourceFilterPanel />'),
+      },
+    ],
+  },
   filterBarEntry,
   quickFiltersEntry,
   activeFilterChipsEntry,

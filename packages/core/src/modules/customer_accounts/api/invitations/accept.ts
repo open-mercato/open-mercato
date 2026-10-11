@@ -3,11 +3,15 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { invitationAcceptSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { CustomerInvitationService } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
+import {
+  CustomerInvitationService,
+  isCustomerInvitationEmailConflictError,
+} from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
 import { CustomerSessionService } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
 import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import { getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
@@ -29,11 +33,23 @@ export async function POST(req: Request) {
   const customerSessionService = container.resolve('customerSessionService') as CustomerSessionService
   const customerRbacService = container.resolve('customerRbacService') as CustomerRbacService
 
-  const result = await customerInvitationService.acceptInvitation(
-    parsed.data.token,
-    parsed.data.password,
-    parsed.data.displayName,
-  )
+  let result: Awaited<ReturnType<typeof customerInvitationService.acceptInvitation>>
+  try {
+    result = await customerInvitationService.acceptInvitation(
+      parsed.data.token,
+      parsed.data.password,
+      parsed.data.displayName,
+    )
+  } catch (error) {
+    if (isCustomerInvitationEmailConflictError(error)) {
+      const { translate } = await resolveTranslations()
+      return NextResponse.json({
+        ok: false,
+        error: translate('customer_accounts.errors.emailAlreadyExists', 'An account with this email address already exists'),
+      }, { status: 409 })
+    }
+    throw error
+  }
   if (!result) {
     return NextResponse.json({ ok: false, error: 'Invalid or expired invitation' }, { status: 400 })
   }
@@ -117,6 +133,7 @@ const methodDoc: OpenApiMethodDoc = {
   ],
   errors: [
     { status: 400, description: 'Invalid or expired invitation', schema: errorSchema },
+    { status: 409, description: 'An account with this email address already exists', schema: errorSchema },
   ],
 }
 

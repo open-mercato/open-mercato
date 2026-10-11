@@ -114,6 +114,7 @@ export default function CreateCatalogCategoryPage() {
       <PageBody>
         <CrudForm<CategoryFormValues>
           title={t('catalog.categories.form.createTitle', 'Create category')}
+          titleHeadingLevel={1}
           backHref="/backend/catalog/categories"
           fields={fields}
           groups={groups}

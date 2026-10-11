@@ -72,7 +72,10 @@ describe('partitioned bootstrap registration', () => {
     await waitForAsyncRegistration()
 
     expect(registerCoreInjectionWidgetsMock).not.toHaveBeenCalled()
-    expect(registerCoreInjectionTablesMock).toHaveBeenCalledWith([])
+    // The raw widget entries still travel with the tables so a `key`-spelled injection
+    // override resolves to the `widgetId` the slots reference (#5152), even though this
+    // bootstrap deliberately skips registering the widgets themselves.
+    expect(registerCoreInjectionTablesMock).toHaveBeenCalledWith([], [])
     expect(registerEnabledModuleIdsMock).toHaveBeenCalledTimes(1)
   })
 })

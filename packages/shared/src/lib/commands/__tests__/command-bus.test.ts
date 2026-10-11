@@ -49,6 +49,181 @@ describe('CommandBus', () => {
     expect(logEntry).toEqual({ id: 'log-entry' })
   })
 
+  it('authorizes undo before claiming the log or running mutations', async () => {
+    const authorizeReplay = jest.fn(async () => {
+      throw new Error('replay denied')
+    })
+    const undo = jest.fn(async () => undefined)
+    const claimForUndo = jest.fn(async () => true)
+    const markUndone = jest.fn(async () => undefined)
+    registerCommand({
+      id: 'test.command.undo-guarded',
+      execute: jest.fn(),
+      authorizeReplay,
+      undo,
+    })
+
+    const logEntry = {
+      id: 'log-guarded',
+      commandId: 'test.command.undo-guarded',
+      commandPayload: { __redoInput: { id: 'record-1' } },
+    }
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({
+      actionLogService: asValue({
+        findByUndoToken: jest.fn(async () => logEntry),
+        claimForUndo,
+        markUndone,
+      }),
+    })
+    const ctx = {
+      container,
+      auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: null },
+      organizationScope: null,
+      selectedOrganizationId: null,
+      organizationIds: null,
+    }
+
+    await expect(new CommandBus().undo('undo-token', ctx)).rejects.toThrow('replay denied')
+
+    expect(authorizeReplay).toHaveBeenCalledWith(
+      expect.objectContaining({ operation: 'undo', logEntry })
+    )
+    expect(claimForUndo).not.toHaveBeenCalled()
+    expect(undo).not.toHaveBeenCalled()
+    expect(markUndone).not.toHaveBeenCalled()
+  })
+
+  it('authorizes redo before snapshots, mutations, or log writes', async () => {
+    const authorizeReplay = jest.fn(async () => {
+      throw new Error('redo denied')
+    })
+    const prepare = jest.fn(async () => ({ before: { value: 'before' } }))
+    const execute = jest.fn(async () => ({ ok: true }))
+    const undo = jest.fn(async () => undefined)
+    const log = jest.fn(async () => ({ id: 'unexpected-log' }))
+    registerCommand({
+      id: 'test.command.redo-guarded',
+      prepare,
+      execute,
+      authorizeReplay,
+      undo,
+    })
+
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({ actionLogService: asValue({ log }) })
+    const ctx = {
+      container,
+      auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: null },
+      organizationScope: null,
+      selectedOrganizationId: null,
+      organizationIds: null,
+    }
+
+    await expect(
+      new CommandBus().execute('test.command.redo-guarded', {
+        input: { id: 'record-1' },
+        ctx,
+        redoLogEntry: { id: 'source-log', commandId: 'test.command.redo-guarded' },
+      })
+    ).rejects.toThrow('redo denied')
+
+    expect(authorizeReplay).toHaveBeenCalledWith(
+      expect.objectContaining({ operation: 'redo' })
+    )
+    expect(prepare).not.toHaveBeenCalled()
+    expect(execute).not.toHaveBeenCalled()
+    expect(log).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['auth.users.create', 'Password-bearing user create'],
+    ['auth.users.update', 'Password-bearing user update'],
+  ])('persists %s as audit-only without credentials, hashes, payload, or undo token', async (commandId, actionLabel) => {
+    const log = jest.fn(async (entry: Record<string, unknown>) => ({ id: 'log-sensitive', ...entry }))
+    registerCommand({
+      id: commandId,
+      execute: jest.fn(async () => ({ ok: true })),
+      undo: jest.fn(async () => undefined),
+      buildLog: jest.fn(() => ({
+        replayable: false,
+        actionLabel,
+        resourceKind: 'auth.user',
+        resourceId: 'user-1',
+        snapshotAfter: { email: 'person@example.com' },
+        payload: {
+          undo: {
+            after: {
+              passwordHash: '$2b$10$persisted-hash-must-not-survive',
+            },
+          },
+        },
+      })),
+    })
+
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({ actionLogService: asValue({ log }) })
+    const ctx = {
+      container,
+      auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: null },
+      organizationScope: null,
+      selectedOrganizationId: null,
+      organizationIds: null,
+    }
+
+    await new CommandBus().execute(commandId, {
+      input: { password: 'plain-text-secret' },
+      ctx,
+    })
+
+    const persisted = log.mock.calls[0]?.[0]
+    expect(persisted.undoToken).toBeUndefined()
+    expect(persisted.commandPayload).toBeUndefined()
+    const persistedJson = JSON.stringify(persisted)
+    expect(persistedJson).not.toContain('plain-text-secret')
+    expect(persistedJson).not.toContain('persisted-hash-must-not-survive')
+    expect(persistedJson).not.toContain('passwordHash')
+  })
+
+  it('persists a redacted redoInput without dropping the undo token', async () => {
+    // A credential-bearing create must keep the secret out of `action_logs`
+    // WITHOUT losing undo: undoing a create only deletes the row, so suppressing
+    // the whole entry (`replayable: false`) would remove a safe affordance.
+    const log = jest.fn(async (entry: Record<string, unknown>) => ({ id: 'log-redacted', ...entry }))
+    registerCommand({
+      id: 'test.command.redacted-input',
+      execute: jest.fn(async () => ({ ok: true })),
+      undo: jest.fn(async () => undefined),
+      buildLog: jest.fn(() => ({
+        redoInput: { email: 'person@example.com' },
+        actionLabel: 'Create user',
+        resourceKind: 'auth.user',
+        resourceId: 'user-1',
+        payload: { undo: { after: { id: 'user-1', email: 'person@example.com' } } },
+      })),
+    })
+
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({ actionLogService: asValue({ log }) })
+
+    await new CommandBus().execute('test.command.redacted-input', {
+      input: { email: 'person@example.com', password: 'plain-text-secret' },
+      ctx: {
+        container,
+        auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: null },
+        organizationScope: null,
+        selectedOrganizationId: null,
+        organizationIds: null,
+      },
+    })
+
+    const persisted = log.mock.calls[0]?.[0] as Record<string, unknown>
+    const commandPayload = persisted.commandPayload as Record<string, unknown>
+    expect(typeof persisted.undoToken).toBe('string')
+    expect(commandPayload.__redoInput).toEqual({ email: 'person@example.com' })
+    expect(JSON.stringify(persisted)).not.toContain('plain-text-secret')
+  })
+
   it('records the system actor marker when a trusted command has no auth actor', async () => {
     const logMock = jest.fn(async () => ({ id: 'system-log-entry' }))
     registerCommand({
@@ -296,6 +471,70 @@ describe('CommandBus', () => {
     expect(logMock).toHaveBeenCalledWith(
       expect.objectContaining({ context: { untouched: 'base-untouched' } })
     )
+  })
+
+  // Agent Identity & On-Behalf-Of (Wave 4 P2): when ctx.runAs is set the SAME
+  // audit path attributes the write to the agent principal on behalf of the human,
+  // sourced 'agent' — not a parallel audit route.
+  it('stamps actorUserId=agent + onBehalfOfUserId=human + source=agent when ctx.runAs is set', async () => {
+    const logMock = jest.fn(async () => ({ id: 'log-runas' }))
+    registerCommand({
+      id: 'test.command.runas',
+      execute: jest.fn(async () => ({ ok: true })),
+      buildLog: jest.fn(() => ({ actionLabel: 'Agent write', resourceKind: 'deal', resourceId: 'deal-9' })),
+    })
+
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({ actionLogService: asValue({ log: logMock }) })
+
+    const bus = new CommandBus()
+    const ctx = {
+      container,
+      // The invoking human still carries the JWT auth, but runAs overrides the actor.
+      auth: { sub: 'human-1', tenantId: 'tenant-1', orgId: 'org-1' },
+      organizationScope: null,
+      selectedOrganizationId: 'org-1',
+      organizationIds: ['org-1'],
+      runAs: { actorUserId: 'agent-user-1', onBehalfOfUserId: 'human-1', source: 'agent' as const },
+    }
+
+    await bus.execute('test.command.runas', { input: {}, ctx })
+
+    expect(logMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        commandId: 'test.command.runas',
+        actorUserId: 'agent-user-1',
+        onBehalfOfUserId: 'human-1',
+        context: expect.objectContaining({ source: 'agent' }),
+      })
+    )
+  })
+
+  it('does not set onBehalfOfUserId for ordinary (non-runAs) human writes — additive default', async () => {
+    const logMock = jest.fn(async () => ({ id: 'log-plain' }))
+    registerCommand({
+      id: 'test.command',
+      execute: jest.fn(async () => ({ ok: true })),
+      buildLog: jest.fn(() => ({ actionLabel: 'Plain', resourceKind: 'test', resourceId: '7' })),
+    })
+
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({ actionLogService: asValue({ log: logMock }) })
+
+    const bus = new CommandBus()
+    const ctx = {
+      container,
+      auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: null },
+      organizationScope: null,
+      selectedOrganizationId: null,
+      organizationIds: null,
+    }
+
+    await bus.execute('test.command', { input: {}, ctx })
+
+    const payload = logMock.mock.calls[0][0] as Record<string, unknown>
+    expect(payload.actorUserId).toBe('user-1')
+    expect(payload.onBehalfOfUserId).toBeUndefined()
   })
 
   describe('interceptor rejections', () => {

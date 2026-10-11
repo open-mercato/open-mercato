@@ -10,6 +10,10 @@ import {
 import { User } from '../../auth/data/entities'
 import { Message } from '../data/entities'
 import { notificationTypes } from '../notifications'
+import {
+  EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
+  SEND_AS_USER_SOURCE_ENTITY_TYPE,
+} from '../lib/messageSourceEntityTypes'
 
 export const metadata = {
   event: 'messages.message.sent',
@@ -22,6 +26,8 @@ type MessageSentPayload = {
   senderUserId: string
   recipientUserIds: string[]
   sendViaEmail: boolean
+  /** Set by compose for channel-ingested messages (#6093); see `resolveNotificationVariables`. */
+  inboundFromChannel?: boolean
   externalEmail?: string | null
   forwardedFrom?: string
   replyTo?: string
@@ -72,19 +78,71 @@ async function resolveNotificationVariables(payload: MessageSentPayload, ctx: Re
       ),
     ])
 
+    // #6093: a channel-ingested message is composed on behalf of the channel's
+    // system user (or, without one, the assignee), so `senderUserId` is not who
+    // wrote it. The correspondent is on the message itself.
+    const externalFrom = payload.inboundFromChannel
+      ? [message?.externalName, message?.externalEmail].find(
+          (value): value is string => typeof value === 'string' && value.trim().length > 0,
+        )
+      : undefined
+
     return {
       title: typeof message?.subject === 'string' ? message.subject : '',
-      from: typeof sender?.name === 'string' && sender.name.trim().length > 0
-        ? sender.name
-        : typeof sender?.email === 'string'
-          ? sender.email
-          : '',
+      from: externalFrom
+        ?? (typeof sender?.name === 'string' && sender.name.trim().length > 0
+          ? sender.name
+          : typeof sender?.email === 'string'
+            ? sender.email
+            : ''),
     }
   } catch {
     return { title: '', from: '' }
   }
 }
 
+
+/**
+ * Whether this Message is already being delivered through a connected
+ * channel (`sendAsUser`, or the platform copy of an inbound channel message),
+ * so the external-email job below would duplicate — or, for the inbound
+ * case, misdirect — the send. Mirrors `outbound-bridge.ts`'s re-fetch: the
+ * `messages.message.sent` payload doesn't carry `sourceEntityType` and never
+ * should, to keep this subscriber decoupled from `communication_channels`.
+ *
+ * Fails open (`false`, i.e. today's behavior) when the Message can't be
+ * found — we can only skip the external send when we can affirmatively show
+ * it is channel-routed.
+ */
+async function isChannelRoutedMessage(payload: MessageSentPayload, ctx: ResolverContext): Promise<boolean> {
+  try {
+    const em = ctx.resolve<EntityManager>('em')?.fork()
+    if (!em) return false
+
+    const message = await findOneWithDecryption(
+      em,
+      Message,
+      {
+        id: payload.messageId,
+        tenantId: payload.tenantId,
+        organizationId: payload.organizationId ?? null,
+        deletedAt: null,
+      },
+      undefined,
+      {
+        tenantId: payload.tenantId,
+        organizationId: payload.organizationId ?? null,
+      },
+    )
+    if (!message) return false
+    return (
+      message.sourceEntityType === SEND_AS_USER_SOURCE_ENTITY_TYPE ||
+      message.sourceEntityType === EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE
+    )
+  } catch {
+    return false
+  }
+}
 
 export default async function handle(payload: MessageSentPayload, ctx: ResolverContext): Promise<void> {
   const uniqueRecipientUserIds = Array.from(new Set(payload.recipientUserIds))
@@ -126,7 +184,7 @@ export default async function handle(payload: MessageSentPayload, ctx: ResolverC
   }
 
   const externalEmail = payload.externalEmail?.trim()
-  if (externalEmail) {
+  if (externalEmail && !(await isChannelRoutedMessage(payload, ctx))) {
     await emailQueue.enqueue({
       type: 'external',
       messageId: payload.messageId,

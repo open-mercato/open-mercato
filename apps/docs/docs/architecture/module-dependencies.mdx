@@ -65,7 +65,7 @@ The tables below enumerate every module discovered under `packages/*/src/modules
 | `configs` | Configuration | — | |
 | `currencies` | Currencies | — | |
 | `customer_accounts` | Customer Identity & Portal Authentication | — | ✅ (portal) |
-| `customers` | Customer Relationship Management | — | ✅ (sales) |
+| `customers` | Customer Relationship Management | `progress` | ✅ (sales) |
 | `dashboards` | Admin Dashboards | — | |
 | `data_sync` | Data Sync | — | ✅ (sync_akeneo) |
 | `dictionaries` | Shared Dictionaries | — | ✅ (sales) |
@@ -80,7 +80,7 @@ The tables below enumerate every module discovered under `packages/*/src/modules
 | `perspectives` | Table perspectives | — | |
 | `planner` | Worktime / Availabilities | — | ✅ (resources, staff) |
 | `portal` | Customer Portal | `customer_accounts` | |
-| `progress` | Progress | — | |
+| `progress` | Progress | — | ✅ (customers) |
 | `query_index` | Query Indexes | — | ✅ (entities) |
 | `resources` | Resource planning | `planner` | ✅ (staff) |
 | `sales` | Sales Management | `catalog`, `customers`, `dictionaries` | ✅ (sync_akeneo) |
@@ -131,6 +131,7 @@ The current declared edges are:
 
 ```text
 api_keys      → auth
+customers     → progress
 entities      → query_index
 portal        → customer_accounts
 resources     → planner
@@ -143,6 +144,7 @@ Transitive closures worth noting:
 
 - Enabling `staff` implicitly requires `planner` and `resources` — and `resources` itself requires `planner`, so the effective set is `{ planner, resources, staff }`.
 - Enabling `sync_akeneo` implicitly requires the entire sales chain: `{ catalog, customers, dictionaries, sales, integrations, data_sync, sync_akeneo }`.
+- Enabling `sales` implicitly requires `progress` too, since `sales` requires `customers`, which now requires `progress`.
 - `entities` requires `query_index` because hybrid querying for custom entities is delegated to the query-index layer.
 
 A module that does not appear on the right-hand side of any arrow (no module has it as `requires`) is safe to remove from `enabledModules` without breaking another enabled module. That said, individual modules may still have **soft** runtime expectations (for example, a module's UI might link to another module's page) that the dependency graph does not capture — treat the graph as the floor, not the ceiling.

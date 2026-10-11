@@ -145,6 +145,7 @@ export function DictionaryTable({
   return (
     <DataTable<DictionaryTableEntry>
       title={translations.title}
+      titleHeadingLevel={2}
       actions={actions}
       columns={columns}
       data={paginated}

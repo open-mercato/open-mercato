@@ -159,6 +159,43 @@ describe('data sync engine heartbeats and resumed progress counts (GSM-314)', ()
     expect(touch).toHaveBeenCalledTimes(3)
   })
 
+  it('keeps heartbeating while the consumer body runs between batches', async () => {
+    jest.useFakeTimers()
+    const streamImport = jest.fn(async function* () {
+      yield { ...importBatch(1, 0), hasMore: true }
+      yield importBatch(1, 1)
+    })
+    const progressService = createProgressService()
+    const syncRunService = createSyncRunService(baseImportRun)
+    const heartbeatsSeenByBatch: number[] = []
+    ;(syncRunService.commitBatchProgress as jest.Mock).mockImplementation(async () => {
+      // Stands in for the whole per-batch consumer body — the progress commit, the coverage
+      // snapshot refresh, the item-failure log and the operational log entry. A coverage refresh
+      // over a large query index is slow enough to cross the 60s stale window on its own, and
+      // this window heartbeated only once the NEXT adapter read had already started.
+      await new Promise((resolve) => setTimeout(resolve, 40_000))
+      heartbeatsSeenByBatch.push((progressService.touchJobHeartbeat as jest.Mock).mock.calls.length)
+    })
+    const engine = buildEngine({
+      run: baseImportRun,
+      adapter: importAdapter(streamImport),
+      progressService,
+      syncRunService,
+    })
+
+    const runPromise = engine.runImport('run-hb-1', 100, createScope())
+    await jest.advanceTimersByTimeAsync(80_000)
+    await runPromise
+
+    // Both adapter reads resolve immediately, so every tick here belongs to a consumer body:
+    // two by the time the first batch commits at 40s, five by the time the second commits at 80s.
+    expect(heartbeatsSeenByBatch).toEqual([2, 5])
+    expect(progressService.touchJobHeartbeat).toHaveBeenCalledTimes(5)
+
+    await jest.advanceTimersByTimeAsync(120_000)
+    expect(progressService.touchJobHeartbeat).toHaveBeenCalledTimes(5)
+  })
+
   it('runs to completion when the progress service does not implement touchJobHeartbeat', async () => {
     jest.useFakeTimers()
     const streamImport = jest.fn(async function* () {
