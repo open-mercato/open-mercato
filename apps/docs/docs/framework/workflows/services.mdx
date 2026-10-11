@@ -78,6 +78,50 @@ async function startApprovalWorkflow(orderId: string, amount: number) {
 }
 ```
 
+### Idempotent Starts (Business Key)
+
+Event-driven starts are delivered at least once, and users can trigger the same start twice. Pass a
+`businessKey` to start an instance **exactly once** per key: starts carrying a key that another
+instance of the same `workflowId` already holds (in the same tenant and organization) return that
+instance instead of creating a second one.
+
+```typescript
+const container = await createRequestContainer()
+const workflowExecutor = container.resolve('workflowExecutor')
+
+const { instance, created } = await workflowExecutor.startOrReuseWorkflow(em, {
+  workflowId: 'purchase-approval-v1',
+  businessKey: `order:${orderId}`,
+  reusePolicy: 'reject_duplicate',
+  initialContext: { orderId },
+  tenantId,
+  organizationId,
+})
+
+if (created) {
+  await workflowExecutor.executeWorkflow(em, container, instance.id)
+}
+```
+
+- `created: false` means the instance already existed. Do not execute it again — it is already
+  advancing, parked, or finished. `startWorkflow` accepts the same options and returns the bare
+  instance; use `startOrReuseWorkflow` whenever you need to know which case happened.
+- `reusePolicy` decides whether a key may start a new run after the previous one ended:
+  `reject_duplicate` (default — the earlier instance is always returned), `allow_duplicate` (a new run
+  once the previous one ended), `allow_duplicate_failed_only` (a new run only after `FAILED`,
+  `CANCELLED` or `COMPENSATED`). An instance that is still open is always returned, whatever the policy.
+- Concurrent starts are arbitrated by a partial unique index on
+  `(tenant_id, organization_id, workflow_id, business_key)` over open instances, so two racing callers
+  both get the same instance id. The insert runs in a savepoint, so a lost race never aborts the
+  caller's own transaction.
+- Keys are trimmed, 1–255 characters, stored in plaintext, and not allowed on dry runs. Use record ids
+  (`order:<uuid>`), never personal data.
+- Starts without a `businessKey` behave exactly as before.
+
+Over REST, send `businessKey` (and optionally `reusePolicy`) in the `POST /api/workflows/instances`
+body. A new instance answers `201` with `data.created: true`; an existing one answers `200` with
+`data.created: false` and is not executed again.
+
 ### Service Integration
 
 For server-side code, inject the workflow service via DI:
@@ -229,6 +273,8 @@ GET /api/workflows/instances?status=RUNNING&correlationKey=order-123
 - `status`: Filter by status (RUNNING, COMPLETED, FAILED, etc.)
 - `workflowId`: Filter by workflow definition
 - `correlationKey`: Filter by correlation key
+- `businessKey`: Filter by the exact business key the instance was started with
+- `entityType`, `entityId`: Filter by the instance subject (`metadata.entityType` / `metadata.entityId`); index-backed
 - `limit`, `offset`: Pagination
 
 **Response:**
@@ -398,7 +444,7 @@ POST /api/workflows/tasks/{id}/unclaim  # release a claim back to its queue
 - **`limit` is clamped to 100**, silently: an over-large request succeeds with the clamped page rather than failing.
 - **A row is a strict superset of a task-list row.** The provider payload is spread *under* the common projection, so a `user_task` row still carries every field `GET /api/workflows/tasks` returns (including `proposalId`) alongside `kind`, `moduleId`, `entityTypes`, `entityBindings`, `detailHref` and `actions`.
 - **`meta.degradedKinds`** names sources whose `list()` threw. Render the queue and say it may be incomplete; do not fail the page.
-- **`GET /api/workflows/tasks` is unchanged** and keeps its full response shape — the inbox is a new route beside it, not a replacement of it.
+- **`GET /api/workflows/tasks` is unchanged** and keeps its full response shape — the inbox is a new route beside it, not a replacement of it. It additionally accepts `entityType` / `entityId` to list the tasks bound to one record; the filter is containment over `entity_bindings` and is backed by a GIN (`jsonb_path_ops`) index.
 
 `POST /api/workflows/work-inbox/next` (feature `workflows.tasks.claim`) walks the caller's claimable queue in inbox order and claims the first item it wins, returning the claimed row. Nothing claimable is a `200` with `data: null`, not a `404`. It accepts the same query string as the list, so the candidate set can be narrowed.
 
