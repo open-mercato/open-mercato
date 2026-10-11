@@ -55,10 +55,10 @@ test('resolvePreset: empty returns 12-module list', () => {
   assert.deepEqual(result.filesToRemove, [])
 })
 
-test('resolvePreset: crm returns 23-module list extending empty (includes attachments + messages + currencies + progress + integrations + communication_channels + channel_imap + channel_gmail + ai_assistant + search)', () => {
+test('resolvePreset: crm returns 24-module list extending empty (includes attachments + messages + currencies + progress + integrations + communication_channels + channel_imap + channel_gmail + channel_ms365 + ai_assistant + search)', () => {
   const result = resolvePreset('crm')
   assert.equal(result.isClassic, false)
-  assert.equal(result.modules.length, 23)
+  assert.equal(result.modules.length, 24)
   const ids = result.modules.map((m) => m.id)
   assert.ok(ids.includes('auth'))
   assert.ok(ids.includes('directory'))
@@ -88,6 +88,8 @@ test('resolvePreset: crm returns 23-module list extending empty (includes attach
   assert.equal(result.modules.find((m) => m.id === 'channel_imap')?.from, '@open-mercato/channel-imap')
   assert.ok(ids.includes('channel_gmail'))
   assert.equal(result.modules.find((m) => m.id === 'channel_gmail')?.from, '@open-mercato/channel-gmail')
+  assert.ok(ids.includes('channel_ms365'))
+  assert.equal(result.modules.find((m) => m.id === 'channel_ms365')?.from, '@open-mercato/channel-ms365')
   // ai_assistant must be included so customers AI widgets can register
   // (issue #1849 — CRM mode must enable AI assistant module)
   assert.ok(ids.includes('ai_assistant'))
@@ -176,6 +178,7 @@ test('generateModulesTs: produces valid content for crm modules', () => {
   assert.ok(content.includes("id: 'progress'"))
   assert.ok(content.includes("id: 'channel_imap'"))
   assert.ok(content.includes("id: 'channel_gmail'"))
+  assert.ok(content.includes("id: 'channel_ms365'"))
   // ai_assistant must register from its own package
   assert.ok(content.includes("id: 'ai_assistant'"))
   assert.ok(content.includes("from: '@open-mercato/ai-assistant'"))
@@ -256,7 +259,7 @@ test('applyStarterPreset: empty writes 12-module modules.ts and keeps example so
   }
 })
 
-test('applyStarterPreset: crm writes 23-module modules.ts and keeps example source present', () => {
+test('applyStarterPreset: crm writes 24-module modules.ts and keeps example source present', () => {
   const dir = makeTempDir()
   try {
     applyStarterPreset('crm', dir)
@@ -280,6 +283,8 @@ test('applyStarterPreset: crm writes 23-module modules.ts and keeps example sour
     assert.ok(content.includes("from: '@open-mercato/channel-imap'"))
     assert.ok(content.includes("id: 'channel_gmail'"))
     assert.ok(content.includes("from: '@open-mercato/channel-gmail'"))
+    assert.ok(content.includes("id: 'channel_ms365'"))
+    assert.ok(content.includes("from: '@open-mercato/channel-ms365'"))
     // ai_assistant must register so customers AI widgets work in the CRM preset
     // (regression coverage for issue #1849)
     assert.ok(content.includes("id: 'ai_assistant'"))

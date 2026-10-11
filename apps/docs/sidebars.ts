@@ -131,6 +131,7 @@ const sidebars: SidebarsConfig = {
               link: { type: "doc", id: "user-guide/communication-channels" },
               items: [
                 "user-guide/communication-channels-gmail",
+                "user-guide/communication-channels-ms365",
                 "user-guide/communication-channels-imap",
                 "user-guide/communication-channels-discord",
                 "user-guide/customers-email",

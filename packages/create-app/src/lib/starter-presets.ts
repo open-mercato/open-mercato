@@ -23,6 +23,7 @@ const AI_ASSISTANT = '@open-mercato/ai-assistant'
 const SEARCH = '@open-mercato/search'
 const CHANNEL_IMAP = '@open-mercato/channel-imap'
 const CHANNEL_GMAIL = '@open-mercato/channel-gmail'
+const CHANNEL_MS365 = '@open-mercato/channel-ms365'
 
 const EMPTY_MODULES: ModuleEntry[] = [
   { id: 'auth', from: CORE },
@@ -101,6 +102,7 @@ export const STARTER_PRESETS: Record<string, StarterPreset> = {
         { id: 'communication_channels', from: CORE },
         { id: 'channel_imap', from: CHANNEL_IMAP },
         { id: 'channel_gmail', from: CHANNEL_GMAIL },
+        { id: 'channel_ms365', from: CHANNEL_MS365 },
         { id: 'ai_assistant', from: AI_ASSISTANT },
       ],
     },
