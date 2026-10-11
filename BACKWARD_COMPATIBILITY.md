@@ -556,3 +556,15 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 | Database schema, event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
 
 **Migration path for existing modules**: send `parentId: null` / `childIds: []` where clearing is intended. Trees flattened before the upgrade are not repaired (see UPGRADE_NOTES.md).
+
+---
+
+## Webhook Update Preserves Omitted Delivery Settings (2026-10-11)
+
+`webhookUpdateSchema` inherited the create-time defaults of `webhookCreateSchema`, so `PUT /api/webhooks/:id` (and `PUT /api/webhooks/webhooks/:id`) reset an omitted `httpMethod`, `maxRetries`, `timeoutMs`, `rateLimitPerMinute` and `autoDisableThreshold` to their create defaults. The activate/deactivate actions, which send only `isActive`, triggered it. Omitted fields are now left untouched:
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| API routes (§7, `PUT /api/webhooks/:id`, `PUT /api/webhooks/webhooks/:id`) | Webhook update request field semantics corrected: omitted fields are no longer replaced by create defaults. Same URLs, field names, types, bounds and response shapes; `webhookCreateSchema` keeps its defaults | ⚠️ Behaviour change on a previously-corrupting path; no URL/field/response change. A caller that omitted the fields to reset them must send the values explicitly. Regression-tested in `validators.test.ts`, `partial-update.test.ts` and `TC-WEBHOOK-011` |
+
+**Migration path for existing modules**: send the delivery settings explicitly where a reset is intended. Webhooks already reset by an earlier toggle are not repaired (see UPGRADE_NOTES.md).
