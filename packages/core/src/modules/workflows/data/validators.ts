@@ -68,7 +68,6 @@ export {
   taskDeadlineSchema,
   taskDurationDeadlineSchema,
   taskReminderSchema,
-  TASK_DEADLINE_AT_ERROR,
 } from './task-primitives'
 export type { TaskPriority, TaskDeadline, TaskDurationDeadline, TaskReminder } from './task-primitives'
 
