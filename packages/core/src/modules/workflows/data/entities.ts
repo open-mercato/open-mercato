@@ -435,6 +435,27 @@ export class WorkflowDefinitionDraft {
 @Index({ name: 'workflow_instances_status_tenant_idx', properties: ['status', 'tenantId'] })
 @Index({ name: 'workflow_instances_current_step_idx', properties: ['currentStepId', 'status'] })
 @Index({ name: 'workflow_instances_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+// The business-key arbiter: at most ONE open instance per key. Partial, not a
+// plain unique index, so a key can be reused after its run ended when the
+// start's reuse policy allows it. The status list MUST stay the instance state
+// machine's terminal set (`WORKFLOW_TERMINAL_INSTANCE_STATUSES`).
+@Index({
+  name: 'workflow_instances_business_key_open_uq',
+  expression:
+    `create unique index "workflow_instances_business_key_open_uq" on "workflow_instances" ("tenant_id", "organization_id", "workflow_id", "business_key") where "business_key" is not null and "deleted_at" is null and "status" not in ('COMPLETED', 'FAILED', 'CANCELLED', 'COMPENSATED')`,
+})
+@Index({
+  name: 'workflow_instances_business_key_idx',
+  expression:
+    `create index "workflow_instances_business_key_idx" on "workflow_instances" ("tenant_id", "organization_id", "workflow_id", "business_key", "created_at") where "business_key" is not null`,
+})
+// Every metadata filter (subject `entityType`/`entityId`, `labels.parentInstanceId`)
+// is `@>` containment, which is exactly what `jsonb_path_ops` indexes.
+@Index({
+  name: 'workflow_instances_metadata_gin_idx',
+  expression:
+    `create index "workflow_instances_metadata_gin_idx" on "workflow_instances" using gin ("metadata" jsonb_path_ops)`,
+})
 export class WorkflowInstance {
   [OptionalProps]?: 'retryCount' | 'isDryRun' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
@@ -474,6 +495,15 @@ export class WorkflowInstance {
 
   @Property({ name: 'correlation_key', type: 'varchar', length: 255, nullable: true })
   correlationKey?: string | null
+
+  /**
+   * Caller-chosen idempotency key: starts carrying the same key within one
+   * tenant/organization/workflowId converge on one instance (see
+   * `startOrReuseWorkflow`). Written once at start, never for a dry run, and
+   * stored in plaintext because it is a lookup key — never put personal data in it.
+   */
+  @Property({ name: 'business_key', type: 'varchar', length: 255, nullable: true })
+  businessKey?: string | null
 
   @Property({ name: 'metadata', type: 'jsonb', nullable: true })
   metadata?: WorkflowInstanceMetadata | null
@@ -714,6 +744,12 @@ export class StepInstance {
 // not a JS post-filter. Post-filtering a page makes `pagination.total` a lie and
 // returns short pages. GIN is what makes `<@` indexable.
 @Index({ name: 'user_tasks_entity_types_gin_idx', properties: ['entityTypes'], type: 'gin' })
+// "Tasks about record X" is `entity_bindings @> [{ entityType, entityId }]`.
+@Index({
+  name: 'user_tasks_entity_bindings_gin_idx',
+  expression:
+    `create index "user_tasks_entity_bindings_gin_idx" on "user_tasks" using gin ("entity_bindings" jsonb_path_ops)`,
+})
 export class UserTask {
   [OptionalProps]?: 'createdAt' | 'updatedAt' | 'assigneeKind'
 
