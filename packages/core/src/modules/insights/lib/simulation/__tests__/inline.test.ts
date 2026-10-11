@@ -15,8 +15,8 @@ import {
   SimulationAccessLogUnavailableError,
   SimulationInlineRunError,
   createServiceResolver,
+  resolveSimulationOrganizationIds,
   runInlineSimulation,
-  simulationScopeOrganizationIds,
   writeSimulationAccessLog,
 } from '../inline'
 
@@ -63,14 +63,39 @@ const rootEm = { fork: () => rootEm }
 const container = { resolve: () => undefined }
 
 describe('inline simulation', () => {
-  it('resolves services softly and reads the organization scope (D10)', () => {
+  it('resolves services softly', () => {
     const resolve = createServiceResolver({ resolve: (name: string) => { if (name === 'known') return 'service'; throw new Error('missing') } })
     expect(resolve('known')).toBe('service')
     expect(resolve('unknown')).toBeUndefined()
-    expect(simulationScopeOrganizationIds(null, 'org-run')).toEqual(['org-run'])
-    expect(simulationScopeOrganizationIds({ allowedIds: null }, 'org-run')).toBeNull()
-    expect(simulationScopeOrganizationIds({ allowedIds: ['ORG-A'] }, 'org-run')).toEqual(['org-a'])
-    expect(simulationScopeOrganizationIds({ allowedIds: [] }, 'org-run')).toEqual([])
+  })
+
+  it('reads only the run organization\'s subtree where the requester holds the features, failing closed (D10)', async () => {
+    const child = '22222222-0000-4000-8000-0000000000e2'
+    const sibling = '22222222-0000-4000-8000-0000000000e3'
+    const rows = [
+      { id: SCOPE.organizationId.toUpperCase(), ancestorIds: [], descendantIds: [child] },
+      { id: child, ancestorIds: [SCOPE.organizationId], descendantIds: [] },
+      { id: sibling, ancestorIds: [], descendantIds: [] },
+    ]
+    const em = {
+      findOne: async (_entity: unknown, where: { id: string }) => rows.find((row) => row.id.toLowerCase() === where.id) ?? null,
+      find: async (_entity: unknown, where: { id: { $in: string[] } }) => rows.filter((row) => where.id.$in.includes(row.id)),
+    }
+    const calls: Array<{ required: readonly string[]; tenantId: string | null }> = []
+    const containerFor = (access: { unrestricted: boolean; held: string[] }) => ({
+      resolve: () => ({
+        resolveFeatureOrganizationAccess: async (_userId: string, required: readonly string[], input: { tenantId: string | null }) => {
+          calls.push({ required, tenantId: input.tenantId })
+          return { unrestricted: access.unrestricted, filterOrganizationIds: (candidates: ReadonlyArray<{ id: string }>) => candidates.map((candidate) => candidate.id).filter((id) => access.held.includes(id)) }
+        },
+      }),
+    })
+    const params = { userId: USER, scope: SCOPE, requiredFeatures: ['auth.acl.manage', 'auth.users.list', 'auth.acl.manage', ''] }
+    expect(await resolveSimulationOrganizationIds(containerFor({ unrestricted: false, held: [child, sibling] }), em as never, params)).toEqual([child])
+    expect(calls[0]).toEqual({ required: ['auth.acl.manage', 'auth.users.list'], tenantId: SCOPE.tenantId })
+    expect(await resolveSimulationOrganizationIds(containerFor({ unrestricted: true, held: [] }), em as never, params)).toEqual([SCOPE.organizationId, child])
+    expect(await resolveSimulationOrganizationIds({ resolve: () => { throw new Error('missing') } }, em as never, params)).toEqual([])
+    expect(await resolveSimulationOrganizationIds(containerFor({ unrestricted: true, held: [] }), em as never, { ...params, scope: { ...SCOPE, organizationId: 'gone' } })).toEqual([])
   })
 
   it('writes the access-log row or fails closed', async () => {

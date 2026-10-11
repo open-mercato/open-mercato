@@ -39,14 +39,41 @@ import { requestSimulationCommand, simulationProposalErrorStatus } from '../simu
 const TENANT = '11111111-1111-4111-8111-111111111117'
 const ORG = '22222222-2222-4222-8222-222222222227'
 const OTHER_ORG = '22222222-2222-4222-8222-222222222228'
+const CHILD_ORG = '22222222-2222-4222-8222-222222222229'
 const USER = '33333333-3333-4333-8333-333333333337'
 const ROLE = '55555555-5555-4555-8555-555555555557'
 
 const validate = jest.fn(async (..._args: unknown[]) => ({ ok: true as const }))
 const kindRun = jest.fn()
 
-function makeContext(options: { accessLog?: unknown; allowedIds?: string[] | null; noScope?: boolean } = {}) {
-  const em = { fork: () => em }
+type OrganizationRow = { id: string; tenant: string; ancestorIds: string[]; descendantIds: string[] }
+
+const ORGANIZATIONS: OrganizationRow[] = [
+  { id: ORG, tenant: TENANT, ancestorIds: [], descendantIds: [CHILD_ORG] },
+  { id: CHILD_ORG, tenant: TENANT, ancestorIds: [ORG], descendantIds: [] },
+  { id: OTHER_ORG, tenant: TENANT, ancestorIds: [], descendantIds: [] },
+]
+
+type OrganizationWhere = { id?: string | { $in: string[] }; tenant?: string }
+
+function matchesOrganization(row: OrganizationRow, where: OrganizationWhere): boolean {
+  if (where.tenant !== undefined && where.tenant !== row.tenant) return false
+  if (typeof where.id === 'string') return where.id === row.id
+  if (where.id && Array.isArray(where.id.$in)) return where.id.$in.includes(row.id)
+  return true
+}
+
+function makeContext(options: { accessLog?: unknown; allowedIds?: string[] | null; noScope?: boolean; featureOrganizations?: string[] } = {}) {
+  const featureOrganizations = new Set(options.featureOrganizations ?? [ORG, CHILD_ORG, OTHER_ORG])
+  const featureAccessCalls: Array<{ userId: string; required: readonly string[] }> = []
+  const em = {
+    fork: () => em,
+    find: async (_entity: unknown, where: OrganizationWhere) => ORGANIZATIONS.filter((row) => matchesOrganization(row, where)).map((row) => ({ ...row })),
+    findOne: async (_entity: unknown, where: OrganizationWhere) => {
+      const row = ORGANIZATIONS.find((candidate) => matchesOrganization(candidate, where))
+      return row ? { ...row } : null
+    },
+  }
   const progress = { createJob: jest.fn() }
   const accessLog = options.accessLog === undefined
     ? { log: jest.fn(async () => { callOrder.push('access_log'); return { id: 'row' } }) }
@@ -55,7 +82,16 @@ function makeContext(options: { accessLog?: unknown; allowedIds?: string[] | nul
     em,
     progressService: progress,
     accessLogService: accessLog,
-    rbacService: { userHasAllFeatures: async () => true },
+    rbacService: {
+      userHasAllFeatures: async () => true,
+      resolveFeatureOrganizationAccess: async (userId: string, required: readonly string[]) => {
+        featureAccessCalls.push({ userId, required })
+        return {
+          unrestricted: false,
+          filterOrganizationIds: (candidates: ReadonlyArray<{ id: string }>) => candidates.map((candidate) => candidate.id).filter((id) => featureOrganizations.has(id)),
+        }
+      },
+    },
   }
   const ctx = {
     container: {
@@ -69,7 +105,7 @@ function makeContext(options: { accessLog?: unknown; allowedIds?: string[] | nul
     selectedOrganizationId: ORG,
     organizationIds: [ORG],
   } as unknown as CommandRuntimeContext
-  return { ctx, progress, accessLog: accessLog as { log: jest.Mock } }
+  return { ctx, progress, accessLog: accessLog as { log: jest.Mock }, featureAccessCalls }
 }
 
 function requestInput(overrides: Record<string, unknown> = {}) {
@@ -157,7 +193,7 @@ describe('insights.simulation.request — inline kinds', () => {
       scope: { tenantId: TENANT, organizationId: ORG },
       requesterUserId: USER,
       artifactId: ROLE,
-      organizationIds: [ORG, OTHER_ORG],
+      organizationIds: [ORG, CHILD_ORG],
     }))
     const stored = insertCompletedSimulationRun.mock.calls[0][1] as Record<string, unknown>
     expect(stored).toEqual(expect.objectContaining({
@@ -201,18 +237,27 @@ describe('insights.simulation.request — inline kinds', () => {
     }
   })
 
-  it('passes the requester\'s organization scope (D10) and the requester to the kind\'s validation', async () => {
+  it('passes the run organization\'s feature-scoped subtree (D10) and the requester to the kind\'s validation', async () => {
     await requestSimulationCommand.execute(requestInput(), makeContext({ allowedIds: null }).ctx)
-    expect((runInlineSimulation.mock.calls[0][2] as { organizationIds: unknown }).organizationIds).toBeNull()
-    await requestSimulationCommand.execute(requestInput(), makeContext({ allowedIds: [ORG.toUpperCase()] }).ctx)
-    expect((runInlineSimulation.mock.calls[1][2] as { organizationIds: unknown }).organizationIds).toEqual([ORG])
+    expect((runInlineSimulation.mock.calls[0][2] as { organizationIds: unknown }).organizationIds).toEqual([ORG, CHILD_ORG])
+    await requestSimulationCommand.execute(requestInput(), makeContext({ featureOrganizations: [OTHER_ORG] }).ctx)
+    expect((runInlineSimulation.mock.calls[1][2] as { organizationIds: unknown }).organizationIds).toEqual([])
     await expect(requestSimulationCommand.execute(requestInput(), makeContext({ allowedIds: [] }).ctx)).rejects.toBeInstanceOf(CrudHttpError)
     await requestSimulationCommand.execute(requestInput(), makeContext({ noScope: true }).ctx)
-    expect((runInlineSimulation.mock.calls[2][2] as { organizationIds: unknown }).organizationIds).toEqual([ORG])
+    expect((runInlineSimulation.mock.calls[2][2] as { organizationIds: unknown }).organizationIds).toEqual([ORG, CHILD_ORG])
     const validationContext = validate.mock.calls[0][1] as { requesterUserId: string; resolve: (name: string) => unknown }
     expect(validationContext.requesterUserId).toBe(USER)
     expect(validationContext.resolve('accessLogService')).toBeTruthy()
     expect(validationContext.resolve('nothing')).toBeUndefined()
+  })
+
+  it('reads only the run organization\'s subtree where the requester holds the kind\'s features, never other allowed organizations (D10)', async () => {
+    const { ctx, featureAccessCalls } = makeContext({ allowedIds: [ORG, CHILD_ORG, OTHER_ORG], featureOrganizations: [ORG] })
+    await requestSimulationCommand.execute(requestInput(), ctx)
+    expect((runInlineSimulation.mock.calls[0][2] as { organizationIds: unknown }).organizationIds).toEqual([ORG])
+    expect(featureAccessCalls).toEqual([{ userId: USER, required: ['test_module.manage'] }])
+    await requestSimulationCommand.execute(requestInput(), makeContext({ allowedIds: null, featureOrganizations: [ORG, CHILD_ORG, OTHER_ORG] }).ctx)
+    expect((runInlineSimulation.mock.calls[1][2] as { organizationIds: unknown }).organizationIds).toEqual([ORG, CHILD_ORG])
   })
 
   it('maps the kind\'s validation codes: unavailable artifact 404, forbidden proposal 403, others 422', async () => {
