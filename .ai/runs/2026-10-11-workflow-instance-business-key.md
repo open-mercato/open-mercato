@@ -65,4 +65,4 @@ PR: #7192
 
 - [x] 4.1 Docs and module AGENTS.md — f645b2129
 - [x] 4.2 EXPLAIN and concurrency evidence against Postgres — evidence in PR description (scratch DB, not committed)
-- [ ] 4.3 Full validation gate
+- [x] 4.3 Full validation gate — local mode, results in PR description
