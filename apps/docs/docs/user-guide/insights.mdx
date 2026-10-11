@@ -1,18 +1,19 @@
 ---
 title: Insights
-description: Ask "Why?" about any explainable value — its recorded history, the cause of each change, and why access is denied.
+description: Ask "Why?" about any explainable value and see how work actually flows with Process X-Ray.
 sidebar_label: Insights
 ---
 
 # Insights
 
-The **Insights** module answers, from the audit history Open Mercato already records:
+The **Insights** module answers two questions from the audit history Open Mercato already records:
 
-- **"Why?"** — why does this field have this value, and who or what set it? And why can I not open this page?
+- **"Why?"** — why does this field have this value, and who or what set it?
+- **Process X-Ray** — how do deals, orders and quotes actually move through their stages, where do they wait, and which manual follow-ups are repeated often enough to automate?
 
-It only reads history; it never changes your data. Its design rule is that **a wrong cause is worse than "unknown"**: when the history cannot prove something, Insights says so instead of guessing.
+Both read history; neither changes your data on its own. Their design rule is that **a wrong cause is worse than "unknown"**: when the history cannot prove something, Insights says so instead of guessing.
 
-"Why?" has no menu entry: it appears on the records it can explain.
+The sidebar group **Insights** contains **Process X-Ray**. "Why?" has no menu entry: it appears on the records it can explain.
 
 ## Permissions
 
@@ -20,10 +21,13 @@ It only reads history; it never changes your data. Its design rule is that **a w
 |---|---|---|
 | `insights.explain.view` | "Why?" on records, fields and audit entries | `superadmin`, `admin`, `employee` |
 | `insights.explain.access_detail` | Detailed access explanations (roles, personal permissions, roles that would grant access — also needs `auth.roles.list` —, recent permission changes) | `superadmin`, `admin` |
+| `insights.xray.view` | Process X-Ray pages, the "Process health" dashboard widget | `superadmin`, `admin` |
+| `insights.xray.manage` | Process X-Ray settings, history backfill, dismissing suggestions, on-demand mining | `superadmin`, `admin` |
+| `insights.xray.view_individuals` | Per-person X-Ray breakdowns (also needs the organization setting, see below) | `superadmin` only |
 
-`superadmin` receives these through `insights.*`; the `admin` role lists them one by one. Nested wildcards such as `insights.explain.*` are **not** honoured — grant the individual features or `insights.*`. After upgrading an existing installation, run `yarn mercato auth sync-role-acls` so existing roles receive the new features.
+`superadmin` receives these through `insights.*`. The `admin` role lists the features one by one, so per-person analytics stay with super administrators unless you grant `insights.xray.view_individuals` explicitly. Nested wildcards such as `insights.xray.*` are **not** honoured — grant the individual features or `insights.*`. After upgrading an existing installation, run `yarn mercato auth sync-role-acls` so existing roles receive the new features.
 
-Insights never widens access: every explanation also requires the permission to read the underlying records (for example `customers.deals.view` for deals, `sales.orders.view` for orders).
+Insights never widens access: every explanation and process also requires the permission to read the underlying records (for example `customers.deals.view` for deals, `sales.orders.view` for orders).
 
 ## "Why?" — explain a value
 
@@ -113,16 +117,94 @@ On the access-denied page, **Why can't I open this?** lists the permissions the 
 
 Any signed-in user can ask for their own explanation. With `insights.explain.access_detail` the panel also shows where your permissions come from (roles, personal permissions, super administrator, API key), the roles that would grant the missing permissions (only if you may also list roles, `auth.roles.list`) and recent permission changes. Explaining another user's access additionally requires `auth.users.list`.
 
+## Process X-Ray
+
+Process X-Ray turns the audit history of declared processes into process-mining analytics. Out of the box it covers:
+
+- **Deals** (`customers.deal`): creation, status and pipeline-stage changes, owner hand-overs; a deal ends when it reaches a closed status;
+- **Sales orders** (`sales.order`): status, fulfillment and payment status, with payments and shipments as milestones;
+- **Sales quotes** (`sales.quote`): status, ending when a quote is converted to an order.
+
+Breakdowns by **role** and **team** come from the auth and staff modules.
+
+### Getting started (administrators)
+
+1. Open **Settings → Module Configs → Process X-Ray settings** (`insights.xray.manage`).
+2. Check the settings (below) and click **Backfill history**. Organizations created after Insights was installed are projected automatically from their creation; organizations that already existed need one backfill, which reads their history within the retention period. Progress appears in the top bar.
+3. The **Projection status** panel shows whether the organization is up to date, from when its history is covered, and any errors.
+
+A system schedule ("Process X-Ray ingest", every 120 seconds) keeps the projection current. It does not count against a tenant's schedule quota.
+
+### The pages
+
+**Insights → Process X-Ray** lists the processes you may analyse with their number of cases, open cases and **Data through** (or **Catching up** while the projection is behind). Choose a period: 7, 30 or 90 days, or a custom range of at most 180 days.
+
+A process page shows key figures (cases, open cases, median and 90th-percentile cycle time of completed cases) and a filter bar (**Caused by** — people, automation kinds or "Recorded before cause tracking"; roles; teams; whether data sync steps count towards waiting times). Its tabs:
+
+| Tab | Shows |
+|---|---|
+| **Map** | Steps and transitions. Edge width is the number of transitions; colour shows who performs the steps (mostly people, mostly automated, mostly before tracking, mixed). Switch between **Raw** and **Collapsed** counting (collapsed merges quick successive changes and corrections). Select a step or transition for details and **View cases with this step**. A transitions table lists the same data accessibly. |
+| **Variants** | The distinct paths cases take, with cases, share and median cycle time. **View cases** lists them; **Create workflow draft** turns a path into a disabled workflow draft. |
+| **Bottlenecks** | Median, 90th-percentile and total waiting time per transition. |
+| **Rework** | How often a step happens again in the same case, with a 95 % lower bound. Corrections (a change undone shortly after by the same person) and quick successive changes are not counted as rework. |
+| **Conformance** | How observed cases compare with a designed process: a workflow configured in the settings (with an activity → step mapping) or an expected sequence you type in. The workflow's version is shown only if you may view workflow definitions (`workflows.definitions.view`). |
+| **Breakdown** | Cases, steps and waiting times by organization, role, team or — when allowed — person. |
+| **Suggestions** | Automation suggestions for this process (see below). |
+
+**Cases** lists case and organization ids only. The **Process health** dashboard widget (off by default) shows the three busiest processes of the last 30 days.
+
+### Statistics you can trust
+
+- Every figure comes with its number of cases (`n`). Medians need at least 5 cases, the 90th percentile at least 20; below 30 cases a result is marked **Low confidence**.
+- Cycle times count completed cases only; open cases are reported separately.
+- Steps written by data sync runs are left out of waiting times unless you include them.
+- Results show **Data through** a point in time; when the projection is still catching up a banner says so.
+
+### Privacy
+
+- **k-anonymity.** Any group with fewer than *k* cases (default 10, at least 5) or fewer than three distinct people is hidden ("Hidden (privacy)"), and totals only count what is shown. When hiding one small group would let you work it out from the total, neighbouring groups are hidden too. On the map a hidden step is a dashed "Hidden step" placeholder; dashed lines mean exactly this and nothing else.
+- **No names.** People are stored as keyed pseudonyms, never as user ids. Breakdowns show roles, teams and organizations; a per-person breakdown shows "Person 1", "Person 2", … — never who.
+- **Per-person breakdowns** need both the `insights.xray.view_individuals` permission **and** the organization setting **Allow per-person analytics** (off by default; with several organizations in scope, every one must allow it). Every per-person read is written to the access log **before** any data is shown; if that write fails, nothing is shown. These access-log rows are kept for the core retention period (`AUDIT_LOGS_CORE_RETENTION_DAYS`, default 7 days).
+- Only identifiers and status values are copied into the X-Ray tables; free text and encrypted fields never are. Deleting a user replaces their pseudonym in the projection with a random token that is never linked back.
+
+:::caution
+Per-person analytics can be used to monitor employees. Enable them only with a lawful basis, after informing the people concerned and, where required, the works council.
+:::
+
+### Settings
+
+| Setting | Default | Notes |
+|---|---|---|
+| Project this organization's history | on | When off, nothing new is projected and analyses exclude the organization; old data is still pruned. |
+| Keep cases for (days) | 365 | 7–3650. |
+| Minimum cases per group (*k*) | 10 | 5–1000. |
+| Collapse quick changes within (seconds) | 120 | 0–86400. |
+| Time zone | UTC | Day boundaries of the 7/30/90-day windows. |
+| Allow per-person analytics | off | See Privacy. |
+| Minimum support of automation suggestions | 20 | At least 5; empty = default. |
+| Conformance workflow and activity → step mapping | — | Choosing a workflow needs `workflows.definitions.view`. |
+
+Settings are saved with a conflict check: if someone else saved them meanwhile, you are asked to reload.
+
+### Automation suggestions
+
+Once a day (and on demand with **Look for suggestions now**, at most once every 15 minutes per organization) X-Ray looks for manual follow-ups that people repeat after a trigger — for example "when a deal is created, someone sets its pipeline stage within 10 minutes". Only changes made by people, after cause tracking, outside data sync runs count. A suggestion needs at least 20 occurrences in 30 days (the organization's minimum support), a 95 % Wilson lower bound of at least 0.6, a lift of at least 2, at least three different people and at least *k* supporting cases. Suggestions show counts only — never who. Follow-ups an enabled workflow already performs are not suggested.
+
+**Review** shows the draft workflow it would create — an event trigger and one update step per follow-up — and, after you confirm, creates it **disabled** through the normal workflow API as you, so your permissions and the audit trail apply; the suggestion is then marked **Drafted** with a link to the definition. Nothing runs until someone reviews and enables the workflow in the workflow editor. A suggestion is marked not draftable, with the reason, when its trigger cannot be expressed as a workflow event (today only the creation of the case record can), when the process declares no workflow-safe update command (the deal process does; the order and quote processes do not), or when you lack the command's permissions. Managers can dismiss and reopen suggestions.
+
 ## Configuration reference
 
 | Setting | Default | Effect |
 |---|---|---|
 | `OM_CAUSATION` | on | Records the cause of every audited write and carries it across events, queued jobs and automations. `off` is a kill switch: new audit entries carry no cause, so "Why?" treats them like history recorded before cause tracking (at most **Inferred**). |
 | `OM_INSIGHTS_EXPLAIN_SCAN_MAX` | 500 | History entries one "Why?" request reads (at most 5000). |
+| `AUDIT_LOGS_CORE_RETENTION_DAYS` | 7 | Retention of the access-log rows written by per-person X-Ray reads. |
+| `LOOKUP_HASH_PEPPER` | — | When tenant data encryption is off, X-Ray pseudonyms are keyed with the installation lookup pepper (falling back to the tenant data encryption keys); with no key at all, X-Ray records no people. With tenant data encryption on, a per-tenant key is used. |
 | Feature toggle `insights_field_explain` | on | Kill switch for the **Explain fields** switch and the per-field "?" buttons. |
+| Feature toggle `insights_xray_ingest` | on | Kill switch for Process X-Ray projection (retention pruning continues). |
 
-The feature toggle is created for new tenants when the feature toggles module is enabled; a missing toggle counts as on. To turn the feature off on an existing installation, create the global boolean toggle with default `false` (see [Feature Toggles](./feature-toggles.mdx)).
+Both feature toggles are created for new tenants when the feature toggles module is enabled; a missing toggle counts as on. To turn a feature off on an existing installation, create the global boolean toggle with default `false` (see [Feature Toggles](./feature-toggles.mdx)).
 
-Administrators can measure how much of the history can be explained with the CLI: `yarn mercato insights explain:coverage`.
+Workers must run the queues `insights-xray-ingest`, `insights-xray-backfill`, `insights-xray-rollup` and `insights-xray-suggestions`. Administrators can also use the CLI: `yarn mercato insights explain:coverage`, `xray:status`, `xray:backfill`, `xray:rebuild` and `xray:prune`.
 
-For developers — how modules contribute explainable records — see [Insights contracts](../framework/modules/insights.mdx).
+For developers — how modules contribute explainable records and processes — see [Insights contracts](../framework/modules/insights.mdx).

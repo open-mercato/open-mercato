@@ -1,19 +1,19 @@
 ---
 title: Insights Contracts
-description: The causation envelope recorded on every audited write, and the insights.explain.ts convention file through which modules contribute "Why?" explanations.
+description: The causation envelope recorded on every audited write, and the convention files insights.explain.ts and insights.process.ts through which modules contribute "Why?" explanations and Process X-Ray processes.
 sidebar_label: Insights Contracts
 ---
 
 # Insights Contracts
 
-The `insights` module (`packages/core/src/modules/insights/`) owns no knowledge of other modules' records. It builds "Why?" on top of two foundations:
+The `insights` module (`packages/core/src/modules/insights/`) owns no knowledge of other modules' records. It builds two features on top of two foundations:
 
 | Foundation | Package path | Purpose |
 |---|---|---|
 | **Causation envelope** | `@open-mercato/shared/lib/causation` (isomorphic types) and `@open-mercato/shared/lib/causation/server` (AsyncLocalStorage helpers) | Records *why* each audited write happened — a user, an API key, a workflow step, a business rule, an AI action, a schedule … — and carries that cause across the command bus, queues, events and automations. |
-| **Owner-module contracts** | `@open-mercato/shared/modules/insights/{explain,helpers}` | The convention file a module adds to make its records explainable (`insights.explain.ts`). |
+| **Owner-module contracts** | `@open-mercato/shared/modules/insights/{explain,process,helpers}` | Convention files a module adds to make its records explainable (`insights.explain.ts`) and project its processes (`insights.process.ts`). |
 
-The design rule throughout is that **a false cause is worse than "unknown"**. For the end-user view see the [Insights user guide](../../user-guide/insights.mdx).
+The design rule throughout is that **a false cause is worse than "unknown"**. For the end-user view of both features see the [Insights user guide](../../user-guide/insights.mdx).
 
 ## Causation envelope
 
@@ -112,13 +112,14 @@ The kill switch `OM_CAUSATION=off` stops resolution, propagation and stamping (n
 
 ## Convention files
 
-Each convention file is discovered by a generator plugin in `insights/generators.ts`. `yarn generate` aggregates them into the app's `.mercato/generated/` directory; the registrations also run in CLI and worker processes (`cli: true`), because the `mercato insights` CLI commands read them. Every registry lives on `globalThis`, validates declarations when they register and keeps the first registration of a duplicate (with a warning).
+Each convention file is discovered by a generator plugin in `insights/generators.ts`. `yarn generate` aggregates them into the app's `.mercato/generated/` directory; the registrations also run in CLI and worker processes (`cli: true`), because the X-Ray workers and the `mercato insights` CLI commands read them. Every registry lives on `globalThis`, validates declarations when they register and keeps the first registration of a duplicate (with a warning).
 
 | File | Export (or `default`) | Generated registry | Entries export |
 |---|---|---|---|
 | `insights.explain.ts` | `explainConfig` (`defineExplainConfig`) | `insights-explain.generated.ts` | `explainConfigEntries` |
+| `insights.process.ts` | `processConfig` (`defineProcessConfig`) | `insights-process.generated.ts` | `processConfigEntries` |
 
-It is a `version: 1` contract (frozen once shipped; optional fields may be added). Declarations without a non-empty `requiredFeatures` are skipped — **fail closed**.
+Both are `version: 1` contracts (frozen once shipped; optional fields may be added). Declarations without a non-empty `requiredFeatures` are skipped — **fail closed**.
 
 ### `insights.explain.ts` — "Why?"
 
@@ -238,19 +239,97 @@ Shipped declarations: resources in `customers` (deal, person, company), `sales` 
 
 Per-field buttons: a resource listing `formEntityIds` must also be added to the static `insights/widgets/injection-table.ts` (one header switch and one `crud-form:<entityId>:field:*:after` registration per form; a test keeps both lists in sync). The field spot family itself is described in [Widget Injection](../widget-injection.md#field-level-spots).
 
+### `insights.process.ts` — Process X-Ray
+
+A module declares processes (case roots and their stage fields) and actor dimensions for breakdowns.
+
+| Key | Purpose |
+|---|---|
+| `processes[]` | `processKey` (`<module>.<name>`), `labelKey`, `resourceKind`, `logResourceKinds?`, `entityId` (`module:entity`), `requiredFeatures`, `stageFields`, `followupFields?`, `milestones?` (child records naming the case as `parent_resource_kind`), `exits?` (another resource's command that ends the case, e.g. quote → order), `endStates?`, `automation?` |
+| field descriptors | `key`, `labelKey`, `valueKind` (`enum`, `dictionary`, `uuid`, `user`), `snapshotPaths`, `changeKeys?`, display-only `referenceKind?` / `valueLabelKeys?` |
+| `automation?` | `{ updateCommandId, recordIdInputKey?, fieldInputKeys? }`: the workflow-safe update command suggestions may draft; without it suggestions of the process are not draftable |
+| `actorDimensions[]` | `{ kind: 'role' \| 'team', resolve(ctx, userIds) }` → dimension ids per user, one query per batch |
+
+Projection rules enforced by the registry and the ingest:
+
+- Only identifiers are projected: a value that is neither a UUID nor matches `^[a-z0-9_.:-]{1,64}$` is stored as `other`, a missing one as `none`, and each field keeps at most 200 distinct values per organization.
+- A declaration whose field key or any snapshot-path / change-key segment is in an encryption map of the owning module, the declared entity or (milestones) the milestone entity is rejected at boot; fields a tenant encrypts through its own maps are stored as `other`.
+- `user` values are allowed in `followupFields` only and are stored as the per-tenant actor pseudonym, never as user ids.
+- Every process has a contract hash (derivation version + declaration, excluding `referenceKind`, `valueLabelKeys` and `automation`). Changing a declaration clears and re-projects that process automatically; bump `PROCESS_DERIVATION_VERSION` when derivation rules change.
+
+Example — `customers/insights.process.ts`:
+
+```typescript
+import { defineProcessConfig } from '@open-mercato/shared/modules/insights/process'
+import { E } from '#generated/entities.ids.generated'
+import { CLOSED_DEAL_STATUS_LIST } from './lib/dealStatus'
+import { CUSTOMERS_EXPLAIN_REFERENCE_KINDS } from './insights.explain'
+
+export const processConfig = defineProcessConfig({
+  version: 1,
+  processes: [
+    {
+      processKey: 'customers.deal',
+      labelKey: 'customers.insights.process.deal',
+      resourceKind: 'customers.deal',
+      logResourceKinds: ['customers.deal'],
+      entityId: E.customers.customer_deal,
+      requiredFeatures: ['customers.deals.view'],
+      stageFields: [
+        {
+          key: 'status',
+          labelKey: 'customers.insights.fields.status',
+          valueKind: 'dictionary',
+          snapshotPaths: ['deal.status'],
+          changeKeys: ['deal.status'],
+          referenceKind: CUSTOMERS_EXPLAIN_REFERENCE_KINDS.dealStatus,
+        },
+        {
+          key: 'pipelineStageId',
+          labelKey: 'customers.insights.fields.pipelineStage',
+          valueKind: 'uuid',
+          snapshotPaths: ['deal.pipelineStageId'],
+          changeKeys: ['deal.pipelineStageId'],
+          referenceKind: CUSTOMERS_EXPLAIN_REFERENCE_KINDS.pipelineStage,
+        },
+      ],
+      followupFields: [
+        {
+          key: 'ownerUserId',
+          labelKey: 'customers.insights.fields.owner',
+          valueKind: 'user',
+          snapshotPaths: ['deal.ownerUserId'],
+          changeKeys: ['deal.ownerUserId'],
+        },
+      ],
+      endStates: [{ field: 'status', values: [...CLOSED_DEAL_STATUS_LIST] }],
+      automation: { updateCommandId: 'customers.deals.update' },
+    },
+  ],
+})
+
+export default processConfig
+```
+
+`sales` declares the order process (status, fulfillment and payment status; payment and shipment milestones) and the quote process (exit `converted`); `auth` contributes the `role` dimension and `staff` the `team` dimension. Verify snapshot paths and change keys against the real command output, as `customers/__tests__/insights.process.test.ts` does with a captured `CommandBus` log.
+
 ## APIs, services and AI tools
 
 | Surface | Details |
 |---|---|
 | "Why?" routes | `GET /api/insights/explain`, `/explain/descriptors`, `/explain/log` (`insights.explain.view` + the resource's features), `/explain/access` (signed-in user; detail with `insights.explain.access_detail`). Never cached. |
-| DI services | `explainService`, `accessExplainService`; additive `ActionLogService` reads (`findFieldHistory`, `findHistoryEntryById`, `findLogScopes`); `RbacService.explainAccess` |
-| CLI | `mercato insights explain:coverage` (`--tenant` / `--org` or `--all`) |
+| X-Ray routes | `GET /api/insights/xray/processes`, `/xray/{processKey}/map`, `/variants`, `/durations`, `/bottlenecks`, `/rework`, `/conformance`, `/breakdown`, `/cases`, `POST /xray/{processKey}/variants/{hash}/workflow-draft` (`insights.xray.view`); `/xray/settings`, `/xray/status`, `POST /xray/backfill` (`insights.xray.manage`); `/xray/suggestions/**` (`insights.xray.view` to list and draft, `insights.xray.manage` to dismiss, reopen and mine) |
+| DI services | `explainService`, `accessExplainService`; additive `ActionLogService` reads (`findFieldHistory`, `findHistoryEntryById`, `findLogScopes`, `scanDecrypted`, `scanStateChanges`); `RbacService.explainAccess`; the soft-optional `workflowDraftService` owned by `workflows` |
+| CLI | `mercato insights explain:coverage`, `xray:status`, `xray:backfill [--inline]`, `xray:rebuild`, `xray:prune` (`--tenant` / `--org` or `--all`) |
+| Queues | `insights-xray-ingest`, `insights-xray-backfill`, `insights-xray-rollup`, `insights-xray-suggestions` |
 
 AI tools (read-only, `isMutation: false`; registered but **not allowlisted for any agent by default** — add them to an agent's allowlist to use them):
 
 | Tool | Requires | Returns |
 |---|---|---|
 | `insights.explain_record` | `insights.explain.view` (+ the resource's features) | Engine facts verbatim (verdict, confidence, chain, gaps, hints) and a deterministic i18n summary; record values stay in the facts as untrusted data |
+| `insights.xray_summary` | `insights.xray.view` | Visible processes with headline counts for a 7/30/90-day window |
+| `insights.xray_variants` | `insights.xray.view` | Top variants of one process with server-resolved `activityLabels`; suppressed cells stay hidden |
 
 ## Related
 
@@ -258,4 +337,4 @@ AI tools (read-only, `isMutation: false`; registered but **not allowlisted for a
 - [Queue workers](../events/queue-workers.mdx) — job metadata and workers
 - [Widget Injection](../widget-injection.md) — field-level CrudForm spots
 - [RBAC](../rbac/overview.mdx) — feature checks and wildcards
-- Spec: `.ai/specs/2026-10-08-insights-causation-and-explain.md`
+- Specs: `.ai/specs/2026-10-08-insights-causation-and-explain.md`, `.ai/specs/2026-10-08-insights-process-xray.md`
