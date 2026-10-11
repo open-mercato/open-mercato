@@ -101,11 +101,14 @@ const LOG_ID = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
 const AT = '2026-10-09T10:00:00.000Z'
 const SCOPE = { tenantId: TENANT_ID, organizationId: ORG_ID }
 const LOCALES = ['en', 'pl', 'de', 'es', 'ko'] as const
-const EXPECTED_EVENT_IDS = ['sales.order.created', 'sales.quote.created']
+const LIFECYCLE_EVENT_IDS = ['sales.order.confirmed', 'sales.order.cancelled']
+const EXPECTED_EVENT_IDS = ['sales.order.created', 'sales.quote.created', ...LIFECYCLE_EVENT_IDS]
+const LIFECYCLE_VALUE_PATHS = ['orderNumber', 'previousStatus', 'status']
 const TRACKED_CLASSES: unknown[] = [SalesOrder, SalesQuote]
 
 const ACTION_LABEL_KEYS: Record<string, string> = {
   'sales.orders.create': 'sales.audit.orders.create',
+  'sales.orders.update': 'sales.audit.orders.update',
   'sales.quotes.create': 'sales.audit.quotes.create',
 }
 
@@ -283,17 +286,19 @@ describe('sales insights.simulate', () => {
       expect(simulateConfig.kinds).toBeUndefined()
     })
 
-    it('declares only the created events of orders and quotes with unique valid ids', () => {
+    it('declares the created events of orders and quotes and the order lifecycle events with unique valid ids', () => {
       const eventIds = adapters().map((adapter) => adapter.eventId)
       expect(eventIds).toEqual(EXPECTED_EVENT_IDS)
       expect(new Set(eventIds).size).toBe(eventIds.length)
       for (const eventId of eventIds) expect(eventId).toMatch(SIMULATION_EVENT_ID_PATTERN)
     })
 
-    it('narrows each event to its create command and audit resource kind', () => {
+    it('narrows each event to the commands that emit it and its audit resource kind', () => {
       expect(adapters().map((adapter) => [adapter.eventId, adapter.logResourceKinds, adapter.actionTypes, adapter.commandIds])).toEqual([
         ['sales.order.created', ['sales.order'], ['create'], ['sales.orders.create']],
         ['sales.quote.created', ['sales.quote'], ['create'], ['sales.quotes.create']],
+        ['sales.order.confirmed', ['sales.order'], ['create', 'edit'], ['sales.orders.create', 'sales.orders.update']],
+        ['sales.order.cancelled', ['sales.order'], ['create', 'edit'], ['sales.orders.create', 'sales.orders.update']],
       ])
     })
 
@@ -331,31 +336,122 @@ describe('sales insights.simulate', () => {
     })
   })
 
-  describe('order lifecycle events', () => {
-    it('are emitted without a tenant scope, so the rule trigger never evaluates them and no adapter is declared', async () => {
-      const lifecycleEmits: CapturedEmit[] = []
+  describe('order lifecycle events mirror commands/documents.ts', () => {
+    function captureLifecycleEmits(): CapturedEmit[] {
+      const captured: CapturedEmit[] = []
       setGlobalEventBus({
         emit: async (event: string, payload: unknown, options?: Record<string, unknown>) => {
-          lifecycleEmits.push({ event, payload: payload as Record<string, unknown>, options })
+          if (LIFECYCLE_EVENT_IDS.includes(event)) captured.push({ event, payload: payload as Record<string, unknown>, options })
         },
       })
-      const harness = createHarness([[DictionaryEntry, { id: STATUS_ENTRY_ID, tenantId: TENANT_ID, value: 'confirmed' }]])
-      await runCommand(harness, 'sales.orders.create', { ...DOCUMENT_INPUT, statusEntryId: STATUS_ENTRY_ID })
+      return captured
+    }
+
+    async function settle(): Promise<void> {
       await new Promise((resolve) => setImmediate(resolve))
-      const confirmed = lifecycleEmits.find((emit) => emit.event === 'sales.order.confirmed')
-      expect(confirmed?.payload).toMatchObject({ status: 'confirmed', tenantId: TENANT_ID, organizationId: ORG_ID })
-      expect(confirmed?.options?.tenantId).toBeUndefined()
+    }
+
+    function lifecycleClaims(entry: SimulationAuditEntry): Claim[] {
+      return claimedEvents(entry).filter((claim) => LIFECYCLE_EVENT_IDS.includes(claim.eventId))
+    }
+
+    it('rebuilds sales.order.confirmed of an order created as confirmed, an event the rule trigger evaluates', async () => {
+      const lifecycleEmits = captureLifecycleEmits()
+      const harness = createHarness([[DictionaryEntry, { id: STATUS_ENTRY_ID, tenantId: TENANT_ID, value: 'confirmed' }]])
+      const logged = await runCommand(harness, 'sales.orders.create', { ...DOCUMENT_INPUT, statusEntryId: STATUS_ENTRY_ID })
+      await settle()
+      expect(lifecycleEmits.map((emit) => emit.event)).toEqual(['sales.order.confirmed'])
+      const [confirmed] = lifecycleEmits
+      expect(confirmed.options).toMatchObject({ tenantId: TENANT_ID, organizationId: ORG_ID })
+      expect(lifecycleClaims(toAuditEntry(logged))).toEqual([
+        { eventId: 'sales.order.confirmed', result: { payload: confirmed.payload, valuePaths: LIFECYCLE_VALUE_PATHS } },
+      ])
       const resolve = jest.fn()
-      await handleCrudRuleTrigger(confirmed?.payload, {
+      await handleCrudRuleTrigger(confirmed.payload, {
         resolve,
         eventName: 'sales.order.confirmed',
-        tenantId: (confirmed?.options?.tenantId as string | undefined) ?? null,
-        organizationId: (confirmed?.options?.organizationId as string | undefined) ?? null,
+        tenantId: confirmed.options?.tenantId as string,
+        organizationId: confirmed.options?.organizationId as string,
       })
-      expect(resolve).not.toHaveBeenCalled()
-      const eventIds = adapters().map((adapter) => adapter.eventId)
-      expect(eventIds).not.toContain('sales.order.confirmed')
-      expect(eventIds).not.toContain('sales.order.cancelled')
+      expect(resolve).toHaveBeenCalledWith('em')
+    })
+
+    it('rebuilds sales.order.cancelled of an update that moves the status to cancelled, with the previous status', async () => {
+      const lifecycleEmits = captureLifecycleEmits()
+      const statusEntry = { id: STATUS_ENTRY_ID, tenantId: TENANT_ID, value: 'draft' }
+      const harness = createHarness([[DictionaryEntry, statusEntry]])
+      const created = await runCommand(harness, 'sales.orders.create', { ...DOCUMENT_INPUT, statusEntryId: STATUS_ENTRY_ID })
+      await settle()
+      expect(lifecycleEmits).toEqual([])
+      expect(lifecycleClaims(toAuditEntry(created))).toEqual([])
+      statusEntry.value = 'cancelled'
+      const updated = await runCommand(harness, 'sales.orders.update', { id: created.resourceId, statusEntryId: STATUS_ENTRY_ID })
+      await settle()
+      expect(lifecycleEmits.map((emit) => emit.event)).toEqual(['sales.order.cancelled'])
+      const [cancelled] = lifecycleEmits
+      expect(cancelled.payload).toMatchObject({ previousStatus: 'draft', status: 'cancelled' })
+      expect(lifecycleClaims(toAuditEntry(updated))).toEqual([
+        { eventId: 'sales.order.cancelled', result: { payload: cancelled.payload, valuePaths: LIFECYCLE_VALUE_PATHS } },
+      ])
+    })
+
+    it('rebuilds nothing for an update that keeps the status', async () => {
+      const lifecycleEmits = captureLifecycleEmits()
+      const harness = createHarness([[DictionaryEntry, { id: STATUS_ENTRY_ID, tenantId: TENANT_ID, value: 'confirmed' }]])
+      const created = await runCommand(harness, 'sales.orders.create', { ...DOCUMENT_INPUT, statusEntryId: STATUS_ENTRY_ID })
+      await settle()
+      lifecycleEmits.length = 0
+      const updated = await runCommand(harness, 'sales.orders.update', { id: created.resourceId, statusEntryId: STATUS_ENTRY_ID })
+      await settle()
+      expect(lifecycleEmits).toEqual([])
+      expect(lifecycleClaims(toAuditEntry(updated))).toEqual([])
+    })
+
+    it('skips undo traces, failed entries, other commands and entries without order snapshots', () => {
+      const adapter = adapterFor('sales.order.cancelled')
+      const transition = {
+        commandId: 'sales.orders.update',
+        actionType: 'edit',
+        snapshotBefore: { order: { id: DOCUMENT_ID, orderNumber: 'SO-1', status: 'confirmed' } },
+        snapshotAfter: { order: { id: DOCUMENT_ID, orderNumber: 'SO-1', status: 'canceled' } },
+      }
+      expect(adapter.payloadFrom(orderEntry(transition), { scope: SCOPE })).toEqual({
+        payload: {
+          id: DOCUMENT_ID,
+          orderId: DOCUMENT_ID,
+          orderNumber: 'SO-1',
+          previousStatus: 'confirmed',
+          status: 'canceled',
+          tenantId: TENANT_ID,
+          organizationId: ORG_ID,
+        },
+        valuePaths: LIFECYCLE_VALUE_PATHS,
+      })
+      expect(adapter.payloadFrom(orderEntry({ ...transition, causeKind: 'undo' }), { scope: SCOPE })).toBeNull()
+      expect(adapter.payloadFrom(orderEntry({ ...transition, executionState: 'failed' }), { scope: SCOPE })).toBeNull()
+      expect(adapter.payloadFrom(orderEntry({ ...transition, commandId: 'sales.orders.delete' }), { scope: SCOPE })).toBeNull()
+      expect(adapter.payloadFrom(orderEntry({ ...transition, snapshotBefore: null }), { scope: SCOPE })).toBeNull()
+      expect(adapter.payloadFrom(orderEntry({ ...transition, snapshotAfter: null }), { scope: SCOPE })).toBeNull()
+      expect(adapterFor('sales.order.confirmed').payloadFrom(orderEntry(transition), { scope: SCOPE })).toBeNull()
+    })
+
+    it('reports the order number as unknown when the snapshot does not carry it', () => {
+      const entry = orderEntry({
+        commandId: 'sales.orders.create',
+        snapshotAfter: { order: { id: DOCUMENT_ID, status: 'confirmed' } },
+      })
+      expect(adapterFor('sales.order.confirmed').payloadFrom(entry, { scope: SCOPE })).toEqual({
+        payload: {
+          id: DOCUMENT_ID,
+          orderId: DOCUMENT_ID,
+          previousStatus: null,
+          status: 'confirmed',
+          tenantId: TENANT_ID,
+          organizationId: ORG_ID,
+        },
+        unknownPaths: ['orderNumber'],
+        valuePaths: ['previousStatus', 'status'],
+      })
     })
   })
 
