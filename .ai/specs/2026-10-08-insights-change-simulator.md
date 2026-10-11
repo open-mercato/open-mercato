@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Status | Approved for implementation (after design review) |
+| Status | Implemented (MVP 7a–7d; bulk-edit preview, scheduling and the other Overview follow-ups deferred) |
 | Owner | insights |
 | Depends on | `2026-10-08-insights-causation-and-explain.md` (causation columns, explain registry, `RbacService.explainAccess`), `2026-10-08-insights-process-xray.md` (stacked delivery, `ActionLogService.scanDecrypted`, soft-optional DI precedent `workflowDraftService`) |
 | Related | `2026-06-18-call-openmercato-business-rule-action.md`, `2026-05-13-operation-progress-framework.md`, `implemented/2026-05-25-oss-optimistic-locking.md` |
@@ -196,6 +196,7 @@ Operator steps (`UPGRADE_NOTES.md`): migrations, `yarn generate`, `yarn mercato 
 
 ## Changelog
 
+- 2026-10-11: Implementation complete on the combined `feat/insights` branch (phases 7a–7d); ready for review. Status set to Implemented for the MVP; the spec stays in the root until the feature is deployed. Deferred as listed in Overview → Out of scope: bulk-edit fan-out preview, scheduling changes, second-order chains, new price rows and repricing, demand elasticity, widget / AI-tool / webhook counts in the permission preview, AI-started runs. Docs: user guide `apps/docs/docs/user-guide/insights.mdx`, framework reference `apps/docs/docs/framework/modules/insights.mdx`.
 - 2026-10-10: Phase 7c implemented. Decisions taken while building it:
   - **Inline kinds (S8/S12)**: a kind declares `execution: 'inline'`; the request command validates it as usual, writes the kind's access-log row first (`accessLogResourceKind`; missing or failing writer ⇒ 503 `access_log_unavailable`, nothing computed), runs its single slice in a READ ONLY transaction with the 5 s statement timeout and `ctx.inline` (`organizationIds` = the request's allowed organizations, D10; app-process `resolve`), applies the queued completion's privacy (k-suppression, `loadCurrent`-confirmed samples, sanitized coverage/caveats/summary) and stores the run `completed` at once — no ProgressJob, no queue, outside the active-run limits. Inline runs are never deduplicated (a per-request id joins the inputs hash): the result depends on live principals the artifact version does not capture. The worker fails a queued run of an inline kind as `kind_unavailable`. `window` is ignored (window from = to = evaluation instant; the result page shows "computed at").
   - **Contract additions** (all optional): `SimulationKindResult.summary` (warning keys, snake_case counts, catalog-identifier lists — never record values; never k-suppressed because it counts no records), `liveRecords` (`GET …/{id}/records`, resolved live on every read under the viewer's features and scope, access-logged, `pageSize` ≤ 100, sanitized output, never stored), validation codes `artifact_unavailable` (404, identical for unknown and foreign artifacts) and `forbidden` (403), and `requesterUserId` / `resolve` on the validation context.
