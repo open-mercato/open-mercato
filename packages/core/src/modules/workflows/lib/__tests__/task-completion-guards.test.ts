@@ -9,9 +9,14 @@
  * regression that matters most: no guard, no change.
  */
 
-import { describe, test, expect, jest, beforeEach } from '@jest/globals'
+import { describe, test, expect, jest, beforeEach, afterEach } from '@jest/globals'
 import type { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
+import {
+  registerTelemetryRuntime,
+  resetTelemetryRuntime,
+  type TelemetryRuntime,
+} from '@open-mercato/shared/lib/telemetry/runtime'
 
 const findDefinitionForInstance = jest.fn()
 const exitStep = jest.fn(async () => undefined)
@@ -36,6 +41,7 @@ import {
   taskCompletionGuardApplies,
   TASK_COMPLETION_BLOCKED_CODE,
   TASK_COMPLETION_GUARD_FAILED_CODE,
+  TASK_COMPLETION_GUARD_FAILED_REPORT_CODE,
 } from '../task-completion-guards'
 import type { TaskCompletionGuard, TaskCompletionGuardInput } from '../task-completion-guards'
 import {
@@ -161,6 +167,36 @@ beforeEach(() => {
   }))
 })
 
+afterEach(() => {
+  resetTelemetryRuntime()
+})
+
+type ReportedError = {
+  error: unknown
+  context?: { module?: string; code?: string; attributes?: Record<string, unknown> }
+}
+
+function telemetryStub(options: { throws?: boolean } = {}) {
+  const reported: ReportedError[] = []
+  const runtime = {
+    canUseGlobalTracePropagation: () => false,
+    captureTraceContext: () => ({}),
+    continueTrace: <T>(_carrier: unknown, _name: string, fn: () => T) => fn(),
+    recordHttpDuration: () => {},
+    reportError: (error: unknown, context?: ReportedError['context']) => {
+      if (options.throws) throw new Error('[internal] telemetry exporter is down')
+      reported.push({ error, context })
+    },
+    shutdown: async () => {},
+  } as unknown as TelemetryRuntime
+  registerTelemetryRuntime(runtime)
+  return reported
+}
+
+function throwingGuard(): TaskCompletionGuard {
+  return { id: 'host.broken', evaluate: async () => { throw new Error('db password=secret') } }
+}
+
 describe('registry', () => {
   test('merges by module id: re-registering a module replaces only its own guards', () => {
     registerTaskCompletionGuards([{ moduleId: 'a', guards: [vetoGuard({ id: 'a.one' })] }])
@@ -284,6 +320,49 @@ describe('completeUserTask with completion guards', () => {
     expect(flush).not.toHaveBeenCalled()
   })
 
+  test('a throwing guard is reported to telemetry with a stable workflows code', async () => {
+    const reported = telemetryStub()
+    const { em } = makeEm(makeTask())
+    registerTaskCompletionGuards([{ moduleId: 'host', guards: [throwingGuard()] }])
+
+    const failure = await complete(em).catch((error: unknown) => error)
+
+    expect(failure).toMatchObject({ code: TASK_COMPLETION_GUARD_FAILED_CODE, status: 409 })
+    expect((failure as TaskCompletionBlockedError).body).toEqual({
+      error: 'Task completion is blocked by a precondition',
+      code: TASK_COMPLETION_GUARD_FAILED_CODE,
+      guardId: 'host.broken',
+      messageKey: null,
+    })
+    expect(reported).toHaveLength(1)
+    expect((reported[0].error as Error).message).toBe('db password=secret')
+    expect(reported[0].context).toEqual({
+      module: 'workflows',
+      code: TASK_COMPLETION_GUARD_FAILED_REPORT_CODE,
+      attributes: { guardId: 'host.broken', taskId: TASK_ID, mode: 'complete', tenantId: TENANT, organizationId: ORG },
+    })
+    expect(TASK_COMPLETION_GUARD_FAILED_REPORT_CODE).toMatch(/^workflows\.[a-z_]+$/)
+  })
+
+  test('a telemetry sink that throws never changes the fail-closed answer', async () => {
+    telemetryStub({ throws: true })
+    const task = makeTask()
+    const { em } = makeEm(task)
+    registerTaskCompletionGuards([{ moduleId: 'host', guards: [throwingGuard()] }])
+
+    await expect(complete(em)).rejects.toMatchObject({ code: TASK_COMPLETION_GUARD_FAILED_CODE, status: 409 })
+    expect(task.status).toBe('PENDING')
+  })
+
+  test('a veto is a business answer, not an error, and is never reported', async () => {
+    const reported = telemetryStub()
+    const { em } = makeEm(makeTask())
+    registerTaskCompletionGuards([{ moduleId: 'host', guards: [vetoGuard()] }])
+
+    await expect(complete(em)).rejects.toMatchObject({ code: 'CONTRACT_NOT_SIGNED' })
+    expect(reported).toHaveLength(0)
+  })
+
   test('a malformed answer blocks, and a missing code falls back to the generic one', async () => {
     const { em } = makeEm(makeTask())
     registerTaskCompletionGuards([
@@ -347,6 +426,23 @@ describe('evaluateTaskCompletionGuards preview', () => {
     expect(flush).not.toHaveBeenCalled()
     expect(forkFlush).not.toHaveBeenCalled()
     expect(task.status).toBe('PENDING')
+  })
+
+  test('reports a guard that throws while previewing, tagged with the preview mode', async () => {
+    const reported = telemetryStub()
+    const task = makeTask()
+    const { em } = makeEm(task)
+    registerTaskCompletionGuards([{ moduleId: 'host', guards: [throwingGuard()] }])
+
+    const block = await evaluateTaskCompletionGuards(em, container, task as unknown as UserTask, {
+      mode: 'preview',
+      userId: USER,
+    })
+
+    expect(block).toEqual({ guardId: 'host.broken', code: TASK_COMPLETION_GUARD_FAILED_CODE, messageKey: null, message: null })
+    expect(reported).toHaveLength(1)
+    expect(reported[0].context?.code).toBe(TASK_COMPLETION_GUARD_FAILED_REPORT_CODE)
+    expect(reported[0].context?.attributes).toMatchObject({ mode: 'preview', guardId: 'host.broken' })
   })
 
   test('returns null without touching the database when nothing is registered', async () => {

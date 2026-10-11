@@ -19,6 +19,7 @@
 import type { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { WorkflowInstance } from '../data/entities'
 import type { UserTask } from '../data/entities'
 import { loadTaskDecisionContext } from './task-decision-context'
@@ -238,6 +239,36 @@ function toBlock(guard: TaskCompletionGuard, result: unknown): TaskCompletionBlo
   }
 }
 
+/** Telemetry fingerprint for a guard that threw (see the error-reporting policy). */
+export const TASK_COMPLETION_GUARD_FAILED_REPORT_CODE = 'workflows.task_completion_guard_failed'
+
+function reportTaskCompletionGuardFailure(
+  error: unknown,
+  guard: TaskCompletionGuard,
+  task: UserTask,
+  mode: TaskCompletionGuardMode,
+): void {
+  try {
+    getTelemetryRuntime()?.reportError(error, {
+      module: 'workflows',
+      code: TASK_COMPLETION_GUARD_FAILED_REPORT_CODE,
+      attributes: {
+        guardId: guard.id,
+        taskId: task.id,
+        mode,
+        tenantId: task.tenantId,
+        organizationId: task.organizationId,
+      },
+    })
+  } catch (reportFailure) {
+    logger.warn('Task completion guard failure could not be reported', {
+      component: 'task-completion-guards',
+      guardId: guard.id,
+      err: reportFailure,
+    })
+  }
+}
+
 export type EvaluateTaskCompletionGuardsOptions = {
   mode: TaskCompletionGuardMode
   userId: string | null
@@ -299,6 +330,7 @@ export async function evaluateTaskCompletionGuards(
         taskId: task.id,
         err: error,
       })
+      reportTaskCompletionGuardFailure(error, guard, task, options.mode)
       return {
         guardId: guard.id,
         code: TASK_COMPLETION_GUARD_FAILED_CODE,
