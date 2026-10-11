@@ -97,9 +97,10 @@ API, entity metadata reads) is deliberately unchanged — widening those is a se
 
 `packages/core/src/modules/workflows/__integration__/TC-WF-068.spec.ts`, self-contained (roles,
 users, a Todo, four definitions and instances created through the API, all removed in `finally`).
-Registrations come from the test-only `workflows_entity_probe` app module
-(`apps/mercato/src/modules/workflows_entity_probe/workflows.ts`), which registers only when the
-integration runner sets `OM_INTEGRATION_TEST=true` and is inert otherwise.
+Registrations come from an `OM_INTEGRATION_TEST`-gated block in the app `example` module
+(`apps/mercato/src/modules/example/workflows.ts`), which registers only when the integration
+runner sets `OM_INTEGRATION_TEST=true` and is inert otherwise. `example` is disabled in scaffolded
+apps (`TEMPLATE_DISABLED_MODULE_IDS`), mirroring the gated nav/route override probes.
 
 | Path | Assertion |
 |---|---|

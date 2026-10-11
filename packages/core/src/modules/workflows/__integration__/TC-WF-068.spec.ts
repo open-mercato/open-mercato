@@ -33,8 +33,8 @@ import {
  * - /backend/work-inbox                  (`work-inbox-entity-link`)
  * - /backend/tasks/[id]                  (`task-context-records` card)
  *
- * The registrations come from the test-only `workflows_entity_probe` app module,
- * which registers only under `OM_INTEGRATION_TEST=true`:
+ * The registrations come from a gated block in the app `example` module
+ * (`example/workflows.ts`), which registers only under `OM_INTEGRATION_TEST=true`:
  * - `example:todo`          → `example.todos.view`, link `/backend/todos/<id>/edit`
  * - `example:example_item`  → `example.todos.view`, link builder answering an
  *                             off-origin URL the server must drop

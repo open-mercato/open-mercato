@@ -197,9 +197,6 @@ export const enabledModules: ModuleEntry[] = [
   // therefore a maintainer call that follows that skill.
   // { id: 'forms', from: '@open-mercato/core' },
   { id: 'ratelimit_probe', from: '@app' },
-  // Test-only: registers task entity ACL/link fixtures for TC-WF-068, and only when
-  // OM_INTEGRATION_TEST is set. Inert in development and production.
-  { id: 'workflows_entity_probe', from: '@app' },
 ]
 
 // Official modules activated via official-modules.json / official-modules.local.json
