@@ -90,6 +90,8 @@ const COLOR_LABELS_EN: Record<RichEditorColorKey, string> = {
   teal: 'Teal',
 }
 
+export type RichEditorToolbarDesign = '01' | '02' | '03' | '04'
+
 export type RichEditorVariant = 'full' | 'standard' | 'basic' | 'minimal' | 'custom'
 
 export type RichEditorAlign = 'left' | 'center' | 'right' | 'justify'
@@ -114,6 +116,7 @@ type SelectionState = {
   blockquote: boolean
   code: boolean
   heading: '' | 'h1' | 'h2' | 'h3'
+  fontSize: string
   align: RichEditorAlign
 }
 
@@ -127,13 +130,16 @@ const EMPTY_SELECTION_STATE: SelectionState = {
   blockquote: false,
   code: false,
   heading: '',
+  fontSize: '14px',
   align: 'left',
 }
 
 type RichEditorContextValue = {
   exec: (command: string, arg?: string) => void
+  getSelectionRange: () => Range | null
   selection: SelectionState
   disabled: boolean
+  toolbarDesign?: RichEditorToolbarDesign
   /**
    * Open a DS-styled URL prompt (replaces the native `window.prompt`
    * popup). Pre-saves the current selection so the caller's `onConfirm`
@@ -251,6 +257,7 @@ export type RichEditorProps = {
    * - `'custom'`   — render `<RichEditorToolbar>{...}</RichEditorToolbar>` + `<RichEditorContent />` children manually
    */
   variant?: RichEditorVariant
+  toolbarDesign?: RichEditorToolbarDesign
   placeholder?: string
   minRows?: number
   disabled?: boolean
@@ -305,6 +312,9 @@ function deriveSelectionState(): SelectionState {
         : document.queryCommandState('justifyFull')
           ? 'justify'
           : 'left'
+    const anchor = window.getSelection()?.anchorNode
+    const element = anchor instanceof Element ? anchor : anchor?.parentElement
+    const fontSize = element ? window.getComputedStyle(element).fontSize || '14px' : '14px'
     return {
       bold: document.queryCommandState('bold'),
       italic: document.queryCommandState('italic'),
@@ -315,6 +325,7 @@ function deriveSelectionState(): SelectionState {
       blockquote: lower === 'blockquote',
       code: lower === 'pre',
       heading,
+      fontSize,
       align,
     }
   } catch {
@@ -326,6 +337,7 @@ export const RichEditor = React.memo(function RichEditor({
   value = '',
   onChange,
   variant = 'standard',
+  toolbarDesign,
   placeholder,
   minRows = 4,
   disabled = false,
@@ -357,6 +369,8 @@ export const RichEditor = React.memo(function RichEditor({
   const typingRef = React.useRef(false)
   const savedSelectionRef = React.useRef<Range | null>(null)
   const [selection, setSelection] = React.useState<SelectionState>(EMPTY_SELECTION_STATE)
+  const [draftLength, setDraftLength] = React.useState<number | null>(null)
+  React.useEffect(() => { setDraftLength(null) }, [value, maxLength])
   const [promptDialog, setPromptDialog] = React.useState<{
     kind: 'link' | 'image'
     title: string
@@ -378,6 +392,15 @@ export const RichEditor = React.memo(function RichEditor({
     }
   }, [value])
 
+  const getSelectionRange = React.useCallback(() => {
+    const nativeSelection = window.getSelection()
+    if (nativeSelection && nativeSelection.rangeCount > 0 && editorRef.current?.contains(nativeSelection.anchorNode) && (document.activeElement === editorRef.current || !nativeSelection.isCollapsed)) {
+      savedSelectionRef.current = nativeSelection.getRangeAt(0).cloneRange()
+    }
+    const saved = savedSelectionRef.current
+    return saved && editorRef.current?.contains(saved.commonAncestorContainer) ? saved.cloneRange() : null
+  }, [])
+
   const refreshSelectionState = React.useCallback(() => {
     setSelection(deriveSelectionState())
   }, [])
@@ -386,7 +409,13 @@ export const RichEditor = React.memo(function RichEditor({
     (command: string, arg?: string) => {
       const el = editorRef.current
       if (!el || disabled) return
+      const range = getSelectionRange()
       el.focus()
+      if (range) {
+        const nativeSelection = window.getSelection()
+        nativeSelection?.removeAllRanges()
+        nativeSelection?.addRange(range)
+      }
       try {
         // Tell the browser to emit modern <span style="…"> output (forecolor,
         // backColor, fontSize, etc.) instead of the deprecated <font> tag —
@@ -401,9 +430,10 @@ export const RichEditor = React.memo(function RichEditor({
       } catch {
         // ignore unsupported commands
       }
+      setDraftLength(editorRef.current?.textContent?.length ?? 0)
       refreshSelectionState()
     },
-    [disabled, refreshSelectionState],
+    [disabled, refreshSelectionState, getSelectionRange],
   )
 
   const requestUrlPrompt = React.useCallback<RichEditorContextValue['requestUrlPrompt']>(
@@ -424,8 +454,8 @@ export const RichEditor = React.memo(function RichEditor({
   )
 
   const ctx = React.useMemo<RichEditorContextValue>(
-    () => ({ exec, selection, disabled, requestUrlPrompt }),
-    [exec, selection, disabled, requestUrlPrompt],
+    () => ({ exec, selection, disabled, requestUrlPrompt, getSelectionRange, toolbarDesign }),
+    [exec, selection, disabled, requestUrlPrompt, getSelectionRange, toolbarDesign],
   )
 
   React.useEffect(() => {
@@ -477,20 +507,47 @@ export const RichEditor = React.memo(function RichEditor({
   const onBlur = React.useCallback(() => {
     const el = editorRef.current
     if (!el) return
+    const selectionRange = getSelectionRange()
+    const prefix = selectionRange?.cloneRange()
+    prefix?.selectNodeContents(el)
+    if (selectionRange) prefix?.setEnd(selectionRange.startContainer, selectionRange.startOffset)
+    const startOffset = prefix?.toString().length ?? 0
+    const endOffset = startOffset + (selectionRange?.toString().length ?? 0)
     typingRef.current = false
     const sanitized = sanitizeHtmlRichText(el.innerHTML)
     if (el.innerHTML !== sanitized) {
       applyingExternal.current = true
       el.innerHTML = sanitized
+      if (selectionRange) {
+        const restored = document.createRange()
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+        let offset = 0
+        let started = false
+        let text = walker.nextNode()
+        while (text) {
+          const length = text.textContent?.length ?? 0
+          if (!started && startOffset <= offset + length) {
+            restored.setStart(text, Math.max(0, startOffset - offset))
+            started = true
+          }
+          if (started && endOffset <= offset + length) {
+            restored.setEnd(text, Math.max(0, endOffset - offset))
+            savedSelectionRef.current = restored
+            break
+          }
+          offset += length
+          text = walker.nextNode()
+        }
+      }
       requestAnimationFrame(() => {
         applyingExternal.current = false
       })
     }
     onChange(sanitized)
-  }, [onChange])
+  }, [onChange, getSelectionRange])
 
   const presetItems = usePresetToolbarItems({
-    variant,
+    variant: toolbarDesign ? 'full' : variant,
     labels,
     onComment,
     onMention,
@@ -499,6 +556,7 @@ export const RichEditor = React.memo(function RichEditor({
     exec,
     selection,
     requestUrlPrompt,
+    getSelectionRange,
   })
 
   const plaintextLength = React.useMemo(() => {
@@ -515,6 +573,7 @@ export const RichEditor = React.memo(function RichEditor({
         <div
           className={cn('w-full space-y-2', disabled && 'opacity-60', className)}
           data-slot="rich-editor"
+          data-toolbar-design={toolbarDesign}
           data-disabled={disabled ? 'true' : 'false'}
           aria-invalid={ariaInvalid}
         >
@@ -522,7 +581,7 @@ export const RichEditor = React.memo(function RichEditor({
             ? children
             : (
               <>
-                <RichEditorAutoToolbar items={presetItems} labels={labels} moreMenu={moreMenu} />
+                <RichEditorAutoToolbar items={presetItems} labels={labels} moreMenu={moreMenu} design={toolbarDesign} />
                 <div className="relative">
                   <RichEditorContent
                     ref={editorRef}
@@ -534,7 +593,10 @@ export const RichEditor = React.memo(function RichEditor({
                     onPaste={onPaste}
                     onBlur={onBlur}
                     onInput={() => {
-                      if (!applyingExternal.current) typingRef.current = true
+                      if (!applyingExternal.current) {
+                        typingRef.current = true
+                        setDraftLength(editorRef.current?.textContent?.length ?? 0)
+                      }
                     }}
                     id={id}
                     name={name}
@@ -543,12 +605,12 @@ export const RichEditor = React.memo(function RichEditor({
                     <span
                       className={cn(
                         'pointer-events-none absolute bottom-2 right-3 select-none text-xs leading-4 text-muted-foreground',
-                        plaintextLength > maxLength && 'text-destructive',
+                        (draftLength ?? plaintextLength) > maxLength && 'text-destructive',
                       )}
                       data-slot="rich-editor-counter"
                       aria-live="polite"
                     >
-                      {plaintextLength}/{maxLength}
+                      {draftLength ?? plaintextLength}/{maxLength}
                     </span>
                   ) : null}
                 </div>
@@ -636,12 +698,7 @@ export const RichEditor = React.memo(function RichEditor({
       </TooltipProvider>
     </RichEditorContext.Provider>
   )
-}, (prev, next) =>
-  prev.value === next.value &&
-  prev.disabled === next.disabled &&
-  prev.variant === next.variant &&
-  prev.maxLength === next.maxLength,
-)
+})
 RichEditor.displayName = 'RichEditor'
 
 export type RichEditorToolbarProps = React.HTMLAttributes<HTMLDivElement>
@@ -700,7 +757,8 @@ type ToolbarButtonBaseProps = Omit<React.ButtonHTMLAttributes<HTMLButtonElement>
   }
 
 const RichEditorButton = React.forwardRef<HTMLButtonElement, ToolbarButtonBaseProps & { children?: React.ReactNode }>(
-  ({ className, type, active, tooltipLabel, children, onMouseDown, ...props }, ref) => {
+  ({ className, type, active, tooltipLabel, children, onMouseDown, onClick, ...props }, ref) => {
+    const { getSelectionRange, toolbarDesign } = useRichEditorContext('RichEditorButton')
     const button = (
       <button
         ref={ref}
@@ -709,9 +767,14 @@ const RichEditorButton = React.forwardRef<HTMLButtonElement, ToolbarButtonBasePr
           e.preventDefault()
           onMouseDown?.(e)
         }}
+        onClick={(event) => {
+          getSelectionRange()
+          onClick?.(event)
+        }}
+        data-slot="rich-editor-button"
         data-active={active ? 'true' : 'false'}
         aria-pressed={active}
-        className={cn(richEditorItemVariants({ type }), className)}
+        className={cn(richEditorItemVariants({ type }), toolbarDesign && "rounded-sm tracking-normal [&_svg]:size-5", className)}
         {...props}
       >
         {children}
@@ -907,7 +970,7 @@ export type RichEditorColorPaletteProps = {
   /** Translatable labels per palette key (defaults to English). */
   labels?: Partial<Record<RichEditorColorKey, string>>
   /**
-   * Restrict the palette to a subset of colour keys (defaults to all 10). Use
+   * Restrict the palette to a subset of colour keys (defaults to all 12). Use
    * the same subset list on `RichEditorColorButton` and standalone palette
    * popovers so the trigger swatch and the popover stay in sync.
    */
@@ -1122,10 +1185,10 @@ type ToolbarItem =
       colorLabels: Record<RichEditorColorKey, string>
     }
 
-function renderToolbarItem(item: ToolbarItem): React.ReactNode {
+function renderToolbarItem(item: ToolbarItem, source = false): React.ReactNode {
   switch (item.kind) {
     case 'divider':
-      return <RichEditorDivider key={item.key} />
+      return <RichEditorDivider key={item.key} className={source ? "mx-0 inline-flex w-1 justify-center bg-transparent before:h-full before:w-px before:bg-border" : undefined} />
     case 'iconButton':
       return (
         <RichEditorIconButton
@@ -1191,6 +1254,7 @@ function usePresetToolbarItems({
   exec,
   selection,
   requestUrlPrompt,
+  getSelectionRange,
 }: {
   variant: RichEditorVariant
   labels: RichEditorLabels
@@ -1201,6 +1265,7 @@ function usePresetToolbarItems({
   exec: RichEditorContextValue['exec']
   selection: RichEditorContextValue['selection']
   requestUrlPrompt: RichEditorContextValue['requestUrlPrompt']
+  getSelectionRange: RichEditorContextValue['getSelectionRange']
 }): ToolbarItem[] {
   const onLink = React.useCallback(() => {
     requestUrlPrompt({
@@ -1355,13 +1420,20 @@ function usePresetToolbarItems({
           className="cursor-pointer rounded px-2 py-1 text-left text-sm hover:bg-muted"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => {
-            // execCommand('fontSize', …) requires 1–7 — translate the px label
-            // through a CSS-driven span instead.
-            exec('removeFormat')
-            const px = parseInt(size, 10)
-            if (px > 0) {
-              exec('insertHTML', `<span style="font-size:${px}px">${window.getSelection()?.toString() ?? ''}</span>`)
+            const range = getSelectionRange()
+            if (!range || range.collapsed) return
+            const span = document.createElement('span')
+            const anchor = range.startContainer instanceof Element ? range.startContainer : range.startContainer.parentElement
+            if (anchor) {
+              const style = window.getComputedStyle(anchor)
+              span.style.fontWeight = style.fontWeight
+              span.style.fontStyle = style.fontStyle
+              span.style.textDecoration = style.textDecoration
+              span.style.color = style.color
             }
+            span.style.fontSize = size
+            span.append(range.cloneContents())
+            exec('insertHTML', span.outerHTML)
           }}
         >
           {size}
@@ -1409,7 +1481,7 @@ function usePresetToolbarItems({
     items.push({ kind: 'divider', key: 'd-heading' })
   }
   if (showFontSize) {
-    items.push({ kind: 'textDropdown', key: 'fontSize', ariaLabel: labels.fontSize, label: '14px', menu: fontSizeMenu })
+    items.push({ kind: 'textDropdown', key: 'fontSize', ariaLabel: labels.fontSize, label: selection.fontSize, menu: fontSizeMenu })
     items.push({ kind: 'divider', key: 'd-fontSize' })
   }
   if (showColor) {
@@ -1477,15 +1549,30 @@ function usePresetToolbarItems({
   return trimTrailingDividers(items)
 }
 
+const sourceToolbarKeys: Record<RichEditorToolbarDesign, readonly string[]> = {
+  '01': ['heading', 'd-heading', 'fontSize', 'd-fontSize', 'bold', 'italic', 'underline', 'strike', 'd-align', 'align', 'd-anchors', 'comment', 'link', 'mention', 'd-trailing'],
+  '02': ['heading', 'd-heading', 'fontSize', 'd-fontSize'],
+  '03': ['bold', 'italic', 'underline', 'strike', 'd-align', 'align', 'd-anchors'],
+  '04': ['comment', 'link', 'mention', 'd-trailing'],
+}
+
 function RichEditorAutoToolbar({
   items,
   labels,
   moreMenu,
+  design,
 }: {
   items: ToolbarItem[]
   labels: RichEditorLabels
   moreMenu?: React.ReactNode
+  design?: RichEditorToolbarDesign
 }) {
+  const arrangedItems = design ? sourceToolbarKeys[design].flatMap(key => {
+    const item = items.find(candidate => candidate.key === key)
+    return item ? [item] : []
+  }) : items
+  const extraItems = design ? items.filter(item => item.kind !== 'divider' && !sourceToolbarKeys[design].includes(item.key)) : []
+  const renderItem = (item: ToolbarItem) => renderToolbarItem(item, !!design)
   const measureRef = React.useRef<HTMLDivElement>(null)
   const containerRef = React.useRef<HTMLDivElement>(null)
   const [firstHidden, setFirstHidden] = React.useState<number | null>(null)
@@ -1498,7 +1585,7 @@ function RichEditorAutoToolbar({
     if (!container || !measureEl) return
 
     const measure = () => {
-      const containerWidth = container.clientWidth
+      const containerWidth = design ? container.parentElement?.clientWidth ?? container.clientWidth : container.clientWidth
       if (containerWidth === 0) return
 
       const allEls = Array.from(measureEl.children) as HTMLElement[]
@@ -1512,7 +1599,7 @@ function RichEditorAutoToolbar({
       let totalWidth = 0
       for (const el of itemEls) totalWidth += el.offsetWidth + 2
 
-      if (totalWidth + containerPadding <= containerWidth + 2) {
+      if (totalWidth + containerPadding + (design || moreMenu ? moreReserved : 0) <= containerWidth + 2) {
         setFirstHidden(null)
         return
       }
@@ -1531,14 +1618,15 @@ function RichEditorAutoToolbar({
     measure()
     const ro = new ResizeObserver(measure)
     ro.observe(container)
+    if (design && container.parentElement) ro.observe(container.parentElement)
     return () => ro.disconnect()
-  }, [items])
+  }, [items, design, moreMenu])
 
-  const visibleItems = firstHidden === null ? items : trimTrailingDividers(items.slice(0, firstHidden))
-  const hiddenItems = firstHidden === null ? [] : trimLeadingDividers(items.slice(firstHidden))
+  const visibleItems = firstHidden === null ? arrangedItems : trimTrailingDividers(arrangedItems.slice(0, firstHidden))
+  const hiddenItems = [...(firstHidden === null ? [] : trimLeadingDividers(arrangedItems.slice(firstHidden))), ...extraItems]
 
   const hasOverflow = hiddenItems.length > 0
-  const showMoreButton = hasOverflow || !!moreMenu
+  const showMoreButton = !!design || hasOverflow || !!moreMenu
 
   return (
     <div className="relative w-full">
@@ -1551,26 +1639,26 @@ function RichEditorAutoToolbar({
           ref={measureRef}
           className="invisible absolute left-0 top-0 flex flex-row flex-nowrap items-center gap-0.5"
         >
-          {items.map(renderToolbarItem)}
+          {arrangedItems.map(renderItem)}
           <RichEditorDropdownButton icon={<MoreVertical />} ariaLabel={labels.more} showChevron={false} menu={<div />} />
         </div>
       </div>
-      <RichEditorToolbar ref={containerRef} className="w-full flex-nowrap overflow-hidden">
-        {visibleItems.map(renderToolbarItem)}
+      <RichEditorToolbar ref={containerRef} className={cn("w-full flex-nowrap overflow-hidden", design && "w-fit rounded-md border-0 ring-1 ring-inset ring-border")}>
+        {visibleItems.map(renderItem)}
         {showMoreButton ? (
           <RichEditorDropdownButton
             icon={<MoreVertical />}
             ariaLabel={labels.more}
             showChevron={false}
             menu={
-              <div className="flex max-w-[320px] flex-row flex-wrap items-center gap-0.5 p-1">
+              <div className="flex max-w-80 flex-row flex-wrap items-center gap-0.5 p-1">
                 {moreMenu ? (
                   <>
                     <div className="w-full">{moreMenu}</div>
                     {hiddenItems.length > 0 ? <div className="my-1 h-px w-full bg-border" /> : null}
                   </>
                 ) : null}
-                {hiddenItems.map(renderToolbarItem)}
+                {hiddenItems.map(renderItem)}
               </div>
             }
           />

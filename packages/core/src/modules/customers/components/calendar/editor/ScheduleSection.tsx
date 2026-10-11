@@ -19,7 +19,6 @@ function DateTimeRow({
   date,
   time,
   showTime,
-  locale,
   onDateChange,
   onTimeChange,
 }: {
@@ -27,7 +26,6 @@ function DateTimeRow({
   date: string
   time: string
   showTime: boolean
-  locale: string
   onDateChange(next: string): void
   onTimeChange(next: string): void
 }) {
@@ -35,7 +33,7 @@ function DateTimeRow({
     <div className="flex w-full items-end gap-2.5">
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <span className={LABEL_CLASS}>{label}</span>
-        <DateControl value={date} onChange={onDateChange} ariaLabel={label} locale={locale} />
+        <DateControl value={date} onChange={onDateChange} ariaLabel={label} />
       </div>
       {showTime ? <TimeControl value={time} onChange={onTimeChange} ariaLabel={label} /> : null}
     </div>
@@ -51,7 +49,6 @@ export function ScheduleSection({
   startTime,
   endDate,
   endTime,
-  locale,
   endsError,
   onAllDayChange,
   onDateChange,
@@ -67,7 +64,6 @@ export function ScheduleSection({
   startTime: string
   endDate: string
   endTime: string
-  locale: string
   endsError?: string | null
   onAllDayChange(next: boolean): void
   onDateChange(next: string): void
@@ -91,7 +87,6 @@ export function ScheduleSection({
         date={date}
         time={startTime}
         showTime={showTime}
-        locale={locale}
         onDateChange={onDateChange}
         onTimeChange={onStartTimeChange}
       />
@@ -101,7 +96,6 @@ export function ScheduleSection({
           date={endDate}
           time={endTime}
           showTime={showTime}
-          locale={locale}
           onDateChange={onEndDateChange}
           onTimeChange={onEndTimeChange}
         />

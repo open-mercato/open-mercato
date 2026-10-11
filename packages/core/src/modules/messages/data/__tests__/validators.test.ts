@@ -1,4 +1,10 @@
-import { composeMessageSchema, forwardMessageSchema, messageActionSchema, updateDraftSchema } from '../validators'
+import {
+  composeMessageRequestSchema,
+  composeMessageSchema,
+  forwardMessageSchema,
+  messageActionSchema,
+  updateDraftSchema,
+} from '../validators'
 
 describe('messages validators', () => {
   it('rejects duplicate recipient ids during compose', () => {
@@ -95,6 +101,131 @@ describe('messages validators', () => {
         ...publicBase,
         sourceChannelType: 'discord',
         recipients: [{ userId: '11111111-1111-1111-8111-111111111111', type: 'to' }],
+      })
+
+      expect(result.success).toBe(false)
+      expect(result.error?.issues.some((issue) => issue.path[0] === 'recipients')).toBe(true)
+    })
+  })
+
+  describe('server-supplied sentAt (#6095)', () => {
+    const inboundBase = {
+      subject: 'Subject',
+      body: 'Body',
+      visibility: 'public' as const,
+      externalEmail: 'sender@example.com',
+      recipients: [],
+    }
+
+    it('accepts a Date as the provider timestamp', () => {
+      const sentAt = new Date('2026-06-16T08:30:00Z')
+      const result = composeMessageSchema.safeParse({ ...inboundBase, sentAt })
+
+      expect(result.success).toBe(true)
+      expect(result.data?.sentAt).toEqual(sentAt)
+    })
+
+    it('coerces an ISO string into a Date', () => {
+      const result = composeMessageSchema.safeParse({
+        ...inboundBase,
+        sentAt: '2026-06-16T08:30:00.000Z',
+      })
+
+      expect(result.success).toBe(true)
+      expect(result.data?.sentAt).toEqual(new Date('2026-06-16T08:30:00.000Z'))
+    })
+
+    it('rejects an unparsable timestamp', () => {
+      const result = composeMessageSchema.safeParse({ ...inboundBase, sentAt: 'yesterday' })
+
+      expect(result.success).toBe(false)
+      expect(result.error?.issues.some((issue) => issue.path[0] === 'sentAt')).toBe(true)
+    })
+
+    it('is not part of the client-facing compose contract', () => {
+      // A caller of POST /api/messages must not be able to backdate a message;
+      // only channel ingest, which knows when the provider received it, sets it.
+      const result = composeMessageRequestSchema.safeParse({
+        ...inboundBase,
+        sentAt: '2020-01-01T00:00:00.000Z',
+      })
+
+      expect(result.success).toBe(true)
+      expect((result.data as Record<string, unknown>).sentAt).toBeUndefined()
+    })
+  })
+
+  describe('recipients on a channel-ingested public message (#6093)', () => {
+    const ingestedBase = {
+      subject: 'Re: Quote #123',
+      body: 'Thanks, please go ahead.',
+      visibility: 'public' as const,
+      externalEmail: 'alice@example.com',
+      sourceChannelType: 'email',
+      inboundFromChannel: true,
+    }
+    const assignee = [{ userId: '11111111-1111-1111-8111-111111111111', type: 'to' as const }]
+
+    it('accepts the assigned user as a recipient of an ingested message', () => {
+      // Ingest routes an inbound message to the user the conversation is
+      // assigned to. Before #6093 the public-visibility rule rejected that
+      // recipient, the worker classified the error as permanent, and every
+      // message after the first assignment was silently dropped.
+      const result = composeMessageSchema.safeParse({ ...ingestedBase, recipients: assignee })
+
+      expect(result.success).toBe(true)
+    })
+
+    it('still accepts an ingested message with no recipients (unassigned conversation)', () => {
+      const result = composeMessageSchema.safeParse({ ...ingestedBase, recipients: [] })
+
+      expect(result.success).toBe(true)
+    })
+
+    it('keeps rejecting recipients on a public message that was not ingested', () => {
+      const result = composeMessageSchema.safeParse({
+        ...ingestedBase,
+        inboundFromChannel: undefined,
+        recipients: assignee,
+      })
+
+      expect(result.success).toBe(false)
+      expect(result.error?.issues.some((issue) => issue.path[0] === 'recipients')).toBe(true)
+    })
+
+    it('keeps rejecting recipients when the flag is explicitly false', () => {
+      const result = composeMessageSchema.safeParse({
+        ...ingestedBase,
+        inboundFromChannel: false,
+        recipients: assignee,
+      })
+
+      expect(result.success).toBe(false)
+    })
+
+    it('keeps every other public-visibility rule for an ingested message', () => {
+      // The waiver is only about recipients: an email-typed channel still
+      // needs the sender's address, and subject/body are still required.
+      const noAddress = composeMessageSchema.safeParse({
+        ...ingestedBase,
+        externalEmail: undefined,
+        recipients: assignee,
+      })
+      expect(noAddress.success).toBe(false)
+      expect(noAddress.error?.issues.some((issue) => issue.path[0] === 'externalEmail')).toBe(true)
+
+      const noBody = composeMessageSchema.safeParse({ ...ingestedBase, body: '', recipients: assignee })
+      expect(noBody.success).toBe(false)
+      expect(noBody.error?.issues.some((issue) => issue.path[0] === 'body')).toBe(true)
+    })
+
+    it('is not part of the client-facing compose contract', () => {
+      // A caller of POST /api/messages must not be able to waive the rule by
+      // claiming its message came in from a channel.
+      const result = composeMessageRequestSchema.safeParse({
+        ...ingestedBase,
+        sourceChannelType: undefined,
+        recipients: assignee,
       })
 
       expect(result.success).toBe(false)

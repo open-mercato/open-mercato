@@ -1,4 +1,4 @@
-import { FIELD_VISIBILITY, getFieldLabel, isVisible } from '../fieldConfig'
+import { FIELD_VISIBILITY, getFieldLabel, isVisible, isDateRequired, isTimeRequired } from '../fieldConfig'
 
 const passthroughT = (_key: string, fallback: string): string => fallback
 
@@ -32,6 +32,27 @@ describe('fieldConfig — per-type FIELD_VISIBILITY', () => {
     expect(isVisible('call', 'participants')).toBe(true)
     expect(isVisible('call', 'allDay')).toBe(false)
     expect(isVisible('call', 'recurrence')).toBe(false)
+  })
+})
+
+describe('fieldConfig — per-type date/time requiredness (#5941)', () => {
+  it('keeps date and time required for the calendar-bound types', () => {
+    expect(isDateRequired('meeting')).toBe(true)
+    expect(isDateRequired('call')).toBe(true)
+    expect(isDateRequired('email')).toBe(true)
+    expect(isTimeRequired('meeting')).toBe(true)
+    expect(isTimeRequired('call')).toBe(true)
+  })
+
+  it('leaves a task undated so a backlog item can be saved with no due date', () => {
+    expect(isDateRequired('task')).toBe(false)
+    expect(isTimeRequired('task')).toBe(false)
+  })
+
+  it('never demands a date from a note, which has no date field at all', () => {
+    expect(isVisible('note', 'date')).toBe(false)
+    expect(isDateRequired('note')).toBe(false)
+    expect(isTimeRequired('note')).toBe(false)
   })
 })
 

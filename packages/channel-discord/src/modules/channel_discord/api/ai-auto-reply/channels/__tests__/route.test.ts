@@ -132,22 +132,64 @@ describe('GET /channel_discord/ai-auto-reply/channels', () => {
     expect(listDiscordEligibleAgentsMock).not.toHaveBeenCalled()
   })
 
-  it('scopes to Discord, to the tenant, and to shared channels, keeping tenant-wide rows visible', async () => {
+  it('scopes to Discord and to the tenant, keeping tenant-wide rows visible', async () => {
     await GET(request())
 
     const where = findWithDecryptionMock.mock.calls[0][2]
     expect(where).toMatchObject({
       tenantId,
       providerKey: 'discord',
-      userId: null,
       deletedAt: null,
     })
     // The org clause must admit `organization_id IS NULL`, or the bot channels
     // this panel configures disappear whenever an org is selected (#5012).
-    expect(where.$or).toEqual([
-      { organizationId: { $in: [selectedOrgId] } },
-      { organizationId: null },
-    ])
+    expect(where.$and).toContainEqual({
+      $or: [{ organizationId: { $in: [selectedOrgId] } }, { organizationId: null }],
+    })
+  })
+
+  /**
+   * #5602. The route filtered `userId: null` on the assumption that a Discord bot
+   * channel is tenant-scoped, but the connect widget posts to the per-user
+   * credentials route and the tenant-wide route refuses Discord outright — so
+   * every Discord channel that can exist carries a `user_id`, and the panel that
+   * is the feature's only entry point listed nothing, ever.
+   */
+  it('lists the caller’s own per-user channels, not only tenant-wide ones', async () => {
+    await GET(request())
+
+    const where = findWithDecryptionMock.mock.calls[0][2]
+    expect(where).not.toHaveProperty('userId')
+    expect(where.$and).toContainEqual({ $or: [{ userId: null }, { userId }] })
+  })
+
+  /**
+   * Widening the listing must not widen access. The clause is the SQL twin of
+   * `assertCanAccessChannel`, which is strict owner-only in v1: no admin grant
+   * makes another operator's personal channel visible.
+   */
+  it('never admits a channel belonging to another user', async () => {
+    await GET(request())
+
+    const ownership = findWithDecryptionMock.mock.calls[0][2].$and.find(
+      (clause: Record<string, unknown>) =>
+        Array.isArray(clause.$or) &&
+        clause.$or.some((branch: Record<string, unknown>) => 'userId' in branch),
+    )
+    expect(ownership.$or).toEqual([{ userId: null }, { userId }])
+  })
+
+  /**
+   * Both fragments can carry an `$or`. Spread side by side the second silently
+   * replaces the first, which would drop either the org scoping or the ownership
+   * rule depending on their order — one of which is a data-exposure bug.
+   */
+  it('keeps the org and ownership clauses independent rather than letting one overwrite the other', async () => {
+    await GET(request())
+
+    const where = findWithDecryptionMock.mock.calls[0][2]
+    expect(where.$and).toHaveLength(2)
+    expect(where).not.toHaveProperty('$or')
   })
 
   it('says so when the result was capped rather than silently under-reporting', async () => {

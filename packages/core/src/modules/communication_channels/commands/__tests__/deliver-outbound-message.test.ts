@@ -223,6 +223,29 @@ describe('deliverOutboundMessageCommand — link integrity + reauth', () => {
     expect((link.channelMetadata as Record<string, unknown>).messageId).toBe('ext-1')
   })
 
+  it('carries the provider timestamp on the emitted message.sent payload (#6095)', async () => {
+    // Same contract as the inbound path: the consuming customers subscriber
+    // dates its interaction from the event, never from the ExternalMessage row.
+    const link: Record<string, any> = { id: 'link-1', deliveryStatus: 'pending', channelPayload: null, channelMetadata: null }
+    const { ctx, channel, created } = makeCtx({ sendResult: { status: 'sent', externalMessageId: 'ext-1' } })
+    primeFinds(channel, link)
+
+    await deliverOutboundMessageCommand.execute(
+      { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+      ctx,
+    )
+
+    const extMsg = created.find((c) => c.entity === ExternalMessage)
+    expect(extMsg!.data.providerTimestamp).toBeInstanceOf(Date)
+    const sentCall = mockEmit.mock.calls.find(
+      (call: unknown[]) => call[0] === 'communication_channels.message.sent',
+    )
+    expect(sentCall).toBeDefined()
+    expect((sentCall as any[])[1]).toMatchObject({
+      providerTimestamp: (extMsg!.data.providerTimestamp as Date).toISOString(),
+    })
+  })
+
   it('stores the RFC2822 Message-ID bracket-stripped so inbound dedup/JWZ matching resolves it (regression)', async () => {
     const link: Record<string, any> = { id: 'link-1', deliveryStatus: 'pending', channelPayload: null, channelMetadata: null }
     const { ctx, channel } = makeCtx({ sendResult: { status: 'sent', externalMessageId: '<rfc-abc@example.com>' } })

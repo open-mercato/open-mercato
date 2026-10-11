@@ -99,6 +99,8 @@ jobs:
           './packages/channel-apns'
           './packages/channel-expo'
           './packages/channel-fcm'
+          './packages/channel-resend'
+          './packages/channel-ses'
           './packages/checkout'
           './packages/cli'
           './packages/content'

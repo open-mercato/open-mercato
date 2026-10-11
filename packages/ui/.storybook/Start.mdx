@@ -1,0 +1,61 @@
+import { Meta } from '@storybook/addon-docs/blocks'
+
+<Meta title="Design system/Start here" />
+
+# Build with Open Mercato
+
+This Storybook brings the existing Open Mercato UI registry into a searchable
+component library. The examples render the same primitives and backend components
+used by the application.
+
+Start with the [component gallery](./?path=/story/design-system-components--gallery).
+Open a component to see its variants, import path, code examples and usage guidance.
+
+## Find the right starting point
+
+| Area | What to look for |
+| --- | --- |
+| Foundations | Brand and semantic colors, typography, spacing, radius, shadows and icons |
+| Primitives | Buttons, inputs, selection controls, navigation, overlays and feedback |
+| Backend patterns | Charts, filters, detail sections, page scaffolding, notifications, schedules and messages |
+
+Use the existing component before composing a new one. For application forms and
+lists, follow the shared `CrudForm` and `DataTable` conventions in
+`packages/ui/AGENTS.md`. The Customers module is the reference for CRUD screens.
+
+## Inspect a component
+
+1. Search by name or choose a category in the gallery.
+2. Open the component overview, then select an individual example in the sidebar.
+3. Compare light and dark appearance with the Storybook toolbar.
+4. Try the interaction with a keyboard and check the component at a narrow width.
+5. Copy its import and example, then adapt the content to the intended screen.
+
+Gallery thumbnails are visual previews. Open the component story for its
+interactive controls and full layout. Example data illustrates the UI; it does
+not establish backend behavior or product policy.
+
+## Design foundations
+
+Use semantic tokens for surfaces, text, borders, actions and focus. Status colors
+come from `status-{status}-{role}` tokens. Keep brand lime, yellow and violet for
+the brand contexts documented in `.ai/ds-rules.md`.
+
+Use the shared spacing and type scale, visible form labels, and accessible names
+for icon actions. Semantic tokens already support dark appearance. A component
+should not need extra dark overrides for those tokens.
+
+The current token source is `apps/mercato/src/app/globals.css`. Component contracts
+live in `.ai/ui-components.md`; backend composition guidance lives in
+`.ai/ui-backend-components.md` and `packages/ui/AGENTS.md`.
+
+## Figma and implementation status
+
+DS — Open Mercato is the design reference. This refresh has audited selected foundation nodes and
+the first Button and Basic Input variants. The [Figma comparison](./?path=/docs/design-system-figma-comparison--docs)
+records inspected nodes, matching dimensions and remaining differences.
+The full component library still needs a comparison against the current Figma
+variants and states. A recorded source node identifies a reference; it does not mark the component as verified.
+
+The [coverage and gaps](./?path=/docs/design-system-coverage-and-gaps--docs) page
+records that distinction and the next review priorities.

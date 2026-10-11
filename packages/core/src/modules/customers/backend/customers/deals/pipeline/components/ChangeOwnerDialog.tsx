@@ -15,6 +15,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import {
   fetchAssignableStaffMembers,
@@ -37,6 +38,7 @@ export function ChangeOwnerDialog({
   onConfirm,
 }: ChangeOwnerDialogProps): React.ReactElement {
   const t = useT()
+  const activeOrgId = useCurrentOrganization()?.id ?? null
   const [query, setQuery] = React.useState('')
   const [items, setItems] = React.useState<AssignableStaffMember[]>([])
   const [isLoading, setIsLoading] = React.useState(false)
@@ -53,7 +55,7 @@ export function ChangeOwnerDialog({
     let cancelled = false
     const controller = new AbortController()
     setIsLoading(true)
-    fetchAssignableStaffMembers(query, { pageSize: 50, signal: controller.signal })
+    fetchAssignableStaffMembers(query, { pageSize: 50, activeOrgId, signal: controller.signal })
       .then((next) => {
         if (cancelled) return
         setItems(next)
@@ -70,7 +72,7 @@ export function ChangeOwnerDialog({
       controller.abort()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, query])
+  }, [activeOrgId, open, query])
 
   const handleConfirm = () => {
     onConfirm(selectedUserId)
@@ -141,7 +143,7 @@ export function ChangeOwnerDialog({
                   <Button
                     variant="ghost"
                     size="default"
-                    key={member.teamMemberId}
+                    key={member.teamMemberId ?? member.userId}
                     type="button"
                     onClick={() => setSelectedUserId(member.userId)}
                     // Overrides on the Button base class:

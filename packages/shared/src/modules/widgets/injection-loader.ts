@@ -164,11 +164,20 @@ export function getCoreInjectionWidgets(): ModuleInjectionWidgetEntry[] {
   return _coreInjectionWidgetEntries
 }
 
-export function registerCoreInjectionTables(tables: Array<{ moduleId: string; table: ModuleInjectionTable }>) {
+/**
+ * `widgetEntries` is optional and carries the *unfiltered* generated entries so a
+ * `key`-spelled injection-widget override can be resolved to the `widgetId` the table
+ * slots reference (#5152). Bootstraps that skip core widget registration have no other
+ * source for that mapping, since the registered entries are already override-filtered.
+ */
+export function registerCoreInjectionTables(
+  tables: Array<{ moduleId: string; table: ModuleInjectionTable }>,
+  widgetEntries?: readonly ModuleInjectionWidgetEntry[],
+) {
   if (_coreInjectionTables !== null && process.env.NODE_ENV === 'development') {
     logger.debug('Core injection tables re-registered (this may occur during HMR)')
   }
-  const finalTables = applyInjectionWidgetOverridesToTables(tables)
+  const finalTables = applyInjectionWidgetOverridesToTables(tables, undefined, widgetEntries)
   _coreInjectionTables = finalTables
   writeGlobalInjectionTables(finalTables)
   notifyInjectionRegistryChanged()

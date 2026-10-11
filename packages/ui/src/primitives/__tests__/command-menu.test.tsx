@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 
 import * as React from 'react'
-import { render as rtlRender, fireEvent, screen } from '@testing-library/react'
+import { render as rtlRender, fireEvent, screen, waitFor } from '@testing-library/react'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 
 // CommandMenu uses useT() for the sr-only title + footer hints (Navigate / Select).
@@ -112,7 +112,7 @@ describe('CommandMenu', () => {
   it('renders role="dialog" with the auto-hidden title for screen readers', () => {
     render(<ExampleMenu />)
     expect(screen.getByRole('dialog')).toBeInTheDocument()
-    expect(screen.getByText('Command menu')).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Command menu' })).toBeInTheDocument()
   })
 
   it('renders leading magnifier icon and the ⌘K kbd hint by default', () => {
@@ -137,6 +137,33 @@ describe('CommandMenu', () => {
     const clear = document.querySelector('[data-slot="command-menu-input-clear"]') as HTMLButtonElement
     fireEvent.click(clear)
     expect(input.value).toBe('')
+    expect(input).toHaveFocus()
+  })
+
+  it('keeps a controlled search synchronized and disables the clear action with the input', () => {
+    const onValueChange = jest.fn()
+    const content = (disabled: boolean) => <CommandMenu defaultOpen><CommandMenuContent>
+      <CommandMenuInput value="monday" disabled={disabled} onValueChange={onValueChange} aria-label="Search" appearance="source" />
+      <CommandMenuList><CommandMenuItem>Monday</CommandMenuItem></CommandMenuList>
+    </CommandMenuContent></CommandMenu>
+    const { rerender } = render(content(true))
+    expect(screen.getByRole('button', { name: 'Clear search' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }))
+    expect(onValueChange).not.toHaveBeenCalled()
+    rerender(<I18nProvider locale="en" dict={{}}>{content(false)}</I18nProvider>)
+    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }))
+    expect(onValueChange).toHaveBeenCalledWith('')
+    expect(screen.getByRole('combobox', { name: 'Search' })).toHaveValue('monday')
+  })
+
+  it('filters to empty and restores options after clearing', async () => {
+    render(<ExampleMenu />)
+    const input = screen.getByRole('combobox')
+    fireEvent.change(input, { target: { value: 'no-match-xyz' } })
+    await waitFor(() => expect(screen.getByText('No results.')).toBeVisible())
+    expect(screen.queryByRole('option', { name: 'Monday.com' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }))
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Monday.com' })).toBeVisible())
   })
 
   it('renders item description and chevron slot when applicable', () => {

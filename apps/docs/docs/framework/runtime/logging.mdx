@@ -157,6 +157,10 @@ an observability outage cannot affect application behavior.
 Keep importing `createLogger` from this page's shared path. Module code must not
 import a provider-specific logger.
 
+To export these normalized records together with traces and metrics, see
+[OTLP Telemetry Deployment](./telemetry) for managed endpoints, the opt-in
+Docker collector profile, sampling, and startup troubleshooting.
+
 ## Redaction — a Safety Net, Not a Guarantee
 
 The server transport configures pino's built-in `redact` for the obvious sensitive keys, censoring values to `[Redacted]`:

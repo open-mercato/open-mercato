@@ -84,6 +84,21 @@ export function isVisible(type: ActivityType, fieldId: ScheduleFieldId): boolean
   return FIELD_VISIBILITY[type].has(fieldId)
 }
 
+// Calendar-bound types must land on a concrete moment, but a task is a backlog
+// item whose due date is optional by design (`interactions.scheduled_at` is
+// nullable and the task lists already render an undated row) — #5941.
+const OPTIONAL_DATE_TYPES: Set<ActivityType> = new Set(['task'])
+
+export function isDateRequired(type: ActivityType): boolean {
+  return isVisible(type, 'date') && !OPTIONAL_DATE_TYPES.has(type)
+}
+
+// A time without a date is meaningless, so the time follows the date: it is
+// only demanded for the types that must be scheduled in the first place.
+export function isTimeRequired(type: ActivityType): boolean {
+  return isVisible(type, 'startTime') && isDateRequired(type)
+}
+
 export function getFieldLabel(
   type: ActivityType,
   fieldId: ScheduleFieldId,

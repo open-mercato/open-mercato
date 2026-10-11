@@ -223,7 +223,8 @@ export default function PushDeliveriesListPage() {
     <Page>
       <PageBody>
         <DataTable
-          title={t('push_notifications.deliveries.title')}
+        title={t('push_notifications.deliveries.title')}
+        titleHeadingLevel={1}
           columns={columns}
           data={rows}
           filters={filters}

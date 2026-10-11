@@ -36,6 +36,7 @@ import {
   ensureOrganizationScope,
   ensureTenantScope,
   extractUndoPayload,
+  CUSTOMER_ENTITY_UNDO_DATE_OPTIONS,
   assertFound,
   syncEntityTags,
   loadEntityTagIds,
@@ -207,6 +208,7 @@ const personCrudEvents: CrudEventsConfig<CustomerEntity> = {
     entityId: ctx.entity?.id ?? ctx.identifiers.id,
     organizationId: ctx.identifiers.organizationId,
     tenantId: ctx.identifiers.tenantId,
+    ...(ctx.syncOrigin ? { syncOrigin: ctx.syncOrigin } : {}),
   }),
 }
 
@@ -723,6 +725,8 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
         tenantId,
         organizationId,
       },
+      syncOrigin: ctx.syncOrigin,
+      actorUserId: ctx.auth?.sub ?? null,
       indexer: personCrudIndexer,
       events: personCrudEvents,
     })
@@ -784,6 +788,8 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       action: 'deleted',
       entity,
       identifiers,
+      syncOrigin: ctx.syncOrigin,
+      actorUserId: ctx.auth?.sub ?? null,
       indexer: personCrudIndexer,
       events: personCrudEvents,
     })
@@ -904,6 +910,8 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
         tenantId: restoredEntity.tenantId,
         organizationId: restoredEntity.organizationId,
       },
+      syncOrigin: ctx.syncOrigin,
+      actorUserId: ctx.auth?.sub ?? null,
       indexer: personCrudIndexer,
       events: personCrudEvents,
     })
@@ -1057,6 +1065,8 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
         tenantId: record.tenantId,
         organizationId: record.organizationId,
       },
+      syncOrigin: ctx.syncOrigin,
+      actorUserId: ctx.auth?.sub ?? null,
       indexer: personCrudIndexer,
       events: personCrudEvents,
     })
@@ -1094,7 +1104,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<PersonUndoPayload>(logEntry)
+    const payload = extractUndoPayload<PersonUndoPayload>(logEntry, CUSTOMER_ENTITY_UNDO_DATE_OPTIONS)
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -1199,6 +1209,8 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
         organizationId: before.entity.organizationId,
         tenantId: before.entity.tenantId,
       },
+      syncOrigin: ctx.syncOrigin,
+      actorUserId: ctx.auth?.sub ?? null,
       indexer: personCrudIndexer,
       events: personCrudEvents,
     })
@@ -1322,6 +1334,8 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
           organizationId: record.organizationId,
           tenantId: record.tenantId,
         },
+        syncOrigin: ctx.syncOrigin,
+        actorUserId: ctx.auth?.sub ?? null,
         indexer: personCrudIndexer,
         events: personCrudEvents,
       })
@@ -1350,7 +1364,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       }
     },
     undo: async ({ logEntry, ctx }) => {
-      const payload = extractUndoPayload<PersonUndoPayload>(logEntry)
+      const payload = extractUndoPayload<PersonUndoPayload>(logEntry, CUSTOMER_ENTITY_UNDO_DATE_OPTIONS)
       const before = payload?.before
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -1677,6 +1691,8 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
           organizationId: entity.organizationId,
           tenantId: entity.tenantId,
         },
+        syncOrigin: ctx.syncOrigin,
+        actorUserId: ctx.auth?.sub ?? null,
         indexer: personCrudIndexer,
         events: personCrudEvents,
       })
