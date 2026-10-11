@@ -10,7 +10,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
 import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
-import { loadLedgerAccountGroupOptions, loadLedgerAccountTypeOptions } from '../../lib/optionLoaders'
+import { loadLedgerAccountGroupOptions, loadLedgerAccountTypeOptions } from '../../../lib/optionLoaders'
 
 type LedgerAccountTypeData = {
   id: string
@@ -139,7 +139,7 @@ export default function EditLedgerAccountTypePage({ params }: { params?: { id?: 
         <PageBody>
           <RecordNotFoundState
             label={t('ledger.account_types.form.errors.notFound', 'Account type not found.')}
-            backHref="/backend/account-types"
+            backHref="/backend/ledger/account-types"
             backLabel={t('ledger.account_types.form.actions.backToList', 'Back to account types')}
           />
         </PageBody>
@@ -163,7 +163,7 @@ export default function EditLedgerAccountTypePage({ params }: { params?: { id?: 
         <CrudForm
           title={t('ledger.account_types.edit.title', 'Edit Account Type')}
           titleHeadingLevel={1}
-          backHref="/backend/account-types"
+          backHref="/backend/ledger/account-types"
           fields={[]}
           groups={groups}
           optimisticLockUpdatedAt={accountType.updatedAt}
@@ -175,7 +175,7 @@ export default function EditLedgerAccountTypePage({ params }: { params?: { id?: 
             accountGroupId: accountType.accountGroupId ?? '',
           }}
           submitLabel={t('ledger.account_types.form.action.save', 'Save changes')}
-          cancelHref="/backend/account-types"
+          cancelHref="/backend/ledger/account-types"
           onSubmit={async (values) => {
             const payload = {
               id: accountType.id,
@@ -189,7 +189,7 @@ export default function EditLedgerAccountTypePage({ params }: { params?: { id?: 
             await updateCrud('ledger/account-types', payload)
 
             flash(t('ledger.account_types.flash.updated', 'Account type updated'), 'success')
-            router.push('/backend/account-types')
+            router.push('/backend/ledger/account-types')
           }}
         />
       </PageBody>

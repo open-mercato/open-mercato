@@ -7,7 +7,6 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Plus } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -20,16 +19,15 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { hasFeature } from '@open-mercato/shared/security/features'
-import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
-import { loadLedgerAccountTypeLabelsByIds } from '../lib/optionLoaders'
+import type { FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import { loadLedgerAccountLabelsByIds, loadLedgerAccountTypeLabelsByIds } from '../../lib/optionLoaders'
 
-type LedgerAccountTypeRow = {
+type LedgerAccountRow = {
   id: string
   slug: string
-  name: string
-  normalBalance: 'DEBIT' | 'CREDIT'
-  parentAccountTypeId: string | null
-  accountGroupId: string | null
+  accountTypeId: string
+  parentAccountId: string | null
+  description: string | null
   organizationId: string
   tenantId: string
   createdAt: string | null
@@ -37,32 +35,36 @@ type LedgerAccountTypeRow = {
 }
 
 type ResponsePayload = {
-  items: LedgerAccountTypeRow[]
+  items: LedgerAccountRow[]
   total: number
   page: number
   totalPages: number
   totalIsCapped?: boolean
 }
 
-export default function LedgerAccountTypesPage() {
+export default function LedgerAccountsPage() {
   const t = useT()
   const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
-  // Client-side gate matching backend/accounts/page.tsx's own (view-only
-  // users must not see New/Edit/Delete on this list page).
+  // The create/edit pages already require `ledger.accounts.manage` at the
+  // route level, but this list page only requires `ledger.accounts.view`
+  // (correctly — view-only users should see the chart of accounts). It was
+  // rendering New/Edit/Delete to those same view-only users with no
+  // client-side check, so the only thing stopping them was hitting the
+  // gated page after the fact.
   const { payload } = useBackendChrome()
   const canManage = hasFeature(payload?.grantedFeatures, 'ledger.accounts.manage')
-  const [rows, setRows] = React.useState<LedgerAccountTypeRow[]>([])
+  const [rows, setRows] = React.useState<LedgerAccountRow[]>([])
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
   const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
-  const [filters, setFilters] = React.useState<FilterValues>({})
+  const [filters] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
   const [refLabels, setRefLabels] = React.useState<Record<string, string>>({})
   const scopeVersion = useOrganizationScopeVersion()
-  const mutationContextId = 'ledger-account-types-list:mutation'
+  const mutationContextId = 'ledger-accounts-list:mutation'
   const { runMutation, retryLastMutation } = useGuardedMutation<{
     formId: string
     resourceKind: string
@@ -82,16 +84,13 @@ export default function LedgerAccountTypesPage() {
         params.set('page', String(page))
         params.set('pageSize', '50')
         if (search) params.set('search', search)
-        if (filters.normalBalance) params.set('normalBalance', String(filters.normalBalance))
 
         const fallback: ResponsePayload = { items: [], total: 0, page, totalPages: 1 }
-        const call = await apiCall<ResponsePayload>(
-          `/api/ledger/account-types?${params.toString()}`,
-          undefined,
-          { fallback },
-        )
+        const call = await apiCall<ResponsePayload>(`/api/ledger/accounts?${params.toString()}`, undefined, {
+          fallback,
+        })
         if (!call.ok) {
-          flash(t('ledger.account_types.list.error.load', 'Failed to load account types'), 'error')
+          flash(t('ledger.accounts.list.error.load', 'Failed to load accounts'), 'error')
           return
         }
         const payload = call.result ?? fallback
@@ -102,22 +101,25 @@ export default function LedgerAccountTypesPage() {
           setTotalPages(payload.totalPages || 1)
           setTotalIsCapped(payload.totalIsCapped === true)
 
-          // Resolve `parentAccountTypeId` to a human-readable label for the
-          // column below, batched into one request via `?ids=` (raw UUIDs
-          // were shown before). Best-effort.
-          const parentIds = [...new Set(items.map((row) => row.parentAccountTypeId).filter((id): id is string => Boolean(id)))]
-          if (parentIds.length) {
-            loadLedgerAccountTypeLabelsByIds(parentIds)
-              .then((labels) => {
-                if (!cancelled) setRefLabels((prev) => ({ ...prev, ...labels }))
-              })
-              .catch(() => {
-                // Best-effort only — the column falls back to the raw id.
-              })
-          }
+          // Resolve `accountTypeId`/`parentAccountId` to human-readable labels for
+          // the columns below, batched into one request per reference via `?ids=`
+          // (raw UUIDs were shown before). Best-effort: on failure the columns
+          // just keep showing the raw id.
+          const accountTypeIds = [...new Set(items.map((row) => row.accountTypeId).filter(Boolean))]
+          const parentIds = [...new Set(items.map((row) => row.parentAccountId).filter((id): id is string => Boolean(id)))]
+          Promise.all([
+            accountTypeIds.length ? loadLedgerAccountTypeLabelsByIds(accountTypeIds) : Promise.resolve({}),
+            parentIds.length ? loadLedgerAccountLabelsByIds(parentIds) : Promise.resolve({}),
+          ])
+            .then(([typeLabels, parentLabels]) => {
+              if (!cancelled) setRefLabels((prev) => ({ ...prev, ...typeLabels, ...parentLabels }))
+            })
+            .catch(() => {
+              // Best-effort only — the columns fall back to the raw id.
+            })
         }
       } catch {
-        if (!cancelled) flash(t('ledger.account_types.list.error.load', 'Failed to load account types'), 'error')
+        if (!cancelled) flash(t('ledger.accounts.list.error.load', 'Failed to load accounts'), 'error')
       } finally {
         if (!cancelled) setIsLoading(false)
       }
@@ -129,9 +131,9 @@ export default function LedgerAccountTypesPage() {
   }, [page, search, filters, reloadToken, scopeVersion, t])
 
   const handleDelete = React.useCallback(
-    async (row: LedgerAccountTypeRow) => {
+    async (row: LedgerAccountRow) => {
       const confirmed = await confirmDialog({
-        title: t('ledger.account_types.list.confirmDelete', 'Delete account type {{slug}}?', { slug: row.slug }),
+        title: t('ledger.accounts.list.confirmDelete', 'Delete account {{slug}}?', { slug: row.slug }),
         variant: 'destructive',
       })
       if (!confirmed) return
@@ -141,14 +143,14 @@ export default function LedgerAccountTypesPage() {
           operation: async () => {
             const call = await withScopedApiRequestHeaders(
               buildOptimisticLockHeader(row.updatedAt),
-              () => apiCall('/api/ledger/account-types', {
+              () => apiCall('/api/ledger/accounts', {
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ id: row.id, organizationId: row.organizationId, tenantId: row.tenantId }),
               }),
             )
             if (!call.ok) {
-              throw Object.assign(new Error('[internal] ledger.account_types.delete failed'), {
+              throw Object.assign(new Error('[internal] ledger.accounts.delete failed'), {
                 status: call.status,
                 ...((call.result as Record<string, unknown> | null) ?? {}),
               })
@@ -157,51 +159,50 @@ export default function LedgerAccountTypesPage() {
           },
           context: {
             formId: mutationContextId,
-            resourceKind: 'ledger.ledger_account_type',
+            resourceKind: 'ledger.ledger_account',
             resourceId: row.id,
             retryLastMutation,
           },
           mutationPayload: { id: row.id },
         })
 
-        flash(t('ledger.account_types.flash.deleted', 'Account type deleted'), 'success')
+        flash(t('ledger.accounts.flash.deleted', 'Account deleted'), 'success')
         setReloadToken((token) => token + 1)
       } catch (error) {
         if (surfaceRecordConflict(error, t, { onRefresh: () => setReloadToken((token) => token + 1) })) return
-        flash(t('ledger.account_types.flash.deleteError', 'Could not delete this account type'), 'error')
+        flash(t('ledger.accounts.flash.deleteError', 'Could not delete this account'), 'error')
       }
     },
     [t, confirmDialog, mutationContextId, retryLastMutation, runMutation],
   )
 
-  const columns = React.useMemo<ColumnDef<LedgerAccountTypeRow>[]>(
+  const columns = React.useMemo<ColumnDef<LedgerAccountRow>[]>(
     () => [
       {
         accessorKey: 'slug',
-        header: t('ledger.account_types.list.columns.slug', 'Slug'),
+        header: t('ledger.accounts.list.columns.slug', 'Slug'),
         cell: ({ row }) => <span className="font-mono font-medium">{row.original.slug}</span>,
       },
       {
-        accessorKey: 'name',
-        header: t('ledger.account_types.list.columns.name', 'Name'),
-      },
-      {
-        accessorKey: 'normalBalance',
-        header: t('ledger.account_types.list.columns.normalBalance', 'Normal balance'),
-        cell: ({ row }) => (
-          <Badge variant={row.original.normalBalance === 'DEBIT' ? 'default' : 'secondary'}>
-            {row.original.normalBalance === 'DEBIT'
-              ? t('ledger.common.debit', 'Debit')
-              : t('ledger.common.credit', 'Credit')}
-          </Badge>
-        ),
-      },
-      {
-        accessorKey: 'parentAccountTypeId',
-        header: t('ledger.account_types.list.columns.parent', 'Parent type'),
+        accessorKey: 'accountTypeId',
+        header: t('ledger.accounts.list.columns.accountType', 'Account type'),
         enableSorting: false,
         cell: ({ row }) => {
-          const id = row.original.parentAccountTypeId
+          const id = row.original.accountTypeId
+          const label = refLabels[id]
+          return label ? (
+            <span title={id}>{label}</span>
+          ) : (
+            <span className="font-mono text-xs text-muted-foreground" title={id}>{id}</span>
+          )
+        },
+      },
+      {
+        accessorKey: 'parentAccountId',
+        header: t('ledger.accounts.list.columns.parent', 'Parent account'),
+        enableSorting: false,
+        cell: ({ row }) => {
+          const id = row.original.parentAccountId
           if (!id) return <span>—</span>
           const label = refLabels[id]
           return label ? (
@@ -212,35 +213,24 @@ export default function LedgerAccountTypesPage() {
         },
       },
       {
+        accessorKey: 'description',
+        header: t('ledger.accounts.list.columns.description', 'Description'),
+        cell: ({ row }) => row.original.description || '—',
+      },
+      {
         accessorKey: 'createdAt',
-        header: t('ledger.account_types.list.columns.createdAt', 'Created'),
+        header: t('ledger.accounts.list.columns.createdAt', 'Created'),
         cell: ({ row }) => (row.original.createdAt ? new Date(row.original.createdAt).toLocaleString() : '—'),
       },
     ],
     [t, refLabels],
   )
 
-  const filterDefs = React.useMemo<FilterDef[]>(
-    () => [
-      {
-        id: 'normalBalance',
-        label: t('ledger.account_types.list.filters.normalBalance', 'Normal balance'),
-        type: 'select',
-        options: [
-          { label: t('ledger.account_types.list.filters.all', 'All'), value: '' },
-          { label: t('ledger.common.debit', 'Debit'), value: 'DEBIT' },
-          { label: t('ledger.common.credit', 'Credit'), value: 'CREDIT' },
-        ],
-      },
-    ],
-    [t],
-  )
-
   return (
     <Page>
       <PageBody>
         <DataTable
-          title={t('ledger.account_types.list.title', 'Account Types')}
+          title={t('ledger.accounts.list.title', 'Chart of Accounts')}
           titleHeadingLevel={1}
           columns={columns}
           data={rows}
@@ -249,23 +239,13 @@ export default function LedgerAccountTypesPage() {
             setSearch(value)
             setPage(1)
           }}
-          searchPlaceholder={t('ledger.account_types.list.searchPlaceholder', 'Search account types…')}
-          filters={filterDefs}
-          filterValues={filters}
-          onFiltersApply={(values) => {
-            setFilters(values)
-            setPage(1)
-          }}
-          onFiltersClear={() => {
-            setFilters({})
-            setPage(1)
-          }}
+          searchPlaceholder={t('ledger.accounts.list.searchPlaceholder', 'Search accounts…')}
           actions={
             canManage ? (
               <Button asChild>
-                <Link href="/backend/account-types/create">
+                <Link href="/backend/ledger/accounts/create">
                   <Plus className="mr-2 h-4 w-4" />
-                  {t('ledger.account_types.list.actions.create', 'New account type')}
+                  {t('ledger.accounts.list.actions.create', 'New account')}
                 </Link>
               </Button>
             ) : undefined
@@ -273,16 +253,16 @@ export default function LedgerAccountTypesPage() {
           rowActions={(row) => (
             <RowActions
               items={canManage ? [
-                { id: 'edit', label: t('common.edit'), href: `/backend/account-types/${row.id}` },
+                { id: 'edit', label: t('common.edit'), href: `/backend/ledger/accounts/${row.id}` },
                 { id: 'delete', label: t('common.delete'), destructive: true, onSelect: () => handleDelete(row) },
               ] : []}
             />
           )}
           emptyState={(
             <ListEmptyState
-              entityName={t('ledger.account_types.list.title', 'Account Types')}
-              createHref={canManage ? '/backend/account-types/create' : undefined}
-              createLabel={t('ledger.account_types.list.actions.create', 'New account type')}
+              entityName={t('ledger.accounts.list.title', 'Chart of Accounts')}
+              createHref={canManage ? '/backend/ledger/accounts/create' : undefined}
+              createLabel={t('ledger.accounts.list.actions.create', 'New account')}
             />
           )}
           pagination={{ page, pageSize: 50, total, totalPages, totalIsCapped, onPageChange: setPage }}

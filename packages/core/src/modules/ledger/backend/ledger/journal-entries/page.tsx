@@ -12,7 +12,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
-import { loadFiscalPeriodOptions, loadLedgerAccountOptions } from '../lib/optionLoaders'
+import { loadFiscalPeriodOptions, loadLedgerAccountOptions } from '../../lib/optionLoaders'
 
 // Read-only list — no create/edit/delete anywhere on this page. Entries are
 // only ever produced by `postJournalEntry` / `reverseJournalEntry` (see

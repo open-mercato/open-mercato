@@ -8,7 +8,7 @@ import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { loadLedgerAccountOptions, loadLedgerAccountTypeOptions } from '../../lib/optionLoaders'
+import { loadLedgerAccountOptions, loadLedgerAccountTypeOptions } from '../../../lib/optionLoaders'
 
 export default function CreateLedgerAccountPage() {
   const t = useT()
@@ -73,11 +73,11 @@ export default function CreateLedgerAccountPage() {
         <CrudForm
           title={t('ledger.accounts.create.title', 'Create Account')}
           titleHeadingLevel={1}
-          backHref="/backend/accounts"
+          backHref="/backend/ledger/accounts"
           fields={[]}
           groups={groups}
           submitLabel={t('ledger.accounts.form.action.create', 'Create')}
-          cancelHref="/backend/accounts"
+          cancelHref="/backend/ledger/accounts"
           onSubmit={async (values) => {
             const payload = {
               organizationId,
@@ -91,7 +91,7 @@ export default function CreateLedgerAccountPage() {
             await createCrud('ledger/accounts', payload)
 
             flash(t('ledger.accounts.flash.created', 'Account created'), 'success')
-            router.push('/backend/accounts')
+            router.push('/backend/ledger/accounts')
           }}
         />
       </PageBody>

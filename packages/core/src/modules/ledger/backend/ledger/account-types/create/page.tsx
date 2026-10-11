@@ -8,7 +8,7 @@ import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { loadLedgerAccountGroupOptions, loadLedgerAccountTypeOptions } from '../../lib/optionLoaders'
+import { loadLedgerAccountGroupOptions, loadLedgerAccountTypeOptions } from '../../../lib/optionLoaders'
 
 export default function CreateLedgerAccountTypePage() {
   const t = useT()
@@ -85,11 +85,11 @@ export default function CreateLedgerAccountTypePage() {
         <CrudForm
           title={t('ledger.account_types.create.title', 'Create Account Type')}
           titleHeadingLevel={1}
-          backHref="/backend/account-types"
+          backHref="/backend/ledger/account-types"
           fields={[]}
           groups={groups}
           submitLabel={t('ledger.account_types.form.action.create', 'Create')}
-          cancelHref="/backend/account-types"
+          cancelHref="/backend/ledger/account-types"
           onSubmit={async (values) => {
             const payload = {
               organizationId,
@@ -104,7 +104,7 @@ export default function CreateLedgerAccountTypePage() {
             await createCrud('ledger/account-types', payload)
 
             flash(t('ledger.account_types.flash.created', 'Account type created'), 'success')
-            router.push('/backend/account-types')
+            router.push('/backend/ledger/account-types')
           }}
         />
       </PageBody>

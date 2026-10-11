@@ -50,11 +50,11 @@ export default function CreateFiscalPeriodPage() {
         <CrudForm
           title={t('ledger.fiscal_periods.create.title', 'Create Fiscal Period')}
           titleHeadingLevel={1}
-          backHref="/backend/fiscal-periods"
+          backHref="/backend/ledger/fiscal-periods"
           fields={[]}
           groups={groups}
           submitLabel={t('ledger.fiscal_periods.form.action.create', 'Create')}
-          cancelHref="/backend/fiscal-periods"
+          cancelHref="/backend/ledger/fiscal-periods"
           onSubmit={async (values) => {
             const startDate = String(values.startDate || '')
             const endDate = String(values.endDate || '')
@@ -73,7 +73,7 @@ export default function CreateFiscalPeriodPage() {
             await createCrud('ledger/fiscal-periods', payload)
 
             flash(t('ledger.fiscal_periods.flash.created', 'Fiscal period created'), 'success')
-            router.push('/backend/fiscal-periods')
+            router.push('/backend/ledger/fiscal-periods')
           }}
         />
       </PageBody>

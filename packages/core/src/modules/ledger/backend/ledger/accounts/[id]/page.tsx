@@ -10,7 +10,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
 import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
-import { loadLedgerAccountOptions, loadLedgerAccountTypeOptions } from '../../lib/optionLoaders'
+import { loadLedgerAccountOptions, loadLedgerAccountTypeOptions } from '../../../lib/optionLoaders'
 
 type LedgerAccountData = {
   id: string
@@ -121,7 +121,7 @@ export default function EditLedgerAccountPage({ params }: { params?: { id?: stri
         <PageBody>
           <RecordNotFoundState
             label={t('ledger.accounts.form.errors.notFound', 'Account not found.')}
-            backHref="/backend/accounts"
+            backHref="/backend/ledger/accounts"
             backLabel={t('ledger.accounts.form.actions.backToList', 'Back to accounts')}
           />
         </PageBody>
@@ -145,7 +145,7 @@ export default function EditLedgerAccountPage({ params }: { params?: { id?: stri
         <CrudForm
           title={t('ledger.accounts.edit.title', 'Edit Account')}
           titleHeadingLevel={1}
-          backHref="/backend/accounts"
+          backHref="/backend/ledger/accounts"
           fields={[]}
           groups={groups}
           optimisticLockUpdatedAt={account.updatedAt}
@@ -156,7 +156,7 @@ export default function EditLedgerAccountPage({ params }: { params?: { id?: stri
             description: account.description ?? '',
           }}
           submitLabel={t('ledger.accounts.form.action.save', 'Save changes')}
-          cancelHref="/backend/accounts"
+          cancelHref="/backend/ledger/accounts"
           onSubmit={async (values) => {
             const payload = {
               id: account.id,
@@ -169,7 +169,7 @@ export default function EditLedgerAccountPage({ params }: { params?: { id?: stri
             await updateCrud('ledger/accounts', payload)
 
             flash(t('ledger.accounts.flash.updated', 'Account updated'), 'success')
-            router.push('/backend/accounts')
+            router.push('/backend/ledger/accounts')
           }}
         />
       </PageBody>
