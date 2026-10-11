@@ -36,8 +36,11 @@ jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => 
   resolveOrganizationScopeForRequest: jest.fn(),
 }))
 
-jest.mock('../../lib/workflow-executor', () => ({
-  startWorkflow: jest.fn(),
+jest.mock('../../lib/workflow-executor', () => {
+  const startWorkflow = jest.fn()
+  return {
+  startWorkflow,
+  startOrReuseWorkflow: jest.fn(async (...args: unknown[]) => ({ instance: await startWorkflow(...args), created: true })),
   executeWorkflow: jest.fn(),
   completeWorkflow: jest.fn(),
   WorkflowExecutionError: class WorkflowExecutionError extends Error {
@@ -46,7 +49,8 @@ jest.mock('../../lib/workflow-executor', () => ({
       this.name = 'WorkflowExecutionError'
     }
   },
-}))
+  }
+})
 
 describe('Workflow Instances API', () => {
   let mockContainer: any
@@ -314,15 +318,41 @@ describe('Workflow Instances API', () => {
       const request = new NextRequest('http://localhost/api/workflows/instances?entityType=order&entityId=order-123')
       await listInstances(request)
 
-      // The implementation uses JSONB $contains queries for metadata filtering
+      // One JSONB containment predicate for the whole subject, so the
+      // metadata GIN (jsonb_path_ops) index answers it in a single probe.
       expect(mockEm.findAndCount).toHaveBeenCalledWith(
         WorkflowInstance,
         expect.objectContaining({
           $and: expect.arrayContaining([
-            { metadata: { $contains: { entityType: 'order' } } },
-            { metadata: { $contains: { entityId: 'order-123' } } },
+            { metadata: { $contains: { entityType: 'order', entityId: 'order-123' } } },
           ]),
         }),
+        expect.any(Object)
+      )
+    })
+
+    test('filters by entityId alone with a containment predicate', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      await listInstances(new NextRequest('http://localhost/api/workflows/instances?entityId=order-123'))
+
+      expect(mockEm.findAndCount).toHaveBeenCalledWith(
+        WorkflowInstance,
+        expect.objectContaining({
+          $and: expect.arrayContaining([{ metadata: { $contains: { entityId: 'order-123' } } }]),
+        }),
+        expect.any(Object)
+      )
+    })
+
+    test('filters instances by businessKey', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      await listInstances(new NextRequest('http://localhost/api/workflows/instances?businessKey=order%3A42'))
+
+      expect(mockEm.findAndCount).toHaveBeenCalledWith(
+        WorkflowInstance,
+        expect.objectContaining({ businessKey: 'order:42' }),
         expect.any(Object)
       )
     })
@@ -497,6 +527,70 @@ describe('Workflow Instances API', () => {
           organizationId: testOrgId,
         })
       )
+    })
+
+    test('passes businessKey and reusePolicy through and reports created: true on a new instance', async () => {
+      (workflowExecutor.startWorkflow as jest.Mock).mockResolvedValue(mockInstance);
+      (workflowExecutor.executeWorkflow as jest.Mock).mockResolvedValue(mockExecutionResult)
+
+      const response = await startInstance(new NextRequest('http://localhost/api/workflows/instances', {
+        method: 'POST',
+        body: JSON.stringify({ workflowId: 'checkout', businessKey: ' order:42 ', reusePolicy: 'allow_duplicate' }),
+      }))
+      const data = await response.json()
+
+      expect(response.status).toBe(201)
+      expect(data.data.created).toBe(true)
+      expect(workflowExecutor.startOrReuseWorkflow).toHaveBeenCalledWith(
+        mockEm,
+        expect.objectContaining({ businessKey: 'order:42', reusePolicy: 'allow_duplicate' })
+      )
+      await flushBackgroundWorkflowExecution()
+      expect(workflowExecutor.executeWorkflow).toHaveBeenCalledTimes(1)
+    })
+
+    test('returns the instance already holding the business key with 200 and never executes it again', async () => {
+      (workflowExecutor.startOrReuseWorkflow as jest.Mock).mockResolvedValueOnce({ instance: mockInstance, created: false })
+
+      const response = await startInstance(new NextRequest('http://localhost/api/workflows/instances', {
+        method: 'POST',
+        body: JSON.stringify({ workflowId: 'checkout', businessKey: 'order:42' }),
+      }))
+      const data = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(data.data.created).toBe(false)
+      expect(data.data.instance).toEqual(mockInstance)
+      await flushBackgroundWorkflowExecution()
+      expect(workflowExecutor.executeWorkflow).not.toHaveBeenCalled()
+    })
+
+    test('rejects an invalid reusePolicy and an over-long businessKey with 400', async () => {
+      const badPolicy = await startInstance(new NextRequest('http://localhost/api/workflows/instances', {
+        method: 'POST',
+        body: JSON.stringify({ workflowId: 'checkout', businessKey: 'order:42', reusePolicy: 'sometimes' }),
+      }))
+      const tooLong = await startInstance(new NextRequest('http://localhost/api/workflows/instances', {
+        method: 'POST',
+        body: JSON.stringify({ workflowId: 'checkout', businessKey: 'x'.repeat(256) }),
+      }))
+
+      expect(badPolicy.status).toBe(400)
+      expect(tooLong.status).toBe(400)
+      expect(workflowExecutor.startOrReuseWorkflow).not.toHaveBeenCalled()
+    })
+
+    test('maps an engine-rejected business key (dry run) to 400', async () => {
+      (workflowExecutor.startWorkflow as jest.Mock).mockRejectedValue(
+        new workflowExecutor.WorkflowExecutionError('A dry run cannot carry a business key', 'INVALID_BUSINESS_KEY')
+      )
+
+      const response = await startInstance(new NextRequest('http://localhost/api/workflows/instances', {
+        method: 'POST',
+        body: JSON.stringify({ workflowId: 'checkout', businessKey: 'order:42', dryRun: true }),
+      }))
+
+      expect(response.status).toBe(400)
     })
 
     test('a plain start is never a dry run — the flag is opt-in only', async () => {

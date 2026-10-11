@@ -72,6 +72,7 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status')
     const outcome = searchParams.get('outcome')
     const correlationKey = searchParams.get('correlationKey')
+    const businessKey = searchParams.get('businessKey')
     const entityType = searchParams.get('entityType')
     const entityId = searchParams.get('entityId')
     const parentInstanceId = searchParams.get('parentInstanceId')
@@ -137,6 +138,10 @@ export async function GET(request: NextRequest) {
       where.correlationKey = correlationKey
     }
 
+    if (businessKey) {
+      where.businessKey = businessKey
+    }
+
     // Simulations are excluded from the run list by DEFAULT (spec section 8.2:
     // "excludes the instance from KPIs"). A caller that wants them asks for
     // them with `dryRun=true`; `dryRun=false` is the same as omitting it.
@@ -147,19 +152,19 @@ export async function GET(request: NextRequest) {
     }
 
     // For JSONB metadata filtering, use $contains with explicit key-value pairs
-    // MikroORM's dot notation creates table joins, not JSON access
+    // MikroORM's dot notation creates table joins, not JSON access. One
+    // containment predicate for the whole subject, so the
+    // `workflow_instances_metadata_gin_idx` (jsonb_path_ops) answers it.
     if (entityType || entityId) {
       where.$and = where.$and || []
-      if (entityType) {
-        where.$and.push({
-          metadata: { $contains: { entityType: entityType } }
-        })
-      }
-      if (entityId) {
-        where.$and.push({
-          metadata: { $contains: { entityId: entityId } }
-        })
-      }
+      where.$and.push({
+        metadata: {
+          $contains: {
+            ...(entityType ? { entityType } : {}),
+            ...(entityId ? { entityId } : {}),
+          },
+        },
+      })
     }
 
     // Parent/sub-workflow filtering. The parent linkage is stored in
@@ -320,17 +325,38 @@ export async function POST(request: NextRequest) {
       ...(input.stepThrough ? { stepThrough: { enabled: true as const, releaseStepId: null } } : {}),
     }
 
-    // Start workflow
-    const instance = await workflowExecutor.startWorkflow(em, {
+    // Start workflow. With a business key this may hand back the instance
+    // that already owns the key; that one is never executed a second time.
+    const { instance, created } = await workflowExecutor.startOrReuseWorkflow(em, {
       workflowId: input.workflowId,
       version: input.version,
       initialContext: input.initialContext || {},
       correlationKey: input.correlationKey,
+      businessKey: input.businessKey,
+      reusePolicy: input.reusePolicy,
       metadata,
       isDryRun: input.dryRun === true,
       tenantId,
       organizationId,
     })
+
+    if (!created) {
+      return NextResponse.json(
+        {
+          data: {
+            instance,
+            created: false,
+            execution: {
+              status: instance.status,
+              currentStep: instance.currentStepId,
+              message: 'Existing workflow instance returned for business key',
+            },
+          },
+          message: 'Workflow instance already exists for this business key',
+        },
+        { status: 200 }
+      )
+    }
 
     // Advance the workflow asynchronously after responding (non-blocking, so the
     // frontend can poll step-by-step progress). This is a fire-and-forget task in
@@ -354,6 +380,7 @@ export async function POST(request: NextRequest) {
       {
         data: {
           instance,
+          created: true,
           execution: {
             status: instance.status,
             currentStep: instance.currentStepId,
@@ -382,7 +409,7 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         )
       }
-      if (error.code === 'INVALID_DEFINITION') {
+      if (error.code === 'INVALID_DEFINITION' || error.code === 'INVALID_BUSINESS_KEY') {
         return NextResponse.json(
           { error: error.message },
           { status: 400 }
@@ -418,6 +445,7 @@ export const openApi = {
         status: workflowInstanceStatusSchema.optional(),
         outcome: workflowRunOutcomeSchema.optional().describe('Filter by the run VERDICT, independently of status. Comma-separated for several (e.g. partial_failure,failure). An unknown value is a 400.'),
         correlationKey: z.string().optional(),
+        businessKey: z.string().optional().describe('Exact business key (idempotency key) the instance was started with.'),
         entityType: z.string().optional(),
         entityId: z.string().optional(),
         parentInstanceId: z.string().optional().describe('Return only direct sub-workflow children of this parent instance.'),
@@ -456,7 +484,7 @@ export const openApi = {
     },
     POST: {
       summary: 'Start workflow instance',
-      description: 'Start a new workflow instance from a workflow definition. The workflow will execute immediately.',
+      description: 'Start a new workflow instance from a workflow definition. The workflow will execute immediately. With `businessKey`, a start whose key another instance of the same workflow already holds returns that instance with 200 and `created: false` instead of starting a second one (`reusePolicy` decides whether a key may start a new run after the previous one ended).',
       tags: ['Workflows'],
       requestBody: {
         contentType: 'application/json',
@@ -470,6 +498,19 @@ export const openApi = {
           schema: z.object({
             data: z.object({
               instance: workflowInstanceResponseSchema,
+              created: z.literal(true),
+              execution: workflowBackgroundStartSchema,
+            }),
+            message: z.string(),
+          }),
+        },
+        {
+          status: 200,
+          description: 'An instance already holds the business key; it is returned and not executed again',
+          schema: z.object({
+            data: z.object({
+              instance: workflowInstanceResponseSchema,
+              created: z.literal(false),
               execution: workflowBackgroundStartSchema,
             }),
             message: z.string(),
@@ -477,7 +518,7 @@ export const openApi = {
         },
         {
           status: 400,
-          description: 'Bad request - Validation failed or definition disabled/invalid',
+          description: 'Bad request - Validation failed, definition disabled/invalid, or a business key on a dry run',
           schema: z.object({
             error: z.string(),
             details: z.any().optional(),

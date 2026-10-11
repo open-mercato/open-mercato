@@ -28,6 +28,7 @@ import {
   partitionTaskPage,
   resolveTaskVisibilityForRequest,
 } from '../../lib/task-visibility-request'
+import { entityTypeQueryValues } from '../../lib/work-inbox/entity-links'
 
 const logger = createLogger('workflows')
 
@@ -52,6 +53,7 @@ export const metadata = {
  * - workflowInstanceId: Filter by workflow instance
  * - overdue: Filter overdue tasks (true/false)
  * - myTasks: Show only tasks assigned to or claimable by current user (true/false)
+ * - entityType / entityId: Show only tasks bound to that record (entity bindings)
  * - limit: Number of results (default 50)
  * - offset: Pagination offset (default 0)
  */
@@ -82,6 +84,8 @@ export async function GET(request: NextRequest) {
     const workflowInstanceId = searchParams.get('workflowInstanceId')
     const overdue = searchParams.get('overdue') === 'true'
     const myTasks = searchParams.get('myTasks') === 'true'
+    const entityType = searchParams.get('entityType')?.trim() || null
+    const entityId = searchParams.get('entityId')?.trim() || null
     const limit = Math.min(
       parseNumberWithDefault(searchParams.get('limit'), DEFAULT_TASK_LIST_LIMIT, { min: 1, integer: true }),
       MAX_TASK_LIST_LIMIT,
@@ -122,6 +126,19 @@ export async function GET(request: NextRequest) {
       where.$or = [
         { assignedTo: auth.sub },
         { assignedToRoles: { $overlap: auth.roles || [] } },
+      ]
+    }
+
+    // "Tasks about record X": containment over the bindings, which the
+    // `user_tasks_entity_bindings_gin_idx` (jsonb_path_ops) answers. A type
+    // matches every spelling the Work Inbox accepts for it.
+    if (entityType || entityId) {
+      const bindingMatches = entityType
+        ? entityTypeQueryValues(entityType).map((type) => ({ entityType: type, ...(entityId ? { entityId } : {}) }))
+        : [{ entityId }]
+      where.$and = [
+        ...(Array.isArray(where.$and) ? where.$and : []),
+        { $or: bindingMatches.map((binding) => ({ entityBindings: { $contains: [binding] } })) },
       ]
     }
 
