@@ -299,7 +299,7 @@ The first component carries the same load-bearing property as the third, for the
 
 The load-bearing member is the third one's `null`. In B2B the large majority of authenticated buyers have **no** price rows of their own — for pricing purposes they *are* their group, and may share a bucket, a cache entry and a sort order with every other buyer in it. Only buyers with authored contracts need an individual path. A context that cannot express "this buyer has no overlay" forces every authenticated buyer onto the individual path and throws that away.
 
-**How `customerOverlayId` is computed.** `storeContextService.resolve()` runs one `EXISTS` over `catalog_product_variant_prices` filtered by `customer_id`, served by the partial index in `pricing-engine.md` Phase 2b, and caches the boolean per customer with invalidation on `catalog.prices.create/update/delete`. It is a query, not a denormalized column: a stale `has_contract_prices` flag reading `false` would silently serve a contracted buyer their group's prices, which is the same class of disclosure R1 rates Critical, and a flag reading `true` where it should be `false` would quietly cost the sharing win this component exists to buy. One cached `EXISTS` on an index built for it is cheap enough not to trade correctness for.
+**How `customerOverlayId` is computed.** `storeContextService.resolve()` runs one `EXISTS` over `catalog_product_variant_prices` filtered by `customer_id`, served by the partial index in `pricing-engine.md` Phase 2b, and caches the boolean per customer with invalidation on `catalog.price.created/updated/deleted` (`catalog/events.ts:38-40`). It is a query, not a denormalized column: a stale `has_contract_prices` flag reading `false` would silently serve a contracted buyer their group's prices, which is the same class of disclosure R1 rates Critical, and a flag reading `true` where it should be `false` would quietly cost the sharing win this component exists to buy. One cached `EXISTS` on an index built for it is cheap enough not to trade correctness for. Variant delete and its undo change price rows without emitting those events (`catalog/commands/variants.ts:374-376, 1077-1079`), so the probe also needs a per-customer overlay tag invalidation, or a backstop TTL, on paths that bypass them.
 
 **Rejected alternative.** Separate `/api/ecommerce/b2b/*` endpoints. Doubles the API surface and the test matrix for what is one resolver difference.
 
@@ -441,7 +441,7 @@ Each phase is gated: the next does not start until the gate passes.
 ### Phase 0 — Foundations
 Specs 1 and 2. Delivers `CustomerGroup` with membership and commercial terms, and the `availabilityService` contract with the `wms` implementation.
 
-**Gate:** `catalog` price rows can be authored against a real group in admin UI and resolve correctly; `availabilityService` returns authoritative state with `wms` installed and a clean `not tracked` fallback without it.
+**Gate:** `catalog` price rows can be authored against a real group in admin UI and resolve correctly — the group tie-break half is **not passed**: equally-scored rows from different groups are chosen by `startsAt`, then `minQuantity`, then input order, never by group priority (`catalog/lib/pricing.ts:148-167`; see pricing engine spec); `availabilityService` returns authoritative state with `wms` installed and a clean `not tracked` fallback without it.
 
 ### Phase 1 — Read side
 Specs 3 and 4. Store, hostname binding, buyer-context resolver, branding, and the public catalog read API with facets and localization.
@@ -557,6 +557,10 @@ Every public namespace MUST be rate limited and MUST include the buyer-context d
 ---
 
 ## 13) Changelog
+
+### 2026-10-11
+- **Phase 0's gate annotated `not passed` on the group tie-break (post-merge review of #5384).** Phase 0's gate ("`catalog` price rows can be authored against a real group in admin UI and resolve correctly") is **not passed** for the group tie-break half: equally-scored rows from different groups are chosen by `startsAt`, then `minQuantity`, then input order, never by group priority (`catalog/lib/pricing.ts:148-167`; see the pricing engine spec).
+- **ADR-7's `customerOverlayId` probe invalidation corrected in the post-merge review of #5384.** The invalidation named the price command ids (`catalog/commands/prices.ts:294,489,816`) rather than the events `catalog` emits, `catalog.price.created/updated/deleted` (`catalog/events.ts:38-40`); the subscriber would therefore never have fired and a cached `false` would have persisted. Variant delete and its undo change price rows without emitting any price event (`catalog/commands/variants.ts:374-376, 1077-1079`), so the probe also requires a per-customer overlay tag invalidation, or a backstop TTL, on paths that bypass the events.
 
 ### 2026-10-02
 - **Merged with spec 14 (offline field mode) from develop.** Both specs landed against the same base, so their numbering is reconciled here: assisted selling keeps row 13 and ADR-10, offline field mode keeps row 14 and ADR-11, and the TLDR, Scope and R7 counts read fourteen specs, eight new modules (spec 14 adds none) and eleven ADRs. The interim note under §6 saying row 13 "is added by its own PR" is dropped now that it is.

@@ -262,7 +262,7 @@ export function intersectScopes(channel: AssortmentScope | null, group: Effectiv
 
 `matchesScope` is the single implementation both the SQL-shaped listing filter (§3.5) and the in-memory point-check (§6) are built from, so a listing query and a single-item check of the same effective scope can never disagree — a correctness property this spec asserts as a test (§9, §11).
 
-**"Single implementation" is a property held by a test, not by the code (clarified 2026-09-16).** A TypeScript predicate cannot run inside Postgres, so in practice there are two evaluators — `matchesScope` in memory and whatever SQL `buildStorefrontProductScope` emits — with an asserted equivalence between them. That is fine and is what §9/§11 already require, but it makes the equivalence test load-bearing rather than incidental, so it MUST be **property-based** over generated scopes and products rather than a fixture table. The failure this spec's own history predicts is a combination nobody enumerated — the flattened-union bug in §3.1 was exactly that — and a fixture table only ever covers what its author already thought of. The harness is in place (`.ai/specs/2026-04-24-agentic-property-based-testing.md`).
+**"Single implementation" is a property held by a test, not by the code (clarified 2026-09-16).** A TypeScript predicate cannot run inside Postgres, so in practice there are two evaluators — `matchesScope` in memory and whatever SQL `buildStorefrontProductScope` emits — with an asserted equivalence between them. That is fine and is what §9/§11 already require, but it makes the equivalence test load-bearing rather than incidental, so it MUST be **property-based** over generated scopes and products rather than a fixture table. The failure this spec's own history predicts is a combination nobody enumerated — the flattened-union bug in §3.1 was exactly that — and a fixture table only ever covers what its author already thought of. The harness, however, is **specified but not shipped**: `.ai/specs/2026-04-24-agentic-property-based-testing.md` is itself `Status: Draft`, no workspace installs `fast-check`, and the shipped shared-library tests use a seeded `mulberry32` generator over fixed five-element universes with no shrinking and no category hierarchy.
 
 **What the SQL side evaluates against (added 2026-09-16).** `ScopedProduct` is already `{ id, categoryIds, tagIds }` — this contract has therefore already committed to a product's scope-relevant attributes being a small, flat, denormalizable set, which is what makes an efficient SQL side possible at all. `storefront-public-api.md` §3.3 takes that commitment and fixes the representation: a GIN-indexed `scopeKeys: text[]` (`cat:<uuid>` / `tag:<uuid>`, categories expanded to include ancestors) on the product's index document, so each DNF branch is an array-overlap test rather than a chain of `EXISTS` over `catalog_product_category_assignments` / `catalog_product_tag_assignments`. Category ancestor expansion is a lookup, not a recursive CTE, because `CatalogProductCategory` already maintains `ancestorIds`/`descendantIds` as `jsonb`. Nothing in §3.2's semantics changes — this is the physical representation the equivalence test above is asserted across, and it is named here so the pure contract and its SQL twin are not designed independently.
 
@@ -386,18 +386,21 @@ interface CustomerGroupsService {
 
   resolveAssortmentScope(input: {
     customerId: string | null
+    tenantId: string
     at?: Date
   }): Promise<{
     scope: EffectiveAssortmentScope   // the finished buyer-side scope: groups unioned (§3.1/§3.3), the customer's own grant unioned in and its restriction intersected over the result (§3.6); no groups and no override → null (unrestricted)
-    sourceGroupIds: string[]          // every group that contributed a scope, for the explain tool (§7)
+    sourceGroupIds: string[]          // every matching group returned by resolveGroups(), for the explain tool (§7) — NOT filtered to groups that contributed a non-null scope
     sourceCustomerOverrideId: string | null   // the customer's own override row, or null — the common case (§3.6, Phase 4)
   }>
 }
 ```
 
+**Shipped signature (recorded 2026-10-11).** The method is implemented in `customer_groups/services/customerGroupsService.ts` and requires `tenantId` alongside `customerId`/`at`: this codebase resolves tenant scope from an explicit caller-supplied argument rather than ambient context, the same reason `resolveGroups` carries it, so the earlier `{ customerId, at? }` sketch was shorthand. `sourceGroupIds` is every matching group `resolveGroups()` returns — not only the groups that contributed a non-null scope. With the per-group column unshipped (Phase 1b) every matching group contributes `null` while its id is still returned, so an explain tool that reads `sourceGroupIds` as "groups that granted something" would misattribute a grant.
+
 `resolveTerms()` (spec 1 §6) is amended: its `ResolvedTerms` type **drops** the `assortmentScope` field. Every other field on `ResolvedTerms` is untouched and keeps resolving via the existing per-field-highest-priority algorithm — this amendment touches exactly one field.
 
-`customerId: null` (anonymous, or no matching groups) returns `{ scope: null, sourceGroupIds: [] }` — consistent with spec 1 §6.2's existing rule that "absence of a group MUST NOT be an error," and with `unionScopes([])`'s defined behavior (§3.3).
+`customerId: null` (anonymous, or no matching groups) returns `{ scope: null, sourceGroupIds: [] }` when no tenant default group exists; the shipped `resolveGroups` returns the default group for a `null` `customerId` (`customerGroupsService.ts:240, 285-293`), so a configured default group is returned instead. This is consistent with spec 1 §6.2's existing rule that "absence of a group MUST NOT be an error," and with `unionScopes([])`'s defined behavior (§3.3).
 
 ### 5.2 `ecommerce` — `BuyerContext.assortmentScope` computation (amends `SPEC-029` §4.1 step 6, §6)
 
@@ -406,7 +409,7 @@ interface CustomerGroupsService {
 const requireAuth = channelBinding.requireAuthentication
 const groupResult = requireAuth && !buyer.isAuthenticated
   ? { scope: [] as EffectiveAssortmentScope, sourceGroupIds: [], sourceCustomerOverrideId: null }   // §3.4 — the vacuous OR, not a sentinel; the whole buyer layer, per-customer override included, is skipped
-  : await customerGroupsService.resolveAssortmentScope({ customerId: buyer.customerId })
+  : await customerGroupsService.resolveAssortmentScope({ customerId: buyer.customerId, tenantId })
 
 buyer.assortmentScope = intersectScopes(channelBinding.assortmentScope, groupResult.scope)
 ```
@@ -488,7 +491,7 @@ A rising rate of `product_unavailable` rejections is exactly the kind of drift t
 - **`customer_groups` group-terms form** (spec 1's existing `CustomerGroupTerms` CRUD): the `assortment_scope` field gains category/tag multi-select pickers (sourced from `catalog`'s existing category/tag list endpoints, via the same cross-module read pattern spec 1 §7.3 already uses for its group picker — a widget/read call, not an ORM relation) and product-exclude pickers for `excludeProductIds`/`excludeCategoryIds`/`excludeTagIds`. No new page; an addition to an existing one. New i18n keys live in `customer_groups`' existing `i18n/{en,pl}.json` namespace, alongside the rest of that form's labels.
 - **`ecommerce` channel-binding form** (`SPEC-029` §7's existing "Channels" tab, already described as showing "a live count of matching products"): gains the same category/tag/exclude pickers for the channel's own `assortment_scope`, plus a `require_authentication` toggle. The existing live-count preview naturally reflects both without new work, since it already recomputes against whatever `assortment_scope` is currently configured. The toggle's label and help text are new keys in `ecommerce`'s own `i18n/{en,pl}.json` namespace.
 - **Customer detail page — "Assortment" section (Phase 4, owned by `customer_groups`).** The per-customer override (§3.6) is edited where the customer already is, on `customers`' existing customer detail page, as a section **injected** by `customer_groups` through widget injection (`core` → Widget Injection) — never by editing a page another module owns, and never through an ORM relation. It carries the same category/tag/product pickers as the group-terms form, in two clearly separated blocks — "Also allow" (`grant_scope`) and "Restrict to / exclude" (`restrict_scope`) — plus the validity window and the `notes` field. The two blocks are labelled by direction rather than by field name, because the whole point of §3.6's two-field shape is that a merchant can see which way a rule cuts without reading the spec. Gated behind the same feature that already gates group-terms editing; a viewer without it sees the section read-only, matching US-A1's convention. New i18n keys live in `customer_groups`' existing namespace.
-- **Explainability tool (optional, nice-to-have — cut first if this spec needs to shrink), owned by `ecommerce`.** A small read-only admin panel under `ecommerce/backend/`, "why can/can't customer X see product Y," showing: which of the buyer's groups contributed (`sourceGroupIds` from §5.1), the buyer's own override if any (`sourceCustomerOverrideId`, split into its widening and narrowing halves so the direction is visible), the channel's own scope, and the final verdict from `matchesScope`. `ecommerce` is the natural owner — it is already the module that composes both channel and group scope into `BuyerContext` (§5.2), so it is the only place both halves of the explanation are already in hand without a second cross-module read. Guarded by a new `ecommerce.visibility.diagnose` feature declared in `ecommerce/acl.ts` and granted to `admin` in `setup.ts` `defaultRoleFeatures`, matching the same pattern `pricing-engine.md`'s own optional diagnostic page uses for its `pricing.diagnostics.view` feature. Mirrors the explainability convention this suite already established twice — `ResolvedTerms.sourceGroupId` (spec 1 §6) and `AvailabilityPolicy.policySourceId` (`availability-contract.md` §5.2) — for the same reason: "why is this wrong" is the first support question in every one of these systems, and this is the third time this suite has needed the answer. The buyer-facing `product_unavailable` message shown by the write-path warning (§6.3) is a new key in `cart`'s own `i18n/{en,pl}.json` namespace, alongside its existing warning-code strings.
+- **Explainability tool (optional, nice-to-have — cut first if this spec needs to shrink), owned by `ecommerce`.** A small read-only admin panel under `ecommerce/backend/`, "why can/can't customer X see product Y," showing: the buyer's matching groups (`sourceGroupIds` from §5.1) with each one's own scope, the buyer's own override if any (`sourceCustomerOverrideId`, split into its widening and narrowing halves so the direction is visible), the channel's own scope, and the final verdict from `matchesScope`. `ecommerce` is the natural owner — it is already the module that composes both channel and group scope into `BuyerContext` (§5.2), so it is the only place both halves of the explanation are already in hand without a second cross-module read. Guarded by a new `ecommerce.visibility.diagnose` feature declared in `ecommerce/acl.ts` and granted to `admin` in `setup.ts` `defaultRoleFeatures`, matching the same pattern `pricing-engine.md`'s own optional diagnostic page uses for its `pricing.diagnostics.view` feature. Mirrors the explainability convention this suite already established twice — `ResolvedTerms.sources` (spec 1 §6) and `AvailabilityPolicy.policySourceId` (`availability-contract.md` §5.2) — for the same reason: "why is this wrong" is the first support question in every one of these systems, and this is the third time this suite has needed the answer. The buyer-facing `product_unavailable` message shown by the write-path warning (§6.3) is a new key in `cart`'s own `i18n/{en,pl}.json` namespace, alongside its existing warning-code strings.
 
 ---
 
@@ -556,7 +559,7 @@ A rising rate of `product_unavailable` rejections is exactly the kind of drift t
 **Multi-group resolution (`customer_groups`):**
 - A buyer in two groups with disjoint scopes (one category-scoped, one tag-scoped) sees the union of both, regardless of which group has higher `priority` (R2) — the fixture that specifically exercises the bug a review found
 - A buyer in zero matching groups (including anonymous with no default group) resolves to `null` (unrestricted) — not an error
-- `sourceGroupIds` names every contributing group
+- `sourceGroupIds` names every matching group `resolveGroups()` returns (not only the groups that contributed a non-null scope)
 
 **Buyer-context composition (`ecommerce`):**
 - Channel scope ∩ group union scope, verified against `storefront-public-api.md`'s own existing cross-context isolation suite (no regression to that suite is introduced)
@@ -592,21 +595,28 @@ A rising rate of `product_unavailable` rejections is exactly the kind of drift t
 **UI paths (added after `/om-pre-implement-spec` review — every sibling spec in this suite lists these explicitly and this one had not):**
 - `customer_groups` group-terms form: the new category/tag/exclude pickers save correctly and round-trip through `resolveAssortmentScope`
 - `ecommerce` channel-binding form: the `require_authentication` toggle and the new exclude pickers both update the existing live product-count preview
-- Explainability panel (`ecommerce/backend/`, if built): renders a correct multi-group trace — `sourceGroupIds` naming every contributing group, the channel's own scope, and the final `matchesScope` verdict — for a fixture where two groups each contribute a different branch of the union (the same fixture §11's algebra tests use)
+- Explainability panel (`ecommerce/backend/`, if built): renders a correct multi-group trace — `sourceGroupIds` naming every matching group, the channel's own scope, and the final `matchesScope` verdict — for a fixture where two groups each contribute a different branch of the union (the same fixture §11's algebra tests use)
 
 ---
 
 ## 12) Implementation Phases
 
 ### Phase 1 — Shared contract and `customer_groups` resolution
-`packages/shared/src/lib/catalog-visibility/` (`AssortmentScope`, `EffectiveAssortmentScope`, `matchesOne`, `matchesScope`, `unionScopes`, `intersectScopes`); `customerGroupsService.resolveAssortmentScope()`; `ResolvedTerms.assortmentScope` removed. Add a `catalog-visibility` row to `packages/shared/AGENTS.md`'s Library Directory table (per `/om-pre-implement-spec` review — every existing `src/lib/` subdirectory is listed there, and this one should not be the exception a future spec author has to discover by grepping). Independently shippable — no dependency on `ecommerce` or `cart`.
 
-**Gate:** the pure-function unit-test matrix (§11) passes, including the category-vs-tag disjoint-dimension fixture that specifically exercises the union defect a review found in this spec's first draft (R2).
+#### Phase 1a — Shared contract (shipped)
+`packages/shared/src/lib/catalog-visibility/` (`AssortmentScope`, `EffectiveAssortmentScope`, `matchesOne`, `matchesScope`, `unionScopes`, `intersectScopes`); the `customerGroupsService.resolveAssortmentScope()` method; `ResolvedTerms.assortmentScope` removed. Add a `catalog-visibility` row to `packages/shared/AGENTS.md`'s Library Directory table (per `/om-pre-implement-spec` review — every existing `src/lib/` subdirectory is listed there, and this one should not be the exception a future spec author has to discover by grepping). Independently shippable — no dependency on `ecommerce` or `cart`.
+
+**Gate:** the pure-function unit-test matrix (§11) passes, including the category-vs-tag disjoint-dimension fixture that specifically exercises the union defect a review found in this spec's first draft (R2). The shipped tests use the seeded in-memory generator (`mulberry32`); the `fast-check` harness §3.3 describes is specified, not shipped.
+
+#### Phase 1b — Per-group scope column and real resolver (not shipped)
+`CustomerGroupTerms.assortment_scope` — the column §4.1 and spec 1 §5.3 already plan — its migration, and `groupOwnAssortmentScope()` reading it. Until this lands, the shipped resolver is a stub: `groupOwnAssortmentScope()` returns `null` (`customer_groups/services/customerGroupsService.ts:109-111`), so `resolveAssortmentScope()` yields an unrestricted `null` scope for every buyer and no `customer_groups`-level test can observe a restriction. `CustomerGroupTerms` carries the scalar terms columns but no assortment column (`customer_groups/data/entities.ts:192-244`). **Hard prerequisite of Phase 2** — Phase 2's buyer-context composition and its gate are vacuous while every resolved scope is `null`.
+
+**Gate:** the multi-group resolution block (§11) passes through `customer_groups` with a real column, including the category-vs-tag disjoint-dimension fixture (R2).
 
 ### Phase 2 — `ecommerce` composition and the authentication gate
 `BuyerContext.assortmentScope` computed via `intersectScopes`; `require_authentication` column and resolver short-circuit (`[]`, R3); admin UI additions to the channel-binding form.
 
-**Gate:** `storefront-public-api.md`'s existing cross-context isolation suite still passes unmodified; the new authentication-gate test (§11) passes.
+**Gate:** Phase 1b has shipped; `storefront-public-api.md`'s existing cross-context isolation suite still passes unmodified; the new authentication-gate test (§11) passes.
 
 ### Phase 3 — Cart write-path enforcement
 `assortmentScope` input on `lines.add`/`.update`/`.bulkAdd` (§6.1); validation requiring it for `storefront`-channel carts; `product_unavailable` warning code with correct `lineId`; the whole-cart re-visibility pass at triggers 2 and 5, and the checkout-lock block while a line is flagged (§6.2, closing R7); admin group-terms/channel-binding pickers for the new exclude fields.
@@ -643,6 +653,11 @@ A rising rate of `product_unavailable` rejections is exactly the kind of drift t
 ---
 
 ## 14) Changelog
+
+- **2026-10-11** — **Phase-1 status correction, post-merge review of #5384.** Three text corrections, no design change: the algebra (§3.1/§3.2), `require_authentication` (§3.4) and the per-customer override (§3.6) are unchanged, and the default-open/anonymous rules stay as written.
+  - **Phase 1 is a stub (§12).** Phase 1 shipped the shared library (`packages/shared/src/lib/catalog-visibility/`) and the `resolveAssortmentScope()` method only. `CustomerGroupTerms.assortment_scope` was never created and `groupOwnAssortmentScope()` returns `null` (`customerGroupsService.ts:109-111`), so every buyer resolves unrestricted regardless of membership. Phase 1 is split into **1a (shared contract, shipped)** and **1b (the column, its migration and the real resolver, not shipped)**, and 1b is now stated as a hard prerequisite of Phase 2 — Phase 2's buyer-context composition and its gate are vacuous while every group scope resolves to `null`.
+  - **Shipped `resolveAssortmentScope` signature recorded (§5.1/§5.2).** The method requires `tenantId` alongside `customerId`/`at`, and `sourceGroupIds` is every matching group `resolveGroups()` returns, not only the groups that contributed a non-null scope.
+  - **Property-based harness corrected (§3.3, §12).** `.ai/specs/2026-04-24-agentic-property-based-testing.md` is `Status: Draft` and `fast-check` is not installed in any workspace; the shipped shared-library tests use a seeded `mulberry32` generator.
 
 - **2026-09-16** — **Per-customer visibility pass.** §10's open question 2 ("per-customer override below the group level," previously recorded as a deliberate omission) was raised as a requirement by the user, in **both directions** — a named account must be grantable more than its groups allow and restrictable below them. Three decisions were taken and are now specified:
   - **Algebra (§3.6).** The override carries two independently nullable scopes, `grant_scope` (joins the OR-list, widens) and `restrict_scope` (intersected over every branch, narrows). Both reuse operators §3.3 already defines; there is no new type, no new operator, and no change to the read seam (§3.5), the cart write-side check (§6) or the digest (§6.1) — the whole composition happens inside `resolveAssortmentScope()`, which already returned a finished `EffectiveAssortmentScope`. An explicit `mode: 'extend' | 'replace'` column was considered and rejected: `restrict_scope = grant_scope` already produces replacement semantics, and a redundant mode flag is a second source of truth that can disagree with the scopes beside it. Two fields rather than one were chosen because a single scope's own `exclude*` keys would be genuinely ambiguous about whether they veto one branch or all of them.
