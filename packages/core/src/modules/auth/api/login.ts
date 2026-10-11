@@ -244,8 +244,6 @@ async function handleLoginRequest(req: Request) {
   // token and skip the outstanding second factor, so it is cleared alongside the swap.
   const authTokenReplacedByInterceptor = authTokenForCookie !== token
 
-  // Headers an after-interceptor set travel with the response, the same way `makeCrudRoute`
-  // applies them. Dropping them silently disabled the seam for every custom route that uses it.
   const res = NextResponse.json(interceptedBody, { status: interceptedResponse.statusCode, headers: interceptedResponse.headers })
   res.cookies.set('auth_token', authTokenForCookie, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: accessTokenMaxAgeSeconds })
   if (remember && refreshTokenForCookie) {

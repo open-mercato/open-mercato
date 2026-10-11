@@ -92,6 +92,9 @@ class InvalidInterceptorHeaderError extends Error {
  * `{ 'X-Foo': 'a' }` and `{ 'x-foo': 'b' }` survive as two distinct object keys and
  * `new Headers(obj)` APPENDS them into `x-foo: a, b` - a concatenation rather than the
  * last-wins collision rule `InterceptorAfterResult.headers` documents.
+ *
+ * Values are rejected on exactly what `new Headers()` rejects - NUL, CR, LF and code points
+ * above U+00FF - so the failure is attributed here and nothing it accepts starts failing.
  */
 function mergeResponseHeaders(
   current: Record<string, string>,
@@ -101,7 +104,7 @@ function mergeResponseHeaders(
   for (const [rawName, rawValue] of Object.entries(incoming)) {
     const name = String(rawName).toLowerCase()
     const value = String(rawValue)
-    if (!HEADER_NAME_PATTERN.test(name) || /[\0\r\n]/.test(value)) {
+    if (!HEADER_NAME_PATTERN.test(name) || /[\0\r\n]|[^\x00-\xFF]/.test(value)) {
       throw new InvalidInterceptorHeaderError(rawName)
     }
     merged[name] = value

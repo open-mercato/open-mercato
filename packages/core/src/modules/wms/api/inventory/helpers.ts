@@ -112,9 +112,6 @@ export async function executeWmsCustomPostRoute<TInput, TResult>(
         tenantId: auth.tenantId,
       },
     })
-    // One return for both outcomes: the runner already carries the interceptor's status,
-    // body and headers on the rejection path as well as the success one, so the branch that
-    // used to stand here had two byte-identical arms.
     return NextResponse.json(intercepted.body, { status: intercepted.statusCode, headers: intercepted.headers })
   } catch (error) {
     if (error instanceof CrudHttpError) {

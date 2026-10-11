@@ -11,7 +11,7 @@ depending on which family of route - and which wiring within that family - an ex
 attaches to, with no error either way.
 
 This adds an optional `headers` to `InterceptorAfterResult`, merges it in
-`runApiInterceptorsAfter`, passes the result through at the four custom-route call sites,
+`runApiInterceptorsAfter`, passes the result through at every custom-route call site,
 and closes the three factory success branches that dropped it. Purely additive: an
 interceptor that returns no `headers` behaves exactly as before.
 
@@ -26,7 +26,12 @@ interceptor that returns no `headers` behaves exactly as before.
   `packages/core/src/modules/wms/api/inventory/import/helpers.ts`,
   `packages/core/src/modules/wms/api/sales-orders/[salesOrderId]/warehouse-assignment/route.ts`
   — each forwards `intercepted.headers` on both the success and the interceptor-failure
-  response
+  response; and `packages/core/src/modules/staff/api/timesheets/_shared/withTimesheetInterceptors.ts`
+  (added on `develop` by #6932), whose `respond()` already forwarded them and whose
+  `respondWithDescriptor()` rejection branch now does too. That helper's success branch
+  returns a descriptor, not a response: the export route builds the file response with its
+  own `content-type` / `content-disposition`, and interceptor headers do not reach it. Whether
+  an interceptor may set headers on a file download is a separate decision, left open here.
 - **Changed (factory)**: `packages/shared/src/lib/crud/factory.ts` — the three command-backed
   `actions.*` success responses (POST create, PUT update, DELETE) now carry the after-interceptor
   headers. They forwarded them on the `!ok` branch only and built the success response without
@@ -119,12 +124,15 @@ current caller seeds `{}` or a single lower-case name, so normalising the seed c
 nothing observable today.
 
 **An invalid header fails through the runner's own attribution.** A name that is not an
-RFC 9110 token, or a value carrying NUL/CR/LF, does not throw in the merge — it throws later,
+RFC 9110 token, or a value carrying NUL/CR/LF or a code point above U+00FF, does not throw in the merge — it throws later,
 inside `new Headers()` at whichever call site builds the response, where the route's outer
 catch turns it into a generic 500 with no interceptor id. Every other way an interceptor can
 fail here is attributed (a throw becomes `toErrorBody(interceptor.id, error)`, a timeout a
 504 naming the interceptor), so the merge validates and throws into that same path. The
 status the caller sees is unchanged — it was already a 500 — and the id is no longer lost.
+The value check is exactly the set `new Headers()` rejects (measured on Node 24: NUL, LF, CR
+and anything above U+00FF; other control characters are accepted), so it never turns a
+response that works today into a failure.
 
 ### Both response paths
 
@@ -168,10 +176,12 @@ interceptor that opts in.
   by a higher-priority interceptor before a lower-priority one throws reaches the 500.
 - `packages/core/src/__tests__/after-interceptor-response-headers-coverage.test.ts` — a source
   sweep over every workspace: a file that calls either after-runner must forward `headers` on
-  every response it builds from the result. This is the guard for the four custom-route call
-  sites, which is a per-site obligation with nothing structural behind it — dropping the
-  forward produces no type error and no failing route test. It also fixes the scan against the
-  five known call sites, so a scan that silently matches nothing cannot pass vacuously.
+  every response it builds from the result, including a result bound through a local wrapper
+  (`const runAfter = async (...) => runCustomRouteAfterInterceptors(...)`). This is the guard
+  for the custom-route call sites, which is a per-site obligation with nothing structural
+  behind it — dropping the forward produces no type error and no failing route test. It also
+  fixes the scan against the six known call sites, so a scan that silently matches nothing
+  cannot pass vacuously, and a file it cannot follow fails with a message naming the file.
 
 Every assertion above was verified to be load-bearing by reverting the corresponding line
 alone and watching it fail:
@@ -182,6 +192,8 @@ alone and watching it fail:
 | `interceptor-runner.ts` normalise + validate | 4 `custom-route-interceptor.test.ts` cases |
 | `login.ts:230` (failure path) | the accumulated-header case — 16/16 passed before this change |
 | any wms `headers: intercepted.headers` | the coverage sweep |
+| `withTimesheetInterceptors.ts` rejection-branch `headers` (bound through `runAfter`) | the coverage sweep |
+| the runner's above-U+00FF value check | the Latin-1 case in `custom-route-interceptor.test.ts` |
 
 ## Risks & Impact Review
 
@@ -199,3 +211,4 @@ alone and watching it fail:
 |------|--------|
 | 2026-08-28 | `InterceptorAfterResult.headers` added; runner merges it; the four `runCustomRouteAfterInterceptors` call sites forward it on both response paths. |
 | 2026-09-10 | Review round 1. The three command-backed `makeCrudRoute` action success branches now forward the headers too (they were dropping them, which this change is what made a bug); header names merge case-insensitively; an invalid name or NUL/CR/LF value fails through the runner's attributed error instead of throwing unattributed at the call site; the wms callers' two byte-identical return arms collapsed to one; the login failure-path test made discriminating; a source-sweep coverage guard added; `packages/core/AGENTS.md` and `SPEC-041e-api-interceptors.md` corrected. |
+| 2026-10-11 | Review round 2, after merging current `develop`. The `packages/core/AGENTS.md` line is back to the length of the one it replaces, so the instruction-budget ratchet passes; the collision rule stays in the field's doc comment, and it and the `set-cookie` caveat stay in this spec. #6932's `withTimesheetInterceptors.ts` is the sixth call site: its descriptor rejection branch now forwards the headers, and the coverage guard follows a local runner wrapper and names the file when it cannot. Header values above U+00FF fail through the attributed path, matching `new Headers()` exactly. The narrative comments at the wms and login call sites are gone. |

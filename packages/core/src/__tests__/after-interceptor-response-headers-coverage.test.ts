@@ -16,13 +16,17 @@ import { join, relative, sep } from 'node:path'
  *
  * The rule: in a file that calls one of those runners, EVERY `NextResponse.json(...)` call that
  * mentions the result variable must also mention `<var>.headers`. A new caller that builds a
- * response from the interceptor result and drops its headers fails here.
+ * response from the interceptor result and drops its headers fails here. A result bound through
+ * a local wrapper (`const runAfter = async (...) => runCustomRouteAfterInterceptors(...)`) counts,
+ * so one level of indirection does not let a caller opt out.
  */
 
 const RUNNER_CALLS = ['runCustomRouteAfterInterceptors(', 'runApiInterceptorsAfter(']
 
-// `const <name> = await run…AfterInterceptors({` / `run…After({`
-const RESULT_BINDING = /(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*await\s+(?:runCustomRouteAfterInterceptors|runApiInterceptorsAfter)\s*\(/g
+const RUNNER_NAMES = 'runCustomRouteAfterInterceptors|runApiInterceptorsAfter'
+
+// The start of a local function, arrow or declaration, whose body may call a runner.
+const LOCAL_FUNCTION = /(?:(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*async\s*(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*(?::[^=]*)?=>|async\s+function\s+([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*(?::[^{]*)?)\s*/g
 
 const packagesDir = join(__dirname, '..', '..', '..')
 
@@ -54,6 +58,44 @@ function packageSourceRoots(): string[] {
     }
   }
   return roots
+}
+
+/** The source from `start` until the bracket opened there closes, or the end of an arrow expression. */
+function scanBody(source: string, start: number): string {
+  let depth = 0
+  let i = start
+  const block = source[start] === '{'
+  while (i < source.length) {
+    const ch = source[i]
+    if (ch === '(' || ch === '{' || ch === '[') depth += 1
+    else if (ch === ')' || ch === '}' || ch === ']') {
+      depth -= 1
+      if (depth === 0 && block) return source.slice(start, i + 1)
+      if (depth < 0) return source.slice(start, i)
+    } else if (!block && depth === 0 && (ch === '\n' || ch === ';' || ch === ',')) {
+      return source.slice(start, i)
+    }
+    i += 1
+  }
+  return source.slice(start)
+}
+
+/** Names of local functions in the file whose body calls a runner — one level of indirection. */
+function runnerWrappers(source: string): string[] {
+  const names: string[] = []
+  const callsRunner = new RegExp(`\\b(?:${RUNNER_NAMES})\\s*\\(`)
+  for (const match of source.matchAll(LOCAL_FUNCTION)) {
+    const name = match[1] ?? match[2]
+    if (name && callsRunner.test(scanBody(source, match.index! + match[0].length))) names.push(name)
+  }
+  return names
+}
+
+/** Variables bound to an awaited runner result, directly or through a local wrapper. */
+function resultVariables(source: string): string[] {
+  const callees = [RUNNER_NAMES, ...runnerWrappers(source)].join('|')
+  const binding = new RegExp(`(?:const|let)\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*await\\s+(?:${callees})\\s*\\(`, 'g')
+  return Array.from(new Set([...source.matchAll(binding)].map((match) => match[1])))
 }
 
 /** Every `NextResponse.json(` / `json(` argument list in the source, balanced-paren scanned. */
@@ -92,6 +134,7 @@ describe('after-interceptor response headers reach every caller\'s response', ()
       'core/src/modules/wms/api/inventory/import/helpers.ts',
       'core/src/modules/wms/api/sales-orders/[salesOrderId]/warehouse-assignment/route.ts',
       'core/src/modules/integrations/api/umes-read.ts',
+      'core/src/modules/staff/api/timesheets/_shared/withTimesheetInterceptors.ts',
     ]))
   })
 
@@ -99,8 +142,14 @@ describe('after-interceptor response headers reach every caller\'s response', ()
     files.map((file) => [relative(packagesDir, file).split(sep).join('/'), file] as const),
   )('%s forwards the interceptor headers on every response built from the result', (_name, file) => {
     const source = readFileSync(file, 'utf8')
-    const variables = [...source.matchAll(RESULT_BINDING)].map((match) => match[1])
-    expect(variables.length).toBeGreaterThan(0)
+    const variables = resultVariables(source)
+    if (!variables.length) {
+      throw new Error(
+        `${_name} calls an after-interceptor runner but binds no result this guard can follow. ` +
+        'Bind the runner result directly (`const after = await runCustomRouteAfterInterceptors(...)`), ' +
+        'or through a local wrapper whose body calls it, or extend resultVariables().',
+      )
+    }
 
     const offenders: string[] = []
     for (const call of responseCalls(source)) {

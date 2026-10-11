@@ -264,6 +264,7 @@ describe('runCustomRouteAfterInterceptors', () => {
   test.each([
     ['an invalid header name', { 'x foo': 'v' }],
     ['a value carrying CRLF', { 'x-foo': 'a\r\nx-injected: 1' }],
+    ['a value outside Latin-1', { 'x-foo': 'café €' }],
   ])('fails with the runner\'s attributed error on %s', async (_label, headers) => {
     registerApiInterceptors([
       {
@@ -288,6 +289,29 @@ describe('runCustomRouteAfterInterceptors', () => {
     expect(result.body.interceptorId).toBe('example.auth.login.header.invalid')
     // The bad header never reaches the response; the seeded ones survive for the failure path.
     expect(result.headers).toEqual({ 'x-test': '1' })
+  })
+
+  test('accepts a value that new Headers() accepts, so validation is no stricter than the response', async () => {
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.auth.login.header.latin1',
+            targetRoute: 'auth/login',
+            methods: ['POST'],
+            async after() {
+              return { headers: { 'x-foo': 'caf\u00e9\u0001' } }
+            },
+          },
+        ],
+      },
+    ])
+
+    const result = await runCustomRouteAfterInterceptors(buildArgs())
+    expect(result.ok).toBe(true)
+    expect(() => new Headers(result.headers)).not.toThrow()
+    expect(result.headers['x-foo']).toBe('caf\u00e9\u0001')
   })
 
   test('propagates interceptor exceptions as failed responses', async () => {

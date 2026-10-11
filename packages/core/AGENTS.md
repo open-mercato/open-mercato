@@ -425,7 +425,7 @@ Define route interceptors in `api/interceptors.ts` and export `interceptors`.
 - For CRUD list narrowing, prefer writing `query.ids` (comma-separated UUIDs). The CRUD factory merges/intersects `ids` with existing `id` filters.
 - Custom (non-CRUD) API routes are opt-in: call `runCustomRouteAfterInterceptors(...)` from `@open-mercato/shared/lib/crud/custom-route-interceptor`.
 - For unauthenticated custom routes (e.g. login), pass route-local context with empty identity values (`userId`, `tenantId`, `organizationId`) unless the route has a trusted authenticated principal.
-- Phase-1 custom-route contract supports `after` hooks only, with JSON body mutation (`merge`/`replace`) and response-header mutation (`headers`). Header names are matched case-insensitively and the last interceptor to run wins a collision; cookies only insofar as `set-cookie` is a header.
+- Phase-1 custom-route contract supports `after` hooks only: JSON body (`merge`/`replace`) and response `headers` (case-insensitive).
 
 ## Component Replacement
 
