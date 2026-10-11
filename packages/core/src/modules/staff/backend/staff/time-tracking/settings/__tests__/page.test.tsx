@@ -33,8 +33,12 @@ const mockTranslate = (
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({ useT: () => mockTranslate }))
 
+let mockScopeVersion = 1
+let mockScope: { tenantId: string | null; organizationId: string | null } = { tenantId: null, organizationId: null }
+
 jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
-  useOrganizationScopeVersion: () => 1,
+  useOrganizationScopeVersion: () => mockScopeVersion,
+  useOrganizationScopeDetail: () => mockScope,
 }))
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: jest.fn() }))
@@ -82,6 +86,8 @@ let reapplyResponse: unknown = { ok: true, progressJobId: 'job-1', candidateCoun
 
 const putBodies: unknown[] = []
 
+let putGate: Promise<void> | null = null
+
 function ok<T>(result: T) {
   return { ok: true, status: 200, result, response: {} as Response, cacheStatus: null }
 }
@@ -94,6 +100,7 @@ function installRouter() {
     if (url.includes('/timesheets/settings')) {
       if (init?.method === 'PUT') {
         putBodies.push(JSON.parse(String(init.body)))
+        if (putGate) await putGate
         return ok(JSON.parse(String(init.body))) as never
       }
       return ok(settings) as never
@@ -112,6 +119,9 @@ beforeEach(() => {
   jest.clearAllMocks()
   jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask'] })
   putBodies.length = 0
+  putGate = null
+  mockScopeVersion = 1
+  mockScope = { tenantId: null, organizationId: null }
   settings = {
     rounding: { unitMinutes: 15, direction: 'up' },
     defaults: { billable: true, chainStartFromPreviousEnd: true },
@@ -214,6 +224,85 @@ describe('time tracking settings page', () => {
 
     fireEvent.change(screen.getByLabelText('Daily hours target'), { target: { value: '6' } })
     expect(screen.getByTestId('save-settings')).not.toBeDisabled()
+  })
+
+  it('keeps an unsaved edit and its Save state when the organization scope settles after the first load', async () => {
+    const view = renderPage()
+    await waitFor(() => expect(screen.getByTestId('rounding-examples')).toBeInTheDocument())
+
+    fireEvent.change(screen.getByLabelText('Daily hours target'), { target: { value: '6' } })
+    expect(screen.getByTestId('save-settings')).not.toBeDisabled()
+
+    settings = { ...settings, targets: { dailyHours: 5 } }
+    mockScope = { tenantId: 'tenant-a', organizationId: 'org-a' }
+    mockScopeVersion = 2
+    view.rerender(<TimeTrackingSettingsPage />)
+    await waitFor(() => {
+      const settingsGets = mockApiCall.mock.calls.filter(([url, init]) =>
+        String(url).endsWith('/timesheets/settings') && init?.method !== 'PUT')
+      expect(settingsGets).toHaveLength(2)
+    })
+    await waitFor(() => expect(screen.getByTestId('save-settings')).not.toBeDisabled())
+
+    expect(screen.getByLabelText('Daily hours target')).toHaveValue('6')
+  })
+
+  it('re-seeds a dirty draft when the scope changes to a different tenant', async () => {
+    mockScope = { tenantId: 'tenant-a', organizationId: 'org-a' }
+    const view = renderPage()
+    await waitFor(() => expect(screen.getByTestId('rounding-examples')).toBeInTheDocument())
+
+    fireEvent.change(screen.getByLabelText('Daily hours target'), { target: { value: '6' } })
+    expect(screen.getByTestId('save-settings')).not.toBeDisabled()
+
+    settings = { ...settings, targets: { dailyHours: 5 } }
+    mockScope = { tenantId: 'tenant-b', organizationId: 'org-b' }
+    mockScopeVersion = 2
+    view.rerender(<TimeTrackingSettingsPage />)
+
+    await waitFor(() => expect(screen.getByLabelText('Daily hours target')).toHaveValue('5'))
+    expect(screen.getByTestId('save-settings')).toBeDisabled()
+  })
+
+  it('does not apply a save response that resolves after the tenant scope changed', async () => {
+    mockScope = { tenantId: 'tenant-a', organizationId: 'org-a' }
+    const view = renderPage()
+    await waitFor(() => expect(screen.getByTestId('rounding-examples')).toBeInTheDocument())
+
+    fireEvent.change(screen.getByLabelText('Daily hours target'), { target: { value: '6' } })
+    let releasePut: () => void = () => undefined
+    putGate = new Promise<void>((resolve) => {
+      releasePut = resolve
+    })
+    fireEvent.click(screen.getByTestId('save-settings'))
+    await waitFor(() => expect(putBodies).toHaveLength(1))
+
+    settings = { ...settings, targets: { dailyHours: 5 } }
+    mockScope = { tenantId: 'tenant-b', organizationId: 'org-b' }
+    mockScopeVersion = 2
+    view.rerender(<TimeTrackingSettingsPage />)
+    await waitFor(() => expect(screen.getByLabelText('Daily hours target')).toHaveValue('5'))
+
+    releasePut()
+    await waitFor(() => expect(screen.getByTestId('save-settings')).toBeDisabled())
+    await waitFor(() => {
+      const settingsGets = mockApiCall.mock.calls.filter(([url, init]) =>
+        String(url).endsWith('/timesheets/settings') && init?.method !== 'PUT')
+      expect(settingsGets).toHaveLength(3)
+    })
+    expect(screen.getByLabelText('Daily hours target')).toHaveValue('5')
+  })
+
+  it('re-seeds a pristine form when the organization scope changes', async () => {
+    const view = renderPage()
+    await waitFor(() => expect(screen.getByTestId('rounding-examples')).toBeInTheDocument())
+
+    settings = { ...settings, targets: { dailyHours: 5 } }
+    mockScopeVersion = 2
+    view.rerender(<TimeTrackingSettingsPage />)
+
+    await waitFor(() => expect(screen.getByLabelText('Daily hours target')).toHaveValue('5'))
+    expect(screen.getByTestId('save-settings')).toBeDisabled()
   })
 
   it('keeps an emptied daily target as a real null', async () => {
