@@ -59,6 +59,8 @@ due date is computed elsewhere still get reminders and breach handling.
 
 ## Progress
 
+PR: #7189
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Engine
