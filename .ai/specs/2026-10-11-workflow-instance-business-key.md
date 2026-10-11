@@ -85,14 +85,17 @@ for it again (the run is already advancing, parked, or finished). Through DI the
 
 ### Algorithm (key present)
 
-1. Validate the definition exactly as today (not found / disabled / engine version / pre-conditions).
+1. Validate the key (trimmed, 1..255, not on a dry run → `INVALID_BUSINESS_KEY`).
 2. Read the latest instance with `(tenant, org, workflowId, businessKey)`, not deleted. If it is open,
-   return it. If it ended, return it unless the policy permits reuse for its status.
-3. Insert inside `em.transactional` (a SAVEPOINT when the caller already holds a transaction). On a
+   return it. If it ended, return it unless the policy permits reuse for its status. This happens
+   BEFORE definition validation on purpose: a redelivered start gets its instance back even if the
+   definition was disabled since.
+3. Validate the definition exactly as today (not found / disabled / engine version / pre-conditions).
+4. Insert inside `em.transactional` (a SAVEPOINT when the caller already holds a transaction). On a
    unique violation (a concurrent start won), the savepoint rolls back — the caller's transaction is
    not poisoned — and the latest keyed instance is re-read and returned with `created: false`.
    Postgres makes the losing insert wait for the winner's commit, so the re-read sees it.
-4. Only a created instance logs `WORKFLOW_STARTED` and emits `workflows.instance.created/started`.
+5. Only a created instance logs `WORKFLOW_STARTED` and emits `workflows.instance.created/started`.
 
 `reusePolicy` without `businessKey` is ignored. Starts without a key run the unchanged code path.
 
