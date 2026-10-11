@@ -238,7 +238,8 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
   never-flushed `em.fork()`, ONLY when visibility already allows completion, and feeds the veto into
   `resolveTaskAffordances` (`actBlockedReason: 'completion-guard'` + `completionGuard`). The portal
   detail/complete routes apply the same preview and 409 mapping — a new task surface MUST too.
-- **Fail closed** (`COMPLETION_GUARD_FAILED` on a throw, `TASK_COMPLETION_BLOCKED` on a code-less veto);
+- **Fail closed** (`COMPLETION_GUARD_FAILED` on a throw — also reported via `reportError` as
+  `workflows.task_completion_guard_failed` — `TASK_COMPLETION_BLOCKED` on a code-less veto);
   **zero cost** when nothing is registered — the handler loads nothing extra. MUST NOT bypass this by
   completing a `UserTask` row directly (`closeAgentDispositionTask` is the documented non-advancing
   exception). Spec: `.ai/specs/2026-10-11-workflows-task-completion-guards.md`.

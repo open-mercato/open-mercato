@@ -55,7 +55,7 @@ export type TaskCompletionGuardResult =
 ### Evaluation semantics
 
 - Guards are filtered by selector (every declared selector must match) and run in `priority` order; the **first** veto wins.
-- **Fail closed:** a guard that throws, or returns anything other than `{ ok: true }`, blocks. A throw yields code `COMPLETION_GUARD_FAILED` and is logged; the original error is never echoed to the caller.
+- **Fail closed:** a guard that throws, or returns anything other than `{ ok: true }`, blocks. A throw yields code `COMPLETION_GUARD_FAILED`, is logged and is reported through the telemetry runtime (`reportError`, code `workflows.task_completion_guard_failed`); the original error is never echoed to the caller.
 - An empty or non-string `code` falls back to `TASK_COMPLETION_BLOCKED`.
 - When no guard is registered, the evaluator returns immediately without loading the instance/definition.
 
@@ -117,14 +117,19 @@ No entity or migration change.
 | `GET /api/workflows/tasks/[id]` `canComplete:false` + `completionGuard`, no mutation | `api/__tests__/taskDetail.route.test.ts` |
 | Task detail notice renders the guard message | `backend/tasks/__tests__/taskDetailPage.test.tsx` |
 | Portal detail `canComplete:false` + `completionGuard`; portal complete veto → 409 | `api/__tests__/portalTasks.route.test.ts` |
+| A throwing guard is reported via `reportError` (`workflows.task_completion_guard_failed`), a telemetry sink failure never changes the 409, a veto is never reported | `lib/__tests__/task-completion-guards.test.ts` |
+| **Integration** — backoffice `GET /api/workflows/tasks/[id]` + `POST .../complete`: veto (409 guard body, `canComplete:false`, `actBlockedReason:'completion-guard'`, `completionGuard`, task stays `PENDING`), pass (200, `COMPLETED`), throw (409 `COMPLETION_GUARD_FAILED`, message not leaked) | `__integration__/TC-WF-070.spec.ts` |
+| **Integration** — portal `GET /api/workflows/portal/tasks/[id]` + `POST .../complete`: veto / pass / throw, same assertions on the portal body | `__integration__/TC-WF-070.spec.ts` |
+| **Integration** — `POST /api/notifications/[id]/action` (`complete` → `workflows.tasks.complete`): veto / pass / throw, a vetoed action is not marked `actioned` | `__integration__/TC-WF-070.spec.ts` |
+| **Integration (UI)** — `/backend/tasks/[id]` under a veto: the `task-act-blocked` notice carries the guard's message key and `task-reassign` stays visible | `__integration__/TC-WF-070.spec.ts` |
 
-Guards are registered only by host modules; no shipped module registers one, so a Playwright scenario would need a test-only module. The unit/route coverage above exercises every path end to end at the handler boundary.
+The integration spec drives a test-only guard fixture in `apps/mercato/src/modules/example/workflows.ts` (mirrored into the create-app template), registered only when the integration runner sets `OM_INTEGRATION_TEST=true` and selected by `formKey`s only TC-WF-070 authors (`example.tc_wf_070.veto|pass|throw`), so development, production and every other spec see no guard.
 
 ## Risks & Impact Review
 
 | Scenario | Severity | Area | Mitigation | Residual |
 | --- | --- | --- | --- | --- |
-| Guard throws or times out the request | High | every completion | Fail closed with `COMPLETION_GUARD_FAILED`, logged | A broken guard blocks its own workflows until fixed — intended |
+| Guard throws or times out the request | High | every completion | Fail closed with `COMPLETION_GUARD_FAILED`, logged and reported through `reportError` (`workflows.task_completion_guard_failed`) | A broken guard blocks its own workflows until fixed — intended |
 | Guard mutates state during preview | Medium | task detail GET | Forked EM, never flushed; contract documents read-only | A guard doing its own raw writes is a host bug |
 | Extra queries on every completion | Low | performance | Zero-guard fast path; target loaded only when guards exist | One instance/definition read per guarded completion |
 | Old client sees unknown `completion-guard` reason | Low | UI | `describeTaskActionBlock` already renders unknown reasons as `unavailable` | None |
@@ -141,3 +146,4 @@ Guards are registered only by host modules; no shipped module registers one, so 
 
 - 2026-10-11: Initial spec and implementation (issue #7178).
 - 2026-10-11: Review pass — extended the preview and the 409 mapping to the customer-portal task routes.
+- 2026-10-11: Maintainer review — a throwing guard is reported through the telemetry runtime (`workflows.task_completion_guard_failed`); added the OM_INTEGRATION_TEST-gated example guard fixture and TC-WF-070 integration coverage (backoffice, portal, notification quick action, task detail notice + Reassign).

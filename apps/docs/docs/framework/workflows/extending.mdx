@@ -297,7 +297,7 @@ Contract notes:
 - **Selectors** — every declared selector (`workflowId`, `stepId`, `formKey`) must match; an omitted one matches anything. They are resolved from the instance's pinned definition, never from the request.
 - **Portal** — the customer-portal task detail and complete routes honour the same guards: the assignee's form closes with the host's message, and a veto answers `409 { ok: false, code, guardId, messageKey }`.
 - **Veto** — the first vetoing guard (lowest `priority`, default 50) wins. Every completion path answers `409 { error, code, guardId, messageKey }` with the guard's own `code`; a direct `taskHandler.completeUserTask` call throws `TaskCompletionBlockedError` (a `UserTaskError` whose `code` is the guard's code).
-- **Fail closed** — a guard that throws, or answers anything other than `{ ok: true }`, blocks. A throw yields `COMPLETION_GUARD_FAILED` and is logged; the error itself is never returned to the caller.
+- **Fail closed** — a guard that throws, or answers anything other than `{ ok: true }`, blocks. A throw yields `COMPLETION_GUARD_FAILED`, is logged and is reported through `reportError` with the stable code `workflows.task_completion_guard_failed` (see [Error Reporting](../runtime/error-reporting.mdx)); the error itself is never returned to the caller.
 - **Read-only** — `mode` is `complete` inside the handler and `preview` on the task detail, where the guard receives a forked `EntityManager` that is never flushed. Never write from a guard.
 - **Trusted scope** — `tenantId` / `organizationId` come from the already scoped task row.
 - **No guard, no change** — with nothing registered the handler skips the evaluation entirely.
