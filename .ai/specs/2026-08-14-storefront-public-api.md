@@ -74,7 +74,7 @@ apps/storefront ──HTTP──► /api/ecommerce/storefront/*   (this spec)
                                     │
                                     ├─ translations: batch overlay helpers
                                     │
-                                    ├─ availability: availabilityService.check()
+                                    ├─ availability: resolveAvailability(query, { moduleConfig, container })
                                     │
                                     ├─ search: SearchModuleConfig (phase 2)
                                     │
@@ -660,7 +660,7 @@ Query counts are asserted in tests. A per-item query is a defect regardless of w
 - Unsupported locale falls back with both `requestedLocale` and `effectiveLocale` returned
 
 **Availability:**
-- State comes from `availabilityService`; a `wms`-less environment returns `not_tracked` throughout
+- State comes from `resolveAvailability()`; a `wms`-less environment returns `not_tracked` throughout
 - `availability=in_stock` filter excludes backorder; `available` includes it
 
 **Search:**
@@ -750,6 +750,9 @@ Phase 4 is independent of Phases 2 and 3 and can ship alongside either — it to
 ---
 
 ## 16) Changelog
+
+### 2026-10-11 — availability entry point
+- **§3.1 and §12 name the real availability read call.** The `availabilityService` DI key does not exist; the read contract is `resolveAvailability(query, { moduleConfig, container })` in `packages/shared` (§4.1a of [Availability Contract](./2026-08-14-availability-contract.md)). The reuse diagram and the availability acceptance bullet are updated to it. Recorded from the post-merge review of #5384.
 
 ### 2026-09-16 (b) — buyer-scoped read-path amendments
 - **§6.1 now requires `buildPriceRowFilter`** rather than a fetch by product id, and R13 records why: `selectBestPrice` is pure over whatever rows the caller fetched, and the only indexes on `catalog_product_variant_prices` are by product/variant, so a listing page under contract pricing loads every contracted customer's rows for every product on it. §10's ≤ 12-query budget does not catch this — the query count is unchanged — so §12 now asserts a row count, not only a query count.
