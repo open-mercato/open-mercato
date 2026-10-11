@@ -66,9 +66,11 @@ export type {
 export {
   taskPrioritySchema,
   taskDeadlineSchema,
+  taskDurationDeadlineSchema,
   taskReminderSchema,
+  TASK_DEADLINE_AT_ERROR,
 } from './task-primitives'
-export type { TaskPriority, TaskDeadline, TaskReminder } from './task-primitives'
+export type { TaskPriority, TaskDeadline, TaskDurationDeadline, TaskReminder } from './task-primitives'
 
 const uuid = z.uuid()
 

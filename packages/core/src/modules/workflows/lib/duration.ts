@@ -147,6 +147,49 @@ export function calculateDueDate(duration: string, from: Date = new Date()): Dat
   return new Date(from.getTime() + parseDuration(duration))
 }
 
+const ISO_DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/
+const ISO_DATE_TIME =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2})$/
+
+function isCalendarDate(year: number, month: number, day: number): boolean {
+  if (month < 1 || month > 12 || day < 1) return false
+  return day <= new Date(Date.UTC(year, month, 0)).getUTCDate()
+}
+
+/**
+ * Parse an ABSOLUTE deadline (`userTaskConfig.deadline.at`, already
+ * interpolated) into an instant, or `null` when it is not one.
+ *
+ * Deliberately strict, because a deadline the author got wrong must surface
+ * rather than quietly become some other date:
+ * - an ISO date (`2026-10-20`) means the END of that day in UTC
+ *   (`23:59:59.999Z`) — "due on the 20th" is not breached at its first minute;
+ * - an ISO datetime MUST carry `Z` or an explicit offset, because a naive one
+ *   would be read in whatever timezone the worker process happens to run in;
+ * - a `Date` instance is accepted as-is (a context value set in-process);
+ * - anything else — free text, an impossible calendar date (`2026-02-30`),
+ *   a template that did not resolve, an empty value — is `null`.
+ */
+export function parseAbsoluteDeadline(value: unknown): Date | null {
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value
+  if (typeof value !== 'string') return null
+  const text = value.trim()
+
+  const dateOnly = ISO_DATE_ONLY.exec(text)
+  if (dateOnly) {
+    const [year, month, day] = dateOnly.slice(1, 4).map(Number)
+    if (!isCalendarDate(year, month, day)) return null
+    return new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999))
+  }
+
+  const dateTime = ISO_DATE_TIME.exec(text)
+  if (!dateTime) return null
+  const [year, month, day, hour, minute, second] = dateTime.slice(1, 7).map((part) => Number(part ?? 0))
+  if (!isCalendarDate(year, month, day) || hour > 23 || minute > 59 || second > 59) return null
+  const instant = new Date(text)
+  return Number.isNaN(instant.getTime()) ? null : instant
+}
+
 export function calculateWaitDelayMs(config: { duration?: string; until?: string }): number {
   if (config.until) {
     const targetDate = new Date(config.until)

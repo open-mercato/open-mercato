@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { parseAbsoluteDeadline } from '../lib/duration'
 
 /**
  * The smallest pieces of the §6.1 task vocabulary — priority, deadline and
@@ -19,15 +20,61 @@ import { z } from 'zod'
 export const taskPrioritySchema = z.enum(['low', 'medium', 'high', 'extreme'])
 export type TaskPriority = z.infer<typeof taskPrioritySchema>
 
+export const TASK_DEADLINE_AT_ERROR =
+  'Deadline "at" must be an ISO date (YYYY-MM-DD) or an ISO datetime with a timezone offset or Z'
+
 /**
- * Business-word deadline, anchored to task creation. A strict superset of
- * `slaDuration`: an object so the anchor and later qualifiers have somewhere to
- * live, while `slaDuration` keeps working forever as the bare-duration form.
+ * Business-word deadline. A strict superset of `slaDuration`: an object so the
+ * anchor and later qualifiers have somewhere to live, while `slaDuration` keeps
+ * working forever as the bare-duration form.
+ *
+ * Exactly one form per deadline:
+ * - `duration` — anchored to task creation (e.g. `P3D`);
+ * - `at` — an ABSOLUTE ISO date or datetime, usually interpolated from the run
+ *   context (`{{context.dueDate}}`), for deadlines computed elsewhere. Resolved
+ *   once, at task creation, by `resolveTaskDeadline` (`lib/task-resolution.ts`).
+ *   A literal is validated here; a template is validated once it resolves.
  */
-export const taskDeadlineSchema = z.object({
+export const taskDeadlineSchema = z
+  .object({
+    duration: z.string().min(1).optional(),
+    at: z.string().min(1).optional(),
+  })
+  .superRefine((deadline, ctx) => {
+    const hasDuration = deadline.duration !== undefined
+    const hasAt = deadline.at !== undefined
+    if (hasDuration && hasAt) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['at'],
+        message: 'A deadline is either a duration or an absolute "at", not both',
+      })
+    } else if (!hasDuration && !hasAt) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['duration'],
+        message: 'A deadline needs a duration or an absolute "at"',
+      })
+    } else if (deadline.at !== undefined && !deadline.at.includes('{{') && !parseAbsoluteDeadline(deadline.at)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['at'],
+        message: TASK_DEADLINE_AT_ERROR,
+      })
+    }
+  })
+export type TaskDeadline = z.infer<typeof taskDeadlineSchema>
+
+/**
+ * The duration-only deadline — the shape `taskDeadlineSchema` had before `at`.
+ * The Invoke Agent disposition review (§7.5) keeps it: its deadline is resolved
+ * by the agent bridge as a duration, so accepting an `at` there would be config
+ * the engine silently ignores.
+ */
+export const taskDurationDeadlineSchema = z.object({
   duration: z.string().min(1),
 })
-export type TaskDeadline = z.infer<typeof taskDeadlineSchema>
+export type TaskDurationDeadline = z.infer<typeof taskDurationDeadlineSchema>
 
 /** Nudge fired `offset` before the deadline. */
 export const taskReminderSchema = z.object({

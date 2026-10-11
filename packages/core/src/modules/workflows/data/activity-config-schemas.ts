@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { parseDuration } from '../lib/duration'
 import {
-  taskDeadlineSchema,
+  taskDurationDeadlineSchema,
   taskPrioritySchema,
   taskReminderSchema,
 } from './task-primitives'
@@ -141,7 +141,7 @@ export const agentReviewConfigSchema = z.object({
   assignedTo: z.string().optional(),
   assignedToRoles: z.array(z.string()).optional(),
   priority: taskPrioritySchema.optional(),
-  deadline: taskDeadlineSchema.optional(),
+  deadline: taskDurationDeadlineSchema.optional(),
   reminders: z.array(taskReminderSchema).optional(),
   onBreach: agentReviewOnBreachSchema.optional(),
 })
