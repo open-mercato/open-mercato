@@ -151,9 +151,15 @@ const ISO_DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/
 const ISO_DATE_TIME =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2})$/
 
+function utcDate(year: number, monthIndex: number, day: number, hours = 0, minutes = 0, seconds = 0, ms = 0): Date {
+  const date = new Date(Date.UTC(2000, 0, 1, hours, minutes, seconds, ms))
+  date.setUTCFullYear(year, monthIndex, day)
+  return date
+}
+
 function isCalendarDate(year: number, month: number, day: number): boolean {
   if (month < 1 || month > 12 || day < 1) return false
-  return day <= new Date(Date.UTC(year, month, 0)).getUTCDate()
+  return day <= utcDate(year, month, 0).getUTCDate()
 }
 
 /**
@@ -179,7 +185,7 @@ export function parseAbsoluteDeadline(value: unknown): Date | null {
   if (dateOnly) {
     const [year, month, day] = dateOnly.slice(1, 4).map(Number)
     if (!isCalendarDate(year, month, day)) return null
-    return new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999))
+    return utcDate(year, month - 1, day, 23, 59, 59, 999)
   }
 
   const dateTime = ISO_DATE_TIME.exec(text)

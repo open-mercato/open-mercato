@@ -982,6 +982,7 @@ async function handleUserTaskStep(
   const instructions = resolveTaskText(userTaskConfig.instructions, interpolate)
   const decisions = resolveTaskDecisions(userTaskConfig.decisions, interpolate)
   const deadline = resolveTaskDeadline(userTaskConfig, interpolate)
+  const dueDate = deadline ? resolveUserTaskDeadline(stepDef.stepId, deadline) : null
 
   // Create user task
   const now = new Date()
@@ -1008,9 +1009,7 @@ async function handleUserTaskStep(
         ...(bindings.length ? { entityBindings: bindings } : {}),
         ...(decisions.length ? { decisions } : {}),
         ...(deadline?.kind === 'duration' ? { deadlineDuration: deadline.duration } : {}),
-        ...(deadline?.kind === 'at'
-          ? { deadlineAt: deadline.dueDate ? deadline.dueDate.toISOString() : String(deadline.resolved) }
-          : {}),
+        ...(deadline?.kind === 'at' && dueDate ? { deadlineAt: dueDate.toISOString() } : {}),
       },
       tenantId: instance.tenantId,
       organizationId: instance.organizationId,
@@ -1053,7 +1052,7 @@ async function handleUserTaskStep(
     // Null for a task about nothing, which is what the vacuous-pass rule reads.
     entityTypes: bindings.length ? collectResolvedEntityTypes(bindings) : null,
     priority: userTaskConfig.priority ?? null,
-    dueDate: deadline ? resolveUserTaskDeadline(stepDef.stepId, deadline) : null,
+    dueDate,
     tenantId: instance.tenantId,
     organizationId: instance.organizationId,
     createdAt: now,

@@ -36,6 +36,12 @@ describe('parseAbsoluteDeadline', () => {
     expect(parseAbsoluteDeadline(instant)).toBe(instant)
   })
 
+  test('years before 0100 are not remapped to the 1900s', () => {
+    expect(parseAbsoluteDeadline('0050-01-01')?.toISOString()).toBe('0050-01-01T23:59:59.999Z')
+    expect(parseAbsoluteDeadline('0000-02-29')?.toISOString()).toBe('0000-02-29T23:59:59.999Z')
+    expect(parseAbsoluteDeadline('0050-01-01T10:00:00Z')?.toISOString()).toBe('0050-01-01T10:00:00.000Z')
+  })
+
   test('anything that is not an unambiguous instant is refused', () => {
     expect(parseAbsoluteDeadline('2026-10-20T15:00:00')).toBeNull()
     expect(parseAbsoluteDeadline('2026-02-30')).toBeNull()
@@ -152,7 +158,11 @@ describe('USER_TASK creation with deadline.at', () => {
     scheduleMock.mockClear()
   })
 
-  async function runUserTask(userTaskConfig: Record<string, unknown>, workflowContext: Record<string, unknown>) {
+  async function runUserTask(
+    userTaskConfig: Record<string, unknown>,
+    workflowContext: Record<string, unknown>,
+    options: { isDryRun?: boolean } = {}
+  ) {
     const mockEm = {
       findOne: jest.fn(),
       find: jest.fn(),
@@ -189,6 +199,7 @@ describe('USER_TASK creation with deadline.at', () => {
       tenantId,
       organizationId,
       startedAt: new Date(),
+      ...(options.isDryRun ? { isDryRun: true } : {}),
     }
 
     mockEm.findOne.mockResolvedValue(definition as WorkflowDefinition)
@@ -201,8 +212,9 @@ describe('USER_TASK creation with deadline.at', () => {
       workflowContext,
     })
     const calls = (mockEm.create as jest.Mock).mock.calls as Array<[unknown, Record<string, any>]>
-    const task = calls.find(([, payload]) => 'taskName' in payload)?.[1]
-    return { result, task }
+    const task = calls.find(([, payload]) => 'taskName' in payload && !('eventType' in payload))?.[1]
+    const simulated = calls.find(([, payload]) => payload.eventType === 'USER_TASK_SIMULATED')?.[1]
+    return { result, task, simulated }
   }
 
   test('the task is due at the interpolated instant and SLA jobs are scheduled against it', async () => {
@@ -243,6 +255,37 @@ describe('USER_TASK creation with deadline.at', () => {
     expect(result.status).toBe('FAILED')
     expect(result.error).toContain(`resolved to "${'x'.repeat(64)}…"`)
     expect(result.error).not.toContain('x'.repeat(65))
+  })
+
+  test('a dry run with an unresolved context value fails like a real run', async () => {
+    const { result, task, simulated } = await runUserTask({ deadline: { at: '{{context.dueAt}}' } }, {}, { isDryRun: true })
+
+    expect(result.status).toBe('FAILED')
+    expect(result.error).toContain('{{context.dueAt}}')
+    expect(result.error).toContain('ISO date')
+    expect(task).toBeUndefined()
+    expect(simulated).toBeUndefined()
+  })
+
+  test('a dry run with an unparseable value fails like a real run', async () => {
+    const { result, simulated } = await runUserTask({ deadline: { at: '{{context.dueAt}}' } }, { dueAt: 'soon' }, { isDryRun: true })
+
+    expect(result.status).toBe('FAILED')
+    expect(result.error).toContain('resolved to "soon"')
+    expect(simulated).toBeUndefined()
+  })
+
+  test('a dry run logs the resolved instant and raises no task', async () => {
+    const { result, task, simulated } = await runUserTask(
+      { deadline: { at: '{{context.dueAt}}' } },
+      { dueAt: '2099-10-20' },
+      { isDryRun: true }
+    )
+
+    expect(result.status).toBe('WAITING')
+    expect(task).toBeUndefined()
+    expect(simulated?.eventData).toMatchObject({ deadlineAt: '2099-10-20T23:59:59.999Z' })
+    expect(scheduleMock).not.toHaveBeenCalled()
   })
 
   test('regression: a duration deadline still anchors to task creation', async () => {
