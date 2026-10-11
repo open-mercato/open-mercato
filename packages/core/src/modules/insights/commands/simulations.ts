@@ -32,8 +32,8 @@ import { computeSimulationInputsHash } from '../lib/simulation/hash'
 import {
   SimulationAccessLogUnavailableError,
   createServiceResolver,
+  resolveSimulationOrganizationIds,
   runInlineSimulation,
-  simulationScopeOrganizationIds,
   writeSimulationAccessLog,
 } from '../lib/simulation/inline'
 import { settleSimulationProgress } from '../lib/simulation/jobs'
@@ -118,6 +118,7 @@ type InlineRequest = {
   userId: string
   artifactId: string | null
   artifactVersion: { updatedAt: string | null; fingerprint: string | null } | null
+  runFeatures: string[]
   hasFeatures: ReturnType<typeof createFeatureCheck>
   resolve: ReturnType<typeof createServiceResolver>
 }
@@ -125,7 +126,8 @@ type InlineRequest = {
 /**
  * An `inline` kind (S8/S12): the access-log row first when the kind declares one (fail closed: 503
  * `access_log_unavailable`, nothing is computed), then the kind's single read-only slice in this
- * process within the requester's organization scope, then the run stored at once as `completed`
+ * process over the run organization's subtree where the requester holds the run's features (D10),
+ * then the run stored at once as `completed`
  * (k-suppressed result, the kind's TTL, no job, no dedupe: every request is a fresh preview of the
  * live state).
  */
@@ -148,13 +150,18 @@ async function executeInlineRequest(ctx: CommandRuntimeContext, request: InlineR
     }
   }
   const rootEm = ctx.container.resolve('em') as EntityManager
+  const organizationIds = await resolveSimulationOrganizationIds(ctx.container, resolveEm(ctx), {
+    userId: request.userId,
+    scope,
+    requiredFeatures: request.runFeatures,
+  })
   const outcome = await runInlineSimulation(ctx.container, rootEm, {
     definition,
     input: request.proposal,
     scope,
     requesterUserId: request.userId,
     artifactId: request.artifactId,
-    organizationIds: simulationScopeOrganizationIds(ctx.organizationScope, scope.organizationId),
+    organizationIds,
     hasFeatures: request.hasFeatures,
     resolve: request.resolve,
     now: Date.now,
@@ -250,6 +257,7 @@ const requestSimulationCommand: CommandHandler<SimulationRequestCommandInput, Si
         userId: input.userId,
         artifactId,
         artifactVersion,
+        runFeatures,
         hasFeatures,
         resolve,
       })

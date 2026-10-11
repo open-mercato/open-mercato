@@ -1,5 +1,6 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { sql } from 'kysely'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
@@ -10,6 +11,8 @@ import type {
   SimulationScope,
   SimulationServiceResolver,
 } from '@open-mercato/shared/modules/insights/simulate'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
+import { compareCodeUnits } from '../process/registry'
 import { SIMULATION_LIMITS } from './constants'
 import { createAuditScanner, createRecordHistoryReader, withPastValuePolicy } from './context'
 import {
@@ -37,18 +40,70 @@ export function createServiceResolver(container: Resolver): SimulationServiceRes
   }
 }
 
+type FeatureOrganizationCandidate = { id: string; ancestorIds?: readonly string[] | null }
+
+type FeatureOrganizationResolver = {
+  resolveFeatureOrganizationAccess: (
+    userId: string,
+    required: readonly string[],
+    input: { tenantId: string | null },
+  ) => Promise<{ unrestricted: boolean; filterOrganizationIds: (organizations: readonly FeatureOrganizationCandidate[]) => string[] }>
+}
+
+function resolveFeatureOrganizationResolver(container: Resolver): FeatureOrganizationResolver | null {
+  try {
+    const rbac = container.resolve('rbacService') as Partial<FeatureOrganizationResolver> | undefined
+    return rbac && typeof rbac.resolveFeatureOrganizationAccess === 'function' ? rbac as FeatureOrganizationResolver : null
+  } catch {
+    return null
+  }
+}
+
+function organizationIdList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string' && id.length > 0) : []
+}
+
 /**
- * The organizations a kind may read live for a requester (D10): the request's allowed
- * organizations (`null` = every organization of the tenant, `[]` = none); without a resolved
- * request scope, only the run's own organization.
+ * The organizations a kind may read live for a requester (D10): the run's organization and its
+ * descendants, narrowed to those where the requester holds every one of `requiredFeatures` (the
+ * kind's, plus its live-records features on a records read) through the wildcard-aware
+ * `rbacService.resolveFeatureOrganizationAccess` — the check `resolveFeatureCheckContext` narrows
+ * a scope with. Never another organization the requester may access through a different role.
+ * Fails closed: `[]` without the RBAC service or a live run organization.
  */
-export function simulationScopeOrganizationIds(
-  organizationScope: { allowedIds?: string[] | null } | null | undefined,
-  organizationId: string,
-): string[] | null {
-  if (!organizationScope) return [organizationId]
-  if (organizationScope.allowedIds === null) return null
-  return Array.isArray(organizationScope.allowedIds) ? organizationScope.allowedIds.map((id) => id.toLowerCase()) : [organizationId]
+export async function resolveSimulationOrganizationIds(
+  container: Resolver,
+  em: EntityManager,
+  params: { userId: string; scope: SimulationScope; requiredFeatures: readonly string[] },
+): Promise<string[]> {
+  const rbac = resolveFeatureOrganizationResolver(container)
+  if (!rbac) return []
+  const tenantId = params.scope.tenantId
+  const decryptionScope = { tenantId, organizationId: null }
+  const root = await findOneWithDecryption(
+    em,
+    Organization,
+    { id: params.scope.organizationId, tenant: tenantId, deletedAt: null } as FilterQuery<Organization>,
+    { fields: ['id', 'descendantIds'] },
+    decryptionScope,
+  )
+  if (!root) return []
+  const subtreeIds = Array.from(new Set([String(root.id), ...organizationIdList(root.descendantIds)]))
+  const organizations = await findWithDecryption(
+    em,
+    Organization,
+    { id: { $in: subtreeIds }, tenant: tenantId, deletedAt: null } as FilterQuery<Organization>,
+    { fields: ['id', 'ancestorIds'] },
+    decryptionScope,
+  )
+  const candidates: FeatureOrganizationCandidate[] = organizations.map((organization) => ({
+    id: String(organization.id),
+    ancestorIds: organizationIdList(organization.ancestorIds),
+  }))
+  const required = Array.from(new Set(params.requiredFeatures.filter((feature) => typeof feature === 'string' && feature.length > 0)))
+  const access = await rbac.resolveFeatureOrganizationAccess(params.userId, required, { tenantId })
+  const permitted = access.unrestricted ? candidates.map((candidate) => candidate.id) : access.filterOrganizationIds(candidates)
+  return Array.from(new Set(permitted.map((id) => id.toLowerCase()))).sort(compareCodeUnits)
 }
 
 /** The access log could not record the read, so the read does not happen (fail closed). */

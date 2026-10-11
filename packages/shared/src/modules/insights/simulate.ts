@@ -246,9 +246,10 @@ export type SimulationValidationContext = {
 }
 
 /**
- * What an `inline` run sees beyond the slice context: the requester's organization scope in the
- * tenant (`null` = every organization, `[]` = none) and the app-process services. Present only for
- * inline runs.
+ * What an `inline` run sees beyond the slice context: the organizations it may read (the run's
+ * organization and its descendants where the requester holds the run's features; `[]` = none;
+ * `null` = every organization of the tenant, which insights never passes) and the app-process
+ * services. Present only for inline runs.
  */
 export type SimulationInlineContext = {
   organizationIds: readonly string[] | null
@@ -360,8 +361,10 @@ export type SimulationSliceResult<TState> =
 
 /**
  * Context of a live-records read of a completed run: the viewer (the run's requester), the
- * viewer's current organization scope (`null` = every organization, `[]` = none), the requested
- * page (`pageSize` ≤ 100) and the app-process services.
+ * organizations the read may cover (the run's organization and its descendants where the viewer
+ * currently holds the run's and the live-records features; `[]` = none; `null` = every
+ * organization of the tenant, which insights never passes), the requested page (`pageSize` ≤ 100)
+ * and the app-process services.
  */
 export type SimulationLiveRecordsContext = {
   em: EntityManager

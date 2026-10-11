@@ -20,8 +20,8 @@ import { storedRunFeatures } from '../../../../lib/simulation/features'
 import {
   SimulationAccessLogUnavailableError,
   createServiceResolver,
+  resolveSimulationOrganizationIds,
   runInReadOnlyTransaction,
-  simulationScopeOrganizationIds,
   writeSimulationAccessLog,
 } from '../../../../lib/simulation/inline'
 import { sanitizeCoverage, sanitizeI18nKeys } from '../../../../lib/simulation/jobs'
@@ -83,8 +83,9 @@ function sanitizeGroupLabels(value: unknown): Record<string, string> {
 /**
  * The records the caller's own completed run concerns (S8: e.g. the users and API keys whose
  * permissions a role change would change), resolved LIVE on every read by the owning module under
- * the caller's current permissions and organization scope in a READ ONLY, statement-bounded
- * transaction — never stored. Same identical 404 as
+ * the caller's current permissions in a READ ONLY, statement-bounded transaction — never stored.
+ * Only the run organization's subtree where the caller holds the kind's and the live-records
+ * features is read (D10), never other organizations the caller may select. Same identical 404 as
  * the run itself; the kind's live-records features (e.g. `auth.users.list`) are required (403); a
  * kind with an access-log resource kind writes one row first (fail closed, 503).
  */
@@ -105,7 +106,8 @@ export async function GET(req: Request, routeContext: SimulationRouteParams) {
     const kind = run ? getSimulationKind(run.kind) : null
     if (!run || !kind) return simulationRunNotFound(context.translate)
     const hasFeatures = createFeatureCheck(context.container, context.userId, context.scope)
-    if (!(await hasFeatures(storedRunFeatures(kind.definition, run.inputJson)))) return simulationRunNotFound(context.translate)
+    const runFeatures = storedRunFeatures(kind.definition, run.inputJson)
+    if (!(await hasFeatures(runFeatures))) return simulationRunNotFound(context.translate)
     const liveRecords = kind.definition.liveRecords
     const parsed = kind.definition.inputSchema.safeParse(run.inputJson)
     if (!liveRecords || !parsed.success) return simulationRunNotFound(context.translate)
@@ -129,7 +131,11 @@ export async function GET(req: Request, routeContext: SimulationRouteParams) {
         throw error
       }
     }
-    const organizationIds = simulationScopeOrganizationIds(context.commandContext.organizationScope, context.scope.organizationId)
+    const organizationIds = await resolveSimulationOrganizationIds(context.container, em, {
+      userId: context.userId,
+      scope: { tenantId: run.tenantId, organizationId: run.organizationId },
+      requiredFeatures: [...runFeatures, ...liveRecords.requiredFeatures],
+    })
     const rootEm = context.container.resolve('em') as EntityManager
     const listed: SimulationLiveRecordsPage = await runInReadOnlyTransaction(rootEm, (trx) => liveRecords.list(parsed.data, {
       em: trx,

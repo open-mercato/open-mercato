@@ -4,6 +4,7 @@ import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
 const TENANT_ID = '11111111-0000-4000-8000-0000000000b7'
 const ORG_ID = '22222222-0000-4000-8000-0000000000b7'
 const OTHER_ORG_ID = '22222222-0000-4000-8000-0000000000b8'
+const CHILD_ORG_ID = '22222222-0000-4000-8000-0000000000b9'
 const USER_ID = '33333333-0000-4000-8000-0000000000b7'
 const RUN_ID = '44444444-0000-4000-8000-0000000000b7'
 const ROLE_ID = '55555555-0000-4000-8000-0000000000b7'
@@ -17,12 +18,50 @@ const findSimulationDecisionsMock = jest.fn(async (..._args: unknown[]) => [])
 const listMock = jest.fn()
 const accessLogMock = jest.fn(async (..._args: unknown[]): Promise<unknown> => ({ id: 'row' }))
 let grantedFeatures: string[] = []
+let featureOrganizations: string[] = []
+const featureAccessCalls: Array<readonly string[]> = []
 let accessLogAvailable = true
+
+type OrganizationWhere = { id?: string | { $in: string[] }; tenant?: string }
+
+const ORGANIZATIONS = [
+  { id: ORG_ID, tenant: TENANT_ID, ancestorIds: [] as string[], descendantIds: [CHILD_ORG_ID] },
+  { id: CHILD_ORG_ID, tenant: TENANT_ID, ancestorIds: [ORG_ID], descendantIds: [] as string[] },
+  { id: OTHER_ORG_ID, tenant: TENANT_ID, ancestorIds: [] as string[], descendantIds: [] as string[] },
+]
+
+function matchesOrganization(row: (typeof ORGANIZATIONS)[number], where: OrganizationWhere): boolean {
+  if (where.tenant !== undefined && where.tenant !== row.tenant) return false
+  if (typeof where.id === 'string') return where.id === row.id
+  if (where.id && Array.isArray(where.id.$in)) return where.id.$in.includes(row.id)
+  return true
+}
+
+const organizationEm = {
+  find: async (_entity: unknown, where: OrganizationWhere) => ORGANIZATIONS.filter((row) => matchesOrganization(row, where)).map((row) => ({ ...row })),
+  findOne: async (_entity: unknown, where: OrganizationWhere) => {
+    const row = ORGANIZATIONS.find((candidate) => matchesOrganization(candidate, where))
+    return row ? { ...row } : null
+  },
+}
 
 const container = {
   resolve: (name: string): unknown => {
-    if (name === 'em') return { fork: () => ({}) }
-    if (name === 'rbacService') return { userHasAllFeatures: async (_userId: string, required: string[]) => hasAllFeatures(required, grantedFeatures) }
+    if (name === 'em') return { fork: () => organizationEm }
+    if (name === 'rbacService') {
+      return {
+        userHasAllFeatures: async (_userId: string, required: string[]) => hasAllFeatures(required, grantedFeatures),
+        resolveFeatureOrganizationAccess: async (_userId: string, required: readonly string[]) => {
+          featureAccessCalls.push(required)
+          return {
+            unrestricted: false,
+            filterOrganizationIds: (candidates: ReadonlyArray<{ id: string }>) => (
+              hasAllFeatures([...required], grantedFeatures) ? candidates.map((candidate) => candidate.id).filter((id) => featureOrganizations.includes(id)) : []
+            ),
+          }
+        },
+      }
+    }
     if (name === 'commandBus') return { execute: commandExecuteMock }
     if (name === 'accessLogService' && accessLogAvailable) return { log: accessLogMock }
     throw new Error(`[internal] unexpected service ${name}`)
@@ -152,6 +191,8 @@ beforeEach(() => {
   resetSimulationRegistryForTests()
   registerKinds()
   grantedFeatures = ['insights.simulator.*', 'test_module.*']
+  featureOrganizations = [ORG_ID, CHILD_ORG_ID, OTHER_ORG_ID]
+  featureAccessCalls.length = 0
   accessLogAvailable = true
   accessLogMock.mockResolvedValue({ id: 'row' })
   getAuthFromRequestMock.mockResolvedValue({ sub: USER_ID, tenantId: TENANT_ID, orgId: ORG_ID })
@@ -225,7 +266,7 @@ describe('GET /api/insights/simulations/{id}/records', () => {
       scope: { tenantId: TENANT_ID, organizationId: ORG_ID },
       viewerUserId: USER_ID,
       artifactId: ROLE_ID,
-      organizationIds: [ORG_ID, OTHER_ORG_ID],
+      organizationIds: [ORG_ID, CHILD_ORG_ID],
       page: 2,
       pageSize: 10,
     }))
@@ -242,6 +283,17 @@ describe('GET /api/insights/simulations/{id}/records', () => {
       notes: ['test_module.note'],
       groupLabels: { 'org:users': 'Alpha' },
     })
+  })
+
+  it('lists principals only in the run organization\'s subtree where the viewer holds the kind and live-records features, not in other allowed organizations (D10)', async () => {
+    resolveOrganizationScopeForRequestMock.mockResolvedValue({ selectedId: ORG_ID, filterIds: [ORG_ID, CHILD_ORG_ID], allowedIds: [ORG_ID, CHILD_ORG_ID, OTHER_ORG_ID], tenantId: TENANT_ID })
+    featureOrganizations = [ORG_ID, OTHER_ORG_ID]
+    expect((await recordsGet(request('GET', url()), params(RUN_ID))).status).toBe(200)
+    expect(listMock).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ organizationIds: [ORG_ID] }))
+    expect(featureAccessCalls).toEqual([['test_module.manage', 'test_module.users']])
+    featureOrganizations = [ORG_ID, CHILD_ORG_ID, OTHER_ORG_ID]
+    expect((await recordsGet(request('GET', url()), params(RUN_ID))).status).toBe(200)
+    expect(listMock).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ organizationIds: [ORG_ID, CHILD_ORG_ID] }))
   })
 
   it('fails closed with 503 when the access log cannot record the read', async () => {
