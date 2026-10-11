@@ -81,8 +81,8 @@ test.describe('TC-INS-021: explain access decisions with detail gating', () => {
       expect(detail?.roles).toEqual([
         expect.objectContaining({ id: limitedFixture.roleId, appliesToOrganization: true, grantedFeatures: [GRANTED_FEATURE] }),
       ])
-      expect(detail?.rolesThatWouldGrant.length, 'some tenant role grants both features').toBeGreaterThan(0)
-      expect(detail?.rolesThatWouldGrant.map((role) => role.id)).not.toContain(limitedFixture.roleId)
+      expect(detail?.rolesThatWouldGrant?.length ?? 0, 'some tenant role grants both features (admin holds auth.roles.list)').toBeGreaterThan(0)
+      expect((detail?.rolesThatWouldGrant ?? []).map((role) => role.id)).not.toContain(limitedFixture.roleId)
       expect(detail?.recentChanges?.some((change) => change.kind === 'role_acl' && change.resourceId === limitedFixture.roleId)).toBe(true)
 
       const adminSelf = await explainAccessOk(request, adminToken, { features: [MISSING_FEATURE] })

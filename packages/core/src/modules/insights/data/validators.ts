@@ -391,7 +391,7 @@ export const accessExplainDetailSchema = z.object({
     })
     .nullable(),
   roles: z.array(accessRoleGrantSchema),
-  rolesThatWouldGrant: z.array(accessRoleGrantSchema),
+  rolesThatWouldGrant: z.array(accessRoleGrantSchema).optional().describe('Tenant roles that would grant every requested feature; omitted without `auth.roles.list`.'),
   grantedOrganizationIds: z.array(z.string()).nullable().describe('Organizations where every requested feature is granted; null = every organization.'),
   organizationsRedacted: z.boolean().describe('True when organization ids outside the caller\'s scope were omitted.'),
   recentChanges: z.array(accessRecentChangeSchema).nullable().describe('Latest ACL and role-assignment audit entries; null without `audit_logs.view_tenant`.'),

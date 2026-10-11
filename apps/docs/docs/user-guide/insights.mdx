@@ -21,7 +21,7 @@ The sidebar group **Insights** contains **Process X-Ray** and **My simulations**
 | Feature | What it allows | Granted by default to |
 |---|---|---|
 | `insights.explain.view` | "Why?" on records, fields and audit entries | `superadmin`, `admin`, `employee` |
-| `insights.explain.access_detail` | Detailed access explanations (roles, personal permissions, roles that would grant access, recent permission changes) | `superadmin`, `admin` |
+| `insights.explain.access_detail` | Detailed access explanations (roles, personal permissions, roles that would grant access — also needs `auth.roles.list` —, recent permission changes) | `superadmin`, `admin` |
 | `insights.xray.view` | Process X-Ray pages, the "Process health" dashboard widget | `superadmin`, `admin` |
 | `insights.xray.manage` | Process X-Ray settings, history backfill, dismissing suggestions, on-demand mining | `superadmin`, `admin` |
 | `insights.xray.view_individuals` | Per-person X-Ray breakdowns (also needs the organization setting, see below) | `superadmin` only |
@@ -118,7 +118,7 @@ On the access-denied page, **Why can't I open this?** lists the permissions the 
 - the module providing it is disabled, or the permission no longer exists;
 - every permission is granted, so access was denied by a rule that cannot be explained here.
 
-Any signed-in user can ask for their own explanation. With `insights.explain.access_detail` the panel also shows where your permissions come from (roles, personal permissions, super administrator, API key), the roles that would grant the missing permissions and recent permission changes. Explaining another user's access additionally requires `auth.users.list`.
+Any signed-in user can ask for their own explanation. With `insights.explain.access_detail` the panel also shows where your permissions come from (roles, personal permissions, super administrator, API key), the roles that would grant the missing permissions (only if you may also list roles, `auth.roles.list`) and recent permission changes. Explaining another user's access additionally requires `auth.users.list`.
 
 ## Process X-Ray
 

@@ -39,7 +39,7 @@ export type AccessExplainBody = {
     features: Array<{ feature: string; granted: boolean; reason: string | null }>
     userAcl: { isSuperAdmin: boolean; organizations: string[] | null; grantedFeatures: string[] } | null
     roles: AccessRoleGrant[]
-    rolesThatWouldGrant: AccessRoleGrant[]
+    rolesThatWouldGrant?: AccessRoleGrant[]
     grantedOrganizationIds: string[] | null
     organizationsRedacted: boolean
     recentChanges: Array<{ logId: string; at: string; kind: string; resourceId: string | null }> | null

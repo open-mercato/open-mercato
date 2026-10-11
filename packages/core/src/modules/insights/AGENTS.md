@@ -47,7 +47,7 @@ Explains why a record value is what it is ("Why?") from audit history plus the c
 | `lib/engine/*` | Paths, normalization, chain, gaps, verdicts, confidence, summaries (i18n keys only) |
 | `lib/viewer.ts`, `lib/presenter.ts`, `lib/causes.ts` | Scope (D10), visibility matrix, cause/reference resolution with feature + organization checks |
 | `services/explainService.ts` | DI `explainService`: `explain`, `describe`, `explainLog` |
-| `services/accessExplainService.ts` | DI `accessExplainService`: access explanations (ACL catalog validation, other-user gating, detail redaction, recent ACL changes) over `RbacService.explainAccess` |
+| `services/accessExplainService.ts` | DI `accessExplainService`: access explanations (ACL catalog validation, other-user gating, detail redaction, `rolesThatWouldGrant` only with `auth.roles.list`, recent ACL changes) over `RbacService.explainAccess` |
 | `api/explain/**` | `GET /api/insights/explain`, `/descriptors`, `/log`, `/access` |
 | `cli.ts` | `mercato insights explain:coverage [--tenant] [--org] [--since] [--limit]` |
 | `lib/client/*` | Browser-side API helpers (`apiCall` + `AbortSignal`), session-cached descriptors (`useExplainDescriptors`, keyed by organization scope version), `useExplanation` (stale requests aborted, `nextBefore` paging), value/actor/date formatting, CrudForm field mapping (`fieldExplain.ts`: form entity id → resource via `formEntityIds`, field id → key / `currentPath` / `cf:<key>`), per-form explain mode (`explainMode.ts`, remembered in local storage), kill switch (`useFieldExplainEnabled`) |

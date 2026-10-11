@@ -55,7 +55,7 @@ function normalizeDetail(value: unknown): AccessDetailView | null {
     source: isOneOf<AccessSource>(ACCESS_SOURCES, value.source) ? value.source : null,
     organizationAllowed: typeof value.organizationAllowed === 'boolean' ? value.organizationAllowed : null,
     roles: normalizeList(value.roles, normalizeRole),
-    grantingRoles: normalizeList(value.rolesThatWouldGrant, normalizeRole),
+    grantingRoles: Array.isArray(value.rolesThatWouldGrant) ? normalizeList(value.rolesThatWouldGrant, normalizeRole) : null,
     recentChanges: Array.isArray(value.recentChanges) ? normalizeList(value.recentChanges, normalizeChange) : null,
   }
 }

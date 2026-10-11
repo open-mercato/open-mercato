@@ -94,7 +94,7 @@ export type AccessDetailView = {
   source: AccessSource | null
   organizationAllowed: boolean | null
   roles: AccessRoleView[]
-  grantingRoles: AccessRoleView[]
+  grantingRoles: AccessRoleView[] | null
   recentChanges: AccessChangeView[] | null
 }
 

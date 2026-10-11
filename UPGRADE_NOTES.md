@@ -677,6 +677,11 @@ resolvers are queried only within the record's organization; a tenant-level deta
 other than a code identifier such as an AI tool id) is shown only to tenant-wide viewers. Past values
 and actor identities of other users stay hidden without `audit_logs.view_tenant`.
 
+**Action for API consumers.** In `GET /api/insights/explain/access`, `detail.rolesThatWouldGrant`
+(the tenant roles that would grant the requested features) is now included only for callers who
+also hold `auth.roles.list`; for other `insights.explain.access_detail` holders the field is
+omitted. Treat it as optional.
+
 ### CrudForm renders the field spot family `crud-form:<entityId>:field:<fieldId>:after`
 
 `CrudForm` now renders the declared spot `crud-form:<entityId>:field:<fieldId>:after` at the end of

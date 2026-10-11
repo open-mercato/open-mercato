@@ -29,6 +29,7 @@ const logger = createLogger('insights').child({ component: 'access-explain-servi
 export const ACCESS_DETAIL_FEATURE = 'insights.explain.access_detail'
 export const ACCESS_OTHER_USER_FEATURES = [ACCESS_DETAIL_FEATURE, 'auth.users.list'] as const
 export const ACCESS_RECENT_CHANGES_FEATURE = 'audit_logs.view_tenant'
+export const ACCESS_ROLES_LIST_FEATURE = 'auth.roles.list'
 export const ACCESS_RECENT_CHANGES_LIMIT = 10
 export const ACCESS_RECENT_CHANGES_ROLE_LIMIT = 10
 export const ACCESS_ALL_ORGANIZATIONS_TOKEN = '__all__'
@@ -186,9 +187,10 @@ function createOrganizationRedactor(organizationIds: string[] | null): Organizat
  * reasons come from `RbacService.explainAccess` (same projection and policy as the
  * guards). Detail is returned only to callers holding `insights.explain.access_detail`;
  * explaining another user additionally requires `auth.users.list`, and that user must be
- * inside the caller's tenant and organization scope (otherwise 404). Like the users and
- * roles lists, super-administrator users and roles stay hidden from callers who are not
- * super administrators. A `path` marks a denial outside RBAC (`not_determinable`) only
+ * inside the caller's tenant and organization scope (otherwise 404). The tenant roles that
+ * would grant the features (`rolesThatWouldGrant`) are listed only for callers who may list
+ * roles (`auth.roles.list`) and omitted otherwise. Like the users and roles lists,
+ * super-administrator users and roles stay hidden from callers who are not super administrators. A `path` marks a denial outside RBAC (`not_determinable`) only
  * for the caller's own access, the only denial the caller actually experienced.
  */
 export class AccessExplainService {
@@ -309,7 +311,10 @@ export class AccessExplainService {
     const detail = explanation.detail
     if (!detail) return null
     const redactor = createOrganizationRedactor(caller.organizationIds)
-    const callerIsSuperAdmin = await this.isCallerSuperAdmin(caller)
+    const [callerIsSuperAdmin, canListRoles] = await Promise.all([
+      this.isCallerSuperAdmin(caller),
+      this.callerHas(caller, [ACCESS_ROLES_LIST_FEATURE]),
+    ])
     const visibleGrantingRoles = callerIsSuperAdmin
       ? detail.rolesThatWouldGrant
       : detail.rolesThatWouldGrant.filter((grant) => !grant.isSuperAdmin && grant.roleName !== SUPER_ADMIN_ROLE_NAME)
@@ -328,7 +333,7 @@ export class AccessExplainService {
         }
         : null,
       roles: detail.roles.map((grant) => redactor.role(grant)),
-      rolesThatWouldGrant: visibleGrantingRoles.map((grant) => redactor.role(grant)),
+      ...(canListRoles ? { rolesThatWouldGrant: visibleGrantingRoles.map((grant) => redactor.role(grant)) } : {}),
       grantedOrganizationIds: redactor.list(detail.grantedOrganizationIds),
       organizationsRedacted: false,
       recentChanges: await this.loadRecentChanges(caller, subject, detail.roles),

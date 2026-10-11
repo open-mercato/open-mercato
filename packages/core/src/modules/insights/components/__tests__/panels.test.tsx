@@ -161,6 +161,21 @@ describe('AccessWhyPanel', () => {
     expect(screen.getByText('Every required permission is granted (1).')).toBeInTheDocument()
   })
 
+  it('leaves out the roles that would grant when the server omits them (no auth.roles.list)', async () => {
+    mockApiCall.mockResolvedValueOnce(apiOk({
+      decision: 'denied',
+      required: [{ feature: 'sales.orders.view', granted: false }],
+      reasons: ['missing_feature'],
+      summary: { key: 'insights.explain.access.summary.missingFeature', params: { features: 'sales.orders.view', count: 1 } },
+      detail: { source: 'roles', organizationAllowed: true, roles: [{ id: 'r1', name: 'Employee' }], recentChanges: null },
+      confidence: 'proven',
+    }))
+    renderUi(<AccessWhyPanel requiredFeatures={['sales.orders.view']} />)
+    expect(await screen.findByText('Employee')).toBeInTheDocument()
+    expect(screen.getByText('Assigned roles')).toBeInTheDocument()
+    expect(screen.queryByText('Roles that would grant access')).not.toBeInTheDocument()
+  })
+
   it('renders a forbidden state', async () => {
     mockApiCall.mockResolvedValueOnce(apiStatus(403))
     renderUi(<AccessWhyPanel requiredFeatures={['sales.orders.view']} />)
