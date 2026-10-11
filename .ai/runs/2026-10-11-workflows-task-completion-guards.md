@@ -53,3 +53,8 @@ PR: #7191
 
 - [x] 3.1 Feed the non-mutating evaluation into resolveTaskAffordances and the task detail route — 63537d221
 - [x] 3.2 Render the guard reason on the task detail page, i18n, docs — 63537d221
+
+### Phase 4: Review follow-ups
+
+- [x] 4.1 Keep routes off value imports of lib/task-handler (DI guard test) — 77d5cd44f
+- [x] 4.2 Honour completion guards on the customer-portal task routes — 47fafa177
