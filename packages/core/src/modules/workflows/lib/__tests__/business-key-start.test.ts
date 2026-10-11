@@ -174,6 +174,29 @@ describe('startOrReuseWorkflow with a business key', () => {
     expect(result).toEqual({ instance: winner, created: false })
   })
 
+  test('a holder that started and ended between the pre-check and the insert rolls the insert back', async () => {
+    const endedConcurrently = buildInstance('concurrent-instance', 'COMPLETED')
+    keyedLookups.push(null as unknown as WorkflowInstance, endedConcurrently)
+
+    const result = await start({ businessKey: 'order:42' })
+
+    expect(result).toEqual({ instance: endedConcurrently, created: false })
+    expect(em.findOne).toHaveBeenLastCalledWith(
+      WorkflowInstance,
+      expect.objectContaining({ businessKey: 'order:42', id: { $ne: 'created-instance' } }),
+      { orderBy: { createdAt: 'DESC' } },
+    )
+  })
+
+  test('the post-insert re-check keeps the new run when the policy allows starting past the holder', async () => {
+    keyedLookups.push(null as unknown as WorkflowInstance, buildInstance('concurrent-instance', 'COMPLETED'))
+
+    const result = await start({ businessKey: 'order:42', reusePolicy: 'allow_duplicate' })
+
+    expect(result.created).toBe(true)
+    expect(result.instance.id).toBe('created-instance')
+  })
+
   test('a unique violation with no winner to read is rethrown', async () => {
     const violation = new UniqueConstraintViolationException(new Error('duplicate key'))
     em.transactional.mockImplementationOnce(async () => {

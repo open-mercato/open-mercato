@@ -273,7 +273,7 @@ GET /api/workflows/instances?status=RUNNING&correlationKey=order-123
 - `status`: Filter by status (RUNNING, COMPLETED, FAILED, etc.)
 - `workflowId`: Filter by workflow definition
 - `correlationKey`: Filter by correlation key
-- `businessKey`: Filter by the exact business key the instance was started with
+- `businessKey`: Filter by the exact business key the instance was started with. Keys are scoped per workflow, so send `workflowId` with it — without one the lookup can only use the tenant/organization prefix of the business-key index
 - `entityType`, `entityId`: Filter by the instance subject (`metadata.entityType` / `metadata.entityId`); index-backed
 - `limit`, `offset`: Pagination
 

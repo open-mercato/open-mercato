@@ -224,6 +224,7 @@ export async function startWorkflow(
 async function findLatestInstanceForBusinessKey(
   em: EntityManager,
   scope: { tenantId: string; organizationId: string; workflowId: string; businessKey: string },
+  excludeInstanceId?: string,
 ): Promise<WorkflowInstance | null> {
   return em.findOne(
     WorkflowInstance,
@@ -233,9 +234,16 @@ async function findLatestInstanceForBusinessKey(
       workflowId: scope.workflowId,
       businessKey: scope.businessKey,
       deletedAt: null,
+      ...(excludeInstanceId ? { id: { $ne: excludeInstanceId } } : {}),
     },
     { orderBy: { createdAt: 'DESC' } },
   )
+}
+
+class BusinessKeyHeldByEndedInstance extends Error {
+  constructor(readonly holder: WorkflowInstance) {
+    super('[internal] business key held by an ended instance')
+  }
 }
 
 /**
@@ -413,13 +421,26 @@ export async function startOrReuseWorkflow(
     // A nested transaction is a SAVEPOINT when the caller already holds one,
     // so the unique violation a concurrent winner causes rolls back only this
     // insert and never poisons the caller's transaction.
+    //
+    // The partial unique index only arbitrates OPEN holders. A concurrent start
+    // that inserted and already ended between our pre-check and our insert is
+    // caught by re-reading the key after the insert: under READ COMMITTED that
+    // read sees every holder committed before our insert, so a holder the
+    // policy refuses to start past rolls our row back and is returned instead.
     try {
       instance = await em.transactional(async (trx) => {
         const created = trx.create(WorkflowInstance, instanceData)
         await trx.persist(created).flush()
+        const holder = await findLatestInstanceForBusinessKey(trx, businessKeyScope, created.id)
+        if (holder && !canStartNewInstanceForBusinessKey(reusePolicy, holder.status)) {
+          throw new BusinessKeyHeldByEndedInstance(holder)
+        }
         return created
       })
     } catch (error) {
+      if (error instanceof BusinessKeyHeldByEndedInstance) {
+        return { instance: error.holder, created: false }
+      }
       if (!(error instanceof UniqueConstraintViolationException)) throw error
       const winner = await findLatestInstanceForBusinessKey(em, businessKeyScope)
       if (!winner) throw error

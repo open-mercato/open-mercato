@@ -445,7 +445,7 @@ export const openApi = {
         status: workflowInstanceStatusSchema.optional(),
         outcome: workflowRunOutcomeSchema.optional().describe('Filter by the run VERDICT, independently of status. Comma-separated for several (e.g. partial_failure,failure). An unknown value is a 400.'),
         correlationKey: z.string().optional(),
-        businessKey: z.string().optional().describe('Exact business key (idempotency key) the instance was started with.'),
+        businessKey: z.string().optional().describe('Exact business key (idempotency key) the instance was started with. Keys are unique per workflow, so pass `workflowId` alongside it: without one the lookup can only use the tenant/organization prefix of `workflow_instances_business_key_idx`.'),
         entityType: z.string().optional(),
         entityId: z.string().optional(),
         parentInstanceId: z.string().optional().describe('Return only direct sub-workflow children of this parent instance.'),

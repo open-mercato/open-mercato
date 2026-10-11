@@ -125,12 +125,21 @@ their exact behaviour.
 | Index builds lock `workflow_instances` / `user_tasks` writes during migration | Low–Medium on very large tables | Same non-concurrent style as every module migration; operators can pre-create the indexes `CONCURRENTLY` with the same names | Brief write lock at deploy |
 | A caller re-executes a returned instance | Medium — double advance of a parked run | `created` flag on the result; API route skips execution; documented contract | Host code that ignores `created` |
 | A caller puts PII in `businessKey` | Low | Documented: keys are plaintext lookup keys | — |
+| A concurrent keyed start inserts and reaches a terminal status between another start's pre-check and its insert (the partial unique index only arbitrates OPEN holders) | Medium — `reject_duplicate` would start a second run | After the insert, still inside the keyed transaction, the start re-reads the key excluding its own row; a holder the policy refuses to start past rolls the insert back and is returned with `created: false` | Relies on READ COMMITTED (the PostgreSQL default); a caller wrapping the start in a REPEATABLE READ / SERIALIZABLE transaction re-reads its own snapshot |
+| `GET /api/workflows/instances?businessKey=` without `workflowId` | Low — the lookup uses only the `(tenant, organization)` prefix of `workflow_instances_business_key_idx` | OpenAPI description and the services guide tell callers to send `workflowId` with the key | Callers that ignore the guidance scan the tenant/org slice of keyed rows |
 
 ## Integration coverage
 
 - Unit: executor create / reuse-open / reuse-ended per policy / unique-violation race / dry-run
   rejection / no-key path unchanged; start route `201` vs `200` + no background execution; instance
   list `businessKey` + combined subject predicate; task list subject filter.
+- Integration (Playwright, `packages/core/src/modules/workflows/__integration__/TC-WF-067.spec.ts`):
+  `POST /api/workflows/instances` with `businessKey` (first `201 created:true`, repeat `200 created:false`
+  same id, key trimmed); `reject_duplicate` after COMPLETED → `200` same instance, `allow_duplicate` → `201`
+  new; `allow_duplicate_failed_only` after CANCELLED → `201`; 8 parallel keyed starts → exactly one `201`
+  and one row; `businessKey` + `dryRun` → `400`; `GET /api/workflows/instances?businessKey=` and
+  `?entityType=&entityId=` (match + mismatch); `GET /api/workflows/tasks?entityType=&entityId=` including
+  the `customers.person` alias and the empty case.
 - Postgres evidence (PR description): `EXPLAIN` of the instance and task subject queries uses the GIN
   indexes; two concurrent sessions inserting the same open key yield one row.
 
