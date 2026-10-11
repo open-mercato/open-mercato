@@ -26,6 +26,11 @@ import deliverOutboundMessageCommand, {
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { emitCommunicationChannelsEvent } from '../../events'
 import { ExternalMessage } from '../../data/entities'
+import {
+  registerTelemetryRuntime,
+  resetTelemetryRuntime,
+  type TelemetryRuntime,
+} from '@open-mercato/shared/lib/telemetry/runtime'
 
 const mockFindOne = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
 const mockEmit = emitCommunicationChannelsEvent as jest.MockedFunction<typeof emitCommunicationChannelsEvent>
@@ -772,5 +777,78 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
       expect.objectContaining({ messageId: 'msg-1' }),
       expect.anything(),
     )
+  })
+  describe('re-keying failure telemetry', () => {
+    const reportError = jest.fn()
+
+    function registerRuntime(report: TelemetryRuntime['reportError']) {
+      registerTelemetryRuntime({ reportError: report } as unknown as TelemetryRuntime)
+    }
+
+    afterEach(() => {
+      resetTelemetryRuntime()
+      reportError.mockReset()
+    })
+
+    async function deliverWithFailingRekey(error: Error) {
+      const link = pendingLink()
+      const { ctx } = makeCtx({
+        status: 'sent',
+        externalMessageId: '<client-built@gmail.com>',
+        conversationId: 'gmail-thread:gm-thread-1',
+      })
+      primeFinds(outboundMapping(), link)
+      mockFindOne.mockRejectedValueOnce(error)
+      const result = await deliverOutboundMessageCommand.execute(
+        { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+        ctx,
+      )
+      return { result, link }
+    }
+
+    it('reports a re-keying failure to telemetry with a stable code', async () => {
+      registerRuntime(reportError)
+      const error = new Error('db blip')
+
+      const { result } = await deliverWithFailingRekey(error)
+
+      expect((result as any).status).toBe('delivered')
+      expect(reportError).toHaveBeenCalledTimes(1)
+      expect(reportError).toHaveBeenCalledWith(error, {
+        module: 'communication_channels',
+        code: 'communication_channels.provider_conversation_adoption_failed',
+        attributes: { messageId: 'msg-1', channelId: 'ch-1' },
+      })
+    })
+
+    it('keeps the send delivered when the telemetry runtime itself throws', async () => {
+      registerRuntime(() => {
+        throw new Error('telemetry down')
+      })
+
+      const { result, link } = await deliverWithFailingRekey(new Error('db blip'))
+
+      expect((result as any).status).toBe('delivered')
+      expect(link.deliveryStatus).toBe('sent')
+    })
+
+    it('reports nothing when re-keying succeeds', async () => {
+      registerRuntime(reportError)
+      const { ctx } = makeCtx({
+        status: 'sent',
+        externalMessageId: '<client-built@gmail.com>',
+        conversationId: 'gmail-thread:gm-thread-1',
+      })
+      primeFinds(outboundMapping(), pendingLink())
+      mockFindOne.mockResolvedValueOnce({ id: 'conv-1', channelId: 'ch-1', externalConversationId: 'outbound:thread-1' } as never)
+      mockFindOne.mockResolvedValueOnce(null as never)
+
+      await deliverOutboundMessageCommand.execute(
+        { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+        ctx,
+      )
+
+      expect(reportError).not.toHaveBeenCalled()
+    })
   })
 })

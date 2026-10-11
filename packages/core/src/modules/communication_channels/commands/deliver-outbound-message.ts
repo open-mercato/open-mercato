@@ -25,6 +25,7 @@ import {
   MessageChannelLink,
 } from '../data/entities'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const moduleLogger = createLogger('communication_channels').child({ component: 'deliver-outbound-message' })
 
@@ -542,6 +543,15 @@ const deliverOutboundMessageCommand: CommandHandler<
           conversationId: mapping.externalConversationId,
           err: adoptErr,
         })
+        try {
+          getTelemetryRuntime()?.reportError(adoptErr, {
+            module: 'communication_channels',
+            code: 'communication_channels.provider_conversation_adoption_failed',
+            attributes: { messageId: message.id, channelId: channel.id },
+          })
+        } catch (telemetryErr) {
+          moduleLogger.warn('could not report a conversation adoption failure to telemetry', { err: telemetryErr })
+        }
       }
 
       await emitCommunicationChannelsEvent(

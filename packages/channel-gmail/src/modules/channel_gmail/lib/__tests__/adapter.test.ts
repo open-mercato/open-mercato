@@ -11,6 +11,11 @@ import {
 } from '../oauth'
 import { getGmailChannelAdapter } from '../adapter'
 import { gmailCapabilities } from '../capabilities'
+import {
+  registerTelemetryRuntime,
+  resetTelemetryRuntime,
+  type TelemetryRuntime,
+} from '@open-mercato/shared/lib/telemetry/runtime'
 
 const userCredentials = {
   accessToken: 'access',
@@ -326,6 +331,68 @@ describe('GmailChannelAdapter.sendMessage', () => {
     expect(result.status).toBe('sent')
     expect(result.externalMessageId).toMatch(/^<[^@]+@gmail\.com>$/)
     expect(result.metadata).not.toHaveProperty('messageId')
+  })
+
+  describe('Message-ID read-back failure telemetry', () => {
+    afterEach(() => {
+      resetTelemetryRuntime()
+    })
+
+    const readBackError = new GmailApiError('Gmail API GET failed: backend error', 500, 'backend error')
+    const failingReadBack = () =>
+      buildSendApi({
+        getMessageHeaders: async () => {
+          throw readBackError
+        },
+      })
+
+    it('reports the read-back failure with a stable code', async () => {
+      const reportError = jest.fn()
+      registerTelemetryRuntime({ reportError } as unknown as TelemetryRuntime)
+      setGmailApiClient(failingReadBack())
+
+      const result = await getGmailChannelAdapter().sendMessage(sendInput)
+
+      expect(result.status).toBe('sent')
+      expect(reportError).toHaveBeenCalledTimes(1)
+      expect(reportError).toHaveBeenCalledWith(readBackError, {
+        module: 'channel_gmail',
+        code: 'channel_gmail.sent_message_id_readback_failed',
+        attributes: { gmailMessageId: 'gm-out-1' },
+      })
+    })
+
+    it('keeps the send sent when the telemetry runtime itself throws', async () => {
+      registerTelemetryRuntime({
+        reportError: () => {
+          throw new Error('telemetry down')
+        },
+      } as unknown as TelemetryRuntime)
+      setGmailApiClient(failingReadBack())
+
+      const result = await getGmailChannelAdapter().sendMessage(sendInput)
+
+      expect(result.status).toBe('sent')
+      expect(result.metadata).toMatchObject({ gmailMessageId: 'gm-out-1' })
+    })
+
+    it('reports nothing when the read-back succeeds', async () => {
+      const reportError = jest.fn()
+      registerTelemetryRuntime({ reportError } as unknown as TelemetryRuntime)
+      setGmailApiClient(
+        buildSendApi({
+          getMessageHeaders: async (_auth, messageId) => ({
+            id: messageId,
+            threadId: 'gm-thread-out',
+            payload: { headers: [{ name: 'Message-ID', value: '<minted@mail.gmail.com>' }] },
+          }),
+        }),
+      )
+
+      await getGmailChannelAdapter().sendMessage(sendInput)
+
+      expect(reportError).not.toHaveBeenCalled()
+    })
   })
 
   it('works with a client that cannot read headers', async () => {

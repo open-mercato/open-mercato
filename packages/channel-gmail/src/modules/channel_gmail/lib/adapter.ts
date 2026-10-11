@@ -63,6 +63,7 @@ import {
   getImportHistoryMaxMessages,
 } from '@open-mercato/core/modules/communication_channels/lib/import-history-limits'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('channel_gmail')
 
@@ -92,7 +93,8 @@ const logger = createLogger('channel_gmail')
  * The recipient's reply, and Gmail's own copy picked up by the next poll, both
  * carry Gmail's id, so the hub must record that one for JWZ threading and
  * sent-folder dedup to resolve this message. Best-effort: on any failure the
- * caller falls back to the client-built id.
+ * caller falls back to the client-built id, and the failure is logged and
+ * reported to telemetry so a persistent read-back problem stays visible.
  */
 async function readSentMessageId(
   api: GmailApiClient,
@@ -104,7 +106,20 @@ async function readSentMessageId(
     const message = await api.getMessageHeaders(auth, gmailMessageId, ['Message-ID'])
     const header = message.payload?.headers?.find((entry) => entry.name.toLowerCase() === 'message-id')
     return stripBrackets(header?.value)
-  } catch {
+  } catch (error) {
+    logger.warn('could not read back the Message-ID Gmail sent, keeping the client-built id', {
+      gmailMessageId,
+      err: error,
+    })
+    try {
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'channel_gmail',
+        code: 'channel_gmail.sent_message_id_readback_failed',
+        attributes: { gmailMessageId },
+      })
+    } catch (telemetryError) {
+      logger.warn('could not report a Message-ID read-back failure to telemetry', { err: telemetryError })
+    }
     return undefined
   }
 }
