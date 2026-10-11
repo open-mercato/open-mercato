@@ -27,6 +27,11 @@ import {
 } from './task-decisions'
 import { loadTaskDecisionContext } from './task-decision-context'
 import { readRequiredFormFields } from './task-form-schema'
+import {
+  buildTaskCompletionBlockedBody,
+  evaluateTaskCompletionGuards,
+} from './task-completion-guards'
+import type { TaskCompletionBlock } from './task-completion-guards'
 import * as stepHandler from './step-handler'
 import * as transitionHandler from './transition-handler'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -87,6 +92,40 @@ export class UserTaskError extends Error {
     super(message)
     this.name = 'UserTaskError'
   }
+}
+
+/**
+ * A registered completion guard vetoed the completion
+ * (`lib/task-completion-guards.ts`). `code` is the GUARD's code, so the route,
+ * the command and a direct caller all see the same one.
+ */
+export class TaskCompletionBlockedError extends UserTaskError {
+  readonly status = 409
+  readonly guardId: string
+  readonly messageKey: string | null
+
+  constructor(public readonly block: TaskCompletionBlock) {
+    super(
+      block.message ?? 'Task completion is blocked by a precondition',
+      block.code,
+      { guardId: block.guardId, messageKey: block.messageKey }
+    )
+    this.name = 'TaskCompletionBlockedError'
+    this.guardId = block.guardId
+    this.messageKey = block.messageKey
+  }
+
+  get body(): Record<string, unknown> {
+    return buildTaskCompletionBlockedBody(this.block)
+  }
+}
+
+/** Structural check, so the class surviving bundle duplication does not matter. */
+export function isTaskCompletionBlockedError(error: unknown): error is TaskCompletionBlockedError {
+  return (
+    error instanceof TaskCompletionBlockedError ||
+    (error instanceof Error && error.name === 'TaskCompletionBlockedError' && 'block' in error)
+  )
 }
 
 // ============================================================================
@@ -172,6 +211,19 @@ export async function completeUserTask(
       'UNKNOWN_DECISION',
       { taskId, decisionId }
     )
+  }
+
+  // A host-owned precondition (`lib/task-completion-guards.ts`) gets the last
+  // word, still before anything is mutated: every completion path reaches this
+  // function, so this one check covers the route, the command and direct callers.
+  const completionBlock = await evaluateTaskCompletionGuards(em, container, task, {
+    mode: 'complete',
+    userId,
+    formData,
+    decisionId: chosenDecision?.id ?? null,
+  })
+  if (completionBlock) {
+    throw new TaskCompletionBlockedError(completionBlock)
   }
 
   // The chosen decision rides along inside the completion payload the task
