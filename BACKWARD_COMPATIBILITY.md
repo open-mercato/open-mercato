@@ -489,7 +489,7 @@ admit an entity type by default that is not a platform-wide catalogue. A `tenant
 
 **Migration path for existing modules**: none required unless a module owns a
 tenant-less catalogue table, which registers itself as above. See
-[`UPGRADE_NOTES.md`](UPGRADE_NOTES.md) `0.7.0 → 0.7.1` for both the module-author and
+[`UPGRADE_NOTES.md`](UPGRADE_NOTES.md) `0.8.0 → 0.8.1` for both the module-author and
 the operator action, including the index residue this change does not clean up.
 
 ## Data Sync Start Control Applicability (2026-09-02)
