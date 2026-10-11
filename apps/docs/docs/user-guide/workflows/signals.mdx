@@ -222,6 +222,8 @@ A paused instance is advanced by exactly one delivery of a signal. When the same
 
 A correlation-key delivery is addressed to the wait each instance was parked on when it was listed. If a concurrent delivery has already moved the instance on to a later wait — even one waiting for the same signal name — the late delivery is refused the same way instead of consuming that later wait.
 
+The same holds when a workflow loops back to the wait it was parked on. Each time an instance parks, that occurrence of the wait is distinct from the previous one: a delivery that found the instance parked on the earlier occurrence is refused even if it only gets to claim it after the loop has parked the instance on the same step again. A signal sent once the instance is parked on the new occurrence is a new delivery and advances it.
+
 A refused delivery changes nothing, so a sender retrying a signal it already sent can treat the 409 as "already delivered". A delivery that fails before anything of it is recorded hands the wait back, so retrying it delivers the signal rather than being refused.
 
 ## Example: Order Fulfillment with Payment Webhook

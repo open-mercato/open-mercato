@@ -29,8 +29,9 @@ Make `sendSignal` advance a `PAUSED` workflow instance exactly once under concur
 ## Risks
 
 - `current_step_id` in the claim predicate prevents a stale delivery from consuming a later wait the
-  winner parked on. A workflow that loops back onto the same wait step can still legitimately be resumed
-  by a later delivery — that is a genuinely new wait.
+  winner parked on. A workflow that loops back onto the same wait step is told apart by the observed
+  `updated_at` (review 5484540303): the claim pins it, the claim and every re-park write a strictly later
+  value, so only a delivery that read the new occurrence can resume it.
 - Internal callers (activity worker, sub-workflow resume, agent disposition) already treat
   `WORKFLOW_NOT_PAUSED` as a failure of a duplicate delivery; the claim only moves the same error to the
   race window.
@@ -50,3 +51,8 @@ PR: #7190
 
 - [x] 2.1 Surface per-instance failures from the correlation-key fan-out — 39130dde9, f77998add
 - [x] 2.2 Docs and module guide update — f77998add
+
+### Phase 3: Maintainer review 5484540303
+
+- [x] 3.1 Pin the wait occurrence (observed `updated_at`) in the claim and the correlation fan-out snapshot — e3407afc3
+- [x] 3.2 Report a failed claim release through the telemetry runtime — e3407afc3
