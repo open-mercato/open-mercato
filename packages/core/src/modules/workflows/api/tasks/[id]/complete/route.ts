@@ -12,7 +12,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
-import { isTaskCompletionBlockedError } from '../../../../lib/task-handler'
+import { isTaskCompletionBlockedError } from '../../../../lib/task-completion-guards'
 import type { TaskHandlerService } from '../../../../lib/task-handler'
 import { gateTaskAction } from '../../../../lib/task-visibility-request'
 import {

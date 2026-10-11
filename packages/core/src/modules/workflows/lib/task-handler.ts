@@ -30,6 +30,8 @@ import { readRequiredFormFields } from './task-form-schema'
 import {
   buildTaskCompletionBlockedBody,
   evaluateTaskCompletionGuards,
+  isTaskCompletionBlockedError,
+  TASK_COMPLETION_BLOCKED_ERROR_NAME,
 } from './task-completion-guards'
 import type { TaskCompletionBlock } from './task-completion-guards'
 import * as stepHandler from './step-handler'
@@ -110,7 +112,7 @@ export class TaskCompletionBlockedError extends UserTaskError {
       block.code,
       { guardId: block.guardId, messageKey: block.messageKey }
     )
-    this.name = 'TaskCompletionBlockedError'
+    this.name = TASK_COMPLETION_BLOCKED_ERROR_NAME
     this.guardId = block.guardId
     this.messageKey = block.messageKey
   }
@@ -120,13 +122,7 @@ export class TaskCompletionBlockedError extends UserTaskError {
   }
 }
 
-/** Structural check, so the class surviving bundle duplication does not matter. */
-export function isTaskCompletionBlockedError(error: unknown): error is TaskCompletionBlockedError {
-  return (
-    error instanceof TaskCompletionBlockedError ||
-    (error instanceof Error && error.name === 'TaskCompletionBlockedError' && 'block' in error)
-  )
-}
+export { isTaskCompletionBlockedError }
 
 // ============================================================================
 // User Task Completion

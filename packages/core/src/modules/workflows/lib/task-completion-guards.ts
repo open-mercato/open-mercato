@@ -321,3 +321,24 @@ export function buildTaskCompletionBlockedBody(block: TaskCompletionBlock): Reco
     messageKey: block.messageKey,
   }
 }
+
+export const TASK_COMPLETION_BLOCKED_ERROR_NAME = 'TaskCompletionBlockedError'
+
+/** What `TaskCompletionBlockedError` (`lib/task-handler.ts`) exposes to callers. */
+export type TaskCompletionBlockedErrorLike = Error & {
+  code: string
+  status: number
+  block: TaskCompletionBlock
+  body: Record<string, unknown>
+}
+
+/**
+ * Structural check, so routes recognise a veto without value-importing
+ * `lib/task-handler` (module rule #1) and so the class surviving bundle
+ * duplication does not matter.
+ */
+export function isTaskCompletionBlockedError(error: unknown): error is TaskCompletionBlockedErrorLike {
+  if (!(error instanceof Error) || error.name !== TASK_COMPLETION_BLOCKED_ERROR_NAME) return false
+  const block = (error as { block?: unknown }).block
+  return typeof block === 'object' && block !== null
+}

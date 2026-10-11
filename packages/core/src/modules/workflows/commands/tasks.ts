@@ -27,7 +27,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { UserTask } from '../data/entities'
 import { loadTaskDecisionContext } from '../lib/task-decision-context'
-import { isTaskCompletionBlockedError } from '../lib/task-handler'
+import { isTaskCompletionBlockedError } from '../lib/task-completion-guards'
 import type { TaskHandlerService } from '../lib/task-handler'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
