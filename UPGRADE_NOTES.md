@@ -48,7 +48,8 @@ One behavior is hardened for every provider. The route now verifies every locate
   demoted in the same transaction.
 - Undoing a create or update that made a currency the base restores the previous base. When that
   currency was deleted since, or the action-log entry predates this release, the undo answers `409`
-  and changes nothing.
+  and changes nothing while the undone currency is still the base. Undoing a create is also refused
+  while that currency is the live base.
 - Undoing a currency create while active exchange rates reference it answers `409`. Delete or
   deactivate those rates first, as `DELETE` already required.
 - Currency writes in one organization are serialized by a transaction-scoped advisory lock.
@@ -57,7 +58,8 @@ One behavior is hardened for every provider. The route now verifies every locate
 
 **Action for module authors:** none unless a client clears `isBase` to change the base. Existing
 data is not repaired: list `GET /api/currencies/currencies?isBase=true` per organization. If it
-returns zero or two rows, promote the intended base currency.
+returns zero rows, promote the intended base currency. If it returns two, promote any non-base
+currency first (this demotes both), then promote the intended base.
 
 ### Catalog product bulk-delete jobs require tenant, organization and user scope (#3826)
 
