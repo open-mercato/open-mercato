@@ -371,6 +371,7 @@
   "insights.xray.ui.conformance.sequenceLabel": "예상 순서",
   "insights.xray.ui.conformance.sourceSequence": "예상 순서",
   "insights.xray.ui.conformance.sourceWorkflow": "구성된 워크플로(버전 {version})",
+  "insights.xray.ui.conformance.sourceWorkflowHidden": "구성된 워크플로",
   "insights.xray.ui.conformance.transitions": "허용된 전이",
   "insights.xray.ui.conformance.unmapped": "설계된 단계에 매핑되지 않음: {activities}",
   "insights.xray.ui.conformance.unresolved": "사례 {count}건을 비교할 수 없습니다.",

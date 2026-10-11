@@ -39,9 +39,11 @@ function ModelResult({ model, activityLabels }: { model: XrayConformanceModel; a
     { id: 'to', header: t('insights.xray.ui.conformance.columns.to'), cell: ({ row }) => (row.original.to ? formatActivityKey(row.original.to, t, activityLabels) : '—') },
     { accessorKey: 'cases', header: t('insights.xray.ui.conformance.columns.cases'), cell: ({ row }) => formatCount(row.original.cases, locale) },
   ], [activityLabels, locale, t])
-  const sourceLabel = model.source.kind === 'sequence'
-    ? t('insights.xray.ui.conformance.sourceSequence')
-    : t('insights.xray.ui.conformance.sourceWorkflow', { version: model.source.version ?? '—' })
+  const sourceLabel = model.source === null
+    ? t('insights.xray.ui.conformance.sourceWorkflowHidden')
+    : model.source.kind === 'sequence'
+      ? t('insights.xray.ui.conformance.sourceSequence')
+      : t('insights.xray.ui.conformance.sourceWorkflow', { version: model.source.version ?? '—' })
   return (
     <section className="space-y-3 rounded-lg border border-border p-4" aria-label={sourceLabel} data-testid="xray-conformance-model">
       <h3 className="text-sm font-semibold">{sourceLabel}</h3>

@@ -6,7 +6,11 @@ import {
 } from '../../../../data/validators'
 import { sequenceModel } from '../../../../lib/analytics/conformance'
 import type { ConformanceResult } from '../../../../lib/analytics/types'
-import { resolveXrayConformanceModels } from '../../../../lib/xrayConformanceModels'
+import {
+  redactXrayConformanceSources,
+  resolveDisclosableXrayModelKeys,
+  resolveXrayConformanceModels,
+} from '../../../../lib/xrayConformanceModels'
 import {
   analyticsInputOf,
   filtersOfQuery,
@@ -54,11 +58,17 @@ export async function GET(req: Request, context: XrayRouteParams) {
     }
     const resolved = await resolveXrayConformanceModels(route.container, route.access)
     if (!resolved.ok) return xrayErrorResponse(route.translate, resolved.code, 422)
-    return conformanceJson(route, await route.analytics.getConformance({
+    const result = await route.analytics.getConformance({
       ...input,
       models: resolved.models,
       organizationModelKeys: resolved.organizationModelKeys,
-    }))
+    })
+    const disclosable = await resolveDisclosableXrayModelKeys(route.container, {
+      userId: route.auth.sub,
+      tenantId: route.access.tenantId,
+      organizationModelKeys: resolved.organizationModelKeys,
+    })
+    return conformanceJson(route, redactXrayConformanceSources(result, disclosable))
   })
 }
 
@@ -69,7 +79,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'Compare completed cases with the designed process',
-      description: 'Compares the cases completed in the window with a designed model: the ad-hoc `sequence` of activity keys, or each organization\'s configured conformance workflow (`conformanceWorkflowId` read through the workflows module, scoped to the tenant and the organization, projected onto the organization\'s `activityStepMap`; cases of organizations without one are counted as unresolved). Below 60 % mapped steps the comparison is refused (`status: refused`, `insufficient_coverage`). Fitness, conforming cases and transition counts are withheld unless both the conforming and the deviating cases pass the k / three-actor rule; deviations and unmapped activities are suppressed cells like any other.',
+      description: 'Compares the cases completed in the window with a designed model: the ad-hoc `sequence` of activity keys, or each organization\'s configured conformance workflow (`conformanceWorkflowId` read through the workflows module, scoped to the tenant and the organization, projected onto the organization\'s `activityStepMap`; cases of organizations without one are counted as unresolved). Below 60 % mapped steps the comparison is refused (`status: refused`, `insufficient_coverage`). Fitness, conforming cases and transition counts are withheld unless both the conforming and the deviating cases pass the k / three-actor rule; deviations and unmapped activities are suppressed cells like any other. A configured workflow\'s identity (`source` with `definitionId` / `version`, and the `workflow:<definitionId>` model key) is disclosed only to callers holding `workflows.definitions.view` in every organization that configured it; otherwise `source` is `null` and `key` is an opaque `workflow:hidden:<n>`.',
       query: xrayConformanceQuerySchema,
       responses: [{ status: 200, description: 'Conformance (or a refusal with its reason)', schema: xrayConformanceResponseSchema }],
       errors: xrayAnalyticsErrorDocs({

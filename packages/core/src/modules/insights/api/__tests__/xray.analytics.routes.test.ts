@@ -93,6 +93,7 @@ jest.mock('../../lib/analytics/index', () => {
 })
 
 jest.mock('../../lib/xrayConformanceModels', () => ({
+  ...jest.requireActual('../../lib/xrayConformanceModels'),
   resolveXrayConformanceModels: (...args: unknown[]) => resolveConformanceModelsMock(...args),
 }))
 
@@ -502,6 +503,42 @@ describe('GET /api/insights/xray/{processKey}/conformance', () => {
       expect(await call(conformanceGet, get('/api/insights/xray/test.deal/conformance'), { processKey: 'test.deal' }))
         .toEqual(expect.objectContaining({ status: 422, body: { error: `insights.xray.errors.${code}`, code, hint: null } }))
     }
+  })
+})
+
+describe('GET /api/insights/xray/{processKey}/conformance — workflow identity', () => {
+  const DEFINITION_ID = '77777777-0000-4000-8000-000000000001'
+  const MODEL_KEY = `workflow:${DEFINITION_ID}`
+
+  function conformanceModel(key: string, source: Record<string, unknown>) {
+    return { key, source, n: 12, conformingCases: null, fitness: null, fitnessLowerBound: null, lowConfidence: true, transitions: null, deviations: [] }
+  }
+
+  function okResult(models: unknown[]) {
+    return envelope({ status: 'ok', coverage: 1, minCoverage: 0.6, truncatedCases: 0, unresolvedCases: 0, unmappedActivities: [], models })
+  }
+
+  beforeEach(() => {
+    resolveConformanceModelsMock.mockResolvedValue({ ok: true, models: [{ key: MODEL_KEY }], organizationModelKeys: { [ORG_A]: MODEL_KEY } })
+    facade.getConformance.mockResolvedValue(okResult([conformanceModel(MODEL_KEY, { kind: 'workflow', definitionId: DEFINITION_ID, version: 3 })]))
+  })
+
+  it('withholds the workflow definition id and version from a caller without workflows.definitions.view in its organization', async () => {
+    const response = await call(conformanceGet, get('/api/insights/xray/test.deal/conformance'), { processKey: 'test.deal' })
+    expect(response.status).toBe(200)
+    expect(JSON.stringify(response.body)).not.toContain(DEFINITION_ID)
+    expect((response.body.models as Array<Record<string, unknown>>)[0]).toEqual(expect.objectContaining({ key: 'workflow:hidden:1', source: null, n: 12 }))
+    expect(userHasAllFeaturesMock).toHaveBeenCalledWith(USER_ID, ['workflows.definitions.view'], { tenantId: TENANT_ID, organizationId: ORG_A })
+  })
+
+  it('discloses it to a caller holding workflows.definitions.view (wildcard-aware) there, and always keeps an ad-hoc sequence\'s source', async () => {
+    grants.byOrganization[ORG_A] = [...grants.byOrganization[ORG_A], 'workflows.*']
+    const shown = await call(conformanceGet, get('/api/insights/xray/test.deal/conformance'), { processKey: 'test.deal' })
+    expect((shown.body.models as Array<Record<string, unknown>>)[0]).toEqual(expect.objectContaining({ key: MODEL_KEY, source: { kind: 'workflow', definitionId: DEFINITION_ID, version: 3 } }))
+    grants.byOrganization[ORG_A] = ['insights.xray.view', 'customers.deals.view']
+    facade.getConformance.mockResolvedValueOnce(okResult([conformanceModel('sequence', { kind: 'sequence', definitionId: null, version: null })]))
+    const sequence = await call(conformanceGet, get('/api/insights/xray/test.deal/conformance?sequence=created,status:open'), { processKey: 'test.deal' })
+    expect((sequence.body.models as Array<Record<string, unknown>>)[0]).toEqual(expect.objectContaining({ key: 'sequence', source: { kind: 'sequence', definitionId: null, version: null } }))
   })
 })
 

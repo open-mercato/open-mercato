@@ -371,6 +371,7 @@
   "insights.xray.ui.conformance.sequenceLabel": "Erwartete Reihenfolge",
   "insights.xray.ui.conformance.sourceSequence": "Erwartete Reihenfolge",
   "insights.xray.ui.conformance.sourceWorkflow": "Konfigurierter Workflow (Version {version})",
+  "insights.xray.ui.conformance.sourceWorkflowHidden": "Konfigurierter Workflow",
   "insights.xray.ui.conformance.transitions": "Zulässige Übergänge",
   "insights.xray.ui.conformance.unmapped": "Keinem Soll-Schritt zugeordnet: {activities}",
   "insights.xray.ui.conformance.unresolved": "{count} Fälle konnten nicht verglichen werden.",
