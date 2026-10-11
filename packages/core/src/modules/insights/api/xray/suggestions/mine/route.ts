@@ -38,7 +38,7 @@ type RefusedMiningRequest = Exclude<XraySuggestionMiningRequestResult['status'],
  */
 export async function POST(req: Request) {
   try {
-    const context = await resolveXrayRouteContext(req)
+    const context = await resolveXrayRouteContext(req, metadata.POST.requireFeatures)
     if (context instanceof NextResponse) return context
     const { translate } = await resolveTranslations()
     const body = await readJsonSafe<unknown>(req, {})
@@ -91,7 +91,7 @@ export const openApi: OpenApiRouteDoc = {
       requestBody: { contentType: 'application/json', schema: xraySuggestionMineRequestSchema },
       responses: [{ status: 202, description: 'A mining pass is enqueued (by this request, or still pending from an earlier one)', schema: xraySuggestionMineResponseSchema }],
       errors: [
-        { status: 400, description: 'Invalid request, no organization selected, or the organization does not belong to the tenant', schema: xrayErrorSchema },
+        { status: 400, description: 'Invalid request, no organization selected, or the organization is outside the caller\'s organizations or the tenant', schema: xrayErrorSchema },
         { status: 401, description: 'Authentication required', schema: xrayErrorSchema },
         { status: 403, description: 'Missing `insights.xray.manage` or no organization access', schema: xrayErrorSchema },
         { status: 409, description: 'X-Ray is disabled for the organization (`disabled`), its projection is still catching up (`projection_incomplete`), no module declares a process (`no_processes`) or the mining queue is backlogged (`busy`)', schema: xrayErrorSchema },

@@ -384,6 +384,18 @@ describe('POST /api/insights/xray/suggestions/mine', () => {
     expect(runAfterSuccessMock).not.toHaveBeenCalled()
   })
 
+  it('refuses a home organization outside the caller\'s allowed organizations, and a caller without insights.xray.manage there', async () => {
+    getAuthFromRequestMock.mockResolvedValueOnce({ sub: USER_ID, tenantId: TENANT_ID, orgId: ORG_B })
+    resolveOrganizationScopeForRequestMock.mockResolvedValueOnce({ selectedId: null, filterIds: [ORG_A], allowedIds: [ORG_A], tenantId: TENANT_ID })
+    const outOfScope = await call(minePost as unknown as Handler, request('POST', path, {}))
+    expect(outOfScope.status).toBe(400)
+    expect(outOfScope.body).toEqual(expect.objectContaining({ code: 'organization_scope_required' }))
+    grants.byOrganization = { [ORG_A]: DEAL_VIEWER, [ORG_B]: DEAL_MANAGER }
+    expect(await call(minePost as unknown as Handler, request('POST', path, {}))).toEqual({ status: 403, body: { error: 'forbidden' } })
+    expect(runRouteMutationGuardsMock).not.toHaveBeenCalled()
+    expect(requestMiningMock).not.toHaveBeenCalled()
+  })
+
   it('refuses a blocked guard and an invalid body without requesting a pass', async () => {
     runRouteMutationGuardsMock.mockResolvedValueOnce({ ok: false, response: Response.json({ error: 'blocked' }, { status: 422 }) })
     expect((await call(minePost as unknown as Handler, request('POST', path, {}))).status).toBe(422)

@@ -27,7 +27,7 @@ async function runAfterSuccessSafely(guarded: RouteMutationGuardPassed): Promise
 
 export async function POST(req: Request) {
   try {
-    const context = await resolveXrayRouteContext(req)
+    const context = await resolveXrayRouteContext(req, metadata.POST.requireFeatures)
     if (context instanceof NextResponse) return context
     const { translate } = await resolveTranslations()
     const body = await readJsonSafe<unknown>(req, {})
@@ -86,7 +86,7 @@ export const openApi: OpenApiRouteDoc = {
       requestBody: { contentType: 'application/json', schema: xrayBackfillRequestSchema },
       responses: [{ status: 202, description: 'Backfill started', schema: xrayBackfillResponseSchema }],
       errors: [
-        { status: 400, description: 'Invalid request, no organization selected, or the organization does not belong to the tenant', schema: xrayErrorSchema },
+        { status: 400, description: 'Invalid request, no organization selected, or the organization is outside the caller\'s organizations or the tenant', schema: xrayErrorSchema },
         { status: 401, description: 'Authentication required', schema: xrayErrorSchema },
         { status: 403, description: 'Missing `insights.xray.manage` or no organization access', schema: xrayErrorSchema },
         { status: 409, description: 'No process declared, ingest disabled, or the projection is busy (`code`)', schema: xrayErrorSchema },

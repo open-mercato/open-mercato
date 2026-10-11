@@ -39,15 +39,33 @@ type RbacFeatureChecker = {
   userHasAllFeatures: (userId: string, required: string[], scope: { tenantId: string | null; organizationId: string | null }) => Promise<boolean>
 }
 
+function resolveRbacFeatureChecker(container: AwilixContainer): RbacFeatureChecker | null {
+  try {
+    const rbac = container.resolve('rbacService') as Partial<RbacFeatureChecker> | undefined
+    return rbac && typeof rbac.userHasAllFeatures === 'function' ? rbac as RbacFeatureChecker : null
+  } catch {
+    return null
+  }
+}
+
+function isAllowedOrganization(allowedIds: readonly string[] | null | undefined, organizationId: string): boolean {
+  if (!Array.isArray(allowedIds)) return true
+  const normalized = organizationId.toLowerCase()
+  return allowedIds.some((allowedId) => typeof allowedId === 'string' && allowedId.toLowerCase() === normalized)
+}
+
 /**
  * Resolves the caller and the single organization of the caller's tenant an X-Ray route acts on
  * (the selected organization, else the caller's home organization). A caller without a resolved
  * tenant is refused; an explicitly empty organization scope is forbidden; "all organizations"
- * with no home organization asks the caller to select one, and so does an organization that does
- * not belong to the caller's tenant (e.g. a super administrator who selected another tenant;
- * one scoped lookup), before any write.
+ * with no home organization asks the caller to select one, and so does an organization outside
+ * the caller's allowed organizations (e.g. a home organization the caller's roles no longer
+ * reach) or one that does not belong to the caller's tenant (e.g. a super administrator who
+ * selected another tenant; one scoped lookup). The route's `requiredFeatures` are then checked,
+ * wildcard-aware, at that exact organization (the route guard checks them at the feature-check
+ * organization, which can differ): 403 `forbidden` otherwise, before any read or write.
  */
-export async function resolveXrayRouteContext(req: Request): Promise<XrayRouteContext | NextResponse> {
+export async function resolveXrayRouteContext(req: Request, requiredFeatures: readonly string[]): Promise<XrayRouteContext | NextResponse> {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId) return xrayJson({ error: 'unauthorized' }, 401)
   const container = (await createRequestContainer()) as AwilixContainer
@@ -60,9 +78,15 @@ export async function resolveXrayRouteContext(req: Request): Promise<XrayRouteCo
     throw error
   }
   if (!organizationId) return scopeRequiredResponse()
+  if (!isAllowedOrganization(organizationScope?.allowedIds, organizationId)) return scopeRequiredResponse()
   const scope: ProjectionScope = { tenantId: auth.tenantId, organizationId }
   const em = (container.resolve('em') as EntityManager).fork()
   if (!(await isOrganizationInTenant(em, scope))) return scopeRequiredResponse()
+  const features = Array.from(new Set(requiredFeatures.filter((feature) => typeof feature === 'string' && feature.length > 0)))
+  const rbac = resolveRbacFeatureChecker(container)
+  const permitted = Boolean(auth.sub) && features.length > 0 && rbac !== null
+    && await rbac.userHasAllFeatures(auth.sub, features, { tenantId: scope.tenantId, organizationId: scope.organizationId })
+  if (!permitted) return xrayJson({ error: 'forbidden' }, 403)
   return {
     container,
     auth,
@@ -87,14 +111,8 @@ export async function resolveVisibleXrayProcessKeys(context: XrayRouteContext): 
   const visible = new Set<string>()
   const userId = context.auth.sub
   if (!userId) return visible
-  let rbac: RbacFeatureChecker | null = null
-  try {
-    rbac = context.container.resolve('rbacService') as RbacFeatureChecker
-  } catch {
-    rbac = null
-  }
-  if (!rbac || typeof rbac.userHasAllFeatures !== 'function') return visible
-  const checker = rbac
+  const checker = resolveRbacFeatureChecker(context.container)
+  if (!checker) return visible
   const checks = new Map<string, Promise<boolean>>()
   for (const process of getProcessRegistry().processes) {
     const features = Array.from(new Set(process.requiredFeatures.filter((feature) => feature.length > 0))).sort(compareCodeUnits)
