@@ -518,5 +518,6 @@
   "documents.versions.snapshot.defaultLabel": "Migawka",
   "documents.versions.snapshot.labelPlaceholder": "Etykieta (opcjonalnie)",
   "documents.versions.snapshotTooLarge": "Ta wersja jest zbyt duża, aby można ją było bezpiecznie przetworzyć.",
-  "documents.versions.title": "Historia wersji"
+  "documents.versions.title": "Historia wersji",
+  "search.entityType.documents.document": "Dokument"
 }

@@ -126,6 +126,34 @@ export class CustomerSessionService {
     return session
   }
 
+  /**
+   * Liveness probe for tokens that carry no `sid` claim — the pre-migration customer JWTs the
+   * legacy raw-secret fallback still admits during a key rotation. Such a token cannot name the
+   * session it was issued for, so the strongest statement we can make about it is whether the
+   * customer is still signed in anywhere. A customer whose sessions have all been revoked
+   * (logout, per-device revoke, admin action) has none, and the token must stop working.
+   *
+   * Existence is the whole answer, so this reads no encrypted column and needs no decryption
+   * round-trip on the authentication path — the same reason `findActiveSessionForClaims` next to
+   * it queries directly. Scope comes from the owning user, since sessions carry no scope columns.
+   */
+  async hasActiveSessionForUser(input: {
+    userId: string
+    tenantId: string
+    organizationId: string
+  }): Promise<boolean> {
+    const session = await this.em.findOne(CustomerUserSession, {
+      user: {
+        id: input.userId,
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+      },
+      deletedAt: null,
+      expiresAt: { $gt: new Date() },
+    })
+    return session !== null
+  }
+
   async revokeSession(sessionId: string): Promise<void> {
     await this.em.nativeUpdate(CustomerUserSession, { id: sessionId }, { deletedAt: new Date() })
   }

@@ -28,6 +28,7 @@ import {
   dictionaryEntrySortModes,
   type DictionaryEntrySortMode,
 } from '../lib/entrySort'
+import { DICTIONARY_KEY_PATTERN } from '../data/validators'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('dictionaries').child({ component: 'DictionariesManager' })
@@ -225,8 +226,8 @@ export function DictionariesManager() {
       nextErrors.key = t('dictionaries.config.dialog.keyErrorRequired', 'Key is required.')
     } else if (trimmedKey.length > 100) {
       nextErrors.key = t('dictionaries.config.dialog.keyErrorLength', 'Key must be at most 100 characters long.')
-    } else if (!/^[a-z0-9][a-z0-9_-]*$/.test(trimmedKey)) {
-      nextErrors.key = t('dictionaries.config.dialog.keyErrorPattern', 'Use lowercase letters, numbers, hyphen, or underscore.')
+    } else if (!DICTIONARY_KEY_PATTERN.test(trimmedKey)) {
+      nextErrors.key = t('dictionaries.config.dialog.keyErrorPattern', 'Use lowercase letters, numbers, hyphen, underscore, or a dot between segments.')
     }
     if (!trimmedName) {
       nextErrors.name = t('dictionaries.config.dialog.nameErrorRequired', 'Name is required.')
@@ -521,7 +522,7 @@ export function DictionariesManager() {
                 id="dictionary-key-hint"
                 className={`text-xs ${errors.key ? 'text-destructive' : 'text-muted-foreground'}`}
               >
-                {errors.key ?? t('dictionaries.config.dialog.keyHint', 'Use lowercase letters, numbers, hyphen, or underscore.')}
+                {errors.key ?? t('dictionaries.config.dialog.keyHint', 'Use lowercase letters, numbers, hyphen, underscore, or a dot between segments.')}
               </p>
             </div>
             <div className="space-y-2">

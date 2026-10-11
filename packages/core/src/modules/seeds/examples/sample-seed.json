@@ -1,0 +1,26 @@
+{
+  "format": "om-seed",
+  "version": 1,
+  "records": [
+    {
+      "entity": "customers:customer_entity",
+      "match": ["id"],
+      "data": {
+        "id": "00000000-0000-0000-0000-0000000000a1",
+        "kind": "person",
+        "displayName": "Jane Doe",
+        "primaryEmail": "jane.doe@example.com",
+        "primaryPhone": "+48 600 000 000"
+      }
+    },
+    {
+      "entity": "customers:customer_address",
+      "data": {
+        "name": "Jane Doe",
+        "addressLine1": "ul. Przykładowa 1",
+        "city": "Warszawa",
+        "postalCode": "00-001"
+      }
+    }
+  ]
+}

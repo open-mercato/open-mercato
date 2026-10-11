@@ -10,10 +10,12 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 
 type BrandingPayload = {
   organizationId: string
@@ -39,6 +41,7 @@ const BRANDING_ENTITY_ID = 'directory.organization'
 export default function OrganizationBrandingPage() {
   const t = useT()
   const queryClient = useQueryClient()
+  const { organizationId, tenantId } = useOrganizationScopeDetail()
   const [logoUrl, setLogoUrl] = React.useState('')
   const [logoPreserveAspectRatio, setLogoPreserveAspectRatio] = React.useState(false)
   const [selectedFile, setSelectedFile] = React.useState<File | null>(null)
@@ -51,7 +54,8 @@ export default function OrganizationBrandingPage() {
   })
 
   const { data, isLoading, error } = useQuery<BrandingPayload>({
-    queryKey: ['directory-organization-branding'],
+    queryKey: ['directory-organization-branding', organizationId, tenantId],
+    enabled: Boolean(organizationId),
     queryFn: () => readApiResultOrThrow<BrandingPayload>(
       BRANDING_API,
       undefined,
@@ -63,7 +67,7 @@ export default function OrganizationBrandingPage() {
     setLogoUrl(data?.logoUrl ?? '')
     setLogoPreserveAspectRatio(data?.logoPreserveAspectRatio ?? false)
     setSelectedFile(null)
-  }, [data?.logoPreserveAspectRatio, data?.logoUrl])
+  }, [data?.logoPreserveAspectRatio, data?.logoUrl, organizationId, tenantId])
 
   React.useEffect(() => {
     if (!selectedFile || typeof URL === 'undefined') {
@@ -157,6 +161,24 @@ export default function OrganizationBrandingPage() {
     event.preventDefault()
     void saveBranding()
   }, [saveBranding])
+
+  if (!organizationId) {
+    return (
+      <Page>
+        <PageHeader title={t('directory.branding.title', 'Organization branding')} />
+        <PageBody>
+          <Alert status="information">
+            <AlertDescription>
+              {t(
+                'directory.branding.organizationRequired',
+                'Branding is managed for one organization at a time. Select a single organization to continue.',
+              )}
+            </AlertDescription>
+          </Alert>
+        </PageBody>
+      </Page>
+    )
+  }
 
   if (isLoading) {
     return <LoadingMessage label={t('directory.branding.loading', 'Loading organization branding...')} />

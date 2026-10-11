@@ -182,6 +182,10 @@ test.afterAll(async () => {
 
 test.describe('TC-WC-022: warranty claim email-to-claim subscriber', () => {
   test('creates one unlinked API claim from inbound email and ignores redelivery of the same message id', async ({ request }) => {
+    // Multiple drainIntegrationQueue calls each spawn a fresh Node process, which
+    // under CI resource contention can exceed the default 20s test timeout on its
+    // own even though the email-to-claim flow completes correctly.
+    test.setTimeout(60_000)
     const adminToken = await getAuthToken(request, 'admin')
     const { organizationId, tenantId } = getTokenContext(adminToken)
     const stamp = uniqueLabel('tc-wc-022')

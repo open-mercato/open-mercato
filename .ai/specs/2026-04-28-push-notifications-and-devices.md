@@ -354,6 +354,14 @@ Each phase is a self-contained, demoable vertical slice that ships its own admin
 
 **Phase 8** makes each adapter's already-exported client seam installable from `OM_PUSH_FAKE_PROVIDERS` via each package's `di.ts`, copying the `ensurePushStubAdapterRegistered()` production-safety pattern (no-op unless the flag is set, never installed at import, inert in production). Installing in `di.ts` `register()` is safe because `createRequestContainer()` runs every registrar and the queue builds a fresh container per job — a hard barrier before the first `sendMessage`. The registry is a `globalThis` singleton *per process* and the worker runs in its own process, so the flag must reach both harness env blocks. `push_stub`, `TC-PUSH-003`, and `TC-CHANNEL-PUSH-001..004` are untouched.
 
+### Post-spec UI delta: grouped admin delivery matrix (#6746)
+
+The Notification Delivery admin table groups catalogue rows by the existing stable `category` key and displays `categoryLabel`, falling back to the raw key. Categories sort by key, independent of locale; catalogue row order and registered channel order remain unchanged within each group. Nullable, absent, or empty categories remain visible in a separate localized “Other notifications” group, placed last. Distinct category keys never merge merely because their translated labels match.
+
+Each category is an accessible table row group with a spanning `scope="rowgroup"` heading and one shared channel header. Channel and Required switches retain their names, guarded mutation callbacks, pending indicator, and conflict/version handling. This presentation delta adds no API/schema/dependency contract and does not change either preference screen.
+
+Coverage: `NotificationSettingsPageClient.test.tsx` pins stable grouping, translated/raw/missing labels, exactly-once placement, channel order, pending saves, Required version headers, and conflict refresh. `TC-NOTIF-016` provisions a fresh tenant, organization, role and user through APIs, checks the registered groups and rows on `/backend/config/notifications`, saves a channel override, verifies persistence after reload, and cleans up the override and identity fixtures.
+
 ### Testing Strategy
 
 Integration specs are colocated in `__integration__/`, self-contained (fixtures created in setup, cleaned in teardown), and gated by a sibling `.meta.ts` where they need an env flag.
@@ -486,6 +494,9 @@ The sibling `.meta.ts` (`requiredEnvVars: ['OM_PUSH_FAKE_PROVIDERS']`) already s
 | A fake push provider *server* | Rejected on testing grounds (§ Alternatives Considered). The stronger case would be **product**: giving a downstream mobile app a live endpoint to develop against. Revisit on that basis. |
 
 ## Changelog
+
+### 2026-10-01
+- Implemented #6746: grouped the admin Notification Delivery matrix using the existing category catalogue contract, with accessible row-group headings and fallback translations in all five locales. Added component regressions and a self-contained native browser integration case; delivery and preference semantics are unchanged.
 
 ### 2026-08-26
 - Review follow-up for issue #5495: added explicit `['in_app', 'email']` eligibility to the twelve visible enterprise notification types in `record_locks` and `security`. Replaced the regression test's hard-coded catalogue list with workspace discovery of every module-root `notifications.ts` under `packages/` and `apps/`; any future visible type that omits `channels` now fails automatically, while the two hidden admin custom-push types remain documented exceptions.

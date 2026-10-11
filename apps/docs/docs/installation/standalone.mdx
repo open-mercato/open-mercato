@@ -10,6 +10,10 @@ Use this guide when you want to **build a product or service on top of Open Merc
 
 If you need to modify the core itself, use the [Monorepo](./monorepo) guide instead.
 
+:::tip Working with an AI coding agent?
+Let `create-mercato-app` set up the agent harness (the wizard asks, or pass `--agents claude-code`, `codex`, `cursor` or `all`), then ask your agent to use the **`om-help`** skill. It maps what you want to build to the right guides and skills in your app.
+:::
+
 <Tabs groupId="os" defaultValue="macos">
 
 <TabItem value="macos" label="🍎 macOS" default>
@@ -108,6 +112,7 @@ docker compose up -d
 ## Bootstrap and start
 
 ```bash
+yarn install   # needed before the first yarn setup, see #6849
 yarn setup
 ```
 
@@ -244,6 +249,7 @@ docker compose up -d
 ## Bootstrap and start
 
 ```bash
+yarn install   # needed before the first yarn setup, see #6849
 yarn setup
 ```
 
@@ -379,6 +385,7 @@ REDIS_URL=redis://localhost:6379
 ## Bootstrap and start
 
 ```powershell
+yarn install   # needed before the first yarn setup, see #6849
 yarn setup
 ```
 

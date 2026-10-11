@@ -9,12 +9,10 @@ import { Pagination, buildPaginationItems } from '../pagination'
 // empty-dict I18nProvider so the primitive falls back to its English
 // hardcoded defaults ("First page", "Previous page", ...).
 const render: typeof rtlRender = (ui: React.ReactElement, options?: Parameters<typeof rtlRender>[1]) =>
-  rtlRender(
-    <I18nProvider locale="en" dict={{}}>
-      {ui}
-    </I18nProvider>,
-    options,
-  )
+  rtlRender(ui, {
+    wrapper: ({ children }) => <I18nProvider locale="en" dict={{}}>{children}</I18nProvider>,
+    ...options,
+  })
 
 describe('buildPaginationItems', () => {
   it('returns every page when totalPages <= total slots', () => {
@@ -349,5 +347,20 @@ describe('Pagination with a capped total (totalIsCapped)', () => {
     expect(container.querySelector('[data-slot="pagination-last"]')).not.toBeNull()
     const info = container.querySelector('[data-slot="pagination-info"]')
     expect(info?.textContent).toBe('Page 10 of 10')
+  })
+})
+
+describe('Pagination source appearances', () => {
+  it.each(['basic', 'circle', 'group'] as const)('%s preserves page selection and native disabled semantics', (appearance) => {
+    const onPageChange = jest.fn()
+    const { getByRole, rerender } = render(<Pagination appearance={appearance} page={2} pageSize={25} total={400} onPageChange={onPageChange} />)
+    expect(getByRole('button', { name: 'Page 2, current page' })).toHaveAttribute('aria-current', 'page')
+    fireEvent.click(getByRole('button', { name: 'Next page' }))
+    expect(onPageChange).toHaveBeenCalledWith(3)
+    onPageChange.mockClear()
+    rerender(<Pagination appearance={appearance} page={2} pageSize={25} total={400} onPageChange={onPageChange} disabled />)
+    expect(getByRole('button', { name: 'Next page' })).toBeDisabled()
+    fireEvent.click(getByRole('button', { name: 'Next page' }))
+    expect(onPageChange).not.toHaveBeenCalled()
   })
 })

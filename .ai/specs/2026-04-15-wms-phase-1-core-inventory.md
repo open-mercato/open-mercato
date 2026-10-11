@@ -367,6 +367,7 @@ All list routes:
 - `POST /api/wms/inventory/cycle-count`
 - Request: `{ "warehouseId": "uuid", "locationId": "uuid", "catalogVariantId": "uuid", "countedQuantity": "12", "reason": "cycle_count" }`
 - Response: `{ "ok": true, "adjustmentDelta": "1" }`
+- Errors: `409 insufficient_stock` (body adds `countedQuantity`, `committedQuantity`) when a negative variance would drop on-hand below the bucket's `quantity_reserved + quantity_allocated`; the same availability bound as a negative `adjust`. Release the affected reservations first, then recount. Positive variances are never blocked.
 
 ### Inventory Strategy Rules
 
@@ -673,6 +674,9 @@ None.
 - **Fully compliant**: Approved — ready for implementation
 
 ## Changelog
+
+### 2026-09-29
+- Cycle count now applies the same non-negative availability bound as `adjust` and `move`: a negative variance that would drop on-hand below the bucket's reserved + allocated quantity is rejected with `409 insufficient_stock` instead of committing and leaving availability negative with the reservation still active. Roadmap invariant 4 defines availability and invariant 7 forbids negative availability until an explicit over-commit policy exists, so the count is rejected rather than silently shorting reservations; operators release the affected reservations, then recount. The cycle-count wizard shows a translated message naming the committed quantity. Coverage: `inventory-actions.cycleCount.test.ts`, `TC-WMS-029`.
 
 ### 2026-07-11
 - Follow-up to #4105: reintroduced the opening-balance reconciliation import path as an explicit, opt-in mode instead of removing it outright. The import wizard's Step 1 now has a "Reconcile to exact balance" checkbox (default off = additive, matching the #4105 fix); checking it restores the pre-#4105 `delta = quantity - currentOnHand` semantics for that import, including the `overwriting_existing_balance`/`insufficient_available_for_negative_delta` warnings and a dedicated Step 3 banner listing each affected row's current → new quantity before the user commits. `inventoryImportValidateSchema`/`inventoryImportApplySchema` gained a `mode: 'additive' | 'reconcile'` field (default `additive`); the apply endpoint recalculates the reconcile-mode delta against the live balance to guard against staleness.
