@@ -556,3 +556,21 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 | Database schema, event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
 
 **Migration path for existing modules**: send `parentId: null` / `childIds: []` where clearing is intended. Trees flattened before the upgrade are not repaired (see UPGRADE_NOTES.md).
+
+---
+
+## Currencies Keep Exactly One Base Currency (2026-10-12)
+
+Undoing a create or update that made a currency the base left the organization with no base currency, undoing an older update could leave two, unticking "Base currency" on the base cleared it, and two concurrent promotions could both commit. Every currency write now keeps exactly one live base currency per tenant and organization:
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| API routes (`PUT /api/currencies/currencies`) | `{ isBase: false }` on the current base currency answers `400` with a translated message (`currencies.errors.baseCurrencyUnset`). It previously answered `200` and left the organization without a base. Promoting another currency is the way to change the base, the same rule `DELETE` already applied (`Cannot delete the base currency`). Requests that send `isBase: false` for a non-base currency, or `isBase: true` for the base, are unchanged | ⚠️ Behaviour change on a previously-corrupting path. Response shapes are unchanged |
+| Command behaviour (`currencies.currencies.create` / `update` undo) | Undoing a create or update that made the currency the base restores the base it replaced. If that currency is no longer live, the undo answers `409` (`currencies.errors.undoWouldClearBase`) and changes nothing. Undoing an update that did not change the base flag no longer rewrites `isBase`. Undoing a create while active exchange rates reference the currency answers `409` (`currencies.errors.undoHasRates`) instead of orphaning the rates. Action-log entries written before the upgrade carry no recorded predecessor: undoing such a promotion while the currency is still the base answers `409` | ⚠️ Behaviour change. Undo requests that succeeded before and kept one base still succeed |
+| Command behaviour (`currencies.currencies.create` redo, `update` redo) | Redo of a create restores the logged base flag and demotes the current base, recording it so the redo can be undone. Redo of an update replays `isBase` only when the original update made the currency the base | ✓ Behaviour-preserving for redo of non-base writes |
+| Command result (`currencies.currencies.create` / `update`) | Results gain an optional `base: { promoted, demotedBaseCurrencyIds }` when the command made the currency the base. HTTP responses still return only `{ id }` | ✓ ADDITIVE |
+| Concurrency | Every currency create, update, delete and their undo/redo take a transaction-scoped PostgreSQL advisory lock keyed by tenant and organization, so currency writes in one organization run one at a time. Writes in different organizations do not wait for each other | ✓ No contract change |
+| Setup / CLI (`seedExampleCurrencies`, `mercato currencies seed`, `seedDefaults`) | USD is inserted as the base currency only when the organization has no live base. Otherwise it is inserted as a non-base currency | ⚠️ Behaviour change. Organizations that already had a base no longer end up with two |
+| Database schema, event IDs, ACL features, DI names, generated files | No change | ✓ n/a |
+
+**Migration path for existing modules**: a client that cleared the base flag to change the base must promote the new base currency instead (`PUT { id, isBase: true }`). Scopes that already hold zero or two base currencies from earlier bugs are not repaired automatically: promoting a currency resolves both cases (see UPGRADE_NOTES.md).

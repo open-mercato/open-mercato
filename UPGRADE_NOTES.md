@@ -41,6 +41,24 @@ One behavior is hardened for every provider. The route now verifies every locate
 
 **Action for provider authors:** none unless you want the new options. If your provider can legitimately store several transactions with the same provider session id under credentials that verify each other's signatures, return a more specific locator so a single transaction matches. A provider that locates transactions only by payment id must reject candidates whose `providerSessionId` or `amount` differ from the signed notification, because a retried checkout can leave several transactions for one payment.
 
+### Currencies keep exactly one base currency through undo, redo and concurrent writes
+
+- `PUT /api/currencies/currencies` with `isBase: false` on the current base currency now answers
+  `400`. To change the base, promote another currency with `isBase: true`; the previous base is
+  demoted in the same transaction.
+- Undoing a create or update that made a currency the base restores the previous base. When that
+  currency was deleted since, or the action-log entry predates this release, the undo answers `409`
+  and changes nothing.
+- Undoing a currency create while active exchange rates reference it answers `409`. Delete or
+  deactivate those rates first, as `DELETE` already required.
+- Currency writes in one organization are serialized by a transaction-scoped advisory lock.
+- `seedExampleCurrencies` (used by `seedDefaults` and `mercato currencies seed`) inserts USD as
+  the base only when the organization has no live base, so re-seeding no longer adds a second base.
+
+**Action for module authors:** none unless a client clears `isBase` to change the base. Existing
+data is not repaired: list `GET /api/currencies/currencies?isBase=true` per organization. If it
+returns zero or two rows, promote the intended base currency.
+
 ### Catalog product bulk-delete jobs require tenant, organization and user scope (#3826)
 
 The `catalog-product-bulk-delete` worker used to run `catalog.products.delete` with `auth: null`, so
