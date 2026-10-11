@@ -41,26 +41,28 @@ converge on one instance), and let instances and user tasks be listed by subject
 
 ## Progress
 
+PR: #7192
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Spec and schema
 
-- [ ] 1.1 Write spec
-- [ ] 1.2 Entity columns/indexes, migration and snapshot
+- [x] 1.1 Write spec — fe51dc232
+- [x] 1.2 Entity columns/indexes, migration and snapshot — 042ed0ab1
 
 ### Phase 2: Engine
 
-- [ ] 2.1 startOrReuseWorkflow with business key and reuse policy
-- [ ] 2.2 Executor unit tests
+- [x] 2.1 startOrReuseWorkflow with business key and reuse policy — 42e14cd55
+- [x] 2.2 Executor unit tests — cafa441fd
 
 ### Phase 3: API
 
-- [ ] 3.1 Start API accepts businessKey/reusePolicy; instance list businessKey filter
-- [ ] 3.2 Task list subject filter
-- [ ] 3.3 Route tests
+- [x] 3.1 Start API accepts businessKey/reusePolicy; instance list businessKey filter — 0e146b9ef
+- [x] 3.2 Task list subject filter — 0e146b9ef
+- [x] 3.3 Route tests — 0e146b9ef
 
 ### Phase 4: Docs and verification
 
-- [ ] 4.1 Docs and module AGENTS.md
-- [ ] 4.2 EXPLAIN and concurrency evidence against Postgres
+- [x] 4.1 Docs and module AGENTS.md — f645b2129
+- [x] 4.2 EXPLAIN and concurrency evidence against Postgres — evidence in PR description (scratch DB, not committed)
 - [ ] 4.3 Full validation gate
