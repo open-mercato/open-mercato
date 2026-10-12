@@ -117,16 +117,32 @@ payments to certain bank accounts, and payments made by split payment. So
 paying to an account outside the list is not prohibited; the paying company
 loses the cost deduction unless an exception applies.
 
-**Unverified:** the joint-and-several liability of the payer for the supplier's
-VAT arrears (art. 117ba Ordynacja podatkowa) and the PLN 15,000 amount (art. 19
-Prawo przedsiębiorców). Neither text was available. An earlier version of this
-paragraph attributed both to Art. 96b VAT Act, which contains neither.
+**Joint liability and the PLN 15,000 amount (checked 2026-10-12, Ordynacja
+podatkowa Dz. U. z 2026 r. poz. 622, state of 21 April 2026; Prawo
+przedsiębiorców t.j. Dz. U. z 2025 r. poz. 1480 and later amendments).** Art.
+117ba § 1–2 Ordynacji podatkowej makes the payer (a VAT taxpayer under art. 15)
+liable jointly, with its whole property, with the supplier (an active VAT
+taxpayer) for the supplier's VAT arrears proportional to that supply, when the
+invoice-confirmed payment was made by transfer to an account other than the one
+in the wykaz "na dzień zlecenia przelewu". Art. 117ba § 3 lists the cases where
+this does not apply: a transaction other than one under art. 19 Prawo
+przedsiębiorców (§ 3 pkt 1), a notification to the tax office within 7 days of
+ordering the transfer, made at the first payment to that account (pkt 2),
+payments to certain bank accounts (pkt 3), split payment (pkt 4), and
+intra-Community acquisition, import and reverse-charge invoices (pkt 5). Art.
+19 Prawo przedsiębiorców applies to transactions with another entrepreneur whose
+one-off value exceeds PLN 15,000 (or the equivalent, foreign-currency
+transactions converted at the NBP average rate of the last working day before
+the transaction day).
 
 **Consequence for the project:** bank account verification against the Biała
 Lista must be done as of the day the transfer is ordered, at every payment, not
 once at registration. This is a design requirement that follows from the
-tax-cost rule above (a payment outside the list is allowed but costly), not a
-legal prohibition on paying.
+tax-cost rule and the joint liability above (a payment outside the list is
+allowed but costly), not a legal prohibition on paying. Checking on the day is
+not the only way out the law provides (the 7-day notification and split payment
+also remove the liability), but it is the one this module can enforce
+automatically; the 7-day notification and split payment are not modelled here.
 
 **GUS (Polish Central Statistical Office)** — the REGON register, used
 to verify that a given NIP (tax ID) corresponds to an existing,
@@ -207,7 +223,7 @@ zlecenia przelewu", i.e. the day the transfer is ordered, not "within the
 last N days") — an account could have disappeared from the Biała
 Lista this morning, and yesterday's cache wouldn't catch that,
 restoring exactly the risk (loss of the cost deduction, and the payer's
-liability under art. 117ba Ordynacji podatkowej, unverified) this whole
+liability under art. 117ba Ordynacji podatkowej) this whole
 feature exists to eliminate. `checkBankAccountWhitelist` (see Commands) **always**
 performs a live call to the Biała Lista API, regardless of the cache
 value; the cache is updated as a side effect of every live check,
@@ -1994,10 +2010,25 @@ time on this document:
   (with exceptions, e.g. notification within 7 days). Citations in Legal
   context, the cache Design Decision, the Alternatives table and the Literature
   notes were updated; this changelog's earlier entries keep the original wording.
-- **Still unverified:** the payer's joint-and-several liability (art. 117ba
-  Ordynacja podatkowa) and the PLN 15,000 amount (art. 19 Prawo
-  przedsiębiorców).
+- **Joint liability and the PLN 15,000 amount:** unverified when this entry was
+  written, checked later the same day (next entry).
 - **Not applied.** Art. 96b ust. 2 provides for checking the list as of a chosen
   day, so the check could be run for the transfer date; the API client design
   is unchanged. No change to the design decisions, data model or tests. Not yet
   reviewed by a maintainer.
+
+### 2026-10-12 (cont. — Ordynacja podatkowa and Prawo przedsiębiorców checked)
+
+- Checked against the consolidated texts: Ordynacja podatkowa (Dz. U. z 2026 r.
+  poz. 622, state of 21 April 2026) and Prawo przedsiębiorców (t.j. Dz. U. z 2025 r.
+  poz. 1480 and later amendments through 2026 poz. 507).
+- **Confirmed.** Art. 117ba § 1–2 (payer's joint liability for the supplier's VAT
+  arrears) and § 3 (exceptions: other transaction, 7-day notification, bank
+  accounts, split payment, intra-Community and import cases); art. 19 Prawo
+  przedsiębiorców (PLN 15,000, other entrepreneur, NBP average rate of the last
+  working day before the transaction).
+- **Nuance added.** The earlier text said protection requires checking on the day
+  of the transfer; the law also removes the liability through a 7-day
+  notification or split payment. The design (live check on every payment) is
+  unchanged; the other two routes are not modelled and are noted as such. Not
+  yet reviewed by a maintainer.
