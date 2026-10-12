@@ -412,7 +412,7 @@ aktywa finansowe:**
 | `404` / Wynagrodzenia / DEBIT | `404-1` Wynagrodzenia |
 | `405` / Ubezpieczenia społeczne i inne świadczenia / DEBIT | `405-1` Ubezpieczenia społeczne |
 | `409` / Pozostałe koszty rodzajowe / DEBIT | `409-1` Pozostałe koszty rodzajowe |
-| `490` / Rozliczenie kosztów / DEBIT | `490-1` Rozliczenie kosztów międzyzespołowe (4 -> 5) |
+| `490` / Rozliczenie kosztów / CREDIT | `490-1` Rozliczenie kosztów międzyzespołowe (4 -> 5) |
 
 **Zespół 5 — Koszty według typów działalności i ich rozliczenie:**
 
@@ -484,7 +484,15 @@ reclassification — it posts a debit to the zespół 5 account and a
 credit to `490` for every zespół 4 posting, and that spec's own account
 resolution expects `490` to resolve to `code: '4'` like any other
 zespół 4 account. The template had zespół 4 and zespół 5 both, but no
-`490` linking them, until this fix. Payroll/tax gaps the same review
+`490` linking them, until this fix. `490` is modeled as `CREDIT` (changed from `DEBIT` on 2026-10-12, see the
+Changelog): the engine credits it for every zespół 4 posting, and its
+spec (2026-09-06-posting-rules-engine.md, invariant 2) describes its
+engine-posted balance as a credit balance. ⚠ NEEDS HUMAN CONFIRMATION:
+the sign is a convention checked against that spec only; no external
+accounting source was consulted for it. A type's `normalBalance` is
+immutable once an account of it has posted entries, so this is worth
+settling before the first import in a live tenant.
+Payroll/tax gaps the same review
 comment raised (no tax-office PIT-withholding settlement account, no
 `870` CIT expense account) are left out of Phase 1 deliberately — this
 template is representative, not exhaustive (see the opening paragraph
@@ -917,6 +925,22 @@ event; nothing to add to §2.
 **Verdict:** Fully compliant. Implementation complete (#6439, OM-16 to OM-20); this document has since been updated post-implementation and through two rounds of external review (see Changelog) — no longer a first draft.
 
 ## Changelog
+
+### 2026-10-12 — 490 `normalBalance` changed from DEBIT to CREDIT
+
+Found while testing the Posting Rules Engine end to end in a local demo:
+the engine's spec describes the clearing account's engine-posted balance
+as a credit balance (it debits the zespół 5 account and credits `490`),
+while this template had `490` as `DEBIT`, justified as a formality since
+the account clears to near zero. Because `normalBalance` is immutable once
+an account of the type has posted entries, and later balance reports would
+show the account with an inverted sign, it was changed to `CREDIT` in the
+Data Models table and in #6439's `lib/defaultChartOfAccounts.ts`. Totals
+(40 types / 44 accounts) are unchanged. Also noted: this template ships
+only two zespół 5 types (`550`, `552`) and stays "representative, not
+exhaustive" — a deliberate decision, not a gap; the Posting Rules settings
+page tells the user when fewer zespół 5 accounts than needed exist.
+⚠ NEEDS HUMAN CONFIRMATION (sign of 490, see Data Models).
 
 ### 2026-09-28 (cont. — M2, m1, m2, m3, m4, and all four PR #6137 review nits resolved)
 
