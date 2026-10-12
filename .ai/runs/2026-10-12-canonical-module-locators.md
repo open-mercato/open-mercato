@@ -22,12 +22,12 @@ PR: #7283
 ### Phase 2: Installation and alignment
 
 - [x] 2.1 Add origin-aware preflight, install guidance and collision protection. — 312ad6a3ba, 55c2e1ca3d
-- [x] 2.2 Align create-mercato-module and open companion PR if needed. — companion PR https://github.com/open-mercato/create-mercato-module/pull/6, commit 3bba690
+- [x] 2.2 Align create-mercato-module and open companion PR if needed. — companion PR https://github.com/open-mercato/create-mercato-module/pull/6, commit 10d2157
 
 ### Phase 3: Verification
 
-- [ ] 3.1 Run focused unit/integration coverage and configured validation gate.
-- [ ] 3.2 Review changes, publish evidence and update PR.
+- [x] 3.1 Run focused unit/integration coverage and configured validation gate. — configured test command encountered worker SIGSEGV; complete CLI passed serially (112 suites, 2098 tests), supplementary remaining-package verification recorded below.
+- [x] 3.2 Review changes, publish evidence and update PR. — independent final source review: no remaining blocker/major; final provenance/discovery fixes 14680ab6c2.
 
 ## Related deliverables
 
@@ -35,4 +35,4 @@ Independent collision policy specification: https://github.com/open-mercato/open
 
 ## Verification evidence
 
-Runner: local. Focused CLI unit tests: 117 passed. Shared canonical parser: 24 passed. App/scaffold TypeScript compatibility: 6 passed (failure-first TS2353 baseline confirmed). CLI integration: all 8 passed with an exact-file Playwright configuration; the broad repository configuration stalled during discovery and is not reported as passed. Companion generator: 173 passed, 5 environment-gated skips; typecheck, lint and pack passed. Full configured gate and final authoritative review are pending.
+Runner: local. Focused CLI unit tests: 117 passed. Shared canonical parser: 24 passed. App/scaffold TypeScript compatibility: 6 passed (failure-first TS2353 baseline confirmed). CLI integration: all 8 passed with an exact-file Playwright configuration; the broad repository configuration stalled during discovery and is not reported as passed. Companion generator: 175 passed, 5 environment-gated skips; typecheck, lint and pack passed. Package builds, generation, i18n sync/usage, typecheck and production app build passed. Default yarn test failed twice with Jest worker SIGSEGV in varying CLI suites; no assertion failures remained. The entire CLI suite passed with --runInBand: 112 suites, 2098 tests, 2 snapshots. Independent final source review found no remaining blocker/major. Remaining package verification is recorded in the PR run summary; the default parallel test gate is not claimed green.
