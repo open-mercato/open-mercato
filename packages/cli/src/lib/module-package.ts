@@ -92,7 +92,7 @@ function findMetadataLiteral(source: string, indexPath: string): ts.ObjectLitera
   return null
 }
 
-function parseModuleInfo(indexPath: string): {
+function parseModuleInfo(indexPath: string, validateRequires = false): {
   title?: string
   description?: string
   ejectable?: boolean
@@ -108,8 +108,13 @@ function parseModuleInfo(indexPath: string): {
   if (!metadata) return result
 
   for (const property of metadata.properties) {
-    if (!ts.isPropertyAssignment(property)) continue
     const propertyName = readPropertyName(property)
+    if (!ts.isPropertyAssignment(property)) {
+      if (validateRequires && propertyName === 'requires') {
+        throw new Error(`Module descriptor at ${indexPath} must declare "requires" as a static string array.`)
+      }
+      continue
+    }
     const initializer = unwrapExpression(property.initializer)
 
     if ((propertyName === 'title' || propertyName === 'description') && ts.isStringLiteralLike(initializer)) {
@@ -125,10 +130,16 @@ function parseModuleInfo(indexPath: string): {
 
     if (propertyName !== 'requires') continue
     if (!ts.isArrayLiteralExpression(initializer)) {
-      throw new Error(`Module descriptor at ${indexPath} must declare "requires" as a static string array.`)
+      if (validateRequires) {
+        throw new Error(`Module descriptor at ${indexPath} must declare "requires" as a static string array.`)
+      }
+      continue
     }
     if (initializer.elements.some((element) => !ts.isStringLiteralLike(element))) {
-      throw new Error(`Module descriptor at ${indexPath} must contain only string module ids in "requires".`)
+      if (validateRequires) {
+        throw new Error(`Module descriptor at ${indexPath} must contain only string module ids in "requires".`)
+      }
+      continue
     }
     result.requires = initializer.elements.map((element) => (element as ts.StringLiteralLike).text)
   }
@@ -381,7 +392,7 @@ export function readOfficialModulePackageFromRoot(
     throw new Error(`Package "${packageName}" is missing dist/modules/${moduleId}.`)
   }
 
-  const info = parseModuleInfo(path.join(sourceModuleDir, 'index.ts'))
+  const info = parseModuleInfo(path.join(sourceModuleDir, 'index.ts'), true)
 
   return {
     packageName,

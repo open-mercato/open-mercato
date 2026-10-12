@@ -192,7 +192,7 @@ function assertRequiredModulesEnabled(
   resolver: PackageResolver,
 ): void {
   const enabledModuleIds = new Set(resolver.loadEnabledModules().map((entry) => entry.id))
-  const missingModuleIds = modulePackage.moduleInfo.requires.filter(
+  const missingModuleIds = Array.from(new Set(modulePackage.moduleInfo.requires)).filter(
     (moduleId) => !enabledModuleIds.has(moduleId),
   )
   if (missingModuleIds.length === 0) return

@@ -50,11 +50,12 @@ Module identity and ejectability are read directly from each module's `src/modul
 2. Installs the package into the workspace using Yarn (`yarn add` for standalone apps; `yarn workspace <app> add` inside a monorepo).
 3. Scans the installed package's `src/modules/` directory (falling back to `dist/modules/`) to discover available modules.
 4. If `--module` is provided, selects that module; if the package has exactly one module, selects it automatically; otherwise errors with the list of available module IDs.
-5. If `--eject` is used, verifies that the selected module is marked `ejectable` in its `index.ts`.
-6. Registers the module in `src/modules.ts`:
+5. Reads `metadata.requires` from the selected module's `index.ts` and stops before registration if any required module is not enabled. The error lists every missing module id so you can enable those modules first.
+6. If `--eject` is used, verifies that the selected module is marked `ejectable` in its `index.ts`.
+7. Registers the module in `src/modules.ts`:
    - **Default flow**: adds an entry with `from: '<packageName>'`.
    - **With `--eject`**: copies the entire module directory from the package into `src/modules/<moduleId>/`, rewrites cross-module import paths, then adds an entry with `from: '@app'`.
-7. Runs `mercato generate` to regenerate the module registry, entity IDs, DI bindings, and API client.
+8. Runs `mercato generate` to regenerate the module registry, entity IDs, DI bindings, and API client.
 
 ## Examples
 
@@ -107,5 +108,6 @@ If you ran the command with **`--eject`**, the module source is now in `src/modu
 - **Package is outside the @open-mercato/\* scope** — the package belongs to a different npm scope. Rerun with `--allow-third-party` to opt in to installing third-party module packages.
 - **Multiple modules, --module required** — the package contains more than one module. Rerun with `--module <moduleId>`. The error message lists the available IDs.
 - **Module already registered** — the module is already present in `src/modules.ts`. Remove the existing entry before re-installing, or use [`mercato module eject`](./eject) if you want to take local ownership instead.
+- **Required modules are not enabled** — the selected module declares missing ids in `metadata.requires`. Enable the listed modules in `src/modules.ts` first, then rerun `module add`.
 - **Destination directory already exists** (`--eject`) — remove `src/modules/<moduleId>/` before running the command again with `--eject`.
 - **Build errors after install** — run `yarn mercato generate` to regenerate all artifacts, then verify with `yarn build`.

@@ -66,6 +66,8 @@ High-level behavior:
 4. CLI updates app `src/modules.ts` with either package-backed or app-backed registration.
 5. CLI runs module generation and surfaces follow-up steps.
 
+Before step 4, the CLI reads the selected module's static `metadata.requires` array and rejects the operation when any required module id is absent from the app's resolved `enabledModules`. The error lists the missing ids and tells the developer to enable them first. This validation runs before registration and source ejection, so dependency failures leave `src/modules.ts` and `src/modules/<moduleId>` unchanged.
+
 For `--eject`, the package is treated as a distribution vehicle plus retained origin package. The build continues from the main app after source is copied into app `src/modules/<moduleId>` and registered as `from: '@app'`.
 
 This spec explicitly defers:
@@ -302,6 +304,7 @@ Required behavior:
 
 - if package installation fails, CLI exits with no registration changes
 - if validation fails after package install, CLI MUST NOT mutate app source or `src/modules.ts`
+- if `metadata.requires` names a module that is not enabled, CLI MUST list every missing id and tell the developer to enable those modules before retrying
 - if registration or source extraction fails, CLI MUST leave the app in a fail-closed state and print remediation guidance
 - if `mercato generate` fails after registration, CLI exits non-zero and reports that the module is enabled but generated artifacts are stale
 
@@ -634,6 +637,9 @@ None.
 ### 2026-03-19
 - Replaced the documented `module add` mode selector with a single `--eject` flag.
 - Simplified `module add` to a single optional `--eject` flag.
+
+### 2026-10-12
+- Added fail-closed `metadata.requires` validation before module registration or source ejection, with actionable missing-module guidance.
 
 ### Review — 2026-03-14
 - **Reviewer**: Agent

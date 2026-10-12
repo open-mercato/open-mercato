@@ -57,6 +57,39 @@ describe('module-package', () => {
     expect(modulePackage.distModuleDir).toContain(path.join('dist', 'modules', 'test_package'))
   })
 
+  it('reads static dependency ids from the module descriptor', () => {
+    const packageRoot = path.join(tmpDir, 'package-with-dependencies')
+    copyDir(fixturePackageRoot, packageRoot)
+    fs.writeFileSync(
+      path.join(packageRoot, 'src', 'modules', 'test_package', 'index.ts'),
+      [
+        'export const metadata = {',
+        "  title: 'Test Package',",
+        "  requires: ['customers', 'catalog'],",
+        '  ejectable: true,',
+        '} as const',
+        '',
+      ].join('\n'),
+    )
+
+    const modulePackage = readOfficialModulePackageFromRoot(packageRoot)
+
+    expect(modulePackage.moduleInfo.requires).toEqual(['customers', 'catalog'])
+  })
+
+  it('rejects a dynamic dependency declaration that cannot be checked safely', () => {
+    const packageRoot = path.join(tmpDir, 'package-with-dynamic-dependencies')
+    copyDir(fixturePackageRoot, packageRoot)
+    fs.writeFileSync(
+      path.join(packageRoot, 'src', 'modules', 'test_package', 'index.ts'),
+      "const dependencies = ['customers']\nexport const metadata = { requires: dependencies }\n",
+    )
+
+    expect(() => readOfficialModulePackageFromRoot(packageRoot)).toThrow(
+      'must declare "requires" as a static string array',
+    )
+  })
+
   it('validates a third-party (non-@open-mercato) module package by structure', () => {
     const packageRoot = path.join(tmpDir, 'node_modules', '@fast-white-cat', 'integration-ksef-direct')
     for (const base of ['src', 'dist']) {

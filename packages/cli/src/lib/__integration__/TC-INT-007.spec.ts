@@ -24,19 +24,30 @@ function yarnBinary(): string {
 
 function runCommand(command: string, args: string[], cwd: string): string {
   const yarnCacheFolder = path.join(cwd, '.yarn', 'cache')
-  return execFileSync(command, args, {
-    cwd,
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      FORCE_COLOR: '0',
-      NODE_NO_WARNINGS: '1',
-      YARN_CACHE_FOLDER: yarnCacheFolder,
-      YARN_ENABLE_GLOBAL_CACHE: '0',
-      YARN_ENABLE_IMMUTABLE_INSTALLS: '0',
-      YARN_NODE_LINKER: 'node-modules',
-    },
-  })
+  try {
+    return execFileSync(command, args, {
+      cwd,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        FORCE_COLOR: '0',
+        NODE_NO_WARNINGS: '1',
+        YARN_CACHE_FOLDER: yarnCacheFolder,
+        YARN_ENABLE_GLOBAL_CACHE: '0',
+        YARN_ENABLE_IMMUTABLE_INSTALLS: '0',
+        YARN_NODE_LINKER: 'node-modules',
+      },
+    })
+  } catch (error) {
+    if (!error || typeof error !== 'object') throw error
+    const errorRecord = error as Record<string, unknown>
+    const outputs = ['stdout', 'stderr'].flatMap((streamName) => {
+      const output = errorRecord[streamName]
+      return typeof output === 'string' || Buffer.isBuffer(output) ? [output.toString().trim()] : []
+    }).filter(Boolean)
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(outputs.length > 0 ? `${message}\n${outputs.join('\n')}` : message)
+  }
 }
 
 function runMercato(args: string[], cwd: string): string {
@@ -66,6 +77,7 @@ function createCoreWorkspacePackage(rootDir: string, relativeDir: string): strin
 }
 
 function createMonorepoFixture(rootDir: string): string {
+  writeFile(path.join(rootDir, 'yarn.lock'), '')
   writeFile(
     path.join(rootDir, 'package.json'),
     JSON.stringify(
@@ -102,6 +114,7 @@ function createMonorepoFixture(rootDir: string): string {
 }
 
 function createStandaloneFixture(rootDir: string): string {
+  writeFile(path.join(rootDir, 'yarn.lock'), '')
   writeFile(
     path.join(rootDir, '.yarnrc.yml'),
     ['nodeLinker: node-modules', 'enableGlobalCache: false', 'cacheFolder: ./.yarn/cache', ''].join('\n'),
@@ -183,6 +196,30 @@ test.describe('TC-INT-007: CLI official module install and eject flows', () => {
       expect(modulesSource).toContain("{ id: 'test_package', from: '@app' }")
       expect(fs.existsSync(path.join(appDir, 'src', 'modules', 'test_package', 'index.ts'))).toBe(true)
       expect(cssSource).toBe('')
+    } finally {
+      fs.rmSync(appDir, { recursive: true, force: true })
+    }
+  })
+
+  test('module add reports dependencies that must be enabled before registration', () => {
+    const appDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mercato-cli-standalone-dependencies-'))
+
+    try {
+      createStandaloneFixture(appDir)
+      const packageDir = path.join(appDir, 'fixture-module-package')
+      fs.cpSync(fixtureModulePackage, packageDir, { recursive: true })
+      writeFile(
+        path.join(packageDir, 'src', 'modules', 'test_package', 'index.ts'),
+        "export const metadata = { id: 'test_package', requires: ['customers'], ejectable: true }\n",
+      )
+      runCommand(yarnBinary(), ['install'], appDir)
+
+      expect(() => runMercato(
+        ['module', 'add', '@open-mercato/test-package@file:./fixture-module-package'],
+        appDir,
+      )).toThrow(/requires module\(s\) that are not enabled: customers/)
+
+      expect(readFile(path.join(appDir, 'src', 'modules.ts'))).toBe('export const enabledModules = []\n')
     } finally {
       fs.rmSync(appDir, { recursive: true, force: true })
     }

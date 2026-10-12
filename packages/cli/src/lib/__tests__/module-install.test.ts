@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { PackageResolver } from '../resolver'
+import { readEnabledModulesFromConfig, type PackageResolver } from '../resolver'
 import { addOfficialModule, enableOfficialModule } from '../module-install'
 
 function buildPackageFixture(
@@ -11,10 +11,12 @@ function buildPackageFixture(
     ejectable?: boolean
     extraSourceFiles?: Array<{ relativePath: string; content: string }>
     packageName?: string
+    requires?: string[]
   },
 ): void {
   const ejectable = options?.ejectable ?? false
   const packageName = options?.packageName ?? '@open-mercato/test-package'
+  const requires = options?.requires ?? []
   for (const base of ['src', 'dist']) {
     fs.mkdirSync(path.join(packageRoot, base, 'modules', moduleId), { recursive: true })
   }
@@ -24,7 +26,7 @@ function buildPackageFixture(
   )
   fs.writeFileSync(
     path.join(packageRoot, 'src', 'modules', moduleId, 'index.ts'),
-    `export const metadata = { title: 'Test', ejectable: ${ejectable ? 'true' : 'false'} }\n`,
+    `export const metadata = { title: 'Test', ejectable: ${ejectable ? 'true' : 'false'}, requires: ${JSON.stringify(requires)} }\n`,
   )
   fs.writeFileSync(
     path.join(packageRoot, 'dist', 'modules', moduleId, 'index.js'),
@@ -46,6 +48,7 @@ function buildResolver(
   const modulesTsPath = path.join(appDir, 'src', 'modules.ts')
   fs.mkdirSync(path.join(appDir, 'src'), { recursive: true })
   fs.writeFileSync(modulesTsPath, modulesTsContent)
+  const initiallyEnabledModules = readEnabledModulesFromConfig(modulesTsPath)
 
   return {
     getAppDir: () => appDir,
@@ -53,8 +56,17 @@ function buildResolver(
     getPackageRoot: () => packageRoot,
     isMonorepo: () => false,
     getRootDir: () => appDir,
-    loadEnabledModules: () => [],
-    getModulePaths: () => ({ appBase: '', pkgBase: '' }),
+    discoverPackages: () => [],
+    loadEnabledModules: () => initiallyEnabledModules,
+    getModulePaths: (entry) => ({
+      appBase: path.join(appDir, 'src', 'modules', entry.id),
+      pkgBase: path.join(packageRoot, 'src', 'modules', entry.id),
+    }),
+    getModuleImportBase: (entry) => ({
+      appBase: `@/modules/${entry.id}`,
+      pkgBase: `${entry.from ?? '@open-mercato/core'}/modules/${entry.id}`,
+    }),
+    getPackageOutputDir: () => path.join(packageRoot, 'generated'),
     getOutputDir: () => path.join(appDir, '.mercato', 'generated'),
   } as unknown as PackageResolver
 }
@@ -204,6 +216,44 @@ describe('enableOfficialModule', () => {
     expect(fs.readFileSync(path.join(appDir, 'src', 'modules.ts'), 'utf8')).toContain(
       "{ id: 'test_package', from: '@app' }",
     )
+  })
+
+  it('rejects missing descriptor dependencies before registration or ejection', async () => {
+    const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'test-package')
+    const appDir = path.join(tmpDir, 'app')
+    const initialModulesSource = "export const enabledModules = [{ id: 'customers' }]\n"
+    buildPackageFixture(packageRoot, 'test_package', {
+      ejectable: true,
+      requires: ['customers', 'catalog'],
+    })
+    const resolver = buildResolver(appDir, packageRoot, initialModulesSource)
+
+    await expect(
+      enableOfficialModule(resolver, '@open-mercato/test-package', undefined, true),
+    ).rejects.toThrow(
+      'Module "test_package" requires module(s) that are not enabled: catalog.\n'
+      + 'Enable the missing module(s) in src/modules.ts first, then rerun this command.',
+    )
+
+    expect(fs.readFileSync(path.join(appDir, 'src', 'modules.ts'), 'utf8')).toBe(initialModulesSource)
+    expect(fs.existsSync(path.join(appDir, 'src', 'modules', 'test_package'))).toBe(false)
+  })
+
+  it('allows registration when every descriptor dependency is enabled', async () => {
+    const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'test-package')
+    const appDir = path.join(tmpDir, 'app')
+    buildPackageFixture(packageRoot, 'test_package', {
+      requires: ['customers', 'catalog'],
+    })
+    const resolver = buildResolver(
+      appDir,
+      packageRoot,
+      "export const enabledModules = [{ id: 'customers' }, { id: 'catalog' }]\n",
+    )
+
+    await expect(
+      enableOfficialModule(resolver, '@open-mercato/test-package'),
+    ).resolves.toMatchObject({ moduleId: 'test_package', registrationChanged: true })
   })
 
   it('rejects enabling with --eject when the package is not ejectable', async () => {
