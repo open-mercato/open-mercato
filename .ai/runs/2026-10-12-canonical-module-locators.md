@@ -16,15 +16,23 @@ PR: #7283
 
 ### Phase 1: Canonical identity
 
-- [ ] 1.1 Add shared normalization and optional locator metadata/configuration.
-- [ ] 1.2 Resolve canonical requirements in all generator validation and ordering paths.
+- [x] 1.1 Add shared normalization and optional locator metadata/configuration. — 312ad6a3ba
+- [x] 1.2 Resolve canonical requirements in all generator validation and ordering paths. — 312ad6a3ba (all three validation paths; existing generators have no dependency topological ordering)
 
 ### Phase 2: Installation and alignment
 
-- [ ] 2.1 Add origin-aware preflight, install guidance and collision protection.
-- [ ] 2.2 Align create-mercato-module and open companion PR if needed.
+- [x] 2.1 Add origin-aware preflight, install guidance and collision protection. — 312ad6a3ba, 55c2e1ca3d
+- [x] 2.2 Align create-mercato-module and open companion PR if needed. — companion PR https://github.com/open-mercato/create-mercato-module/pull/6, commit 3bba690
 
 ### Phase 3: Verification
 
 - [ ] 3.1 Run focused unit/integration coverage and configured validation gate.
 - [ ] 3.2 Review changes, publish evidence and update PR.
+
+## Related deliverables
+
+Independent collision policy specification: https://github.com/open-mercato/open-mercato/pull/7289. It covers future lifecycle-wide collision policy and package aliases without expanding this implementation into automatic runtime namespacing.
+
+## Verification evidence
+
+Runner: local. Focused CLI unit tests: 117 passed. Shared canonical parser: 24 passed. App/scaffold TypeScript compatibility: 6 passed (failure-first TS2353 baseline confirmed). CLI integration: all 8 passed with an exact-file Playwright configuration; the broad repository configuration stalled during discovery and is not reported as passed. Companion generator: 173 passed, 5 environment-gated skips; typecheck, lint and pack passed. Full configured gate and final authoritative review are pending.
