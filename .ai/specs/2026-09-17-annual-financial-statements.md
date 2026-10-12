@@ -1942,3 +1942,24 @@ Seven major and two minor findings from the review of `c7ac9ffcb`:
   and `covered_from_partner_contributions` (loss), from secondary sources
   (one dated 2009), and sole proprietors need no resolution. No ⚠ remains in
   this document; the category list is the least verified part.
+
+### 2026-10-12 — Net presentation under the Accounting Act: note for a later phase
+
+Checked in the consolidated text of the Act (Dz. U. z 2026 r. poz. 522, 640,
+644, 1206) while verifying the overpayment treatment in #6055. Two provisions
+allow showing items net in the balance sheet, and this document shows all
+items gross:
+
+- **Art. 46 ust. 2a:** financial assets and financial liabilities are shown net
+  where the entity has an unconditional right to offset assets and liabilities
+  of that kind and intends to settle net or at the same time. A trade
+  receivable and a refund obligation to the same customer can fall under it
+  (art. 3 ust. 1 pkt 24 and 27; the Act does not say so expressly).
+- **Art. 37 ust. 7:** deferred tax provision and deferred tax asset are shown
+  separately and may be offset where the entity has a title to take them into
+  account together when computing the tax liability.
+
+Phase 1 decision: show gross and do not offer an option. Netting depends on the
+entity's right and intent, which the system cannot know, so it would be a
+per-entity setting, not a default. Phase 2 candidate if a tenant asks. Not
+yet reviewed by a maintainer.
