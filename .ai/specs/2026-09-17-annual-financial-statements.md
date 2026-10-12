@@ -1959,7 +1959,7 @@ items gross:
   separately and may be offset where the entity has a title to take them into
   account together when computing the tax liability.
 
-Phase 1 decision: show gross and do not offer an option. Netting depends on the
+Phase 1 decision (confirmed by the team 2026-10-12): show gross and do not offer an option. Netting depends on the
 entity's right and intent, which the system cannot know, so it would be a
 per-entity setting, not a default. Phase 2 candidate if a tenant asks. Not
 yet reviewed by a maintainer.
