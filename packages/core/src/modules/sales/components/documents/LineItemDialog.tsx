@@ -48,7 +48,11 @@ import {
 import { E } from "#generated/entities.ids.generated";
 import { useT, useLocale } from "@open-mercato/shared/lib/i18n/context";
 import { useOrganizationScopeDetail } from "@open-mercato/shared/lib/frontend/useOrganizationScope";
-import { formatMoney, normalizeNumber } from "./lineItemUtils";
+import {
+  formatMoney,
+  normalizeNumber,
+  resolveCatalogPriceAmount,
+} from "./lineItemUtils";
 import type { SalesLineRecord } from "./lineItemTypes";
 import { prepareShippedLineUpdatePayload } from "./lineItemShipmentLock";
 import {
@@ -540,6 +544,7 @@ export function LineItemDialog({
   const [, setLineStatusLoading] = React.useState(false);
   const productOptionsRef = React.useRef<Map<string, ProductOption>>(new Map());
   const variantOptionsRef = React.useRef<Map<string, VariantOption>>(new Map());
+  const selectedProductIdRef = React.useRef<string | null>(null);
   const taxRatesRef = React.useRef<TaxRateOption[]>([]);
   const defaultTaxRateRef = React.useRef<TaxRateOption | null>(null);
   const dialogContentRef = React.useRef<HTMLDivElement | null>(null);
@@ -645,6 +650,7 @@ export function LineItemDialog({
       }
       setInitialValues(base);
       setLineMode(base.lineMode);
+      selectedProductIdRef.current = null;
       setProductOption(null);
       setVariantOption(null);
       setPriceOptions([]);
@@ -1108,7 +1114,15 @@ export function LineItemDialog({
               scopeTags: tags,
             } as PriceOption;
           })
-          .filter((entry): entry is PriceOption => Boolean(entry));
+          .filter((entry): entry is PriceOption => Boolean(entry))
+          .filter(
+            (entry) =>
+              resolveCatalogPriceAmount(
+                entry.amountNet,
+                entry.amountGross,
+                entry.displayMode === "excluding-tax" ? "net" : "gross",
+              ) !== null,
+          );
         setPriceOptions(mapped);
         return mapped;
       } catch (err) {
@@ -1198,9 +1212,11 @@ export function LineItemDialog({
         const mode =
           selected.displayMode === "excluding-tax" ? "net" : "gross";
         const amountPerBaseUnit =
-          mode === "net"
-            ? (selected.amountNet ?? selected.amountGross ?? 0)
-            : (selected.amountGross ?? selected.amountNet ?? 0);
+          resolveCatalogPriceAmount(
+            selected.amountNet,
+            selected.amountGross,
+            mode,
+          ) ?? 0;
         const factor = resolveUnitPriceFactor(options?.quantityUnit ?? null);
         const amount = Number.isFinite(amountPerBaseUnit * factor)
           ? amountPerBaseUnit * factor
@@ -1221,6 +1237,125 @@ export function LineItemDialog({
       setFormValue("taxRateId", fallbackTax.taxRateId ?? null);
     },
     [currencyCode, findTaxRateIdByValue, resolveTaxSelection, resolveUnitPriceFactor],
+  );
+
+  const commitVariantSelection = React.useCallback(
+    ({
+      variantId,
+      productId,
+      product,
+      values,
+      setFormValue,
+    }: {
+      variantId: string | null;
+      productId: string | null;
+      product: ProductOption | null;
+      values: Record<string, unknown> | undefined;
+      setFormValue: ((id: string, value: unknown) => void) | undefined;
+    }) => {
+      const selectedOption = variantId
+        ? (variantOptionsRef.current.get(variantId) ?? null)
+        : null;
+      setVariantOption(selectedOption);
+      setFormValue?.("variantId", variantId);
+      const existingName = typeof values?.name === "string" ? values.name : "";
+      if (!existingName.trim()) {
+        setFormValue?.(
+          "name",
+          selectedOption?.title ?? product?.title ?? existingName,
+        );
+      }
+      const taxSource = hasTaxMetadata(selectedOption)
+        ? selectedOption
+        : hasTaxMetadata(product)
+          ? product
+          : null;
+      if (taxSource) {
+        const taxSelection = resolveTaxSelection(taxSource);
+        setFormValue?.("taxRate", taxSelection.taxRate ?? null);
+        setFormValue?.("taxRateId", taxSelection.taxRateId ?? null);
+      }
+      const prevSnapshot =
+        typeof values?.catalogSnapshot === "object" && values.catalogSnapshot
+          ? (values.catalogSnapshot as Record<string, unknown>)
+          : null;
+      if (variantId) {
+        setFormValue?.("catalogSnapshot", {
+          ...(prevSnapshot ?? {}),
+          variant: {
+            id: variantId,
+            title: selectedOption?.title ?? null,
+            sku: selectedOption?.sku ?? null,
+            thumbnailUrl: selectedOption?.thumbnailUrl ?? null,
+          },
+        });
+      } else if (prevSnapshot) {
+        const snapshot = { ...prevSnapshot };
+        if ("variant" in snapshot)
+          delete (snapshot as CatalogSnapshotRecord).variant;
+        setFormValue?.(
+          "catalogSnapshot",
+          Object.keys(snapshot).length ? snapshot : null,
+        );
+      } else {
+        setFormValue?.("catalogSnapshot", null);
+      }
+      if (productId) {
+        const currentQuantity =
+          typeof values?.quantity === "string" ? values.quantity : 1;
+        const currentQuantityUnit =
+          typeof values?.quantityUnit === "string" ? values.quantityUnit : null;
+        void loadPrices(
+          productId,
+          variantId,
+          currentQuantity,
+          currentQuantityUnit,
+        );
+      }
+    },
+    [hasTaxMetadata, loadPrices, resolveTaxSelection],
+  );
+
+  const autoSelectSoleVariant = React.useCallback(
+    async ({
+      productId,
+      product,
+      values,
+      setFormValue,
+    }: {
+      productId: string;
+      product: ProductOption | null;
+      values: Record<string, unknown>;
+      setFormValue: ((id: string, value: unknown) => void) | undefined;
+    }) => {
+      let variants: LookupSelectItem[] = [];
+      try {
+        variants = await loadVariantOptions(
+          productId,
+          product?.thumbnailUrl ?? null,
+        );
+      } catch (err) {
+        logger.error('sales.document.items.autoSelectVariant', { err });
+      }
+      if (selectedProductIdRef.current !== productId) return;
+      if (variants.length === 1) {
+        commitVariantSelection({
+          variantId: variants[0].id,
+          productId,
+          product,
+          values,
+          setFormValue,
+        });
+        return;
+      }
+      void loadPrices(
+        productId,
+        null,
+        typeof values.quantity === "string" ? values.quantity : 1,
+        typeof values.quantityUnit === "string" ? values.quantityUnit : null,
+      );
+    },
+    [commitVariantSelection, loadPrices, loadVariantOptions],
   );
 
   const loadLineStatuses = React.useCallback(async (): Promise<
@@ -1671,6 +1806,7 @@ export function LineItemDialog({
           const switchMode = (next: "catalog" | "custom") => {
             if (next === mode) return;
             setValue(next);
+            selectedProductIdRef.current = null;
             setLineMode(next);
             if (next === "custom") {
               setProductOption(null);
@@ -1795,18 +1931,17 @@ export function LineItemDialog({
                       selectedOption?.defaultUnit ??
                       null;
                     setFormValue?.("quantityUnit", defaultQuantityUnit);
-                    if (
+                    const defaultQuantity =
                       typeof selectedOption?.defaultSalesUnitQuantity ===
                         "number" &&
                       Number.isFinite(
                         selectedOption.defaultSalesUnitQuantity,
                       ) &&
                       selectedOption.defaultSalesUnitQuantity > 0
-                    ) {
-                      setFormValue?.(
-                        "quantity",
-                        String(selectedOption.defaultSalesUnitQuantity),
-                      );
+                        ? String(selectedOption.defaultSalesUnitQuantity)
+                        : null;
+                    if (defaultQuantity) {
+                      setFormValue?.("quantity", defaultQuantity);
                     }
                     const taxSelection = selectedOption
                       ? resolveTaxSelection(selectedOption)
@@ -1818,33 +1953,38 @@ export function LineItemDialog({
                     if (!existingName.trim() && selectedOption?.title) {
                       setFormValue?.("name", selectedOption.title);
                     }
-                    setFormValue?.(
-                      "catalogSnapshot",
-                      next
-                        ? {
-                            product: {
-                              id: next,
-                              title: selectedOption?.title ?? null,
-                              sku: selectedOption?.sku ?? null,
-                              thumbnailUrl:
-                                selectedOption?.thumbnailUrl ?? null,
-                              defaultUnit: selectedOption?.defaultUnit ?? null,
-                              defaultSalesUnit:
-                                selectedOption?.defaultSalesUnit ?? null,
-                            },
-                          }
-                        : null,
-                    );
+                    const productSnapshot = next
+                      ? {
+                          product: {
+                            id: next,
+                            title: selectedOption?.title ?? null,
+                            sku: selectedOption?.sku ?? null,
+                            thumbnailUrl:
+                              selectedOption?.thumbnailUrl ?? null,
+                            defaultUnit: selectedOption?.defaultUnit ?? null,
+                            defaultSalesUnit:
+                              selectedOption?.defaultSalesUnit ?? null,
+                          },
+                        }
+                      : null;
+                    setFormValue?.("catalogSnapshot", productSnapshot);
+                    selectedProductIdRef.current = next ?? null;
                     if (next) {
                       void loadProductUnits(next, selectedOption);
-                      void loadPrices(
-                        next,
-                        null,
-                        typeof values?.quantity === "string"
-                          ? values.quantity
-                          : 1,
-                        defaultQuantityUnit,
-                      );
+                      const valuesAfterProductChange = {
+                        ...values,
+                        name:
+                          existingName.trim() || selectedOption?.title || "",
+                        catalogSnapshot: productSnapshot,
+                        quantity: defaultQuantity ?? values?.quantity,
+                        quantityUnit: defaultQuantityUnit,
+                      };
+                      void autoSelectSoleVariant({
+                        productId: next,
+                        product: selectedOption,
+                        values: valuesAfterProductChange,
+                        setFormValue,
+                      });
                     }
                   }}
                   fetchItems={loadProductOptions}
@@ -1921,76 +2061,14 @@ export function LineItemDialog({
                     key={productId ?? "no-product"}
                     value={typeof value === "string" ? value : null}
                     onChange={(next) => {
-                      const selectedOption = next
-                        ? (variantOptionsRef.current.get(next) ?? null)
-                        : null;
-                      setVariantOption(selectedOption);
                       setValue(next ?? null);
-                      const existingName =
-                        typeof values?.name === "string" ? values.name : "";
-                      if (!existingName.trim()) {
-                        setFormValue?.(
-                          "name",
-                          selectedOption?.title ??
-                            productOption?.title ??
-                            existingName,
-                        );
-                      }
-                      const taxSource = hasTaxMetadata(selectedOption)
-                        ? selectedOption
-                        : hasTaxMetadata(productOption)
-                          ? productOption
-                          : null;
-                      if (taxSource) {
-                        const taxSelection = resolveTaxSelection(taxSource);
-                        setFormValue?.("taxRate", taxSelection.taxRate ?? null);
-                        setFormValue?.(
-                          "taxRateId",
-                          taxSelection.taxRateId ?? null,
-                        );
-                      }
-                      const prevSnapshot =
-                        typeof values?.catalogSnapshot === "object" &&
-                        values.catalogSnapshot
-                          ? (values.catalogSnapshot as Record<string, unknown>)
-                          : null;
-                      if (next) {
-                        setFormValue?.("catalogSnapshot", {
-                          ...(prevSnapshot ?? {}),
-                          variant: {
-                            id: next,
-                            title: selectedOption?.title ?? null,
-                            sku: selectedOption?.sku ?? null,
-                            thumbnailUrl: selectedOption?.thumbnailUrl ?? null,
-                          },
-                        });
-                      } else if (prevSnapshot) {
-                        const snapshot = { ...prevSnapshot };
-                        if ("variant" in snapshot)
-                          delete (snapshot as CatalogSnapshotRecord).variant;
-                        setFormValue?.(
-                          "catalogSnapshot",
-                          Object.keys(snapshot).length ? snapshot : null,
-                        );
-                      } else {
-                        setFormValue?.("catalogSnapshot", null);
-                      }
-                      if (productId) {
-                        const currentQuantity =
-                          typeof values?.quantity === "string"
-                            ? values.quantity
-                            : 1;
-                        const currentQuantityUnit =
-                          typeof values?.quantityUnit === "string"
-                            ? values.quantityUnit
-                            : null;
-                        void loadPrices(
-                          productId,
-                          next,
-                          currentQuantity,
-                          currentQuantityUnit,
-                        );
-                      }
+                      commitVariantSelection({
+                        variantId: next ?? null,
+                        productId,
+                        product: productOption,
+                        values,
+                        setFormValue,
+                      });
                     }}
                     fetchItems={async (query) => {
                       if (!productId) return [];
@@ -2673,6 +2751,8 @@ export function LineItemDialog({
     ];
   }, [
     applyPriceSelection,
+    autoSelectSoleVariant,
+    commitVariantSelection,
     convertUnitPriceForUnitChange,
     currencyCode,
     findTaxRateIdByValue,
@@ -2717,6 +2797,7 @@ export function LineItemDialog({
       return;
     }
     let cancelled = false;
+    selectedProductIdRef.current = null;
     setDeletedCatalogReference(false);
     setEditingId(initialLine.id);
     const nextForm = defaultForm(initialLine.currencyCode ?? currencyCode);
