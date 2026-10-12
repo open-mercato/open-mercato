@@ -170,3 +170,29 @@ export async function seedJournalEntryInDb(input: SeedJournalEntryInput): Promis
     return entryId;
   });
 }
+
+/**
+ * Inserts a `LedgerAccountGroup` row directly in Postgres. Groups are
+ * system-seeded reference data with no create route (`api/account-groups` is
+ * read-only), and a throwaway organization created by a spec does not get the
+ * seeded Polish groups, so a spec that needs a PL group (the numbering rule
+ * only applies to those) seeds one for its own organization. The row is left
+ * behind and goes away with the throwaway organization's scope.
+ */
+export async function seedAccountGroupInDb(input: {
+  organizationId: string;
+  tenantId: string;
+  code: string;
+  name: string;
+  jurisdiction?: string;
+}): Promise<string> {
+  const id = randomUUID();
+  await withClient(async (client) => {
+    await client.query(
+      `insert into ledger_account_groups (id, organization_id, tenant_id, jurisdiction, code, name)
+       values ($1, $2, $3, $4, $5, $6)`,
+      [id, input.organizationId, input.tenantId, input.jurisdiction ?? 'PL', input.code, input.name],
+    );
+  });
+  return id;
+}
