@@ -410,7 +410,7 @@ beforeEach(() => {
   ;(window as unknown as { open: jest.Mock }).open = jest.fn()
 })
 
-describe('TimeEntryDialog — exact rate overrides', () => {
+describe('TimeEntryDialog - exact rate overrides', () => {
   const exactRate = '98.765432109876543212'
 
   function installPreciseEntry() {
