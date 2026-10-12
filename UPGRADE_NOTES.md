@@ -24,6 +24,23 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
+### Staff user create enforces the caller's organization scope (#7238)
+
+`POST /api/auth/users`, through the `auth.users.create` command, now applies the same destination
+check that `PUT /api/auth/users` already applied to an organization change. The organization must
+be within the caller's descendant-expanded organization scope, and any roles must belong to its
+tenant and be grantable by the caller. This holds whether or not the request sends `roles`. A caller
+restricted to some organizations who names another organization of the same tenant now gets `403`
+(`Cannot assign user to a destination organization outside actor scope.`) and no user is written.
+Before this release the user was created with `201`.
+
+An organization of another tenant still answers `404 Organization not found`, as before.
+Superadmins, system actors and callers without an organization restriction are unaffected.
+
+**Action for integrators:** a script or API key that creates staff users with an
+organization-restricted principal must either be granted the target organizations or use an
+unrestricted principal.
+
 ### Payment gateway webhooks: opt-in transport, locator and response options; ambiguous matches are rejected
 
 `registerWebhookHandler(...)` accepts new optional options for providers that sign form-encoded bodies or expect a specific acknowledgement:
