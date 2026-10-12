@@ -89,6 +89,7 @@
   "ledger.errors.accountTypeNotFound": "계정 유형을 찾을 수 없습니다.",
   "ledger.errors.accountTypeNotFoundForOrg": "지정된 계정 유형이 이 조직에 존재하지 않습니다.",
   "ledger.errors.accountTypeNumberAccountsPrefix": "이 유형의 계정 중 번호가 해당 번호로 시작하지 않는 계정이 있는 동안에는 유형 번호를 변경할 수 없습니다.",
+  "ledger.errors.accountTypeRenumberCollision": "유형 번호를 변경하면 이 조직에서 이미 사용 중인 번호가 계정에 부여됩니다.",
   "ledger.errors.accountTypeNumberFormat": "폴란드 그룹의 계정 유형 번호는 정확히 세 자리 숫자여야 합니다.",
   "ledger.errors.accountTypeNumberGroupDigit": "계정 유형 번호의 첫 자리는 그룹 코드({{code}})여야 합니다.",
   "ledger.errors.accountTypeNumberImmutableAfterPosting": "이 유형의 계정에 전기된 분개가 있으면 유형 번호를 변경할 수 없습니다.",

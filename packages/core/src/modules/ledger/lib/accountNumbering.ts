@@ -62,3 +62,33 @@ export function reprefixNumber(current: string, previous: string | null, next: s
   if (next) return `${next}${ending}`
   return carriesPrevious ? ending : current
 }
+
+export type AccountRenumberPlan = {
+  renames: Array<{ id: string; from: string; to: string }>
+  /** Accounts that start with neither the old nor the new type number. */
+  unfixable: string[]
+}
+
+/**
+ * What happens to a type's accounts when the type number changes from
+ * `previous` to `next`: an account that starts with `previous` swaps that
+ * prefix for `next` (`402-01` → `412-01`), one that already starts with `next`
+ * stays, and one that starts with neither cannot be brought under the rule
+ * automatically.
+ */
+export function planAccountRenumber(
+  accounts: Array<{ id: string; number: string }>,
+  previous: string,
+  next: string,
+): AccountRenumberPlan {
+  const renames: AccountRenumberPlan['renames'] = []
+  const unfixable: string[] = []
+  for (const account of accounts) {
+    if (account.number.startsWith(previous)) {
+      renames.push({ id: account.id, from: account.number, to: `${next}${account.number.slice(previous.length)}` })
+    } else if (!account.number.startsWith(next)) {
+      unfixable.push(account.id)
+    }
+  }
+  return { renames, unfixable }
+}

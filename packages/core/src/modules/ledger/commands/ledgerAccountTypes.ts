@@ -11,7 +11,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/translate'
 import { E } from '#generated/entities.ids.generated'
 import { JournalEntryLine, LedgerAccount, LedgerAccountGroup, LedgerAccountType } from '../data/entities'
-import { checkTypeNumber } from '../lib/accountNumbering'
+import { checkTypeNumber, planAccountRenumber } from '../lib/accountNumbering'
 import {
   ledgerAccountTypeCreateSchema,
   ledgerAccountTypeUpdateSchema,
@@ -140,22 +140,25 @@ function requireTypeNumberMatchesGroup(
 }
 
 /**
- * Whether some live account of `accountTypeId` has a number that does not
- * start with `typeNumber` — renumbering the type would then leave that
- * account outside the prefix rule.
+ * Loads the type's live accounts and plans their renumbering for a type
+ * number change (see `planAccountRenumber`): accounts follow their type, so
+ * `402-01` becomes `412-01` when type 402 becomes 412.
  */
-async function accountsBreakPrefix(
+async function planTypeAccountRenumber(
   em: EntityManager,
   accountTypeId: string,
-  typeNumber: string,
+  previousNumber: string,
+  nextNumber: string,
   scope: Scope,
-): Promise<boolean> {
-  const accounts = await em.find(
-    LedgerAccount,
-    { accountTypeId, organizationId: scope.organizationId, tenantId: scope.tenantId, deletedAt: null },
-    { fields: ['number'] },
-  )
-  return accounts.some((account) => !account.number.startsWith(typeNumber))
+) {
+  const accounts = await em.find(LedgerAccount, {
+    accountTypeId,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    deletedAt: null,
+  })
+  const plan = planAccountRenumber(accounts, previousNumber, nextNumber)
+  return { accounts, plan }
 }
 
 const createLedgerAccountTypeCommand: CommandHandler<LedgerAccountTypeCreateInput, { ledgerAccountTypeId: string }> = {
@@ -256,6 +259,7 @@ const updateLedgerAccountTypeCommand: CommandHandler<LedgerAccountTypeUpdateInpu
       if (existing) throw conflict(translate('ledger.errors.accountTypeNumberTaken', 'An account type with this number already exists for this organization.'))
     }
 
+    let renumberedAccounts: Array<{ account: LedgerAccount; to: string }> = []
     const changesNumber = parsed.number !== undefined && parsed.number !== record.number
     const changesNormalBalance = parsed.normalBalance !== undefined && parsed.normalBalance !== record.normalBalance
     const changesAccountGroup =
@@ -293,13 +297,38 @@ const updateLedgerAccountTypeCommand: CommandHandler<LedgerAccountTypeUpdateInpu
       const nextGroup = nextGroupId ? await requireExistingAccountGroup(em, nextGroupId, scope, translate) : null
       requireTypeNumberMatchesGroup(nextNumber, nextGroup, translate)
       if (changesNumber && nextGroup && checkTypeNumber(nextNumber, nextGroup) === null) {
-        if (await accountsBreakPrefix(em, record.id, nextNumber, scope)) {
+        // The accounts follow their type: their prefix is swapped together
+        // with the type number. A type with posted lines is frozen above, so
+        // none of these accounts has posted lines.
+        const planned = await planTypeAccountRenumber(em, record.id, record.number, nextNumber, scope)
+        if (planned.plan.unfixable.length) {
           throw conflict(
             translate(
               'ledger.errors.accountTypeNumberAccountsPrefix',
               'The type number cannot change while accounts of this type have numbers that do not start with it.',
             ),
           )
+        }
+        if (planned.plan.renames.length) {
+          const taken = await em.count(LedgerAccount, {
+            number: { $in: planned.plan.renames.map((rename) => rename.to) },
+            organizationId: scope.organizationId,
+            tenantId: scope.tenantId,
+            deletedAt: null,
+            id: { $nin: planned.plan.renames.map((rename) => rename.id) },
+          })
+          if (taken > 0) {
+            throw conflict(
+              translate(
+                'ledger.errors.accountTypeRenumberCollision',
+                'Renumbering the type would give an account a number that is already taken in this organization.',
+              ),
+            )
+          }
+          renumberedAccounts = planned.accounts.flatMap((account) => {
+            const rename = planned.plan.renames.find((entry) => entry.id === account.id)
+            return rename ? [{ account, to: rename.to }] : []
+          })
         }
       }
     }
@@ -325,6 +354,11 @@ const updateLedgerAccountTypeCommand: CommandHandler<LedgerAccountTypeUpdateInpu
           if (parsed.accountGroupId !== undefined) record.accountGroupId = parsed.accountGroupId ?? null
           record.updatedAt = new Date()
           em.persist(record)
+          for (const { account, to } of renumberedAccounts) {
+            account.number = to
+            account.updatedAt = new Date()
+            em.persist(account)
+          }
         },
       ],
     })

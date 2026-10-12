@@ -1,5 +1,5 @@
 // Unit tests for the PL numbering rules (PR #6340 review, items 3 and 4).
-import { accountNumberFitsType, checkTypeNumber, reprefixNumber } from '../accountNumbering'
+import { accountNumberFitsType, checkTypeNumber, planAccountRenumber, reprefixNumber } from '../accountNumbering'
 
 const pl = (code: string) => ({ jurisdiction: 'PL', code })
 
@@ -65,5 +65,28 @@ describe('reprefixNumber', () => {
 
   it('changes nothing when the prefix did not change', () => {
     expect(reprefixNumber('406', '4', '4')).toBe('406')
+  })
+})
+
+describe('planAccountRenumber', () => {
+  it('swaps the old type prefix for the new one', () => {
+    const plan = planAccountRenumber([{ id: 'a', number: '402-01' }, { id: 'b', number: '402' }], '402', '412')
+    expect(plan.renames).toEqual([
+      { id: 'a', from: '402-01', to: '412-01' },
+      { id: 'b', from: '402', to: '412' },
+    ])
+    expect(plan.unfixable).toEqual([])
+  })
+
+  it('leaves an account that already starts with the new number', () => {
+    const plan = planAccountRenumber([{ id: 'a', number: '412-01' }], '402', '412')
+    expect(plan.renames).toEqual([])
+    expect(plan.unfixable).toEqual([])
+  })
+
+  it('reports an account that fits neither number', () => {
+    const plan = planAccountRenumber([{ id: 'a', number: '999-01' }, { id: 'b', number: '402-02' }], '402', '412')
+    expect(plan.unfixable).toEqual(['a'])
+    expect(plan.renames).toEqual([{ id: 'b', from: '402-02', to: '412-02' }])
   })
 })

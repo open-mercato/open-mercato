@@ -129,6 +129,27 @@ test.describe('TC-GL-005: account numbering, frozen numbers, entry detail', () =
       const renameBefore = await putAccount({ id: otherId, number: '402-03' });
       expect(renameBefore.status(), 'unposted account number can change').toBe(200);
 
+      // Renumbering a type carries its accounts along (402-01 under 410 -> 411-01
+      // under 411); it does not strand them with the old prefix.
+      const movingTypeId = await createAccountTypeFixture(
+        request,
+        token,
+        { ...scope, number: '410', name: 'QA moving type', normalBalance: 'DEBIT', accountGroupId: groupId } as never,
+        { headers },
+      );
+      const movingAccountId = await createAccountFixture(
+        request, token,
+        { ...scope, number: '410-01', accountTypeId: movingTypeId, description: 'QA Moving account' },
+        { headers },
+      );
+      const renumberMoving = await putType({ id: movingTypeId, number: '411' });
+      expect(renumberMoving.status(), 'unposted type can be renumbered').toBe(200);
+      const movedAccount = await apiRequest(
+        request, 'GET', `/api/ledger/accounts?id=${encodeURIComponent(movingAccountId)}`, { token, headers },
+      );
+      const movedBody = (await movedAccount.json()) as { items?: Array<{ number?: string }> };
+      expect(movedBody.items?.[0]?.number, 'account follows the renumbered type').toBe('411-01');
+
       // Post an entry through the DB seed (no posting route in Phase 1).
       const entryId = await seedJournalEntryInDb({
         organizationId, tenantId, currencyId,

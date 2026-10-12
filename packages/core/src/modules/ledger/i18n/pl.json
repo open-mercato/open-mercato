@@ -89,6 +89,7 @@
   "ledger.errors.accountTypeNotFound": "Nie znaleziono rodzaju konta księgowego.",
   "ledger.errors.accountTypeNotFoundForOrg": "Podany rodzaj konta nie istnieje dla tej organizacji.",
   "ledger.errors.accountTypeNumberAccountsPrefix": "Numeru rodzaju konta nie można zmienić, dopóki konta tego rodzaju mają numery niezaczynające się od niego.",
+  "ledger.errors.accountTypeRenumberCollision": "Zmiana numeru rodzaju nadałaby kontu numer, który jest już zajęty w tej organizacji.",
   "ledger.errors.accountTypeNumberFormat": "Numer rodzaju konta w grupie polskiej musi mieć dokładnie trzy cyfry.",
   "ledger.errors.accountTypeNumberGroupDigit": "Pierwsza cyfra numeru rodzaju konta musi być kodem grupy ({{code}}).",
   "ledger.errors.accountTypeNumberImmutableAfterPosting": "Numeru rodzaju konta nie można zmienić, gdy konto tego rodzaju ma zaksięgowane zapisy.",

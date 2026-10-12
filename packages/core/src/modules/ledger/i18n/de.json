@@ -89,6 +89,7 @@
   "ledger.errors.accountTypeNotFound": "Kontoart nicht gefunden.",
   "ledger.errors.accountTypeNotFoundForOrg": "Die angegebene Kontoart existiert nicht für diese Organisation.",
   "ledger.errors.accountTypeNumberAccountsPrefix": "Die Kontoartnummer kann nicht geändert werden, solange Konten dieser Art Nummern haben, die nicht damit beginnen.",
+  "ledger.errors.accountTypeRenumberCollision": "Die Umnummerierung der Kontoart würde einem Konto eine Nummer geben, die in dieser Organisation bereits vergeben ist.",
   "ledger.errors.accountTypeNumberFormat": "Eine Kontoartnummer in einer polnischen Gruppe muss genau drei Ziffern haben.",
   "ledger.errors.accountTypeNumberGroupDigit": "Die erste Ziffer der Kontoartnummer muss der Gruppencode ({{code}}) sein.",
   "ledger.errors.accountTypeNumberImmutableAfterPosting": "Die Kontoartnummer kann nicht mehr geändert werden, sobald ein Konto dieser Art gebuchte Einträge hat.",

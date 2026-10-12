@@ -89,6 +89,7 @@
   "ledger.errors.accountTypeNotFound": "Tipo de cuenta contable no encontrado.",
   "ledger.errors.accountTypeNotFoundForOrg": "El tipo de cuenta especificado no existe para esta organización.",
   "ledger.errors.accountTypeNumberAccountsPrefix": "El número del tipo de cuenta no se puede cambiar mientras haya cuentas de este tipo cuyos números no empiecen por él.",
+  "ledger.errors.accountTypeRenumberCollision": "Renumerar el tipo asignaría a una cuenta un número que ya está en uso en esta organización.",
   "ledger.errors.accountTypeNumberFormat": "El número de un tipo de cuenta en un grupo polaco debe tener exactamente tres dígitos.",
   "ledger.errors.accountTypeNumberGroupDigit": "El primer dígito del número del tipo de cuenta debe ser el código del grupo ({{code}}).",
   "ledger.errors.accountTypeNumberImmutableAfterPosting": "El número del tipo de cuenta no se puede cambiar una vez que una cuenta de este tipo tiene asientos contabilizados.",

@@ -89,6 +89,7 @@
   "ledger.errors.accountTypeNotFound": "Ledger account type not found.",
   "ledger.errors.accountTypeNotFoundForOrg": "The specified account type does not exist for this organization.",
   "ledger.errors.accountTypeNumberAccountsPrefix": "The type number cannot change while accounts of this type have numbers that do not start with it.",
+  "ledger.errors.accountTypeRenumberCollision": "Renumbering the type would give an account a number that is already taken in this organization.",
   "ledger.errors.accountTypeNumberFormat": "A type number in a Polish group must be exactly three digits.",
   "ledger.errors.accountTypeNumberGroupDigit": "The first digit of the type number must be the group code ({{code}}).",
   "ledger.errors.accountTypeNumberImmutableAfterPosting": "The type number cannot be changed once an account of this type has posted entries.",
