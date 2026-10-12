@@ -487,9 +487,9 @@ zespół 4 account. The template had zespół 4 and zespół 5 both, but no
 `490` linking them, until this fix. `490` is modeled as `CREDIT` (changed from `DEBIT` on 2026-10-12, see the
 Changelog): the engine credits it for every zespół 4 posting, and its
 spec (2026-09-06-posting-rules-engine.md, invariant 2) describes its
-engine-posted balance as a credit balance. ⚠ NEEDS HUMAN CONFIRMATION:
-the sign is a convention checked against that spec only; no external
-accounting source was consulted for it. A type's `normalBalance` is
+engine-posted balance as a credit balance. Decided by the team on 2026-10-12:
+the sign is a chart-of-accounts convention, not set by the Act, and was checked
+against that spec only; no external accounting source was consulted for it. A type's `normalBalance` is
 immutable once an account of it has posted entries, so this is worth
 settling before the first import in a live tenant.
 Payroll/tax gaps the same review
@@ -940,7 +940,7 @@ Data Models table and in #6439's `lib/defaultChartOfAccounts.ts`. Totals
 only two zespół 5 types (`550`, `552`) and stays "representative, not
 exhaustive" — a deliberate decision, not a gap; the Posting Rules settings
 page tells the user when the chart has no account of class 4 or class 5 at all.
-⚠ NEEDS HUMAN CONFIRMATION (sign of 490, see Data Models).
+(The sign of 490 is a team decision, see Data Models.)
 
 ### 2026-09-28 (cont. — M2, m1, m2, m3, m4, and all four PR #6137 review nits resolved)
 
@@ -1181,3 +1181,9 @@ completed and already closed in Jira, not new requirements.
   119, new Tier 4 real-system entry, dated Changelog entry) — see that
   document's own Changelog for the mirrored entry.
 
+### 2026-10-12 (cont. — sign of 490 closed as a team decision)
+
+The ⚠ marker on the `CREDIT` sign of `490` is replaced by an explicit note that
+it is a team decision: the Act does not prescribe account numbers or normal
+balances, and the sign follows the engine's posting direction (the engine credits
+`490` for every class 4 posting). No external accounting source was consulted.
