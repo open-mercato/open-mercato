@@ -3051,3 +3051,16 @@ Full response to the CHANGES REQUESTED review:
 - No structural changes to Architecture/Data Models/Commands from this
   pass — Steps 1-3 of `financial-spec-writing-process` only; Step 4
   (structure) was already satisfied by the existing document.
+
+### 2026-10-12 — Statutory ground of the asset register
+
+Checked against the consolidated text of the Accounting Act (Dz. U. z 2026 r.
+poz. 522, 640, 644, 1206). Art. 17 ust. 1 pkt 1 requires subsidiary accounts for
+fixed assets, including fixed assets under construction, intangible assets and
+the depreciation or amortisation charged on them; art. 16 ust. 1 requires such
+accounts to detail the general-ledger entries and to be reconciled with the
+balances of the general-ledger accounts. The `FixedAsset` register and its
+depreciation schedule are that subsidiary system, and the reconciliation of
+`ledgerAssetAccountId` and the accumulated-depreciation account with the register
+is the check art. 16 ust. 1 asks for. No change to the design. Not yet reviewed
+by a maintainer.
