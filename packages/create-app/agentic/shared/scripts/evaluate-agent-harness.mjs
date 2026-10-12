@@ -2906,13 +2906,79 @@ function buildRunnerInvocation({ runner, root, schemaPath, outputPath, model, re
   return { command: 'claude', args }
 }
 
-function runAgentOnce({ runner, root, schemaPath, prompt, timeout, model, reasoningEffort, writable, allowedReads = [], allowedWrites = [], immutableRoots = [], validateResponse = validateRoutingResponse }) {
+export function codexOutputSchema(schema) {
+  if (!isPlainObject(schema)) return schema
+  const strict = { ...schema }
+  delete strict.uniqueItems
+  if (schema.$defs) strict.$defs = Object.fromEntries(Object.entries(schema.$defs).map(([key, child]) => [key, codexOutputSchema(child)]))
+  if (schema.items) strict.items = codexOutputSchema(schema.items)
+  for (const keyword of ['anyOf', 'oneOf', 'allOf']) {
+    if (Array.isArray(schema[keyword])) strict[keyword] = schema[keyword].map(codexOutputSchema)
+  }
+  if (schema.properties) {
+    const required = new Set(schema.required ?? [])
+    strict.properties = Object.fromEntries(Object.entries(schema.properties).map(([key, child]) => {
+      const converted = codexOutputSchema(child)
+      return [key, required.has(key) ? converted : { anyOf: [converted, { type: 'null' }] }]
+    }))
+    strict.required = Object.keys(schema.properties)
+  }
+  return strict
+}
+
+function acceptsCanonicalNull(schema, rootSchema) {
+  if (schema.$ref) {
+    const resolved = resolveJsonSchemaReference(rootSchema, schema.$ref)
+    return resolved ? acceptsCanonicalNull(resolved, rootSchema) : false
+  }
+  if (schema.anyOf && !schema.anyOf.some((child) => acceptsCanonicalNull(child, rootSchema))) return false
+  if (schema.oneOf && schema.oneOf.filter((child) => acceptsCanonicalNull(child, rootSchema)).length !== 1) return false
+  return validateJsonSchema(null, schema, '$', rootSchema).length === 0
+}
+
+export function normalizeCodexOutput(value, schema, rootSchema = schema) {
+  if (schema.$ref) {
+    const resolved = resolveJsonSchemaReference(rootSchema, schema.$ref)
+    return resolved ? normalizeCodexOutput(value, resolved, rootSchema) : value
+  }
+  if (Array.isArray(value) && schema.items) return value.map((item) => normalizeCodexOutput(item, schema.items, rootSchema))
+  if (!isPlainObject(value) || !schema.properties) return value
+  const normalized = { ...value }
+  const required = new Set(schema.required ?? [])
+  for (const [key, child] of Object.entries(schema.properties)) {
+    if (!Object.hasOwn(value, key)) continue
+    const nullable = acceptsCanonicalNull(child, rootSchema)
+    if (value[key] === null && !required.has(key) && !nullable) delete normalized[key]
+    else normalized[key] = normalizeCodexOutput(value[key], child, rootSchema)
+  }
+  return normalized
+}
+
+export function codexOutputPrompt(prompt, schema) {
+  const optionalFields = Object.keys(schema.properties ?? {}).filter((key) => !(schema.required ?? []).includes(key))
+  if (!optionalFields.length) return prompt
+  return `${prompt}\n\nCodex wire format: nullable fields encode optional output. Use null for fields that the instructions omit or do not request; never invent optional content merely because the wire schema requires its key.`
+}
+
+export function routingResponseSchemaForCase(schema, caseRecord) {
+  if (isSpecRoutingCase(caseRecord) || !schema.properties?.specRouting) return schema
+  const properties = { ...schema.properties }
+  delete properties.specRouting
+  return {
+    ...schema,
+    properties,
+    required: (schema.required ?? []).filter((key) => key !== 'specRouting'),
+  }
+}
+
+function runAgentOnce({ runner, root, schemaPath, responseSchema, prompt, timeout, model, reasoningEffort, writable, allowedReads = [], allowedWrites = [], immutableRoots = [], validateResponse = validateRoutingResponse }) {
   const canonicalRoot = fs.realpathSync(root)
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-result-'))
   const outputPath = path.join(tempDir, 'structured.json')
   const isolatedSchemaPath = path.join(tempDir, 'output.schema.json')
-  fs.copyFileSync(schemaPath, isolatedSchemaPath, fs.constants.COPYFILE_EXCL)
-  fs.chmodSync(isolatedSchemaPath, 0o600)
+  const canonicalSchema = responseSchema ?? readJson(schemaPath)
+  const transportSchema = runner === 'codex' ? codexOutputSchema(canonicalSchema) : canonicalSchema
+  fs.writeFileSync(isolatedSchemaPath, `${JSON.stringify(transportSchema)}\n`, { flag: 'wx', mode: 0o600 })
   const invocation = buildRunnerInvocation({ runner, root: canonicalRoot, schemaPath: isolatedSchemaPath, outputPath, model, reasoningEffort, writable, allowedReads, allowedWrites, immutableRoots })
   const runnerEnv = narrowRunnerEnv(runner)
   if (runner === 'codex') {
@@ -2966,7 +3032,7 @@ function runAgentOnce({ runner, root, schemaPath, prompt, timeout, model, reason
     })
     const processResult = spawnSync(contained.command, contained.args, {
       cwd: contained.cwd,
-      input: prompt,
+      input: runner === 'codex' ? codexOutputPrompt(prompt, canonicalSchema) : prompt,
       encoding: 'utf8',
       timeout,
       maxBuffer: 8 * 1024 * 1024,
@@ -2979,8 +3045,9 @@ function runAgentOnce({ runner, root, schemaPath, prompt, timeout, model, reason
     if (processResult.error) return { kind: 'environment-failure', durationMs, exitStatus: processResult.status, error: processResult.error.message, stdout: processResult.stdout ?? '' }
     if (processResult.status !== 0) return { kind: 'process-failure', durationMs, exitStatus: processResult.status, error: processFailureDiagnostic(runner, processResult), stdout: processResult.stdout ?? '' }
     try {
-      const rawResponse = extractJsonCandidate(processResult.stdout ?? '', outputPath, runner)
-      const schemaErrors = [...validateResponse(rawResponse), ...validateJsonSchema(rawResponse, readJson(schemaPath))]
+      const transportResponse = extractJsonCandidate(processResult.stdout ?? '', outputPath, runner)
+      const rawResponse = runner === 'codex' ? normalizeCodexOutput(transportResponse, canonicalSchema) : transportResponse
+      const schemaErrors = [...validateResponse(rawResponse), ...validateJsonSchema(rawResponse, canonicalSchema)]
       if (schemaErrors.length) return { kind: 'invalid-structured-output', durationMs, exitStatus: processResult.status, error: schemaErrors.join('; '), stdout: processResult.stdout ?? '' }
       const response = rawResponse
       for (const key of ['selectedRouter', 'selectedSkills', 'selectedContext', 'decisions', 'violations']) {
@@ -3668,6 +3735,7 @@ export function resolveLiveCaseTimeout(options, model, caseTimeout = 0) {
 
 function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, harnessDir, resultSchema }) {
   const schemaPath = path.join(harnessDir, 'routing-response.schema.json')
+  const routingResponseSchema = readJson(schemaPath)
   const version = runnerVersion(options.runner, root)
   const model = options.model ?? releaseMatrix.routing.runners[options.runner].modelSelector
   const writableRoot = options.writableRoot ? path.resolve(options.writableRoot) : undefined
@@ -3710,8 +3778,9 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
       // fail-closed tool server, so a declared example root can never be written.
       const immutableRoots = immutableExampleRoots(evaluationCase)
       const timeout = resolveLiveCaseTimeout(options, model, caseRecord.timeoutMs ?? 0)
+      const responseSchema = routingResponseSchemaForCase(routingResponseSchema, evaluationCase)
       const executions = [runAgentOnce({
-        runner: options.runner, root: runRoot, schemaPath, prompt, timeout, model, reasoningEffort: options.reasoningEffort, writable,
+        runner: options.runner, root: runRoot, schemaPath, responseSchema, prompt, timeout, model, reasoningEffort: options.reasoningEffort, writable,
         allowedReads, allowedWrites: writable ? caseRecord.allowedWrites ?? [] : [], immutableRoots,
       })]
       let execution = executions[0]
@@ -3723,7 +3792,7 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
           ? `${prompt}\n\nYour previous response was not valid structured output. Return only the schema object.`
           : `${prompt}\n\nThis is retry attempt 2 after a transient provider failure. Continue with the same routing contract.`
         execution = runAgentOnce({
-          runner: options.runner, root: runRoot, schemaPath, prompt: retryPrompt, timeout, model, reasoningEffort: options.reasoningEffort, writable,
+          runner: options.runner, root: runRoot, schemaPath, responseSchema, prompt: retryPrompt, timeout, model, reasoningEffort: options.reasoningEffort, writable,
           allowedReads, allowedWrites: writable ? caseRecord.allowedWrites ?? [] : [], immutableRoots,
         })
         executions.push(execution)
@@ -3787,7 +3856,7 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
         const diagnostics = routingCorrectionDiagnostics(evaluated.violations)
         const retryPrompt = `${prompt}\n\nThis is correction attempt ${executions.length + 1} after the previous routing answer failed a non-safety contract. Correction kind: ${correctionKind}. Evaluator diagnostics: ${JSON.stringify(diagnostics)}. These diagnostics identify only the failing contract categories; derive every answer from emitted instructions. Start the routing audit again by calling harness.read with {"path":"AGENTS.md"}; never call read_mcp_resource or any resource API. Re-evaluate every additive Axis 1 route, Axis 2 work-unit skill, module fact, and required decision while opening only the smallest task-matching initial context. Build selectedContext from every successful read in this correction attempt: add every opened routed guide's route and every opened skill's ID, or avoid opening it. Never reuse or prune the previous answer. Re-check the context budget, then return only the schema object.`
         execution = runAgentOnce({
-          runner: options.runner, root: runRoot, schemaPath, prompt: retryPrompt, timeout, model, reasoningEffort: options.reasoningEffort, writable,
+          runner: options.runner, root: runRoot, schemaPath, responseSchema, prompt: retryPrompt, timeout, model, reasoningEffort: options.reasoningEffort, writable,
           allowedReads, allowedWrites: [], immutableRoots,
         })
         executions.push(execution)
