@@ -332,14 +332,20 @@ primary text directly (not recalled): a zapis księgowy must carry at
 least the date of the business operation; the source document's type
 and identifying number, plus its own date when that differs from the
 operation date; a comprehensible description; and the amount/date of
-the entry itself — five elements, only the last two of which
-(`postedAt`, `description`) this entity already had. Added:
+the entry itself, and the designation of the accounts concerned — five
+elements (pkt 1–5), of which the description (pkt 3), the amount and date of
+the entry (pkt 4, `postedAt`) and the accounts (pkt 5, the lines) this entity
+already had. Added:
 `operationDate` (`date`, not nullable — every entry has a business
 operation date) — distinct from `postedAt`, which records when the
 entry was recorded, not when the underlying event happened;
 `documentType` (`string`, nullable in Phase 1), the dowód category
 from art. 20 ust. 2–3 (`external_foreign`/`external_own`/`internal`/
-`collective`/`corrective`/`substitute`); `documentNumber` (`string`,
+`collective`/`corrective`/`substitute`/`settlement`, the last being the
+"rozliczeniowe" of art. 20 ust. 3 pkt 4, entries that restate already booked
+entries under new classification criteria, e.g. the Posting Rules Engine's
+reclassification entries; the column stays free text, so the list is
+documentation, not a database constraint); `documentNumber` (`string`,
 nullable in Phase 1), the source document's own identifying number as
 an auditor would read it (e.g. `FV/2026/09/00123`) — legible business
 data, not a surrogate key; `documentDate` (`date`, nullable), populated
@@ -482,18 +488,22 @@ record) are wrong for accounting data — a posted entry is immutable.
 Reversing one means posting a new `JournalEntry` with `type:
 'REVERSAL'`, linked to the original via `referenceType`/`referenceId`. The original stays exactly as posted. A reversal cannot itself be reversed; if one was posted by mistake, the original's effect is restored by posting a fresh `NORMAL` entry carrying the same lines (with its own `operationDate`), which is what the rule against reversing a reversal means in practice.
 
-*Art. 25 ust. 2 Ustawy o rachunkowości — decided:* the Act ties the
-*obligation* to reverse (storno) rather than correct an entry directly
-to a closed accounting period — before a period is closed a direct
-correction is permitted, after closure only a storno is allowed. This
-spec deliberately keeps the stricter policy: **always a reversal,
-never a direct edit, regardless of the covering period's lock state.**
-That is more restrictive than Art. 25 ust. 2 requires pre-closure, but
-being stricter than the statutory minimum is not a violation, and it
-buys one simple invariant — `JournalEntry` is always immutable —
-instead of a conditional edit path whose behavior depends on period
-state. The conditional pre-closure edit path was considered and
-rejected (see Alternatives considered).
+*Art. 25 Ustawy o rachunkowości — decided (corrected 2026-10-12 against the
+consolidated text):* art. 25 ust. 1 allows two ways to correct an error: pkt 1,
+strike out and write the new content, keeping the wrong entry legible, which
+cannot be done after the month is closed; and pkt 2, a document that corrects
+the wrong entries, made only with positive or only with negative entries.
+Ust. 2 then says that when errors are found after the month is closed **or
+when the books are kept by computer**, only the pkt 2 method is allowed. This
+module keeps books by computer, so the Act itself allows only a correcting
+entry, at all times, regardless of the covering period's lock state: **always a
+reversal, never a direct edit.** This is a legal requirement, not a stricter
+policy of ours. It also gives us the invariant "`JournalEntry` is always
+immutable". A reversal (`type: 'REVERSAL'`, sides swapped, positive amounts)
+is the positive-entries variant of pkt 2; a correction must not mix the two
+signs. (An earlier version of this note said a direct correction was permitted
+before the period is closed and that our policy was stricter than the Act; that
+was wrong for computer-kept books.)
 
 **Multi-currency: single currency per entry in this phase, but the
 line retains the original-currency amount.** The header
@@ -582,13 +592,12 @@ a correction into an open period, so tying it to the original's
   storing a value that's a deterministic function of another column is
   redundant state that can drift. Derived in code instead
   (`mapAccountTypeToStatement`).
-- **A conditional pre-closure direct-edit path for journal entries**
-  (permitted by Art. 25 ust. 2 before the covering period is locked) —
-  rejected. It would make `JournalEntry` mutability depend on the
-  covering `FiscalPeriod`'s lock state; a single unconditional "always
-  reversal, never edit" invariant is simpler to implement and reason
-  about, and remains lawful (stricter than the Act's pre-closure
-  minimum). See the Art. 25 ust. 2 note above.
+- **A conditional pre-closure direct-edit path for journal entries** —
+  rejected. It was first thought to be allowed by art. 25 ust. 2 before the
+  covering period is locked, but for books kept by computer the Act allows only
+  corrections by a correcting entry (art. 25 ust. 1 pkt 2 and ust. 2), so this
+  path would be unlawful, besides making `JournalEntry` mutability depend on the
+  covering `FiscalPeriod`'s lock state. See the Art. 25 note above.
 - **A ledger-owned `Currency` entity** instead of reusing
   `currencies.Currency` — rejected; see "Currency is reused..." above.
 - **Building the `sales` invoice integration in this spec** instead of
@@ -1467,8 +1476,8 @@ deploy independently of any other module.
   spec needs the `btree_gist` extension, and the app-layer check is made safe under concurrency by the advisory lock in `createFiscalPeriod` (see Invariants), so the constraint would be a backstop, not a missing guard.
 - **Subsidiary ledgers (księgi pomocnicze).** Per-counterparty
   (kontrahent) sub-ledgers tracking receivables/payables in natural
-  and monetary units (art. 13 ust. 1 pkt 3, art. 16 Ustawy o
-  rachunkowości) are out of scope for this phase — they fall naturally
+  and monetary units (art. 13 ust. 1 pkt 3, art. 16 and art. 17 ust. 1 pkt 2
+  Ustawy o rachunkowości) are out of scope for this phase — they fall naturally
   out of a future Accounts Payable / Accounts Receivable module built
   on top of this engine, not out of the posting engine itself. **Realized
   (2026-09-08):** this is exactly what `2026-09-06-accounts-
@@ -2473,3 +2482,37 @@ detail still waits on `#6038`, same as before this update.
 ### 2026-10-11 (re-review of the implementation, PR #6340 — @wojciechszyjka)
 
 - **m1.** The three concurrency tests this spec lists are not all in the implementation PR. Overlap rejection (sequential and two concurrent creates) is now covered by a Jest suite and integration test `TC-GL-004`. Lock vs. post and concurrent double reversal are recorded as deferred in the Testing Strategy, with the reason (no HTTP caller for posting/reversal in Phase 1; a fake `EntityManager` cannot show that a lock or unique index serializes anything; a real-database Jest suite is a test-infrastructure decision for OM Core).
+
+### 2026-10-12 (UoR citations re-checked against the consolidated text)
+
+Checked against Dz. U. z 2026 r. poz. 522, 640, 644, 1206 (Sejm print of
+2026-10-08), supplied as a PDF from eli.gov.pl. Art. 9, 14 ust. 2, 16 ust. 1, 18,
+20 ust. 1 and ust. 2 pkt 1, 23 ust. 2 hold. Corrected:
+
+- **Art. 25 ust. 2.** The 2026-09-03 and 2026-09-10 entries (and the Design
+  decision) said a direct correction is permitted before a period is closed, so
+  "always a reversal" was stricter than the Act. For books kept by computer, ust.
+  2 allows only the correcting-entry method at all times. "Always a reversal" is
+  therefore required, and the rejected pre-closure edit path would be unlawful.
+  The Design decision and the Alternatives bullet were rewritten; the older
+  changelog entries are left as history. No change to code or behaviour.
+- **`documentType`.** Art. 20 ust. 2–3 lists seven kinds of document; the list
+  here had six. Added `settlement` ("rozliczeniowe", pkt 4 of ust. 3). The column
+  is free text in code, so there is no code change.
+- **Subsidiary ledgers.** The per-counterparty basis is art. 17 ust. 1 pkt 2
+  (settlements with counterparties), in addition to art. 13 ust. 1 pkt 3 and art.
+  16 ust. 1. Art. 13 only lists księgi pomocnicze; art. 16 ust. 1 requires them to
+  detail and be reconciled with the general ledger. Wording of the five elements
+  of art. 23 ust. 2 made exact.
+- **Not yet reflected in the design, for a decision.** Art. 14 ust. 4: for
+  computer-kept books an entry must carry an automatically assigned journal
+  position number (`sequenceNumber`, done) **and** data identifying the person
+  responsible for the content of the entry. `JournalEntry` has no such field; the
+  actor is at most in the command audit log. ⚠ NEEDS HUMAN CONFIRMATION: whether
+  to add a `postedByUserId`-style column (a schema change in #6340) or to rely on
+  the audit log. Also worth citing in the design: art. 23 ust. 1 (computer
+  books: procedures against destruction, modification or hiding of an entry,
+  which supports immutability of posted entries) and art. 23 ust. 3 (foreign-
+  currency operations recorded so that both the Polish and the foreign amount
+  can be determined, which supports `amountCurrency`). Not yet reviewed by a
+  maintainer.
