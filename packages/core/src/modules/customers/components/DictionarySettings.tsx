@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import dynamic from 'next/dynamic'
 import {
   Dialog,
   DialogContent,
@@ -30,6 +31,7 @@ import {
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
+const ActivityTypeEditor = dynamic(() => import('./ActivityTypeEditor').then((module) => module.ActivityTypeEditor), { ssr: false })
 
 type SectionDefinition = {
   kind: CustomerDictionaryKind
@@ -173,9 +175,9 @@ export default function DictionarySettings() {
       </header>
 
       <div className="space-y-6">
-        {sections.map((section) => (
-          <CustomerDictionarySection key={section.kind} {...section} />
-        ))}
+        {sections.map((section) => section.kind === 'activity-types'
+          ? <ActivityTypeEditor key={section.kind} title={section.title} description={section.description} />
+          : <CustomerDictionarySection key={section.kind} {...section} />)}
       </div>
     </div>
   )
