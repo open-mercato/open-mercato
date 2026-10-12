@@ -2509,3 +2509,21 @@ later amendments through 2026 poz. 507). Only the provisions below were read.
 - **Design note.** Split payment and the 7-day notification each remove the
   joint liability and the cost-deduction loss; the contractor-registry design
   enforces only the live check on the day of the transfer.
+
+### 2026-10-12 (cont. — CIT art. 7, 15, 16 checked for SPEC-010)
+
+Checked against the consolidated CIT text (Dz. U. z 2026 r. poz. 554 and later).
+Only the provisions below were read.
+
+- **Art. 15 ust. 1: Confirmed.** Costs of earning income or securing its source,
+  except those in art. 16 ust. 1. Foreign-currency costs are converted at the NBP
+  average rate of the last working day before the day the cost was incurred.
+- **Art. 16 ust. 1: Confirmed** as the list of costs that are not deductible
+  (category contents not mapped yet).
+- **Art. 7 ust. 5: Confirmed.** Loss carryforward over five years, at most 50% of
+  the loss per year, or one deduction up to PLN 5,000,000 with the rest settled
+  within the same five years.
+- **For multi-currency (#6190).** The tax side uses the same convention as the
+  team decision for the booking-day rate (NBP average rate of the preceding
+  working day; art. 15 ust. 1 CIT, art. 19 Prawo przedsiębiorców). The statutory
+  source for the accounting side remains art. 30 of the Accounting Act.
