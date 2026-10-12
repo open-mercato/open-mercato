@@ -160,9 +160,9 @@ opposite of the adjusting entry made in the previous period."*
    `currencyId` instead of re-resolving it.
 
 4. **Period-end FX revaluation is a GL-only adjustment on top of the
-   sub-ledger, not a rewrite of AP/AR balances.** `VendorInvoice.
-   outstandingAmount`/`SalesInvoice.outstandingAmount` stay denominated
-   in the document's own currency, untouched — the revaluation entry
+   sub-ledger, not a rewrite of AP/AR balances.** The open
+   amounts of vendor and sales invoices (Design decisions 18 and 17) stay
+   denominated in the document's own currency, untouched — the revaluation entry
    adjusts the **base-currency** book value of the relevant control
    account (via a `JournalEntry`) and posts the offsetting side to one
    of two dedicated unrealized gain/loss accounts (Design decision 11
@@ -453,11 +453,11 @@ opposite of the adjusting entry made in the previous period."*
 13. **`valuationDate` must be recent, not arbitrarily historical — this
     module reconstructs nothing.** An earlier draft let
     `valuationDate` default to "the period's end date" with no
-    freshness check, but `VendorInvoice.outstandingAmount` and the sales-invoice open amount
-    (Design decision 17) are **current-state** values, not
+    freshness check, but the vendor-invoice (Design decision 18) and sales-invoice
+    (Design decision 17) open amounts are **current-state** values, not
     a point-in-time ledger a historical run could reconstruct from —
     a document open on Dec 31 but paid Jan 3, or partially paid after
-    the cutoff, would already show a changed `outstandingAmount` by
+    the cutoff, would already show a changed open amount by
     the time a late run executes, silently misstating exposure. Per
     this document's own "simplest solution" discipline (Alternatives
     considered) — a dated-allocation/historical-snapshot engine is out
@@ -589,11 +589,35 @@ opposite of the adjusting entry made in the previous period."*
     `sales` by hand never credits the receivable in `ledger`, so it does not
     reduce this open amount either (see #6046, Risks). An overpayment goes to
     a separate liability account in #6055 and is not revalued here. Vendor
-    invoices are unchanged: `accounts_payable` maintains
-    `VendorInvoice.outstandingAmount` itself. (Alternative rejected: wait for
+    invoices follow Design decision 18. (Alternative rejected: wait for
     `sales` to maintain invoice balances and read the column — that change
     is wanted for aging and display, but a column fed by payments the ledger
     never saw would revalue amounts the ledger does not hold.)
+
+18. **The open amount of a vendor invoice is derived from `accounts_payable`
+    and `accounts_payable_payments` data, because `VendorInvoice` has no
+    `outstandingAmount` column.** (An earlier draft assumed
+    `accounts_payable` maintains one; its specs define `VendorInvoice` with
+    `total_gross` only, no `PAID` status and no settlement flag, and record
+    payments on `PaymentBatchLine`.) For an invoice with `status = 'POSTED'`
+    (it is in the ledger; an unposted or cancelled invoice is never
+    revalued) the open amount is
+    `total_gross − Σ PaymentBatchLine.amount` over its lines on payment
+    batches with `status = 'SENT'` (only `markPaymentBatchSent` posts the
+    payment; a line on a `DRAFT` or `CONFIRMED` batch has paid nothing). In
+    Phase 1 of `accounts_payable_payments` a line always carries the full
+    invoice amount, so the open amount is `total_gross` or `0`; the formula
+    is already right for the Phase 2 partial payments. The read is a soft,
+    FK-id-only read of `accounts_payable_payments` (no ORM relation); with
+    the module absent no payment exists and every posted invoice is fully
+    open. **Direction, not yet decided:** read this ledger-side, as for
+    sales invoices, once the payment posting identifies the invoice it
+    settles. Today `markPaymentBatchSent` posts one DR line per invoice but
+    references the batch (`accounts_payable_payments:payment_batch`) and
+    tags no invoice on the line, so the ledger alone cannot tell which
+    invoice a payment cleared. That needs a change in the payments spec
+    (tag each DR line with its invoice, or post per invoice); it is not
+    made here.
 
 ## Architecture
 
@@ -628,14 +652,15 @@ opposite of the adjusting entry made in the previous period."*
   valuation date, and computes per-document unrealized gain/loss per
   Design decisions 9 and 11.
 - `api/runs.ts` — `POST /api/fx_revaluation/runs` (see API Contracts).
-- `AGENTS.md` — module rules: MUST NOT touch `VendorInvoice.
-  outstandingAmount`/`SalesInvoice.outstandingAmount`; MUST reject
+- `AGENTS.md` — module rules: MUST NOT write to `VendorInvoice` or
+  `SalesInvoice`, and MUST NOT read `SalesInvoice.outstandingAmount` (open
+  amounts follow Design decisions 17 and 18); MUST reject
   (not skip) a document whose `currencyId` differs from base but whose
   `exchangeRate` is null; MUST read the FiscalPeriod lock state before
   posting.
 - **Depends on**: `currencies` (hard — rate lookups),
   `ledger` (hard — posts `JournalEntry`, and reads the
-  `sales:sales_invoice` posting), `accounts_payable`/`sales`/
+  `sales:sales_invoice` posting), `accounts_payable`/`accounts_payable_payments`/`sales`/
   `cash_bank_management` (soft, direct entity reads only — no ORM relations, matching the
   root AGENTS.md "no direct ORM relationships between modules" rule
   already enforced everywhere else in this family of specs).
@@ -691,7 +716,7 @@ opposite of the adjusting entry made in the previous period."*
 | `documentType` | `'vendor_invoice' \| 'sales_invoice'` | drives the sign convention, Design decision 11 |
 | `documentId` | `uuid` (FK-id, no ORM relation) | |
 | `currencyId` | `uuid` (FK-id → `currencies.Currency`) | the document's own currency |
-| `outstandingAmountInDocumentCurrency` | `numeric(18,4)` | `VendorInvoice.outstandingAmount`, or for a `sales_invoice` the ledger-side open amount (Design decision 17), computed at run time |
+| `outstandingAmountInDocumentCurrency` | `numeric(18,4)` | for a `vendor_invoice` the open amount of Design decision 18, for a `sales_invoice` the ledger-side open amount (Design decision 17), computed at run time |
 | `bookedExchangeRate` | `numeric(18,8)` | the document's own stored rate |
 | `valuationExchangeRate` | `numeric(18,8)` | resolved for the run's valuation date |
 | `valuationRateSource` | `text` | the `ExchangeRate.source` actually selected (Design decision 9c/9e provenance) |
@@ -724,8 +749,8 @@ route (it isn't CRUD — it computes and posts); `GET /runs` and
 - Locks the current `'POSTED'` `FxRevaluationRun` row for this
   tenant/org with `SELECT ... FOR UPDATE`, then validates fully before
   any write (Design decision 10):
-    - Reads all open `VendorInvoice` rows (`outstandingAmount > 0`,
-    `currencyId` ≠ tenant base currency) and all open, posted
+    - Reads all open `VendorInvoice` rows (open amount `> 0` per
+    Design decision 18, `currencyId` ≠ tenant base currency) and all open, posted
     `SalesInvoice` rows (ledger-side open amount `> 0`, `currencyId` ≠
     tenant base currency; Design decision 17) as of `valuationDate`.
   - Resolves rates per Design decision 9; **422
@@ -759,7 +784,7 @@ route (it isn't CRUD — it computes and posts); `GET /runs` and
   totalUnrealizedGainLoss, wouldReverseRunId? }` — the same shape the
   UI's preview table renders (UI/UX below). A preview is **not**
   cached and **not** guaranteed to still be valid by the time
-  `POST /runs` executes (rates, `outstandingAmount`, or the prior
+  `POST /runs` executes (rates, a document's open amount, or the prior
   `'POSTED'` run can change between the two calls) — the UI must
   re-preview, not silently repost, if the user waits before
   confirming (stale-preview rule, addressing the previously-missing
@@ -857,7 +882,7 @@ line detail.
 - **Partial settlement between the document's issue date and
   valuation date.** Revaluation uses the document's *current* open
   amount, not its original total. For a vendor invoice that is
-  `VendorInvoice.outstandingAmount`; for a sales invoice it is the
+  `total_gross` less its lines on `SENT` payment batches (Design decision 18); for a sales invoice it is the
   ledger-side open amount (Design decision 17), because `sales` does not
   maintain `SalesInvoice.outstandingAmount`. Fully-settled documents (open
   amount = 0) are excluded.
@@ -1112,7 +1137,7 @@ base / EUR foreign currency):
 | 14 | Settling a document still covered by an unreversed run | `matchBankStatementLine` → `409 PRIOR_VALUATION_NOT_REVERSED` |
 | 15 | Same settlement, after the covering run is reversed | Succeeds, realized gain/loss posts per Cash & Bank Management's existing formula |
 | 16 | Three-currency settlement (PLN base, EUR invoice, USD bank) | `bookedExchangeRate` is not defaulted from the invoice; explicit entry or cross-rate required (Design decision 14) |
-| 17 | Partial settlement between issue date and valuation date | Revaluation uses the current open amount (vendor: `outstandingAmount`; sales: ledger-side, Design decision 17), not original total |
+| 17 | Partial settlement between issue date and valuation date | Revaluation uses the current open amount (vendor: Design decision 18; sales: ledger-side, Design decision 17), not original total |
 | 18 | `FiscalPeriod` already `CLOSED` | `409` |
 | 19 | Preview (`GET /runs/preview`) then a change to a document's open amount before posting | Posting reflects the *new* state; UI must re-preview, not reuse the stale one |
 
@@ -1463,3 +1488,17 @@ the run's read step, the line's source column, two edge cases, the dependency
 list (`cash_bank_management`, soft) and the quoted settlement formula
 (`settledAmount`, `overpaymentAmount`). Vendor invoices are unchanged. Not yet
 reviewed by a maintainer.
+
+
+## Changelog addendum — 2026-10-12 (vendor invoice open amount)
+
+Checked the assumption left open on 2026-10-09 that `accounts_payable`
+maintains `VendorInvoice.outstandingAmount`. It does not: the AP specs (#5962
+and the payments document) define `VendorInvoice` without that column, with no
+`PAID` status and no settlement flag, and record payments on
+`PaymentBatchLine`; Phase 1 payments are full-amount only. Replaced every
+reference to the column. New Design decision 18: a posted vendor invoice's
+open amount is `total_gross` less its lines on `SENT` payment batches, read
+from `accounts_payable_payments` (soft dependency, added to the list). Reading
+it ledger-side is recorded as the direction, blocked on the payments spec
+tagging the invoice on the payment's DR line. Not yet reviewed by a maintainer.
