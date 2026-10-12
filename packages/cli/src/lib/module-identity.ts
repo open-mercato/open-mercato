@@ -3,7 +3,6 @@ import path from 'node:path'
 import ts from 'typescript-js'
 import { normalizeModuleLocator, type ModuleIdentity } from '@open-mercato/shared/modules/module-locators'
 import type { ModuleEntry, PackageResolver } from './resolver'
-import { resolveInstalledPackageRoot } from './module-package'
 
 function readJson(filePath: string): Record<string, unknown> {
   try {
@@ -47,8 +46,7 @@ export function getModuleLocators(entry: ModuleEntry, resolver: PackageResolver)
     if (entry.packageName) add(`npm:${entry.packageName}`)
     add(entry.locator ?? readMetadataLocator(resolver.getModulePaths(entry).appBase))
   } else {
-    let packageRoot = resolver.getPackageRoot(from)
-    try { packageRoot = resolveInstalledPackageRoot(resolver, from) } catch {}
+    const packageRoot = resolver.getPackageRoot(from)
     const manifest = readJson(path.join(packageRoot, 'package.json'))
     add(`npm:${from}`)
     if (typeof manifest.name === 'string' && manifest.name !== from) return [...locators]
