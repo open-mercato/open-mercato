@@ -287,7 +287,7 @@ contact ──► addresses ──► delivery ──► payment ──► revie
 
 Steps are skippable by configuration: a digital-only cart skips `delivery`; a known logged-in buyer with one address skips `contact` and `addresses`; purchase on account skips gateway selection in `payment` but not the step (PO number is captured there).
 
-Backward navigation is always allowed before submit. Changing an address after selecting delivery **invalidates the rate quote** and returns the buyer to `delivery` with the reason stated — a stale rate is a shipping cost the merchant absorbs.
+Backward navigation is always allowed before submit. Changing an address after selecting delivery **invalidates the rate quote** and returns the buyer to `delivery` with the reason stated — a stale rate is a shipping cost the merchant absorbs. When a tax provider is configured, tax can depend on the shipping address as well (`2026-10-03-tax-providers-roadmap.md`, ADR-3); under the default state `product-rate` nothing changes. The lock's re-price (§6) computes the figure the buyer confirms; whether the funnel shows a tax estimate at the address step before that is proposed to the owners of this spec in that roadmap (§14 Q16, amendment 6a) and is not decided here.
 
 ---
 
@@ -745,6 +745,10 @@ Named here so a later reader does not look for them: **R1** (payment captured wi
 ### 2026-10-11 — availability entry points
 
 - **§3.3, §4.1 and §7.2 call the real availability commands.** The `availabilityService` DI contract does not exist: the availability spec replaced it with the `availability.reserve` / `.release` / `.commit` commands (§4.1 and §15 of [Availability Contract](./2026-08-14-availability-contract.md)). The integration table, the `stock_reservation_key` note and the submit sequence now name those commands and pass the input object `reserve`/`commit` define. §7.2 also states that `availability.commit` runs before the order reaches a status emitting `sales.order.confirmed`, and that the Availability Contract §4.4 conflict rule applies otherwise — commit then matches the order's active reservations for the variant (summed across warehouses, not by idempotency key), converts only the shortfall the order does not already hold and releases the part of the checkout hold the order already covers via the partial `wms.inventory.release` the Availability Contract adds. Recorded from the post-merge review of #5384.
+
+### 2026-10-12 — tax providers (pointer, no version change)
+
+Two sentences in §5.2: when a tax provider is configured, tax can depend on the shipping address as well, and the lock's re-price (§6) computes the figure the buyer confirms; under the default state `product-rate` nothing changes. Whether the funnel shows a tax estimate at the address step is proposed to the owners of this spec in the tax-providers roadmap (`2026-10-03-tax-providers-roadmap.md`, in review as #6918; its §14 Q16) and is not decided here.
 
 ### 2026-09-16 — v2.2 (workflow boundary restated)
 

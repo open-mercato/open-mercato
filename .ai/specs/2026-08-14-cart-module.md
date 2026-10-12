@@ -249,7 +249,7 @@ A cart re-prices when, and only when:
 2. Buyer identity changes: login, logout, a group membership change, or a change to that customer's own assortment override (created, edited, deleted, or lapsing past its `valid_until`) altering `buyer_digest` — whole cart
 3. Currency or locale changes — whole cart
 4. A line snapshot is older than the staleness budget (default 30 minutes) and the cart is read — whole cart
-5. Checkout requests a lock (spec 7) — whole cart, mandatory, never skipped
+5. Checkout requests a lock (spec 7) — whole cart, mandatory, never skipped; when a tax provider is configured, this re-price is the one that computes tax with the shipping address checkout holds (`2026-10-03-tax-providers-roadmap.md`, ADR-3)
 6. A promotion is applied or removed — effects only, not unit prices
 7. An operator forces it through the admin cart view
 
@@ -841,6 +841,9 @@ Approval routing, bulk lines, admin cart list, abandonment events, **and the who
 
 ### 2026-10-11 (availability entry point)
 - **§3.1 points at the real availability entry point.** The availability contract replaced its `availabilityService` DI key with `resolveAvailability()` in `packages/shared` (§4.1a of [Availability Contract](./2026-08-14-availability-contract.md)) plus the `availability.reserve`/`.release`/`.commit` commands; no such DI key exists, so the `cart → availability` edge now reads `resolveAvailability(query, { moduleConfig, container })`. The `+ quantity rules` annotation is dropped from that edge: the shared result carries no min/max/increment, and how the cart obtains them is tracked with the §5.5 gap. Recorded from the post-merge review of #5384.
+
+### 2026-10-12 (the lock's re-price and tax)
+- **§5.2 trigger 5 names what the lock's re-price computes when a tax provider is configured:** tax with the shipping address checkout holds (`2026-10-03-tax-providers-roadmap.md`, ADR-3; in review as #6918).
 
 ### 2026-09-30 (§8.2 ordering clarified)
 - **§8.2 states that the idempotency lookup runs before the §8.1 optimistic-lock check.** §8.1's "every mutating command starts with" the lock check read, literally, as the opposite order, under which a retried mutation that had already landed gets a `409` instead of its original result. One sentence, no contract change: cart is unimplemented. Requested by [Offline Field Mode](./2026-09-22-offline-field-mode.md) §3.3, whose chunked replay depends on it; the storefront's own double-tap retry (storefront-app §5.2) depends on it too.

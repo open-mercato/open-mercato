@@ -385,7 +385,7 @@ Pricing Engine's Edge Cases table names its tie-break a *provisional* default *"
 
 ### 7.2 `sales` tax resolution
 
-Same substitution in tax-rate matching. `SalesTaxRate.customerGroupId` (the rule side) is unchanged.
+Same substitution in tax-rate matching. `SalesTaxRate.customerGroupId` (the rule side) is unchanged. The rest of the matching, which row applies by address, date and the row's other columns (channel, priority, compound, validity), is specified by the `sales-tax-rates` provider of the tax-providers roadmap (`2026-10-03-tax-providers-roadmap.md`, its Spec 2, still to be written): `resolveGroups` is its input, this substitution and the precedence of §3.2 stay this spec's rules, and how they combine with the row's `priority` is that provider's specification to state. The group picker on the tax-rate form (§7.3) stays as the input that provider's admin UI uses.
 
 ### 7.3 Admin UI
 
@@ -681,6 +681,9 @@ Approver/account manager reviews over-threshold purchase requests.
 ---
 
 ## 18) Changelog
+
+### 2026-10-12 (sales tax resolution pointer)
+- **§7.2 names where the rest of tax-rate matching is specified.** Which `SalesTaxRate` row applies by address, date and the row's other columns (channel, priority, compound, validity) is specified by the `sales-tax-rates` provider of the tax-providers roadmap (`2026-10-03-tax-providers-roadmap.md`, in review as #6918; its Spec 2, still to be written); this spec's set-membership substitution and group precedence (§3.2) stay its rules; `resolveGroups` is that provider's input, and the group picker on the tax-rate form (§7.3) stays as the input its admin UI uses.
 
 ### 2026-10-08 (terms price kind picker, #7077)
 - §10: new read-only `GET /api/customer_groups/customer-groups/price-kinds` (`customer_groups.terms.view`) lists the tenant's catalog price kinds as `{ id, code, title }` (`search`, `ids`, `pageSize` ≤ 100; empty when `catalog` is absent). The terms price kind picker and the explain-terms panel read it instead of `/api/catalog/price-kinds`, which requires `catalog.settings.manage` — without that feature the picker was empty and its 403 flash replaced the "terms saved" message.
