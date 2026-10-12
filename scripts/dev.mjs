@@ -46,6 +46,7 @@ import {
   nextMcpRestartDelayMs,
   resolveMcpKeyFilePath,
   resolveMcpPort,
+  shouldRetryMcpProvisioning,
   shouldStartMcp,
 } from './dev-mcp.mjs'
 import { resolveSpawnCommand } from './dev-spawn-utils.mjs'
@@ -2310,6 +2311,12 @@ async function provisionMcpApiKey() {
         updateSplashState({ activity: rotationHint })
       }
       return true
+    }
+
+    if (!shouldRetryMcpProvisioning(capturedLines)) {
+      console.warn('⚠️ MCP is disabled — the ai_assistant module is not enabled in this app.')
+      console.warn('   ↳ enable ai_assistant (or pick a preset that includes it) to use MCP, then restart the dev runner (MCP startup is not re-armed in a running session), or silence this with --no-mcp / OM_DEV_WITH_MCP=0. The app keeps running without MCP.')
+      return false
     }
 
     if (looksLikePermissionError(capturedLines)) {
