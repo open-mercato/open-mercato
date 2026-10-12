@@ -2026,25 +2026,28 @@ function DefaultTimeEntryDialog({
           {/*
             * The labels are flex items, so without `whitespace-nowrap` "save and
             * add another" shrinks into a four-line column; `flex-wrap` moves whole
-            * labels to a second line instead of overflowing past the dialog edge.
+            * shortcuts to the next line instead of overflowing past the dialog edge,
+            * and the gap stands in for a separator that would lead a wrapped line.
             * Hidden below `sm`: a keyboard hint is useless on a touch device.
             */}
-          <span className="mr-auto hidden min-w-0 flex-wrap items-center gap-1 whitespace-nowrap text-xs text-muted-foreground sm:flex">
-            <Kbd>⌘</Kbd>
-            <Kbd>↵</Kbd>
-            {t('staff.time_tracking.entryDialog.shortcutSave', 'save')}
+          <span className="mr-auto hidden min-w-0 flex-wrap items-center gap-x-3 gap-y-1 whitespace-nowrap text-xs text-muted-foreground sm:flex">
+            <span className="inline-flex items-center gap-1" data-testid="entry-dialog-shortcut">
+              <Kbd>⌘</Kbd>
+              <Kbd>↵</Kbd>
+              {t('staff.time_tracking.entryDialog.shortcutSave', 'save')}
+            </span>
             {locked ? null : (
-              <>
-                <span aria-hidden="true">·</span>
+              <span className="inline-flex items-center gap-1" data-testid="entry-dialog-shortcut">
                 <Kbd>⌘</Kbd>
                 <Kbd>⇧</Kbd>
                 <Kbd>↵</Kbd>
                 {t('staff.time_tracking.entryDialog.shortcutSaveAgain', 'save and add another')}
-              </>
+              </span>
             )}
-            <span aria-hidden="true">·</span>
-            <Kbd>esc</Kbd>
-            {t('staff.time_tracking.entryDialog.shortcutCancel', 'cancel')}
+            <span className="inline-flex items-center gap-1" data-testid="entry-dialog-shortcut">
+              <Kbd>esc</Kbd>
+              {t('staff.time_tracking.entryDialog.shortcutCancel', 'cancel')}
+            </span>
           </span>
           <InjectionSpot
             spotId={extensionSpotChildId(extensionPoints.hosts.timeEntryForm.spotId, 'footer')}
