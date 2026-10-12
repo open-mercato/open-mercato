@@ -59,6 +59,11 @@ describe('formatCurrency', () => {
     expect(formatCurrency(1.5 * 33.33, 'USD', EN)).toBe('$50.00')
   })
 
+  it('keeps every significant digit of a large number value', () => {
+    expect(formatCurrency(9007199254740991, 'USD', EN)).toBe('$9,007,199,254,740,991.00')
+    expect(formatCurrency(99999999999999.98, 'USD', EN)).toBe('$99,999,999,999,999.98')
+  })
+
   it('formats numbers too large for an exact decimal', () => {
     expect(formatCurrency(1e300, 'USD', EN)).toMatch(/^\$1,000,000/)
     expect(formatCurrency(1e300, null, EN)).toMatch(/^1,000,000/)

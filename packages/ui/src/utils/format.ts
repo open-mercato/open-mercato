@@ -18,7 +18,9 @@ export type FormatCurrencyOptions = {
  * and falls back to a plain number format (optionally suffixed with the code)
  * when the currency code is missing or rejected by `Intl.NumberFormat`.
  *
- * Decimal strings are formatted exactly (no float round-trip). The value is
+ * Decimal strings are formatted exactly (no float round-trip) and numbers from
+ * their shortest decimal representation (`9007199254740991` keeps every digit),
+ * so only the display precision below rounds the value. The value is
  * rounded to the currency precision when it is known: `decimalPlaces` (the
  * currency's configured precision), else the ISO 4217 digits of the code
  * (`8.1301` USD shows `$8.13`). Shorter values are padded to that precision
@@ -40,7 +42,7 @@ export function formatCurrency(
 ): string | null {
   if (value === null || value === undefined || value === '') return null
   const code = currency && currency.length === 3 ? currency.toUpperCase() : undefined
-  const exact = parseDisplayDecimal(value)
+  const exact = parseDecimal(value)
   if (!exact) return formatUnparsedAmount(value, code, locale)
   const amount = decimalToString(exact) as Intl.StringNumericLiteral
   const digits = resolveFractionDigits(exact, code, decimalPlaces, options?.showAllDigits === true)
@@ -71,7 +73,6 @@ function formatUnparsedAmount(value: string | number, code: string | undefined, 
 }
 
 const DEFAULT_CURRENCY_FRACTION_DIGITS = 2
-const FLOAT_SIGNIFICANT_DIGITS = 15
 const LEGACY_MAX_INTL_FRACTION_DIGITS = 20
 const EXTENDED_MAX_INTL_FRACTION_DIGITS = 100
 
@@ -86,11 +87,6 @@ function resolveMaxIntlFractionDigits(): number {
     maxIntlFractionDigits = LEGACY_MAX_INTL_FRACTION_DIGITS
   }
   return maxIntlFractionDigits
-}
-
-function parseDisplayDecimal(value: string | number): DecimalValue | null {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return parseDecimal(value)
-  return parseDecimal(Number.parseFloat(value.toPrecision(FLOAT_SIGNIFICANT_DIGITS)))
 }
 
 function resolveFractionDigits(
