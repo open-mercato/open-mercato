@@ -2469,8 +2469,8 @@ poz. 775, 894, 896, 1203, 1541, 1811, z 2026 r. poz. 507, 846), CIT (Dz. U. z
   including notification within 7 days (art. 117ba § 3 pkt 2 Ordynacji
   podatkowej). **Correction** to the contractor-registry spec, which had cited
   art. 96b for the rule and for joint liability.
-- **Still unverified:** art. 117ba Ordynacja podatkowa (payer's joint
-  liability) and art. 19 Prawo przedsiębiorców (the PLN 15,000 amount).
+- **Art. 117ba Ordynacja podatkowa and art. 19 Prawo przedsiębiorców:** checked
+  later the same day, see the next entry.
 - **PIT art. 22f ust. 3 and CIT art. 16f ust. 3: Confirmed.** 10 000 zł applies to
   the initial value (wartość początkowa); at or below it a one-time write-off is
   optional.
@@ -2480,3 +2480,32 @@ poz. 775, 894, 896, 1203, 1541, 1811, z 2026 r. poz. 507, 846), CIT (Dz. U. z
   others capital companies) added to the fixed-assets spec.
 - **Not checked:** the other provisions of VAT, PIT and CIT; JPK_V7 and KSeF
   documents of the Ministry of Finance.
+
+### 2026-10-12 (cont. — Ordynacja podatkowa and Prawo przedsiębiorców checked)
+
+Checked against the consolidated texts: Ordynacja podatkowa (Dz. U. z 2026 r.
+poz. 622, state of 21 April 2026; the 2025 poz. 111 text was also supplied and
+is superseded) and Prawo przedsiębiorców (t.j. Dz. U. z 2025 r. poz. 1480 and
+later amendments through 2026 poz. 507). Only the provisions below were read.
+
+- **Art. 117ba Ordynacji podatkowej: Confirmed.** The payer (a VAT taxpayer) is
+  jointly liable with the supplier for the supplier's VAT arrears proportional to
+  the supply when the invoice-confirmed payment goes to an account not in the
+  wykaz "na dzień zlecenia przelewu". Exceptions (§ 3): transaction other than
+  one under art. 19 Prawo przedsiębiorców; notification to the tax office within
+  7 days of ordering the transfer, at the first payment to that account; certain
+  bank accounts; split payment; intra-Community acquisition, import and
+  reverse-charge invoices.
+- **Art. 19 Prawo przedsiębiorców: Confirmed.** Transactions with another
+  entrepreneur whose one-off value exceeds PLN 15,000 go through a payment
+  account; foreign-currency transactions are converted at the NBP average rate of
+  the last working day before the transaction day.
+- **Art. 61b Ordynacji podatkowej: Confirmed for the structure only.** The
+  mikrorachunek follows the NRB format (check number, bank settlement number,
+  account serial number containing the tax identifier or tax office code) and is
+  made available through e-Urząd Skarbowy or the tax office (§ 1–3). The fixed
+  prefix, the check-digit algorithm and the payment-title requirement are not in
+  art. 61b and still rest on the Ministry of Finance page cited above.
+- **Design note.** Split payment and the 7-day notification each remove the
+  joint liability and the cost-deduction loss; the contractor-registry design
+  enforces only the live check on the day of the transfer.
