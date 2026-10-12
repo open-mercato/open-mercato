@@ -710,9 +710,16 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
     and `grandTotalGrossAmount`. It does **not** read `outstandingAmount`:
     `sales` does not maintain it for invoices (see Cross-module
     integration), and a ledger posting must not be sized from a field this
-    module cannot trust. Three checks follow, in one transaction, under a
+    module cannot trust. Four checks follow, in one transaction, under a
     transaction-scoped advisory lock keyed on `(tenantId, invoiceId)` so two
-    lines matched to one invoice concurrently cannot both pass:
+    lines matched to one invoice concurrently cannot both pass. The lock is
+    taken with `em.execute('select pg_advisory_xact_lock(hashtextextended(?, 0))', [key])`
+    on the transaction's own entity manager, never through
+    `em.getConnection().execute(...)`, which runs outside the transaction and
+    would not hold the lock until commit; the key string is
+    `cash_bank_management.invoice_match:{tenantId}:{invoiceId}`. The
+    `JournalEntry` read in check 1 and the remaining-balance read in check 2
+    run inside the same transaction, after the lock:
 
     1. **The invoice is posted.** A `JournalEntry` with
        `referenceType: 'sales:sales_invoice'` and `referenceId: invoice.id`
@@ -870,8 +877,9 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
 
 - **`ledger` (hard dependency).** Writes exclusively through
   `commandBus.execute('ledger.postJournalEntry', { input, ctx })`. Also reads
-  `JournalEntry` by `referenceType`/`referenceId` for the `INVOICE_NOT_POSTED`
-  check (hard-dependency direct read).
+  `JournalEntry` by `referenceType`/`referenceId`, scoped by
+  `tenantId`/`organizationId`, for the `INVOICE_NOT_POSTED` check
+  (hard-dependency direct read, no ORM relation).
 - **`currencies` (hard dependency).** Reads `Currency` directly to
   validate `BankAccount.currencyId` and to compare a matched
   invoice's currency against the bank account's own.
@@ -952,8 +960,11 @@ draft deferred this detail rather than designing it):
   only) and a row action opening the match dialog. The match dialog is
   a small custom form (document-type selector, then conditionally: a
   document-id lookup for `sales_invoice`/`payment_batch`, a
-  `bookedExchangeRate` field shown only when the picked document's
-  currency differs from the `BankAccount`'s own, or — for the added
+  `settledAmount` field (`sales_invoice` only, in the invoice's currency; same currency pre-filled
+  with `min(|line|, remaining)` and shown with the invoice's remaining
+  balance, foreign currency required) and, when the picked invoice's
+  currency differs from the `BankAccount`'s own, the `bookedExchangeRate`
+  and `overpaymentAmount` fields, or — for the added
   `manual_gl_entry` type — a `LedgerAccount` picker plus an optional
   free-text description field, in place of any document lookup)
   submitted via `useGuardedMutation(...).runMutation(...)` against
@@ -961,8 +972,9 @@ draft deferred this detail rather than designing it):
   not a plain entity edit), honoring the `Cmd/Ctrl+Enter` submit /
   `Escape` cancel convention and an `aria-label` on its icon-only close
   control. All reads go through `apiCall`/`apiCallOrThrow` (never raw
-  `fetch`); all labels/errors (including the `EXCHANGE_RATE_REQUIRED`
-  and `amountMismatch` messaging) go through `useT()`/
+  `fetch`); all labels/errors (including the `EXCHANGE_RATE_REQUIRED`,
+  `INVOICE_NOT_POSTED`, `SETTLED_AMOUNT_EXCEEDS_REMAINING`,
+  `OVERPAYMENT_ACCOUNT_NOT_CONFIGURED` and `amountMismatch` messaging) go through `useT()`/
   `resolveTranslations()`.
 
 ## Data Models
@@ -1042,11 +1054,19 @@ posting's control-account side, since that value
 - `POST /api/cash-bank-management/statements/:id/lines/:lineId/match` —
   `matchBankStatementLine` (zod-validated input, including the
   conditional `bookedExchangeRate` requirement for `sales_invoice`, the
-  required `ledgerAccountId` for `manual_gl_entry`, and the optional
+  required `ledgerAccountId` for `manual_gl_entry`, the optional
   `description` accepted only for `manual_gl_entry` — falls back to the
-  statement line's own `description` when omitted, see Commands).
+  statement line's own `description` when omitted, see Commands — and the
+  `sales_invoice` amounts: `settledAmount` (optional for a same-currency
+  match, required for a foreign-currency one) and `overpaymentAmount`
+  (foreign-currency only, default `0`)).
   `metadata: { requireAuth: true, requireFeatures: ['cash_bank_management.statements.manage'] }`.
-  Returns `422 EXCHANGE_RATE_REQUIRED` when a currency mismatch has no
+  Typed rejections of the `sales_invoice` path: `409 INVOICE_NOT_POSTED`
+  (no unreversed `sales:sales_invoice` journal entry), `409
+  SETTLED_AMOUNT_EXCEEDS_REMAINING` (explicit `settledAmount` above the
+  remaining balance) and `409 OVERPAYMENT_ACCOUNT_NOT_CONFIGURED` (an
+  overpayment with no `customerOverpaymentAccountId`); each leaves nothing
+  persisted. Returns `422 EXCHANGE_RATE_REQUIRED` when a currency mismatch has no
   `bookedExchangeRate` (mirrors Accounts Payable's own
   `422 FISCAL_PERIOD_LOCKED` pattern for a typed, documented rejection
   code); returns the persisted line (including `amountMismatch` when
@@ -1064,7 +1084,9 @@ All five routes are `openApi`-documented, per `packages/core/AGENTS.md`
 ## Migration & Deployment
 
 Three new tables (`bank_account`, `bank_statement`,
-`bank_statement_line`), zero changes to any `sales`/`accounts_payable`/
+`bank_statement_line`, the last with the `settledAmount`/`overpaymentAmount`
+columns and the `(tenantId, organizationId, matchedDocumentType,
+matchedDocumentId)` index the remaining-balance check reads), zero changes to any `sales`/`accounts_payable`/
 `ledger` table. No seed data — `internalTransferSuspenseAccountId`/
 `gainLossAccountId`/`customerOverpaymentAccountId` must be configured before first use (see Module
 Config); `sales_invoice_gl_posting.receivableAccountId` is that
@@ -1164,7 +1186,9 @@ automatically.
   `SETTLED_AMOUNT_EXCEEDS_REMAINING` and persists nothing. Assert two
   concurrent matches cannot both pass (advisory lock).
 - Assert a match against an invoice with no `sales:sales_invoice`
-  `JournalEntry` is rejected with `INVOICE_NOT_POSTED`, no partial write.
+  `JournalEntry` is rejected with `INVOICE_NOT_POSTED`, no partial write,
+  and so is a match against an invoice whose only entry has since been
+  reversed (a `REVERSAL` entry points at it).
 - Assert a match succeeds against a `SalesInvoice` whose
   `outstandingAmount` is `0` (the `sales` default), since sizing does not
   read it.
@@ -1364,14 +1388,17 @@ automatically.
   would call `ledger.reverseJournalEntry`; not designed here, no
   confirmed need yet.
 
-> **2026-10-09 note.** The report below predates the receipt-sizing and
-> overpayment changes (explicit `settledAmount`, ledger-side remaining balance,
-> `INVOICE_NOT_POSTED`, `customerOverpaymentAccountId`, the new
-> `BankStatementLine` columns and index, the advisory lock). Those were
-> checked against the repository rules they touch (module config,
-> transaction-scoped locking, scoped reads, no ORM relations across modules)
-> but the full checklist was not re-run, so the "Compliant" verdicts below are
-> not a statement about them.
+> **2026-10-12 re-check.** The report below predates the receipt-sizing and
+> overpayment changes of 2026-10-09 (explicit `settledAmount`, ledger-side
+> remaining balance, `INVOICE_NOT_POSTED`, `customerOverpaymentAccountId`, the
+> new `BankStatementLine` columns and index, the advisory lock). Those parts
+> were re-read against the repository rules they touch, and the findings are
+> fixed in this revision (see the 2026-10-12 changelog entry): the lock
+> mechanics, the scoping of the `JournalEntry` read, the API contract, the
+> match dialog, the migration note and the tests. The rows added to the matrix
+> below carry that result. The original rows were not re-derived from scratch,
+> and nothing here checks the legal basis of the overpayment treatment (art. 7
+> ust. 3 UoR), which rests on secondary sources.
 
 ## Final Compliance Report — 2026-09-10
 
@@ -1443,6 +1470,15 @@ verify scope against the Event Storming record before drafting at all
 | root AGENTS.md (Design System Rules) | Semantic status tokens, Tailwind text scale, shared primitives, `aria-label` on icon-only buttons | Compliant | Added this revision: `<StatusBadge>` for `isActive`/match-status/`amountMismatch` (semantic tokens only, e.g. `bg-status-success-bg`/`bg-status-warning-bg`, never `bg-green-*`); the match dialog's icon-only close control carries an `aria-label` |
 | checklist §5 | i18n keys planned for all user-facing strings | Compliant | Added this revision: both pages' labels, validation errors, and the `EXCHANGE_RATE_REQUIRED`/`amountMismatch` messaging go through `useT()` (client) / `resolveTranslations()` (server) — no hard-coded strings |
 | checklist §1.2 | Spec covers ONE independently deployable capability (fresh-context subagent check) | Compliant | **COHESIVE** verdict from an isolated, fresh-context review given only this spec file (see narrative above) |
+| packages/core/AGENTS.md / `financial-command-implementation-checklist` §1 (re-checked 2026-10-12) | Raw SQL inside a command goes through the transaction's `em.execute`, never `em.getConnection().execute` | Compliant (after fix) | The per-invoice `pg_advisory_xact_lock` is specified through `em.execute` on the transaction's own entity manager, with the key string; the `JournalEntry` and remaining-balance reads run in the same transaction after the lock |
+| checklist §9 (re-checked 2026-10-12) | A check-then-act race is closed with a lock or constraint, or disclosed | Compliant | Two matches against one invoice serialize on the advisory lock; the test asserts it. The `BankStatementLine` is also matched at most once (Invariant 1) |
+| root AGENTS.md (re-checked 2026-10-12) | Filter by `organization_id` on every cross-module read | Compliant (after fix) | The new `ledger.JournalEntry` read for `INVOICE_NOT_POSTED` is now stated as scoped by `tenantId`/`organizationId`; the remaining-balance sum reads `BankStatementLine` through an index that leads with both |
+| root AGENTS.md (re-checked 2026-10-12) | No direct ORM relationships between modules | Compliant | `JournalEntry` is read by `referenceType`/`referenceId` (FK-id style), no relation; `settledAmount`/`overpaymentAmount` are plain columns |
+| packages/events/AGENTS.md (re-checked 2026-10-12) | Event after commit; payload carries what the consumer needs | Compliant | Emitted after the transaction commits; payload now `settledAmount`, `currencyCode`, `bookedExchangeRate`, with `bankStatementLineId` as the consumer's idempotency key |
+| packages/core/AGENTS.md → API Routes (re-checked 2026-10-12) | Zod-validated input; documented typed errors | Compliant (after fix) | New input fields and the three typed `409` rejections are listed in API Contracts, each leaving nothing persisted |
+| checklist §5 (re-checked 2026-10-12) | i18n for every user-facing string | Compliant (after fix) | The three new `409` messages and the new match-dialog fields are named in the UI section's `useT()`/`resolveTranslations()` sentence; the locale keys themselves are an implementation task |
+| Migration (re-checked 2026-10-12) | New columns and indexes are described | Compliant (after fix) | `settledAmount`, `overpaymentAmount` and the `(tenantId, organizationId, matchedDocumentType, matchedDocumentId)` index are named under Migration & Deployment |
+| Not an AGENTS.md rule (2026-10-12) | Legal basis of the overpayment treatment | **Unverified** | Art. 7 ust. 3 UoR checked only through secondary sources; the primary text has not been fetched. Out-of-scope refund/offset handling is unchanged |
 
 ### Internal Consistency Check
 
@@ -1770,3 +1806,17 @@ secondary sources). Same currency computes the excess; foreign currency takes
 an explicit `overpaymentAmount`. New field `BankStatementLine.overpaymentAmount`,
 error `OVERPAYMENT_ACCOUNT_NOT_CONFIGURED`, gain/loss formula subtracts the
 overpayment.
+
+### 2026-10-12 — Compliance re-check of the 2026-10-09 changes
+
+Re-ran the compliance checklist for the `sales_invoice` sizing and overpayment
+parts and fixed what it found: "Three checks" now says four; the advisory lock
+is specified through `em.execute` on the transaction's entity manager with its
+key; the `ledger.JournalEntry` read is stated as scoped by tenant and
+organization; API Contracts list `settledAmount` / `overpaymentAmount` and the
+three typed `409` rejections; the match dialog lists `settledAmount`,
+`bookedExchangeRate` and `overpaymentAmount` and the new messages; Migration &
+Deployment names the new columns and index; Testing Strategy covers an invoice
+whose posting was reversed. The matrix carries new rows marked "re-checked
+2026-10-12". The legal basis for overpayments stays unverified. Not yet
+reviewed by a maintainer.
