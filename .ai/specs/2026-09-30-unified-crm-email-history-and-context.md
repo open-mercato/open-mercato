@@ -200,7 +200,7 @@ P1 and P2 are **live defects on `develop`**, independent of this proposal, and b
 
 Why separately: P1 is an authorization gap in production code paths that exist today. It should not wait for a multi-phase design review. P2 silently widens privacy on undo today. For P3 this spec depends only on the invariant it guarantees. P1 and P2 are each a focused, testable change with its own risk profile. Bundling them would make the fixes wait on design approval, and it would mix a security fix into a feature PR's review and rollback unit.
 
-P1 is tracked by #7151 (`fix(messages): require read access to a reply parent`, open, not merged). GitHub search on 2026-10-09 (`parentMessageId`, "reply parent authorization", "undo email visibility", "undo externalMessageId") found no issue or PR for P2; #6432 is an adjacent compose-gating bug (closed) and #6105 concerns reply-reference semantics, and neither covers it. P2 and P3 are still to be filed before implementation. Each prerequisite is tracked and reviewed on its own.
+P1 is tracked by #7151 (`fix(messages): require read access to a reply parent`, open, not merged). GitHub search on 2026-10-09 (`parentMessageId`, "reply parent authorization", "undo email visibility", "undo externalMessageId") found no issue or PR for P2; #6432 is an adjacent compose-gating bug (closed) and #6105 concerns reply-reference semantics, and neither covers it. P2 is tracked by #7204, and P3 is tracked privately with the maintainers per SECURITY.md. Each prerequisite is tracked and reviewed on its own.
 
 | ID | Item | Evidence | Required fix (standalone) | Tracking |
 | --- | --- | --- | --- | --- |
