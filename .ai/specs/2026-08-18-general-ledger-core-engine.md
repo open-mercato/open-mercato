@@ -520,7 +520,11 @@ immutable". A reversal (`type: 'REVERSAL'`, sides swapped, positive amounts)
 is the positive-entries variant of pkt 2; a correction must not mix the two
 signs. (An earlier version of this note said a direct correction was permitted
 before the period is closed and that our policy was stricter than the Act; that
-was wrong for computer-kept books.)
+was wrong for computer-kept books.) Art. 23 ust. 1 adds that books kept by
+computer must use procedures that protect an entry against destruction,
+modification or hiding. The append-only triggers on `journal_entries` and
+`journal_entry_lines` (see Migration) are that protection, so the statutory
+rule and the database enforce the same thing.
 
 **Multi-currency: single currency per entry in this phase, but the
 line retains the original-currency amount.** The header
@@ -528,7 +532,11 @@ line retains the original-currency amount.** The header
 transaction; balance validation runs only in the base-currency
 `debit`/`credit` columns, which keeps Phase 1 posting logic simple.
 `JournalEntryLine.amountCurrency` — the amount in the entry's original
-currency — is captured from day one regardless. FX revaluation and
+currency — is captured from day one regardless. (Art. 23 ust. 3 UoR requires an
+operation in a foreign currency to be recorded so that both the amount in Polish
+currency and the amount in the foreign currency can be determined; the base-
+currency `debit`/`credit` together with `amountCurrency` and `exchangeRate` do
+that.) FX revaluation and
 multi-currency reporting are out of scope here, but when that work
 starts it reads from data that already exists rather than requiring a
 backfill.
@@ -2536,3 +2544,11 @@ Checked against Dz. U. z 2026 r. poz. 522, 640, 644, 1206 (Sejm print of
   currency operations recorded so that both the Polish and the foreign amount
   can be determined, which supports `amountCurrency`). Not yet reviewed by a
   maintainer.
+
+### 2026-10-12 (cont. — two more statutory grounds cited)
+
+Added art. 23 ust. 1 (protection of entries in computer-kept books, which the
+append-only triggers provide) to the "Corrections are reversals, not undo"
+decision, and art. 23 ust. 3 (both the Polish and the foreign amount can be
+determined) to the multi-currency decision. No change to behaviour, schema or
+code. Not yet reviewed by a maintainer.
