@@ -28,6 +28,22 @@ export function normalizeNumber(value: unknown, fallback = 0): number {
 }
 
 /**
+ * A catalog price is only usable on a line when it carries a positive amount, because line
+ * submission rejects a unit price of zero. Returns the amount for the requested mode, falling
+ * back to the other mode only when the requested amount is missing, or `null` when the price
+ * has no positive amount to use.
+ */
+export function resolveCatalogPriceAmount(
+  amountNet: DecimalInput | null | undefined,
+  amountGross: DecimalInput | null | undefined,
+  mode: 'net' | 'gross',
+): string | null {
+  const [preferred, fallback] = mode === 'net' ? [amountNet, amountGross] : [amountGross, amountNet]
+  const amount = parseDecimal(preferred) ?? parseDecimal(fallback)
+  return amount && amount.gt(0) ? decimalToString(amount) : null
+}
+
+/**
  * Pass `locale` to format in the application locale (`useLocale()` in client components).
  * Omitting it keeps the runtime default, which varies per machine and is therefore not
  * assertable in tests.

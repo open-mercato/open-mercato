@@ -4,6 +4,7 @@ import {
   formatMoney,
   grossFromNet,
   netFromGross,
+  resolveCatalogPriceAmount,
   resolveLineDiscountDisplay,
   resolveAutoFillDecimalPlaces,
   resolveMoneyDecimalPlaces,
@@ -212,5 +213,31 @@ describe('unit prices derived in the line dialog', () => {
     expect(deriveUnitPrices('gross', '1', 23, { code: 'KWD' }).unitPriceNet).toBe('0.813')
     expect(deriveUnitPrices('gross', '1', 23, { code: 'XYZ' }).unitPriceNet).toBe('0.813')
     expect(deriveUnitPrices('gross', '1', 23, null).unitPriceNet).toBe('0.813')
+  })
+})
+
+describe('resolveCatalogPriceAmount (issue #6075)', () => {
+  it('returns null for a zero-only price, which line submission would reject', () => {
+    expect(resolveCatalogPriceAmount(0, 0, 'gross')).toBeNull()
+    expect(resolveCatalogPriceAmount(0, 0, 'net')).toBeNull()
+    expect(resolveCatalogPriceAmount(null, null, 'gross')).toBeNull()
+    expect(resolveCatalogPriceAmount(-5, Number.NaN, 'net')).toBeNull()
+  })
+
+  it('keeps net-only and gross-only positive prices selectable', () => {
+    expect(resolveCatalogPriceAmount(10, null, 'net')).toBe('10')
+    expect(resolveCatalogPriceAmount(null, '12.3', 'gross')).toBe('12.3')
+  })
+
+  it('uses the amount of the requested mode and falls back only when that amount is missing', () => {
+    expect(resolveCatalogPriceAmount('10', '12.3', 'net')).toBe('10')
+    expect(resolveCatalogPriceAmount('10', '12.3', 'gross')).toBe('12.3')
+    expect(resolveCatalogPriceAmount(null, 12.3, 'net')).toBe('12.3')
+    expect(resolveCatalogPriceAmount('10', undefined, 'gross')).toBe('10')
+  })
+
+  it('never substitutes the other mode for a zero amount, which would misprice the line', () => {
+    expect(resolveCatalogPriceAmount(0, 12.3, 'net')).toBeNull()
+    expect(resolveCatalogPriceAmount(10, 0, 'gross')).toBeNull()
   })
 })

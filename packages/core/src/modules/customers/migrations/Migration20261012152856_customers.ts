@@ -1,8 +1,8 @@
 import { Migration } from '@mikro-orm/migrations';
 
-export class Migration20261008075513_customers extends Migration {
+export class Migration20261012152856_customers extends Migration {
 
-  override name = 'Migration20261008075513';
+  override name = 'Migration20261012152856';
 
   override up(): void | Promise<void> {
     this.addSql(`alter table "customer_deals" alter column "value_amount" type numeric using ("value_amount"::numeric);`);

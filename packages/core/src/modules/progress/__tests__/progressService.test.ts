@@ -2091,6 +2091,7 @@ describe('progress service — stale-sweep recovery (GSM-314)', () => {
     const job = {
       id: 'job-1',
       tenantId: baseCtx.tenantId,
+      organizationId: null,
       status: 'running',
       jobType: 'catalog.categories.bulk_create',
       processedCount: 0,
@@ -2130,6 +2131,7 @@ describe('progress service — stale-sweep recovery (GSM-314)', () => {
     const throttleSnapshot = {
       id: 'job-1',
       tenantId: baseCtx.tenantId,
+      organizationId: null,
       status: 'running',
       jobType: 'catalog.categories.bulk_create',
       processedCount: 0,
