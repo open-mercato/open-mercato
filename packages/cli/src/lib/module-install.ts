@@ -187,6 +187,24 @@ function validateBeforeRegistration(
   return appModuleDir
 }
 
+function assertRequiredModulesEnabled(
+  modulePackage: ValidatedOfficialModulePackage,
+  resolver: PackageResolver,
+): void {
+  const enabledModuleIds = new Set(resolver.loadEnabledModules().map((entry) => entry.id))
+  const missingModuleIds = modulePackage.moduleInfo.requires.filter(
+    (moduleId) => !enabledModuleIds.has(moduleId),
+  )
+  if (missingModuleIds.length === 0) return
+
+  throw new Error(
+    [
+      `Module "${modulePackage.metadata.moduleId}" requires module(s) that are not enabled: ${missingModuleIds.join(', ')}.`,
+      'Enable the missing module(s) in src/modules.ts first, then rerun this command.',
+    ].join('\n'),
+  )
+}
+
 function prepareRegistrationSource(
   modulePackage: ValidatedOfficialModulePackage,
   resolver: PackageResolver,
@@ -221,6 +239,7 @@ async function registerResolvedOfficialModule(
   packageName: string,
   eject: boolean,
 ): Promise<ModuleCommandResult> {
+  assertRequiredModulesEnabled(modulePackage, resolver)
   const from = prepareRegistrationSource(modulePackage, resolver, packageName, eject)
 
   const registration = ensureModuleRegistration(

@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
+import ts from 'typescript-js'
 import type { PackageResolver } from './resolver'
 
 type PackageJsonRecord = {
@@ -18,6 +19,7 @@ export type ModulePackageMetadata = {
 export type ModuleInfoSnapshot = {
   title?: string
   description?: string
+  requires: string[]
 }
 
 export type ValidatedOfficialModulePackage = {
@@ -54,20 +56,82 @@ function readPackageJson(packageJsonPath: string): PackageJsonRecord {
   }
 }
 
-function parseModuleInfo(indexPath: string): { title?: string; description?: string; ejectable?: boolean } {
-  if (!fs.existsSync(indexPath)) return {}
+function readPropertyName(property: ts.ObjectLiteralElementLike): string | null {
+  if (!('name' in property) || !property.name) return null
+  return ts.isIdentifier(property.name) || ts.isStringLiteralLike(property.name)
+    ? property.name.text
+    : null
+}
+
+function unwrapExpression(expression: ts.Expression): ts.Expression {
+  if (
+    ts.isAsExpression(expression)
+    || ts.isTypeAssertionExpression(expression)
+    || ts.isParenthesizedExpression(expression)
+    || ts.isSatisfiesExpression(expression)
+  ) {
+    return unwrapExpression(expression.expression)
+  }
+  return expression
+}
+
+function findMetadataLiteral(source: string, indexPath: string): ts.ObjectLiteralExpression | null {
+  const sourceFile = ts.createSourceFile(indexPath, source, ts.ScriptTarget.Latest, true)
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (
+        !ts.isIdentifier(declaration.name)
+        || declaration.name.text !== 'metadata'
+        || !declaration.initializer
+      ) continue
+      const initializer = unwrapExpression(declaration.initializer)
+      if (ts.isObjectLiteralExpression(initializer)) return initializer
+    }
+  }
+  return null
+}
+
+function parseModuleInfo(indexPath: string): {
+  title?: string
+  description?: string
+  ejectable?: boolean
+  requires: string[]
+} {
+  if (!fs.existsSync(indexPath)) return { requires: [] }
 
   const source = fs.readFileSync(indexPath, 'utf8')
-  const result: { title?: string; description?: string; ejectable?: boolean } = {}
+  const metadata = findMetadataLiteral(source, indexPath)
+  const result: { title?: string; description?: string; ejectable?: boolean; requires: string[] } = {
+    requires: [],
+  }
+  if (!metadata) return result
 
-  const titleMatch = source.match(/\btitle\s*:\s*['"]([^'"]+)['"]/)
-  if (titleMatch) result.title = titleMatch[1]
+  for (const property of metadata.properties) {
+    if (!ts.isPropertyAssignment(property)) continue
+    const propertyName = readPropertyName(property)
+    const initializer = unwrapExpression(property.initializer)
 
-  const descriptionMatch = source.match(/\bdescription\s*:\s*['"]([^'"]+)['"]/)
-  if (descriptionMatch) result.description = descriptionMatch[1]
+    if ((propertyName === 'title' || propertyName === 'description') && ts.isStringLiteralLike(initializer)) {
+      result[propertyName] = initializer.text
+      continue
+    }
 
-  const ejectableMatch = source.match(/\bejectable\s*:\s*(true|false)/)
-  if (ejectableMatch) result.ejectable = ejectableMatch[1] === 'true'
+    if (propertyName === 'ejectable') {
+      if (initializer.kind === ts.SyntaxKind.TrueKeyword) result.ejectable = true
+      if (initializer.kind === ts.SyntaxKind.FalseKeyword) result.ejectable = false
+      continue
+    }
+
+    if (propertyName !== 'requires') continue
+    if (!ts.isArrayLiteralExpression(initializer)) {
+      throw new Error(`Module descriptor at ${indexPath} must declare "requires" as a static string array.`)
+    }
+    if (initializer.elements.some((element) => !ts.isStringLiteralLike(element))) {
+      throw new Error(`Module descriptor at ${indexPath} must contain only string module ids in "requires".`)
+    }
+    result.requires = initializer.elements.map((element) => (element as ts.StringLiteralLike).text)
+  }
 
   return result
 }
@@ -324,7 +388,7 @@ export function readOfficialModulePackageFromRoot(
     packageRoot,
     packageJson,
     metadata: { moduleId, ejectable: selected.ejectable },
-    moduleInfo: { title: info.title, description: info.description },
+    moduleInfo: { title: info.title, description: info.description, requires: info.requires },
     sourceModuleDir,
     distModuleDir,
   }
