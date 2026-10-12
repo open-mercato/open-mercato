@@ -94,23 +94,39 @@ same "contractor" concept.
 
 ### Legal context — why contractor verification is a requirement at all
 
-**VAT Act, Art. 96b** — the Head of the National Revenue
-Administration maintains a public, electronic register of VAT
-taxpayers (the so-called Biała Lista / VAT whitelist), which includes
-bank account numbers reported by the taxpayer to the tax office.
-Paying into an account outside this register, for transactions above
-the PLN 15,000 threshold, exposes the payer (not just the invoice
-issuer) to joint-and-several liability for the contractor's VAT
-arrears — i.e. the paying company can be held liable for someone
-else's tax debt if it doesn't check the account before the transfer.
-Protection from this liability requires verification on the day the
-transfer is ordered — checking once, at contractor registration, is
-not enough.
+**VAT Act, Art. 96b, and the tax-cost rule in CIT Art. 15d / PIT Art. 22p**
+(checked 2026-10-12 against the consolidated texts: VAT Dz. U. z 2025 r.
+poz. 775 as amended through 2026 poz. 846; CIT Dz. U. z 2026 r. poz. 554 and
+later; PIT Dz. U. z 2026 r. poz. 592 and later). Art. 96b VAT Act is the
+register itself: the Head of the National Revenue Administration keeps an
+electronic list (wykaz) of entities registered, or refused/struck off, as VAT
+taxpayers (the so-called Biała Lista / VAT whitelist). It contains the
+settlement-account numbers of the entity (ust. 3 pkt 13), can be queried for a
+chosen day (ust. 2) and is updated once per business day (ust. 8). Art. 96b
+does not itself oblige anyone to check the list and contains no liability rule.
 
-**Consequence for the project:** bank account verification against the
-Biała Lista must repeat at every payment, not just once at
-registration — this is not an open design question, it's a hard legal
-requirement.
+The consequence that makes the check matter is in income-tax law: art. 15d
+ust. 1 pkt 2 CIT and art. 22p ust. 1 pkt 2 PIT exclude the cost from tax-deductible
+costs when the payment for a supply confirmed by an invoice from an active VAT
+taxpayer (a transaction within art. 19 Prawo przedsiębiorców) is made to an
+account other than the one in the wykaz "na dzień zlecenia przelewu" (on the
+day the transfer is ordered). There are exceptions, notably a notification to
+the tax office within 7 days of ordering the transfer (art. 15d ust. 4 CIT /
+art. 22p ust. 4 PIT, referring to art. 117ba § 3 pkt 2 Ordynacji podatkowej),
+payments to certain bank accounts, and payments made by split payment. So
+paying to an account outside the list is not prohibited; the paying company
+loses the cost deduction unless an exception applies.
+
+**Unverified:** the joint-and-several liability of the payer for the supplier's
+VAT arrears (art. 117ba Ordynacja podatkowa) and the PLN 15,000 amount (art. 19
+Prawo przedsiębiorców). Neither text was available. An earlier version of this
+paragraph attributed both to Art. 96b VAT Act, which contains neither.
+
+**Consequence for the project:** bank account verification against the Biała
+Lista must be done as of the day the transfer is ordered, at every payment, not
+once at registration. This is a design requirement that follows from the
+tax-cost rule above (a payment outside the list is allowed but costly), not a
+legal prohibition on paying.
 
 **GUS (Polish Central Statistical Office)** — the REGON register, used
 to verify that a given NIP (tax ID) corresponds to an existing,
@@ -186,11 +202,13 @@ purely informational — e.g. a "last checked: 3 days ago" badge on the
 contractor list, before anyone attempts to pay; (B) an optimization —
 skipping the live check at payment time if the cache is "fresh".
 **Chosen: (A) only.** (B) would directly violate the requirement in
-Art. 96b of the VAT Act ("on the day of transfer", not "within the
+art. 15d ust. 1 pkt 2 CIT / art. 22p ust. 1 pkt 2 PIT ("na dzień
+zlecenia przelewu", i.e. the day the transfer is ordered, not "within the
 last N days") — an account could have disappeared from the Biała
 Lista this morning, and yesterday's cache wouldn't catch that,
-restoring exactly the joint-liability risk this whole feature exists
-to eliminate. `checkBankAccountWhitelist` (see Commands) **always**
+restoring exactly the risk (loss of the cost deduction, and the payer's
+liability under art. 117ba Ordynacji podatkowej, unverified) this whole
+feature exists to eliminate. `checkBankAccountWhitelist` (see Commands) **always**
 performs a live call to the Biała Lista API, regardless of the cache
 value; the cache is updated as a side effect of every live check,
 never as its substitute.
@@ -218,7 +236,8 @@ snapshotting.
 
 **Bank account verification against the Biała Lista: at account
 registration + mandatory, live, on every payment.** A direct
-consequence of Art. 96b of the VAT Act.
+consequence of art. 15d CIT / art. 22p PIT (the register itself is Art. 96b
+of the VAT Act).
 
 **Resolved (2026-09-08): a light, one-step new-vendor approval gate
 is confirmed in scope for Phase 1.** This started as an unconfirmed
@@ -464,7 +483,7 @@ registration frees its NIP for re-registration.
 | Separate `Vendor`/`Customer` entities instead of one `Contractor` with flags | Would duplicate GUS/VIES/account data for an entity that is simultaneously a vendor and a customer of the same company |
 | Contractor snapshot based on the future `journal_entry_line_dimension` instead of a field on `JournalEntryLine` | Would create a transitional audit gap — AP invoices posted before the Posting Rules Engine even exists would have no protection at all for contractor history |
 | Bank account as a single field/JSON array on `Contractor` | Violates the project's rule against unbounded arrays/nested JSON; doesn't reflect the reality of multiple registered accounts per NIP |
-| `lastVerifiedAt`/`lastVerificationStatus` as a shortcut skipping the live check when the cache is "fresh" | Directly violates Art. 96b of the VAT Act ("on the day of transfer"); restores the joint-liability risk this module exists to eliminate |
+| `lastVerifiedAt`/`lastVerificationStatus` as a shortcut skipping the live check when the cache is "fresh" | Directly violates the "na dzień zlecenia przelewu" rule (art. 15d CIT / art. 22p PIT); restores the cost-deduction and liability risk this module exists to eliminate |
 | Sharing a contractor across a tenant's organizations | No precedent in the code and no confirmed business requirement — YAGNI |
 
 ## User Stories
@@ -603,9 +622,10 @@ Optima/XL, enova365.**
   per business day, so a "live" call at transfer time is, in practice,
   only as fresh as that day's publication regardless of how it's
   implemented — worth a one-line awareness note, not a design change,
-  since Art. 96b's requirement ("on the day of transfer") is about
-  *when you check*, not the source's own refresh cadence, and this
-  document already gets that distinction right.
+  since the requirement ("na dzień zlecenia przelewu", art. 15d CIT /
+  art. 22p PIT) is about *when you check*, not the source's own refresh
+  cadence (the once-per-business-day refresh is itself stated in art. 96b
+  ust. 8 VAT Act), and this document already gets that distinction right.
 - **No four-eyes/approval-gate precedent found** in either Optima's or
   enova365's public documentation for vendor/kontrahent registration —
   the one-step `contractors.vendor-approval` gate this document adds is
@@ -1607,7 +1627,8 @@ was a correction within that shape, not a challenge to it.
 - Resolved, after discussion: `ContractorBankAccount.lastVerifiedAt`/
   `lastVerificationStatus` is strictly a UX cache — `checkBankAccountWhitelist`
   always performs a live Biała Lista check and never short-circuits on
-  cache freshness, per Art. 96b's "on the day of transfer" requirement.
+  cache freshness, per the "na dzień zlecenia przelewu" rule (art. 15d CIT /
+  art. 22p PIT; the original wording here cited Art. 96b VAT Act, corrected 2026-10-12).
   Flagged as the single most safety-critical test in Testing Strategy.
 - Added `NIP` immutability as an explicit Design Decision (unconditional,
   unlike GL's posted-entries-gated guards) — was implicit before, now
@@ -1960,3 +1981,23 @@ time on this document:
   `nip` filter (Queries / API). Returns no PII. NIP normalization
   (`normalizeNip`, checksum included) is decided in DI Registrar.
 - No change to the data model, ACL, events or workflows.
+
+### 2026-10-12 — Legal context checked against consolidated VAT, CIT and PIT texts
+
+- Checked against the consolidated texts supplied as PDFs (VAT Dz. U. z 2025 r.
+  poz. 775 and later amendments through 2026 poz. 846; CIT Dz. U. z 2026 r.
+  poz. 554 and later; PIT Dz. U. z 2026 r. poz. 592 and later).
+- **Correction.** Art. 96b VAT Act is the register (the whitelist), not the
+  source of the duty to check "on the day of transfer" or of any liability.
+  The "na dzień zlecenia przelewu" wording is in art. 15d ust. 1 pkt 2 CIT and
+  art. 22p ust. 1 pkt 2 PIT, and its consequence is loss of the cost deduction
+  (with exceptions, e.g. notification within 7 days). Citations in Legal
+  context, the cache Design Decision, the Alternatives table and the Literature
+  notes were updated; this changelog's earlier entries keep the original wording.
+- **Still unverified:** the payer's joint-and-several liability (art. 117ba
+  Ordynacja podatkowa) and the PLN 15,000 amount (art. 19 Prawo
+  przedsiębiorców).
+- **Not applied.** Art. 96b ust. 2 provides for checking the list as of a chosen
+  day, so the check could be run for the transfer date; the API client design
+  is unchanged. No change to the design decisions, data model or tests. Not yet
+  reviewed by a maintainer.

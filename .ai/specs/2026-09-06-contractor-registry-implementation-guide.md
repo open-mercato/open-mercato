@@ -135,8 +135,9 @@ before anything else compiles or is reachable. High-level shape:
   "verify now" button only. Don't let the two drift back apart.
 - **Never read `lastVerifiedAt` to skip the live Biała Lista call —
   not even if it was checked five minutes ago.** This is the single
-  most safety-critical rule in the module (Art. 96b requires
-  verification "on the day of transfer," not "recently"). Write the
+  most safety-critical rule in the module (the rule is "na dzień
+  zlecenia przelewu", art. 15d CIT / art. 22p PIT, not "recently"; the register
+  itself is Art. 96b VAT Act). Write the
   regression test for this before anything else: seed a fresh
   `lastVerifiedAt: now()`, call `checkBankAccountWhitelist`, assert the
   live API client was actually invoked anyway.
