@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { ensureModuleRegistration, setModuleRegistrationSource } from '../modules-config'
+import { readEnabledModulesFromConfig } from '../resolver'
 
 describe('modules-config', () => {
   let tmpDir: string
@@ -141,5 +142,22 @@ describe('modules-config', () => {
     const updated = fs.readFileSync(filePath, 'utf8')
     expect(updated).toContain("{ id: 'test_package', from: '@open-mercato/test-package' }")
     expect(updated).toContain("enabledModules.push({ id: 'example_customers_sync', from: '@app' })")
+  })
+})
+
+
+describe('module provenance updates', () => {
+  it('updates only top-level origin properties and preserves nested overrides', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'module-config-provenance-'))
+    const modulesPath = path.join(root, 'modules.ts')
+    try {
+      fs.writeFileSync(modulesPath, "export const enabledModules = [{ id: 'consents', overrides: { custom: { from: 'nested', locator: 'keep-locator', packageName: 'keep-package' } } }]\n")
+      setModuleRegistrationSource(modulesPath, 'consents', '@app', { locator: 'github:pkarw/consents', packageName: '@pkarw/consents' })
+      const source = fs.readFileSync(modulesPath, 'utf8')
+      expect(source).toContain("custom: { from: 'nested', locator: 'keep-locator', packageName: 'keep-package' }")
+      expect(readEnabledModulesFromConfig(modulesPath)).toEqual([{ id: 'consents', from: '@app', locator: 'github:pkarw/consents', packageName: '@pkarw/consents' }])
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
   })
 })

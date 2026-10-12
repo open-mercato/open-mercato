@@ -22,7 +22,7 @@ function yarnBinary(): string {
   return process.platform === 'win32' ? 'yarn.cmd' : 'yarn'
 }
 
-function runCommand(command: string, args: string[], cwd: string): string {
+function runCommand(command: string, args: string[], cwd: string, environment: NodeJS.ProcessEnv = {}): string {
   const yarnCacheFolder = path.join(cwd, '.yarn', 'cache')
   try {
     return execFileSync(command, args, {
@@ -36,6 +36,7 @@ function runCommand(command: string, args: string[], cwd: string): string {
         YARN_ENABLE_GLOBAL_CACHE: '0',
         YARN_ENABLE_IMMUTABLE_INSTALLS: '0',
         YARN_NODE_LINKER: 'node-modules',
+        ...environment,
       },
     })
   } catch (error) {
@@ -339,6 +340,46 @@ test.describe('TC-INT-007: CLI official module install and eject flows', () => {
     }
   })
 
+  test('GitHub locators detect a runtime ID collision before invoking Yarn', () => {
+    const appDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mercato-cli-github-collision-'))
+    try {
+      createStandaloneFixture(appDir)
+      const modulesSource = "export const enabledModules = [{ id: 'test_package', from: '@app', locator: 'github:other/test-package' }]\n"
+      writeFile(path.join(appDir, 'src', 'modules.ts'), modulesSource)
+      const originalManifest = readFile(path.join(appDir, 'package.json'))
+      const executableDir = path.join(appDir, 'bin')
+      const packageManifest = Buffer.from(JSON.stringify({ name: '@pkarw/test-package' })).toString('base64')
+      const ghPath = path.join(executableDir, 'gh')
+      writeFile(ghPath, `#!/usr/bin/env node
+const endpoint = process.argv[3]
+const sha = 'a'.repeat(40)
+const value = endpoint === 'user' ? { login: 'pkarw' }
+  : endpoint.includes('/commits/') ? { sha }
+  : endpoint.includes('/contents/') ? { encoding: 'base64', content: ${JSON.stringify(packageManifest)} }
+  : endpoint.includes('/git/trees/') ? { tree: [{ path: 'src/modules/test_package/index.ts' }] }
+  : { default_branch: 'main' }
+process.stdout.write(JSON.stringify(value))
+`)
+      const yarnPath = path.join(executableDir, 'yarn')
+      const marker = path.join(appDir, 'yarn-invoked')
+      writeFile(yarnPath, "#!/usr/bin/env node\nrequire('node:fs').writeFileSync(process.env.COLLISION_YARN_MARKER, 'invoked')\nprocess.exit(1)\n")
+      fs.chmodSync(ghPath, 0o755)
+      fs.chmodSync(yarnPath, 0o755)
+      for (const locator of ['github:pkarw/test-package', 'https://github.com/pkarw/test-package.git', 'git@github.com:pkarw/test-package.git', 'github:test-package']) {
+        expect(() => runCommand(process.execPath, [cliBin, 'module', 'add', locator, '--allow-third-party'], appDir, {
+          PATH: executableDir + path.delimiter + process.env.PATH,
+          COLLISION_YARN_MARKER: marker,
+        })).toThrow(/Module name collision[\s\S]*test_package[\s\S]*github:other\/test-package[\s\S]*github:pkarw\/test-package/)
+      }
+      expect(fs.existsSync(marker)).toBe(false)
+      expect(readFile(path.join(appDir, 'package.json'))).toBe(originalManifest)
+      expect(readFile(path.join(appDir, 'src', 'modules.ts'))).toBe(modulesSource)
+      expect(fs.existsSync(path.join(appDir, 'src', 'modules', 'test_package'))).toBe(false)
+    } finally {
+      fs.rmSync(appDir, { recursive: true, force: true })
+    }
+  })
+
   test('module enable supports package-backed and ejected flows plus both eject entrypoints', () => {
     const appDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mercato-cli-standalone-eject-'))
 
@@ -366,11 +407,15 @@ test.describe('TC-INT-007: CLI official module install and eject flows', () => {
       writeFile(path.join(appDir, 'src', 'modules.ts'), "export const enabledModules = [{ id: 'test_package', from: '@open-mercato/test-package' }]\n")
       fs.rmSync(path.join(appDir, 'src', 'modules', 'test_package'), { recursive: true, force: true })
       runMercato(['module', 'eject', 'test_package'], appDir)
+      expect(readFile(path.join(appDir, 'src', 'modules.ts'))).toContain("packageName: '@open-mercato/test-package'")
+      expect(readFile(path.join(appDir, 'src', 'modules.ts'))).toContain("locator: 'npm:@open-mercato/test-package'")
       expect(readFile(path.join(appDir, 'src', 'modules.ts'))).toContain("id: 'test_package', from: '@app'")
 
       writeFile(path.join(appDir, 'src', 'modules.ts'), "export const enabledModules = [{ id: 'test_package', from: '@open-mercato/test-package' }]\n")
       fs.rmSync(path.join(appDir, 'src', 'modules', 'test_package'), { recursive: true, force: true })
       runMercato(['eject', 'test_package'], appDir)
+      expect(readFile(path.join(appDir, 'src', 'modules.ts'))).toContain("packageName: '@open-mercato/test-package'")
+      expect(readFile(path.join(appDir, 'src', 'modules.ts'))).toContain("locator: 'npm:@open-mercato/test-package'")
       expect(readFile(path.join(appDir, 'src', 'modules.ts'))).toContain("id: 'test_package', from: '@app'")
     } finally {
       fs.rmSync(appDir, { recursive: true, force: true })

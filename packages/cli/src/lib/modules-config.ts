@@ -365,16 +365,29 @@ function replaceArrayLiteral(
   return source.slice(0, arrayNode.getStart(sourceFile)) + updatedArray + source.slice(arrayNode.end)
 }
 
-function upsertModuleSource(objectLiteral: string, from: string): string {
-  if (/from\s*:\s*'[^']*'/.test(objectLiteral)) {
-    return objectLiteral.replace(/from\s*:\s*'[^']*'/, `from: '${escapeSingleQuotedString(from)}'`)
+function upsertModuleProperty(objectLiteral: string, propertyName: 'from' | 'locator' | 'packageName', value: string): string {
+  const prefix = 'const entry = '
+  const sourceFile = ts.createSourceFile('entry.ts', prefix + objectLiteral, ts.ScriptTarget.Latest, true)
+  const statement = sourceFile.statements[0]
+  const initializer = ts.isVariableStatement(statement) ? statement.declarationList.declarations[0]?.initializer : undefined
+  if (!initializer || !ts.isObjectLiteralExpression(initializer)) {
+    throw new Error('Cannot update module registration: expected an object literal.')
   }
-
-  if (/from\s*:\s*"[^"]*"/.test(objectLiteral)) {
-    return objectLiteral.replace(/from\s*:\s*"[^"]*"/, `from: "${from.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`)
+  const property = initializer.properties.find((candidate) =>
+    'name' in candidate && candidate.name && (ts.isIdentifier(candidate.name) || ts.isStringLiteralLike(candidate.name)) && candidate.name.text === propertyName,
+  )
+  const quotedValue = `'${escapeSingleQuotedString(value)}'`
+  if (property) {
+    const target = ts.isPropertyAssignment(property) ? property.initializer : property
+    const existingQuote = ts.isPropertyAssignment(property) ? property.initializer.getText(sourceFile)[0] : undefined
+    const replacementValue = existingQuote === '"' ? JSON.stringify(value) : quotedValue
+    const replacement = ts.isPropertyAssignment(property) ? replacementValue : `${propertyName}: ${replacementValue}`
+    return objectLiteral.slice(0, target.getStart(sourceFile) - prefix.length) + replacement + objectLiteral.slice(target.end - prefix.length)
   }
-
-  return objectLiteral.replace(/\}\s*$/, `, from: '${escapeSingleQuotedString(from)}' }`)
+  const lastProperty = initializer.properties[initializer.properties.length - 1]
+  const insertPosition = lastProperty ? lastProperty.end - prefix.length : initializer.end - prefix.length - 1
+  const separator = lastProperty ? ', ' : ' '
+  return objectLiteral.slice(0, insertPosition) + `${separator}${propertyName}: ${quotedValue}` + objectLiteral.slice(insertPosition)
 }
 
 export function ensureModuleRegistration(
@@ -418,6 +431,7 @@ export function setModuleRegistrationSource(
   modulesPath: string,
   moduleId: string,
   from: string,
+  provenance?: Pick<ModuleEntry, 'locator' | 'packageName'>,
 ): { changed: boolean } {
   if (!fs.existsSync(modulesPath)) {
     throw new Error(`modules.ts not found at ${modulesPath}`)
@@ -441,12 +455,14 @@ export function setModuleRegistrationSource(
 
   const match = matches[0]
   const current = normalizeModuleEntry(match.entry)
-  if (current.from === from) {
+  if (current.from === from && (!provenance?.locator || current.locator === provenance.locator) && (!provenance?.packageName || current.packageName === provenance.packageName)) {
     return { changed: false }
   }
 
   const objectLiteral = source.slice(match.node.getStart(), match.node.end)
-  const updatedObjectLiteral = upsertModuleSource(objectLiteral, from)
+  let updatedObjectLiteral = upsertModuleProperty(objectLiteral, 'from', from)
+  if (provenance?.locator) updatedObjectLiteral = upsertModuleProperty(updatedObjectLiteral, 'locator', provenance.locator)
+  if (provenance?.packageName) updatedObjectLiteral = upsertModuleProperty(updatedObjectLiteral, 'packageName', provenance.packageName)
   const updated =
     source.slice(0, match.node.getStart()) +
     updatedObjectLiteral +

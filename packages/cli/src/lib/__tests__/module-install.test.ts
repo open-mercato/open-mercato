@@ -440,4 +440,16 @@ describe('canonical module preflight', () => {
     }
   })
 
+
+  it('rejects duplicate existing registrations before eject source writes', async () => {
+    const packageRoot = path.join(root, 'package')
+    const appDir = path.join(root, 'app')
+    buildPackageFixture(packageRoot, 'marketing_consents', { ejectable: true })
+    const source = "export const enabledModules = [{ id: 'marketing_consents', from: '@open-mercato/test-package' }, { id: 'marketing_consents', from: '@other/consents' }]\n"
+    const resolver = buildResolver(appDir, packageRoot, source)
+    await expect(enableOfficialModule(resolver, '@open-mercato/test-package', undefined, true)).rejects.toThrow('registered multiple times')
+    expect(fs.existsSync(path.join(appDir, 'src/modules/marketing_consents'))).toBe(false)
+    expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(source)
+  })
+
 })

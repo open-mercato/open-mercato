@@ -221,7 +221,11 @@ function assertNoModuleCollision(
   packageName: string,
   locator?: string,
 ): void {
-  const existing = resolver.loadEnabledModules().find((entry) => entry.id === moduleId)
+  const registrations = resolver.loadEnabledModules().filter((entry) => entry.id === moduleId)
+  if (registrations.length > 1) {
+    throw new Error(`Module name collision: "${moduleId}" is registered multiple times from ${registrations.map((entry) => entry.locator ?? entry.from ?? '@open-mercato/core').join(', ')}. Resolve duplicate registrations before retrying.`)
+  }
+  const existing = registrations[0]
   if (existing && (existing.from ?? '@open-mercato/core') !== packageName) {
     throw new Error(`Module name collision: "${moduleId}" is already registered from "${existing.locator ?? existing.from ?? '@open-mercato/core'}"; requested source is "${locator ?? packageName}". Two sources cannot share one module id. Remove or rename the conflicting module explicitly before retrying.`)
   }
