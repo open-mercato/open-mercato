@@ -12,7 +12,7 @@ import {
 } from '@open-mercato/core/helpers/integration/workflowsFixtures'
 
 /**
- * TC-WF-066: an async-activity wait resolves only from the queue jobs it
+ * TC-WF-071: an async-activity wait resolves only from the queue jobs it
  * enqueued.
  *
  * The event log keeps every `ACTIVITY_COMPLETED` / `ACTIVITY_FAILED` of the
@@ -53,21 +53,21 @@ async function waitForEvents(
   return events
 }
 
-test.describe('TC-WF-066: async-activity wait resolves from its own jobs', () => {
+test.describe('TC-WF-071: async-activity wait resolves from its own jobs', () => {
   test('a later two-job wait does not resume before both of its jobs complete', async ({ request }) => {
     test.skip(IS_STANDALONE_APP, 'Async resume needs the workflow-activities worker (AUTO_SPAWN_WORKERS=false in standalone)')
     test.setTimeout(120_000)
 
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()
-    const workflowId = `qa-wf-066-wait-${stamp}`
+    const workflowId = `qa-wf-071-wait-${stamp}`
     let definitionId: string | null = null
     let instanceId: string | null = null
 
     try {
       definitionId = await createWorkflowDefinitionFixture(request, token, {
         workflowId,
-        workflowName: `QA TC-WF-066 wait ${stamp}`,
+        workflowName: `QA TC-WF-071 wait ${stamp}`,
         version: 1,
         enabled: true,
         definition: {
@@ -143,14 +143,14 @@ test.describe('TC-WF-066: async-activity wait resolves from its own jobs', () =>
 
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()
-    const workflowId = `qa-wf-066-rerun-${stamp}`
+    const workflowId = `qa-wf-071-rerun-${stamp}`
     let definitionId: string | null = null
     let instanceId: string | null = null
 
     try {
       definitionId = await createWorkflowDefinitionFixture(request, token, {
         workflowId,
-        workflowName: `QA TC-WF-066 rerun ${stamp}`,
+        workflowName: `QA TC-WF-071 rerun ${stamp}`,
         version: 1,
         enabled: true,
         definition: {
@@ -169,7 +169,7 @@ test.describe('TC-WF-066: async-activity wait resolves from its own jobs', () =>
               trigger: 'auto',
               activities: [
                 asyncActivity('notify', 'EMIT_EVENT', {
-                  eventName: 'qa.workflows.tc_wf_066.notified',
+                  eventName: 'qa.workflows.tc_wf_071.notified',
                   payload: { reference: '{{context.reference}}' },
                 }),
               ],
@@ -195,7 +195,7 @@ test.describe('TC-WF-066: async-activity wait resolves from its own jobs', () =>
         request,
         'POST',
         `/api/workflows/instances/${encodeURIComponent(instanceId)}/rerun-step`,
-        { token, data: { stepId: 'prepare', contextPatch: { reference: 'REF-066' } } },
+        { token, data: { stepId: 'prepare', contextPatch: { reference: 'REF-071' } } },
       )
       const rerunBody = await readJsonSafe<Record<string, unknown>>(rerun)
       expect(rerun.status(), `rerun-step should return 200 (got ${rerun.status()}: ${JSON.stringify(rerunBody)})`).toBe(200)
