@@ -1525,3 +1525,24 @@ dropped: the per-invoice detail is the subsidiary ledger and stays in
 allowed as an optional, FK-id-only, scoped read with the used columns listed as
 a contract in the payments spec. No change to `ledger`, `accounts_payable` or
 `accounts_payable_payments` is needed. Not yet reviewed by a maintainer.
+
+### 2026-10-12 — Art. 30 re-read against the consolidated text
+
+Checked against the Sejm print of 2026-10-08. Ust. 1 (NBP average rate, no less
+often than the balance-sheet date) and ust. 4 (exchange differences to financial
+income or costs, long-term investments under art. 35) hold. Three points the
+spec did not carry:
+
+- Ust. 4 also allows, in justified cases, capitalising exchange differences into
+  production cost, purchase price, or the cost of fixed assets and intangibles;
+  and it covers differences arising on payment of receivables and payables, not
+  only on balance-sheet valuation. Phase 1 posts them to financial income or
+  costs; capitalisation is out of scope.
+- Ust. 2: foreign-currency operations are booked at the rate of the day of the
+  operation: pkt 1 the rate actually applied (currency sales and purchases,
+  payments), pkt 2 the NBP average rate of the **preceding day** for payments
+  where pkt 1 is not justified and for other operations. This spec has no rule
+  for the booking-day rate. ⚠ NEEDS HUMAN CONFIRMATION: whether the rate on
+  documents is set by `currencies`, and whether it is the preceding-day average.
+- Art. 23 ust. 3 (both the Polish and the foreign amount must be determinable)
+  supports keeping `amountCurrency` on the line. Not yet reviewed by a maintainer.
