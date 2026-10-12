@@ -182,6 +182,9 @@ export const enabledModules: ModuleEntry[] = [
       nav: parseBooleanWithDefault(process.env.OM_INTEGRATION_TEST, false)
         ? { groupOrder: ['example.nav.group'] }
         : undefined,
+      // An empty setup override is a no-op that still makes the setup domain dispatch, which is what
+      // TC-AUTH-SETUP-OVERRIDE-I18N-001 needs to guard locale-only registrations (#7243).
+      setup: parseBooleanWithDefault(process.env.OM_INTEGRATION_TEST, false) ? {} : undefined,
       routes: {
         api: {
           'GET /api/example/override-probe': {

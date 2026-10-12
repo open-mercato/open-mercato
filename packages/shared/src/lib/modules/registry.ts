@@ -208,9 +208,6 @@ export function registerModules(modules: Module[]) {
   if (existing !== null && process.env.NODE_ENV === 'development') {
     logger.debug('Modules re-registered (this may occur during HMR)')
   }
-  // Classify on the raw input: module overrides target runtime contracts (setup,
-  // subscribers, features, ...), so applying them to `{ id, translations }` stubs
-  // would turn a locale registration into a full one that replaces the registry (#7243).
   const i18nOnlyRegistration = isI18nOnlyRegistration(modules)
   const nextModules = i18nOnlyRegistration ? modules : applyModuleOverridesToModules(modules)
   const shouldMergeI18nOnly = existing !== null && i18nOnlyRegistration
