@@ -755,7 +755,6 @@ function balanceBucketCreateLockKey(input: BalanceBucketInput): string {
   ].join(':')
 }
 
-// Non-serial buckets have no unique index: concurrent creators must serialize and re-read.
 async function upsertBalanceBucket(
   em: EntityManager,
   scope: Scope,
