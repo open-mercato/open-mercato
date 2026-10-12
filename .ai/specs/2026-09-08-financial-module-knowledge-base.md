@@ -205,8 +205,13 @@ which of these three shapes actually fits before adding a new mechanism —
 most needs are already one of these three.
 
 **Event-driven cross-module posting, not synchronous coupling.**
-`postJournalEntry` emits an ephemeral, in-process, no-retry event
-(`ledger.journal_entry.posted`); consumers (e.g. the unmerged Posting Rules
+`postJournalEntry` emits `ledger.journal_entry.posted` after the commit
+(whether a subscriber needs at-least-once delivery is its own choice, via
+`metadata.persistent`; the Posting Rules Engine subscriber is persistent,
+corrected 2026-10-12 — an earlier version of this sentence called the event
+ephemeral and no-retry). The emit itself is fire-and-forget
+(`void emitPostedEvent(...)`), so an event can still be lost if the process
+dies between the commit and the enqueue; consumers (e.g. the unmerged Posting Rules
 Engine) subscribe and post their own follow-up entries via their own
 `postJournalEntry` call. Because delivery isn't guaranteed atomic with the
 source commit, every consumer that relies on this needs two more things: a
@@ -2227,3 +2232,62 @@ Assets, JELD, GL bulk read service, and now this one). Per Step 5:
   balance sheet; per-saldo presentation). **Unverified against the primary
   text** (the statute page could not be fetched); Kieso not consulted (no copy
   in the session). The account number is the tenant's chart, not prescribed.
+
+### 2026-10-12 — Posting Rules Engine tested end to end in a local demo; decisions taken without expert confirmation
+
+The engine was run end to end in a local demo (entry #5 `DEV` Dr `402-1` / Cr
+`210-1`; engine entry #6 Dr `552-1` / Cr `490-1`, `referenceType`
+`PostingRulesEngineReclassification`). What it showed, and what was decided.
+These decisions are the project's own, taken after checking the specs, the code
+and the knowledge base; none went to an external expert. Marked
+**⚠ NEEDS HUMAN CONFIRMATION** where a convention rests on that alone.
+
+- **Why the demo posted nothing at first (three independent causes).** (1) The
+  demo's chart of accounts predated the `490` fix in the default chart (#6137
+  review m3; 39 types / 43 accounts instead of 40 / 44), so no clearing account
+  existed to pick. (2) The clearing account setting pointed at the cost account
+  itself; the engine never treats the clearing account as a source, so the line
+  was skipped without an error. (3) The sentinel `UNALLOCATED` cost centre and the
+  settings row are seeded at module-enable time, which never ran for a tenant
+  that existed before the module was enabled. Neither (1) nor (3) is a code
+  bug; (2) is a configuration mistake the UI now makes harder (pickers filter
+  by account class).
+- **`490` normal balance: CREDIT.** The engine's spec describes the clearing
+  account's engine-posted balance as a credit balance; the default chart had
+  it as `DEBIT` (justified there as a formality, since the account clears to
+  near zero). `normalBalance` is immutable once an account of the type has
+  posted entries, so it was changed in the default-chart spec and #6439 before
+  the first live import. ⚠ NEEDS HUMAN CONFIRMATION: checked against our own
+  spec only, no external accounting source.
+- **Zespół 5 scope in the default chart: unchanged (`550`, `552`).** The
+  template is "representative, not exhaustive"; real systems checked ship an
+  adjustable starting point; widening it is data only. The numbers `500`/`520`/
+  `530` for production-type costs were recalled, not verified, and are not
+  added. The Posting Rules settings page now says so when no zespół 5 account
+  exists. Verification of the plan-of-accounts obligation (UoR art. 10 ust. 1
+  pkt 3) is pending a primary source.
+- **Vendor invoice open amount stays AP-derived (#6190, decision 18).** The
+  per-invoice detail is the subsidiary ledger; none of the three tagging
+  mechanisms fits "this line settled that invoice", and one entry per invoice
+  would break the one-entry-per-batch shape bank matching relies on. Sales
+  invoices read ledger-side only because `sales` does not maintain balances.
+  `fx_revaluation` may read `PaymentBatchLine` as an optional, FK-id-only,
+  scoped read (precedent: `communication_channels` reading `messages`), with
+  the used columns listed as a contract in the payments spec.
+- **Concurrency tests (#6340 / #7207).** The `documents` module already tests
+  concurrency with mocks that assert the lock mode (the same class as our
+  fake-EM tests) and has a `testcontainers`-based integration test, so a
+  container-based suite would not be a new technology in the repository. Decision:
+  no new infrastructure in #6340; a real-Postgres proof of lock-versus-post and
+  double-reversal waits for an HTTP route to posting or for OM Core to adopt a
+  container-based Jest suite. Nothing was changed in #6340 for this.
+- **Tooling lesson.** A process outside the app server (a CLI) that posts an
+  entry hands its `posted` event to a different local queue directory (`.mercato/queue`
+  relative to the working directory) than the server's worker reads, and the
+  fire-and-forget emit may not finish before the process exits. The dev command
+  therefore runs the engine's idempotent subscriber inline. This affects only
+  local tooling, not the server.
+- **Naming collision to resolve.** `TC-GL-004` is used both by
+  `TC-GL-004-fiscal-periods-overlap.spec.ts` (#6340) and by
+  `TC-GL-004-import-default-chart-of-accounts.spec.ts` (default chart); one of
+  them needs a new number before both are merged.
