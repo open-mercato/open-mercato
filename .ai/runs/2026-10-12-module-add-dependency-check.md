@@ -34,8 +34,11 @@ Prevent `mercato module add` and `mercato module enable` from registering a modu
 
 - Conditional registrations must use the same resolved enabled-module view as the generator so the preflight does not disagree with normal generation.
 - Descriptor parsing remains limited to statically declared string arrays; dynamic metadata stays subject to the generator's final dependency gate.
+- The configured validation gate is blocked outside this change: CI fails the base branch's package-version alignment (`@open-mercato/gateway-tpay` is `0.8.0` while the monorepo is `0.9.0`), and the local root test command both hard-caps Node at 1 GB and contains an independently reproducible failing core calendar test.
 
 ## Progress
+
+PR: #7283
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
