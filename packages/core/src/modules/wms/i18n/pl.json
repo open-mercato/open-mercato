@@ -1,4 +1,5 @@
 {
+  "notifications.categories.wms": "Magazyn",
   "search.entityType.wms.inventory_lot": "Partia zapasu",
   "search.entityType.wms.product_inventory_profile": "Profil zapasu",
   "search.entityType.wms.warehouse": "Magazyn",

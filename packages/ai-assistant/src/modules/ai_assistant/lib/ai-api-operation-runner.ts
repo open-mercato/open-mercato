@@ -100,6 +100,14 @@ function buildUrl(path: string, query?: AiApiOperationRequest['query']): URL {
   return url
 }
 
+function decodePathForManifestMatch(path: string): string | null {
+  try {
+    return path.split('/').map((segment) => decodeURIComponent(segment)).join('/')
+  } catch {
+    return null
+  }
+}
+
 function buildAuthEnvelope(ctx: AiToolExecutionContext): TrustedAuthContextEnvelope {
   const userId = ctx.userId
   if (!userId) {
@@ -231,6 +239,19 @@ export function createAiApiOperationRunner(
         return failure(400, message) as AiApiOperationResponse<T>
       }
       const path = normalizePath(request.path)
+      const manifestPath = decodePathForManifestMatch(path)
+      if (manifestPath === null) {
+        return failure(400, `Invalid path encoding for ${method} ${path}`) as AiApiOperationResponse<T>
+      }
+
+      const url = buildUrl(path, request.query)
+      const headers = new Headers()
+      const requestInit: RequestInit = { method, headers }
+      if (request.body !== undefined && method !== 'GET') {
+        headers.set('content-type', 'application/json')
+        requestInit.body = JSON.stringify(request.body)
+      }
+      const syntheticRequest = new Request(url, requestInit)
 
       let routes: ApiRouteManifestEntry[]
       try {
@@ -240,7 +261,7 @@ export function createAiApiOperationRunner(
         return failure(500, `Operation runner manifest unavailable: ${message}`) as AiApiOperationResponse<T>
       }
 
-      const match = findApiRouteManifestMatch(routes, method, path)
+      const match = findApiRouteManifestMatch(routes, method, manifestPath, syntheticRequest)
       if (!match) {
         return failure(
           404,
@@ -291,15 +312,6 @@ export function createAiApiOperationRunner(
         ) as AiApiOperationResponse<T>
       }
 
-      const url = buildUrl(path, request.query)
-      const headers = new Headers()
-      const requestInit: RequestInit = { method, headers }
-      if (request.body !== undefined && method !== 'GET') {
-        headers.set('content-type', 'application/json')
-        requestInit.body = JSON.stringify(request.body)
-      }
-
-      const syntheticRequest = new Request(url, requestInit)
       attachTrustedAuthContext(syntheticRequest, buildAuthEnvelope(ctx))
 
       let response: Response
@@ -339,4 +351,3 @@ async function defaultLoadApiRoutes(): Promise<ApiRouteManifestEntry[]> {
   }
   return registered
 }
-
