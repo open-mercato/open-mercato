@@ -158,7 +158,7 @@ const reverseJournalEntryCommand: CommandHandler<ReverseJournalEntryInput, PostJ
 
     const result = await withPostingTransaction(ctx, async (em) => {
       const { entry: original, lines: originalLines } = await loadOriginalEntry(em, input.journalEntryId, scope, translate)
-      const core = buildReversalCore(original, originalLines, input, translate)
+      const core = { ...buildReversalCore(original, originalLines, input, translate), postedBy: ctx.auth?.sub ?? null }
       // Reuses `postJournalEntry`'s own validated path — same fiscal-period
       // lock check (against the reversal's own `operationDate`), same
       // atomic sequence allocation, same balanced-entry persistence.

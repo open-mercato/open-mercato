@@ -47,6 +47,7 @@ type JournalEntryRow = {
   documentType: string | null
   documentNumber: string | null
   documentDate: string | null
+  postedBy: string | null
   description: string
   type: string
   currencyId: string
@@ -71,6 +72,7 @@ const toRow = (entry: JournalEntry): JournalEntryRow => ({
   documentType: entry.documentType ?? null,
   documentNumber: entry.documentNumber ?? null,
   documentDate: entry.documentDate ? formatDateOnly(entry.documentDate) : null,
+  postedBy: entry.postedBy ?? null,
   description: String(entry.description),
   type: String(entry.type),
   currencyId: String(entry.currencyId),
@@ -189,6 +191,7 @@ const journalEntryListItemSchema = z.object({
   documentType: z.string().nullable(),
   documentNumber: z.string().nullable(),
   documentDate: z.string().nullable(),
+  postedBy: z.string().nullable(),
   description: z.string(),
   type: z.enum(['NORMAL', 'OPENING', 'CLOSING', 'REVERSAL']),
   currencyId: z.uuid(),

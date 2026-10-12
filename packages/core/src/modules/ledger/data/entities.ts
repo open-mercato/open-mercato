@@ -212,7 +212,9 @@ export class LedgerAccount {
  * `JournalEntrySequence` inside the same transaction as the insert (art.
  * 14 ust. 2 Ustawy o rachunkowości — consecutively numbered).
  * `operationDate`/`documentType`/`documentNumber`/`documentDate` are the
- * art. 23 ust. 2 statutory entry-content fields. `currencyId` is a plain
+ * art. 23 ust. 2 statutory entry-content fields. `postedBy` is the person
+ * responsible for the entry's content (art. 14 ust. 4: books kept by
+ * computer must carry data that identifies them). `currencyId` is a plain
  * FK-id to `currencies.Currency.id` — no `Currency` entity ships with
  * this module (see Design decisions).
  */
@@ -301,6 +303,14 @@ export class JournalEntry {
    * own "jeżeli różni się ona od daty dokonania operacji" qualifier. */
   @Property({ name: 'document_date', type: 'date', nullable: true })
   documentDate?: Date | null
+
+  /** The authenticated subject (`auth.sub`) that posted the entry — the
+   * person responsible for its content, which art. 14 ust. 4 UoR requires
+   * books kept by computer to identify. Set by the command from the caller's
+   * session, never from caller input. Null when the entry was posted
+   * without an authenticated caller (system-posted entries). */
+  @Property({ name: 'posted_by', type: 'text', nullable: true })
+  postedBy?: string | null
 
   @Property({ type: 'text' })
   description!: string

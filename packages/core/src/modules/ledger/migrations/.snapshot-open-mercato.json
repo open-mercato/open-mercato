@@ -245,6 +245,23 @@
           "enumItems": [],
           "mappedType": "date"
         },
+        "posted_by": {
+          "name": "posted_by",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
         "document_number": {
           "name": "document_number",
           "type": "text",
