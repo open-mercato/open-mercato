@@ -610,14 +610,27 @@ opposite of the adjusting entry made in the previous period."*
     is already right for the Phase 2 partial payments. The read is a soft,
     FK-id-only read of `accounts_payable_payments` (no ORM relation); with
     the module absent no payment exists and every posted invoice is fully
-    open. **Direction, not yet decided:** read this ledger-side, as for
-    sales invoices, once the payment posting identifies the invoice it
-    settles. Today `markPaymentBatchSent` posts one DR line per invoice but
-    references the batch (`accounts_payable_payments:payment_batch`) and
-    tags no invoice on the line, so the ledger alone cannot tell which
-    invoice a payment cleared. That needs a change in the payments spec
-    (tag each DR line with its invoice, or post per invoice); it is not
-    made here.
+    open. **Decided (2026-10-12): the open amount of a vendor invoice stays
+derived from `accounts_payable` / `accounts_payable_payments` data; it is
+not moved ledger-side.** The per-invoice detail is the subsidiary ledger
+(the knowledge base's control-account + subsidiary-ledger convention): the
+shared liability account is the control account and the per-invoice
+breakdown lives in the consuming module's own tables. None of the three
+tagging mechanisms fits "this line settled that invoice" (the chart-of-accounts
+parent is static, `journal_entry_line_dimension` deliberately excludes the
+counterparty, `contractorSnapshot` is a counterparty audit copy), and posting
+one entry per invoice would break the one-entry-per-batch shape that bank
+statement matching relies on. Sales invoices differ for a different reason:
+`sales` does not maintain invoice balances (decision 17), so their open amount
+is read ledger-side as a workaround, not as the pattern to follow. The
+`fx_revaluation` read of `PaymentBatchLine` is allowed under these conditions:
+it is an optional peer (module absent: every posted invoice fully open); it is
+FK-id-only with the tenant/organization scope applied and no ORM relation
+(the precedent is `communication_channels` reading `messages`); and the
+columns it relies on (`vendorInvoiceId`, `amount`, the batch `status`) are listed as
+a contract in the payments spec, so a change to them is a visible spec change.
+⚠ NEEDS HUMAN CONFIRMATION: no external review of this direction yet; the
+reasoning rests on the knowledge base's conventions and the two AP specs.
 
 ## Architecture
 
@@ -1502,3 +1515,13 @@ open amount is `total_gross` less its lines on `SENT` payment batches, read
 from `accounts_payable_payments` (soft dependency, added to the list). Reading
 it ledger-side is recorded as the direction, blocked on the payments spec
 tagging the invoice on the payment's DR line. Not yet reviewed by a maintainer.
+
+## Changelog addendum — 2026-10-12 (cont. — vendor invoice open amount: direction decided)
+
+Decision 18 recorded the ledger-side read as a future direction, blocked on the
+payments spec tagging the invoice on the payment's DR line. That direction is
+dropped: the per-invoice detail is the subsidiary ledger and stays in
+`accounts_payable_payments`; the `fx_revaluation` read of `PaymentBatchLine` is
+allowed as an optional, FK-id-only, scoped read with the used columns listed as
+a contract in the payments spec. No change to `ledger`, `accounts_payable` or
+`accounts_payable_payments` is needed. Not yet reviewed by a maintainer.
