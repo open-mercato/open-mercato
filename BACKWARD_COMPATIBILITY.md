@@ -557,3 +557,18 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 | Database schema, event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
 
 **Migration path for existing modules**: send `parentId: null` / `childIds: []` where clearing is intended. Trees flattened before the upgrade are not repaired (see UPGRADE_NOTES.md).
+
+---
+
+## Staff Logout Runs Without A Valid Access Token (2026-10-13)
+
+`POST /api/auth/logout` could not revoke the remember-me refresh session once the access token had expired, because the route was gated by `requireAuth: true` and the dispatcher answered `401` before the handler ran ([#7225](https://github.com/open-mercato/open-mercato/issues/7225)). The route now declares `requireAuth: false`, mirroring `POST /api/customer_accounts/portal/logout`:
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| API route gating (`POST /api/auth/logout`) | `metadata.POST.requireAuth` changes from `true` to `false`. The handler revokes only the sessions its own cookies identify (the verified staff `auth_token` `sid` claim and the `session_token` cookie, hashed before lookup), so a caller can end nothing but the session it presents. A request carrying an `auth_token` or `session_token` cookie, valid or not, receives the documented `307` redirect to `/login` with both cookies cleared. A request carrying neither cookie receives only the redirect, with no `Set-Cookie`, so a cross-site form — which sends no `SameSite=Lax` cookie — cannot clear them | ⚠️ Narrow gating relaxation. A request whose access token was missing or did not verify, and a request with no cookie at all, previously received `401`. Regression-tested in `logout.test.ts` and `TC-AUTH-067` |
+| API route URL, method and response shape | Same URL, still POST-only, same redirect and cookie-clearing response | ✓ No shape change |
+| Event IDs (`auth.logout`) | Emitted only when the `auth_token` signature and expiry verify and it is not a customer token. A logout that revokes only through `session_token` (the expired-access-token case) emits none, and an MFA-pending token, which the dispatcher used to reject, now reaches the handler, so its pending session is revoked and the event is emitted for it | ✓ No ID or payload change |
+| Database schema, ACL features, DI names, CLI commands | No change | ✓ n/a |
+
+**Migration path for existing modules**: none. A client that interpreted `401` from logout as "already signed out" receives the redirect instead.

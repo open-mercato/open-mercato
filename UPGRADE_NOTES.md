@@ -24,6 +24,25 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
+### `POST /api/auth/logout` no longer requires a valid access token (#7225)
+
+The staff logout route is now declared `requireAuth: false`. Its handler already revoked the
+session named by the `auth_token` JWT's `sid` claim and the one behind the `session_token` cookie,
+but the dispatcher used to answer `401` before the handler ran whenever the access token was
+missing or no longer verified, and that `401` cleared no cookie. A logout from a tab whose 8-hour
+access token had lapsed therefore left the remember-me `session_token` (`REMEMBER_ME_DAYS`, default
+30 days) valid in the database and in the browser, so the next visit signed the user straight back
+in.
+
+A `POST /api/auth/logout` that carries an `auth_token` or `session_token` cookie, valid or not,
+now revokes whatever session those cookies identify, clears both cookies and redirects to `/login`
+(`307`). A request that carries neither cookie is only redirected, with no `Set-Cookie`. Every
+staff session cookie is `SameSite=Lax`, so a cross-site form POST carries neither cookie: it can
+neither revoke a session nor clear the user's cookies. The route stays POST-only.
+
+**Action for integrators:** none, unless a client treated a `401` from logout as "already signed
+out". It now receives the `307` redirect instead.
+
 ### Payment gateway webhooks: opt-in transport, locator and response options; ambiguous matches are rejected
 
 `registerWebhookHandler(...)` accepts new optional options for providers that sign form-encoded bodies or expect a specific acknowledgement:
