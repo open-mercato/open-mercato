@@ -51,6 +51,28 @@ export function parseIdsParam(raw: unknown, maxIds: number = MAX_IDS_PER_REQUEST
   return parsed.slice(0, safeMax)
 }
 
+const UUID_SHAPE_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Splits a comma-separated id list query param into its trimmed, non-empty entries.
+ */
+export function splitIdListParam(raw: unknown): string[] {
+  if (typeof raw !== 'string') return []
+  return raw
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+}
+
+/**
+ * Whether every entry of a comma-separated id list query param is UUID-shaped, so it can be
+ * bound to a uuid column without a database error. Use it to reject a malformed or mixed list
+ * with a 400 instead of dropping the bad entries and widening the result set (#7265).
+ */
+export function isUuidListParam(raw: unknown): boolean {
+  return splitIdListParam(raw).every((value) => UUID_SHAPE_REGEX.test(value))
+}
+
 /**
  * Whether an `?ids=` param was supplied at all (a non-empty string, or repeated
  * `?ids=` occurrences), regardless of whether any value survived UUID
