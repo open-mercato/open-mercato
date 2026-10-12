@@ -7,6 +7,7 @@ import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/er
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { PaymentGatewayClientSession } from '@open-mercato/shared/modules/payment_gateways/types'
 import type { PaymentGatewayService } from '@open-mercato/core/modules/payment_gateways/lib/gateway-service'
+import { findAmountPrecisionError } from '@open-mercato/core/modules/payment_gateways/lib/amount-precision'
 import { GatewayTransaction } from '@open-mercato/core/modules/payment_gateways/data/entities'
 import { CheckoutLink, CheckoutTransaction } from '../../../../data/entities'
 import { publicSubmitSchema } from '../../../../data/validators'
@@ -25,7 +26,9 @@ import { checkoutSubmitRateLimitConfig, enforceCheckoutRateLimit } from '../../.
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { checkoutTag } from '../../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { withExactAmounts } from '@open-mercato/shared/lib/decimal'
+import { decimalToString, roundDecimal, withExactAmounts } from '@open-mercato/shared/lib/decimal'
+import { resolveCurrencyDecimalPlaces } from '@open-mercato/shared/lib/currencyPrecision'
+import { DEFAULT_CHECKOUT_DECIMAL_PLACES } from '../../../../lib/amountPrecision'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 
 const logger = createLogger('checkout')
@@ -389,6 +392,23 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
         await buildSubmitResponse(req, em, link, existingTransaction, link.gatewayProviderKey),
       )
     }
+
+    const paymentScope = { organizationId: link.organizationId, tenantId: link.tenantId }
+    const paymentCurrencyCode = existingTransaction?.currencyCode ?? resolvedAmount.currencyCode
+    const currencyDecimalPlaces = await resolveCurrencyDecimalPlaces(container, {
+      code: paymentCurrencyCode,
+      ...paymentScope,
+    })
+    const paymentAmount = existingTransaction?.amount ?? decimalToString(roundDecimal(
+      resolvedAmount.amountExact,
+      currencyDecimalPlaces ?? DEFAULT_CHECKOUT_DECIMAL_PLACES,
+    ))
+    const precisionError = await findAmountPrecisionError(container, {
+      amount: paymentAmount,
+      currencyCode: paymentCurrencyCode,
+      scope: paymentScope,
+    })
+    if (precisionError) throw new CrudHttpError(400, precisionError)
 
     const transactionInput = {
       linkId: link.id,

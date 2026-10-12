@@ -5,6 +5,7 @@ import {
   parseDecimal,
   resolveExactDecimal,
 } from '@open-mercato/shared/lib/decimal'
+import { formatCurrency } from '@open-mercato/ui/utils/format'
 
 /**
  * Client-safe amount helpers for the public pay page. Amounts travel as a
@@ -30,6 +31,15 @@ export type PayPageCustomAmountBounds = {
 }
 
 export type PayPageCustomAmountIssue = 'required' | 'min' | 'max'
+
+export function formatPayPageAmount(
+  value: number | null | undefined,
+  currencyCode?: string | null,
+  locale?: string,
+  exact?: string | null,
+): string {
+  return formatCurrency(resolveExactDecimal(exact, value) ?? '0', currencyCode, locale, currencyCode ? undefined : 2, { showAllDigits: true }) ?? ''
+}
 
 export function toPayPageAmount(legacy: unknown, exact: unknown): PayPageAmount {
   const amountExact = resolveExactDecimal(exact, legacy)

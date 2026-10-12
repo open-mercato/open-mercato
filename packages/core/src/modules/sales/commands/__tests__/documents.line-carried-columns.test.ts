@@ -18,6 +18,7 @@
 
 import { createContainer, asValue, InjectionMode } from 'awilix'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
+import { registerSalesTotalsCalculator } from '../../lib/calculations'
 import { DefaultSalesCalculationService } from '../../services/salesCalculationService'
 import { SalesOrder, SalesQuote, SalesShipment, SalesShipmentItem } from '../../data/entities'
 
@@ -210,6 +211,32 @@ describe('sales line writes — carried columns (#5911)', () => {
 
   afterEach(() => {
     delete (globalThis as any).__carriedColumnsWorld
+  })
+
+  it.each(['order', 'quote'] as const)('keeps existing %s line ids in calculation hooks', async (kind) => {
+    setWorld(threeQuoteLines())
+    const capturedIds: Array<string | undefined> = []
+    const unregister = registerSalesTotalsCalculator(({ current }) => {
+      capturedIds.push(...current.lines.map((entry) => entry.line.id))
+      return current
+    })
+    try {
+      await runCommand(`sales.${kind}s.lines.upsert`, {
+        id: MIDDLE_LINE_ID,
+        [`${kind}Id`]: kind === 'order' ? ORDER_ID : QUOTE_ID,
+        organizationId: ORG_ID,
+        tenantId: TENANT_ID,
+        currencyCode: 'USD',
+        kind: 'product',
+        quantity: 2,
+        unitPriceNet: 10,
+        unitPriceGross: 10,
+        taxRate: 0,
+      })
+      expect(capturedIds).toEqual([FIRST_LINE_ID, MIDDLE_LINE_ID, LAST_LINE_ID])
+    } finally {
+      unregister()
+    }
   })
 
   it('leaves the catalog snapshots of the other quote lines alone when the middle line is edited', async () => {

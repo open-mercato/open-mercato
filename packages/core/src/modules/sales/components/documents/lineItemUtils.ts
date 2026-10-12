@@ -70,15 +70,15 @@ function resolveTaxMultiplier(taxRate: DecimalInput | null | undefined): Decimal
   return multiplier.gt(0) ? multiplier : null
 }
 
-export function grossFromNet(net: DecimalInput, taxRate: DecimalInput | null | undefined): string {
+export function grossFromNet(net: DecimalInput, taxRate: DecimalInput | null | undefined, currency?: CurrencyPrecision | null): string {
   const multiplier = resolveTaxMultiplier(taxRate)
-  return multiplier ? roundMoney(multiplyDecimals(net, multiplier), resolveMoneyDecimalPlaces(net)) : decimalToString(net)
+  return multiplier ? roundMoney(multiplyDecimals(net, multiplier), resolveStoredAmountDecimalPlaces(currency, net)) : decimalToString(net)
 }
 
-export function netFromGross(gross: DecimalInput, taxRate: DecimalInput | null | undefined): string {
+export function netFromGross(gross: DecimalInput, taxRate: DecimalInput | null | undefined, currency?: CurrencyPrecision | null): string {
   const multiplier = resolveTaxMultiplier(taxRate)
   return multiplier
-    ? roundMoney(divideDecimals(gross, multiplier, FX_DECIMAL_PLACES), resolveMoneyDecimalPlaces(gross))
+    ? roundMoney(divideDecimals(gross, multiplier, FX_DECIMAL_PLACES), resolveStoredAmountDecimalPlaces(currency, gross))
     : decimalToString(gross)
 }
 

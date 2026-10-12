@@ -55,6 +55,7 @@ import { hasFeature } from '@open-mercato/shared/security/features'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { parseLocaleDecimal } from '@open-mercato/shared/lib/number'
 import { DurationInput } from './DurationInput'
 import { formatDuration } from '../time-tracking/duration'
 import { parseClock } from '../time-tracking/interval'
@@ -170,11 +171,9 @@ function readSettings(payload: unknown): SettingsPayload {
   }
 }
 
-function parseRateText(value: string): number | null {
-  const trimmed = value.trim().replace(',', '.')
-  if (!trimmed) return null
-  const parsed = Number(trimmed)
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+function parseRateTextExact(value: string): string | null {
+  const parsed = parseLocaleDecimal(value)
+  return parsed !== null && !parsed.startsWith('-') ? parsed : null
 }
 
 /**
@@ -192,6 +191,7 @@ type FormValues = {
   isBillable: boolean
   rateOverrideEnabled: boolean
   rateOverrideAmount: number | null
+  rateOverrideAmountExact?: string | null
   tagIds: string[]
 }
 
@@ -229,7 +229,7 @@ function formSnapshot(values: FormValues): string {
     values.durationMinutes,
     values.isBillable,
     values.rateOverrideEnabled,
-    values.rateOverrideAmount,
+    values.rateOverrideAmountExact ?? values.rateOverrideAmount,
     [...values.tagIds].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
   ])
 }
@@ -638,6 +638,7 @@ function DefaultTimeEntryDialog({
       durationMinutes: number | null
       isBillable: boolean
       rateOverrideAmount: number | null
+      rateOverrideAmountExact?: string | null
       tagIds: string[]
     }) => {
       setTaskId(seed.taskId)
@@ -652,7 +653,10 @@ function DefaultTimeEntryDialog({
       )
       setIsBillable(seed.isBillable)
       setRateOverrideEnabled(seed.rateOverrideAmount !== null)
-      setRateText(seed.rateOverrideAmount !== null ? String(seed.rateOverrideAmount) : '')
+      const exactRate = seed.rateOverrideAmountExact ?? (
+        seed.rateOverrideAmount === null ? null : parseRateTextExact(String(seed.rateOverrideAmount))
+      )
+      setRateText(exactRate ?? '')
       setTagIds(seed.tagIds)
       setOverlaps([])
       setFieldIssues(NO_FIELD_ISSUES)
@@ -674,6 +678,7 @@ function DefaultTimeEntryDialog({
         isBillable: seed.isBillable,
         rateOverrideEnabled: seed.rateOverrideAmount !== null,
         rateOverrideAmount: seed.rateOverrideAmount,
+        rateOverrideAmountExact: exactRate,
         tagIds: seed.tagIds,
       })
     },
@@ -704,6 +709,7 @@ function DefaultTimeEntryDialog({
         durationMinutes: entry.durationMinutes,
         isBillable: entry.isBillable,
         rateOverrideAmount: entry.rateOverrideAmount,
+        rateOverrideAmountExact: entry.rateOverrideAmountExact,
         tagIds: entry.tagIds,
       })
       return
@@ -786,7 +792,8 @@ function DefaultTimeEntryDialog({
     }
   }, [date, durationMinutes, endClock, entryId, isEdit, locked, open, settings.warnings.overlap, startClock])
 
-  const rateOverrideAmount = rateOverrideEnabled ? parseRateText(rateText) : null
+  const rateOverrideAmountExact = rateOverrideEnabled ? parseRateTextExact(rateText) : null
+  const rateOverrideAmount = rateOverrideAmountExact === null ? null : Number(rateOverrideAmountExact)
   const currencyCode = project?.currencyCode ?? entry?.currencyCode ?? null
 
   /**
@@ -808,6 +815,7 @@ function DefaultTimeEntryDialog({
       isBillable,
       rateOverrideEnabled,
       rateOverrideAmount,
+      rateOverrideAmountExact,
       tagIds,
     }),
     [
@@ -817,6 +825,7 @@ function DefaultTimeEntryDialog({
       endClock,
       isBillable,
       rateOverrideAmount,
+      rateOverrideAmountExact,
       rateOverrideEnabled,
       startClock,
       tagIds,
@@ -874,6 +883,7 @@ function DefaultTimeEntryDialog({
         setRateOverrideEnabled(value === true)
         return
       case 'rateOverrideAmount':
+      case 'rateOverrideAmountExact':
         injectedFieldWritesRef.current.add(fieldId)
         setRateText(typeof value === 'number' || typeof value === 'string' ? String(value) : '')
         return
@@ -1013,6 +1023,7 @@ function DefaultTimeEntryDialog({
         isBillable,
         rateOverrideEnabled,
         rateOverrideAmount,
+        rateOverrideAmountExact,
         tagIds,
       })
     )
@@ -1025,6 +1036,7 @@ function DefaultTimeEntryDialog({
     isBillable,
     locked,
     rateOverrideAmount,
+    rateOverrideAmountExact,
     rateOverrideEnabled,
     startClock,
     tagIds,
@@ -1059,6 +1071,9 @@ function DefaultTimeEntryDialog({
     const startedAt = parseClock(startClock) !== null ? combineDateAndClock(date, startClock) : null
     const endedAt =
       parseClock(endClock) !== null ? combineDateAndClock(date, endClock, interval.crossesMidnight ? 1 : 0) : null
+    const submittedRate = rateOverrideEnabled
+      ? rateOverrideAmountExact ?? (rateText.trim().replace(',', '.') || null)
+      : null
     return {
       date,
       durationMinutes: durationMinutes ?? 0,
@@ -1069,7 +1084,7 @@ function DefaultTimeEntryDialog({
       description: description.trim() ? description.trim() : null,
       isBillable,
       tagIds,
-      rateOverrideAmount: canSeeMoney ? rateOverrideAmount : undefined,
+      rateOverrideAmount: canSeeMoney ? submittedRate : undefined,
     }
   }, [
     canSeeMoney,
@@ -1080,7 +1095,9 @@ function DefaultTimeEntryDialog({
     interval.crossesMidnight,
     isBillable,
     projectId,
-    rateOverrideAmount,
+    rateOverrideAmountExact,
+    rateOverrideEnabled,
+    rateText,
     startClock,
     tagIds,
     taskId,
@@ -1211,6 +1228,7 @@ function DefaultTimeEntryDialog({
             isBillable,
             rateOverrideEnabled,
             rateOverrideAmount,
+            rateOverrideAmountExact,
             tagIds,
           })
           onSaved?.({ id: savedId, keptOpen: true })
@@ -1241,6 +1259,7 @@ function DefaultTimeEntryDialog({
       onOpenChange,
       onSaved,
       rateOverrideAmount,
+      rateOverrideAmountExact,
       rateOverrideEnabled,
       reportFailure,
       retryLastMutation,

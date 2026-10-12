@@ -115,9 +115,9 @@ export type ResolvedEntryValues = {
   minutes: number
   rawMinutes: number
   rate: number | null
-  rateExact: string | null
+  rateExact?: string | null
   amount: number | null
-  amountExact: string | null
+  amountExact?: string | null
   isBillable: boolean
   hasOverride: boolean
   isFrozen: boolean
@@ -129,9 +129,9 @@ export type ReportLine = {
   minutes: number
   /** The rate every entry on this line agreed on, or null when they disagree. */
   rate: number | null
-  rateExact: string | null
+  rateExact?: string | null
   amount: number
-  amountExact: string
+  amountExact?: string
   entryCount: number
   hasOverride: boolean
   /** Child-task rollup detail (D-2); empty for person and day groupings. */
@@ -143,10 +143,10 @@ export type ReportGroup = {
   kind: 'project' | 'nonbillable'
   label: string
   rate: number | null
-  rateExact: string | null
+  rateExact?: string | null
   minutes: number
   amount: number
-  amountExact: string
+  amountExact?: string
   entryCount: number
   lines: ReportLine[]
 }
@@ -165,7 +165,7 @@ export type ReportTotals = {
   nonbillableMinutes: number
   entryCount: number
   totalAmount: number
-  totalAmountExact: string
+  totalAmountExact?: string
   /** Entries skipped because they are frozen elsewhere (D-5). Zero when opted in. */
   alreadyReportedCount: number
   alreadyReportedMinutes: number
@@ -269,13 +269,14 @@ function distinctRate(values: readonly ResolvedEntryValues[]): string | null {
   for (const value of values) {
     if (!value.isBillable) continue
     if (!seen) {
-      rate = value.rateExact
+      rate = exactOrNull(value.rateExact, value.rate)
       seen = true
       continue
     }
-    const same = rate === null || value.rateExact === null
-      ? rate === value.rateExact
-      : parseDecimal(rate)!.eq(value.rateExact)
+    const valueRate = exactOrNull(value.rateExact, value.rate)
+    const same = rate === null || valueRate === null
+      ? rate === valueRate
+      : parseDecimal(rate)!.eq(valueRate)
     if (!same) return null
   }
   return rate
@@ -383,7 +384,7 @@ export type ComputeReportTotalsInput = {
   }
 }
 
-export function computeReportTotals(input: ComputeReportTotalsInput): ReportTotals {
+export function computeReportTotals(input: ComputeReportTotalsInput): ReportTotals & { totalAmountExact: string } {
   const { entries, projects, directory, options, labels } = input
   const grouping = guardGrouping(resolveGroupingStrategy(options.grouping))
   const amountDecimalPlaces = options.amountDecimalPlaces ?? DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES

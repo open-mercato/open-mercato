@@ -9,6 +9,7 @@ import {
   decimalToString,
   divideDecimals,
   isDecimalInput,
+  parseDecimal,
   resolveExactDecimal,
   roundDecimal,
   toDecimal,
@@ -54,6 +55,7 @@ export class DefaultTaxCalculationService implements TaxCalculationService {
     let resolved: TaxCalculationResult | undefined
 
     if (this.eventBus) {
+      const beforeInput = { ...workingInput }
       await this.eventBus.emitEvent('sales.tax.calculate.before', {
         input: workingInput,
         setInput(next: Partial<CalculateTaxInput>) {
@@ -65,10 +67,24 @@ export class DefaultTaxCalculationService implements TaxCalculationService {
         },
       })
       if (resolved) return withExactResult(resolved)
+      const amountExact = resolveHookExactAmount(
+        workingInput.amountExact,
+        workingInput.amount,
+        beforeInput.amountExact,
+      )
+      if (amountExact !== null) {
+        const inputExact = parseDecimal(workingInput.amountExact)
+        workingInput = {
+          ...workingInput,
+          amount: decimalToNumber(amountExact),
+          amountExact: inputExact?.eq(amountExact) ? amountExact : undefined,
+        }
+      }
     }
 
     resolved = await this.performCalculation(workingInput)
 
+    const beforeResult = { ...resolved }
     if (this.eventBus) {
       await this.eventBus.emitEvent('sales.tax.calculate.after', {
         input: workingInput,
@@ -79,7 +95,7 @@ export class DefaultTaxCalculationService implements TaxCalculationService {
       })
     }
 
-    return withExactResult(resolved)
+    return withExactResult(resolved, false, beforeResult)
   }
 
   private async performCalculation(input: CalculateTaxInput): Promise<TaxCalculationResult> {
@@ -173,17 +189,27 @@ function roundRate(value: number, precision = 4): number {
   return Math.round(value * factor) / factor
 }
 
-/**
- * Fills the float and exact amount fields from each other. `fromExact` trusts
- * the exact strings (own calculation); otherwise a result handed over by a hook
- * keeps its floats and only gains matching exact strings.
- */
-function withExactResult(result: TaxCalculationResult, fromExact = false): TaxCalculationResult {
+function resolveHookExactAmount(exact: unknown, legacy: unknown, beforeExact?: unknown): string | null {
+  const nextExact = parseDecimal(exact)
+  const previousExact = parseDecimal(beforeExact)
+  if (nextExact && (previousExact === null || !nextExact.eq(previousExact))) {
+    return decimalToString(nextExact)
+  }
+  return resolveExactDecimal(exact, legacy)
+}
+
+function withExactResult(
+  result: TaxCalculationResult,
+  fromExact = false,
+  before?: TaxCalculationResult,
+): TaxCalculationResult {
   const next = { ...result }
   for (const field of ['netAmount', 'grossAmount', 'taxAmount'] as const) {
     const exact = fromExact
       ? (result[`${field}Exact`] ?? null)
-      : resolveExactDecimal(result[`${field}Exact`], result[field])
+      : before
+        ? resolveHookExactAmount(result[`${field}Exact`], result[field], before[`${field}Exact`])
+        : resolveExactDecimal(result[`${field}Exact`], result[field])
     if (exact === null) continue
     next[field] = decimalToNumber(exact)
     next[`${field}Exact`] = exact

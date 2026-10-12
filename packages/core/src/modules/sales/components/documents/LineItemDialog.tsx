@@ -1509,14 +1509,18 @@ export function LineItemDialog({
       const normalizedTaxRate = Number.isFinite(resolvedTaxRate)
         ? resolvedTaxRate
         : 0;
+      const currencyPrecision = {
+        code: String(resolvedCurrency),
+        decimalPlaces: await loadCurrencyDecimalPlaces(String(resolvedCurrency)),
+      };
       const safeUnitPriceNet =
         resolvedPriceMode === "net"
           ? unitPriceAmount
-          : netFromGross(unitPriceAmount, normalizedTaxRate);
+          : netFromGross(unitPriceAmount, normalizedTaxRate, currencyPrecision);
       const safeUnitPriceGross =
         resolvedPriceMode === "gross"
           ? unitPriceAmount
-          : grossFromNet(unitPriceAmount, normalizedTaxRate);
+          : grossFromNet(unitPriceAmount, normalizedTaxRate, currencyPrecision);
       const totalNetAmount = decimalToString(multiplyDecimals(safeUnitPriceNet, qtyNumber));
       const totalGrossAmount = decimalToString(multiplyDecimals(safeUnitPriceGross, qtyNumber));
 
@@ -1600,12 +1604,7 @@ export function LineItemDialog({
       const submittedPayload = prepareShippedLineUpdatePayload(
         payload,
         shippedLine,
-        shippedLine && shippedLine.quantity !== qtyNumber
-          ? {
-              code: String(resolvedCurrency),
-              decimalPlaces: await loadCurrencyDecimalPlaces(String(resolvedCurrency)),
-            }
-          : null,
+        currencyPrecision,
       );
 
       try {

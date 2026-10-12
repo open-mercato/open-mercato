@@ -5,6 +5,7 @@ import {
   type ComputedIntervalField,
   type IntervalInput,
 } from '../time-tracking/interval'
+import { decimalToString, parseDecimal } from '@open-mercato/shared/lib/decimal'
 
 export type IntervalField = 'start' | 'end' | 'duration'
 
@@ -230,6 +231,7 @@ export type TimeEntryRecord = {
   timeProjectId: string | null
   isBillable: boolean
   rateOverrideAmount: number | null
+  rateOverrideAmountExact?: string | null
   currencyCode: string | null
   tagIds: string[]
   isLocked: boolean
@@ -276,6 +278,9 @@ export function toTimeEntryRecord(row: ApiRow): TimeEntryRecord | null {
   const id = readRowString(row, 'id')
   if (!id) return null
   const tags = Array.isArray(row.tags) ? row.tags : []
+  const rateOverrideAmount = parseDecimal(
+    row.rateOverrideAmountExact ?? row.rate_override_amount_exact ?? row.rate_override_amount ?? row.rateOverrideAmount,
+  )
   return {
     id,
     date: dateFromApiValue(readRowString(row, 'date')),
@@ -287,6 +292,7 @@ export function toTimeEntryRecord(row: ApiRow): TimeEntryRecord | null {
     timeProjectId: readRowString(row, 'time_project_id', 'timeProjectId'),
     isBillable: readRowBoolean(row, true, 'is_billable', 'isBillable'),
     rateOverrideAmount: readRowNumber(row, 'rate_override_amount', 'rateOverrideAmount'),
+    rateOverrideAmountExact: rateOverrideAmount ? decimalToString(rateOverrideAmount) : null,
     currencyCode: readRowString(row, 'currencyCode', 'rate_currency_code', 'rateCurrencyCode'),
     tagIds: tags
       .map((tag) => (tag && typeof tag === 'object' ? readRowString(tag as ApiRow, 'id') : null))

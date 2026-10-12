@@ -3157,7 +3157,7 @@ function rawListItem(raw: unknown, key: string, index: number): unknown {
 }
 
 function createLineSnapshotFromInput(
-  line: DocumentLineCreateInput,
+  line: DocumentLineCreateInput & { id?: string },
   lineNumber: number,
 ): SalesLineSnapshot {
   const quantity = Number(line.quantity ?? 0);
@@ -3165,6 +3165,7 @@ function createLineSnapshotFromInput(
     line.normalizedQuantity ?? quantity,
   );
   return {
+    id: line.id,
     lineNumber,
     kind: line.kind ?? "product",
     productId: line.productId ?? null,

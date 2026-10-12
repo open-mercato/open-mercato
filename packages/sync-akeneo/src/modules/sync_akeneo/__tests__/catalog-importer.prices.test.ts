@@ -352,6 +352,28 @@ describe('akeneo catalog importer offer and price reconciliation', () => {
     mockFindWithDecryption.mockReset()
   })
 
+  it('passes every decimal digit to catalog price create and update commands', async () => {
+    const world = createCatalogWorld()
+    const importer = await createAkeneoImporter(world.client as never, scope)
+    const mapping = buildMapping([WEB_REGULAR])
+    const originalAmount = '1.123456789012345678'
+    const updatedAmount = '1.123456789012345679'
+
+    await importer.upsertProduct(buildVariant('uuid-exact', 'TEE-EXACT', {
+      price: [{ scope: 'ecommerce', amount: originalAmount }],
+    }), mapping)
+    expect(world.commandBus.execute).toHaveBeenCalledWith('catalog.prices.create', expect.objectContaining({
+      input: expect.objectContaining({ unitPriceNet: originalAmount, unitPriceGross: originalAmount }),
+    }))
+
+    await importer.upsertProduct(buildVariant('uuid-exact', 'TEE-EXACT', {
+      price: [{ scope: 'ecommerce', amount: updatedAmount }],
+    }), mapping)
+    expect(world.commandBus.execute).toHaveBeenCalledWith('catalog.prices.update', expect.objectContaining({
+      input: expect.objectContaining({ unitPriceNet: updatedAmount, unitPriceGross: updatedAmount }),
+    }))
+  })
+
   it('keeps the prices of sibling variants that share a product-level offer', async () => {
     const world = createCatalogWorld()
     const importer = await createAkeneoImporter(world.client as never, scope)
