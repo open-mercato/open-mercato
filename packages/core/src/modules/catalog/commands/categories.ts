@@ -455,7 +455,7 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
       ],
       { transaction: true }
     )
-    const resetValues = buildCustomFieldResetMap(payload?.after?.custom ?? undefined, before.custom ?? undefined)
+    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, payload?.after?.custom ?? undefined)
     if (Object.keys(resetValues).length) {
       await setCustomFieldsIfAny({
         dataEngine: ctx.container.resolve('dataEngine'),

@@ -1,5 +1,7 @@
 # Standalone module tool guidance evidence
 
+> **Post-merge note (2026-10-12):** The packed and live evidence below is an immutable record of the pre-merge head, where the module-tool workflow was `OMH-238` in a 238-case catalog. Current `develop` independently assigned `OMH-238` to Customers calendar event types, so the merged catalog retains that case and moves the module-tool workflow to `OMH-239`. Post-merge local validation passes the 239-case schema and deterministic evaluator, the 152-test evaluator suite, the 65-test focused/release suite (61 passed, four platform skips), the 15-test routing/coverage suite, the 102-test progress suite, source-link inventory validation, and `yarn build:packages`. The live model lane was not rerun after renumbering and is not claimed for `OMH-239`.
+
 ## Scope and ownership
 
 The self-authoritative workflow guide `.ai/guides/module-tool.md` is emitted from `packages/create-app/agentic/guides/module-tool.md`. The root router and architecture guide point to it. Before feature implementation, the existing module-scaffold skill directs agents with terminal access to run `npx create-mercato-module init <module_id>` for a new app module; existing modules skip initialization. Agents without process execution must report the capability gap. Publishing and linking details remain at the guide owner.

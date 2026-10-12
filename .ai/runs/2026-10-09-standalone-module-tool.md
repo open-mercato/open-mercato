@@ -53,7 +53,7 @@ Source doc: `.ai/specs/2026-08-01-standalone-harness-knowledge-governance.md`
 
 ### Phase 2: Verification
 
-- [x] 2.1 Validate focused coverage, knowledge-change evidence, emitted assets, instruction budgets, and fresh scaffold output. — focused32/32, evaluator152/152, real base/head knowledge controller PASS, final packed four-preset OMH-238 checks PASS, classic deterministic238/238, actual isolated Codex OMH-238 and OMH-216 PASS. Adjacent evidence, manifest, sanitized controller projection, and derived validation summary record the scope and limitations.
+- [x] 2.1 Validate focused coverage, knowledge-change evidence, emitted assets, instruction budgets, and fresh scaffold output. — Pre-merge evidence: focused32/32, evaluator152/152, real base/head knowledge controller PASS, final packed four-preset OMH-238 checks PASS, classic deterministic238/238, actual isolated Codex OMH-238 and OMH-216 PASS. After merging current `develop`, its Customers calendar case keeps OMH-238 and this workflow moves to OMH-239; post-merge local validation passes the 239-case deterministic evaluator plus the focused suites listed in the adjacent evidence note. The historical live lane was not relabeled or represented as an OMH-239 run.
 - [x] 2.2 Run the applicable repository validation gate and record any external blockers honestly. — local ordered gate passed: build:packages, generate, build:packages, i18n:check-sync, i18n:check-usage, typecheck, test, build:app. Documentation production build and agent instruction-budget check also passed.
 
 ### Phase 3: Review and delivery
