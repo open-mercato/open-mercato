@@ -21,6 +21,7 @@ import {
   validateDescriptorCurrencies,
 } from '../../../../lib/utils'
 import { validateCheckoutCustomerData } from '../../../../lib/customerDataValidation'
+import { findCheckoutChargePrecisionError } from '../../../../lib/amountPrecision'
 import { checkoutSubmitRateLimitConfig, enforceCheckoutRateLimit } from '../../../../lib/rateLimiter'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { checkoutTag } from '../../../openapi'
@@ -388,6 +389,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
       return NextResponse.json(
         await buildSubmitResponse(req, em, link, existingTransaction, link.gatewayProviderKey),
       )
+    }
+    const precisionError = await findCheckoutChargePrecisionError(
+      container,
+      { organizationId: link.organizationId, tenantId: link.tenantId },
+      existingTransaction
+        ? { amount: existingTransaction.amount, currencyCode: existingTransaction.currencyCode }
+        : { amount: resolvedAmount.amountExact, currencyCode: resolvedAmount.currencyCode },
+    )
+    if (precisionError) {
+      return NextResponse.json(precisionError, { status: 400 })
     }
 
     const transactionInput = {

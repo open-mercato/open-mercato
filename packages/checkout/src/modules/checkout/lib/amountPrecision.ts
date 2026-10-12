@@ -1,10 +1,15 @@
 import {
   decimalToNumber,
   decimalToString,
+  parseDecimal,
   resolveExactDecimal,
   roundDecimal,
 } from '@open-mercato/shared/lib/decimal'
 import { resolveCurrencyDecimalPlaces } from '@open-mercato/shared/lib/currencyPrecision'
+import {
+  findAmountPrecisionError,
+  type AmountPrecisionErrorBody,
+} from '@open-mercato/core/modules/payment_gateways/lib/amount-precision'
 
 export const DEFAULT_CHECKOUT_DECIMAL_PLACES = 2
 
@@ -106,4 +111,29 @@ export function toStoredCheckoutAmounts(values: CheckoutConfiguredAmounts) {
     customAmountMin: resolveExactDecimal(values.customAmountMinExact, values.customAmountMin),
     customAmountMax: resolveExactDecimal(values.customAmountMaxExact, values.customAmountMax),
   }
+}
+
+/**
+ * Rounds a checkout charge to the currency's own decimals (as
+ * `checkout.transaction.create` stores it) and checks it against the precision
+ * payment providers charge in, so a link amount like `10.0051` USD is rejected
+ * before a reservation or provider session instead of being charged as `10.01`.
+ */
+export async function findCheckoutChargePrecisionError(
+  container: CurrencyContainer,
+  scope: CheckoutAmountScope,
+  input: { amount: string | number | null | undefined; currencyCode: string | null | undefined },
+): Promise<AmountPrecisionErrorBody | null> {
+  const resolved = parseDecimal(input.amount)
+  if (!resolved || !input.currencyCode) return null
+  const decimalPlaces = (await resolveCurrencyDecimalPlaces(container, {
+    code: input.currencyCode,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  })) ?? DEFAULT_CHECKOUT_DECIMAL_PLACES
+  return findAmountPrecisionError(container, {
+    amount: decimalToString(roundDecimal(resolved, decimalPlaces)),
+    currencyCode: input.currencyCode,
+    scope,
+  })
 }

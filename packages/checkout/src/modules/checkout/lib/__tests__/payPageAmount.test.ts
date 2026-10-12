@@ -1,6 +1,7 @@
 import {
   applyPayPageAmountValue,
   buildPayPageSubmitBody,
+  formatPayPageAmount,
   parsePayPageAmountInput,
   toPayPageAmount,
   validatePayPageCustomAmount,
@@ -90,5 +91,22 @@ describe('validatePayPageCustomAmount', () => {
   it('compares against the numbers when exact bounds are missing', () => {
     expect(validatePayPageCustomAmount({ customAmountMin: 5, customAmountMax: 10 }, { amount: 4.99, amountExact: null })).toBe('min')
     expect(validatePayPageCustomAmount({ customAmountMin: 5, customAmountMax: 10 }, { amount: 10, amountExact: null })).toBeNull()
+  })
+})
+
+describe('formatPayPageAmount', () => {
+  it('shows every decimal of a currency without a known precision', () => {
+    expect(formatPayPageAmount('1.123456789012345678', 'ETH', 'en-US')).toBe('ETH\u00a01.123456789012345678')
+    expect(formatPayPageAmount('0.000000000000000001', 'ETH', 'en-US')).toBe('ETH\u00a00.000000000000000001')
+  })
+
+  it('keeps ISO currencies at their minor-unit digits', () => {
+    expect(formatPayPageAmount('10.5', 'USD', 'en-US')).toBe('$10.50')
+    expect(formatPayPageAmount('1000', 'JPY', 'en-US')).toBe('¥1,000')
+  })
+
+  it('formats a missing currency as a plain two-decimal number', () => {
+    expect(formatPayPageAmount(null, null, 'en-US')).toBe('0.00')
+    expect(formatPayPageAmount(Number.NaN, 'USD', 'en-US')).toBe('$0.00')
   })
 })
