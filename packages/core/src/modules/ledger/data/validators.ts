@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { ACCOUNT_NUMBER_MAX_LENGTH } from '../lib/accountNumbering'
 
 // Numeric columns backing `debit`/`credit`/`amount_currency` are
 // `numeric(19,4)` — matches `JournalEntryLine`'s own column precision
@@ -193,9 +194,8 @@ export type UnlockFiscalPeriodInput = z.infer<typeof unlockFiscalPeriodSchema>
 export const ledgerAccountCreateSchema = z.object({
   organizationId: z.uuid(),
   tenantId: z.uuid(),
-  slug: z.string().min(1).max(100),
+  number: z.string().min(1).max(ACCOUNT_NUMBER_MAX_LENGTH),
   accountTypeId: z.uuid(),
-  parentAccountId: z.uuid().nullable().optional(),
   description: z.string().max(1000).nullable().optional(),
 })
 
@@ -205,11 +205,10 @@ export const ledgerAccountUpdateSchema = z.object({
   id: z.uuid(),
   organizationId: z.uuid().optional(),
   tenantId: z.uuid().optional(),
-  slug: z.string().min(1).max(100).optional(),
+  number: z.string().min(1).max(ACCOUNT_NUMBER_MAX_LENGTH).optional(),
   // Immutable once the account has posted entries — enforced at the
   // command layer (commands/ledgerAccounts.ts), not by this schema.
   accountTypeId: z.uuid().optional(),
-  parentAccountId: z.uuid().nullable().optional(),
   description: z.string().max(1000).nullable().optional(),
 })
 
@@ -230,10 +229,9 @@ export type LedgerAccountDeleteInput = z.infer<typeof ledgerAccountDeleteSchema>
 export const ledgerAccountTypeCreateSchema = z.object({
   organizationId: z.uuid(),
   tenantId: z.uuid(),
-  slug: z.string().min(1).max(100),
+  number: z.string().min(1).max(ACCOUNT_NUMBER_MAX_LENGTH),
   name: z.string().min(1).max(200),
   normalBalance: z.enum(['DEBIT', 'CREDIT']),
-  parentAccountTypeId: z.uuid().nullable().optional(),
   accountGroupId: z.uuid().nullable().optional(),
 })
 
@@ -243,22 +241,20 @@ export const ledgerAccountTypeUpdateSchema = z.object({
   id: z.uuid(),
   organizationId: z.uuid().optional(),
   tenantId: z.uuid().optional(),
-  slug: z.string().min(1).max(100).optional(),
+  number: z.string().min(1).max(ACCOUNT_NUMBER_MAX_LENGTH).optional(),
   name: z.string().min(1).max(200).optional(),
   // Immutable (together with accountGroupId) once any account of this type
   // has posted entries — enforced at the command layer
   // (commands/ledgerAccountTypes.ts), not by this schema.
   normalBalance: z.enum(['DEBIT', 'CREDIT']).optional(),
-  parentAccountTypeId: z.uuid().nullable().optional(),
   accountGroupId: z.uuid().nullable().optional(),
 })
 
 export type LedgerAccountTypeUpdateInput = z.infer<typeof ledgerAccountTypeUpdateSchema>
 
 // `deleteLedgerAccountType` input. Soft-delete only; blocked at the
-// command layer when any account of this type has posted entries, or when
-// another account type still names this one as its `parentAccountTypeId`
-// (see commands/ledgerAccountTypes.ts).
+// command layer when any account of this type has posted entries or an
+// account still uses it (see commands/ledgerAccountTypes.ts).
 export const ledgerAccountTypeDeleteSchema = z.object({
   id: z.uuid(),
   organizationId: z.uuid().optional(),

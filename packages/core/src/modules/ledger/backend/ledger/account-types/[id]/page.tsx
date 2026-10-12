@@ -10,14 +10,14 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
 import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
-import { loadLedgerAccountGroupOptions, loadLedgerAccountTypeOptions } from '../../../lib/optionLoaders'
+import { loadLedgerAccountGroupOptions } from '../../../lib/optionLoaders'
+import { TypeNumberField } from '../../../lib/prefixedNumberFields'
 
 type LedgerAccountTypeData = {
   id: string
-  slug: string
+  number: string
   name: string
   normalBalance: 'DEBIT' | 'CREDIT'
-  parentAccountTypeId: string | null
   accountGroupId: string | null
   organizationId: string
   tenantId: string
@@ -63,11 +63,26 @@ export default function EditLedgerAccountTypePage({ params }: { params?: { id?: 
         title: t('ledger.account_types.form.group.details', 'Details'),
         fields: [
           {
-            id: 'slug',
-            type: 'text',
-            label: t('ledger.account_types.form.field.slug', 'Slug'),
+            id: 'accountGroupId',
+            type: 'select',
+            label: t('ledger.account_types.form.field.accountGroup', 'Account group'),
+            placeholder: t('ledger.account_types.form.field.accountGroupPlaceholder', 'None'),
+            helpText: t(
+              'ledger.account_types.form.field.accountGroupHelp',
+              'Optional. System-seeded reference data. Cannot be changed once an account of this type has posted entries.',
+            ),
+            loadOptions: (query?: string) => loadLedgerAccountGroupOptions(query),
+          },
+          {
+            id: 'number',
+            type: 'custom',
+            label: t('ledger.account_types.form.field.number', 'Number'),
             required: true,
-            maxLength: 100,
+            helpText: t(
+              'ledger.account_types.form.field.numberEditHelp',
+              'Cannot be changed once an account of this type has posted entries. The name stays editable.',
+            ),
+            component: (props) => <TypeNumberField {...props} />,
           },
           {
             id: 'name',
@@ -92,33 +107,8 @@ export default function EditLedgerAccountTypePage({ params }: { params?: { id?: 
           },
         ],
       },
-      {
-        id: 'hierarchy',
-        column: 2,
-        title: t('ledger.account_types.form.group.hierarchy', 'Hierarchy'),
-        fields: [
-          {
-            id: 'parentAccountTypeId',
-            type: 'select',
-            label: t('ledger.account_types.form.field.parent', 'Parent account type'),
-            placeholder: t('ledger.account_types.form.field.parentPlaceholder', 'None'),
-            loadOptions: (query?: string) => loadLedgerAccountTypeOptions(query, { excludeId: accountType?.id }),
-          },
-          {
-            id: 'accountGroupId',
-            type: 'select',
-            label: t('ledger.account_types.form.field.accountGroup', 'Account group'),
-            placeholder: t('ledger.account_types.form.field.accountGroupPlaceholder', 'None'),
-            helpText: t(
-              'ledger.account_types.form.field.accountGroupHelp',
-              'Optional. System-seeded reference data. Cannot be changed once an account of this type has posted entries.',
-            ),
-            loadOptions: (query?: string) => loadLedgerAccountGroupOptions(query),
-          },
-        ],
-      },
     ],
-    [t, accountType?.id],
+    [t],
   )
 
   if (loading) {
@@ -168,10 +158,9 @@ export default function EditLedgerAccountTypePage({ params }: { params?: { id?: 
           groups={groups}
           optimisticLockUpdatedAt={accountType.updatedAt}
           initialValues={{
-            slug: accountType.slug,
+            number: accountType.number,
             name: accountType.name,
             normalBalance: accountType.normalBalance,
-            parentAccountTypeId: accountType.parentAccountTypeId ?? '',
             accountGroupId: accountType.accountGroupId ?? '',
           }}
           submitLabel={t('ledger.account_types.form.action.save', 'Save changes')}
@@ -179,10 +168,9 @@ export default function EditLedgerAccountTypePage({ params }: { params?: { id?: 
           onSubmit={async (values) => {
             const payload = {
               id: accountType.id,
-              slug: String(values.slug || '').trim(),
+              number: String(values.number || '').trim(),
               name: String(values.name || '').trim(),
               normalBalance: values.normalBalance === 'CREDIT' ? 'CREDIT' : 'DEBIT',
-              parentAccountTypeId: values.parentAccountTypeId ? String(values.parentAccountTypeId) : null,
               accountGroupId: values.accountGroupId ? String(values.accountGroupId).trim() : null,
             }
 

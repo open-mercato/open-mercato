@@ -10,13 +10,13 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
 import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
-import { loadLedgerAccountOptions, loadLedgerAccountTypeOptions } from '../../../lib/optionLoaders'
+import { loadLedgerAccountTypeOptions } from '../../../lib/optionLoaders'
+import { AccountNumberField } from '../../../lib/prefixedNumberFields'
 
 type LedgerAccountData = {
   id: string
-  slug: string
+  number: string
   accountTypeId: string
-  parentAccountId: string | null
   description: string | null
   organizationId: string
   tenantId: string
@@ -60,13 +60,6 @@ export default function EditLedgerAccountPage({ params }: { params?: { id?: stri
         title: t('ledger.accounts.form.group.details', 'Details'),
         fields: [
           {
-            id: 'slug',
-            type: 'text',
-            label: t('ledger.accounts.form.field.slug', 'Slug'),
-            required: true,
-            maxLength: 100,
-          },
-          {
             id: 'accountTypeId',
             type: 'select',
             label: t('ledger.accounts.form.field.accountType', 'Account type'),
@@ -78,6 +71,17 @@ export default function EditLedgerAccountPage({ params }: { params?: { id?: stri
             loadOptions: (query?: string) => loadLedgerAccountTypeOptions(query),
           },
           {
+            id: 'number',
+            type: 'custom',
+            label: t('ledger.accounts.form.field.number', 'Number'),
+            required: true,
+            helpText: t(
+              'ledger.accounts.form.field.numberEditHelp',
+              'Cannot be changed once this account has posted entries. The description stays editable.',
+            ),
+            component: (props) => <AccountNumberField {...props} />,
+          },
+          {
             id: 'description',
             type: 'textarea',
             label: t('ledger.accounts.form.field.description', 'Description'),
@@ -85,22 +89,8 @@ export default function EditLedgerAccountPage({ params }: { params?: { id?: stri
           },
         ],
       },
-      {
-        id: 'hierarchy',
-        column: 2,
-        title: t('ledger.accounts.form.group.hierarchy', 'Hierarchy'),
-        fields: [
-          {
-            id: 'parentAccountId',
-            type: 'select',
-            label: t('ledger.accounts.form.field.parent', 'Parent account'),
-            placeholder: t('ledger.accounts.form.field.parentPlaceholder', 'None'),
-            loadOptions: (query?: string) => loadLedgerAccountOptions(query, { excludeId: account?.id }),
-          },
-        ],
-      },
     ],
-    [t, account?.id],
+    [t],
   )
 
   if (loading) {
@@ -150,9 +140,8 @@ export default function EditLedgerAccountPage({ params }: { params?: { id?: stri
           groups={groups}
           optimisticLockUpdatedAt={account.updatedAt}
           initialValues={{
-            slug: account.slug,
+            number: account.number,
             accountTypeId: account.accountTypeId,
-            parentAccountId: account.parentAccountId ?? '',
             description: account.description ?? '',
           }}
           submitLabel={t('ledger.accounts.form.action.save', 'Save changes')}
@@ -160,9 +149,8 @@ export default function EditLedgerAccountPage({ params }: { params?: { id?: stri
           onSubmit={async (values) => {
             const payload = {
               id: account.id,
-              slug: String(values.slug || '').trim(),
+              number: String(values.number || '').trim(),
               accountTypeId: String(values.accountTypeId || ''),
-              parentAccountId: values.parentAccountId ? String(values.parentAccountId) : null,
               description: values.description ? String(values.description).trim() : null,
             }
 

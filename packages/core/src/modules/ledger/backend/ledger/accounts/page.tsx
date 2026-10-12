@@ -20,13 +20,12 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { hasFeature } from '@open-mercato/shared/security/features'
 import type { FilterValues } from '@open-mercato/ui/backend/FilterBar'
-import { loadLedgerAccountLabelsByIds, loadLedgerAccountTypeLabelsByIds } from '../../lib/optionLoaders'
+import { loadLedgerAccountTypeLabelsByIds } from '../../lib/optionLoaders'
 
 type LedgerAccountRow = {
   id: string
-  slug: string
+  number: string
   accountTypeId: string
-  parentAccountId: string | null
   description: string | null
   organizationId: string
   tenantId: string
@@ -101,22 +100,19 @@ export default function LedgerAccountsPage() {
           setTotalPages(payload.totalPages || 1)
           setTotalIsCapped(payload.totalIsCapped === true)
 
-          // Resolve `accountTypeId`/`parentAccountId` to human-readable labels for
-          // the columns below, batched into one request per reference via `?ids=`
-          // (raw UUIDs were shown before). Best-effort: on failure the columns
-          // just keep showing the raw id.
+          // Resolve `accountTypeId` to a human-readable label for the column
+          // below, batched into one request via `?ids=` (raw UUIDs were shown
+          // before). Best-effort: on failure the column keeps showing the raw id.
           const accountTypeIds = [...new Set(items.map((row) => row.accountTypeId).filter(Boolean))]
-          const parentIds = [...new Set(items.map((row) => row.parentAccountId).filter((id): id is string => Boolean(id)))]
-          Promise.all([
-            accountTypeIds.length ? loadLedgerAccountTypeLabelsByIds(accountTypeIds) : Promise.resolve({}),
-            parentIds.length ? loadLedgerAccountLabelsByIds(parentIds) : Promise.resolve({}),
-          ])
-            .then(([typeLabels, parentLabels]) => {
-              if (!cancelled) setRefLabels((prev) => ({ ...prev, ...typeLabels, ...parentLabels }))
-            })
-            .catch(() => {
-              // Best-effort only — the columns fall back to the raw id.
-            })
+          if (accountTypeIds.length) {
+            loadLedgerAccountTypeLabelsByIds(accountTypeIds)
+              .then((typeLabels) => {
+                if (!cancelled) setRefLabels((prev) => ({ ...prev, ...typeLabels }))
+              })
+              .catch(() => {
+                // Best-effort only — the column falls back to the raw id.
+              })
+          }
         }
       } catch {
         if (!cancelled) flash(t('ledger.accounts.list.error.load', 'Failed to load accounts'), 'error')
@@ -133,7 +129,7 @@ export default function LedgerAccountsPage() {
   const handleDelete = React.useCallback(
     async (row: LedgerAccountRow) => {
       const confirmed = await confirmDialog({
-        title: t('ledger.accounts.list.confirmDelete', 'Delete account {{slug}}?', { slug: row.slug }),
+        title: t('ledger.accounts.list.confirmDelete', 'Delete account {{number}}?', { number: row.number }),
         variant: 'destructive',
       })
       if (!confirmed) return
@@ -179,9 +175,9 @@ export default function LedgerAccountsPage() {
   const columns = React.useMemo<ColumnDef<LedgerAccountRow>[]>(
     () => [
       {
-        accessorKey: 'slug',
-        header: t('ledger.accounts.list.columns.slug', 'Slug'),
-        cell: ({ row }) => <span className="font-mono font-medium">{row.original.slug}</span>,
+        accessorKey: 'number',
+        header: t('ledger.accounts.list.columns.number', 'Number'),
+        cell: ({ row }) => <span className="font-mono font-medium">{row.original.number}</span>,
       },
       {
         accessorKey: 'accountTypeId',
@@ -189,21 +185,6 @@ export default function LedgerAccountsPage() {
         enableSorting: false,
         cell: ({ row }) => {
           const id = row.original.accountTypeId
-          const label = refLabels[id]
-          return label ? (
-            <span title={id}>{label}</span>
-          ) : (
-            <span className="font-mono text-xs text-muted-foreground" title={id}>{id}</span>
-          )
-        },
-      },
-      {
-        accessorKey: 'parentAccountId',
-        header: t('ledger.accounts.list.columns.parent', 'Parent account'),
-        enableSorting: false,
-        cell: ({ row }) => {
-          const id = row.original.parentAccountId
-          if (!id) return <span>—</span>
           const label = refLabels[id]
           return label ? (
             <span title={id}>{label}</span>

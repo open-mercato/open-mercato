@@ -87,11 +87,12 @@ export class LedgerAccountGroup {
 }
 
 /**
- * Hierarchical (`parentAccountTypeId`, self-referencing) chart-of-accounts
- * type, e.g. "Fixed Asset" or "Current Liability". `normalBalance` and
- * `accountGroupId` are immutable once any account of this type has posted
- * entries — enforced at the command layer (`updateLedgerAccountType`),
- * not by a DB constraint. All cross-entity references in this module are
+ * Flat chart-of-accounts type, e.g. "Fixed Asset" or "Current Liability"
+ * (no parent type: nothing reads one — PR #5663 review). `number`,
+ * `normalBalance` and `accountGroupId` are immutable once any account of
+ * this type has posted entries, and `number` follows the PL numbering rule
+ * for the type's group — both enforced at the command layer
+ * (`updateLedgerAccountType`), not by a DB constraint. All cross-entity references in this module are
  * plain FK-id columns with no ORM relation (see Design decisions:
  * "Currency is reused... plain FK-id... no cross-module ORM relation" —
  * applied here to every reference, including same-module ones, for the
@@ -103,13 +104,13 @@ export class LedgerAccountGroup {
   properties: ['organizationId', 'tenantId'],
 })
 // Partial (`where deleted_at is null`) so a soft-deleted account type's
-// slug can be reused — see the migration's own comment on this index for
+// number can be reused — see the migration's own comment on this index for
 // why a plain `@Unique` (a table constraint, no `where` support in
 // Postgres) couldn't express this and had to become a partial unique
 // index instead.
 @Unique({
-  name: 'ledger_account_types_scope_slug_unique',
-  properties: ['organizationId', 'tenantId', 'slug'],
+  name: 'ledger_account_types_scope_number_unique',
+  properties: ['organizationId', 'tenantId', 'number'],
   where: `"deleted_at" is null`,
 })
 export class LedgerAccountType {
@@ -123,17 +124,13 @@ export class LedgerAccountType {
   tenantId!: string
 
   @Property({ type: 'text' })
-  slug!: string
+  number!: string
 
   @Property({ type: 'text' })
   name!: string
 
   @Property({ name: 'normal_balance', type: 'text' })
   normalBalance!: LedgerNormalBalance
-
-  /** Self-reference, FK-id only (no ORM relation). */
-  @Property({ name: 'parent_account_type_id', type: 'uuid', nullable: true })
-  parentAccountTypeId?: string | null
 
   /** FK-id to `LedgerAccountGroup`, no ORM relation. Immutable once any
    * account of this type has posted entries. */
@@ -151,10 +148,11 @@ export class LedgerAccountType {
 }
 
 /**
- * One row per chart-of-accounts account. `parentAccountId` models the
- * static Chart-of-Accounts hierarchy (structural only in Phase 1 — see
- * Design decisions). `accountTypeId` is immutable once the account has
- * posted entries — enforced by `updateLedgerAccount`.
+ * One row per chart-of-accounts account, flat in Phase 1 (the parent
+ * column returns with the balances rollup that reads it). `number` and
+ * `accountTypeId` are immutable once the account has posted entries, and
+ * `number` follows the PL prefix rule for its type — enforced by
+ * `updateLedgerAccount`.
  */
 @Entity({ tableName: 'ledger_accounts' })
 @Index({
@@ -162,10 +160,10 @@ export class LedgerAccountType {
   properties: ['organizationId', 'tenantId'],
 })
 // Partial (`where deleted_at is null`) — same reasoning as
-// `ledger_account_types_scope_slug_unique` above.
+// `ledger_account_types_scope_number_unique` above.
 @Unique({
-  name: 'ledger_accounts_scope_slug_unique',
-  properties: ['organizationId', 'tenantId', 'slug'],
+  name: 'ledger_accounts_scope_number_unique',
+  properties: ['organizationId', 'tenantId', 'number'],
   where: `"deleted_at" is null`,
 })
 export class LedgerAccount {
@@ -179,17 +177,12 @@ export class LedgerAccount {
   tenantId!: string
 
   @Property({ type: 'text' })
-  slug!: string
+  number!: string
 
   /** FK-id to `LedgerAccountType`, no ORM relation. Immutable once this
    * account has posted entries. */
   @Property({ name: 'account_type_id', type: 'uuid' })
   accountTypeId!: string
-
-  /** Self-reference, FK-id only. Structural only in Phase 1 — nothing
-   * reads it yet (see Design decisions). */
-  @Property({ name: 'parent_account_id', type: 'uuid', nullable: true })
-  parentAccountId?: string | null
 
   @Property({ type: 'text', nullable: true })
   description?: string | null

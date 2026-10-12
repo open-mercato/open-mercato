@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
@@ -123,7 +124,11 @@ export default function JournalEntriesPage() {
       {
         accessorKey: 'sequenceNumber',
         header: t('ledger.journal_entries.list.columns.sequenceNumber', '#'),
-        cell: ({ row }) => <span className="font-mono">{row.original.sequenceNumber}</span>,
+        cell: ({ row }) => (
+          <Link className="font-mono underline" href={`/backend/ledger/journal-entries/${row.original.id}`}>
+            {row.original.sequenceNumber}
+          </Link>
+        ),
       },
       {
         accessorKey: 'operationDate',

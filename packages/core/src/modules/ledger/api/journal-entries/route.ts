@@ -6,7 +6,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { FiscalPeriod, JournalEntry } from '../../data/entities'
+import { FiscalPeriod, JournalEntry, JournalEntryLine, LedgerAccount } from '../../data/entities'
 import { createLedgerCrudOpenApi, createPagedListResponseSchema } from '../openapi'
 import { isIdsParamProvided, mergeIdFilter, parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
 import { readQueryParamList } from '@open-mercato/shared/lib/crud/query-params'
@@ -14,6 +14,10 @@ import { readQueryParamList } from '@open-mercato/shared/lib/crud/query-params'
 // `/api/ledger/journal-entries` — read-only list. No POST/PUT/DELETE:
 // entries are only ever created through `postJournalEntry` /
 // `reverseJournalEntry` (see commands/), never through this route.
+//
+// A request narrowed to one entry (`?id=`) also returns that entry's posted
+// lines (account number, name, debit, credit) for the read-only detail page
+// (PR #6340 review, item 1). The list itself stays headers only.
 //
 // `accountId` and `periodId` are not stored columns on `JournalEntry`
 // itself (see data/entities.ts) — `accountId` lives on `JournalEntryLine`,
@@ -63,6 +67,18 @@ type JournalEntryRow = {
 // timesheet report routes already guard against) — format defensively.
 const formatDateOnly = (value: Date | string): string =>
   value instanceof Date ? value.toISOString().slice(0, 10) : String(value).slice(0, 10)
+
+type JournalEntryLineRow = {
+  id: string
+  accountId: string
+  accountNumber: string | null
+  // An account has no name of its own; its `description` plays that role.
+  accountName: string | null
+  debit: string
+  credit: string
+}
+
+type JournalEntryDetailRow = JournalEntryRow & { lines?: JournalEntryLineRow[] }
 
 const toRow = (entry: JournalEntry): JournalEntryRow => ({
   id: String(entry.id),
@@ -177,10 +193,40 @@ export async function GET(req: Request) {
 
   const offset = (page - 1) * pageSize
   const [rows, total] = await em.findAndCount(JournalEntry, filter as FilterQuery<JournalEntry>, { orderBy, limit: pageSize, offset })
-  const items = rows.map(toRow)
+  const items: JournalEntryDetailRow[] = rows.map(toRow)
+  if (id && rows.length === 1) {
+    items[0].lines = await loadEntryLines(em, rows[0])
+  }
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
   return NextResponse.json({ items, total, page, pageSize, totalPages })
+}
+
+// Lines of one entry, scoped to the entry's own organization/tenant, with the
+// account number and name resolved in one extra query (no ORM relation
+// between lines and accounts). Debit lines first, then credit lines.
+async function loadEntryLines(em: EntityManager, entry: JournalEntry): Promise<JournalEntryLineRow[]> {
+  const scope = { organizationId: entry.organizationId, tenantId: entry.tenantId }
+  const lines = await em.find(JournalEntryLine, { journalEntryId: entry.id, ...scope })
+  const accountIds = [...new Set(lines.map((line) => line.accountId))]
+  const accounts = accountIds.length
+    ? await em.find(LedgerAccount, { id: { $in: accountIds }, ...scope }, { fields: ['id', 'number', 'description'] })
+    : []
+  const accountById = new Map(accounts.map((account) => [account.id, account]))
+  const isDebit = (line: JournalEntryLine) => Number(line.debit) > 0
+  return [...lines]
+    .sort((a, b) => Number(isDebit(b)) - Number(isDebit(a)))
+    .map((line) => {
+      const account = accountById.get(line.accountId)
+      return {
+        id: String(line.id),
+        accountId: String(line.accountId),
+        accountNumber: account ? String(account.number) : null,
+        accountName: account?.description ?? null,
+        debit: String(line.debit),
+        credit: String(line.credit),
+      }
+    })
 }
 
 const journalEntryListItemSchema = z.object({
@@ -202,9 +248,20 @@ const journalEntryListItemSchema = z.object({
   tenantId: z.uuid(),
 })
 
+const journalEntryLineSchema = z.object({
+  id: z.uuid(),
+  accountId: z.uuid(),
+  accountNumber: z.string().nullable(),
+  accountName: z.string().nullable(),
+  debit: z.string(),
+  credit: z.string(),
+})
+
 export const openApi = createLedgerCrudOpenApi({
   resourceName: 'Journal entry',
   pluralName: 'Journal entries',
   querySchema: listQuerySchema,
-  listResponseSchema: createPagedListResponseSchema(journalEntryListItemSchema),
+  listResponseSchema: createPagedListResponseSchema(
+    journalEntryListItemSchema.extend({ lines: z.array(journalEntryLineSchema).optional() }),
+  ),
 })

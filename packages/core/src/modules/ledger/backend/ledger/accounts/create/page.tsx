@@ -8,7 +8,8 @@ import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { loadLedgerAccountOptions, loadLedgerAccountTypeOptions } from '../../../lib/optionLoaders'
+import { loadLedgerAccountTypeOptions } from '../../../lib/optionLoaders'
+import { AccountNumberField } from '../../../lib/prefixedNumberFields'
 
 export default function CreateLedgerAccountPage() {
   const t = useT()
@@ -23,14 +24,6 @@ export default function CreateLedgerAccountPage() {
         title: t('ledger.accounts.form.group.details', 'Details'),
         fields: [
           {
-            id: 'slug',
-            type: 'text',
-            label: t('ledger.accounts.form.field.slug', 'Slug'),
-            required: true,
-            maxLength: 100,
-            helpText: t('ledger.accounts.form.field.slugHelp', 'Unique within this organization.'),
-          },
-          {
             id: 'accountTypeId',
             type: 'select',
             label: t('ledger.accounts.form.field.accountType', 'Account type'),
@@ -38,28 +31,21 @@ export default function CreateLedgerAccountPage() {
             loadOptions: (query?: string) => loadLedgerAccountTypeOptions(query),
           },
           {
+            id: 'number',
+            type: 'custom',
+            label: t('ledger.accounts.form.field.number', 'Number'),
+            required: true,
+            helpText: t(
+              'ledger.accounts.form.field.numberHelp',
+              'Unique within this organization. In a Polish group it starts with the type number.',
+            ),
+            component: (props) => <AccountNumberField {...props} />,
+          },
+          {
             id: 'description',
             type: 'textarea',
             label: t('ledger.accounts.form.field.description', 'Description'),
             maxLength: 1000,
-          },
-        ],
-      },
-      {
-        id: 'hierarchy',
-        column: 2,
-        title: t('ledger.accounts.form.group.hierarchy', 'Hierarchy'),
-        fields: [
-          {
-            id: 'parentAccountId',
-            type: 'select',
-            label: t('ledger.accounts.form.field.parent', 'Parent account'),
-            placeholder: t('ledger.accounts.form.field.parentPlaceholder', 'None'),
-            helpText: t(
-              'ledger.accounts.form.field.parentHelp',
-              'Optional. Groups this account under a parent for display; it does not affect posting.',
-            ),
-            loadOptions: (query?: string) => loadLedgerAccountOptions(query),
           },
         ],
       },
@@ -82,9 +68,8 @@ export default function CreateLedgerAccountPage() {
             const payload = {
               organizationId,
               tenantId,
-              slug: String(values.slug || '').trim(),
+              number: String(values.number || '').trim(),
               accountTypeId: String(values.accountTypeId || ''),
-              parentAccountId: values.parentAccountId ? String(values.parentAccountId) : null,
               description: values.description ? String(values.description).trim() : null,
             }
 

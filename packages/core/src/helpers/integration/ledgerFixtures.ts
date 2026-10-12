@@ -61,7 +61,7 @@ export async function createAccountTypeFixture(
   input: {
     organizationId: string;
     tenantId: string;
-    slug: string;
+    number: string;
     name: string;
     normalBalance: 'DEBIT' | 'CREDIT';
   },
@@ -80,7 +80,7 @@ export async function createAccountTypeFixture(
 export async function createAccountFixture(
   request: APIRequestContext,
   token: string,
-  input: { organizationId: string; tenantId: string; slug: string; accountTypeId: string; description?: string },
+  input: { organizationId: string; tenantId: string; number: string; accountTypeId: string; description?: string },
   opts: { headers?: Record<string, string> } = {},
 ): Promise<string> {
   const response = await apiRequest(request, 'POST', '/api/ledger/accounts', {

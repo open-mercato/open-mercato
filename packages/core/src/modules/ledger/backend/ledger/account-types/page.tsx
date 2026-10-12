@@ -21,14 +21,13 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { hasFeature } from '@open-mercato/shared/security/features'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
-import { loadLedgerAccountTypeLabelsByIds } from '../../lib/optionLoaders'
+import { loadLedgerAccountGroupOptions } from '../../lib/optionLoaders'
 
 type LedgerAccountTypeRow = {
   id: string
-  slug: string
+  number: string
   name: string
   normalBalance: 'DEBIT' | 'CREDIT'
-  parentAccountTypeId: string | null
   accountGroupId: string | null
   organizationId: string
   tenantId: string
@@ -60,7 +59,7 @@ export default function LedgerAccountTypesPage() {
   const [filters, setFilters] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
-  const [refLabels, setRefLabels] = React.useState<Record<string, string>>({})
+  const [groupOptions, setGroupOptions] = React.useState<Array<{ value: string; label: string }>>([])
   const scopeVersion = useOrganizationScopeVersion()
   const mutationContextId = 'ledger-account-types-list:mutation'
   const { runMutation, retryLastMutation } = useGuardedMutation<{
@@ -83,6 +82,7 @@ export default function LedgerAccountTypesPage() {
         params.set('pageSize', '50')
         if (search) params.set('search', search)
         if (filters.normalBalance) params.set('normalBalance', String(filters.normalBalance))
+        if (filters.accountGroupId) params.set('accountGroupId', String(filters.accountGroupId))
 
         const fallback: ResponsePayload = { items: [], total: 0, page, totalPages: 1 }
         const call = await apiCall<ResponsePayload>(
@@ -102,19 +102,6 @@ export default function LedgerAccountTypesPage() {
           setTotalPages(payload.totalPages || 1)
           setTotalIsCapped(payload.totalIsCapped === true)
 
-          // Resolve `parentAccountTypeId` to a human-readable label for the
-          // column below, batched into one request via `?ids=` (raw UUIDs
-          // were shown before). Best-effort.
-          const parentIds = [...new Set(items.map((row) => row.parentAccountTypeId).filter((id): id is string => Boolean(id)))]
-          if (parentIds.length) {
-            loadLedgerAccountTypeLabelsByIds(parentIds)
-              .then((labels) => {
-                if (!cancelled) setRefLabels((prev) => ({ ...prev, ...labels }))
-              })
-              .catch(() => {
-                // Best-effort only — the column falls back to the raw id.
-              })
-          }
         }
       } catch {
         if (!cancelled) flash(t('ledger.account_types.list.error.load', 'Failed to load account types'), 'error')
@@ -128,10 +115,31 @@ export default function LedgerAccountTypesPage() {
     }
   }, [page, search, filters, reloadToken, scopeVersion, t])
 
+  // The zespoły are system-seeded reference data (nine rows), so they are
+  // loaded once and serve both the group column and the group filter.
+  React.useEffect(() => {
+    let cancelled = false
+    loadLedgerAccountGroupOptions()
+      .then((options) => {
+        if (!cancelled) setGroupOptions(options.map((option) => ({ value: String(option.value), label: option.label })))
+      })
+      .catch(() => {
+        // Best-effort only — the column falls back to the raw id.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [scopeVersion])
+
+  const groupLabels = React.useMemo(
+    () => Object.fromEntries(groupOptions.map((option) => [option.value, option.label])),
+    [groupOptions],
+  )
+
   const handleDelete = React.useCallback(
     async (row: LedgerAccountTypeRow) => {
       const confirmed = await confirmDialog({
-        title: t('ledger.account_types.list.confirmDelete', 'Delete account type {{slug}}?', { slug: row.slug }),
+        title: t('ledger.account_types.list.confirmDelete', 'Delete account type {{number}}?', { number: row.number }),
         variant: 'destructive',
       })
       if (!confirmed) return
@@ -177,9 +185,9 @@ export default function LedgerAccountTypesPage() {
   const columns = React.useMemo<ColumnDef<LedgerAccountTypeRow>[]>(
     () => [
       {
-        accessorKey: 'slug',
-        header: t('ledger.account_types.list.columns.slug', 'Slug'),
-        cell: ({ row }) => <span className="font-mono font-medium">{row.original.slug}</span>,
+        accessorKey: 'number',
+        header: t('ledger.account_types.list.columns.number', 'Number'),
+        cell: ({ row }) => <span className="font-mono font-medium">{row.original.number}</span>,
       },
       {
         accessorKey: 'name',
@@ -197,13 +205,13 @@ export default function LedgerAccountTypesPage() {
         ),
       },
       {
-        accessorKey: 'parentAccountTypeId',
-        header: t('ledger.account_types.list.columns.parent', 'Parent type'),
+        accessorKey: 'accountGroupId',
+        header: t('ledger.account_types.list.columns.accountGroup', 'Group'),
         enableSorting: false,
         cell: ({ row }) => {
-          const id = row.original.parentAccountTypeId
+          const id = row.original.accountGroupId
           if (!id) return <span>—</span>
-          const label = refLabels[id]
+          const label = groupLabels[id]
           return label ? (
             <span title={id}>{label}</span>
           ) : (
@@ -217,7 +225,7 @@ export default function LedgerAccountTypesPage() {
         cell: ({ row }) => (row.original.createdAt ? new Date(row.original.createdAt).toLocaleString() : '—'),
       },
     ],
-    [t, refLabels],
+    [t, groupLabels],
   )
 
   const filterDefs = React.useMemo<FilterDef[]>(
@@ -232,8 +240,14 @@ export default function LedgerAccountTypesPage() {
           { label: t('ledger.common.credit', 'Credit'), value: 'CREDIT' },
         ],
       },
+      {
+        id: 'accountGroupId',
+        label: t('ledger.account_types.list.filters.accountGroup', 'Group'),
+        type: 'select',
+        options: [{ label: t('ledger.account_types.list.filters.all', 'All'), value: '' }, ...groupOptions],
+      },
     ],
-    [t],
+    [t, groupOptions],
   )
 
   return (
