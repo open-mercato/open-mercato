@@ -434,6 +434,7 @@ type AmountPairsById = Record<string, AmountPairs>
 type ItemAmountPairs = {
   byId: AmountPairsById
   byIndex: AmountPairs[]
+  identities: object[]
   hasIds: boolean
 }
 
@@ -459,20 +460,28 @@ function itemId(id: unknown): string | null {
 function captureItemAmountPairs<T extends object>(
   items: readonly T[],
   resolveId: (item: T) => unknown,
+  resolveIdentity: (item: T) => object,
   fields: readonly string[],
 ): ItemAmountPairs {
   const byId: AmountPairsById = {}
   const byIndex: AmountPairs[] = []
+  const identities: object[] = []
   let hasIds = false
   for (const item of items) {
     const pairs = captureAmountPairs(item, fields)
     byIndex.push(pairs)
+    identities.push(resolveIdentity(item))
     const id = itemId(resolveId(item))
     if (id === null) continue
     hasIds = true
     if (!Object.prototype.hasOwnProperty.call(byId, id)) byId[id] = pairs
   }
-  return { byId, byIndex, hasIds }
+  return { byId, byIndex, identities, hasIds }
+}
+
+function pairedByIdentity(before: ItemAmountPairs, identity: object): AmountPairs | undefined {
+  const index = before.identities.indexOf(identity)
+  return index === -1 ? undefined : before.byIndex[index]
 }
 
 function pairedAmounts(pairs: AmountPairsById, id: unknown): AmountPairs | undefined {
@@ -485,6 +494,7 @@ function pairItemAmounts<T>(
   before: ItemAmountPairs | undefined,
   items: readonly T[],
   resolveId: (item: T) => unknown,
+  resolveIdentity: (item: T) => object,
 ): Array<AmountPairs | undefined> {
   if (!before) return items.map(() => undefined)
   const pairByIndex =
@@ -492,12 +502,22 @@ function pairItemAmounts<T>(
     before.byIndex.length === items.length &&
     items.every((item) => itemId(resolveId(item)) === null)
   return items.map((item, index) =>
-    pairByIndex ? before.byIndex[index] : pairedAmounts(before.byId, resolveId(item)),
+    pairedAmounts(before.byId, resolveId(item)) ??
+      pairedByIdentity(before, resolveIdentity(item)) ??
+      (pairByIndex ? before.byIndex[index] : undefined),
   )
 }
 
 function lineResultId(line: SalesLineCalculationResult): unknown {
   return line.line?.id
+}
+
+function lineResultIdentity(line: SalesLineCalculationResult): object {
+  return line.line
+}
+
+function adjustmentIdentity(adjustment: SalesAdjustmentDraft): object {
+  return adjustment
 }
 
 function adjustmentId(adjustment: SalesAdjustmentDraft): unknown {
@@ -507,8 +527,8 @@ function adjustmentId(adjustment: SalesAdjustmentDraft): unknown {
 function captureDocumentAmounts(result: SalesDocumentCalculationResult): DocumentAmountPairs {
   return {
     totals: captureAmountPairs(result.totals, SALES_DOCUMENT_AMOUNT_FIELDS),
-    lines: captureItemAmountPairs(result.lines, lineResultId, SALES_LINE_RESULT_AMOUNT_FIELDS),
-    adjustments: captureItemAmountPairs(result.adjustments, adjustmentId, ADJUSTMENT_AMOUNT_FIELDS),
+    lines: captureItemAmountPairs(result.lines, lineResultId, lineResultIdentity, SALES_LINE_RESULT_AMOUNT_FIELDS),
+    adjustments: captureItemAmountPairs(result.adjustments, adjustmentId, adjustmentIdentity, ADJUSTMENT_AMOUNT_FIELDS),
   }
 }
 
@@ -562,17 +582,18 @@ function syncLineResultExactAmounts(
 /**
  * Lines and adjustments are matched to their pre-hook amounts by `id`, so a hook
  * that reorders, filters or prepends items cannot pair one item with another's
- * stale exact value. When no item carries an id (a document being created) and
- * the count is unchanged, items are matched by position instead. Items without a
- * match fall back to the float/exact consistency rule.
+ * stale exact value. Idless lines keep their source line identity across result
+ * copies; adjustments are matched by object identity. When identities are also
+ * replaced and no item carries an id, an unchanged count allows position matching.
+ * Items without a match fall back to the float/exact consistency rule.
  */
 function syncDocumentResultExactAmounts(
   result: SalesDocumentCalculationResult,
   decimalPlaces: number,
   before?: DocumentAmountPairs,
 ): SalesDocumentCalculationResult {
-  const linePairs = pairItemAmounts(before?.lines, result.lines, lineResultId)
-  const adjustmentPairs = pairItemAmounts(before?.adjustments, result.adjustments, adjustmentId)
+  const linePairs = pairItemAmounts(before?.lines, result.lines, lineResultId, lineResultIdentity)
+  const adjustmentPairs = pairItemAmounts(before?.adjustments, result.adjustments, adjustmentId, adjustmentIdentity)
   return {
     ...result,
     lines: result.lines.map((line, index) => syncLineResultExactAmounts(line, decimalPlaces, linePairs[index])),

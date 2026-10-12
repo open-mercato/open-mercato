@@ -66,6 +66,21 @@ describe('pay page amount payload', () => {
   })
 })
 
+describe('formatPayPageAmount', () => {
+  it('keeps all exact digits and the application locale', () => {
+    const exact = '1234.567890123456789012'
+    expect(formatPayPageAmount(Number(exact), 'ETH', 'en-US', exact)).toBe('ETH\u00a01,234.567890123456789012')
+    expect(formatPayPageAmount(Number(exact), 'ETH', 'pl-PL', exact)).toBe('1234,567890123456789012\u00a0ETH')
+    expect(formatPayPageAmount(1e-18, 'ETH', 'en-US', '0.000000000000000001')).toBe('ETH\u00a00.000000000000000001')
+  })
+
+  it('keeps the currency padding for legacy values', () => {
+    expect(formatPayPageAmount(10, 'USD', 'en-US')).toBe('$10.00')
+    expect(formatPayPageAmount(10, 'JPY', 'en-US')).toBe('¥10')
+    expect(formatPayPageAmount(10, 'KWD', 'en-US')).toBe('KWD\u00a010.000')
+  })
+})
+
 describe('validatePayPageCustomAmount', () => {
   const bounds = {
     customAmountMin: 1,

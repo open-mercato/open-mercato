@@ -1074,6 +1074,7 @@ function DefaultTimeEntryDialog({
     const startedAt = parseClock(startClock) !== null ? combineDateAndClock(date, startClock) : null
     const endedAt =
       parseClock(endClock) !== null ? combineDateAndClock(date, endClock, interval.crossesMidnight ? 1 : 0) : null
+    const submittedRate = rateOverrideEnabled ? rateOverrideAmountExact ?? (rateText.trim() || null) : null
     return {
       date,
       durationMinutes: durationMinutes ?? 0,
@@ -1084,7 +1085,7 @@ function DefaultTimeEntryDialog({
       description: description.trim() ? description.trim() : null,
       isBillable,
       tagIds,
-      rateOverrideAmount: canSeeMoney ? rateOverrideAmountExact : undefined,
+      rateOverrideAmount: canSeeMoney ? submittedRate : undefined,
     }
   }, [
     canSeeMoney,
@@ -1096,6 +1097,8 @@ function DefaultTimeEntryDialog({
     isBillable,
     projectId,
     rateOverrideAmountExact,
+    rateOverrideEnabled,
+    rateText,
     startClock,
     tagIds,
     taskId,

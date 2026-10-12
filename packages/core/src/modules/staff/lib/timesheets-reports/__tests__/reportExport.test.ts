@@ -122,6 +122,35 @@ function makeExportInput(overrides: Partial<ReportExportInput> = {}): ReportExpo
   }
 }
 
+describe('legacy report export integrations', () => {
+  it('accepts groups and lines without exact siblings and prints their numeric values', () => {
+    const input = makeExportInput({
+      groups: [{
+        key: 'legacy-project',
+        kind: 'project',
+        label: 'Legacy project',
+        rate: 12.5,
+        minutes: 60,
+        amount: 12.5,
+        entryCount: 1,
+        lines: [{
+          key: 'legacy-task',
+          label: 'Legacy task',
+          rate: 12.5,
+          minutes: 60,
+          amount: 12.5,
+          entryCount: 1,
+          hasOverride: false,
+          children: [],
+        }],
+      }],
+      totals: { billableMinutes: 60, nonbillableMinutes: 0, totalAmount: 12.5 },
+    })
+    const texts = buildReportPdfLines(input).flatMap((line) => 'cells' in line ? line.cells.map((cell) => cell.text) : [])
+    expect(texts).toEqual(expect.arrayContaining(['Legacy project', 'Legacy task', '12.50 PLN', '12.50']))
+  })
+})
+
 describe('report rows', () => {
   it('flattens one row per entry and reconciles with the grouped total', () => {
     const input = makeExportInput()

@@ -1,5 +1,5 @@
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { DefaultTaxCalculationService } from '../taxCalculationService'
+import { DefaultTaxCalculationService, type CalculateTaxInput, type TaxCalculationResult } from '../taxCalculationService'
 
 describe('DefaultTaxCalculationService', () => {
   const baseInput = {
@@ -134,6 +134,46 @@ describe('DefaultTaxCalculationService', () => {
 
     await expect(service.calculateUnitAmounts({ ...baseInput, amount: -1 })).rejects.toBeInstanceOf(CrudHttpError)
     await expect(service.calculateUnitAmounts({ ...baseInput, mode: 'unknown' as any })).rejects.toBeInstanceOf(CrudHttpError)
+  })
+
+  it('does not turn numeric float noise into entered precision when event hooks are enabled', async () => {
+    const eventBus = { emitEvent: async () => undefined }
+    const service = new DefaultTaxCalculationService({} as never, eventBus as never)
+    const result = await service.calculateUnitAmounts({ ...baseInput, amount: 0.1 + 0.2, taxRate: 23 })
+    expect(result.grossAmountExact).toBe('0.369')
+  })
+
+  it.each([
+    { change: { amount: 20 }, expected: '20' },
+    { change: { amountExact: '20.000000000000000001' }, expected: '20.000000000000000001' },
+    { change: { amount: 30, amountExact: '20' }, expected: '20' },
+  ])('reconciles before-hook amount changes $change', async ({ change, expected }) => {
+    const eventBus = {
+      emitEvent: async (event: string, payload: { setInput: (next: Partial<CalculateTaxInput>) => void }) => {
+        if (event === 'sales.tax.calculate.before') payload.setInput(change)
+      },
+    }
+    const service = new DefaultTaxCalculationService({} as never, eventBus as never)
+    const result = await service.calculateUnitAmounts({ ...baseInput, amount: 10, amountExact: '10' })
+    expect(result.netAmountExact).toBe(expected)
+    expect(result.netAmount).toBe(Number(expected))
+  })
+
+  it.each([
+    { change: { grossAmount: 12.5 }, expected: '12.5' },
+    { change: { grossAmountExact: '12.500000000000000001' }, expected: '12.500000000000000001' },
+    { change: { grossAmount: 15, grossAmountExact: '12.5' }, expected: '12.5' },
+  ])('reconciles after-hook result changes $change', async ({ change, expected }) => {
+    const eventBus = {
+      emitEvent: async (event: string, payload: { result: TaxCalculationResult }) => {
+        if (event === 'sales.tax.calculate.after') Object.assign(payload.result, change)
+      },
+    }
+    const service = new DefaultTaxCalculationService({} as never, eventBus as never)
+    const result = await service.calculateUnitAmounts({ ...baseInput, amount: 10, amountExact: '10', taxRate: 20 })
+    expect(result.grossAmountExact).toBe(expected)
+    expect(result.grossAmount).toBe(Number(expected))
+    expect(result.netAmountExact).toBe('10')
   })
 
   it('honors event bus hooks to mutate input and override results', async () => {

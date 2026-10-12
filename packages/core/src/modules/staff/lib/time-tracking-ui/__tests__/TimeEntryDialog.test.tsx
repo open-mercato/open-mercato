@@ -8,6 +8,7 @@ import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-merc
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { autoColorFromName } from '../../timesheets-ui/colors'
+import { staffTimeEntryUpdateSchema } from '../../../data/validators'
 import { TimeEntryDialog } from '../TimeEntryDialog'
 
 const TASK_ID = '11111111-1111-4111-8111-111111111111'
@@ -407,6 +408,63 @@ beforeEach(() => {
   } as never)
   installApiRouter()
   ;(window as unknown as { open: jest.Mock }).open = jest.fn()
+})
+
+describe('TimeEntryDialog — exact rate overrides', () => {
+  const exactRate = '98.765432109876543212'
+
+  function installPreciseEntry() {
+    entryRows = [{
+      id: ENTRY_ID,
+      date: '2026-07-20',
+      duration_minutes: 60,
+      description: 'Original description',
+      task_id: TASK_ID,
+      time_project_id: PROJECT_ID,
+      is_billable: true,
+      rate_override_amount: exactRate,
+      updated_at: VERSION,
+      tags: [],
+    }]
+  }
+
+  it('preserves every rate digit when only the description is edited', async () => {
+    installPreciseEntry()
+    renderDialog({ entryId: ENTRY_ID })
+    const rateInput = await screen.findByTestId('entry-dialog-rate')
+    await waitFor(() => expect(rateInput).toHaveValue(exactRate))
+    fireEvent.change(screen.getByTestId('entry-dialog-description'), { target: { value: 'Updated description' } })
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
+    expect(lastWriteBody().description).toBe('Updated description')
+    expect(lastWriteBody().rateOverrideAmount).toBe(exactRate)
+    expect(mockWithScopedHeaders).toHaveBeenCalledWith(
+      { [OPTIMISTIC_LOCK_HEADER_NAME]: VERSION },
+      expect.any(Function),
+    )
+  })
+
+  it('submits a comma-separated precise rate edit exactly', async () => {
+    installPreciseEntry()
+    renderDialog({ entryId: ENTRY_ID })
+    const rateInput = await screen.findByTestId('entry-dialog-rate')
+    await waitFor(() => expect(rateInput).toHaveValue(exactRate))
+    fireEvent.change(rateInput, { target: { value: '98,765432109876543213' } })
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
+    expect(lastWriteBody().rateOverrideAmount).toBe('98.765432109876543213')
+  })
+
+  it('keeps an oversized rate invalid at the API boundary instead of clearing it', async () => {
+    installPreciseEntry()
+    renderDialog({ entryId: ENTRY_ID })
+    const rateInput = await screen.findByTestId('entry-dialog-rate')
+    fireEvent.change(rateInput, { target: { value: '1e305' } })
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
+    expect(lastWriteBody().rateOverrideAmount).toBe('1e305')
+    expect(staffTimeEntryUpdateSchema.safeParse({ ...lastWriteBody(), id: ENTRY_ID }).success).toBe(false)
+  })
 })
 
 describe('TimeEntryDialog — 2-of-3 arithmetic', () => {

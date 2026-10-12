@@ -250,7 +250,7 @@ describe('sales calculations with arbitrary precision', () => {
     })
   })
 
-  describe('pairs hook amounts by position when no item has an id', () => {
+  describe('pairs idless hook amounts by identity or position', () => {
     const usdContext = { tenantId: 'tenant-1', organizationId: 'org-1', currencyCode: 'USD' }
     const newLine = (unitPriceNet: number): SalesLineSnapshot => ({
       kind: 'product',
@@ -258,6 +258,35 @@ describe('sales calculations with arbitrary precision', () => {
       currencyCode: 'USD',
       unitPriceNet,
       taxRate: 0,
+    })
+
+    it('keeps legacy float edits when idless lines are reordered', async () => {
+      const registry = createSalesCalculationRegistry()
+      registry.registerTotalsCalculator(({ current }) => ({
+        ...current,
+        lines: [{ ...current.lines[1], netAmount: 7 }, current.lines[0]],
+      }))
+      const result = await registry.calculateDocument({
+        documentKind: 'quote',
+        lines: [newLine(1), newLine(2)],
+        context: usdContext,
+      })
+      expect(result.lines.map((line) => line.netAmountExact)).toEqual(['7', '1'])
+    })
+
+    it('keeps exact-only edits when idless lines are filtered and reordered', async () => {
+      const registry = createSalesCalculationRegistry()
+      registry.registerTotalsCalculator(({ current }) => ({
+        ...current,
+        lines: [{ ...current.lines[2], netAmountExact: '3.0001' }, current.lines[0]],
+      }))
+      const result = await registry.calculateDocument({
+        documentKind: 'quote',
+        lines: [newLine(1), newLine(2), newLine(3)],
+        context: usdContext,
+      })
+      expect(result.lines.map((line) => line.netAmountExact)).toEqual(['3.0001', '1'])
+      expect(result.lines[0].netAmount).toBe(3.0001)
     })
 
     it('keeps an exact-only line edit on a document being created', async () => {
@@ -311,7 +340,7 @@ describe('sales calculations with arbitrary precision', () => {
       expect(result.adjustments[0].amountNetExact).toBe('4')
     })
 
-    it('does not pair by position once the hook changes the item count', async () => {
+    it('pairs by line identity once the hook changes the item count', async () => {
       const registry = createSalesCalculationRegistry()
       registry.registerTotalsCalculator(({ current }) => ({
         ...current,
@@ -324,7 +353,7 @@ describe('sales calculations with arbitrary precision', () => {
         context: usdContext,
       })
 
-      expect(result.lines.map((line) => line.netAmountExact)).toEqual(['2'])
+      expect(result.lines.map((line) => line.netAmountExact)).toEqual(['2.005'])
     })
   })
 })

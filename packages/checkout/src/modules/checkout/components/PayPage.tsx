@@ -222,10 +222,11 @@ export type PayPageCustomerFormProps = {
 export type PayPagePricingProps = {
   payload: PayLinkPayload
   amount: number | null
+  amountExact?: string | null
   selectedPriceItemId: string | null
   fieldErrors: FieldErrors
   inputsLocked: boolean
-  formatAmount: (value: number | string | null | undefined, currencyCode?: string | null) => string
+  formatAmount: (value: number | string | null | undefined, currencyCode?: string | null, exact?: string | null) => string
   onAmountChange: (value: string) => void
   onPriceItemSelect: (item: PriceListItem) => void
   translateValidationMessage: (message: string | null | undefined, fieldPath?: string) => string
@@ -237,7 +238,7 @@ export type PayPageSummaryProps = {
   selectedAmount: number | null
   selectedAmountExact?: string | null
   currencyCode: string | null
-  formatAmount: (value: number | string | null | undefined, currencyCode?: string | null) => string
+  formatAmount: (value: number | string | null | undefined, currencyCode?: string | null, exact?: string | null) => string
   preview: boolean
   themeTokens: PayPageThemeTokens
 }
@@ -929,6 +930,7 @@ export function PayPageCustomerForm({
 export function PayPagePricing({
   payload,
   amount,
+  amountExact,
   selectedPriceItemId,
   fieldErrors,
   inputsLocked,
@@ -974,7 +976,7 @@ export function PayPagePricing({
           <Input
             className={READABLE_INPUT_CLASSNAME}
             type="number"
-            value={amount ?? ''}
+            value={amountExact ?? amount ?? ''}
             disabled={inputsLocked}
             onChange={(event) => onAmountChange(event.target.value)}
             placeholder={[
@@ -1564,7 +1566,8 @@ export function PayPage({
   }, [payload])
 
   const formatAmount = React.useCallback(
-    (value: number | string | null | undefined, currencyCode?: string | null) => formatPayPageAmount(value, currencyCode, locale),
+    (value: number | string | null | undefined, currencyCode?: string | null, exact?: string | null) =>
+      formatPayPageAmount(value, currencyCode, locale, exact),
     [locale],
   )
 
@@ -2202,6 +2205,7 @@ export function PayPage({
         <PricingComponent
           payload={payload}
           amount={amount}
+          amountExact={amountExact}
           selectedPriceItemId={selectedPriceItemId}
           fieldErrors={fieldErrors}
           inputsLocked={inputsLocked}

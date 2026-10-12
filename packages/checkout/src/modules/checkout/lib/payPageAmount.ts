@@ -86,8 +86,10 @@ export function formatPayPageAmount(
   value: number | string | null | undefined,
   currencyCode: string | null | undefined,
   locale: string,
+  exact?: string | null,
 ): string {
-  const normalizedValue = typeof value === 'number' && !Number.isFinite(value) ? 0 : value ?? 0
+  const exactValue = exact ? resolveExactDecimal(exact, value) : null
+  const normalizedValue = exactValue ?? (typeof value === 'number' && !Number.isFinite(value) ? 0 : value ?? 0)
   return formatCurrency(
     normalizedValue,
     currencyCode,

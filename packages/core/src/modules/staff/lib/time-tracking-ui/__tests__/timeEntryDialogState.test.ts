@@ -94,6 +94,13 @@ describe('time entry interval state (2-of-3 arithmetic)', () => {
 })
 
 describe('time entry dialog helpers', () => {
+  it('keeps an exact rate sibling alongside the legacy numeric rate', () => {
+    const exact = '98.765432109876543212'
+    const record = toTimeEntryRecord({ id: 'e1', rate_override_amount: exact })
+    expect(record?.rateOverrideAmount).toBe(Number(exact))
+    expect(record?.rateOverrideAmountExact).toBe(exact)
+  })
+
   it('shifts a calendar date across a month boundary', () => {
     expect(shiftIsoDate('2026-07-31', 1)).toBe('2026-08-01')
   })

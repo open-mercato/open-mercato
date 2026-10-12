@@ -190,14 +190,16 @@ jest.mock('@open-mercato/core/modules/dictionaries/components/dictionaryAppearan
 }))
 
 import { LineItemDialog } from '../LineItemDialog'
+import { addDecimals, decimalToString } from '@open-mercato/shared/lib/decimal'
+import { createSalesCalculationRegistry } from '../../../lib/calculations'
 
-const renderDialog = () =>
+const renderDialog = (currencyCode = 'USD') =>
   render(
     <LineItemDialog
       open
       kind="order"
       documentId="order-1"
-      currencyCode="USD"
+      currencyCode={currencyCode}
       organizationId="org-1"
       tenantId="tenant-1"
       onOpenChange={() => {}}
@@ -264,6 +266,40 @@ describe('LineItemDialog locale decimal separator (issue #5552)', () => {
     expect(payload.unitPriceGross).toBe('0.123456789012345678')
     expect(payload.unitPriceNet).toBe('0.123456789012345678')
     expect(payload.totalGrossAmount).toBe('0.246913578024691356')
+  })
+
+  it('uses configured currency precision in the submitted gross-to-net calculation', async () => {
+    mockApiCall.mockImplementation(async (url: string) => ({
+      ok: true,
+      result: { items: url.startsWith('/api/currencies/currencies?code=ETH') ? [{ code: 'ETH', decimalPlaces: 18 }] : [] },
+    }))
+    renderDialog('ETH')
+    await act(async () => {
+      await capturedSubmit?.({ ...customLineValues('1', '1'), currencyCode: 'ETH', taxRate: 23 })
+    })
+
+    const payload = mockCreateCrud.mock.calls[0][1] as FormValues
+    expect(payload.unitPriceGross).toBe('1')
+    expect(payload.unitPriceNet).toBe('0.813008130081300813')
+    expect(payload.totalNetAmount).toBe('0.813008130081300813')
+    const registry = createSalesCalculationRegistry()
+    const result = await registry.calculateLine({
+      documentKind: 'order',
+      context: { currencyCode: 'ETH', amountDecimalPlaces: 18, tenantId: 'tenant-1', organizationId: 'org-1' },
+      line: {
+        quantity: Number(payload.quantity),
+        currencyCode: 'ETH',
+        unitPriceNet: Number(payload.unitPriceNet),
+        unitPriceNetExact: String(payload.unitPriceNet),
+        unitPriceGross: Number(payload.unitPriceGross),
+        unitPriceGrossExact: String(payload.unitPriceGross),
+        totalGrossAmount: Number(payload.totalGrossAmount),
+        totalGrossAmountExact: String(payload.totalGrossAmount),
+        taxRate: 23,
+      },
+    })
+    expect(decimalToString(addDecimals(result.netAmountExact!, result.taxAmountExact!))).toBe(result.grossAmountExact)
+    expect(mockApiCall.mock.calls.filter(([url]) => String(url).startsWith('/api/currencies/currencies?code=ETH'))).toHaveLength(1)
   })
 
   it('reports an unparseable price as unparseable rather than as "greater than 0"', async () => {
