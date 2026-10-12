@@ -195,4 +195,10 @@ describe('crud ids helpers', () => {
     expect(isUuidListParam(`${idA}0`)).toBe(false)
     expect(isUuidListParam(`{${idA}}`)).toBe(false)
   })
+
+  it('isUuidListParam fails closed on non-string values', () => {
+    expect(isUuidListParam(['not-a-uuid'])).toBe(false)
+    expect(isUuidListParam([idA])).toBe(false)
+    expect(isUuidListParam(null)).toBe(false)
+  })
 })

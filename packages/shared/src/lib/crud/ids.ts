@@ -70,6 +70,8 @@ export function splitIdListParam(raw: unknown): string[] {
  * with a 400 instead of dropping the bad entries and widening the result set (#7265).
  */
 export function isUuidListParam(raw: unknown): boolean {
+  if (raw === undefined) return true
+  if (typeof raw !== 'string') return false
   return splitIdListParam(raw).every((value) => UUID_SHAPE_REGEX.test(value))
 }
 
