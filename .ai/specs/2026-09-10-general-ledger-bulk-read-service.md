@@ -465,7 +465,7 @@ for US public companies attesting to internal-control effectiveness —
 real, but not a data-export or system-design requirement, and not
 obviously applicable to a Polish SME anyway (statutory audit
 thresholds and requirements for this project's actual market sit in
-Ustawa o rachunkowości art. 64–65, not in US securities law) —
+Ustawa o rachunkowości art. 64, not in US securities law) —
 recorded as Unverified-for-this-context rather than force-cited.
 
 **Phase 2 — Comparison against real systems (Step 3): a genuine,
