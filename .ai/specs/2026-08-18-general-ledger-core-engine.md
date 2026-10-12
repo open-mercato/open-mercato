@@ -105,13 +105,13 @@ Equity/Revenue: credit), not of the individual account. Storing it on
 the type avoids every account needing to independently get this right,
 and makes the accounting equation enforceable in one place.
 
-**Account types are hierarchical from day one.** A flat list of
-account types cannot support grouped reporting (e.g. "all Fixed Asset
-sub-accounts summed") without ad-hoc query logic wherever a report is
-built. `parentAccountTypeId` (self-referencing) is added now, while
-the table is empty — retrofitting a hierarchy onto a chart of accounts
-that already has posted history is a much harder migration than
-shipping it from the start.
+**Account types are flat (revised 2026-10-12, PR #5663/#6340 review).**
+An earlier draft added a self-referencing `parentAccountTypeId` on the
+grounds that retrofitting a hierarchy is harder than shipping it. The
+review pointed out that nothing reads it in this spec, so the column
+was dropped. Grouped reporting is carried by `LedgerAccountGroup` (the
+zespół) and by the number prefix described below; a real type
+hierarchy returns together with the first report that needs it.
 
 **`LedgerAccountType` classifies additionally through a new reference
 entity, `LedgerAccountGroup`, seeded per tenant/organization — not a
@@ -182,39 +182,44 @@ posted entries — same guard as `normalBalance`.** Enforced by
 above. Changing a type's statutory group mid-year would break the
 consistency of historical ZSiO/balance-sheet reports.
 
-**`LedgerAccount` gets a self-referencing `parentAccountId` too —
-structural only, no logic reads it yet.** Multi-dimensional analytics
-(kontrahent, MPK/cost-centre, rachunek bankowy, środek trwały, waluta)
-can't be solved by one mechanism: a single `JournalEntryLine` can need
-more than one dimension at once (e.g. a counterparty on the credit
-line and a cost centre on the debit line of the same purchase). Two
-different concerns get two different homes. `parentAccountId` models
-the static, single-dimension Chart-of-Accounts hierarchy (e.g. `130
-Rachunki bieżące` → `130-1 mBank`, `010 Środki trwałe` → `010-1
-Samochody`) — the shape ZSiO and Balance calculation aggregate over.
-The contextual, multi-dimensional tagging is a separate, future
-mechanism (see Out of scope). Added now on the same logic as
-`parentAccountTypeId` above and `referenceType`/`referenceId`: cheap
-while the table is empty, and it unblocks the tree shape that Bank
-Management (`130-x`) and Fixed Assets (`010-x`) will need later.
+**`LedgerAccount` has no parent column (revised 2026-10-12).** The
+earlier `parentAccountId` was structural only: nothing read it. It was
+removed from this spec and from the implementation (PR #6340 review);
+the synthetic → analytic tree (`130` → `130-1`) is expressed by the
+number convention below, and the explicit parent column returns with
+the account-balances rollup (#6013), the first consumer that aggregates
+over it. Multi-dimensional analytics (kontrahent, MPK, rachunek
+bankowy, środek trwały, waluta) are a separate mechanism
+(`journal_entry_line_dimension`, see Out of scope) and were never
+meant to be modelled by a parent column.
 
-**When a future consumer (Bank Management or Fixed Assets) starts
-reading `parentAccountId`, `updateLedgerAccount` should gain a guard
-of the same class as `accountTypeId`'s above — the exact trigger
-condition is intentionally left open here (2026-09-08).** Nothing
-enforces this today, deliberately: no Phase 1 logic aggregates over
-the hierarchy yet, so changing `parentAccountId` now has no reporting
-consequence to protect against, and adding an active guard for a
-mutation surface nothing reads would itself be the kind of
-speculative, not-yet-needed scope the review checklist's anti-pattern
-check flags. This is a documented placeholder for whichever future
-spec adds that reader, not a settled mechanism: `accountTypeId`'s
-guard only checks for posted entries on the account itself, but
-`parentAccountId` may also need to consider whether the account has
-child accounts (re-parenting a subtree, not just a leaf, is a
-different blast radius) — that question is explicitly left to whoever
-designs the actual guard, once there is a real reader to protect
-against silent, retroactive rollup changes.
+**Account numbers follow the Polish chart (revised 2026-10-12).** The
+business key of `LedgerAccountType` and `LedgerAccount` is `number`
+(formerly `slug`; the display name of an account is its
+`description`). Where the type's group has `jurisdiction: 'PL'`, the
+rule is enforced in the commands, so every client gets the same answer
+and the forms only make it convenient:
+
+- a type number is exactly three digits and its first digit is the
+  group's code (type `402` in group `4`); anything else is rejected
+  with 400;
+- an account number starts with its type's number (`402-01` under
+  `402`; the bare type number is allowed too); anything else is
+  rejected with 400;
+- types without a group, or in a non-PL group, are not constrained
+  beyond uniqueness (Phase 1 seeds PL only).
+
+**Numbers are frozen once there are postings (revised 2026-10-12).** An
+account's `number` cannot change once the account has posted lines, and
+a type's `number` cannot change once any account of that type has
+posted lines (409 in both cases), for the same reason as `normalBalance`
+and `accountGroupId`: historical entries and the JPK_KR_PD output must
+not be silently reinterpreted. Names (`description`, type `name`) stay
+editable. Renumbering a type that has no postings carries its accounts
+along in the same write (`402-01` → `412-01` when type `402` becomes
+`412`), so the type and its accounts never disagree; an account that
+starts with neither number, or a clash with an existing account number,
+answers 409.
 
 **`LedgerAccount.accountTypeId` is immutable once the account has
 posted entries — same class of guard as `normalBalance`/
@@ -755,17 +760,19 @@ suite asserts against, not a workflow it walks through.
   hardcoded — no jurisdiction-selection mechanism exists yet), not
   user-editable through any command. No `updatedAt` — immutable,
   system-seeded rows.
-- `LedgerAccountType` — `slug`, `name`, `normalBalance`
-  (`DEBIT`/`CREDIT`), `parentAccountTypeId` (nullable, self-reference),
+- `LedgerAccountType` — `number` (PL: three digits, first digit = the
+  group's code; frozen once any account of the type has posted lines —
+  see Design decisions), `name`, `normalBalance` (`DEBIT`/`CREDIT`),
   `accountGroupId` (nullable FK to `LedgerAccountGroup`, immutable
   once any account of that type has posted entries — see Design
   decisions), `updatedAt`, `deletedAt` (nullable, soft delete — see
   Design decisions).
-- `LedgerAccount` — `slug`, `accountTypeId` (immutable once the
-  account has posted entries — see Design decisions), `parentAccountId`
-  (nullable, self-reference — see Design decisions), tenant/org
-  scoped, `description`, `updatedAt`, `deletedAt` (nullable, soft
-  delete — see Design decisions).
+- `LedgerAccount` — `number` (PL: starts with its type's number;
+  frozen once the account has posted lines), `accountTypeId`
+  (immutable once the account has posted entries — see Design
+  decisions), tenant/org scoped, `description` (the account's display
+  name), `updatedAt`, `deletedAt` (nullable, soft delete — see Design
+  decisions).
 - `JournalEntry` — `sequenceNumber` (`bigint`, unique per
   `(tenant_id, organization_id)`, allocated atomically — see Design
   decisions), `postedAt`, `operationDate` (`date`, not nullable — art.
@@ -951,7 +958,10 @@ on `journal_entry` backs the `referenceType`/`referenceId` pair.
   `operationDate` (the date the reversal itself is recorded), never
   the original entry's `operationDate` — otherwise a reversal of a
   closed-period entry could be keyed straight back into the locked
-  period it exists to get out of (see Design decisions). Declared
+  period it exists to get out of (see Design decisions). **Added
+  2026-10-12** (PR #6340 review): that date must not be earlier than
+  the original's `operationDate` — a reversal cannot predate the entry
+  it reverses (400); the same day or later is accepted. Declared
   permission: `ledger.entries.post` (not enforced in Phase 1, see above).
 - `createFiscalPeriod` — creates a period (`startDate`, `endDate`,
   `isLocked: false`); rejects if the given range overlaps any existing
@@ -965,11 +975,16 @@ on `journal_entry` backs the `referenceType`/`referenceId` pair.
   `runCrudCommandWrite`, following the module's existing command
   conventions; `updateLedgerAccount` rejects an `accountTypeId` change
   once the account has posted entries (the invariant the Testing
-  Strategy checks). Requires `ledger.accounts.manage`.
+  Strategy checks); **added 2026-10-12:** `number` is validated
+  against the type's number (PL) and cannot change once the account
+  has posted lines. Requires `ledger.accounts.manage`.
 - `createLedgerAccountType` / `updateLedgerAccountType` — standard
   CRUD; `updateLedgerAccountType` rejects a `normalBalance` or
   `accountGroupId` change when any account of that type has posted
-  entries (the invariant the Testing Strategy checks). Requires
+  entries (the invariant the Testing Strategy checks); **added
+  2026-10-12:** `number` is validated against the group (PL), cannot
+  change once any account of the type has posted lines, and a change
+  carries the type's accounts along to the new prefix. Requires
   `ledger.accounts.manage`.
 
 ### Events (`events.ts`)
@@ -1048,9 +1063,12 @@ on `journal_entry` backs the `referenceType`/`referenceId` pair.
 ### Backend Pages (`backend/ledger/`)
 
 - `accounts/page.tsx` (+ `create/page.tsx`, `[id]/page.tsx`) —
-  `DataTable` + `CrudForm` for `LedgerAccount`.
+  `DataTable` + `CrudForm` for `LedgerAccount`. The type picker shows
+  `number — name`; the number field shows the type's number as a fixed
+  prefix (PL) and the user types only the ending.
 - `account-types/page.tsx` (+ create/edit) — same pattern for
-  `LedgerAccountType`.
+  `LedgerAccountType`, with a group column and filter; the number
+  field shows the group's code as a fixed prefix.
 - `fiscal-periods/page.tsx` (+ `create/page.tsx`) — `DataTable` with a
   lock/unlock row action. Locking isn't a field edit, so the action
   goes through `RowActions` + `useGuardedMutation` (not `CrudForm`),
@@ -1060,6 +1078,9 @@ on `journal_entry` backs the `referenceType`/`referenceId` pair.
   `packages/core/src/modules/resources/backend/resources/resources/page.tsx`
   already uses.
 - `journal-entries/page.tsx` — read-only `DataTable` over `listJournalEntries`; no create/edit UI in Phase 1.
+- `journal-entries/[id]/page.tsx` (**added 2026-10-12**) — read-only
+  entry detail: header fields plus the lines (account number and name,
+  debit, credit) and totals.
 
 Each page's `page.meta.ts` requires one exact feature, never `ledger.*`: the list pages require the matching `view` feature (`ledger.accounts.view`, `ledger.entries.view`, `ledger.periods.view`) and the create/edit pages require `manage` (`ledger.accounts.manage`, `ledger.periods.manage`). `matchFeature(required, granted)` expands wildcards only on the granted side, so a required `ledger.*` is satisfied only by a `ledger.*` or `*` grant and would lock the `employee` role (which gets only the three `view` features) out of every page.
 
@@ -1081,9 +1102,14 @@ Standard `makeCrudRoute` paginated list.
   `postedAt`) — `JournalEntry` has no `periodId` column or FK either
   (see Data Models). Both are supported by indexes named in Migration.
 - **Response 200**: `{ items: JournalEntryDto[], total: number, page: number, pageSize: number }`
-  where `JournalEntryDto` is `{ id, sequenceNumber, postedAt, operationDate, documentType, documentNumber, documentDate, postedBy, description, type, currencyId, exchangeRate, referenceType, referenceId, lines: { id, accountId, debit, credit, amountCurrency }[] }`
+  where `JournalEntryDto` is `{ id, sequenceNumber, postedAt, operationDate, documentType, documentNumber, documentDate, postedBy, description, type, currencyId, exchangeRate, referenceType, referenceId }` (**revised 2026-10-12:** list rows carry no lines; the lines are returned by the detail request below)
   (`operationDate`/`documentType`/`documentNumber`/`documentDate` —
   art. 23 ust. 2, see Design decisions).
+- **Detail (`?id=<uuid>`, added 2026-10-12, PR #6340 review)**: the same
+  route returns that one entry with `lines: { id, accountId,
+  accountNumber, accountName, debit, credit }[]`, debit lines first.
+  `accountName` is the account's `description`. Scoped to the selected
+  organization like the list.
 - **Response 403**: caller lacks `ledger.entries.view`.
 - No `POST`/`PUT`/`DELETE` on this route — posting only happens
   through `postJournalEntry`/`reverseJournalEntry`.
@@ -1149,34 +1175,30 @@ change.
 
 ### LedgerAccountType
 
-Hierarchical. `normalBalance` is required and immutable once any
-account of that type has posted entries — enforced by
-`updateLedgerAccountType`, which checks for posted `JournalEntryLine`
-rows against accounts of that type before allowing the change.
-`accountGroupId` (nullable FK to `LedgerAccountGroup`) carries the
-same immutability guard, for the same reason (see Design decisions).
-`deletedAt` backs a soft delete via `makeCrudRoute`, blocked once the
-type has posted entries, or once any `LedgerAccountType` names it as
-`parentAccountTypeId` (**added 2026-09-18** — m5: an earlier draft left
-this case unspecified; a soft-deleted parent would silently orphan its
-children's hierarchy).
+Flat. `number` is unique per (tenant, organization) among live types
+and follows the PL rule when the type has a PL group (see Design
+decisions). `normalBalance` is required and immutable once any account
+of that type has posted entries — enforced by `updateLedgerAccountType`,
+which checks for posted `JournalEntryLine` rows against accounts of
+that type before allowing the change. `accountGroupId` (nullable FK to
+`LedgerAccountGroup`) carries the same immutability guard, and so does
+`number`, for the same reason (see Design decisions). `deletedAt`
+backs a soft delete via `makeCrudRoute`, blocked once the type has
+posted entries or while a live account still uses it.
 
 ### LedgerAccount
 
-One row per account; `slug` unique per (tenant, organization).
-`parentAccountId` (nullable, self-reference) models the Chart-of-
-Accounts hierarchy — e.g. a bank or fixed-asset account under its
-synthetic parent. Structural only this phase: nothing enforces or
-reads it yet (see Design decisions, Out of scope). `accountTypeId` is
-immutable once the account has posted entries — enforced by
-`updateLedgerAccount`, the same class of guard as `normalBalance`/
-`accountGroupId` on `LedgerAccountType` (see Design decisions).
-`deletedAt` backs a soft delete via `makeCrudRoute`, blocked once the
-account has posted entries, or once any `LedgerAccount` names it as
-`parentAccountId` (**added 2026-09-18** — m5, same reasoning as
-`LedgerAccountType` above).
+One row per account; `number` is unique per (tenant, organization)
+among live accounts and starts with its type's number when the type
+has a PL group. `description` is the account's display name. There is
+no parent column (see Design decisions). `accountTypeId` and `number`
+are immutable once the account has posted entries — enforced by
+`updateLedgerAccount`, the same class of guard as
+`normalBalance`/`accountGroupId` on `LedgerAccountType` (see Design
+decisions). `deletedAt` backs a soft delete via `makeCrudRoute`,
+blocked once the account has posted entries.
 
-### JournalEntry / JournalEntryLine
+
 
 A `JournalEntry` with zero or one line is invalid — every posted entry
 must have at least two lines and must balance. **Corrected 2026-09-18**
@@ -1223,7 +1245,6 @@ Queries / API).
 ### Phase 1: Posting engine
 
 1. Add `FiscalPeriod`, `LedgerAccountGroup`, `LedgerAccountType`, `LedgerAccount`
-   (including the nullable, self-referencing `parentAccountId`),
    `JournalEntry` (including `sequenceNumber` and the art. 23 ust. 2
    fields `operationDate`/`documentType`/`documentNumber`/
    `documentDate`), `JournalEntryLine` (including the nullable `contractorSnapshot` `json` column) and `JournalEntrySequence` (the per-organization counter row) entities (with `updated_at` on the three editable ones) and their
@@ -1276,7 +1297,7 @@ Queries / API).
 
 | File | Action | Purpose |
 | --- | --- | --- |
-| `data/entities.ts` | Create | `FiscalPeriod`, `LedgerAccountGroup`, `LedgerAccountType` (incl. `accountGroupId`), `LedgerAccount` (incl. `parentAccountId`), `JournalEntry` (incl. `sequenceNumber`), `JournalEntryLine` (incl. `contractorSnapshot`), `JournalEntrySequence` |
+| `data/entities.ts` | Create | `FiscalPeriod`, `LedgerAccountGroup`, `LedgerAccountType` (incl. `accountGroupId`), `LedgerAccount`, `JournalEntry` (incl. `sequenceNumber`), `JournalEntryLine` (incl. `contractorSnapshot`), `JournalEntrySequence` |
 | `lib/seeds.ts` | Create | `seedPolishAccountGroups(em, { tenantId, organizationId })` — seeds tenant/org-scoped `LedgerAccountGroup` rows for `jurisdiction: 'PL'` (zespoły 0–8), called from `setup.ts`'s `seedDefaults`; other jurisdictions added later as pure data |
 | `encryption.ts` | Create | `defaultEncryptionMaps` for `ledger:journal_entry_line.contractor_snapshot` (PII duplicated from Contractor Registry — see Design decisions) |
 | `migrations/MigrationXXXXXXXXXXXXXX.ts` | Create | Tables for the entities above plus the deferred balance-check constraint trigger and the per-organization `journal_entry_sequence` counter table |
@@ -1366,10 +1387,21 @@ Queries / API).
   with the current one.
 - Assert deleting a `LedgerAccount`/`LedgerAccountType` sets
   `deletedAt` (not a real row removal) and is rejected once the
-  account/type has posted entries, or once another account/type names
-  it as `parentAccountId`/`parentAccountTypeId` (**added 2026-09-18**
-  — m5); assert a soft-deleted account/type is excluded from list
+  account/type has posted entries (a type is also protected while a
+  live account still uses it); assert a soft-deleted account/type is excluded from list
   results.
+- **Added 2026-10-12** (numbering and detail): assert a type number
+  that does not start with its group's code, or is not three digits,
+  is rejected with 400 in a PL group; assert an account number that
+  does not start with its type's number is rejected with 400; assert
+  an unposted account number can change but a posted one cannot (409)
+  while its description can; assert the same for a type number and
+  name; assert renumbering an unposted type renames its accounts
+  (`410-01` → `411-01`); assert a `REVERSAL` dated before the
+  original's `operationDate` is rejected and one dated the same day or
+  later is accepted; assert `GET /api/ledger/journal-entries?id=`
+  returns the entry with its lines (account number, name, debit,
+  credit), debit lines first.
 - Assert `GET /api/ledger/journal-entries?periodId=` returns only
   entries whose `operationDate` falls within that `FiscalPeriod`'s
   `startDate`/`endDate` (**corrected 2026-09-18** — was `postedAt`),
@@ -1400,13 +1432,11 @@ own that failure-isolation story.
 cross-module `referenceType`/`referenceId` aren't validated, but said
 nothing about same-module FK-id fields already populated in Phase 1 —
 `JournalEntryLine.accountId`, `JournalEntry.currencyId`,
-`LedgerAccount.accountTypeId`/`parentAccountId`,
-`LedgerAccountType.parentAccountTypeId`/`accountGroupId`. These have
+`LedgerAccount.accountTypeId`,
+`LedgerAccountType.accountGroupId`. These have
 no database-level FK either, so each write command validates
 existence, non-deleted status, and same organization/tenant scope at
-the application layer before persisting; `parentAccountId`/
-`parentAccountTypeId` are additionally checked for self-reference and
-cycles.
+the application layer before persisting.
 
 ### Tenant & data isolation
 
@@ -1517,7 +1547,7 @@ deploy independently of any other module.
   trwały, waluta — often apply more than one at a time to the same
   line (e.g. a cost centre on the debit line and a bank account tag
   on the credit line of one purchase), so they can't be modelled by
-  `LedgerAccount.parentAccountId` alone without exploding the chart of
+  an account hierarchy alone without exploding the chart of
   accounts into dead combinations. Needs a dedicated table
   (`dimensionType`, `dimensionId`, FK to the line — many rows per
   line) plus the posting-rule logic that uses it (e.g. reject a direct
@@ -2552,3 +2582,28 @@ append-only triggers provide) to the "Corrections are reversals, not undo"
 decision, and art. 23 ust. 3 (both the Polish and the foreign amount can be
 determined) to the multi-currency decision. No change to behaviour, schema or
 code. Not yet reviewed by a maintainer.
+
+### 2026-10-12 (PR #6340 review — account numbering, hierarchy, detail)
+
+- Dropped `LedgerAccountType.parentAccountTypeId` and
+  `LedgerAccount.parentAccountId`: nothing in this spec reads them. The
+  account tree returns with the balances rollup (#6013). Earlier
+  changelog entries that introduce or guard these columns are kept as
+  history and are superseded by this one.
+- Renamed the business key `slug` to `number` on `LedgerAccountType`
+  and `LedgerAccount`; the account's display name is `description`.
+- Added the PL numbering rule (type: three digits, first digit = group
+  code; account: starts with its type's number), enforced in the
+  commands (400), and the freeze of type/account numbers once there
+  are postings (409), with names staying editable. Renumbering an
+  unposted type carries its accounts along.
+- `reverseJournalEntry`: the reversal's `operationDate` may not be
+  earlier than the original's.
+- Journal entry detail: `GET /api/ledger/journal-entries?id=` returns
+  the lines with account number and name; new read-only detail page.
+  List rows no longer claim a `lines` array.
+- Lists and forms: group column/filter on account types, `number —
+  name` type picker on accounts, fixed-prefix number fields.
+- Updated Design decisions, Architecture → Entities/Commands/Backend
+  Pages, API Contracts, Data Models, Implementation Plan, File
+  Manifest, Testing Strategy and Risks accordingly.
