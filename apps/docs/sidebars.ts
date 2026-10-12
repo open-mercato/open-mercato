@@ -137,6 +137,7 @@ const sidebars: SidebarsConfig = {
               ],
             },
             "user-guide/akeneo-pim",
+            "user-guide/gus-regon",
             "user-guide/checkout",
             "user-guide/stripe-payments",
             "user-guide/tpay-payments",
