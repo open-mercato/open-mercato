@@ -939,7 +939,7 @@ Data Models table and in #6439's `lib/defaultChartOfAccounts.ts`. Totals
 (40 types / 44 accounts) are unchanged. Also noted: this template ships
 only two zespół 5 types (`550`, `552`) and stays "representative, not
 exhaustive" — a deliberate decision, not a gap; the Posting Rules settings
-page tells the user when fewer zespół 5 accounts than needed exist.
+page tells the user when the chart has no account of class 4 or class 5 at all.
 ⚠ NEEDS HUMAN CONFIRMATION (sign of 490, see Data Models).
 
 ### 2026-09-28 (cont. — M2, m1, m2, m3, m4, and all four PR #6137 review nits resolved)
