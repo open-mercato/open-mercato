@@ -1838,3 +1838,11 @@ net) can apply to a receivable and a refund obligation to the same customer.
 The design is unchanged: the excess is booked to `customerOverpaymentAccountId`,
 because the ledger shows gross by default and net presentation is a choice the
 entity makes for the balance sheet. Not yet reviewed by a maintainer.
+
+### 2026-10-12 — Cash desk is not modelled
+
+Art. 17 ust. 1 pkt 7 of the Accounting Act (consolidated text, Dz. U. z 2026 r.
+poz. 522, 640, 644, 1206) requires subsidiary accounts for cash operations when a
+cash desk (kasa) is kept. This module models bank accounts and bank statements
+only; it has no cash desk, cash documents or cash-in-hand register. A tenant that
+keeps a kasa needs a separate, later spec. Not yet reviewed by a maintainer.
