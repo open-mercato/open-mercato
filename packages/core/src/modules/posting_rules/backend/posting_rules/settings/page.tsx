@@ -8,7 +8,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
-import { loadLedgerAccountOptions } from '../../lib/optionLoaders'
+import { loadClass4AccountOptions, loadClass5AccountOptions } from '../../lib/optionLoaders'
 import { ClearingAccountBanner } from '../../../components/ClearingAccountBanner'
 
 type PostingRulesSettingsData = {
@@ -64,14 +64,14 @@ export default function PostingRulesSettingsPage() {
             type: 'select',
             label: t('posting_rules.settings.field.clearingAccount', 'Clearing account (account 490 equivalent)'),
             placeholder: t('posting_rules.settings.field.placeholder', 'None'),
-            loadOptions: loadLedgerAccountOptions,
+            loadOptions: loadClass4AccountOptions,
           },
           {
             id: 'unallocatedCostAccountId',
             type: 'select',
             label: t('posting_rules.settings.field.unallocatedCostAccount', 'Unallocated-cost account'),
             placeholder: t('posting_rules.settings.field.placeholder', 'None'),
-            loadOptions: loadLedgerAccountOptions,
+            loadOptions: loadClass5AccountOptions,
           },
         ],
       },

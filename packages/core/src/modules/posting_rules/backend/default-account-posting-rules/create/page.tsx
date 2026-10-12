@@ -8,7 +8,7 @@ import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { loadLedgerAccountOptions, loadCostCenterOptions } from '../../lib/optionLoaders'
+import { loadClass4AccountOptions, loadClass5AccountOptions, loadCostCenterOptions } from '../../lib/optionLoaders'
 
 export default function CreateDefaultAccountPostingRulePage() {
   const t = useT()
@@ -27,14 +27,14 @@ export default function CreateDefaultAccountPostingRulePage() {
             type: 'select',
             label: t('posting_rules.default_account_posting_rules.form.field.sourceAccount', 'Source account (zespół 4)'),
             required: true,
-            loadOptions: loadLedgerAccountOptions,
+            loadOptions: loadClass4AccountOptions,
           },
           {
             id: 'targetAccountId',
             type: 'select',
             label: t('posting_rules.default_account_posting_rules.form.field.targetAccount', 'Target account (zespół 5)'),
             required: true,
-            loadOptions: loadLedgerAccountOptions,
+            loadOptions: loadClass5AccountOptions,
           },
           {
             id: 'defaultCostCenterId',
