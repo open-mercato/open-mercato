@@ -12,6 +12,9 @@ Source doc: issue #7183 (spec: `.ai/specs/implemented/2026-04-14-code-based-work
 - `packages/shared/src/modules/workflows/types.ts` — widen `WorkflowStepType` with `WAIT_FOR_CONDITION`
   (and the engine's `IF_ELSE` / `SWITCH`); extract the inline `userTaskConfig` shape into an exported
   `CodeUserTaskConfig` interface and add every optional key `userTaskConfigSchema` accepts.
+  **Decision during implementation:** the shape stays INLINE on `CodeStepDefinition['userTaskConfig']`
+  with no new exported name — `packages/shared/AGENTS.md` asks first before minting a new
+  cross-package type, and consumers can already reach it as `NonNullable<CodeStepDefinition['userTaskConfig']>`.
 - Type-level test (`*.typecheck.tsx`, gated by `tsc --noEmit`) that each engine key and the new step
   types compile in `defineWorkflow`.
 - Drift guards in `packages/core` (core may import shared, never the reverse): a `*.typecheck.tsx`
