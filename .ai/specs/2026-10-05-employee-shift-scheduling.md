@@ -45,7 +45,7 @@ Neither owns *planned* work. This spec adds:
 4. **Three-stage lifecycle:**
    - **Drafting.** Free create/update/delete. "Check compliance" reconciles a persisted violations list and drives an attention icon per employee.
    - **Publishing.** Re-checks exactly the published-to-be scope and blocks until every open violation is approved.
-   - **Post-publish.** Create, update, reassign, delete and unassign of a **published** shift are checked synchronously, and any new violation involving that shift needs an approve/cancel decision before commit.
+   - **Post-publish.** Update, reassign, delete and unassign of a **published** shift are checked synchronously before commit. An edit or a reassignment blocks on an uncovered violation that involves the shift; a delete or unassign blocks on a violation the removal creates or makes worse. Either way the supervisor approves or cancels.
 5. **Time codes** come from a seeded system dictionary. Pay rules key off them in a later phase.
 6. **Schedule Planner.** Employees run down the left, with "Unassigned" pinned first. Days run across. A Day / Week / 3-Weeks / Month toggle sets the range. Weekends and holidays are shaded. Availability, planner unavailability and leave appear as bands. Each employee row has a compliance attention icon.
 
@@ -151,7 +151,7 @@ Weeks are **schedule weeks**: they start on Monday, in the schedule timezone, an
 
 | Type | Parameters (seeded org default) | Observed value (`worseWhen`) | Violation subject (`subject_key`) |
 |---|---|---|---|
-| `max_hours_in_period` | `maxHours` (48); `period`: `day` \| `week` \| `month` \| `rolling_days` (`week`); `rollingDays` (required when `rolling_days`); `averagingWeeks` (1 = no averaging; only valid with `week`; EU allows up to 17) | worked hours, or the average (`higher`) | period id: date / org-week start / month / rolling-window end date |
+| `max_hours_in_period` | `maxHours` (48); `period`: `day` \| `week` \| `month` \| `rolling_days` (`week`); `rollingDays` (required when `rolling_days`, at most 366); `averagingWeeks` (1 = no averaging; only valid with `week`; EU allows up to 17) | worked hours, or the average (`higher`) | period id: date / org-week start / month / rolling-window end date |
 | `max_shift_duration` | `maxHours` (12, gross shift length) | shift hours (`higher`) | shift id |
 | `min_rest_between_shifts` | `minRestHours` (11) | rest hours before the shift (`lower`) | id of the later shift of the pair |
 | `min_weekly_rest` | `minContinuousRestHours` (35), per schedule week | longest continuous rest touching the week (`lower`): a rest that crosses into the next week counts for both weeks; time before the first or after the last scheduled shift counts only inside the week. Only weeks with a shift are checked. | week start |
@@ -198,7 +198,7 @@ Unassigned shifts are never evaluated.
 `factScope` determines which shifts count:
 - **Check compliance (`all`):** all non-deleted shifts (draft and published).
 - **Publish (`publish`):** already-published shifts plus the shifts being published. Other drafts are excluded.
-- **Post-publish mutation (`post_publish`):** published shifts plus the shift being mutated, in its new state.
+- **Post-publish mutation (`post_publish`):** published shifts plus the shift being mutated, in its new state. For a removal (delete, unassign, or the old assignee of a reassign), published shifts without the removed shift, compared with the same scope including it.
 
 **Only the `all` scope (Check compliance) may resolve rows.** Publish and post-publish evaluations see a *subset* of shifts. If they resolved rows, they would wrongly resolve violations that the full check found and the supervisor approved. So they only **upsert** what they detect and never resolve anything.
 
@@ -218,8 +218,8 @@ Reconciliation rules, keyed by `(staff_member_id, rule_id, subject_key)`:
 |---|---|---|
 | Drafting | create/update/delete on shifts not meeting the post-publish trigger | No compliance check. Hard invariants only. |
 | On demand | "Check compliance" button (any time) | Reconcile the board's scope (`factScope: all`) and return `open` + `approved` rows, grouped New / Already approved. Approving writes approver, time, rule version and observed value. |
-| Publish | "Publish" button | Evaluate with `factScope: publish`. A detected violation that **involves a shift being published** and isn't covered blocks the publish (upserted as `open`) → `409 { code: 'shift_scheduling_compliance_approval_required', violations, fingerprint }`. Violations involving only already-published shifts don't block it. The supervisor approves via the approve endpoint (by violation ids), then publishes again. "Approve all & publish" does exactly that. |
-| Post-publish | create / update / reassign / **delete / unassign** of a shift that **is published (before or after the mutation)** | Evaluate with `factScope: post_publish` before commit. Only uncovered violations that **involve the mutated shift** count, so pre-existing violations elsewhere (including shifts published before Phase 2 existed) never block an unrelated edit. If any count on the first attempt → `409` (same code, with `violations` and `fingerprint`), and nothing commits. |
+| Publish | "Publish" button | Evaluate with `factScope: publish`. A detected violation that **involves a shift being published** and isn't covered blocks the publish (upserted as `open`) → `409 { code: 'shift_scheduling_compliance_approval_required', violations, fingerprint }`. Violations involving only already-published shifts don't block it. "Approve all & publish" re-submits the publish with `acknowledgeViolations: { fingerprint }`, the same re-submit as a post-publish edit; violations can also be approved one by one in the Check compliance dialog before publishing again. |
+| Post-publish | update / reassign / **delete / unassign** of a **published** shift (a new shift is always a draft, so create never qualifies) | Evaluate with `factScope: post_publish` before commit. **Edit and reassign (new assignee):** only uncovered violations that **involve the mutated shift** count, so pre-existing violations elsewhere (including shifts published before Phase 2 existed) never block an unrelated edit. **Delete, unassign and reassign (old assignee):** only an uncovered violation the removal **creates or makes worse** counts (see the note below). If any count on the first attempt → `409` (same code, with `violations` and `fingerprint`), and nothing commits. |
 
 **Approval re-submit.**
 - The `409` carries a `fingerprint`: a hash of the sorted `(rule_id, subject_key, observed_value)` of exactly the listed violations.
@@ -230,7 +230,7 @@ Reconciliation rules, keyed by `(staff_member_id, rule_id, subject_key)`:
 
 **Notes:**
 - **Drafting stays free.** A brand-new draft next to a published week is not gated on edit. It is checked against the published shifts when it is itself published, because the publish fact scope includes published shifts.
-- **Deletes and unassigns of a published shift are checked on what the removal causes.** Removing work can break a rule (for instance a minimum number of hours per week), so the schedule is evaluated as it would be without the shift, for the employee who loses it, and compared with the schedule as it is now. Only a violation that did not exist before, or one that got **worse** (in the direction that is worse for its rule), blocks; one that stays the same or shrinks never does, so an employee who is over a limit can still delete a shift to fix it. A blocked removal returns the same `409` and `fingerprint` as a post-publish edit and is approved or cancelled the same way. A reassignment checks both people: the new assignee with the shift added, the old assignee with it removed. Drafts are never checked. With the six rule types in v1 a removal cannot create a violation, so nothing changes in practice, but the check does not rely on that. Remaining rows resolve on the next Check compliance.
+- **Deletes and unassigns of a published shift are checked on what the removal causes.** Removing work can break a rule (for instance a minimum number of hours per week), so the schedule is evaluated as it would be without the shift, for the employee who loses it, and compared with the schedule as it is now. Only a violation that did not exist before, or one that got **worse** (in the direction that is worse for its rule) and is not still covered by an approval, blocks; one that stays the same or shrinks never does, so an employee who is over a limit can still delete a shift to fix it. A blocked removal returns the same `409` and `fingerprint` as a post-publish edit and is approved or cancelled the same way. A reassignment checks both people: the new assignee with the shift added, the old assignee with it removed. Drafts are never checked. With the six rule types in v1 a removal cannot create a violation, so nothing changes in practice, but the check does not rely on that. Remaining rows resolve on the next Check compliance.
 - **Check order on every mutation:** optimistic lock (`code: 'optimistic_lock_conflict'`) → hard invariants (`422` with field errors) → compliance (`409` with its own code). The compliance code never collides with the lock conflict, which the UI matches on `code`.
 - **Fail closed:** an evaluator error blocks the publish or mutation and is reported via `reportError`. It never counts as "no violations".
 
@@ -325,7 +325,7 @@ The unique index is `(tenant_id, organization_id, staff_member_id, rule_id, subj
 **`shift_scheduling_holidays`**: `id`, `date` (date), `label`, `created_at`, `updated_at`, `deleted_at`. This is a display aid, not a rule input in v1.
 
 ## 📝 API Contracts
-Every route exports `openApi` and per-method `metadata`. Custom write routes run the mutation guard. Every route that needs staff data (board, lookups, my-shifts, and shift create/update through the invariants) returns `403 staff_module_not_loaded` when staff is absent. Shift list/delete, holidays and settings don't need staff and keep working.
+Every route exports `openApi` and per-method `metadata`. Custom write routes run the mutation guard. Every route that needs staff data (board, lookups, my-shifts, shift create/update through the invariants, and the compliance checks, which resolve each employee's team) returns `403 staff_module_not_loaded` when staff is absent. That includes deleting a published, assigned shift, which runs the removal check. Shift list, deleting drafts and unassigned shifts, and holidays don't need staff and keep working.
 
 **Shifts** — `makeCrudRoute` at `/api/shift_scheduling/shifts`, with `indexer: { entityType: 'shift_scheduling:scheduled_shift' }`
 - `GET ?teamId&staffMemberId&from&to&status&unassigned`
@@ -333,7 +333,7 @@ Every route exports `openApi` and per-method `metadata`. Custom write routes run
   - Employees with only `.my_schedule.view` use the dedicated `GET /api/shift_scheduling/my-shifts?from&to` (at most 62 days). It returns only the caller's own **published** shifts, resolved through `resolveMemberByUserId`. A separate route keeps the RBAC declarative instead of branching inside the CRUD list.
 - `POST` — create. Always starts as `draft`. Hard invariants apply. The post-publish gate applies when triggered.
 - `PUT` — update. **Assign, reassign and unassign are a `PUT` of `staff_member_id`**; there is no separate endpoint. Same validation as create. Optimistic-lock header required.
-- `DELETE` — soft delete, in every status. No compliance gate.
+- `DELETE` — soft delete, in every status. Deleting a draft or an unassigned shift is never checked. Deleting a published, assigned shift runs the removal check and can return the compliance `409`; it accepts `acknowledgeViolations: { fingerprint }` like `PUT`.
 - **Approval re-submit:** body field `acknowledgeViolations: { fingerprint }`, echoing the fingerprint from the `409`. It's the same confirm-and-resubmit pattern as workflows publish's `acknowledgeBreakingChanges`. Only the fingerprinted violations get approved.
 - **Team move:**
   - An employee who moved teams keeps their older shifts under the old `team_id`. Those shifts render on the old team's board in a "Former members" group, and only when they fall in range.
@@ -371,7 +371,7 @@ Every route exports `openApi` and per-method `metadata`. Custom write routes run
 - **Skip messages name the shift.** The board builds each line from the shift it displayed: employee (or "Unassigned"), date, start–end time, and the reason, for example "Marek Kowalski, Wed, Oct 14, 2026, 08:00–16:00: changed by someone else after you loaded the board". It lists up to 5 and then "and N more", and reloads the board so changed shifts show their current state. This applies to every skip reason, including a shift that no longer exists.
 
 **Publish** — `POST /api/shift_scheduling/shifts/publish`
-- Body: `{ shiftIds }` (at most 500) or `{ teamId, from, to }`. The range form publishes every `draft` shift of that team whose `starts_at` falls in the range, **including unassigned (open) shifts**. Open shifts are published so they show as open slots, and they carry no compliance.
+- Body: `{ shiftIds }` (at most 500) or `{ teamId, from, to }`, plus optional `acknowledgeViolations: { fingerprint }` to re-submit after a `409`. The range form publishes every `draft` shift of that team whose `starts_at` falls in the range, **including unassigned (open) shifts**. Open shifts are published so they show as open slots, and they carry no compliance.
 - Requires `.publish`.
 - Publish runs the publish-stage reconciliation first and returns `409` with the compliance code while `open` rows remain in scope.
 - Publishing is one-way. There is no unpublish route, and the command is not undoable (an undo would move shifts back to draft). It is still recorded in the audit log.
@@ -442,19 +442,19 @@ Built following the `om-backend-ui-design` skill and DS rules: semantic tokens o
   - time code (required; defaults to the dictionary's default entry)
   - team role (optional)
   - note (optional)
-- **Delete:** from the dialog footer or the block's row actions, confirmed with `ConfirmDialog`.
+- **Delete:** from the dialog footer or the block's row actions, confirmed with `ConfirmDialog`. For a published shift whose removal is blocked by compliance, the approve/cancel dialog opens and approving retries the delete.
 - **Assign / Reassign / Unassign:** from the block's row actions, as quick actions calling the same `PUT`, or through the dialog.
 - **Drag and drop:** drag a shift block onto another row to change only its assignee; the day and times are kept.
   - Unassigned row → employee assigns; employee → employee reassigns; employee → Unassigned row unassigns.
   - The whole row is the drop target and highlights while hovered. Former and inactive members' rows don't accept drops. Dropping on the same row does nothing.
-  - The drop calls the same `PUT` (optimistic lock, hard invariants), so leave, overlap and unavailability rejections surface as the usual error flash.
+  - The drop calls the same `PUT` (optimistic lock, hard invariants), so leave, overlap and unavailability rejections surface as the usual error flash. For a published shift, a compliance block opens the approve/cancel dialog instead.
   - Dragging starts after a 4px pointer move, so a click still opens the edit dialog. Keyboard users use the row actions above.
 - **Unassigned shifts** render on a yellow background (`badge-yellow-light` / `badge-yellow-border`; the amber warning tokens read as red in dark mode), so open slots stand out from assigned shifts wherever they appear.
 
 **Compliance dialogs**
 - **Check compliance:** a list grouped **New** vs **Already approved**. Each row shows the employee, rule name and scope, the message (with observed vs threshold), and the period. Actions: per-row "Approve" and "Approve all new".
 - **Publish:** with `requiresApproval`, the same dialog opens framed as blocking ("Resolve before publishing"), with an "Approve all & publish" convenience action. With no open rows, publish completes without a dialog.
-- **Post-publish mutation:** an approve/cancel modal listing the violations. Approve re-submits with `acknowledgeViolations: { fingerprint }`.
+- **Post-publish mutation:** an approve/cancel modal listing the violations, for edits, single delete, unassign, reassign and drag and drop. Approve re-submits with `acknowledgeViolations: { fingerprint }`. The bulk actions don't open it: a shift that needs approval is skipped with "needs compliance approval, change this shift on its own".
 - **Error routing:** the UI intercepts `shift_scheduling_compliance_approval_required` before `CrudForm` / `useGuardedMutation` turn it into a generic error toast. The structured payload is routed through the save-error channel (lesson: *always propagate structured conflict payloads*).
 
 **Compliance rules page** (`backend/shift_scheduling/compliance-rules/`)
@@ -484,6 +484,9 @@ Built following the `om-backend-ui-design` skill and DS rules: semantic tokens o
   - rule edited or re-enabled, or employee list changed → re-opens
   - effective rule switched (team move, rule added or removed) → old rows resolve, new rows open
 - **Concurrent edit between check and publish:** publish re-reconciles, so a stale approval list can't publish unreviewed violations.
+- **Shift changed by someone else after the board was loaded:** bulk assign and bulk delete skip it (`shift_changed`) instead of overwriting or deleting it; single edits get the platform's optimistic-lock conflict.
+- **Violation changed while the supervisor was deciding:** approve refuses the whole request (`shift_scheduling_violation_changed`) and returns the current values.
+- **Deleting a shift to fix an over-limit week:** allowed, because the removal makes the violation smaller; only a removal that creates or worsens a violation asks for approval.
 - **Approval re-submit after the data changed:** the server re-evaluates. Different violations produce a fresh `409`.
 - **Evaluator error:** fail closed and `reportError`. Publish and the post-publish mutation are blocked.
 - **Staff module absent:** every route returns `403 staff_module_not_loaded`. **Planner absent:** the module doesn't load (`requires: ['planner']`).
@@ -542,7 +545,7 @@ Neither question blocks this spec. Both are decisions for the module owners.
   - new module, tables, ACL features, events and routes
   - new staff DI keys (`staffRosterResolver`, `staffLeaveResolver`)
   - a new planner DI key (`plannerAvailabilityReader`)
-  - two new upgrade actions in `configs` (`shift_scheduling.seed-time-codes`, version 0.9.1, and `shift_scheduling.seed-compliance-defaults`, version 0.9.1); they only apply where `shift_scheduling` is enabled
+  - two new upgrade actions in `configs` (`shift_scheduling.seed-time-codes` and `shift_scheduling.seed-compliance-defaults`), versioned for the release that ships the module (`0.9.1` assumed; adjust if it ships later); they only apply where `shift_scheduling` is enabled
   - an optional `detailLines` field on the shared `ScheduleItem` (`packages/ui`), rendered by the shared schedule calendar only when set; the planner, resources and design-system gallery consumers don't set it
 - **App registration.** `shift_scheduling` is added to `enabledModules` in `apps/mercato/src/modules.ts`. In the create-app template it is listed but commented out (same as `forms`), because enabling it there makes the scaffold ship the module's fact-sheet, which needs an AI-harness evaluation case (`om-refresh-standalone-harness`). Whether it should be enabled by default in new apps is a team decision.
 - **`auth` translations.** The six `auth.acl.features.shift_scheduling.*` titles are added to the `auth` locale files (all five languages), so the role editor shows readable permission names.
@@ -617,7 +620,7 @@ Each PR leaves the app working.
 13. **Engine:** `lib/compliance/resolveEffectiveRules.ts` (employee > team > org; disabled = off; deleted = fall back), then `ShiftSchedulingComplianceViolation` and `lib/compliance/reconcile.ts` (upsert, resolve, re-open on version change or worsening).
 14. **Endpoints:** the check and approve endpoints, then the Check-compliance dialog and attention icon on the board.
 15. **Publish gate:** upgrade publish to run reconciliation, and add the "Approve all & publish" UI.
-16. **Post-publish gate:** wire it into create/update/reassign of published shifts:
+16. **Post-publish gate:** wire it into update/reassign of published shifts (and, since 2026-10-12, delete/unassign by before-and-after comparison):
     - only violations involving the mutated shift count
     - the fingerprint is returned with the `409`
     - `acknowledgeViolations: { fingerprint }` triggers a re-evaluation, and on a match only the fingerprinted rows become `approved`
@@ -627,7 +630,7 @@ Each PR leaves the app working.
 18. **Integration tests for Phase 2.**
 
 ## 🧪 Integration Coverage
-Every test creates its own fixtures through the API and cleans up after itself. Each API path also has a **second-tenant isolation** case.
+Every test creates its own fixtures through the API and cleans up after itself. This list is the target coverage. The shipped suite is TC-SHIFT-001…009 plus unit tests; the cases below that TC-SHIFT tests don't cover yet are **planned**, notably the **second-tenant isolation** case per API path, staff module absent, an evaluator error failing closed, and the upgrade actions.
 
 **API**
 - **Shifts:**
@@ -674,7 +677,7 @@ Every test creates its own fixtures through the API and cleans up after itself. 
   - resolve when fixed
   - publish blocked by an open violation, then succeeding after approval
   - publish ignoring other drafts
-  - post-publish create/update/reassign returning a `409` with the code and fingerprint, and committing with `acknowledgeViolations: { fingerprint }`, approving only the listed rows
+  - post-publish update/reassign returning a `409` with the code and fingerprint, and committing with `acknowledgeViolations: { fingerprint }`, approving only the listed rows
   - an edit to a published shift not blocked by an unrelated pre-existing violation
   - a new draft next to a published week not gated on edit, only on its own publish
   - publish or post-publish evaluation never resolving a row approved through Check compliance
@@ -683,7 +686,7 @@ Every test creates its own fixtures through the API and cleans up after itself. 
   - consecutive-days approval stable when the run grows earlier
   - the upgrade action seeding the time-code dictionary and default rules for an existing tenant
   - a changed-state re-submit producing a fresh `409`
-  - delete and unassign not gated
+  - delete and unassign of a draft not gated; delete and unassign of a published shift gated only on a violation the removal creates or worsens
   - an evaluator error failing closed
   - night-shift day attribution: an overnight shift counts on its start day
 
@@ -709,14 +712,14 @@ Every test creates its own fixtures through the API and cleans up after itself. 
 | Tenant and organization scoping on every query and FK | ✅ specified |
 | Optimistic locking (`updated_at`) on user-editable entities | ✅ shifts, rules, holidays (junction and violations exempt or system-managed) |
 | Commands, side effects with an indexer (undo removed by product decision) | ✅ specified |
-| Mutation guard on custom write routes | ✅ publish, check, approve |
+| Mutation guard on custom write routes | ✅ publish, check, approve, rotation, bulk-assign, bulk-delete |
 | `makeCrudRoute` for CRUD; pageSize ≤ 100 | ✅ board uses a dedicated range endpoint |
 | Encryption of PII / free text | ✅ `note`; no name snapshot stored |
 | zod validation in `data/validators.ts` | ✅ including per-type params schemas |
 | ACL features in `setup.ts` `defaultRoleFeatures` | ✅ |
 | Events via `createModuleEvents` | ✅ |
 | i18n, DS tokens, dialog shortcuts, `ConfirmDialog` | ✅ |
-| Integration coverage, including tenant isolation | ✅ |
+| Integration coverage, including tenant isolation | ⚠️ lifecycle, bulk, stale-data and removal cases covered (TC-SHIFT-001…009); second-tenant isolation, staff-absent, evaluator-error and upgrade-action cases still planned |
 | Backward compatibility | ✅ additive only |
 
 ## 📜 Changelog
@@ -755,12 +758,13 @@ Every test creates its own fixtures through the API and cleans up after itself. 
 - **2026-10-08** — Phase 2 implemented and shipped: the rule-type catalog and reconciliation engine, rule CRUD and management page, `/compliance/check` and `/approve`, the publish and post-publish gates with the fingerprinted acknowledge-and-resubmit flow, and the board's attention icon and compliance dialogs. TC-SHIFT-007 covers the full lifecycle end to end; TC-SHIFT-002's fixtures gained a compliant break now that publish is gated.
 - **2026-10-08** — Renamed the user-facing feature to **Schedule Planner** (nav group, page titles, module display name); the module id, ACL features, routes, tables and events stay `shift_scheduling.*` unchanged. Added worked-hours-in-period to each employee row. Starting Phase 2 (configurable compliance).
 - **2026-10-10** — Removed the organization timezone and week-start settings (settings page, `GET`/`PUT /api/shift_scheduling/settings`, `shift_scheduling.settings.manage`, translations and the settings integration test). The module now uses a fixed UTC schedule timezone and a Monday week start from one constant (`lib/settings.ts`); the `settings` object stays in the board, lookups and my-shifts responses. Added open question 3 on how such a setting should work across the application.
+- **2026-10-10** — Backward-compatibility section completed with every change outside the module: the `configs` upgrade actions, the optional `ScheduleItem.detailLines`, the app and template registration, and the data-level effects. Existing unit suites of staff, planner, configs, resources, the schedule UI and the design-system gallery pass; the existing staff and planner integration suites were not run.
+- **2026-10-10** — Added **Open Questions for the Open Mercato Team**: the intention behind `planner` and whether it should be combined with `shift_scheduling`, and why some menu items sit under other modules' groups. Non-blocking; the Scheduling menu group and the Polish 2026 holidays seed shipped the same day.
 - **2026-10-11** — Merged `origin/develop` into the spec, contracts, phase-1 and phase-2 branches (no conflicts). Review fixes: explicit sort comparators (`lib/sort.ts`), explicit command-interceptor mapping in the approve and rotation routes, `auth.acl.features.shift_scheduling.*` titles in all locales, sorted locale files. Spec brought in line with the code: undo removed from every command, schedule cost (`.costs.view`, `rates`, `costConversion`), the 2026 Polish holidays seed, My schedule card details, the attention icon's range filter, and the weekly-rest rule semantics.
 - **2026-10-12** — Open items closed: the two seeding upgrade actions are now version `0.9.1` (v0.9.0 shipped without the module); Scheduling is not enabled in the create-app template (commented out like `forms`, so no harness evaluation case is needed until a maintainer decides); with "All organizations" selected every Scheduling route now answers `400` "Select a specific organization to use Schedule Planner" instead of the board loading while writes failed.
 - **2026-10-12 (review)** — Three review findings fixed. (1) The ±14-day context window is now per employee and as long as the employee's longest rule period (rolling days, N-week averages, months, consecutive days), capped at 400 days; `maxDays` is capped at 366. (2) Bulk assign, bulk delete and approve now check the version the supervisor saw: bulk entries carry `updatedAt` (changed shifts are skipped as `shift_changed`), approve carries `observedValue` (a changed violation refuses the whole request). Skipped shifts are reported with employee, date, time and reason. (3) The reassignment wording is corrected: the new assignee is gated, only moving away or unassigning is exempt; TC-SHIFT-008 covers it.
 - **2026-10-12 (removals)** — Deletes and unassigns of published shifts are no longer exempt from compliance. They are checked by comparing the employee's violations before and after the removal, so only a violation the removal creates or worsens blocks (approve/cancel dialog on the board for single delete, unassign and reassign; skipped with a hint in the bulk actions). This removes the assumption that every rule is monotonic in worked time.
-- **2026-10-10** — Backward-compatibility section completed with every change outside the module: the `configs` upgrade actions, the optional `ScheduleItem.detailLines`, the app and template registration, and the data-level effects. Existing unit suites of staff, planner, configs, resources, the schedule UI and the design-system gallery pass; the existing staff and planner integration suites were not run.
-- **2026-10-10** — Added **Open Questions for the Open Mercato Team**: the intention behind `planner` and whether it should be combined with `shift_scheduling`, and why some menu items sit under other modules' groups. Non-blocking; the Scheduling menu group and the Polish 2026 holidays seed shipped the same day.
+- **2026-10-13** — Spec consistency pass after the review fixes: delete and the post-publish table now describe the removal check (edits block on violations involving the shift, removals on violations they create or worsen), publish documents its `acknowledgeViolations` re-submit, the staff-absent note covers the compliance checks, the UI and edge cases describe the approve dialog for single delete/unassign/drag and the stale-data skips, the test list marks the still-missing cases (second-tenant isolation, staff absent, evaluator error, upgrade actions) as planned, the upgrade-action version is marked as assumed, and the changelog is back in date order.
 
 ## Implementation Status
 
@@ -768,7 +772,7 @@ Every test creates its own fixtures through the API and cleans up after itself. 
 |-------|--------|------|-------|
 | (a) Staff + planner DI contracts | Done | 2026-10-06 | `staffRosterResolver`, `staffLeaveResolver`, `plannerAvailabilityReader`, with unit tests; documented in `staff/AGENTS.md`. Branch `feat/shift-scheduling-contracts`. |
 | Phase 1 — Foundations, shifts and board, plus rotations/bulk actions/grouping | Done | 2026-10-08 | Branch `feat/shift-scheduling-phase-1`. Unit tests, typecheck, lint and build pass. Integration specs TC-SHIFT-001…006 pass against a running app (rerun 2026-10-12, after the `develop` merge). |
-| Phase 2 — Configurable compliance | Done | 2026-10-08 | Branch `feat/shift-scheduling-phase-2`. Unit tests, typecheck, lint and build pass. All 8 Scheduling integration tests (TC-SHIFT-001…007; TC-SHIFT-003 is now the holidays spec, the settings spec was removed on 2026-10-10) pass against a running app, rerun 2026-10-12 after the `develop` merge. |
+| Phase 2 — Configurable compliance | Done | 2026-10-08 | Branch `feat/shift-scheduling-phase-2`. Unit tests, typecheck, lint and build pass. All 10 Scheduling integration tests (TC-SHIFT-001…009; TC-SHIFT-003 is now the holidays spec, the settings spec was removed on 2026-10-10) pass against a running app on 2026-10-12, after the `develop` merge and the review fixes (TC-SHIFT-004 and 007 needed a retry under machine load and pass when run on their own). |
 
 ### Phase 1 — Detailed Progress
 - [x] Module scaffold (`index`, `acl`, `setup`, `events`, `encryption`), app and template registration
@@ -803,4 +807,4 @@ Every test creates its own fixtures through the API and cleans up after itself. 
 - My-schedule uses a dedicated `GET /api/shift_scheduling/my-shifts` route.
 - Board teams and time codes are loaded through `GET /api/shift_scheduling/lookups`, which also returns the fixed schedule timezone and week start as `settings`.
 - Leave days are taken from the UTC calendar date, matching how staff stores and expands leave.
-- The post-publish gate only applies to `updateShiftCommand`: a create is always a fresh `draft`, so it never qualifies, and removing work is gated too, by comparison: a delete, an unassign, or the old assignee of a reassign is evaluated without the shift and blocks only on a violation it creates or worsens (`collectRemovalViolations`, TC-SHIFT-009 and `removalGate.test.ts`). Reassigning a published shift **to** a new employee is gated for that new assignee, because it adds work to them; the shift is evaluated as pending on the recipient (TC-SHIFT-008). `deleteShiftCommand` accepts `acknowledgeViolations` like the update command; the bulk actions report such a shift as skipped ("needs compliance approval, change this shift on its own").
+- The post-publish gate runs in `updateShiftCommand` and `deleteShiftCommand` (a create is always a fresh `draft`, so it never qualifies). Removing work is gated by comparison: a delete, an unassign, or the old assignee of a reassign is evaluated without the shift and blocks only on a violation it creates or worsens (`collectRemovalViolations`, TC-SHIFT-009 and `removalGate.test.ts`). Reassigning a published shift **to** a new employee is gated for that new assignee, because it adds work to them; the shift is evaluated as pending on the recipient (TC-SHIFT-008). `deleteShiftCommand` accepts `acknowledgeViolations` like the update command; the bulk actions report such a shift as skipped ("needs compliance approval, change this shift on its own").
