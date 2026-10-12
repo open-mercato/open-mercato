@@ -8,10 +8,10 @@
     "cases": "packages/create-app/agentic/shared/ai/harness/cases.json"
   },
   "derived": {
-    "ownerCount": 30,
-    "recordCount": 138,
-    "sourceRequiredCount": 113,
-    "renderedLinkCount": 115,
+    "ownerCount": 32,
+    "recordCount": 150,
+    "sourceRequiredCount": 125,
+    "renderedLinkCount": 127,
     "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
   },
   "notCovered": [
@@ -471,6 +471,583 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../src/modules/example/references/surface-map.md",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "topicId": "guides/customers-calendar:commands/interceptors.ts",
+      "referenceId": "guides/customers-calendar:commands/interceptors.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/customers-calendar.md",
+      "originAuthoringPath": "agentic/guides/customers-calendar.md",
+      "heading": "Exact reference implementation",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/commands/interceptors.ts",
+      "targetAuthoringPath": "template/src/modules/example/commands/interceptors.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "commands.interceptors",
+        "umes.customers.calendar-event-types"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-018-visit-availability.spec.ts",
+        "src/modules/example/__integration__/TC-UMES-006-mutation-lifecycle.spec.ts",
+        "src/modules/example/api/visit-availability/__tests__/route.test.ts",
+        "src/modules/example/components/__tests__/VisitPanel.test.tsx",
+        "src/modules/example/lib/__tests__/visitAvailability.test.ts",
+        "src/modules/example/widgets/__tests__/calendar-event-types.test.ts",
+        "src/modules/example/widgets/__tests__/visit-availability-widget.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-238"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../src/modules/example/commands/interceptors.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "topicId": "guides/customers-calendar:components/VisitPanel.tsx",
+      "referenceId": "guides/customers-calendar:components/VisitPanel.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/customers-calendar.md",
+      "originAuthoringPath": "agentic/guides/customers-calendar.md",
+      "heading": "Exact reference implementation",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/components/VisitPanel.tsx",
+      "targetAuthoringPath": "template/src/modules/example/components/VisitPanel.tsx",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.customers.calendar-event-types"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-018-visit-availability.spec.ts",
+        "src/modules/example/api/visit-availability/__tests__/route.test.ts",
+        "src/modules/example/components/__tests__/VisitPanel.test.tsx",
+        "src/modules/example/lib/__tests__/visitAvailability.test.ts",
+        "src/modules/example/widgets/__tests__/calendar-event-types.test.ts",
+        "src/modules/example/widgets/__tests__/visit-availability-widget.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-238"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../src/modules/example/components/VisitPanel.tsx",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "topicId": "guides/customers-calendar:di.ts",
+      "referenceId": "guides/customers-calendar:di.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/customers-calendar.md",
+      "originAuthoringPath": "agentic/guides/customers-calendar.md",
+      "heading": "Exact reference implementation",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/di.ts",
+      "targetAuthoringPath": "template/src/modules/example/di.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "integrations.local-bundle",
+        "module.di-registration",
+        "umes.customers.calendar-event-types"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-007-cache.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-015-specialized-registries.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-018-visit-availability.spec.ts",
+        "src/modules/example/__integration__/TC-UMES-005.spec.ts",
+        "src/modules/example/__integration__/TC-UMES-020.spec.ts",
+        "src/modules/example/__tests__/di-registration.test.ts",
+        "src/modules/example/__tests__/specialized-registries.test.ts",
+        "src/modules/example/api/visit-availability/__tests__/route.test.ts",
+        "src/modules/example/components/__tests__/VisitPanel.test.tsx",
+        "src/modules/example/lib/__tests__/visitAvailability.test.ts",
+        "src/modules/example/widgets/__tests__/calendar-event-types.test.ts",
+        "src/modules/example/widgets/__tests__/visit-availability-widget.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-238"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../src/modules/example/di.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "topicId": "guides/customers-calendar:lib/visitAvailability.ts",
+      "referenceId": "guides/customers-calendar:lib/visitAvailability.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/customers-calendar.md",
+      "originAuthoringPath": "agentic/guides/customers-calendar.md",
+      "heading": "Exact reference implementation",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/lib/visitAvailability.ts",
+      "targetAuthoringPath": "template/src/modules/example/lib/visitAvailability.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.customers.calendar-event-types"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-018-visit-availability.spec.ts",
+        "src/modules/example/api/visit-availability/__tests__/route.test.ts",
+        "src/modules/example/components/__tests__/VisitPanel.test.tsx",
+        "src/modules/example/lib/__tests__/visitAvailability.test.ts",
+        "src/modules/example/widgets/__tests__/calendar-event-types.test.ts",
+        "src/modules/example/widgets/__tests__/visit-availability-widget.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-238"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../src/modules/example/lib/visitAvailability.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "topicId": "guides/customers-calendar:lib/visitAvailabilityGuard.ts",
+      "referenceId": "guides/customers-calendar:lib/visitAvailabilityGuard.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/customers-calendar.md",
+      "originAuthoringPath": "agentic/guides/customers-calendar.md",
+      "heading": "Exact reference implementation",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/lib/visitAvailabilityGuard.ts",
+      "targetAuthoringPath": "template/src/modules/example/lib/visitAvailabilityGuard.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.customers.calendar-event-types"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-018-visit-availability.spec.ts",
+        "src/modules/example/api/visit-availability/__tests__/route.test.ts",
+        "src/modules/example/components/__tests__/VisitPanel.test.tsx",
+        "src/modules/example/lib/__tests__/visitAvailability.test.ts",
+        "src/modules/example/widgets/__tests__/calendar-event-types.test.ts",
+        "src/modules/example/widgets/__tests__/visit-availability-widget.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-238"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../src/modules/example/lib/visitAvailabilityGuard.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "topicId": "guides/customers-calendar:node_modules/@open-mercato/core/src/modules/customers/calendar-event-types.ts",
+      "referenceId": "guides/customers-calendar:node_modules/@open-mercato/core/src/modules/customers/calendar-event-types.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/customers-calendar.md",
+      "originAuthoringPath": "agentic/guides/customers-calendar.md",
+      "heading": "Exact reference implementation",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/core/src/modules/customers/calendar-event-types.ts",
+      "targetAuthoringPath": null,
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-238"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../node_modules/@open-mercato/core/src/modules/customers/calendar-event-types.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ],
+      "packageName": "@open-mercato/core",
+      "packageRelativePath": "src/modules/customers/calendar-event-types.ts"
+    },
+    {
+      "topicId": "guides/customers-calendar:node_modules/@open-mercato/core/src/modules/customers/components/calendar/CalendarEventEditor.tsx",
+      "referenceId": "guides/customers-calendar:node_modules/@open-mercato/core/src/modules/customers/components/calendar/CalendarEventEditor.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/customers-calendar.md",
+      "originAuthoringPath": "agentic/guides/customers-calendar.md",
+      "heading": "Exact reference implementation",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/core/src/modules/customers/components/calendar/CalendarEventEditor.tsx",
+      "targetAuthoringPath": null,
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-238"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../node_modules/@open-mercato/core/src/modules/customers/components/calendar/CalendarEventEditor.tsx",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ],
+      "packageName": "@open-mercato/core",
+      "packageRelativePath": "src/modules/customers/components/calendar/CalendarEventEditor.tsx"
+    },
+    {
+      "topicId": "guides/customers-calendar:node_modules/@open-mercato/core/src/modules/customers/lib/calendar/eventTypeResolver.ts",
+      "referenceId": "guides/customers-calendar:node_modules/@open-mercato/core/src/modules/customers/lib/calendar/eventTypeResolver.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/customers-calendar.md",
+      "originAuthoringPath": "agentic/guides/customers-calendar.md",
+      "heading": "Exact reference implementation",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/core/src/modules/customers/lib/calendar/eventTypeResolver.ts",
+      "targetAuthoringPath": null,
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-238"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../node_modules/@open-mercato/core/src/modules/customers/lib/calendar/eventTypeResolver.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ],
+      "packageName": "@open-mercato/core",
+      "packageRelativePath": "src/modules/customers/lib/calendar/eventTypeResolver.ts"
+    },
+    {
+      "topicId": "guides/customers-calendar:widgets/injection-table.ts",
+      "referenceId": "guides/customers-calendar:widgets/injection-table.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/customers-calendar.md",
+      "originAuthoringPath": "agentic/guides/customers-calendar.md",
+      "heading": "Exact reference implementation",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/injection-table.ts",
+      "targetAuthoringPath": "template/src/modules/example/widgets/injection-table.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.customers.calendar-event-types",
+        "umes.injection-table"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-018-visit-availability.spec.ts",
+        "src/modules/example/__integration__/TC-UMES-001.spec.ts",
+        "src/modules/example/api/visit-availability/__tests__/route.test.ts",
+        "src/modules/example/components/__tests__/VisitPanel.test.tsx",
+        "src/modules/example/lib/__tests__/visitAvailability.test.ts",
+        "src/modules/example/widgets/__tests__/calendar-event-types.test.ts",
+        "src/modules/example/widgets/__tests__/injection-table.test.ts",
+        "src/modules/example/widgets/__tests__/visit-availability-widget.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-238"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../src/modules/example/widgets/injection-table.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "topicId": "guides/customers-calendar:widgets/injection/calendar-visit/widget.ts",
+      "referenceId": "guides/customers-calendar:widgets/injection/calendar-visit/widget.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/customers-calendar.md",
+      "originAuthoringPath": "agentic/guides/customers-calendar.md",
+      "heading": "Exact reference implementation",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/injection/calendar-visit/widget.ts",
+      "targetAuthoringPath": "template/src/modules/example/widgets/injection/calendar-visit/widget.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.customers.calendar-event-types"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-018-visit-availability.spec.ts",
+        "src/modules/example/api/visit-availability/__tests__/route.test.ts",
+        "src/modules/example/components/__tests__/VisitPanel.test.tsx",
+        "src/modules/example/lib/__tests__/visitAvailability.test.ts",
+        "src/modules/example/widgets/__tests__/calendar-event-types.test.ts",
+        "src/modules/example/widgets/__tests__/visit-availability-widget.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-238"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../src/modules/example/widgets/injection/calendar-visit/widget.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "topicId": "guides/customers-calendar:widgets/injection/visit-availability/widget.ts",
+      "referenceId": "guides/customers-calendar:widgets/injection/visit-availability/widget.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/customers-calendar.md",
+      "originAuthoringPath": "agentic/guides/customers-calendar.md",
+      "heading": "Exact reference implementation",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/injection/visit-availability/widget.ts",
+      "targetAuthoringPath": "template/src/modules/example/widgets/injection/visit-availability/widget.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.customers.calendar-event-types"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-018-visit-availability.spec.ts",
+        "src/modules/example/api/visit-availability/__tests__/route.test.ts",
+        "src/modules/example/components/__tests__/VisitPanel.test.tsx",
+        "src/modules/example/lib/__tests__/visitAvailability.test.ts",
+        "src/modules/example/widgets/__tests__/calendar-event-types.test.ts",
+        "src/modules/example/widgets/__tests__/visit-availability-widget.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-238"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../src/modules/example/widgets/injection/visit-availability/widget.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "topicId": "guides/extensions:.ai/guides/customers-calendar.md",
+      "referenceId": "guides/extensions:.ai/guides/customers-calendar.md",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/extensions.md",
+      "originAuthoringPath": "agentic/guides/extensions.md",
+      "heading": "Mechanism Selector",
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/guides/customers-calendar.md",
+      "targetAuthoringPath": "agentic/guides/customers-calendar.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-024",
+        "OMH-025",
+        "OMH-026",
+        "OMH-027",
+        "OMH-028",
+        "OMH-029",
+        "OMH-030",
+        "OMH-031",
+        "OMH-032",
+        "OMH-033",
+        "OMH-034",
+        "OMH-035",
+        "OMH-036",
+        "OMH-037",
+        "OMH-038",
+        "OMH-055",
+        "OMH-056",
+        "OMH-058",
+        "OMH-071",
+        "OMH-072",
+        "OMH-073",
+        "OMH-074",
+        "OMH-075",
+        "OMH-076",
+        "OMH-077",
+        "OMH-078",
+        "OMH-080",
+        "OMH-081",
+        "OMH-082",
+        "OMH-088",
+        "OMH-089",
+        "OMH-093",
+        "OMH-094",
+        "OMH-095",
+        "OMH-096",
+        "OMH-097",
+        "OMH-098",
+        "OMH-099",
+        "OMH-100",
+        "OMH-101",
+        "OMH-102",
+        "OMH-103",
+        "OMH-105",
+        "OMH-106",
+        "OMH-107",
+        "OMH-108",
+        "OMH-109",
+        "OMH-110",
+        "OMH-111",
+        "OMH-112",
+        "OMH-113",
+        "OMH-114",
+        "OMH-115",
+        "OMH-116",
+        "OMH-117",
+        "OMH-118",
+        "OMH-119",
+        "OMH-120",
+        "OMH-122",
+        "OMH-124",
+        "OMH-126",
+        "OMH-127",
+        "OMH-128",
+        "OMH-130",
+        "OMH-131",
+        "OMH-132",
+        "OMH-133",
+        "OMH-134",
+        "OMH-138",
+        "OMH-139",
+        "OMH-140",
+        "OMH-141",
+        "OMH-147",
+        "OMH-152",
+        "OMH-153",
+        "OMH-155",
+        "OMH-169",
+        "OMH-177",
+        "OMH-179",
+        "OMH-180",
+        "OMH-181",
+        "OMH-182",
+        "OMH-183",
+        "OMH-185",
+        "OMH-190",
+        "OMH-192",
+        "OMH-193",
+        "OMH-203",
+        "OMH-208",
+        "OMH-220",
+        "OMH-238"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "customers-calendar.md",
       "renderedLinkCount": 1,
       "presets": [
         "classic",
@@ -2493,10 +3070,17 @@
       "targetAuthoringPath": "template/src/modules/example/commands/interceptors.ts",
       "moduleId": "example",
       "capabilityIds": [
-        "commands.interceptors"
+        "commands.interceptors",
+        "umes.customers.calendar-event-types"
       ],
       "integrationTestPaths": [
-        "src/modules/example/__integration__/TC-UMES-006-mutation-lifecycle.spec.ts"
+        "src/modules/example/__integration__/TC-EXAMPLE-018-visit-availability.spec.ts",
+        "src/modules/example/__integration__/TC-UMES-006-mutation-lifecycle.spec.ts",
+        "src/modules/example/api/visit-availability/__tests__/route.test.ts",
+        "src/modules/example/components/__tests__/VisitPanel.test.tsx",
+        "src/modules/example/lib/__tests__/visitAvailability.test.ts",
+        "src/modules/example/widgets/__tests__/calendar-event-types.test.ts",
+        "src/modules/example/widgets/__tests__/visit-availability-widget.test.ts"
       ],
       "affectedCaseIds": [
         "OMH-185",
@@ -3167,15 +3751,22 @@
       "moduleId": "example",
       "capabilityIds": [
         "integrations.local-bundle",
-        "module.di-registration"
+        "module.di-registration",
+        "umes.customers.calendar-event-types"
       ],
       "integrationTestPaths": [
         "src/modules/example/__integration__/TC-EXAMPLE-007-cache.spec.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-015-specialized-registries.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-018-visit-availability.spec.ts",
         "src/modules/example/__integration__/TC-UMES-005.spec.ts",
         "src/modules/example/__integration__/TC-UMES-020.spec.ts",
         "src/modules/example/__tests__/di-registration.test.ts",
-        "src/modules/example/__tests__/specialized-registries.test.ts"
+        "src/modules/example/__tests__/specialized-registries.test.ts",
+        "src/modules/example/api/visit-availability/__tests__/route.test.ts",
+        "src/modules/example/components/__tests__/VisitPanel.test.tsx",
+        "src/modules/example/lib/__tests__/visitAvailability.test.ts",
+        "src/modules/example/widgets/__tests__/calendar-event-types.test.ts",
+        "src/modules/example/widgets/__tests__/visit-availability-widget.test.ts"
       ],
       "affectedCaseIds": [
         "OMH-189"
@@ -4000,15 +4591,22 @@
       "moduleId": "example",
       "capabilityIds": [
         "integrations.local-bundle",
-        "module.di-registration"
+        "module.di-registration",
+        "umes.customers.calendar-event-types"
       ],
       "integrationTestPaths": [
         "src/modules/example/__integration__/TC-EXAMPLE-007-cache.spec.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-015-specialized-registries.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-018-visit-availability.spec.ts",
         "src/modules/example/__integration__/TC-UMES-005.spec.ts",
         "src/modules/example/__integration__/TC-UMES-020.spec.ts",
         "src/modules/example/__tests__/di-registration.test.ts",
-        "src/modules/example/__tests__/specialized-registries.test.ts"
+        "src/modules/example/__tests__/specialized-registries.test.ts",
+        "src/modules/example/api/visit-availability/__tests__/route.test.ts",
+        "src/modules/example/components/__tests__/VisitPanel.test.tsx",
+        "src/modules/example/lib/__tests__/visitAvailability.test.ts",
+        "src/modules/example/widgets/__tests__/calendar-event-types.test.ts",
+        "src/modules/example/widgets/__tests__/visit-availability-widget.test.ts"
       ],
       "affectedCaseIds": [
         "OMH-185",
@@ -4727,10 +5325,17 @@
       "targetAuthoringPath": "template/src/modules/example/commands/interceptors.ts",
       "moduleId": "example",
       "capabilityIds": [
-        "commands.interceptors"
+        "commands.interceptors",
+        "umes.customers.calendar-event-types"
       ],
       "integrationTestPaths": [
-        "src/modules/example/__integration__/TC-UMES-006-mutation-lifecycle.spec.ts"
+        "src/modules/example/__integration__/TC-EXAMPLE-018-visit-availability.spec.ts",
+        "src/modules/example/__integration__/TC-UMES-006-mutation-lifecycle.spec.ts",
+        "src/modules/example/api/visit-availability/__tests__/route.test.ts",
+        "src/modules/example/components/__tests__/VisitPanel.test.tsx",
+        "src/modules/example/lib/__tests__/visitAvailability.test.ts",
+        "src/modules/example/widgets/__tests__/calendar-event-types.test.ts",
+        "src/modules/example/widgets/__tests__/visit-availability-widget.test.ts"
       ],
       "affectedCaseIds": [
         "OMH-025",
@@ -5196,11 +5801,18 @@
       "targetAuthoringPath": "template/src/modules/example/widgets/injection-table.ts",
       "moduleId": "example",
       "capabilityIds": [
+        "umes.customers.calendar-event-types",
         "umes.injection-table"
       ],
       "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-018-visit-availability.spec.ts",
         "src/modules/example/__integration__/TC-UMES-001.spec.ts",
-        "src/modules/example/widgets/__tests__/injection-table.test.ts"
+        "src/modules/example/api/visit-availability/__tests__/route.test.ts",
+        "src/modules/example/components/__tests__/VisitPanel.test.tsx",
+        "src/modules/example/lib/__tests__/visitAvailability.test.ts",
+        "src/modules/example/widgets/__tests__/calendar-event-types.test.ts",
+        "src/modules/example/widgets/__tests__/injection-table.test.ts",
+        "src/modules/example/widgets/__tests__/visit-availability-widget.test.ts"
       ],
       "affectedCaseIds": [
         "OMH-025",
@@ -5729,7 +6341,8 @@
         "OMH-193",
         "OMH-203",
         "OMH-208",
-        "OMH-220"
+        "OMH-220",
+        "OMH-238"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
@@ -6051,11 +6664,18 @@
       "targetAuthoringPath": "template/src/modules/example/widgets/injection-table.ts",
       "moduleId": "example",
       "capabilityIds": [
+        "umes.customers.calendar-event-types",
         "umes.injection-table"
       ],
       "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-018-visit-availability.spec.ts",
         "src/modules/example/__integration__/TC-UMES-001.spec.ts",
-        "src/modules/example/widgets/__tests__/injection-table.test.ts"
+        "src/modules/example/api/visit-availability/__tests__/route.test.ts",
+        "src/modules/example/components/__tests__/VisitPanel.test.tsx",
+        "src/modules/example/lib/__tests__/visitAvailability.test.ts",
+        "src/modules/example/widgets/__tests__/calendar-event-types.test.ts",
+        "src/modules/example/widgets/__tests__/injection-table.test.ts",
+        "src/modules/example/widgets/__tests__/visit-availability-widget.test.ts"
       ],
       "affectedCaseIds": [],
       "replacesBaselineBlockIds": [
@@ -7007,7 +7627,8 @@
         "OMH-234",
         "OMH-235",
         "OMH-236",
-        "OMH-237"
+        "OMH-237",
+        "OMH-238"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [
@@ -7266,7 +7887,8 @@
         "OMH-234",
         "OMH-235",
         "OMH-236",
-        "OMH-237"
+        "OMH-237",
+        "OMH-238"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [

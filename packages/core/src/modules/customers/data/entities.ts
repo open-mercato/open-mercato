@@ -1,6 +1,7 @@
 import { Collection, OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, ManyToOne, OneToMany, OneToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 import type { DictionaryEntrySortMode } from '@open-mercato/core/modules/dictionaries/lib/entrySort'
+import type { CalendarEventTypeBehavior } from '../calendar-event-types'
 
 export type CustomerEntityKind = 'person' | 'company'
 export type CustomerAddressFormat = 'line_first' | 'street_first'
@@ -571,7 +572,7 @@ export class CustomerActivity {
     `create index "customer_interactions_email_channel_idx" on "customer_interactions" ("channel_id", "entity_id") where "interaction_type" = 'email' and "channel_id" is not null and "deleted_at" is null`,
 })
 export class CustomerInteraction {
-  [OptionalProps]?: 'status' | 'pinned' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'durationMinutes' | 'location' | 'allDay' | 'recurrenceRule' | 'recurrenceEnd' | 'participants' | 'reminderMinutes' | 'visibility' | 'linkedEntities' | 'guestPermissions' | 'externalMessageId' | 'channelProviderKey' | 'channelId'
+  [OptionalProps]?: 'status' | 'pinned' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'timezone' | 'durationMinutes' | 'location' | 'allDay' | 'recurrenceRule' | 'recurrenceEnd' | 'participants' | 'reminderMinutes' | 'visibility' | 'linkedEntities' | 'guestPermissions' | 'externalMessageId' | 'channelProviderKey' | 'channelId'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -660,6 +661,9 @@ export class CustomerInteraction {
 
   @Property({ name: 'deal_id', type: 'uuid', nullable: true })
   dealId?: string | null
+
+  @Property({ name: 'timezone', type: 'text', nullable: true })
+  timezone?: string | null
 
   @Property({ name: 'duration_minutes', type: 'int', nullable: true })
   durationMinutes?: number | null
@@ -952,6 +956,9 @@ export class CustomerDictionaryEntry {
 
   @Property({ type: 'text', nullable: true })
   icon?: string | null
+
+  @Property({ name: 'activity_type_behavior', type: 'jsonb', nullable: true })
+  activityTypeBehavior?: CalendarEventTypeBehavior | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
