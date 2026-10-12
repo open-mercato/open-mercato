@@ -2449,3 +2449,34 @@ structure (not yet line by line, because the templates in #6188 are not written)
   entities) are out of scope there.
 - **For implementation:** generate the line codes of `bilansTemplate.ts` and
   `rzisTemplate.ts` from the text of the annex, not from memory.
+
+### 2026-10-12 (cont. — VAT, CIT and PIT checked against consolidated texts)
+
+Checked against consolidated texts supplied as PDFs: VAT Act (Dz. U. z 2025 r.
+poz. 775, 894, 896, 1203, 1541, 1811, z 2026 r. poz. 507, 846), CIT (Dz. U. z
+2026 r. poz. 554, 779, 846, 912, 1123) and PIT (Dz. U. z 2026 r. poz. 592, 779,
+846, 1079, 1098, 1123). Only the provisions below were read, not the whole acts.
+
+- **VAT art. 96b: Confirmed as the register, not as a duty.** The Head of the KAS
+  keeps the wykaz (ust. 1), with settlement-account numbers (ust. 3 pkt 13),
+  queryable for a chosen day (ust. 2) and updated once per business day (ust. 8).
+  It carries no obligation to check and no liability rule.
+- **CIT art. 15d ust. 1 pkt 2 and PIT art. 22p ust. 1 pkt 2: Confirmed.** The
+  "day of transfer" rule is here: the cost is not deductible when the payment is
+  made to an account other than the one in the wykaz "na dzień zlecenia
+  przelewu" (supply confirmed by an invoice from an active VAT taxpayer, a
+  transaction under art. 19 Prawo przedsiębiorców). Exceptions in ust. 4,
+  including notification within 7 days (art. 117ba § 3 pkt 2 Ordynacji
+  podatkowej). **Correction** to the contractor-registry spec, which had cited
+  art. 96b for the rule and for joint liability.
+- **Still unverified:** art. 117ba Ordynacja podatkowa (payer's joint
+  liability) and art. 19 Prawo przedsiębiorców (the PLN 15,000 amount).
+- **PIT art. 22f ust. 3 and CIT art. 16f ust. 3: Confirmed.** 10 000 zł applies to
+  the initial value (wartość początkowa); at or below it a one-time write-off is
+  optional.
+- **Accounting Act art. 32 ust. 2, 3, 4, 6 and art. 35c: Confirmed** in the
+  consolidated text (previously only secondary websites). Art. 32 ust. 7–8
+  (micro and small units may apply tax-law depreciation rules, except among
+  others capital companies) added to the fixed-assets spec.
+- **Not checked:** the other provisions of VAT, PIT and CIT; JPK_V7 and KSeF
+  documents of the Ministry of Finance.
