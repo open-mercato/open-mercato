@@ -73,7 +73,8 @@ describe('DefaultEventTypePanel', () => {
     const typed = { ...props.values, title: 'Planning', description: 'Bring the notes' }
     rerender(<DefaultEventTypePanel {...props} values={typed} />)
     expect(mockFieldRender).not.toHaveBeenCalled()
-    rerender(<DefaultEventTypePanel {...props} values={{ ...typed, startTime: '11:00' }} />)
+    const changedStartTime = props.values.startTime === '11:00' ? '12:00' : '11:00'
+    rerender(<DefaultEventTypePanel {...props} values={{ ...typed, startTime: changedStartTime }} />)
     expect(mockFieldRender.mock.calls).toEqual([['schedule']])
   })
 
