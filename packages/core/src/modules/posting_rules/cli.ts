@@ -4,6 +4,7 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { FiscalPeriod } from '../ledger/data/entities'
 import { Currency } from '../currencies/data/entities'
+import { seedPostingRulesDefaults } from './lib/seedDefaults'
 
 /**
  * Developer tooling. `ledger` has no HTTP route or UI that posts a journal
@@ -170,4 +171,42 @@ const devPostCostEntry: ModuleCli = {
   },
 }
 
-export default [devPostCostEntry]
+/**
+ * `yarn mercato posting_rules dev-seed-defaults --tenant <id> --org <id>`
+ *
+ * Runs the module's own idempotent `seedPostingRulesDefaults` (sentinel
+ * "UNALLOCATED" cost centre + empty settings row) for a tenant/organization
+ * that existed before the module was enabled, so module setup never ran
+ * for it. Safe to re-run. Refuses to run when NODE_ENV is "production".
+ */
+const devSeedDefaults: ModuleCli = {
+  command: 'dev-seed-defaults',
+  async run(rest) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('dev-seed-defaults refuses to run when NODE_ENV=production.')
+      process.exitCode = 1
+      return
+    }
+    const args = parseArgs(rest)
+    const tenantId = typeof args.tenant === 'string' ? args.tenant : ''
+    const organizationId = typeof args.org === 'string' ? args.org : ''
+    if (!tenantId || !organizationId) {
+      console.error('Usage: yarn mercato posting_rules dev-seed-defaults --tenant <id> --org <id>')
+      process.exitCode = 1
+      return
+    }
+    const container = await createRequestContainer()
+    try {
+      const em = (container.resolve('em') as EntityManager).fork()
+      const touched = await seedPostingRulesDefaults(em, { tenantId, organizationId })
+      console.log(touched ? 'Seeded posting_rules defaults (sentinel cost centre and/or settings row).' : 'Nothing to seed: defaults already present.')
+    } catch (err) {
+      console.error('dev-seed-defaults failed:', err instanceof Error ? err.message : err)
+      process.exitCode = 1
+    } finally {
+      await (container as any).dispose?.()
+    }
+  },
+}
+
+export default [devPostCostEntry, devSeedDefaults]
