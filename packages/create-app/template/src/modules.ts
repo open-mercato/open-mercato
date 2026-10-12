@@ -143,6 +143,12 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'checkout', from: '@open-mercato/checkout' },
   { id: 'documents', from: '@open-mercato/documents' },
   { id: 'gateway_stripe', from: '@open-mercato/gateway-stripe' },
+  // Tpay payment gateway (.ai/specs/2026-08-01-tpay-hosted-pln-payment-sessions.md).
+  // The package ships with the scaffold as an opt-in provider. Enabling it by
+  // default makes the scaffold ship the module's fact-sheet, which then needs an
+  // AI-harness evaluation case (packages/create-app/src/lib/module-facts-build.test.ts),
+  // so enabling is a maintainer call, not a one-line edit.
+  // { id: 'gateway_tpay', from: '@open-mercato/gateway-tpay' },
   // Per-user email channels for the Communications Hub (SPEC-045d / email
   // integration spec). Each provider package registers its `ChannelAdapter`
   // at import time via `setup.ts`; the hub picks them up by `providerKey`.
@@ -177,6 +183,19 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'telemetry', from: '@open-mercato/telemetry' },
   { id: 'customer_accounts', from: '@open-mercato/core' },
   { id: 'portal', from: '@open-mercato/core' },
+  // Audit-grade questionnaire/form primitive. The module ships with the scaffold
+  // but stays disabled by default, because enabling it here is a governed change
+  // rather than a one-line edit: a module enabled in the template gets a
+  // generated fact sheet, which `selectModuleFactSheets` then requires an
+  // evaluation case for in the standalone AI harness
+  // (src/lib/module-facts-build.test.ts, 'every default-controller module fact is
+  // exercised by the evaluation catalog'). Adding that case means re-pinning the
+  // catalog count in cases.schema.json, validators.json, two test literals and
+  // three docs, and re-running the live `harness:release` certification whose
+  // results those docs record — see
+  // .ai/skills/om-refresh-standalone-harness/SKILL.md step 9. Enabling is
+  // therefore a maintainer call that follows that skill.
+  // { id: 'forms', from: '@open-mercato/core' },
   { id: 'ratelimit_probe', from: '@app' },
 ]
 
