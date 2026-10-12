@@ -189,8 +189,8 @@ export async function seedAccountGroupInDb(input: {
   const id = randomUUID();
   await withClient(async (client) => {
     await client.query(
-      `insert into ledger_account_groups (id, organization_id, tenant_id, jurisdiction, code, name)
-       values ($1, $2, $3, $4, $5, $6)`,
+      `insert into ledger_account_groups (id, organization_id, tenant_id, jurisdiction, code, name, created_at)
+       values ($1, $2, $3, $4, $5, $6, now())`,
       [id, input.organizationId, input.tenantId, input.jurisdiction ?? 'PL', input.code, input.name],
     );
   });
