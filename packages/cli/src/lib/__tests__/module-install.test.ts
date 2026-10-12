@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { readEnabledModulesFromConfig, type PackageResolver } from '../resolver'
 import { addOfficialModule, enableOfficialModule } from '../module-install'
+import * as github from '../module-github'
 
 function buildPackageFixture(
   packageRoot: string,
@@ -214,7 +215,7 @@ describe('enableOfficialModule', () => {
     expect(fs.existsSync(path.join(appDir, 'src', 'modules', 'test_package', 'index.ts'))).toBe(true)
     expect(fs.existsSync(path.join(appDir, 'src', 'modules', 'test_package', 'backend', 'page.tsx'))).toBe(true)
     expect(fs.readFileSync(path.join(appDir, 'src', 'modules.ts'), 'utf8')).toContain(
-      "{ id: 'test_package', from: '@app' }",
+      "{ id: 'test_package', from: '@app', locator: 'npm:@open-mercato/test-package', packageName: '@open-mercato/test-package' }",
     )
   })
 
@@ -350,4 +351,93 @@ describe('third-party module packages', () => {
       "{ id: 'ksef_direct', from: '@fast-white-cat/integration-ksef-direct' }",
     )
   })
+})
+
+
+describe('canonical module preflight', () => {
+  let root: string
+  beforeEach(() => { root = fs.mkdtempSync(path.join(os.tmpdir(), 'module-canonical-')) })
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }))
+
+  it('does not satisfy a required scoped package with a same-name module from another scope', async () => {
+    const packageRoot = path.join(root, 'package')
+    const appDir = path.join(root, 'app')
+    const source = "export const enabledModules = [{ id: 'marketing_consents', from: '@other/marketing_consents' }]\n"
+    buildPackageFixture(packageRoot, 'test_package', { requires: ['@pkarw/marketing_consents@latest'] })
+    const resolver = buildResolver(appDir, packageRoot, source)
+    await expect(enableOfficialModule(resolver, '@open-mercato/test-package')).rejects.toThrow("npx create-mercato-module install '@pkarw/marketing_consents@latest'")
+    expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(source)
+  })
+
+  it('matches canonical npm requirements to the enabled package source', async () => {
+    const packageRoot = path.join(root, 'package')
+    const appDir = path.join(root, 'app')
+    buildPackageFixture(packageRoot, 'test_package', { requires: ['npm:@pkarw/marketing_consents@1.2.0'] })
+    for (const base of ['src', 'dist']) {
+      fs.mkdirSync(path.join(packageRoot, base, 'modules', 'marketing_consents'), { recursive: true })
+      fs.writeFileSync(path.join(packageRoot, base, 'modules', 'marketing_consents', base === 'src' ? 'index.ts' : 'index.js'), 'export const metadata = {}')
+    }
+    const resolver = buildResolver(appDir, packageRoot, "export const enabledModules = [{ id: 'marketing_consents', from: '@pkarw/marketing_consents' }]\n")
+    await expect(enableOfficialModule(resolver, '@open-mercato/test-package', 'test_package')).resolves.toMatchObject({ moduleId: 'test_package' })
+  })
+
+  it('rejects name collisions before copying ejected sources', async () => {
+    const packageRoot = path.join(root, 'package')
+    const appDir = path.join(root, 'app')
+    buildPackageFixture(packageRoot, 'marketing_consents', { ejectable: true })
+    const source = "export const enabledModules = [{ id: 'marketing_consents', from: '@other/marketing_consents' }]\n"
+    const resolver = buildResolver(appDir, packageRoot, source)
+    await expect(enableOfficialModule(resolver, '@open-mercato/test-package', undefined, true)).rejects.toThrow('Module name collision')
+    expect(fs.existsSync(path.join(appDir, 'src/modules/marketing_consents'))).toBe(false)
+    expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(source)
+  })
+
+  it('rejects a GitHub same-name collision before package installation', async () => {
+    const packageRoot = path.join(root, 'package')
+    const appDir = path.join(root, 'app')
+    const source = "export const enabledModules = [{ id: 'marketing_consents', from: '@other/marketing_consents' }]\n"
+    const resolver = buildResolver(appDir, packageRoot, source)
+    const lookup = jest.spyOn(github, 'resolveGithubModuleTarget').mockReturnValue({
+      packageName: '@pkarw/marketing_consents', moduleIds: ['marketing_consents'],
+      packageSpec: '@pkarw/marketing_consents@github:pkarw/consents#' + 'a'.repeat(40), locator: 'github:pkarw/consents',
+    })
+    try {
+      await expect(addOfficialModule(resolver, 'github:pkarw/consents', false, undefined, true)).rejects.toThrow('Module name collision')
+      expect(fs.existsSync(path.join(appDir, 'package.json'))).toBe(false)
+      expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(source)
+    } finally {
+      lookup.mockRestore()
+    }
+  })
+
+  it('rejects replacing the same npm name from a different GitHub origin', async () => {
+    const packageRoot = path.join(root, 'package')
+    const appDir = path.join(root, 'app')
+    const resolver = buildResolver(appDir, packageRoot, "export const enabledModules = [{ id: 'marketing_consents', from: '@pkarw/consents', locator: 'github:pkarw/original' }]\n")
+    const lookup = jest.spyOn(github, 'resolveGithubModuleTarget').mockReturnValue({
+      packageName: '@pkarw/consents', moduleIds: ['marketing_consents'],
+      packageSpec: '@pkarw/consents@github:pkarw/replacement#' + 'a'.repeat(40), locator: 'github:pkarw/replacement',
+    })
+    try {
+      await expect(addOfficialModule(resolver, 'github:pkarw/replacement', false, undefined, true)).rejects.toThrow('github:pkarw/original')
+    } finally {
+      lookup.mockRestore()
+    }
+  })
+
+
+  it('requires explicit trust for GitHub sources even if they declare an official npm namespace', async () => {
+    const resolver = buildResolver(path.join(root, 'app'), path.join(root, 'package'), 'export const enabledModules = []\n')
+    const lookup = jest.spyOn(github, 'resolveGithubModuleTarget').mockReturnValue({
+      packageName: '@open-mercato/consents', moduleIds: ['marketing_consents'],
+      packageSpec: '@open-mercato/consents@github:attacker/consents#' + 'a'.repeat(40), locator: 'github:attacker/consents',
+    })
+    try {
+      await expect(addOfficialModule(resolver, 'github:attacker/consents', false)).rejects.toThrow('--allow-third-party')
+      expect(lookup).not.toHaveBeenCalled()
+    } finally {
+      lookup.mockRestore()
+    }
+  })
+
 })

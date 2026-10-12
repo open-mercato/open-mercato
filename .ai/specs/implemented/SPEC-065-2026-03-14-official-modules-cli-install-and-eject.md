@@ -90,6 +90,18 @@ This spec explicitly defers:
 | `--eject` package retention | Keep package installed after extraction |
 | Lifecycle state file | Deferred to SPEC-061 phase |
 
+### Canonical source identity (2026-10-12)
+
+`module add` additionally accepts `npm:` locators, unscoped npm packages, GitHub `owner/repository`, `github:` aliases, HTTPS URLs, SSH URLs, and SCP-style Git URLs. GitHub refs and npm versions/tags select an installation, while dependency validation uses origin identity only: `npm:<package-name>` or `github:<owner>/<repository>`. Validation does not implement version constraints. Existing bare unscoped `module add` arguments remain npm package names; `npm:<name>` makes npm explicit, while `github:<name>` selects authenticated-account GitHub shorthand. Bare snake-case requirements remain runtime IDs; non-snake shorthand requirements resolve repository identity only when unambiguous.
+
+`metadata.requires` retains legacy module IDs and also accepts these source locators and unambiguous repository shorthand. An enabled module must match the requested source, not merely a same-name runtime ID. Origin resolution uses explicit module/registration `locator`, the package name in `from`, dependency Git specifications, and package manifest repository metadata. Filesystem directory names are not provenance. Ambiguous repository names fail closed. Missing source dependencies include an `npx create-mercato-module install` hint preserving the original locator; legacy IDs retain enablement guidance.
+
+`ModuleInfo.locator?: string`, `ModuleEntry.locator?: string`, and `ModuleEntry.packageName?: string` are additive contracts. Ejected or linked entries retain `packageName` alongside a GitHub `locator` so both npm package and GitHub origin requirements still resolve. Monorepo app and both standalone module configuration templates accept these emitted optional fields. CLI registrations retain canonical source identity, including `from: '@app'` after ejection and linked source where applicable. Existing registrations without a locator remain valid. Explicit source requirements cannot be satisfied by an unproven local directory.
+
+Before registration or ejection, the CLI rejects a runtime module ID already registered from a different source, and an existing app module directory that would conflict with the incoming module. Diagnostics identify the module ID and both origins. Package installation may already have completed, but registration and app source remain unchanged on rejection. No automatic overwrite or renaming occurs.
+
+Integration coverage in `packages/cli/src/lib/__integration__/TC-INT-007.spec.ts` includes canonical npm/GitHub dependency matching, ejected provenance, rejection of same-name wrong-origin dependencies, and collision failures before app-source mutation. Unit coverage verifies accepted locator forms and identity normalization.
+
 ### Alternatives Considered
 
 | Alternative | Why Rejected |
@@ -431,7 +443,7 @@ This spec adds no new mandatory env vars.
 
 The install flow reuses existing package-manager and registry configuration, including `.npmrc` and scoped registry overrides already used for Verdaccio prototyping.
 
-## Migration & Compatibility
+## Migration & Backward Compatibility
 
 - This is now a breaking CLI contract change relative to the earlier module-add option shape.
 - Existing `yarn mercato eject <moduleId>` remains supported unchanged.
@@ -640,6 +652,7 @@ None.
 
 ### 2026-10-12
 - Added fail-closed `metadata.requires` validation before module registration or source ejection, with actionable missing-module guidance.
+- Extended dependency requirements and module installation to canonical npm/GitHub locators, preserved source provenance on module metadata/registrations, and rejected conflicting same-name origins before registration or ejection.
 
 ### Review — 2026-03-14
 - **Reviewer**: Agent

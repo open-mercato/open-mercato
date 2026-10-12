@@ -20,6 +20,7 @@ export type ModuleInfoSnapshot = {
   title?: string
   description?: string
   requires?: string[]
+  locator?: string
 }
 
 export type ValidatedOfficialModulePackage = {
@@ -96,13 +97,14 @@ function parseModuleInfo(indexPath: string, validateRequires = false): {
   title?: string
   description?: string
   ejectable?: boolean
+  locator?: string
   requires: string[]
 } {
   if (!fs.existsSync(indexPath)) return { requires: [] }
 
   const source = fs.readFileSync(indexPath, 'utf8')
   const metadata = findMetadataLiteral(source, indexPath)
-  const result: { title?: string; description?: string; ejectable?: boolean; requires: string[] } = {
+  const result: { title?: string; description?: string; ejectable?: boolean; locator?: string; requires: string[] } = {
     requires: [],
   }
   if (!metadata) return result
@@ -117,7 +119,7 @@ function parseModuleInfo(indexPath: string, validateRequires = false): {
     }
     const initializer = unwrapExpression(property.initializer)
 
-    if ((propertyName === 'title' || propertyName === 'description') && ts.isStringLiteralLike(initializer)) {
+    if ((propertyName === 'title' || propertyName === 'description' || propertyName === 'locator') && ts.isStringLiteralLike(initializer)) {
       result[propertyName] = initializer.text
       continue
     }
@@ -270,7 +272,7 @@ function findResolvedPackageRoot(
   return null
 }
 
-function resolveInstalledPackageRootWithRequire(packageName: string, appDir: string): string | null {
+export function resolveInstalledPackageRootWithRequire(packageName: string, appDir: string): string | null {
   const specifiers = [`${packageName}/package.json`, packageName]
 
   for (const specifier of specifiers) {
@@ -399,7 +401,7 @@ export function readOfficialModulePackageFromRoot(
     packageRoot,
     packageJson,
     metadata: { moduleId, ejectable: selected.ejectable },
-    moduleInfo: { title: info.title, description: info.description, requires: info.requires },
+    moduleInfo: { title: info.title, description: info.description, requires: info.requires, ...(info.locator ? { locator: info.locator } : {}) },
     sourceModuleDir,
     distModuleDir,
   }

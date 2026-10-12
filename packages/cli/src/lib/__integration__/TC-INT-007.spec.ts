@@ -165,7 +165,7 @@ test.describe('TC-INT-007: CLI official module install and eject flows', () => {
         dependencies?: Record<string, string>
       }
 
-      expect(modulesSource).toContain("{ id: 'test_package', from: '@open-mercato/test-package' }")
+      expect(modulesSource).toMatch(/id: 'test_package', from: '@open-mercato\/test-package'/)
       expect(cssSource).toContain('node_modules/@open-mercato/test-package/src/**/*.{ts,tsx}')
       expect(appPackageJson.dependencies?.['@open-mercato/test-package']).toBeTruthy()
     } finally {
@@ -193,7 +193,8 @@ test.describe('TC-INT-007: CLI official module install and eject flows', () => {
       const modulesSource = readFile(path.join(appDir, 'src', 'modules.ts'))
       const cssSource = readFile(path.join(appDir, '.mercato', 'generated', 'module-package-sources.css'))
 
-      expect(modulesSource).toContain("{ id: 'test_package', from: '@app' }")
+      expect(modulesSource).toMatch(/id: 'test_package', from: '@app'/)
+      expect(modulesSource).toContain("locator: 'npm:@open-mercato/test-package'")
       expect(fs.existsSync(path.join(appDir, 'src', 'modules', 'test_package', 'index.ts'))).toBe(true)
       expect(cssSource).toBe('')
     } finally {
@@ -225,6 +226,119 @@ test.describe('TC-INT-007: CLI official module install and eject flows', () => {
     }
   })
 
+  test('module add resolves canonical requirements from retained ejected origins', () => {
+    const appDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mercato-cli-canonical-requires-'))
+
+    try {
+      createStandaloneFixture(appDir)
+      const packageDir = path.join(appDir, 'fixture-module-package')
+      fs.cpSync(fixtureModulePackage, packageDir, { recursive: true })
+      const requirements = [
+        '@pkarw/marketing_consents@preview',
+        'npm:@pkarw/marketing_consents@1.0.0',
+        'github:pkarw/marketing-consents',
+        'npm:consent-helper@next',
+        'github:pkarw/consent-tools#main',
+        'pkarw/consent-tools',
+        'https://github.com/pkarw/consent-tools.git#release',
+        'ssh://git@github.com/pkarw/consent-tools.git#main',
+        'git@github.com:pkarw/consent-tools.git',
+        'github:pkarw/installed-tools',
+        'npm:@open-mercato/core@preview',
+      ]
+      writeFile(
+        path.join(packageDir, 'src', 'modules', 'test_package', 'index.ts'),
+        `export const metadata = { id: 'test_package', requires: ${JSON.stringify(requirements)}, ejectable: true }\n`,
+      )
+      const entries = [
+        { id: 'marketing_consents', from: '@app', locator: 'github:pkarw/marketing-consents', packageName: '@pkarw/marketing_consents' },
+        { id: 'consent_helper', from: '@app', locator: 'npm:consent-helper' },
+        { id: 'consent_tools', from: '@app', locator: 'github:pkarw/consent-tools' },
+      ]
+      for (const entry of entries) {
+        writeFile(
+          path.join(appDir, 'src', 'modules', entry.id, 'index.ts'),
+          `export const metadata = { id: '${entry.id}' }\n`,
+        )
+      }
+      const corePackageDir = path.join(appDir, 'vendor', 'core')
+      writeFile(
+        path.join(corePackageDir, 'package.json'),
+        JSON.stringify({ name: '@open-mercato/core', version: '0.4.7', type: 'module', repository: { type: 'git', url: 'https://github.com/pkarw/installed-tools.git' } }),
+      )
+      writeFile(
+        path.join(corePackageDir, 'src', 'modules', 'repository_tools', 'index.ts'),
+        "export const metadata = { id: 'repository_tools' }\n",
+      )
+      writeFile(
+        path.join(corePackageDir, 'dist', 'modules', 'repository_tools', 'index.js'),
+        "export const metadata = { id: 'repository_tools' }\n",
+      )
+      const enabledEntries = [...entries, { id: 'repository_tools', from: '@open-mercato/core' }]
+      writeFile(path.join(appDir, 'src', 'modules.ts'), `export const enabledModules = ${JSON.stringify(enabledEntries)}\n`)
+      runCommand(yarnBinary(), ['install'], appDir)
+
+      runMercato(['module', 'add', 'npm:@open-mercato/test-package@file:./fixture-module-package'], appDir)
+
+      expect(readFile(path.join(appDir, 'src', 'modules.ts'))).toContain("id: 'test_package'")
+    } finally {
+      fs.rmSync(appDir, { recursive: true, force: true })
+    }
+  })
+
+  test('same-name modules from different origins do not satisfy canonical requirements', () => {
+    const appDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mercato-cli-wrong-origin-'))
+
+    try {
+      createStandaloneFixture(appDir)
+      const packageDir = path.join(appDir, 'fixture-module-package')
+      fs.cpSync(fixtureModulePackage, packageDir, { recursive: true })
+      writeFile(
+        path.join(packageDir, 'src', 'modules', 'test_package', 'index.ts'),
+        "export const metadata = { id: 'test_package', requires: ['@pkarw/marketing_consents', 'github:pkarw/consent-tools'], ejectable: true }\n",
+      )
+      const modulesSource = `export const enabledModules = [
+        { id: 'marketing_consents', from: '@app', locator: 'npm:@open-mercato/marketing_consents' },
+        { id: 'consent_tools', from: '@app', locator: 'github:another-owner/consent-tools' },
+      ]\n`
+      writeFile(path.join(appDir, 'src', 'modules.ts'), modulesSource)
+      runCommand(yarnBinary(), ['install'], appDir)
+
+      expect(() => runMercato(
+        ['module', 'add', '@open-mercato/test-package@file:./fixture-module-package', '--eject'],
+        appDir,
+      )).toThrow(/@pkarw\/marketing_consents[\s\S]*github:pkarw\/consent-tools[\s\S]*npx create-mercato-module install/)
+
+      expect(readFile(path.join(appDir, 'src', 'modules.ts'))).toBe(modulesSource)
+      expect(fs.existsSync(path.join(appDir, 'src', 'modules', 'test_package'))).toBe(false)
+    } finally {
+      fs.rmSync(appDir, { recursive: true, force: true })
+    }
+  })
+
+  test('module add rejects a same-ID source collision before ejecting', () => {
+    const appDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mercato-cli-module-collision-'))
+
+    try {
+      createStandaloneFixture(appDir)
+      const modulesSource = "export const enabledModules = [{ id: 'test_package', from: '@app', locator: 'github:another-owner/test-package' }]\n"
+      const localSource = "export const metadata = { id: 'test_package', locator: 'github:another-owner/test-package' }\n"
+      writeFile(path.join(appDir, 'src', 'modules.ts'), modulesSource)
+      writeFile(path.join(appDir, 'src', 'modules', 'test_package', 'index.ts'), localSource)
+      runCommand(yarnBinary(), ['install'], appDir)
+
+      expect(() => runMercato(
+        ['module', 'add', `@open-mercato/test-package@file:${fixtureModulePackage}`, '--eject'],
+        appDir,
+      )).toThrow(/(?=[\s\S]*test_package)(?=[\s\S]*(?:collision|already|conflict))(?=[\s\S]*another-owner)(?=[\s\S]*@open-mercato\/test-package)/i)
+
+      expect(readFile(path.join(appDir, 'src', 'modules.ts'))).toBe(modulesSource)
+      expect(readFile(path.join(appDir, 'src', 'modules', 'test_package', 'index.ts'))).toBe(localSource)
+    } finally {
+      fs.rmSync(appDir, { recursive: true, force: true })
+    }
+  })
+
   test('module enable supports package-backed and ejected flows plus both eject entrypoints', () => {
     const appDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mercato-cli-standalone-eject-'))
 
@@ -239,25 +353,25 @@ test.describe('TC-INT-007: CLI official module install and eject flows', () => {
 
       runMercato(['module', 'enable', '@open-mercato/test-package'], appDir)
       expect(readFile(path.join(appDir, 'src', 'modules.ts'))).toContain(
-        "{ id: 'test_package', from: '@open-mercato/test-package' }",
+        "id: 'test_package', from: '@open-mercato/test-package'",
       )
 
       writeFile(path.join(appDir, 'src', 'modules.ts'), 'export const enabledModules = []\n')
       fs.rmSync(path.join(appDir, 'src', 'modules', 'test_package'), { recursive: true, force: true })
       runMercato(['module', 'enable', '@open-mercato/test-package', '--eject'], appDir)
-      expect(readFile(path.join(appDir, 'src', 'modules.ts'))).toContain("{ id: 'test_package', from: '@app' }")
+      expect(readFile(path.join(appDir, 'src', 'modules.ts'))).toContain("id: 'test_package', from: '@app'")
       expect(fs.existsSync(path.join(appDir, 'src', 'modules', 'test_package', 'index.ts'))).toBe(true)
       expect(readFile(path.join(appDir, '.mercato', 'generated', 'module-package-sources.css'))).toBe('')
 
       writeFile(path.join(appDir, 'src', 'modules.ts'), "export const enabledModules = [{ id: 'test_package', from: '@open-mercato/test-package' }]\n")
       fs.rmSync(path.join(appDir, 'src', 'modules', 'test_package'), { recursive: true, force: true })
       runMercato(['module', 'eject', 'test_package'], appDir)
-      expect(readFile(path.join(appDir, 'src', 'modules.ts'))).toContain("{ id: 'test_package', from: '@app' }")
+      expect(readFile(path.join(appDir, 'src', 'modules.ts'))).toContain("id: 'test_package', from: '@app'")
 
       writeFile(path.join(appDir, 'src', 'modules.ts'), "export const enabledModules = [{ id: 'test_package', from: '@open-mercato/test-package' }]\n")
       fs.rmSync(path.join(appDir, 'src', 'modules', 'test_package'), { recursive: true, force: true })
       runMercato(['eject', 'test_package'], appDir)
-      expect(readFile(path.join(appDir, 'src', 'modules.ts'))).toContain("{ id: 'test_package', from: '@app' }")
+      expect(readFile(path.join(appDir, 'src', 'modules.ts'))).toContain("id: 'test_package', from: '@app'")
     } finally {
       fs.rmSync(appDir, { recursive: true, force: true })
     }

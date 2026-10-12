@@ -14,6 +14,16 @@ describe('modules-config', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
+  it('preserves module locator when registering and ejecting', () => {
+    const filePath = path.join(tmpDir, 'modules.ts')
+    fs.writeFileSync(filePath, 'export const enabledModules = []\n')
+    ensureModuleRegistration(filePath, { id: 'consents', from: '@pkarw/consents', locator: 'github:pkarw/consents', packageName: '@pkarw/consents' })
+    expect(fs.readFileSync(filePath, 'utf8')).toContain("locator: 'github:pkarw/consents'")
+    setModuleRegistrationSource(filePath, 'consents', '@app')
+    expect(fs.readFileSync(filePath, 'utf8')).toContain("packageName: '@pkarw/consents'")
+    expect(fs.readFileSync(filePath, 'utf8')).toContain("locator: 'github:pkarw/consents'")
+  })
+
   it('adds a package-backed module without touching conditional pushes', () => {
     const filePath = path.join(tmpDir, 'modules.ts')
     fs.writeFileSync(

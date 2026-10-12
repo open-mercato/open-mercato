@@ -4,6 +4,8 @@ import { pathToFileURL } from 'node:url'
 import { VariableDeclarationKind, type WriterFunction } from 'ts-morph'
 import ts from 'typescript-js'
 import type { ModuleEntry, PackageResolver } from '../resolver'
+import { getEnabledModuleIdentities } from '../module-identity'
+import { getModuleRequirementHint, resolveModuleRequirement } from '@open-mercato/shared/modules/module-locators'
 import {
   DEV_SUPERVISOR_MANIFEST_FILE,
   DEV_SUPERVISOR_MANIFEST_VERSION,
@@ -4221,10 +4223,12 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
   })
   // Validate module dependencies declared via ModuleInfo.requires
   {
-    const enabledIds = new Set(enabled.map((e) => e.id))
+    const identities = getEnabledModuleIdentities(resolver)
     const problems: string[] = []
+    const missingRequirements = new Set<string>()
     for (const [modId, reqs] of requiresByModule.entries()) {
-      const missing = reqs.filter((r) => !enabledIds.has(r))
+      const missing = reqs.filter((requirement) => !resolveModuleRequirement(requirement, identities))
+      for (const requirement of missing) missingRequirements.add(requirement)
       if (missing.length) {
         problems.push(`- Module "${modId}" requires: ${missing.join(', ')}`)
       }
@@ -4232,12 +4236,7 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
     if (problems.length) {
       console.error('\nModule dependency check failed:')
       for (const p of problems) console.error(p)
-      console.error('\nFix: Enable required module(s) in src/modules.ts. Example:')
-      console.error(
-        '  export const enabledModules = [ { id: \'' +
-          Array.from(new Set(requiresByModule.values()).values()).join("' }, { id: '") +
-          "' } ]"
-      )
+      for (const requirement of missingRequirements) console.error(`Fix: ${getModuleRequirementHint(requirement)}`)
       process.exit(1)
     }
   }
@@ -4706,10 +4705,12 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
   })
 
   {
-    const enabledIds = new Set(enabled.map((e) => e.id))
+    const identities = getEnabledModuleIdentities(resolver)
     const problems: string[] = []
+    const missingRequirements = new Set<string>()
     for (const [modId, reqs] of requiresByModule.entries()) {
-      const missing = reqs.filter((r) => !enabledIds.has(r))
+      const missing = reqs.filter((requirement) => !resolveModuleRequirement(requirement, identities))
+      for (const requirement of missing) missingRequirements.add(requirement)
       if (missing.length) {
         problems.push(`- Module "${modId}" requires: ${missing.join(', ')}`)
       }
@@ -4717,12 +4718,7 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
     if (problems.length) {
       console.error('\nModule dependency check failed:')
       for (const p of problems) console.error(p)
-      console.error('\nFix: Enable required module(s) in src/modules.ts. Example:')
-      console.error(
-        '  export const enabledModules = [ { id: \'' +
-          Array.from(new Set(requiresByModule.values()).values()).join("' }, { id: '") +
-          "' } ]"
-      )
+      for (const requirement of missingRequirements) console.error(`Fix: ${getModuleRequirementHint(requirement)}`)
       process.exit(1)
     }
   }
@@ -5100,10 +5096,12 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
 
   // Validate module dependencies declared via ModuleInfo.requires
   {
-    const enabledIds = new Set(enabled.map((e) => e.id))
+    const identities = getEnabledModuleIdentities(resolver)
     const problems: string[] = []
+    const missingRequirements = new Set<string>()
     for (const [modId, reqs] of requiresByModule.entries()) {
-      const missing = reqs.filter((r) => !enabledIds.has(r))
+      const missing = reqs.filter((requirement) => !resolveModuleRequirement(requirement, identities))
+      for (const requirement of missing) missingRequirements.add(requirement)
       if (missing.length) {
         problems.push(`- Module "${modId}" requires: ${missing.join(', ')}`)
       }
@@ -5111,12 +5109,7 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
     if (problems.length) {
       console.error('\nModule dependency check failed:')
       for (const p of problems) console.error(p)
-      console.error('\nFix: Enable required module(s) in src/modules.ts. Example:')
-      console.error(
-        '  export const enabledModules = [ { id: \'' +
-          Array.from(new Set(requiresByModule.values()).values()).join("' }, { id: '") +
-          "' } ]"
-      )
+      for (const requirement of missingRequirements) console.error(`Fix: ${getModuleRequirementHint(requirement)}`)
       process.exit(1)
     }
   }

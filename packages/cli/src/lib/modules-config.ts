@@ -5,6 +5,8 @@ import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 export type ModuleEntry = {
   id: string
   from?: '@open-mercato/core' | '@app' | string
+  locator?: string
+  packageName?: string
 }
 
 type ModuleOccurrence = {
@@ -20,12 +22,22 @@ type ModuleConfigShape = {
 function parseModuleEntryFromObjectLiteral(node: ts.ObjectLiteralExpression): ModuleEntry | null {
   let id: string | null = null
   let from: string | null = null
+  let locator: string | undefined
+  let packageName: string | undefined
 
   for (const property of node.properties) {
     if (!ts.isPropertyAssignment(property) || !ts.isIdentifier(property.name)) continue
 
     if (property.name.text === 'id' && ts.isStringLiteralLike(property.initializer)) {
       id = property.initializer.text
+    }
+
+    if (property.name.text === 'packageName' && ts.isStringLiteralLike(property.initializer)) {
+      packageName = property.initializer.text
+    }
+
+    if (property.name.text === 'locator' && ts.isStringLiteralLike(property.initializer)) {
+      locator = property.initializer.text
     }
 
     if (property.name.text === 'from' && ts.isStringLiteralLike(property.initializer)) {
@@ -38,6 +50,8 @@ function parseModuleEntryFromObjectLiteral(node: ts.ObjectLiteralExpression): Mo
   return {
     id,
     from: from ?? '@open-mercato/core',
+    ...(locator ? { locator } : {}),
+    ...(packageName ? { packageName } : {}),
   }
 }
 
@@ -307,6 +321,8 @@ function normalizeModuleEntry(entry: ModuleEntry): ModuleEntry {
   return {
     id: entry.id,
     from: entry.from ?? '@open-mercato/core',
+    ...(entry.locator ? { locator: entry.locator } : {}),
+    ...(entry.packageName ? { packageName: entry.packageName } : {}),
   }
 }
 
@@ -316,7 +332,7 @@ function escapeSingleQuotedString(value: string): string {
 
 function buildModuleEntryLiteral(entry: ModuleEntry): string {
   const normalized = normalizeModuleEntry(entry)
-  return `{ id: '${escapeSingleQuotedString(normalized.id)}', from: '${escapeSingleQuotedString(normalized.from ?? '@open-mercato/core')}' }`
+  return `{ id: '${escapeSingleQuotedString(normalized.id)}', from: '${escapeSingleQuotedString(normalized.from ?? '@open-mercato/core')}'${normalized.locator ? `, locator: '${escapeSingleQuotedString(normalized.locator)}'` : ''}${normalized.packageName ? `, packageName: '${escapeSingleQuotedString(normalized.packageName)}'` : ''} }`
 }
 
 function lineIndentAt(source: string, position: number): string {

@@ -11,6 +11,9 @@ import {
 import { ensureModuleRegistration } from './modules-config'
 import type { PackageResolver } from './resolver'
 import { resolveSpawnCommand } from './spawn'
+import { parseModuleLocator, resolveModuleRequirement } from '@open-mercato/shared/modules/module-locators'
+import { getEnabledModuleIdentities, getModuleLocators } from './module-identity'
+import { resolveGithubModuleTarget } from './module-github'
 
 type ModuleCommandResult = {
   moduleId: string
@@ -151,7 +154,7 @@ function assertThirdPartyAllowed(packageName: string, allowThirdParty: boolean):
 }
 
 function assertSupportedPackageSpec(packageSpec: string, allowThirdParty: boolean): string {
-  const trimmed = packageSpec.trim()
+  const trimmed = packageSpec.trim().replace(/^npm:/, '')
 
   if (!SAFE_PACKAGE_SPEC_PATTERN.test(trimmed)) {
     throw new Error('Unsupported package spec. Provide a valid npm package name with an optional tag/version or file: locator.')
@@ -191,9 +194,9 @@ function assertRequiredModulesEnabled(
   modulePackage: ValidatedOfficialModulePackage,
   resolver: PackageResolver,
 ): void {
-  const enabledModuleIds = new Set(resolver.loadEnabledModules().map((entry) => entry.id))
+  const enabledModules = getEnabledModuleIdentities(resolver)
   const missingModuleIds = Array.from(new Set(modulePackage.moduleInfo.requires ?? [])).filter(
-    (moduleId) => !enabledModuleIds.has(moduleId),
+    (requirement) => !resolveModuleRequirement(requirement, enabledModules),
   )
   if (missingModuleIds.length === 0) return
 
@@ -201,8 +204,35 @@ function assertRequiredModulesEnabled(
     [
       `Module "${modulePackage.metadata.moduleId}" requires module(s) that are not enabled: ${missingModuleIds.join(', ')}.`,
       'Enable the missing module(s) in src/modules.ts first, then rerun this command.',
+      ...missingModuleIds.filter((requirement) => parseModuleLocator(requirement)?.kind !== 'module').map(
+        (requirement) => `Install ${requirement}: npx create-mercato-module install ${shellQuote(requirement)}`,
+      ),
     ].join('\n'),
   )
+}
+
+function shellQuote(value: string): string {
+  return "'" + value.replace(/'/g, "'\\''") + "'"
+}
+
+function assertNoModuleCollision(
+  resolver: PackageResolver,
+  moduleId: string,
+  packageName: string,
+  locator?: string,
+): void {
+  const existing = resolver.loadEnabledModules().find((entry) => entry.id === moduleId)
+  if (existing && (existing.from ?? '@open-mercato/core') !== packageName) {
+    throw new Error(`Module name collision: "${moduleId}" is already registered from "${existing.locator ?? existing.from ?? '@open-mercato/core'}"; requested source is "${locator ?? packageName}". Two sources cannot share one module id. Remove or rename the conflicting module explicitly before retrying.`)
+  }
+  const existingGithub = existing ? getModuleLocators(existing, resolver).find((value) => value.startsWith('github:')) : undefined
+  const requestedIdentity = locator ? parseModuleLocator(locator)?.identity : undefined
+  if (existingGithub && requestedIdentity?.startsWith('github:') && existingGithub !== requestedIdentity) {
+    throw new Error(`Module name collision: "${moduleId}" is already registered from "${existingGithub}"; requested source is "${locator}". Remove or rename the conflicting module explicitly before retrying.`)
+  }
+  if (fs.existsSync(path.join(resolver.getAppDir(), 'src', 'modules', moduleId))) {
+    throw new Error(`Module name collision: local src/modules/${moduleId} already exists; requested source is "${locator ?? packageName}". Remove or rename the conflicting module explicitly before retrying.`)
+  }
 }
 
 function prepareRegistrationSource(
@@ -239,6 +269,9 @@ async function registerResolvedOfficialModule(
   packageName: string,
   eject: boolean,
 ): Promise<ModuleCommandResult> {
+  const locators = getModuleLocators({ id: modulePackage.metadata.moduleId, from: packageName }, resolver)
+  const locator = locators.find((value) => value.startsWith('github:')) ?? `npm:${packageName}`
+  assertNoModuleCollision(resolver, modulePackage.metadata.moduleId, packageName, locator)
   assertRequiredModulesEnabled(modulePackage, resolver)
   const from = prepareRegistrationSource(modulePackage, resolver, packageName, eject)
 
@@ -247,6 +280,8 @@ async function registerResolvedOfficialModule(
     {
       id: modulePackage.metadata.moduleId,
       from,
+      ...(eject || locator.startsWith('github:') ? { locator } : {}),
+      ...(eject ? { packageName } : {}),
     },
   )
 
@@ -273,10 +308,32 @@ export async function addOfficialModule(
   moduleId?: string,
   allowThirdParty = false,
 ): Promise<ModuleCommandResult> {
-  const safePackageSpec = assertSupportedPackageSpec(packageSpec, allowThirdParty)
-  const packageName = parsePackageNameFromSpec(safePackageSpec)
-  assertPackageName(packageName)
-
+  const input = packageSpec.trim()
+  const isGithub = !input.startsWith('@') && !input.startsWith('npm:') && (
+    input.includes('/') && !input.includes('@file:') || /^(?:github:|git@|(?:git\+)?ssh:)/i.test(input)
+  )
+  let safePackageSpec: string
+  let packageName: string
+  if (isGithub) {
+    if (!allowThirdParty) {
+      throw new Error('GitHub repository installs require --allow-third-party, independently of the declared npm package scope.')
+    }
+    const target = resolveGithubModuleTarget(input, resolver.getAppDir())
+    assertThirdPartyAllowed(target.packageName, allowThirdParty)
+    const selectedModuleId = moduleId ?? (target.moduleIds.length === 1 ? target.moduleIds[0] : undefined)
+    if (!selectedModuleId || !target.moduleIds.includes(selectedModuleId)) {
+      throw new Error(`Select a module with --module <moduleId>. Available in ${target.locator}: ${target.moduleIds.join(', ')}. No package was installed.`)
+    }
+    assertNoModuleCollision(resolver, selectedModuleId, target.packageName, target.locator)
+    safePackageSpec = target.packageSpec
+    packageName = target.packageName
+  } else {
+    safePackageSpec = assertSupportedPackageSpec(input, allowThirdParty)
+    const parsedName = parsePackageNameFromSpec(safePackageSpec)
+    assertPackageName(parsedName)
+    packageName = parsedName
+    if (moduleId) assertNoModuleCollision(resolver, moduleId, packageName, `npm:${packageName}`)
+  }
   await installPackageSpec(resolver, safePackageSpec)
 
   const modulePackage = resolveInstalledOfficialModulePackage(resolver, packageName, moduleId)

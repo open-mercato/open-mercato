@@ -2,6 +2,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import ts from 'typescript-js'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { resolveInstalledPackageRootWithRequire } from './module-package'
 
 /**
  * Resolved execution environment for the CLI.
@@ -25,6 +26,8 @@ export type CliEnvironment = {
 export type ModuleEntry = {
   id: string
   from?: '@open-mercato/core' | '@app' | string
+  locator?: string
+  packageName?: string
   devSupervisorRequiresFullBootstrap?: boolean
 }
 
@@ -49,47 +52,33 @@ export interface PackageResolver {
   getPackageRoot(from?: string): string
 }
 
-function pkgDirFor(rootDir: string, from?: string, isMonorepo = true): string {
-  if (!isMonorepo) {
-    const pkgName = from || '@open-mercato/core'
-    const pkgRoot = path.join(rootDir, 'node_modules', pkgName)
-    const distModules = path.join(pkgRoot, 'dist', 'modules')
-    if (fs.existsSync(distModules)) return distModules
-    return path.join(pkgRoot, 'src', 'modules')
-  }
-
-  // Monorepo mode - read from src/modules (TypeScript source)
-  if (!from || from === '@open-mercato/core') {
-    return path.resolve(rootDir, 'packages/core/src/modules')
-  }
-  // Support other local packages like '@open-mercato/onboarding' => packages/onboarding/src/modules
-  const m = from.match(/^@open-mercato\/(.+)$/)
-  if (m) {
-    return path.resolve(rootDir, `packages/${m[1]}/src/modules`)
-  }
-  // Fallback to core modules path
-  return path.resolve(rootDir, 'packages/core/src/modules')
+function pkgDirFor(rootDir: string, from?: string, isMonorepo = true, appDir = rootDir): string {
+  const packageRoot = pkgRootFor(rootDir, from, isMonorepo, appDir)
+  const sourceModules = path.join(packageRoot, 'src', 'modules')
+  const distModules = path.join(packageRoot, 'dist', 'modules')
+  const workspacePackage = isMonorepo && packageRoot.startsWith(path.join(rootDir, 'packages') + path.sep)
+  if (workspacePackage && fs.existsSync(sourceModules)) return sourceModules
+  if (fs.existsSync(distModules)) return distModules
+  return sourceModules
 }
 
-function pkgRootFor(rootDir: string, from?: string, isMonorepo = true): string {
-  if (!isMonorepo) {
-    const pkgName = from || '@open-mercato/core'
-    return path.join(rootDir, 'node_modules', pkgName)
+function pkgRootFor(rootDir: string, from?: string, isMonorepo = true, appDir = rootDir): string {
+  const packageName = from || '@open-mercato/core'
+  if (isMonorepo) {
+    const workspaceMatch = packageName.match(/^@open-mercato\/(.+)$/)
+    if (workspaceMatch) {
+      const workspaceRoot = path.join(rootDir, 'packages', workspaceMatch[1])
+      if (fs.existsSync(path.join(workspaceRoot, 'package.json'))) return workspaceRoot
+    }
   }
-
-  if (!from || from === '@open-mercato/core') {
-    return path.resolve(rootDir, 'packages/core')
-  }
-  const m = from.match(/^@open-mercato\/(.+)$/)
-  if (m) {
-    return path.resolve(rootDir, `packages/${m[1]}`)
-  }
-  return path.resolve(rootDir, 'packages/core')
+  return resolveInstalledPackageRootWithRequire(packageName, appDir) ?? path.join(rootDir, 'node_modules', packageName)
 }
 
 function parseModuleEntryFromObjectLiteral(node: ts.ObjectLiteralExpression): ModuleEntry | null {
   let id: string | null = null
   let from: string | null = null
+  let locator: string | undefined
+  let packageName: string | undefined
   let devSupervisorRequiresFullBootstrap = false
   for (const property of node.properties) {
     if (!ts.isPropertyAssignment(property)) continue
@@ -101,6 +90,12 @@ function parseModuleEntryFromObjectLiteral(node: ts.ObjectLiteralExpression): Mo
     }
     if (key === 'from' && ts.isStringLiteralLike(property.initializer)) {
       from = property.initializer.text
+    }
+    if (key === 'packageName' && ts.isStringLiteralLike(property.initializer)) {
+      packageName = property.initializer.text
+    }
+    if (key === 'locator' && ts.isStringLiteralLike(property.initializer)) {
+      locator = property.initializer.text
     }
     if (key === 'overrides') {
       if (!ts.isObjectLiteralExpression(property.initializer)) {
@@ -127,6 +122,8 @@ function parseModuleEntryFromObjectLiteral(node: ts.ObjectLiteralExpression): Mo
   return {
     id,
     from: from ?? '@open-mercato/core',
+    ...(locator ? { locator } : {}),
+    ...(packageName ? { packageName } : {}),
     ...(devSupervisorRequiresFullBootstrap ? { devSupervisorRequiresFullBootstrap: true } : {}),
   }
 }
@@ -560,7 +557,7 @@ export function createResolver(cwd: string = process.cwd()): PackageResolver {
 
     getModulePaths: (entry: ModuleEntry) => {
       const appBase = path.resolve(appDir, 'src/modules', entry.id)
-      const pkgModulesRoot = pkgDirFor(rootDir, entry.from, _isMonorepo)
+      const pkgModulesRoot = pkgDirFor(rootDir, entry.from, _isMonorepo, appDir)
       const pkgBase = path.join(pkgModulesRoot, entry.id)
       return { appBase, pkgBase }
     },
@@ -579,12 +576,12 @@ export function createResolver(cwd: string = process.cwd()): PackageResolver {
         // App output goes to .mercato/generated
         return path.join(appDir, '.mercato', 'generated')
       }
-      const pkgRoot = pkgRootFor(rootDir, packageName, _isMonorepo)
+      const pkgRoot = pkgRootFor(rootDir, packageName, _isMonorepo, appDir)
       return path.join(pkgRoot, 'generated')
     },
 
     getPackageRoot: (from?: string) => {
-      return pkgRootFor(rootDir, from, _isMonorepo)
+      return pkgRootFor(rootDir, from, _isMonorepo, appDir)
     },
   }
 }
@@ -602,6 +599,6 @@ export function resolveEnvironment(cwd: string = process.cwd()): CliEnvironment 
     mode: _isMonorepo ? 'monorepo' : 'standalone',
     rootDir,
     appDir,
-    packageRoot: (packageName: string) => pkgRootFor(rootDir, packageName, _isMonorepo),
+    packageRoot: (packageName: string) => pkgRootFor(rootDir, packageName, _isMonorepo, appDir),
   }
 }
