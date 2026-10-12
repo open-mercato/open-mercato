@@ -1224,6 +1224,23 @@ the author on 2026-10-09; the category list rests on secondary sources.
   "separate, larger future document"; none is required by the Event
   Storming brief's Sekcja 6 list ("Wygenerowano Bilans," "Wygenerowano
   P&L" only) — future documents, not solved here.
+  **This module does not produce a complete statutory financial statement.**
+  Art. 45 ust. 2 UoR says the statement consists of the balance sheet, the
+  profit and loss account **and the additional information (informacja
+  dodatkowa)**, which is mandatory for every entity; art. 45 ust. 3 adds the
+  statement of changes in equity and the cash flow statement for entities other
+  than micro and small ones. Phase 1 delivers the first two parts only. The
+  informacja dodatkowa (the introduction and the notes of Załącznik nr 1) is the
+  first follow-up, since it applies to everyone; the statement of changes in
+  equity and the cash flow statement follow for medium and large entities.
+- **Simplified forms and other annexes.** Only Załącznik nr 1 is covered. Micro
+  and small entities may use the simplified forms (Załączniki 4 and 5, art. 47
+  ust. 4 pkt 4–5) and public-benefit organisations Załącznik 6; a tenant on one
+  of those forms is out of scope.
+- **Filing format.** Art. 45 ust. 1f–1g UoR requires the statement in electronic
+  form with a qualified, trusted or personal signature, and, for entities in the
+  KRS register, in the logical structure published in the BIP. Producing that
+  file and signing it is not part of this module.
 - **Report builder, scheduler, drill-down engine, report caching**
   (SPEC-024 §11.1, Core, High/Medium priority) — deferred; see Proposed
   Solution and Design decisions #1. `financial_statements` ships only
@@ -1963,3 +1980,28 @@ Phase 1 decision (confirmed by the team 2026-10-12): show gross and do not offer
 entity's right and intent, which the system cannot know, so it would be a
 per-entity setting, not a default. Phase 2 candidate if a tenant asks. Not
 yet reviewed by a maintainer.
+
+### 2026-10-12 — Załącznik nr 1 and art. 45 checked against the consolidated text
+
+Checked against the consolidated text (Dz. U. z 2026 r. poz. 522, 640, 644,
+1206; Sejm print of 2026-10-08). Confirmed: Załącznik 1 has one Bilans and an RZiS
+in two variants (kalkulacyjny, porównawczy), with a fixed line structure and
+computed subtotals; the net result is "Zysk (strata) netto" (L−M−N in the
+kalkulacyjny variant, I−J−K in the porównawczy one, with costs deducted), which
+matches the `sign`/`isTotal` design of decision 1b; the kalkulacyjny variant uses
+costs by function (class 5) and the porównawczy variant costs by nature (class 4).
+Clarified in Out of scope, decided by the team:
+
+- **Scope.** Phase 1 delivers the balance sheet and the profit and loss account
+  only, not the complete statement of art. 45 ust. 2–3. The informacja dodatkowa
+  is the first follow-up; the statement of changes in equity and the cash flow
+  statement follow for medium and large entities.
+- **RZiS variants.** Art. 47 ust. 4 pkt 1: the head of the entity chooses **one**
+  variant. Producing both and comparing the net results is our own consistency
+  check, not a statutory requirement.
+- **Other annexes** (4, 5, 6) and the **filing format** (art. 45 ust. 1f–1g) are
+  out of scope.
+
+`bilansTemplate.ts` and `rzisTemplate.ts` are not written yet, so there are no
+line codes to compare. When they are, generate the codes from the text of the
+annex rather than from memory. Not yet reviewed by a maintainer.
