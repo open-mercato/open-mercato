@@ -115,12 +115,18 @@ export type ResolvedEntryValues = {
   minutes: number
   rawMinutes: number
   rate: number | null
-  rateExact: string | null
+  rateExact?: string | null
   amount: number | null
-  amountExact: string | null
+  amountExact?: string | null
   isBillable: boolean
   hasOverride: boolean
   isFrozen: boolean
+}
+
+/** `ResolvedEntryValues` as `resolveEntryValues` produces it: the exact siblings are always set. */
+export type ExactResolvedEntryValues = ResolvedEntryValues & {
+  rateExact: string | null
+  amountExact: string | null
 }
 
 export type ReportLine = {
@@ -129,13 +135,20 @@ export type ReportLine = {
   minutes: number
   /** The rate every entry on this line agreed on, or null when they disagree. */
   rate: number | null
-  rateExact: string | null
+  rateExact?: string | null
   amount: number
-  amountExact: string
+  amountExact?: string
   entryCount: number
   hasOverride: boolean
   /** Child-task rollup detail (D-2); empty for person and day groupings. */
   children: ReportLine[]
+}
+
+/** `ReportLine` as `computeReportTotals` produces it: the exact siblings are always set. */
+export type ExactReportLine = Omit<ReportLine, 'rateExact' | 'amountExact' | 'children'> & {
+  rateExact: string | null
+  amountExact: string
+  children: ExactReportLine[]
 }
 
 export type ReportGroup = {
@@ -143,12 +156,19 @@ export type ReportGroup = {
   kind: 'project' | 'nonbillable'
   label: string
   rate: number | null
-  rateExact: string | null
+  rateExact?: string | null
   minutes: number
   amount: number
-  amountExact: string
+  amountExact?: string
   entryCount: number
   lines: ReportLine[]
+}
+
+/** `ReportGroup` as `computeReportTotals` produces it: the exact siblings are always set. */
+export type ExactReportGroup = Omit<ReportGroup, 'rateExact' | 'amountExact' | 'lines'> & {
+  rateExact: string | null
+  amountExact: string
+  lines: ExactReportLine[]
 }
 
 export type AlreadyReportedSource = {
@@ -165,11 +185,17 @@ export type ReportTotals = {
   nonbillableMinutes: number
   entryCount: number
   totalAmount: number
-  totalAmountExact: string
+  totalAmountExact?: string
   /** Entries skipped because they are frozen elsewhere (D-5). Zero when opted in. */
   alreadyReportedCount: number
   alreadyReportedMinutes: number
   alreadyReportedIn: AlreadyReportedSource[]
+}
+
+/** `ReportTotals` as `computeReportTotals` produces it: the exact siblings are always set. */
+export type ExactReportTotals = Omit<ReportTotals, 'groups' | 'totalAmountExact'> & {
+  groups: ExactReportGroup[]
+  totalAmountExact: string
 }
 
 
@@ -207,7 +233,7 @@ export function resolveEntryValues(
   entry: ReportInputEntry,
   project: ReportInputProject | null | undefined,
   amountDecimalPlaces: number = DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES,
-): ResolvedEntryValues {
+): ExactResolvedEntryValues {
   const frozen = entry.frozen
   const override = exactOrNull(entry.rateOverrideAmountExact, entry.rateOverrideAmount)
   if (frozen) {
@@ -263,7 +289,7 @@ export function isAlreadyReported(entry: ReportInputEntry, currentReportId: stri
   return true
 }
 
-function distinctRate(values: readonly ResolvedEntryValues[]): string | null {
+function distinctRate(values: readonly ExactResolvedEntryValues[]): string | null {
   let rate: string | null = null
   let seen = false
   for (const value of values) {
@@ -286,12 +312,13 @@ function distinctRate(values: readonly ResolvedEntryValues[]): string | null {
  * exactly as it was billed, so a closed report keeps totalling to what it froze.
  */
 export function sumResolvedAmounts(
-  values: readonly Pick<ResolvedEntryValues, 'isFrozen' | 'amountExact'>[],
+  values: readonly (Pick<ResolvedEntryValues, 'isFrozen' | 'amountExact'> & { amount?: number | null })[],
   amountDecimalPlaces: number,
 ): string {
-  const live = values.filter((value) => !value.isFrozen).map((value) => value.amountExact)
+  const amountOf = (value: (typeof values)[number]) => exactOrNull(value.amountExact, value.amount)
+  const live = values.filter((value) => !value.isFrozen).map(amountOf)
   const frozen = values.flatMap((value) => {
-    const parsed = value.isFrozen ? parseDecimal(value.amountExact) : null
+    const parsed = value.isFrozen ? parseDecimal(amountOf(value)) : null
     return parsed ? [parsed] : []
   })
   return decimalToString(sumDecimals([sumAmountsExact(live, amountDecimalPlaces), ...frozen]))
@@ -300,7 +327,7 @@ export function sumResolvedAmounts(
 type LineBucket = {
   key: string
   label: string
-  values: ResolvedEntryValues[]
+  values: ExactResolvedEntryValues[]
   children: Map<string, LineBucket>
 }
 
@@ -308,7 +335,7 @@ function makeBucket(key: string, label: string): LineBucket {
   return { key, label, values: [], children: new Map() }
 }
 
-function bucketToLine(bucket: LineBucket, amountDecimalPlaces: number): ReportLine {
+function bucketToLine(bucket: LineBucket, amountDecimalPlaces: number): ExactReportLine {
   const childLines = Array.from(bucket.children.values()).map((child) => bucketToLine(child, amountDecimalPlaces))
   // The parent line aggregates its own ENTRIES plus every child's entries — never
   // the child lines' amounts (risk R10). Because `sumAmounts` works in integer
@@ -331,7 +358,7 @@ function bucketToLine(bucket: LineBucket, amountDecimalPlaces: number): ReportLi
   }
 }
 
-function collectValues(bucket: LineBucket): ResolvedEntryValues[] {
+function collectValues(bucket: LineBucket): ExactResolvedEntryValues[] {
   const values = [...bucket.values]
   for (const child of bucket.children.values()) values.push(...collectValues(child))
   return values
@@ -383,7 +410,7 @@ export type ComputeReportTotalsInput = {
   }
 }
 
-export function computeReportTotals(input: ComputeReportTotalsInput): ReportTotals {
+export function computeReportTotals(input: ComputeReportTotalsInput): ExactReportTotals {
   const { entries, projects, directory, options, labels } = input
   const grouping = guardGrouping(resolveGroupingStrategy(options.grouping))
   const amountDecimalPlaces = options.amountDecimalPlaces ?? DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES
@@ -400,9 +427,9 @@ export function computeReportTotals(input: ComputeReportTotalsInput): ReportTota
   let alreadyReportedMinutes = 0
 
   const billableBuckets = new Map<string, Map<string, LineBucket>>()
-  const nonbillableValues: ResolvedEntryValues[] = []
+  const nonbillableValues: ExactResolvedEntryValues[] = []
   const nonbillableBuckets = new Map<string, LineBucket>()
-  const projectValues = new Map<string, ResolvedEntryValues[]>()
+  const projectValues = new Map<string, ExactResolvedEntryValues[]>()
 
   for (const entry of entries) {
     const skipped = isAlreadyReported(entry, currentReportId) && !options.includeAlreadyReported
@@ -482,7 +509,7 @@ export function computeReportTotals(input: ComputeReportTotalsInput): ReportTota
     bucket.values.push(values)
   }
 
-  const groups: ReportGroup[] = []
+  const groups: ExactReportGroup[] = []
   for (const projectId of projectOrder) {
     const values = projectValues.get(projectId)
     if (!values || values.length === 0) continue

@@ -143,7 +143,7 @@ export async function GET(req: Request) {
         billableMinutes: sheet.totals.billableMinutes,
         nonbillableMinutes: sheet.totals.nonbillableMinutes,
         totalAmount: canSeeMoney ? sheet.totals.totalAmount : null,
-        totalAmountExact: canSeeMoney ? sheet.totals.totalAmountExact : null,
+        totalAmountExact: canSeeMoney ? (sheet.totals.totalAmountExact ?? String(sheet.totals.totalAmount)) : null,
       },
       alreadyReportedCount: sheet.totals.alreadyReportedCount,
       alreadyReportedMinutes: sheet.totals.alreadyReportedMinutes,

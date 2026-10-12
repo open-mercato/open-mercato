@@ -642,6 +642,47 @@ describe('TimeEntryDialog — saving', () => {
     expect(lastWriteBody().id).toBe(ENTRY_ID)
   })
 
+  it('sends the exact stored override rate back when only the description changes', async () => {
+    const preciseRate = '98.765432109876543212'
+    entryRows = [
+      {
+        id: ENTRY_ID,
+        date: '2026-07-20',
+        started_at: '2026-07-20T09:00:00.000Z',
+        ended_at: '2026-07-20T10:00:00.000Z',
+        duration_minutes: 60,
+        description: 'Analiza planów zapytań',
+        task_id: TASK_ID,
+        time_project_id: PROJECT_ID,
+        is_billable: true,
+        rate_override_amount: preciseRate,
+        isLocked: false,
+        updated_at: VERSION,
+        tags: [],
+      },
+    ]
+    renderDialog({ entryId: ENTRY_ID })
+
+    await waitFor(() => expect((screen.getByTestId('entry-dialog-rate') as HTMLInputElement).value).toBe(preciseRate))
+    fireEvent.change(screen.getByTestId('entry-dialog-description'), { target: { value: 'Nowy opis' } })
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
+    expect(lastWriteBody()).toEqual(expect.objectContaining({ description: 'Nowy opis', rateOverrideAmount: preciseRate }))
+  })
+
+  it('sends a typed decimal-comma override rate as an exact string', async () => {
+    renderDialog()
+    await pickTask()
+    fireEvent.change(durationInput(), { target: { value: '1h' } })
+    fireEvent.click(screen.getByRole('switch', { name: 'Custom rate for this entry' }))
+    fireEvent.change(await screen.findByTestId('entry-dialog-rate'), { target: { value: '123,123456789012345678' } })
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
+    expect(lastWriteBody().rateOverrideAmount).toBe('123.123456789012345678')
+  })
+
   it('asks for the entry by `ids`, the parameter the list schema actually reads', async () => {
     entryRows = [
       {
