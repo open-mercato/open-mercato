@@ -156,7 +156,7 @@ Weeks are **schedule weeks**: they start on Monday, in the schedule timezone, an
 | `min_rest_between_shifts` | `minRestHours` (11) | rest hours before the shift (`lower`) | id of the later shift of the pair |
 | `min_weekly_rest` | `minContinuousRestHours` (35), per schedule week | longest continuous rest touching the week (`lower`): a rest that crosses into the next week counts for both weeks; time before the first or after the last scheduled shift counts only inside the week. Only weeks with a shift are checked. | week start |
 | `break_required_after` | `workHoursThreshold` (6), `minBreakMinutes` (30) | break minutes (`lower`) | shift id |
-| `max_consecutive_working_days` | `maxDays` (6) | consecutive-day count reached (`higher`) | **each working day that exceeds the limit** (its date). This stays stable when a run grows in either direction. |
+| `max_consecutive_working_days` | `maxDays` (6, at most 366) | consecutive-day count reached (`higher`) | **each working day that exceeds the limit** (its date). This stays stable when a run grows in either direction. |
 
 A shift "involves" a violation when it is in the violation's subject:
 - the shift itself
@@ -189,7 +189,7 @@ A shift "involves" a violation when it is in the violation's subject:
 ### Compliance engine
 There is a single call site, `reconcileShiftCompliance(em, { staffMemberIds, range, scope, factScope })`:
 1. Resolve each employee's effective rule per type.
-2. Load their shifts for `range` widened by a **±14-day context window**, so weeks and rest gaps straddling the edges are evaluated correctly.
+2. Load their shifts for `range` widened by a **context window per employee**: at least 14 days, and as many days as the longest period among the rules that apply to that employee (a rolling window of `rollingDays`, an `averagingWeeks` average plus one week, a calendar month = 31 days, or `maxDays` + 1 for consecutive working days), capped at 400 days. A rule that looks back further than the window could not see the earlier work and would let a violating schedule through. Employees are grouped by window length so each group is one indexed query (`tenant, organization, staff member, starts_at`).
 3. Run the evaluators.
 4. Reconcile the results into `shift_scheduling_compliance_violations`.
 
@@ -362,12 +362,13 @@ Every route exports `openApi` and per-method `metadata`. Custom write routes run
 - Days rejected with a `409` (approved leave, unavailability, overlap) are skipped and reported as `skipped: [{ date, code, message }]`. Any other error aborts the request. Response: `{ ok, createdCount, created: [{ id, date }], skipped }`, `201` when at least one shift was created, otherwise `200`.
 
 **Bulk actions** — `POST /api/shift_scheduling/shifts/bulk-delete` and `/bulk-assign`
-- Body: `{ shiftIds }` (at most 200). `bulk-assign` also takes `staffMemberId` (nullable; `null` unassigns, an id assigns or reassigns).
+- Body: `{ shifts: [{ id, updatedAt }] }` (at most 200), where `updatedAt` is the version of each shift the supervisor saw on the board. `bulk-assign` also takes `staffMemberId` (nullable; `null` unassigns, an id assigns or reassigns).
 - Requires `.manage`; mutation guard with operation `delete`/`update`, resource id `null`.
 - Each shift runs through the regular single-shift delete/update command, so it keeps its own invariants, audit entry and events. Shifts are independent, same as rotations.
-- A shift rejected by a `CrudHttpError` (not found, overlap, approved leave, unavailability, inactive/other-team member) is skipped and reported; every other shift in the request still proceeds. An unexpected error aborts the request.
+- A shift rejected by a `CrudHttpError` (not found, **changed since the board was loaded**, overlap, approved leave, unavailability, inactive/other-team member) is skipped and reported; every other shift in the request still proceeds. An unexpected error aborts the request.
 - Response: `{ ok, processedCount, processed: [id], skipped: [{ id, code, message }] }`, always `200`.
-- No optimistic-lock header: both commands reload each shift fresh from the database before mutating it, the same safety the publish and rotation bulk paths already rely on.
+- **Stale-data check.** Each entry's `updatedAt` is passed to the shift command as `expectedUpdatedAt` and compared with the stored `updated_at` (the platform's `assertOptimisticLock`). A shift that someone else changed or reassigned after the board was loaded is **not** overwritten or deleted: it is skipped with code `shift_changed` and the rest proceed. Reloading a shift just before the write is not a substitute, because it only reads the current data and cannot tell that it changed since the supervisor looked.
+- **Skip messages name the shift.** The board builds each line from the shift it displayed: employee (or "Unassigned"), date, start–end time, and the reason, for example "Marek Kowalski, Wed, Oct 14, 2026, 08:00–16:00: changed by someone else after you loaded the board". It lists up to 5 and then "and N more", and reloads the board so changed shifts show their current state. This applies to every skip reason, including a shift that no longer exists.
 
 **Publish** — `POST /api/shift_scheduling/shifts/publish`
 - Body: `{ shiftIds }` (at most 500) or `{ teamId, from, to }`. The range form publishes every `draft` shift of that team whose `starts_at` falls in the range, **including unassigned (open) shifts**. Open shifts are published so they show as open slots, and they carry no compliance.
@@ -378,7 +379,7 @@ Every route exports `openApi` and per-method `metadata`. Custom write routes run
 
 **Compliance**
 - `POST /api/shift_scheduling/compliance/check` — body `{ teamId, from, to }` or `{ staffMemberIds, from, to }`. Requires `.manage`. Returns the current `open` + `approved` rows.
-- `POST /api/shift_scheduling/compliance/approve` — body `{ violationIds }`. Requires `.manage`. Records the approver, time, rule version and observed value.
+- `POST /api/shift_scheduling/compliance/approve` — body `{ violations: [{ id, observedValue }] }`, where `observedValue` is what the supervisor saw. Requires `.manage`. Records the approver, time, rule version and observed value. If any listed violation is no longer `open` or its observed value changed, **nothing is approved** and the response is `409 { code: 'shift_scheduling_violation_changed', violations: [current state of the changed ones], missingViolationIds }`; the dialog shows the employee, date range, rule and new value, and reloads the list.
 
 **Compliance rules** — `makeCrudRoute` at `/api/shift_scheduling/compliance-rules`, with `indexer: { entityType: 'shift_scheduling:compliance_rule' }`
 - `GET` requires `.view`. `POST`/`PUT`/`DELETE` require `.rules.manage`.
@@ -500,7 +501,7 @@ Built following the `om-backend-ui-design` skill and DS rules: semantic tokens o
 | 3 | Approval authority equals `.manage` | Low | RBAC | The person scheduling also approves their own exceptions | The audit trail records the approver; a dedicated approver feature in Phase 3 | Accepted for v1 |
 | 4 | Tenants disable or delete statutory defaults | Medium | Compliance | Legal checks silently disappear | Confirmation dialog; rule CRUD is audited via commands; `rules.manage` is admin-only by default | Product decision |
 | 5 | Seeded thresholds aren't authoritative for every jurisdiction | Medium | Compliance | Wrong legal limits are assumed | Documented as EU-style starting points; all parameters are editable | Tenant responsibility |
-| 6 | Reconciliation cost on large ranges | Low | Performance | Slow check or publish for big teams × month | ±14-day context window; per-team scope; board range capped at 31 days; 500-shift publish cap | Monitor |
+| 6 | Reconciliation cost on large ranges | Low | Performance | Slow check or publish for big teams × month, or for teams with year-long rolling rules (about 400 to 800 small rows per employee) | Per-employee context window (14 days unless a rule needs more, capped at 400); `maxDays` and `rollingDays` capped at 366; one indexed query per window length; per-team scope; board range capped at 31 days; 500-shift publish cap | Monitor |
 | 7 | Board payload size | Low | Performance | A month × large team exceeds the row cap | Row cap with a `truncated` flag shown in the UI | A large team may need a narrower range |
 | 8 | Leave / planner day-boundary disagreement | Low | Correctness | UTC planner rules vs schedule-timezone leave days | Both checked; the stricter wins | Edge-of-day differences |
 
@@ -648,7 +649,9 @@ Every test creates its own fixtures through the API and cleans up after itself. 
   - board payload contents, range cap and `truncated` flag
   - publish, including that no unpublish route exists and published shifts stay published
   - rotation: Mon/Wed/Fri over two weeks, overlap days skipped and reported, three open shifts on one day, copies rejected for an assigned shift, the 200 cap (TC-SHIFT-005)
-  - bulk actions: bulk-delete and bulk-assign process independent shifts, skip-and-report a conflicting one and continue, 404 on an already-deleted shift (TC-SHIFT-006)
+  - bulk actions: bulk-delete and bulk-assign process independent shifts, skip-and-report a conflicting one and continue, 404 on an already-deleted shift, and skip a shift changed after the board was loaded (`shift_changed`) without overwriting or deleting it (TC-SHIFT-006)
+  - reassigning a published shift to an employee who would break the rest rule needs approval; moving it away or unassigning it does not (TC-SHIFT-008)
+  - approving a violation whose observed value changed is refused with `shift_scheduling_violation_changed` (TC-SHIFT-007)
   - grouping: identical unassigned shifts merge, an assigned shift or any differing attribute keeps shifts separate, chronological placement is preserved (unit-tested)
   - the 500 cap
 - **Rules:**
@@ -753,6 +756,7 @@ Every test creates its own fixtures through the API and cleans up after itself. 
 - **2026-10-10** — Removed the organization timezone and week-start settings (settings page, `GET`/`PUT /api/shift_scheduling/settings`, `shift_scheduling.settings.manage`, translations and the settings integration test). The module now uses a fixed UTC schedule timezone and a Monday week start from one constant (`lib/settings.ts`); the `settings` object stays in the board, lookups and my-shifts responses. Added open question 3 on how such a setting should work across the application.
 - **2026-10-11** — Merged `origin/develop` into the spec, contracts, phase-1 and phase-2 branches (no conflicts). Review fixes: explicit sort comparators (`lib/sort.ts`), explicit command-interceptor mapping in the approve and rotation routes, `auth.acl.features.shift_scheduling.*` titles in all locales, sorted locale files. Spec brought in line with the code: undo removed from every command, schedule cost (`.costs.view`, `rates`, `costConversion`), the 2026 Polish holidays seed, My schedule card details, the attention icon's range filter, and the weekly-rest rule semantics.
 - **2026-10-12** — Open items closed: the two seeding upgrade actions are now version `0.9.1` (v0.9.0 shipped without the module); Scheduling is not enabled in the create-app template (commented out like `forms`, so no harness evaluation case is needed until a maintainer decides); with "All organizations" selected every Scheduling route now answers `400` "Select a specific organization to use Schedule Planner" instead of the board loading while writes failed.
+- **2026-10-12 (review)** — Three review findings fixed. (1) The ±14-day context window is now per employee and as long as the employee's longest rule period (rolling days, N-week averages, months, consecutive days), capped at 400 days; `maxDays` is capped at 366. (2) Bulk assign, bulk delete and approve now check the version the supervisor saw: bulk entries carry `updatedAt` (changed shifts are skipped as `shift_changed`), approve carries `observedValue` (a changed violation refuses the whole request). Skipped shifts are reported with employee, date, time and reason. (3) The reassignment wording is corrected: the new assignee is gated, only moving away or unassigning is exempt; TC-SHIFT-008 covers it.
 - **2026-10-10** — Backward-compatibility section completed with every change outside the module: the `configs` upgrade actions, the optional `ScheduleItem.detailLines`, the app and template registration, and the data-level effects. Existing unit suites of staff, planner, configs, resources, the schedule UI and the design-system gallery pass; the existing staff and planner integration suites were not run.
 - **2026-10-10** — Added **Open Questions for the Open Mercato Team**: the intention behind `planner` and whether it should be combined with `shift_scheduling`, and why some menu items sit under other modules' groups. Non-blocking; the Scheduling menu group and the Polish 2026 holidays seed shipped the same day.
 
@@ -797,4 +801,4 @@ Every test creates its own fixtures through the API and cleans up after itself. 
 - My-schedule uses a dedicated `GET /api/shift_scheduling/my-shifts` route.
 - Board teams and time codes are loaded through `GET /api/shift_scheduling/lookups`, which also returns the fixed schedule timezone and week start as `settings`.
 - Leave days are taken from the UTC calendar date, matching how staff stores and expands leave.
-- The post-publish gate only applies to `updateShiftCommand`: a create is always a fresh `draft`, so it never qualifies, and reassigning away from or unassigning an employee is never gated (monotonic).
+- The post-publish gate only applies to `updateShiftCommand`: a create is always a fresh `draft`, so it never qualifies, and moving work **away from** an employee or unassigning a shift is never gated (monotonic: it can only remove a violation). Reassigning a published shift **to** a new employee is gated for that new assignee, because it adds work to them; the shift is evaluated as pending on the recipient (covered by TC-SHIFT-008).
