@@ -19,7 +19,7 @@ export type ModulePackageMetadata = {
 export type ModuleInfoSnapshot = {
   title?: string
   description?: string
-  requires: string[]
+  requires?: string[]
 }
 
 export type ValidatedOfficialModulePackage = {
