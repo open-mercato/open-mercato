@@ -18,8 +18,10 @@ directly after AP.
 
 ## Overview
 
-Polish statutory accounting (art. 40–41 UoR) lets a company keep costs
-in two parallel views: **rodzajowy** (zespół 4 — costs by nature: raw
+Polish accounting practice lets a company keep costs
+in two parallel views (the Act itself, art. 47 ust. 4 pkt 1 and Załącznik 1,
+only requires the profit and loss account in the cost-of-sales or the by-nature
+variant, at the choice of the head of the entity): **rodzajowy** (zespół 4 — costs by nature: raw
 materials, salaries, depreciation) and **kalkulacyjny/funkcjonalny**
 (zespół 5 — costs by function/cost-centre: production, sales,
 administration). A company that keeps both must, at any point in time,
@@ -1783,3 +1785,15 @@ lines are processed); the sentinel `CostCenter` is not protected; `exchangeRate`
 per-line lock and the engine's own posting event is not emitted. Either
 #6711 changes to follow this document or this document changes, before
 either PR merges.
+
+### 2026-10-12 — Legal citation corrected
+
+The Overview cited "art. 40–41 UoR" for keeping costs in two parallel views. Art.
+40 is repealed and art. 41 is about deferred income, so the citation was wrong.
+The Act requires the profit and loss account in the cost-of-sales or by-nature
+variant (art. 47 ust. 4 pkt 1, Załącznik 1), at the choice of the head of the
+entity; keeping classes 4 and 5 side by side is chart-of-accounts practice, not
+statute. The "P&L consistency" invariant stays as a design rule, now without a
+statutory claim. Also noted: the reclassification entries are "dowody
+rozliczeniowe" (art. 20 ust. 3 pkt 4), a category missing from #5663's
+`documentType` enum. Not yet reviewed by a maintainer.
