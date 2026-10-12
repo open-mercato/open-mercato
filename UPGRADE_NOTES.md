@@ -22,7 +22,7 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
-## 0.8.0 → 0.8.1 (unreleased)
+## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### Payment gateway webhooks: opt-in transport, locator and response options; ambiguous matches are rejected
 
