@@ -166,6 +166,7 @@ The action executor:
 - Endpoint execution is allowlisted by current OpenAPI/route metadata and relative `/api/...` paths.
 - API key profile resolution is scoped by tenant and organization.
 - The options route requires both business-rule management and API-key minting permissions.
+- Every save and every execution enforces the author's role-grant ceiling on the selected profile (see Privilege Amplification Through API Key Profiles). The saving user is recorded in `updatedBy` on update.
 - The configurator gate is evaluated against the **stored** rule as well as the incoming payload. Because the update schema is partial, a request that omits `successActions` / `failureActions` leaves an existing `CALL_OPEN_MERCATO` action in place; without checking the stored rule, such a request could retarget when and on what that privileged call fires (entity type, event, condition, `enabled`) without holding `api_keys.create`.
 - The one-time key is minted with `createdBy: null`. It is a machine-to-machine credential whose identity is fully defined by its own tenant and organization, so `resolveApiKeyAuth` resolves it through the tenant/organization active-check branch. Binding it to the triggering principal would make runtime auth fail closed whenever the trigger comes from another organization or from a since-deleted user. This matches the `workflows` activity executor.
 - Rule execution logs persist only action type, success flag, and error summary for action results. Non-2xx failures record the status code only — the endpoint response body is never interpolated into the persisted error message.
@@ -207,8 +208,11 @@ Rejected for the initial implementation. Parameterized routes need dedicated UI 
 
 - Severity: High
 - Scenario: A rule author selects a profile with broader roles than intended.
-- Mitigation: Configuring this action requires `business_rules.manage` and `api_keys.create`. The mint permission is deliberate: at execution the one-time key inherits every role of the selected profile, so gating on the read-only `api_keys.view` would let a user who cannot mint a key drive authenticated internal calls with roles beyond their own grants. A user who already holds `api_keys.create` can mint an arbitrary-role key directly and therefore gains no new privilege here. Runtime uses only roles already assigned to a scoped API key profile.
-- Residual risk: Administrators must manage API key profiles carefully.
+- Mitigation: Configuring this action requires `business_rules.manage` and `api_keys.create`. That permission alone is not a ceiling: `POST /api/api_keys/keys` also runs `assertActorCanGrantRoles`, so a holder of `api_keys.create` can only mint keys with roles they could grant themselves, while the one-time execution key inherits every role of the selected profile. The action therefore enforces the same grant ceiling on the rule's author:
+  - Saving a rule (`POST`/`PUT /api/business_rules/rules`) checks the saver against every role of each selected profile. On `PUT`, the grant check covers the stored `CALL_OPEN_MERCATO` actions too when the payload does not replace them (without re-validating their endpoint or key availability); only a request that sets nothing but `enabled: false` skips it.
+  - The options route lists only profiles whose roles the caller can grant. AI-chat session keys and one-time keys (`__onetime__`, `__business_rule_…`, `__workflow_…`, `__session_…`) are never offered or accepted as profiles.
+  - At execution the rule's author (`updatedBy`, else `createdBy`) must still exist (a live user of the rule's tenant, a super administrator, or a live API key of that tenant) and must still be able to grant every role of the profile; otherwise the action fails before a key is minted. A profile role that no longer resolves also fails the check.
+- Residual risk: Administrators must manage API key profiles carefully. A rule keeps working only while its last saver keeps the required grants.
 
 ### Secret Exposure in Logs
 
@@ -234,6 +238,10 @@ Rejected for the initial implementation. Parameterized routes need dedicated UI 
 - Spec, spec directory, changelog, unit tests, and integration coverage are included.
 
 ## Changelog
+
+### 2026-10-13
+
+- Corrected the privilege-amplification argument: `api_keys.create` does not let a user mint arbitrary-role keys, because key creation is ceiling-checked. The action now applies the same `assertActorCanGrantRoles` ceiling when a rule is saved, when profile options are listed, and to the rule's author at execution (failing closed when the author is gone). Session and one-time keys are no longer selectable profiles, and `PUT` now records `updatedBy`.
 
 ### 2026-08-03
 

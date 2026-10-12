@@ -6,6 +6,7 @@ import * as ruleEvaluator from './rule-evaluator'
 import * as actionExecutor from './action-executor'
 import type { RuleEvaluationContext } from './rule-evaluator'
 import type { ActionContext, ActionExecutionOutcome } from './action-executor'
+import type { RbacService } from '../../auth/services/rbacService'
 import { ruleEngineContextSchema, ruleDiscoveryOptionsSchema, directRuleExecutionContextSchema, ruleIdExecutionContextSchema } from '../data/validators'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -231,6 +232,7 @@ export async function invalidateBusinessRuleDiscoveryCache(
 export type RuleEngineExecutionOptions = {
   eventBus?: Pick<EventBus, 'emitEvent'> | null
   cache?: RuleDiscoveryCache | null
+  rbacService?: RbacService
 }
 
 type RuleExecutionFailedPayload = {
@@ -539,6 +541,8 @@ export async function executeSingleRule(
           organizationId: context.organizationId,
           executedBy: context.executedBy ?? context.user?.id ?? null,
           em: em as any,
+          ruleAuthorId: rule.updatedBy ?? rule.createdBy ?? null,
+          rbacService: options.rbacService,
         }
 
         // Execute actions

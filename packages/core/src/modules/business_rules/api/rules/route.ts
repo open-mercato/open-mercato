@@ -21,7 +21,11 @@ import {
   invalidateBusinessRuleDiscoveryCache,
   resolveBusinessRuleDiscoveryCache,
 } from '../../lib/rule-engine'
-import { validateOpenMercatoCallActions } from '../../lib/openmercato-call-options'
+import {
+  validateOpenMercatoCallActions,
+  type OpenMercatoCallValidationOptions,
+} from '../../lib/openmercato-call-options'
+import type { RbacService } from '../../../auth/services/rbacService'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('business_rules').child({ component: 'rules-api' })
@@ -91,6 +95,39 @@ export const metadata = routeMetadata
 function hasOpenMercatoCallAction(actions: unknown): boolean {
   return Array.isArray(actions)
     && actions.some((action) => action && typeof action === 'object' && (action as { type?: unknown }).type === 'CALL_OPEN_MERCATO')
+}
+
+type RequestContainer = ReturnType<typeof createRequestContainer> extends Promise<infer T> ? T : never
+type RouteTranslator = Awaited<ReturnType<typeof resolveTranslations>>['t']
+
+function buildOpenMercatoCallValidationOptions(
+  container: RequestContainer,
+  auth: NonNullable<Awaited<ReturnType<typeof getAuthFromRequest>>>,
+  t: RouteTranslator,
+): OpenMercatoCallValidationOptions {
+  return {
+    grant: {
+      rbacService: container.resolve('rbacService') as RbacService,
+      actorId: auth.sub ?? null,
+    },
+    t: (key, fallback, params) => t(key, fallback, params),
+  }
+}
+
+function openMercatoCallValidationError(errors: string[], t: RouteTranslator): Response {
+  return NextResponse.json(
+    {
+      error: t('business_rules.errors.validationFailedWithDetails', 'Validation failed: {{details}}', {
+        details: errors.join(', '),
+      }),
+    },
+    { status: 400 },
+  )
+}
+
+function isDisableOnlyUpdate(body: Record<string, unknown>): boolean {
+  const changedKeys = Object.keys(body).filter((key) => key !== 'id' && key !== 'updatedAt')
+  return changedKeys.length === 1 && changedKeys[0] === 'enabled' && body.enabled === false
 }
 
 async function requireOpenMercatoCallConfiguratorAccess(
@@ -259,18 +296,19 @@ export async function POST(req: Request) {
     if (accessError) return accessError
   }
 
+  const validationOptions = buildOpenMercatoCallValidationOptions(container, auth, t)
   const actionErrors = [
     ...await validateOpenMercatoCallActions(em as EntityManager, parsed.data.successActions, {
       tenantId,
       organizationId,
-    }),
+    }, undefined, validationOptions),
     ...await validateOpenMercatoCallActions(em as EntityManager, parsed.data.failureActions, {
       tenantId,
       organizationId,
-    }),
+    }, undefined, validationOptions),
   ]
   if (actionErrors.length > 0) {
-    return NextResponse.json({ error: `Validation failed: ${actionErrors.join(', ')}` }, { status: 400 })
+    return openMercatoCallValidationError(actionErrors, t)
   }
 
   const data = {
@@ -320,10 +358,7 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: 'Rule id is required' }, { status: 400 })
   }
 
-  const payload = {
-    ...body,
-    updatedBy: auth.sub ?? auth.email ?? null,
-  }
+  const payload = { ...body }
   delete (payload as Record<string, unknown>).tenantId
   delete (payload as Record<string, unknown>).organizationId
   delete (payload as Record<string, unknown>).createdBy
@@ -356,18 +391,24 @@ export async function PUT(req: Request) {
     if (accessError) return accessError
   }
 
+  const checksStoredActions = !isDisableOnlyUpdate(body)
+  const validationOptions = buildOpenMercatoCallValidationOptions(container, auth, t)
+  const storedActionOptions = { ...validationOptions, grantCeilingOnly: true }
+  const validationScope = { tenantId, organizationId }
   const actionErrors = [
-    ...await validateOpenMercatoCallActions(em as EntityManager, parsed.data.successActions, {
-      tenantId,
-      organizationId,
-    }),
-    ...await validateOpenMercatoCallActions(em as EntityManager, parsed.data.failureActions, {
-      tenantId,
-      organizationId,
-    }),
+    ...(parsed.data.successActions !== undefined
+      ? await validateOpenMercatoCallActions(em as EntityManager, parsed.data.successActions, validationScope, undefined, validationOptions)
+      : checksStoredActions
+        ? await validateOpenMercatoCallActions(em as EntityManager, rule.successActions, validationScope, undefined, storedActionOptions)
+        : []),
+    ...(parsed.data.failureActions !== undefined
+      ? await validateOpenMercatoCallActions(em as EntityManager, parsed.data.failureActions, validationScope, undefined, validationOptions)
+      : checksStoredActions
+        ? await validateOpenMercatoCallActions(em as EntityManager, rule.failureActions, validationScope, undefined, storedActionOptions)
+        : []),
   ]
   if (actionErrors.length > 0) {
-    return NextResponse.json({ error: `Validation failed: ${actionErrors.join(', ')}` }, { status: 400 })
+    return openMercatoCallValidationError(actionErrors, t)
   }
 
   try {
@@ -385,6 +426,7 @@ export async function PUT(req: Request) {
   }
 
   em.assign(rule, parsed.data)
+  rule.updatedBy = auth.sub ?? null
 
   try {
     await em.persist(rule).flush()

@@ -352,6 +352,40 @@ describe('Rule Engine (Unit Tests)', () => {
       )
     })
 
+    test('passes the last saver of the rule to the actions as the rule author', async () => {
+      const context: RuleEngineContext = {
+        entityType: 'WorkOrder',
+        entityId: testEntityId,
+        data: { status: 'RELEASED' },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        dryRun: true,
+      }
+      jest.mocked(actionExecutor.executeActions).mockResolvedValue(allowOutcome)
+
+      for (const [authorFields, expectedAuthor] of [
+        [{ createdBy: 'creator-user', updatedBy: 'editor-user' }, 'editor-user'],
+        [{ createdBy: 'creator-user', updatedBy: null }, 'creator-user'],
+        [{ createdBy: null, updatedBy: null }, null],
+      ] as const) {
+        const rule = { ...mockRule, ...authorFields } as BusinessRule
+        jest.mocked(ruleEvaluator.evaluateSingleRule).mockResolvedValue({
+          rule,
+          conditionsPassed: true,
+          evaluationCompleted: true,
+          evaluationTime: 1,
+        })
+        jest.mocked(actionExecutor.executeActions).mockClear()
+
+        await ruleEngine.executeSingleRule(mockEm, rule, context)
+
+        expect(actionExecutor.executeActions).toHaveBeenCalledWith(
+          mockRule.successActions,
+          expect.objectContaining({ ruleAuthorId: expectedAuthor }),
+        )
+      }
+    })
+
     // `dryRun` only suppresses the execution LOG — the test above proves it,
     // because it passes `dryRun: true` and still expects actions to have run.
     // A caller that must produce no side effects (the workflows dry-run path,
