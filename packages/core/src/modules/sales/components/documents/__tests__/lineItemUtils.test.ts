@@ -1,5 +1,6 @@
 import {
   autoFillOppositeAmount,
+  deriveUnitPrices,
   formatMoney,
   grossFromNet,
   netFromGross,
@@ -160,5 +161,56 @@ describe('auto-filled dialog amounts', () => {
   it('rounds a shipping amount from a fractional quantity to cents', () => {
     expect(roundAutoFilledAmount('15.015', { code: 'USD' }, '10.01')).toBe('15.02')
     expect(roundAutoFilledAmount('20.02', { code: 'USD' }, '10.01')).toBe('20.02')
+  })
+})
+
+describe('unit prices derived in the line dialog', () => {
+  it('keeps the default precision when no decimal places are passed', () => {
+    expect(netFromGross('1', 23)).toBe('0.813')
+    expect(netFromGross('1', 23, null)).toBe('0.813')
+    expect(grossFromNet('1', 23, undefined)).toBe('1.23')
+  })
+
+  it('rounds the derived side to the requested decimal places', () => {
+    expect(netFromGross('1', 23, 18)).toBe('0.813008130081300813')
+    expect(grossFromNet('0.813008130081300813', 23, 18)).toBe('1')
+    expect(netFromGross('100', 23, 2)).toBe('81.3008')
+    expect(netFromGross('1.23456789', 23, 4)).toBe('1.00371373')
+  })
+
+  it('derives an 18 decimal currency line at its configured precision', () => {
+    expect(deriveUnitPrices('gross', '1', 23, { code: 'ETH', decimalPlaces: 18 })).toEqual({
+      unitPriceNet: '0.813008130081300813',
+      unitPriceGross: '1',
+    })
+    expect(deriveUnitPrices('net', '0.813008130081300813', 23, { code: 'ETH', decimalPlaces: 18 })).toEqual({
+      unitPriceNet: '0.813008130081300813',
+      unitPriceGross: '1',
+    })
+  })
+
+  it('never derives fewer than 4 decimals or fewer than the typed price carries', () => {
+    expect(deriveUnitPrices('gross', '100', 23, { code: 'USD' })).toEqual({
+      unitPriceNet: '81.3008',
+      unitPriceGross: '100',
+    })
+    expect(deriveUnitPrices('gross', '100', 23, { code: 'JPY', decimalPlaces: 0 })).toEqual({
+      unitPriceNet: '81.3008',
+      unitPriceGross: '100',
+    })
+    expect(deriveUnitPrices('gross', '1.230000000001', 23, { code: 'USD', decimalPlaces: 2 })).toEqual({
+      unitPriceNet: '1.000000000001',
+      unitPriceGross: '1.230000000001',
+    })
+    expect(deriveUnitPrices('net', '90', null, { code: 'ETH', decimalPlaces: 18 })).toEqual({
+      unitPriceNet: '90',
+      unitPriceGross: '90',
+    })
+  })
+
+  it('falls back to the ISO digits, then 4 decimals, when no configured precision is known', () => {
+    expect(deriveUnitPrices('gross', '1', 23, { code: 'KWD' }).unitPriceNet).toBe('0.813')
+    expect(deriveUnitPrices('gross', '1', 23, { code: 'XYZ' }).unitPriceNet).toBe('0.813')
+    expect(deriveUnitPrices('gross', '1', 23, null).unitPriceNet).toBe('0.813')
   })
 })

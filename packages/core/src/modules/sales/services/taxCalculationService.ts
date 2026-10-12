@@ -15,6 +15,7 @@ import {
   type DecimalValue,
 } from '@open-mercato/shared/lib/decimal'
 import { SalesTaxRate } from '../data/entities'
+import { reconcileHookAmount, type AmountPair } from '../lib/calculations'
 
 export type TaxCalculationMode = 'net' | 'gross'
 
@@ -54,6 +55,7 @@ export class DefaultTaxCalculationService implements TaxCalculationService {
     let resolved: TaxCalculationResult | undefined
 
     if (this.eventBus) {
+      const inputBefore: AmountPair = { exact: workingInput.amountExact, value: workingInput.amount }
       await this.eventBus.emitEvent('sales.tax.calculate.before', {
         input: workingInput,
         setInput(next: Partial<CalculateTaxInput>) {
@@ -64,12 +66,14 @@ export class DefaultTaxCalculationService implements TaxCalculationService {
           if (next) resolved = next
         },
       })
+      workingInput = reconcileInputAmount(workingInput, inputBefore)
       if (resolved) return withExactResult(resolved)
     }
 
     resolved = await this.performCalculation(workingInput)
 
     if (this.eventBus) {
+      const resultBefore = captureResultAmounts(resolved)
       await this.eventBus.emitEvent('sales.tax.calculate.after', {
         input: workingInput,
         result: resolved,
@@ -77,6 +81,7 @@ export class DefaultTaxCalculationService implements TaxCalculationService {
           if (next) resolved = next
         },
       })
+      return reconcileResultAmounts(resolved, resultBefore, hookDecimalPlaces(workingInput))
     }
 
     return withExactResult(resolved)
@@ -173,6 +178,54 @@ function roundRate(value: number, precision = 4): number {
   return Math.round(value * factor) / factor
 }
 
+const RESULT_AMOUNT_FIELDS = ['netAmount', 'grossAmount', 'taxAmount'] as const
+
+type ResultAmountField = (typeof RESULT_AMOUNT_FIELDS)[number]
+
+function hookDecimalPlaces(input: CalculateTaxInput): number {
+  return input.amountDecimalPlaces ?? DEFAULT_AMOUNT_DECIMAL_PLACES
+}
+
+/**
+ * Applies a `sales.tax.calculate.before` change to the amount: a changed
+ * `amountExact` wins, a changed `amount` alone replaces the exact value, rounded
+ * to the amount precision. An untouched input is returned as is.
+ */
+function reconcileInputAmount(input: CalculateTaxInput, before: AmountPair): CalculateTaxInput {
+  if (input.amountExact === before.exact && input.amount === before.value) return input
+  const amount = reconcileHookAmount(before, input.amountExact, input.amount, hookDecimalPlaces(input))
+  if (amount === null) return input
+  return { ...input, amount: decimalToNumber(amount), amountExact: decimalToString(amount) }
+}
+
+function captureResultAmounts(result: TaxCalculationResult): Record<ResultAmountField, AmountPair> {
+  return {
+    netAmount: { exact: result.netAmountExact, value: result.netAmount },
+    grossAmount: { exact: result.grossAmountExact, value: result.grossAmount },
+    taxAmount: { exact: result.taxAmountExact, value: result.taxAmount },
+  }
+}
+
+/**
+ * Applies a `sales.tax.calculate.after` change to each amount: a changed
+ * `<field>Exact` wins and refreshes its float, a changed float alone replaces
+ * the exact value, rounded to `decimalPlaces`.
+ */
+function reconcileResultAmounts(
+  result: TaxCalculationResult,
+  before: Record<ResultAmountField, AmountPair>,
+  decimalPlaces: number,
+): TaxCalculationResult {
+  const next = { ...result }
+  for (const field of RESULT_AMOUNT_FIELDS) {
+    const amount = reconcileHookAmount(before[field], result[`${field}Exact`], result[field], decimalPlaces)
+    if (amount === null) continue
+    next[field] = decimalToNumber(amount)
+    next[`${field}Exact`] = decimalToString(amount)
+  }
+  return next
+}
+
 /**
  * Fills the float and exact amount fields from each other. `fromExact` trusts
  * the exact strings (own calculation); otherwise a result handed over by a hook
@@ -180,7 +233,7 @@ function roundRate(value: number, precision = 4): number {
  */
 function withExactResult(result: TaxCalculationResult, fromExact = false): TaxCalculationResult {
   const next = { ...result }
-  for (const field of ['netAmount', 'grossAmount', 'taxAmount'] as const) {
+  for (const field of RESULT_AMOUNT_FIELDS) {
     const exact = fromExact
       ? (result[`${field}Exact`] ?? null)
       : resolveExactDecimal(result[`${field}Exact`], result[field])

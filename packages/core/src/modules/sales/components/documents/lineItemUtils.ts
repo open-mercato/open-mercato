@@ -70,15 +70,40 @@ function resolveTaxMultiplier(taxRate: DecimalInput | null | undefined): Decimal
   return multiplier.gt(0) ? multiplier : null
 }
 
-export function grossFromNet(net: DecimalInput, taxRate: DecimalInput | null | undefined): string {
-  const multiplier = resolveTaxMultiplier(taxRate)
-  return multiplier ? roundMoney(multiplyDecimals(net, multiplier), resolveMoneyDecimalPlaces(net)) : decimalToString(net)
+function resolveDerivedDecimalPlaces(source: DecimalInput, decimalPlaces: number | null | undefined): number {
+  const sourcePlaces = resolveMoneyDecimalPlaces(source)
+  return typeof decimalPlaces === 'number' && Number.isInteger(decimalPlaces) && decimalPlaces >= 0
+    ? Math.max(sourcePlaces, decimalPlaces)
+    : sourcePlaces
 }
 
-export function netFromGross(gross: DecimalInput, taxRate: DecimalInput | null | undefined): string {
+/**
+ * Gross for `net` at `taxRate`, rounded to DEFAULT_AMOUNT_DECIMAL_PLACES or the
+ * source's decimals, or to `decimalPlaces` when that is more.
+ */
+export function grossFromNet(
+  net: DecimalInput,
+  taxRate: DecimalInput | null | undefined,
+  decimalPlaces?: number | null,
+): string {
   const multiplier = resolveTaxMultiplier(taxRate)
   return multiplier
-    ? roundMoney(divideDecimals(gross, multiplier, FX_DECIMAL_PLACES), resolveMoneyDecimalPlaces(gross))
+    ? roundMoney(multiplyDecimals(net, multiplier), resolveDerivedDecimalPlaces(net, decimalPlaces))
+    : decimalToString(net)
+}
+
+/**
+ * Net for `gross` at `taxRate`, rounded to DEFAULT_AMOUNT_DECIMAL_PLACES or the
+ * source's decimals, or to `decimalPlaces` when that is more.
+ */
+export function netFromGross(
+  gross: DecimalInput,
+  taxRate: DecimalInput | null | undefined,
+  decimalPlaces?: number | null,
+): string {
+  const multiplier = resolveTaxMultiplier(taxRate)
+  return multiplier
+    ? roundMoney(divideDecimals(gross, multiplier, FX_DECIMAL_PLACES), resolveDerivedDecimalPlaces(gross, decimalPlaces))
     : decimalToString(gross)
 }
 
@@ -134,6 +159,23 @@ export function roundAutoFilledAmount(
 ): string {
   const decimalPlaces = resolveAutoFillDecimalPlaces(currency, ...sources)
   return roundDecimal(value, decimalPlaces).toFixed(decimalPlaces)
+}
+
+/**
+ * Net and gross unit prices for a unit price typed in `priceMode`: the typed side
+ * is kept as entered and the other side is rounded to the stored amount precision
+ * of `currency`, as the server stores line amounts.
+ */
+export function deriveUnitPrices(
+  priceMode: 'net' | 'gross',
+  unitPrice: string,
+  taxRate: DecimalInput | null | undefined,
+  currency: CurrencyPrecision | null | undefined,
+): { unitPriceNet: string; unitPriceGross: string } {
+  const decimalPlaces = resolveStoredAmountDecimalPlaces(currency, unitPrice)
+  return priceMode === 'net'
+    ? { unitPriceNet: unitPrice, unitPriceGross: grossFromNet(unitPrice, taxRate, decimalPlaces) }
+    : { unitPriceNet: netFromGross(unitPrice, taxRate, decimalPlaces), unitPriceGross: unitPrice }
 }
 
 /** The other side of a typed net or gross amount, rounded like `roundAutoFilledAmount`. */

@@ -597,6 +597,31 @@ describe('LineItemDialog shipped-line lock (issue #5248)', () => {
     expect(screen.queryByText(PENDING_COPY)).toBeNull()
   })
 
+  it('derives the opposite unit price at the configured currency precision', async () => {
+    mockApiCall.mockImplementation(async (url: string) => ({
+      ok: true,
+      result: url.startsWith('/api/currencies/currencies')
+        ? { items: [{ code: 'ETH', decimalPlaces: 18 }] }
+        : catalogResponses(url),
+    }))
+    renderDialog({ shippedQuantity: 0 })
+    await waitFor(() => expect(capturedSubmit).toBeTruthy())
+
+    await act(async () => {
+      await capturedSubmit?.({ ...submittedValues('1'), unitPrice: '1', currencyCode: 'ETH' })
+    })
+
+    expect(mockUpdateCrud).toHaveBeenCalledTimes(1)
+    const [, payload] = mockUpdateCrud.mock.calls[0] as [string, FormValues]
+    expect(payload).toMatchObject({
+      currencyCode: 'ETH',
+      unitPriceNet: '0.813008130081300813',
+      unitPriceGross: '1',
+      totalNetAmount: '0.813008130081300813',
+      totalGrossAmount: '1',
+    })
+  })
+
   it('exposes the pricing fields through the form contract the dialog declares', async () => {
     renderDialog()
     await waitFor(() => expect(capturedFields.length).toBeGreaterThan(0))

@@ -49,9 +49,8 @@ import { E } from "#generated/entities.ids.generated";
 import { useT, useLocale } from "@open-mercato/shared/lib/i18n/context";
 import { useOrganizationScopeDetail } from "@open-mercato/shared/lib/frontend/useOrganizationScope";
 import {
+  deriveUnitPrices,
   formatMoney,
-  grossFromNet,
-  netFromGross,
   normalizeNumber,
   resolveMoneyDecimalPlaces,
   roundMoney,
@@ -59,7 +58,7 @@ import {
 } from "./lineItemUtils";
 import type { SalesLineRecord } from "./lineItemTypes";
 import { prepareShippedLineUpdatePayload } from "./lineItemShipmentLock";
-import { loadCurrencyDecimalPlaces } from "./currencyDecimalPlaces";
+import { useCurrencyDecimalPlacesLoader } from "./currencyDecimalPlaces";
 import {
   normalizeCustomFieldSubmitValue,
   extractCustomFieldValues,
@@ -535,6 +534,7 @@ export function LineItemDialog({
       return "110.70";
     }
   }, [locale]);
+  const loadDecimalPlacesForCurrency = useCurrencyDecimalPlacesLoader();
   const scope = useOrganizationScopeDetail();
   const resolvedOrganizationId = organizationId ?? scope.organizationId ?? null;
   const resolvedTenantId = tenantId ?? scope.tenantId ?? null;
@@ -1509,14 +1509,19 @@ export function LineItemDialog({
       const normalizedTaxRate = Number.isFinite(resolvedTaxRate)
         ? resolvedTaxRate
         : 0;
-      const safeUnitPriceNet =
-        resolvedPriceMode === "net"
-          ? unitPriceAmount
-          : netFromGross(unitPriceAmount, normalizedTaxRate);
-      const safeUnitPriceGross =
-        resolvedPriceMode === "gross"
-          ? unitPriceAmount
-          : grossFromNet(unitPriceAmount, normalizedTaxRate);
+      const currencyPrecision = {
+        code: String(resolvedCurrency),
+        decimalPlaces: await loadDecimalPlacesForCurrency(String(resolvedCurrency)),
+      };
+      const {
+        unitPriceNet: safeUnitPriceNet,
+        unitPriceGross: safeUnitPriceGross,
+      } = deriveUnitPrices(
+        resolvedPriceMode,
+        unitPriceAmount,
+        normalizedTaxRate,
+        currencyPrecision,
+      );
       const totalNetAmount = decimalToString(multiplyDecimals(safeUnitPriceNet, qtyNumber));
       const totalGrossAmount = decimalToString(multiplyDecimals(safeUnitPriceGross, qtyNumber));
 
@@ -1601,10 +1606,7 @@ export function LineItemDialog({
         payload,
         shippedLine,
         shippedLine && shippedLine.quantity !== qtyNumber
-          ? {
-              code: String(resolvedCurrency),
-              decimalPlaces: await loadCurrencyDecimalPlaces(String(resolvedCurrency)),
-            }
+          ? currencyPrecision
           : null,
       );
 
@@ -1655,6 +1657,7 @@ export function LineItemDialog({
       editingId,
       initialLine,
       isShippedOrderLine,
+      loadDecimalPlacesForCurrency,
       onDraftSaved,
       priceOptions,
       productOption,

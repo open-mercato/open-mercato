@@ -426,7 +426,8 @@ function buildDocumentAmounts(
   return totals
 }
 
-type AmountPair = { exact: unknown; value: unknown }
+/** An amount's `<field>Exact` string and float as they were before a hook ran. */
+export type AmountPair = { exact: unknown; value: unknown }
 type AmountPairs = Record<string, AmountPair>
 type AmountPairsById = Record<string, AmountPairs>
 
@@ -517,7 +518,7 @@ function captureDocumentAmounts(result: SalesDocumentCalculationResult): Documen
  * that only changed the float overrides a stale exact value). A value taken from
  * the float is rounded to `decimalPlaces`, as the fixed-scale columns did on write.
  */
-function reconcileAmount(
+export function reconcileHookAmount(
   before: AmountPair | undefined,
   exact: unknown,
   value: unknown,
@@ -543,7 +544,7 @@ function reconcileAmounts<T extends object>(
   const values = record as Record<string, unknown>
   let synced = record
   for (const field of fields) {
-    const value = reconcileAmount(before?.[field], values[`${field}Exact`], values[field], decimalPlaces)
+    const value = reconcileHookAmount(before?.[field], values[`${field}Exact`], values[field], decimalPlaces)
     if (value !== null) synced = withExactAmount(synced, field, value)
   }
   return synced

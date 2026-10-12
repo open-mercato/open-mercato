@@ -168,4 +168,98 @@ describe('DefaultTaxCalculationService', () => {
     expect(after).toHaveBeenCalled()
     expect(em.findOne).not.toHaveBeenCalled()
   })
+
+  describe('hook amount overrides', () => {
+    type HookPayload = {
+      input: Record<string, unknown>
+      result?: Record<string, unknown>
+      setInput?: (next: Record<string, unknown>) => void
+      setResult: (next: Record<string, unknown>) => void
+    }
+
+    const serviceWithHooks = (hooks: {
+      before?: (payload: HookPayload) => void
+      after?: (payload: HookPayload) => void
+    }) => {
+      const eventBus = {
+        emitEvent: jest.fn(async (event: string, payload: HookPayload) => {
+          if (event === 'sales.tax.calculate.before') hooks.before?.(payload)
+          if (event === 'sales.tax.calculate.after') hooks.after?.(payload)
+        }),
+      }
+      return new DefaultTaxCalculationService({ findOne: jest.fn() } as never, eventBus as never)
+    }
+
+    const taxedInput = { ...baseInput, amount: 10, amountExact: '10', taxRate: 20 }
+
+    it('keeps an exact-only change an after hook made in place', async () => {
+      const service = serviceWithHooks({
+        after: (payload) => {
+          if (payload.result) payload.result.grossAmountExact = '12.5'
+        },
+      })
+
+      const result = await service.calculateUnitAmounts(taxedInput)
+
+      expect(result).toMatchObject({ grossAmount: 12.5, grossAmountExact: '12.5', netAmountExact: '10' })
+    })
+
+    it('keeps an exact-only change an after hook passed to setResult', async () => {
+      const service = serviceWithHooks({
+        after: (payload) => payload.setResult({ ...payload.result, taxAmountExact: '2.000000000000000001' }),
+      })
+
+      const result = await service.calculateUnitAmounts(taxedInput)
+
+      expect(result).toMatchObject({ taxAmount: 2, taxAmountExact: '2.000000000000000001', grossAmountExact: '12' })
+    })
+
+    it('derives the exact value from a number-only after hook change at the amount precision', async () => {
+      const service = serviceWithHooks({
+        after: (payload) => payload.setResult({ ...payload.result, grossAmount: 12.123456789 }),
+      })
+
+      expect(await service.calculateUnitAmounts(taxedInput)).toMatchObject({
+        grossAmount: 12.1235,
+        grossAmountExact: '12.1235',
+        netAmountExact: '10',
+      })
+      expect(await service.calculateUnitAmounts({ ...taxedInput, amountDecimalPlaces: 6 })).toMatchObject({
+        grossAmount: 12.123457,
+        grossAmountExact: '12.123457',
+      })
+    })
+
+    it('keeps an exact-only amount change a before hook made', async () => {
+      const service = serviceWithHooks({
+        before: (payload) => payload.setInput?.({ amountExact: '10.5' }),
+      })
+
+      const result = await service.calculateUnitAmounts(taxedInput)
+
+      expect(result).toMatchObject({ netAmountExact: '10.5', grossAmountExact: '12.6', taxAmountExact: '2.1' })
+    })
+
+    it('derives the exact amount from a number-only before hook change', async () => {
+      const service = serviceWithHooks({
+        before: (payload) => {
+          payload.input.amount = 20
+        },
+      })
+
+      const result = await service.calculateUnitAmounts(taxedInput)
+
+      expect(result).toMatchObject({ netAmountExact: '20', grossAmountExact: '24', taxAmountExact: '4' })
+    })
+
+    it('leaves the amounts of hooks that change nothing untouched', async () => {
+      const service = serviceWithHooks({ before: () => undefined, after: () => undefined })
+      const plain = new DefaultTaxCalculationService({ findOne: jest.fn() } as never)
+      const numberOnlyInput = { ...baseInput, amount: 0.1 + 0.2, taxRate: 23 }
+
+      expect(await service.calculateUnitAmounts(numberOnlyInput)).toEqual(
+        await plain.calculateUnitAmounts(numberOnlyInput),
+      )
+    })
+  })
 })

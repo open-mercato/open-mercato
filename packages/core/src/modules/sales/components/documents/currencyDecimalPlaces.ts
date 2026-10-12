@@ -54,3 +54,19 @@ export function useCurrencyDecimalPlaces(code: string | null | undefined): numbe
 
   return loaded && loaded.code === normalized ? loaded.decimalPlaces : null
 }
+
+/**
+ * A loader that fetches the configured decimal places once per currency code for
+ * the lifetime of the calling component and reuses the result on later calls.
+ */
+export function useCurrencyDecimalPlacesLoader(): (code: string | null | undefined) => Promise<number | null> {
+  const cacheRef = React.useRef<{ code: string; decimalPlaces: Promise<number | null> } | null>(null)
+  return React.useCallback((code: string | null | undefined) => {
+    const normalized = normalizeCurrencyCode(code)
+    if (!normalized) return Promise.resolve(null)
+    if (!cacheRef.current || cacheRef.current.code !== normalized) {
+      cacheRef.current = { code: normalized, decimalPlaces: loadCurrencyDecimalPlaces(normalized) }
+    }
+    return cacheRef.current.decimalPlaces
+  }, [])
+}

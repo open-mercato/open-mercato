@@ -1,10 +1,15 @@
+/**
+ * @jest-environment jsdom
+ */
+import { renderHook } from '@testing-library/react'
+
 const mockApiCall = jest.fn()
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: unknown[]) => mockApiCall(...args),
 }))
 
-import { loadCurrencyDecimalPlaces } from '../currencyDecimalPlaces'
+import { loadCurrencyDecimalPlaces, useCurrencyDecimalPlacesLoader } from '../currencyDecimalPlaces'
 
 describe('loadCurrencyDecimalPlaces', () => {
   beforeEach(() => {
@@ -39,5 +44,32 @@ describe('loadCurrencyDecimalPlaces', () => {
 
     mockApiCall.mockRejectedValueOnce(new Error('offline'))
     await expect(loadCurrencyDecimalPlaces('ETH')).resolves.toBeNull()
+  })
+})
+
+describe('useCurrencyDecimalPlacesLoader', () => {
+  beforeEach(() => {
+    mockApiCall.mockReset()
+  })
+
+  it('loads each currency once and reloads only when the code changes', async () => {
+    mockApiCall.mockImplementation(async (url: string) => ({
+      ok: true,
+      result: { items: url.includes('code=ETH') ? [{ code: 'ETH', decimalPlaces: 18 }] : [{ code: 'USD', decimalPlaces: 2 }] },
+    }))
+    const { result, rerender } = renderHook(() => useCurrencyDecimalPlacesLoader())
+    const firstLoader = result.current
+
+    await expect(result.current('ETH')).resolves.toBe(18)
+    await expect(result.current(' eth ')).resolves.toBe(18)
+    rerender()
+    expect(result.current).toBe(firstLoader)
+    await expect(result.current('ETH')).resolves.toBe(18)
+    expect(mockApiCall).toHaveBeenCalledTimes(1)
+
+    await expect(result.current('USD')).resolves.toBe(2)
+    expect(mockApiCall).toHaveBeenCalledTimes(2)
+    await expect(result.current(null)).resolves.toBeNull()
+    expect(mockApiCall).toHaveBeenCalledTimes(2)
   })
 })

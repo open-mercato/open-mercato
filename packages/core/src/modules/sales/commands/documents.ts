@@ -3164,7 +3164,9 @@ function createLineSnapshotFromInput(
   const normalizedQuantity = toNumeric(
     line.normalizedQuantity ?? quantity,
   );
+  const lineId = (line as { id?: unknown }).id;
   return {
+    ...(typeof lineId === "string" && lineId.length > 0 ? { id: lineId } : {}),
     lineNumber,
     kind: line.kind ?? "product",
     productId: line.productId ?? null,
