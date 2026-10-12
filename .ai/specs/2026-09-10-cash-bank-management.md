@@ -279,8 +279,11 @@ settlement account is a liability; it can be refunded, or kept until the claim
 expires, and is written off to other operating income only after limitation),
 and the balance sheet shows it in liabilities, not netted against receivables
 (UoR art. 7 ust. 3: no offsetting of assets and liabilities of different
-kinds; the only exceptions, art. 37 ust. 7 and art. 46 ust. 2a, do not cover
-trade settlements). `sales_invoice_gl_posting` posts to one
+kinds; art. 46 ust. 2a allows net presentation of financial assets and
+liabilities where the entity has an unconditional right to offset and intends
+to settle net, which can include a receivable and a refund obligation to the
+same customer, so this is a presentation choice for the balance sheet, not a
+posting rule; art. 37 ust. 7 concerns deferred tax only). `sales_invoice_gl_posting` posts to one
 `receivableAccountId` with no per-customer accounts, so an excess credited
 there would silently reduce the reported receivables and hide the liability.
 Hence a third Module Config value, `customerOverpaymentAccountId` (a
@@ -291,8 +294,9 @@ book the excess in one go. Same currency: `settledAmount` defaults to
 `min(|line|, remaining)` and the excess is computed (`|line| − settledAmount`).
 Different currency: `settledAmount` and `bookedExchangeRate` are required and
 the excess is the explicit `overpaymentAmount` (bank currency, default `0`).
-The legal basis was checked against secondary sources only (see the
-knowledge base); the account number is the tenant's chart, not prescribed.
+Art. 7 ust. 3 was checked against the consolidated text of the Act on
+2026-10-12 (see the knowledge base); that the excess is a liability is our
+reading of it. The account number is the tenant's chart, not prescribed.
 Refunding an overpayment and offsetting it against a later invoice are
 separate movements, not designed here.
 
@@ -1820,3 +1824,17 @@ Deployment names the new columns and index; Testing Strategy covers an invoice
 whose posting was reversed. The matrix carries new rows marked "re-checked
 2026-10-12". The legal basis for overpayments stays unverified. Not yet
 reviewed by a maintainer.
+
+### 2026-10-12 (cont. — overpayment legal basis checked against the statute)
+
+Checked art. 7 ust. 3, art. 37 ust. 7 and art. 46 ust. 2a in the consolidated
+text of the Accounting Act (Dz. U. z 2026 r. poz. 522, 640, 644, 1206). Art. 7
+ust. 3 (no offsetting of assets and liabilities of different kinds) is
+confirmed. The earlier sentence that the exceptions in art. 37 ust. 7 and art.
+46 ust. 2a "do not cover trade settlements" was wrong: art. 37 ust. 7 is about
+deferred tax only, and art. 46 ust. 2a (net presentation of financial assets
+and liabilities with an unconditional right to offset and an intent to settle
+net) can apply to a receivable and a refund obligation to the same customer.
+The design is unchanged: the excess is booked to `customerOverpaymentAccountId`,
+because the ledger shows gross by default and net presentation is a choice the
+entity makes for the balance sheet. Not yet reviewed by a maintainer.
