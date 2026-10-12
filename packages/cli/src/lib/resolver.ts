@@ -68,7 +68,7 @@ function pkgRootFor(rootDir: string, from?: string, isMonorepo = true, appDir = 
     const workspaceMatch = packageName.match(/^@open-mercato\/(.+)$/)
     if (workspaceMatch) {
       const workspaceRoot = path.join(rootDir, 'packages', workspaceMatch[1])
-      if (fs.existsSync(path.join(workspaceRoot, 'package.json'))) return workspaceRoot
+      if (fs.existsSync(workspaceRoot)) return workspaceRoot
     }
   }
   return resolveInstalledPackageRootWithRequire(packageName, appDir) ?? path.join(rootDir, 'node_modules', packageName)

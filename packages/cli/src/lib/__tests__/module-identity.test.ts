@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { getModuleLocators } from '../module-identity'
+import { resolveModuleRequirement } from '@open-mercato/shared/modules/module-locators'
 import type { PackageResolver } from '../resolver'
 
 describe('module source identities', () => {
@@ -40,6 +41,11 @@ describe('module source identities', () => {
     expect(getModuleLocators({ id: 'marketing_consents', from: '@pkarw/marketing_consents', locator: 'github:stale/consents' }, resolver)).toEqual(['npm:@pkarw/marketing_consents', 'github:pkarw/consents'])
   })
 
+  it.each(['npm:@other/marketing_consents', { url: 'npm:@other/marketing_consents' }])('does not let repository %j spoof another npm publisher', (repository) => {
+    packageManifest(repository)
+    expect(getModuleLocators({ id: 'marketing_consents', from: '@pkarw/marketing_consents' }, resolver)).toEqual(['npm:@pkarw/marketing_consents'])
+  })
+
   it('uses package metadata locator when repository provenance is absent', () => {
     packageManifest(undefined)
     fs.writeFileSync(path.join(root, 'package', 'index.ts'), "export const metadata = { locator: 'github:pkarw/consents' }")
@@ -63,9 +69,12 @@ describe('module source identities', () => {
     expect(getModuleLocators({ id: 'marketing_consents', from: '@pkarw/marketing_consents' }, resolver)).toEqual(['npm:@pkarw/marketing_consents'])
   })
 
-  it('ignores mismatched package manifests without inventing a source from its repository', () => {
+  it('uses observed npm identity for aliases without assigning alias publisher or repository identity', () => {
     packageManifest('https://github.com/other/consents', '@other/consents')
-    expect(getModuleLocators({ id: 'marketing_consents', from: '@pkarw/marketing_consents' }, resolver)).toEqual(['npm:@pkarw/marketing_consents'])
+    const locators = getModuleLocators({ id: 'marketing_consents', from: '@pkarw/marketing_consents' }, resolver)
+    expect(locators).toEqual(['npm:@other/consents'])
+    expect(resolveModuleRequirement('npm:@pkarw/marketing_consents', [{ id: 'marketing_consents', locators }])).toBeUndefined()
+    expect(resolveModuleRequirement('npm:@other/consents', [{ id: 'marketing_consents', locators }])).toBe('marketing_consents')
   })
 
   it('reads ejected metadata without evaluating arbitrary module code', () => {

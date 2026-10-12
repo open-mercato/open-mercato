@@ -378,6 +378,10 @@ describe('canonical module preflight', () => {
       fs.writeFileSync(path.join(packageRoot, base, 'modules', 'marketing_consents', base === 'src' ? 'index.ts' : 'index.js'), 'export const metadata = {}')
     }
     const resolver = buildResolver(appDir, packageRoot, "export const enabledModules = [{ id: 'marketing_consents', from: '@pkarw/marketing_consents' }]\n")
+    const requiredPackageRoot = path.join(root, 'required-package')
+    fs.mkdirSync(requiredPackageRoot, { recursive: true })
+    fs.writeFileSync(path.join(requiredPackageRoot, 'package.json'), JSON.stringify({ name: '@pkarw/marketing_consents' }))
+    resolver.getPackageRoot = (packageName) => packageName === '@pkarw/marketing_consents' ? requiredPackageRoot : packageRoot
     await expect(enableOfficialModule(resolver, '@open-mercato/test-package', 'test_package')).resolves.toMatchObject({ moduleId: 'test_package' })
   })
 

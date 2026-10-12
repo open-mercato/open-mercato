@@ -48,8 +48,9 @@ export function getModuleLocators(entry: ModuleEntry, resolver: PackageResolver)
   } else {
     const packageRoot = resolver.getPackageRoot(from)
     const manifest = readJson(path.join(packageRoot, 'package.json'))
-    add(`npm:${from}`)
-    if (typeof manifest.name === 'string' && manifest.name !== from) return [...locators]
+    const observedPackageName = typeof manifest.name === 'string' ? manifest.name : from
+    add(`npm:${observedPackageName}`)
+    if (observedPackageName !== from) return [...locators]
     const appManifest = readJson(path.join(resolver.getAppDir(), 'package.json'))
     let dependencyLocator: string | undefined
     for (const section of ['dependencies', 'devDependencies', 'optionalDependencies']) {
@@ -62,10 +63,10 @@ export function getModuleLocators(entry: ModuleEntry, resolver: PackageResolver)
     if (dependencyLocator) add(dependencyLocator)
     else {
       const repository = manifest.repository
-      if (typeof repository === 'string') add(repository)
+      if (typeof repository === 'string' && normalizeModuleLocator(repository)?.startsWith('github:')) add(repository)
       else if (repository && typeof repository === 'object' && !Array.isArray(repository)) {
         const details = repository as Record<string, unknown>
-        if (!details.directory) add(details.url)
+        if (!details.directory && typeof details.url === 'string' && normalizeModuleLocator(details.url)?.startsWith('github:')) add(details.url)
       }
       if (![...locators].some((locator) => locator.startsWith('github:'))) {
         const registeredLocator = entry.locator ? normalizeModuleLocator(entry.locator) : null
@@ -82,6 +83,6 @@ export function getModuleLocators(entry: ModuleEntry, resolver: PackageResolver)
   return [...locators]
 }
 
-export function getEnabledModuleIdentities(resolver: PackageResolver): ModuleIdentity[] {
-  return resolver.loadEnabledModules().map((entry) => ({ id: entry.id, locators: getModuleLocators(entry, resolver) }))
+export function getEnabledModuleIdentities(resolver: PackageResolver, enabledModules: readonly ModuleEntry[] = resolver.loadEnabledModules()): ModuleIdentity[] {
+  return enabledModules.map((entry) => ({ id: entry.id, locators: getModuleLocators(entry, resolver) }))
 }

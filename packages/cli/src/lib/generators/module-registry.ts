@@ -5,7 +5,7 @@ import { VariableDeclarationKind, type WriterFunction } from 'ts-morph'
 import ts from 'typescript-js'
 import type { ModuleEntry, PackageResolver } from '../resolver'
 import { getEnabledModuleIdentities } from '../module-identity'
-import { getModuleRequirementHint, resolveModuleRequirement } from '@open-mercato/shared/modules/module-locators'
+import { getModuleRequirementHint, parseModuleLocator, resolveModuleRequirement } from '@open-mercato/shared/modules/module-locators'
 import {
   DEV_SUPERVISOR_MANIFEST_FILE,
   DEV_SUPERVISOR_MANIFEST_VERSION,
@@ -4223,7 +4223,8 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
   })
   // Validate module dependencies declared via ModuleInfo.requires
   {
-    const identities = getEnabledModuleIdentities(resolver)
+    const requiresSourceIdentity = [...requiresByModule.values()].some((requirements) => requirements.some((requirement) => parseModuleLocator(requirement)?.kind !== 'module'))
+    const identities = requiresSourceIdentity ? getEnabledModuleIdentities(resolver, enabled) : enabled.map((entry) => ({ id: entry.id }))
     const problems: string[] = []
     const missingRequirements = new Set<string>()
     for (const [modId, reqs] of requiresByModule.entries()) {
@@ -4705,7 +4706,8 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
   })
 
   {
-    const identities = getEnabledModuleIdentities(resolver)
+    const requiresSourceIdentity = [...requiresByModule.values()].some((requirements) => requirements.some((requirement) => parseModuleLocator(requirement)?.kind !== 'module'))
+    const identities = requiresSourceIdentity ? getEnabledModuleIdentities(resolver, enabled) : enabled.map((entry) => ({ id: entry.id }))
     const problems: string[] = []
     const missingRequirements = new Set<string>()
     for (const [modId, reqs] of requiresByModule.entries()) {
@@ -5096,7 +5098,8 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
 
   // Validate module dependencies declared via ModuleInfo.requires
   {
-    const identities = getEnabledModuleIdentities(resolver)
+    const requiresSourceIdentity = [...requiresByModule.values()].some((requirements) => requirements.some((requirement) => parseModuleLocator(requirement)?.kind !== 'module'))
+    const identities = requiresSourceIdentity ? getEnabledModuleIdentities(resolver, enabled) : enabled.map((entry) => ({ id: entry.id }))
     const problems: string[] = []
     const missingRequirements = new Set<string>()
     for (const [modId, reqs] of requiresByModule.entries()) {
