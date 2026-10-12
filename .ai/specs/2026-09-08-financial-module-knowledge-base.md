@@ -2265,7 +2265,7 @@ and the knowledge base; none went to an external expert. Marked
   it as `DEBIT` (justified there as a formality, since the account clears to
   near zero). `normalBalance` is immutable once an account of the type has
   posted entries, so it was changed in the default-chart spec and #6439 before
-  the first live import. ⚠ NEEDS HUMAN CONFIRMATION: checked against our own
+  the first live import. Decided by the team 2026-10-12: checked against our own
   spec only, no external accounting source.
 - **Zespół 5 scope in the default chart: unchanged (`550`, `552`).** The
   template is "representative, not exhaustive"; real systems checked ship an
@@ -2335,8 +2335,8 @@ only" status for these provisions.
   to receive cash, and pkt 27 financial liabilities as an obligation to
   deliver financial assets, so a trade receivable and a refund obligation to the
   same customer can fall under it. The statute does not say so expressly; this
-  is an interpretation. ⚠ NEEDS HUMAN CONFIRMATION (interpretation, no
-  external accounting source).
+  is an interpretation, decided by the team 2026-10-12 (no external accounting
+  source). Its only effect is that Phase 1 shows these items gross.
 - **Consequence.** The decision to book the excess of an overpayment to a separate
   liability account (`customerOverpaymentAccountId`, #6055) stands: the
   default in the ledger is gross, per art. 7 ust. 3. What changes is the
