@@ -369,6 +369,23 @@ posting populates both: `referenceType`/`referenceId` point at the
 carry the invoice's own type/number/date as a human would read them —
 neither substitutes for the other.
 
+**`JournalEntry.postedBy` — the person responsible for the entry (art. 14 ust.
+4 Ustawy o rachunkowości, added 2026-10-12).** For books kept by computer the Act
+requires an entry to carry an automatically assigned journal position number
+(`sequenceNumber`) **and** data that allow the person responsible for the
+entry's content to be identified. The command audit log records the acting user
+too, but only as a separate record linked by `resourceId`; an entry read on its
+own, or exported for an auditor, would not say who is responsible. So the entry
+carries it: `postedBy` (`text`, nullable), the authenticated subject
+(`auth.sub`) of the session that executed `postJournalEntry` or
+`reverseJournalEntry`. It is set by the command from the session and is not part
+of the input schema, so a caller cannot supply or forge it. It is null when the
+entry was posted without an authenticated caller (a system-posted entry); the
+caller's own `referenceType`/`referenceId` still say what caused it. The column
+is nullable so the migration is a plain `ADD COLUMN` (the append-only trigger
+blocks UPDATE/DELETE, not DDL). Text rather than a uuid because an API key's
+subject is not a user id.
+
 **Currency is reused from the existing `currencies` module, not
 reinvented.** `packages/core/src/modules/currencies` already owns
 tenant/org-scoped `Currency` (code, symbol, decimal precision,
@@ -746,7 +763,8 @@ suite asserts against, not a workflow it walks through.
   decisions), `postedAt`, `operationDate` (`date`, not nullable — art.
   23 ust. 2, see Design decisions), `documentType` (`string`, nullable
   in Phase 1), `documentNumber` (`string`, nullable in Phase 1),
-  `documentDate` (`date`, nullable), `description`, `type`
+  `documentDate` (`date`, nullable), `postedBy` (`text`, nullable — art. 14
+  ust. 4, see Design decisions), `description`, `type`
   (`NORMAL`/`OPENING`/`CLOSING`/`REVERSAL`), `currencyId`
   (FK-id, `uuid`, references `currencies.Currency.id` — no ORM
   relation), `exchangeRate`, `referenceType`, `referenceId`,
@@ -1055,7 +1073,7 @@ Standard `makeCrudRoute` paginated list.
   `postedAt`) — `JournalEntry` has no `periodId` column or FK either
   (see Data Models). Both are supported by indexes named in Migration.
 - **Response 200**: `{ items: JournalEntryDto[], total: number, page: number, pageSize: number }`
-  where `JournalEntryDto` is `{ id, sequenceNumber, postedAt, operationDate, documentType, documentNumber, documentDate, description, type, currencyId, exchangeRate, referenceType, referenceId, lines: { id, accountId, debit, credit, amountCurrency }[] }`
+  where `JournalEntryDto` is `{ id, sequenceNumber, postedAt, operationDate, documentType, documentNumber, documentDate, postedBy, description, type, currencyId, exchangeRate, referenceType, referenceId, lines: { id, accountId, debit, credit, amountCurrency }[] }`
   (`operationDate`/`documentType`/`documentNumber`/`documentDate` —
   art. 23 ust. 2, see Design decisions).
 - **Response 403**: caller lacks `ledger.entries.view`.
@@ -2504,13 +2522,15 @@ Checked against Dz. U. z 2026 r. poz. 522, 640, 644, 1206 (Sejm print of
   16 ust. 1. Art. 13 only lists księgi pomocnicze; art. 16 ust. 1 requires them to
   detail and be reconciled with the general ledger. Wording of the five elements
   of art. 23 ust. 2 made exact.
-- **Not yet reflected in the design, for a decision.** Art. 14 ust. 4: for
+- **Art. 14 ust. 4 — decided and added: `JournalEntry.postedBy`.** For
   computer-kept books an entry must carry an automatically assigned journal
   position number (`sequenceNumber`, done) **and** data identifying the person
-  responsible for the content of the entry. `JournalEntry` has no such field; the
-  actor is at most in the command audit log. ⚠ NEEDS HUMAN CONFIRMATION: whether
-  to add a `postedByUserId`-style column (a schema change in #6340) or to rely on
-  the audit log. Also worth citing in the design: art. 23 ust. 1 (computer
+  responsible for the content of the entry. `JournalEntry` had no such field; the
+  actor was only in the command audit log, linked by `resourceId`. Decision
+  (the team, 2026-10-12): the data belongs on the entry, so a nullable `postedBy`
+  column (the session's `auth.sub`, set by the command, never by the caller) is
+  added in #6340 with a migration, the list DTO and a unit test; see Design
+  decisions. Also worth citing in the design: art. 23 ust. 1 (computer
   books: procedures against destruction, modification or hiding of an entry,
   which supports immutability of posted entries) and art. 23 ust. 3 (foreign-
   currency operations recorded so that both the Polish and the foreign amount
