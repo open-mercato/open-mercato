@@ -2,8 +2,12 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render, screen } from '@testing-library/react'
-import { CustomerGroupTermsSection, type CustomerGroupTermsDTO } from '../CustomerGroupTermsSection'
+import { fireEvent, render, screen } from '@testing-library/react'
+import {
+  CustomerGroupTermsSection,
+  TERMS_NOT_YET_CREATED_LOCK_TOKEN,
+  type CustomerGroupTermsDTO,
+} from '../CustomerGroupTermsSection'
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   ...jest.requireActual('@open-mercato/shared/lib/i18n/context'),
@@ -11,8 +15,17 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
-  CrudForm: (props: { readOnly?: boolean; readOnlyOverlay?: React.ReactNode; submitLabel?: string }) => (
-    <div data-testid="terms-form" data-read-only={String(props.readOnly === true)}>
+  CrudForm: (props: {
+    readOnly?: boolean
+    readOnlyOverlay?: React.ReactNode
+    submitLabel?: string
+    optimisticLockUpdatedAt?: string | null
+  }) => (
+    <div
+      data-testid="terms-form"
+      data-read-only={String(props.readOnly === true)}
+      data-lock-token={props.optimisticLockUpdatedAt ?? ''}
+    >
       {props.readOnly ? props.readOnlyOverlay : <span>{props.submitLabel}</span>}
     </div>
   ),
@@ -73,5 +86,20 @@ describe('CustomerGroupTermsSection permission gating', () => {
     renderSection(storedTerms, true)
     expect(screen.getByTestId('terms-form').getAttribute('data-read-only')).toBe('false')
     expect(screen.getByText('Save terms')).toBeTruthy()
+  })
+})
+
+describe('CustomerGroupTermsSection optimistic locking', () => {
+  it('sends a lock token on the first save so a concurrent first save cannot be overwritten', () => {
+    renderSection(null, true)
+    fireEvent.click(screen.getByRole('button', { name: 'Set terms for this group' }))
+    const token = screen.getByTestId('terms-form').getAttribute('data-lock-token')
+    expect(token).toBe(TERMS_NOT_YET_CREATED_LOCK_TOKEN)
+    expect(token).toBe('1970-01-01T00:00:00.000Z')
+  })
+
+  it('sends the stored row version once terms exist', () => {
+    renderSection(storedTerms, true)
+    expect(screen.getByTestId('terms-form').getAttribute('data-lock-token')).toBe(storedTerms.updatedAt)
   })
 })
