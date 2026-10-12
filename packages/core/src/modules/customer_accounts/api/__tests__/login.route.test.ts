@@ -15,6 +15,8 @@ const mockFindByEmail = jest.fn()
 const mockVerifyPassword = jest.fn()
 const mockCheckLockout = jest.fn()
 const mockIncrementFailedAttempts = jest.fn()
+const mockResetFailedAttemptsUnlessLocked = jest.fn()
+const mockCreateSession = jest.fn()
 const mockBcryptCompare = jest.fn()
 const mockEmitCustomerAccountsEvent = jest.fn()
 
@@ -23,13 +25,15 @@ const mockCustomerUserService = {
   verifyPassword: mockVerifyPassword,
   checkLockout: mockCheckLockout,
   incrementFailedAttempts: mockIncrementFailedAttempts,
+  resetFailedAttemptsUnlessLocked: mockResetFailedAttemptsUnlessLocked,
+  updateLastLoginAt: jest.fn(async () => undefined),
 }
 
 const mockContainer = {
   resolve: jest.fn((token: string) => {
     if (token === 'customerUserService') return mockCustomerUserService
-    if (token === 'customerSessionService') return {}
-    if (token === 'customerRbacService') return {}
+    if (token === 'customerSessionService') return { createSession: mockCreateSession }
+    if (token === 'customerRbacService') return { getEffectiveFeatures: jest.fn(async () => []) }
     return null
   }),
 }
@@ -182,5 +186,46 @@ describe('POST /api/customer_accounts/login — account-enumeration hardening (#
       expect(response).toEqual(first)
     }
     expect(first).toEqual({ status: 401, body: { ok: false, error: 'Invalid email or password' } })
+  })
+})
+
+describe('POST /api/customer_accounts/login — lockout under concurrent attempts (#7232)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockCheckAuthRateLimit.mockResolvedValue({ error: null, compoundKey: null })
+    mockResolveTenantContext.mockResolvedValue({ tenantId })
+    mockCheckLockout.mockReturnValue(false)
+    mockEmitCustomerAccountsEvent.mockResolvedValue(undefined)
+  })
+
+  test('refuses a correct password when a concurrent failure locked the account during its bcrypt check', async () => {
+    mockFindByEmail.mockResolvedValueOnce({ id: 'u1', isActive: true, passwordHash: 'hash', emailVerifiedAt: new Date() })
+    mockVerifyPassword.mockResolvedValueOnce(true)
+    mockResetFailedAttemptsUnlessLocked.mockResolvedValueOnce(false)
+
+    const res = await POST(makeRequest(baseBody()))
+    const body = await res.json()
+
+    expect(res.status).toBe(401)
+    expect(body).toEqual({ ok: false, error: 'Invalid email or password' })
+    expect(mockCreateSession).not.toHaveBeenCalled()
+    expect(mockEmitCustomerAccountsEvent).toHaveBeenCalledWith(
+      'customer_accounts.login.failed',
+      { email: 'probe@example.com', reason: 'locked', tenantId },
+    )
+  })
+
+  test('resets the counter through the lock-aware reset and signs in when no lock engaged', async () => {
+    mockFindByEmail.mockResolvedValueOnce({ id: 'u1', isActive: true, passwordHash: 'hash', emailVerifiedAt: new Date() })
+    mockVerifyPassword.mockResolvedValueOnce(true)
+    mockResetFailedAttemptsUnlessLocked.mockResolvedValueOnce(true)
+    mockCreateSession.mockResolvedValueOnce({ rawToken: 'raw-session-token', jwt: 'customer-jwt', session: { id: 's1' } })
+
+    const res = await POST(makeRequest(baseBody()))
+
+    expect(res.status).toBe(200)
+    expect(mockResetFailedAttemptsUnlessLocked).toHaveBeenCalledWith(expect.objectContaining({ id: 'u1' }))
+    expect(mockCreateSession).toHaveBeenCalledTimes(1)
+    expect(mockIncrementFailedAttempts).not.toHaveBeenCalled()
   })
 })

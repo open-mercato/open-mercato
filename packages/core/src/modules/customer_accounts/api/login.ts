@@ -8,6 +8,7 @@ import { CustomerUserService } from '@open-mercato/core/modules/customer_account
 import { CustomerSessionService } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
 import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
 import {
@@ -109,7 +110,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
   }
 
-  await customerUserService.resetFailedAttempts(user)
+  if (!(await customerUserService.resetFailedAttemptsUnlessLocked(user))) {
+    void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'locked', tenantId }).catch((error) => {
+      getTelemetryRuntime()?.reportError(error, { module: 'customer_accounts', code: 'customer_accounts.login_event_failed' })
+    })
+    return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
+  }
   await customerUserService.updateLastLoginAt(user)
 
   if (compoundKey) {
