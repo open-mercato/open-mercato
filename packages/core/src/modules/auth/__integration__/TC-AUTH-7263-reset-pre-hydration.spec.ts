@@ -15,8 +15,11 @@ test.describe('TC-AUTH-7263: Password reset request form before hydration', () =
       await expect(form).toHaveAttribute('data-auth-ready', '0');
       await page.locator('input[name="email"]').fill('dast-nojs@example.invalid');
       await expect(page.locator('form button[type="submit"]')).toBeDisabled();
+      const leakedRequest = page
+        .waitForRequest((request) => request.url().includes('dast-nojs'), { timeout: 2000 })
+        .then(() => true, () => false);
       await page.locator('input[name="email"]').press('Enter');
-      expect(page.url()).not.toContain('dast-nojs');
+      expect(await leakedRequest).toBe(false);
       expect(page.url()).not.toContain('email=');
     });
   });

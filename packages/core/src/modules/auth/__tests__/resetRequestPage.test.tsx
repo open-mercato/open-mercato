@@ -9,6 +9,7 @@ import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWith
 import ResetPage from '../frontend/reset'
 
 describe('ResetPage (staff password reset request)', () => {
+  const originalFetch = global.fetch
   const fetchMock = jest.fn()
 
   beforeEach(() => {
@@ -16,9 +17,12 @@ describe('ResetPage (staff password reset request)', () => {
     global.fetch = fetchMock as unknown as typeof fetch
   })
 
+  afterAll(() => {
+    global.fetch = originalFetch
+  })
+
   it('server-renders a disabled POST form so a pre-hydration submit cannot leak the email into a GET URL', () => {
     const html = renderToString(
-      // @ts-expect-error shared provider accepts loose dict shape
       <I18nProvider locale="en" dict={{}}>
         <ResetPage />
       </I18nProvider>,
