@@ -125,6 +125,21 @@ scope instead of returning `null` — returning `null` there would drop the orga
 entirely and read across the tenant. Migrate to `resolveAttachmentRequestScope` so the deny becomes
 a response your route chooses.
 
+### Agent web search withholds the synthesized answer when a domain policy is set (#7234)
+
+The `agent_orchestrator.web_search` tool used to filter result links through the configured
+`allowDomains` / `denyDomains` (tenant settings, or the `OM_WEB_SEARCH_ALLOW_DOMAINS` /
+`OM_WEB_SEARCH_DENY_DOMAINS` defaults) but return the search provider's synthesized `answer` unchanged, even
+though that text may come from a denied or non-allowed domain. When either list is non-empty, the
+tool now returns `answer: null` and adds `diagnostics.answerWithheld: 'domain_policy'` whenever the
+provider had produced an answer. The top-level `answer` of
+`POST /api/agent_orchestrator/web-search/preview` follows the same rule; its per-adapter answers are
+unchanged. Without a domain policy nothing changes.
+
+**Action for operators:** none, unless agents rely on the summary text. A tenant that set
+`denyDomains` only to keep a private host listed in `allowPrivateHosts` away from agents also loses
+the summary; agents still receive the filtered results.
+
 ### `directory.organizations.update` keeps `parentId` / `childIds` when they are omitted
 
 `directory.organizations.update` (and so `PUT /api/directory/organizations` and

@@ -8,7 +8,12 @@ import {
   enforceWebSearchRateLimit,
   resolveSpentAdapterBudgets,
 } from '../../../lib/webSearch/guardrails'
-import { hostnameOf, isHostAllowed, resolveWebSearchSettings } from '../../../lib/webSearch/policy'
+import {
+  hostnameOf,
+  isHostAllowed,
+  resolveWebSearchSettings,
+  withholdAnswerUnderDomainPolicy,
+} from '../../../lib/webSearch/policy'
 import { buildWebSearchEngine } from '../../../lib/webSearch/registry'
 import { agentOrchestratorTag } from '../../openapi'
 
@@ -109,11 +114,14 @@ export async function POST(req: Request) {
       return host === null || !isHostAllowed(host, settings.guardrails)
     }
 
+    const { answer, answerWithheld } = withholdAnswerUnderDomainPolicy(result.answer, settings.guardrails)
+
     return NextResponse.json({
       query: parsed.data.query,
       settleMode: settings.policy.settleMode,
       fused: result.results.filter((hit) => !blockedByGuardrails(hit.url)),
-      answer: result.answer,
+      answer,
+      ...(answerWithheld ? { answerWithheld } : {}),
       diagnostics: result.diagnostics,
       // Guardrails are reported rather than applied here: an operator tuning a
       // deny list needs to see that a source returned a hit and that the list
@@ -141,6 +149,7 @@ const previewResponseSchema = z.object({
   settleMode: z.string(),
   fused: z.array(z.object({}).passthrough()),
   answer: z.string().nullable(),
+  answerWithheld: z.literal('domain_policy').optional(),
   diagnostics: z.object({}).passthrough(),
   byAdapter: z.array(
     z.object({

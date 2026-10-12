@@ -7,7 +7,7 @@ import {
   resolveRunId,
   resolveSpentAdapterBudgets,
 } from './guardrails'
-import { hostnameOf, isHostAllowed, resolveWebSearchSettings } from './policy'
+import { hostnameOf, isHostAllowed, resolveWebSearchSettings, withholdAnswerUnderDomainPolicy } from './policy'
 import { buildWebSearchEngine } from './registry'
 import { createStepEmitter } from './steps'
 
@@ -169,16 +169,19 @@ export const webSearchTool: AiToolDefinition = {
         return host ? isHostAllowed(host, settings.guardrails) : false
       })
 
+      const { answer, answerWithheld } = withholdAnswerUnderDomainPolicy(result.answer, settings.guardrails)
+
       return {
         ok: true as const,
         results: allowed,
-        answer: result.answer,
+        answer,
         diagnostics: {
           adapters: result.diagnostics.adapters,
           degraded: result.diagnostics.degraded || allowed.length !== result.results.length,
           cached: result.diagnostics.cached,
           escalated: result.diagnostics.escalated,
           elapsedMs: result.diagnostics.elapsedMs,
+          ...(answerWithheld ? { answerWithheld } : {}),
           ...(problems.length > 0 ? { problems } : {}),
         },
       }
