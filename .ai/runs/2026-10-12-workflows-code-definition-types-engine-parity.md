@@ -47,13 +47,15 @@ Source doc: issue #7183 (spec: `.ai/specs/implemented/2026-04-14-code-based-work
 
 ## Progress
 
+PR: #7244
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Types and guards
 
-- [ ] 1.1 Widen `WorkflowStepType` and add `CodeUserTaskConfig` with all engine keys; export it.
-- [ ] 1.2 Type-level `defineWorkflow` test in shared + drift guards (typecheck + Jest) in core.
+- [x] 1.1 Widen `WorkflowStepType` and add `CodeUserTaskConfig` with all engine keys; export it. — 6a7a1bd27
+- [x] 1.2 Type-level `defineWorkflow` test in shared + drift guards (typecheck + Jest) in core. — 568235ed7
 
 ### Phase 2: Docs
 
-- [ ] 2.1 Spec changelog entry.
+- [x] 2.1 Spec changelog entry. — e1fc5ba4c
