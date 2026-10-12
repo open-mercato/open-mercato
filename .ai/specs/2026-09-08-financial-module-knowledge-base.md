@@ -179,9 +179,14 @@ independently in `general-ledger-core-engine.md` (Out of Scope →
 decisions), and `journal-entry-line-dimension.md` ("Excludes the
 counterparty") — all three cross-checked against each other on 2026-09-08.
 Grounded in real law, not just convention: **Ustawa o rachunkowości
-(Polish Accounting Act), art. 13 ust. 1 pkt 3 and art. 16** require exactly
-this — subsidiary ledgers (księgi pomocnicze) per counterparty, reconciled
-against the control account. This is a stronger, more directly applicable
+(Polish Accounting Act), art. 13 ust. 1 pkt 3, art. 16 ust. 1 and art. 17
+ust. 1 pkt 2** ground this — subsidiary ledgers (księgi pomocnicze) are part of
+the books (art. 13), detail and are reconciled with the general-ledger accounts
+(art. 16 ust. 1), and accounts for settlements with counterparties
+("rozrachunki z kontrahentami") are kept as subsidiary accounts (art. 17 ust. 1
+pkt 2). "Control account" is our term; the Act speaks of "konto księgi głównej".
+(Corrected 2026-10-12: the per-counterparty part was earlier attributed to art.
+13 and 16 alone; see the last entry.) This is a stronger, more directly applicable
 citation than anything in Fowler or Hay (see §3) — use *this* for any
 design-decision citation in future AP/AR/GL-adjacent specs, not the
 software-pattern books.
@@ -350,8 +355,9 @@ silently leave off later ones (see Changelog, 2026-09-14).
   Implementation Plan Step 0 for the resulting fix.
 - **Ustawa o rachunkowości, Art. 6** (zasada memoriału / accrual
   principle) — **Confirmed**, 2026-09-21, same source as Art. 30 above.
-  Ust. 1: *"W księgach rachunkowych jednostki oraz w wyniku finansowym
-  jednostki należy ująć wszystkie osiągnięte, przypadające na jej rzecz
+  Ust. 1 (quote corrected 2026-10-12: the words "oraz w wyniku finansowym
+  jednostki" are not in the consolidated text of 2026-10-08): *"W księgach
+  rachunkowych jednostki należy ująć wszystkie osiągnięte, przypadające na jej rzecz
   przychody i obciążające ją koszty związane z tymi przychodami
   dotyczące danego roku obrotowego, niezależnie od terminu ich
   zapłaty."* — the general accrual principle: revenue and the costs
@@ -2340,3 +2346,72 @@ only" status for these provisions.
   gross.
 - **Citation hygiene.** Earlier specs cite `Dz.U.2026.0.522`. The consolidated
   text now also carries poz. 640, 644 and 1206; cite the current version.
+
+### 2026-10-12 (cont. — second pass: remaining Ustawa o rachunkowości citations checked against the consolidated text)
+
+Same source as the entry above (Dz. U. z 2026 r. poz. 522, 640, 644, 1206; Sejm
+print of 2026-10-08). Every citation used in the financial specs was compared
+with the text.
+
+**Mismatches (corrected in the specs where they are ours):**
+
+- **Art. 25 ust. 2 — the General Ledger spec has it the wrong way round.** It
+  says a direct correction is allowed before a period is closed, so "always a
+  reversal" is stricter than the law. The Act says that after the month is
+  closed **or when the books are kept by computer**, only corrections under ust.
+  1 pkt 2 are allowed: a correcting document with only positive or only negative
+  entries. For this system that means always. "Always a reversal" is therefore a
+  legal requirement, and the rejected "conditional pre-closure edit path" would
+  have been unlawful. A reversal must not mix signs inside one correction. The
+  GL spec (#5663) is not changed here; to be fixed there after #6340 merges.
+- **Per-counterparty subsidiary accounts — art. 17 ust. 1 pkt 2, not art. 13/16
+  alone.** Art. 13 ust. 1 pkt 3 only lists księgi pomocnicze among the books; art.
+  16 ust. 1 says they detail and are reconciled with the general ledger. Art.
+  17 ust. 1 lists the subject areas: pkt 1 fixed assets, pkt 2 settlements with
+  counterparties, pkt 4 sales, pkt 5 purchases, pkt 7 cash operations if a cash
+  desk is kept. Corrected above and in #6046.
+- **"Art. 40–41 UoR" for cost views (posting-rules spec) — wrong.** Art. 40 is
+  repealed; art. 41 is about deferred income (rozliczenia międzyokresowe
+  przychodów). The profit and loss account is prepared in the cost-of-sales
+  (kalkulacyjny) **or** the by-nature (porównawczy) variant, at the choice of the
+  head of the entity (art. 47 ust. 4 pkt 1, Załącznik 1). Keeping classes 4 and
+  5 side by side is a chart-of-accounts practice, not a statutory rule.
+- **`documentType` enum is missing a category.** Art. 20 ust. 2–3 lists seven
+  kinds of document: external foreign, external own, internal, collective,
+  corrective, substitute, and "rozliczeniowe" (art. 20 ust. 3 pkt 4, entries
+  that restate already booked entries under new classification criteria). The GL
+  spec has six and omits the last. The reclassification entries of the Posting
+  Rules Engine are exactly that kind. Add `settlement` to the enum (nullable
+  column, so non-breaking) after #6340; not done here because #5663 and #6340
+  are not touched.
+- **Art. 6 quote** — see the corrected quote above. Art. 41 ust. 1 pkt 1
+  (consideration received or due for services to be performed in later periods)
+  is the direct statutory basis for deferred income; art. 6 ust. 2 is the
+  general matching rule.
+- **Art. 30 — incomplete, not wrong.** Ust. 4 also allows, in justified cases,
+  capitalising exchange differences into production cost, purchase price or the
+  cost of fixed assets; and it covers differences arising on payment of
+  receivables and payables, not only on balance-sheet valuation. Ust. 2 says
+  that day-to-day operations in a foreign currency are booked at the NBP average
+  rate of the **preceding day** (or, for payments, the rate actually applied
+  where that is justified). #6190 has no rule for this yet.
+- **Art. 64–65 (bulk-read spec):** art. 65 is repealed; the audit obligation is
+  in art. 64.
+
+**Confirmed against the text:** art. 3 ust. 1 pkt 24 and 27, art. 9, art. 14 ust.
+2, art. 16 ust. 1, art. 18 ust. 1, art. 20 ust. 1 and ust. 2 pkt 1, art. 23 ust.
+2 (five elements; the GL spec's "last two are postedAt and description" is
+loosely worded: description is pkt 3, amount and date of the entry pkt 4,
+designation of the accounts pkt 5), art. 30 ust. 1.
+
+**Provisions worth citing that no spec cites yet:** art. 23 ust. 1 (computer
+books: procedures against destruction, modification or hiding of an entry —
+supports immutability of posted entries), art. 23 ust. 3 (foreign-currency
+operations recorded so that both the Polish and the foreign amount can be
+determined — supports `amountCurrency` on lines), art. 14 ust. 4 (computer
+books: automatic position number **and** data identifying the person responsible
+for the entry — the GL spec does not show a user field on `JournalEntry`; to be
+checked), art. 17 ust. 1 pkt 1 and 7 (fixed assets, cash desk).
+
+Not yet checked: the line-item schema of Załącznik nr 1 (#6188) and the 20
+citations in SPEC-024.
