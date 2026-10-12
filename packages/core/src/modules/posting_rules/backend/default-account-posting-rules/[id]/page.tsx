@@ -10,7 +10,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
 import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
-import { loadLedgerAccountOptions, loadCostCenterOptions } from '../../lib/optionLoaders'
+import { loadClass4AccountOptions, loadClass5AccountOptions, loadCostCenterOptions } from '../../lib/optionLoaders'
 
 type DefaultAccountPostingRuleData = {
   id: string
@@ -69,14 +69,14 @@ export default function EditDefaultAccountPostingRulePage({ params }: { params?:
             // which excludes `sourceAccountId`) — shown for context but not
             // editable, matching this codebase's read-only-FK convention.
             disabled: true,
-            loadOptions: loadLedgerAccountOptions,
+            loadOptions: loadClass4AccountOptions,
           },
           {
             id: 'targetAccountId',
             type: 'select',
             label: t('posting_rules.default_account_posting_rules.form.field.targetAccount', 'Target account (zespół 5)'),
             required: true,
-            loadOptions: loadLedgerAccountOptions,
+            loadOptions: loadClass5AccountOptions,
           },
           {
             id: 'defaultCostCenterId',

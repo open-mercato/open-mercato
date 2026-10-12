@@ -54,7 +54,7 @@ const postingRulesLockFiscalPeriodCommand: CommandHandler<PostingRulesLockFiscal
       throw new CrudHttpError(422, {
         error: translate(
           'posting_rules.errors.periodHasUnreclassifiedEntries',
-          'This fiscal period cannot be locked: {count} zespół 4 lines have not yet been reclassified.',
+          'This fiscal period cannot be locked: {count} account class 4 lines have not yet been reclassified.',
           { count: unreclassified.length },
         ),
         unreclassifiedEntryIds: [...new Set(unreclassified.map((line) => line.entryId))],
