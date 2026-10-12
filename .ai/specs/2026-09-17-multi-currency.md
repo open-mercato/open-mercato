@@ -629,7 +629,7 @@ FK-id-only with the tenant/organization scope applied and no ORM relation
 (the precedent is `communication_channels` reading `messages`); and the
 columns it relies on (`vendorInvoiceId`, `amount`, the batch `status`) are listed as
 a contract in the payments spec, so a change to them is a visible spec change.
-⚠ NEEDS HUMAN CONFIRMATION: no external review of this direction yet; the
+Decided by the team (2026-10-12): no external review of this direction; the
 reasoning rests on the knowledge base's conventions and the two AP specs.
 
 ## Architecture
@@ -1563,3 +1563,10 @@ source):
 
 A tenant that books at a different documented rate sets it per document; the
 default is only the starting value. Not yet reviewed by a maintainer.
+
+### 2026-10-12 (cont. — decision 18 closed)
+
+The ⚠ marker on decision 18 is replaced by a note that it is a team decision. The
+condition that the read columns are listed as a contract in the payments spec was
+not met when decision 18 was written; it now is (`accounts-payable-payments.md`,
+"Read contract for other modules"). Not yet reviewed by a maintainer.
