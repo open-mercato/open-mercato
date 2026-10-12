@@ -758,7 +758,7 @@ Per root `AGENTS.md` ("Documentation and Specifications": integration
 coverage is mandatory for every affected API path and key UI path, and
 must ship in the same change) — added retroactively (PR #6137 review,
 M2; the original draft had none). New file:
-`packages/core/src/modules/ledger/__integration__/TC-GL-004-import-default-chart-of-accounts.spec.ts`,
+`packages/core/src/modules/ledger/__integration__/TC-GL-005-import-default-chart-of-accounts.spec.ts`,
 following this module's existing `TC-GL-00x` fixture/teardown
 conventions (`.ai/qa/AGENTS.md`: self-contained fixtures, cleaned up in
 `finally`, no reliance on seeded/demo data).
@@ -949,7 +949,7 @@ points beyond M1 (resolved above). All six resolved in this pass:
 
 - **M2** (no integration coverage): added an Integration Coverage list
   to Testing Strategy and a new
-  `TC-GL-004-import-default-chart-of-accounts.spec.ts` integration
+  `TC-GL-005-import-default-chart-of-accounts.spec.ts` integration
   test covering the API happy path, the 409 non-empty-chart refusal,
   the 403 missing-permission refusal, and the button's UI path (hidden
   for view-only, table refresh on success).
@@ -1001,7 +1001,7 @@ points beyond M1 (resolved above). All six resolved in this pass:
   throughout this document, its i18n strings (`en.json`/`pl.json`
   `confirmImportDescription`), the route's `openApi` doc text, and
   every hardcoded count in #6439's own unit tests and the new
-  `TC-GL-004` integration test. The payroll/tax gaps (no tax-office
+  `TC-GL-005` integration test (numbered `TC-GL-004` when written; renumbered 2026-10-12 because the General Ledger core engine PR uses `TC-GL-004` for its fiscal-period overlap test). The payroll/tax gaps (no tax-office
   PIT-withholding settlement account, no `870` CIT expense account)
   are left out of Phase 1 deliberately — this template is
   representative, not exhaustive (see Data Models' opening paragraph),
