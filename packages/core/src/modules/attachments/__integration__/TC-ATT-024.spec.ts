@@ -22,7 +22,7 @@ export const integrationMeta = {
 }
 
 /**
- * TC-ATT-017: Deleting one attachment row keeps the stored file other rows still reference
+ * TC-ATT-024: Deleting one attachment row keeps the stored file other rows still reference
  *
  * Catalog copies variant media onto the product, and forwarding a message copies the source
  * message's attachments onto the forward. Both copies reuse the source row's stored file
@@ -75,7 +75,7 @@ async function expectAttachmentDeleted(
   expect(response.status(), `DELETE /api/attachments?id=${attachmentId}`).toBe(200)
 }
 
-test.describe('TC-ATT-017: Shared stored files survive deleting one referencing attachment', () => {
+test.describe('TC-ATT-024: Shared stored files survive deleting one referencing attachment', () => {
   test('deleting the product copy of variant media keeps the variant file readable', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const tag = randomUUID().slice(0, 8)
@@ -85,16 +85,16 @@ test.describe('TC-ATT-017: Shared stored files survive deleting one referencing 
     let productCopyId: string | null = null
 
     try {
-      productId = await createProductFixture(request, token, { title: `QA TC-ATT-017 ${tag}`, sku: `QA-ATT-017-${tag}` })
+      productId = await createProductFixture(request, token, { title: `QA TC-ATT-024 ${tag}`, sku: `QA-ATT-024-${tag}` })
       const variantId = await createVariantFixture(request, token, {
         productId,
-        name: `QA TC-ATT-017 variant ${tag}`,
-        sku: `QA-ATT-017-V-${tag}`,
+        name: `QA TC-ATT-024 variant ${tag}`,
+        sku: `QA-ATT-024-V-${tag}`,
       })
       const uploaded = await uploadAttachmentFixture(request, token, {
         entityId: 'catalog:catalog_product_variant',
         recordId: variantId,
-        fileName: `tc-att-017-${tag}.txt`,
+        fileName: `tc-att-024-${tag}.txt`,
         mimeType: 'text/plain',
         buffer: Buffer.from(content, 'utf8'),
       })
@@ -102,7 +102,7 @@ test.describe('TC-ATT-017: Shared stored files survive deleting one referencing 
 
       const touchVariant = await apiRequest(request, 'PUT', '/api/catalog/variants', {
         token,
-        data: { id: variantId, name: `QA TC-ATT-017 variant ${tag} renamed` },
+        data: { id: variantId, name: `QA TC-ATT-024 variant ${tag} renamed` },
       })
       expect(touchVariant.ok(), `variant update failed: ${touchVariant.status()}`).toBeTruthy()
 
@@ -130,7 +130,7 @@ test.describe('TC-ATT-017: Shared stored files survive deleting one referencing 
     const employeeUserId = decodeJwtSubject(employeeToken)
     const tag = randomUUID().slice(0, 8)
     const content = `message attachment ${tag}\n`
-    const fileName = `tc-att-017-msg-${tag}.txt`
+    const fileName = `tc-att-024-msg-${tag}.txt`
     let messageId: string | null = null
     let forwardIds: string[] = []
     let originalAttachmentId: string | null = null
@@ -150,7 +150,7 @@ test.describe('TC-ATT-017: Shared stored files survive deleting one referencing 
         token: adminToken,
         data: {
           recipients: [{ userId: employeeUserId, type: 'to' }],
-          subject: `QA TC-ATT-017 ${tag}`,
+          subject: `QA TC-ATT-024 ${tag}`,
           body: 'Message with an attachment',
           attachmentIds: [originalAttachmentId],
           sendViaEmail: false,

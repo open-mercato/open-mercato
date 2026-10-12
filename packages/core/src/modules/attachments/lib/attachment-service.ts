@@ -439,7 +439,7 @@ export class DefaultAttachmentService implements AttachmentService {
       && !isInTransaction.call(em)
     ) {
       throw new CrudHttpError(500, {
-        error: 'Deferred attachment release requires an ambient transaction that holds the storage reference lock until commit',
+        error: '[internal] Deferred attachment release requires an ambient transaction that holds the storage reference lock until commit',
       })
     }
     const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
