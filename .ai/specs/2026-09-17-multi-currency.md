@@ -1541,8 +1541,25 @@ spec did not carry:
 - Ust. 2: foreign-currency operations are booked at the rate of the day of the
   operation: pkt 1 the rate actually applied (currency sales and purchases,
   payments), pkt 2 the NBP average rate of the **preceding day** for payments
-  where pkt 1 is not justified and for other operations. This spec has no rule
-  for the booking-day rate. ⚠ NEEDS HUMAN CONFIRMATION: whether the rate on
-  documents is set by `currencies`, and whether it is the preceding-day average.
+  where pkt 1 is not justified and for other operations. This spec had no rule
+  for the booking-day rate; the rule is decided below (2026-10-12).
 - Art. 23 ust. 3 (both the Polish and the foreign amount must be determinable)
   supports keeping `amountCurrency` on the line. Not yet reviewed by a maintainer.
+
+### 2026-10-12 (cont. — booking-day rate rule decided)
+
+Decided by the team, on the text of art. 30 ust. 2 only (no external accounting
+source):
+
+- **Documents:** the default rate is the NBP average rate (Table A) published for
+  the last day before the operation date (art. 30 ust. 2 pkt 2).
+- **Payments:** the caller (AP, AR, bank reconciliation) passes the rate the bank
+  actually applied (pkt 1). Where it has none, the document default above is used.
+- **The ledger does not derive rates.** `postJournalEntry` takes `exchangeRate` from
+  the caller. Resolving the default rate belongs to `currencies`, which needs
+  Table A support first (Implementation Plan Step 0).
+- **`fx_revaluation`** posts only the period-end valuation (art. 30 ust. 1), not
+  booking-day rates.
+
+A tenant that books at a different documented rate sets it per document; the
+default is only the starting value. Not yet reviewed by a maintainer.
