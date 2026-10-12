@@ -2227,10 +2227,12 @@ Assets, JELD, GL bulk read service, and now this one). Per Step 5:
 - **Overpayments (UoR art. 7 ust. 3).** A customer's overpayment is a liability
   and is shown in liabilities, not netted against receivables; the only
   exceptions (art. 37 ust. 7, art. 46 ust. 2a) do not cover trade settlements.
+  **Corrected 2026-10-12 against the primary text, see the entry at the end of
+  this document: the art. 7 ust. 3 part is confirmed; the sentence about the two
+  exceptions is a mismatch (art. 46 ust. 2a can apply to trade settlements).**
   Hence a separate `customerOverpaymentAccountId` in #6055. Sources checked:
   two secondary articles on poradnikprzedsiebiorcy.pl (overpayments in the
-  balance sheet; per-saldo presentation). **Unverified against the primary
-  text** (the statute page could not be fetched); Kieso not consulted (no copy
+  balance sheet; per-saldo presentation). Kieso not consulted (no copy
   in the session). The account number is the tenant's chart, not prescribed.
 
 ### 2026-10-12 — Posting Rules Engine tested end to end in a local demo; decisions taken without expert confirmation
@@ -2291,3 +2293,50 @@ and the knowledge base; none went to an external expert. Marked
   `TC-GL-004-fiscal-periods-overlap.spec.ts` (#6340) and by
   `TC-GL-004-import-default-chart-of-accounts.spec.ts` (default chart); one of
   them needs a new number before both are merged.
+
+### 2026-10-12 (cont. — Ustawa o rachunkowości checked against the consolidated text)
+
+Checked in the consolidated text of the Accounting Act (Dz. U. z 2026 r.
+poz. 522, 640, 644, 1206; the copy was a Sejm print of 2026-10-08, supplied as a
+PDF from eli.gov.pl). This replaces the earlier "unverified, secondary sources
+only" status for these provisions.
+
+- **Art. 7 ust. 3 — Confirmed.** Values of assets, liabilities, revenues and the
+  related costs are determined separately, and values of assets and liabilities
+  of different kinds may not be offset. The statute does not mention
+  overpayments; "a customer's overpayment is a liability" is our reading of
+  this rule, not statutory wording.
+- **Art. 10 ust. 1 pkt 3 lit. a — Confirmed.** The entity documents its
+  chart of accounts: the list of general-ledger accounts, the classification
+  rules, the rules for keeping subsidiary accounts and how they link to
+  general-ledger accounts; the head of the entity sets it in writing (ust. 2).
+  This supports both points made earlier in this document: the chart of
+  accounts is the entity's own (a default chart is only a starting point), and
+  the control-account + subsidiary-ledger model matches a documented
+  requirement, in addition to art. 13 ust. 1 pkt 3 and art. 16.
+- **Art. 37 ust. 7 — Mismatch with how it was used.** It is about deferred
+  income tax only: the provision and the asset are shown separately in the
+  balance sheet and may be offset if the entity has a title to take them into
+  account together when computing the tax liability. It is not an exception
+  that touches trade settlements. Relevant to annual statements (#6188) and
+  tax, not to overpayments.
+- **Art. 46 ust. 2a — Mismatch.** Financial assets and financial liabilities
+  are shown in the balance sheet net when the entity has an unconditional right
+  to offset assets and liabilities of that kind and intends to settle net or
+  to realize the asset and settle the liability at the same time. The earlier
+  sentence "the exceptions do not cover trade settlements" is not supported:
+  art. 3 ust. 1 pkt 24 defines financial assets to include a contractual right
+  to receive cash, and pkt 27 financial liabilities as an obligation to
+  deliver financial assets, so a trade receivable and a refund obligation to the
+  same customer can fall under it. The statute does not say so expressly; this
+  is an interpretation. ⚠ NEEDS HUMAN CONFIRMATION (interpretation, no
+  external accounting source).
+- **Consequence.** The decision to book the excess of an overpayment to a separate
+  liability account (`customerOverpaymentAccountId`, #6055) stands: the
+  default in the ledger is gross, per art. 7 ust. 3. What changes is the
+  reason. Net presentation under art. 46 ust. 2a depends on the entity's right
+  and intent, which the system cannot know, so it is a presentation choice for
+  the balance sheet (#6188), not a posting rule. Phase 1 shows these items
+  gross.
+- **Citation hygiene.** Earlier specs cite `Dz.U.2026.0.522`. The consolidated
+  text now also carries poz. 640, 644 and 1206; cite the current version.
