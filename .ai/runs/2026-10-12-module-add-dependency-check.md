@@ -41,8 +41,8 @@ Prevent `mercato module add` and `mercato module enable` from registering a modu
 
 ### Phase 1: Dependency-aware registration
 
-- [ ] 1.1 Extend installed-module metadata discovery to retain static `requires` entries.
-- [ ] 1.2 Validate required module ids against the app configuration before registration and ejection side effects.
+- [x] 1.1 Extend installed-module metadata discovery to retain static `requires` entries. — 03c0626dc
+- [x] 1.2 Validate required module ids against the app configuration before registration and ejection side effects. — 03c0626dc
 
 ### Phase 2: Coverage and guidance
 
