@@ -43,3 +43,22 @@ export function accountNumberFitsType(accountNumber: string, typeNumber: string,
   if (!isPolishGroup(group)) return true
   return accountNumber.startsWith(typeNumber)
 }
+
+/**
+ * What a number input should hold after its fixed prefix changes from
+ * `previous` to `next` (the group's code or the type's number, `null` while
+ * it is still loading or when there is none).
+ *
+ * Keeps the ending the user typed and swaps the prefix. When the prefix only
+ * just became known (`previous` is `null`) and the value already starts with
+ * it — an edit form that loaded `406` before the group code `4` arrived —
+ * the value is left alone; prefixing it again would turn `406` into `4406`.
+ */
+export function reprefixNumber(current: string, previous: string | null, next: string | null): string {
+  if (previous === next) return current
+  const carriesPrevious = !!previous && current.startsWith(previous)
+  if (!previous && next && current.startsWith(next)) return current
+  const ending = carriesPrevious ? current.slice((previous as string).length) : current
+  if (next) return `${next}${ending}`
+  return carriesPrevious ? ending : current
+}

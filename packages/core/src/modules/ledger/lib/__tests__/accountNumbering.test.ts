@@ -1,5 +1,5 @@
 // Unit tests for the PL numbering rules (PR #6340 review, items 3 and 4).
-import { accountNumberFitsType, checkTypeNumber } from '../accountNumbering'
+import { accountNumberFitsType, checkTypeNumber, reprefixNumber } from '../accountNumbering'
 
 const pl = (code: string) => ({ jurisdiction: 'PL', code })
 
@@ -39,5 +39,31 @@ describe('accountNumberFitsType', () => {
   it('does not apply without a PL group', () => {
     expect(accountNumberFitsType('cash', '402', null)).toBe(true)
     expect(accountNumberFitsType('cash', '402', { jurisdiction: 'DE', code: '4' })).toBe(true)
+  })
+})
+
+describe('reprefixNumber', () => {
+  it('keeps an edit form value that already carries the prefix once it loads (406 stays 406, not 4406)', () => {
+    expect(reprefixNumber('406', null, '4')).toBe('406')
+    expect(reprefixNumber('402-01', null, '402')).toBe('402-01')
+  })
+
+  it('prefixes an empty or unprefixed value when the prefix first becomes known', () => {
+    expect(reprefixNumber('', null, '4')).toBe('4')
+    expect(reprefixNumber('06', null, '4')).toBe('406')
+  })
+
+  it('swaps the prefix and keeps the typed ending', () => {
+    expect(reprefixNumber('406', '4', '5')).toBe('506')
+    expect(reprefixNumber('402-01', '402', '403')).toBe('403-01')
+  })
+
+  it('drops the prefix when the group or type is cleared', () => {
+    expect(reprefixNumber('406', '4', null)).toBe('06')
+    expect(reprefixNumber('free text', null, null)).toBe('free text')
+  })
+
+  it('changes nothing when the prefix did not change', () => {
+    expect(reprefixNumber('406', '4', '4')).toBe('406')
   })
 })

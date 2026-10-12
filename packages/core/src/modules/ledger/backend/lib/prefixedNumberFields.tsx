@@ -4,7 +4,7 @@ import * as React from 'react'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import type { CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
-import { ACCOUNT_NUMBER_MAX_LENGTH } from '../../lib/accountNumbering'
+import { ACCOUNT_NUMBER_MAX_LENGTH, reprefixNumber } from '../../lib/accountNumbering'
 
 // Number inputs for the PL numbering rule (lib/accountNumbering.ts): the
 // group's digit (type) or the type's number (account) is shown as a fixed
@@ -32,13 +32,13 @@ function PrefixedInput({
   const lastPrefix = React.useRef<string | null>(prefix)
 
   // When the group/type changes, keep the typed ending and swap the prefix.
+  // An edit form loads the full number first and the prefix a moment later;
+  // `reprefixNumber` leaves a value that already carries the prefix alone.
   React.useEffect(() => {
     const previous = lastPrefix.current
     lastPrefix.current = prefix
-    if (previous === prefix) return
-    const ending = previous && current.startsWith(previous) ? current.slice(previous.length) : current
-    if (prefix) setValue(`${prefix}${ending}`)
-    else if (previous && current.startsWith(previous)) setValue(ending)
+    const next = reprefixNumber(current, previous, prefix)
+    if (next !== current) setValue(next)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefix])
 
