@@ -120,16 +120,20 @@ Endpoint filtering:
 API key filtering:
 
 - Include only active, unexpired, non-deleted API keys in the current tenant and selected organization scope.
+- Exclude AI-chat session keys (any session marker) and reserved one-time keys (`__onetime__`, `__business_rule_…`, `__workflow_…`, `__session_…`).
+- Include only keys whose every role the caller can grant (`assertActorCanGrantRoles`).
 - Return metadata only; never return secrets, hashed secrets, or authorization headers.
 
 ### Business Rule Create/Update
 
 Create/update validation remains backward-compatible for existing action types. When `CALL_OPEN_MERCATO` is present, the route additionally verifies:
 
-- The caller can view API key profiles.
+- The caller holds `api_keys.create`.
 - The selected endpoint and method are currently available.
-- The selected API key profile exists in the current tenant/organization scope.
+- The selected API key profile exists in the current tenant/organization scope and is not a session or one-time key.
 - The selected API key profile has at least one role.
+- The caller can grant every role of the selected profile (`assertActorCanGrantRoles`). On update, stored `CALL_OPEN_MERCATO` actions that the payload does not replace get this grant check only (a stored profile that no longer resolves, or is a session or one-time key, is not reported at save time and fails at execution); a request that sets nothing but `enabled: false` skips it.
+- On update, the caller is recorded in `updatedBy`.
 
 `CALL_WEBHOOK` validation remains unchanged and continues to require `config.url`.
 
@@ -151,12 +155,14 @@ The action executor:
 
 1. Validates that the configured endpoint is a currently available relative `/api/...` path for the configured method.
 2. Resolves the selected API key profile in the execution tenant and organization scope.
-3. Rejects missing, deleted, expired, or role-less profiles.
-4. Creates a one-time API key with the selected profile's roles.
-5. Calls the selected internal endpoint using `Authorization: apikey ...`, tenant/org headers, and business-rule trace headers.
-6. Parses the response body as JSON when possible.
-7. Treats non-2xx responses as action failures and marks 5xx failures as retriable.
-8. Soft-deletes the one-time key after the call.
+3. Rejects missing, deleted, expired, role-less, session, or one-time profiles.
+4. Resolves the rule's author (`updatedBy`, else `createdBy`): a live user of the rule's tenant, a super administrator, or a live API key of that tenant; otherwise fails.
+5. Checks that the author can still grant every role of the profile (a role that no longer resolves fails the check); otherwise fails before any key is minted.
+6. Creates a one-time API key with the selected profile's roles.
+7. Calls the selected internal endpoint using `Authorization: apikey ...`, tenant/org headers, and business-rule trace headers.
+8. Parses the response body as JSON when possible.
+9. Treats non-2xx responses as action failures and marks 5xx failures as retriable.
+10. Soft-deletes the one-time key after the call.
 
 ## Security
 
@@ -194,6 +200,7 @@ Rejected for the initial implementation. Parameterized routes need dedicated UI 
 - Rule create/update route tests reject malformed configs and unknown or unavailable API key profiles.
 - Executor tests cover one-time key create/delete, request headers/body, non-2xx handling, and unsafe endpoint refusal.
 - Integration coverage creates a rule with `CALL_OPEN_MERCATO`, verifies no webhook URL validation error, reloads the config, executes a harmless internal endpoint, and cleans up fixtures.
+- Grant-ceiling coverage: route tests reject non-grantable profiles on create and on condition-only updates and session/one-time profiles on create, allow disable-only updates, record `updatedBy`, and do not re-validate a stored action's endpoint; options tests hide non-grantable, session and one-time keys; executor tests fail closed for missing, deleted, foreign-tenant (non-super-administrator) and non-grantable authors and accept a live API-key author; `TC-BR-015` covers options filtering, create and condition-only update rejection, disable-only acceptance and an author who loses a grant after saving, over HTTP.
 
 ## Risks & Impact Review
 
