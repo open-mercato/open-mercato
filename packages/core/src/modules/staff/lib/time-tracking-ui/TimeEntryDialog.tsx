@@ -1622,19 +1622,10 @@ function DefaultTimeEntryDialog({
                       'Optional — leave empty to log the time to the project.',
                     )
                   : t('staff.time_tracking.entryDialog.taskPickProjectFirst', 'Pick a project first')
-                : selectedTask && project
-                  ? project.customerName
-                    ? t('staff.time_tracking.entryDialog.projectReadOnlyWithCustomer', 'Project: {project} · {customer}', {
-                        project: project.name,
-                        customer: project.customerName,
-                      })
-                    : t('staff.time_tracking.entryDialog.projectReadOnly', 'Project: {project}', {
-                        project: project.name,
-                      })
-                  : t(
-                      'staff.time_tracking.entryDialog.taskHint',
-                      'The project and the customer follow from the task — you do not pick them separately.',
-                    )}
+                : t(
+                    'staff.time_tracking.entryDialog.taskHint',
+                    'The project and the customer follow from the task — you do not pick them separately.',
+                  )}
             </p>
           )}
         </div>

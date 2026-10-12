@@ -1204,8 +1204,6 @@
   "staff.time_tracking.entryDialog.overlap.title": "Este tiempo se solapa con otra entrada",
   "staff.time_tracking.entryDialog.project": "Proyecto",
   "staff.time_tracking.entryDialog.projectPlaceholder": "Buscar proyectos",
-  "staff.time_tracking.entryDialog.projectReadOnly": "Proyecto: {project}",
-  "staff.time_tracking.entryDialog.projectReadOnlyWithCustomer": "Proyecto: {project} · {customer}",
   "staff.time_tracking.entryDialog.projectUnavailable": "Proyecto no disponible",
   "staff.time_tracking.entryDialog.rate": "Tarifa",
   "staff.time_tracking.entryDialog.rateHint": "Por defecto {amount} (tarifa del proyecto).",

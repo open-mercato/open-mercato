@@ -1204,8 +1204,6 @@
   "staff.time_tracking.entryDialog.overlap.title": "This time overlaps another entry",
   "staff.time_tracking.entryDialog.project": "Project",
   "staff.time_tracking.entryDialog.projectPlaceholder": "Search projects",
-  "staff.time_tracking.entryDialog.projectReadOnly": "Project: {project}",
-  "staff.time_tracking.entryDialog.projectReadOnlyWithCustomer": "Project: {project} · {customer}",
   "staff.time_tracking.entryDialog.projectUnavailable": "Project not available",
   "staff.time_tracking.entryDialog.rate": "Rate",
   "staff.time_tracking.entryDialog.rateHint": "Defaults to {amount} (the project rate).",

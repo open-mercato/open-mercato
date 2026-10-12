@@ -16,8 +16,9 @@ export const integrationMeta = {
  * TC-TT-024 — TimeEntryDialog project mode (#6989).
  *
  * Covers the spec's five integration cases: a project-only entry created and
- * re-saved through the dialog, project access scoping, the task-mode read-only
- * project line, project-scoped tasks, and the settings page control.
+ * re-saved through the dialog, project access scoping, the task-mode project
+ * shown inside the picked task box (not repeated under it), project-scoped
+ * tasks, and the settings page control.
  *
  * The setting is tenant-global, so every case reads it first and restores the
  * exact previous value in `finally`. The employee's staff profile is created
@@ -275,7 +276,7 @@ test.describe('TC-TT-024: TimeEntryDialog project mode', () => {
     }
   })
 
-  test('shows the picked task project read-only in task mode', async ({ page, request }) => {
+  test('shows the picked task project inside the task box in task mode', async ({ page, request }) => {
     test.setTimeout(120_000)
 
     const stamp = Date.now()
@@ -304,7 +305,8 @@ test.describe('TC-TT-024: TimeEntryDialog project mode', () => {
       await taskCombobox(page).fill(`QATT24 task ${stamp}`)
       await page.getByRole('option', { name: new RegExp(`QATT24 task ${stamp}`) }).first().click()
 
-      await expect(dialog.getByTestId('entry-dialog-task-hint')).toContainText(`QATT24 task mode ${stamp}`)
+      await expect(dialog.getByTestId('task-picker-selected-project')).toContainText(`QATT24 task mode ${stamp}`)
+      await expect(dialog.getByTestId('entry-dialog-task-hint')).not.toContainText(`QATT24 task mode ${stamp}`)
     } finally {
       await restoreEntryMode(request, adminToken, original)
       if (taskId) await deleteStaffEntityIfExists(request, adminToken, TASKS_PATH, taskId)

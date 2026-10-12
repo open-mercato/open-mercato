@@ -82,7 +82,7 @@ jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
  */
 jest.mock('../TaskPicker', () => {
   const ReactModule = jest.requireActual('react') as typeof React
-  type Item = { id: string; title: string }
+  type Item = { id: string; title: string; projectName: string | null; customerName: string | null }
   type Props = {
     value: string | null
     onChange: (id: string | null) => void
@@ -102,7 +102,17 @@ jest.mock('../TaskPicker', () => {
         },
         [
           ReactModule.createElement('option', { key: '__empty', value: '' }, ''),
-          ...items.map((item) => ReactModule.createElement('option', { key: item.id, value: item.id }, item.title)),
+          ...items.map((item) =>
+            ReactModule.createElement(
+              'option',
+              {
+                key: item.id,
+                value: item.id,
+                'data-project': [item.projectName, item.customerName].filter(Boolean).join(' · '),
+              },
+              item.title,
+            ),
+          ),
         ],
       ),
       // The real picker reports its search box on every keystroke so the dialog
@@ -1629,12 +1639,17 @@ describe('TimeEntryDialog — project mode (#6989)', () => {
     expect(screen.queryByTestId('entry-dialog-project')).toBeNull()
   })
 
-  it('shows the project of the picked task in task mode', async () => {
+  it('leaves the project of the picked task to the picker instead of repeating it under the field', async () => {
     renderDialog()
 
     await pickTask()
     await waitFor(() =>
-      expect(screen.getByTestId('entry-dialog-task-hint').textContent).toBe('Project: migracja B2B · Nordvik'),
+      expect(taskSelect().querySelector(`option[value="${TASK_ID}"]`)?.getAttribute('data-project')).toBe(
+        'migracja B2B · Nordvik',
+      ),
+    )
+    expect(screen.getByTestId('entry-dialog-task-hint').textContent).toBe(
+      'The project and the customer follow from the task — you do not pick them separately.',
     )
   })
 })

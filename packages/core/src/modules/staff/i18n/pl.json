@@ -1204,8 +1204,6 @@
   "staff.time_tracking.entryDialog.overlap.title": "Ten czas nakłada się na inny wpis",
   "staff.time_tracking.entryDialog.project": "Projekt",
   "staff.time_tracking.entryDialog.projectPlaceholder": "Szukaj projektów",
-  "staff.time_tracking.entryDialog.projectReadOnly": "Projekt: {project}",
-  "staff.time_tracking.entryDialog.projectReadOnlyWithCustomer": "Projekt: {project} · {customer}",
   "staff.time_tracking.entryDialog.projectUnavailable": "Projekt niedostępny",
   "staff.time_tracking.entryDialog.rate": "Stawka",
   "staff.time_tracking.entryDialog.rateHint": "Domyślnie {amount} (stawka projektu).",
