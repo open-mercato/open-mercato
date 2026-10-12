@@ -390,7 +390,10 @@ const updateLinkCommand: CommandHandler<Record<string, unknown>, { ok: true; slu
     const link = await em.findOne(CheckoutLink, { id: before.id, ...scope, deletedAt: null })
     if (!link) return
     if (link.isLocked) {
-      throw new CrudHttpError(422, { error: 'This link has active transactions and cannot be edited' })
+      const { translate } = await resolveTranslations()
+      throw new CrudHttpError(422, {
+        error: translate('checkout.errors.links.lockedEdit', 'This link has active transactions and cannot be edited'),
+      })
     }
     restoreLinkFromSnapshot(link, before)
     link.slug = await resolveRestoredLinkSlug(em, before)

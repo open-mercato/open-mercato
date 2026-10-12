@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CheckoutLink, CheckoutTransaction } from '../data/entities'
 import { transactionCreateSchema, transactionUpdateStatusSchema } from '../data/validators'
 import { emitCheckoutEvent } from '../events'
@@ -247,7 +248,12 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
           `,
           [nextStatus === 'completed' ? 1 : 0, link.id, scope.organizationId, scope.tenantId],
         )
-        if (!released[0]) throw new CrudHttpError(404, { error: 'Payment link not found' })
+        if (!released[0]) {
+          const { translate } = await resolveTranslations()
+          throw new CrudHttpError(404, {
+            error: translate('checkout.errors.links.notFound', 'Payment link not found'),
+          })
+        }
         const maxCompletions = released[0].max_completions
         // Only the completion that brings the count exactly to the limit reports it,
         // so the event fires once per link even when completions run concurrently.
