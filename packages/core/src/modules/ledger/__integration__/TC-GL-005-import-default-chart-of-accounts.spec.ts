@@ -14,7 +14,7 @@ import { createAccountTypeFixture, createAccountFixture } from '@open-mercato/co
 import { deleteGeneralEntityIfExists, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
 
 /**
- * TC-GL-004: `POST /api/ledger/accounts/import-default-chart-of-accounts` —
+ * TC-GL-005: `POST /api/ledger/accounts/import-default-chart-of-accounts` —
  * 200 (happy path), 409 (non-empty chart of accounts), 403 (missing
  * `ledger.accounts.manage`) — plus the button's UI path (hidden for
  * view-only, table refresh on success).
@@ -56,16 +56,16 @@ function scopedHeaders(scope: { tenantId: string; organizationId: string }): Rec
 
 const IMPORT_PATH = '/api/ledger/accounts/import-default-chart-of-accounts';
 
-test.describe('TC-GL-004: import-default-chart-of-accounts 200/409/403 + button UI path', () => {
+test.describe('TC-GL-005: import-default-chart-of-accounts 200/409/403 + button UI path', () => {
   test('happy path: 200 with the full template row counts', async ({ request }) => {
     const superadminToken = await getAuthToken(request, 'superadmin');
     const stamp = randomUUID();
     let tenantId: string | null = null;
     let organizationId: string | null = null;
     try {
-      tenantId = await createTenant(request, superadminToken, `QA TC-GL-004a Tenant ${stamp}`);
+      tenantId = await createTenant(request, superadminToken, `QA TC-GL-005a Tenant ${stamp}`);
       organizationId = await createOrganizationFixture(request, superadminToken, {
-        name: `QA TC-GL-004a Organization ${stamp}`,
+        name: `QA TC-GL-005a Organization ${stamp}`,
         tenantId,
       });
       const headers = scopedHeaders({ tenantId, organizationId });
@@ -86,9 +86,9 @@ test.describe('TC-GL-004: import-default-chart-of-accounts 200/409/403 + button 
     let tenantId: string | null = null;
     let organizationId: string | null = null;
     try {
-      tenantId = await createTenant(request, superadminToken, `QA TC-GL-004b Tenant ${stamp}`);
+      tenantId = await createTenant(request, superadminToken, `QA TC-GL-005b Tenant ${stamp}`);
       organizationId = await createOrganizationFixture(request, superadminToken, {
-        name: `QA TC-GL-004b Organization ${stamp}`,
+        name: `QA TC-GL-005b Organization ${stamp}`,
         tenantId,
       });
       const headers = scopedHeaders({ tenantId, organizationId });
@@ -131,9 +131,9 @@ test.describe('TC-GL-004: import-default-chart-of-accounts 200/409/403 + button 
     let roleId: string | null = null;
     let userId: string | null = null;
     try {
-      tenantId = await createTenant(request, superadminToken, `QA TC-GL-004c Tenant ${stamp}`);
+      tenantId = await createTenant(request, superadminToken, `QA TC-GL-005c Tenant ${stamp}`);
       organizationId = await createOrganizationFixture(request, superadminToken, {
-        name: `QA TC-GL-004c Organization ${stamp}`,
+        name: `QA TC-GL-005c Organization ${stamp}`,
         tenantId,
       });
 
@@ -174,9 +174,9 @@ test.describe('TC-GL-004: import-default-chart-of-accounts 200/409/403 + button 
     let managerRoleId: string | null = null;
     let managerUserId: string | null = null;
     try {
-      tenantId = await createTenant(request, superadminToken, `QA TC-GL-004d Tenant ${stamp}`);
+      tenantId = await createTenant(request, superadminToken, `QA TC-GL-005d Tenant ${stamp}`);
       organizationId = await createOrganizationFixture(request, superadminToken, {
-        name: `QA TC-GL-004d Organization ${stamp}`,
+        name: `QA TC-GL-005d Organization ${stamp}`,
         tenantId,
       });
 
