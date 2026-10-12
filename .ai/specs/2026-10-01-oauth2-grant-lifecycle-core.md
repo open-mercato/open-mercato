@@ -43,8 +43,11 @@ Implementation-level decisions (the product decisions are the App Spec's):
 | DB-bound criteria run as **Jest real-Postgres** suites (`testcontainers`), not Playwright | Concurrency, pool starvation, rollback and KMS faults need in-process control of pools, clocks and collaborators. Playwright covers only what the app renders: the `oauthGrant` field and the banner. |
 | The grant service takes its collaborators from its factory: token and revoke client, clock, KMS service, map invalidator (`encryptionService`), post-release log writer | Tests replace them; production code has no fault flag and no test seam. |
 | The lock `fn` **returns an outcome**; the service throws after the lock transaction commits | A throw inside `fn` rolls back, which would drop an invalidation or a failure diagnostic that §1.4.5 requires to persist. |
-| The transient-DB matcher is **exported** from the lock-helper module as `isTransientLockDbError` | The grant service must classify DB errors raised inside `fn` (its own flush, `txEm.execute`) exactly like the helper classifies its own; a second copy would drift. It lives at the already listed path `@open-mercato/shared/lib/db/advisoryLock` (§10.1 sign-off covers the module). |
+| The transient-DB matcher `isTransientLockDbError` lives in `@open-mercato/shared/lib/db/pg-errors` with `@internal` JSDoc; the lock helper and the grant service both import it from there | The grant service must classify DB errors raised inside `fn` (its own flush, `txEm.execute`) exactly like the helper classifies its own; a second copy would drift. Providers never classify DB errors, so it stays off the contract surface. |
+| `AdvisoryLockUnavailableError.reason` says whether `fn` ran: `deadline` and `transient_db` before it, `commit_unknown` when `fn` returned and the flush or commit after it failed transiently | A caller with a durable marker of its write can finish what a committed write started: Disconnect looks up its `oauth_disconnected` entry. Every other grant write answers `transient` (`connect_persist_failed` for Connect), whatever the reason. |
+| Disconnect runs no provider code after the erase: it revokes the stored refresh token and logs the outcome | No provider needs a token after the erase yet (the first consumer, Xero, uses revocation only); cleanup that needs a token runs before `disconnect`, with `getAccessToken`. An optional descriptor field can add a hook later, additively; until then the strict descriptor schema rejects `onAfterDisconnect`. |
 | The descriptor, the owner, the closed unions and `OAuthGrantError` / `OAuthDescriptorError` live in `lib/oauth/descriptor.ts`; every other contract export sits in another §10.1 file (`token-endpoint.ts`, `grant-service.ts`, `health.ts`, …) | Every contract symbol stays inside the exact file paths App Spec §10.1 lists. The internal helpers (`grant-blob.ts`, `pin-tenant-dek.ts`) resolve through core's `./*` export (`packages/core/package.json:158-164`) but are not contract surfaces: their exports carry `@internal` JSDoc and the BC section excludes them. |
+| The public surface is what a provider module needs: an export that only `integrations` uses carries `@internal` JSDoc, also inside a §10.1 file. These are `createIntegrationOAuthGrantService`, `IntegrationOAuthGrantServiceDeps`, `requestTokenEndpoint`, `revokeToken`, `OAuthTokenEndpointError` with `OAuthTokenEndpointErrorKind`, `OAUTH_RESPONSE_MAX_BYTES`, `OAuthClientCredentials`, `OAuthInvalidatedReason`, `oauthProviderDescriptorSchema`, `resolveOAuthProviderDescriptor`, `AdvisoryLockOptions.onWait` with `AdvisoryLockWaitResult`, `isTransientLockDbError`, the third parameter `{ kms }` of `createCredentialsService`, `CredentialsWriteOptions.ensureEncryptionMap`, `eraseIntegrationCredentials` and `findLatestIntegrationLogsByCodes` | Providers resolve the DI `integrationOAuthGrantService`, build the Connect request with the protocol helpers and pass the exchanged token response to `completeConnect`; nothing outside `integrations` calls the factory, the raw token client, the schema, the erase function or the log query, and providers never receive `OAuthTokenEndpointError` (Connect wraps it in `OAuthGrantError`). Making a symbol public later is additive; withdrawing a released one needs the deprecation protocol. |
 | Concurrent lock holders per process are capped by the lock helper's `maxConcurrentHolders` (the grant service passes 4) | Each holder keeps one extra pooled connection for up to the 10 s token exchange (App Spec I6; a refresh lease that would avoid it is rejected in R17); with a pool of 20, four holders leave 16 connections to everything else. Waiting for a slot holds no connection and counts against the waiter deadline. |
 | The fake authorization server runs in-process (Jest) and inside the app's web process behind the test-only route (Playwright) | App Spec R12. One implementation serves both. |
 
@@ -86,7 +89,7 @@ All `integrations/…` paths are under `packages/core/src/modules/integrations/`
 | `packages/shared/package.json` (`exports["./lib/db/advisoryLock"]`), `packages/shared/AGENTS.md` (`db/` row) | Modify | P1a |
 | `packages/shared/src/lib/db/__tests__/advisoryLock.integration.test.ts`, `packages/shared/package.json` (script, devDependencies), `.github/workflows/ci.yml` (step in `documents-multi-instance`) | Create / Modify | P1b |
 | `integrations/lib/oauth/{token-endpoint,pkce,authorization,redirect,resource-challenge,descriptor}.ts` (+ tests) | Create | P2a |
-| `integrations/lib/oauth/testing/fakeAuthorizationServer.ts`, `packages/core/src/helpers/integration/oauthGrantFixtures.ts` | Create | P2b |
+| `integrations/lib/oauth/testing/fakeAuthorizationServer.ts` | Create | P2b |
 | `integrations/lib/credentials-service.ts`, `integrations/lib/log-service.ts` (+ tests), `packages/core/package.json` (script, devDependencies), `.github/workflows/ci.yml` (core step) | Modify | P3 |
 | `integrations/api/post/test-oauth-grants/route.ts`, `integrations/integration.ts` (with the route, the App Spec §7 minimal test provider), `packages/core/src/helpers/integration/oauthGrantTestRoute.ts` | Create | P4a |
 | `packages/cli/src/lib/testing/integration.ts` (both env blocks), `.github/workflows/ci.yml` (runner env) | Modify | P4a |
@@ -104,7 +107,7 @@ No schema change and no migration. The grant row and its fields are App Spec §1
 - `version: 1`; datetimes as ISO-8601 UTC strings; `grantedScopes: string[]`; `providerData` and `previousProviderData` as `Record<string, unknown> | null`.
 - Required by the schema: `version`, `status`, `accessToken`, `expiresAt`, `tokenType`, `clientId`, `obtainedAt`, `refreshCount`, `revisedAt`; `invalidatedReason` and `invalidatedAt` when `status = 'invalidated'`. `refreshToken` is optional (`requiresRefreshToken` is checked at Connect only).
 - Unknown keys are stripped. Readers accept every `version` ≤ the current one.
-- `expiresAt` comes from `expires_in` (a number or a numeric string), else `defaultAccessTokenTtlSec`. `tokenType` is compared case-insensitively; a missing `token_type` counts as `Bearer`.
+- `expiresAt` comes from `expires_in` (a number or a numeric string), else `defaultAccessTokenTtlSec`, clamped to 1 s – 1 year on Connect and Refresh, so every token response yields a valid date. `tokenType` is compared case-insensitively; a missing `token_type` counts as `Bearer`.
 - Lock key: `oauth_grant:${integrationId}:${tenantId}:${organizationId}:${userId ?? '-'}`, frozen for every existing Grant Owner (App Spec §8, §10.1); grant row id `${integrationId}__oauth_grant` (App Spec §10.1, persisted formats).
 - The `__oauth_grant` suffix is reserved: the admin credentials route answers 404 for any id ending in it, even when an integration with such an id is registered (`registerIntegrations` accepts any id, `shared/src/modules/integrations/types.ts:234-239`; the route checks only `getIntegration`, `integrations/api/[id]/credentials/route.ts:85-88,139-142`). For the same reason no bundle fallthrough follows a `bundleId` ending in `__oauth_grant`: `resolve()` and `resolveUpdatedAt()` (`credentials-service.ts:262-278`) and the grant service's Client Configuration read return `null` there, as if `bundleId` were unset, through one internal helper (`bundleFallthroughId(integrationId): string | null`), so no child integration reads another owner's grant through its bundle (I4, I7; P4e, A34).
 
@@ -117,43 +120,50 @@ Everything below is server-only. No `.tsx` imports `integrations/lib/oauth` (dec
 ```ts
 import type { EntityManager } from '@mikro-orm/postgresql'
 
+/** @internal */
 export type AdvisoryLockWaitResult<T> = { done: true; value: T } | { done: false }
 
 export type AdvisoryLockOptions<T> = {
   /** Total waiting budget from the call start. Default 15_000. */
   waitDeadlineMs?: number
-  /** Called after each failed attempt, with no connection held; `done: true` short-circuits. */
+  /** @internal Called after each failed attempt, with no connection held; `done: true` short-circuits. */
   onWait?: () => Promise<AdvisoryLockWaitResult<T>>
   /** Per process and key namespace: at most this many lock transactions at once (attempts included).
    *  Waiting for a slot holds no connection and counts against `waitDeadlineMs`. Default: unlimited. */
   maxConcurrentHolders?: number
 }
 
+/** `deadline`: the wait budget ran out, `fn` never ran. `transient_db`: the begin or the lock query
+ *  failed, `fn` never ran. `commit_unknown`: `fn` returned and the flush or commit after it failed, so
+ *  its writes may or may not be committed. Additive-only; branch on it, never on the message. */
+export type AdvisoryLockUnavailableReason = 'deadline' | 'transient_db' | 'commit_unknown'
+
 export class AdvisoryLockUnavailableError extends Error {
-  readonly reason: 'deadline' | 'transient_db'
+  readonly reason: AdvisoryLockUnavailableReason
   readonly key: string
 }
 
-/** What `isTransientDbError` (shared/src/lib/db/pg-errors.ts:137, unchanged) matches, plus SQLSTATE
- *  55P03 (`DB_LOCK_TIMEOUT_MS`), 57014 (`DB_STATEMENT_TIMEOUT_MS`, opt-in), 25P03
+// pg-errors.ts, not re-exported from this module
+/** @internal What `isTransientDbError` (shared/src/lib/db/pg-errors.ts:137, unchanged) matches, plus
+ *  SQLSTATE 55P03 (`DB_LOCK_TIMEOUT_MS`), 57014 (`DB_STATEMENT_TIMEOUT_MS`, opt-in), 25P03
  *  (`idle_in_transaction_session_timeout`), the pg-pool acquire timeout ("timeout exceeded when trying
  *  to connect") and node-postgres's "Client has encountered a connection error and is not queryable",
- *  walking `cause` and `previous` with the existing chain walker (`pgErrorCandidates`, pg-errors.ts:24).
- *  Implemented in `pg-errors.ts` and re-exported from this module. */
+ *  walking `cause` and `previous` with the existing chain walker (`pgErrorCandidates`, pg-errors.ts:24). */
 export function isTransientLockDbError(error: unknown): boolean
 
 /**
  * Runs `fn` in one transaction that holds `pg_try_advisory_xact_lock(hashtextextended(key, 0))`.
  * - `key` is `<namespace>:<parts>` with namespace `^[a-z][a-z0-9_]*$`; anything else throws `TypeError`.
  * - Pass the request (container) EntityManager. The helper forks it with
- *   `{ disableContextResolution: true, clear: true, useContext: false, cloneEventManager: true }`.
+ *   `{ disableContextResolution: true, clear: true, useContext: false, disableTransactions: false, cloneEventManager: true }`.
  * - `fn` MUST do all DB I/O on `txEm`, MUST flush its own writes, MUST be bounded (≤ one external
  *   call), MUST NOT call `transactional` again (it only opens a savepoint in the lock transaction) and
  *   MUST NOT fork or use `getConnection().execute` (another pooled connection, outside the lock).
  * - `txEm` carries the request EntityManager's subscribers (cloned event manager).
  * - Errors from the helper's own begin, lock query and commit that `isTransientLockDbError` accepts,
- *   and the deadline, throw `AdvisoryLockUnavailableError`; any other error from them, and every
- *   error thrown by `fn` or `onWait`, propagates unchanged (a throw from `fn` rolls back).
+ *   and the deadline, throw `AdvisoryLockUnavailableError` (its `reason` says whether `fn` ran); any
+ *   other error from them, and every error thrown by `fn` or `onWait`, propagates unchanged (a throw
+ *   from `fn` rolls back).
  */
 export function withAdvisoryXactLock<T>(
   em: EntityManager,
@@ -168,6 +178,7 @@ export function withAdvisoryXactLock<T>(
 ```ts
 // token-endpoint.ts
 export type OAuthClientAuthMethod = 'client_secret_basic' | 'client_secret_post'
+/** @internal */
 export type OAuthClientCredentials = { clientId: string; clientSecret: string; authMethod: OAuthClientAuthMethod }
 export type OAuthTokenEndpointResponse = {
   accessToken: string
@@ -176,7 +187,10 @@ export type OAuthTokenEndpointResponse = {
   refreshToken: string | null
   scope: string[] | null
 }
+/** @internal */
 export type OAuthTokenEndpointErrorKind = 'protocol' | 'network' | 'timeout' | 'invalid_response'  // OAuthTokenEndpointError.kind
+/** @internal A failed token or revocation call; providers never receive it (Connect wraps it in
+ *  `OAuthGrantError`, the grant service maps it to a Token Failure). */
 export class OAuthTokenEndpointError extends Error {
   readonly kind: OAuthTokenEndpointErrorKind
   readonly status: number | null
@@ -185,14 +199,15 @@ export class OAuthTokenEndpointError extends Error {
   /** A 2xx whose access-token part is unusable but which carries a `refresh_token` (App Spec §1.4.5, anti-corruption). */
   readonly salvagedRefreshToken: string | null
 }
+/** @internal */
 export const OAUTH_RESPONSE_MAX_BYTES = 65_536
-/** Form POST; `client_secret_basic` form-urlencodes id and secret before base64 (RFC 6749 §2.3.1).
+/** @internal Form POST; `client_secret_basic` form-urlencodes id and secret before base64 (RFC 6749 §2.3.1).
  *  `timeoutMs` is clamped to ≤ 10_000 and covers `fetch` and the body read. */
 export function requestTokenEndpoint(input: {
   url: string; client: OAuthClientCredentials; params: Record<string, string>
   timeoutMs?: number; signal?: AbortSignal
 }): Promise<OAuthTokenEndpointResponse>
-/** RFC 7009; 200 is success, including for an unknown token. `timeoutMs` clamped to ≤ 8_000. */
+/** @internal RFC 7009; 200 is success, including for an unknown token. `timeoutMs` clamped to ≤ 8_000. */
 export function revokeToken(input: {
   url: string; client: OAuthClientCredentials; token: string
   tokenTypeHint?: 'refresh_token' | 'access_token'; timeoutMs?: number; signal?: AbortSignal
@@ -231,14 +246,6 @@ Helper rules not fixed by the App Spec:
 
 ```ts
 export type OAuthGrantOwner = { integrationId: string; tenantId: string; organizationId: string; userId?: null }
-export type OAuthTokenSet = { accessToken: string; refreshToken: string | null; expiresAt: Date; tokenType: 'Bearer'; grantedScopes: string[] }
-export type OAuthDisconnectHookContext = {
-  tokens: OAuthTokenSet
-  providerData: Record<string, unknown> | null
-  /** One refresh with the captured refresh token, under `signal`; never persisted. */
-  refresh(): Promise<OAuthTokenSet>
-  signal: AbortSignal
-}
 export type OAuthProviderDescriptor = {
   integrationId: string
   authorizationEndpoint: string
@@ -249,13 +256,13 @@ export type OAuthProviderDescriptor = {
   defaultScopes: readonly string[]
   extraAuthorizeParams?: Readonly<Record<string, string>>
   requiresRefreshToken?: boolean              // default true
-  defaultAccessTokenTtlSec?: number           // default 3600
+  defaultAccessTokenTtlSec?: number           // default 3600; it and `expires_in` are clamped to 1 s – 1 year
   refreshSkewMs?: number                      // default 120_000
-  onAfterDisconnect?: (ctx: OAuthDisconnectHookContext) => Promise<void>
 }
+/** @internal */
 export const oauthProviderDescriptorSchema: z.ZodType<OAuthProviderDescriptor>
-/** Validates the whole descriptor, applies defaults and, when given, checks the owner. */
-export function resolveOAuthProviderDescriptor(descriptor: unknown, owner?: OAuthGrantOwner): Required<Omit<OAuthProviderDescriptor, 'revocationEndpoint' | 'onAfterDisconnect'>> & Pick<OAuthProviderDescriptor, 'revocationEndpoint' | 'onAfterDisconnect'>
+/** @internal Validates the whole descriptor, applies defaults and, when given, checks the owner. */
+export function resolveOAuthProviderDescriptor(descriptor: unknown, owner?: OAuthGrantOwner): Required<Omit<OAuthProviderDescriptor, 'revocationEndpoint'>> & Pick<OAuthProviderDescriptor, 'revocationEndpoint'>
 
 export class OAuthDescriptorError extends TypeError { readonly field: string }
 
@@ -267,6 +274,7 @@ export type OAuthConnectFailure =
 export type OAuthGrantWriteFailure = 'disconnect_tokens_unreadable'
 export type OAuthFailureReason = 'grant_rejected' | 'no_refresh_token' | 'client_changed' | 'client_not_configured' | 'token_endpoint_rejected'
 export type OAuthResourceChallengeOutcome = 'scope_insufficient'
+/** @internal */
 export type OAuthInvalidatedReason = 'grant_rejected' | 'no_refresh_token'
 export type OAuthLastFailureClass = 'transient' | 'client_misconfigured'
 export type OAuthGrantReadStatus = 'active' | 'invalidated' | 'unavailable'
@@ -282,27 +290,27 @@ export class OAuthGrantError extends Error {
 }
 ```
 
-Descriptor validation details: endpoints are absolute `https:` URLs, or `http:` on a loopback host only when `NODE_ENV !== 'production'` or `OM_ENABLE_TEST_OAUTH_GRANTS` is on (the fake server); `defaultScopes` non-empty; integers positive; `onAfterDisconnect` an optional function; unknown keys rejected. An owner with an empty `organizationId` or a non-null `userId` (Phase 1 grants are per organization, never per user) throws `OAuthDescriptorError`. All closed unions are additive-only; consumers keep a default branch (App Spec §10.1).
+Descriptor validation details: endpoints are absolute `https:` URLs, or `http:` on a loopback host (`localhost`, `127.0.0.1`, `[::1]`) only when `NODE_ENV !== 'production'` or `OM_ENABLE_TEST_OAUTH_GRANTS` is on (the fake server; a STABLE testing contract, so a provider's test seam can point its descriptor at an in-process fake); `defaultScopes` non-empty; integers positive; unknown keys rejected, `onAfterDisconnect` included (the core runs no disconnect hook). An owner with an empty `organizationId` or a non-null `userId` (Phase 1 grants are per organization, never per user) throws `OAuthDescriptorError`. All closed unions are additive-only; consumers keep a default branch (App Spec §10.1).
 
 ### Credentials and logs (P3)
 
 ```ts
 // integrations/lib/credentials-service.ts
-/** Strict row only (no bundle or user→tenant fallthrough). Located by an id-only lookup that loads
+/** @internal Strict row only (no bundle or user→tenant fallthrough). Located by an id-only lookup that loads
  *  `id`, `tenantId` and `organizationId`, never `credentials`; sets `credentials = {}` and
  *  `deletedAt = now`, flushes on `em`. Needs no DEK. Returns false when no live row exists. */
 export function eraseIntegrationCredentials(em: EntityManager, integrationId: string, scope: IntegrationScope): Promise<boolean>
 
-/** Additive optional third parameter, after the existing `encryptionService`
- *  (`Pick<TenantDataEncryptionService, 'invalidateMap'>`, `credentials-service.ts:109,138-141`), which DI
- *  passes (`integrations/di.ts:22-24`); when `kms` is given it replaces the per-call `createKmsService()` of
- *  the DEK resolution (`:154-165`), used by both `save` and `getRaw`. The return type, and so
+/** `@internal` optional third parameter (the grant service's pinned KMS), after the existing
+ *  `encryptionService` (`Pick<TenantDataEncryptionService, 'invalidateMap'>`, `credentials-service.ts:109,138-141`),
+ *  which DI passes (`integrations/di.ts:22-24`); when `kms` is given it replaces the per-call `createKmsService()`
+ *  of the DEK resolution (`:154-165`), used by both `save` and `getRaw`. The return type, and so
  *  `CredentialsService`, is unchanged; one- and two-argument callers behave as before. */
 export function createCredentialsService(em: EntityManager,
   encryptionService?: Pick<TenantDataEncryptionService, 'invalidateMap'> | null,
   options?: { kms?: KmsService })
 
-/** Existing type (`credentials-service.ts:110-112`) gains an additive optional field. `'when-not-canonical'`
+/** Existing type (`credentials-service.ts:110-112`) gains an `@internal` optional field. `'when-not-canonical'`
  *  first reads the scope's live exact-scope map on `em` (a plain `SELECT`, which never waits for a row lock)
  *  and upserts it, and registers its invalidation, only when it is missing, inactive or differs from what the
  *  upsert writes (`[{ field: 'credentials' }]`). Default `'always'`: the current behaviour. */
@@ -325,9 +333,11 @@ export function readCredentialRowLayered<T>(em: EntityManager, integrationId: st
 
 // integrations/lib/log-service.ts — a standalone function beside the service (additive; the DI type
 // `IntegrationLogService` is unchanged, like `eraseIntegrationCredentials`, App Spec R13)
+/** @internal */
 export function findLatestIntegrationLogsByCodes(em: EntityManager, integrationId: string, codes: readonly string[],
-  scope: IntegrationScope, options?: { disconnectId?: string; limit?: number }): Promise<IntegrationLog[]>
-  // `limit` default 1, max 20; reads through `findWithDecryption`, like `log-service.ts:137`
+  scope: IntegrationScope, options?: { disconnectId?: string; createdFrom?: Date; limit?: number }): Promise<IntegrationLog[]>
+  // `createdFrom` keeps rows created at or after it; `limit` default 1, max 20; reads through
+  // `findWithDecryption`, like `log-service.ts:137`
 ```
 
 The Client Configuration is read with `readCredentialRowLayered` and the operation's pin: the child's row first, then the bundle's when the child has none and its `bundleId` doesn't end in `__oauth_grant` (`resolve()`'s fallthrough order through `bundleFallthroughId`, `credentials-service.ts:271-278`). `none`, or `ok` with an empty `clientId` or `clientSecret` → not configured (`client_not_configured`); `ok` → configured; any other outcome → `platform_unavailable` (App Spec §1.4.2). `resolve()` itself is not used for it, because it turns an unreadable row into `{}` (`credentials-service.ts:193-203`).
@@ -349,11 +359,12 @@ export type OAuthGrantInspection =
       lastFailureClass: OAuthLastFailureClass | null; lastFailureAt: Date | null
       clientChanged: boolean; missingScopes: string[]; hasExternalAccount: boolean
       providerData: Record<string, unknown> | null; previousProviderData: Record<string, unknown> | null
-      accessToken: string | null   // while still valid at read time, never refreshed: for the provider health check's own resource call (App Spec §1.4.4); never returned by a route (I4)
-    }
+    }   // no token: a provider's own resource call takes one from getAccessToken
 export type OAuthDisconnectResult =
   | { erased: false; reason: 'not_connected' }
-  | { erased: true; disconnectId: string; revocation: OAuthRevocationOutcome; failureReason: string | null } // provider code, 'hook_failed' or 'undecryptable'
+  // `failureReason` for `failed`: the provider's RFC 6749 `error` (or the endpoint error kind), 'undecryptable',
+  // 'client_not_configured', 'platform_unavailable' or 'cleanup_failed'
+  | { erased: true; disconnectId: string; revocation: OAuthRevocationOutcome; failureReason: string | null }
 
 export type IntegrationOAuthGrantService = {
   getAccessToken(descriptor: OAuthProviderDescriptor, owner: OAuthGrantOwner,
@@ -368,6 +379,7 @@ export type IntegrationOAuthGrantService = {
     options: { expectedRevisedAt: string | Date | null; force?: boolean; actorUserId?: string | null }): Promise<OAuthDisconnectResult>
 }
 
+/** @internal Consumers resolve the DI `integrationOAuthGrantService`. */
 export type IntegrationOAuthGrantServiceDeps = {
   em: EntityManager                        // the request (container) EntityManager
   kms?: KmsService | null                  // DI `kmsService`; absent → one createKmsService() per operation
@@ -376,10 +388,11 @@ export type IntegrationOAuthGrantServiceDeps = {
   now?: () => Date
   writeDetachedLog?: (input: Parameters<IntegrationLogService['write']>[0], scope: IntegrationScope) => Promise<void>
 }
+/** @internal */
 export function createIntegrationOAuthGrantService(deps: IntegrationOAuthGrantServiceDeps): IntegrationOAuthGrantService
 ```
 
-- Failures throw `OAuthGrantError` (Token Failure, Connect Failure or `disconnect_tokens_unreadable`) or the platform's `CrudHttpError(409)` from `assertOptimisticLock` (`shared/src/lib/crud/optimistic-lock-command.ts:121`); a `transient` with a token still valid at call time returns `degraded: true` instead of throwing (never for `rejectedAccessToken`). `expectedRevisedAt` takes what `readOptimisticLockExpected(req)` returns (`optimistic-lock-command.ts:73`).
+- Failures throw `OAuthGrantError` (Token Failure, Connect Failure or `disconnect_tokens_unreadable`) or the platform's `CrudHttpError(409)` from `assertOptimisticLock` (`shared/src/lib/crud/optimistic-lock-command.ts:121`); a `transient` with a token still valid at call time returns `degraded: true` instead of throwing (never for `rejectedAccessToken`). Every `AdvisoryLockUnavailableError` is `transient` (`connect_persist_failed` for `completeConnect`), whatever its `reason`; after `commit_unknown` the write may have committed (the App Spec §1.4.6 persist window for a Refresh). Only `disconnect` resolves `commit_unknown` (below). `expectedRevisedAt` takes what `readOptimisticLockExpected(req)` returns (`optimistic-lock-command.ts:73`).
 - `actorUserId` (the route's `auth.sub`) is written into the `oauth_connected`, `oauth_external_account_selected` and `oauth_disconnected` payloads, so the integration log names who acted (App Spec §1.4.2, no command bus).
 - DI (`integrations/di.ts`): `integrationOAuthGrantService: asFunction((cradle) => { let kms: KmsService | null = null; let encryptionService: TenantDataEncryptionService | null = null; try { kms = cradle.kmsService ?? null } catch { kms = null } try { encryptionService = cradle.tenantEncryptionService ?? null } catch { encryptionService = null } return createIntegrationOAuthGrantService({ em: cradle.em, kms, encryptionService }) }).scoped().proxy()`. Every credentials service the grant service builds receives that `encryptionService`, as the DI `integrationCredentialsService` does (`integrations/di.ts:22-24`). The cradle is read inside the factory body, because destructuring it in the parameter list resolves `kmsService` before any try/catch can run (precedents `auth/di.ts:17-25`, `query_index/di.ts:122-126`); `yarn check:classic-di-injection` skips `.proxy()` registrations (`scripts/lib/classic-di-injection.mjs:189`). Bootstrap always registers `kmsService` (`core/bootstrap.ts:193-194`), so its catch serves only containers built without it. `tenantEncryptionService` is registered in a bootstrap block (`core/bootstrap.ts:210-215`) inside a try that only warns when initialization fails (`:235-237`), and a DI override can unregister it; either way the grant service gets `null` and the credentials service falls back to a per-EntityManager service. Only `invalidateMap` is used, which doesn't depend on the EntityManager (`tenantDataEncryptionService.ts:483-486`). The service resolves neither `integrationStateService` nor `integrationCredentialsService`: inside the lock it builds tx-bound services from the core factories, so their DI overrides don't apply to grant rows (App Spec §1.4.2).
 
@@ -394,7 +407,9 @@ export const OAUTH_HEALTH_CODES = {
 } as const
 export type OAuthHealthCode = (typeof OAUTH_HEALTH_CODES)[keyof typeof OAUTH_HEALTH_CODES]
 /** Pure; precedence of App Spec §1.4.4 (`oauth.platform_unavailable` also when `connectionState` is
- *  'unavailable' because the Client Configuration can't be read); `details` holds only `{ code }`. */
+ *  'unavailable' because the Client Configuration can't be read; `oauth.client_misconfigured` also when a
+ *  readable grant's `connectionState` is 'not_configured', checked right after `oauth.invalidated` and
+ *  before `oauth.client_changed`); `details` holds only `{ code }`. */
 export function mapInspectionToHealth(inspection: OAuthGrantInspection):
   { status: 'healthy' | 'degraded' | 'unhealthy'; details: { code: OAuthHealthCode } }
 ```
@@ -411,12 +426,12 @@ export function mapInspectionToHealth(inspection: OAuthGrantInspection):
 
 | Step | Behaviour |
 |---|---|
-| Fork | `em.fork({ disableContextResolution: true, clear: true, useContext: false, cloneEventManager: true })`. The request EntityManager is a context-bound fork with a fresh event manager (`shared/src/lib/di/container.ts:208`), and callers may open outer transactions on such an EntityManager (e.g. `workflows/lib/workflow-executor.ts:925`). `disableContextResolution` stops `fork()` from resolving the async context first (`@mikro-orm/core/EntityManager.js:1683-1724`): inside an open `transactional` that is the outer transaction's fork, whose event manager and filters would be copied. The option is in `EntityManager.d.ts:688`; MikroORM's own `transactional` clones the same way (`utils/TransactionManager.js:136`). |
+| Fork | `em.fork({ disableContextResolution: true, clear: true, useContext: false, disableTransactions: false, cloneEventManager: true })`. `disableTransactions: false` keeps a request EntityManager forked with `disableTransactions: true` from making `transactional` run without a transaction, which would release the xact lock at the end of its statement. The request EntityManager is a context-bound fork with a fresh event manager (`shared/src/lib/di/container.ts:208`), and callers may open outer transactions on such an EntityManager (e.g. `workflows/lib/workflow-executor.ts:925`). `disableContextResolution` stops `fork()` from resolving the async context first (`@mikro-orm/core/EntityManager.js:1683-1724`): inside an open `transactional` that is the outer transaction's fork, whose event manager and filters would be copied. The option is in `EntityManager.d.ts:688`; MikroORM's own `transactional` clones the same way (`utils/TransactionManager.js:136`). |
 | Attempt | `fork.transactional(async (tx) => …)`: `tx.execute('select pg_try_advisory_xact_lock(hashtextextended(?, 0)) as locked', [key])`, never `getConnection().execute` (it runs on a pooled client and releases the xact lock at once, `@mikro-orm/sql/AbstractSqlConnection.js:209-219`; same warning in `packages/documents/src/modules/documents/lib/folderHierarchySerialization.ts:26-27`). Acquired → `fn(tx)` in that transaction. Not acquired → return a sentinel, so the empty transaction ends and its connection returns to the pool. |
 | Slots | With `maxConcurrentHolders`, a per-process count per key namespace is taken before each attempt and released in a `finally` when the attempt fails or the lock transaction settles. Each call compares the live count with its own `maxConcurrentHolders`; calls without the option take no slot. Waiting for a slot holds no connection and counts against the deadline; a waiter that reaches the deadline leaves the queue, so a release never hands a slot to a settled waiter. The counts live on `globalThis` under `__openMercatoAdvisoryLockSlots__` (a namespace-keyed map, get-or-create, never replaced, like `shared/src/lib/db/mikro.ts:26-33` and `shared/src/modules/integrations/types.ts:219-228`), so duplicated module instances in one process (dev HMR, standalone server chunks) share one count. |
 | Wait | Back-off from `calculateBackoffDelayMs(Math.min(attempt, 5), { baseDelayMs: 50, maxJitterMs: 25 })` (`shared/src/lib/delivery/retry.ts:17-23`; 1-based `attempt`; defaults base 1000 ms, jitter 0–999 ms, factor 2 kept), so at most 824 ms with jitter kept; never past the deadline; then `onWait()`; then retry. Waiters hold no connection between attempts. |
 | Deadline | 15 s by default, measured from the call start; the grant service passes 5 s for `disconnect`. |
-| Errors | `fn` and `onWait` errors are tagged in a closure so they propagate unchanged; any other rejection of `transactional` (begin, lock query, commit) is classified with `isTransientLockDbError`. Because `fn` flushes its own writes, the implicit flush at commit is empty, and a non-DB commit error (for example `TenantDataEncryptionError`) propagates unchanged. |
+| Errors | `fn` and `onWait` errors are tagged in a closure so they propagate unchanged; any other rejection of `transactional` (begin, lock query, commit) is classified with `isTransientLockDbError`: a matched error is `transient_db` before `fn` returned and `commit_unknown` after it (the closure also records that `fn` returned). Because `fn` flushes its own writes, the implicit flush at commit is empty, and a non-DB commit error (for example `TenantDataEncryptionError`) propagates unchanged. |
 
 Connection accounting: the holder uses exactly one connection, and the grant service caps holders at 4 per process (`maxConcurrentHolders`). Every statement inside `fn` runs on it, including the encryption-policy reads: both decrypt passes and the flush hooks hand `txEm` to `TenantDataEncryptionService`, which reads the policy with `em.execute` in that transaction (`tenantDataEncryptionService.ts:240-260,358-380`; `subscriber.ts:276-278,380-382`; `find.ts:66`) and memoizes it per transaction, with nothing cached across units of work (`:451-476`; `policyMemo.ts:17-36`); the DEK comes from the KMS over HTTP. A fast-path or `onWait` read on a detached fork runs outside a transaction, so each of its statements (the row select, then one policy select per fresh fork while encryption is on) takes a pooled connection only for that statement (`@mikro-orm/sql/AbstractSqlConnection.js:209-219`); a waiter never holds more than one connection, and none between statements. A caller already inside its own transaction holds that connection too, so adapters call the Token Provider outside their transactions (P6 docs).
 
@@ -466,23 +481,23 @@ The "envelope only" `no_dek('sealed-while-disabled')` case is reachable in tests
    3. **no retry storm:** `lastFailureClass ∈ { transient, client_misconfigured }` and `lastFailureAt ≥ callStart` → that class (with a `degraded` token for `transient` when usable and no `rejectedAccessToken`);
    4. no stored refresh token: `expiresAt ≤ now()` → `invalidated` (`no_refresh_token`) + `oauth_invalidated` in this transaction → `grant_invalidated`; otherwise, for a call whose `rejectedAccessToken` equals the stored token, `transient` with no token (the resource server rejected it, App Spec §1.4.5 and US-2.2); otherwise return `degraded`;
    5. **token call** (`grant_type=refresh_token`, never `scope`), the only external call under the lock;
-   6. classify (App Spec §1.4.5): success → store tokens (keep the stored refresh token when none is returned, keep `grantedScopes` when no `scope`), `refreshedAt = now()`, `refreshCount + 1`, clear `lastFailure*`; `invalid_grant` → `invalidated` (`grant_rejected`) + `oauth_invalidated`; `invalid_client`/`unauthorized_client` → `lastFailureClass = client_misconfigured`; another 4xx `protocol` error (`invalid_request`, `unsupported_grant_type`, `invalid_scope`, an unknown code) → the same, reason `token_endpoint_rejected` with `providerErrorCode`; `network`, `timeout`, 5xx, 429, `temporarily_unavailable`, `server_error`, `invalid_response` → `lastFailureClass = transient`, and a non-null `salvagedRefreshToken` is stored as the only token change;
+   6. classify (App Spec §1.4.5): success → store tokens (keep the stored refresh token when none is returned, keep `grantedScopes` when no `scope`, `expiresAt` clamped as in Data Models), `refreshedAt = now()`, `refreshCount + 1`, clear `lastFailure*`, and return the new token, `degraded` when it is already below `minValidityMs`; `invalid_grant` → `invalidated` (`grant_rejected`) + `oauth_invalidated`; `invalid_client`/`unauthorized_client` → `lastFailureClass = client_misconfigured`; another 4xx `protocol` error (`invalid_request`, `unsupported_grant_type`, `invalid_scope`, an unknown code) → the same, reason `token_endpoint_rejected` with `providerErrorCode`; `network`, `timeout`, 5xx, 429, `temporarily_unavailable`, `server_error`, `invalid_response` → `lastFailureClass = transient`, and a non-null `salvagedRefreshToken` is stored as the only token change;
    7. flush on `txEm`, return the outcome.
-6. **Outside the lock:** `AdvisoryLockUnavailableError`, or an error from `fn`, from the fast-path read or from `onWait` that `isTransientLockDbError` accepts, → `transient` (with a `degraded` token from the last read when usable and no `rejectedAccessToken`); `CredentialsEncryptionUnavailableError` from `fn` → `platform_unavailable`; an error thrown inside `fn` while writing an invalidation (the grant flush or the `oauth_invalidated` entry, 5.4 and 5.6) → reported and `transient`, and the rollback means neither the status nor the entry commits (App Spec US-3.1); anything else is reported (`reportError`, no token in the context) and rethrown.
+6. **Outside the lock:** `AdvisoryLockUnavailableError` (any `reason`; after `commit_unknown` the refresh may have committed), or an error from `fn`, from the fast-path read or from `onWait` that `isTransientLockDbError` accepts, → `transient` (with a `degraded` token from the last read when usable and no `rejectedAccessToken`); `CredentialsEncryptionUnavailableError` from `fn` → `platform_unavailable`; an error thrown inside `fn` while writing an invalidation (the grant flush or the `oauth_invalidated` entry, 5.4 and 5.6) → reported and `transient`, and the rollback means neither the status nor the entry commits (App Spec US-3.1); anything else is reported (`reportError`, no token in the context) and rethrown.
 
 ### `completeConnect` (P4b)
 
 1. Validate; resolve the pin. Failure → detached `oauth_connect_persist_failed` → `connect_persist_failed`.
 2. Lock (15 s); layered re-read with `txEm` and the grant schema → mapping table. Without `replaceUnreadable`, `connect_grant_unreadable` returns before any write, and the fresh tokens are discarded, never revoked.
 3. Refresh-token rule: a response without `refresh_token` keeps the stored one only over an `ok` grant with `status = active` and the same `clientId`. Otherwise, with `requiresRefreshToken` the Connect fails `connect_exchange_failed`; without it the blob stores `refreshToken: null` and the Connect proceeds.
-4. Write a fresh blob through the tx-bound credentials service (`save` updates the live row in place, `credentials-service.ts:297-300`, or inserts; it never restores a tombstone because its lookup filters `deleted_at IS NULL`, `:99`): `status = active`, `obtainedAt = revisedAt = now()`, `refreshedAt = null`, `refreshCount = 0`, no `lastFailure*`, `grantedScopes` = response `scope` ?? `requestedScopes` ?? configured scopes ?? `defaultScopes`, `providerData = null`, `previousProviderData` = the old `providerData` when non-empty, else the old `previousProviderData` (empty after a `replaceUnreadable` overwrite).
+4. Write a fresh blob through the tx-bound credentials service (`save` updates the live row in place, `credentials-service.ts:297-300`, or inserts; it never restores a tombstone because its lookup filters `deleted_at IS NULL`, `:99`): `status = active`, `obtainedAt = revisedAt = now()`, `expiresAt` clamped as in Data Models, `refreshedAt = null`, `refreshCount = 0`, no `lastFailure*`, `grantedScopes` = response `scope` ?? `requestedScopes` ?? configured scopes ?? `defaultScopes`, `providerData = null`, `previousProviderData` = the old `providerData` when non-empty, else the old `previousProviderData` (empty after a `replaceUnreadable` overwrite).
 5. `oauth_connected` with `{ reconnect, replacedUnreadable, clientId, grantedScopes, actorUserId }` in the same transaction.
-6. Lock deadline, a matched DB error or `CredentialsEncryptionUnavailableError` → detached `oauth_connect_persist_failed` → `connect_persist_failed`.
+6. Any `AdvisoryLockUnavailableError`, a matched DB error or `CredentialsEncryptionUnavailableError` → detached `oauth_connect_persist_failed` → `connect_persist_failed`.
 
 ### `updateProviderData`, `inspectGrant`, `readGrantStatus` (P4d)
 
-- `updateProviderData`: pin → lock (15 s) → layered re-read → `assertOptimisticLock({ resourceKind: 'integrations.oauth_grant', resourceId: grantRowId, current: revisedAt, expected })` with `grantRowId` = `<integrationId>__oauth_grant` (a no-op without an expected or a current value, with `OM_OPTIMISTIC_LOCK=off`, or when `OM_OPTIMISTIC_LOCK` lists kinds and omits this one, `optimistic-lock-command.ts:58-66,121-134`) → `providerData = data`, `previousProviderData = null`, `revisedAt = now()` → `oauth_external_account_selected` with the keys of `data` and `actorUserId` only. The lock deadline or an error `isTransientLockDbError` accepts → `transient`, grant unchanged. The DI-aware `enforceCommandOptimisticLockWithGuards` (`optimistic-lock-command.ts:347`) is not used, because grant writes don't run through commands (App Spec §1.4.2); enterprise record-lock enrichment does not apply to `integrations.oauth_grant`.
-- `inspectGrant` runs on **its own detached fork** (the health probe runs checks concurrently with `Promise.all` over one EntityManager, `workers/health-probe.ts:25-33`), resolves the pin once, makes no token call, takes no lock and writes nothing, so it stays well inside the probe's `HEALTH_CHECK_TIMEOUT_MS` (10 s). `connectionState` follows App Spec §1.3, with an unreadable Client Configuration as `unavailable` (`unavailableReason: 'platform'`) in the place of `not_configured`; `baseUrlMissing` is `resolveOAuthRedirectUri(undefined, '/')` throwing, which happens only with `NODE_ENV=production` (elsewhere the helper falls back to `http://localhost:3000`, `shared/src/lib/url.ts:252-259`); `missingScopes` = configured `scopes` (split on whitespace or commas) or `defaultScopes`, minus `grantedScopes`; `hasExternalAccount` = `providerData` has a key; with no live grant, `lastDisconnect` comes from `findLatestIntegrationLogsByCodes`: the latest `oauth_disconnected` gives `at` and `disconnectId`, then the outcome codes filtered by that `disconnectId` give the state (none → `pending`; both skip codes → `skipped`). If that query fails, `lastDisconnect` is `null` and the error is reported. `accessToken` is the stored token while still valid; callers MUST NOT return the inspection from a route (I4, A34).
+- `updateProviderData`: pin → lock (15 s) → layered re-read → `assertOptimisticLock({ resourceKind: 'integrations.oauth_grant', resourceId: grantRowId, current: revisedAt, expected })` with `grantRowId` = `<integrationId>__oauth_grant` (a no-op without an expected or a current value, with `OM_OPTIMISTIC_LOCK=off`, or when `OM_OPTIMISTIC_LOCK` lists kinds and omits this one, `optimistic-lock-command.ts:58-66,121-134`) → `providerData = data`, `previousProviderData = null`, `revisedAt = now()` → `oauth_external_account_selected` with the keys of `data` and `actorUserId` only. Any `AdvisoryLockUnavailableError` or an error `isTransientLockDbError` accepts → `transient`, grant unchanged unless the commit itself failed (`commit_unknown`). The DI-aware `enforceCommandOptimisticLockWithGuards` (`optimistic-lock-command.ts:347`) is not used, because grant writes don't run through commands (App Spec §1.4.2); enterprise record-lock enrichment does not apply to `integrations.oauth_grant`.
+- `inspectGrant` runs on **its own detached fork** (the health probe runs checks concurrently with `Promise.all` over one EntityManager, `workers/health-probe.ts:25-33`), resolves the pin once, makes no token call, takes no lock and writes nothing, so it stays well inside the probe's `HEALTH_CHECK_TIMEOUT_MS` (10 s). `connectionState` follows App Spec §1.3, with an unreadable Client Configuration as `unavailable` (`unavailableReason: 'platform'`) in the place of `not_configured`; `baseUrlMissing` is `resolveOAuthRedirectUri(undefined, '/')` throwing, which happens only with `NODE_ENV=production` (elsewhere the helper falls back to `http://localhost:3000`, `shared/src/lib/url.ts:252-259`); `missingScopes` = configured `scopes` (split on whitespace or commas) or `defaultScopes`, minus `grantedScopes`; `hasExternalAccount` = `providerData` has a key; with no live grant, `lastDisconnect` comes from `findLatestIntegrationLogsByCodes`: the latest `oauth_disconnected` gives `at` and `disconnectId`, then the outcome codes filtered by that `disconnectId` and created at or after that entry (`createdFrom`) give the state (none → `pending`; both skip codes → `skipped`). If that query fails, `lastDisconnect` is `null` and the error is reported. The inspection carries no token; a provider's own resource call takes one from `getAccessToken`.
 - `readGrantStatus` runs on a detached fork: an id-only existence lookup (one indexed query for integrations without a grant), then pin and layered read. `ok` → its `status`; every other outcome → `'unavailable'`; unexpected errors are reported and mapped to `'unavailable'`.
 
 ### `disconnect` (P4e)
@@ -490,10 +505,11 @@ The "envelope only" `no_dek('sealed-while-disabled')` case is reachable in tests
 | Phase | Steps | Budget |
 |---|---|---|
 | Before the lock | validate; resolve the pin. Failure: default → `disconnect_tokens_unreadable`, no lock attempt; `force` → continue without a pin | — |
-| Under the lock | no live row → `{ erased: false }`, no log entries. With a pin: layered read; unreadable → `disconnect_tokens_unreadable` unless `force`; readable → `assertOptimisticLock` on `revisedAt` (same `resourceId` as `updateProviderData`); capture the decrypted grant. Without a pin (forced): id-only lookup, no decrypt, no revision check. Then `eraseIntegrationCredentials(txEm, …)`, `oauth_disconnected` (with `actorUserId`) + `oauth_revocation_pending` with a new `disconnectId`, flush, commit | waiter deadline 5 s; the deadline or a matched DB error → `transient`, nothing erased, no log entries |
-| After release | before each external call, an id-only existence re-read: a live grant → `oauth_revocation_skipped_reconnected`, stop. Forced without tokens → `oauth_revocation_failed` (`undecryptable`). Captured `invalidated` → `oauth_revocation_skipped_invalidated`. Otherwise run the hook, then revoke the most recent refresh token (the last one `ctx.refresh` returned, else the captured one) even if the hook failed; no `revocationEndpoint` → `oauth_revocation_unsupported` | hook 8 s, revoke 8 s |
+| Under the lock | no live row → `{ erased: false }`, no log entries. With a pin: layered read; unreadable → `disconnect_tokens_unreadable` unless `force`; readable → `assertOptimisticLock` on `revisedAt` (same `resourceId` as `updateProviderData`); capture the decrypted grant. Without a pin (forced): id-only lookup, no decrypt, no revision check. Then `eraseIntegrationCredentials(txEm, …)`, `oauth_disconnected` (with `actorUserId`) + `oauth_revocation_pending` with a new `disconnectId`, flush, commit | waiter deadline 5 s; any `AdvisoryLockUnavailableError` or a matched DB error → `transient`, nothing erased, no log entries, except `commit_unknown` after an erase (below) |
+| After release | Forced without tokens → `oauth_revocation_failed` (`undecryptable`). Captured `invalidated` → `oauth_revocation_skipped_invalidated`. No `revocationEndpoint` → `oauth_revocation_unsupported`. Otherwise an id-only existence re-read: a live grant → `oauth_revocation_skipped_reconnected`, stop. Then read the Client Configuration with the pin (not configured or unreadable → `oauth_revocation_failed` with `client_not_configured` or `platform_unavailable`) and revoke the captured refresh token, or the access token (`token_type_hint=access_token`) when none is stored; a revoke error → `oauth_revocation_failed` with the provider's `error` or the endpoint error kind; an unexpected throw → `oauth_revocation_failed` (`cleanup_failed`), reported | revoke 8 s |
 
-- The hook is raced (`Promise.race`) against an 8 s timer that also aborts `ctx.signal`; a timeout or a throw is `hook_failed`. `withTimeout` is not used: it aborts its signal and still awaits the task (`shared/src/lib/http/fetchWithTimeout.ts:62-84`). `ctx.refresh()` calls `requestTokenEndpoint` with `signal`; core never persists its result.
+- **Commit outcome unknown.** When the lock call throws `AdvisoryLockUnavailableError` with `commit_unknown` after `fn` erased the grant, the service looks up the `oauth_disconnected` entry of that `disconnectId` on a detached fork (`findLatestIntegrationLogsByCodes`). The entry commits in the erase transaction, so its presence proves the erase: found → the post-release phase runs and the call returns `erased: true`; not found, or the lookup fails (reported) → `transient`.
+- The core runs no provider code after the erase; a provider's cleanup that needs a token runs before it calls `disconnect`, with `getAccessToken` (Proposed Solution).
 - With every external step bounded end to end, a Disconnect stays under 30 s unless a field-level KMS response stalls under the lock (App Spec §1.4.6).
 
 ### Grant saves under the lock (P4b)
@@ -515,7 +531,7 @@ Every catch that does anything but rethrow reports through `getTelemetryRuntime(
 
 | Site | Result | Code |
 |---|---|---|
-| Lock deadline or a matched DB error (`getAccessToken`, `completeConnect`, `updateProviderData`, `disconnect`) | `transient` / `connect_persist_failed` | `integrations.oauth_refresh_transient`, `integrations.oauth_connect_persist_failed`, `integrations.oauth_write_transient` |
+| Any `AdvisoryLockUnavailableError` or a matched DB error (`getAccessToken`, `completeConnect`, `updateProviderData`, `disconnect`) | `transient` / `connect_persist_failed` | `integrations.oauth_refresh_transient`, `integrations.oauth_connect_persist_failed`, `integrations.oauth_write_transient` |
 | `CredentialsEncryptionUnavailableError`, a failed pin or an unreadable Client Configuration | `platform_unavailable` and its per-operation equivalents | `integrations.oauth_platform_unavailable` |
 | A failing invalidation write (`getAccessToken` 5.4, 5.6) | `transient` | `integrations.oauth_refresh_transient` |
 | `client_misconfigured` observed under the lock | `client_misconfigured` | `integrations.oauth_client_misconfigured` |
@@ -524,7 +540,8 @@ Every catch that does anything but rethrow reports through `getTelemetryRuntime(
 | `writeDetachedLog` failure | result unchanged | `integrations.oauth_log_write_failed` |
 | A failing deferred map invalidation | result unchanged | `integrations.oauth_map_invalidation_failed` |
 | The DI `kmsService` and `tenantEncryptionService` catches | `kms: null` / `encryptionService: null` | not reported: an absent registration is a supported container shape |
-| A hook throw or timeout | `oauth_revocation_failed` (`hook_failed`) | through its `error`-level entry |
+| The `oauth_disconnected` lookup after a `commit_unknown` Disconnect fails | `transient` | `integrations.oauth_write_transient` |
+| An unexpected throw in the post-release phase | `oauth_revocation_failed` (`cleanup_failed`) | `integrations.oauth_revocation_failed` |
 
 ### KMS time under the lock
 
@@ -613,9 +630,9 @@ export function startFakeAuthorizationServer(options: FakeAuthorizationServerOpt
 
 ### Fixtures and Playwright helper
 
-- Precedent: runtime fakes live in module `lib/` and helpers re-export or drive them (`push_notifications/lib/fake-provider-recorder.ts` with `helpers/integration/pushFake.ts`).
-- `packages/core/src/helpers/integration/oauthGrantFixtures.ts`: `export * from '../../modules/integrations/lib/oauth/testing/fakeAuthorizationServer'`, nothing else. A guard test (P2b) asserts that neither file imports `@playwright/test`, directly or through another helper.
-- `packages/core/src/helpers/integration/oauthGrantTestRoute.ts` (P4a): Playwright wrappers over the route built on `apiRequest` from `helpers/integration/api`: `isOAuthGrantTestRouteAvailable`, `connectTestGrant`, `refreshTestGrant`, `corruptTestGrant`, `resetTestGrants`. A 404 probe lets a spec `test.skip` in lanes without the flag (standalone lanes); when the Playwright process's own env has `OM_ENABLE_TEST_OAUTH_GRANTS` on, a 404 throws instead, so a broken route can't turn the suite into silent skips.
+- Precedent: runtime fakes live in module `lib/` and helpers drive them (`push_notifications/lib/fake-provider-recorder.ts` with `helpers/integration/pushFake.ts`).
+- Jest suites, a provider package's included, import the fake server from `@open-mercato/core/modules/integrations/lib/oauth/testing/fakeAuthorizationServer`; `helpers/integration` has no re-export of it. A guard test (P2b) asserts that the fake server reaches no `@playwright/test` import, directly or through another module, and runtime-imports only `node:http` and `node:crypto`.
+- `packages/core/src/helpers/integration/oauthGrantTestRoute.ts` (P4a): Playwright wrappers over the route built on `apiRequest` from `helpers/integration/api`: `isOAuthGrantTestRouteAvailable`, `connectTestGrant`, `refreshTestGrant`, `corruptTestGrant`, `resetTestGrants`. Not a contract: it drives the test-only route for core's own Playwright specs, like the route itself. A 404 probe lets a spec `test.skip` in lanes without the flag (standalone lanes); when the Playwright process's own env has `OM_ENABLE_TEST_OAUTH_GRANTS` on, a 404 throws instead, so a broken route can't turn the suite into silent skips.
 - Flag wiring: `OM_ENABLE_TEST_OAUTH_GRANTS: 'true'` beside `OM_ENABLE_TEST_CHANNEL_SEEDING` in both env blocks of the CLI harness (`cli/src/lib/testing/integration.ts:2213,3614`) and in the integration job's runner env (`.github/workflows/ci.yml:903`); never in `.env.example`.
 - The flag is dedicated because the broad switches are unsafe as a route gate: `OM_TEST_MODE` already returns OTP codes in responses (`enterprise/src/modules/security/lib/providers/OtpEmailProvider.ts:162`), and `OM_INTEGRATION_TEST` disables rate limiting and is meant for long-lived dev servers (`create-app/template/.env.example:237-241`). Gating the route on either would enable it wherever those are set for unrelated reasons.
 
@@ -658,7 +675,6 @@ export function startPgTestOrm(options?: { poolMax?: number; acquireTimeoutMs?: 
 `scripts/check-oauth-publish-shape.mjs` resolves each subpath below through Node `exports` against the built `dist` of `packages/shared` and `packages/core` (not through Jest's module mapper, which resolves directory indexes), then `stat`s the resolved file, because resolution alone (`import.meta.resolve`) does not prove the file exists. Exit code 1 lists the broken paths.
 - `@open-mercato/shared/lib/db/advisoryLock` (explicit `exports` entry, like `./lib/db/duplicateEntityClassNames`, `packages/shared/package.json:63-66`; optional, since shared's `./*` export at `:91-97` resolves it too, so the check can't prove the entry);
 - `@open-mercato/core/modules/integrations/lib/oauth/{token-endpoint,pkce,authorization,redirect,resource-challenge,descriptor,grant-service,health}`, `…/lib/oauth/testing/fakeAuthorizationServer`, `…/lib/credentials-service`, `…/lib/log-service`;
-- `@open-mercato/core/helpers/integration/{oauthGrantFixtures,oauthGrantTestRoute}` (the `./helpers/integration/*` entry, `packages/core/package.json:33`);
 - `@open-mercato/core/modules/communication_channels/lib/oauth-state` (the hub-owned STABLE import of App Spec §10.1).
 
 Node ignores `exports` patterns with more than one `*`, so core's `./*` maps each path to `dist/<path>.js` and a directory `index` never resolves; no directory path is published.
@@ -679,7 +695,7 @@ The banner's decisions (copy, link rule, `unavailable` handling, i18n keys) are 
 | A grant-service caller passes a transaction-scoped EntityManager | The DI service always holds the request EntityManager; `disableContextResolution` keeps the lock fork off any outer transaction either way. |
 | The post-release log writer fails | The operation result stands; the error is reported. A missing outcome entry reads as `revocation: 'pending'`. |
 | `readGrantStatus` hits an unexpected error in the detail GET | Reported and mapped to `{ status: 'unavailable' }`; the GET never returns 500 for it. |
-| A provider hook ignores `ctx.signal` | The race returns at 8 s with `hook_failed`; the dangling promise is left to settle and its result is ignored. |
+| The erase transaction's commit fails with an unknown outcome | Disconnect looks up its `oauth_disconnected` entry: found → it revokes and returns `erased: true`; otherwise `transient`, and a retry finds either the live grant or no grant (`erased: false`). |
 | The fake server is left running after a crashed spec | `reset` clears it; it is loopback-only and dies with the process. |
 
 ## Integration Coverage
@@ -703,13 +719,13 @@ Labels: **[Jest]** in-process unit tests (the fake server is a real HTTP server,
 
 | # | Criterion | Label | Commit |
 |---|---|---|---|
-| A1 | Lock: a second connection's `pg_try_advisory_xact_lock` returns false for the whole of `fn`; pool max 4 with 10 waiters → 0 acquire timeouts; the lock transaction commits while an outer transaction rolls back; a request-EntityManager subscriber fires inside `fn`, also under an outer transaction opened on an EntityManager with a fresh event manager (I6) | Jest real-PG | P1b |
-| A2 | Lock loop with a mocked connection: back-off, deadline, `onWait` short-circuit, `fn` error releases and propagates, key validation, fork options; with `maxConcurrentHolders: 2` a third attempt waits for a slot without a connection and fails `deadline`, also when the attempts come from two isolated module instances (`globalThis` slots); a waiter that reaches its deadline is never handed a slot; each case uses a fresh namespace; `isTransientLockDbError` maps `55P03`, `57014`, `25P03`, the pool acquire timeout and the node-postgres "not queryable" message, also nested in `cause` (I6) | Jest | P1a |
+| A1 | Lock: a second connection's `pg_try_advisory_xact_lock` returns false for the whole of `fn`, also when the request EntityManager has transactions disabled; pool max 4 with 10 waiters → 0 acquire timeouts; the lock transaction commits while an outer transaction rolls back; a request-EntityManager subscriber fires inside `fn`, also under an outer transaction opened on an EntityManager with a fresh event manager (I6) | Jest real-PG | P1b |
+| A2 | Lock loop with a mocked connection: back-off, deadline, `onWait` short-circuit, `fn` error releases and propagates, key validation, fork options; with `maxConcurrentHolders: 2` a third attempt waits for a slot without a connection and fails `deadline`, also when the attempts come from two isolated module instances (`globalThis` slots); a waiter that reaches its deadline is never handed a slot; each case uses a fresh namespace; a transient begin or lock-query failure → `transient_db`, a transient commit failure after `fn` returned → `commit_unknown`, each with the original error as `cause`; `isTransientLockDbError` maps `55P03`, `57014`, `25P03`, the pool acquire timeout and the node-postgres "not queryable" message, also nested in `cause` (I6) | Jest | P1a |
 | A3 | PKCE matches the RFC 7636 Appendix B vector; the fake rejects a wrong or missing verifier; `buildAuthorizationUrl` refuses a PKCE-less URL unless `pkce: 'none'`; `resolveOAuthRedirectUri` never uses the request origin and keeps a path prefix of `APP_URL`; a missing production `APP_URL` → `oauth_base_url_not_configured`, a rejected origin → `connect_origin_rejected` | Jest | P2a |
 | A4 | Token client: basic and post auth, §5.2 parsing, `invalid_response` for non-JSON and oversize bodies, `timeout` within 10 s when the fake sends headers and stalls the body, `salvagedRefreshToken`, no secret in messages; revoke 200 for an unknown token (I6) | Jest | P2a, P2b |
-| A5 | A malformed descriptor, or one whose `integrationId` differs from the owner's, throws `OAuthDescriptorError` before any read, write or network call; an `http:` loopback endpoint is rejected with `NODE_ENV=production` unless `OM_ENABLE_TEST_OAUTH_GRANTS` is on | Jest | P2a |
-| A6 | Neither `fakeAuthorizationServer` nor `oauthGrantFixtures` imports `@playwright/test`; every P2a path runs against the fake | Jest | P2b |
-| A7 | `eraseIntegrationCredentials` with encryption enabled, disabled and the DEK unavailable, subscriber registered; the `kms` option (third parameter) supplies the DEK while the second parameter's `invalidateMap` is still the one called on `save`; one- and two-argument calls behave as before; with `ensureEncryptionMap: 'when-not-canonical'` a save over a canonical map leaves its `updated_at` unchanged and registers no invalidation, while a missing, inactive or non-canonical map is upserted; `readCredentialRowLayered` returns each of its six outcomes with a stub validator; `findLatestIntegrationLogsByCodes` matches by `disconnectId` | Jest real-PG | P3 |
+| A5 | A malformed descriptor (an unknown key such as `onAfterDisconnect` included), or one whose `integrationId` differs from the owner's, throws `OAuthDescriptorError` before any read, write or network call; an `http:` loopback endpoint is rejected with `NODE_ENV=production` unless `OM_ENABLE_TEST_OAUTH_GRANTS` is on | Jest | P2a |
+| A6 | `fakeAuthorizationServer` reaches no `@playwright/test` import, directly or through another module, and runtime-imports only `node:http` and `node:crypto`; every P2a path runs against the fake | Jest | P2b |
+| A7 | `eraseIntegrationCredentials` with encryption enabled, disabled and the DEK unavailable, subscriber registered; the `kms` option (third parameter) supplies the DEK while the second parameter's `invalidateMap` is still the one called on `save`; one- and two-argument calls behave as before; with `ensureEncryptionMap: 'when-not-canonical'` a save over a canonical map leaves its `updated_at` unchanged and registers no invalidation, while a missing, inactive or non-canonical map is upserted; `readCredentialRowLayered` returns each of its six outcomes with a stub validator; `findLatestIntegrationLogsByCodes` matches by `disconnectId` and `createdFrom` | Jest real-PG | P3 |
 | A8 | Test route: flag off → 404 with no side effect and no fake-server import; other id → 404; `metadata.path` and guards; the registry mutation guards run and can block; a super admin in another tenant gets 403 with and without a selected organization; a super admin in their own tenant on "all organizations" writes under their own organization; an explicitly empty organization scope gets 403; an unresolvable organization (own tenant, "all organizations", no actor organization) gets 400 `organization_scope_required`; a user without `integrations.credentials.manage` in the resolved organization gets 403; zod rejects unknown actions; no token in any response | Jest | P4a |
 | A9 | `pinTenantDek` over a `FallbackKmsService` built by `createKmsService()` with `VAULT_ADDR`, `VAULT_TOKEN`, a fallback key and a `fetch` mock that answers once then fails: the encrypt still uses the pinned Vault key (I6) | Jest | P4b |
 | A10 | Lock key string for a sample owner is pinned | Jest | P4b |
@@ -722,7 +738,7 @@ Labels: **[Jest]** in-process unit tests (the fake server is a real HTTP server,
 | A17 | I2: a Reconnect racing a delayed refresh, in both orders, leaves the later writer's tokens | Jest real-PG | P4c |
 | A18 | I3: each Token Provider row of App Spec §1.4.5 asserts the class, the grant status and the stored tokens; nothing else invalidates; an expired access token is never returned | Jest real-PG | P4c |
 | A19 | One refresh per window: `forceRefresh`, `rejectedAccessToken` and a `minValidityMs` above the TTL, concurrent with an expiry refresh → 1 token call; waiters behind a `transient` or `client_misconfigured` holder return it without calling; a stored token equal to `rejectedAccessToken` is never returned as already refreshed; a `rejectedAccessToken` call over an unexpired grant without a refresh token returns `transient` with no token and makes 0 token calls; Refresh never moves `revisedAt` | Jest real-PG | P4c |
-| A20 | Rotation `none`, `non_revoking`, `strict` + grace: expected stored refresh token, `grantedScopes` fallback, no `scope` on any refresh request | Jest real-PG | P4c |
+| A20 | Rotation `none`, `non_revoking`, `strict` + grace: expected stored refresh token, `grantedScopes` fallback, no `scope` on any refresh request; an `expires_in` (or default TTL) outside 1 s – 1 year is clamped on Connect and Refresh; a refresh whose new token is already below `minValidityMs` returns it with `degraded: true` | Jest real-PG | P4c |
 | A21 | A refresh 200 carrying a `refresh_token` with an unusable access token persists only that refresh token; `accessToken`, `expiresAt`, `refreshedAt` unchanged; the call is `transient` | Jest real-PG | P4c |
 | A22 | I6 via the service: one token call under the lock; a refresh inside a rolled-back outer transaction (which saves no credentials) stays persisted; lock-written rows stored like admin-path rows at both layers (encrypted; plaintext with encryption disabled, A39); no DEK, an unopened field-level layer or a grant sealed with another key (test KMS set with `setKms`) → no token call, `platform_unavailable`, status unchanged; a committed `grant_invalidated` runs the deferred invalidation before the throw; a refresh over a canonical map leaves the map row's `updated_at` unchanged; a refresh inside an outer transaction that saved credentials of the same scope over a canonical map completes without waiting; a refresh with pool max 1 completes without an acquire timeout (fast path, lock, `fn` and commit share one connection; no outer transaction) | Jest real-PG | P4c |
 | A23 | I6 pin: with no DEK, `getAccessToken`, `completeConnect`, `updateProviderData` and a default `disconnect` return their no-DEK outcome before any `pg_try_advisory_xact_lock`; a call that backs off several times resolves the DEK once; no KMS call after a failed resolution | Jest real-PG | P4b–P4e |
@@ -730,10 +746,10 @@ Labels: **[Jest]** in-process unit tests (the fake server is a real HTTP server,
 | A25 | Logs: one `oauth_invalidated` for 20 concurrent `invalid_grant` callers; a failing `oauth_invalidated` write (a test subscriber throwing on the `IntegrationLog` insert) → `transient`, status unchanged, no entry; each code at its App Spec §1.4.4 level; `oauth_connected`, `oauth_external_account_selected` and `oauth_disconnected` carry `actorUserId`; grant writes emit neither `integrations.credentials.updated` nor `integrations.state.updated` | Jest real-PG | P4c, P4e |
 | A26 | Grant Revision: stale `expectedRevisedAt` → the standard 409 for `updateProviderData` and `disconnect`; an unreadable blob → `platform_unavailable` / `disconnect_tokens_unreadable` before any comparison; `updateProviderData` after a Disconnect → `not_connected`; a lock held past the deadline → `transient` and an unchanged row for `updateProviderData` (15 s) and `disconnect` (5 s) | Jest real-PG | P4d, P4e |
 | A27 | `inspectGrant` on an expired grant: 0 fake calls, no lock, no writes; a corrupt blob and one that decrypts to `{}` read `unavailable` with `unavailableReason: 'unreadable'` in both reads, a failed pin and `field_ciphertext` with `'platform'`; an unreadable Client Configuration → `unavailable` (`'platform'`), not `not_configured`; `not_configured` over `unavailable`; with `NODE_ENV=production` and `APP_URL` unset an `active` grant stays `active` with `baseUrlMissing: true`; `client_changed` | Jest real-PG | P4d |
-| A28 | `mapInspectionToHealth` returns each code and status in App Spec §1.4.4 precedence; never a token in `details` | Jest | P4d |
-| A29 | I5: after `disconnect`, a raw query finds no decryptable refresh token, even with revocation down; a failing post-release log writer leaves `oauth_revocation_pending` without an outcome and `lastDisconnect.revocation = 'pending'`; a quick Connect and a Connect whose consent predates the Disconnect → `oauth_revocation_skipped_reconnected`, new grant works | Jest real-PG | P4e |
+| A28 | `mapInspectionToHealth` returns each code and status in App Spec §1.4.4 precedence, including `oauth.client_misconfigured` for a readable grant with `connectionState: 'not_configured'` ahead of `oauth.client_changed`; `details` holds only `{ code }` | Jest | P4d |
+| A29 | I5: after `disconnect`, a raw query finds no decryptable refresh token, even with revocation down; a failing post-release log writer leaves `oauth_revocation_pending` without an outcome and `lastDisconnect.revocation = 'pending'`; a Connect that commits after the erase and before the revoke → `oauth_revocation_skipped_reconnected`, no revoke, new grant works | Jest real-PG | P4e |
 | A30 | Disconnect without readable tokens: default → `disconnect_tokens_unreadable`, row and revoke counter unchanged whatever `expectedRevisedAt`; `force` → erased without a revision check, `oauth_revocation_failed` (`undecryptable`), and with no DEK only an id-only lookup and no KMS call after the failed resolution; no live grant → `{ erased: false }`, no log entries | Jest real-PG | P4e |
-| A31 | Hook: one ignoring `signal` and never settling → return within the 8 s budget, `hook_failed`, revoke still attempted; one that refreshes once → the fake records a revoke of the refreshed token | Jest real-PG | P4e |
+| A31 | Revocation: the fake records a revoke of the stored refresh token (of the access token, with `token_type_hint=access_token`, when none is stored); a failing revoke → `oauth_revocation_failed` with the provider code and payload `{ disconnectId, failureReason }`; no `revocationEndpoint` → `oauth_revocation_unsupported` and a captured `invalidated` grant → `oauth_revocation_skipped_invalidated`, both with no revoke; a commit failing with `commit_unknown` after the erase → revoke and `erased: true` when the `oauth_disconnected` entry committed, `transient` and no revoke otherwise | Jest real-PG | P4e |
 | A32 | I2: disconnect → connect → refresh leaves one live row and one tombstone, and the refresh uses the new row | Jest real-PG | P4e |
 | A33 | I7: owners differing only by organization, tenant or `integrationId` are refreshed and disconnected independently | Jest real-PG | P4e |
 | A34 | I4: credentials GET/PUT 404 for `<id>__oauth_grant` and for a registered integration whose id ends in `__oauth_grant`, and no DELETE export; a registered child whose `bundleId` is `test_oauth_grant__oauth_grant` gets credentials GET with none of the fake's issued tokens and `updatedAt: null`, a PUT without a lock header succeeds and the child's saved row holds no token; `test_oauth_grant`'s own credentials GET and PUT still answer 200; plain-Jest cases in `integrations/lib/__tests__/credentials-service.test.ts` pin the fallthrough (a regular `bundleId` still falls through, a `bundleId` ending in `__oauth_grant` returns `null` with no read of that id, an own row wins, `x__oauth_grant_v2` still falls through); log payloads, health `details` and every route response written in the suites contain none of the fake's issued tokens; each Reported-errors site calls the `reportError` spy once with its code and no token | Jest real-PG | P4e |
@@ -746,11 +762,11 @@ Labels: **[Jest]** in-process unit tests (the fake server is a real HTTP server,
 
 ## Implementation Plan
 
-Each commit builds, passes its own tests and leaves the app working. Delivery under the recommended gate (App Spec Q7, §4.5.6): the PR branch lives in `open-mercato/open-mercato`, because Package Previews refuses other heads (`.github/workflows/package-previews.yml:48-57`, `CONTRIBUTING.md` → Package Previews); otherwise `yarn pack` tarballs or Verdaccio. Official-module steps follow `.ai/docs/official-modules.md`. Run `yarn generate` after route, `di.ts` or `integration.ts` changes, `yarn agents:check-budget` after `AGENTS.md` edits, and the smallest relevant validation set from the root `AGENTS.md`.
+Each commit builds, passes its own tests and leaves the app working. Delivery under the recommended gate (App Spec Q7, §4.5.6), run on the stacked `sync-xero` PR (#7337): its tests pass against these workspace packages, the publish-shape check passes on the built `dist`, and a Verdaccio smoke passes (this branch's packages published to a local registry with `yarn registry:publish`, a scaffolded standalone app with `sync_xero` enabled through install, generate, typecheck, build and its Playwright tests). Package Previews are not required: they publish only same-repository branches (`.github/workflows/package-previews.yml:48-57`). Run `yarn generate` after route, `di.ts` or `integration.ts` changes, `yarn agents:check-budget` after `AGENTS.md` edits, and the smallest relevant validation set from the root `AGENTS.md`.
 
 ### P1a — `withAdvisoryXactLock` (shared)
 - **Files:** `packages/shared/src/lib/db/advisoryLock.ts`, `packages/shared/src/lib/db/pg-errors.ts` (`isTransientLockDbError` on the existing chain walker; `isTransientDbError` unchanged), their unit tests, `packages/shared/package.json` (explicit `exports` entry), `packages/shared/AGENTS.md` (`db/` row).
-- **Adds:** the lock-helper contract and the lock-section mechanics above, including `maxConcurrentHolders`; `isTransientLockDbError`; JSDoc with the `fn` rules (flush itself, bounded, `txEm` only, no nested `transactional`, no fork).
+- **Adds:** the lock-helper contract and the lock-section mechanics above, including `maxConcurrentHolders` and `AdvisoryLockUnavailableReason` with `commit_unknown`; the `@internal` `isTransientLockDbError` in `pg-errors.ts` only; JSDoc with the `fn` rules (flush itself, bounded, `txEm` only, no nested `transactional`, no fork).
 - **Tests:** A2. **Depends on:** —.
 
 ### P1b — real-Postgres lock suite and CI step
@@ -763,9 +779,9 @@ Each commit builds, passes its own tests and leaves the app working. Delivery un
 - **Adds:** the protocol contracts, the descriptor schema, owner validation, `OAuthGrantError`, `OAuthDescriptorError` and the closed unions. The token and revoke calls use their own `AbortSignal.timeout` (combined with `signal` through `AbortSignal.any`) over `fetch` and a byte-counted body read capped at `OAUTH_RESPONSE_MAX_BYTES`; `fetchWithTimeout` is not used because it clears its timer once the headers arrive (`fetchWithTimeout.ts:47-57`). No change in `shared`, no hub change.
 - **Tests:** A3, A4 (against a throwaway `node:http` server in the test file; the stalled-body case moves onto the fake in P2b), A5. **Depends on:** —.
 
-### P2b — fake authorization server and fixtures re-export
-- **Files:** `lib/oauth/testing/fakeAuthorizationServer.ts`, `helpers/integration/oauthGrantFixtures.ts`, tests.
-- **Adds:** the fake server contract; the pure re-export.
+### P2b — fake authorization server
+- **Files:** `lib/oauth/testing/fakeAuthorizationServer.ts`, tests.
+- **Adds:** the fake server contract and its import guard.
 - **Tests:** A6; A4 contract tests (every P2a path, stalled body) against the fake. **Depends on:** P2a.
 
 ### P3 — credentials erase, KMS option, layered read, log query, core real-Postgres gate
@@ -780,7 +796,7 @@ Each commit builds, passes its own tests and leaves the app working. Delivery un
 
 ### P4b — grant service: `completeConnect`
 - **Files:** `lib/oauth/{grant-service,grant-blob,pin-tenant-dek}.ts`, `integrations/di.ts`, `integrations/__tests__/support/pgTestOrm.ts`, suites.
-- **Adds:** the factory and DI registration, the pin, the blob schema, the lock key, the layered Client Configuration read, `completeConnect` with the layered-read mapping and the detached persist-failed log; the route's `connect` action; the shared `pgTestOrm.ts` harness.
+- **Adds:** the factory and DI registration, the pin, the blob schema, the `expiresAt` clamp, the lock key, the layered Client Configuration read, `completeConnect` with the layered-read mapping and the detached persist-failed log; the route's `connect` action; the shared `pgTestOrm.ts` harness.
 - **Tests:** A9–A15, A23 (connect). **Depends on:** P1a, P2a, P3, P4a.
 
 ### P4c — `getAccessToken` and Refresh
@@ -795,7 +811,7 @@ Each commit builds, passes its own tests and leaves the app working. Delivery un
 
 ### P4e — Disconnect and cross-cutting suites
 - **Files:** `lib/oauth/grant-service.ts`, `integrations/api/[id]/credentials/route.ts`, `integrations/lib/credentials-service.ts`, suites, `lib/oauth/__tests__/client-boundary.test.ts`.
-- **Adds:** `disconnect` with `force`, the post-release phase, hook race and revoke; the credentials route's 404 for ids ending in `__oauth_grant`; the bundle fallthrough's skip of a `bundleId` ending in `__oauth_grant`.
+- **Adds:** `disconnect` with `force`, the post-release revoke and the `commit_unknown` follow-up; the credentials route's 404 for ids ending in `__oauth_grant`; the bundle fallthrough's skip of a `bundleId` ending in `__oauth_grant`.
 - **Tests:** A23 (disconnect), A25 (disconnect logs), A26 (`disconnect`), A29–A35, A39. **Depends on:** P4d.
 
 ### P5 — detail GET field and reauth banner
@@ -804,10 +820,11 @@ Each commit builds, passes its own tests and leaves the app working. Delivery un
 - **Tests:** A36, A37. **Depends on:** P4d (for `readGrantStatus`), P4c (for the `refresh` action).
 
 ### P6 — docs, BC section, publish-shape check
-- **Files:** `apps/docs/docs/framework/modules/integrations-oauth-grants.mdx`, `apps/docs/sidebars.ts`, `integrations/AGENTS.md` (short pointer; the DI-table row for `integrationCredentialsService` becomes `createCredentialsService(em, tenantEncryptionService)`; "Credential Resolution Order" names the `__oauth_grant` exception), `BACKWARD_COMPATIBILITY.md` (dated section: additive rows, precedent "Per-User Integration Credentials", plus two ⚠️ rows for the `__oauth_grant` reservation, precedent "Canonical API Interceptor Route Identity"), `UPGRADE_NOTES.md` (action for module authors: no integration or bundle id may end in `__oauth_grant`), `.ai/qa/AGENTS.md` (rows for `oauthGrantFixtures` and `oauthGrantTestRoute` in the helper table, `:91`), `scripts/check-oauth-publish-shape.mjs`, `.github/workflows/ci.yml` (check step).
+- **Files:** `apps/docs/docs/framework/modules/integrations-oauth-grants.mdx`, `apps/docs/sidebars.ts`, `integrations/AGENTS.md` (short pointer; the DI-table row for `integrationCredentialsService` becomes `createCredentialsService(em, tenantEncryptionService)`; "Credential Resolution Order" names the `__oauth_grant` exception), `BACKWARD_COMPATIBILITY.md` (dated section: additive rows, precedent "Per-User Integration Credentials", plus two ⚠️ rows for the `__oauth_grant` reservation, precedent "Canonical API Interceptor Route Identity"), `UPGRADE_NOTES.md` (action for module authors: no integration or bundle id may end in `__oauth_grant`), `.ai/qa/AGENTS.md` (rows for the fake server path and `oauthGrantTestRoute` in the helper table, `:91`), `scripts/check-oauth-publish-shape.mjs`, `.github/workflows/ci.yml` (check step).
 - **Adds:** the docs page with:
   - the route contract (App Spec §1.4.3, rules 1–11) and the route duties the helpers can't enforce: write routes call `runRouteMutationGuards` (`@open-mercato/shared/lib/crud/route-mutation-guard`; `custom` for the callback, `update` for External Account save, `delete` for Disconnect) and `runAfterSuccess()` after commit, and the grant service stays the only source of the 409; on initiate, External Account save and Disconnect, organizations resolve in the test-only route's order (steps 1–4: 403 for a super admin acting in another tenant, 403 for an explicitly empty organization scope, `resolveActiveOrganizationId` with 400 for `null`, 403 without `integrations.credentials.manage` in the resolved organization); the callback checks the state's tenant against the session and the user's `integrations.credentials.manage` in the state's organization, because `verifyOAuthState` checks neither (`communication_channels/lib/oauth-state.ts:207-235`); calls `consumeOAuthStateOnce` (`oauth-state.ts:252`) with the request container's `cache` after `verifyOAuthState` and before the code exchange, and maps every `OAuthStateError` (including `replay`), an unresolvable `cache` and a rejected `has`/`set` to `connect_state_invalid`, reporting store failures with `reportError` so operators can tell them from replays (precedent: the hub callback, `communication_channels/api/get/oauth/[provider]/callback/route.ts:144-163`, which fails closed with its own codes; across replicas the marker needs `CACHE_STRATEGY=redis`, and the `has`→`set` check is not atomic, `oauth-state.ts:246-250`); and parses `extra.replaceUnreadable === true` with zod because `decryptOAuthState` casts without validating (`oauth-state.ts:177-195`); the External Account comparison and warning of rule 11; operators listing kinds in `OM_OPTIMISTIC_LOCK` add `integrations.oauth_grant`;
-  - the health mapping, and the exemption of the OAuth health check from `om-integration-builder`'s real-connectivity rule (`.ai/skills/om-integration-builder/SKILL.md:769`): it is network-free by design (App Spec R10). Its own resource call may use `inspectGrant().accessToken`, and no route may return the inspection (I4);
+  - the health mapping, and the exemption of the OAuth health check from `om-integration-builder`'s real-connectivity rule (`.ai/skills/om-integration-builder/SKILL.md:769`): it is network-free by design (App Spec R10), and the inspection carries no token, so a provider's own resource call takes one from `getAccessToken`;
+  - Disconnect: provider-side cleanup that needs a token (webhooks, subscriptions) runs before the `disconnect` call, with `getAccessToken`; after the erase the core only revokes;
   - the Token Provider rules: call `getAccessToken`, `completeConnect` and `updateProviderData` outside your own transaction (inside one that created or repaired the scope's credentials encryption map, a grant write stalls that scope's grant writes until your transaction is ended, 120 s by default), and resolve the grant service from `createRequestContainer()` (a fork with a fresh event manager, `shared/src/lib/di/container.ts:208`). Phase 1 supports no caller inside a principal-bound agent run: there the enterprise no-bypass guard on the run's EntityManager fails grant writes closed (`AgentWriteBypassError`, `agent_orchestrator/lib/identity/agentNoBypassSubscriber.ts:31-65`), and resolving the grant service from another container to get past that guard is not a supported path;
   - the provider tab's UI duties: `useGuardedMutation`, `buildOptimisticLockHeader`, `surfaceRecordConflict`, Cmd/Ctrl+Enter and Escape in the Disconnect, "Replace unreadable connection" and "Disconnect anyway" dialogs, "Replace" only for `unavailableReason: 'unreadable'` (rule 10);
   - `APP_URL` for a dev server on a port other than 3000, which paths are contract, the reserved `__oauth_grant` suffix, and the test harness and flag (never in production).
@@ -823,6 +840,12 @@ Product-level risks (persist window, KMS fallback, field-level layer, stalled ho
 - **Mitigation:** the detached fork is required for I6; over a canonical map a grant write never waits on the map row; the docs page says to call the grant service outside your own transaction and names the map case; waiters hold no connection, and holders are capped at 4 per process (A40). Worker concurrency is budgeted to the pool assuming one connection per in-flight job (`packages/cli/src/lib/worker-connection-budget.ts:4-6`).
 - **Residual risk:** a consumer ignoring the rule uses two connections per in-flight job, bounded by worker concurrency; one whose transaction also created or repaired the scope's map stalls that scope's grant writes until its session ends and loses its own transaction, or, with a shorter lock or statement timeout, gets `transient` and may lose a rotated refresh token.
 
+#### A failed ROLLBACK after Postgres ended the session leaks a pooled connection
+- **Scenario:** when Postgres ends a lock transaction's session (the `idle_in_transaction_session_timeout` backstop, KMS time under the lock), the ORM's ROLLBACK fails and the pooled client is never released, so the process's pool is one connection short until restart. This is an upstream Kysely/MikroORM bug, tracked as open-mercato#7333, kysely-org/kysely#1990 and mikro-orm/mikro-orm#8447.
+- **Severity:** Low. **Affected area:** pool capacity of the affected process.
+- **Mitigation:** no lock transaction here waits on an HTTP call longer than 10 s (the token call; the 8 s revoke runs after release), against the 120 s idle-in-transaction default, so only the stalled-holder paths (KMS time under the lock, a caller inside its own transaction, above) reach the backstop; the real-Postgres harness releases leaked clients itself, so the suites stay stable.
+- **Residual risk:** each backstop hit costs one pooled connection until the process restarts or the upstream fix lands.
+
 #### A MikroORM upgrade changes `fork()` semantics
 - **Scenario:** a future MikroORM release changes how `disableContextResolution` or `cloneEventManager` behave, and the lock fork silently nests or drops the encryption subscriber.
 - **Severity:** Medium. **Affected area:** I2, I6, encryption parity.
@@ -830,7 +853,7 @@ Product-level risks (persist window, KMS fallback, field-level layer, stalled ho
 - **Residual risk:** none beyond a red CI job.
 
 #### The real-Postgres suites are flaky or slow
-- **Scenario:** container start-up or timing-sensitive cases (A16, A24, A31) fail intermittently and turn the shared `documents-multi-instance` job red.
+- **Scenario:** container start-up or timing-sensitive cases (A16, A24, A40) fail intermittently and turn the shared `documents-multi-instance` job red.
 - **Severity:** Medium. **Affected area:** the CI signal of every PR, including the documents regression that shares the job.
 - **Mitigation:** `--runInBand`; injected clocks and fake delays instead of sleeps where possible; pool sizes fixed in the harness; timeouts sized to the budgets (≤ 20 s per case); separate, named steps with `if: ${{ !cancelled() }}`, so the failing suite is identifiable and the documents result is never hidden.
 - **Residual risk:** container pull failures, which the documents suite already accepts.
@@ -843,14 +866,14 @@ Product-level risks (persist window, KMS fallback, field-level layer, stalled ho
 
 #### One hanging token endpoint holds every holder slot of a process
 - **Scenario:** holder slots are counted per key namespace (Lock section, Slots) and every Grant Lock key is in the namespace `oauth_grant` (Data Models), so all integrations share the grant service's 4 slots in a process. When one provider's token endpoint hangs until the 10 s exchange bound (App Spec I6), four refreshes of its Grant Owners hold every slot. Refreshes of other integrations in that process wait for a slot, holding no connection, and fail `transient` at their 15 s deadline while the hanging provider's refreshes keep every slot taken: before expiry with a `degraded` token (none for a `rejectedAccessToken` call), after expiry with none. Their Connect, External Account save and Disconnect wait the same way and fail at their own deadlines.
-- **Severity:** Low: Phase 1 ships no consumer in this repository and the first consumer is a single provider (App Spec §7), so the case needs a second provider on the grant service in the same deployment (a second tenant-level OAuth integration, or the Phase 3 hub migration). **Affected area:** grant operations of other integrations in the same process (I6).
+- **Severity:** Low: Phase 1 ships no consumer and the first consumer (`sync-xero`) is a single provider (App Spec §7), so the case needs a second provider on the grant service in the same deployment (a second tenant-level OAuth integration, or the Phase 3 hub migration). **Affected area:** grant operations of other integrations in the same process (I6).
 - **Mitigation:** waiting for a slot holds no connection (A2, A40); each waiter loses at most its own deadline per call; fast failures (5xx, 429, a refused connection) release the slot at once; slots are per process, so only processes that refresh the hanging provider's grants are affected.
 - **Residual risk:** while one provider keeps hanging, other integrations' expired grants can get no token in that process until it recovers: the no-retry-storm rule (`getAccessToken` 5.3) spares only callers that started before a failure was recorded, so every later call to the hanging provider takes a slot again. A per-integration sub-cap under the 4-slot ceiling arrives as a new optional lock-helper option (additive, `BACKWARD_COMPATIBILITY.md` §2) when a second provider uses the grant service (App Spec §7, Phase 3); a namespace per integration is ruled out, because it would change the frozen lock key.
 
-#### The exported matcher and new closed unions become STABLE
-- **Scenario:** `isTransientLockDbError`, the unions in `descriptor.ts` and `OAUTH_HEALTH_CODES` are frozen once released.
+#### The new closed unions become STABLE
+- **Scenario:** the unions in `descriptor.ts`, `AdvisoryLockUnavailableReason` and `OAUTH_HEALTH_CODES` are frozen once released.
 - **Severity:** Low. **Affected area:** future changes to the classification.
-- **Mitigation:** unions are additive-only with a mandated default branch; the matcher only ever widens; all are in the Q3 sign-off.
+- **Mitigation:** unions are additive-only with a mandated default branch; all are in the Q3 sign-off; the transient-DB matcher is `@internal`, so it can change without the deprecation protocol.
 - **Residual risk:** a narrowing change needs the deprecation protocol.
 
 #### Clock skew between processes
@@ -886,20 +909,23 @@ Product-level risks (persist window, KMS fallback, field-level layer, stalled ho
 ## Migration & Backward Compatibility
 
 App Spec §10.1 is authoritative and lists every surface, its class and its sign-off. This spec adds no surface beyond it; it fixes the concrete forms:
-- the explicit `./lib/db/advisoryLock` entry in `packages/shared/package.json`, exporting `withAdvisoryXactLock`, `AdvisoryLockUnavailableError` (`reason: 'deadline' | 'transient_db'`, additive-only, and `key`), `isTransientLockDbError`, `AdvisoryLockOptions` (including `maxConcurrentHolders`) and `AdvisoryLockWaitResult` (STABLE types, BC §2);
-- public protocol symbols in the §10.1 paths: `requestTokenEndpoint`, `revokeToken`, `OAUTH_RESPONSE_MAX_BYTES` and `oauthProviderDescriptorSchema` (its zod type becomes contract);
+- the explicit `./lib/db/advisoryLock` entry in `packages/shared/package.json`, exporting `withAdvisoryXactLock`, `AdvisoryLockUnavailableError` (`reason: AdvisoryLockUnavailableReason` = `'deadline' | 'transient_db' | 'commit_unknown'`, additive-only, and `key`), `AdvisoryLockUnavailableReason` and `AdvisoryLockOptions` (`waitDeadlineMs`, `maxConcurrentHolders`) (STABLE types, BC §2); `AdvisoryLockOptions.onWait` with `AdvisoryLockWaitResult` is `@internal`, and `isTransientLockDbError` is `@internal` and lives only in `@open-mercato/shared/lib/db/pg-errors` (no re-export from `advisoryLock`);
+- `@internal` exports inside §10.1 paths, not covered by the sign-off: `requestTokenEndpoint`, `revokeToken`, `OAuthTokenEndpointError` with `OAuthTokenEndpointErrorKind`, `OAUTH_RESPONSE_MAX_BYTES`, `OAuthClientCredentials`, `OAuthInvalidatedReason`, `oauthProviderDescriptorSchema`, `resolveOAuthProviderDescriptor`, `createIntegrationOAuthGrantService` and `IntegrationOAuthGrantServiceDeps` (consumers resolve the DI `integrationOAuthGrantService`);
 - contract symbols only in the §10.1 file paths. `grant-blob.ts` and `pin-tenant-dek.ts` resolve through core's `./*` export but carry `@internal` JSDoc; `readCredentialRowLayered` and `LayeredCredentialRead` are exported from `lib/credentials-service` with `@internal` JSDoc; none is covered by the sign-off;
-- the existing STABLE path `…/integrations/lib/credentials-service` gains `eraseIntegrationCredentials`, an optional third `options` parameter on `createCredentialsService` with `kms` (the second parameter stays `encryptionService`) and the optional `CredentialsWriteOptions.ensureEncryptionMap` (default `'always'`, the current behaviour), and `…/lib/log-service` gains the standalone `findLatestIntegrationLogsByCodes`; both paths are in the publish-shape check. `CredentialsService` and `IntegrationLogService` are unchanged as types; `resolve()` and `resolveUpdatedAt()` change only as the reservation bullet below says;
-- `@open-mercato/core/modules/integrations/lib/oauth/<file>` means exactly the eight direct files of the publish-shape check, plus `testing/fakeAuthorizationServer`;
-- `@open-mercato/core/helpers/integration/oauthGrantTestRoute` exports `isOAuthGrantTestRouteAvailable`, `connectTestGrant`, `refreshTestGrant`, `corruptTestGrant` and `resetTestGrants`, classified like `oauthGrantFixtures`;
+- the existing STABLE path `…/integrations/lib/credentials-service` gains the `@internal` `eraseIntegrationCredentials`, an `@internal` optional third parameter `{ kms }` on `createCredentialsService` (the second parameter stays `encryptionService`) and the `@internal` optional `CredentialsWriteOptions.ensureEncryptionMap` (default `'always'`, the current behaviour), and `…/lib/log-service` gains the `@internal` standalone `findLatestIntegrationLogsByCodes` (options `disconnectId`, `createdFrom`, `limit`); both paths are in the publish-shape check. `CredentialsService` and `IntegrationLogService` are unchanged as types; `resolve()` and `resolveUpdatedAt()` change only as the reservation bullet below says;
+- `@open-mercato/core/modules/integrations/lib/oauth/<file>` means exactly the eight direct files of the publish-shape check, plus `testing/fakeAuthorizationServer`, whose `startFakeAuthorizationServer`, the methods of the handle it returns, `FakeAuthorizationServerOptions`, `FakeInjection` and `FakeRotationMode` are contract surface; `helpers/integration` has no re-export of the fake server;
+- `@open-mercato/core/helpers/integration/oauthGrantTestRoute` (`isOAuthGrantTestRouteAvailable`, `connectTestGrant`, `refreshTestGrant`, `corruptTestGrant`, `resetTestGrants`) is test-only and not a contract, like the route it drives, and is not in the publish-shape check;
 - log codes `integrations.oauth_*` (App Spec §1.4.4) and the `OAUTH_HEALTH_CODES` values with `OAuthHealthCode` are STABLE once released and additive-only;
-- persisted log format: `findLatestIntegrationLogsByCodes` reads back the codes `integrations.oauth_disconnected` and `integrations.oauth_revocation_{pending,confirmed,failed,unsupported,skipped_reconnected,skipped_invalidated}` and the payload key `disconnectId`, so they are ADDITIVE-ONLY (old rows must keep deriving `lastDisconnect`); the lock-key string is frozen for every existing Grant Owner;
+- persisted log format: `findLatestIntegrationLogsByCodes` reads back the codes `integrations.oauth_disconnected` and `integrations.oauth_revocation_{pending,confirmed,failed,unsupported,skipped_reconnected,skipped_invalidated}` and the payload key `disconnectId`, so they are ADDITIVE-ONLY (old rows must keep deriving `lastDisconnect`); the lock-key string and its mapping `pg_try_advisory_xact_lock(hashtextextended(key, 0))` (one bigint key) are frozen for every existing Grant Owner, because processes of two versions must exclude each other during a rolling deploy;
+- `AdvisoryLockUnavailableError`, `OAuthGrantError`, `OAuthDescriptorError` and `OAuthTokenEndpointError` recognise instances created by another module copy in the same process (separate bundle layers load separate copies) through non-enumerable `Symbol.for` brands (`@open-mercato/shared:AdvisoryLockUnavailableError`, `@open-mercato/core:OAuthGrantError`, `@open-mercato/core:OAuthDescriptorError`, `@open-mercato/core:OAuthTokenEndpointError`) and `static [Symbol.hasInstance]`, so `instanceof` stays reliable for route handlers; the brand keys of the first three are frozen, and the `@internal` `OAuthTokenEndpointError`'s brand is not a contract;
+- the holder-slot registry `globalThis.__openMercatoAdvisoryLockSlots__` (`Map<namespace, { held, waiters: { limit, grant }[] }>`) is shared by every `@open-mercato/shared` instance in a process, so its key and shape are additive-only;
 - widget spots (§6): no spot ID changes; the `integrations.detail.v1` injection context (`integrations/extension-points.ts`) gains the optional `detail.oauthGrant` and `integration.detailPage.connectTabId`, because the page passes the whole `detail` and `integration` to injected widgets (`backend/integrations/[id]/page.tsx:591-600`);
 - the `__oauth_grant` suffix is reserved for grant rows; no integration or bundle id may end in it. Two intentional narrowings follow, both for I4, and every other id behaves as before (no first-party integration or bundle id ends in the suffix):
   - API routes (§7): `GET` and `PUT /api/integrations/:id/credentials` answer 404 for an id ending in `__oauth_grant`, also when an integration with that id is registered;
   - function behaviour, STABLE path `…/lib/credentials-service` and DI `integrationCredentialsService` (§3, §9): `resolve()` and `resolveUpdatedAt()` don't fall through to a `bundleId` ending in `__oauth_grant`, for every caller (integration list and detail GETs, the credentials route, the health service, data_sync);
-- the hub-owned `@open-mercato/core/modules/communication_channels/lib/oauth-state` (App Spec §10.1, external dependency): P6 documents `createOAuthState`, `verifyOAuthState`, `consumeOAuthStateOnce`, `OAuthStateConsumeStore` and `OAuthStateError` (its codes additive-only, `replay` included) as STABLE, and the path is in the publish-shape check;
-- the test-only route and `OM_ENABLE_TEST_OAUTH_GRANTS` are not contracts (like `test-seed`).
+- the hub-owned `@open-mercato/core/modules/communication_channels/lib/oauth-state` (App Spec §10.1, external dependency): P6 documents `createOAuthState`, `verifyOAuthState`, `consumeOAuthStateOnce`, `OAuthStatePayload`, `OAuthStateConsumeStore` and `OAuthStateError` (its codes additive-only, `replay` included) as STABLE, the path's other exports are not covered, and the path is in the publish-shape check;
+- a STABLE testing contract: with `OM_ENABLE_TEST_OAUTH_GRANTS` on, or outside production, a descriptor may use `http:` endpoints on a loopback host (`localhost`, `127.0.0.1`, `[::1]`), so a provider's test seam can point its descriptor at an in-process fake; otherwise endpoints are `https:`, and the flag enables nothing else for providers;
+- the test-only route, its `oauthGrantTestRoute` helper and `OM_ENABLE_TEST_OAUTH_GRANTS` (apart from the testing contract) are not contracts (like `test-seed`).
 
 No migration or deprecation; the only narrowings are the `__oauth_grant` reservation above.
 
@@ -948,7 +974,7 @@ No migration or deprecation; the only narrowings are the `__oauth_grant` reserva
 
 | Check | Status |
 |---|---|
-| Data model matches the contracts (blob ↔ `OAuthGrantInspection`, `OAuthTokenSet`) | Pass |
+| Data model matches the contracts (blob ↔ `OAuthGrantInspection`, `OAuthAccessToken`) | Pass |
 | Every App Spec §1.4.5 outcome has a mechanic and a criterion | Pass (layered-read table, `getAccessToken`, `disconnect`; A12–A31, A39) |
 | Every §10.1 import path is in the publish-shape check | Pass |
 | Every commit lists files, tests and dependencies | Pass |
@@ -957,6 +983,19 @@ No migration or deprecation; the only narrowings are the `__oauth_grant` reserva
 Ready for implementation; the implementation PR's merge waits for App Spec Q3 (surfaces, CI steps) and Q7 (consumer gate).
 
 ## Changelog
+
+### 2026-10-13
+- Disconnect revokes the stored refresh token (or the access token when none) after release and runs no provider code: the descriptor has no disconnect hook, its schema rejects `onAfterDisconnect`, and `failureReason` names only revoke and cleanup outcomes (Proposed Solution, API Contracts, `disconnect`, A5, A31).
+- `AdvisoryLockUnavailableError.reason` gains `commit_unknown` (`AdvisoryLockUnavailableReason`); Disconnect resolves it through its `oauth_disconnected` entry, every other grant write answers `transient`. The lock fork passes `disableTransactions: false` (A1, A2, `disconnect`).
+- `expires_in` (or `defaultAccessTokenTtlSec`) is clamped to 1 s – 1 year; a refresh yielding a token below `minValidityMs` returns it `degraded` (Data Models, `getAccessToken`, A20).
+- The inspection carries no token; `oauth.client_misconfigured` also covers a readable grant with `connectionState: 'not_configured'` (Health, A28).
+- No `helpers/integration` re-export of the fake server; `oauthGrantTestRoute` is not a contract and not in the publish-shape check; `isTransientLockDbError` (only in `pg-errors`), `onWait`, `OAuthTokenEndpointError`, `OAuthInvalidatedReason`, `{ kms }` and `ensureEncryptionMap` are `@internal`; `OAuthStatePayload` and the loopback testing contract are STABLE; `findLatestIntegrationLogsByCodes` takes `createdFrom` (Migration & Backward Compatibility).
+- The recommended gate runs on the stacked `sync-xero` PR (#7337): its tests, the publish-shape check and a Verdaccio smoke (Implementation Plan). A failed ROLLBACK after Postgres ends the session leaks a pooled connection (Risks).
+
+### 2026-10-12
+- The four error classes carry `Symbol.for` brands with `Symbol.hasInstance`, so `instanceof` holds across module copies (Migration & Backward Compatibility).
+- The public surface is what a provider module needs: `createIntegrationOAuthGrantService`, `IntegrationOAuthGrantServiceDeps`, `requestTokenEndpoint`, `revokeToken`, `OAUTH_RESPONSE_MAX_BYTES`, `OAuthClientCredentials`, `oauthProviderDescriptorSchema`, `resolveOAuthProviderDescriptor`, `eraseIntegrationCredentials` and `findLatestIntegrationLogsByCodes` are `@internal` (Architecture decisions, API Contracts, Migration & Backward Compatibility).
+- The lock's `hashtextextended(key, 0)` mapping and the holder-slot registry on `globalThis` are frozen formats beside the lock-key string.
 
 ### 2026-10-09
 - All integrations share the grant service's 4 holder slots per process; one hanging token endpoint holding them is an accepted Phase 1 risk with its bound (Risks), A40 pins that a second integration's refresh waits without a connection, and a per-integration sub-cap arrives as an optional lock-helper option when a second provider uses the grant service (App Spec §7, Phase 3).
