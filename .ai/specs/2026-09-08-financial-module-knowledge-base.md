@@ -315,7 +315,9 @@ silently leave off later ones (see Changelog, 2026-09-14).
   Design decisions for the full correction.
 
 - **Załącznik nr 1 do Ustawy o rachunkowości** (the statutory Bilans/RZiS
-  line-item schema) — **Unverified.** `2026-09-17-annual-financial-
+  line-item schema) — **Confirmed 2026-10-12 at the structural level** against
+  the consolidated text including annexes (see the last entry); the status below
+  is the earlier one. `2026-09-17-annual-financial-
   statements.md` (Annual Financial Statements) names this annex as the
   authoritative source for `financial_pl`'s Bilans/RZiS line templates,
   but the statute text read for this document (the ISAP text linked in §5) starts at
@@ -2413,8 +2415,7 @@ books: automatic position number **and** data identifying the person responsible
 for the entry — the GL spec does not show a user field on `JournalEntry`; to be
 checked), art. 17 ust. 1 pkt 1 and 7 (fixed assets, cash desk).
 
-Not yet checked: the line-item schema of Załącznik nr 1 (#6188) and the 20
-citations in SPEC-024.
+Not yet checked: the 20 citations in SPEC-024 (skipped on purpose, the spec is old).
 
 ### 2026-10-12 (cont. — scope decisions for cash/bank and overpayments)
 
@@ -2427,3 +2428,24 @@ Decided by the team:
   (#6055). A per-customer view, a refund command and offsetting (kompensata) are a
   separate later spec: a refund is a bank payout, and an offset touches AR and AP
   at once.
+
+### 2026-10-12 (cont. — Załącznik nr 1 and art. 45 checked)
+
+Checked against the consolidated text including annexes (Dz. U. z 2026 r. poz.
+522, 640, 644, 1206; Sejm print of 2026-10-08). This replaces the "Unverified,
+annexes not available" status of the Załącznik nr 1 entries above, for the
+structure (not yet line by line, because the templates in #6188 are not written).
+
+- **Structure confirmed.** One Bilans (Aktywa, Pasywa, with "razem" on both
+  sides) and an RZiS in two variants, kalkulacyjny (costs by function, class 5)
+  and porównawczy (costs by nature, class 4); the final line is "Zysk (strata)
+  netto". The entity chooses one variant (art. 47 ust. 4 pkt 1).
+- **Scope gap in #6188, recorded there.** Art. 45 ust. 2: the statement consists
+  of the balance sheet, the profit and loss account and the informacja dodatkowa;
+  art. 45 ust. 3 adds the statement of changes in equity and the cash flow
+  statement for entities other than micro and small. #6188 delivers the first two
+  only. Simplified forms (Załączniki 4, 5, 6) and the filing format (art. 45 ust.
+  1f–1g: electronic, signed, in the structure published in the BIP for KRS
+  entities) are out of scope there.
+- **For implementation:** generate the line codes of `bilansTemplate.ts` and
+  `rzisTemplate.ts` from the text of the annex, not from memory.
