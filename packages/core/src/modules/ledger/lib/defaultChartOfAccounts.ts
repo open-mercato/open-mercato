@@ -229,15 +229,16 @@ export const DEFAULT_CHART_OF_ACCOUNTS_PL: DefaultChartOfAccountsAccountTypeSeed
   // cost reclassification `posting-rules-engine` (#6015) performs — that
   // spec's own Design Decisions requires this account to exist
   // ("account 490 resolves to `code: '4'` like any other zespół 4
-  // account"). Modeled as `normalBalance: 'DEBIT'` for consistency with
-  // every other zespół 4 type in this template, even though in real use
-  // it clears to (near) zero every period — it never carries a lasting
-  // balance either way, so the schema's binary normalBalance is a
-  // formality here, not a meaningful accounting fact about this account.
+  // account"). Modeled as `normalBalance: 'CREDIT'` (changed from 'DEBIT'
+  // on 2026-10-12): the engine debits the zespół 5 account and credits 490
+  // for every zespół 4 posting, and its spec's invariant 2 describes the
+  // clearing account's engine-posted balance as a *credit* balance. A
+  // type's `normalBalance` is immutable once an account of it has posted
+  // entries, so the sign is fixed here rather than later.
   {
     slug: '490',
     name: 'Rozliczenie kosztów',
-    normalBalance: 'DEBIT',
+    normalBalance: 'CREDIT',
     accountGroupCode: '4',
     accounts: [{ slug: '490-1', description: 'Rozliczenie kosztów międzyzespołowe (4 -> 5)' }],
   },
