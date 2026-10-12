@@ -333,6 +333,18 @@ documented explicitly, not glossed over.
   Design decisions and Encryption below), its own
   `organizationId`/`tenantId`.
 
+**Read contract for other modules (added 2026-10-12).** The multi-currency
+module's `fx_revaluation` (optional peer) derives the open amount of a posted
+vendor invoice as `total_gross − Σ PaymentBatchLine.amount` over the invoice's
+lines on batches with `status = 'SENT'`, because `VendorInvoice` has no
+`outstandingAmount` column. It reads `PaymentBatchLine.vendorInvoiceId`,
+`PaymentBatchLine.amount` and `PaymentBatch.status` (via `paymentBatchId`)
+FK-id-only, with the tenant and organization scope applied and no ORM
+relation. These three columns, and the rule that only `markPaymentBatchSent`
+moves a batch to `SENT` and posts the payment, are a contract: a change to them
+is a visible change to this spec and to the multi-currency spec. With this
+module absent no payment exists and every posted invoice is fully open.
+
 ### Access Control (`acl.ts`)
 
 Following the `customers`/`ledger` module convention
@@ -1220,3 +1232,11 @@ before being fixed, not accepted on the review's word alone:
   "or a call to a thin query command, if that's decided at code
   review" even though the Alternatives-considered table explicitly
   closed that door in the 2026-09-08 fix. Synced the row to match.
+
+### 2026-10-12 — Read contract for `fx_revaluation`
+
+Added the "Read contract for other modules" paragraph to the data model. The
+multi-currency spec (decision 18) relies on `PaymentBatchLine.vendorInvoiceId`,
+`PaymentBatchLine.amount` and the batch `status` to derive the open amount of a
+vendor invoice, and said these were listed here as a contract; they were not. No
+change to behaviour or schema. Not yet reviewed by a maintainer.
