@@ -41,6 +41,17 @@ One behavior is hardened for every provider. The route now verifies every locate
 
 **Action for provider authors:** none unless you want the new options. If your provider can legitimately store several transactions with the same provider session id under credentials that verify each other's signatures, return a more specific locator so a single transaction matches. A provider that locates transactions only by payment id must reject candidates whose `providerSessionId` or `amount` differ from the signed notification, because a retried checkout can leave several transactions for one payment.
 
+### The communication-channels OAuth callback reports its result in `?oauth=`, not `?flash=` (#6402)
+
+`GET /api/communication_channels/oauth/[provider]/callback` used to redirect back to `returnUrl`
+with `?flash=<connected|error>&code=…&provider=…&channelId=…`. `?flash=` is the global
+`<FlashMessages>` message-text param, so the raw outcome rendered as a green `error`/`connected`
+toast. The outcome now travels in `?oauth=<connected|error>`; `code`, `provider` and `channelId`
+are unchanged.
+
+**Action for module/app authors:** a custom `returnUrl` page that read `flash=connected|error`
+must read `oauth` instead. The built-in **My communication channels** page is already updated.
+
 ### Catalog product bulk-delete jobs require tenant, organization and user scope (#3826)
 
 The `catalog-product-bulk-delete` worker used to run `catalog.products.delete` with `auth: null`, so
