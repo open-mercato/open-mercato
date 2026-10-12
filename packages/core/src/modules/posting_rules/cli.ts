@@ -5,6 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { FiscalPeriod } from '../ledger/data/entities'
 import { Currency } from '../currencies/data/entities'
 import { seedPostingRulesDefaults } from './lib/seedDefaults'
+import handlePostedEvent from './subscribers/postingRulesEngineSubscriber'
 
 /**
  * Developer tooling. `ledger` has no HTTP route or UI that posts a journal
@@ -157,9 +158,32 @@ const devPostCostEntry: ModuleCli = {
       )
       console.log(
         `Posted journal entry ${executed.result.journalEntryId} (#${executed.result.sequenceNumber}): ` +
-          `DR ${costAccountId} / CR ${counterAccountId} ${amount}. ` +
-          'If posting_rules settings and a rule/sentinel cost centre exist, the engine mirrors it into zespół 5 shortly after.',
+          `DR ${costAccountId} / CR ${counterAccountId} ${amount}.`,
       )
+      // `postJournalEntry` emits `ledger.journal_entry.posted` fire-and-forget
+      // (`void emitPostedEvent(...)`), and this CLI process exits right after,
+      // before a persistent event can reliably reach the app server's events
+      // worker. Run the engine's own subscriber inline instead; it is
+      // idempotent (per-line advisory lock + existence check), so a late
+      // delivery of the real event by the worker changes nothing.
+      // Pass `--no-engine` to skip this and only post the entry.
+      if (args['no-engine'] !== true) {
+        await handlePostedEvent(
+          {
+            journalEntryId: executed.result.journalEntryId,
+            sequenceNumber: executed.result.sequenceNumber,
+            type: 'NORMAL',
+            operationDate: operationDate.toISOString().slice(0, 10),
+            organizationId,
+            tenantId,
+            referenceType: null,
+            referenceId: null,
+            lines: executed.result.lines,
+          },
+          { container: container as any, tenantId, organizationId } as any,
+        )
+        console.log('Ran the posting_rules engine inline for this entry. Check the Journal for the zespół 5 reclassification entry.')
+      }
     } catch (err) {
       console.error('dev-post-cost-entry failed:', err instanceof Error ? err.message : err)
       const body = (err as { body?: unknown })?.body
