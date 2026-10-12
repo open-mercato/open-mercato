@@ -12,6 +12,7 @@ Prevent `mercato module add` and `mercato module enable` from registering a modu
 - Compare declared dependencies with the app's currently enabled module ids before registration or source ejection.
 - Return actionable CLI guidance and keep `src/modules.ts` unchanged when dependencies are missing.
 - Add focused unit coverage and update the module-add documentation and source specification.
+- On autonomous continuation, repair only the independently reproducible repository-wide validation failures that prevent the configured gate from reaching completion.
 
 ## Non-goals
 
@@ -29,6 +30,10 @@ Prevent `mercato module add` and `mercato module enable` from registering a modu
 ### Phase 2: Coverage and guidance
 
 1. Add regression tests and document the fail-closed dependency behavior.
+
+### Phase 3: Validation stabilization
+
+1. Repair the repository-wide validation failures that block this PR independently of the module dependency change.
 
 ## Risks
 
@@ -50,3 +55,7 @@ PR: #7283
 ### Phase 2: Coverage and guidance
 
 - [x] 2.1 Add regression tests and document the fail-closed dependency behavior. — e0ea2253b
+
+### Phase 3: Validation stabilization
+
+- [ ] 3.1 Repair the repository-wide validation failures that block this PR independently of the module dependency change.
