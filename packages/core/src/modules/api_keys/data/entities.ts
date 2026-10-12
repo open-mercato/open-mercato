@@ -53,6 +53,19 @@ export class ApiKey {
   @Property({ name: 'session_token_hash', type: 'text', nullable: true })
   sessionTokenHash?: string | null
 
+  /**
+   * @deprecated Superseded by `sessionTokenHash` (#2254) — nothing reads or writes this
+   * anymore and `Migration20261012202110_api_keys` nulls out every existing value as part of
+   * scrubbing the plaintext token. Kept, not dropped, per the "renamed/removed DB column" rule in
+   * `.ai/review-checklist.md` (keep old column, add new one, backfill, deprecate old) — chat
+   * sessions in flight across the deploy carry a 2-hour TTL and only mint once per
+   * conversation (`ai_assistant`'s chat route, `!sessionId` branch), so the column must survive
+   * long enough for every session minted before this ships to expire naturally. Safe to drop in
+   * a later migration once that window has passed.
+   */
+  @Property({ name: 'session_token', type: 'text', nullable: true })
+  sessionToken?: string | null
+
   /** User ID who owns this session (for ephemeral keys) */
   @Property({ name: 'session_user_id', type: 'uuid', nullable: true })
   sessionUserId?: string | null
