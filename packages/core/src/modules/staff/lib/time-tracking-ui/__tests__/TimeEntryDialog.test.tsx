@@ -1030,6 +1030,13 @@ describe('TimeEntryDialog — keyboard loop', () => {
     expect(dialog.textContent).toContain('save and add another')
     expect(dialog.textContent).toContain('cancel')
   })
+
+  it('lets the shortcut hint wrap inside the footer instead of running past the dialog edge', async () => {
+    renderDialog({})
+
+    const hint = await screen.findByText('save and add another', { exact: false, selector: 'span.mr-auto' })
+    expect(hint.className.split(/\s+/)).toEqual(expect.arrayContaining(['min-w-0', 'flex-wrap']))
+  })
 })
 
 /**

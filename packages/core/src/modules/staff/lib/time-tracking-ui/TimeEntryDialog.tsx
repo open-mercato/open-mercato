@@ -2025,12 +2025,11 @@ function DefaultTimeEntryDialog({
         <DialogFooter>
           {/*
             * The labels are flex items, so without `whitespace-nowrap` "save and
-            * add another" shrinks into a four-line column rather than staying on
-            * the line. Hidden below `sm` as well: on a narrow dialog the hint
-            * competes with the buttons for room it does not deserve, and a
-            * keyboard hint is useless on a touch device anyway.
+            * add another" shrinks into a four-line column; `flex-wrap` moves whole
+            * labels to a second line instead of overflowing past the dialog edge.
+            * Hidden below `sm`: a keyboard hint is useless on a touch device.
             */}
-          <span className="mr-auto hidden items-center gap-1 whitespace-nowrap text-xs text-muted-foreground sm:flex">
+          <span className="mr-auto hidden min-w-0 flex-wrap items-center gap-1 whitespace-nowrap text-xs text-muted-foreground sm:flex">
             <Kbd>⌘</Kbd>
             <Kbd>↵</Kbd>
             {t('staff.time_tracking.entryDialog.shortcutSave', 'save')}
