@@ -55,7 +55,7 @@ const RAISE_CRUD_ERROR_PATTERN = /raiseCrudError\(\s*(["'`])([^"'`\n]{2,})\1/g
 const TOAST_CALL_PATTERN = /(?<![a-zA-Z_$])toast\.(?:error|success|warning|warn|info|message|loading)\(\s*(["'`])([^"'`\n]{2,})\1/g
 const CRUD_HTTP_ERROR_PATTERN = /new\s+CrudHttpError\(\s*[^,()\n]+,\s*\{\s*error\s*:\s*(["'`])([^"'`\n]{2,})\1/g
 const CRUD_HTTP_HELPER_PATTERN = /(?<![\w$.])(?:badRequest|forbidden|notFound|conflict)\(\s*(["'`])([^"'`\n]{2,})\1/g
-const ASSERT_FOUND_PATTERN = /(?<![\w$.])assertFound\([^\n]*?,\s*(["'`])([^"'`\n]{2,})\1\s*\)/g
+const ASSERT_FOUND_PATTERN = /(?<![\w$.])assertFound\([^\n]*?,\s*(?<!\b(?:t|translate)\([^)]*)(["'`])([^"'`\n]{2,})\1\s*\)/g
 const JSON_ERROR_RESPONSE_PATTERN = /(?<![\w$])(?:NextResponse|Response)\.json\(\s*\{\s*error\s*:\s*(["'`])([^"'`\n]{2,})\1/g
 
 const INTERNAL_PREFIX = '[internal]'

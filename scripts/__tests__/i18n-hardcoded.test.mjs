@@ -136,6 +136,8 @@ test('scanText flags English messages passed to the shared CrudHttpError helpers
     'throw conflict(message)',
     "throw badRequest('uom.unit_not_found')",
     "const record = assertFound(row, 'checkout.errors.notFound')",
+    "const deal = assertFound(await em.findOne(Deal, { id }), translate('customers.errors.deal_not_found', 'Deal not found'))",
+    "const deal = assertFound(row, t('customers.errors.deal_not_found'))",
     'notFound()',
     "router.notFound('Page is missing')",
   ].join('\n')
