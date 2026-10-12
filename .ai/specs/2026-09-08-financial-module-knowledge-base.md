@@ -2415,3 +2415,15 @@ checked), art. 17 ust. 1 pkt 1 and 7 (fixed assets, cash desk).
 
 Not yet checked: the line-item schema of Załącznik nr 1 (#6188) and the 20
 citations in SPEC-024.
+
+### 2026-10-12 (cont. — scope decisions for cash/bank and overpayments)
+
+Decided by the team:
+
+- **Manual `sales` payments to the ledger:** not in #6055 or #6046. A separate spec
+  after #6055 settles the contract (cash or bank account and rate, which `sales`
+  does not hold today). Until then manual `sales` payments are not posted.
+- **Overpayments:** Phase 1 only books the excess to `customerOverpaymentAccountId`
+  (#6055). A per-customer view, a refund command and offsetting (kompensata) are a
+  separate later spec: a refund is a bank payout, and an offset touches AR and AP
+  at once.
