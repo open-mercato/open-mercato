@@ -65,3 +65,5 @@ PR: #7001
 
 - [x] Post-review fix: review findings on project mode (silent task-mode error, injected write, focus, locked label, PUT coverage) — 56122091b
 - [x] Post-review fix: re-review minors (single pinned lookup, refocus and locked-label tests) — 78355ac6f
+- [x] Post-review fix (haxiorz UX comment, 2026-10-12): project shown inside the picked task box instead of a duplicate line under it — a02f15695
+- [x] Post-review fix (haxiorz UX comment, 2026-10-12): footer shortcut hint wraps instead of overflowing the dialog — 2ad0c8fec
