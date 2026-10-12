@@ -46,4 +46,4 @@ Prevent `mercato module add` and `mercato module enable` from registering a modu
 
 ### Phase 2: Coverage and guidance
 
-- [ ] 2.1 Add regression tests and document the fail-closed dependency behavior.
+- [x] 2.1 Add regression tests and document the fail-closed dependency behavior. — e0ea2253b
