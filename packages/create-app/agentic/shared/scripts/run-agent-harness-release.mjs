@@ -65,6 +65,7 @@ Options:
   --writable-targets <absolute> JSON map of every writable case to a fresh disposable app
   --case-timeout <ms>           Per-model invocation timeout floor for the routing, writable, and review lanes (default: ${DEFAULT_CASE_TIMEOUT_MS})
                                 The model-free deterministic and fixture-preparation steps carry their own flat ceilings and do not read it.
+  --reasoning-effort <level>    Codex-only reasoning effort (minimal|low|medium|high|xhigh), forwarded to every codex evaluator invocation
   --validation-timeout <ms>     Timeout for each yarn validation (default: 1800000)
   --acknowledge-writes          Required: fixture preparation and validation commands write files
   --help                        Show this help
@@ -92,6 +93,7 @@ function parseArgs(argv) {
     writableTargets: undefined,
     caseTimeout: DEFAULT_CASE_TIMEOUT_MS,
     validationTimeout: 1_800_000,
+    reasoningEffort: undefined,
     acknowledgeWrites: false,
     help: false,
   }
@@ -110,6 +112,7 @@ function parseArgs(argv) {
     else if (arg === '--writable-targets') options.writableTargets = value()
     else if (arg === '--case-timeout') options.caseTimeout = Number(value())
     else if (arg === '--validation-timeout') options.validationTimeout = Number(value())
+    else if (arg === '--reasoning-effort') options.reasoningEffort = value()
     else if (arg === '--acknowledge-writes') options.acknowledgeWrites = true
     else throw new Error(`unknown argument: ${arg}`)
   }
@@ -124,6 +127,10 @@ function parseArgs(argv) {
   if (!options.acknowledgeWrites) throw new Error('the full release gate requires --acknowledge-writes')
   if (!Number.isInteger(options.caseTimeout) || options.caseTimeout < 1_000 || options.caseTimeout > 3_600_000) throw new Error('--case-timeout must be from 1000 to 3600000 milliseconds')
   if (!Number.isInteger(options.validationTimeout) || options.validationTimeout < 1_000 || options.validationTimeout > 7_200_000) throw new Error('--validation-timeout must be from 1000 to 7200000 milliseconds')
+  if (options.reasoningEffort !== undefined) {
+    if (!['minimal', 'low', 'medium', 'high', 'xhigh'].includes(options.reasoningEffort)) throw new Error('--reasoning-effort must be minimal, low, medium, high, or xhigh')
+    if (options.runner !== 'codex' && options.portabilityRunner !== 'codex') throw new Error('--reasoning-effort applies only when a codex lane is selected')
+  }
   return options
 }
 
@@ -136,10 +143,11 @@ export function deterministicInvocation({ evaluator, root }) {
   return { args: [evaluator, '--root', root, '--all'], timeout: DETERMINISTIC_STEP_TIMEOUT_MS }
 }
 
-export function routingInvocation({ evaluator, root, step, cases, caseTimeout }) {
+export function routingInvocation({ evaluator, root, step, cases, caseTimeout, reasoningEffort }) {
   const args = [evaluator, '--root', root, '--runner', step.runner]
   if (step.lane === 'primary') args.push('--all')
   args.push('--model', step.modelSelector, '--timeout', String(caseTimeout))
+  if (step.runner === 'codex' && reasoningEffort) args.push('--reasoning-effort', reasoningEffort)
   const timeout = step.expectedCaseIds.reduce(
     (total, caseId) => total + effectiveCaseTimeout(cases, caseId, caseTimeout),
     ROUTING_STEP_SLACK_MS,
@@ -514,7 +522,7 @@ function resolveBrowserRuntime(target, isolatedCache) {
   return { browserRoot: fs.realpathSync(browserRoot), isolatedCache, executable: fs.realpathSync(executables[0]) }
 }
 
-export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, seeds, targetsManifest, root, primaryRunner, portabilityRunner, targetsMayNotExist = false }) {
+export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, seeds, targetsManifest, root, primaryRunner, portabilityRunner, reasoningEffort, targetsMayNotExist = false }) {
   const allCaseIds = cases.map((item) => item.id)
   const writableCases = cases.filter((item) => WRITABLE_KINDS.has(item.evaluationKind))
   const writableCaseIds = writableCases.map((item) => item.id)
@@ -769,7 +777,11 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
   }
 
   return {
-    runnerPolicy: { primaryRunner: RUNNERS.has(primaryRunner) ? primaryRunner : null, portabilityRunner: RUNNERS.has(portabilityRunner) ? portabilityRunner : null },
+    runnerPolicy: {
+      primaryRunner: RUNNERS.has(primaryRunner) ? primaryRunner : null,
+      portabilityRunner: RUNNERS.has(portabilityRunner) ? portabilityRunner : null,
+      reasoningEffort: typeof reasoningEffort === 'string' ? reasoningEffort : null,
+    },
     catalog: {
       caseCount: cases.length,
       writableCaseCount: writableCaseIds.length,
@@ -1557,7 +1569,7 @@ export function main(argv = process.argv.slice(2)) {
     try { prepareRoot = resolvePreparationRoot(options.prepareTargets, root) } catch (error) { console.error(error.message); return 2 }
     const writableIds = cases.filter((item) => WRITABLE_KINDS.has(item.evaluationKind)).map((item) => item.id)
     const proposedManifest = { schemaVersion: 1, targets: Object.fromEntries(writableIds.map((id) => [id, path.join(prepareRoot, id)])) }
-    const preliminary = buildReleasePlan({ cases, registry, releaseMatrix, fixtures, seeds, targetsManifest: proposedManifest, root, primaryRunner: options.runner, portabilityRunner: options.portabilityRunner, targetsMayNotExist: true })
+    const preliminary = buildReleasePlan({ cases, registry, releaseMatrix, fixtures, seeds, targetsManifest: proposedManifest, root, primaryRunner: options.runner, portabilityRunner: options.portabilityRunner, reasoningEffort: options.reasoningEffort, targetsMayNotExist: true })
     const proposedRoots = Object.values(proposedManifest.targets)
     if (preliminary.violations.length) {
       const report = initialReport(preliminary, startedAt)
@@ -1579,7 +1591,7 @@ export function main(argv = process.argv.slice(2)) {
       return 1
     }
   }
-  const plan = buildReleasePlan({ cases, registry, releaseMatrix, fixtures, seeds, targetsManifest, root, primaryRunner: options.runner, portabilityRunner: options.portabilityRunner })
+  const plan = buildReleasePlan({ cases, registry, releaseMatrix, fixtures, seeds, targetsManifest, root, primaryRunner: options.runner, portabilityRunner: options.portabilityRunner, reasoningEffort: options.reasoningEffort })
   const targetRoots = Object.values(plan.targets).filter((entry) => typeof entry === 'string' && path.isAbsolute(entry)).map((entry) => path.resolve(entry))
   const roots = [root, ...targetRoots]
   if (plan.violations.length) {
@@ -1591,7 +1603,7 @@ export function main(argv = process.argv.slice(2)) {
     for (const violation of plan.violations) console.error(`- ${violation}`)
     return 1
   }
-  console.log(`Runner policy: primary=${plan.runnerPolicy.primaryRunner}; portability=${plan.runnerPolicy.portabilityRunner ?? 'not requested'}`)
+  console.log(`Runner policy: primary=${plan.runnerPolicy.primaryRunner}; portability=${plan.runnerPolicy.portabilityRunner ?? 'not requested'}${plan.runnerPolicy.reasoningEffort ? `; reasoning effort: ${plan.runnerPolicy.reasoningEffort}` : ''}`)
 
   const evaluator = path.join(root, 'scripts', 'evaluate-agent-harness.mjs')
   const preparer = path.join(root, 'scripts', 'prepare-agent-harness-fixture.mjs')
@@ -1645,7 +1657,7 @@ export function main(argv = process.argv.slice(2)) {
     for (const step of plan.steps.filter((entry) => entry.kind === 'routing')) {
       const before = resultFiles(root)
       const { args: routingArgs, timeout: routingTimeout } = routingInvocation({
-        evaluator, root, step, cases, caseTimeout: options.caseTimeout,
+        evaluator, root, step, cases, caseTimeout: options.caseTimeout, reasoningEffort: options.reasoningEffort,
       })
       const execution = execute(process.execPath, routingArgs, root, routingTimeout)
       const artifacts = readNewResults(root, before)
@@ -1675,6 +1687,7 @@ export function main(argv = process.argv.slice(2)) {
       const writableExecution = execute(process.execPath, [
         evaluator, '--root', root, '--runner', writableStep.runner, '--case', caseId,
         '--model', writableStep.modelSelector, '--timeout', String(caseTimeout),
+        ...(writableStep.runner === 'codex' && options.reasoningEffort ? ['--reasoning-effort', options.reasoningEffort] : []),
         '--writable-root', target, '--acknowledge-writes',
       ], root, caseTimeout + 120_000)
       const writableArtifacts = readNewResults(root, beforeWritable)
@@ -1735,6 +1748,7 @@ export function main(argv = process.argv.slice(2)) {
       const reviewExecution = execute(process.execPath, [
         evaluator, '--root', root, '--runner', reviewStep.runner,
         '--model', reviewStep.modelSelector, '--timeout', String(caseTimeout),
+        ...(reviewStep.runner === 'codex' && options.reasoningEffort ? ['--reasoning-effort', options.reasoningEffort] : []),
         '--judge-writable-result', path.join(root, sourceArtifact.path), '--writable-root', target,
         '--judge-validation-result', targetValidationArtifact.absolute,
       ], root, caseTimeout + 60_000)
