@@ -397,7 +397,7 @@ is Cash & Bank Management's (#6055), not this module's. Consequences for this
 document:
 
 - The reconciliation the Literature section cites (Kieso Ch.7 p.7-12 fn.
-  5; UoR art. 13/16: control account versus subsidiary ledger) **cannot
+  5; UoR art. 13/16/17: control account versus subsidiary ledger) **cannot
   be performed from `sales` data today**. Phase 1 does not claim it.
 - Invariant 2 is restated on what this module controls: the receivable
   account's balance is `Σ grandTotalGrossAmount` of the invoices it has
@@ -580,7 +580,9 @@ account and the subsidiary ledger related to accounts receivable" —
 more directly on-point here than the general Ch.3 "Basic Terminology"
 definition used for Accounts Payable's payable side, since this is the
 receivable side by name. Legally: **Ustawa o rachunkowości, art. 13
-ust. 1 pkt 3 and art. 16**, already established in this knowledge base
+ust. 1 pkt 3, art. 16 ust. 1 and art. 17 ust. 1 pkt 2 (settlements with
+counterparties; pkt 4 covers sales operations with consecutively numbered own
+invoices)**, already established in this knowledge base
 as the stronger, directly-applicable citation for the control-
 account/subsidiary-ledger pattern generally, applies identically here —
 both sources describe a control account reconciled against a
@@ -1387,7 +1389,7 @@ document uses "receivable control account" four times with no citation
 anywhere — added Kieso Ch.7 "Cash and Receivables," p.7-12, footnote 5
 (more directly on-point than the general Ch.3 definition, since it
 names accounts *receivable* specifically) and Ustawa o rachunkowości
-art. 13/16, both already verified in the financial-module knowledge base ([#6016](https://github.com/open-mercato/open-mercato/pull/6016)).
+art. 13/16/17, both already verified in the financial-module knowledge base ([#6016](https://github.com/open-mercato/open-mercato/pull/6016)).
 Compared against ERPNext (docs.frappe.io — GL posting happens
 automatically on Sales Invoice submission, not a separate command;
 `SalesInvoiceGlPosting` here substitutes for the idempotency guarantee
@@ -1568,3 +1570,13 @@ first round was confirmed fixed.
   #6055 was also corrected on its side: it no longer reads
   `SalesInvoice.outstandingAmount`, requires the invoice to be posted by this
   module, and takes `settledAmount` as an explicit input.
+
+### 2026-10-12 — UoR citations checked against the consolidated text
+
+The per-counterparty subsidiary-ledger basis is art. 17 ust. 1 pkt 2 (and pkt 4
+for sales operations), not art. 13 ust. 1 pkt 3 and art. 16 alone: art. 13 only
+lists księgi pomocnicze and art. 16 ust. 1 says they detail and are reconciled
+with the general ledger. Citations updated; design unchanged. Also noted: the
+`documentType` enum this spec relies on lacks the "rozliczeniowe" category of art.
+20 ust. 3 pkt 4, which is a gap in #5663, not in this spec. Not yet reviewed by
+a maintainer.
