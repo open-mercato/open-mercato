@@ -90,7 +90,7 @@ The currencies module registers a `currencyPrecisionService` DI service with `ge
 - Divisions run at FX precision; each resulting amount is rounded to `amountDecimalPlaces` (D4).
 - `number` fields are filled with `Number(exact)` at the end of each step.
 - The calculation context and line results carry `amountDecimalPlaces`.
-- **Hook bridge.** Every amount pair is compared with its value before each hook, paired by line or adjustment `id` (items without a known id fall back to the float/exact consistency rule). If only the `number` changed, the hook is a legacy one and `Exact` is re-derived from the `number`, rounded to `amountDecimalPlaces`. If `Exact` changed, it wins and the `number` is refreshed from it. Untouched fields keep full precision.
+- **Hook bridge.** Every amount pair is compared with its value before each hook, paired by line or adjustment `id`; when no item has an id and the count is unchanged, by position; otherwise the float/exact consistency rule applies. Line snapshots keep their ids. The same change-aware rule applies to the `sales.tax.calculate.*` hooks. If only the `number` changed, the hook is a legacy one and `Exact` is re-derived from the `number`, rounded to `amountDecimalPlaces`. If `Exact` changed, it wins and the `number` is refreshed from it. Untouched fields keep full precision.
 
 ### Persistence
 
@@ -98,7 +98,7 @@ The currencies module registers a `currencyPrecisionService` DI service with `ge
 - Commands write `Exact` strings to entities, never `number.toString()`. `toNumericString` accepts strings and never pads or emits exponent notation.
 - Checkout configured amounts (fixed price, original price, custom min/max, price-list items) and transactions are rounded to the currency's own decimals, so the shown, validated and charged amounts match. The pay page submits exact strings.
 - Catalog prices keep the entered side exact; only the derived side (gross in net mode, net in gross mode) is rounded, and tax is the exact difference.
-- Payment gateway session, capture and refund routes reject amounts with more decimals than the currency allows (400).
+- Payment gateway session, capture and refund routes, and the public checkout submit route before it reserves a transaction, reject amounts with more decimals than `min(tenant decimals, ISO minor-unit digits)` (400).
 - Settlement checks (fully paid, refunded or shipped) use a tolerance of one unit at the currency's amount precision. Float-only resolvers keep the old `1e-4`.
 - Closed staff reports sum and export frozen amounts as stored; live amounts round per D10.
 - The sales dialogs read the configured currency decimals (`/api/currencies/currencies`) for auto-fill and shipped-line rescaling; `formatCurrency` rounds display to the currency precision when it is known.
@@ -205,3 +205,4 @@ Every module whose API gains `<field>Exact` fields or wider money columns gets a
 - 2026-10-08: Money and FX columns use `ExactDecimalType`, so updates beyond float precision are flushed.
 - 2026-10-08: PR review fixes. Exact values cannot bypass validation on `null`; oversized decimals rejected; unknown currency codes no longer default to 2 decimals; hook bridge pairs by id and rounds legacy floats; catalog prices keep the entered side exact; checkout configured amounts round to the currency decimals and the pay page submits exact strings; gateway routes reject sub-minor amounts; frozen staff totals sum as stored; BC table corrected.
 - 2026-10-09: Second re-review fixes. Oversized money input is a 400 on every number-coercing schema (`withDecimalCaps`); `formatCurrency` rounds to known currency precision; frozen staff exports keep stored values; hook bridge pairs id-less items by position; Stripe sub-minor check uses the ISO minor unit; staff cost gains exact siblings.
+- 2026-10-12: Third re-review fixes. Exact siblings on the exported staff report types are optional again (D7), with `Exact*` result types for internal use; checkout submit enforces payment precision; sales line dialog and staff forms keep configured/exact precision; tax hooks keep exact-only edits.
