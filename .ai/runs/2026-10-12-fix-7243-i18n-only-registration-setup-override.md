@@ -23,13 +23,15 @@ A translation-only `registerModules()` call (dictionary loader stubs `{ id, tran
 
 ## Progress
 
+PR: #7245
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Fix and regression
 
-- [ ] 1.1 Add failing regression test for setup override + translation-only registration
-- [ ] 1.2 Classify translation-only registration before applying overrides
+- [x] 1.1 Add failing regression test for setup override + translation-only registration — 478eb76b6
+- [x] 1.2 Classify translation-only registration before applying overrides — 440341ae6
 
 ### Phase 2: Validation and PR
 
-- [ ] 2.1 Run validation gate and open PR
+- [x] 2.1 Run validation gate and open PR
