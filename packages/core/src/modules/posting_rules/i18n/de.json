@@ -91,6 +91,8 @@
   "posting_rules.settings.field.placeholder": "Keines",
   "posting_rules.settings.field.unallocatedCostAccount": "Konto für nicht zugeordnete Kosten",
   "posting_rules.settings.group.details": "Konten",
+  "posting_rules.settings.hint.noClass4Accounts": "Im Kontenplan gibt es kein Konto der Klasse 4. Legen Sie zuerst das Verrechnungskonto (490) als Konto eines Kontotyps der Gruppe 4 an.",
+  "posting_rules.settings.hint.noClass5Accounts": "Im Kontenplan gibt es kein Konto der Klasse 5. Der Standardkontenplan enthält nur wenige; legen Sie die Kostenkonten nach Funktionsbereichen an, die Ihr Unternehmen benötigt.",
   "posting_rules.settings.loading": "Einstellungen der Kontierungsregeln werden geladen…",
   "posting_rules.settings.page.title": "Einstellungen der Kontierungsregeln",
   "posting_rules.settings.success.save": "Einstellungen der Kontierungsregeln gespeichert"

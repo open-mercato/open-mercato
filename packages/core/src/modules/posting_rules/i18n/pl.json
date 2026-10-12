@@ -91,6 +91,8 @@
   "posting_rules.settings.field.placeholder": "Brak",
   "posting_rules.settings.field.unallocatedCostAccount": "Konto kosztów nieprzypisanych",
   "posting_rules.settings.group.details": "Konta",
+  "posting_rules.settings.hint.noClass4Accounts": "W planie kont nie ma żadnego konta zespołu 4. Najpierw załóż konto rozliczeniowe (490) jako konto typu z grupy 4.",
+  "posting_rules.settings.hint.noClass5Accounts": "W planie kont nie ma żadnego konta zespołu 5. Domyślny plan zawiera ich tylko kilka; dodaj konta kosztów według typów działalności potrzebne w Twojej firmie.",
   "posting_rules.settings.loading": "Wczytywanie ustawień reguł księgowania…",
   "posting_rules.settings.page.title": "Ustawienia reguł księgowania",
   "posting_rules.settings.success.save": "Ustawienia reguł księgowania zapisane"

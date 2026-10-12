@@ -8,6 +8,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { loadClass4AccountOptions, loadClass5AccountOptions } from '../../lib/optionLoaders'
 import { ClearingAccountBanner } from '../../../components/ClearingAccountBanner'
 
@@ -51,6 +52,21 @@ export default function PostingRulesSettingsPage() {
     load()
     return () => { cancelled = true }
   }, [t])
+
+  // Whether the chart of accounts has any account of class 4 (clearing
+  // account) and class 5 (reclassification targets). `null` while loading.
+  // The pickers fall back to the unfiltered list when the class cannot be
+  // resolved, so a count of 0 only appears when the class exists and is empty.
+  const [classCounts, setClassCounts] = React.useState<{ class4: number; class5: number } | null>(null)
+  React.useEffect(() => {
+    let cancelled = false
+    Promise.all([loadClass4AccountOptions(), loadClass5AccountOptions()])
+      .then(([class4, class5]) => {
+        if (!cancelled) setClassCounts({ class4: class4.length, class5: class5.length })
+      })
+      .catch(() => undefined)
+    return () => { cancelled = true }
+  }, [])
 
   const groups = React.useMemo<CrudFormGroup[]>(
     () => [
@@ -105,6 +121,26 @@ export default function PostingRulesSettingsPage() {
     <Page>
       <PageBody>
         <ClearingAccountBanner clearingAccountId={settings.clearingAccountId} />
+        {classCounts && classCounts.class4 === 0 ? (
+          <Alert variant="warning" className="mb-4">
+            <AlertDescription>
+              {t(
+                'posting_rules.settings.hint.noClass4Accounts',
+                'There is no account of class 4 in the chart of accounts. Create the clearing account (490) as an account of an account type in group 4 first.',
+              )}
+            </AlertDescription>
+          </Alert>
+        ) : null}
+        {classCounts && classCounts.class5 === 0 ? (
+          <Alert variant="warning" className="mb-4">
+            <AlertDescription>
+              {t(
+                'posting_rules.settings.hint.noClass5Accounts',
+                'There is no account of class 5 in the chart of accounts. The default chart ships only a few; add the cost-by-function accounts your business needs.',
+              )}
+            </AlertDescription>
+          </Alert>
+        ) : null}
         <CrudForm
           title={t('posting_rules.settings.page.title', 'Posting rules settings')}
           titleHeadingLevel={1}
