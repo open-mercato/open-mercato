@@ -76,7 +76,7 @@ storefront / POS / pay link / AI agent
         └────┬─────┘
              ├──► catalog       catalogPricingService — unit price for THIS buyer & quantity
              ├──► promotions    promotionsService.evaluate(cart) — resolved effects
-             ├──► availability  availabilityService.check() — advisory state + quantity rules
+             ├──► availability  resolveAvailability(query, { moduleConfig, container }) — advisory state
              ├──► sales         salesCalculationService.calculateDocumentTotals() — ALL arithmetic
              └──► customer_groups  resolveTerms() — tax mode, min order, approval threshold
 ```
@@ -838,6 +838,9 @@ Approval routing, bulk lines, admin cart list, abandonment events, **and the who
 ---
 
 ## 18) Changelog
+
+### 2026-10-11 (availability entry point)
+- **§3.1 points at the real availability entry point.** The availability contract replaced its `availabilityService` DI key with `resolveAvailability()` in `packages/shared` (§4.1a of [Availability Contract](./2026-08-14-availability-contract.md)) plus the `availability.reserve`/`.release`/`.commit` commands; no such DI key exists, so the `cart → availability` edge now reads `resolveAvailability(query, { moduleConfig, container })`. The `+ quantity rules` annotation is dropped from that edge: the shared result carries no min/max/increment, and how the cart obtains them is tracked with the §5.5 gap. Recorded from the post-merge review of #5384.
 
 ### 2026-09-30 (§8.2 ordering clarified)
 - **§8.2 states that the idempotency lookup runs before the §8.1 optimistic-lock check.** §8.1's "every mutating command starts with" the lock check read, literally, as the opposite order, under which a retried mutation that had already landed gets a `409` instead of its original result. One sentence, no contract change: cart is unimplemented. Requested by [Offline Field Mode](./2026-09-22-offline-field-mode.md) §3.3, whose chunked replay depends on it; the storefront's own double-tap retry (storefront-app §5.2) depends on it too.

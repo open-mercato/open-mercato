@@ -74,7 +74,7 @@ apps/storefront ──HTTP──► /api/ecommerce/storefront/*   (this spec)
                                     │
                                     ├─ translations: batch overlay helpers
                                     │
-                                    ├─ availability: availabilityService.check()
+                                    ├─ availability: resolveAvailability(query, { moduleConfig, container })
                                     │
                                     ├─ search: SearchModuleConfig (phase 2)
                                     │
@@ -670,7 +670,7 @@ Query counts are asserted in tests. A per-item query is a defect regardless of w
 - Unsupported locale falls back with both `requestedLocale` and `effectiveLocale` returned
 
 **Availability:**
-- State comes from `availabilityService`; a `wms`-less environment returns `not_tracked` throughout
+- State comes from `resolveAvailability()`; a `wms`-less environment returns `not_tracked` throughout
 - `availability=in_stock` filter excludes backorder; `available` includes it
 
 **Search:**
@@ -767,6 +767,9 @@ Phase 4 is independent of Phases 2 and 3 and can ship alongside either — it to
 - **§9 count-facet keys now carry the full key prefix and the price components.** The key had no `tenantId`, `storeId` or `effectiveLocale` component, so the unrestricted `assortmentScopeHash` of one tenant, store or locale collided with another's; and it had no price component even though §5.4 computes the counts against an active `priceMin`/`priceMax` filter, whose result depends on the buyer's resolved prices and `taxMode`. The key now always carries `tenantId`, `storeId` and `effectiveLocale` (supplied by `buildStorefrontCacheKey`'s `StoreContext`), and adds `priceScopeKey`, `customerOverlayId ?? '-'` and `taxMode` whenever a price filter is present, plus the channel id when an `availability` filter is active. The storefront handlers wrap their cache work in `runWithCacheTenant(ctx.tenantId)` themselves, because the shared dispatcher wraps only with the staff auth tenant, which is `null` on a public request (§9.1 records the price-filter and availability caveats to the facet split).
 - **§9 keys name the scope components they vary with rather than the whole `digest`.** `/categories` keys on `assortmentScopeHash` (it varies with assortment and locale only), while the price-bearing surfaces name `priceScopeKey`, `customerOverlayId` and `taxMode` explicitly; `relatedProducts` inherits the detail key. This is roadmap ADR-7's amended rule applied per row instead of only to the count-facet exception.
 - **§9's invalidation is owned by the `ecommerce` module, in the real CRUD tag format.** CRUD cache invalidation is off by default (`ENABLE_CRUD_API_CACHE=false`), so no module flushes the tags on its own; storefront entries are tagged with the `crud:catalog.product:tenant:{tenantId}:record:{id}` and `crud:catalog.category:...` record tags (`buildRecordTag`), and the `ecommerce` module ships subscribers that call `deleteByTags` for them directly, each inside `runWithCacheTenant(payload.tenantId)` because the cache service scopes tags to the current cache tenant and events do not set it — on `catalog.product.*`/`catalog.category.*` (from `payload.id`), on `catalog.price.*`/`catalog.variant.*` for the owning product (from `payload.productId`), and on the `customer_groups` events (SPEC-029 §8). Because the `catalog.price.*` and `catalog.variant.*` payloads carry no `productId`, §13 names the additive `productId` payload field `catalog` must ship as the real prerequisite; §12 gains the publish-then-read and price/variant-write tests, with the `catalog.category` half of the test moved to the Phase 2 gate.
+
+### 2026-10-11 — availability entry point
+- **§3.1 and §12 name the real availability read call.** The `availabilityService` DI key does not exist; the read contract is `resolveAvailability(query, { moduleConfig, container })` in `packages/shared` (§4.1a of [Availability Contract](./2026-08-14-availability-contract.md)). The reuse diagram and the availability acceptance bullet are updated to it. Recorded from the post-merge review of #5384.
 
 ### 2026-09-16 (b) — buyer-scoped read-path amendments
 - **§6.1 now requires `buildPriceRowFilter`** rather than a fetch by product id, and R13 records why: `selectBestPrice` is pure over whatever rows the caller fetched, and the only indexes on `catalog_product_variant_prices` are by product/variant, so a listing page under contract pricing loads every contracted customer's rows for every product on it. §10's ≤ 12-query budget does not catch this — the query count is unchanged — so §12 now asserts a row count, not only a query count.
