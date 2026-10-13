@@ -190,7 +190,7 @@ number convention below, and the explicit parent column returns with
 the account-balances rollup (#6013), the first consumer that aggregates
 over it. Multi-dimensional analytics (kontrahent, MPK, rachunek
 bankowy, środek trwały, waluta) are a separate mechanism
-(`journal_entry_line_dimension`, see Out of scope) and were never
+(`journal_entry_line_dimensions`, see Out of scope) and were never
 meant to be modelled by a parent column.
 
 **Account numbers follow the Polish chart (revised 2026-10-12).** The
@@ -239,7 +239,7 @@ counterparty's name, NIP, bank account and Biała Lista verification
 status at posting time, so a later correction to the contractor's
 current data never silently rewrites what a historical journal entry
 was posted against. This is a different mechanism from the future
-`journal_entry_line_dimension` table (see Out of scope) — a denormalized
+`journal_entry_line_dimensions` table (see Out of scope) — a denormalized
 audit snapshot, not a queryable reporting dimension — and exists to
 avoid an audit gap between Accounts Payable shipping and the
 posting-rules/dimension engine being built later. Precedent for the
@@ -1492,15 +1492,13 @@ deploy independently of any other module.
   (application tables, keyed by `vendorId`) as the subsidiary ledger,
   not a second GL-level mechanism. Confirms this prediction rather
   than changing it.
-- **Multi-dimensional posting tags (`journal_entry_line_dimension`).**
-  Contextual analytics — MPK/cost-centre, rachunek bankowy, środek
-  trwały, waluta — often apply more than one at a time to the same
-  line (e.g. a cost centre on the debit line and a bank account tag
-  on the credit line of one purchase), so they can't be modelled by
-  an account hierarchy alone without exploding the chart of
-  accounts into dead combinations. Needs a dedicated table
-  (`dimensionType`, `dimensionId`, FK to the line — many rows per
-  line) plus the posting-rule logic that uses it (e.g. reject a direct
+- **Multi-dimensional posting tags (`journal_entry_line_dimensions`).**
+  Contextual analytics — MPK/cost-centre first, and any later
+  dimension — apply independently of the account on the same line, so
+  they can't be modelled by an account hierarchy alone without
+  exploding the chart of accounts into dead combinations. Needs a
+  dedicated table (`dimensionType`, `dimensionId`, FK to the line —
+  many rows per line) plus the posting-rule logic that uses it (e.g. reject a direct
   post to an account that has children — only its analytic leaves are
   postable). **Corrected 2026-09-14:** an earlier draft of this bullet
   said this guard "ships together with the posting-rules/konto 490
@@ -1528,9 +1526,11 @@ deploy independently of any other module.
   counterparty from this table — it's handled entirely by
   `contractorSnapshot`, not a dimension row, for audit reasons (a
   snapshot at posting time, not a live reference). The list above and
-  the example are corrected accordingly; this table's actual dimension
-  types are cost centre/project, bank account, fixed asset, and
-  currency.
+  the example are corrected accordingly. **Correction (2026-10-13):**
+  Phase 1 of this table carries one dimension type, `CostCenter`, with a
+  `writer` column naming the owning consumer (`posting_rules` or
+  `fixed_assets`); bank account, fixed asset and currency were dropped
+  until a writer exists (currency duplicates `JournalEntry.currencyId`).
 - **Multi-currency FX revaluation and reporting.** Scoped narrowly:
   this is period-end revaluation of open foreign-currency balances to
   a current rate (wycena bilansowa), not the transactional exchange-
@@ -1920,7 +1920,7 @@ document.
   same empty-table-is-cheaper-than-later logic already used for
   `parentAccountTypeId`. The contextual, multi-dimensional tagging
   (kontrahent/MPK/rachunek bankowy/środek trwały/waluta) is a
-  different mechanism (`journal_entry_line_dimension`), added to Out
+  different mechanism (`journal_entry_line_dimensions`), added to Out
   of scope, and ships later together with the posting-rules/konto 490
   engine. Updated Design decisions, Architecture → Entities, Data
   Models, Implementation Plan, File Manifest, and Out of scope.
@@ -1954,7 +1954,7 @@ document.
   designing `.ai/specs/2026-09-06-contractor-registry.md` (new spec,
   identified as a missing dependency of Accounts Payable's "Kontrahent
   jest współdzieloną encją" decision). Avoids an audit gap between AP
-  shipping and the posting-rules/`journal_entry_line_dimension` engine
+  shipping and the posting-rules/`journal_entry_line_dimensions` engine
   being built later; the Out-of-scope bullet for that table now notes
   the two are distinct, complementary mechanisms. Updated Design
   decisions, Architecture → Entities, Data Models, Implementation
@@ -2121,7 +2121,7 @@ existed:
   realized as predicted, in `accounts_payable`
   (`liabilityAccountId` + `VendorInvoice.vendorId`).
 - "Multi-dimensional posting tags" bullet: this document originally
-  listed kontrahent as a candidate `journal_entry_line_dimension`
+  listed kontrahent as a candidate `journal_entry_line_dimensions`
   type. `2026-09-06-journal-entry-line-dimension.md`, once drafted,
   deliberately excluded the counterparty from that table (handled by
   `contractorSnapshot` instead). Corrected the list and the
