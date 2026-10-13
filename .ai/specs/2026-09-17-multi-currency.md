@@ -1132,9 +1132,10 @@ directly against `packages/core/src/modules/sales/data/entities.ts`
 (lines 374–377, 626, 1412), not only via secondhand spec references.
 Contractor Registry (`docs/contractor-registry`) checked directly —
 zero currency-relevant content beyond unrelated VIES ("VAT Information
-Exchange System"). Journal Entry Line Dimension confirmed "Currency"
-as one of its four open-string dimension types, not otherwise
-currency-logic-relevant. `accounts_payable`, `ledger`, and
+Exchange System"). Journal Entry Line Dimension (#5972) listed "Currency"
+as a dimension type when this was checked; since 2026-10-13 its Phase 1
+carries `CostCenter` only, because a currency tag would duplicate
+`JournalEntry.currencyId`. Nothing in this document relied on it. `accounts_payable`, `ledger`, and
 `fixed_assets` have no implemented code yet (checked — no
 `entities.ts` found under those module paths); their currency handling
 is verified against spec text only, consistent with project-wide
