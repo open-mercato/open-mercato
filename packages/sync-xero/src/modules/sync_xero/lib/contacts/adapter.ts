@@ -1,3 +1,4 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type {
   DataMapping,
   DataSyncAdapter,
@@ -8,6 +9,7 @@ import type {
 import type { IntegrationLogService } from '@open-mercato/core/modules/integrations/lib/log-service'
 import type { CredentialsService } from '@open-mercato/core/modules/integrations/lib/credentials-service'
 import type { IntegrationOAuthGrantService } from '@open-mercato/core/modules/integrations/lib/oauth/grant-service'
+import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { createXeroApiClient } from '../api-client'
@@ -15,8 +17,8 @@ import { XERO_CONTACTS_ENTITY_TYPE, XERO_INTEGRATION_ID, XERO_PROVIDER_KEY } fro
 import { advanceXeroCursor, completeXeroFullPass, parseXeroCursor, planXeroWalk, serializeXeroCursor } from '../cursor'
 import { createXeroDescriptor } from '../descriptor'
 import { resolveXeroEndpoints } from '../endpoints'
-import { formatContactExternalId } from '../external-ids'
-import { walkXeroContacts, type XeroContactRecord } from '../keyset'
+import { ensureXeroFieldDefinitions, resolveDefinitionsCache } from '../field-definitions'
+import { walkXeroContacts } from '../keyset'
 import { buildXeroGrantOwner } from '../owner'
 import {
   checkRunOrganisation,
@@ -27,6 +29,9 @@ import {
   type XeroQuietEndCode,
   type XeroRunOrigin,
 } from '../run-guard'
+import { buildXeroCommandContext, createXeroContactWriter } from './company-writer'
+import { createLazyXeroCompanyIndexes, loadXeroCompanyIndexSources } from './indexes'
+import { loadXeroRunIndex } from './preload'
 
 type RunService = { getRun(runId: string, scope: StreamImportInput['scope']): Promise<{ triggeredBy?: string | null } | null> }
 
@@ -43,11 +48,6 @@ function chunk<T>(values: T[], size: number): T[][] {
   return chunks
 }
 
-function toSkipItem(xeroOrganisationId: string, record: XeroContactRecord): ImportItem {
-  const externalId = formatContactExternalId(xeroOrganisationId, record.ContactID)
-  return { externalId, action: 'skip', data: { sourceIdentifier: externalId } }
-}
-
 function organisationOf(providerData: Record<string, unknown> | null, expected: string | null, origin: XeroRunOrigin): string {
   const check = checkRunOrganisation(providerData, { expected, origin })
   if (check.kind === 'ok') return check.xeroOrganisationId
@@ -56,8 +56,9 @@ function organisationOf(providerData: Record<string, unknown> | null, expected: 
 }
 
 /**
- * The `xero.contacts` run: an explicit first token call names the Organisation, the cursor of that
- * Organisation chooses an incremental walk or a full pass, and every Contact of the keyset walk is
+ * The `xero.contacts` run: the Company field definitions are ensured, an explicit first token call
+ * names the Organisation, the cursor of that Organisation chooses an incremental walk or a full
+ * pass, and every Contact of the keyset walk is written as a Company (`company-writer.ts`) and
  * reported in batches of `batchSize`, each batch carrying the keyset of its last Contact. A drained
  * full pass commits `lastFullAt`. Grant failures end the run quietly or fail it with a `xero.*`
  * message (the grant-state table of the feature spec); a missing grant before an item stops it
@@ -82,10 +83,24 @@ export async function* streamXeroContacts(input: StreamImportInput): AsyncGenera
       budget: 'run',
       signal: input.signal,
     })
+    const em = container.resolve<EntityManager>('em')
+    await ensureXeroFieldDefinitions({ em: em.fork(), cache: resolveDefinitionsCache(container), scope: input.scope })
     const grantPresent = createGrantPresenceCheck(grantService, input.scope)
 
     const xeroOrganisationId = organisationOf((await client.getToken()).providerData, null, origin)
     const plan = planXeroWalk({ cursor: parseXeroCursor(input.cursor, xeroOrganisationId), xeroOrganisationId, fullSync: false })
+    const runIndex = await loadXeroRunIndex(em.fork(), input.scope)
+    const writer = createXeroContactWriter({
+      em,
+      scope: input.scope,
+      xeroOrganisationId,
+      runId: input.runId,
+      commandBus: container.resolve<CommandBus>('commandBus'),
+      commandContext: buildXeroCommandContext(container, input.scope),
+      logService,
+      runIndex,
+      indexes: createLazyXeroCompanyIndexes(() => loadXeroCompanyIndexSources(em.fork(), input.scope), runIndex.isMapped),
+    })
     let cursor = plan.cursor
     let passStartedAt = plan.kind === 'full' && plan.cursor.fullPassStartedAt ? new Date(plan.cursor.fullPassStartedAt) : null
     let calls = 0
@@ -95,6 +110,7 @@ export async function* streamXeroContacts(input: StreamImportInput): AsyncGenera
       calls += 1
       organisationOf(page.providerData, xeroOrganisationId, origin)
       if (plan.kind === 'full' && !passStartedAt) passStartedAt = page.date ?? new Date()
+      await writer.preparePage(page.records.map(({ record }) => record))
       const batches = chunk(page.records, batchSize)
       for (let index = 0; index < batches.length; index += 1) {
         const records = batches[index]
@@ -102,7 +118,7 @@ export async function* streamXeroContacts(input: StreamImportInput): AsyncGenera
         for (const { record } of records) {
           if (input.signal?.aborted) return
           if (!(await grantPresent())) throw new XeroQuietEnd('xero.run_stopped_not_connected')
-          items.push(toSkipItem(xeroOrganisationId, record))
+          items.push(await writer.write(record))
         }
         if (input.signal?.aborted) return
         const final = page.drained && index === batches.length - 1
