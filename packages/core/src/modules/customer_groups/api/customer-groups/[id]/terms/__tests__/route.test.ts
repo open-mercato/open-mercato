@@ -300,6 +300,40 @@ describe('PUT /api/customer-groups/[id]/terms', () => {
     expect(em.flush).toHaveBeenCalled()
   })
 
+  it('409s a first-save lock token when another editor already created the row (#7078)', async () => {
+    const em = createFakeEm({ group: existingGroup, terms: { ...existingTerms } })
+    setupContainer(em)
+
+    const res = await PUT(
+      jsonRequest(
+        { paymentTermsDays: 42 },
+        { [OPTIMISTIC_LOCK_HEADER_NAME]: '1970-01-01T00:00:00.000Z' },
+      ),
+      routeCtx(),
+    )
+
+    expect(res.status).toBe(409)
+    const body = await res.json()
+    expect(body.code).toBe('optimistic_lock_conflict')
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('creates the row when a first-save lock token finds no row yet', async () => {
+    const em = createFakeEm({ group: existingGroup, terms: null })
+    setupContainer(em)
+
+    const res = await PUT(
+      jsonRequest(
+        { paymentTermsDays: 41 },
+        { [OPTIMISTIC_LOCK_HEADER_NAME]: '1970-01-01T00:00:00.000Z' },
+      ),
+      routeCtx(),
+    )
+
+    expect(res.status).toBe(200)
+    expect(em.flush).toHaveBeenCalled()
+  })
+
   it('returns the guard response when a mutation guard blocks the write', async () => {
     setupContainer(createFakeEm({ group: existingGroup, terms: null }))
     const blockedResponse = Response.json({ error: 'blocked' }, { status: 422 })

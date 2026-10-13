@@ -2,57 +2,54 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render } from '@testing-library/react'
-import { PricePriceKindSelect, PriceChannelSelect } from '../PriceScopeSelectors'
+import { render, screen, waitFor } from '@testing-library/react'
+import { PricePriceKindSelect } from '../PriceScopeSelectors'
 
-type ComboboxProps = { resolveLabel?: (id: string) => Promise<string> }
-
-const capturedProps: ComboboxProps[] = []
-jest.mock('@open-mercato/ui/backend/inputs/ComboboxInput', () => ({
-  ComboboxInput: (props: ComboboxProps) => {
-    capturedProps.push(props)
-    return null
-  },
-}))
-
-const mockReadApiResult = jest.fn<Promise<{ items: Array<Record<string, unknown>> }>, [string]>()
+const mockReadApiResultOrThrow = jest.fn()
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
-  readApiResultOrThrow: (url: string) => mockReadApiResult(url),
+  readApiResultOrThrow: (...args: unknown[]) => mockReadApiResultOrThrow(...args),
 }))
-
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
-  useT: () => (_key: string, fallback?: string) => fallback ?? _key,
+  useT: () => (key: string, fallback?: string) => fallback ?? key,
 }))
 
-const SALE = { id: '04fa3298-18b3-472a-a1ce-140a6667c10d', title: 'Sale', code: 'sale' }
-const REGULAR = { id: '69725a8d-576e-4fc4-ac7f-30cce9f39bb7', title: 'Regular', code: 'regular' }
+const SALE_ID = '11111111-1111-4111-8111-111111111111'
+const REGULAR_ID = '22222222-2222-4222-8222-222222222222'
 
-function latestResolveLabel(): (id: string) => Promise<string> {
-  const resolver = capturedProps[capturedProps.length - 1]?.resolveLabel
-  if (!resolver) throw new Error('[internal] resolveLabel was not passed to ComboboxInput')
-  return resolver
+const priceKinds = [
+  { id: SALE_ID, title: 'Sale', code: 'sale' },
+  { id: REGULAR_ID, title: 'Regular', code: 'regular' },
+]
+
+function respondLikePriceKindsApi(url: string) {
+  const params = new URL(url, 'http://localhost').searchParams
+  const ids = params.get('ids')
+  const items = ids ? priceKinds.filter((kind) => ids.split(',').includes(kind.id)) : priceKinds
+  return Promise.resolve({ items })
 }
 
-describe('PriceScopeSelectors label resolution', () => {
+describe('PricePriceKindSelect', () => {
   beforeEach(() => {
-    capturedProps.length = 0
-    mockReadApiResult.mockReset()
+    mockReadApiResultOrThrow.mockReset()
   })
 
-  it('resolves a saved price kind through the ids filter the price-kinds route honors', async () => {
-    mockReadApiResult.mockImplementation(async (url: string) =>
-      url.includes(`ids=${REGULAR.id}`) ? { items: [REGULAR] } : { items: [SALE, REGULAR] },
-    )
-    render(<PricePriceKindSelect value={REGULAR.id} onChange={() => undefined} />)
+  it('shows the label of the stored price kind, not the first kind returned by the API (#7059)', async () => {
+    mockReadApiResultOrThrow.mockImplementation(respondLikePriceKindsApi)
 
-    await expect(latestResolveLabel()(REGULAR.id)).resolves.toBe('Regular (regular)')
-    expect(mockReadApiResult.mock.calls[0][0]).toContain(`ids=${REGULAR.id}`)
+    render(<PricePriceKindSelect value={REGULAR_ID} onChange={() => {}} />)
+
+    await waitFor(() => expect(screen.getByDisplayValue('Regular (regular)')).toBeInTheDocument())
+    expect(screen.queryByDisplayValue('Sale (sale)')).not.toBeInTheDocument()
+    const requestedUrl = String(mockReadApiResultOrThrow.mock.calls[0][0])
+    expect(requestedUrl).toContain(`ids=${REGULAR_ID}`)
   })
 
-  it('never labels a value with a different record when the lookup ignores the id filter', async () => {
-    mockReadApiResult.mockResolvedValue({ items: [{ id: 'other-channel', name: 'Other channel', code: 'other' }] })
-    render(<PriceChannelSelect value="wanted-channel" onChange={() => undefined} />)
+  it('never labels the stored kind with an unrelated item when the lookup ignores the id', async () => {
+    mockReadApiResultOrThrow.mockResolvedValue({ items: priceKinds })
 
-    await expect(latestResolveLabel()('wanted-channel')).resolves.toBe('wanted-channel')
+    render(<PricePriceKindSelect value={REGULAR_ID} onChange={() => {}} />)
+
+    await waitFor(() => expect(screen.getByDisplayValue('Regular (regular)')).toBeInTheDocument())
+    expect(screen.queryByDisplayValue('Sale (sale)')).not.toBeInTheDocument()
   })
 })

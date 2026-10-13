@@ -705,6 +705,9 @@ Approver/account manager reviews over-threshold purchase requests.
 
 ## 18) Changelog
 
+### 2026-10-08 (terms price kind picker, #7077)
+- §10: new read-only `GET /api/customer_groups/customer-groups/price-kinds` (`customer_groups.terms.view`) lists the tenant's catalog price kinds as `{ id, code, title }` (`search`, `ids`, `pageSize` ≤ 100; empty when `catalog` is absent). The terms price kind picker and the explain-terms panel read it instead of `/api/catalog/price-kinds`, which requires `catalog.settings.manage` — without that feature the picker was empty and its 403 flash replaced the "terms saved" message.
+
 ### 2026-10-05 (storefront release decisions)
 - §6 / new §6.0: service inputs show the shipped `tenantId`, and gain an additive `customerIds: string[]` (person first, then company) for `resolveGroups`, `resolveTerms` and `resolveAssortmentScope`. Groups are the union of every id's memberships, ordered by priority, then person before company, then newest. This applies owner decision D3/D3a; the suite-wide shape is in roadmap ADR-7 and SPEC-029 v4.6. Recorded that shipped `ResolvedTerms` uses a per-field `sources` map instead of a single `sourceGroupId`.
 - §5.3: recorded that #6709 did not ship `assortment_scope`, that `resolveAssortmentScope()` is a stub returning `null` (its "Phase 5 scope" comment is wrong), and that the column ships with the storefront release (D13).

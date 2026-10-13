@@ -2,9 +2,13 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
-import { CustomerGroupTermsSection, type CustomerGroupTermsDTO } from '../CustomerGroupTermsSection'
+import {
+  CustomerGroupTermsSection,
+  TERMS_NOT_YET_CREATED_LOCK_TOKEN,
+  type CustomerGroupTermsDTO,
+} from '../CustomerGroupTermsSection'
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   ...jest.requireActual('@open-mercato/shared/lib/i18n/context'),
@@ -16,6 +20,7 @@ type MockCrudFormProps = {
   readOnly?: boolean
   readOnlyOverlay?: React.ReactNode
   submitLabel?: string
+  optimisticLockUpdatedAt?: string | null
   initialValues?: Record<string, unknown>
   onSubmit?: (values: Record<string, unknown>) => Promise<void>
 }
@@ -26,7 +31,11 @@ jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
   CrudForm: (props: MockCrudFormProps) => {
     lastFormProps = props
     return (
-      <div data-testid="terms-form" data-read-only={String(props.readOnly === true)}>
+      <div
+        data-testid="terms-form"
+        data-read-only={String(props.readOnly === true)}
+        data-lock-token={props.optimisticLockUpdatedAt ?? ''}
+      >
         {props.readOnly ? props.readOnlyOverlay : <span>{props.submitLabel}</span>}
       </div>
     )
@@ -154,5 +163,20 @@ describe('CustomerGroupTermsSection assortment scope', () => {
     renderSection(storedTerms, true)
     const payload = await submit({ ...emptyPickers, categoryIds: ['cat-1'], excludeTagIds: ['tag-2'] })
     expect(payload.assortmentScope).toEqual({ categoryIds: ['cat-1'], excludeTagIds: ['tag-2'] })
+  })
+})
+
+describe('CustomerGroupTermsSection optimistic locking', () => {
+  it('sends a lock token on the first save so a concurrent first save cannot be overwritten', () => {
+    renderSection(null, true)
+    fireEvent.click(screen.getByRole('button', { name: 'Set terms for this group' }))
+    const token = screen.getByTestId('terms-form').getAttribute('data-lock-token')
+    expect(token).toBe(TERMS_NOT_YET_CREATED_LOCK_TOKEN)
+    expect(token).toBe('1970-01-01T00:00:00.000Z')
+  })
+
+  it('sends the stored row version once terms exist', () => {
+    renderSection(storedTerms, true)
+    expect(screen.getByTestId('terms-form').getAttribute('data-lock-token')).toBe(storedTerms.updatedAt)
   })
 })
