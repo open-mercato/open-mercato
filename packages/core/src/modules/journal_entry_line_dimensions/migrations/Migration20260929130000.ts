@@ -8,9 +8,11 @@ export class Migration20260929130000 extends Migration {
     // AGENTS.md's "no direct ORM relationships between modules" rule
     // (precedent: `journal_entry_lines.account_id`, itself a plain FK-id to
     // `ledger_accounts` with no relation). `dimension_id` is `text`, not
-    // `uuid`: the one advertised dimension type with a real, shipped target
-    // entity ('Currency') is identified by ISO code, not a uuid.
-    this.addSql(`create table "journal_entry_line_dimensions" ("id" uuid not null default gen_random_uuid(), "journal_entry_line_id" uuid not null, "dimension_type" text not null, "dimension_id" text not null, "tenant_id" uuid not null, "organization_id" uuid not null, "created_at" timestamptz not null, constraint "journal_entry_line_dimensions_pkey" primary key ("id"));`);
+    // `uuid`: an opaque reference, so a later dimension type with a non-uuid
+    // identifier needs no migration. `writer` is the module id that owns the
+    // `(line, dimension_type)` pair ('posting_rules' | 'fixed_assets',
+    // validated by `DIMENSION_WRITERS` at the command boundary, not a DB enum).
+    this.addSql(`create table "journal_entry_line_dimensions" ("id" uuid not null default gen_random_uuid(), "journal_entry_line_id" uuid not null, "dimension_type" text not null, "dimension_id" text not null, "writer" text not null, "tenant_id" uuid not null, "organization_id" uuid not null, "created_at" timestamptz not null, constraint "journal_entry_line_dimensions_pkey" primary key ("id"));`);
 
     // The only query shape this module serves today: `setJournalEntryLineDimension`
     // deletes by this pair, and every consumer read filters by this same pair
