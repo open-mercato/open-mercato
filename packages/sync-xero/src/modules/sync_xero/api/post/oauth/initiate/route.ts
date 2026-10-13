@@ -91,7 +91,7 @@ export const openApi: OpenApiRouteDoc = {
       requestBody: { schema: initiateBodySchema },
       responses: [{ status: 200, description: 'The Xero authorization URL', schema: z.object({ authorizeUrl: z.string() }) }],
       errors: [
-        ...xeroRuleOneErrors,
+        ...xeroRuleOneErrors(),
         {
           status: 409,
           description: 'xero.not_configured (no Client ID and Secret), oauth_base_url_not_configured or connect_origin_rejected',

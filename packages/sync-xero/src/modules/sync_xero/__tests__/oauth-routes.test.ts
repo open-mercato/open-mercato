@@ -364,7 +364,7 @@ describe('GET /api/sync_xero/oauth/callback', () => {
   })
 
   it('reports a guard block without exchanging the code', async () => {
-    registerGuard(async () => ({ ok: false, errorStatus: 423, errorBody: { error: 'Locked' } }))
+    registerGuard(async () => ({ ok: false, status: 423, body: { error: 'Locked' } }))
     const started = await startConnect()
     expect(resultOf(await finishConnect(started))).toBe('guard_blocked')
     expect(authorizationServer.counters().token.authorizationCode).toBe(0)
@@ -457,7 +457,7 @@ describe('GET /api/sync_xero/oauth/callback — automatic Organisation selection
   it('leaves the Account pending when a guard blocks the selection', async () => {
     registerGuard(async (input) =>
       input.mutationPayload && 'providerData' in input.mutationPayload
-        ? { ok: false, errorStatus: 423, errorBody: { error: 'Locked' } }
+        ? { ok: false, status: 423, body: { error: 'Locked' } }
         : { ok: true },
     )
     expect(resultOf(await finishConnect(await startConnect()))).toBe('account_pending')
