@@ -42,7 +42,15 @@ export type XeroApiClient = {
   readonly endpoints: Pick<XeroEndpoints, 'connections' | 'accounting'>
   getToken(): Promise<OAuthAccessToken>
   listConnections(input?: { authEventId?: string | null }): Promise<XeroApiResponse<XeroConnection[]>>
+  listContacts(input: XeroListContactsInput): Promise<XeroApiResponse<unknown>>
   request(input: XeroRequest): Promise<XeroApiResponse<unknown>>
+}
+
+export type XeroListContactsInput = {
+  xeroOrganisationId: string
+  ifModifiedSince: Date | null
+  page: number
+  pageSize: number
 }
 
 const RUN_TIMEOUT_MS = 30_000
@@ -263,6 +271,18 @@ export function createXeroApiClient(options: XeroApiClientOptions): XeroApiClien
       const response = await execute({ url: url.toString() })
       return { ...response, body: parseXeroConnections(response.body) }
     },
-    request: execute,
+    listContacts(input) {
+      const url = new URL(`${options.endpoints.accounting}/Contacts`)
+      url.searchParams.set('page', String(input.page))
+      url.searchParams.set('pageSize', String(input.pageSize))
+      url.searchParams.set('includeArchived', 'true')
+      return execute({ url: url.toString(), xeroTenantId: input.xeroOrganisationId, ifModifiedSince: input.ifModifiedSince })
+    },
+    async request(input) {
+      const isXeroUrl = input.url === options.endpoints.connections || input.url.startsWith(`${options.endpoints.connections}?`)
+        || input.url.startsWith(`${options.endpoints.accounting}/`)
+      if (!isXeroUrl) throw new TypeError('[internal] The Xero API client only calls the configured Xero endpoints')
+      return execute(input)
+    },
   }
 }

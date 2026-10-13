@@ -355,6 +355,12 @@ describe('Xero API client — other failures', () => {
     expect(accountingRequests(harness)).toHaveLength(1)
   })
 
+  it('refuses to send the bearer token to a URL outside the configured Xero endpoints', async () => {
+    const harness = await setup(() => ({ status: 200, body: [] }))
+    await expect(harness.client.request({ url: 'https://example.com/api.xro/2.0/Contacts' })).rejects.toThrow(TypeError)
+    expect(harness.server.requests).toHaveLength(0)
+  })
+
   it('does not follow redirects', async () => {
     const harness = await setup(() => ({ status: 302, headers: { location: 'https://example.com/elsewhere' } }))
     await expectXeroError(harness.client.request({ url: harness.contactsUrl, xeroTenantId: XERO_TENANT }), 'request_rejected', 302)
