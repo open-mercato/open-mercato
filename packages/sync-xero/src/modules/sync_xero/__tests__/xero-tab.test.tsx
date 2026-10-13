@@ -69,6 +69,7 @@ function connectionView(overrides: Partial<XeroConnectionView> = {}, grant: Part
     baseUrlMissing: false,
     configured: true,
     canManage: true,
+    seamActive: false,
     ...overrides,
     grant: {
       status: 'active',

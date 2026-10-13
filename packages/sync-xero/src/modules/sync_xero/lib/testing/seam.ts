@@ -1,6 +1,8 @@
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import type { FakeAuthorizationServer } from '@open-mercato/core/modules/integrations/lib/oauth/testing/fakeAuthorizationServer'
-import type { XeroEndpoints } from '../constants'
+import type { CredentialsService } from '@open-mercato/core/modules/integrations/lib/credentials-service'
+import { XERO_INTEGRATION_ID, type XeroEndpoints } from '../constants'
+import type { XeroScope } from '../owner'
 import type { FakeXeroApi } from './fakeXeroApi'
 
 export const XERO_SEAM_CLIENT_ID_PREFIX = 'om_test_seam_'
@@ -36,4 +38,10 @@ export function seamEndpoints(fakes: XeroSeamFakes): XeroEndpoints {
     connections: fakes.xeroApi.endpoints.connections,
     accounting: fakes.xeroApi.endpoints.accounting,
   }
+}
+
+export async function isSeamOrganization(scope: XeroScope, credentialsService: Pick<CredentialsService, 'getRaw'>): Promise<boolean> {
+  if (!isXeroSeamEnabled()) return false
+  if (seamRegistry().has(scope.organizationId)) return true
+  return isSeamClientId((await credentialsService.getRaw(XERO_INTEGRATION_ID, scope))?.clientId)
 }
