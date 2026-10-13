@@ -94,23 +94,55 @@ same "contractor" concept.
 
 ### Legal context — why contractor verification is a requirement at all
 
-**VAT Act, Art. 96b** — the Head of the National Revenue
-Administration maintains a public, electronic register of VAT
-taxpayers (the so-called Biała Lista / VAT whitelist), which includes
-bank account numbers reported by the taxpayer to the tax office.
-Paying into an account outside this register, for transactions above
-the PLN 15,000 threshold, exposes the payer (not just the invoice
-issuer) to joint-and-several liability for the contractor's VAT
-arrears — i.e. the paying company can be held liable for someone
-else's tax debt if it doesn't check the account before the transfer.
-Protection from this liability requires verification on the day the
-transfer is ordered — checking once, at contractor registration, is
-not enough.
+**VAT Act, Art. 96b, and the tax-cost rule in CIT Art. 15d / PIT Art. 22p**
+(checked 2026-10-12 against the consolidated texts: VAT Dz. U. z 2025 r.
+poz. 775 as amended through 2026 poz. 846; CIT Dz. U. z 2026 r. poz. 554 and
+later; PIT Dz. U. z 2026 r. poz. 592 and later). Art. 96b VAT Act is the
+register itself: the Head of the National Revenue Administration keeps an
+electronic list (wykaz) of entities registered, or refused/struck off, as VAT
+taxpayers (the so-called Biała Lista / VAT whitelist). It contains the
+settlement-account numbers of the entity (ust. 3 pkt 13), can be queried for a
+chosen day (ust. 2) and is updated once per business day (ust. 8). Art. 96b
+does not itself oblige anyone to check the list and contains no liability rule.
 
-**Consequence for the project:** bank account verification against the
-Biała Lista must repeat at every payment, not just once at
-registration — this is not an open design question, it's a hard legal
-requirement.
+The consequence that makes the check matter is in income-tax law: art. 15d
+ust. 1 pkt 2 CIT and art. 22p ust. 1 pkt 2 PIT exclude the cost from tax-deductible
+costs when the payment for a supply confirmed by an invoice from an active VAT
+taxpayer (a transaction within art. 19 Prawo przedsiębiorców) is made to an
+account other than the one in the wykaz "na dzień zlecenia przelewu" (on the
+day the transfer is ordered). There are exceptions, notably a notification to
+the tax office within 7 days of ordering the transfer (art. 15d ust. 4 CIT /
+art. 22p ust. 4 PIT, referring to art. 117ba § 3 pkt 2 Ordynacji podatkowej),
+payments to certain bank accounts, and payments made by split payment. So
+paying to an account outside the list is not prohibited; the paying company
+loses the cost deduction unless an exception applies.
+
+**Joint liability and the PLN 15,000 amount (checked 2026-10-12, Ordynacja
+podatkowa Dz. U. z 2026 r. poz. 622, state of 21 April 2026; Prawo
+przedsiębiorców t.j. Dz. U. z 2025 r. poz. 1480 and later amendments).** Art.
+117ba § 1–2 Ordynacji podatkowej makes the payer (a VAT taxpayer under art. 15)
+liable jointly, with its whole property, with the supplier (an active VAT
+taxpayer) for the supplier's VAT arrears proportional to that supply, when the
+invoice-confirmed payment was made by transfer to an account other than the one
+in the wykaz "na dzień zlecenia przelewu". Art. 117ba § 3 lists the cases where
+this does not apply: a transaction other than one under art. 19 Prawo
+przedsiębiorców (§ 3 pkt 1), a notification to the tax office within 7 days of
+ordering the transfer, made at the first payment to that account (pkt 2),
+payments to certain bank accounts (pkt 3), split payment (pkt 4), and
+intra-Community acquisition, import and reverse-charge invoices (pkt 5). Art.
+19 Prawo przedsiębiorców applies to transactions with another entrepreneur whose
+one-off value exceeds PLN 15,000 (or the equivalent, foreign-currency
+transactions converted at the NBP average rate of the last working day before
+the transaction day).
+
+**Consequence for the project:** bank account verification against the Biała
+Lista must be done as of the day the transfer is ordered, at every payment, not
+once at registration. This is a design requirement that follows from the
+tax-cost rule and the joint liability above (a payment outside the list is
+allowed but costly), not a legal prohibition on paying. Checking on the day is
+not the only way out the law provides (the 7-day notification and split payment
+also remove the liability), but it is the one this module can enforce
+automatically; the 7-day notification and split payment are not modelled here.
 
 **GUS (Polish Central Statistical Office)** — the REGON register, used
 to verify that a given NIP (tax ID) corresponds to an existing,
@@ -186,11 +218,13 @@ purely informational — e.g. a "last checked: 3 days ago" badge on the
 contractor list, before anyone attempts to pay; (B) an optimization —
 skipping the live check at payment time if the cache is "fresh".
 **Chosen: (A) only.** (B) would directly violate the requirement in
-Art. 96b of the VAT Act ("on the day of transfer", not "within the
+art. 15d ust. 1 pkt 2 CIT / art. 22p ust. 1 pkt 2 PIT ("na dzień
+zlecenia przelewu", i.e. the day the transfer is ordered, not "within the
 last N days") — an account could have disappeared from the Biała
 Lista this morning, and yesterday's cache wouldn't catch that,
-restoring exactly the joint-liability risk this whole feature exists
-to eliminate. `checkBankAccountWhitelist` (see Commands) **always**
+restoring exactly the risk (loss of the cost deduction, and the payer's
+liability under art. 117ba Ordynacji podatkowej) this whole
+feature exists to eliminate. `checkBankAccountWhitelist` (see Commands) **always**
 performs a live call to the Biała Lista API, regardless of the cache
 value; the cache is updated as a side effect of every live check,
 never as its substitute.
@@ -218,7 +252,8 @@ snapshotting.
 
 **Bank account verification against the Biała Lista: at account
 registration + mandatory, live, on every payment.** A direct
-consequence of Art. 96b of the VAT Act.
+consequence of art. 15d CIT / art. 22p PIT (the register itself is Art. 96b
+of the VAT Act).
 
 **Resolved (2026-09-08): a light, one-step new-vendor approval gate
 is confirmed in scope for Phase 1.** This started as an unconfirmed
@@ -464,7 +499,7 @@ registration frees its NIP for re-registration.
 | Separate `Vendor`/`Customer` entities instead of one `Contractor` with flags | Would duplicate GUS/VIES/account data for an entity that is simultaneously a vendor and a customer of the same company |
 | Contractor snapshot based on the future `journal_entry_line_dimensions` instead of a field on `JournalEntryLine` | Would create a transitional audit gap — AP invoices posted before the Posting Rules Engine even exists would have no protection at all for contractor history |
 | Bank account as a single field/JSON array on `Contractor` | Violates the project's rule against unbounded arrays/nested JSON; doesn't reflect the reality of multiple registered accounts per NIP |
-| `lastVerifiedAt`/`lastVerificationStatus` as a shortcut skipping the live check when the cache is "fresh" | Directly violates Art. 96b of the VAT Act ("on the day of transfer"); restores the joint-liability risk this module exists to eliminate |
+| `lastVerifiedAt`/`lastVerificationStatus` as a shortcut skipping the live check when the cache is "fresh" | Directly violates the "na dzień zlecenia przelewu" rule (art. 15d CIT / art. 22p PIT); restores the cost-deduction and liability risk this module exists to eliminate |
 | Sharing a contractor across a tenant's organizations | No precedent in the code and no confirmed business requirement — YAGNI |
 
 ## User Stories
@@ -603,9 +638,10 @@ Optima/XL, enova365.**
   per business day, so a "live" call at transfer time is, in practice,
   only as fresh as that day's publication regardless of how it's
   implemented — worth a one-line awareness note, not a design change,
-  since Art. 96b's requirement ("on the day of transfer") is about
-  *when you check*, not the source's own refresh cadence, and this
-  document already gets that distinction right.
+  since the requirement ("na dzień zlecenia przelewu", art. 15d CIT /
+  art. 22p PIT) is about *when you check*, not the source's own refresh
+  cadence (the once-per-business-day refresh is itself stated in art. 96b
+  ust. 8 VAT Act), and this document already gets that distinction right.
 - **No four-eyes/approval-gate precedent found** in either Optima's or
   enova365's public documentation for vendor/kontrahent registration —
   the one-step `contractors.vendor-approval` gate this document adds is
@@ -725,6 +761,59 @@ a consumer into an HTTP round-trip to its own app for a same-request
 need (see Queries / API and Cross-module integration below for the
 resolved design; this was corrected during independent compliance
 review — see Changelog).
+
+**Added 2026-10-08 — `contractorLookupByNip`, a second DI-resolvable,
+read-only service.** Registered in `di.ts` next to
+`contractorBankWhitelistCheck`, for the same reason (a synchronous,
+in-process, same-request need that must not become an HTTP round-trip
+to the app itself). Signature:
+
+```ts
+contractorLookupByNip(params: {
+  tenantId: string
+  organizationId: string
+  nip: string
+}): Promise<{
+  id: string
+  isVendor: boolean
+  isCustomer: boolean
+  approvalStatus: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED'
+  verificationStatus: 'PENDING' | 'VERIFIED' | 'FAILED'
+} | null>
+```
+
+- **Lookup key is `nipHash`**, scoped to `(tenant, organization)` and
+  `deleted_at is null` — the same partial unique index
+  `createContractor`'s duplicate detection already uses, so at most one
+  row can match.
+- **Returns no PII.** Never `nip`, name, address, contact or bank data;
+  those stay behind `findWithDecryption` in this module's own routes. A
+  consumer that needs the contractor's name or tax id for its own
+  snapshot reads them through this module's authorized API, not through
+  this service.
+- **Read-only.** It never writes, never calls GUS/VIES/Biała Lista and
+  never reads `lastVerifiedAt` as a source of truth (same rule as
+  `checkBankAccountWhitelist`).
+- **Unguarded by design,** like `contractorBankWhitelistCheck`: the
+  caller owns authorization for its own request.
+- **NIP normalization (decided 2026-10-08).** One shared function,
+  `normalizeNip(raw)`, used by `createContractor`, `updateContractor`
+  (which rejects a change anyway) and this lookup, so `"PL 123-456-78-90"`
+  and `"1234567890"` resolve to the same `nipHash`. It strips spaces,
+  dashes and a leading `PL` (case-insensitive) and accepts the result only
+  if it is ten digits with a valid checksum (weights 6, 5, 7, 2, 3, 4, 5,
+  6, 7; the weighted sum modulo 11 must equal the tenth digit; a remainder
+  of 10 is invalid). `contractorLookupByNip` returns `null`, without an
+  error, for input that does not normalize (a malformed or non-Polish tax
+  id): Phase 1 matches Polish NIPs only, and the caller decides what to do
+  with a supplier it cannot match. This note does not change what
+  `createContractor` already accepts or rejects; it only fixes the form
+  that is hashed.
+- **Not found returns `null`.** The caller decides what to do next; if
+  it wants the contractor to exist it calls `createContractor` (through
+  the command bus), which starts `PENDING_APPROVAL` and triggers the
+  `contractors.vendor-approval` workflow exactly as a manual registration
+  does.
 
 ### Commands (Command Pattern, `commands/`)
 
@@ -890,6 +979,12 @@ triggers on `sales.order.created`.
   (confirmed in scope, 2026-09-08) completes through the generic
   `POST /api/workflows/tasks/:id/complete`.
 
+- **No `nip` filter on `GET /api/contractors` (decided 2026-10-08).**
+  `nip` is encrypted and only `nipHash` is queryable; a REST filter would
+  add a second lookup path without a consumer that needs it. Lookup by
+  NIP for other modules goes through `contractorLookupByNip` (see DI
+  Registrar). Revisit only if this module's own list UI needs it.
+
 ### Cross-module integration
 
 **Corrected 2026-09-08**: the consumer named below is
@@ -926,6 +1021,16 @@ This module never imports or resolves anything belonging to
 (`accounts_payable_payments` → `contractors`), matching
 `packages/core/AGENTS.md`'s "upstream module MUST NOT import, resolve,
 or hard-require the consumer."
+
+**Added 2026-10-08 — second consumer shape: lookup by NIP.** Any module
+that imports supplier documents (for example a country plugin turning an
+e-invoice into an `accounts_payable` draft) resolves
+`contractorLookupByNip` through its own `tryResolve` wrapper and treats
+`undefined` (module absent) as "cannot match": it hides or disables the
+matching step instead of failing. A `null` result is a normal answer,
+not an error. This module never imports or resolves anything belonging
+to such a consumer; the dependency direction stays one-way
+(consumer → `contractors`).
 
 ### Backend Pages (`backend/contractors/`)
 
@@ -1129,7 +1234,7 @@ exactly as `sales.order-approval` and
 | `data/entities.ts` | Create | `Contractor`, `ContractorBankAccount` |
 | `migrations/MigrationXXXXXXXXXXXXXX.ts` | Create | Tables for both entities above, plus the partial indexes `contractor_bank_account_one_primary_uq` and the `nip_hash` uniqueness index scoped `where deleted_at is null` (see Design decisions) |
 | `encryption.ts` | Create | `defaultEncryptionMaps` for `contractors:contractor` (incl. `nip` → `nip_hash`) and `contractors:contractor_bank_account` |
-| `di.ts` | Create | Registers `contractorBankWhitelistCheck` (`checkBankAccountWhitelist`) for cross-module resolution — see DI Registrar |
+| `di.ts` | Create | Registers `contractorBankWhitelistCheck` (`checkBankAccountWhitelist`) and `contractorLookupByNip` (read-only, `nipHash` lookup, no PII) for cross-module resolution — see DI Registrar |
 | `acl.ts` | Create | Three `contractors.*` features (`.view`/`.manage`/`.approve`) |
 | `setup.ts` | Create | `defaultRoleFeatures` for `admin`/`employee`; no `seedDefaults` |
 | `commands/contractors.ts` | Create | `createContractor` / `updateContractor` |
@@ -1210,6 +1315,14 @@ exactly as `sales.order-approval` and
   uniqueness index both exist and are exercised at the database level
   (a raw insert bypassing the command still fails for two primaries or
   two live NIPs), and that re-registering a soft-deleted NIP succeeds.
+- `contractorLookupByNip` (added 2026-10-08): returns the contractor for
+  the same NIP written as `"1234567890"` and `"PL 123-456-78-90"`; returns
+  `null` for a ten-digit string with a wrong checksum and for a non-Polish
+  tax id; returns
+  `null` for a soft-deleted contractor, for another organization and for
+  another tenant; the returned object has exactly the documented keys and
+  never `nip`, name, address, contact or bank data; calling it twice
+  writes nothing.
 - Reserved integration test category: `TC-CONTRACTOR-*`, including a
   `__integration__/TC-CONTRACTOR-CRUDFORM-001.spec.ts` covering the
   `Contractor` create/update `CrudForm` flow end to end (list → create
@@ -1530,7 +1643,8 @@ was a correction within that shape, not a challenge to it.
 - Resolved, after discussion: `ContractorBankAccount.lastVerifiedAt`/
   `lastVerificationStatus` is strictly a UX cache — `checkBankAccountWhitelist`
   always performs a live Biała Lista check and never short-circuits on
-  cache freshness, per Art. 96b's "on the day of transfer" requirement.
+  cache freshness, per the "na dzień zlecenia przelewu" rule (art. 15d CIT /
+  art. 22p PIT; the original wording here cited Art. 96b VAT Act, corrected 2026-10-12).
   Flagged as the single most safety-critical test in Testing Strategy.
 - Added `NIP` immutability as an explicit Design Decision (unconditional,
   unlike GL's posted-entries-gated guards) — was implicit before, now
@@ -1867,3 +1981,54 @@ time on this document:
   Models, or Compliance Matrix rows changed — every finding either
   confirmed existing design choices or was recorded as an explicit,
   un-actioned gap for a future pass, not applied unilaterally.
+
+### 2026-10-08 — NIP lookup service for cross-module consumers
+
+- **Gap found while mapping `financial_pl` integrations (#6061).** A
+  module that imports supplier documents (a KSeF received invoice, for
+  example) needs to find the contractor by NIP, and this document offered
+  no such path: the REST list filters only by `isVendor`, `isCustomer`
+  and `verificationStatus`, `nipHash` was used only inside
+  `createContractor`, and the only DI service was
+  `contractorBankWhitelistCheck`.
+- **Decision (working, pending maintainer review).** Add
+  `contractorLookupByNip` as a second read-only DI service (DI Registrar,
+  Cross-module integration, File Manifest, Testing Strategy); no REST
+  `nip` filter (Queries / API). Returns no PII. NIP normalization
+  (`normalizeNip`, checksum included) is decided in DI Registrar.
+- No change to the data model, ACL, events or workflows.
+
+### 2026-10-12 — Legal context checked against consolidated VAT, CIT and PIT texts
+
+- Checked against the consolidated texts supplied as PDFs (VAT Dz. U. z 2025 r.
+  poz. 775 and later amendments through 2026 poz. 846; CIT Dz. U. z 2026 r.
+  poz. 554 and later; PIT Dz. U. z 2026 r. poz. 592 and later).
+- **Correction.** Art. 96b VAT Act is the register (the whitelist), not the
+  source of the duty to check "on the day of transfer" or of any liability.
+  The "na dzień zlecenia przelewu" wording is in art. 15d ust. 1 pkt 2 CIT and
+  art. 22p ust. 1 pkt 2 PIT, and its consequence is loss of the cost deduction
+  (with exceptions, e.g. notification within 7 days). Citations in Legal
+  context, the cache Design Decision, the Alternatives table and the Literature
+  notes were updated; this changelog's earlier entries keep the original wording.
+- **Joint liability and the PLN 15,000 amount:** unverified when this entry was
+  written, checked later the same day (next entry).
+- **Not applied.** Art. 96b ust. 2 provides for checking the list as of a chosen
+  day, so the check could be run for the transfer date; the API client design
+  is unchanged. No change to the design decisions, data model or tests. Not yet
+  reviewed by a maintainer.
+
+### 2026-10-12 (cont. — Ordynacja podatkowa and Prawo przedsiębiorców checked)
+
+- Checked against the consolidated texts: Ordynacja podatkowa (Dz. U. z 2026 r.
+  poz. 622, state of 21 April 2026) and Prawo przedsiębiorców (t.j. Dz. U. z 2025 r.
+  poz. 1480 and later amendments through 2026 poz. 507).
+- **Confirmed.** Art. 117ba § 1–2 (payer's joint liability for the supplier's VAT
+  arrears) and § 3 (exceptions: other transaction, 7-day notification, bank
+  accounts, split payment, intra-Community and import cases); art. 19 Prawo
+  przedsiębiorców (PLN 15,000, other entrepreneur, NBP average rate of the last
+  working day before the transaction).
+- **Nuance added.** The earlier text said protection requires checking on the day
+  of the transfer; the law also removes the liability through a 7-day
+  notification or split payment. The design (live check on every payment) is
+  unchanged; the other two routes are not modelled and are noted as such. Not
+  yet reviewed by a maintainer.
