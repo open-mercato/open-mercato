@@ -54,7 +54,7 @@ shape. Accounts Payable owns its entire invoice graph
 (`VendorInvoice`/`VendorInvoiceLine`) because no "purchasing" module
 exists to source it from. `sales.SalesInvoice` already exists and is
 real, shipped data — this module reads it directly (the same hard-
-dependency direct-entity-read precedent `journal_entry_line_dimension`
+dependency direct-entity-read precedent `journal_entry_line_dimensions`
 and `sales` itself already establish) rather than duplicating it, and
 owns only the small amount of new state a read-only consumer
 genuinely needs: which invoices have been posted, to which journal
@@ -138,7 +138,7 @@ scratch), duplicating this data here would create two, drifting copies
 of the same invoice. This module takes a hard dependency on `sales`
 and reads `SalesInvoice`/
 `SalesInvoiceLine` with its own `entityManager`, the same real
-precedent `journal_entry_line_dimension` documents for `fixed_assets`
+precedent `journal_entry_line_dimensions` documents for `fixed_assets`
 and, before that, `sales` itself already establishes for reading
 `catalog`'s `CatalogProduct`.
 
@@ -157,7 +157,7 @@ purely additive entities carry these — `SalesInvoiceGlPosting` (one row
 per posted invoice) and `SalesInvoiceLineRevenueAccount` (one row per
 line's account assignment) — both referencing `sales`'s entities by
 FK-id only, no ORM relation, the same shape
-`journal_entry_line_dimension` already established for referencing
+`journal_entry_line_dimensions` already established for referencing
 `ledger.JournalEntryLine` without owning it.
 
 **Update (2026-09-17):** the Deferred Revenue spec
