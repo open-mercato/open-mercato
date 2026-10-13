@@ -51,7 +51,9 @@ Xero limits each Organisation to 60 calls a minute and to a daily number of call
 
 ## Disconnect
 
-**Disconnect** on the Xero tab erases the stored tokens and asks Xero to revoke them.
+**Disconnect** on the Xero tab erases the stored tokens and asks Xero to revoke them. Then it runs one health check and disables the integration, so the schedules stop firing; they resume when you reconnect and enable the integration again. Disabling needs `integrations.manage`: without it the integration stays enabled, the tab says so, and an administrator must disable it. Companies imported so far stay. Tick **Also remove the Client ID and Secret** to clear the Credentials tab as well.
+
+When the stored connection cannot be read (for example after an encryption key change), the tab offers **Replace unreadable connection**, which connects again over it, and **Disconnect anyway**, which erases it without a revoke. In both cases remove the app from the Organisation's **Connected apps** in Xero yourself.
 
 :::warning Revocation reaches every connection of the same Xero user
 Xero ends **every** connection that the same Xero user authorized for the same Xero app, not only this one. If one Xero user connected several Open Mercato organizations through one Xero app, Disconnect ends all of them; each must connect again.

@@ -21,6 +21,7 @@ export const XERO_ROUTE_ERROR_FALLBACKS = {
   'xero.organisation_not_authorised': 'This Xero Organisation is not part of the connection. Reconnect and select it in Xero.',
   'xero.organisation_change_confirmation_required': 'Confirm the change of Xero Organisation.',
   'xero.organisation_switch_blocked': 'The Xero Organisation cannot be changed while invoices are linked to the previous one.',
+  disconnect_tokens_unreadable: 'The stored Xero connection cannot be read. Use Disconnect anyway.',
 } as const
 
 export type XeroRouteErrorCode = keyof typeof XERO_ROUTE_ERROR_FALLBACKS

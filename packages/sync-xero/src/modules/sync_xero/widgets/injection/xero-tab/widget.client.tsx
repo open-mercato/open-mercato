@@ -13,14 +13,15 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
-import { OrganisationPicker, type SaveOrganisationInput } from './OrganisationPicker'
+import { ConnectionStatePanel, resolveXeroTabState, type XeroTabState } from './ConnectionStatePanel'
+import { DisconnectDialog } from './DisconnectDialog'
 import { navigateToXero } from './navigation'
+import { OrganisationPicker, type SaveOrganisationInput } from './OrganisationPicker'
 import { RedirectUriField } from './RedirectUriField'
-import { asXeroHttpError, type XeroConnectionView, type XeroTabContext } from './types'
+import { asXeroHttpError, type XeroTabContext } from './types'
 import { useXeroConnection } from './useXeroConnection'
+import { useXeroDisconnect } from './useXeroDisconnect'
 import { useXeroResultFlash } from './useXeroResultFlash'
-
-export type XeroTabState = 'not_configured' | 'not_connected' | 'unavailable' | 'invalidated' | 'account_pending' | 'connected'
 
 const STATE_BADGES: Record<XeroTabState, StatusBadgeVariant> = {
   not_configured: 'neutral',
@@ -29,24 +30,6 @@ const STATE_BADGES: Record<XeroTabState, StatusBadgeVariant> = {
   invalidated: 'error',
   account_pending: 'warning',
   connected: 'success',
-}
-
-const REVOCATION_PENDING_GRACE_MS = 5 * 60 * 1000
-
-export function resolveXeroTabState(connection: XeroConnectionView): XeroTabState {
-  const { grant } = connection
-  if (grant.connectionState === 'not_configured') return 'not_configured'
-  if (grant.connectionState === 'not_connected') return 'not_connected'
-  if (grant.connectionState === 'unavailable') return 'unavailable'
-  if (grant.connectionState === 'invalidated') return 'invalidated'
-  return grant.organisation ? 'connected' : 'account_pending'
-}
-
-export function revocationUnconfirmed(connection: XeroConnectionView, now: number = Date.now()): boolean {
-  const lastDisconnect = connection.grant.lastDisconnect
-  if (!lastDisconnect) return false
-  if (lastDisconnect.revocation === 'failed') return true
-  return lastDisconnect.revocation === 'pending' && now - Date.parse(lastDisconnect.at) > REVOCATION_PENDING_GRACE_MS
 }
 
 type PickerState = { open: boolean; scope: 'consent' | 'all' }
@@ -64,9 +47,13 @@ export default function XeroTabWidget({ context }: InjectionWidgetComponentProps
   useXeroResultFlash(reload)
 
   const mutationContext = React.useCallback(
-    (actionId: string) => ({ ...context, retryLastMutation, actionId, operation: 'update' }),
+    (actionId: string, operation: 'update' | 'delete' = 'update') => ({ ...context, retryLastMutation, actionId, operation }),
     [context, retryLastMutation],
   )
+  const refreshAll = React.useCallback(async () => {
+    await reload()
+    await context.refreshDetail?.()
+  }, [context, reload])
 
   const startConnect = React.useCallback(
     async (replaceUnreadable: boolean) => {
@@ -120,6 +107,13 @@ export default function XeroTabWidget({ context }: InjectionWidgetComponentProps
     [connection?.grant.revisedAt, mutationContext, runMutation],
   )
 
+  const disconnect = useXeroDisconnect({
+    revisedAt: connection?.grant.revisedAt ?? null,
+    confirm,
+    run: (body, operation) => runMutation({ operation, context: mutationContext('disconnect', 'delete'), mutationPayload: body }),
+    onDone: refreshAll,
+  })
+
   if (isLoading) return <LoadingMessage label={t('sync_xero.tab.loading')} />
   if (hasError || !connection) {
     return (
@@ -136,12 +130,6 @@ export default function XeroTabWidget({ context }: InjectionWidgetComponentProps
 
   const state = resolveXeroTabState(connection)
   const canConnect = connection.canManage && !connection.baseUrlMissing && !isStarting
-  const connectLabel = state === 'not_connected' ? t('sync_xero.tab.connect') : t('sync_xero.tab.reconnect')
-  const connectButton = (
-    <Button type="button" onClick={() => void startConnect(false)} disabled={!canConnect}>
-      {connectLabel}
-    </Button>
-  )
 
   return (
     <div className="space-y-4" data-testid="sync-xero-tab" data-state={state}>
@@ -155,101 +143,33 @@ export default function XeroTabWidget({ context }: InjectionWidgetComponentProps
           <AlertDescription>{t('sync_xero.tab.baseUrlMissing')}</AlertDescription>
         </Alert>
       ) : null}
-      {!connection.canManage ? (
-        <p className="text-sm text-muted-foreground">{t('sync_xero.tab.readOnly')}</p>
-      ) : null}
-
-      {state === 'not_configured' ? (
-        <Alert status="information">
-          <AlertDescription>{t('sync_xero.tab.notConfigured')}</AlertDescription>
-        </Alert>
-      ) : null}
-      {state === 'not_configured' && context.setActiveTab ? (
-        <Button type="button" variant="outline" onClick={() => context.setActiveTab?.('credentials')}>
-          {t('sync_xero.tab.openCredentials')}
-        </Button>
-      ) : null}
-
-      {state === 'not_connected' ? (
-        <div className="space-y-3">
-          <p className="text-sm">{t('sync_xero.tab.notConnected')}</p>
-          {revocationUnconfirmed(connection) ? (
-            <Alert status="warning">
-              <AlertDescription>{t('sync_xero.tab.revocationUnconfirmed')}</AlertDescription>
-            </Alert>
-          ) : null}
-          {connectButton}
-        </div>
-      ) : null}
-
-      {state === 'unavailable' ? (
-        <div className="space-y-3">
-          <Alert status="error">
-            <AlertDescription>{t('sync_xero.tab.unavailable.message')}</AlertDescription>
-          </Alert>
-          {connection.grant.unavailableReason === 'unreadable' && connection.canManage ? (
-            <Button type="button" variant="destructive-outline" onClick={() => void confirmReplaceUnreadable()} disabled={!canConnect}>
-              {t('sync_xero.tab.unavailable.replace')}
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
-
-      {state === 'invalidated' ? (
-        <div className="space-y-3">
-          <Alert status="warning">
-            <AlertDescription>{t('sync_xero.tab.invalidated')}</AlertDescription>
-          </Alert>
-          {connectButton}
-        </div>
-      ) : null}
-
-      {state === 'account_pending' ? (
-        <div className="space-y-3">
-          <Alert status="information">
-            <AlertDescription>{t('sync_xero.tab.accountPending')}</AlertDescription>
-          </Alert>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" onClick={() => setPicker({ open: true, scope: 'consent' })} disabled={!connection.canManage}>
-              {t('sync_xero.tab.chooseOrganisation')}
-            </Button>
-            <Button type="button" variant="outline" onClick={() => void startConnect(false)} disabled={!canConnect}>
-              {t('sync_xero.tab.reconnect')}
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
-      {state === 'connected' && connection.grant.organisation ? (
-        <div className="space-y-3">
-          <p className="text-sm">{t('sync_xero.tab.connectedTo', { name: connection.grant.organisation.name })}</p>
-          {connection.grant.clientChanged ? (
-            <Alert status="warning">
-              <AlertDescription>{t('sync_xero.tab.clientChanged')}</AlertDescription>
-            </Alert>
-          ) : null}
-          {connection.grant.missingScopes.length > 0 ? (
-            <Alert status="warning">
-              <AlertDescription>{t('sync_xero.tab.missingScopes', { scopes: connection.grant.missingScopes.join(', ') })}</AlertDescription>
-            </Alert>
-          ) : null}
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" onClick={() => setPicker({ open: true, scope: 'all' })} disabled={!connection.canManage}>
-              {t('sync_xero.tab.changeOrganisation')}
-            </Button>
-            <Button type="button" variant="outline" onClick={() => void startConnect(false)} disabled={!canConnect}>
-              {t('sync_xero.tab.reconnect')}
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
+      {!connection.canManage ? <p className="text-sm text-muted-foreground">{t('sync_xero.tab.readOnly')}</p> : null}
+      <ConnectionStatePanel
+        connection={connection}
+        state={state}
+        canConnect={canConnect}
+        actions={{
+          connect: () => void startConnect(false),
+          replaceUnreadable: () => void confirmReplaceUnreadable(),
+          disconnectAnyway: () => void disconnect.disconnectAnyway(),
+          openDisconnect: () => disconnect.setOpen(true),
+          openPicker: (scope) => setPicker({ open: true, scope }),
+          openCredentials: context.setActiveTab ? () => context.setActiveTab?.('credentials') : undefined,
+        }}
+      />
       <OrganisationPicker
         open={picker.open}
         scope={picker.scope}
         onOpenChange={(open) => setPicker((current) => ({ ...current, open }))}
         save={saveOrganisation}
         onSaved={reload}
+      />
+      <DisconnectDialog
+        open={disconnect.isOpen}
+        onOpenChange={disconnect.setOpen}
+        selectedOrganisationId={connection.grant.organisation?.id ?? null}
+        isWorking={disconnect.isWorking}
+        onConfirm={disconnect.disconnect}
       />
       {ConfirmDialogElement}
     </div>
