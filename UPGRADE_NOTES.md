@@ -125,13 +125,14 @@ delete`, the warranty-claims portal delete and Akeneo media reconciliation go th
 transaction. When two requests delete the same
 row at the same time, `DELETE /api/attachments` and `DELETE /api/attachments/library/:id` now answer
 `404` to the one that loses instead of a second `200`, and `attachmentService.releaseScoped()` throws
-a `404` `CrudHttpError`.
+a `404` `CrudHttpError` (not guaranteed in the deprecated mode below).
 
 Calling `attachmentService.releaseScoped(input, { flush: false })` when the entity manager is not
-inside a transaction is deprecated. It still works for one minor version, but logs a warning, and its
-reference check runs without the lock, so two such releases racing for rows that share a stored file
-keep the file rather than delete it. The lock only protects the decision while the caller's
-transaction is open.
+inside a transaction is deprecated. It still works for at least one minor release, but logs a
+`[deprecated]` warning and decides at call time, without the lock: two such releases racing for rows
+that share a stored file can leave the file orphaned (a storage leak) instead of deleting it, and a
+copy created before the caller flushes is not seen. The lock only protects the decision while the
+caller's transaction is open.
 
 **Action for module authors:** if you call `releaseScoped` with `{ flush: false }`, call it inside
 your own transaction (for example `withAtomicFlush(em, [...], { transaction: true })`) and run the

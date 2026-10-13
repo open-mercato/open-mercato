@@ -41,6 +41,8 @@ const scope = { organizationId: 'org-1', tenantId: 'tenant-1' }
 const PRODUCT_ID = 'product-1'
 const KEPT_EXTERNAL_ID = 'product:image:main_image:kept.png:0'
 
+const SHARED_STORAGE_PATH = 'org-1/tenant-1/shared.png'
+
 function storedAttachment(id: string, externalId: string): Attachment {
   return {
     id,
@@ -50,7 +52,7 @@ function storedAttachment(id: string, externalId: string): Attachment {
     tenantId: scope.tenantId,
     partitionCode: 'productsMedia',
     storageDriver: 'local',
-    storagePath: `org-1/tenant-1/${id}.png`,
+    storagePath: SHARED_STORAGE_PATH,
     storageMetadata: { source: 'akeneo', externalId, kind: 'image' },
   } as unknown as Attachment
 }
@@ -82,7 +84,7 @@ function createMediaWorld(attachments: Attachment[]) {
   const dataEngine = { flushOrmEntityChanges: jest.fn(async () => undefined) }
 
   mockContainerResolve.mockImplementation((key: string) => {
-    if (key === 'em') return {}
+    if (key === 'em') return { remove: () => ({ flush: async () => undefined }) }
     if (key === 'commandBus') return commandBus
     if (key === 'dataEngine') return dataEngine
     if (key === 'externalIdMappingService') return externalIdMappingService
@@ -179,7 +181,7 @@ describe('akeneo catalog importer media reconciliation', () => {
 
     await importer.upsertProduct(product, buildMediaMapping())
 
-    expect(mockDeletePartitionFile).toHaveBeenCalledWith('productsMedia', 'org-1/tenant-1/attachment-stale.png', 'local')
+    expect(mockDeletePartitionFile).toHaveBeenCalledWith('productsMedia', SHARED_STORAGE_PATH, 'local')
     expect(mockRemoveAttachmentRecord.mock.invocationCallOrder[0])
       .toBeLessThan(mockDeletePartitionFile.mock.invocationCallOrder[0])
   })
