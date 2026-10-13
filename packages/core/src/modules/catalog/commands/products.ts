@@ -76,6 +76,16 @@ import {
   findWithDecryption,
   findOneWithDecryption,
 } from "@open-mercato/shared/lib/encryption/find";
+import {
+  buildProductDeleteChildrenRestorePhases,
+  captureProductDeleteChildren,
+  emitProductDeleteChildrenRestoreSideEffects,
+  isProductOwnedOptionSchemaTemplate,
+  planProductDeleteChildrenRestore,
+  restoreProductOptionSchemaTemplate,
+  type ProductDeleteChildrenSnapshot,
+  type ProductDeleteOwner,
+} from "./productDeleteChildren";
 import { canonicalizeUnitCode } from "../lib/unitCodes";
 import {
   resolveCanonicalUnitCode,
@@ -255,7 +265,21 @@ function resolveUnitPriceInput(
 type ProductUndoPayload = {
   before?: ProductSnapshot | null;
   after?: ProductSnapshot | null;
+  children?: ProductDeleteChildrenSnapshot | null;
 };
+
+type ProductDeleteSnapshots = {
+  before?: ProductSnapshot;
+  children?: ProductDeleteChildrenSnapshot;
+};
+
+const PRODUCT_DELETE_CACHE_ALIASES: readonly string[] = [
+  "catalog.product",
+  "catalog.variant",
+  "catalog.price",
+  "catalog.product.unit.conversion",
+  "catalog.optionschema",
+];
 
 const productCrudEvents: CrudEventsConfig<CatalogProduct> = {
   module: "catalog",
@@ -1055,16 +1079,6 @@ async function emitProductVariantCleanupSideEffects(opts: {
   }
 }
 
-function isProductOwnedOptionSchemaTemplate(
-  template: CatalogOptionSchemaTemplate | string | null | undefined,
-): template is CatalogOptionSchemaTemplate {
-  if (!template || typeof template === "string") return false;
-  const metadata = template.metadata;
-  if (!metadata || typeof metadata !== "object") return false;
-  const source = (metadata as Record<string, unknown>).source;
-  return source === "product";
-}
-
 async function resolveOptionSchemaTemplateForRemoval(
   em: EntityManager,
   product: CatalogProduct,
@@ -1372,12 +1386,16 @@ function applyProductSnapshot(
 }
 
 /**
- * Output contract for the product commands, consumed by the workflows context
- * ledger through `commandRegistry.outputSchemaOf`. All three commands return
- * the product id and nothing else — create and update from `record.id`, delete
- * from the resolved input id.
+ * Output contracts for the product commands, consumed by the workflows context
+ * ledger through `commandRegistry.outputSchemaOf`. Create and delete return the
+ * product id and nothing else — create from `record.id`, delete from the
+ * resolved input id. Update also returns the persisted `updatedAt`, so callers
+ * can carry the optimistic-lock version forward without re-fetching the product.
  */
 const productIdOutputSchema = z.object({ productId: z.string().uuid() });
+const productUpdateOutputSchema = productIdOutputSchema.extend({
+  updatedAt: z.string(),
+});
 
 const createProductCommand: CommandHandler<
   ProductCreateInput,
@@ -1656,10 +1674,10 @@ const createProductCommand: CommandHandler<
 
 const updateProductCommand: CommandHandler<
   ProductUpdateInput,
-  { productId: string }
+  { productId: string; updatedAt: string }
 > = {
   id: "catalog.products.update",
-  outputSchema: productIdOutputSchema,
+  outputSchema: productUpdateOutputSchema,
   async prepare(input, ctx) {
     const id = requireId(input, "Product id is required");
     const em = ctx.container.resolve("em") as EntityManager;
@@ -2021,7 +2039,7 @@ const updateProductCommand: CommandHandler<
       action: "updated",
       product: record,
     });
-    return { productId: record.id };
+    return { productId: record.id, updatedAt: record.updatedAt.toISOString() };
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve("em") as EntityManager).fork();
@@ -2196,11 +2214,14 @@ const deleteProductCommand: CommandHandler<
     const id = requireId(input, "Product id is required");
     const em = ctx.container.resolve("em") as EntityManager;
     const snapshot = await loadProductSnapshot(em, id);
-    if (snapshot) {
-      ensureTenantScope(ctx, snapshot.tenantId);
-      ensureOrganizationScope(ctx, snapshot.organizationId);
-    }
-    return snapshot ? { before: snapshot } : {};
+    if (!snapshot) return {};
+    ensureTenantScope(ctx, snapshot.tenantId);
+    ensureOrganizationScope(ctx, snapshot.organizationId);
+    const snapshots: ProductDeleteSnapshots = {
+      before: snapshot,
+      children: await captureProductDeleteChildren(em.fork(), snapshot),
+    };
+    return snapshots;
   },
   async execute(input, ctx) {
     const id = requireId(input, "Product id is required");
@@ -2294,16 +2315,34 @@ const deleteProductCommand: CommandHandler<
       payload: {
         undo: {
           before,
+          children: (snapshots as ProductDeleteSnapshots).children ?? null,
         } satisfies ProductUndoPayload,
       },
+      context: { cacheAliases: [...PRODUCT_DELETE_CACHE_ALIASES] },
     };
   },
   undo: async ({ logEntry, ctx }) => {
     const payload = extractUndoPayload<ProductUndoPayload>(logEntry);
     const before = payload?.before;
     if (!before) return;
+    ensureTenantScope(ctx, before.tenantId);
+    ensureOrganizationScope(ctx, before.organizationId);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
+    const children = payload?.children ?? null;
+    const owner: ProductDeleteOwner = {
+      id: before.id,
+      organizationId: before.organizationId,
+      tenantId: before.tenantId,
+      optionSchemaId: before.optionSchemaId ?? null,
+      offerIds: (before.offers ?? []).map((offer) => offer.id),
+    };
     let record = await findOneWithDecryption(em, CatalogProduct, { id: before.id });
+    const childrenPlan = await planProductDeleteChildrenRestore(
+      em,
+      owner,
+      children,
+    );
+    restoreProductOptionSchemaTemplate(em, owner, childrenPlan);
     if (!record) {
       record = em.create(CatalogProduct, {
         id: before.id,
@@ -2342,8 +2381,6 @@ const deleteProductCommand: CommandHandler<
       });
       em.persist(record);
     }
-    ensureTenantScope(ctx, before.tenantId);
-    ensureOrganizationScope(ctx, before.organizationId);
     applyProductSnapshot(em, record, before);
     await withAtomicFlush(
       em,
@@ -2352,6 +2389,7 @@ const deleteProductCommand: CommandHandler<
         () => restoreOffersFromSnapshot(em, record, before.offers),
         () => syncCategoryAssignments(em, record, before.categoryIds),
         () => syncProductTags(em, record, before.tags),
+        ...buildProductDeleteChildrenRestorePhases(em, owner, childrenPlan),
       ],
       { transaction: true },
     );
@@ -2366,6 +2404,13 @@ const deleteProductCommand: CommandHandler<
         values: before.custom,
       });
     }
+    await emitProductDeleteChildrenRestoreSideEffects({
+      ctx,
+      dataEngine,
+      owner,
+      children,
+      plan: childrenPlan,
+    });
     await emitProductCrudUndoChange({
       dataEngine,
       action: "created",

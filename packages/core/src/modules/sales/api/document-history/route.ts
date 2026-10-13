@@ -4,7 +4,10 @@ import { loadAuditLogDisplayMaps } from '@open-mercato/core/modules/audit_logs/a
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
+import {
+  resolveOrganizationScopeFilter,
+  resolveSingleOrganizationIdOrDeny,
+} from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { NextResponse } from 'next/server'
@@ -68,6 +71,7 @@ export async function GET(req: Request) {
     }
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+    resolveSingleOrganizationIdOrDeny(scope, auth)
     // Resolve the organization scope the same way every other scoped read does.
     // Under "All organizations" (super-admin) `rbacOrganizationId` is null and
     // `where` is empty, so the read scopes by tenant + resource only instead of

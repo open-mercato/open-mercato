@@ -2,11 +2,11 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification (rev 2 — content pages) |
+| **Status** | Specification (rev 3 — assisted selling surfaces) |
 | **Created** | 2026-08-14 |
 | **Suite** | [Ecommerce Suite Roadmap](./2026-08-14-ecommerce-suite-roadmap.md) — spec 10, Phase 4 |
 | **Deliverables** | `apps/storefront`, `@open-mercato/storefront-ui` |
-| **Depends on** | [Storefront Public API](./2026-08-14-storefront-public-api.md), [Cart Module](./2026-08-14-cart-module.md), [Checkout Funnel](./2026-03-19-checkout-simple-checkout.md), [Merchandising](./2026-08-14-storefront-merchandising.md), [Customer Account](./2026-08-14-storefront-customer-account.md) |
+| **Depends on** | [Storefront Public API](./2026-08-14-storefront-public-api.md), [Cart Module](./2026-08-14-cart-module.md), [Checkout Funnel](./2026-03-19-checkout-simple-checkout.md), [Merchandising](./2026-08-14-storefront-merchandising.md), [Customer Account](./2026-08-14-storefront-customer-account.md), [Assisted Selling](./2026-09-22-assisted-selling.md) |
 | **Carries forward** | SPEC-029 v3 §14–18 and the app half of §24 |
 
 ---
@@ -100,10 +100,21 @@ Everything commerce-specific — `ProductCard`, `VariantSelector`, `FilterSideba
 | Checkout | Client, always live | Client, always live |
 | Account | Client, always live | Client, always live |
 | Content page | Server, ISR 300s, **shared** | Server, ISR 300s, **shared** |
+| Assisted-selling tray / panel | Client, always live, lazy | Client, always live, lazy |
 
 **The rule:** anonymous responses may be shared and cached; authenticated responses are per-request and never enter a shared cache. The app reads `buyer.isAuthenticated` from `/context` at the edge and picks the path. Any CDN in front must be configured to vary on the session cookie or bypass on its presence — this is a **deployment requirement**, documented in the app README, because getting it wrong reproduces spec 4 R1 outside the platform's control.
 
+**The assisted-selling row is client-only and lazily loaded**, for a budget reason as much as a correctness one. A conversation panel is a live, authenticated-by-token surface that can never be cached, so it follows the cart and checkout rows. But it also must not exist in the catalogue bundle: §9 budgets catalogue routes at 180 kB, and the overwhelming majority of sessions never open a conversation at all. The tray and the panel are dynamically imported and mount only after `GET /thread` reports one exists — which also means no polling starts for a visitor who has no thread (assisted selling §6.2, R7 there).
+
 **Content pages are the one row that ignores the rule**, in both directions: they are cached and shared identically for anonymous and authenticated visitors, and the CDN requirement above does not apply to them. That is safe for a narrow and verifiable reason — the payload contains no buyer-dependent field at all (public API §4.6), a property asserted by that spec's contract suite rather than assumed here. The exception has to be stated explicitly, because "cached the same for a logged-in buyer" is otherwise indistinguishable from R1's failure mode on inspection, and a reader who cannot tell the two apart will eventually turn one into the other.
+
+### 3.3a Field mode (offline), added 2026-09-22
+
+Resolves §14 Open Question 4. Full design: [Offline Field Mode](./2026-09-22-offline-field-mode.md).
+
+None of the rows above are exempted for a disconnected buyer, and none of them is what field mode is. A buyer with no signal gets a **separate, fully client-rendered route subtree** (`/field/*`) layered over a server-built, buyer-priced offline pack — not this table's server-first rendering extended to work without a server, which §2.3 already established cannot be done honestly for a buyer-aware page. The distinction matters because it is exactly the mistake this spec's own §2.2 rejected once already, in the other direction: SPEC-029 v3 tried to solve UI reuse by reimplementing everything twice; a naive "offline mode" would solve connectivity by pretending one rendering strategy covers both cases.
+
+`/field/*` is precached by a service worker scoped to its own shell only — it registers no fetch interception for `/products`, `/categories`, `/search`, or any other row in the table above, so R1's isolation guarantee is untouched by field mode's existence. It carries its own JS budget (§9) rather than counting against catalogue or checkout, and its components are commerce-specific and live in the app (§5.8), consistent with ADR-8.
 
 ### 3.4 Data layer
 
@@ -145,6 +156,11 @@ apps/storefront/src/app/
 │   └── company/{page,buyers,approvals,credit,price-list}.tsx   (B2B)
 ├── (auth)/{login,register,forgot-password,reset-password}/page.tsx
 ├── pages/[slug]/page.tsx         static pages via /pages/:slug (public API §4.7)
+├── field/                        Field mode — client-only, precached subtree (§3.3a)
+│   ├── page.tsx                  Enable / pack status / last-synced-at
+│   ├── catalog/{page,[handle]}.tsx   Browse the offline pack
+│   ├── cart/page.tsx             The local outbox, reviewed like a cart
+│   └── sync/page.tsx             Reconciliation screen, shown on reconnect
 ├── sitemap.ts  ·  robots.ts      per store, from the public API
 ├── not-found.tsx  ·  error.tsx  ·  global-error.tsx
 ```
@@ -229,6 +245,45 @@ New in this revision. Renders `StorefrontPage.body` (public API §5.5), a discri
 
 The component exists so that the `format` branch lives in exactly one place. Inlining it in `pages/[slug]/page.tsx` works until a second surface — a CMS-backed landing page, a help article embedded in account — needs the same union, at which point the fallback behaviour gets reimplemented and one copy forgets the unknown-arm case.
 
+### 5.8 Field mode components
+
+Added 2026-09-22, resolving §14 Open Question 4. Full behavioural spec: [Offline Field Mode](./2026-09-22-offline-field-mode.md) §3–§6. These are app-level, commerce-specific components under `field/` (§4) — not additions to `@open-mercato/storefront-ui`, per ADR-8.
+
+`OfflinePackStatus` — enable/disable, last-synced-at, the "prices as of `generatedAt`, offline" banner (offline spec §3.2), and the local passcode/biometric gate prompt (offline spec §6). `OfflineCatalog` / `OfflineProductCard` — browse the pack; renders `priceTiers` and `quantityRules` from the pack entry, never recomputed. `OutboxReview` — the local queue, reviewed like `CartLine`s before a connection exists to submit them. `SyncReconciliation` — shown on reconnect; renders the replay result through the **same** `PriceDisplay` (§5.3), `priceChanges` and merge-summary visual pattern the cart page already uses for a guest→customer merge (§12), per the offline spec's explicit rule against a second reconciliation screen — it is not a new visual pattern, only a new trigger for the existing one. Its data comes from the offline spec's `reconcileOfflineReplay` (offline spec §4.3), not from a server `mergeSummary`: a replay is a plain `bulkAdd`, so where a queued line was already in the cart the screen shows the queued quantity as added to it. Replay runs through this app's server route handlers, which read the cart-token cookie and resolve the assortment scope server-side (R7; offline spec §3.3).
+
+None of these four components render inside `/field/*` at any URL outside that subtree, and none of the catalogue, PDP, cart or checkout components (§5.1–§5.7) import from `field/` — the boundary in §3.3a is structural, not a convention.
+
+### 5.9 `ProposalTray`
+
+*Added 2026-09-22. Renders proposals addressed to this basket ([Assisted Selling](./2026-09-22-assisted-selling.md), cart spec §7a). The data model is spec 5's and spec 13's; this section is the surface only.*
+
+A dismissible tray anchored to the cart affordance, opening into a drawer. It is where "someone suggested these" lives, and it is deliberately not the cart page: a suggestion the buyer has not accepted is not in the basket, and rendering it inside the basket would say it is.
+
+- **Each proposal renders as a card with per-line accept/reject.** A checkbox per line, accepted by default, plus a whole-proposal accept and reject. Partial acceptance is the common case, not the edge case.
+- **Acceptance is two requests and the UI must show why.** `preview` returns a diff and a short-lived token; the drawer renders that diff — proposed price, price now, delta, and any line that became unavailable — and only then enables the confirm. A proposal whose prices have not moved still passes through the preview; it simply shows no deltas.
+- A `409 proposal_changed` on confirm re-renders the fresh diff in place with the new token, and says the suggestion changed while it was open. It is not an error state and must not read as one.
+- An expired proposal stays in the tray, visibly expired, with its accept controls removed rather than disabled-and-unexplained.
+- **Who proposed it is always shown** — the participant's name for a rep, and an unambiguous agent label for AI. A suggestion with no visible author is indistinguishable from the store's own merchandising, which it is not.
+- Totals shown are the proposal's own. The tray never displays a combined "your cart plus this" figure: that number does not exist until the merge re-prices, and showing a computed preview of it would be the storefront doing arithmetic, which is what ADR-2 forbids one layer down.
+- Result announced through the same `aria-live="polite"` region §5.2 uses for cart updates. A proposal arriving while the buyer is elsewhere on the page is announced once, politely, never `assertive` — it is a suggestion, not an error.
+- The drawer is a `Dialog`/`Sheet` with focus trapped and returned to the trigger; `Escape` closes; the confirm submits on `Cmd/Ctrl+Enter`.
+- Touch targets on the per-line checkboxes meet the 44×44 minimum (§7).
+
+### 5.10 `AssistedSellingPanel`
+
+*Added 2026-09-22.*
+
+The conversation itself — messages both ways, with proposals appearing inline in the timeline rather than in a parallel list.
+
+- **Mounted only when a thread exists.** `GET /thread` returning `404` renders nothing and starts no transport. An entry point to *open* a conversation appears only when the store's resolved mode permits it.
+- **Transport is SSE with a runtime fallback to polling, and the fallback is mandatory.** A CDN sits in front of this application (§3.3, R1), so the stream may be present in the browser and blocked or buffered in transit — a failure a capability check cannot see. The client degrades to polling on connection failure and on heartbeat timeout, and recovers to streaming on a later attempt. Until the stream ships (assisted selling Phase 5) the client polls only.
+- **The transport carries a signal, never content.** `{ cursor, changed, threadUpdatedAt, proposalIds }` and nothing else; the client re-reads the thread and the proposals through the API. This is R4's rule — *the server is authoritative; the client renders session state and never derives it* — applied to a second surface.
+- Polling is adaptive: 5 s while the tab is visible **and** a rep is present, 30 s while visible otherwise, suspended while hidden, backing off after a run of unchanged responses, jittered on every schedule.
+- **Presence disclosure is not a design choice and not a store setting.** See R11.
+- **AI disclosure is not either.** While the thread payload lists an `ai_agent` participant, the panel renders a persistent "you are talking to an AI assistant" notice — outside the collapsible message list, like rep presence — linking to the store's privacy copy that names the model provider, and every AI-authored message carries an AI label ([assisted selling](./2026-09-22-assisted-selling.md) §4.2, EU AI Act Art. 50). AI messages render as plain text, never as HTML.
+- New messages announced through `aria-live="polite"`; the message list is a labelled region with a stable heading so a screen-reader user can navigate to it; the composer is a labelled `textarea` submitting on `Cmd/Ctrl+Enter`.
+- An unavailable AI or an absent rep produces silence, not an error banner. The buyer was never promised an answer within a deadline.
+
 ---
 
 ## 6) Design System
@@ -296,7 +351,10 @@ A gate, not a phase.
 | TTFB, cached anonymous | < 200 ms |
 | JS, first load, catalogue routes | < 180 kB gzipped |
 | JS, first load, checkout | < 250 kB gzipped |
+| JS, `/field/*` precached shell | < 220 kB gzipped, added 2026-09-22 |
 | `@open-mercato/storefront-ui` | < 45 kB gzipped |
+
+`/field/*`'s budget is separate from, not additive to, the catalogue and checkout rows: it is a route-level chunk a normal buyer never downloads, so it does not count against either of them — but it must ship everything it needs in one precached shell rather than fetching pieces on demand, since it cannot lazy-load a chunk it doesn't already have once the device is offline (Offline Field Mode §3.4).
 
 Techniques: `priority` on the first four product images; explicit aspect ratios on every image container; server components by default with client boundaries only where interaction demands them; route-level code splitting so checkout weight never loads on the catalogue; fonts self-hosted with `font-display: swap` and preloaded.
 
@@ -327,6 +385,10 @@ Structured data: `Product` with `Offer` (price, currency, availability, `priceVa
 | R7 | Cart token exposure in the client | **High** | The cart token is stored where another script can read it, or lands in a URL and leaks via referrer. | httpOnly cookie set by a server route handler; never in `localStorage`, never in a URL (cart spec R6); the app never reads the raw token in client code | Low |
 | R8 | Branding FOUC | Low | Store colours apply after hydration and the first paint is unbranded. | Branding SSR-injected into `<head>` (SPEC-029 §7.2); runtime `setProperty` reserved for the admin preview | Low |
 | R9 | A new body format renders as raw markup | Medium | A CMS replaces the page source and emits a `body.format` this storefront predates; a permissive fallback passes `value` to `dangerouslySetInnerHTML` and renders unsanitized author content, or renders a serialized object. | `ContentPageBody` switches exhaustively and falls through to a neutral fallback, never to raw `value` (§5.7); a test asserts an unknown format renders no markup originating from `value` | Low |
+| R10 | Field mode's service worker reintroduces R1 | **High** | A scoped-for-`/field/*` service worker is later broadened, deliberately or by a careless edit, into a generic cache-first strategy that intercepts `/products` or `/categories` — the exact buyer-aware-pricing leak R1 exists to prevent, delivered through a mechanism R1's own mitigations don't cover. | Precache scope is structurally limited to the `/field/*` shell (§3.3a); a test asserts the registered service worker intercepts no route outside that subtree. Full risk detail and the pack/outbox threat model: [Offline Field Mode](./2026-09-22-offline-field-mode.md) §9 | Low |
+| R11 | Presence — of a rep or of an AI — rendered as a dismissible nicety | **High** | A named employee is in the buyer's conversation, able to see the basket they are proposing against, and the storefront renders that as a banner the buyer can close — or renders it only while the panel is open, so a buyer who collapsed the panel is observed with nothing on screen saying so. Under GDPR the merchant is the controller and the buyer has not been informed. | The participant list is part of the thread payload and the panel renders a rep participant's presence **persistently while that participant is present**, not as a transient toast and not only inside the open panel. It is not attached to a store setting, because [assisted selling](./2026-09-22-assisted-selling.md) §5.6 deliberately has no column that could switch it off. The same rule covers an `ai_agent` participant: the AI notice is persistent while the AI is in the thread, and each AI message is labelled, because being told you are talking to an AI is a transparency obligation of its own (EU AI Act Art. 50). Asserted by test: a rep joins, the buyer's viewport shows the disclosure, and collapsing the panel does not remove it; the same for the AI notice on a thread in `mode: 'ai'` | Low |
+| R12 | Conversation surfaces inflate the catalogue bundle | Medium | The tray and panel are imported statically "because they are small", and every catalogue route carries a live-transport client component that almost no session uses. The 180 kB catalogue budget is missed and mobile LCP with it. | Both are dynamically imported and mount only after `GET /thread` reports a thread exists (§3.3); the per-route CI bundle budget of §9 covers catalogue routes and fails the build on a breach, so a future static import is caught by the existing gate rather than by a new one | Low |
+| R13 | Storefront derives proposal state the server owns | Medium | The tray computes "expired" from `expires_at` against the browser clock, or renders a combined "your cart plus this proposal" total by summing locally. The first shows a buyer an accept button the server will refuse, or hides one it would have honoured; the second shows a total that does not exist until the merge re-prices, and will differ from it. | Proposal status is rendered from the server's value and the tray shows only the proposal's own totals (§5.9) — the same rule §5.4a and §5.5 already apply to sort options and checkout steps. A test sets a client clock past `expires_at` on a proposal the server still reports live and asserts the control follows the server | Low |
 
 ---
 
@@ -350,6 +412,16 @@ Playwright, headless, against a seeded fixture store. Renumbered from SPEC-029 v
 
 **Content pages:** a published page renders at `/pages/<slug>` with its SEO metadata and appears in the sitemap; an unpublished or unknown slug renders the app's 404 rather than an error; an `html` body renders its sanitized content; a `blocks` body renders through `BlockRenderer`; an unknown `body.format` renders the fallback and no markup originating from `value` (R9); a footer menu item with `target_type: content_page` resolves to the right URL; the same page is byte-identical for an anonymous and an authenticated buyer (§3.3's exception).
 
+**Field mode:** service worker intercepts no route outside `/field/*` (R10); the offline pack is unreadable without the local passcode/biometric gate even with the device unlocked; a replay against an expired cart transparently lands in a new one; reconciliation renders through the existing `PriceDisplay`/`priceChanges`/merge-summary visual pattern, not a second screen; replay never exposes the cart token or an assortment scope to client code. Full suite: [Offline Field Mode](./2026-09-22-offline-field-mode.md) §10.
+
+**Assisted selling (§5.9, §5.10):** the tray and panel are absent, and no transport starts, for a session with no thread; a proposal arriving renders in the tray with its author shown; per-line selection accepts only the selected lines and the rest are reported as declined; the preview diff renders before the confirm is enabled, including for a proposal whose prices have not moved; a `409 proposal_changed` re-renders a fresh diff in place and does not read as an error; an expired proposal stays visible with its accept controls removed; the tray never renders a combined cart-plus-proposal total; a client clock past `expires_at` does not override the server's status (R13); proposal and message arrivals announce through `aria-live="polite"` and never `assertive`; the drawer traps focus, returns it to the trigger, closes on `Escape` and confirms on `Cmd/Ctrl+Enter`; accepting from the tray is reflected in the cart and in the mini-cart without a reload.
+
+**Assisted-selling transport:** the polling client suspends while the tab is hidden and backs off after unchanged responses; **with the stream blocked in transit rather than absent from the browser, the client falls back to polling at runtime and recovers to streaming on a later attempt** — the case a capability check cannot see, and the reason the fallback is specified as runtime (§5.10); the transport response carries no message body, line or price, asserted against its shape.
+
+**Presence disclosure (R11):** a rep joining a thread produces a persistent disclosure in the buyer's viewport; collapsing the panel does not remove it; no store setting suppresses it. The same for the AI notice on an AI-enabled thread, and every AI message renders with its AI label.
+
+**Bundle (R12):** catalogue routes stay within the §9 budget with the assisted-selling surfaces present in the app, asserted by the per-route CI check.
+
 **Accessibility:** axe zero serious/critical on every route in both auth states at both widths; keyboard-only traversal of the full purchase journey; skip link on first Tab; focus returns from every dialog; 200 % zoom without horizontal scroll.
 
 **Performance:** Lighthouse CI on home, category and PDP meets §9; bundle budgets enforced per route.
@@ -371,9 +443,11 @@ Home with merchandising blocks, category, collection, PDP, search, filters, URL-
 Content pages sit here rather than in a phase of their own because they are what the sitemap and the footer navigation need in order to be complete, and both ship in this phase. They depend on public API Phase 4.
 
 ### Phase 3 — Cart
-Cart page, mini-cart, add-to-cart with quantity rules and tiers, promotion codes, price-change disclosure, merge summary.
+Cart page, mini-cart, add-to-cart with quantity rules and tiers, promotion codes, price-change disclosure, merge summary, **and the assisted-selling tray and panel (§5.9, §5.10) with their polling transport**.
 
-**Gate:** cart Playwright suite passes including merge and tier boundaries.
+The tray sits here rather than in a phase of its own because it is an acceptance surface over the merge and price-change disclosure this phase already builds — `mergeSummary` and `priceChanges` are rendered by the same code whether they arrive from a guest→customer merge or from accepting a proposal. Real-time transport and presence arrive later, with [assisted selling](./2026-09-22-assisted-selling.md) Phase 5; until then the panel polls, which is the fallback path it must retain regardless.
+
+**Gate:** cart Playwright suite passes including merge and tier boundaries; per-line proposal acceptance works end to end; no transport starts for a session without a thread; catalogue bundle budgets still pass with the surfaces present.
 
 ### Phase 4 — Checkout
 Stepper, addresses, delivery selection, payment, review, submit with all three typed error flows, confirmation, B2B approval and on-account.
@@ -397,7 +471,7 @@ Full axe sweep, manual accessibility pass, Lighthouse CI, bundle budgets, cross-
 1. **Distribution** — the roadmap decided `apps/storefront` in the monorepo. Whether it *also* ships as a `create-app` preset (per `packages/create-app` template-sync rules) is unresolved; if so, the template-sync checklist applies from Phase 1.
 2. **Image transformation** — spec 4 Open Question 4. Responsive `srcset` needs width variants; whether `storage-s3` provides them is unverified and blocks the LCP budget if it does not.
 3. **Analytics and consent** — no analytics is specified. A real storefront needs GA4 or equivalent behind a consent banner, and consent interacts with `consent_flags` in checkout and promotions. Out of scope, and a real gap before a production launch.
-4. **PWA / offline** — the roadmap listed offline as a non-goal. Whether a service worker for asset caching alone is worth it is unaddressed.
+4. ~~**PWA / offline** — the roadmap listed offline as a non-goal. Whether a service worker for asset caching alone is worth it is unaddressed.~~ **Resolved 2026-09-22.** This question's own premise does not hold — the word "offline" does not appear anywhere in `2026-08-14-ecommerce-suite-roadmap.md` prior to [ADR-11](./2026-08-14-ecommerce-suite-roadmap.md#adr-11--field-mode-assembles-offline-commits-online); there was no non-goal here to reverse, only an open question the roadmap had never actually foreclosed. Recorded as a discrepancy in this spec's own changelog rather than silently corrected. The resolution itself: offline is scoped as **field mode**, a client-only route subtree (`/field/*`) over a server-built, buyer-priced offline pack — not a service worker for asset caching, and not "the app works offline." Full design in [Offline Field Mode](./2026-09-22-offline-field-mode.md); see §3.3a and §5.8 below for what that adds to this spec's own surface.
 
 ---
 
@@ -415,6 +489,7 @@ Full axe sweep, manual accessibility pass, Lighthouse CI, bundle budgets, cross-
 | API consumption | Only public endpoints; no privileged surface reachable from the app |
 | Content pages | Read through `GET /pages/:slug`; the `content` module is never imported, so the source stays swappable. Body HTML is sanitized by the API and not re-sanitized here (§5.7); an unknown `body.format` degrades rather than rendering raw markup |
 | Dialog UX | `Cmd/Ctrl+Enter` submits, `Escape` cancels, per root `AGENTS.md` |
+| Field mode | A separate client-only subtree (`/field/*`) over a server-built offline pack, not this spec's server-first rendering extended offline (§3.3a); own bundle budget (§9); full spec: [Offline Field Mode](./2026-09-22-offline-field-mode.md) |
 | Integration coverage | §12, shipping in the same change |
 
 ---
@@ -475,17 +550,123 @@ Added 2026-09-16 to support the `om-mockup-prototype` click-through. Derived fro
   - AC: an **unrecognized** `format` renders the page title and a neutral fallback and reports through the error boundary; it never renders `value` as markup (§5.7, R9).
   - AC: body headings are offset so the page's own `<h1>` stays unique (§8).
 
+### Epic F — Field mode (offline), added 2026-09-23
+
+Full behavioural spec: [Offline Field Mode](./2026-09-22-offline-field-mode.md). The actor is a buyer assembling an order without a network connection.
+
+- **US-F1** — As a buyer on a device that may be shared, I want to explicitly enable field mode and see what will be stored locally and for how long before anything downloads, so that I can decide the tradeoff rather than have it decided for me.
+  - AC: `OfflinePackPolicy.enabled` is off by default; enabling requires an explicit confirm step naming what is stored and the TTL (offline spec §6, §8).
+  - AC: the enable/status screen shows `last-synced-at` and the pack `generatedAt` timestamp once a pack exists.
+  - AC: disabling field mode purges the local pack (offline spec §6).
+
+- **US-F2** — As a buyer returning to an already-enabled device, I want to pass a local passcode or biometric gate every time I open field mode, so that someone else holding the unlocked device still cannot read my prices.
+  - AC: the gate is presented on every app open, not once per session (offline spec §6).
+  - AC: a device unlocked at the OS level is not sufficient on its own — failing or dismissing the gate blocks pack access entirely.
+  - AC: where no platform authenticator is available, an app-level passcode prompt is offered instead of silently skipping the gate; the passcode is at least 8 characters and not all digits, never a numeric PIN (offline spec §6).
+
+- **US-F3** — As a buyer with no signal, I want to browse the catalogue I downloaded earlier with the same prices, tiers and quantity rules it had when I last synced, so that I can plan an order without a page pretending to be live.
+  - AC: a persistent "prices as of `generatedAt`, offline" banner is visible for as long as the device has no connection (offline spec §3.2).
+  - AC: price tiers and quantity rules render exactly as carried in the pack entry; nothing is recomputed on the client (offline spec §3.2, ADR-2).
+  - AC: a product outside the downloaded pack's scope renders as unavailable in field mode, not as a dead link.
+
+- **US-F4** — As a buyer offline, I want to add items to a local queue and review it like a cart, so that I can compose and adjust an order before I have a connection to submit it.
+  - AC: the outbox lists each queued intent with quantity and the price shown at queue time, editable and removable before sync (offline spec §3.3, §4.2).
+  - AC: the queue is capped at 200 lines; reaching the cap blocks further offline adds with a visible message, never a silent drop (offline spec §9 R7).
+  - AC: the outbox persists across an app reload or relaunch while still offline (offline spec §10).
+
+- **US-F5** — As a buyer reconnecting, I want my queued items replayed into my real cart and to see exactly what happened to each one, so that I am never surprised by a price or availability difference between what I saw offline and what actually landed.
+  - AC: the reconciliation screen classifies every intent as accepted, quantity-adjusted, or rejected, reusing the cart's existing `priceChanges`/`warnings` surfaces and merge-summary visual pattern rather than a second screen (offline spec §2.3, §3.3; this spec's §5.8).
+  - AC: a queued item whose product was already in the cart is shown as added to the existing quantity, not as a changed quantity (offline spec §9 R4).
+  - AC: queued items are replayed only for the buyer who queued them; another buyer logging in on the same device sees a held queue they cannot read or replay (offline spec §3.3).
+  - AC: replay re-resolves the buyer's context online before mutating the cart, so a stale or wrong-identity pack can change what the buyer previewed but never what they purchase (offline spec §9 R5).
+  - AC: no route under `/field/*` reaches checkout without a live connectivity check (offline spec §3.3).
+
+- **US-F6** — As a buyer done with field mode on a device, I want my locally stored catalogue cleared — explicitly or automatically — so that handing the device to someone else doesn't hand over my priced catalogue with it.
+  - AC: a visible "Clear field data" control purges the local pack on demand (offline spec §6).
+  - AC: logout, TTL expiry, a resolved-identity mismatch, and field mode being disabled by the merchant each purge the pack automatically, without user action (offline spec §6, §9 R1/R5).
+  - AC: clearing or expiring the pack never deletes a non-empty outbox — the two have independent lifetimes (offline spec §6, §9 R8).
+
+### Epic G — Assisted selling
+
+*Added 2026-09-22. Behaviour is specified by [Assisted Selling](./2026-09-22-assisted-selling.md) and [Cart Module](./2026-08-14-cart-module.md) §7a; these stories cover only what this application renders.*
+
+- **US-G1** — As a visitor, I want suggestions from the shop to arrive somewhere I can consider them, so that nothing is added to my basket without me agreeing to it.
+  - AC: a proposal renders in the tray (§5.9), never inside the basket — a suggestion I have not accepted is not in my basket, and showing it there would say it is.
+  - AC: the tray states who suggested it — a named person for a rep, an unambiguous agent label for AI. An unattributed suggestion is indistinguishable from the shop's own merchandising.
+  - AC: a session with no conversation sees no tray and no panel, and nothing polls on its behalf (§3.3).
+
+- **US-G2** — As a visitor, I want to take two of five suggested items and leave the rest, so that a helpful suggestion is not an all-or-nothing decision.
+  - AC: each line carries its own control, accepted by default; a whole-proposal accept and reject are also available.
+  - AC: the lines I did not take are reported back as declined — not silently dropped and not quietly added (cart §7.2).
+  - AC: my basket totals update after acceptance and the change is announced through the same `aria-live="polite"` region cart updates use (§5.2).
+
+- **US-G3** — As a visitor, I want to see what a suggestion will actually cost me before I accept it, so that the price I agree to is the price I pay.
+  - AC: confirming is preceded by a preview showing the proposed price, the price now and the difference per line — including when nothing has changed, so the step is predictable rather than an alarm (§5.9).
+  - AC: if the suggestion changes while I have it open, I am shown the new difference in place and asked again; it reads as a change, not as an error.
+  - AC: a line that became unavailable is shown as such and is not merged.
+
+- **US-G4** — As a visitor, I want to know when a person from the shop is in my conversation, so that I am never observed without being told.
+  - AC: the disclosure is persistent while that person is present and is not dismissible; collapsing the conversation panel does not remove it (R11).
+  - AC: no store configuration suppresses it — the setting does not exist.
+  - AC: when an AI assistant is in the conversation I am told so persistently, and every AI message is labelled as AI; no store configuration suppresses that either.
+
+- **US-G5** — As a visitor whose connection or network blocks the live channel, I want the conversation to keep working, so that a suggestion does not silently never arrive.
+  - AC: the client falls back to polling on connection failure or heartbeat timeout and recovers to streaming later (§5.10) — the browser having `EventSource` is not evidence the stream reaches it.
+  - AC: the transport tells the client only that something changed; the client re-reads state through the API (R4).
+
+- **US-G6** — As a visitor, I want a suggestion that has gone stale to say so, so that I do not act on a price that is no longer offered.
+  - AC: an expired proposal stays in the tray, visibly expired, with its accept controls removed rather than present-and-failing.
+  - AC: expiry follows the server's status, not the browser clock (R13).
+
 ### Cross-cutting rules
 
 - Every route works at 2 columns / sheet filters below `640` and 4 columns / sidebar at `≥1024` (§7); touch targets are at least 44×44.
 - Motion is wrapped in `prefers-reduced-motion: reduce`; there are no full-page transitions, only skeletons (§6).
 - `axe-core` reports zero `serious` or `critical` violations on every route, anonymous and authenticated, at both widths (§8).
-- Server-decided sets — sort options (§5.4a), checkout steps (§5.5) — are always rendered from the response, never from a literal list in the client.
+- Server-decided sets and states — sort options (§5.4a), checkout steps (§5.5), proposal status (§5.9) — are always rendered from the response, never from a literal list or a local computation in the client.
+- Live surfaces render what the server sent and never derive session state from a signal; a transport that carries content instead of a signal is a defect, not an optimization (R4, §5.10).
 
 ---
 
 ## 17) Changelog
 
+### 2026-10-02 — merged with field mode
+
+- **Assisted-selling surfaces renumbered** after develop brought in [Offline Field Mode](./2026-09-22-offline-field-mode.md), which landed first and took §5.8, R10 and Epic F: `ProposalTray` is now §5.9, `AssistedSellingPanel` §5.10, the assisted-selling risks R11 (presence), R12 (bundle) and R13 (derived proposal state), and the assisted-selling stories Epic G (US-G1–US-G6). Entries below that predate the merge are rewritten to the new numbers so every reference in this document resolves; no behaviour changed.
+
+### 2026-09-30 — AI disclosure
+
+- **R11, §5.10 and US-G4 now cover an AI participant as well as a rep.** [Assisted selling](./2026-09-22-assisted-selling.md) rev 3 made AI disclosure non-suppressible (EU AI Act Art. 50) and specified that the AI's replies are posted into the thread; the panel renders a persistent AI notice linking to the provider disclosure, labels every AI message, and renders AI text as plain text.
+
+### 2026-09-30 — field mode specification review
+- US-F2's fallback gate is an app-level **passcode** of at least 8 characters, not all digits, matching offline spec §6; it previously said "PIN prompt", which the prototype had rendered as a 4-digit keypad. R10 stays **High**; the offline spec's R9 now rates the same risk High too. The OQ4 resolution links the roadmap decision under its new number, ADR-11 (renumbered because the assisted-selling spec's ADR-10 lands first).
+
+### 2026-09-27 — field mode review fixes
+- §5.8, §12 and US-F5/US-F6 aligned with the corrected offline spec: replay produces no server `mergeSummary` (it is a plain `bulkAdd`; a queued line already in the cart sums), runs through this app's route handlers with the cookie-held token and a server-resolved scope, and replays only for the buyer who queued it; merchant-disabled field mode added to the automatic purge triggers.
+- The heading-less "§16 user story map added" bullet, which read as part of the 2026-09-22 field-mode entry, now has its own heading. It is dated 2026-09-17, the commit that introduced it (#5384).
+
+### 2026-09-23 — field mode user stories
+- **§16 Epic F added.** Field mode (§3.3a, §5.8) shipped without user stories, unlike every other epic in §16 — added six stories (US-F1–US-F6) covering opt-in enablement, the local passcode/biometric gate, offline browsing, the outbox, reconnect reconciliation, and data purge, derived from the offline spec's own §3, §5.8, §6, §9 and §10 with no new scope. Written to support an `om-mockup-prototype` click-through of `/field/*`, the same purpose §16 itself was added for.
+
+### 2026-09-22 (rev 3) — assisted selling surfaces
+
+Adds the storefront half of [Assisted Selling](./2026-09-22-assisted-selling.md) (suite spec 13, [ADR-10](./2026-08-14-ecommerce-suite-roadmap.md#adr-10--a-proposal-is-a-cart-and-acceptance-is-a-merge)). **Surfaces only** — the data model, the proposal lifecycle and the transport contract belong to spec 13 and to cart spec §7a, and restating them here would create a second copy to drift.
+
+- **Added `ProposalTray` (§5.9) and `AssistedSellingPanel` (§5.10).** This spec had no surface at all on which a buyer could receive, weigh or accept a suggestion. That was survivable while nothing could propose one; cart rev 7 §7a makes proposals real, and a proposal with nowhere to render is a contract with no consumer — the same failure mode §5.4a was added to fix for sorting.
+- **Recorded that a suggestion is not rendered inside the basket.** The obvious placement is the cart page, and it is wrong: a line the buyer has not accepted is not in the basket, and putting it there asserts the opposite. Stated explicitly because the cheap implementation is the misleading one.
+- **Added the rendering-table row and the lazy-mount rule (§3.3).** Without it the natural implementation imports a live-transport client component into every catalogue route, for a surface almost no session uses, against a 180 kB budget — **R12**.
+- **Stated the transport rule in this document rather than assuming it.** §5.10 requires SSE with a **runtime** fallback to polling. The pattern this repo already has — `useMessages` choosing between an SSE-backed hook and a polling hook once, at module-evaluation time, on `typeof window.EventSource !== 'undefined'` — is a capability check, not a fallback. It is adequate behind an admin shell where an absent `EventSource` is the only realistic failure. It is not adequate here, because a CDN sits in front of this application (§3.3, R1) and a blocked or buffered stream is present in the browser and never delivers. Copying that pattern would have produced a surface that silently never updates for exactly the users whose networks are the problem.
+- **Added R11 — presence is a disclosure obligation, not a banner.** A dismissible or panel-scoped notice means a buyer who collapsed the panel is observed by a named employee with nothing on screen saying so. Rated High and paired with spec 13's decision to give the settings entity no column that could suppress it: the mitigation is that the switch does not exist.
+- **Added R13 — the storefront must not derive proposal state the server owns.** Computing "expired" from the browser clock, or summing a cart-plus-proposal total locally, are both the client deriving state R4 says it must not; the second is also the storefront performing arithmetic that ADR-2 keeps in one place one layer down.
+- **Added the §12 coverage blocks and Epic G (§16).** Including the assertion that a session with no thread starts no transport, and the fallback test that blocks the stream **in transit** rather than removing the API — the failure a capability check cannot see.
+- **Generalized the cross-cutting rule.** It previously covered server-decided *sets* (sort options, checkout steps); proposal status is a server-decided *state* and the same rule applies, so the bullet now names both.
+
+### 2026-09-22 — field mode
+- **Resolved §14 Open Question 4.** The question as written said "the roadmap listed offline as a non-goal" — that non-goal does not exist: the word "offline" appears nowhere in `2026-08-14-ecommerce-suite-roadmap.md` prior to today's ADR-10. This is recorded here as a discrepancy in the prior draft, not silently fixed by rewording the question away; nothing was reversed, because nothing had actually been decided against offline before now.
+- Added §3.3a (field mode as a separate client-only route subtree, not this spec's rendering table extended offline), a `field/` entry to the route tree (§4), §5.8 (`OfflinePackStatus`, `OfflineCatalog`/`OfflineProductCard`, `OutboxReview`, `SyncReconciliation` — reusing §5.3's `PriceDisplay` and the existing merge-summary surface rather than a new screen), a `/field/*` budget row (§9), R10 (§11 — the service-worker-scope-creep risk), a Field mode test-coverage block (§12), and a Field mode row in §15.
+- Full design — the offline pack, the intent outbox, device-at-rest protection, and POS as the contract's second consumer — lives in the new [Offline Field Mode](./2026-09-22-offline-field-mode.md) spec, per that document's own architecture decision (roadmap ADR-10) that reading and writing offline are two independently-risked halves and must not be specified inside this app spec.
+
+### 2026-09-17 — user story map
 - **§16 user story map added.** The spec described routes, components and rules but never who wanted what, so a prototype had to infer the flow from a route tree. Six epics derived from §4–§8; no new scope. Checkout and account stories are deliberately left to the specs that own those flows. The changelog moves from §16 to §17.
 
 ### 2026-09-16 (b) — sort control

@@ -402,6 +402,41 @@ async function loadProfileForVariant(
   return profile
 }
 
+async function loadEffectiveProfileForVariant(
+  em: EntityManager,
+  ctx: CommandRuntimeContext,
+  catalogVariantId: string,
+  scope: Scope,
+) {
+  const variantProfile = await loadProfileForVariant(em, ctx, catalogVariantId, scope)
+  if (variantProfile) return variantProfile
+  const rows = await em.getConnection().execute<Array<{ product_id: string | null }>>(
+    `select product_id from catalog_product_variants
+     where id = ? and organization_id = ? and tenant_id = ? and deleted_at is null
+     limit 1`,
+    [catalogVariantId, scope.organizationId, scope.tenantId],
+  )
+  const catalogProductId = rows[0]?.product_id
+  if (!catalogProductId) return null
+  const productProfile = await findOneWithDecryption(
+    em,
+    ProductInventoryProfile,
+    {
+      catalogProductId,
+      catalogVariantId: null,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+    },
+    undefined,
+    scope,
+  )
+  if (!productProfile) return null
+  ensureTenantScope(ctx, productProfile.tenantId)
+  ensureOrganizationScope(ctx, productProfile.organizationId)
+  return productProfile
+}
+
 async function resolveReceiveLotId(
   em: EntityManager,
   ctx: CommandRuntimeContext,
@@ -523,7 +558,7 @@ async function emitLowStockEventIfNeeded(
   scope: Scope,
   catalogVariantId: string,
 ) {
-  const profile = await loadProfileForVariant(em, ctx, catalogVariantId, scope)
+  const profile = await loadEffectiveProfileForVariant(em, ctx, catalogVariantId, scope)
   if (!profile) return
 
   const balances = await listBalancesForVariant(em, ctx, catalogVariantId, scope)
@@ -1795,6 +1830,15 @@ const cycleCountInventoryCommand: CommandHandler<InventoryCycleCountInput, { adj
           balanceAction: ('updated' as const),
           idempotentReplay: true,
         }
+      }
+      if (delta < 0 && getAvailableQuantity(balance) < Math.abs(delta) - 0.000001) {
+        throw new CrudHttpError(409, {
+          error: 'insufficient_stock',
+          countedQuantity: toNumericString(input.countedQuantity),
+          committedQuantity: toNumericString(
+            toNumber(balance.quantityReserved) + toNumber(balance.quantityAllocated),
+          ),
+        })
       }
       setNumeric(
         balance as unknown as Record<string, unknown>,
