@@ -52,7 +52,9 @@ async function postJson(
   try {
     const call = await apiCall<Record<string, unknown>>(url, {
       method: 'POST',
-      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      headers: body
+        ? { 'Content-Type': 'application/json', 'x-om-forbidden-redirect': '0' }
+        : { 'x-om-forbidden-redirect': '0' },
       body: body ? JSON.stringify(body) : undefined,
       signal: controller.signal,
     } as RequestInit)
