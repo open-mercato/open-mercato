@@ -48,6 +48,7 @@ export function resolveOcrMaxWaitQueue(): number {
 /**
  * Max bytes any single spreadsheet archive entry may decompress to (env: OM_ATTACHMENT_SPREADSHEET_MAX_UNCOMPRESSED_BYTES).
  * Kept low on purpose: parsing the shared-strings table peaks at roughly 40-50x its size in memory.
+ * It also caps each worksheet's XML, so a sheet streamed past it is cut off there and the next sheet is read.
  */
 export function resolveSpreadsheetMaxUncompressedBytes(): number {
   return parsePositiveInt(
@@ -56,7 +57,10 @@ export function resolveSpreadsheetMaxUncompressedBytes(): number {
   )
 }
 
-/** Max worksheets read from one spreadsheet (env: OM_ATTACHMENT_SPREADSHEET_MAX_SHEETS). */
+/**
+ * Max worksheets read from one spreadsheet (env: OM_ATTACHMENT_SPREADSHEET_MAX_SHEETS).
+ * The streaming reader parses the shared-strings table again for every sheet, so this also bounds that repeated work.
+ */
 export function resolveSpreadsheetMaxSheets(): number {
   return parsePositiveInt(process.env.OM_ATTACHMENT_SPREADSHEET_MAX_SHEETS, DEFAULT_SPREADSHEET_MAX_SHEETS)
 }

@@ -248,6 +248,25 @@ describe('extractSpreadsheetText', () => {
     )
   })
 
+  it('truncates a worksheet that streams past the entry cap, then reads the next sheet without reporting an error', async () => {
+    const rows = Array.from({ length: 20_000 }, (_, index) => [`wiersz ${index}`, index])
+    const filePath = await writeWorkbook(
+      'long-sheet.xlsx',
+      [
+        { name: 'Długi', rows },
+        { name: 'Krótki', rows: [['koniec']] },
+      ],
+      { inlineStrings: true },
+    )
+
+    const result = await extract(filePath, { maxUncompressedBytes: 256 * 1024 })
+
+    expect(result?.startsWith(['## Długi', 'wiersz 0\t0', 'wiersz 1\t1'].join('\n'))).toBe(true)
+    expect(result).not.toContain('wiersz 19999')
+    expect(result?.endsWith(['## Krótki', 'koniec'].join('\n'))).toBe(true)
+    expect(mockReportError).not.toHaveBeenCalled()
+  })
+
   it('never decompresses parts beyond the workbook, its worksheets, shared strings and styles', async () => {
     const filePath = join(tmpdir(), `${Date.now()}-${Math.random().toString(36).slice(2)}-cell-images.xlsx`)
     await fs.writeFile(filePath, buildArchive(cellImageWorkbookEntries()))

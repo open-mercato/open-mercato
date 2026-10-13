@@ -20,7 +20,7 @@ export type SpreadsheetTextLimits = {
   maxTextChars: number
 }
 
-type SpreadsheetCap = 'sheets' | 'cells' | 'text'
+type SpreadsheetCap = 'sheets' | 'cells' | 'text' | 'entry'
 
 type SheetRows = AsyncIterable<{ values: readonly unknown[] }>
 
@@ -86,12 +86,15 @@ function formatCellValue(value: unknown): string {
   return ''
 }
 
+function isEntryTooLarge(error: unknown): boolean {
+  const { code, message } = (error ?? {}) as { code?: unknown; message?: unknown }
+  return code === SPREADSHEET_ENTRY_TOO_LARGE || (typeof message === 'string' && message.includes('possible zip bomb'))
+}
+
 function resolveFailureCode(error: unknown): string {
-  const { code, name, message } = (error ?? {}) as { code?: unknown; name?: unknown; message?: unknown }
+  const { code, name } = (error ?? {}) as { code?: unknown; name?: unknown }
   if (code === SPREADSHEET_ENCRYPTED || name === 'EncryptedFileError') return 'attachments.spreadsheet_encrypted'
-  if (code === SPREADSHEET_ENTRY_TOO_LARGE || (typeof message === 'string' && message.includes('possible zip bomb'))) {
-    return 'attachments.spreadsheet_entry_too_large'
-  }
+  if (isEntryTooLarge(error)) return 'attachments.spreadsheet_entry_too_large'
   return 'attachments.spreadsheet_extraction_failed'
 }
 
@@ -125,19 +128,26 @@ async function appendSheet(
   limits: SpreadsheetTextLimits,
 ): Promise<SpreadsheetCap | null> {
   let pendingHeading: string | null = heading
-  for await (const row of rows) {
-    if (state.scannedCells + row.values.length > limits.maxCells) return 'cells'
-    state.scannedCells += row.values.length
-    const headingLength = pendingHeading === null ? 0 : pendingHeading.length + 1
-    const rendered = renderRow(row.values, limits.maxTextChars - state.textLength - headingLength)
-    if (rendered.overflow) return 'text'
-    if (rendered.filledCells === 0) continue
-    if (pendingHeading !== null) {
-      state.lines.push(pendingHeading)
-      pendingHeading = null
+  let rowsRead = 0
+  try {
+    for await (const row of rows) {
+      rowsRead += 1
+      if (state.scannedCells + row.values.length > limits.maxCells) return 'cells'
+      state.scannedCells += row.values.length
+      const headingLength = pendingHeading === null ? 0 : pendingHeading.length + 1
+      const rendered = renderRow(row.values, limits.maxTextChars - state.textLength - headingLength)
+      if (rendered.overflow) return 'text'
+      if (rendered.filledCells === 0) continue
+      if (pendingHeading !== null) {
+        state.lines.push(pendingHeading)
+        pendingHeading = null
+      }
+      state.lines.push(rendered.line)
+      state.textLength += headingLength + rendered.line.length + 1
     }
-    state.lines.push(rendered.line)
-    state.textLength += headingLength + rendered.line.length + 1
+  } catch (error) {
+    if (rowsRead > 0 && isEntryTooLarge(error)) return 'entry'
+    throw error
   }
   return null
 }
@@ -154,16 +164,16 @@ async function readSpreadsheetText(filePath: string, limits: SpreadsheetTextLimi
       const rows = streamXlsxRows(data, { sheet: sheetIndex, maxDecompressedBytes: limits.maxUncompressedBytes })
       const heading = `## ${sheetNames[sheetIndex]}`
       const cap = await appendSheet(rows, heading, state, limits)
-      if (cap !== null) {
-        truncatedBy = cap
-        break
-      }
+      if (cap === null) continue
+      truncatedBy = cap
+      if (cap !== 'entry') break
     }
     if (truncatedBy !== null) {
       logger.warn('Spreadsheet exceeds text-extraction cap; truncating', {
         filePath,
         cap: truncatedBy,
         sheetCount: sheetNames.length,
+        maxUncompressedBytes: limits.maxUncompressedBytes,
         maxSheets: limits.maxSheets,
         maxCells: limits.maxCells,
         maxTextChars: limits.maxTextChars,
