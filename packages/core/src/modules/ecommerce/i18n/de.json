@@ -319,6 +319,7 @@
   "ecommerce.search.status.active": "Aktiv",
   "ecommerce.search.status.archived": "Archiviert",
   "ecommerce.search.status.draft": "Entwurf",
+  "ecommerce.validation.archivedStoreTerminal": "Ein archivierter Shop kann nicht wieder geöffnet werden. Legen Sie stattdessen einen neuen Shop an.",
   "ecommerce.validation.backorderLeadTimeRequired": "Geben Sie die Lieferzeit bei Nachbestellung in ganzen Tagen an (0 oder mehr).",
   "ecommerce.validation.borderRadiusInvalid": "Der Eckenradius muss 0 oder ein Wert in rem (bis 5rem) oder px (bis 80px) sein.",
   "ecommerce.validation.brandingFieldUnknown": "Diese Branding-Einstellung existiert nicht.",

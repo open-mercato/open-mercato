@@ -319,6 +319,7 @@
   "ecommerce.search.status.active": "Active",
   "ecommerce.search.status.archived": "Archived",
   "ecommerce.search.status.draft": "Draft",
+  "ecommerce.validation.archivedStoreTerminal": "An archived store cannot be reopened. Create a new store instead.",
   "ecommerce.validation.backorderLeadTimeRequired": "Enter the backorder lead time in whole days (0 or more).",
   "ecommerce.validation.borderRadiusInvalid": "Corner radius must be 0 or a value in rem (up to 5rem) or px (up to 80px).",
   "ecommerce.validation.brandingFieldUnknown": "This branding setting does not exist.",

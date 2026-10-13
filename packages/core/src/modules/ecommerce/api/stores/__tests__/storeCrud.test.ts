@@ -397,6 +397,35 @@ describe('ecommerce store CRUD route', () => {
       })
     })
 
+    it.each(['draft', 'active'])('rejects moving an archived store back to %s with a 400 status field error', async (status) => {
+      const { em } = createFakeEm()
+      const store = makeStore({ status: 'archived' })
+
+      await expect(opts.update!.applyToEntity(store, { id: STORE_ID, status }, createCtx(em))).rejects.toMatchObject({
+        status: 400,
+        body: { fieldErrors: { status: 'An archived store cannot be reopened. Create a new store instead.' } },
+      })
+      expect(store.status).toBe('archived')
+    })
+
+    it('still lets an archived store be renamed while it stays archived', async () => {
+      const { em } = createFakeEm()
+      const store = makeStore({ status: 'archived' })
+
+      await opts.update!.applyToEntity(store, { id: STORE_ID, status: 'archived', name: 'Old outlet' }, createCtx(em))
+
+      expect(store).toMatchObject({ status: 'archived', name: 'Old outlet' })
+    })
+
+    it('lets an active store be archived', async () => {
+      const { em } = createFakeEm()
+      const store = makeStore({ status: 'active' })
+
+      await opts.update!.applyToEntity(store, { id: STORE_ID, status: 'archived' }, createCtx(em))
+
+      expect(store.status).toBe('archived')
+    })
+
     it('rejects removing the current default locale from the supported locales', async () => {
       const { em } = createFakeEm()
 

@@ -319,6 +319,7 @@
   "ecommerce.search.status.active": "Activa",
   "ecommerce.search.status.archived": "Archivada",
   "ecommerce.search.status.draft": "Borrador",
+  "ecommerce.validation.archivedStoreTerminal": "Una tienda archivada no se puede volver a abrir. Crea una tienda nueva en su lugar.",
   "ecommerce.validation.backorderLeadTimeRequired": "Introduzca el plazo de entrega del pedido pendiente en días enteros (0 o más).",
   "ecommerce.validation.borderRadiusInvalid": "El radio de las esquinas debe ser 0 o un valor en rem (hasta 5rem) o px (hasta 80px).",
   "ecommerce.validation.brandingFieldUnknown": "Este ajuste de marca no existe.",

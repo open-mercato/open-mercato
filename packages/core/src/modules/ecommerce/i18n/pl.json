@@ -319,6 +319,7 @@
   "ecommerce.search.status.active": "Aktywny",
   "ecommerce.search.status.archived": "Zarchiwizowany",
   "ecommerce.search.status.draft": "Szkic",
+  "ecommerce.validation.archivedStoreTerminal": "Zarchiwizowanego sklepu nie można ponownie otworzyć. Zamiast tego utwórz nowy sklep.",
   "ecommerce.validation.backorderLeadTimeRequired": "Podaj czas realizacji backorderu w pełnych dniach (0 lub więcej).",
   "ecommerce.validation.borderRadiusInvalid": "Promień zaokrąglenia musi wynosić 0 lub być wartością w rem (do 5rem) albo px (do 80px).",
   "ecommerce.validation.brandingFieldUnknown": "To ustawienie brandingu nie istnieje.",

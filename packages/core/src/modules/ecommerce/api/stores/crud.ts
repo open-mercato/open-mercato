@@ -209,6 +209,13 @@ export function assertLocalesConsistent(store: EcommerceStore, input: EcommerceS
   })
 }
 
+export function assertStatusTransitionAllowed(store: EcommerceStore, input: EcommerceStoreUpdateInput, translate: Translate): void {
+  if (store.status !== 'archived' || input.status === undefined || input.status === 'archived') return
+  throw fieldError(400, {
+    status: translate('ecommerce.validation.archivedStoreTerminal', 'An archived store cannot be reopened. Create a new store instead.'),
+  })
+}
+
 function parseCreateInput(input: RawStoreInput, ctx: CrudCtx): EcommerceStoreCreateInput {
   return ecommerceStoreCreateSchema.parse({ ...input, ...resolveWriteScope(ctx) })
 }
@@ -353,6 +360,7 @@ export const storeCrud = makeCrudRoute<RawStoreInput, RawStoreInput, StoreListQu
       const em = ctx.container.resolve('em') as EntityManager
       const { translate } = await resolveTranslations()
       assertBrandingUnchanged(store.settings, parsed.settings, translate)
+      assertStatusTransitionAllowed(store, parsed, translate)
       assertLocalesConsistent(store, parsed, translate)
       await assertStoreIdentifiersAvailable(
         em,

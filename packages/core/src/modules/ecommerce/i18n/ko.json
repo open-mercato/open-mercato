@@ -319,6 +319,7 @@
   "ecommerce.search.status.active": "활성",
   "ecommerce.search.status.archived": "보관됨",
   "ecommerce.search.status.draft": "초안",
+  "ecommerce.validation.archivedStoreTerminal": "보관된 스토어는 다시 열 수 없습니다. 대신 새 스토어를 만드세요.",
   "ecommerce.validation.backorderLeadTimeRequired": "백오더 리드 타임을 0 이상의 정수(일)로 입력하세요.",
   "ecommerce.validation.borderRadiusInvalid": "모서리 반경은 0이거나 rem(최대 5rem) 또는 px(최대 80px) 값이어야 합니다.",
   "ecommerce.validation.brandingFieldUnknown": "존재하지 않는 브랜딩 설정입니다.",
