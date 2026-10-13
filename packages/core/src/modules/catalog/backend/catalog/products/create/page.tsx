@@ -87,6 +87,7 @@ import {
 import { ProductUomSection } from "@open-mercato/core/modules/catalog/components/products/ProductUomSection";
 import { ProductComplianceSection } from "@open-mercato/core/modules/catalog/components/products/ProductComplianceSection";
 import { canonicalizeUnitCode } from "@open-mercato/core/modules/catalog/lib/unitCodes";
+import { validateCatalogPriceAmountInput } from "@open-mercato/core/modules/catalog/lib/priceValidation";
 import {
   UNIT_PRICE_REFERENCE_UNITS,
   toTrimmedOrNull,
@@ -632,19 +633,23 @@ export default function CreateCatalogProductPage() {
               for (const priceKind of priceKinds) {
                 const value = variant.prices?.[priceKind.id]?.amount?.trim();
                 if (!value) continue;
-                const numeric = Number(value);
-                if (
-                  Number.isNaN(numeric) ||
-                  !Number.isFinite(numeric) ||
-                  numeric < 0
-                ) {
+                const amountValidation = validateCatalogPriceAmountInput(
+                  Number(value),
+                );
+                if (!amountValidation.ok) {
                   throw createCrudFormError(
-                    t(
-                      "catalog.products.create.errors.priceNonNegative",
-                      "Prices must be zero or greater.",
-                    ),
+                    amountValidation.reason === "negative"
+                      ? t(
+                          "catalog.products.create.errors.priceNonNegative",
+                          "Prices must be zero or greater.",
+                        )
+                      : t(
+                          "catalog.variants.form.errors.invalidPrice",
+                          "Provide a valid non-negative price.",
+                        ),
                   );
                 }
+                const numeric = amountValidation.numeric;
                 const currencyCode =
                   typeof priceKind.currencyCode === "string" &&
                   priceKind.currencyCode.trim().length
@@ -1786,6 +1791,7 @@ function ProductBuilder({
                               }
                               placeholder="0.00"
                               min={0}
+                              step="any"
                             />
                           </div>
                         </td>
