@@ -85,7 +85,7 @@ All new modules live in `packages/core/src/modules/<module>/` and follow the sta
 | `promotions` | Promotion rule tree, benefits, codes, usage ledger, evaluation engine | Cart mutation, totals arithmetic, order creation |
 | `customer_groups` | `CustomerGroup`, group membership, group-scoped commercial terms, credit limit and exposure, buyer approval policy | Price rows (owned by `catalog`), tax rates (owned by `sales`) |
 | `merchandising` | Storefront navigation menus, homepage/landing blocks, banners, category enrichment, curated product sets, cross/upsell rules | Product domain model, CMS pages (owned by `content`) |
-| `availability` | The `availabilityService` DI contract and its catalog-only fallback implementation | Stock movements, lots, reservations (owned by `wms`) |
+| `availability` | The `AvailabilityPolicy` sell-policy layer, its resolution chain, and the reservation/checkout-hold lifecycle (`availability.reserve`/`.release`/`.commit`) | Stock movements, lots, the `InventoryReservation` ledger (owned by `wms`); the base `resolveAvailability()` contract and its catalog-only fallback (owned by `packages/shared`) |
 | `assisted_selling` | The buyer↔seller thread and its participants, proposal metadata and lifecycle, the AI proposing agent and its budget, per-store mode configuration, presence disclosure, commission attribution after conversion | `Cart`/`CartLine` and anything priced (owned by `cart`), order creation, the identity of either party, the buyer-facing transport itself (owned by `ecommerce`) |
 | `pricing` (optional) | A resolver registered into `catalog`'s existing resolver chain, taking over price resolution when installed | Price rows and the base resolver (both owned by `catalog`); discount effects (`promotions`); totals (`sales`) |
 
@@ -95,7 +95,7 @@ All new modules live in `packages/core/src/modules/<module>/` and follow the sta
 |---|---|
 | `@open-mercato/checkout` | Becomes the single checkout funnel for every channel, consuming a `cart` rather than owning line items |
 | `customer_accounts` | Storefront-facing account area: order history, address book, saved carts, shopping lists, B2B buyer roster |
-| `wms` | Registers the concrete `availabilityService` implementation backed by `InventoryBalance` / `InventoryReservation` |
+| `wms` | Registers the authoritative availability provider (id `wms`) into `availabilityProviderRegistry`, backed by `InventoryBalance` / `InventoryReservation` |
 | `catalog` | Admin UI for customer/group/quantity-scoped price rows (the data model already supports them) |
 | `sales` | Order creation entrypoint used by checkout; purchase-on-account payment method |
 | `packages/shared` | Two dependency-free contracts consumed across the suite: `lib/availability/` (base availability query/result types, provider registry, catalog-only fallback) and `lib/catalog-visibility/` (`AssortmentScope`, `EffectiveAssortmentScope`, and the pure `matchesOne`/`matchesScope`/`unionScopes`/`intersectScopes` combinators) |
@@ -197,7 +197,7 @@ All new modules live in `packages/core/src/modules/<module>/` and follow the sta
 
 ### ADR-4 — Availability is a contract, `wms` is one implementation
 
-**Decision.** The suite depends on an `availabilityService` contract, not on `wms`:
+**Decision.** The suite depends on the shared `resolveAvailability()` contract, not on `wms`:
 
 ```typescript
 type AvailabilityQuery = {
@@ -218,6 +218,8 @@ type AvailabilityResult = {
   }>
 }
 ```
+
+*(Abridged; spec 2 §4.1a is canonical.)*
 
 Field names are `catalogProductId` / `catalogVariantId`, matching the `catalog_product_id` / `catalog_variant_id` convention `wms`'s own entities already use. `isAuthoritative` is required because a browse-time read may be up to 60s stale and no caller may treat it as a stock guarantee — only the reservation call is authoritative.
 
@@ -439,9 +441,9 @@ Specs 3, 6 and 7 are rewrites/amendments of existing documents. Per `.ai/specs/A
 Each phase is gated: the next does not start until the gate passes.
 
 ### Phase 0 — Foundations
-Specs 1 and 2. Delivers `CustomerGroup` with membership and commercial terms, and the `availabilityService` contract with the `wms` implementation.
+Specs 1 and 2. Delivers `CustomerGroup` with membership and commercial terms, and the shared `resolveAvailability()` contract with the `wms` implementation.
 
-**Gate:** `catalog` price rows can be authored against a real group in admin UI and resolve correctly; `availabilityService` returns authoritative state with `wms` installed and a clean `not tracked` fallback without it.
+**Gate:** `catalog` price rows can be authored against a real group in admin UI and resolve correctly; `resolveAvailability()` returns authoritative state with `wms` installed and a clean `not tracked` fallback without it.
 
 ### Phase 1 — Read side
 Specs 3 and 4. Store, hostname binding, buyer-context resolver, branding, and the public catalog read API with facets and localization.
@@ -557,6 +559,9 @@ Every public namespace MUST be rate limited and MUST include the buyer-context d
 ---
 
 ## 13) Changelog
+
+### 2026-10-11
+- **§3.1, §3.2, ADR-4 and Phase 0 name the shared availability entry point.** `availabilityService` does not exist: the read contract is `resolveAvailability()` in `packages/shared` (§4.1a of [Availability Contract](./2026-08-14-availability-contract.md)) and the writes are the `availability.reserve`/`.release`/`.commit` commands, owned by the `availability` module. The `availability` ownership row and the `wms` registration row now say so, and ADR-4 and the Phase 0 gate use the read call's real name. Recorded from the post-merge review of #5384.
 
 ### 2026-10-02
 - **Merged with spec 14 (offline field mode) from develop.** Both specs landed against the same base, so their numbering is reconciled here: assisted selling keeps row 13 and ADR-10, offline field mode keeps row 14 and ADR-11, and the TLDR, Scope and R7 counts read fourteen specs, eight new modules (spec 14 adds none) and eleven ADRs. The interim note under §6 saying row 13 "is added by its own PR" is dropped now that it is.
