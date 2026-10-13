@@ -23,8 +23,8 @@ import type { PostJournalEntryInput } from '../../ledger/data/validators'
 import type { PostJournalEntryResult } from '../../ledger/commands/postJournalEntry'
 import { emitLedgerEvent } from '../../ledger/events'
 import { JournalEntry, JournalEntryLine, LedgerAccount, LedgerAccountGroup, LedgerAccountType } from '../../ledger/data/entities'
-import { JournalEntryLineDimension } from '../../journal_entry_line_dimension/data/entities'
-import type { SetJournalEntryLineDimensionInput } from '../../journal_entry_line_dimension/data/validators'
+import { JournalEntryLineDimension } from '../../journal_entry_line_dimensions/data/entities'
+import type { SetJournalEntryLineDimensionInput } from '../../journal_entry_line_dimensions/data/validators'
 import { CostCenter, DefaultAccountPostingRule, PostingRulesSettings } from '../data/entities'
 import { UNALLOCATED_COST_CENTER_CODE } from './seedDefaults'
 
@@ -116,7 +116,7 @@ function amountOf(line: { debit: string; credit: string }): { amount: string; si
  * `LedgerAccountGroup{jurisdiction: 'PL', code: '4'}` (see Design
  * Decisions, "Detecting 'zespół 4'"). Direct cross-module entity reads,
  * bypassing the command layer, per the spec's Cross-module integration
- * (the same hard-dependency precedent `journal_entry_line_dimension`
+ * (the same hard-dependency precedent `journal_entry_line_dimensions`
  * documents for `fixed_assets`).
  */
 async function resolveAccountClassification(
@@ -191,7 +191,7 @@ async function loadSentinelCostCenterId(em: EntityManager, scope: Scope, transla
   return sentinel.id
 }
 
-/** Explicit `journal_entry_line_dimension` tag on the source line itself —
+/** Explicit `journal_entry_line_dimensions` tag on the source line itself —
  * the hybrid's first, highest-priority path (see Design Decisions). Direct
  * cross-module entity read, same precedent as `resolveAccountClassification`. */
 async function loadExplicitCostCenterTag(
@@ -233,6 +233,9 @@ async function tagCostCenter(
   const input: SetJournalEntryLineDimensionInput = {
     journalEntryLineId,
     dimensionType: 'CostCenter',
+    // The ownership claim: this engine owns the `CostCenter` tag of the
+    // lines it posts (`DIMENSION_WRITERS` in `journal_entry_line_dimensions`).
+    writer: 'posting_rules',
     dimensionIds: [costCenterId],
     // `resolveScope`'s ctx-only lookup is unreachable from this engine's own
     // `systemActor` context (`ctx.auth: null` below -- see
@@ -246,7 +249,7 @@ async function tagCostCenter(
     organizationId: scope.organizationId,
   }
   await commandBus.execute<SetJournalEntryLineDimensionInput, unknown>(
-    'journal_entry_line_dimension.setJournalEntryLineDimension',
+    'journal_entry_line_dimensions.dimensions.set',
     { input, ctx },
   )
 }

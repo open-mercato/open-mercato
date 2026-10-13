@@ -2,7 +2,7 @@ import { OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 
 /**
- * A tenant-editable cost centre (MPK) — the tag `journal_entry_line_dimension`
+ * A tenant-editable cost centre (MPK) — the tag `journal_entry_line_dimensions`
  * attaches to a reclassified zespół 5 line. Deliberately flatter than Hay's
  * polymorphic Cost Center Assignment model (§7.19) — see the spec's
  * Literature & Prior Art / Alternatives Considered for why: nothing in this

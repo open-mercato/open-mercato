@@ -8,6 +8,6 @@ export const metadata: ModuleInfo = {
     'Automatic zespół 4 → zespół 5 cost reclassification (account 490) for Polish dual-view accounting.',
   author: 'Open Mercato Team',
   license: 'MIT',
-  requires: ['ledger', 'journal_entry_line_dimension'],
+  requires: ['ledger', 'journal_entry_line_dimensions'],
   ejectable: true,
 }

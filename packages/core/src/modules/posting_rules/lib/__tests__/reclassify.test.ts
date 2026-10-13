@@ -13,7 +13,7 @@
 // reversal whose original was never reclassified).
 export {}
 
-import { JournalEntryLineDimension } from '../../../journal_entry_line_dimension/data/entities'
+import { JournalEntryLineDimension } from '../../../journal_entry_line_dimensions/data/entities'
 import { reclassifyLine, RECLASSIFICATION_REFERENCE_TYPE } from '../reclassify'
 import {
   CLEARING_ACCOUNT_ID,
@@ -119,7 +119,7 @@ describe('reclassifyLine — source set', () => {
 })
 
 describe('reclassifyLine — MPK (cost centre) priority hybrid', () => {
-  it('path 1 — an explicit journal_entry_line_dimension tag on the source line outranks the rule default', async () => {
+  it('path 1 — an explicit journal_entry_line_dimensions tag on the source line outranks the rule default', async () => {
     const { em, bus, deps } = setupConfigured()
     em.seed(JournalEntryLineDimension, {
       id: 'jeld-1',
@@ -128,10 +128,13 @@ describe('reclassifyLine — MPK (cost centre) priority hybrid', () => {
       journalEntryLineId: 'line-1',
       dimensionType: 'CostCenter',
       dimensionId: EXPLICIT_COST_CENTER_ID,
+      writer: 'posting_rules',
     })
     const result = await reclassifyLine(deps, buildCandidate())
     expect(result.reclassified).toBe(true)
-    expect(bus.tagCalls).toEqual([expect.objectContaining({ dimensionIds: [EXPLICIT_COST_CENTER_ID] })])
+    expect(bus.tagCalls).toEqual([
+      expect.objectContaining({ dimensionIds: [EXPLICIT_COST_CENTER_ID], writer: 'posting_rules' }),
+    ])
   })
 
   it('path 2 — falls back to the rule\'s default cost centre when there is no explicit tag', async () => {
@@ -267,7 +270,7 @@ describe('reclassifyLine — one reclassification per line, idempotent', () => {
 
   it('recovers from a tag failure on the next pass without a second posting', async () => {
     const { bus, deps } = setupConfigured()
-    bus.failNext('journal_entry_line_dimension.setJournalEntryLineDimension', new Error('tag failed'))
+    bus.failNext('journal_entry_line_dimensions.dimensions.set', new Error('tag failed'))
     await expect(reclassifyLine(deps, buildCandidate())).rejects.toThrow('tag failed')
     expect(bus.postCalls).toHaveLength(1)
 

@@ -19,7 +19,7 @@ import {
   LedgerAccountGroup,
   LedgerAccountType,
 } from '../../../../ledger/data/entities'
-import { JournalEntryLineDimension } from '../../../../journal_entry_line_dimension/data/entities'
+import { JournalEntryLineDimension } from '../../../../journal_entry_line_dimensions/data/entities'
 import { CostCenter, DefaultAccountPostingRule, PostingRulesSettings } from '../../../data/entities'
 import { UNALLOCATED_COST_CENTER_CODE } from '../../seedDefaults'
 import { RECLASSIFICATION_REFERENCE_TYPE, type ReclassifyCandidate, type ReclassifyDeps } from '../../reclassify'
@@ -246,6 +246,7 @@ export function seedReclassification(
       journalEntryLineId: `${entryId}-target`,
       dimensionType: 'CostCenter',
       dimensionId: options.taggedCostCenterId ?? EXPLICIT_COST_CENTER_ID,
+      writer: 'posting_rules',
     })
   }
   return { entryId, targetLineId: `${entryId}-target` }
@@ -270,7 +271,7 @@ export function buildCandidate(
 }
 
 export type PostCall = { input: any; ctx: any }
-export type TagCall = { journalEntryLineId: string; dimensionIds: string[]; ctx: any }
+export type TagCall = { journalEntryLineId: string; dimensionIds: string[]; writer?: string; ctx: any }
 
 /**
  * A fake `commandBus` echoing the real two-line result shape of
@@ -308,10 +309,10 @@ export function buildFakeCommandBus(em: FakeEm) {
       })
       return { result: { journalEntryId, sequenceNumber: nextEntryId, lines }, logEntry: null }
     }
-    if (commandId === 'journal_entry_line_dimension.setJournalEntryLineDimension') {
+    if (commandId === 'journal_entry_line_dimensions.dimensions.set') {
       em.log.push('tag')
-      const input = options.input as { journalEntryLineId: string; dimensionIds: string[] }
-      tagCalls.push({ journalEntryLineId: input.journalEntryLineId, dimensionIds: input.dimensionIds, ctx: options.ctx })
+      const input = options.input as { journalEntryLineId: string; dimensionIds: string[]; writer?: string }
+      tagCalls.push({ journalEntryLineId: input.journalEntryLineId, dimensionIds: input.dimensionIds, writer: input.writer, ctx: options.ctx })
       em.seed(JournalEntryLineDimension, {
         id: `jeld-${tagCalls.length}`,
         organizationId: ORG,
@@ -319,6 +320,7 @@ export function buildFakeCommandBus(em: FakeEm) {
         journalEntryLineId: input.journalEntryLineId,
         dimensionType: 'CostCenter',
         dimensionId: input.dimensionIds[0],
+        writer: 'posting_rules',
       })
       return { result: undefined, logEntry: null }
     }
