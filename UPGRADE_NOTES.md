@@ -41,8 +41,9 @@ uses exact decimals. Public contracts keep their `number` fields (a float copy) 
   are stored without scale padding.
 - `parseAmountUnits` / `formatAmountUnits` from `payment_gateways/lib/capture-ledger` are deprecated; the
   capture-ledger reserve/settle/release helpers now take and return exact decimal strings.
-- Staff `TimeRateResolver.resolve` may return a decimal string, and `CostEntry.rateOverrideAmount` /
-  `CostProject.hourlyRate` may be strings: accept `number | string` when reading them.
+- Staff rate resolvers keep receiving numbers in `ctx.entry.rateOverrideAmount` / `ctx.project.hourlyRate`
+  and returning `number | null` from `resolve`. A resolver that needs digits beyond float precision can
+  read `rateOverrideAmountExact` / `hourlyRateExact` and implement the optional `resolveExact(ctx)`.
 - Payment gateway session, capture and refund requests with more decimals than the currency allows
   (e.g. `10.005` USD) now get a 400. Money inputs with more than 1000 significant digits or 300
   integer digits get a 400 (`withDecimalCaps` guards the number-coercing money schemas).
