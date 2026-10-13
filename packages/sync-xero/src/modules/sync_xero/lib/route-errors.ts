@@ -25,6 +25,7 @@ export const XERO_ROUTE_ERROR_FALLBACKS = {
   disconnect_tokens_unreadable: 'The stored Xero connection cannot be read. Use Disconnect anyway.',
   'xero.test_fakes_unavailable': 'The Xero test fakes of this organization are not running. Start them again or reset the test organization.',
   'xero.schedule_create_failed': 'The default Xero schedule could not be created. Check that the scheduler runs, or create the schedule on the Sync schedules tab.',
+  not_found: 'The company was not found.',
 } as const
 
 export type XeroRouteErrorCode = keyof typeof XERO_ROUTE_ERROR_FALLBACKS

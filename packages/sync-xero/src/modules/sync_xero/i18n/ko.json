@@ -1,4 +1,8 @@
 {
+  "sync_xero.badge.linked": "Xero · 연결됨",
+  "sync_xero.badge.linkedSince": "Xero · {date}부터 연결됨",
+  "sync_xero.badge.open": "Xero에서 연락처 열기",
+  "sync_xero.badge.title": "Xero 연결",
   "sync_xero.disconnect.anyway": "그래도 연결 해제",
   "sync_xero.disconnect.anywayText": "저장된 연결을 읽을 수 없으므로 Open Mercato는 Xero에서 해지하지 않고 연결을 삭제합니다. Xero에서 조직의 Connected apps 목록에서도 앱을 제거하세요.",
   "sync_xero.disconnect.anywayTitle": "그래도 연결을 해제할까요?",
@@ -30,6 +34,7 @@
   "sync_xero.errors.missing_secret": "Xero에 연결할 수 없습니다. 서버에 OAuth 상태 키가 구성되어 있지 않습니다.",
   "sync_xero.errors.not_configured": "먼저 자격 증명 탭에서 Xero Client ID와 Client Secret을 입력하세요.",
   "sync_xero.errors.not_connected": "먼저 Xero에 연결하세요.",
+  "sync_xero.errors.not_found": "회사를 찾을 수 없습니다.",
   "sync_xero.errors.oauth_base_url_not_configured": "Xero에 연결하기 전에 APP_URL을 설정하세요.",
   "sync_xero.errors.organisation_change_confirmation_required": "Xero 조직 변경을 확인하세요.",
   "sync_xero.errors.organisation_not_authorised": "이 Xero 조직은 연결에 포함되어 있지 않습니다. 다시 연결한 뒤 Xero에서 선택하세요.",

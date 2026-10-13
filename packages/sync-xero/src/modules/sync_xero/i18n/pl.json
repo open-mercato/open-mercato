@@ -1,4 +1,8 @@
 {
+  "sync_xero.badge.linked": "Xero · powiązano",
+  "sync_xero.badge.linkedSince": "Xero · powiązano {date}",
+  "sync_xero.badge.open": "Otwórz kontakt w Xero",
+  "sync_xero.badge.title": "Powiązanie z Xero",
   "sync_xero.disconnect.anyway": "Rozłącz mimo to",
   "sync_xero.disconnect.anywayText": "Zapisanego połączenia nie da się odczytać, więc Open Mercato usunie je bez odwoływania w Xero. Usuń też aplikację z listy Connected apps organizacji w Xero.",
   "sync_xero.disconnect.anywayTitle": "Rozłączyć mimo to?",
@@ -30,6 +34,7 @@
   "sync_xero.errors.missing_secret": "Nie można połączyć z Xero: na serwerze nie skonfigurowano klucza stanu OAuth.",
   "sync_xero.errors.not_configured": "Najpierw wpisz Client ID i Client Secret Xero na karcie Dane uwierzytelniające.",
   "sync_xero.errors.not_connected": "Najpierw połącz się z Xero.",
+  "sync_xero.errors.not_found": "Nie znaleziono firmy.",
   "sync_xero.errors.oauth_base_url_not_configured": "Ustaw APP_URL przed połączeniem z Xero.",
   "sync_xero.errors.organisation_change_confirmation_required": "Potwierdź zmianę organizacji Xero.",
   "sync_xero.errors.organisation_not_authorised": "Ta organizacja Xero nie należy do połączenia. Połącz ponownie i wybierz ją w Xero.",
