@@ -657,7 +657,18 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   }, [handleAddEmployee])
 
   // --- Render ---
-  if (!accessDenied && (loading || loadedScopeKey !== projectAccessScopeKey)) {
+  // Screen 17 — the caller may not open this project. The guard state names
+  // neither the customer nor the project (note 1), and the surrounding shell
+  // (sidebar, topbar) is untouched because the caller still has other projects
+  // (note 3). It is checked before `loading` and only cleared by a response that
+  // grants access, so a background reload (e.g. the organization scope
+  // resolving late) keeps the guard mounted instead of resetting a request the
+  // user has just sent.
+  if (accessDenied) {
+    return <NoProjectAccess timeProjectId={projectId} />
+  }
+
+  if (loading || loadedScopeKey !== projectAccessScopeKey) {
     return (
       <Page>
         <PageBody>
@@ -665,14 +676,6 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
         </PageBody>
       </Page>
     )
-  }
-
-  // Screen 17 — the caller may not open this project. The guard state names
-  // neither the customer nor the project (note 1), and the surrounding shell
-  // (sidebar, topbar) is untouched because the caller still has other projects
-  // (note 3).
-  if (accessDenied) {
-    return <NoProjectAccess timeProjectId={projectId} />
   }
 
   if (isNotFound) {
