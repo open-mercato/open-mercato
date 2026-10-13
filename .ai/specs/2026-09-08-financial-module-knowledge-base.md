@@ -90,7 +90,7 @@ them rather than reinventing an equivalent.
 
 **Control account + subsidiary ledger.** Per-counterparty (kontrahent)
 breakdown of a shared liability/asset account is *not* modeled as separate
-GL accounts, and not as a `journal_entry_line_dimension` row either. It's
+GL accounts, and not as a `journal_entry_line_dimensions` row either. It's
 modeled the standard bookkeeping way: one shared control account
 (`accounts_payable.liabilityAccountId`) at the GL level, with the
 per-vendor detail living in the consuming module's own application tables
@@ -111,14 +111,14 @@ software-pattern books.
 1. `LedgerAccount.parentAccountId` — static, single-dimension Chart-of-
    Accounts hierarchy (e.g. `130 Rachunki bieżące` → `130-1 mBank`). One
    parent per account, fixed at setup time.
-2. `journal_entry_line_dimension` — multi-dimensional, contextual tags on a
-   posted line (cost centre/MPK, bank account, fixed asset, currency) that
-   can co-occur on the same line and don't belong in the chart of accounts
+2. `journal_entry_line_dimensions` — multi-dimensional, contextual tags on a
+   posted line (Phase 1: cost centre/MPK; each row names its owning `writer`)
+   that can co-occur with other dimension types on the same line and don't belong in the chart of accounts
    (would explode it into dead combinations). Deliberately excludes the
    counterparty.
 3. `JournalEntryLine.contractorSnapshot` — a denormalized, point-in-time
    audit copy of the counterparty on the line itself, not a live FK and not
-   a `journal_entry_line_dimension` row (audit trails must not retroactively
+   a `journal_entry_line_dimensions` row (audit trails must not retroactively
    change if the counterparty record is edited later).
 
 A future module needing "which X was this posting about" should figure out
@@ -585,7 +585,7 @@ real):**
   design. ERPNext supports an open-ended number of custom accounting
   dimensions and, critically, supports attaching dimension values at
   the individual transaction-row level, not just the document level —
-  confirming `journal_entry_line_dimension`'s own line-level (not
+  confirming `journal_entry_line_dimensions`'s own line-level (not
   document-level) choice against a mature, real production ERP. Genuine
   divergence in mechanism: ERPNext implements each new dimension as a
   dynamically generated schema field (a real column per dimension),
@@ -787,7 +787,7 @@ module (AR is next per SPEC-024's ordering) is designed:
   document), and ACCOUNT CATEGORY/ACCOUNT CLASSIFICATION — an explicit
   many-to-many join this note missed entirely, real precedent for "more
   than one independent tag on the same thing at once," the same shape
-  `journal_entry_line_dimension` has, but at the account level rather
+  `journal_entry_line_dimensions` has, but at the account level rather
   than the line level. Full correction recorded in
   `2026-09-06-journal-entry-line-dimension.md`'s own new Literature &
   Prior Art section.
@@ -822,7 +822,7 @@ pointed at the wrong section.
   *one rule firing uniformly across many accounts of the same type/hierarchy*
   (e.g. "every employee's holiday accrual"), not about *one line needing
   several simultaneous dimensions at once* (MPK + kontrahent). Different
-  problem; not a match for `journal_entry_line_dimension`.
+  problem; not a match for `journal_entry_line_dimensions`.
 - 6.15 Booking Entries to Multiple Accounts — **correction, and the real
   find**: this is *not* about multi-legged transactions (that's §6.2.1,
   already independently confirmed elsewhere as the real match for "1 debit,
@@ -834,7 +834,7 @@ pointed at the wrong section.
   **derived accounts** — an account defined by a filter over entries by
   attribute (6.9 "Choosing Entries"), not a real ledger account at all. That
   third option is structurally the closest match to what
-  `journal_entry_line_dimension` actually does (a queryable attribute on the
+  `journal_entry_line_dimensions` actually does (a queryable attribute on the
   line, not an account). This is a stronger, more precise citation for that
   module than 6.8 — worth swapping in. **Applied 2026-09-15**: independently
   re-verified (still accurate on a second read) and cited in
@@ -874,7 +874,7 @@ pointed at the wrong section.
   implementation of either named Hay pattern. Full detail in
   `2026-09-06-fixed-assets.md`'s own new Literature & Prior Art section.
 
-**Chart of Accounts / `journal_entry_line_dimension`:**
+**Chart of Accounts / `journal_entry_line_dimensions`:**
 - **New 2026-09-15, for Default Chart of Accounts — Kieso's Illustration
   3.9 (ch. 3, pp. 3-12–3-13), confirmed, and the first citation of
   Kieso in this knowledge base for a chart-of-accounts-shape claim
@@ -901,8 +901,9 @@ pointed at the wrong section.
   "(something else)"), explicitly because "the possibilities for
   allocating expenses are so broad, COST CENTER could refer to
   virtually anything." That open placeholder is what
-  `journal_entry_line_dimension`'s own `DIMENSION_TYPES` enum
-  enumerates concretely instead of leaving unbounded. Difference worth
+  `journal_entry_line_dimensions`'s own `DIMENSION_TYPES` enum
+  bounds explicitly (Phase 1: `CostCenter` only) instead of leaving
+  unbounded. Difference worth
   keeping precise: Hay's assignment is anchored on the EXPENSE
   ACCOUNT (an account-level tag); this module's dimension row is
   anchored on the individual `JournalEntryLine` — one level more
@@ -2100,3 +2101,35 @@ Assets, JELD, GL bulk read service, and now this one). Per Step 5:
   integration coverage, and priority/risk/QA-routing labels on PR
   #6711 are all still open, left for the maintainer/user rather than
   guessed at.
+
+### 2026-10-13 (cont. — JELD #5972: third review round; UoR Art. 25 verified, ownership guard)
+
+- **Ustawa o rachunkowości art. 25 — Confirmed against the official text.**
+  Tekst jednolity Dz.U. 2026 poz. 522 (eli.gov.pl, PDF D20260522Lj, p. 37):
+  art. 25 ust. 1 pkt 2 — an error is corrected by entering into the books
+  a document containing the corrections, "tylko zapisami dodatnimi albo
+  tylko ujemnymi"; ust. 2 — after the month is closed, or when the books
+  are kept on a computer, only that correction method is allowed. Art. 12
+  ust. 5 (p. 28) defines closing the books as the irreversible exclusion of
+  the possibility of making entries. Used by JELD to freeze cost-centre
+  tags on lines of a locked fiscal period (a later change is a correcting
+  entry). That a cost-centre tag counts as part of the booked entry is the
+  spec author's reading, not stated in the Act.
+- **Cross-spec convention (§2) refined:** a dimension row carries the
+  consuming module as `writer`, and the module enforces one writer per
+  `(line, dimensionType)` — several consumers (posting_rules, fixed_assets)
+  write `CostCenter`, so per-type scoping alone is not enough. Module id and
+  table are plural (`journal_entry_line_dimensions`), the command id is
+  `journal_entry_line_dimensions.dimensions.set`.
+- Real-code check: `postJournalEntry` (#6340) finds the covering
+  `FiscalPeriod` by `operationDate` and reads it `PESSIMISTIC_READ`
+  (`for share`) in the posting transaction; JELD's write command mirrors
+  that lookup and lock mode.
+- Implementation finding (Posting Rules #6711 → JELD #6708): a system-actor
+  caller (`ctx.auth: null`, e.g. the Posting Rules engine) cannot supply
+  scope through the command context, so a command called by one takes an
+  optional input `tenantId`/`organizationId`, read only when `ctx.auth` is
+  absent (precedent: `warranty_claims` → `create_vendor_recovery`). Also: the
+  ledger line read in a cross-module command must go through
+  `findOneWithDecryption`, since `ledger:journal_entry_line` has an
+  encrypted `contractor_snapshot` column.
