@@ -335,5 +335,6 @@
   "ecommerce.validation.localesDuplicate": "Jede unterstützte Sprache darf nur einmal aufgeführt werden.",
   "ecommerce.validation.pathPrefixInvalid": "Das Pfadpräfix darf nur Kleinbuchstaben, Ziffern, Bindestriche und Schrägstriche enthalten, zum Beispiel /shop.",
   "ecommerce.validation.slugInvalid": "Der Slug darf nur Kleinbuchstaben, Ziffern und einzelne Bindestriche dazwischen enthalten.",
-  "ecommerce.validation.urlInvalid": "Geben Sie eine gültige http(s)-URL oder einen mit / beginnenden Pfad ein."
+  "ecommerce.validation.urlInvalid": "Geben Sie eine gültige http(s)-URL oder einen mit / beginnenden Pfad ein.",
+  "notifications.categories.ecommerce": "E-Commerce"
 }

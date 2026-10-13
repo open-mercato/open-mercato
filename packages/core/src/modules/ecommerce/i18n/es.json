@@ -335,5 +335,6 @@
   "ecommerce.validation.localesDuplicate": "Cada idioma admitido solo puede aparecer una vez.",
   "ecommerce.validation.pathPrefixInvalid": "El prefijo de ruta solo puede contener letras minúsculas, dígitos, guiones y barras, por ejemplo /shop.",
   "ecommerce.validation.slugInvalid": "El slug solo puede contener letras minúsculas, dígitos y guiones simples entre ellos.",
-  "ecommerce.validation.urlInvalid": "Introduce una URL http(s) válida o una ruta que empiece por /."
+  "ecommerce.validation.urlInvalid": "Introduce una URL http(s) válida o una ruta que empiece por /.",
+  "notifications.categories.ecommerce": "Comercio electrónico"
 }

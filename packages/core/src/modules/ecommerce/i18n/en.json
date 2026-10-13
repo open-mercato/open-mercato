@@ -335,5 +335,6 @@
   "ecommerce.validation.localesDuplicate": "Each supported locale may be listed only once.",
   "ecommerce.validation.pathPrefixInvalid": "Path prefix may contain only lowercase letters, digits, dashes and slashes, for example /shop.",
   "ecommerce.validation.slugInvalid": "Slug may contain only lowercase letters, digits and single dashes between them.",
-  "ecommerce.validation.urlInvalid": "Enter a valid http(s) URL or a path starting with /."
+  "ecommerce.validation.urlInvalid": "Enter a valid http(s) URL or a path starting with /.",
+  "notifications.categories.ecommerce": "Ecommerce"
 }
