@@ -30,6 +30,7 @@ const dict = {
   'ai_assistant.chat.mutation_cards.preview.confirm': 'Confirm',
   'ai_assistant.chat.mutation_cards.preview.cancel': 'Cancel',
   'ai_assistant.chat.mutation_cards.preview.reviewDetails': 'Review details',
+  'ai_assistant.chat.mutation_cards.preview.unavailable': 'This proposal is not available to you.',
   'ai_assistant.chat.mutation_cards.diff.fieldHeader': 'Field',
   'ai_assistant.chat.mutation_cards.diff.beforeHeader': 'Before',
   'ai_assistant.chat.mutation_cards.diff.afterHeader': 'After',
@@ -84,6 +85,29 @@ describe('MutationPreviewCard', () => {
       ok: true,
       data: { ok: true, pendingAction: makeAction({ status: 'cancelled' }) },
     })
+  })
+
+  it('hides Confirm and Cancel when the action is unavailable to the viewer', () => {
+    ;(useAiPendingActionPolling as jest.Mock).mockReturnValue({
+      action: null,
+      status: null,
+      isPolling: false,
+      error: null,
+      unavailable: true,
+      refresh: jest.fn().mockResolvedValue(null),
+    })
+    renderWithProviders(
+      <MutationPreviewCard
+        componentId="mutation-preview-card"
+        pendingActionId="pa-foreign"
+        payload={{ pendingAction: makeAction() }}
+      />,
+      { dict },
+    )
+    expect(screen.getByText('Alicia')).toBeInTheDocument()
+    expect(document.querySelector('[data-ai-mutation-preview-unavailable]')).not.toBeNull()
+    expect(document.querySelector('[data-ai-mutation-preview-confirm]')).toBeNull()
+    expect(document.querySelector('[data-ai-mutation-preview-cancel]')).toBeNull()
   })
 
   it('renders fieldDiff mode with before/after cells', () => {

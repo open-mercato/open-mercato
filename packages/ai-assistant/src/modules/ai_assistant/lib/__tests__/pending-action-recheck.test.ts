@@ -5,7 +5,9 @@ import {
   checkAttachmentScope,
   checkRecordVersion,
   checkStatusAndExpiry,
+  checkToolFeatures,
   checkToolWhitelist,
+  isPendingActionRecheckCode,
   runPendingActionRechecks,
   type PendingActionAuthContext,
 } from '../pending-action-recheck'
@@ -351,6 +353,29 @@ describe('pending-action-recheck guards', () => {
     })
   })
 
+  describe('checkToolFeatures', () => {
+    it('passes when the tool declares no features', () => {
+      expect(checkToolFeatures(makeTool({ requiredFeatures: undefined }), makeCtx()).ok).toBe(true)
+    })
+
+    it('rejects a caller missing a tool feature with 403 tool_features_denied', () => {
+      const result = checkToolFeatures(
+        makeTool({ requiredFeatures: ['catalog.products.manage'] }),
+        makeCtx({ userFeatures: ['catalog.products.view'] }),
+      )
+      expect(result).toMatchObject({ ok: false, status: 403, code: 'tool_features_denied' })
+      expect(isPendingActionRecheckCode('tool_features_denied')).toBe(true)
+    })
+
+    it('lets a super admin through without explicit grants', () => {
+      const result = checkToolFeatures(
+        makeTool({ requiredFeatures: ['catalog.products.manage'] }),
+        makeCtx({ userFeatures: [], isSuperAdmin: true }),
+      )
+      expect(result.ok).toBe(true)
+    })
+  })
+
   describe('runPendingActionRechecks', () => {
     it('runs every guard in order and returns ok when all pass', async () => {
       findWithDecryptionMock.mockResolvedValueOnce([])
@@ -359,6 +384,30 @@ describe('pending-action-recheck guards', () => {
         agent: makeAgent(),
         tool: makeTool(),
         ctx: makeCtx(),
+        now: new Date('2026-04-18T10:30:00.000Z'),
+      })
+      expect(result.ok).toBe(true)
+    })
+
+    it('denies a caller who holds the agent features but not the tool features', async () => {
+      const handler = jest.fn()
+      const result = await runPendingActionRechecks({
+        action: makeAction(),
+        agent: makeAgent({ requiredFeatures: ['catalog.products.view'] }),
+        tool: makeTool({ requiredFeatures: ['catalog.products.manage'], handler }),
+        ctx: makeCtx({ userFeatures: ['ai_assistant.view', 'catalog.products.view'] }),
+        now: new Date('2026-04-18T10:30:00.000Z'),
+      })
+      expect(result).toMatchObject({ ok: false, status: 403, code: 'tool_features_denied' })
+      expect(handler).not.toHaveBeenCalled()
+    })
+
+    it('passes the tool feature check through a wildcard grant', async () => {
+      const result = await runPendingActionRechecks({
+        action: makeAction(),
+        agent: makeAgent({ requiredFeatures: ['catalog.products.view'] }),
+        tool: makeTool({ requiredFeatures: ['catalog.products.manage'] }),
+        ctx: makeCtx({ userFeatures: ['ai_assistant.view', 'catalog.*'] }),
         now: new Date('2026-04-18T10:30:00.000Z'),
       })
       expect(result.ok).toBe(true)

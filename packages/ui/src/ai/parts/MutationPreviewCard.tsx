@@ -53,7 +53,7 @@ export function MutationPreviewCard(props: MutationPreviewCardProps) {
   const payload = (props.payload as MutationPreviewCardPayload | undefined) ?? {}
   const injected = props.initialAction ?? payload.pendingAction ?? null
 
-  const { action: polled, refresh } = useAiPendingActionPolling({
+  const { action: polled, refresh, unavailable } = useAiPendingActionPolling({
     pendingActionId,
     endpoint: props.endpoint,
     disabled: !pendingActionId,
@@ -144,7 +144,7 @@ export function MutationPreviewCard(props: MutationPreviewCardProps) {
     onCancel: () => {
       void handleCancel()
     },
-    enabled: phase === 'preview' && !isTerminal,
+    enabled: phase === 'preview' && !isTerminal && !unavailable,
   })
 
   // Terminal — short-circuit into the result card.
@@ -276,29 +276,38 @@ export function MutationPreviewCard(props: MutationPreviewCardProps) {
         ) : (
           <span aria-hidden />
         )}
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              void handleCancel()
-            }}
-            data-ai-mutation-preview-cancel
-          >
-            {t('ai_assistant.chat.mutation_cards.preview.cancel', 'Cancel')}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => {
-              void handleConfirm()
-            }}
-            data-ai-mutation-preview-confirm
-          >
-            {t('ai_assistant.chat.mutation_cards.preview.confirm', 'Confirm')}
-          </Button>
-        </div>
+        {unavailable ? (
+          <p className="text-sm text-muted-foreground" data-ai-mutation-preview-unavailable>
+            {t(
+              'ai_assistant.chat.mutation_cards.preview.unavailable',
+              'This proposal is not available. It may have been resolved or removed, or it was requested by someone else.',
+            )}
+          </p>
+        ) : (
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                void handleCancel()
+              }}
+              data-ai-mutation-preview-cancel
+            >
+              {t('ai_assistant.chat.mutation_cards.preview.cancel', 'Cancel')}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => {
+                void handleConfirm()
+              }}
+              data-ai-mutation-preview-confirm
+            >
+              {t('ai_assistant.chat.mutation_cards.preview.confirm', 'Confirm')}
+            </Button>
+          </div>
+        )}
       </div>
     </section>
   )

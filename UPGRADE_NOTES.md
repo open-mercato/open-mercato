@@ -41,6 +41,14 @@ One behavior is hardened for every provider. The route now verifies every locate
 
 **Action for provider authors:** none unless you want the new options. If your provider can legitimately store several transactions with the same provider session id under credentials that verify each other's signatures, return a more specific locator so a single transaction matches. A provider that locates transactions only by payment id must reject candidates whose `providerSessionId` or `amount` differ from the signed notification, because a retried checkout can leave several transactions for one payment.
 
+### AI pending actions are owner-scoped, and confirm re-checks the tool's features (#3806)
+
+`GET /api/ai_assistant/ai/actions/:id`, `POST .../confirm` and `POST .../cancel` now answer `404 pending_action_not_found` to every user except the one who created the pending action, including participants of a shared conversation. `AiPendingActionRepository.getById`, `setStatus` and `listPendingForAgent` match `createdByUserId` against the context's `userId`; a missing or non-UUID `userId` matches nothing, and only an explicit `userId: null` (system work such as the expiry sweeper) skips the owner filter.
+
+Confirm also re-checks the tool's `requiredFeatures` against the confirming user. `runPendingActionRechecks` returns `403 tool_features_denied` (a new `PendingActionRecheckCode` member, also exported as the `checkToolFeatures` guard), and `executePendingActionConfirm` refuses the same caller without changing the row's status. `computeMutationIdempotencyKey` accepts an optional `userId`; `prepareMutation` passes it, so identical proposals by two users no longer share one row.
+
+**Action for module/app authors:** code that resolved another user's pending action must let the creator do it. An exhaustive `switch` over `PendingActionRecheckCode` needs a `tool_features_denied` case. Custom `useAiPendingActionPolling` consumers can read the new `unavailable` flag, which is set when the action returns 404 and polling stops.
+
 ### The communication-channels OAuth callback reports its result in `?oauth=`, not `?flash=` (#6402)
 
 `GET /api/communication_channels/oauth/[provider]/callback` used to redirect back to `returnUrl`

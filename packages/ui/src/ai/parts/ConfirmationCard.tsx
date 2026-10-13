@@ -58,7 +58,7 @@ export function ConfirmationCard(props: ConfirmationCardProps) {
   const payload = (props.payload as ConfirmationCardPayload | undefined) ?? {}
   const injected = props.initialAction ?? payload.pendingAction ?? null
 
-  const { action, status, refresh } = useAiPendingActionPolling({
+  const { action, status, refresh, unavailable } = useAiPendingActionPolling({
     pendingActionId,
     endpoint: props.endpoint,
     disabled: !pendingActionId,
@@ -78,7 +78,10 @@ export function ConfirmationCard(props: ConfirmationCardProps) {
       : null,
   )
 
+  const isUnavailable = unavailable || localError?.code === 'pending_action_not_found'
+
   const canCancel =
+    !isUnavailable &&
     !isCancelling &&
     (effectiveStatus === 'pending' || effectiveStatus === 'confirmed' || effectiveStatus == null)
 
@@ -153,45 +156,59 @@ export function ConfirmationCard(props: ConfirmationCardProps) {
       tabIndex={0}
       onKeyDown={handleKeyDown}
       data-ai-confirmation-card
-      data-ai-confirmation-status={effectiveStatus ?? 'pending'}
-      aria-busy
+      data-ai-confirmation-status={isUnavailable ? 'unavailable' : effectiveStatus ?? 'pending'}
+      aria-busy={!isUnavailable}
     >
       <div className="flex items-start gap-3">
-        <Spinner size="sm" className="mt-0.5" />
+        {isUnavailable ? null : <Spinner size="sm" className="mt-0.5" />}
         <div className="flex-1">
           <h4 className="text-sm font-semibold">
-            {t(
-              'ai_assistant.chat.mutation_cards.confirmation.title',
-              'Applying action...',
-            )}
+            {isUnavailable
+              ? t(
+                  'ai_assistant.chat.mutation_cards.confirmation.notFoundTitle',
+                  'Proposal not available',
+                )
+              : t(
+                  'ai_assistant.chat.mutation_cards.confirmation.title',
+                  'Applying action...',
+                )}
           </h4>
-          <p className="mt-1 text-sm text-muted-foreground">{summary}</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {isUnavailable
+              ? t(
+                  'ai_assistant.chat.mutation_cards.preview.unavailable',
+                  'This proposal is not available. It may have been resolved or removed, or it was requested by someone else.',
+                )
+              : summary}
+          </p>
         </div>
       </div>
 
-      {localError ? (
+      {localError && !isUnavailable ? (
         <ConfirmationErrorAlert error={localError} />
       ) : null}
 
-      <div className="mt-3 flex items-center justify-end gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            void handleCancel()
-          }}
-          disabled={!canCancel}
-          data-ai-confirmation-cancel
-        >
-          {isCancelling ? (
-            <Loader2 className="size-4 animate-spin" aria-hidden />
-          ) : null}
-          <span>
-            {t('ai_assistant.chat.mutation_cards.confirmation.cancel', 'Cancel')}
-          </span>
-        </Button>
-      </div>
+      {isUnavailable ? null : (
+        <div className="mt-3 flex items-center justify-end gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              void handleCancel()
+            }}
+            disabled={!canCancel}
+            data-ai-confirmation-cancel
+          >
+            {isCancelling ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+            ) : null}
+            <span>
+              {t('ai_assistant.chat.mutation_cards.confirmation.cancel', 'Cancel')}
+            </span>
+          </Button>
+        </div>
+      )}
     </section>
   )
 }
@@ -261,6 +278,29 @@ function ConfirmationErrorAlert({
           {t(
             'ai_assistant.chat.mutation_cards.confirmation.schemaDriftBody',
             'The tool signature changed since this preview was generated. Ask the assistant to re-propose the change.',
+          )}
+        </AlertDescription>
+      </Alert>
+    )
+  }
+
+  if (code === 'tool_features_denied') {
+    return (
+      <Alert
+        status="error"
+        className="mt-3"
+        data-ai-confirmation-error="tool_features_denied"
+      >
+        <AlertTitle>
+          {t(
+            'ai_assistant.chat.mutation_cards.confirmation.toolFeaturesDeniedTitle',
+            'Permission required',
+          )}
+        </AlertTitle>
+        <AlertDescription>
+          {t(
+            'ai_assistant.chat.mutation_cards.confirmation.toolFeaturesDeniedBody',
+            'You no longer have the permissions this change needs. Ask an administrator for access, or cancel the proposal.',
           )}
         </AlertDescription>
       </Alert>
