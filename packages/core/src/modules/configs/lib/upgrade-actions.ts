@@ -185,7 +185,7 @@ export const upgradeActions: UpgradeActionDefinition[] = [
   },
   {
     id: 'ecommerce.seed-draft-store',
-    version: '0.8.1',
+    version: '0.9.1',
     messageKey: 'configs.upgrades.ecommerceDraftStore.message',
     ctaKey: 'configs.upgrades.ecommerceDraftStore.cta',
     successKey: 'configs.upgrades.ecommerceDraftStore.success',

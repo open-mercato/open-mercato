@@ -40,7 +40,8 @@ describe('ecommerce.seed-draft-store upgrade action', () => {
     const action = upgradeActions.find((entry) => entry.id === ACTION_ID)
     expect(action).toBeDefined()
     expect(findUpgradeAction(ACTION_ID, action!.version)).toBe(action)
-    expect(actionsUpToVersion('0.8.0').some((entry) => entry.id === ACTION_ID)).toBe(false)
+    expect(action!.version).toBe('0.9.1')
+    expect(actionsUpToVersion('0.9.0').some((entry) => entry.id === ACTION_ID)).toBe(false)
   })
 
   it('calls the shared seed with the tenant, the organization and the base currency resolver', async () => {
