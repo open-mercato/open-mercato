@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import enDict from '../i18n/en.json'
 import type { XeroConnectionView, XeroOrganisationsView } from '../widgets/injection/xero-tab/types'
@@ -55,7 +55,8 @@ jest.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(mockSearch),
 }))
 
-import XeroTabWidget, { resolveXeroTabState, revocationUnconfirmed } from '../widgets/injection/xero-tab/widget.client'
+import XeroTabWidget from '../widgets/injection/xero-tab/widget.client'
+import { resolveXeroTabState, revocationUnconfirmed } from '../widgets/injection/xero-tab/ConnectionStatePanel'
 import { injectionTable, XERO_TAB_WIDGET_ID } from '../widgets/injection-table'
 import { integration } from '../integration'
 
@@ -258,5 +259,83 @@ describe('Xero tab', () => {
     renderTab()
     await waitFor(() => expect(mockFlash).toHaveBeenCalledWith(enDict['sync_xero.result.account_pending'], 'info'))
     expect(mockReplace).toHaveBeenCalledWith('/backend/integrations/sync_xero?tab=xero')
+  })
+
+  it('disconnects with the grant revision, names the other Organisations and removes the credentials on request', async () => {
+    serve(connectionView(), { ...organisations, selected: XERO_ORG_A })
+    const sentHeaders: Array<Record<string, string>> = []
+    mockApiCallOrThrow.mockImplementation(async () => {
+      sentHeaders.push({ ...scopedHeaders })
+      return {
+        ok: true,
+        status: 200,
+        result: { erased: true, revocation: 'confirmed', failureReason: null, steps: { healthCheck: 'ok', disable: 'ok', removeClientCredentials: 'ok' } },
+      }
+    })
+    renderTab()
+    fireEvent.click(await screen.findByRole('button', { name: enDict['sync_xero.disconnect.open'] }))
+    const dialog = await screen.findByTestId('sync-xero-disconnect-dialog')
+    expect(await within(dialog).findByText('This connection also covers: Second Ltd. Revoking it may end their connection too.')).toBeTruthy()
+    expect(within(dialog).getByText(enDict['sync_xero.disconnect.revokeReach'])).toBeTruthy()
+    fireEvent.click(within(dialog).getByLabelText(enDict['sync_xero.disconnect.removeClientCredentials']))
+    fireEvent.click(within(dialog).getByRole('button', { name: enDict['sync_xero.disconnect.confirm'] }))
+    await waitFor(() => expect(mockFlash).toHaveBeenCalledWith(enDict['sync_xero.disconnect.done'], 'success'))
+    expect(mockApiCallOrThrow).toHaveBeenCalledWith('/api/sync_xero/disconnect', expect.objectContaining({ body: JSON.stringify({ removeClientCredentials: true }) }))
+    expect(sentHeaders[0]).toEqual({ 'x-om-ext-optimistic-lock-expected-updated-at': '2026-10-13T10:00:00.000Z' })
+  })
+
+  it('offers Disconnect anyway when the grant turns out unreadable, and forces it after confirmation', async () => {
+    serve(connectionView(), { ...organisations, selected: XERO_ORG_A })
+    mockApiCallOrThrow
+      .mockRejectedValueOnce(Object.assign(new Error('unreadable'), { status: 409, code: 'disconnect_tokens_unreadable' }))
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        result: { erased: true, revocation: 'failed', failureReason: 'undecryptable', steps: { healthCheck: 'ok', disable: 'ok', removeClientCredentials: 'skipped' } },
+      })
+    renderTab()
+    fireEvent.click(await screen.findByRole('button', { name: enDict['sync_xero.disconnect.open'] }))
+    const dialog = await screen.findByTestId('sync-xero-disconnect-dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: enDict['sync_xero.disconnect.confirm'] }))
+    await waitFor(() => expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ title: enDict['sync_xero.disconnect.anywayTitle'] })))
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalledTimes(2))
+    expect(JSON.parse(mockApiCallOrThrow.mock.calls[1][1].body)).toEqual({ force: true, removeClientCredentials: false })
+    await waitFor(() => expect(mockFlash).toHaveBeenCalledWith(enDict['sync_xero.disconnect.revocationFailed'], 'warning'))
+  })
+
+  it('offers only Disconnect anyway for a grant the platform cannot read', async () => {
+    serve(connectionView({}, { status: 'unavailable', connectionState: 'unavailable', unavailableReason: 'platform', organisation: null }))
+    renderTab()
+    expect(await screen.findByRole('button', { name: enDict['sync_xero.disconnect.anyway'] })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: enDict['sync_xero.tab.unavailable.replace'] })).toBeNull()
+    expect(screen.queryByRole('button', { name: enDict['sync_xero.disconnect.open'] })).toBeNull()
+  })
+
+  it('warns that the integration stays enabled when the caller may not disable it', async () => {
+    serve(connectionView(), { ...organisations, selected: XERO_ORG_A })
+    mockApiCallOrThrow.mockResolvedValue({
+      ok: true,
+      status: 200,
+      result: { erased: true, revocation: 'confirmed', failureReason: null, steps: { healthCheck: 'ok', disable: 'skipped', removeClientCredentials: 'skipped' } },
+    })
+    renderTab()
+    fireEvent.click(await screen.findByRole('button', { name: enDict['sync_xero.disconnect.open'] }))
+    const dialog = await screen.findByTestId('sync-xero-disconnect-dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: enDict['sync_xero.disconnect.confirm'] }))
+    await waitFor(() => expect(mockFlash).toHaveBeenCalledWith(enDict['sync_xero.disconnect.disableSkipped'], 'warning'))
+  })
+
+  it('reports follow-up steps that failed after the erase', async () => {
+    serve(connectionView(), { ...organisations, selected: XERO_ORG_A })
+    mockApiCallOrThrow.mockResolvedValue({
+      ok: true,
+      status: 200,
+      result: { erased: true, revocation: 'confirmed', failureReason: null, steps: { healthCheck: 'ok', disable: 'failed', removeClientCredentials: 'skipped' } },
+    })
+    renderTab()
+    fireEvent.click(await screen.findByRole('button', { name: enDict['sync_xero.disconnect.open'] }))
+    const dialog = await screen.findByTestId('sync-xero-disconnect-dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: enDict['sync_xero.disconnect.confirm'] }))
+    await waitFor(() => expect(mockFlash).toHaveBeenCalledWith('Some follow-up steps failed: disabling the integration.', 'warning'))
   })
 })
