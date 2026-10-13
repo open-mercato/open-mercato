@@ -4,7 +4,7 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn(async () => ({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1', roles: [] })),
 }))
 jest.mock('@open-mercato/core/modules/attachments/lib/requestScope', () => ({
-  resolveAttachmentOrganizationId: jest.fn(async () => 'org-1'),
+  resolveAttachmentRequestScope: jest.fn(async () => ({ denied: false, organizationId: 'org-1' })),
 }))
 jest.mock('@open-mercato/core/modules/attachments/data/entities', () => ({
   Attachment: class Attachment {},
