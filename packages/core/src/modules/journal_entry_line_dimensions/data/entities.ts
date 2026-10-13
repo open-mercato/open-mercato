@@ -3,14 +3,14 @@ import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorato
 
 /**
  * The closed set of dimension types this table currently tags a journal
- * entry line with. Kept as a plain TS union here so this file has no
- * dependency on the validator module — the canonical, single source of
- * truth for validation is `DIMENSION_TYPES` in `data/validators.ts`. The
- * `dimension_type` column itself stays `text`, not a Postgres enum, so
- * adding a fifth type is a validator-layer change, not a migration (see
- * the spec's Data Models section).
+ * entry line with (Phase 1: `CostCenter` only). Kept as a plain TS union
+ * here so this file has no dependency on the validator module — the
+ * canonical, single source of truth for validation is `DIMENSION_TYPES` in
+ * `data/validators.ts`. The `dimension_type` column itself stays `text`,
+ * not a Postgres enum, so adding a type is a validator-layer change, not a
+ * migration (see the spec's Data Models section).
  */
-export type JournalEntryLineDimensionType = 'CostCenter' | 'BankAccount' | 'FixedAsset' | 'Currency'
+export type JournalEntryLineDimensionType = 'CostCenter'
 
 /**
  * One independent analytical dimension tag on a single `ledger.JournalEntryLine`
@@ -58,9 +58,9 @@ export class JournalEntryLineDimension {
   journalEntryLineId!: string
 
   /**
-   * `'CostCenter' | 'BankAccount' | 'FixedAsset' | 'Currency'` — an open
-   * string, not a DB enum, validated against the closed `DIMENSION_TYPES`
-   * list at the command boundary (`data/validators.ts`).
+   * Phase 1: `'CostCenter'` — an open string, not a DB enum, validated
+   * against the closed `DIMENSION_TYPES` list at the command boundary
+   * (`data/validators.ts`).
    */
   @Property({ name: 'dimension_type', type: 'text' })
   dimensionType!: string
@@ -68,12 +68,23 @@ export class JournalEntryLineDimension {
   /**
    * References an entity in another module by id; which module depends on
    * `dimensionType` and is resolved by the caller, not by this table.
-   * `text`, not `uuid`: the `'Currency'` dimension type's real target
-   * (`currencies`/`sales` currency rows) is identified by ISO code, not a
-   * uuid.
+   * `text`, not `uuid`: an opaque reference, so a later dimension type with
+   * a non-uuid identifier needs no migration. Phase 1's `CostCenter` ids
+   * are uuids.
    */
   @Property({ name: 'dimension_id', type: 'text' })
   dimensionId!: string
+
+  /**
+   * Module id of the consumer that owns this `(line, dimension_type)` pair
+   * (`'posting_rules'` | `'fixed_assets'`, closed set `DIMENSION_WRITERS` in
+   * `data/validators.ts`). The command rejects a write by a different writer
+   * to an already-tagged pair, so one consumer never silently replaces
+   * another's tag. Declared by the caller; it stops accidental overwrite
+   * between trusted in-process modules but does not authenticate the caller.
+   */
+  @Property({ name: 'writer', type: 'text' })
+  writer!: string
 
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string
