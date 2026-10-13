@@ -1,15 +1,15 @@
 import type { LedgerNormalBalance } from '../data/entities'
 
 export type DefaultChartOfAccountsAccountSeed = {
-  /** e.g. `010-1` — the child `LedgerAccount.slug`. */
-  slug: string
+  /** e.g. `010-1` — the child `LedgerAccount.number`. */
+  number: string
   /** `LedgerAccount` has no `name` field — this becomes `description`. */
   description: string
 }
 
 export type DefaultChartOfAccountsAccountTypeSeed = {
-  /** `LedgerAccountType.slug`, e.g. `010`. */
-  slug: string
+  /** `LedgerAccountType.number`, e.g. `010`. */
+  number: string
   name: string
   normalBalance: LedgerNormalBalance
   /**
@@ -28,7 +28,7 @@ export type DefaultChartOfAccountsAccountTypeSeed = {
  * `docs/default-chart-of-accounts`, OM-16). Representative, not
  * exhaustive: a working subset of each zespół (0-8), not a complete
  * professional plan kont — see the spec's Design Decisions and Data
- * Models. Every `slug` here is illustrative, never read or matched by
+ * Models. Every `number` here is illustrative, never read or matched by
  * name anywhere else in this codebase (knowledge base §2 convention).
  *
  * 39 `LedgerAccountType` rows, 43 `LedgerAccount` rows. Deliberately
@@ -47,183 +47,183 @@ export type DefaultChartOfAccountsAccountTypeSeed = {
 export const DEFAULT_CHART_OF_ACCOUNTS_PL: DefaultChartOfAccountsAccountTypeSeed[] = [
   // Zespół 0 — Aktywa trwałe
   {
-    slug: '010',
+    number: '010',
     name: 'Środki trwałe',
     normalBalance: 'DEBIT',
     accountGroupCode: '0',
     accounts: [
-      { slug: '010-1', description: 'Budynki i lokale' },
-      { slug: '010-2', description: 'Maszyny i urządzenia techniczne' },
-      { slug: '010-3', description: 'Środki transportu' },
+      { number: '010-1', description: 'Budynki i lokale' },
+      { number: '010-2', description: 'Maszyny i urządzenia techniczne' },
+      { number: '010-3', description: 'Środki transportu' },
     ],
   },
   {
-    slug: '020',
+    number: '020',
     name: 'Wartości niematerialne i prawne',
     normalBalance: 'DEBIT',
     accountGroupCode: '0',
-    accounts: [{ slug: '020-1', description: 'Licencje i oprogramowanie' }],
+    accounts: [{ number: '020-1', description: 'Licencje i oprogramowanie' }],
   },
   {
-    slug: '070',
+    number: '070',
     name: 'Umorzenie środków trwałych',
     normalBalance: 'CREDIT',
     accountGroupCode: '0',
-    accounts: [{ slug: '070-1', description: 'Umorzenie środków trwałych' }],
+    accounts: [{ number: '070-1', description: 'Umorzenie środków trwałych' }],
   },
   {
-    slug: '071',
+    number: '071',
     name: 'Umorzenie wartości niematerialnych i prawnych',
     normalBalance: 'CREDIT',
     accountGroupCode: '0',
-    accounts: [{ slug: '071-1', description: 'Umorzenie wartości niematerialnych i prawnych' }],
+    accounts: [{ number: '071-1', description: 'Umorzenie wartości niematerialnych i prawnych' }],
   },
   {
-    slug: '072',
+    number: '072',
     name: 'Odpisy aktualizujące środki trwałe oraz wartości niematerialne i prawne',
     normalBalance: 'CREDIT',
     accountGroupCode: '0',
-    accounts: [{ slug: '072-1', description: 'Odpisy aktualizujące środki trwałe oraz WNiP' }],
+    accounts: [{ number: '072-1', description: 'Odpisy aktualizujące środki trwałe oraz WNiP' }],
   },
 
   // Zespół 1 — Środki pieniężne, rachunki bankowe i inne krótkoterminowe aktywa finansowe
   {
-    slug: '100',
+    number: '100',
     name: 'Kasa',
     normalBalance: 'DEBIT',
     accountGroupCode: '1',
-    accounts: [{ slug: '100-1', description: 'Kasa złotowa' }],
+    accounts: [{ number: '100-1', description: 'Kasa złotowa' }],
   },
   {
-    slug: '130',
+    number: '130',
     name: 'Rachunki bankowe',
     normalBalance: 'DEBIT',
     accountGroupCode: '1',
     accounts: [
-      { slug: '130-1', description: 'Rachunek bieżący PLN' },
-      { slug: '130-2', description: 'Rachunek walutowy EUR' },
+      { number: '130-1', description: 'Rachunek bieżący PLN' },
+      { number: '130-2', description: 'Rachunek walutowy EUR' },
     ],
   },
 
   // Zespół 2 — Rozrachunki i roszczenia
   {
-    slug: '200',
+    number: '200',
     name: 'Rozrachunki z odbiorcami',
     normalBalance: 'DEBIT',
     accountGroupCode: '2',
-    accounts: [{ slug: '200-1', description: 'Rozrachunki z odbiorcami krajowymi' }],
+    accounts: [{ number: '200-1', description: 'Rozrachunki z odbiorcami krajowymi' }],
   },
   {
-    slug: '210',
+    number: '210',
     name: 'Rozrachunki z dostawcami',
     normalBalance: 'CREDIT',
     accountGroupCode: '2',
-    accounts: [{ slug: '210-1', description: 'Rozrachunki z dostawcami krajowymi' }],
+    accounts: [{ number: '210-1', description: 'Rozrachunki z dostawcami krajowymi' }],
   },
   {
-    slug: '220',
+    number: '220',
     name: 'VAT naliczony',
     normalBalance: 'DEBIT',
     accountGroupCode: '2',
-    accounts: [{ slug: '220-1', description: 'VAT naliczony podlegający odliczeniu' }],
+    accounts: [{ number: '220-1', description: 'VAT naliczony podlegający odliczeniu' }],
   },
   {
-    slug: '221',
+    number: '221',
     name: 'VAT należny',
     normalBalance: 'CREDIT',
     accountGroupCode: '2',
-    accounts: [{ slug: '221-1', description: 'VAT należny' }],
+    accounts: [{ number: '221-1', description: 'VAT należny' }],
   },
   {
-    slug: '225',
+    number: '225',
     name: 'Rozrachunki z ZUS',
     normalBalance: 'CREDIT',
     accountGroupCode: '2',
-    accounts: [{ slug: '225-1', description: 'Rozrachunki z ZUS' }],
+    accounts: [{ number: '225-1', description: 'Rozrachunki z ZUS' }],
   },
   {
-    slug: '230',
+    number: '230',
     name: 'Rozrachunki z tytułu wynagrodzeń',
     normalBalance: 'CREDIT',
     accountGroupCode: '2',
-    accounts: [{ slug: '230-1', description: 'Rozrachunki z pracownikami z tytułu wynagrodzeń' }],
+    accounts: [{ number: '230-1', description: 'Rozrachunki z pracownikami z tytułu wynagrodzeń' }],
   },
 
   // Zespół 3 — Materiały i towary
   {
-    slug: '300',
+    number: '300',
     name: 'Rozliczenie zakupu',
     normalBalance: 'DEBIT',
     accountGroupCode: '3',
-    accounts: [{ slug: '300-1', description: 'Rozliczenie zakupu materiałów i towarów' }],
+    accounts: [{ number: '300-1', description: 'Rozliczenie zakupu materiałów i towarów' }],
   },
   {
-    slug: '310',
+    number: '310',
     name: 'Materiały',
     normalBalance: 'DEBIT',
     accountGroupCode: '3',
-    accounts: [{ slug: '310-1', description: 'Materiały w magazynie' }],
+    accounts: [{ number: '310-1', description: 'Materiały w magazynie' }],
   },
   {
-    slug: '330',
+    number: '330',
     name: 'Towary',
     normalBalance: 'DEBIT',
     accountGroupCode: '3',
-    accounts: [{ slug: '330-1', description: 'Towary w magazynie' }],
+    accounts: [{ number: '330-1', description: 'Towary w magazynie' }],
   },
 
   // Zespół 4 — Koszty według rodzajów i ich rozliczenie
   {
-    slug: '400',
+    number: '400',
     name: 'Amortyzacja',
     normalBalance: 'DEBIT',
     accountGroupCode: '4',
-    accounts: [{ slug: '400-1', description: 'Amortyzacja środków trwałych' }],
+    accounts: [{ number: '400-1', description: 'Amortyzacja środków trwałych' }],
   },
   {
-    slug: '401',
+    number: '401',
     name: 'Zużycie materiałów i energii',
     normalBalance: 'DEBIT',
     accountGroupCode: '4',
     accounts: [
-      { slug: '401-1', description: 'Zużycie materiałów' },
-      { slug: '401-2', description: 'Zużycie energii' },
+      { number: '401-1', description: 'Zużycie materiałów' },
+      { number: '401-2', description: 'Zużycie energii' },
     ],
   },
   {
-    slug: '402',
+    number: '402',
     name: 'Usługi obce',
     normalBalance: 'DEBIT',
     accountGroupCode: '4',
-    accounts: [{ slug: '402-1', description: 'Usługi obce' }],
+    accounts: [{ number: '402-1', description: 'Usługi obce' }],
   },
   {
-    slug: '403',
+    number: '403',
     name: 'Podatki i opłaty',
     normalBalance: 'DEBIT',
     accountGroupCode: '4',
-    accounts: [{ slug: '403-1', description: 'Podatki i opłaty' }],
+    accounts: [{ number: '403-1', description: 'Podatki i opłaty' }],
   },
   {
-    slug: '404',
+    number: '404',
     name: 'Wynagrodzenia',
     normalBalance: 'DEBIT',
     accountGroupCode: '4',
-    accounts: [{ slug: '404-1', description: 'Wynagrodzenia' }],
+    accounts: [{ number: '404-1', description: 'Wynagrodzenia' }],
   },
   {
-    slug: '405',
+    number: '405',
     name: 'Ubezpieczenia społeczne i inne świadczenia',
     normalBalance: 'DEBIT',
     accountGroupCode: '4',
-    accounts: [{ slug: '405-1', description: 'Ubezpieczenia społeczne' }],
+    accounts: [{ number: '405-1', description: 'Ubezpieczenia społeczne' }],
   },
   {
-    slug: '409',
+    number: '409',
     name: 'Pozostałe koszty rodzajowe',
     normalBalance: 'DEBIT',
     accountGroupCode: '4',
-    accounts: [{ slug: '409-1', description: 'Pozostałe koszty rodzajowe' }],
+    accounts: [{ number: '409-1', description: 'Pozostałe koszty rodzajowe' }],
   },
   // PR #6137 review, m3: technical clearing account for the zespół 4->5
   // cost reclassification `posting-rules-engine` (#6015) performs — that
@@ -236,133 +236,133 @@ export const DEFAULT_CHART_OF_ACCOUNTS_PL: DefaultChartOfAccountsAccountTypeSeed
   // type's `normalBalance` is immutable once an account of it has posted
   // entries, so the sign is fixed here rather than later.
   {
-    slug: '490',
+    number: '490',
     name: 'Rozliczenie kosztów',
     normalBalance: 'CREDIT',
     accountGroupCode: '4',
-    accounts: [{ slug: '490-1', description: 'Rozliczenie kosztów międzyzespołowe (4 -> 5)' }],
+    accounts: [{ number: '490-1', description: 'Rozliczenie kosztów międzyzespołowe (4 -> 5)' }],
   },
 
   // Zespół 5 — Koszty według typów działalności i ich rozliczenie
   {
-    slug: '550',
+    number: '550',
     name: 'Koszty zarządu',
     normalBalance: 'DEBIT',
     accountGroupCode: '5',
-    accounts: [{ slug: '550-1', description: 'Koszty zarządu' }],
+    accounts: [{ number: '550-1', description: 'Koszty zarządu' }],
   },
   {
-    slug: '552',
+    number: '552',
     name: 'Koszty sprzedaży',
     normalBalance: 'DEBIT',
     accountGroupCode: '5',
-    accounts: [{ slug: '552-1', description: 'Koszty sprzedaży' }],
+    accounts: [{ number: '552-1', description: 'Koszty sprzedaży' }],
   },
 
   // Zespół 6 — Produkty i rozliczenia międzyokresowe
   {
-    slug: '600',
+    number: '600',
     name: 'Produkty gotowe',
     normalBalance: 'DEBIT',
     accountGroupCode: '6',
-    accounts: [{ slug: '600-1', description: 'Wyroby gotowe' }],
+    accounts: [{ number: '600-1', description: 'Wyroby gotowe' }],
   },
   {
-    slug: '640',
+    number: '640',
     name: 'Rozliczenia międzyokresowe kosztów czynne',
     normalBalance: 'DEBIT',
     accountGroupCode: '6',
-    accounts: [{ slug: '640-1', description: 'Rozliczenia międzyokresowe kosztów czynne' }],
+    accounts: [{ number: '640-1', description: 'Rozliczenia międzyokresowe kosztów czynne' }],
   },
 
   // Zespół 7 — Przychody i koszty związane z ich osiągnięciem
   {
-    slug: '700',
+    number: '700',
     name: 'Przychody ze sprzedaży produktów',
     normalBalance: 'CREDIT',
     accountGroupCode: '7',
-    accounts: [{ slug: '700-1', description: 'Przychody ze sprzedaży produktów' }],
+    accounts: [{ number: '700-1', description: 'Przychody ze sprzedaży produktów' }],
   },
   {
-    slug: '701',
+    number: '701',
     name: 'Koszt sprzedanych produktów',
     normalBalance: 'DEBIT',
     accountGroupCode: '7',
-    accounts: [{ slug: '701-1', description: 'Koszt sprzedanych produktów' }],
+    accounts: [{ number: '701-1', description: 'Koszt sprzedanych produktów' }],
   },
   {
-    slug: '730',
+    number: '730',
     name: 'Przychody ze sprzedaży towarów',
     normalBalance: 'CREDIT',
     accountGroupCode: '7',
-    accounts: [{ slug: '730-1', description: 'Przychody ze sprzedaży towarów' }],
+    accounts: [{ number: '730-1', description: 'Przychody ze sprzedaży towarów' }],
   },
   {
-    slug: '731',
+    number: '731',
     name: 'Wartość sprzedanych towarów w cenie zakupu',
     normalBalance: 'DEBIT',
     accountGroupCode: '7',
-    accounts: [{ slug: '731-1', description: 'Wartość sprzedanych towarów w cenie zakupu' }],
+    accounts: [{ number: '731-1', description: 'Wartość sprzedanych towarów w cenie zakupu' }],
   },
   {
-    slug: '750',
+    number: '750',
     name: 'Przychody finansowe',
     normalBalance: 'CREDIT',
     accountGroupCode: '7',
-    accounts: [{ slug: '750-1', description: 'Przychody finansowe' }],
+    accounts: [{ number: '750-1', description: 'Przychody finansowe' }],
   },
   {
-    slug: '751',
+    number: '751',
     name: 'Koszty finansowe',
     normalBalance: 'DEBIT',
     accountGroupCode: '7',
-    accounts: [{ slug: '751-1', description: 'Koszty finansowe' }],
+    accounts: [{ number: '751-1', description: 'Koszty finansowe' }],
   },
   {
-    slug: '760',
+    number: '760',
     name: 'Pozostałe przychody operacyjne',
     normalBalance: 'CREDIT',
     accountGroupCode: '7',
-    accounts: [{ slug: '760-1', description: 'Pozostałe przychody operacyjne' }],
+    accounts: [{ number: '760-1', description: 'Pozostałe przychody operacyjne' }],
   },
   {
-    slug: '761',
+    number: '761',
     name: 'Pozostałe koszty operacyjne',
     normalBalance: 'DEBIT',
     accountGroupCode: '7',
-    accounts: [{ slug: '761-1', description: 'Pozostałe koszty operacyjne' }],
+    accounts: [{ number: '761-1', description: 'Pozostałe koszty operacyjne' }],
   },
 
   // Zespół 8 — Kapitały (fundusze) własne, fundusze specjalne i wynik finansowy
   {
-    slug: '800',
+    number: '800',
     name: 'Kapitał (fundusz) podstawowy',
     normalBalance: 'CREDIT',
     accountGroupCode: '8',
-    accounts: [{ slug: '800-1', description: 'Kapitał (fundusz) podstawowy' }],
+    accounts: [{ number: '800-1', description: 'Kapitał (fundusz) podstawowy' }],
   },
   {
-    slug: '820',
+    number: '820',
     name: 'Rozliczenie wyniku finansowego',
     normalBalance: 'CREDIT',
     accountGroupCode: '8',
-    accounts: [{ slug: '820-1', description: 'Rozliczenie wyniku finansowego' }],
+    accounts: [{ number: '820-1', description: 'Rozliczenie wyniku finansowego' }],
   },
   {
-    slug: '840',
+    number: '840',
     name: 'Rozliczenia międzyokresowe przychodów',
     normalBalance: 'CREDIT',
     accountGroupCode: '8',
     // PR forward-pointer (Deferred Revenue, PR #6193): the account
     // `RevenueDeferral` records against until the recognition schedule
     // accrues it into `700`/`730` — the credit-side counterpart to `640`.
-    accounts: [{ slug: '840-1', description: 'Rozliczenia międzyokresowe przychodów' }],
+    accounts: [{ number: '840-1', description: 'Rozliczenia międzyokresowe przychodów' }],
   },
   {
-    slug: '860',
+    number: '860',
     name: 'Wynik finansowy',
     normalBalance: 'CREDIT',
     accountGroupCode: '8',
-    accounts: [{ slug: '860-1', description: 'Wynik finansowy' }],
+    accounts: [{ number: '860-1', description: 'Wynik finansowy' }],
   },
 ]

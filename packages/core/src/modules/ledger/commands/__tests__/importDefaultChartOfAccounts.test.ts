@@ -117,10 +117,9 @@ describe('ledger.importDefaultChartOfAccounts', () => {
       id: 'existing-type',
       organizationId: ORG_A,
       tenantId: TENANT,
-      slug: 'existing',
+      number: 'existing',
       name: 'Existing type',
       normalBalance: 'DEBIT',
-      parentAccountTypeId: null,
       accountGroupId: null,
       deletedAt: null,
       createdAt: new Date(),
@@ -145,10 +144,9 @@ describe('ledger.importDefaultChartOfAccounts', () => {
       id: 'deleted-type',
       organizationId: ORG_A,
       tenantId: TENANT,
-      slug: 'deleted-type',
+      number: 'deleted-type',
       name: 'Deleted type',
       normalBalance: 'DEBIT',
-      parentAccountTypeId: null,
       accountGroupId: null,
       deletedAt: new Date('2026-01-01'),
       createdAt: new Date(),
@@ -158,9 +156,8 @@ describe('ledger.importDefaultChartOfAccounts', () => {
       id: 'deleted-account',
       organizationId: ORG_A,
       tenantId: TENANT,
-      slug: 'deleted-account',
+      number: 'deleted-account',
       accountTypeId: 'deleted-type',
-      parentAccountId: null,
       description: null,
       deletedAt: new Date('2026-01-01'),
       createdAt: new Date(),
@@ -202,14 +199,12 @@ describe('ledger.importDefaultChartOfAccounts', () => {
       expect(type.organizationId).toBe(ORG_A)
       expect(type.tenantId).toBe(TENANT)
       // Phase 1 template has no type hierarchy — every type is top-level.
-      expect(type.parentAccountTypeId).toBeNull()
       expect(groupIds.has(type.accountGroupId as string)).toBe(true)
     }
     for (const account of accountRows) {
       expect(account.organizationId).toBe(ORG_A)
       expect(account.tenantId).toBe(TENANT)
       // Phase 1 template has no account hierarchy — every account is top-level.
-      expect(account.parentAccountId).toBeNull()
       expect(typeIds.has(account.accountTypeId as string)).toBe(true)
     }
   })
@@ -259,10 +254,10 @@ describe('ledger.importDefaultChartOfAccounts', () => {
     // "sourceTemplate" style field exists anywhere in this payload, so
     // there is nothing for a future edit to be blocked by.
     expect(Object.keys(typeRow).sort()).toEqual(
-      ['accountGroupId', 'createdAt', 'id', 'name', 'normalBalance', 'organizationId', 'parentAccountTypeId', 'slug', 'tenantId', 'updatedAt'].sort(),
+      ['accountGroupId', 'createdAt', 'id', 'name', 'normalBalance', 'organizationId', 'number', 'tenantId', 'updatedAt'].sort(),
     )
     expect(Object.keys(accountRow).sort()).toEqual(
-      ['accountTypeId', 'createdAt', 'description', 'id', 'organizationId', 'parentAccountId', 'slug', 'tenantId', 'updatedAt'].sort(),
+      ['accountTypeId', 'createdAt', 'description', 'id', 'organizationId', 'number', 'tenantId', 'updatedAt'].sort(),
     )
   })
 
@@ -276,10 +271,9 @@ describe('ledger.importDefaultChartOfAccounts', () => {
       id: 'org-b-type',
       organizationId: ORG_B,
       tenantId: TENANT,
-      slug: 'org-b-type',
+      number: 'org-b-type',
       name: 'Org B type',
       normalBalance: 'DEBIT',
-      parentAccountTypeId: null,
       accountGroupId: null,
       deletedAt: null,
       createdAt: new Date(),
@@ -298,18 +292,18 @@ describe('ledger.importDefaultChartOfAccounts', () => {
     expect(allTypes.filter((row) => row.organizationId === ORG_A)).toHaveLength(40)
   })
 
-  it('maps a concurrent-import slug-unique violation to its own 409 conflict, not a raw 500 (PR #6137 review, m1)', async () => {
+  it('maps a concurrent-import number-unique violation to its own 409 conflict, not a raw 500 (PR #6137 review, m1)', async () => {
     const command = loadImportCommand()
     // Simulates the loser of a race between two concurrent imports against
     // the same empty chart of accounts: both pass the precondition check
     // (buildFakeEm has no unique-index enforcement of its own), so the
     // race is reproduced by making this call's own `flush` throw the same
     // shape of error Postgres raises for the real partial unique index
-    // (`ledger_account_types_scope_slug_unique`, #6340) — the fake doesn't
+    // (`ledger_account_types_scope_number_unique`, #6340) — the fake doesn't
     // model transactional rollback, so unlike the other refusal tests in
     // this file this one only asserts the response, not "writes nothing".
     const em = buildFakeEm({
-      throwOnNextFlush: { code: '23505', constraint: 'ledger_account_types_scope_slug_unique' },
+      throwOnNextFlush: { code: '23505', constraint: 'ledger_account_types_scope_number_unique' },
     })
     seedAccountGroups(em, { organizationId: ORG_A, tenantId: TENANT })
     const { ctx } = buildFakeCtx(em, { organizationId: ORG_A, tenantId: TENANT })
@@ -394,9 +388,8 @@ describe('ledger.importDefaultChartOfAccounts', () => {
       id: 'manually-created-account',
       organizationId: ORG_A,
       tenantId: TENANT,
-      slug: 'manually-created-account',
+      number: 'manually-created-account',
       accountTypeId: reusedTypeId,
-      parentAccountId: null,
       description: null,
       deletedAt: null,
       createdAt: new Date(),

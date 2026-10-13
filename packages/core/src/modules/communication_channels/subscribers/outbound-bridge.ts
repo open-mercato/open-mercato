@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { ChannelThreadMapping, CommunicationChannel, MessageChannelLink } from '../data/entities'
 import { Message } from '../../messages/data/entities'
+import { SEND_AS_USER_SOURCE_ENTITY_TYPE } from '../../messages/lib/messageSourceEntityTypes'
 import { isIngestedInboundMessage } from '../lib/inbound-message-origin'
 import { isOutboundDeliveryIntended } from '../lib/outbound-delivery-intent'
 import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from '../lib/queue'
@@ -93,7 +94,7 @@ export default async function handler(
     dscope,
   )
   if (!message) return
-  if (message.sourceEntityType === 'communication_channels.send_as_user') {
+  if (message.sourceEntityType === SEND_AS_USER_SOURCE_ENTITY_TYPE) {
     return
   }
   // (a1) Intent gate. The origin test at (c1) answers "did the ingest command

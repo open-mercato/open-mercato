@@ -82,6 +82,12 @@ export function buildFakeEm(opts: { throwOnNextFlush?: unknown } = {}): FakeEm {
     // Postgres's deferred balance-check trigger to run before commit —
     // this fake has no triggers at all, so it's a safe no-op here.
     if (sql.toLowerCase().includes('set constraints')) return []
+    // `createFiscalPeriod` serializes its check-then-insert with
+    // `pg_advisory_xact_lock(...)` (fiscalPeriods.ts). The fake has no lock
+    // manager, so this is a recorded no-op: tests assert on
+    // `execute.mock.calls` that the lock was requested (and before the
+    // overlap read), not that it blocks anything.
+    if (sql.toLowerCase().includes('pg_advisory_xact_lock')) return []
     if (!sql.includes('journal_entry_sequence')) {
       throw new Error(`buildFakeEm: unhandled raw SQL — ${sql}`)
     }

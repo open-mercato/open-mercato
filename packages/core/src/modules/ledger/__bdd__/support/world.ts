@@ -33,6 +33,7 @@ function matchesWhere(record: FakeRecord, where: WhereCondition): boolean {
     if (typeof condition === 'object') {
       const c = condition as Record<string, unknown>
       if ('$in' in c) return (c.$in as unknown[]).includes(value)
+      if ('$nin' in c) return !(c.$nin as unknown[]).includes(value)
       if ('$ne' in c) return value !== c.$ne
       let ok = true
       if ('$lte' in c) ok = ok && toTime(value) <= toTime(c.$lte)
@@ -146,6 +147,9 @@ export class FakeEntityManager {
     // deferred balance-check trigger to run before commit — this fake has
     // no triggers at all, so it's a safe no-op here.
     if (sql.toLowerCase().includes('set constraints')) return []
+    // `createFiscalPeriod` serializes its overlap check with a Postgres
+    // advisory transaction lock — nothing to serialize in a single-process fake.
+    if (sql.toLowerCase().includes('pg_advisory_xact_lock')) return []
     if (!sql.includes('journal_entry_sequence')) {
       throw new Error(`FakeEntityManager.execute(): unhandled raw SQL — ${sql}`)
     }

@@ -5,12 +5,13 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { parseWithCustomFields } from '@open-mercato/shared/lib/commands/helpers'
 import { runCrudCommandWrite } from '@open-mercato/shared/lib/commands/runCrudCommandWrite'
 import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
-import { conflict, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { badRequest, conflict, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/translate'
 import { E } from '#generated/entities.ids.generated'
 import { JournalEntryLine, LedgerAccount, LedgerAccountGroup, LedgerAccountType } from '../data/entities'
+import { checkTypeNumber, planAccountRenumber } from '../lib/accountNumbering'
 import {
   ledgerAccountTypeCreateSchema,
   ledgerAccountTypeUpdateSchema,
@@ -88,35 +89,16 @@ async function accountTypeStillInUse(em: EntityManager, accountTypeId: string, s
 }
 
 /**
- * Whether another `LedgerAccountType` still names `accountTypeId` as its
- * `parentAccountTypeId` — the second half of `deleteLedgerAccountType`'s
- * blocking condition (see spec: "delete blocked once posted entries OR
- * named as another type's parentAccountTypeId").
- */
-async function accountTypeReferencedAsParent(
-  em: EntityManager,
-  accountTypeId: string,
-  scope: Scope,
-): Promise<boolean> {
-  const count = await em.count(LedgerAccountType, {
-    parentAccountTypeId: accountTypeId,
-    organizationId: scope.organizationId,
-    tenantId: scope.tenantId,
-    deletedAt: null,
-  })
-  return count > 0
-}
-
-/**
  * Rejects an `accountGroupId` that doesn't exist, is soft-deleted, or
- * belongs to a different organization/tenant. Not checked before.
+ * belongs to a different organization/tenant, and returns the group so the
+ * caller can apply its numbering rule.
  */
 async function requireExistingAccountGroup(
   em: EntityManager,
   accountGroupId: string,
   scope: Scope,
   translate: TranslateWithFallbackFn,
-): Promise<void> {
+): Promise<LedgerAccountGroup> {
   const group = await em.findOne(LedgerAccountGroup, {
     id: accountGroupId,
     organizationId: scope.organizationId,
@@ -127,50 +109,56 @@ async function requireExistingAccountGroup(
       translate('ledger.errors.accountGroupNotFoundForOrg', 'The specified account group does not exist for this organization.'),
     )
   }
+  return group
 }
 
 /**
- * Rejects a `parentAccountTypeId` that doesn't exist, is soft-deleted,
- * belongs to a different organization/tenant, names the type itself (only
- * reachable on update — see the equivalent note on `LedgerAccount`'s
- * `requireValidParentAccount`), or would close a cycle through the
- * existing parent chain. `selfId` is `null` on create.
+ * Rejects a type number that breaks the PL rule for its group (three
+ * digits, first digit = the group's `code`). No-op for a type without a
+ * group or in a non-PL group. See `lib/accountNumbering.ts`.
  */
-async function requireValidParentAccountType(
-  em: EntityManager,
-  parentAccountTypeId: string,
-  selfId: string | null,
-  scope: Scope,
+function requireTypeNumberMatchesGroup(
+  number: string,
+  group: LedgerAccountGroup | null,
   translate: TranslateWithFallbackFn,
-): Promise<void> {
-  if (selfId !== null && parentAccountTypeId === selfId) {
-    throw conflict(translate('ledger.errors.accountTypeSelfParent', 'An account type cannot be its own parent.'))
+): void {
+  const violation = checkTypeNumber(number, group)
+  if (violation === 'format') {
+    throw badRequest(
+      translate('ledger.errors.accountTypeNumberFormat', 'A type number in a Polish group must be exactly three digits.'),
+    )
   }
-  const parent = await em.findOne(LedgerAccountType, {
-    id: parentAccountTypeId,
+  if (violation === 'groupDigit') {
+    throw badRequest(
+      translate(
+        'ledger.errors.accountTypeNumberGroupDigit',
+        'The first digit of the type number must be the group code ({{code}}).',
+        { code: group?.code ?? '' },
+      ),
+    )
+  }
+}
+
+/**
+ * Loads the type's live accounts and plans their renumbering for a type
+ * number change (see `planAccountRenumber`): accounts follow their type, so
+ * `402-01` becomes `412-01` when type 402 becomes 412.
+ */
+async function planTypeAccountRenumber(
+  em: EntityManager,
+  accountTypeId: string,
+  previousNumber: string,
+  nextNumber: string,
+  scope: Scope,
+) {
+  const accounts = await em.find(LedgerAccount, {
+    accountTypeId,
     organizationId: scope.organizationId,
     tenantId: scope.tenantId,
     deletedAt: null,
   })
-  if (!parent) {
-    throw conflict(
-      translate('ledger.errors.parentAccountTypeNotFoundForOrg', 'The specified parent account type does not exist for this organization.'),
-    )
-  }
-  if (selfId === null) return
-
-  let cursor: string | null = parent.parentAccountTypeId ?? null
-  for (let hops = 0; cursor !== null && hops < 100; hops += 1) {
-    if (cursor === selfId) {
-      throw conflict(translate('ledger.errors.parentAccountTypeCycle', 'This parent account type would create a cycle.'))
-    }
-    const ancestor: LedgerAccountType | null = await em.findOne(LedgerAccountType, {
-      id: cursor,
-      organizationId: scope.organizationId,
-      tenantId: scope.tenantId,
-    })
-    cursor = ancestor?.parentAccountTypeId ?? null
-  }
+  const plan = planAccountRenumber(accounts, previousNumber, nextNumber)
+  return { accounts, plan }
 }
 
 const createLedgerAccountTypeCommand: CommandHandler<LedgerAccountTypeCreateInput, { ledgerAccountTypeId: string }> = {
@@ -185,21 +173,19 @@ const createLedgerAccountTypeCommand: CommandHandler<LedgerAccountTypeCreateInpu
     const { translate } = await resolveTranslations()
 
     const existing = await em.findOne(LedgerAccountType, {
-      slug: parsed.slug,
+      number: parsed.number,
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
       deletedAt: null,
     })
     if (existing) {
-      throw conflict(translate('ledger.errors.accountTypeSlugTaken', 'An account type with this slug already exists for this organization.'))
+      throw conflict(translate('ledger.errors.accountTypeNumberTaken', 'An account type with this number already exists for this organization.'))
     }
 
-    if (parsed.parentAccountTypeId) {
-      await requireValidParentAccountType(em, parsed.parentAccountTypeId, null, scope, translate)
-    }
-    if (parsed.accountGroupId) {
-      await requireExistingAccountGroup(em, parsed.accountGroupId, scope, translate)
-    }
+    const group = parsed.accountGroupId
+      ? await requireExistingAccountGroup(em, parsed.accountGroupId, scope, translate)
+      : null
+    requireTypeNumberMatchesGroup(parsed.number, group, translate)
 
     let record!: LedgerAccountType
     await runCrudCommandWrite({
@@ -222,10 +208,9 @@ const createLedgerAccountTypeCommand: CommandHandler<LedgerAccountTypeCreateInpu
             id: randomUUID(),
             organizationId: parsed.organizationId,
             tenantId: parsed.tenantId,
-            slug: parsed.slug,
+            number: parsed.number,
             name: parsed.name,
             normalBalance: parsed.normalBalance,
-            parentAccountTypeId: parsed.parentAccountTypeId ?? null,
             accountGroupId: parsed.accountGroupId ?? null,
             createdAt: now,
             updatedAt: now,
@@ -263,20 +248,34 @@ const updateLedgerAccountTypeCommand: CommandHandler<LedgerAccountTypeUpdateInpu
     ensureOrganizationScope(ctx, record.organizationId)
     const scope: Scope = { organizationId: record.organizationId, tenantId: record.tenantId }
 
-    if (parsed.slug !== undefined && parsed.slug !== record.slug) {
+    if (parsed.number !== undefined && parsed.number !== record.number) {
       const existing = await em.findOne(LedgerAccountType, {
-        slug: parsed.slug,
+        number: parsed.number,
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
         deletedAt: null,
         id: { $ne: record.id },
       })
-      if (existing) throw conflict(translate('ledger.errors.accountTypeSlugTaken', 'An account type with this slug already exists for this organization.'))
+      if (existing) throw conflict(translate('ledger.errors.accountTypeNumberTaken', 'An account type with this number already exists for this organization.'))
     }
 
+    let renumberedAccounts: Array<{ account: LedgerAccount; to: string }> = []
+    const changesNumber = parsed.number !== undefined && parsed.number !== record.number
     const changesNormalBalance = parsed.normalBalance !== undefined && parsed.normalBalance !== record.normalBalance
     const changesAccountGroup =
       parsed.accountGroupId !== undefined && (parsed.accountGroupId ?? null) !== (record.accountGroupId ?? null)
+
+    // Posted history and JPK output are keyed by the number, so it is frozen
+    // together with `normalBalance` and `accountGroupId`. The name stays
+    // editable.
+    if (changesNumber && (await accountTypeHasPostedEntries(em, record.id, scope))) {
+      throw conflict(
+        translate(
+          'ledger.errors.accountTypeNumberImmutableAfterPosting',
+          'The type number cannot be changed once an account of this type has posted entries.',
+        ),
+      )
+    }
 
     if (changesNormalBalance || changesAccountGroup) {
       if (await accountTypeHasPostedEntries(em, record.id, scope)) {
@@ -289,13 +288,48 @@ const updateLedgerAccountTypeCommand: CommandHandler<LedgerAccountTypeUpdateInpu
       }
     }
 
-    if (changesAccountGroup && parsed.accountGroupId) {
-      await requireExistingAccountGroup(em, parsed.accountGroupId, scope, translate)
-    }
-
-    if (parsed.parentAccountTypeId !== undefined && parsed.parentAccountTypeId !== record.parentAccountTypeId) {
-      if (parsed.parentAccountTypeId !== null) {
-        await requireValidParentAccountType(em, parsed.parentAccountTypeId, record.id, scope, translate)
+    // The rule is checked against the resulting (number, group) pair whenever
+    // either side changes, so moving a type to another group cannot leave a
+    // number with the wrong first digit.
+    if (changesNumber || changesAccountGroup) {
+      const nextNumber = parsed.number ?? record.number
+      const nextGroupId = parsed.accountGroupId !== undefined ? parsed.accountGroupId : (record.accountGroupId ?? null)
+      const nextGroup = nextGroupId ? await requireExistingAccountGroup(em, nextGroupId, scope, translate) : null
+      requireTypeNumberMatchesGroup(nextNumber, nextGroup, translate)
+      if (changesNumber && nextGroup && checkTypeNumber(nextNumber, nextGroup) === null) {
+        // The accounts follow their type: their prefix is swapped together
+        // with the type number. A type with posted lines is frozen above, so
+        // none of these accounts has posted lines.
+        const planned = await planTypeAccountRenumber(em, record.id, record.number, nextNumber, scope)
+        if (planned.plan.unfixable.length) {
+          throw conflict(
+            translate(
+              'ledger.errors.accountTypeNumberAccountsPrefix',
+              'The type number cannot change while accounts of this type have numbers that do not start with it.',
+            ),
+          )
+        }
+        if (planned.plan.renames.length) {
+          const taken = await em.count(LedgerAccount, {
+            number: { $in: planned.plan.renames.map((rename) => rename.to) },
+            organizationId: scope.organizationId,
+            tenantId: scope.tenantId,
+            deletedAt: null,
+            id: { $nin: planned.plan.renames.map((rename) => rename.id) },
+          })
+          if (taken > 0) {
+            throw conflict(
+              translate(
+                'ledger.errors.accountTypeRenumberCollision',
+                'Renumbering the type would give an account a number that is already taken in this organization.',
+              ),
+            )
+          }
+          renumberedAccounts = planned.accounts.flatMap((account) => {
+            const rename = planned.plan.renames.find((entry) => entry.id === account.id)
+            return rename ? [{ account, to: rename.to }] : []
+          })
+        }
       }
     }
 
@@ -314,13 +348,17 @@ const updateLedgerAccountTypeCommand: CommandHandler<LedgerAccountTypeUpdateInpu
       }),
       phases: [
         () => {
-          if (parsed.slug !== undefined) record.slug = parsed.slug
+          if (parsed.number !== undefined) record.number = parsed.number
           if (parsed.name !== undefined) record.name = parsed.name
           if (parsed.normalBalance !== undefined) record.normalBalance = parsed.normalBalance
-          if (parsed.parentAccountTypeId !== undefined) record.parentAccountTypeId = parsed.parentAccountTypeId ?? null
           if (parsed.accountGroupId !== undefined) record.accountGroupId = parsed.accountGroupId ?? null
           record.updatedAt = new Date()
           em.persist(record)
+          for (const { account, to } of renumberedAccounts) {
+            account.number = to
+            account.updatedAt = new Date()
+            em.persist(account)
+          }
         },
       ],
     })
@@ -342,9 +380,7 @@ const updateLedgerAccountTypeCommand: CommandHandler<LedgerAccountTypeUpdateInpu
 
 /**
  * `deleteLedgerAccountType` — soft delete (`deletedAt`). Blocked when any
- * account of this type has posted entries, or when another account type
- * still names this one as its `parentAccountTypeId` (see
- * accountTypeReferencedAsParent).
+ * account of this type has posted entries or an account still uses it.
  */
 const deleteLedgerAccountTypeCommand: CommandHandler<LedgerAccountTypeDeleteInput, { ledgerAccountTypeId: string }> = {
   id: 'ledger.deleteLedgerAccountType',
@@ -372,14 +408,6 @@ const deleteLedgerAccountTypeCommand: CommandHandler<LedgerAccountTypeDeleteInpu
         translate(
           'ledger.errors.accountTypeStillInUseCannotDelete',
           'This account type cannot be deleted because an account still uses it.',
-        ),
-      )
-    }
-    if (await accountTypeReferencedAsParent(em, record.id, scope)) {
-      throw conflict(
-        translate(
-          'ledger.errors.accountTypeReferencedAsParentCannotDelete',
-          'This account type cannot be deleted because another account type still lists it as its parent.',
         ),
       )
     }

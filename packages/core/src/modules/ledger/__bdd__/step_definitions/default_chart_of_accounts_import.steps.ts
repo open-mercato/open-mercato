@@ -63,16 +63,15 @@ function seedAccountGroups(target: FakeEntityManager, organizationId: string): v
   }
 }
 
-function seedExistingAccountType(target: FakeEntityManager, organizationId: string, slug: string): string {
+function seedExistingAccountType(target: FakeEntityManager, organizationId: string, number: string): string {
   const id = newId()
   target.seed(LedgerAccountType, {
     id,
     organizationId,
     tenantId: TENANT_ID,
-    slug,
+    number,
     name: 'Existing type',
     normalBalance: 'DEBIT',
-    parentAccountTypeId: null,
     accountGroupId: null,
     deletedAt: null,
   })
@@ -108,10 +107,9 @@ Given('an organization whose only account types and accounts have since been rem
     id: removedTypeId,
     organizationId: ORG_ID,
     tenantId: TENANT_ID,
-    slug: 'removed-type',
+    number: 'removed-type',
     name: 'Removed type',
     normalBalance: 'DEBIT',
-    parentAccountTypeId: null,
     accountGroupId: null,
     deletedAt: new Date('2026-01-01'),
   })
@@ -119,9 +117,8 @@ Given('an organization whose only account types and accounts have since been rem
     id: newId(),
     organizationId: ORG_ID,
     tenantId: TENANT_ID,
-    slug: 'removed-account',
+    number: 'removed-account',
     accountTypeId: removedTypeId,
-    parentAccountId: null,
     deletedAt: new Date('2026-01-01'),
   })
 })

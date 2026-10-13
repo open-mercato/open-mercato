@@ -1,9 +1,7 @@
 Feature: Journal entry sequence numbering
   As an accountant relying on the ledger for a complete, auditable record
-  I want each organization's journal entries numbered consecutively, with
-  no gaps and never mixed with another organization's numbering
-  So that the uninterrupted, verifiable numbering required by art. 14 ust. 2
-  Ustawy o rachunkowości can never be violated
+  I want each organization's journal entries numbered consecutively, with no gaps and never mixed with another organization's numbering
+  So that the uninterrupted, verifiable numbering required by art. 14 ust. 2 Ustawy o rachunkowości can never be violated
 
   Scenario: An organization's entries are numbered consecutively
     Given an organization has posted one balanced journal entry, numbered 1

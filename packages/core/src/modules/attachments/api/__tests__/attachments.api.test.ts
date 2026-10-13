@@ -79,9 +79,15 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({ getAuthFromRequest: (
 // The route derives the active org from the selected-organization scope, not the
 // raw auth.orgId (#3765). Default the helper to the auth home org so existing
 // tests are unaffected; individual tests override it to a selected org.
-const mockResolveAttachmentOrganizationId = jest.fn(async (_container: unknown, auth: any) => auth?.orgId ?? null)
+type AttachmentAuthStub = { orgId?: string | null }
+const mockResolveAttachmentRequestScope = jest.fn(
+  async (_container: unknown, auth: AttachmentAuthStub | null | undefined) => ({
+    denied: false,
+    organizationId: auth?.orgId ?? null,
+  }),
+)
 jest.mock('@open-mercato/core/modules/attachments/lib/requestScope', () => ({
-  resolveAttachmentOrganizationId: (...args: unknown[]) => mockResolveAttachmentOrganizationId(...args),
+  resolveAttachmentRequestScope: (...args: unknown[]) => mockResolveAttachmentRequestScope(...args),
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -134,8 +140,13 @@ describe('attachments API', () => {
     jest.clearAllMocks()
     mockGetAuthFromRequest.mockReset()
     mockGetAuthFromRequest.mockImplementation(defaultAuth)
-    mockResolveAttachmentOrganizationId.mockReset()
-    mockResolveAttachmentOrganizationId.mockImplementation(async (_container: unknown, auth: any) => auth?.orgId ?? null)
+    mockResolveAttachmentRequestScope.mockReset()
+    mockResolveAttachmentRequestScope.mockImplementation(
+      async (_container: unknown, auth: AttachmentAuthStub | null | undefined) => ({
+        denied: false,
+        organizationId: auth?.orgId ?? null,
+      }),
+    )
     mockEm.findOne.mockReset()
     mockEm.findOne.mockImplementation(defaultFindOneImpl)
     mockEm.find.mockReset()
@@ -661,7 +672,7 @@ describe('attachments API', () => {
     const { POST: upload } = await loadHandlers()
     // A multi-org admin switched the header org: auth.orgId stays 'org' (home),
     // but the request scope resolves the selected org.
-    mockResolveAttachmentOrganizationId.mockResolvedValueOnce('selected-org')
+    mockResolveAttachmentRequestScope.mockResolvedValueOnce({ denied: false, organizationId: 'selected-org' })
     const file = new File([new Uint8Array([1, 2, 3])], 'doc.pdf', { type: 'application/pdf' })
     const req = new Request('http://x/api/attachments', { method: 'POST', body: fdWith(file) as any })
     const res = await upload(req)
@@ -673,7 +684,7 @@ describe('attachments API', () => {
 
   it('filters listed attachments by the currently selected organization (#3765)', async () => {
     const { GET: list } = await loadHandlers()
-    mockResolveAttachmentOrganizationId.mockResolvedValueOnce('selected-org')
+    mockResolveAttachmentRequestScope.mockResolvedValueOnce({ denied: false, organizationId: 'selected-org' })
     mockEm.find.mockResolvedValue([])
     const req = new Request('http://x/api/attachments?entityId=example:todo&recordId=r1')
     const res = await list(req)

@@ -37,7 +37,7 @@ type ImportDefaultChartOfAccountsUndoPayload = {
 
 type PreparedAccountType = {
   id: string
-  slug: string
+  number: string
   name: string
   normalBalance: 'DEBIT' | 'CREDIT'
   accountGroupId: string
@@ -45,7 +45,7 @@ type PreparedAccountType = {
 
 type PreparedAccount = {
   id: string
-  slug: string
+  number: string
   accountTypeId: string
   description: string
 }
@@ -187,26 +187,24 @@ const importDefaultChartOfAccountsCommand: CommandHandler<
       ledgerAccountTypeCreateSchema.parse({
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
-        slug: typeSeed.slug,
+        number: typeSeed.number,
         name: typeSeed.name,
         normalBalance: typeSeed.normalBalance,
-        parentAccountTypeId: null,
         accountGroupId,
       })
-      preparedTypes.push({ id: typeId, slug: typeSeed.slug, name: typeSeed.name, normalBalance: typeSeed.normalBalance, accountGroupId })
+      preparedTypes.push({ id: typeId, number: typeSeed.number, name: typeSeed.name, normalBalance: typeSeed.normalBalance, accountGroupId })
 
       for (const accountSeed of typeSeed.accounts) {
         ledgerAccountCreateSchema.parse({
           organizationId: scope.organizationId,
           tenantId: scope.tenantId,
-          slug: accountSeed.slug,
+          number: accountSeed.number,
           accountTypeId: typeId,
-          parentAccountId: null,
           description: accountSeed.description,
         })
         preparedAccounts.push({
           id: randomUUID(),
-          slug: accountSeed.slug,
+          number: accountSeed.number,
           accountTypeId: typeId,
           description: accountSeed.description,
         })
@@ -226,10 +224,9 @@ const importDefaultChartOfAccountsCommand: CommandHandler<
                 id: type.id,
                 organizationId: scope.organizationId,
                 tenantId: scope.tenantId,
-                slug: type.slug,
+                number: type.number,
                 name: type.name,
                 normalBalance: type.normalBalance,
-                parentAccountTypeId: null,
                 accountGroupId: type.accountGroupId,
                 createdAt: now,
                 updatedAt: now,
@@ -243,9 +240,8 @@ const importDefaultChartOfAccountsCommand: CommandHandler<
                 id: account.id,
                 organizationId: scope.organizationId,
                 tenantId: scope.tenantId,
-                slug: account.slug,
+                number: account.number,
                 accountTypeId: account.accountTypeId,
-                parentAccountId: null,
                 description: account.description,
                 createdAt: now,
                 updatedAt: now,
@@ -260,16 +256,16 @@ const importDefaultChartOfAccountsCommand: CommandHandler<
       // Two concurrent imports against the same empty chart of accounts can
       // both pass the precondition check above before either writes — the
       // loser's flush fails on one of the two partial unique indexes
-      // (`ledger_account_types_scope_slug_unique` /
-      // `ledger_accounts_scope_slug_unique`, `(organization_id, tenant_id,
-      // slug) where deleted_at is null`, #6340) instead of corrupting data.
+      // (`ledger_account_types_scope_number_unique` /
+      // `ledger_accounts_scope_number_unique`, `(organization_id, tenant_id,
+      // number) where deleted_at is null`, #6340) instead of corrupting data.
       // Map that race to the same 409 refusal the precondition check itself
       // throws, rather than letting it surface as a raw 500 (PR #6137
       // review, m1; see spec's Risks & Impact Review, "Concurrent import
       // attempts").
       if (
-        isUniqueViolation(err, 'ledger_account_types_scope_slug_unique') ||
-        isUniqueViolation(err, 'ledger_accounts_scope_slug_unique')
+        isUniqueViolation(err, 'ledger_account_types_scope_number_unique') ||
+        isUniqueViolation(err, 'ledger_accounts_scope_number_unique')
       ) {
         // Deliberately a distinct key from the precondition check's own
         // `chartOfAccountsNotEmpty` — that message's `{{typeCount}}`/

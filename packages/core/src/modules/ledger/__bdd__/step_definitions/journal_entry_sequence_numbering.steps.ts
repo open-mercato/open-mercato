@@ -31,8 +31,8 @@ function seedBaseline(em: FakeEntityManager, organizationId: string): void {
     deletedAt: null,
   })
   em.seed(Currency, { id: CURRENCY_ID, organizationId, tenantId: TENANT_ID, code: 'PLN', name: 'Polish Zloty', deletedAt: null })
-  em.seed(LedgerAccount, { id: CASH_ACCOUNT_ID, organizationId, tenantId: TENANT_ID, slug: 'cash', accountTypeId: newId(), deletedAt: null })
-  em.seed(LedgerAccount, { id: REVENUE_ACCOUNT_ID, organizationId, tenantId: TENANT_ID, slug: 'revenue', accountTypeId: newId(), deletedAt: null })
+  em.seed(LedgerAccount, { id: CASH_ACCOUNT_ID, organizationId, tenantId: TENANT_ID, number: 'cash', accountTypeId: newId(), deletedAt: null })
+  em.seed(LedgerAccount, { id: REVENUE_ACCOUNT_ID, organizationId, tenantId: TENANT_ID, number: 'revenue', accountTypeId: newId(), deletedAt: null })
 }
 
 function balancedInput(organizationId: string) {
