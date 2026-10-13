@@ -67,10 +67,15 @@ import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import type { FilterPreset } from '@open-mercato/ui/backend/filters/QuickFilters'
 import {
   ensureCurrentUserFilterOption,
+  fetchCurrentUserName,
   fetchAssignableStaffMembers,
   mapAssignableStaffToFilterOptions,
-} from '../../../components/detail/assignableStaff'
+} from '../../../lib/assignableStaff'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { UserCircle2 } from 'lucide-react'
+import { ReassignOwnerDialog } from './components/ReassignOwnerDialog'
+import type { BulkActionExecuteResult } from '@open-mercato/ui/backend/DataTable'
+import { requestBulkOwnerReassignment, buildReassignOwnerSuccess } from '../../../lib/reassignDealOwner'
 
 const logger = createLogger('customers')
 
@@ -551,6 +556,94 @@ export default function CustomersDealsPage() {
     setPage(1)
   }, [])
 
+  // Bulk owner reassignment. The picker needs a user choice, so onExecute parks a resolver
+  // and the dialog settles it: `false` on cancel keeps the selection, and the success shape
+  // lets DataTable clear the selection and track the queued job in the top bar.
+  const [reassignOwnerOpen, setReassignOwnerOpen] = React.useState(false)
+  const [reassignOwnerRows, setReassignOwnerRows] = React.useState<DealRow[]>([])
+  const [isReassigningOwner, setIsReassigningOwner] = React.useState(false)
+  const reassignOwnerResolver = React.useRef<((result: BulkActionExecuteResult | false) => void) | null>(null)
+
+  const settleReassignOwner = React.useCallback((result: BulkActionExecuteResult | false) => {
+    const resolve = reassignOwnerResolver.current
+    reassignOwnerResolver.current = null
+    resolve?.(result)
+  }, [])
+
+  const handleBulkReassignOwner = React.useCallback(
+    async (selectedRows: DealRow[]): Promise<BulkActionExecuteResult | false> => {
+      if (!selectedRows.length) return false
+      // A second invocation (double-click) would otherwise overwrite the parked resolver and
+      // leave the first `onExecute` awaiting forever.
+      settleReassignOwner(false)
+      setReassignOwnerRows(selectedRows)
+      setReassignOwnerOpen(true)
+      return new Promise<BulkActionExecuteResult | false>((resolve) => {
+        reassignOwnerResolver.current = resolve
+      })
+    },
+    [settleReassignOwner],
+  )
+
+  const handleReassignOwnerCancel = React.useCallback(() => {
+    setReassignOwnerOpen(false)
+    settleReassignOwner(false)
+  }, [settleReassignOwner])
+
+  const handleReassignOwnerConfirm = React.useCallback(
+    async (ownerUserId: string) => {
+      const ids = reassignOwnerRows.map((row) => row.id)
+      if (!ids.length) {
+        setReassignOwnerOpen(false)
+        settleReassignOwner(false)
+        return
+      }
+      setIsReassigningOwner(true)
+      let progressJobId: string | null = null
+      try {
+        await runBulkMutation({
+          operation: async () => {
+            const outcome = await requestBulkOwnerReassignment({
+              ids,
+              ownerUserId,
+              errorMessage: t(
+                'customers.deals.list.bulkReassignOwner.error',
+                'Failed to start bulk owner update.',
+              ),
+            })
+            progressJobId = outcome.progressJobId
+          },
+          context: {
+            formId: bulkMutationContextId,
+            resourceKind: 'customers.deals.bulk_owner',
+            retryLastMutation: retryBulkMutation,
+          },
+        })
+      } catch (error) {
+        logger.error('customers.deals.list bulk owner update failed', { err: error })
+        setIsReassigningOwner(false)
+        setReassignOwnerOpen(false)
+        // `runBulkMutation` already surfaced the failure. Returning a message here would make
+        // DataTable flash a second error toast for the same event, so settle silently.
+        settleReassignOwner({ ok: false })
+        return
+      }
+      setIsReassigningOwner(false)
+      setReassignOwnerOpen(false)
+      // DataTable returns right after clearing the selection when a progressJobId is present,
+      // so it never calls the refresh hook — reload the rows here instead.
+      handleRefresh()
+      settleReassignOwner(buildReassignOwnerSuccess({
+        ids,
+        progressJobId,
+        message: t('customers.deals.list.bulkReassignOwner.queued', 'Bulk owner update started ({count} deals).', {
+          count: ids.length,
+        }),
+      }))
+    },
+    [bulkMutationContextId, handleRefresh, reassignOwnerRows, retryBulkMutation, runBulkMutation, settleReassignOwner, t],
+  )
+
   const handleBulkDelete = React.useCallback(async (selectedRows: DealRow[]) => {
     const confirmed = await confirm({
       title: t('customers.deals.list.bulkDelete.title', 'Delete {count} deals?', { count: selectedRows.length }),
@@ -667,6 +760,20 @@ export default function CustomersDealsPage() {
       controller.abort()
     }
   }, [activeOrgId, scopeVersion])
+  React.useEffect(() => {
+    if (!currentUserId || ownerNames[currentUserId]) return
+    const controller = new AbortController()
+    let cancelled = false
+    void fetchCurrentUserName({ signal: controller.signal }).then((name) => {
+      if (!cancelled && name) {
+        setOwnerNames((current) => ({ [currentUserId]: name, ...current }))
+      }
+    })
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [currentUserId, ownerNames])
   const resolvedOwnerFilterOptions = React.useMemo(
     () => ensureCurrentUserFilterOption(
       ownerFilterOptions,
@@ -1142,6 +1249,12 @@ export default function CustomersDealsPage() {
           onSortingChange={setSorting}
           bulkActions={[
             {
+              id: 'reassign-owner',
+              label: t('customers.deals.list.actions.reassignOwner', 'Reassign owner'),
+              icon: UserCircle2,
+              onExecute: handleBulkReassignOwner,
+            },
+            {
               id: 'delete',
               label: t('customers.deals.list.actions.delete', 'Delete'),
               destructive: true,
@@ -1278,6 +1391,13 @@ export default function CustomersDealsPage() {
           savedFilterStorageKey="customers.deals.list"
         />
       </PageBody>
+      <ReassignOwnerDialog
+        open={reassignOwnerOpen}
+        selectedCount={reassignOwnerRows.length}
+        isSubmitting={isReassigningOwner}
+        onClose={handleReassignOwnerCancel}
+        onConfirm={(userId) => { void handleReassignOwnerConfirm(userId) }}
+      />
       {ConfirmDialogElement}
     </Page>
   )

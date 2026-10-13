@@ -845,6 +845,8 @@
   "sales.documents.errors.number_generate_failed": "Failed to generate document number.",
   "sales.documents.errors.organization_required": "Organization context is required.",
   "sales.documents.errors.unauthorized": "Unauthorized",
+  "sales.documents.errors.undoStaleOrder": "This change can no longer be undone because the order was changed afterwards.",
+  "sales.documents.errors.undoStaleQuote": "This change can no longer be undone because the quote was changed afterwards.",
   "sales.documents.form.address.city": "City",
   "sales.documents.form.address.company": "Company (optional)",
   "sales.documents.form.address.country": "Country",

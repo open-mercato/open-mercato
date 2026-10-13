@@ -2,7 +2,7 @@
 import * as React from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/data_sync/extension-points'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
@@ -47,6 +47,9 @@ import {
   ShieldCheck,
 } from 'lucide-react'
 import { getSyncRunStatusVariant, getSyncSummaryVariant } from '../../lib/syncRunStatus'
+import { isRetryableRunStatus } from '../../lib/resume-point'
+import { useDataSyncRunAccess } from '../../components/useDataSyncRunAccess'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { RunParameter } from '../../lib/adapter'
 import { getApplicableRunParameters } from '../../lib/run-parameters'
 import {
@@ -64,6 +67,14 @@ import {
   type RunFailureBody,
   type RunParameterFormValue,
 } from '../../components/RunParameterFields'
+
+function fromBeginningLabel(status: string, t: (key: string, fallback: string) => string): string {
+  // A cancelled run avoids the word "Retry" on its primary action; letting it
+  // back in through the overflow would undo that.
+  return status === 'cancelled'
+    ? t('data_sync.runs.detail.retryFromBeginning.actionCancelled', 'Start from the beginning')
+    : t('data_sync.runs.detail.retryFromBeginning.action', 'Retry from the beginning')
+}
 
 type SyncRunRow = {
   id: string
@@ -207,6 +218,48 @@ export default function SyncRunsDashboardPage() {
   const [isDeletingSchedule, setIsDeletingSchedule] = React.useState(false)
   const [scheduleValueError, setScheduleValueError] = React.useState<ScheduleValueError>(null)
   const [reloadToken, setReloadToken] = React.useState(0)
+  // Server-side the run endpoints already require `data_sync.run`; the pages
+  // did not, so a `data_sync.view` holder saw buttons that 403 on click.
+  const { canRunSync, canConfigureSync } = useDataSyncRunAccess()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const searchParams = useSearchParams()
+  const fromRunId = searchParams?.get('from') ?? null
+  /**
+   * The seed is applied eagerly AND left for the two pre-existing reset effects
+   * to honour, because neither mechanism is sufficient alone: those effects do
+   * not re-run when the seeded integration is already the selected one, and
+   * eager writes alone would be clobbered when they do run.
+   *
+   * Each effect consumes the seed at most once, tracked per token, so a later
+   * manual change falls through to the ordinary defaults instead of having the
+   * old run's values re-applied over it.
+   */
+  const seedRef = React.useRef<{
+    token: string
+    entityType: string
+    direction: 'import' | 'export'
+    parameters: Record<string, unknown>
+  } | null>(null)
+  const seedConsumedRef = React.useRef<{ selection: string | null; parameters: string | null }>({ selection: null, parameters: null })
+  const seedAttemptedRef = React.useRef<string | null>(null)
+  const seedMountedRef = React.useRef(true)
+  const seedSequenceRef = React.useRef(0)
+  /**
+   * State, not a ref, so a new seed re-runs the parameter effect on its own.
+   * That effect is otherwise keyed on the `runParameters` memo, whose identity
+   * does not change when the seeded run uses the integration, entity type and
+   * direction the form already carries — the dashboard row menu's common case.
+   * It is never cleared: clearing it would re-run the effect with no seed and
+   * reset the operator's own edits to the defaults.
+   */
+  const [seedToken, setSeedToken] = React.useState<string | null>(null)
+
+  /** An operator touching the form retires the seed — and the banner with it. */
+  const retireSeed = React.useCallback(() => {
+    seedRef.current = null
+    setSeedSource(null)
+  }, [])
+  const [seedSource, setSeedSource] = React.useState<{ integrationId: string; entityType: string; droppedKeys: string[] } | null>(null)
   const scopeVersion = useOrganizationScopeVersion()
   const t = useT()
   const { runMutation } = useGuardedMutation<Record<string, unknown>>({
@@ -306,8 +359,25 @@ export default function SyncRunsDashboardPage() {
   )
 
   React.useEffect(() => {
-    setParamValues(buildDefaultRunParameterValues(runParameters))
-  }, [runParameters])
+    const defaults = buildDefaultRunParameterValues(runParameters)
+    const seed = seedRef.current
+    if (!seed || seedConsumedRef.current.parameters === seed.token) {
+      setParamValues(defaults)
+      return
+    }
+    seedConsumedRef.current.parameters = seed.token
+    const seeded: Record<string, RunParameterFormValue> = { ...defaults }
+    for (const param of runParameters) {
+      const raw = seed.parameters[param.key]
+      if (raw === undefined || raw === null) continue
+      // The API returns each parameter with its coerced type, so a number
+      // arrives as a JS number and the text input would render blank while
+      // `buildRunParametersPayload` still shipped it. `RunParameterFormValue`
+      // is `string | boolean`; normalise the way the defaults builder does.
+      seeded[param.key] = param.type === 'boolean' ? raw === true : String(raw)
+    }
+    setParamValues(seeded)
+  }, [runParameters, seedToken])
 
   // A control the form stopped showing must not keep submitting the value the
   // operator last set for another entity type.
@@ -326,6 +396,17 @@ export default function SyncRunsDashboardPage() {
   React.useEffect(() => {
     if (!selectedIntegration) {
       setSelectedEntityType('')
+      return
+    }
+    const seed = seedRef.current
+    if (
+      seed
+      && seedConsumedRef.current.selection !== seed.token
+      && selectedIntegration.supportedEntities.includes(seed.entityType)
+    ) {
+      seedConsumedRef.current.selection = seed.token
+      setSelectedEntityType(seed.entityType)
+      setSelectedDirection(seed.direction)
       return
     }
     setSelectedEntityType((current) => (
@@ -430,6 +511,164 @@ export default function SyncRunsDashboardPage() {
       flash(buildRetryFailureMessage(call.result as RetryFailureBody | null, t), 'error')
     }
   }, [t])
+
+  /**
+   * Seeds the start form from `?from=<runId>`, exactly once, after the options
+   * response has resolved — the integration list must exist before an
+   * integration can be selected.
+   *
+   * Only what `sync_runs` actually stores is copied: integration, entity type,
+   * direction and the stored parameters. `fullSync` and batch size are NOT
+   * seeded, because the table has no column for either — they are consumed when
+   * a run starts and thrown away.
+   */
+  React.useEffect(() => {
+    // `router.replace` below drops the parameter, so a second "Run again" on the
+    // same run arrives as null → id. Re-arming on the null is what lets that
+    // repeat work without the guard also re-firing on every effect re-run.
+    if (!fromRunId) {
+      seedAttemptedRef.current = null
+      return
+    }
+    if (isLoadingOptions) return
+    if (seedAttemptedRef.current === fromRunId) return
+    seedAttemptedRef.current = fromRunId
+
+    const seed = async () => {
+      const call = await apiCall<{
+        integrationId: string
+        entityType: string
+        direction: 'import' | 'export'
+        parameters: Record<string, unknown> | null
+      }>(`/api/data_sync/runs/${encodeURIComponent(fromRunId)}`, undefined, { fallback: null })
+
+      // Only an unmount aborts this: an earlier version cancelled on every effect
+      // re-run, which — with the ref guard blocking a second fetch — meant the
+      // seed never landed at all. An unknown, malformed or cross-tenant id is
+      // not an error state either; the form renders its normal defaults, and the
+      // attempt stays recorded so this cannot retry in a loop.
+      if (!seedMountedRef.current || !call.ok || !call.result) return
+      // A second "Run again" re-points `seedAttemptedRef` while this fetch is in
+      // flight; the page stays mounted across that query-only navigation, so a
+      // slower first response must not overwrite the seed the second one applied.
+      if (seedAttemptedRef.current !== fromRunId) return
+
+      const source = call.result
+      const integration = options.find((option) => option.integrationId === source.integrationId)
+      // Validated once here so both seeding paths agree: the same-integration
+      // path never re-runs the selection effect, so nothing would catch an
+      // entity type the adapter has since dropped. Seeding one anyway leaves
+      // Start sync enabled against a value the API answers 422 to, while the
+      // banner claims everything was copied.
+      if (!integration || !integration.supportedEntities.includes(source.entityType)) return
+
+      // The shared resolver, so the banner and the form cannot disagree: it also
+      // honours `entityType` scoping, which a direction-only filter missed — a
+      // re-scoped parameter was counted as carried, then silently dropped.
+      const declaredKeys = new Set(
+        getApplicableRunParameters(integration.runParameters, source.direction, source.entityType)
+          .map((param) => param.key),
+      )
+      const stored = source.parameters ?? {}
+      const carried: Record<string, unknown> = {}
+      const dropped: string[] = []
+      for (const [key, value] of Object.entries(stored)) {
+        if (declaredKeys.has(key)) carried[key] = value
+        else dropped.push(key)
+      }
+
+      // A counter, not a timestamp: two "Run again" clicks on the same run
+      // inside one millisecond would otherwise mint the same token, and the
+      // parameter effect — keyed on it — would not re-run for the second.
+      seedSequenceRef.current += 1
+      const token = `${fromRunId}:${seedSequenceRef.current}`
+      seedRef.current = {
+        token,
+        entityType: source.entityType,
+        direction: source.direction,
+        parameters: carried,
+      }
+      seedConsumedRef.current = { selection: null, parameters: null }
+
+      // Applied eagerly as well as left for the effects: selecting an
+      // integration that is already selected re-runs neither of them, and that
+      // is the common case when "Run again" is clicked from the dashboard.
+      setSelectedIntegrationId(source.integrationId)
+      setSelectedEntityType(source.entityType)
+      setSelectedDirection(source.direction)
+      setSeedSource({ integrationId: source.integrationId, entityType: source.entityType, droppedKeys: dropped })
+      setSeedToken(token)
+
+      // Drop the parameter so a re-render or a back-navigation cannot re-seed
+      // over edits the operator has since made.
+      router.replace('/backend/data-sync')
+    }
+    void seed()
+  }, [fromRunId, isLoadingOptions, options, router])
+
+  React.useEffect(() => {
+    seedMountedRef.current = true
+    return () => { seedMountedRef.current = false }
+  }, [])
+
+  const handleRetryFromBeginning = React.useCallback(async (row: SyncRunRow) => {
+    const confirmed = await confirm({
+      title: t('data_sync.runs.detail.retryFromBeginning.title', 'Retry from the beginning?'),
+      text: [
+        t('data_sync.runs.detail.retryFromBeginning.confirm', 'This ignores the saved cursor and reads the entire source again, instead of continuing.'),
+        t('data_sync.runs.detail.retryFromBeginning.confirmMatched', 'Existing records are matched and updated, not duplicated.'),
+      ].join(' '),
+      confirmText: t('data_sync.runs.detail.retryFromBeginning.action', 'Retry from the beginning'),
+      variant: 'default',
+    })
+    if (!confirmed) return
+    const call = await runMutation({
+      // optimistic-lock-exempt: starts a new retry run (create), not a concurrent record edit
+      operation: () => apiCall(`/api/data_sync/runs/${encodeURIComponent(row.id)}/retry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fromBeginning: true }),
+      }, { fallback: null }),
+      mutationPayload: { runId: row.id, fromBeginning: true },
+      context: { operation: 'create', actionId: 'retry-sync-run-from-beginning', runId: row.id },
+    })
+    if (call.ok) {
+      flash(t('data_sync.runs.detail.retrySuccess'), 'success')
+      setReloadToken((token) => token + 1)
+    } else {
+      flash(buildRetryFailureMessage(call.result as RetryFailureBody | null, t), 'error')
+    }
+  }, [confirm, runMutation, t])
+
+  /**
+   * `RowActionItem.label` is rendered as the sole child of a fixed-width,
+   * `whitespace-nowrap` button, so a label carrying the resume point overflows
+   * the menu box. The resume point therefore lives only on the run detail page,
+   * which has room to state it in full.
+   */
+  const buildRetryActions = React.useCallback((row: SyncRunRow) => {
+    if (!canRunSync) return []
+    if (!isRetryableRunStatus(row.status)) return []
+    const actions = [{
+      id: 'retry',
+      label: row.status === 'cancelled'
+        ? t('data_sync.dashboard.actions.resume', 'Resume')
+        : t('data_sync.runs.detail.retry', 'Retry'),
+      onSelect: () => { void handleRetry(row) },
+    }]
+    // Same adapter gating as the detail page, and the same fail-open default.
+    // No explanatory footnote here: a row menu lists actions, it does not
+    // explain an absent one — the detail page carries that sentence.
+    const integration = options.find((option) => option.integrationId === row.integrationId)
+    if (applicableStartControls(integration?.startControls, row.entityType).fullSync) {
+      actions.push({
+        id: 'retry-from-beginning',
+        label: fromBeginningLabel(row.status, t),
+        onSelect: () => { void handleRetryFromBeginning(row) },
+      })
+    }
+    return actions
+  }, [canRunSync, handleRetry, handleRetryFromBeginning, options, t])
 
   const handleFiltersApply = React.useCallback((values: FilterValues) => {
     const next: FilterValues = {}
@@ -704,13 +943,17 @@ export default function SyncRunsDashboardPage() {
   ], [t])
 
   const canStartSelectedIntegration = Boolean(
-    selectedIntegration
+    canRunSync
+    && selectedIntegration
     && selectedEntityType
     && selectedIntegration.isEnabled
     && selectedIntegration.canStartRun !== false
     && selectedIntegration.hasCredentials,
   )
   const hasSavedSchedule = Boolean(scheduleEditor.id)
+  // One expression for all seven schedule controls: the duplication is what let
+  // the two buttons drift out of the feature gate.
+  const scheduleControlsDisabled = !canConfigureSync || isLoadingSchedule || isSavingSchedule || isDeletingSchedule
   const selectedEntityLabel = selectedEntityType ? formatEntityTypeLabel(selectedEntityType) : t('data_sync.dashboard.columns.entityType')
   const integrationStateVariant = getSyncSummaryVariant(selectedIntegration?.isEnabled ? 'enabled' : 'disabled')
   const credentialsVariant = getSyncSummaryVariant(selectedIntegration?.hasCredentials ? 'ready' : 'missing')
@@ -722,6 +965,7 @@ export default function SyncRunsDashboardPage() {
 
   return (
     <Page>
+      {ConfirmDialogElement}
       <PageBody className="space-y-6">
         <Card>
           <CardHeader className="space-y-4">
@@ -782,6 +1026,31 @@ export default function SyncRunsDashboardPage() {
             ) : null}
           </CardHeader>
           <CardContent className="space-y-6">
+            {seedSource ? (
+              <Alert status="information">
+                <AlertDescription className="space-y-1">
+                  <p>
+                    {t('data_sync.dashboard.start.seededFrom', 'Integration, entity type, direction and run parameters copied from {integration} — {entityType}. Batch size and full sync are at their defaults: a past run does not record them.', {
+                      integration: seedSource.integrationId,
+                      entityType: seedSource.entityType,
+                    })}
+                  </p>
+                  {seedSource.droppedKeys.length > 0 ? (
+                    <p>
+                      {t(
+                        seedSource.droppedKeys.length === 1
+                          ? 'data_sync.dashboard.start.seededDropped'
+                          : 'data_sync.dashboard.start.seededDroppedPlural',
+                        seedSource.droppedKeys.length === 1
+                          ? 'One stored parameter was not carried over: {keys} is no longer declared by {integration}.'
+                          : 'Some stored parameters were not carried over: {keys} are no longer declared by {integration}.',
+                        { keys: seedSource.droppedKeys.join(', '), integration: seedSource.integrationId },
+                      )}
+                    </p>
+                  ) : null}
+                </AlertDescription>
+              </Alert>
+            ) : null}
             <div className="grid gap-4 xl:grid-cols-3">
               <div className="space-y-2 xl:col-span-1">
                 <Label className="flex items-center gap-2 text-sm font-medium">
@@ -790,7 +1059,7 @@ export default function SyncRunsDashboardPage() {
                 </Label>
                 <Select
                   value={selectedIntegrationId || undefined}
-                  onValueChange={(value) => setSelectedIntegrationId(value ?? '')}
+                  onValueChange={(value) => { retireSeed(); setSelectedIntegrationId(value ?? '') }}
                   disabled={isLoadingOptions || options.length === 0}
                 >
                   <SelectTrigger size="lg">
@@ -818,7 +1087,7 @@ export default function SyncRunsDashboardPage() {
                 </Label>
                 <Select
                   value={selectedEntityType || undefined}
-                  onValueChange={(value) => setSelectedEntityType(value ?? '')}
+                  onValueChange={(value) => { retireSeed(); setSelectedEntityType(value ?? '') }}
                   disabled={entityOptions.length === 0}
                 >
                   <SelectTrigger size="lg">
@@ -840,7 +1109,7 @@ export default function SyncRunsDashboardPage() {
                 </Label>
                 <Select
                   value={selectedDirection}
-                  onValueChange={(value) => setSelectedDirection(value === 'export' ? 'export' : 'import')}
+                  onValueChange={(value) => { retireSeed(); setSelectedDirection(value === 'export' ? 'export' : 'import') }}
                   disabled={selectedIntegration?.direction !== 'bidirectional'}
                 >
                   <SelectTrigger size="lg">
@@ -977,7 +1246,7 @@ export default function SyncRunsDashboardPage() {
                       onValueChange={(value) => updateScheduleEditor({
                         scheduleType: value === 'cron' ? 'cron' : 'interval',
                       })}
-                      disabled={isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
+                      disabled={scheduleControlsDisabled || !selectedIntegration || !selectedEntityType}
                     >
                       <SelectTrigger size="lg">
                         <SelectValue />
@@ -1000,7 +1269,7 @@ export default function SyncRunsDashboardPage() {
                     <Input
                       value={scheduleEditor.scheduleValue}
                       onChange={(event) => updateScheduleEditor({ scheduleValue: event.target.value })}
-                      disabled={isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
+                      disabled={scheduleControlsDisabled || !selectedIntegration || !selectedEntityType}
                       placeholder={scheduleEditor.scheduleType === 'cron' ? '0 * * * *' : '1h'}
                       aria-invalid={scheduleValueError ? true : undefined}
                       aria-describedby={scheduleValueError ? SCHEDULE_VALUE_ERROR_ID : undefined}
@@ -1024,7 +1293,7 @@ export default function SyncRunsDashboardPage() {
                     <Input
                       value={scheduleEditor.timezone}
                       onChange={(event) => updateScheduleEditor({ timezone: event.target.value })}
-                      disabled={isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
+                      disabled={scheduleControlsDisabled || !selectedIntegration || !selectedEntityType}
                     />
                   </div>
                 </div>
@@ -1041,7 +1310,7 @@ export default function SyncRunsDashboardPage() {
                       <Switch
                         checked={scheduleEditor.fullSync}
                         onCheckedChange={(checked) => updateScheduleEditor({ fullSync: checked })}
-                        disabled={isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
+                        disabled={scheduleControlsDisabled || !selectedIntegration || !selectedEntityType}
                       />
                     </div>
                   </div>
@@ -1056,7 +1325,7 @@ export default function SyncRunsDashboardPage() {
                       <Switch
                         checked={scheduleEditor.isEnabled}
                         onCheckedChange={(checked) => updateScheduleEditor({ isEnabled: checked })}
-                        disabled={isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
+                        disabled={scheduleControlsDisabled || !selectedIntegration || !selectedEntityType}
                       />
                     </div>
                   </div>
@@ -1079,7 +1348,7 @@ export default function SyncRunsDashboardPage() {
                       type="button"
                       variant="outline"
                       onClick={() => void handleDeleteSchedule()}
-                      disabled={!hasSavedSchedule || isDeletingSchedule}
+                      disabled={scheduleControlsDisabled || !hasSavedSchedule}
                     >
                       {isDeletingSchedule
                         ? t('data_sync.dashboard.schedule.deleting', 'Removing...')
@@ -1089,7 +1358,7 @@ export default function SyncRunsDashboardPage() {
                       type="button"
                       variant="outline"
                       onClick={() => void handleSaveSchedule()}
-                      disabled={isSavingSchedule || !selectedIntegration || !selectedEntityType}
+                      disabled={scheduleControlsDisabled || !selectedIntegration || !selectedEntityType}
                     >
                       <CalendarClock className="mr-2 size-4" />
                       {isSavingSchedule
@@ -1149,16 +1418,20 @@ export default function SyncRunsDashboardPage() {
                 label: t('data_sync.dashboard.actions.view'),
                 onSelect: () => { router.push(`/backend/data-sync/runs/${encodeURIComponent(row.id)}`) },
               },
-              ...(row.status === 'running' ? [{
+              ...(canRunSync && row.status === 'running' ? [{
                 id: 'cancel',
                 label: t('data_sync.runs.detail.cancel'),
                 destructive: true,
                 onSelect: () => { void handleCancel(row) },
               }] : []),
-              ...(row.status === 'failed' ? [{
-                id: 'retry',
-                label: t('data_sync.runs.detail.retry'),
-                onSelect: () => { void handleRetry(row) },
+              ...buildRetryActions(row),
+              // Completed only: on a failed run this differs from the
+              // from-scratch retry solely in offering an edit step, which does
+              // not earn a second near-identical item.
+              ...(canRunSync && row.status === 'completed' ? [{
+                id: 'run-again',
+                label: t('data_sync.dashboard.actions.runAgain', 'Run again…'),
+                onSelect: () => { router.push(`/backend/data-sync?from=${encodeURIComponent(row.id)}`) },
               }] : []),
             ]} />
           )}

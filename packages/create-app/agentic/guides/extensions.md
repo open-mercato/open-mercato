@@ -22,6 +22,8 @@ Add every other match too: `backend-ui` + `om-backend-ui-design` when authoring,
 
 ## Mechanism Selector
 
+For Customers calendar event types, follow the [Customers calendar guide](customers-calendar.md) and its exact app example links. It owns add/remove/patch behavior and optional staff/resources coupling.
+
 | Goal | Mechanism | App module file |
 |---|---|---|
 | Add computed/read data | Response enricher | `data/enrichers.ts` |
