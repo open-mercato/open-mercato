@@ -363,6 +363,11 @@ real callers (Accounts Payable's `postVendorInvoice` — spec'd in PR
 #5962, changes requested, not yet merged or running; and the planned
 `sales-invoice-gl-posting` spec) populate them from day one instead of
 leaving a statutory gap for a downstream module to discover later.
+**Added 2026-10-13** (PR #5663 review): the fields become required —
+non-optional in `postJournalEntrySchema`, and not nullable in the
+entity — when the first document-producing caller lands, because art.
+23 ust. 2 requires the document's type and number on every entry, not
+only manual ones; nullable is only the state while no caller exists.
 **Corrected 2026-09-18**: an earlier draft described #5962 as "already
 posting today," describing an unmerged spec as running code. **Not the same field as `referenceType`/`referenceId`
 above.** Those answer "which record in this system caused this entry"
@@ -443,7 +448,7 @@ HTTP). `JournalEntry` stays read-only in the UI in this phase
 (`listJournalEntries` only) — nothing in the User Stories asks an
 accountant to post entries by hand through a form; every posting in
 Phase 1 comes from `postJournalEntry` called programmatically by a
-downstream integration (see Out of scope). The same holds for `reverseJournalEntry`: no route, row action or form calls it in this phase (the journal-entries route is list-only, see API Contracts), so reversal is in-process only as well. An accountant-facing reverse action and a manual entry form (including for `OPENING`/`CLOSING` entries) are deferred to the phase that adds an entry-creation workflow (see Out of scope, "Entry approval / manual-entry workflow"); until then they are not a shipped capability, and no acceptance criterion in this spec relies on them.
+downstream integration (see Out of scope). The same holds for `reverseJournalEntry`: no route, row action or form calls it in this phase (the journal-entries route is list-only, see API Contracts), so reversal is in-process only as well. An accountant-facing reverse action and a manual entry form (including for `OPENING`/`CLOSING` entries) are deferred to Phase 2, the phase that adds an entry-creation workflow (see Out of scope, "Entry approval / manual-entry workflow"; **phase named 2026-10-13**, PR #5663 review); until then they are not a shipped capability, and no acceptance criterion in this spec relies on them.
 
 **Balance integrity is enforced twice: application and database.**
 The command layer validates that debits equal credits before
@@ -610,6 +615,25 @@ an unlocked period could shadow a locked one covering the same range;
 a correction into an open period, so tying it to the original's
 (possibly closed) `operationDate` would defeat the mechanism.
 
+**A fiscal period is any non-overlapping date range; "generate 12
+months" is a convenience, not a second model (added 2026-10-13, PR
+#5663 review).** The module imposes no length and does not assume
+calendar months or a calendar year: a period is an inclusive
+`startDate`–`endDate` pair, and the only rule is that it does not
+overlap another period of the same organization. Defining twelve of
+them by hand is tedious for the usual case, so the UI offers
+**Generate 12 months**: the user picks the first day of a month and
+`generateFiscalPeriods` creates twelve consecutive calendar-month
+periods from it, unlocked, in one write. It is all or nothing — if the
+span overlaps any existing period nothing is created and the answer is
+the same 409 as `createFiscalPeriod` — and it takes the same
+per-organization advisory lock, so a generate and a create queue
+instead of interleaving. Nothing is stored that marks a period as
+generated. Scenarios in #6340: a period of any length is accepted; an
+overlapping period is rejected; generating 12 months creates twelve
+consecutive periods, is rejected when it overlaps, and must start on
+the first day of a month.
+
 ### Alternatives considered
 
 - **Single `direction` enum + `amount` per line** instead of separate
@@ -726,6 +750,11 @@ suite asserts against, not a workflow it walks through.
   `REVERSAL` row with `referenceType='journal_entry'`/
   `referenceId=<the entry being reversed>` before `reverseJournalEntry`
   posts anything.
+- **Added 2026-10-13** (PR #5663 review): a `REVERSAL` entry is never
+  dated before the entry it reverses — `reverseJournalEntry` rejects an
+  `operationDate` earlier than the original's, before any write; the
+  same day or later is accepted. A reversal exists to move a
+  correction forward, never back.
 - `LedgerAccountType.normalBalance`/`accountGroupId` and
   `LedgerAccount.accountTypeId` are immutable once any account of that
   type has posted entries — reassigning them would silently
@@ -738,7 +767,17 @@ suite asserts against, not a workflow it walks through.
   poster has one to report, but stay nullable in this phase — Phase 1
   has no document-producing caller yet (see Design decisions,
   "Statutory entry-content fields") — so this is not yet a hard
-  invariant for those three, only for `operationDate`.
+  invariant for those three, only for `operationDate`. **Added
+  2026-10-13** (PR #5663 review): art. 23 ust. 2 asks for the source
+  document's type and number on every entry, not only manual ones, so
+  `documentType` and `documentNumber` become required — a hard
+  invariant — in the same change that lands the first
+  document-producing caller (Accounts Payable's `postVendorInvoice` or
+  the sales-invoice posting), by making them non-optional in
+  `postJournalEntrySchema`. Until then they are accepted, stored and
+  tested (BDD: the given type and number are kept on the entry; an
+  entry without them is accepted while no caller requires one — the
+  scenario that flips when they become required).
 - A `JournalEntryLine`'s `debit` and `credit` never both hold a non-zero value, and never both hold zero — enforced by a check constraint plus an application-level guard (see Design decisions).
 - **Added 2026-10-09** (PR #5663 review, m1): the three check-then-act rules are serialized in the database, not left to a read-before-write that two concurrent requests can both pass under `READ COMMITTED`.
   - *Lock vs. post.* `postJournalEntry` reads the covering `FiscalPeriod` with `for share` inside the posting transaction, and `lockFiscalPeriod`/`unlockFiscalPeriod` take `for update` on the same row. A post that read `isLocked = false` therefore holds the period row until it commits, a concurrent lock waits for it, and a post that starts after the lock commits sees `isLocked = true`. This is what makes "a locked `FiscalPeriod` rejects a post" true under concurrency.
@@ -967,6 +1006,12 @@ on `journal_entry` backs the `referenceType`/`referenceId` pair.
   `isLocked: false`); rejects if the given range overlaps any existing
   `FiscalPeriod` for the same organization (**added 2026-09-18** — see
   Design decisions, M1 fix). Requires `ledger.periods.manage`.
+- `generateFiscalPeriods` (**added 2026-10-13**) — creates twelve
+  consecutive calendar-month periods from a first-of-month `startDate`,
+  all unlocked, in one transaction under the same advisory lock as
+  `createFiscalPeriod`; rejects the whole request with 409 if the span
+  overlaps any existing period, and with 400 if `startDate` is not the
+  first day of a month. Requires `ledger.periods.manage`.
 - `lockFiscalPeriod` / `unlockFiscalPeriod` — toggles `isLocked`,
   enforces `enforceCommandOptimisticLock` against the caller's
   `x-om-ext-optimistic-lock-expected-updated-at` header. Requires
@@ -1069,15 +1114,19 @@ on `journal_entry` backs the `referenceType`/`referenceId` pair.
 - `account-types/page.tsx` (+ create/edit) — same pattern for
   `LedgerAccountType`, with a group column and filter; the number
   field shows the group's code as a fixed prefix.
-- `fiscal-periods/page.tsx` (+ `create/page.tsx`) — `DataTable` with a
-  lock/unlock row action. Locking isn't a field edit, so the action
+- `fiscal-periods/page.tsx` (+ `create/page.tsx`, `generate/page.tsx`)
+  — `DataTable` with a lock/unlock row action and a **Generate 12
+  months** action (**added 2026-10-13**) that opens a one-field form
+  for the first day of the first month. Locking isn't a field edit, so the action
   goes through `RowActions` + `useGuardedMutation` (not `CrudForm`),
   passing `retryLastMutation` in the injection context and surfacing
   409s via `surfaceRecordConflict` — the same guarded-row-action
   pattern
   `packages/core/src/modules/resources/backend/resources/resources/page.tsx`
   already uses.
-- `journal-entries/page.tsx` — read-only `DataTable` over `listJournalEntries`; no create/edit UI in Phase 1.
+- `journal-entries/page.tsx` — read-only `DataTable` over `listJournalEntries`; no create/edit UI in Phase 1 — the minimal
+  manual entry form ships in Phase 2 (see Out of scope, "Entry
+  approval / manual-entry workflow").
 - `journal-entries/[id]/page.tsx` (**added 2026-10-12**) — read-only
   entry detail: header fields plus the lines (account number and name,
   debit, credit) and totals.
@@ -1133,6 +1182,19 @@ Standard `makeCrudRoute` create + paginated list.
   where `FiscalPeriodDto` is `{ id, startDate, endDate, isLocked, updatedAt }`.
 - **Response 403**: caller lacks `ledger.periods.view` (list) or
   `ledger.periods.manage` (create).
+
+### `POST /api/ledger/fiscal-periods/generate` (added 2026-10-13)
+
+Custom write route (one request creates several rows), wired through
+the mutation guard registry.
+
+- **Body**: `{ startDate }` — must be the first day of a month.
+- **Response 201**: `{ ids: string[] }` — the twelve created periods,
+  all `isLocked: false`.
+- **Response 400**: `startDate` missing or not the first day of a month.
+- **Response 403**: caller lacks `ledger.periods.manage`.
+- **Response 409**: the span overlaps an existing period; nothing is
+  created.
 
 ### `POST /api/ledger/fiscal-periods/:id/lock` / `.../unlock`
 
@@ -1244,7 +1306,7 @@ Queries / API).
 
 ### Phase 1: Posting engine
 
-1. Add `FiscalPeriod`, `LedgerAccountGroup`, `LedgerAccountType`, `LedgerAccount`
+1. Add `FiscalPeriod`, `LedgerAccountGroup`, `LedgerAccountType`, `LedgerAccount`,
    `JournalEntry` (including `sequenceNumber` and the art. 23 ust. 2
    fields `operationDate`/`documentType`/`documentNumber`/
    `documentDate`), `JournalEntryLine` (including the nullable `contractorSnapshot` `json` column) and `JournalEntrySequence` (the per-organization counter row) entities (with `updated_at` on the three editable ones) and their
@@ -1390,6 +1452,17 @@ Queries / API).
   account/type has posted entries (a type is also protected while a
   live account still uses it); assert a soft-deleted account/type is excluded from list
   results.
+- **Added 2026-10-13** (fiscal periods and documents): assert a period
+  of any length that does not overlap an existing one is accepted;
+  assert an overlapping period is rejected with 409; assert generating
+  12 months from a first-of-month date creates twelve consecutive
+  calendar-month periods with no gap and no overlap, is rejected with
+  409 and creates nothing when the span overlaps an existing period,
+  and is rejected when the start is not the first day of a month
+  (BDD `fiscal_period_definition.feature`; API test `TC-GL-004`);
+  assert the document type and number given on an entry are kept on it,
+  and that an entry without them is accepted while no caller requires
+  them (BDD `journal_entry_document.feature`).
 - **Added 2026-10-12** (numbering and detail): assert a type number
   that does not start with its group's code, or is not three digits,
   is rejected with 400 in a PL group; assert an account number that
@@ -1493,8 +1566,24 @@ deploy independently of any other module.
   attachment table keyed to `JournalEntry.id`, or a decision that
   attachments belong on the source document (`VendorInvoice`, etc.)
   instead of the entry itself.
-- **Manual journal-entry creation and an approval workflow
-  (draft → pending_approval → posted).** SPEC-024 models a
+- **Manual journal-entry creation (a minimal form is Phase 2 —
+  ⚠ NEEDS HUMAN CONFIRMATION) and an approval workflow
+  (draft → pending_approval → posted).** **Revised 2026-10-13** (PR
+  #5663 review): the OM Core mockup shows a full manual entry form and
+  this spec had no create UI at all. A minimal form is named for
+  Phase 2, not Phase 1: dates (`operationDate`, `documentDate`),
+  description, the document (type, number), and lines with account,
+  debit and credit — only fields `postJournalEntrySchema` already has,
+  no new data. It needs what Phase 1 deliberately does not have: an
+  HTTP route over `postJournalEntry` with `ledger.entries.post`
+  actually enforced (see "Who authorizes a call to
+  `postJournalEntry`"), and the reversal action that goes with it. It
+  ships in Phase 2 next to the trial balance (#6013) because that is
+  what lets an accountant key an entry and read the balances back.
+  Drafts, attachments, templates and cost centres stay later still.
+  The approval workflow below is unchanged: it has nothing to attach
+  to until a form exists, and whether the target customer needs one is
+  decided when it ships. SPEC-024 models a
   multi-state `EntryStatus`; this engine posts directly, with no
   intermediate state. The Event Storming brief itself flags exactly
   this as an open hot spot rather than this spec overlooking it: HS-08
@@ -2607,3 +2696,26 @@ code. Not yet reviewed by a maintainer.
 - Updated Design decisions, Architecture → Entities/Commands/Backend
   Pages, API Contracts, Data Models, Implementation Plan, File
   Manifest, Testing Strategy and Risks accordingly.
+
+
+### 2026-10-13 (PR #5663 review — remaining points)
+
+- **Fiscal period definition.** Stated that a period is any
+  non-overlapping date range and added the **Generate 12 months**
+  action: `generateFiscalPeriods` (twelve consecutive calendar-month
+  periods from a first-of-month date, all or nothing), its route
+  `POST /api/ledger/fiscal-periods/generate`, the list-page action and
+  a one-field form. Scenarios: any length accepted, overlap rejected,
+  twelve consecutive periods created, overlapping span rejected,
+  start must be the first of a month.
+- **Reversal date.** Added the invariant that a `REVERSAL` is never
+  dated before the entry it reverses to the Invariants section (it was
+  only in the command description).
+- **Document reference.** Stated that `documentType`/`documentNumber`
+  become required when the first document-producing caller lands, and
+  added BDD scenarios for the stored and the absent reference.
+- **Manual entry form.** Named Phase 2 for a minimal form (and the
+  route and reversal action it needs), with the reason, instead of
+  leaving it unnamed. ⚠ NEEDS HUMAN CONFIRMATION: Phase 2 is an
+  autonomous default; Phase 1 would need the `postJournalEntry` route
+  and `ledger.entries.post` enforcement as well.
