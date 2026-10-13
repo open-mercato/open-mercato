@@ -130,7 +130,7 @@ test.describe('TC-MA-045 customer profile and demand screens', () => {
 
       const score = kpiCard(page, 'Lead score')
       await expect(score).toContainText('5')
-      await expect(score).toContainText('Bronze · 95 to the next tier')
+      await expect(score).toContainText('Bronze — 95 to the next tier')
       await expect(kpiCard(page, 'Orders')).toContainText('Never ordered')
       await expect(kpiCard(page, 'Latest NPS')).toContainText('--')
 
@@ -138,7 +138,7 @@ test.describe('TC-MA-045 customer profile and demand screens', () => {
       await expect(page.getByText(tagSlug, { exact: true })).toBeVisible()
 
       await expect(page.getByText('Recent score changes')).toBeVisible()
-      await expect(page.getByText(`· ${reason}`)).toBeVisible()
+      await expect(page.getByText(`— ${reason}`)).toBeVisible()
       await expect(page.getByText('+5', { exact: true })).toBeVisible()
 
       await expect(page.getByText('Recent campaign runs')).toBeVisible()
@@ -205,7 +205,7 @@ test.describe('TC-MA-045 customer profile and demand screens', () => {
       await expect(explain).toBeEnabled()
       await explain.click()
 
-      await expect(page.getByText('They would not receive it right now — The campaign is switched off decided.')).toBeVisible({ timeout: 20_000 })
+      await expect(page.getByText('They would not receive it right now — the campaign is switched off.')).toBeVisible({ timeout: 20_000 })
       for (const gate of ['Audience', 'Consent', 'Customer pause', 'Quiet hours', 'Campaign frequency cap']) {
         await expect(page.getByText(gate, { exact: true })).toBeVisible()
       }
@@ -255,7 +255,7 @@ test.describe('TC-MA-045 customer profile and demand screens', () => {
       await login(page, 'admin')
       await openProfile(page, personId)
       await expect(kpiCard(page, 'Lead score')).toContainText('12')
-      await expect(page.getByText(`· ${ruleName} +12`)).toBeVisible()
+      await expect(page.getByText(`+12 — Score rules — ${ruleName}`)).toBeVisible()
       await expect(page.getByText('Unsubscribed from email')).toBeVisible()
 
       const downloadStarted = page.waitForEvent('download')
