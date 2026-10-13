@@ -123,7 +123,7 @@ test.describe('TC-MA-040 score rules screen', () => {
 
       // Either this click wrote the entry or the queued pass got there first; both end in the same state.
       await expect(page.getByText(/Score rules applied: \+25 points\.|Score rules already up to date\./)).toBeVisible({ timeout: 20_000 })
-      await expect(page.getByText(`Score rules · ${ruleName} +25`)).toBeVisible({ timeout: 20_000 })
+      await expect(page.getByText(`+25 — Score rules — ${ruleName}`)).toBeVisible({ timeout: 20_000 })
     } finally {
       await removeRuleByName(request, token, ruleName)
       await deleteEntityIfExists(request, token, '/api/customers/people', personId)
