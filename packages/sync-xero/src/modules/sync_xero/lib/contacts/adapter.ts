@@ -60,7 +60,7 @@ function organisationOf(providerData: Record<string, unknown> | null, expected: 
  * names the Organisation, the cursor of that Organisation chooses an incremental walk or a full
  * pass, and every Contact of the keyset walk is written as a Company (`company-writer.ts`) and
  * reported in batches of `batchSize`, each batch carrying the keyset of its last Contact. A drained
- * full pass commits `lastFullAt`. Grant failures end the run quietly or fail it with a `xero.*`
+ * full pass writes the orphan report and commits `lastFullAt`. Grant failures end the run quietly or fail it with a `xero.*`
  * message (the grant-state table of the feature spec); a missing grant before an item stops it
  * within about one second. The run honours `signal` above every `yield`.
  */
@@ -123,12 +123,20 @@ export async function* streamXeroContacts(input: StreamImportInput): AsyncGenera
         if (input.signal?.aborted) return
         const final = page.drained && index === batches.length - 1
         cursor = advanceXeroCursor(plan, cursor, { lastUpdatedAt: records[records.length - 1].updatedAt, passStartedAt })
-        if (final && plan.kind === 'full' && passStartedAt) cursor = completeXeroFullPass(cursor, { passStartedAt, calls })
+        if (final && plan.kind === 'full' && passStartedAt) {
+          await writer.reportOrphans()
+          if (input.signal?.aborted) return
+          cursor = completeXeroFullPass(cursor, { passStartedAt, calls })
+        }
         yield { items, cursor: serializeXeroCursor(cursor), hasMore: !final, processedCount: items.length, batchIndex: batchIndex++ }
       }
       if (page.drained && batches.length === 0) {
         if (input.signal?.aborted) return
-        if (plan.kind === 'full' && passStartedAt) cursor = completeXeroFullPass(cursor, { passStartedAt, calls })
+        if (plan.kind === 'full' && passStartedAt) {
+          await writer.reportOrphans()
+          if (input.signal?.aborted) return
+          cursor = completeXeroFullPass(cursor, { passStartedAt, calls })
+        }
         yield { items: [], cursor: serializeXeroCursor(cursor), hasMore: false, processedCount: 0, batchIndex: batchIndex++ }
       }
     }

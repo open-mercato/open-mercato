@@ -14,6 +14,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 
 const mockEnsureFieldDefinitions = jest.fn(async (..._args: unknown[]) => ({ created: 0, updated: 0, unchanged: 3 }))
 const mockPreparePage = jest.fn(async (..._args: unknown[]) => undefined)
+const mockReportOrphans = jest.fn(async (..._args: unknown[]) => undefined)
 
 jest.mock('../lib/field-definitions', () => ({
   ...jest.requireActual('../lib/field-definitions'),
@@ -30,6 +31,7 @@ jest.mock('../lib/contacts/company-writer', () => ({
   ...jest.requireActual('../lib/contacts/company-writer'),
   createXeroContactWriter: (deps: { xeroOrganisationId: string }) => ({
     preparePage: (...args: unknown[]) => mockPreparePage(...args),
+    reportOrphans: (...args: unknown[]) => mockReportOrphans(...args),
     write: async (record: { ContactID: string }) => {
       const externalId = `${deps.xeroOrganisationId}:${record.ContactID}`
       return { externalId, action: 'skip', data: { sourceIdentifier: externalId } }
@@ -236,6 +238,17 @@ describe('xeroContactsAdapter', () => {
     expect(mockEnsureFieldDefinitions).toHaveBeenCalledWith(expect.objectContaining({ scope }))
     expect(mockPreparePage).toHaveBeenCalledTimes(1)
     expect((mockPreparePage.mock.calls[0] as unknown[])[0]).toHaveLength(3)
+  })
+
+  it('writes the orphan report once on a drained full pass and never on an incremental run', async () => {
+    await setup(contacts(3))
+    mockReportOrphans.mockClear()
+    const full = await run()
+    expect(mockReportOrphans).toHaveBeenCalledTimes(1)
+
+    mockReportOrphans.mockClear()
+    await run({ cursor: full.at(-1)?.cursor ?? undefined })
+    expect(mockReportOrphans).not.toHaveBeenCalled()
   })
 
   it('makes the first token call before any Xero request', async () => {

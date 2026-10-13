@@ -11,10 +11,18 @@ import { createFakeContainer } from './support/fakeContainer'
 
 const mockLoadSnapshots = jest.fn()
 const mockClaim = jest.fn()
+const mockLoadRunIndex = jest.fn()
+const mockLoadIndexSources = jest.fn()
 
 jest.mock('../lib/contacts/preload', () => ({
   ...jest.requireActual('../lib/contacts/preload'),
   loadCompanySnapshots: (...args: unknown[]) => mockLoadSnapshots(...args),
+  loadXeroRunIndex: (...args: unknown[]) => mockLoadRunIndex(...args),
+}))
+
+jest.mock('../lib/contacts/indexes', () => ({
+  ...jest.requireActual('../lib/contacts/indexes'),
+  loadXeroCompanyIndexSources: (...args: unknown[]) => mockLoadIndexSources(...args),
 }))
 
 jest.mock('../lib/contacts/claim', () => ({
@@ -192,6 +200,8 @@ beforeEach(() => {
     return snapshots
   })
   mockClaim.mockReset().mockImplementation(async (input: ClaimCompanyMappingInput) => claimAgainstMappings(input))
+  mockLoadRunIndex.mockReset().mockImplementation(async () => runIndexFrom(mappings))
+  mockLoadIndexSources.mockReset().mockImplementation(async () => indexSources())
 })
 
 describe('buildXeroCommandContext', () => {
@@ -421,5 +431,93 @@ describe('createXeroContactWriter', () => {
     expect((mockLoadSnapshots.mock.calls[0] as unknown[])[2]).toHaveLength(250)
     expect(items.every((item) => item.action === 'skip')).toBe(true)
     expect(indexLoads).toBe(0)
+  })
+
+  it('marks the Company of a merged-away Contact with the survivor, writes nothing else and names both Companies', async () => {
+    storeCompany({ entityId: 'e-losing', displayName: 'Old name', custom: { xero_contact_id: externalIdOf('c-losing') } })
+    storeCompany({ entityId: 'e-survivor', displayName: 'Acme Ltd', custom: { xero_contact_id: externalIdOf('c-survivor') } })
+    mappings.set(externalIdOf('c-losing'), 'e-losing')
+    mappings.set(externalIdOf('c-survivor'), 'e-survivor')
+    const writer = createWriter()
+    const merged = record('c-losing', { ContactStatus: 'ARCHIVED', MergedToContactID: 'c-survivor' })
+
+    const [item] = await writePage(writer, [merged])
+
+    expect(commands).toEqual([
+      {
+        id: 'customers.companies.update',
+        input: { id: 'e-losing', organizationId: scope.organizationId, tenantId: scope.tenantId, customFields: { xero_merged_into: 'c-survivor' } },
+      },
+    ])
+    expect(companies.get('e-losing')).toMatchObject({ displayName: 'Old name', status: 'active' })
+    expect(item).toMatchObject({ action: 'skip', data: { localId: 'e-losing', errorCode: 'xero.contact_merged' } })
+    expect(logWrites).toEqual([
+      expect.objectContaining({
+        code: 'xero.contact_merged',
+        payload: { sourceIdentifier: externalIdOf('c-losing'), entityIds: ['e-losing', 'e-survivor'], contactIds: ['c-losing', 'c-survivor'] },
+      }),
+    ])
+
+    commands = []
+    await writePage(writer, [merged])
+    expect(commands).toEqual([])
+  })
+
+  it('only flips the status of a GDPR-redacted Contact and keeps the Company\'s data', async () => {
+    storeCompany({ entityId: 'e-mapped', displayName: 'Jane Doe Consulting', primaryEmail: 'jane@example.com', custom: { xero_contact_id: externalIdOf('c1') } })
+    mappings.set(externalIdOf('c1'), 'e-mapped')
+    const writer = createWriter()
+
+    const [item] = await writePage(writer, [record('c1', { ContactStatus: 'GDPRREQUEST', Name: '', EmailAddress: '' })])
+
+    expect(commands).toEqual([
+      { id: 'customers.companies.update', input: { id: 'e-mapped', organizationId: scope.organizationId, tenantId: scope.tenantId, status: 'archived', isActive: false } },
+    ])
+    expect(companies.get('e-mapped')).toMatchObject({ displayName: 'Jane Doe Consulting', primaryEmail: 'jane@example.com', status: 'archived' })
+    expect(item).toMatchObject({ action: 'update', data: { localId: 'e-mapped' } })
+  })
+
+  it('archives the mapped Company of an archived Contact and brings it back when the Contact is restored', async () => {
+    storeCompany({ entityId: 'e-mapped', displayName: 'Acme Ltd', legalName: 'Acme Ltd', primaryEmail: 'billing@acme.example', primaryPhone: '+44 20 7946 0000', custom: { xero_contact_id: externalIdOf('c1') } })
+    mappings.set(externalIdOf('c1'), 'e-mapped')
+    const writer = createWriter()
+
+    await writePage(writer, [record('c1', { ContactStatus: 'ARCHIVED' })])
+    expect(commands.at(-1)?.input).toMatchObject({ status: 'archived', isActive: false })
+    await writePage(writer, [record('c1', { ContactStatus: 'ACTIVE' })])
+    expect(commands.at(-1)?.input).toMatchObject({ status: 'active', isActive: true })
+  })
+
+  it('creates no Company and writes no log row for an unmapped archived, GDPR-redacted or supplier-only Contact', async () => {
+    const items = await writePage(createWriter(), [
+      record('c1', { ContactStatus: 'ARCHIVED' }),
+      record('c2', { ContactStatus: 'GDPRREQUEST' }),
+      record('c3', { IsSupplier: true, IsCustomer: false }),
+    ])
+
+    expect(items.map((entry) => entry.action)).toEqual(['skip', 'skip', 'skip'])
+    expect(commands).toEqual([])
+    expect(logWrites).toEqual([])
+    expect(indexLoads).toBe(0)
+  })
+
+  it('reports orphaned marked Companies after a full pass, skipping those created within the last minute, and never fails', async () => {
+    storeCompany({ entityId: 'e-orphan', custom: { xero_contact_id: externalIdOf('c1') } })
+    storeCompany({ entityId: 'e-mapped', custom: { xero_contact_id: externalIdOf('c2') } })
+    mappings.set(externalIdOf('c2'), 'e-mapped')
+    const writer = createWriter()
+
+    await writer.reportOrphans(new Date(sequence + 60_000))
+    expect(logWrites).toEqual([
+      expect.objectContaining({ level: 'warn', code: 'xero.company_orphaned', payload: { sourceIdentifier: externalIdOf('c1'), entityIds: ['e-orphan'] } }),
+    ])
+
+    logWrites = []
+    await writer.reportOrphans(new Date(sequence))
+    expect(logWrites).toEqual([])
+
+    mockLoadIndexSources.mockRejectedValueOnce(new Error('database unavailable'))
+    await expect(writer.reportOrphans()).resolves.toBeUndefined()
+    expect(commands).toEqual([])
   })
 })

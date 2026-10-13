@@ -14,6 +14,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 
 const mockEnsureFieldDefinitions = jest.fn(async (..._args: unknown[]) => ({ created: 0, updated: 0, unchanged: 3 }))
 const mockPreparePage = jest.fn(async (..._args: unknown[]) => undefined)
+const mockReportOrphans = jest.fn(async (..._args: unknown[]) => undefined)
 
 jest.mock('../lib/field-definitions', () => ({
   ...jest.requireActual('../lib/field-definitions'),
@@ -30,6 +31,7 @@ jest.mock('../lib/contacts/company-writer', () => ({
   ...jest.requireActual('../lib/contacts/company-writer'),
   createXeroContactWriter: (deps: { xeroOrganisationId: string }) => ({
     preparePage: (...args: unknown[]) => mockPreparePage(...args),
+    reportOrphans: (...args: unknown[]) => mockReportOrphans(...args),
     write: async (record: { ContactID: string }) => {
       const externalId = `${deps.xeroOrganisationId}:${record.ContactID}`
       return { externalId, action: 'skip', data: { sourceIdentifier: externalId } }
