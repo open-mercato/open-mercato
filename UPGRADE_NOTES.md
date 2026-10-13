@@ -24,6 +24,34 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
+<a id="discord-proposals"></a>
+
+### Discord AI reply proposals require system origin (issue #7312)
+
+Approving or dismissing an unmarked `channel_discord.ai_reply_proposal` message now fails.
+Previously, a user with `messages.compose` could forge an approval card that caused a colleague
+to post attacker-written text as a public reply. Proposal creation now records a server-only
+origin marker, and both actions verify it against the stored content and tenant/organization.
+
+**Emergency security waiver:** the surface is approval/dismissal through the existing provider
+actions and commands; the classification is security behavior narrowing. Route URLs,
+action/command IDs, schemas, signatures, and database fields remain unchanged. Continued
+acceptance of unmarked cards is itself the exploit: they cannot be distinguished from forgeries.
+A legacy fallback, including checking the mutable bot email, would retain the exploitable branch,
+so no legacy bridge or toggle exists. The PR must carry `security` and a named human maintainer
+approval acknowledging this waiver before merge. The Discord spec contains the corresponding
+"Migration & Backward Compatibility — proposal origin" section.
+Public compose and draft-update requests cannot supply this marker.
+
+**Module authors:** use the Discord provider's `fileDiscordReplyProposal` helper for new cards.
+Posting the message type through `/api/messages` or an unstamped internal compose no longer
+produces an actionable proposal. No new dependency, configuration, or database migration is needed.
+
+**Operators:** upgrade all app/worker processes, remove pending unmarked cards, and generate
+fresh proposals. Old cards cannot be distinguished from forgeries; do not backfill markers using
+their text or sender email. Inspect prior approved replies if forgery is suspected. Normal
+messages and fresh system-filed proposals retain their existing behavior.
+
 ### Payment gateway webhooks: opt-in transport, locator and response options; ambiguous matches are rejected
 
 `registerWebhookHandler(...)` accepts new optional options for providers that sign form-encoded bodies or expect a specific acknowledgement:
