@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { cn } from '@open-mercato/shared/lib/utils'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useProviderChallengeComponent } from './mfa-ui-registry'
@@ -185,7 +186,7 @@ export default function MfaChallengePanel({
 
   return (
     <section
-      className="rounded-lg border border-slate-800 bg-slate-950 p-6 text-slate-100"
+      className="rounded-lg border border-border bg-card p-6 text-card-foreground"
       data-testid="security-mfa-challenge-panel"
     >
       <div className="space-y-5">
@@ -208,7 +209,7 @@ export default function MfaChallengePanel({
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-10 w-full justify-center border-slate-700 bg-slate-800 text-sm text-slate-100 hover:bg-slate-700 hover:text-slate-100"
+                  className="h-10 w-full justify-center text-sm"
                   onClick={() => setShowMoreOptions((current) => !current)}
                 >
                   {t('security.login.mfaChallenge.actions.moreOptions', 'More options')}
@@ -222,11 +223,10 @@ export default function MfaChallengePanel({
                         key={`${challengeId}:${method.type}`}
                         type="button"
                         variant="outline"
-                        className={`h-10 w-full justify-center border-slate-700 bg-slate-800 text-sm hover:bg-slate-700 ${
-                          method.type === RECOVERY_CODE_METHOD_TYPE
-                            ? 'text-red-400 hover:text-red-300'
-                            : 'text-slate-100 hover:text-slate-100'
-                        }`}
+                        className={cn(
+                          'h-10 w-full justify-center text-sm',
+                          method.type === RECOVERY_CODE_METHOD_TYPE && 'text-status-error-text hover:text-status-error-text',
+                        )}
                         onClick={() => {
                           setSelectedMethod(method.type)
                           setError(null)
@@ -242,7 +242,7 @@ export default function MfaChallengePanel({
             ) : null}
 
             {error ? (
-              <p className="text-sm text-red-400" role="alert">{error}</p>
+              <p className="text-sm text-status-error-text" role="alert">{error}</p>
             ) : null}
 
             <div className="pt-1">
@@ -250,7 +250,7 @@ export default function MfaChallengePanel({
                 type="button"
                 size="sm"
                 variant="ghost"
-                className="w-full text-slate-300 hover:bg-slate-800 hover:text-slate-100"
+                className="w-full text-muted-foreground hover:text-foreground"
                 onClick={onBack}
               >
                 {t('security.login.mfaChallenge.actions.back', 'Back to sign in')}
@@ -258,7 +258,7 @@ export default function MfaChallengePanel({
             </div>
           </div>
         ) : (
-          <div className="flex items-center gap-2 rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200">
+          <div className="flex items-center gap-2 rounded-md border border-status-warning-border bg-status-warning-bg px-3 py-2 text-sm text-status-warning-text">
             <AlertTriangle className="size-4" aria-hidden="true" />
             <span>{t('security.login.mfaChallenge.noMethods', 'No MFA methods are currently available for this account.')}</span>
           </div>

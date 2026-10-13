@@ -67,10 +67,10 @@ export default function PasskeyChallengeVerify({
         void handleVerify()
       }}
     >
-      <h2 className="text-center text-2xl font-semibold text-slate-100">
+      <h2 className="text-center text-2xl font-semibold text-foreground">
         {t('security.login.mfaChallenge.passkey.title', 'Two-factor authentication')}
       </h2>
-      <p className="text-center text-sm text-slate-300">
+      <p className="text-center text-sm text-muted-foreground">
         {t('security.login.mfaChallenge.passkey.description', 'Authenticate using your security key.')}
       </p>
       <div>

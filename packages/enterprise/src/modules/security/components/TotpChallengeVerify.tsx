@@ -36,17 +36,17 @@ export default function TotpChallengeVerify({
 
   return (
     <form className="grid gap-3" onSubmit={handleSubmit}>
-      <h2 className="text-center text-2xl font-semibold text-slate-100">
+      <h2 className="text-center text-2xl font-semibold text-foreground">
         {t('security.login.mfaChallenge.totp.title', 'Two-factor authentication')}
       </h2>
-      <p className="text-center text-sm text-slate-300">
+      <p className="text-center text-sm text-muted-foreground">
         {t(
           'security.login.mfaChallenge.totp.description',
           'Enter the code from your two-factor authentication app or browser extension below.',
         )}
       </p>
       <div className="grid gap-1">
-        <Label htmlFor="totp-code" className="text-slate-200">
+        <Label htmlFor="totp-code">
           {t('security.login.mfaChallenge.totp.codeLabel', 'Verification code')}
         </Label>
         <Input
@@ -57,7 +57,7 @@ export default function TotpChallengeVerify({
           autoComplete="one-time-code"
           inputMode="numeric"
           maxLength={6}
-          className="h-10 border-slate-700 bg-slate-950 text-slate-100 placeholder:text-slate-500"
+          className="h-10"
         />
       </div>
       <div>

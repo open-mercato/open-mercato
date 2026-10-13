@@ -37,17 +37,17 @@ export default function RecoveryCodeChallengeVerify({
 
   return (
     <form className="grid gap-3" onSubmit={handleSubmit}>
-      <h2 className="text-center text-2xl font-semibold text-slate-100">
+      <h2 className="text-center text-2xl font-semibold text-foreground">
         {t('security.login.mfaChallenge.recovery.title', 'Two-factor authentication')}
       </h2>
-      <p className="text-center text-sm text-slate-300">
+      <p className="text-center text-sm text-muted-foreground">
         {t(
           'security.login.mfaChallenge.recovery.description',
           'Enter one of your recovery codes to complete sign in.',
         )}
       </p>
       <div className="grid gap-1">
-        <Label htmlFor="recovery-code" className="text-slate-200">
+        <Label htmlFor="recovery-code">
           {t('security.login.mfaChallenge.recovery.codeLabel', 'Recovery code')}
         </Label>
         <Input
@@ -56,7 +56,7 @@ export default function RecoveryCodeChallengeVerify({
           onChange={(event) => setCode(event.target.value)}
           placeholder={t('security.login.mfaChallenge.recovery.placeholder', 'XXXXXX-XXXXXX')}
           autoComplete="one-time-code"
-          className="h-10 border-slate-700 bg-slate-950 text-slate-100 placeholder:text-slate-500"
+          className="h-10"
         />
       </div>
       <div>
