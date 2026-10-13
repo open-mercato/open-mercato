@@ -42,6 +42,7 @@ export const integration: IntegrationDefinition = {
       },
     ],
   },
+  healthCheck: { service: 'xeroHealthCheck' },
 }
 
 export const integrations: IntegrationDefinition[] = [integration]
