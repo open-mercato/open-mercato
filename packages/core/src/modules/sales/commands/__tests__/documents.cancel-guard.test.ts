@@ -13,7 +13,7 @@ import { createContainer, asValue, InjectionMode } from 'awilix'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
-import { SalesOrder, SalesShipment } from '../../data/entities'
+import { SalesOrder, SalesPayment, SalesShipment } from '../../data/entities'
 import type { DocumentUpdateInput } from '../documents'
 import '../documents'
 
@@ -74,7 +74,9 @@ function makeOrder(overrides: Record<string, unknown> = {}) {
   }
 }
 
-function makeEm(order: Record<string, unknown>, activeShipments: number) {
+type Stored = { shipments?: Array<Record<string, unknown>>; payments?: Array<Record<string, unknown>> }
+
+function makeEm(order: Record<string, unknown>, stored: Stored = {}) {
   const em: any = {
     findOne: jest.fn(async (requested: unknown, where: any) => {
       if (requested === SalesOrder) return order
@@ -84,8 +86,11 @@ function makeEm(order: Record<string, unknown>, activeShipments: number) {
       }
       return null
     }),
-    find: jest.fn(async () => []),
-    count: jest.fn(async (requested: unknown) => (requested === SalesShipment ? activeShipments : 0)),
+    find: jest.fn(async (requested: unknown) => {
+      if (requested === SalesShipment) return stored.shipments ?? []
+      if (requested === SalesPayment) return stored.payments ?? []
+      return []
+    }),
     create: jest.fn((_entityClass: unknown, data: unknown) => data),
     persist: jest.fn(),
     remove: jest.fn(),
@@ -115,10 +120,10 @@ function makeCtx(em: unknown) {
   } as any
 }
 
-async function runUpdate(order: Record<string, unknown>, activeShipments: number, statusEntryId: string) {
+async function runUpdate(order: Record<string, unknown>, stored: Stored, statusEntryId: string) {
   const handler = commandRegistry.get<DocumentUpdateInput, { order: SalesOrder }>('sales.orders.update')
   expect(handler).toBeTruthy()
-  const em = makeEm(order, activeShipments)
+  const em = makeEm(order, stored)
   const result = handler!.execute({ id: ORDER_ID, statusEntryId } as never, makeCtx(em))
   return { em, result }
 }
@@ -126,21 +131,29 @@ async function runUpdate(order: Record<string, unknown>, activeShipments: number
 describe('sales.orders.update — cancellation guard (issue #4054)', () => {
   it('refuses to cancel an order that still has a live shipment', async () => {
     const order = makeOrder()
-    const { em, result } = await runUpdate(order, 1, CANCELED_ENTRY_ID)
+    const { em, result } = await runUpdate(order, { shipments: [{ id: 's-1', status: 'shipped' }] }, CANCELED_ENTRY_ID)
     await expect(result).rejects.toBeInstanceOf(CrudHttpError)
     await expect(result).rejects.toMatchObject({
       status: 409,
       body: { error: 'sales.orders.errors.cancel_has_shipments' },
     })
     expect(order.status).toBe('confirmed')
-    const [, where] = em.count.mock.calls[0]
-    expect(where).toMatchObject({ order: ORDER_ID, deletedAt: null })
-    expect(JSON.stringify(where)).toContain('canceled')
+    expect(em.find).toHaveBeenCalledWith(SalesShipment, expect.objectContaining({ order: ORDER_ID, deletedAt: null }), expect.anything())
   })
 
-  it('refuses to cancel an order with a payment that was not refunded', async () => {
-    const order = makeOrder({ paidTotalAmount: '120.0000', refundedTotalAmount: '20.0000' })
-    const { result } = await runUpdate(order, 0, CANCELED_ENTRY_ID)
+  it('treats a shipment without a status as live', async () => {
+    const order = makeOrder()
+    const { result } = await runUpdate(order, { shipments: [{ id: 's-1', status: null }] }, CANCELED_ENTRY_ID)
+    await expect(result).rejects.toMatchObject({ status: 409 })
+  })
+
+  it('refuses to cancel an order with a received payment that was not refunded', async () => {
+    const order = makeOrder()
+    const { result } = await runUpdate(
+      order,
+      { payments: [{ id: 'p-1', status: 'received', amount: '120', capturedAmount: '0', refundedAmount: '20' }] },
+      CANCELED_ENTRY_ID,
+    )
     await expect(result).rejects.toMatchObject({
       status: 409,
       body: { error: 'sales.orders.errors.cancel_has_payments' },
@@ -148,18 +161,32 @@ describe('sales.orders.update — cancellation guard (issue #4054)', () => {
     expect(order.status).toBe('confirmed')
   })
 
-  it('cancels an order once its payments are fully refunded and it has no live shipment', async () => {
-    const order = makeOrder({ paidTotalAmount: '120.0000', refundedTotalAmount: '120.0000' })
-    const { result } = await runUpdate(order, 0, CANCELED_ENTRY_ID)
+  it('cancels once shipments are cancelled or returned and payments are refunded, failed or pending', async () => {
+    const order = makeOrder()
+    const { result } = await runUpdate(
+      order,
+      {
+        shipments: [
+          { id: 's-1', status: 'canceled' },
+          { id: 's-2', status: 'returned' },
+        ],
+        payments: [
+          { id: 'p-1', status: 'captured', amount: '120', capturedAmount: '120', refundedAmount: '120' },
+          { id: 'p-2', status: 'failed', amount: '50', capturedAmount: '0', refundedAmount: '0' },
+          { id: 'p-3', status: 'pending', amount: '30', capturedAmount: '0', refundedAmount: '0' },
+        ],
+      },
+      CANCELED_ENTRY_ID,
+    )
     await expect(result).resolves.toBeTruthy()
     expect(order.status).toBe('canceled')
   })
 
   it('does not check shipments or payments for a non-cancelling status change', async () => {
-    const order = makeOrder({ status: 'draft', statusEntryId: null, paidTotalAmount: '50' })
-    const { em, result } = await runUpdate(order, 3, CONFIRMED_ENTRY_ID)
+    const order = makeOrder({ status: 'draft', statusEntryId: null })
+    const { em, result } = await runUpdate(order, { shipments: [{ id: 's-1', status: 'shipped' }] }, CONFIRMED_ENTRY_ID)
     await expect(result).resolves.toBeTruthy()
-    expect(em.count).not.toHaveBeenCalled()
+    expect(em.find).not.toHaveBeenCalledWith(SalesShipment, expect.anything(), expect.anything())
     expect(order.status).toBe('confirmed')
   })
 })
