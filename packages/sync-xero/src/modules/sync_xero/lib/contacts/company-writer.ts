@@ -11,12 +11,15 @@ import { XERO_INTEGRATION_ID } from '../constants'
 import { formatContactExternalId } from '../external-ids'
 import type { XeroContactRecord } from '../keyset'
 import type { XeroScope } from '../owner'
+import { XERO_MERGED_INTO_FIELD } from '../field-definitions'
 import { claimCompanyMapping } from './claim'
-import { buildCompanyCreateInput, diffCompanyUpdate, type CompanySnapshot, type CompanyWriteInput } from './compare'
+import { buildCompanyCreateInput, diffCompanyUpdate, resolveCompanyStatus, type CompanySnapshot, type CompanyWriteInput } from './compare'
 import { parseXeroContact, type XeroContact } from './contact'
-import { normalizeTaxNumber, type XeroCompanyIndexes } from './indexes'
+import { loadXeroCompanyIndexSources, normalizeTaxNumber, type XeroCompanyIndexes } from './indexes'
 import { mapXeroContactToCompany, type MappedXeroCompany, type XeroValueWarning } from './mapping'
-import { loadCompanySnapshots, type XeroRunIndex } from './preload'
+import { findXeroOrphanedCompanies } from './orphans'
+import { loadCompanySnapshots, loadXeroRunIndex, type XeroRunIndex } from './preload'
+import { classifyXeroContact } from './rules'
 
 const MAX_CLAIM_ATTEMPTS = 20
 
@@ -27,6 +30,8 @@ export type XeroItemLogCode =
   | 'xero.company_duplicate_risk'
   | 'xero.tax_number_shared'
   | 'xero.company_claim_cleanup_refused'
+  | 'xero.contact_merged'
+  | 'xero.company_orphaned'
   | XeroValueWarning['code']
 
 /** One fixed English sentence per code; a row names Contacts and Companies by id only, never by personal data. */
@@ -37,6 +42,8 @@ export const XERO_ITEM_LOG_MESSAGES: Record<XeroItemLogCode, string> = {
   'xero.company_duplicate_risk': 'A Company was created for the Contact although Companies with the same name exist.',
   'xero.tax_number_shared': 'Another Contact already holds the same tax number.',
   'xero.company_claim_cleanup_refused': 'A Company created for a Contact another import had already mapped could not be deleted, because people or deals are linked to it.',
+  'xero.contact_merged': 'The Xero Contact was merged into another Contact; only the merge was recorded on its Company.',
+  'xero.company_orphaned': 'A Company carries the Xero mark of a Contact that is mapped to another Company or to none; it was not changed.',
   'xero.value_left_out': 'A Xero value Open Mercato does not accept was left out.',
   'xero.value_truncated': 'A Xero value longer than Open Mercato allows was truncated.',
 }
@@ -58,6 +65,8 @@ export type XeroContactWriterDeps = {
 export type XeroContactWriter = {
   preparePage(records: XeroContactRecord[]): Promise<void>
   write(record: XeroContactRecord): Promise<ImportItem>
+  /** After a drained full pass: logs every orphaned marked Company, never fails the run. */
+  reportOrphans(now?: Date): Promise<void>
 }
 
 /** The system-actor context `sync_excel` builds, tagged with `syncOrigin`. */
@@ -130,15 +139,43 @@ export function createXeroContactWriter(deps: XeroContactWriterDeps): XeroContac
 
   async function updateCompany(company: MappedXeroCompany, externalId: string, entityId: string): Promise<ImportItem> {
     const current = await snapshotOf(entityId)
-    if (!current) {
-      await log('warn', 'xero.company_deleted_in_om', { sourceIdentifier: externalId, entityIds: [entityId] })
-      return item(externalId, 'skip', { localId: entityId, errorCode: 'xero.company_deleted_in_om' })
-    }
+    if (!current) return refuseDeleted(externalId, entityId)
     const update = diffCompanyUpdate(company, externalId, current)
     if (!update) return item(externalId, 'skip', { localId: entityId })
     await execute('customers.companies.update', { id: entityId, ...companyInput(update) })
     pageSnapshots.delete(entityId)
     await logValueWarnings(company, externalId, entityId)
+    return item(externalId, 'update', { localId: entityId })
+  }
+
+  async function refuseDeleted(externalId: string, entityId: string): Promise<ImportItem> {
+    await log('warn', 'xero.company_deleted_in_om', { sourceIdentifier: externalId, entityIds: [entityId] })
+    return item(externalId, 'skip', { localId: entityId, errorCode: 'xero.company_deleted_in_om' })
+  }
+
+  async function markMerged(externalId: string, contactId: string, entityId: string, survivingContactId: string): Promise<ImportItem> {
+    const current = await snapshotOf(entityId)
+    if (!current) return refuseDeleted(externalId, entityId)
+    if (current.custom[XERO_MERGED_INTO_FIELD] !== survivingContactId) {
+      await execute('customers.companies.update', { id: entityId, ...companyInput({ customFields: { [XERO_MERGED_INTO_FIELD]: survivingContactId } }) })
+      pageSnapshots.delete(entityId)
+    }
+    const survivorEntityId = deps.runIndex.lookup(formatContactExternalId(xeroOrganisationId, survivingContactId))
+    await log('warn', 'xero.contact_merged', {
+      sourceIdentifier: externalId,
+      entityIds: survivorEntityId ? [entityId, survivorEntityId] : [entityId],
+      contactIds: [contactId, survivingContactId],
+    })
+    return item(externalId, 'skip', { localId: entityId, errorCode: 'xero.contact_merged' })
+  }
+
+  async function flipStatusOnly(externalId: string, entityId: string): Promise<ImportItem> {
+    const current = await snapshotOf(entityId)
+    if (!current) return refuseDeleted(externalId, entityId)
+    const status = resolveCompanyStatus('GDPRREQUEST', current)!
+    if (status.status === current.status && status.isActive === current.isActive) return item(externalId, 'skip', { localId: entityId })
+    await execute('customers.companies.update', { id: entityId, ...companyInput(status) })
+    pageSnapshots.delete(entityId)
     return item(externalId, 'update', { localId: entityId })
   }
 
@@ -211,10 +248,7 @@ export function createXeroContactWriter(deps: XeroContactWriterDeps): XeroContac
       if (created) await deleteCreatedCompany(candidate, externalId)
       if (claim.winnerEntityId) {
         deps.runIndex.add(externalId, claim.winnerEntityId)
-        if (claim.winnerDeleted) {
-          await log('warn', 'xero.company_deleted_in_om', { sourceIdentifier: externalId, entityIds: [claim.winnerEntityId] })
-          return item(externalId, 'skip', { localId: claim.winnerEntityId, errorCode: 'xero.company_deleted_in_om' })
-        }
+        if (claim.winnerDeleted) return refuseDeleted(externalId, claim.winnerEntityId)
         return updateCompany(company, externalId, claim.winnerEntityId)
       }
     }
@@ -231,18 +265,41 @@ export function createXeroContactWriter(deps: XeroContactWriterDeps): XeroContac
 
     async write(record) {
       const externalId = formatContactExternalId(xeroOrganisationId, record.ContactID)
+      const invalid = () => item(externalId, 'failed', { errorCode: 'xero.contact_invalid', errorMessage: CONTACT_INVALID_MESSAGE })
       const contact = parseXeroContact(record)
-      const mapping = contact ? mapXeroContactToCompany(contact) : null
-      if (!contact || !mapping || !mapping.ok) {
-        return item(externalId, 'failed', { errorCode: 'xero.contact_invalid', errorMessage: CONTACT_INVALID_MESSAGE })
-      }
+      if (!contact) return invalid()
       try {
         const mappedEntityId = deps.runIndex.lookup(externalId)
+        const decision = classifyXeroContact(contact, mappedEntityId !== null)
+        if (decision.kind === 'skip') return item(externalId, 'skip')
+        if (mappedEntityId && decision.kind === 'merge_mark') {
+          return await markMerged(externalId, contact.ContactID, mappedEntityId, decision.survivingContactId)
+        }
+        if (mappedEntityId && decision.kind === 'status_only') return await flipStatusOnly(externalId, mappedEntityId)
+        const mapping = mapXeroContactToCompany(contact)
+        if (!mapping.ok) return invalid()
         if (mappedEntityId) return await updateCompany(mapping.company, externalId, mappedEntityId)
         return await writeFirstSync(mapping.company, contact, externalId)
       } catch (error) {
         if (!isRejectedInput(error)) throw error
-        return item(externalId, 'failed', { errorCode: 'xero.contact_invalid', errorMessage: CONTACT_INVALID_MESSAGE })
+        return invalid()
+      }
+    },
+
+    async reportOrphans(now = new Date()) {
+      try {
+        const [sources, mappings] = await Promise.all([
+          loadXeroCompanyIndexSources(deps.em.fork(), scope),
+          loadXeroRunIndex(deps.em.fork(), scope),
+        ])
+        for (const orphan of findXeroOrphanedCompanies(sources, mappings, now)) {
+          await log('warn', 'xero.company_orphaned', {
+            sourceIdentifier: orphan.marker,
+            entityIds: orphan.mappedEntityId ? [orphan.entityId, orphan.mappedEntityId] : [orphan.entityId],
+          })
+        }
+      } catch (error) {
+        getTelemetryRuntime()?.reportError(error, { module: 'sync_xero', code: 'sync_xero.orphan_report_failed' })
       }
     },
   }
