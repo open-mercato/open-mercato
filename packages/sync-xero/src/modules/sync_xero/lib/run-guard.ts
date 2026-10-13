@@ -1,5 +1,6 @@
 import { OAuthGrantError } from '@open-mercato/core/modules/integrations/lib/oauth/descriptor'
 import type { IntegrationOAuthGrantService } from '@open-mercato/core/modules/integrations/lib/oauth/grant-service'
+import { AdvisoryLockUnavailableError } from '@open-mercato/shared/lib/db/advisoryLock'
 import { XERO_INTEGRATION_ID } from './constants'
 import { XeroTestFakesUnavailableError } from './endpoints'
 import { XeroApiError } from './errors'
@@ -79,6 +80,7 @@ export type XeroRunOutcome = { kind: 'quiet'; code: XeroQuietEndCode } | { kind:
 export function classifyXeroRunError(error: unknown, origin: XeroRunOrigin): XeroRunOutcome | null {
   if (error instanceof XeroRunFailure) return { kind: 'fail', failure: error }
   if (error instanceof XeroTestFakesUnavailableError) return { kind: 'fail', failure: new XeroRunFailure('xero.test_fakes_unavailable', { cause: error }) }
+  if (error instanceof AdvisoryLockUnavailableError) return { kind: 'fail', failure: new XeroRunFailure('xero.claim_lock_unavailable', { cause: error }) }
   if (error instanceof OAuthGrantError) {
     switch (error.code) {
       case 'not_connected':
