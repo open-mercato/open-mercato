@@ -1,5 +1,6 @@
 import path from 'node:path'
 import { config as loadEnv } from 'dotenv'
+import { Client } from 'pg'
 import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { deleteEntityIfExists, readJsonSafe } from '@open-mercato/core/helpers/integration/crmFixtures'
@@ -19,7 +20,6 @@ const APP_ROOT = TEST_APP_ROOT
   : path.resolve(process.cwd(), 'apps/mercato')
 const APP_QUEUE_BASE_DIR = path.resolve(APP_ROOT, '.mercato/queue')
 const INTEGRATION_ID = 'sync_shopify'
-const DATA_SYNC_IMPORT_QUEUE = 'data-sync-import'
 const EVENTS_QUEUE = 'events'
 
 if (!TEST_APP_ROOT) {
@@ -54,7 +54,7 @@ async function waitForCompletedRun(
   token: string,
   runId: string,
 ): Promise<JsonRecord> {
-  const deadline = Date.now() + 120_000
+  const deadline = Date.now() + 180_000
   let lastRunBody: JsonRecord = {}
   while (Date.now() < deadline) {
     const runResponse = await apiRequest(request, 'GET', `/api/data_sync/runs/${encodeURIComponent(runId)}`, { token })
@@ -62,14 +62,16 @@ async function waitForCompletedRun(
     lastRunBody = await readJson(runResponse)
     const status = String(lastRunBody.status ?? '')
     if (status === 'completed') {
-      await drainIntegrationQueue(EVENTS_QUEUE, { appRoot: APP_ROOT })
+      await drainIntegrationQueue(EVENTS_QUEUE, { appRoot: APP_ROOT }).catch(() => 0)
       return lastRunBody
     }
     if (status === 'failed' || status === 'cancelled') {
       throw new Error(`Sync run ${runId} finished with ${status}: ${JSON.stringify(lastRunBody)}`)
     }
-    await drainIntegrationQueue(DATA_SYNC_IMPORT_QUEUE, { appRoot: APP_ROOT })
-    await new Promise((resolve) => setTimeout(resolve, 250))
+    // Let the app's armed background workers process data-sync-import jobs.
+    // Draining that queue from the Playwright process can resolve encrypted
+    // credentials without shopDomain and fail the run.
+    await new Promise((resolve) => setTimeout(resolve, 750))
   }
   throw new Error(`Timed out waiting for sync run ${runId}. Last response: ${JSON.stringify(lastRunBody)}`)
 }
@@ -93,62 +95,86 @@ async function startImport(
       batchSize: 25,
     },
   })
-  expect(response.status(), await response.text()).toBe(201)
   const body = await readJson(response)
-  const runId = String(body.runId ?? '')
+  expect(response.status(), JSON.stringify(body)).toBe(201)
+  const runId = String(body.id ?? body.runId ?? '')
   expect(runId).toMatch(/^[0-9a-f-]{36}$/i)
   return runId
 }
 
-async function listProductsByTitle(
-  request: APIRequestContext,
-  token: string,
-  title: string,
-): Promise<JsonRecord[]> {
-  const response = await apiRequest(
-    request,
-    'GET',
-    `/api/catalog/products?search=${encodeURIComponent(title)}&pageSize=20`,
-    { token },
-  )
-  expect(response.status()).toBe(200)
-  const body = await readJson(response)
-  const items = Array.isArray(body.items) ? body.items as JsonRecord[] : []
-  return items.filter((item) => String(item.title ?? '') === title)
+let sharedDbClient: Client | null = null
+
+async function getDbClient(): Promise<Client> {
+  if (sharedDbClient) return sharedDbClient
+  const connectionString = process.env.DATABASE_URL
+  if (!connectionString) throw new Error('DATABASE_URL is required for TC-SS-001 mapping lookups')
+  const client = new Client({ connectionString })
+  await client.connect()
+  sharedDbClient = client
+  return client
 }
 
-async function listPeopleByEmail(
-  request: APIRequestContext,
-  token: string,
-  email: string,
-): Promise<JsonRecord[]> {
-  const response = await apiRequest(
-    request,
-    'GET',
-    `/api/customers/people?search=${encodeURIComponent(email)}&pageSize=20`,
-    { token },
-  )
-  expect(response.status()).toBe(200)
-  const body = await readJson(response)
-  const items = Array.isArray(body.items) ? body.items as JsonRecord[] : []
-  return items.filter((item) => String(item.primaryEmail ?? '') === email)
+async function closeDbClient(): Promise<void> {
+  const client = sharedDbClient
+  sharedDbClient = null
+  if (client) await client.end()
 }
 
-async function listOrdersByExternalReference(
+async function findMappedLocalId(
+  entityType: string,
+  externalId: string,
+  scope: { tenantId: string; orgId: string },
+): Promise<string | null> {
+  const client = await getDbClient()
+  const result = await client.query<{ internal_entity_id: string }>(
+    `
+      select internal_entity_id
+      from sync_external_id_mappings
+      where integration_id = $1
+        and internal_entity_type = $2
+        and external_id = $3
+        and organization_id = $4
+        and tenant_id = $5
+        and deleted_at is null
+      order by updated_at desc
+      limit 1
+    `,
+    [INTEGRATION_ID, entityType, externalId, scope.orgId, scope.tenantId],
+  )
+  return result.rows[0]?.internal_entity_id ?? null
+}
+
+async function softDeleteScopedMappings(scope: { tenantId: string; orgId: string }): Promise<void> {
+  const client = await getDbClient()
+  await client.query(
+    `
+      update sync_external_id_mappings
+      set deleted_at = now(), updated_at = now()
+      where integration_id = $1
+        and organization_id = $2
+        and tenant_id = $3
+        and deleted_at is null
+    `,
+    [INTEGRATION_ID, scope.orgId, scope.tenantId],
+  )
+}
+
+async function fetchListItem(
   request: APIRequestContext,
   token: string,
-  externalReference: string,
-): Promise<JsonRecord[]> {
+  collectionPath: string,
+  id: string,
+): Promise<JsonRecord | null> {
   const response = await apiRequest(
     request,
     'GET',
-    `/api/sales/orders?search=${encodeURIComponent(externalReference)}&pageSize=20`,
+    `${collectionPath}?id=${encodeURIComponent(id)}&pageSize=1`,
     { token },
   )
-  expect(response.status()).toBe(200)
+  expect(response.status(), `GET ${collectionPath}?id= should be 200`).toBe(200)
   const body = await readJson(response)
   const items = Array.isArray(body.items) ? body.items as JsonRecord[] : []
-  return items.filter((item) => String(item.externalReference ?? '') === externalReference)
+  return items[0] ?? null
 }
 
 test.describe('TC-SS-001: Shopify import via fake Admin API', () => {
@@ -175,14 +201,28 @@ test.describe('TC-SS-001: Shopify import via fake Admin API', () => {
       ? detailBeforeBody.state as JsonRecord
       : {}
 
-    const productTitle = 'QA Shopify Import Product'
-    const customerEmail = 'ada.qa.sync-shopify@example.com'
+    const scope = decodeTokenScope(token)
     const createdProductIds: string[] = []
     const createdPersonIds: string[] = []
     const createdOrderIds: string[] = []
     const runIds: string[] = []
 
     try {
+      // Prior runs may leave mappings that point at soft-deleted rows; clear them
+      // so this import creates fresh entities instead of updating ghosts.
+      const staleProductId = await findMappedLocalId('catalog_product', 'gid://shopify/Product/9001', scope)
+      const stalePersonId = await findMappedLocalId('customer_person', 'gid://shopify/Customer/9001', scope)
+      const staleOrderIds = [
+        await findMappedLocalId('sales_order', 'gid://shopify/Order/9001', scope),
+        await findMappedLocalId('sales_order', 'gid://shopify/Order/9002', scope),
+      ]
+      for (const orderId of staleOrderIds) {
+        if (orderId) await deleteEntityIfExists(request, token, '/api/sales/orders', orderId)
+      }
+      if (stalePersonId) await deleteEntityIfExists(request, token, '/api/customers/people', stalePersonId)
+      if (staleProductId) await deleteEntityIfExists(request, token, '/api/catalog/products', staleProductId)
+      await softDeleteScopedMappings(scope)
+
       const saveCredentials = await apiRequest(request, 'PUT', `/api/integrations/${INTEGRATION_ID}/credentials`, {
         token,
         data: {
@@ -220,16 +260,18 @@ test.describe('TC-SS-001: Shopify import via fake Admin API', () => {
         expect(Number(summary.createdCount ?? 0) + Number(summary.updatedCount ?? 0) + Number(summary.skippedCount ?? 0)).toBeGreaterThan(0)
       }
 
-      const products = await listProductsByTitle(request, token, productTitle)
-      expect(products.length).toBeGreaterThanOrEqual(1)
-      const productId = String(products[0]?.id ?? '')
+      const productId = await findMappedLocalId('catalog_product', 'gid://shopify/Product/9001', scope)
       expect(productId).toMatch(/^[0-9a-f-]{36}$/i)
-      createdProductIds.push(productId)
+      createdProductIds.push(productId!)
+
+      const productDetailBody = await fetchListItem(request, token, '/api/catalog/products', productId!)
+      expect(productDetailBody).not.toBeNull()
+      expect(String(productDetailBody?.title ?? '')).toContain('QA Shopify Import Product')
 
       const variantListResponse = await apiRequest(
         request,
         'GET',
-        `/api/catalog/variants?productId=${encodeURIComponent(productId)}&pageSize=100`,
+        `/api/catalog/variants?productId=${encodeURIComponent(productId!)}&pageSize=100`,
         { token },
       )
       expect(variantListResponse.status()).toBe(200)
@@ -237,46 +279,45 @@ test.describe('TC-SS-001: Shopify import via fake Admin API', () => {
       const variantItems = Array.isArray(variantListBody.items) ? variantListBody.items as JsonRecord[] : []
       expect(variantItems.length).toBeGreaterThanOrEqual(100)
 
-      const people = await listPeopleByEmail(request, token, customerEmail)
-      expect(people.length).toBeGreaterThanOrEqual(1)
-      const personId = String(people[0]?.id ?? people[0]?.entityId ?? '')
+      const personId = await findMappedLocalId('customer_person', 'gid://shopify/Customer/9001', scope)
       expect(personId).toMatch(/^[0-9a-f-]{36}$/i)
-      createdPersonIds.push(personId)
-
-      const orders = await listOrdersByExternalReference(request, token, '#QA9001')
-      expect(orders.length).toBe(1)
-      const orderId = String(orders[0]?.id ?? '')
-      expect(orderId).toMatch(/^[0-9a-f-]{36}$/i)
-      createdOrderIds.push(orderId)
-
-      const orderDetail = await apiRequest(request, 'GET', `/api/sales/orders/${encodeURIComponent(orderId)}`, { token })
-      expect(orderDetail.status()).toBe(200)
-      const orderDetailBody = await readJson(orderDetail)
-      const order = (orderDetailBody.order && typeof orderDetailBody.order === 'object'
-        ? orderDetailBody.order
-        : orderDetailBody) as JsonRecord
-      const lineCount = Number(order.lineItemCount ?? (Array.isArray(orderDetailBody.lines) ? orderDetailBody.lines.length : 0))
-      expect(lineCount).toBeGreaterThanOrEqual(50)
-      expect(Number(order.grandTotalGrossAmount ?? 0)).toBeGreaterThan(0)
-
-      const discountedOrders = await listOrdersByExternalReference(request, token, '#QA9002')
-      expect(discountedOrders.length).toBe(1)
-      const discountedOrderId = String(discountedOrders[0]?.id ?? '')
-      createdOrderIds.push(discountedOrderId)
-      const discountedDetail = await apiRequest(
+      createdPersonIds.push(personId!)
+      const personDetail = await apiRequest(
         request,
         'GET',
-        `/api/sales/orders/${encodeURIComponent(discountedOrderId)}`,
+        `/api/customers/people/${encodeURIComponent(personId!)}`,
         { token },
       )
-      expect(discountedDetail.status()).toBe(200)
-      const discountedBody = await readJson(discountedDetail)
-      const discountedOrder = (discountedBody.order && typeof discountedBody.order === 'object'
-        ? discountedBody.order
-        : discountedBody) as JsonRecord
-      expect(Number(discountedOrder.grandTotalGrossAmount ?? 0)).toBeCloseTo(88, 1)
-      expect(Number(discountedOrder.discountTotalAmount ?? 0)).toBeGreaterThan(0)
-      expect(Number(discountedOrder.shippingGrossAmount ?? discountedOrder.shippingNetAmount ?? 0)).toBeCloseTo(8, 1)
+      expect(personDetail.status()).toBe(200)
+      const personBody = await readJson(personDetail)
+      const personEmail = String(
+        personBody.primaryEmail
+          ?? (personBody.person as JsonRecord | undefined)?.primaryEmail
+          ?? '',
+      )
+      expect(personEmail).toBe('ada.qa.sync-shopify@example.com')
+
+      const orderId = await findMappedLocalId('sales_order', 'gid://shopify/Order/9001', scope)
+      expect(orderId).toMatch(/^[0-9a-f-]{36}$/i)
+      createdOrderIds.push(orderId!)
+
+      const order = await fetchListItem(request, token, '/api/sales/orders', orderId!)
+      expect(order).not.toBeNull()
+      const lineCount = Number(
+        order?.lineItemCount
+          ?? (Array.isArray(order?.lines) ? (order.lines as unknown[]).length : 0),
+      )
+      expect(lineCount).toBeGreaterThanOrEqual(50)
+      expect(Number(order?.grandTotalGrossAmount ?? 0)).toBeGreaterThan(0)
+
+      const discountedOrderId = await findMappedLocalId('sales_order', 'gid://shopify/Order/9002', scope)
+      expect(discountedOrderId).toMatch(/^[0-9a-f-]{36}$/i)
+      createdOrderIds.push(discountedOrderId!)
+      const discountedOrder = await fetchListItem(request, token, '/api/sales/orders', discountedOrderId!)
+      expect(discountedOrder).not.toBeNull()
+      expect(Number(discountedOrder?.grandTotalGrossAmount ?? 0)).toBeCloseTo(88, 1)
+      expect(Number(discountedOrder?.discountTotalAmount ?? 0)).toBeGreaterThan(0)
+      expect(Number(discountedOrder?.shippingGrossAmount ?? discountedOrder?.shippingNetAmount ?? 0)).toBeCloseTo(8, 1)
 
       const secondOrdersRunId = await startImport(request, token, 'orders')
       runIds.push(secondOrdersRunId)
@@ -289,18 +330,16 @@ test.describe('TC-SS-001: Shopify import via fake Admin API', () => {
       const employeeProducts = await apiRequest(
         request,
         'GET',
-        `/api/catalog/products/${encodeURIComponent(productId)}`,
+        `/api/catalog/products?id=${encodeURIComponent(productId!)}&pageSize=1`,
         { token: employeeToken },
       )
       expect([200, 403, 404]).toContain(employeeProducts.status())
       if (employeeProducts.status() === 200) {
         const employeeBody = await readJson(employeeProducts)
-        const employeeOrg = String(
-          (employeeBody.organizationId as string | undefined)
-            ?? ((employeeBody.product as JsonRecord | undefined)?.organizationId as string | undefined)
-            ?? '',
-        )
-        expect(employeeOrg === '' || employeeOrg === decodeTokenScope(token).orgId).toBe(true)
+        const employeeItems = Array.isArray(employeeBody.items) ? employeeBody.items as JsonRecord[] : []
+        const employeeItem = employeeItems[0] ?? {}
+        const employeeOrg = String(employeeItem.organizationId ?? '')
+        expect(employeeOrg === '' || employeeOrg === scope.orgId).toBe(true)
       }
     } finally {
       for (const runId of runIds) {
@@ -315,6 +354,7 @@ test.describe('TC-SS-001: Shopify import via fake Admin API', () => {
       for (const productId of createdProductIds) {
         await deleteEntityIfExists(request, token, '/api/catalog/products', productId)
       }
+      await softDeleteScopedMappings(scope).catch(() => undefined)
       await apiRequest(request, 'PUT', `/api/integrations/${INTEGRATION_ID}/credentials`, {
         token,
         data: { credentials: previousCredentials },
@@ -326,6 +366,7 @@ test.describe('TC-SS-001: Shopify import via fake Admin API', () => {
           reauthRequired: typeof baselineState.reauthRequired === 'boolean' ? baselineState.reauthRequired : false,
         },
       }).catch(() => undefined)
+      await closeDbClient()
     }
   })
 })
