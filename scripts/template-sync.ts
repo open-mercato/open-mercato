@@ -192,6 +192,7 @@ const SYNC_INTERNAL_PACKAGE_KEYS = [
   '@open-mercato/gateway-stripe',
   '@open-mercato/gateway-tpay',
   '@open-mercato/sync-akeneo',
+  '@open-mercato/sync-xero',
 ] as const
 // Modules whose source ships in every scaffold but must stay runtime-disabled there.
 // The monorepo dev app keeps them enabled for QA; the template copy strips their
@@ -315,6 +316,15 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // AI-harness evaluation case (packages/create-app/src/lib/module-facts-build.test.ts),
   // so enabling is a maintainer call, not a one-line edit.
   // { id: 'gateway_tpay', from: '@open-mercato/gateway-tpay' },`,
+  },
+  sync_xero: {
+    source: `  { id: 'sync_xero', from: '@open-mercato/sync-xero' },`,
+    template: `  // Xero contacts sync (.ai/specs/2026-10-13-sync-xero-phase-1-connect-and-contacts.md).
+  // The package ships with the scaffold as an opt-in provider. Enabling it by
+  // default makes the scaffold ship the module's fact-sheet, which then needs an
+  // AI-harness evaluation case (packages/create-app/src/lib/module-facts-build.test.ts),
+  // so enabling is a maintainer call, not a one-line edit.
+  // { id: 'sync_xero', from: '@open-mercato/sync-xero' },`,
   },
   channel_discord: {
     source: `  // Discord bot channel (SPEC 2026-06-19) — two-way Discord via REST + a

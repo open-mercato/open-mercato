@@ -180,6 +180,12 @@ export const enabledModules: ModuleEntry[] = [
   // intact'), and #4983 for the discussion.
   // { id: 'channel_discord', from: '@open-mercato/channel-discord' },
   { id: 'sync_akeneo', from: '@open-mercato/sync-akeneo' },
+  // Xero contacts sync (.ai/specs/2026-10-13-sync-xero-phase-1-connect-and-contacts.md).
+  // The package ships with the scaffold as an opt-in provider. Enabling it by
+  // default makes the scaffold ship the module's fact-sheet, which then needs an
+  // AI-harness evaluation case (packages/create-app/src/lib/module-facts-build.test.ts),
+  // so enabling is a maintainer call, not a one-line edit.
+  // { id: 'sync_xero', from: '@open-mercato/sync-xero' },
   { id: 'tillio', from: '@open-mercato/tillio' },
   { id: 'shipping_carriers', from: '@open-mercato/core' },
   { id: 'eudr', from: '@open-mercato/core' },
