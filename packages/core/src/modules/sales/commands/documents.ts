@@ -17,7 +17,7 @@ import { LockMode } from "@mikro-orm/core";
 import type { EntityManager } from "@mikro-orm/postgresql";
 import type { EventBus } from "@open-mercato/events";
 import type { DataEngine } from "@open-mercato/shared/lib/data/engine";
-import { CrudHttpError, notFound } from "@open-mercato/shared/lib/crud/errors";
+import { CrudHttpError, conflict, notFound } from "@open-mercato/shared/lib/crud/errors";
 import {
   deriveResourceFromCommandId,
   invalidateCrudCache,
@@ -951,6 +951,45 @@ function isConfirmedOrderStatus(status: string | null): boolean {
 
 function isCancelledOrderStatus(status: string | null): boolean {
   return status === "canceled" || status === "cancelled";
+}
+
+const NON_BLOCKING_SHIPMENT_STATUSES = ["canceled", "cancelled", "returned"];
+const PAID_AMOUNT_EPSILON = 0.0001;
+
+// Cancelling is a status flip with no return/refund bookkeeping, so it is refused
+// while goods are still out with the customer or money is still held (#4054).
+// The user cancels the shipments and refunds the payments first.
+async function assertOrderCanBeCancelled(
+  em: EntityManager,
+  order: SalesOrder,
+): Promise<void> {
+  const { translate } = await resolveTranslations();
+  const activeShipments = await em.count(SalesShipment, {
+    order: order.id,
+    deletedAt: null,
+    $or: [
+      { status: null },
+      { status: { $nin: NON_BLOCKING_SHIPMENT_STATUSES } },
+    ],
+  });
+  if (activeShipments > 0) {
+    throw conflict(
+      translate(
+        "sales.orders.errors.cancel_has_shipments",
+        "This order has shipments. Cancel or return them before cancelling the order.",
+      ),
+    );
+  }
+  const netPaid =
+    Number(order.paidTotalAmount ?? 0) - Number(order.refundedTotalAmount ?? 0);
+  if (Number.isFinite(netPaid) && netPaid > PAID_AMOUNT_EPSILON) {
+    throw conflict(
+      translate(
+        "sales.orders.errors.cancel_has_payments",
+        "This order has payments that were not refunded. Refund them before cancelling the order.",
+      ),
+    );
+  }
 }
 
 async function emitOrderLifecycleEvent(input: {
@@ -5841,6 +5880,16 @@ const updateOrderCommand: CommandHandler<
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
     await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
     const previousStatus = normalizeStatusValue(order.status);
+    if (parsed.statusEntryId && !isCancelledOrderStatus(previousStatus)) {
+      const requestedStatus = normalizeStatusValue(
+        await resolveDictionaryEntryValue(em, parsed.statusEntryId, {
+          tenantId: order.tenantId,
+        }),
+      );
+      if (isCancelledOrderStatus(requestedStatus)) {
+        await assertOrderCanBeCancelled(em, order);
+      }
+    }
     let statusChangeNote: SalesNote | null = null;
     const shouldRecalculateTotals =
       parsed.shippingMethodId !== undefined ||
