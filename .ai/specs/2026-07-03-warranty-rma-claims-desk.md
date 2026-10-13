@@ -484,7 +484,19 @@ None identified.
 
 Fully compliant — implemented and verified against the full validation gate.
 
+## Migration & Backward Compatibility
+
+Live line numbers must be unique within a claim. Initial claim creation, explicit line creation/renumbering, and undo restoration reject collisions with HTTP 409, a localized `error`, and `code: warranty_claims.errors.duplicateLineNo`. Existing request/response fields, routes, database schema, events, and ACL identifiers remain unchanged. Automatic creation still uses the highest live number plus one; a delete undo refuses if that number was reused. Move the occupying line to a free number, then retry the undo. Historical duplicate numbers are not repaired automatically; unrelated edits to those records remain possible.
+
+Number allocation, explicit renumbering, and line undo validation serialize on the tenant/org-scoped claim lock before checking live siblings or changing lines. Aggregate undo validates its projected live numbers before restoring any fields. The TC-WC-037 integration scenario covers delete/add/undo refusal and retry, explicit/batch duplicate input, and concurrent creates. Command tests also cover snapshot restoration, nonconflicting operations, and scope isolation.
+
 ## Changelog
+
+### 2026-10-13 — Claim line number uniqueness (#7306)
+- Refuse colliding line creates, renumbering, and undo restoration under the claim lock, preserving automatic allocation and atomic rollups.
+- Reject duplicate resolved numbers in initial claim input before persistence, including explicit/default collisions, and validate aggregate undo before restoring its snapshots.
+- Add localized conflict feedback and unit/API concurrency regressions; no database migration or historical renumbering.
+
 
 ### 2026-07-03 — Foundation
 - Introduced the `warranty_claims` module: one claim aggregate with a `claimType` discriminator, claim lines with partial approvals and dispositions, an append-only timeline, and per-tenant/org/type claim numbering.

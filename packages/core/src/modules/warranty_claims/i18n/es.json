@@ -287,6 +287,7 @@
   "warranty_claims.errors.deleteNotAllowed": "Solo se pueden eliminar reclamos en estado borrador o cancelado.",
   "warranty_claims.errors.dispositionGradeConflict": "La reposición de inventario solo está permitida para artículos con grado A o B.",
   "warranty_claims.errors.dispositionTypeConflict": "Esta disposición no está disponible para este tipo de reclamación.",
+  "warranty_claims.errors.duplicateLineNo": "Otra línea de esta reclamación ya utiliza ese número de línea. Elige otro número antes de volver a intentarlo.",
   "warranty_claims.errors.duplicateSerial": "Ya existe un registro con este número de serie.",
   "warranty_claims.errors.fieldLocked": "Este campo no se puede editar en el estado actual del reclamo.",
   "warranty_claims.errors.invalidAssignee": "No se pudo encontrar el responsable seleccionado.",
