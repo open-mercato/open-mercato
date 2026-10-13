@@ -16,7 +16,7 @@
 
 **Key Points:**
 - The public read surface of the `ecommerce` module: product listing with facets, product detail, category tree, category landing, search, and static content pages. Seven endpoints, all `GET`, all served under a resolved `StoreContext`.
-- These endpoints are **not anonymous**. An authenticated B2B buyer gets different prices, a different tax display mode and a narrower assortment from the same URL. Every response is keyed and cached on the buyer-context digest, or it leaks contract pricing. Content pages (§4.6–4.7) are the one deliberate exception: they carry no buyer-dependent field at all.
+- These endpoints are **not anonymous**. An authenticated B2B buyer gets different prices, a different tax display mode and a narrower assortment from the same URL. Every response is keyed and cached on the buyer-context scope components (§9), or it leaks contract pricing. Content pages (§4.6–4.7) are the one deliberate exception: they carry no buyer-dependent field at all.
 - Content pages are served over a **DI seam** (`contentPageSource`, §3.4), not over a module. The minimal source ships with `content`; a CMS module on the long-range roadmap can replace it without the storefront changing, because `body` is a discriminated union the client handles both arms of from day one.
 - Almost nothing here is new *business* logic. `catalog` already exports `selectBestPrice`, `buildPriceRowFilter`, `scoreProductSearchRelevance` and `computeHierarchyForCategories`, and `buildProductFilters` is extracted into `catalog/lib` for reuse; `translations` exports the overlay helpers; `availability` supplies stock state through `resolveAvailability`. This spec is a **public projection** over existing internals, and its main job is to not fork them. What *is* new is infrastructure the projection needs and the platform did not have: a scope-key array on the product index document (§3.3) and two additive `PricingContext` fields (§6.1) — both named as pre-steps, not hidden inside "reuse" (rev 4).
 - Cross-facet exclusion — the rule that a facet's counts ignore that facet's own filter — is the expensive part: one aggregation per facet dimension per request.
@@ -597,17 +597,19 @@ The `ILIKE` path and the `@open-mercato/search` path return identical payloads. 
 | Endpoint | TTL | Key | Notes |
 |---|---|---|---|
 | `/products` items + `priceRange` | 30s | `digest` + normalized query | `stale-while-revalidate: 30` |
-| `/products` count facets (`categories`/`tags`/`options`/`productTypes`) | 30s | `assortmentScopeHash` + normalized query, **excluding price/tax/customer fields from the digest** | See "Facet cache split" below — R2's cost optimization; safe only because these counts don't depend on price. The `availability` facet is page-scoped (§4.1) and is cached with `items` |
+| `/products` count facets (`categories`/`tags`/`options`/`productTypes`) | 30s | `assortmentScopeHash` + normalized query, **excluding price/tax/customer fields from the digest**, and excluding `priceMin`/`priceMax` from the facet universe entirely | See "Facet cache split" below — R2's cost optimization; safe only because these counts don't depend on price. The `availability` facet is page-scoped (§4.1) and is cached with `items` |
 | `/products/:idOrHandle` | 60s | `digest` + product id | |
-| `/categories` | 300s | `digest` + params | |
-| `/categories/:slug` | 60s | `digest` + slug + query | |
+| `/categories` | 300s | `assortmentScopeHash` (`scope: 'assortment'`: store + effective locale + hash) + params | Varies with assortment and locale only; the response carries no price |
+| `/categories/:slug` | 60s | Category block: `assortmentScopeHash` + slug. Embedded `products`: the `/products` entry on the full `digest`, shared with an identical `GET /products?categoryId=…` | The block carries no price; only its products block is buyer-priced (`lib/storefrontCategoryCache.ts`) |
 | `/search/suggest` | 30s | `digest` + `q` + limit | |
 | `/pages` *(Phase 4)* | 300s | `storeId` + effective locale | Not buyer-keyed (§4.6) |
 | `/pages/:slug` *(Phase 4)* | 300s | `storeId` + effective locale + slug | Not buyer-keyed; `public` at the HTTP layer in both auth states |
 
 Every key is built through `buildStorefrontCacheKey(ctx, parts)` (SPEC-029 §6.1), which requires the `StoreContext` and therefore the digest. Concretely, every read and write goes through the typed accessor `storefrontCache(ctx)` in `ecommerce/lib/cacheKeys.ts` — the only file in the module allowed to resolve the DI `cache` — so this spec's `lib/storefront*.ts` files never hold a raw cache handle (SPEC-029 §6.1 Enforcement, 2026-10-05). There are **two deliberate exceptions**, both of which still go through the helper rather than around it: the count-facets row keys on `assortmentScopeHash` (a documented sub-component of the digest, not an ad hoc value), and the two `/pages` rows key on the store id and effective locale, both likewise `StoreContext` fields. The page exception is safe for a different reason than the facet one — not "these fields happen not to vary by buyer" but "this payload has no buyer-dependent field in it at all" (§4.6), which is enforced by the contract test in §12 rather than assumed.
 
-**These are exceptions to the default key, not exceptions to the rule (amended 2026-09-16).** Roadmap ADR-7 now requires every cache, projection and index key in this suite to be built from `BuyerContext`'s **named** scope components — `assortmentScopeHash`, `priceScopeKey`, `customerOverlayId` — rather than from a digest of the whole context where a named component would do. The count-facet exception below is the first instance of that rule, arrived at reactively; it is now the general case. Concretely, for this document: a surface that varies only with the assortment keys on `assortmentScopeHash`; a surface that varies with price but not with an individual contract keys on `priceScopeKey`; only a surface that genuinely varies per contracted buyer takes `customerOverlayId`, and that component is `null` for the majority of authenticated B2B buyers, who have no price rows of their own and may therefore share entries with their whole group. Keying those buyers on a whole-context digest is what an opaque digest silently costs.
+**Tenant scoping is explicit, not inherited.** The storefront handlers wrap their own cache work in `runWithCacheTenant(ctx.tenantId)` (`api/storefront/storefrontRouteSupport.ts`); the typed accessor does the same around every read and write. This is required rather than incidental: the shared API dispatcher wraps a handler only with the *staff* auth tenant (`apps/mercato/src/app/api/[...slug]/route.ts`), which is `null` on a public request, so a storefront route relying on the dispatcher alone would store a public response under the cache's `tenant:global:` fallback, and a later tag-based invalidation — which does carry the tenant — would miss it and leave the entry stale until TTL (`packages/cache/src/tenantContext.ts`).
+
+**Named components, not a whole-context digest (amended 2026-09-16; the table applied 2026-10-11).** Roadmap ADR-7 requires every cache, projection and index key in this suite to be built from `BuyerContext`'s **named** scope components — `assortmentScopeHash`, `priceScopeKey`, `customerOverlayId` — rather than from a digest of the whole context where a named component would do. Concretely, for this document: a surface that varies only with the assortment keys on `assortmentScopeHash`; a surface that varies with price but not with an individual contract keys on `priceScopeKey`; only a surface that genuinely varies per contracted buyer takes `customerOverlayId`, and that component is `null` for the majority of authenticated B2B buyers, who have no price rows of their own and may therefore share entries with their whole group. Keying those buyers on a whole-context digest is what an opaque digest silently costs. The §9 table names the components per row rather than defaulting every buyer-priced surface to `digest`.
 
 **`customerOverlayId` covers person and company (2026-10-05, D3).** A buyer now carries `customerIds` — the person and the company they buy for, person first. `customerOverlayId` is `null` when **none** of those ids has price rows of its own, and otherwise a stable key of the ids that do (person first, `','`-joined). A buyer whose company holds a contract therefore shares the overlay entry with every colleague buying for that company who has no personal rows; a buyer with personal rows gets an entry of their own. Both still collapse to the group bucket when neither id holds a contract.
 
@@ -617,7 +619,9 @@ An earlier draft cached the entire `StorefrontFacets` block — `priceRange` inc
 
 Fixed: `priceRange` is computed and cached with the `items` response (full `digest`), not with the count facets. The count-facet cache split by `assortmentScopeHash` is unchanged and still delivers R2's win for the expensive part (the SQL facet aggregations collapsing to a shared cache entry across same-assortment buyers) — only the one buyer-priced field moves.
 
-Authenticated responses are `Cache-Control: private, no-store` at the HTTP layer while still using the **server-side** cache keyed on the digest. The two are distinct: shared server caching keyed per buyer context is safe; shared browser or CDN caching is not.
+**The split assumes a price-independent count, which holds only while no price filter is active (added 2026-10-11).** With `priceMin`/`priceMax` present, §5.4 computes the counts against the buyer's resolved prices, so the count-facet row for that request also carries `priceScopeKey`, `customerOverlayId ?? '-'` and `taxMode` (the §9 table row) and shares only with buyers resolving to the same prices; with no price filter — the common case — the counts stay price-independent and are shared across the whole assortment scope. An active `availability` filter adds the channel dimension the same way: `availability` counts come from the availability contract's `check`, which takes a `channelId` (`AvailabilityQuery`, availability contract §4.1a), so that request's count-facet key also carries the channel id (the §9 table row).
+
+Authenticated responses are `Cache-Control: private, no-store` at the HTTP layer while still using the **server-side** cache keyed on the buyer context above. The two are distinct: shared server caching keyed per buyer context is safe; shared browser or CDN caching is not.
 
 Invalidation tags and the events that fire them (event IDs verified against `catalog/events.ts`, `availability/events.ts`, 2026-10-05):
 
@@ -631,6 +635,10 @@ Invalidation tags and the events that fire them (event IDs verified against `cat
 | `content-page:{storeId}:{slug}`, `content-pages:{storeId}` | *(Phase 4)* the content source's publish signal |
 
 **TTL-only staleness, stated rather than hidden.** `catalog` emits **no** events for tags, offers, price kinds or option schemas. A tag rename, an offer edit, a price kind's `displayMode` change or an option-label change is therefore picked up when the affected entries expire (30–300 s per the table above), not on write. That bound is accepted for this release; adding those events to `catalog` is additive and would let the tags above be extended without changing this contract.
+
+**The `ecommerce` module owns these invalidations.** CRUD cache invalidation is off by default (`ENABLE_CRUD_API_CACHE=false`; `invalidateCrudCache` returns early, `packages/shared/src/lib/crud/cache.ts`), so the storefront cannot rely on `catalog` or `customer_groups` to flush anything. The module therefore ships its own tag vocabulary — the table above — and the subscribers that emit it (`subscribers/catalog-*-cache-invalidation.ts`, `subscribers/customer-group-*-cache-invalidation.ts`, `lib/cacheInvalidation.ts`), calling the cache service's `deleteByTags` directly and independently of that flag. Each call runs inside `runWithCacheTenant(payload.tenantId)`, because the cache service scopes tags to the current cache tenant (`packages/cache/src/service.ts`) and neither the event bus nor the queue sets it.
+
+The `catalog.price.*` and `catalog.variant.*` payloads carry ids only, with no `productId`. Rather than requiring an additive payload field from `catalog`, the subscriber **reads the owner back** (`readPriceOwner`, `readVariantProductId`) and falls back to the tenant-wide `catalog-products:{tenantId}` tag — which every listing entry carries — when the row is already gone on a delete; a product detail entry then expires on its TTL. §12 asserts a publish-then-read round trip after the subscriber has run, so a tag that is named but never flushed fails a test rather than a TTL window.
 
 Page invalidation is the source's responsibility to trigger and the route layer's to tag — a replacement source that publishes without emitting the tag serves stale legal copy for up to five minutes, so the contract suite (§12) asserts that a publish is observable on the next read.
 
@@ -721,8 +729,13 @@ Query counts are asserted in tests. A per-item query is a defect regardless of w
 - Category counts include descendants
 - Price range reflects the buyer's resolved prices, not list prices
 - **Two buyers sharing an assortment scope but on different price kinds never see each other's `priceRange`, even though they share the same count-facet cache entry** (regression test for the fixed §9.1 cache split)
+- **Two tenants, and two locales within one store, never share a count-facet cache entry** — the `assortment` scope carries the store id and the effective locale, and every read and write runs inside `runWithCacheTenant(ctx.tenantId)` (§9)
 - With no filters applied, the count-facet block issues one SQL aggregation, not one per dimension (R2)
 - The availability facet carries `availabilityScope: 'page'` and its counts sum to the page's item count before the availability filter
+
+**Cache invalidation:**
+- **A publish-then-read round trip for the `catalog.product` record tag** — after a product create, update or delete and the subscriber has processed the event (the test drains the queue rather than waiting out a wall-clock window), the next `/products/:idOrHandle` read reflects it rather than serving the cached entry, so the tag named in §9 is asserted and not assumed (the `catalog.category` half moves to the Phase 2 gate, where `/categories` ships)
+- **A price or variant write invalidates the owning product's record tag** — after a `catalog.price.created`/`updated`/`deleted` or `catalog.variant.*` write and the subscriber has processed the event (the test drains the queue rather than waiting out a wall-clock window), the next `/products/:idOrHandle` read reflects the change, so the §9 subscriber is asserted against the additive `productId` payload field (§13)
 
 **Localization:**
 - Overlay applied to titles, descriptions, category names, tag labels, option and choice labels (the latter through the catalog translation extension, §7.2)
@@ -773,6 +786,8 @@ None of these exist on `develop`; each is its own PR, landing before Phase 1 cod
 4. **Catalog filter extraction** — `buildProductFilters` + its query type into `catalog/lib/productFilters.ts` with the route re-export; descendant-expansion option. Admin `/api/catalog/products` integration tests unchanged and green.
 5. **`SPEC-029` Phase 1** — `StoreContext`/`BuyerContext`, `buildStorefrontCacheKey` and the typed `storefrontCache(ctx)` accessor with its structural guard.
 
+An additive `productId` on the `catalog.price.*` / `catalog.variant.*` event payloads was considered as a sixth prerequisite and is **not** required: §9's subscriber reads the owning product back from the id the payload does carry and falls back to the tenant-wide listing tag on a delete, so no cross-module `catalog` change gates Phase 1.
+
 ### Phase 1 — Listing and detail
 `buildStorefrontProductScope` over `scope_keys`, `lib/storefrontPricing.ts` (`buildStorefrontPricingContext`), `lib/storefrontProducts.ts`, `lib/storefrontDetail.ts`, batched narrowed pricing, availability (`resolveAvailability` + `policyResolutionService.resolveMany`, page-scoped filter), translation overlay, `/products` and `/products/:idOrHandle`, `ILIKE` search, caching.
 
@@ -783,7 +798,7 @@ None of these exist on `develop`; each is its own PR, landing before Phase 1 cod
 
 **Prerequisite:** the `catalog/translations.ts` extension making option and choice labels translatable (D20, §7.2).
 
-**Gate:** facet counts match the visible set; the no-filter case issues one SQL aggregation; option facets render translated labels.
+**Gate:** facet counts match the visible set; the no-filter case issues one SQL aggregation; option facets render translated labels; the publish-then-read cache test passes for the `catalog-category:{id}` tag.
 
 ### Phase 3 — Search and hardening
 `/search/suggest`, `@open-mercato/search` integration through the `tokens` and `pgvector` strategies with the scope predicate in the ranking query (D19, §8.2), rate limiting via `checkRateLimit`, OpenAPI, performance profiling. Meilisearch is out of scope.
@@ -857,6 +872,15 @@ No `ecommerce` storefront contract existed before this spec, so there is nothing
 ---
 
 ## 16) Changelog
+
+### 2026-10-11 — cache-key composition and invalidation emitters (post-merge review of #5384)
+
+Raised against the pre-implementation text; each point is recorded below together with how the Phase 0/1 implementation (PR #7142) satisfies it, which in two cases is not the mechanism originally proposed.
+
+- **§9 count-facet key isolation.** The key carried an unrestricted `assortmentScopeHash` with no store or locale component, so one tenant's, store's or locale's entry could collide with another's. Fixed: the `assortment` scope prefixes the store id and the effective locale, and every read and write runs inside `runWithCacheTenant(ctx.tenantId)` — so tenant isolation comes from the cache tenant rather than from a `tenantId` key component (`lib/cacheKeys.ts`). §9 now also records why that wrapping is the handler's own job and not the dispatcher's.
+- **§9 count facets under a price filter.** The concern was that counts computed against an active `priceMin`/`priceMax` depend on the buyer's resolved prices, so an assortment-keyed entry would leak across price scopes. Resolved the other way round: the price filter is **not applied to the count-facet universe at all** (`lib/storefrontFacets.ts`), so the counts stay price-independent and the key needs no price components. `availability` is page-scoped (D21) and computed by the listing, so it needs no channel component either.
+- **§9 per-row key components.** `/categories` and the `/categories/:slug` category block key on `assortmentScopeHash` (they carry no price); the buyer-priced surfaces — items, detail, suggest and the landing's embedded products — key on the full `digest`, which is the context's identity value and already carries the store, locale and buyer components. ADR-7's amended rule is applied per row; `digest` is kept where a row genuinely varies with the whole buyer context.
+- **§9 invalidation ownership.** Confirmed and implemented: CRUD cache invalidation is off by default, so `ecommerce` ships its own tags and the subscribers that emit them, flushing with `deleteByTags` inside `runWithCacheTenant(payload.tenantId)`. The tags are the module's own (`catalog-product:{id}`, `catalog-category:{id}`, `catalog-price:{productId}`, `catalog-products:{tenantId}`, plus the buyer-context tags of SPEC-029 §8), **not** the CRUD `buildRecordTag` shapes, so nothing depends on `ENABLE_CRUD_API_CACHE`. The additive `productId` payload field named as a `catalog` prerequisite is therefore **not** required: the subscriber reads the owner back and falls back to the tenant-wide listing tag on a delete (§9, §13). §12 keeps the publish-then-read assertions.
 
 ### 2026-10-09 — review hardening (PR #7142)
 - The facet/category product universe is hard-capped at 10 000 products: past the cap count facets are empty and category `productCount` is `null` (no category is dropped as empty). The count-facet cache key is built from the resolved selection, so unknown slugs share one entry.
