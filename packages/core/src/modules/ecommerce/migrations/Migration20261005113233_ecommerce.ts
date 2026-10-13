@@ -23,4 +23,10 @@ export class Migration20261005113233_ecommerce extends Migration {
     this.addSql(`create index "ecommerce_store_domain_bindings_tenant_org_idx" on "ecommerce_store_domain_bindings" ("tenant_id", "organization_id");`);
   }
 
+  override down(): void | Promise<void> {
+    this.addSql(`drop table if exists "ecommerce_store_domain_bindings" cascade;`);
+    this.addSql(`drop table if exists "ecommerce_store_channel_bindings" cascade;`);
+    this.addSql(`drop table if exists "ecommerce_stores" cascade;`);
+  }
+
 }

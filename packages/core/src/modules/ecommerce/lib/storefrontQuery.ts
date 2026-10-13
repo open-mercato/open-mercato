@@ -112,7 +112,11 @@ function parseStorefrontListGrammar<T>(input: StorefrontQueryInput, schema: z.Zo
         malformed.push({ parameter: key, message: 'option code is required' })
         continue
       }
-      if (code in options) {
+      if (code === '__proto__') {
+        malformed.push({ parameter: key, message: 'option code is invalid' })
+        continue
+      }
+      if (Object.prototype.hasOwnProperty.call(options, code)) {
         duplicates.add(key)
         continue
       }

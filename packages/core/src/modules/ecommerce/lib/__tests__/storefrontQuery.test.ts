@@ -72,6 +72,11 @@ describe('parseStorefrontProductListQuery', () => {
   it('rejects repeated parameters instead of picking one', () => {
     expect(rejection('sort=newest&sort=price_asc').code).toBe('duplicate_parameter')
     expect(rejection('options[color]=red&options[color]=blue').code).toBe('duplicate_parameter')
+    expect(parseStorefrontProductListQuery({ 'options[constructor]': 'a', 'options[toString]': 'b' }).options).toEqual({
+      constructor: ['a'],
+      toString: ['b'],
+    })
+    expect(rejection('options[__proto__]=red').code).toBe('invalid_parameter')
   })
 
   it('rejects malformed option parameters', () => {
