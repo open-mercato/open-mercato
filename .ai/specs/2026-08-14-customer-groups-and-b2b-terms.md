@@ -682,6 +682,9 @@ Approver/account manager reviews over-threshold purchase requests.
 
 ## 18) Changelog
 
+### 2026-10-08 (terms price kind picker, #7077)
+- §10: new read-only `GET /api/customer_groups/customer-groups/price-kinds` (`customer_groups.terms.view`) lists the tenant's catalog price kinds as `{ id, code, title }` (`search`, `ids`, `pageSize` ≤ 100; empty when `catalog` is absent). The terms price kind picker and the explain-terms panel read it instead of `/api/catalog/price-kinds`, which requires `catalog.settings.manage` — without that feature the picker was empty and its 403 flash replaced the "terms saved" message.
+
 ### 2026-09-30 (review fixes on PR #6709)
 - §9: group create returns `{ id, isDefault }` and never fails after commit when the default promotion loses a race.
 - §10: new `customer_groups.terms.updated` event, emitted on terms writes together with the group's cache-tag invalidation. Full command/undo support for terms remains tracked in #6728.

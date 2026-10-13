@@ -1,0 +1,1259 @@
+/**
+ * Forms module SubmissionService — owns the start/save/submit lifecycle.
+ *
+ * Critical invariants enforced here:
+ *  - Append-only revision chain (only allowed UPDATE paths are anonymize
+ *    in phase 2b and the coalesce-after-cap branch in this file).
+ *  - Tenant-scoped queries on every read/write.
+ *  - Server-derived `saved_by_role` from active actor row — never read from
+ *    client input.
+ *  - Optimistic concurrency via `base_revision_id`.
+ *  - Tampering markers logged when patches contain non-editable field keys.
+ *  - Per-tenant envelope encryption of revision payloads.
+ *
+ * The service is intentionally thin on cross-cutting concerns: emit hooks
+ * are exposed via `eventEmitter` and pluggable audit-access logger
+ * (`auditAccess`) so phase 2b can replace it without rewriting the service.
+ */
+
+import { randomUUID } from 'node:crypto'
+import { LockMode } from '@mikro-orm/core'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { z } from 'zod'
+import {
+  Form,
+  FormSubmission,
+  FormSubmissionActor,
+  FormSubmissionRevision,
+  FormVersion,
+} from '../data/entities'
+import {
+  FormVersionCompiler,
+  type CompiledFormVersion,
+} from './form-version-compiler'
+import type { EncryptionService } from './encryption-service'
+import { RolePolicyService } from './role-policy-service'
+import {
+  resolveVisibleFieldKeys,
+  sliceByVisibility,
+  type VisibilitySchemaNode,
+} from './visibility-resolver'
+import { buildTamperingMarker, type StructuredLogger } from '../lib/log-redaction'
+import { formsEventPayloadSchemas } from '../events-payloads'
+import { validateFieldValue } from './field-validation-service'
+import type { FieldNode } from '../backend/forms/[id]/studio/schema-helpers'
+
+const DEFAULT_AUTOSAVE_INTERVAL_MS = (() => {
+  const raw = process.env.FORMS_AUTOSAVE_INTERVAL_MS
+  if (!raw) return 10_000
+  const parsed = Number.parseInt(raw, 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 10_000
+})()
+
+const DEFAULT_REVISION_CAP = (() => {
+  const raw = process.env.FORMS_REVISION_CAP
+  if (!raw) return 10_000
+  const parsed = Number.parseInt(raw, 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 10_000
+})()
+
+const MAX_SUBMISSION_PAYLOAD_BYTES = (() => {
+  const raw = process.env.FORMS_MAX_SUBMISSION_PAYLOAD_BYTES
+  if (!raw) return 256 * 1024
+  const parsed = Number.parseInt(raw, 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 256 * 1024
+})()
+
+export type SubmissionServiceErrorCode =
+  | 'STALE_BASE'
+  | 'VALIDATION_FAILED'
+  | 'RATE_LIMITED'
+  | 'NOT_FOUND'
+  | 'NO_ACTOR'
+  | 'INVALID_STATUS'
+  | 'INVALID_ROLE'
+  | 'FORM_INACTIVE'
+  | 'FORM_VERSION_NOT_PUBLISHED'
+
+/**
+ * `Symbol.for` so the brand survives module duplication across bundle
+ * boundaries. `instanceof` does NOT: Next can load this module in more than
+ * one chunk, and once a second copy of the class exists an error thrown
+ * through one copy fails `instanceof` against the other — silently
+ * downgrading a mapped domain error to a 500. Mirrors `CrudHttpError`.
+ */
+const SUBMISSION_SERVICE_ERROR_MARKER = Symbol.for('@open-mercato/forms/SubmissionServiceError')
+
+export class SubmissionServiceError extends Error {
+  readonly [SUBMISSION_SERVICE_ERROR_MARKER] = true
+  readonly code: SubmissionServiceErrorCode
+  readonly httpStatus: number
+  readonly details?: Record<string, unknown>
+
+  constructor(code: SubmissionServiceErrorCode, message: string, httpStatus: number, details?: Record<string, unknown>) {
+    super(message)
+    this.name = 'SubmissionServiceError'
+    this.code = code
+    this.httpStatus = httpStatus
+    this.details = details
+  }
+}
+
+type Scope = {
+  tenantId: string
+  organizationId: string
+}
+
+export type StartArgs = Scope & {
+  formKey: string
+  subjectType: string
+  subjectId: string
+  startedBy: string
+  /** Optional initial role override — when present, MUST be in form_version.roles. */
+  initialRole?: string | null
+  /**
+   * Optional published version to pin this submission to. When present, the
+   * form is still resolved by key (for scope + status checks) but the
+   * specified version is compiled instead of the form's current published
+   * version. Used by distribution flows (phase 2d) to lock a campaign to a
+   * particular version. When absent, behavior is unchanged.
+   */
+  pinnedVersionId?: string | null
+  /**
+   * Optional initial values keyed by field key (W8 / FD-1 prefill). Resolved
+   * by the route from `x-om-prefill` declarations + the injected
+   * `PrefillResolver`. Applied to the initial revision after being filtered
+   * through the participant role's `filterWritePatch` (only fields the
+   * participant may edit are kept) and validated by AJV. Backward-compatible:
+   * absent / empty ⇒ the initial revision payload stays `{}` as before.
+   */
+  prefill?: Record<string, unknown> | null
+}
+
+export type SaveArgs = Scope & {
+  submissionId: string
+  baseRevisionId: string
+  patch: Record<string, unknown>
+  savedBy: string
+  changeSummary?: string | null
+  changeSource?: 'user' | 'admin' | 'system'
+}
+
+export type SubmitArgs = Scope & {
+  submissionId: string
+  baseRevisionId: string
+  submittedBy: string
+  submitMetadata?: Record<string, unknown> | null
+}
+
+export type ReopenArgs = Scope & {
+  submissionId: string
+  reopenedBy: string
+}
+
+export type AssignActorArgs = Scope & {
+  submissionId: string
+  userId: string
+  role: string
+  assignedBy: string
+}
+
+export type RevokeActorArgs = Scope & {
+  submissionId: string
+  actorId: string
+  revokedBy: string
+}
+
+export type GetCurrentArgs = Scope & {
+  submissionId: string
+  /** When provided, slice the response to only this role's visible fields. */
+  viewerRole?: string | null
+  /**
+   * User reading. Used for the audit-log call site, and — when `viewerRole` is
+   * absent — to derive the slice from that user's active actor row, which is
+   * the authority on what role a viewer actually holds.
+   */
+  viewerUserId?: string | null
+  /**
+   * Which surface is reading, for the access-audit row. `getCurrent` used to
+   * hard-code `'runtime'`, so the admin submission-detail read — the primary
+   * staff read of a submission's answers — was recorded as runtime traffic or,
+   * for an auditor filtering on `'admin'`, not visibly recorded at all.
+   * Defaults to `'runtime'` so the public and portal call sites are unchanged.
+   */
+  surface?: 'admin' | 'runtime'
+  /**
+   * TRUSTED INTERNAL CALLERS ONLY: return the full decoded payload with no role
+   * slice.
+   *
+   * There is exactly one legitimate use — the consent projector in `di.ts`,
+   * which has no viewer at all and must see `signature` answers to write
+   * `forms_consent_record` rows. It is an explicit opt-in rather than the
+   * default-when-unspecified it used to be, because that default silently
+   * handed the full decrypted payload to any caller that could not name a role,
+   * including a portal customer with no actor row on the submission.
+   *
+   * Never set this from anything reachable by a request principal.
+   */
+  unsliced?: boolean
+}
+
+export type SubmissionViewModel = {
+  submission: FormSubmission
+  revision: FormSubmissionRevision
+  decodedData: Record<string, unknown>
+  actors: FormSubmissionActor[]
+  formVersion: FormVersion
+}
+
+export type RevisionInsertOutcome = {
+  revision: FormSubmissionRevision
+  coalesced: boolean
+}
+
+export type SubmissionEvents = {
+  'forms.submission.started': (payload: z.infer<typeof formsEventPayloadSchemas['forms.submission.started']>) => Promise<void> | void
+  'forms.submission.revision_appended': (payload: z.infer<typeof formsEventPayloadSchemas['forms.submission.revision_appended']>) => Promise<void> | void
+  'forms.submission.submitted': (payload: z.infer<typeof formsEventPayloadSchemas['forms.submission.submitted']>) => Promise<void> | void
+  'forms.submission.reopened': (payload: z.infer<typeof formsEventPayloadSchemas['forms.submission.reopened']>) => Promise<void> | void
+  'forms.submission.actor_assigned': (payload: z.infer<typeof formsEventPayloadSchemas['forms.submission.actor_assigned']>) => Promise<void> | void
+}
+
+export type AuditAccessHook = (args: {
+  submissionId: string
+  organizationId: string
+  tenantId: string
+  viewerUserId: string | null
+  viewerRole: string | null
+  surface: 'admin' | 'runtime'
+  scope: 'submission' | 'revision'
+}) => Promise<void> | void
+
+export type SubmissionServiceOptions = {
+  emFactory: () => EntityManager
+  formVersionCompiler: FormVersionCompiler
+  encryptionService: EncryptionService
+  rolePolicyService: RolePolicyService
+  /** Pluggable event emitter — wires to the typed forms events catalog. */
+  emitEvent: <K extends keyof SubmissionEvents>(eventId: K, payload: Parameters<SubmissionEvents[K]>[0]) => Promise<void> | void
+  /** Phase 2b replaces this with a real audit logger. Phase 1c uses a no-op. */
+  auditAccess?: AuditAccessHook
+  logger?: StructuredLogger
+  /** Override the clock for tests. */
+  now?: () => Date
+  autosaveIntervalMs?: number
+  revisionCap?: number
+}
+
+const noopAuditAccess: AuditAccessHook = () => {}
+
+const noopLogger: StructuredLogger = {
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+}
+
+export class SubmissionService {
+  private readonly emFactory: () => EntityManager
+  private readonly compiler: FormVersionCompiler
+  private readonly encryption: EncryptionService
+  private readonly rolePolicy: RolePolicyService
+  private readonly emitEvent: SubmissionServiceOptions['emitEvent']
+  private readonly auditAccess: AuditAccessHook
+  private readonly logger: StructuredLogger
+  private readonly now: () => Date
+  private readonly autosaveIntervalMs: number
+  private readonly revisionCap: number
+
+  constructor(options: SubmissionServiceOptions) {
+    this.emFactory = options.emFactory
+    this.compiler = options.formVersionCompiler
+    this.encryption = options.encryptionService
+    this.rolePolicy = options.rolePolicyService
+    this.emitEvent = options.emitEvent
+    this.auditAccess = options.auditAccess ?? noopAuditAccess
+    this.logger = options.logger ?? noopLogger
+    this.now = options.now ?? (() => new Date())
+    this.autosaveIntervalMs = options.autosaveIntervalMs ?? DEFAULT_AUTOSAVE_INTERVAL_MS
+    this.revisionCap = options.revisionCap ?? DEFAULT_REVISION_CAP
+  }
+
+  // --------------------------------------------------------------------------
+  // Active form-version lookup
+  // --------------------------------------------------------------------------
+
+  async getActiveFormVersionByKey(args: Scope & { formKey: string }): Promise<{
+    form: Form
+    formVersion: FormVersion
+    compiled: CompiledFormVersion
+  }> {
+    const em = this.emFactory()
+    const form = await em.findOne(Form, {
+      organizationId: args.organizationId,
+      tenantId: args.tenantId,
+      key: args.formKey,
+      deletedAt: null,
+    })
+    if (!form) {
+      throw new SubmissionServiceError('NOT_FOUND', `Form "${args.formKey}" not found.`, 404)
+    }
+    if (form.status !== 'active') {
+      throw new SubmissionServiceError('FORM_INACTIVE', `Form "${args.formKey}" is not active.`, 422)
+    }
+    if (!form.currentPublishedVersionId) {
+      throw new SubmissionServiceError(
+        'FORM_VERSION_NOT_PUBLISHED',
+        `Form "${args.formKey}" has no published version.`,
+        422,
+      )
+    }
+    const formVersion = await em.findOne(FormVersion, {
+      id: form.currentPublishedVersionId,
+      organizationId: args.organizationId,
+      tenantId: args.tenantId,
+    })
+    if (!formVersion) {
+      throw new SubmissionServiceError('NOT_FOUND', 'Pinned form version not found.', 404)
+    }
+    const compiled = this.compiler.compile({
+      id: formVersion.id,
+      updatedAt: formVersion.updatedAt,
+      schema: formVersion.schema,
+      uiSchema: formVersion.uiSchema,
+    })
+    return { form, formVersion, compiled }
+  }
+
+  /**
+   * Resolve a specific published form version pinned to a key. The form is
+   * resolved by key (so org/tenant scope and active status are validated) but
+   * the supplied version is compiled instead of the form's current published
+   * version. Asserts the version is published and belongs to the resolved
+   * form. Used by phase 2d distribution flows.
+   */
+  async getPinnedFormVersionByKey(args: Scope & { formKey: string; pinnedVersionId: string }): Promise<{
+    form: Form
+    formVersion: FormVersion
+    compiled: CompiledFormVersion
+  }> {
+    const em = this.emFactory()
+    const form = await em.findOne(Form, {
+      organizationId: args.organizationId,
+      tenantId: args.tenantId,
+      key: args.formKey,
+      deletedAt: null,
+    })
+    if (!form) {
+      throw new SubmissionServiceError('NOT_FOUND', `Form "${args.formKey}" not found.`, 404)
+    }
+    if (form.status !== 'active') {
+      throw new SubmissionServiceError('FORM_INACTIVE', `Form "${args.formKey}" is not active.`, 422)
+    }
+    const formVersion = await em.findOne(FormVersion, {
+      id: args.pinnedVersionId,
+      organizationId: args.organizationId,
+      tenantId: args.tenantId,
+    })
+    if (!formVersion || formVersion.formId !== form.id) {
+      throw new SubmissionServiceError('NOT_FOUND', 'Pinned form version not found.', 404)
+    }
+    if (formVersion.status !== 'published') {
+      throw new SubmissionServiceError(
+        'FORM_VERSION_NOT_PUBLISHED',
+        'Pinned form version is not published.',
+        422,
+      )
+    }
+    const compiled = this.compiler.compile({
+      id: formVersion.id,
+      updatedAt: formVersion.updatedAt,
+      schema: formVersion.schema,
+      uiSchema: formVersion.uiSchema,
+    })
+    return { form, formVersion, compiled }
+  }
+
+  // --------------------------------------------------------------------------
+  // Lifecycle: start
+  // --------------------------------------------------------------------------
+
+  async start(args: StartArgs): Promise<SubmissionViewModel> {
+    const { form, formVersion, compiled } = args.pinnedVersionId
+      ? await this.getPinnedFormVersionByKey({
+          tenantId: args.tenantId,
+          organizationId: args.organizationId,
+          formKey: args.formKey,
+          pinnedVersionId: args.pinnedVersionId,
+        })
+      : await this.getActiveFormVersionByKey({
+          tenantId: args.tenantId,
+          organizationId: args.organizationId,
+          formKey: args.formKey,
+        })
+    const declaredRoles = readDeclaredRoles(formVersion)
+    const role = args.initialRole
+      ?? readDefaultActorRole(formVersion)
+      ?? declaredRoles[0]
+      ?? null
+    if (!role) {
+      throw new SubmissionServiceError('INVALID_ROLE', 'Form version does not declare any roles.', 422)
+    }
+    if (!declaredRoles.includes(role) && role !== 'admin') {
+      throw new SubmissionServiceError('INVALID_ROLE', `Role "${role}" is not declared on the form version.`, 422)
+    }
+
+    const em = this.emFactory()
+    const result = await em.transactional(async (trx) => {
+      const now = this.now()
+      // Assign UUID PKs in app code so cross-row FKs (actor/revision →
+      // submission, submission → revision) are known before flush. The DB
+      // `defaultRaw` only fills them on insert, which is too late here.
+      const submissionId = randomUUID()
+      const revisionId = randomUUID()
+      const submission = trx.create(FormSubmission, {
+        id: submissionId,
+        organizationId: args.organizationId,
+        tenantId: args.tenantId,
+        formVersionId: formVersion.id,
+        subjectType: args.subjectType,
+        subjectId: args.subjectId,
+        status: 'draft',
+        startedBy: args.startedBy,
+        firstSavedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      })
+      trx.persist(submission)
+
+      const actor = trx.create(FormSubmissionActor, {
+        submissionId,
+        organizationId: args.organizationId,
+        userId: args.startedBy,
+        role,
+        assignedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      })
+      trx.persist(actor)
+
+      // Seed prefill values (W8 / FD-1) — only fields the participant role may
+      // write, then validate the seed against AJV. A failing seed is dropped
+      // (start must never fail because of prefill); the submission opens empty.
+      const initialPayload = this.buildInitialPayload(compiled, role, args.prefill ?? null)
+      const ciphertext = await this.encryption.encrypt(
+        args.organizationId,
+        Buffer.from(JSON.stringify(initialPayload), 'utf8'),
+      )
+      const keyVersion = await this.encryption.currentKeyVersion(args.organizationId)
+      const revision = trx.create(FormSubmissionRevision, {
+        id: revisionId,
+        submissionId,
+        organizationId: args.organizationId,
+        revisionNumber: 1,
+        data: ciphertext,
+        encryptionKeyVersion: keyVersion,
+        savedAt: now,
+        savedBy: args.startedBy,
+        savedByRole: role,
+        changeSource: 'system',
+        changedFieldKeys: [],
+        changeSummary: null,
+      })
+      trx.persist(revision)
+
+      submission.currentRevisionId = revisionId
+      await trx.flush()
+
+      return { submission, actor, revision, initialPayload }
+    })
+
+    await this.safeEmit('forms.submission.started', {
+      submissionId: result.submission.id,
+      formVersionId: formVersion.id,
+    })
+
+    return {
+      submission: result.submission,
+      revision: result.revision,
+      decodedData: this.rolePolicy.resolve(compiled, role).sliceReadPayload(result.initialPayload),
+      actors: [result.actor],
+      formVersion,
+    }
+  }
+
+  /**
+   * Builds the initial revision payload from optional prefill values (W8).
+   * Filters through the participant role's write policy (only editable fields
+   * seed) and validates the result against AJV. Returns `{}` when there is no
+   * prefill or the seeded payload fails validation — start must stay
+   * backward-compatible and never fail because of prefill.
+   */
+  private buildInitialPayload(
+    compiled: CompiledFormVersion,
+    role: string,
+    prefill: Record<string, unknown> | null,
+  ): Record<string, unknown> {
+    if (!prefill || Object.keys(prefill).length === 0) return {}
+    const { accepted } = this.rolePolicy.resolve(compiled, role).filterWritePatch(prefill)
+    const seed: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(accepted)) {
+      if (value === null || value === undefined) continue
+      seed[key] = value
+    }
+    if (Object.keys(seed).length === 0) return {}
+    const valid = compiled.ajv(seed)
+    if (!valid) {
+      this.logger.warn(
+        { event: 'forms.submission.prefill_rejected', role, fieldKeys: Object.keys(seed) },
+        'Forms prefill seed failed validation — starting with an empty payload.',
+      )
+      return {}
+    }
+    return seed
+  }
+
+  // --------------------------------------------------------------------------
+  // Lifecycle: save
+  // --------------------------------------------------------------------------
+
+  async save(args: SaveArgs): Promise<RevisionInsertOutcome> {
+    assertSubmissionPayloadSize(args.patch)
+    const em = this.emFactory()
+    const result = await em.transactional(async (trx) => {
+      const submission = await trx.findOne(
+        FormSubmission,
+        {
+          id: args.submissionId,
+          organizationId: args.organizationId,
+          tenantId: args.tenantId,
+          deletedAt: null,
+        },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+      )
+      if (!submission) {
+        throw new SubmissionServiceError('NOT_FOUND', 'Submission not found.', 404)
+      }
+      if (submission.status === 'archived') {
+        throw new SubmissionServiceError('INVALID_STATUS', 'Submission is archived.', 422)
+      }
+      // A submitted submission is a signed record: `submittedAt` and
+      // `submitMetadata` attest to what was submitted. Without this arm a
+      // participant holding a live access token could keep appending revisions
+      // afterwards — the attestation would still point at the original submit
+      // while the answers moved underneath it, and the lazily-rendered PDF
+      // snapshot could capture content the signer never submitted. Re-editing
+      // has a deliberate, audited path: `reopen()`, gated on
+      // `forms.submissions.manage`. `submit()` and `reopen()` both already
+      // guard this status; `save()` was the gap.
+      if (submission.status === 'submitted') {
+        throw new SubmissionServiceError(
+          'INVALID_STATUS',
+          'Submission is already submitted — reopen it before saving further changes.',
+          422,
+        )
+      }
+
+      const formVersion = await trx.findOne(FormVersion, {
+        id: submission.formVersionId,
+        organizationId: args.organizationId,
+        tenantId: args.tenantId,
+      })
+      if (!formVersion) {
+        throw new SubmissionServiceError('NOT_FOUND', 'Form version not found.', 404)
+      }
+
+      // Active actor for this user
+      const actor = await trx.findOne(FormSubmissionActor, {
+        submissionId: submission.id,
+        organizationId: args.organizationId,
+        userId: args.savedBy,
+        revokedAt: null,
+        deletedAt: null,
+      })
+      if (!actor) {
+        throw new SubmissionServiceError('NO_ACTOR', 'No active actor row for this user on this submission.', 403)
+      }
+
+      // Optimistic concurrency
+      if (submission.currentRevisionId !== args.baseRevisionId) {
+        throw new SubmissionServiceError('STALE_BASE', 'base_revision_id is stale.', 409, {
+          currentRevisionId: submission.currentRevisionId,
+        })
+      }
+
+      const currentRevision = await trx.findOne(FormSubmissionRevision, {
+        id: args.baseRevisionId,
+        submissionId: submission.id,
+        organizationId: args.organizationId,
+      })
+      if (!currentRevision) {
+        throw new SubmissionServiceError('NOT_FOUND', 'Base revision not found.', 404)
+      }
+
+      // Rate limit (skip for system change source). When autosaveIntervalMs
+      // is configured to 0 the rate limit is disabled — useful in tests.
+      const changeSource = args.changeSource ?? 'user'
+      if (changeSource !== 'system' && this.autosaveIntervalMs > 0) {
+        const minIntervalMs = Math.floor(this.autosaveIntervalMs / 2)
+        if (minIntervalMs > 0) {
+          const elapsed = this.now().getTime() - currentRevision.savedAt.getTime()
+          if (elapsed < minIntervalMs) {
+            throw new SubmissionServiceError('RATE_LIMITED', 'Save rate limit exceeded.', 429, {
+              retryAfterMs: minIntervalMs - elapsed,
+            })
+          }
+        }
+      }
+
+      // Compile schema + filter patch by role
+      const compiled = this.compiler.compile({
+        id: formVersion.id,
+        updatedAt: formVersion.updatedAt,
+        schema: formVersion.schema,
+        uiSchema: formVersion.uiSchema,
+      })
+      const policy = this.rolePolicy.resolve(compiled, actor.role)
+      const { accepted, droppedFieldKeys } = policy.filterWritePatch(args.patch)
+      if (droppedFieldKeys.length > 0) {
+        this.logger.warn(
+          buildTamperingMarker({
+            submissionId: submission.id,
+            userId: args.savedBy,
+            role: actor.role,
+            droppedFieldKeys,
+          }),
+          'Forms tampering marker — fields outside actor editable set were dropped.',
+        )
+      }
+
+      // Decrypt + merge
+      const priorPlain = await this.decodeRevision(args.organizationId, currentRevision)
+      const merged: Record<string, unknown> = { ...priorPlain }
+      for (const [key, value] of Object.entries(accepted)) {
+        if (value === null || value === undefined) {
+          delete merged[key]
+        } else {
+          merged[key] = value
+        }
+      }
+      assertSubmissionPayloadSize(merged)
+
+      // Validate merged payload
+      const ajvValid = compiled.ajv(merged)
+      if (!ajvValid) {
+        const errors = Array.isArray(compiled.ajv.errors) ? compiled.ajv.errors : []
+        throw new SubmissionServiceError('VALIDATION_FAILED', 'Merged payload failed validation.', 422, {
+          errors: errors.map((err) => ({
+            instancePath: err.instancePath,
+            keyword: err.keyword,
+            message: err.message,
+            params: err.params,
+          })),
+        })
+      }
+      validateCompiledFieldRules(compiled, formVersion.schema, merged)
+
+      // Compute changed field keys vs prior
+      const changedFieldKeys = computeChangedFieldKeys(priorPlain, merged)
+
+      // Encrypt merged payload
+      const ciphertext = await this.encryption.encrypt(
+        args.organizationId,
+        Buffer.from(JSON.stringify(merged), 'utf8'),
+      )
+      const keyVersion = await this.encryption.currentKeyVersion(args.organizationId)
+
+      const nextRevisionNumber = currentRevision.revisionNumber + 1
+      const coalesce = nextRevisionNumber > this.revisionCap
+      let outcome: RevisionInsertOutcome
+      if (coalesce) {
+        // Coalesce-after-cap: UPDATE the latest revision in place. The only
+        // UPDATE path other than anonymize. Bump saved_at, replace data,
+        // accumulate changedFieldKeys, force changeSource = 'system'.
+        currentRevision.data = ciphertext
+        currentRevision.encryptionKeyVersion = keyVersion
+        currentRevision.savedAt = this.now()
+        currentRevision.savedBy = args.savedBy
+        currentRevision.savedByRole = actor.role
+        currentRevision.changeSource = 'system'
+        currentRevision.changedFieldKeys = uniqueStrings([
+          ...(currentRevision.changedFieldKeys ?? []),
+          ...changedFieldKeys,
+        ])
+        if (typeof args.changeSummary === 'string') currentRevision.changeSummary = args.changeSummary
+        submission.updatedAt = this.now()
+        await trx.flush()
+        outcome = { revision: currentRevision, coalesced: true }
+      } else {
+        const savedAt = this.now()
+        // Assign the PK in app code so currentRevisionId points at it before
+        // flush — the DB `defaultRaw` only fills the id on insert, which would
+        // make `submission.currentRevisionId = revision.id` persist as NULL.
+        const revisionId = randomUUID()
+        const revision = trx.create(FormSubmissionRevision, {
+          id: revisionId,
+          submissionId: submission.id,
+          organizationId: args.organizationId,
+          revisionNumber: nextRevisionNumber,
+          data: ciphertext,
+          encryptionKeyVersion: keyVersion,
+          savedAt,
+          savedBy: args.savedBy,
+          savedByRole: actor.role,
+          changeSource,
+          changedFieldKeys,
+          changeSummary: args.changeSummary ?? null,
+        })
+        trx.persist(revision)
+        submission.currentRevisionId = revisionId
+        submission.updatedAt = this.now()
+        await trx.flush()
+        outcome = { revision, coalesced: false }
+      }
+
+      return {
+        outcome,
+        savedByRole: actor.role,
+      }
+    })
+
+    await this.safeEmit('forms.submission.revision_appended', {
+      submissionId: args.submissionId,
+      revisionId: result.outcome.revision.id,
+      savedBy: args.savedBy,
+      savedByRole: result.savedByRole,
+      changedFieldKeys: result.outcome.revision.changedFieldKeys ?? [],
+    })
+
+    return result.outcome
+  }
+
+  // --------------------------------------------------------------------------
+  // Lifecycle: submit
+  // --------------------------------------------------------------------------
+
+  async submit(args: SubmitArgs): Promise<FormSubmission> {
+    const em = this.emFactory()
+    const result = await em.transactional(async (trx) => {
+      const submission = await trx.findOne(
+        FormSubmission,
+        {
+          id: args.submissionId,
+          organizationId: args.organizationId,
+          tenantId: args.tenantId,
+          deletedAt: null,
+        },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+      )
+      if (!submission) {
+        throw new SubmissionServiceError('NOT_FOUND', 'Submission not found.', 404)
+      }
+      if (submission.status === 'submitted') {
+        throw new SubmissionServiceError('INVALID_STATUS', 'Submission already submitted.', 422)
+      }
+      if (submission.status === 'archived') {
+        throw new SubmissionServiceError('INVALID_STATUS', 'Submission is archived.', 422)
+      }
+
+      // Active actor for this user — the same authorization `save()` requires.
+      // Without it a caller who may not EDIT a submission could still freeze
+      // someone else's draft by submitting it. `start()` always creates an actor
+      // row for `startedBy`, and that is the principal every flow submits as
+      // (`auth.sub` for a portal customer, the invitation id for an anonymous
+      // link or invite), so this denies only a genuinely unauthorized caller.
+      const actor = await trx.findOne(FormSubmissionActor, {
+        submissionId: submission.id,
+        organizationId: args.organizationId,
+        userId: args.submittedBy,
+        revokedAt: null,
+        deletedAt: null,
+      })
+      if (!actor) {
+        throw new SubmissionServiceError('NO_ACTOR', 'No active actor row for this user on this submission.', 403)
+      }
+
+      if (submission.currentRevisionId !== args.baseRevisionId) {
+        throw new SubmissionServiceError('STALE_BASE', 'base_revision_id is stale.', 409, {
+          currentRevisionId: submission.currentRevisionId,
+        })
+      }
+      submission.status = 'submitted'
+      submission.submittedAt = this.now()
+      submission.submittedBy = args.submittedBy
+      if (args.submitMetadata) submission.submitMetadata = args.submitMetadata
+      await trx.flush()
+      return submission
+    })
+
+    await this.safeEmit('forms.submission.submitted', { submissionId: result.id })
+    return result
+  }
+
+  // --------------------------------------------------------------------------
+  // Lifecycle: reopen
+  // --------------------------------------------------------------------------
+
+  async reopen(args: ReopenArgs): Promise<FormSubmission> {
+    const em = this.emFactory()
+    const result = await em.transactional(async (trx) => {
+      const submission = await trx.findOne(
+        FormSubmission,
+        {
+          id: args.submissionId,
+          organizationId: args.organizationId,
+          tenantId: args.tenantId,
+          deletedAt: null,
+        },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+      )
+      if (!submission) {
+        throw new SubmissionServiceError('NOT_FOUND', 'Submission not found.', 404)
+      }
+      if (submission.status !== 'submitted') {
+        throw new SubmissionServiceError('INVALID_STATUS', 'Only submitted submissions can be reopened.', 422)
+      }
+      submission.status = 'reopened'
+      submission.submittedAt = null
+      submission.submittedBy = null
+      await trx.flush()
+      return submission
+    })
+    await this.safeEmit('forms.submission.reopened', { submissionId: result.id })
+    return result
+  }
+
+  // --------------------------------------------------------------------------
+  // Actors
+  // --------------------------------------------------------------------------
+
+  async assignActor(args: AssignActorArgs): Promise<FormSubmissionActor> {
+    const em = this.emFactory()
+    const submission = await em.findOne(FormSubmission, {
+      id: args.submissionId,
+      organizationId: args.organizationId,
+      tenantId: args.tenantId,
+      deletedAt: null,
+    })
+    if (!submission) {
+      throw new SubmissionServiceError('NOT_FOUND', 'Submission not found.', 404)
+    }
+    const formVersion = await em.findOne(FormVersion, {
+      id: submission.formVersionId,
+      organizationId: args.organizationId,
+      tenantId: args.tenantId,
+    })
+    if (!formVersion) {
+      throw new SubmissionServiceError('NOT_FOUND', 'Form version not found.', 404)
+    }
+    const declaredRoles = readDeclaredRoles(formVersion)
+    if (args.role !== 'admin' && !declaredRoles.includes(args.role)) {
+      throw new SubmissionServiceError('INVALID_ROLE', `Role "${args.role}" is not declared on the form version.`, 422)
+    }
+    const existing = await em.findOne(FormSubmissionActor, {
+      submissionId: submission.id,
+      organizationId: args.organizationId,
+      userId: args.userId,
+      revokedAt: null,
+      deletedAt: null,
+    })
+    if (existing) {
+      if (existing.role === args.role) return existing
+      // Different role on the same user — revoke the previous assignment.
+      existing.revokedAt = this.now()
+      em.persist(existing)
+    }
+    const nowDate = this.now()
+    const actor = em.create(FormSubmissionActor, {
+      submissionId: submission.id,
+      organizationId: args.organizationId,
+      userId: args.userId,
+      role: args.role,
+      assignedAt: nowDate,
+      createdAt: nowDate,
+      updatedAt: nowDate,
+    })
+    em.persist(actor)
+    await em.flush()
+    await this.safeEmit('forms.submission.actor_assigned', {
+      submissionId: submission.id,
+      userId: args.userId,
+      role: args.role,
+    })
+    return actor
+  }
+
+  async revokeActor(args: RevokeActorArgs): Promise<void> {
+    const em = this.emFactory()
+    const actor = await em.findOne(FormSubmissionActor, {
+      id: args.actorId,
+      organizationId: args.organizationId,
+      submissionId: args.submissionId,
+      deletedAt: null,
+    })
+    if (!actor) {
+      throw new SubmissionServiceError('NOT_FOUND', 'Actor row not found.', 404)
+    }
+    if (actor.revokedAt) return
+    actor.revokedAt = this.now()
+    em.persist(actor)
+    await em.flush()
+  }
+
+  // --------------------------------------------------------------------------
+  // Reads
+  // --------------------------------------------------------------------------
+
+  async getCurrent(args: GetCurrentArgs): Promise<SubmissionViewModel> {
+    const em = this.emFactory()
+    const submission = await em.findOne(FormSubmission, {
+      id: args.submissionId,
+      organizationId: args.organizationId,
+      tenantId: args.tenantId,
+      deletedAt: null,
+    })
+    if (!submission) {
+      throw new SubmissionServiceError('NOT_FOUND', 'Submission not found.', 404)
+    }
+    const formVersion = await em.findOne(FormVersion, {
+      id: submission.formVersionId,
+      organizationId: args.organizationId,
+      tenantId: args.tenantId,
+    })
+    if (!formVersion) {
+      throw new SubmissionServiceError('NOT_FOUND', 'Form version not found.', 404)
+    }
+    const revision = submission.currentRevisionId
+      ? await em.findOne(FormSubmissionRevision, {
+          id: submission.currentRevisionId,
+          submissionId: submission.id,
+          organizationId: args.organizationId,
+        })
+      : null
+    if (!revision) {
+      throw new SubmissionServiceError('NOT_FOUND', 'Current revision not found.', 404)
+    }
+    const actors = await em.find(FormSubmissionActor, {
+      submissionId: submission.id,
+      organizationId: args.organizationId,
+      deletedAt: null,
+    })
+
+    const compiled = this.compiler.compile({
+      id: formVersion.id,
+      updatedAt: formVersion.updatedAt,
+      schema: formVersion.schema,
+      uiSchema: formVersion.uiSchema,
+    })
+    const decodedFull = await this.decodeRevision(args.organizationId, revision)
+    // Slicing fails closed. An absent `viewerRole` used to skip it entirely and
+    // return the full decrypted payload, so any caller that could not name a
+    // role — notably a portal customer with no actor row on this submission —
+    // read everything.
+    //
+    // Resolution order, most specific first:
+    //   1. `unsliced: true` — the one trusted internal caller (see the type).
+    //   2. an explicit `viewerRole`.
+    //   3. the active actor row for `viewerUserId`. This is what an invitation
+    //      resume needs: `FormInvitation.role` is null for every invitation the
+    //      admin UI creates (it posts only `{ email, name }`), so the actor row
+    //      is the only authority on the respondent's role.
+    //   4. otherwise nothing is readable.
+    const viewerRole = args.viewerRole
+      ?? (args.viewerUserId
+        ? actors.find((actor) => actor.userId === args.viewerUserId && !actor.revokedAt)?.role ?? null
+        : null)
+
+    const decodedData = args.unsliced === true
+      ? decodedFull
+      // Fail-closed by construction: with no role there is nothing to slice
+      // by, so the answer is the empty payload rather than a role-shaped
+      // lookup that happens to match no field.
+      : viewerRole === null
+        ? {}
+        : sliceForRole({
+          rolePolicy: this.rolePolicy,
+          compiled,
+          schema: formVersion.schema as { properties?: Record<string, VisibilitySchemaNode> },
+          role: viewerRole,
+          decodedFull,
+        })
+
+    // TODO(forms-2b): write form_access_audit row via auditAccess hook.
+    await this.auditAccess({
+      submissionId: submission.id,
+      organizationId: args.organizationId,
+      tenantId: args.tenantId,
+      viewerUserId: args.viewerUserId ?? null,
+      viewerRole: args.viewerRole ?? null,
+      surface: args.surface ?? 'runtime',
+      scope: 'submission',
+    })
+
+    return {
+      submission,
+      revision,
+      decodedData,
+      actors,
+      formVersion,
+    }
+  }
+
+  async listRevisions(args: Scope & { submissionId: string; viewerUserId?: string | null; viewerRole?: string | null }): Promise<{
+    submission: FormSubmission
+    revisions: FormSubmissionRevision[]
+  }> {
+    const em = this.emFactory()
+    const submission = await em.findOne(FormSubmission, {
+      id: args.submissionId,
+      organizationId: args.organizationId,
+      tenantId: args.tenantId,
+      deletedAt: null,
+    })
+    if (!submission) {
+      throw new SubmissionServiceError('NOT_FOUND', 'Submission not found.', 404)
+    }
+    const revisions = await em.find(
+      FormSubmissionRevision,
+      { submissionId: submission.id, organizationId: args.organizationId },
+      { orderBy: { revisionNumber: 'asc' } },
+    )
+
+    // TODO(forms-2b): write form_access_audit row via auditAccess hook.
+    await this.auditAccess({
+      submissionId: submission.id,
+      organizationId: args.organizationId,
+      tenantId: args.tenantId,
+      viewerUserId: args.viewerUserId ?? null,
+      viewerRole: args.viewerRole ?? null,
+      surface: 'admin',
+      scope: 'revision',
+    })
+
+    return { submission, revisions }
+  }
+
+  async listSubmissionsBySubject(args: Scope & { subjectType: string; subjectId: string }): Promise<FormSubmission[]> {
+    const em = this.emFactory()
+    return em.find(
+      FormSubmission,
+      {
+        organizationId: args.organizationId,
+        tenantId: args.tenantId,
+        subjectType: args.subjectType,
+        subjectId: args.subjectId,
+        deletedAt: null,
+      },
+      { orderBy: { firstSavedAt: 'desc' } },
+    )
+  }
+
+  async listSubmissionsByForm(args: Scope & {
+    formId: string
+    page: number
+    pageSize: number
+    status?: string
+  }): Promise<{ items: FormSubmission[]; total: number; page: number; pageSize: number }> {
+    const em = this.emFactory()
+    const where: Record<string, unknown> = {
+      organizationId: args.organizationId,
+      tenantId: args.tenantId,
+      deletedAt: null,
+    }
+    if (args.status) where.status = args.status
+    // Filter by all versions belonging to the form
+    const versions = await em.find(FormVersion, {
+      formId: args.formId,
+      organizationId: args.organizationId,
+      tenantId: args.tenantId,
+    })
+    const versionIds = versions.map((v) => v.id)
+    if (versionIds.length === 0) {
+      return { items: [], total: 0, page: args.page, pageSize: args.pageSize }
+    }
+    where.formVersionId = { $in: versionIds }
+    const offset = Math.max(0, (args.page - 1) * args.pageSize)
+    const [items, total] = await em.findAndCount<FormSubmission>(
+      FormSubmission,
+      where as never,
+      {
+        orderBy: { firstSavedAt: 'desc' },
+        limit: args.pageSize,
+        offset,
+      },
+    )
+    return { items, total, page: args.page, pageSize: args.pageSize }
+  }
+
+  // --------------------------------------------------------------------------
+  // Helpers
+  // --------------------------------------------------------------------------
+
+  private async decodeRevision(
+    organizationId: string,
+    revision: FormSubmissionRevision,
+  ): Promise<Record<string, unknown>> {
+    const ciphertext = ensureBuffer(revision.data)
+    if (ciphertext.length === 0) return {}
+    const plain = await this.encryption.decrypt(organizationId, ciphertext)
+    if (plain.length === 0) return {}
+    try {
+      return JSON.parse(plain.toString('utf8'))
+    } catch {
+      return {}
+    }
+  }
+
+  private async safeEmit<K extends keyof SubmissionEvents>(
+    eventId: K,
+    payload: Parameters<SubmissionEvents[K]>[0],
+  ): Promise<void> {
+    try {
+      await this.emitEvent(eventId, payload)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown emit error'
+      this.logger.warn({ event: 'forms.submission.event_emit_failed', eventId, message }, 'forms event emission failed')
+    }
+  }
+}
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+function ensureBuffer(value: Buffer | Uint8Array | string): Buffer {
+  if (Buffer.isBuffer(value)) return value
+  if (value instanceof Uint8Array) return Buffer.from(value)
+  if (typeof value === 'string') return Buffer.from(value, 'binary')
+  return Buffer.alloc(0)
+}
+
+function readDeclaredRoles(formVersion: FormVersion): string[] {
+  // Union the persisted `roles` column with the schema's `x-om-roles`. Both are
+  // authoritative declarations; the column can lag the schema if a publish
+  // predates the roles-sync, so a role declared in the published schema must
+  // never be rejected at runtime.
+  const declared = new Set<string>()
+  const roles = formVersion.roles
+  if (Array.isArray(roles)) {
+    for (const entry of roles) if (typeof entry === 'string') declared.add(entry)
+  }
+  const fromSchema = (formVersion.schema as Record<string, unknown> | null | undefined)?.['x-om-roles']
+  if (Array.isArray(fromSchema)) {
+    for (const entry of fromSchema) if (typeof entry === 'string') declared.add(entry)
+  }
+  return Array.from(declared)
+}
+
+function readDefaultActorRole(formVersion: FormVersion): string | null {
+  const value = (formVersion.schema as Record<string, unknown> | null | undefined)?.['x-om-default-actor-role']
+  return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+function computeChangedFieldKeys(
+  prior: Record<string, unknown>,
+  next: Record<string, unknown>,
+): string[] {
+  const keys = new Set<string>([...Object.keys(prior), ...Object.keys(next)])
+  const changed: string[] = []
+  for (const key of keys) {
+    const a = prior[key]
+    const b = next[key]
+    if (!deepEqual(a, b)) changed.push(key)
+  }
+  return changed
+}
+
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (a === null || b === null) return false
+  if (typeof a !== typeof b) return false
+  if (typeof a !== 'object') return false
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b)) return false
+    if (a.length !== b.length) return false
+    return a.every((entry, index) => deepEqual(entry, b[index]))
+  }
+  const aKeys = Object.keys(a as Record<string, unknown>)
+  const bKeys = Object.keys(b as Record<string, unknown>)
+  if (aKeys.length !== bKeys.length) return false
+  return aKeys.every((key) => deepEqual((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]))
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values))
+}
+
+function assertSubmissionPayloadSize(payload: Record<string, unknown>): void {
+  const bytes = Buffer.byteLength(JSON.stringify(payload), 'utf8')
+  if (bytes <= MAX_SUBMISSION_PAYLOAD_BYTES) return
+  throw new SubmissionServiceError(
+    'VALIDATION_FAILED',
+    'Submission payload exceeds the configured size limit.',
+    413,
+    { maxBytes: MAX_SUBMISSION_PAYLOAD_BYTES },
+  )
+}
+
+function validateCompiledFieldRules(
+  compiled: CompiledFormVersion,
+  schema: Record<string, unknown>,
+  payload: Record<string, unknown>,
+): void {
+  const properties =
+    schema.properties && typeof schema.properties === 'object' && !Array.isArray(schema.properties)
+      ? (schema.properties as Record<string, unknown>)
+      : {}
+  for (const [fieldKey, descriptor] of Object.entries(compiled.fieldIndex)) {
+    if (!(fieldKey in payload)) continue
+    const rawNode = properties[fieldKey]
+    const fieldNode =
+      rawNode && typeof rawNode === 'object' && !Array.isArray(rawNode)
+        ? (rawNode as FieldNode)
+        : undefined
+    const result = validateFieldValue(
+      payload[fieldKey],
+      descriptor.validations,
+      'en',
+      descriptor.validationMessages,
+      fieldNode,
+    )
+    if (result.valid) continue
+    throw new SubmissionServiceError(
+      'VALIDATION_FAILED',
+      'Submission field failed validation.',
+      422,
+      { errors: [{ fieldKey, rule: result.rule, message: result.message }] },
+    )
+  }
+}
+
+/**
+ * Role read-slice plus the visibility pass, in that order.
+ *
+ * Visibility is evaluated against the FULL decoded payload: an
+ * `x-om-visibility-if` predicate may reference a field the role-sliced subset
+ * omits, and it must see the real answer. The resulting visible set then
+ * narrows the role-sliced payload. A form with no `x-om-visibility-if`
+ * resolves to all readable keys, so the second pass is a no-op for it.
+ */
+function sliceForRole(args: {
+  rolePolicy: RolePolicyService
+  compiled: CompiledFormVersion
+  schema: { properties?: Record<string, VisibilitySchemaNode> }
+  role: string
+  decodedFull: Record<string, unknown>
+}): Record<string, unknown> {
+  const roleSliced = args.rolePolicy.resolve(args.compiled, args.role).sliceReadPayload(args.decodedFull)
+  const visible = resolveVisibleFieldKeys({
+    compiled: args.compiled,
+    schema: args.schema,
+    role: args.role,
+    data: args.decodedFull,
+  })
+  return sliceByVisibility(roleSliced, visible)
+}
+
+/** Brand check for SubmissionServiceError — use instead of `instanceof`. */
+export function isSubmissionServiceError(error: unknown): error is SubmissionServiceError {
+  return typeof error === 'object' && error !== null && (SUBMISSION_SERVICE_ERROR_MARKER in error)
+}

@@ -9,6 +9,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import {
   accumulateSupplementaryQuantities,
   annualReportSchema,
@@ -114,7 +115,7 @@ async function resolveRequestContext(request: Request): Promise<RequestContext> 
   const organizationIds = Array.isArray(organizationScope.filterIds)
     ? organizationScope.filterIds
     : null
-  const featureOrganizationId = organizationScope.selectedId ?? auth.orgId ?? null
+  const featureOrganizationId = resolveSingleOrganizationIdOrDeny(organizationScope, auth) ?? null
   const tenantId = auth.tenantId
   const userId = auth.sub ?? null
   const em = container.resolve('em') as EntityManager

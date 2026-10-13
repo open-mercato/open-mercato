@@ -59,6 +59,10 @@ const mockDataEngine = {
 
 let mockAttachmentQuotaService: any = null
 const mockAttachmentQuotaRecoveryScheduler = jest.fn(async () => {})
+let mockRateLimiterService: {
+  consume: jest.Mock
+  trustProxyDepth: number
+} | null = null
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
@@ -67,21 +71,28 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
       if (k === 'dataEngine') return mockDataEngine
       if (k === 'attachmentQuotaService') return mockAttachmentQuotaService
       if (k === 'attachmentQuotaRecoveryScheduler') return mockAttachmentQuotaRecoveryScheduler
+      if (k === 'rateLimiterService') return mockRateLimiterService
       return null
     },
   }),
 }))
 
-const defaultAuth = () => ({ orgId: 'org', tenantId: 't1', roles: ['admin'] })
+const defaultAuth = () => ({ sub: 'user-1', orgId: 'org', tenantId: 't1', roles: ['admin'] })
 const mockGetAuthFromRequest = jest.fn(defaultAuth)
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({ getAuthFromRequest: (...args: unknown[]) => mockGetAuthFromRequest(...args) }))
 
 // The route derives the active org from the selected-organization scope, not the
 // raw auth.orgId (#3765). Default the helper to the auth home org so existing
 // tests are unaffected; individual tests override it to a selected org.
-const mockResolveAttachmentOrganizationId = jest.fn(async (_container: unknown, auth: any) => auth?.orgId ?? null)
+type AttachmentAuthStub = { orgId?: string | null }
+const mockResolveAttachmentRequestScope = jest.fn(
+  async (_container: unknown, auth: AttachmentAuthStub | null | undefined) => ({
+    denied: false,
+    organizationId: auth?.orgId ?? null,
+  }),
+)
 jest.mock('@open-mercato/core/modules/attachments/lib/requestScope', () => ({
-  resolveAttachmentOrganizationId: (...args: unknown[]) => mockResolveAttachmentOrganizationId(...args),
+  resolveAttachmentRequestScope: (...args: unknown[]) => mockResolveAttachmentRequestScope(...args),
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -134,8 +145,13 @@ describe('attachments API', () => {
     jest.clearAllMocks()
     mockGetAuthFromRequest.mockReset()
     mockGetAuthFromRequest.mockImplementation(defaultAuth)
-    mockResolveAttachmentOrganizationId.mockReset()
-    mockResolveAttachmentOrganizationId.mockImplementation(async (_container: unknown, auth: any) => auth?.orgId ?? null)
+    mockResolveAttachmentRequestScope.mockReset()
+    mockResolveAttachmentRequestScope.mockImplementation(
+      async (_container: unknown, auth: AttachmentAuthStub | null | undefined) => ({
+        denied: false,
+        organizationId: auth?.orgId ?? null,
+      }),
+    )
     mockEm.findOne.mockReset()
     mockEm.findOne.mockImplementation(defaultFindOneImpl)
     mockEm.find.mockReset()
@@ -152,10 +168,33 @@ describe('attachments API', () => {
     mockEm.getKysely.mockReturnValue(buildUsageKysely(0))
     mockAttachmentQuotaService = null
     mockAttachmentQuotaRecoveryScheduler.mockClear()
+    mockRateLimiterService = null
     mockRequestOcrProcessing.mockReset()
     mockRequestOcrProcessing.mockImplementation(async () => {})
     delete process.env.OPENMERCATO_DEFAULT_ATTACHMENT_OCR_ENABLED
     delete process.env.OPENAI_API_KEY
+  })
+
+  it('rejects uploads when the per-tenant/user rate limit is exceeded', async () => {
+    mockRateLimiterService = {
+      trustProxyDepth: 0,
+      consume: jest.fn(async () => ({
+        allowed: false,
+        remainingPoints: 0,
+        msBeforeNext: 12_000,
+        consumedPoints: 30,
+      })),
+    }
+    const { POST: upload } = await loadHandlers()
+    const file = new File([new Uint8Array([1, 2, 3])], 'doc.pdf', { type: 'application/pdf' })
+    const req = new Request('http://x/api/attachments', { method: 'POST', body: fdWith(file) as any })
+    const res = await upload(req)
+    expect(res.status).toBe(429)
+    expect(mockRateLimiterService.consume).toHaveBeenCalledWith(
+      't1:user-1',
+      expect.objectContaining({ keyPrefix: 'attachments_upload', points: 100, duration: 60 }),
+    )
+    expect(mockEm.create).not.toHaveBeenCalled()
   })
 
   it('rejects disallowed extension', async () => {
@@ -661,7 +700,7 @@ describe('attachments API', () => {
     const { POST: upload } = await loadHandlers()
     // A multi-org admin switched the header org: auth.orgId stays 'org' (home),
     // but the request scope resolves the selected org.
-    mockResolveAttachmentOrganizationId.mockResolvedValueOnce('selected-org')
+    mockResolveAttachmentRequestScope.mockResolvedValueOnce({ denied: false, organizationId: 'selected-org' })
     const file = new File([new Uint8Array([1, 2, 3])], 'doc.pdf', { type: 'application/pdf' })
     const req = new Request('http://x/api/attachments', { method: 'POST', body: fdWith(file) as any })
     const res = await upload(req)
@@ -673,7 +712,7 @@ describe('attachments API', () => {
 
   it('filters listed attachments by the currently selected organization (#3765)', async () => {
     const { GET: list } = await loadHandlers()
-    mockResolveAttachmentOrganizationId.mockResolvedValueOnce('selected-org')
+    mockResolveAttachmentRequestScope.mockResolvedValueOnce({ denied: false, organizationId: 'selected-org' })
     mockEm.find.mockResolvedValue([])
     const req = new Request('http://x/api/attachments?entityId=example:todo&recordId=r1')
     const res = await list(req)
