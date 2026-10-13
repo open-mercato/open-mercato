@@ -305,10 +305,10 @@ export function resolveCurrencyDisplayDecimalPlaces(currencyCode?: string | null
 }
 
 /**
- * ISO 4217 minor units (decimal places) of `currencyCode`, or `null` when the code
- * is unknown. Active ISO 4217 codes are read from a static table, so the result
- * does not depend on the ICU version; other codes the runtime supports fall back
- * to their `Intl.NumberFormat` digits.
+ * ISO 4217 minor units (decimal places) of `currencyCode`, read from a static table
+ * of every ISO 4217 code so the result does not depend on the ICU version. `null`
+ * when ISO defines no minor unit (N.A. or withdrawn codes) or the code is not ISO
+ * 4217; a non-ISO code the runtime supports falls back to its `Intl` digits.
  */
 export function resolveIsoCurrencyDecimalPlaces(currencyCode?: string | null): number | null {
   if (!currencyCode) return null

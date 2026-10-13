@@ -28,6 +28,7 @@ import {
   withDecimalCaps,
   withExactListAmounts,
 } from '../decimal'
+import { ISO_4217_MINOR_UNITS } from '../isoCurrencyMinorUnits'
 
 describe('decimal', () => {
   it('adds without float drift', () => {
@@ -168,9 +169,19 @@ describe('decimal', () => {
     expect(resolveIsoCurrencyDecimalPlaces('VND')).toBe(0)
   })
 
-  it('falls back to Intl digits for codes the ISO table lacks', () => {
-    const intlOnlyCode = 'HRK'
-    expect(resolveIsoCurrencyDecimalPlaces(intlOnlyCode)).toBe(resolveCurrencyDisplayDecimalPlaces(intlOnlyCode))
+  it('returns null for ISO codes without a minor unit', () => {
+    expect(resolveIsoCurrencyDecimalPlaces('XAU')).toBeNull()
+    expect(resolveIsoCurrencyDecimalPlaces('XDR')).toBeNull()
+    expect(resolveIsoCurrencyDecimalPlaces('XXX')).toBeNull()
+    expect(resolveIsoCurrencyDecimalPlaces('HRK')).toBeNull()
+    expect(resolveIsoCurrencyDecimalPlaces('DEM')).toBeNull()
+  })
+
+  it('lists every ISO 4217 code, current and withdrawn', () => {
+    expect(Object.keys(ISO_4217_MINOR_UNITS)).toHaveLength(307)
+    expect(Object.keys(ISO_4217_MINOR_UNITS).filter((code) => ISO_4217_MINOR_UNITS[code] !== null)).toHaveLength(165)
+    expect(ISO_4217_MINOR_UNITS).toHaveProperty('XCG', 2)
+    expect(ISO_4217_MINOR_UNITS).toHaveProperty('ANG', null)
   })
 
   it('resolves Intl display digits for display only', () => {
