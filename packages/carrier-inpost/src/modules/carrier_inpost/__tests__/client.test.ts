@@ -1,5 +1,5 @@
 import Chance from 'chance'
-import { resolveBaseUrl, resolveApiToken, resolveOrganizationId, inpostRequest } from '../lib/client'
+import { resolveBaseUrl, resolvePointsBaseUrl, resolveApiToken, resolveOrganizationId, inpostRequest, inpostPointsRequest } from '../lib/client'
 
 const chance = new Chance()
 
@@ -14,10 +14,32 @@ describe('resolveBaseUrl', () => {
   })
 
   it('returns a trimmed override URL without trailing slash', () => {
-    const host = `https://${chance.domain()}`
+    const host = 'https://sandbox-api-shipx-pl.easypack24.net'
     expect(resolveBaseUrl({ apiBaseUrl: host })).toBe(host)
     expect(resolveBaseUrl({ apiBaseUrl: `${host}/` })).toBe(host)
     expect(resolveBaseUrl({ apiBaseUrl: `  ${host}  ` })).toBe(host)
+  })
+
+  it.each([
+    'https://internal-service.local',
+    'http://169.254.169.254/latest/meta-data',
+    'http://api-shipx-pl.easypack24.net',
+    'https://easypack24.net.attacker.example',
+    'https://api.inpost.pl.attacker.example',
+    'https://user:pass@api-shipx-pl.easypack24.net',
+    'https://api-shipx-pl.easypack24.net:8443',
+    'not a url',
+  ])('rejects a non-InPost or non-HTTPS override (%s)', (override) => {
+    expect(() => resolveBaseUrl({ apiBaseUrl: override })).toThrow('not an allowed InPost host')
+  })
+})
+
+describe('resolvePointsBaseUrl', () => {
+  it('accepts InPost points hosts and rejects anything else', () => {
+    expect(resolvePointsBaseUrl({})).toBe('https://api.inpost.pl')
+    expect(resolvePointsBaseUrl({ apiPointsBaseUrl: 'https://sandbox-api-gateway-pl.easypack24.net/' }))
+      .toBe('https://sandbox-api-gateway-pl.easypack24.net')
+    expect(() => resolvePointsBaseUrl({ apiPointsBaseUrl: 'https://10.0.0.5' })).toThrow('not an allowed InPost host')
   })
 })
 
@@ -171,7 +193,7 @@ describe('inpostRequest', () => {
   })
 
   it('uses custom base URL when provided in credentials', async () => {
-    const customBase = `https://${chance.domain()}`
+    const customBase = 'https://sandbox-api-shipx-pl.easypack24.net'
     const credentials = { apiToken: chance.guid(), organizationId: chance.guid(), apiBaseUrl: customBase }
 
     global.fetch = jest.fn().mockResolvedValue({
@@ -218,5 +240,27 @@ describe('inpostRequest', () => {
     })
 
     await expect(inpostRequest(credentials, '/v1/test')).rejects.toThrow('InPost API error 500')
+  })
+})
+
+describe('request hardening', () => {
+  it('never sends the bearer token to a disallowed host', async () => {
+    const credentials = { apiToken: chance.guid(), organizationId: chance.guid(), apiBaseUrl: 'https://internal.example' }
+    global.fetch = jest.fn()
+
+    await expect(inpostRequest(credentials, '/v1/organizations/org-1')).rejects.toThrow('not an allowed InPost host')
+    expect(global.fetch).not.toHaveBeenCalled()
+  })
+
+  it('passes a timeout signal to every ShipX and Points request', async () => {
+    const credentials = { apiToken: chance.guid(), organizationId: chance.guid() }
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({}) })
+
+    await inpostRequest(credentials, '/v1/organizations/org-1')
+    await inpostPointsRequest(credentials, '/v1/points')
+
+    for (const call of (global.fetch as jest.Mock).mock.calls as Array<[string, RequestInit]>) {
+      expect(call[1].signal).toBeInstanceOf(AbortSignal)
+    }
   })
 })
