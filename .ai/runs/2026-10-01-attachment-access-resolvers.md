@@ -69,6 +69,6 @@ PR: #6829
 
 ### Final verification checkpoint
 
-- Native TC-ATT-016–023 cover migration/backfill, private/public bytes and derived images, exact authorized metadata pagination/facets, atomic mutations, live features/API keys/role membership, blocked generic exports and a real two-connection ownership race. Direct iteration: eight passed; independent fixture reviews resolved before publication.
+- Native TC-ATT-017–024 (the migration/backfill test was renumbered from 016 to 024 when develop took that id) cover migration/backfill, private/public bytes and derived images, exact authorized metadata pagination/facets, atomic mutations, live features/API keys/role membership, blocked generic exports and a real two-connection ownership race. Direct iteration: eight passed; independent fixture reviews resolved before publication.
 - Final managed CLI reused a cold/warm verified environment at test head 6c5b7a52f3146d1ac169ccf4cc7b434166c9bea5: eight tests passed in 18.6s, first attempt. The browser verified recipient preview/download with private,no-store and unshared empty metadata/404 at desktop and 390px. Temporary fixtures were removed and the owned environment stopped. Runtime secrets are excluded; the separate design spec is not duplicated here.
 - This final checkpoint updates only the run plan; production and test files match the verified head. PR comments/body own the full evidence and merge-overlap guidance. The claim is released for parent CI/review handoff; no automated approval is asserted.
