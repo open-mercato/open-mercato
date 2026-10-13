@@ -22,6 +22,20 @@ jest.mock('../partitions', () => ({
   resolveDefaultPartitionCode: jest.fn(() => 'privateAttachments'),
 }))
 
+const mockLoggerWarn = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const actual = jest.requireActual('@open-mercato/shared/lib/logger')
+  const logger = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: (...args: unknown[]) => mockLoggerWarn(...args),
+    error: jest.fn(),
+    child: () => logger,
+  }
+  return { ...actual, createLogger: () => logger }
+})
+
 jest.mock('../ocrQueue', () => ({ requestOcrProcessing: jest.fn(async () => undefined) }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
@@ -109,7 +123,7 @@ function createHarness(options: {
   const query: Record<string, unknown> = {
     where: () => query,
     orderBy: () => query,
-    forUpdate: () => query,
+    forUpdate: jest.fn(() => query),
     executeTakeFirst: async () => ({ total_size: options.usage ?? 0 }),
     execute: lockedStorageReferences,
   }
@@ -147,7 +161,7 @@ function createHarness(options: {
     }),
   }
   const service = new DefaultAttachmentService(em, factory, () => (options.withoutScopedUpload ? null : scopedUpload))
-  return { service, em, driver, factory, scopedUpload, lockedStorageReferences }
+  return { service, em, driver, factory, scopedUpload, lockedStorageReferences, lockQuery: query.forUpdate }
 }
 
 /**
@@ -530,7 +544,7 @@ describe('DefaultAttachmentService', () => {
   })
 
   it('returns no deferred provider cleanup while another row references the bytes', async () => {
-    const { service, driver, em } = createHarness({
+    const { service, driver, em, lockQuery } = createHarness({
       storageReferenceIds: ['attachment-1', 'attachment-copy'],
     })
     let cleanup: (() => Promise<void>) | void = async () => undefined
@@ -545,6 +559,7 @@ describe('DefaultAttachmentService', () => {
       }, { em, flush: false })
     }], { transaction: true, label: 'attachments.release' })
 
+    expect(lockQuery).toHaveBeenCalledTimes(1)
     expect(em.remove).toHaveBeenCalledWith(expect.objectContaining({ id: 'attachment-1' }))
     expect(cleanup).toBeUndefined()
     expect(driver.delete).not.toHaveBeenCalled()
@@ -661,20 +676,51 @@ describe('DefaultAttachmentService', () => {
     expect(driver.delete).not.toHaveBeenCalled()
   })
 
-  it('rejects deferred release outside a transaction that would hold the storage reference lock', async () => {
-    const { service, driver, em, lockedStorageReferences } = createHarness()
+  it('keeps the deprecated deferred release outside a transaction working with an unlocked reference check', async () => {
+    mockLoggerWarn.mockClear()
+    const { service, driver, em, lockedStorageReferences, lockQuery } = createHarness({
+      storageReferenceIds: ['attachment-1', 'attachment-copy'],
+    })
 
-    await expectStatus(service.releaseScoped({
+    const cleanup = await service.releaseScoped({
       attachmentId: 'attachment-1',
       tenantId: 'tenant-1',
       organizationId: 'org-1',
       expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
       expectedAssignment: { type: 'documents:document', id: 'document-1' },
-    }, { em, flush: false }), 500)
+    }, { em, flush: false })
 
-    expect(lockedStorageReferences).not.toHaveBeenCalled()
-    expect(em.remove).not.toHaveBeenCalled()
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      expect.stringContaining('[deprecated]'),
+      expect.objectContaining({ attachmentId: 'attachment-1' }),
+    )
+    expect(lockedStorageReferences).toHaveBeenCalledTimes(1)
+    expect(lockQuery).not.toHaveBeenCalled()
+    expect(em.remove).toHaveBeenCalledWith(expect.objectContaining({ id: 'attachment-1' }))
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(cleanup).toBeUndefined()
     expect(driver.delete).not.toHaveBeenCalled()
+  })
+
+  it('returns provider cleanup from the deprecated deferred release outside a transaction for the last reference', async () => {
+    mockLoggerWarn.mockClear()
+    const { service, driver, em, lockQuery } = createHarness()
+
+    const cleanup = await service.releaseScoped({
+      attachmentId: 'attachment-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+      expectedAssignment: { type: 'documents:document', id: 'document-1' },
+    }, { em, flush: false })
+
+    expect(mockLoggerWarn).toHaveBeenCalledTimes(1)
+    expect(lockQuery).not.toHaveBeenCalled()
+    expect(em.remove).toHaveBeenCalledWith(expect.objectContaining({ id: 'attachment-1' }))
+    expect(driver.delete).not.toHaveBeenCalled()
+    expect(typeof cleanup).toBe('function')
+    await (cleanup as () => Promise<void>)()
+    expect(driver.delete).toHaveBeenCalledWith('privateAttachments', 'tenant-1/org-1/file.txt')
   })
 
   it('rejects immediate release inside an ambient transaction', async () => {

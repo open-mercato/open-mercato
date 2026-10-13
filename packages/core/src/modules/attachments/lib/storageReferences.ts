@@ -19,6 +19,19 @@ export type AttachmentRecordRemoval = {
   releaseStorage: boolean
 }
 
+function selectAttachmentStorageReferences(
+  em: EntityManager,
+  reference: Pick<AttachmentStorageReference, 'partitionCode' | 'storagePath'>,
+) {
+  return em
+    .getKysely<AttachmentStorageReferenceDatabase>()
+    .selectFrom('attachments')
+    .select('id')
+    .where('partition_code', '=', reference.partitionCode)
+    .where('storage_path', '=', reference.storagePath)
+    .orderBy('id')
+}
+
 /**
  * Locks every attachment row that points at the same stored object and returns their ids.
  *
@@ -32,15 +45,22 @@ export async function lockAttachmentStorageReferences(
   em: EntityManager,
   reference: Pick<AttachmentStorageReference, 'partitionCode' | 'storagePath'>,
 ): Promise<string[]> {
-  const rows = await em
-    .getKysely<AttachmentStorageReferenceDatabase>()
-    .selectFrom('attachments')
-    .select('id')
-    .where('partition_code', '=', reference.partitionCode)
-    .where('storage_path', '=', reference.storagePath)
-    .orderBy('id')
-    .forUpdate()
-    .execute()
+  const rows = await selectAttachmentStorageReferences(em, reference).forUpdate().execute()
+  return rows.map((row) => String(row.id))
+}
+
+/**
+ * Returns the ids of every attachment row that points at the same stored object, without locking.
+ *
+ * Only for the deprecated `releaseScoped(…, { flush: false })` call made outside a transaction,
+ * where no lock could be held until commit. Concurrent deletions of rows sharing the object are
+ * not serialized, so when they race the object is kept rather than deleted.
+ */
+export async function listAttachmentStorageReferences(
+  em: EntityManager,
+  reference: Pick<AttachmentStorageReference, 'partitionCode' | 'storagePath'>,
+): Promise<string[]> {
+  const rows = await selectAttachmentStorageReferences(em, reference).execute()
   return rows.map((row) => String(row.id))
 }
 

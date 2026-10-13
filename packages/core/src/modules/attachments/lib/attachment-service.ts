@@ -15,6 +15,7 @@ import {
 } from './scoped-upload-service'
 import { readAttachmentMetadata, type AttachmentAssignment } from './metadata'
 import {
+  listAttachmentStorageReferences,
   lockAttachmentStorageReferences,
   removeAttachmentRecord,
   resolveAttachmentStorageRelease,
@@ -174,6 +175,16 @@ export interface AttachmentService {
   readUploadForm?(request: Request): Promise<FormData>
   createScoped(input: CreateScopedAttachmentInput): Promise<CreatedScopedAttachment>
   readScoped(input: ReadScopedAttachmentInput): Promise<ReadScopedAttachmentResult>
+  /**
+   * Permanently deletes an attachment row and its stored object once no other row references it.
+   *
+   * With `{ flush: false }` call it inside your own transaction and run the returned cleanup after
+   * commit; `undefined` means another row still references the stored object.
+   *
+   * @deprecated Calling it with `{ flush: false }` outside a transaction. It still works for one
+   * minor version but logs a warning, and its reference check is not locked, so two racing releases
+   * of rows sharing the stored object keep it. Wrap the call in a transaction instead.
+   */
   releaseScoped?(
     input: ReleaseScopedAttachmentInput,
     options?: { em?: EntityManager; flush?: boolean },
@@ -433,14 +444,14 @@ export class DefaultAttachmentService implements AttachmentService {
         error: 'Attachment release inside an ambient transaction requires flush: false and deferred provider cleanup',
       })
     }
-    if (
-      options.flush === false
+    const deferredOutsideTransaction = options.flush === false
       && typeof isInTransaction === 'function'
       && !isInTransaction.call(em)
-    ) {
-      throw new CrudHttpError(500, {
-        error: '[internal] Deferred attachment release requires an ambient transaction that holds the storage reference lock until commit',
-      })
+    if (deferredOutsideTransaction) {
+      logger.warn(
+        '[deprecated] attachmentService.releaseScoped({ flush: false }) called outside a transaction; wrap it in a transaction so the storage reference lock is held until commit',
+        { attachmentId: input.attachmentId },
+      )
     }
     const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
     const attachment = await findOneWithDecryption(
@@ -473,10 +484,10 @@ export class DefaultAttachmentService implements AttachmentService {
     const driver = await this.storageDriverFactory.resolveForPartition(attachment.partitionCode, scope)
     const deleteProviderBytes = () => driver.delete(attachment.partitionCode, attachment.storagePath)
     if (options.flush === false) {
-      const removal = resolveAttachmentStorageRelease(
-        await lockAttachmentStorageReferences(em, attachment),
-        attachment.id,
-      )
+      const referenceIds = deferredOutsideTransaction
+        ? await listAttachmentStorageReferences(em, attachment)
+        : await lockAttachmentStorageReferences(em, attachment)
+      const removal = resolveAttachmentStorageRelease(referenceIds, attachment.id)
       if (!removal.removed) throw new CrudHttpError(404, { error: 'Attachment not found' })
       em.remove(attachment)
       return removal.releaseStorage ? deleteProviderBytes : undefined

@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { Attachment } from '../../data/entities'
 import {
+  listAttachmentStorageReferences,
   removeAttachmentRecord,
   resolveAttachmentStorageRelease,
 } from '../storageReferences'
@@ -37,6 +38,19 @@ describe('resolveAttachmentStorageRelease', () => {
     expect(resolveAttachmentStorageRelease(['attachment-1'], 'attachment-1')).toEqual({ removed: true, releaseStorage: true })
     expect(resolveAttachmentStorageRelease(['attachment-0', 'attachment-1'], 'attachment-1')).toEqual({ removed: true, releaseStorage: false })
     expect(resolveAttachmentStorageRelease(['attachment-0'], 'attachment-1')).toEqual({ removed: false, releaseStorage: false })
+  })
+})
+
+describe('listAttachmentStorageReferences', () => {
+  it('reads the rows sharing the stored object without locking them', async () => {
+    const { em, query } = createEntityManager(['attachment-1', 'attachment-copy'])
+
+    const ids = await listAttachmentStorageReferences(em as unknown as EntityManager, attachment)
+
+    expect(ids).toEqual(['attachment-1', 'attachment-copy'])
+    expect(query.where).toHaveBeenCalledWith('partition_code', '=', 'productsMedia')
+    expect(query.where).toHaveBeenCalledWith('storage_path', '=', 'org/tenant/shared.png')
+    expect(query.forUpdate).not.toHaveBeenCalled()
   })
 })
 

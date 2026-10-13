@@ -127,9 +127,11 @@ row at the same time, `DELETE /api/attachments` and `DELETE /api/attachments/lib
 `404` to the one that loses instead of a second `200`, and `attachmentService.releaseScoped()` throws
 a `404` `CrudHttpError`.
 
-`attachmentService.releaseScoped(input, { flush: false })` now throws (`500`) when the entity manager
-is not inside a transaction: the deferred release locks the rows sharing the stored file, and that
-lock only protects the decision while the caller's transaction is open.
+Calling `attachmentService.releaseScoped(input, { flush: false })` when the entity manager is not
+inside a transaction is deprecated. It still works for one minor version, but logs a warning, and its
+reference check runs without the lock, so two such releases racing for rows that share a stored file
+keep the file rather than delete it. The lock only protects the decision while the caller's
+transaction is open.
 
 **Action for module authors:** if you call `releaseScoped` with `{ flush: false }`, call it inside
 your own transaction (for example `withAtomicFlush(em, [...], { transaction: true })`) and run the
