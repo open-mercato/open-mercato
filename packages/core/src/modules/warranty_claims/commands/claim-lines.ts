@@ -9,6 +9,7 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { E } from '#generated/entities.ids.generated'
 import { WarrantyClaim, WarrantyClaimLine } from '../data/entities'
@@ -561,11 +562,12 @@ async function emitLineUndoCrud(
   )
 }
 
-function buildLineLog(
-  actionLabel: string,
+async function buildLineLog(
+  actionLabelKey: string,
+  actionLabelFallback: string,
   resourceId: string,
   snapshots: { before?: unknown; after?: unknown },
-): {
+): Promise<{
   actionLabel: string
   resourceKind: string
   resourceId: string
@@ -576,11 +578,12 @@ function buildLineLog(
   snapshotBefore: unknown
   snapshotAfter: unknown
   payload: { undo: LineUndoPayload }
-} {
+}> {
+  const { translate } = await resolveTranslations()
   const after = snapshots.after as LineSnapshot | null | undefined
   const before = snapshots.before as LineSnapshot | null | undefined
   return {
-    actionLabel,
+    actionLabel: translate(actionLabelKey, actionLabelFallback),
     resourceKind: WARRANTY_CLAIM_LINE_RESOURCE_KIND,
     resourceId,
     parentResourceKind: WARRANTY_CLAIM_RESOURCE_KIND,
@@ -651,7 +654,7 @@ const createClaimLineCommand: CommandHandler<ClaimLineCreateInput, { lineId: str
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadLineSnapshot(em, result.lineId, scope)
   },
-  buildLog: async ({ result, snapshots }) => buildLineLog('warranty_claims.audit.claim_line.create', result.lineId, snapshots),
+  buildLog: async ({ result, snapshots }) => buildLineLog('warranty_claims.audit.claim_line.create', 'Add claim line', result.lineId, snapshots),
   undo: async ({ logEntry, ctx }) => {
     const payload = extractUndoPayload<LineUndoPayload>(logEntry)
     const after = payload?.after
@@ -739,7 +742,7 @@ const updateClaimLineCommand: CommandHandler<ClaimLineUpdateInput, { lineId: str
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadLineSnapshot(em, result.lineId, scope)
   },
-  buildLog: async ({ result, snapshots }) => buildLineLog('warranty_claims.audit.claim_line.update', result.lineId, snapshots),
+  buildLog: async ({ result, snapshots }) => buildLineLog('warranty_claims.audit.claim_line.update', 'Update claim line', result.lineId, snapshots),
   undo: async ({ logEntry, ctx }) => {
     const payload = extractUndoPayload<LineUndoPayload>(logEntry)
     const before = payload?.before
@@ -795,7 +798,7 @@ const deleteClaimLineCommand: CommandHandler<LineDeleteInput, { lineId: string; 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadLineSnapshot(em, result.lineId, scope)
   },
-  buildLog: async ({ result, snapshots }) => buildLineLog('warranty_claims.audit.claim_line.delete', result.lineId, snapshots),
+  buildLog: async ({ result, snapshots }) => buildLineLog('warranty_claims.audit.claim_line.delete', 'Delete claim line', result.lineId, snapshots),
   undo: async ({ logEntry, ctx }) => {
     const payload = extractUndoPayload<LineUndoPayload>(logEntry)
     const before = payload?.before
@@ -911,7 +914,7 @@ const receiveClaimLineCommand: CommandHandler<ClaimLineReceiveInput, { lineId: s
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadLineSnapshot(em, result.lineId, scope)
   },
-  buildLog: async ({ result, snapshots }) => buildLineLog('warranty_claims.audit.claim_line.receive', result.lineId, snapshots),
+  buildLog: async ({ result, snapshots }) => buildLineLog('warranty_claims.audit.claim_line.receive', 'Receive claim line', result.lineId, snapshots),
   undo: async ({ logEntry, ctx }) => {
     const payload = extractUndoPayload<LineUndoPayload>(logEntry)
     const before = payload?.before
@@ -975,7 +978,7 @@ const releaseClaimLineQuarantineCommand: CommandHandler<ClaimLineReleaseQuaranti
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadLineSnapshot(em, result.lineId, scope)
   },
-  buildLog: async ({ result, snapshots }) => buildLineLog('warranty_claims.audit.claim_line.release_quarantine', result.lineId, snapshots),
+  buildLog: async ({ result, snapshots }) => buildLineLog('warranty_claims.audit.claim_line.release_quarantine', 'Release line from quarantine', result.lineId, snapshots),
   undo: async ({ logEntry, ctx }) => {
     const payload = extractUndoPayload<LineUndoPayload>(logEntry)
     const before = payload?.before
@@ -1038,7 +1041,7 @@ const setClaimLineAssessmentCommand: CommandHandler<LineSetAssessmentInput, { li
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadLineSnapshot(em, result.lineId, scope)
   },
-  buildLog: async ({ result, snapshots }) => buildLineLog('warranty_claims.audit.claim_line.set_assessment', result.lineId, snapshots),
+  buildLog: async ({ result, snapshots }) => buildLineLog('warranty_claims.audit.claim_line.set_assessment', 'Record line assessment', result.lineId, snapshots),
   undo: async ({ logEntry, ctx }) => {
     const payload = extractUndoPayload<LineUndoPayload>(logEntry)
     const before = payload?.before
