@@ -34,6 +34,20 @@ describe('GET /api/communication_channels/oauth/[provider]/callback', () => {
     expect(location).not.toContain('localhost')
   })
 
+  // Regression for #6402: `?flash=` is the global <FlashMessages> message-text
+  // param, so reporting the outcome through it rendered a raw "error" toast.
+  test('reports the outcome through the oauth param, never the global flash param', async () => {
+    process.env.APP_URL = 'https://app.example.com'
+
+    const res = await GET(callbackRequest('?error=access_denied'), { params: { provider: 'gmail' } })
+
+    const location = new URL(res.headers.get('location')!)
+    expect(location.searchParams.get('oauth')).toBe('error')
+    expect(location.searchParams.get('code')).toBe('access_denied')
+    expect(location.searchParams.get('provider')).toBe('gmail')
+    expect(location.searchParams.has('flash')).toBe(false)
+  })
+
   test('falls back to the request origin when APP_URL is not configured', async () => {
     delete process.env.NEXT_PUBLIC_APP_URL
     delete process.env.APP_URL

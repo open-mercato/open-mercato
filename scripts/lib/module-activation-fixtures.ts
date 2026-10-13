@@ -23,11 +23,14 @@ export type ModuleActivationEntry = {
   additionalPropertiesSource?: string
 }
 
-export const EXAMPLE_ACTIVATION_ENTRY: ModuleActivationEntry = { id: 'example', from: '@app' }
+export const EXAMPLE_ACTIVATION_ENTRY: ModuleActivationEntry = {
+  id: 'example', from: '@app', additionalPropertiesSource: 'overrides: { calendar: exampleCalendarOverrides },',
+}
 export const EXAMPLE_INTEGRATION_ACTIVATION_ENTRY: ModuleActivationEntry = {
   id: 'example',
   from: '@app',
   additionalPropertiesSource: `overrides: {
+      calendar: exampleCalendarOverrides,
       acl: {
         features: { 'example.manage': null },
       },
@@ -99,18 +102,19 @@ async function importFresh<T>(filePath: string): Promise<T> {
  */
 export function enableModuleEntry(modulesTsPath: string, entry: ModuleActivationEntry): void {
   const source = fs.readFileSync(modulesTsPath, 'utf8')
-  const alreadyEnabled = new RegExp(`\\{\\s*id: '${entry.id}',`).test(source)
-  assert.equal(
-    alreadyEnabled,
-    false,
-    `${modulesTsPath} already registers '${entry.id}'; the activation fixture requires it to ship disabled`,
-  )
-
   const anchorIndex = source.indexOf(ENABLED_MODULES_ANCHOR)
   assert.notEqual(
     anchorIndex,
     -1,
     `${modulesTsPath} does not declare "${ENABLED_MODULES_ANCHOR}"; the activation fixture cannot enable '${entry.id}'`,
+  )
+  const arrayEnd = source.indexOf('\n]', anchorIndex)
+  assert.notEqual(arrayEnd, -1, `${modulesTsPath} has no enabledModules array terminator`)
+  const alreadyEnabled = new RegExp(`\\{\\s*id: '${entry.id}',`).test(source.slice(anchorIndex, arrayEnd))
+  assert.equal(
+    alreadyEnabled,
+    false,
+    `${modulesTsPath} already registers '${entry.id}'; the activation fixture requires it to ship disabled`,
   )
 
   const insertAt = anchorIndex + ENABLED_MODULES_ANCHOR.length
