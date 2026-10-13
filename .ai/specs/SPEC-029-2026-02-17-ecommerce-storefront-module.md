@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification (v4.8 — Phase 0 reconciliation, owner decisions, and post-merge cache amendments) |
+| **Status** | Specification (v4.9 — Phase 0 reconciliation, owner decisions, post-merge cache amendments, and review fixes) |
 | **Created** | 2026-02-17 |
 | **Rescoped** | 2026-08-14 |
 | **Pre-implementation fixes** | 2026-08-17 — see §21 |
@@ -154,7 +154,7 @@ Standard scoped columns on all entities: `id` (UUID PK), `tenant_id`, `organizat
 | `code` | text | Unique within tenant |
 | `name` | text | |
 | `slug` | text | URL-safe, unique within tenant; `?storeSlug=` host override when `OM_ECOMMERCE_DEV_STORE_SLUG=true` |
-| `status` | text | `draft \| active \| archived` |
+| `status` | text | `draft \| active \| archived`; `archived` is terminal — an update that leaves it is rejected with a `400` field error on `status` |
 | `default_locale` | text | |
 | `supported_locales` | jsonb | `string[]`; must contain `default_locale` |
 | `default_currency_code` | text | |
@@ -898,6 +898,11 @@ Open:
 ---
 
 ## 21) Changelog
+
+### 2026-10-13 — v4.9 (review fixes, PR #7142)
+
+- §5.1 — `archived` is terminal on the API as well as in the admin UI (US-A3 already presented it as final): `PUT /api/ecommerce/stores` rejects any `status` other than `archived` for an archived store with a translated `400` field error. Renaming an archived store is still allowed.
+- The `ecommerce.seed-draft-store` upgrade action is versioned `0.9.1`, the first release after `0.9.0` that can ship the module (it was stamped `0.8.1`, a release that never existed).
 
 ### 2026-10-11 — v4.8 (buyer-context invalidation and cache-key prefix)
 

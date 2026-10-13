@@ -209,6 +209,8 @@ Query grammar:
 
 `pageSize` defaults to 24, capped at 100 per root `AGENTS.md`. Unknown query parameters are **rejected** with `400`, not ignored — silently ignoring a misspelled filter shows the buyer an unfiltered catalogue that looks filtered.
 
+`options[code]` matches products with at least one active variant carrying every requested code/value pair. It is resolved in one query that reads at most `STOREFRONT_FACET_UNIVERSE_CAP` (10 000) product ids and never loads variants. When more products match, the option filter is left unapplied — omitted from `appliedFilters` and from the facet selection — the same way a price filter past the price-sort cap is reported.
+
 Response:
 
 ```typescript
@@ -872,6 +874,10 @@ No `ecommerce` storefront contract existed before this spec, so there is nothing
 ---
 
 ## 16) Changelog
+
+### 2026-10-13 — bounded option filter (PR #7142 review)
+
+- **§5.1 `options[code]`.** The listing read and decrypted every matching variant in the organization with no limit before inlining the ids. It now reads `DISTINCT product_id` in one query capped at `STOREFRONT_FACET_UNIVERSE_CAP`; past the cap the filter is left unapplied and absent from `appliedFilters`. Option codes are compared as own keys, so `options[constructor]` is a valid code and `options[__proto__]` is a `400`.
 
 ### 2026-10-11 — cache-key composition and invalidation emitters (post-merge review of #5384)
 
