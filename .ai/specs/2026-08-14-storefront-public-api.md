@@ -78,7 +78,7 @@ apps/storefront ──HTTP──► /api/ecommerce/storefront/*   (this spec)
                                     │
                                     ├─ translations: applyTranslationOverlays() / batchLoadTranslations()
                                     │
-                                    ├─ availability: resolveAvailability(query)   (@open-mercato/shared/lib/availability)
+                                    ├─ availability: resolveAvailability(query, { moduleConfig, container })   (@open-mercato/shared/lib/availability)
                                     │                policyResolutionService.resolveMany()
                                     │
                                     ├─ search: tokens + pgvector strategies (phase 3, §8.2)
@@ -99,7 +99,7 @@ apps/storefront ──HTTP──► /api/ecommerce/storefront/*   (this spec)
 | Category hierarchy | `catalog/lib/categoryHierarchy.ts` → `computeHierarchyForCategories` | Unchanged; counts added |
 | Assortment scope in SQL | — (does not exist) | New `scope_keys` array on the product index document, new `overlap` filter operator (§3.3) |
 | Locale overlay | `translations/lib/apply.ts` → `applyTranslationOverlays`; `lib/batch.ts` → `batchLoadTranslations` | One call per response. `batchLoadTranslations` matches `organization_id` exactly (no org → tenant fallback) — stated, not worked around |
-| Availability | `resolveAvailability(query)` from `@open-mercato/shared/lib/availability` (there is no `availabilityService` DI key); `policyResolutionService.resolveMany` (`availability/lib/policyResolution.ts`) | One batched `resolveAvailability` per response for state; one `resolveMany` for quantity rules and `hideWhenOutOfStock`, which are not in `AvailabilityItemResult` |
+| Availability | `resolveAvailability(query, { moduleConfig, container })` from `@open-mercato/shared/lib/availability` (there is no `availabilityService` DI key); `policyResolutionService.resolveMany` (`availability/lib/policyResolution.ts`) | One batched `resolveAvailability` per response for state; one `resolveMany` for quantity rules and `hideWhenOutOfStock`, which are not in `AvailabilityItemResult` |
 | HTML sanitization | `sanitizeRichTextHtml` from `@open-mercato/shared/lib/html/sanitizeRichText` (`sanitize-html` allowlist) | Used for `description` (R5); no new dependency |
 | Rate limiting | `checkRateLimit` + `getClientIp` from `@open-mercato/shared/lib/ratelimit` | Per-IP-per-store keys (§9); the declarative `rateLimit` route metadata keys by IP only |
 
@@ -743,7 +743,7 @@ Query counts are asserted in tests. A per-item query is a defect regardless of w
 - Unsupported locale falls back with both `requestedLocale` and `effectiveLocale` returned
 
 **Availability:**
-- State comes from `resolveAvailability`; a `wms`-less environment returns `not_tracked` throughout
+- State comes from `resolveAvailability()`; a `wms`-less environment returns `not_tracked` throughout
 - Page-scoped filter (D21, R15): `availability=in_stock` removes backorder and out-of-stock items **from the returned page only** — the page may hold fewer than `pageSize` items (including zero), `total`/`totalPages` equal the unfiltered values, `appliedFilters.availability.scope` is `'page'`, and requesting the next page continues to work while `page < totalPages`; `available` keeps backorder/preorder items
 - `quantityRules` come from the resolved `AvailabilityPolicy` (via `policyResolutionService.resolveMany`), in one batched call per response
 
@@ -906,6 +906,9 @@ Re-checked against `develop` @ `a108dd07f4` after Phase 0 (#6709, #6268) landed;
 - **§12** new tests: price-kind filter, person-vs-company tie, re-parent staleness, backfill fail-closed, page-scoped availability, Meilisearch not used.
 - **§13** Phase 1 prerequisites listed; Phase 2 translation prerequisite; Phase 3 on `tokens`/`pgvector`.
 - **§14** OQ8 (stock projection), OQ9 (Meilisearch scope attribute). **§14a** new Migration & Backward Compatibility section. **§15** compliance rows updated.
+
+### 2026-10-11 — availability entry point
+- **§3.1 and §12 name the real availability read call.** The `availabilityService` DI key does not exist; the read contract is `resolveAvailability(query, { moduleConfig, container })` in `packages/shared` (§4.1a of [Availability Contract](./2026-08-14-availability-contract.md)). The reuse diagram and the availability acceptance bullet are updated to it. Recorded from the post-merge review of #5384.
 
 ### 2026-09-16 (b) — buyer-scoped read-path amendments
 - **§6.1 now requires `buildPriceRowFilter`** rather than a fetch by product id, and R13 records why: `selectBestPrice` is pure over whatever rows the caller fetched, and the only indexes on `catalog_product_variant_prices` are by product/variant, so a listing page under contract pricing loads every contracted customer's rows for every product on it. §10's ≤ 12-query budget does not catch this — the query count is unchanged — so §12 now asserts a row count, not only a query count.
