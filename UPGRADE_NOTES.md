@@ -22,7 +22,35 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
-## 0.8.0 → 0.8.1 (unreleased)
+## 0.8.0 → 0.9.0 (2026-10-09)
+
+### Payment gateway webhooks: opt-in transport, locator and response options; ambiguous matches are rejected
+
+`registerWebhookHandler(...)` accepts new optional options for providers that sign form-encoded bodies or expect a specific acknowledgement:
+
+- `readSessionIdHint(payload, context?)` now also receives `{ rawBody, headers }`.
+- `readPaymentIdHint(payload, context?)` is a second locator, intersected with the session hint.
+- `rawBody: 'bytes'` hands the verifier and locators the exact request bytes as a `Buffer`.
+- `formatResponse(outcome)` maps the route's typed outcomes to a provider-specific status, body and content type.
+
+Verifiers also receive an optional `candidate` snapshot (`transactionId`, `paymentId`, `providerSessionId`, `amount`, `currencyCode`) and may throw `WebhookVerificationUnavailableError` for transient dependency outages.
+
+Registrations that use none of these options keep their current request handling and byte-identical responses.
+
+One behavior is hardened for every provider. The route now verifies every located candidate, up to 10. When more than one stored transaction verifies the same notification, it rejects the request with the existing `401` instead of accepting the first match. If a candidate cannot be checked (its credentials fail to resolve or its verifier reports `WebhookVerificationUnavailableError`) while another verifies, the route also fails closed, because ambiguity cannot be ruled out; the provider's retry settles it once every candidate can be checked. A locator that throws no longer escapes as an unhandled `500`: it is reported and answered with the legacy `401`.
+
+**Action for provider authors:** none unless you want the new options. If your provider can legitimately store several transactions with the same provider session id under credentials that verify each other's signatures, return a more specific locator so a single transaction matches. A provider that locates transactions only by payment id must reject candidates whose `providerSessionId` or `amount` differ from the signed notification, because a retried checkout can leave several transactions for one payment.
+
+### The communication-channels OAuth callback reports its result in `?oauth=`, not `?flash=` (#6402)
+
+`GET /api/communication_channels/oauth/[provider]/callback` used to redirect back to `returnUrl`
+with `?flash=<connected|error>&code=…&provider=…&channelId=…`. `?flash=` is the global
+`<FlashMessages>` message-text param, so the raw outcome rendered as a green `error`/`connected`
+toast. The outcome now travels in `?oauth=<connected|error>`; `code`, `provider` and `channelId`
+are unchanged.
+
+**Action for module/app authors:** a custom `returnUrl` page that read `flash=connected|error`
+must read `oauth` instead. The built-in **My communication channels** page is already updated.
 
 ### Catalog product bulk-delete jobs require tenant, organization and user scope (#3826)
 
@@ -220,6 +248,16 @@ and its provider-executed tools such as `web_search`.
 **Action for app authors:** a custom preset registered with `createOpenAICompatibleProvider` now
 uses Chat Completions. If its backend implements the Responses API and you rely on it, add
 `apiMode: 'responses'` to the preset.
+
+### Customers calendar event-type extension contract (#6684)
+
+Customers now exposes the scoped `GET /api/customers/activity-types` catalog and the additive `calendar:customers.event-types` headless widget spot. Modules can use widget `eventTypeOverrides` and `eventTypePatches` payloads to replace, patch, or hide event types, and use the Customers-owned `calendarEventTypeRegistry` service for process-local contributions. React panels use the new `section:customers.calendar-event-editor.type-panel` UMES handle. The six existing keys and persisted `interactionType` values remain unchanged; the existing `KIND_CONFIG`, `EDITOR_KINDS`, `EditorKindConfig`, and `editorKindOfInteractionType()` exports remain available.
+
+**Action for module authors:** declare new types in an ordinary `widgets/injection/<name>/widget.ts` mapped through `widgets/injection-table.ts`, then run `yarn generate`. No calendar-specific convention file or generated registry is supported. A custom panel must receive the versioned capability-only props and leave submission with the host `CrudForm`. A type-specific widget must check its own selected type and keep an authoritative server rule for direct API writes. Shared form components, widget metadata, and the override dispatcher have no calendar-specific contracts. Calendar-picker writes opt into scoped selectability and applicable-field enforcement with `enforceSelectableType: true`; ordinary existing `POST`/`PUT /api/customers/interactions` callers retain their previous acceptance of hidden/arbitrary keys and same-type fields, including explicit `null` clears of fields the type hides and custom-field values outside its fieldsets. Type-change confirmation is part of the same opt-in: a caller that sends `enforceSelectableType: true` and would clear values must handle the typed `calendar_type_change_confirmation_required` 409 and retry with `confirmDiscardInapplicableValues: true` after user confirmation, while a caller without the flag keeps the pre-catalog behavior exactly — the switch succeeds, only the fields it sent are written, and nothing stored is cleared, even when the new type cannot display it (a Meeting switched to a Note keeps its duration, location and participants, as it did before this release). Stored values are cleared only when a request sends `confirmDiscardInapplicableValues: true`. Judging a type change on the merged stored row would otherwise reject switches legacy clients (the schedule dialog, the deal composer, the kanban quick actions) have always been able to make, because they send partial payloads. One narrowing applies to every caller regardless of the flag: on a same-type edit of a type that has no resources field, a `linkedEntities` payload cannot remove stored `resource` links — they are retained so a partial payload never releases a booking it did not mean to. Existing interactions retain their exact stored keys and can use the historical fallback when a contributor is disabled.
+
+`GET /api/customers/dictionaries/activity-types` is now scoped to the selected organization plus its ancestors, matching the effective catalog. It no longer returns entries from readable sibling organizations; callers that intentionally inspect another organization must select that organization explicitly.
+
+The optional `example` module demonstrates a fixed-behavior `visit` type. Its Meeting label patch requires `OM_EXAMPLE_CALENDAR_DEMO_OVERRIDES=true`; Example preserves every built-in type with either flag value. Missing Staff, Resources, or Planner modules show a warning and skip only the absent integration checks. Visit names each unavailable subject and distinguishes working-hour failures from scoped overlapping bookings of any Customers event type, including recurrence; editing excludes the current interaction. An empty custom-fieldset configuration preserves existing interaction custom-field writes. See the [calendar event-type guide](apps/docs/docs/framework/modules/calendar-event-types.mdx) and the [source specification PR](https://github.com/open-mercato/open-mercato/pull/6687).
 
 ### `reviveSnapshotSeed` throws on an unparsable snapshot date; `extractUndoPayload` can revive dates (#6336)
 
