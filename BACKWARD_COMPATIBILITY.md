@@ -562,13 +562,13 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 
 ## AI Pending Actions Are Owner-Scoped (2026-10-13)
 
-Any user in the same organization with `ai_assistant.view` could read, cancel or confirm another user's pending AI mutation. Confirm also checked only the agent's features, not the tool's, so a user could apply a write their own role did not allow ([#3806](https://github.com/open-mercato/open-mercato/issues/3806)):
+Same-organization users could read, cancel or confirm another user's pending AI mutation, and confirm skipped the tool's `requiredFeatures` ([#3806](https://github.com/open-mercato/open-mercato/issues/3806)):
 
 | Surface | Change | Classification |
 |---------|--------|----------------|
-| API routes (`GET /api/ai_assistant/ai/actions/:id`, `POST …/confirm`, `POST …/cancel`) | Same URLs and response shapes. A caller who is not the action's creator now gets the existing `404 pending_action_not_found`, where it previously got `200`. Confirm answers `403 tool_features_denied` when the confirming user lacks the tool's `requiredFeatures` | ⚠️ Intentional security narrowing. Regression-tested in `TC-AI-ACTIONS-OWNER-008` |
-| Function behaviour (`AiPendingActionRepository.getById`, `setStatus`, `listPendingForAgent`) | Same signatures. The context's `userId` must now equal the row's `createdByUserId`; a missing, empty or non-UUID `userId` matches no row (and `setStatus` throws its existing not-found error) without querying. Only an explicit `userId: null` keeps the tenant/organization-only lookup the expiry sweeper uses | ⚠️ Intentional security narrowing for owner-supplied contexts |
-| Types / exports (`PendingActionRecheckCode`, `PENDING_ACTION_RECHECK_CODES`, `checkToolFeatures`, `computeMutationIdempotencyKey`, `UseAiPendingActionPollingResult`) | New union member `tool_features_denied`, new guard export, new optional `userId` input (omitted → byte-identical digest), new `unavailable` result field | ✓ ADDITIVE (exhaustive `switch` statements need one more case) |
+| API routes (`GET /api/ai_assistant/ai/actions/:id`, `POST …/confirm`, `POST …/cancel`) | Same URLs and shapes. A non-creator now gets the existing `404 pending_action_not_found` instead of `200`; confirm answers `403 tool_features_denied` when the user lacks the tool's `requiredFeatures` | ⚠️ Intentional security narrowing (`TC-AI-ACTIONS-OWNER-008`) |
+| Function behaviour (`AiPendingActionRepository.getById`, `setStatus`, `listPendingForAgent`) | Same signatures. The context's `userId` must equal the row's `createdByUserId`; a missing or non-UUID `userId` matches nothing. Only an explicit `userId: null` (expiry sweeper) skips the owner filter | ⚠️ Intentional security narrowing |
+| Types / exports (`PendingActionRecheckCode`, `PENDING_ACTION_RECHECK_CODES`, `checkToolFeatures`, `computeMutationIdempotencyKey`, `UseAiPendingActionPollingResult`) | New union member `tool_features_denied`, new guard export, optional `userId` input (omitted → same digest), new `unavailable` field | ✓ ADDITIVE (exhaustive `switch` statements need one more case) |
 | Function behaviour (`executePendingActionConfirm`) | Refuses a caller without the tool's `requiredFeatures` before any state transition; the row stays `pending` | ⚠️ Intentional security narrowing |
 | Database schema, event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
 

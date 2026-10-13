@@ -213,7 +213,7 @@ export function ConfirmationCard(props: ConfirmationCardProps) {
   )
 }
 
-function ConfirmationErrorAlert({
+export function ConfirmationErrorAlert({
   error,
 }: {
   error: { code?: string; message: string; extra?: Record<string, unknown> }

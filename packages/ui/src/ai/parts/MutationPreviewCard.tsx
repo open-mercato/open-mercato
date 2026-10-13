@@ -9,7 +9,7 @@ import type { AiUiPartProps } from '../ui-part-registry'
 import { confirmPendingAction, cancelPendingAction } from './pending-action-api'
 import { useAiPendingActionPolling } from './useAiPendingActionPolling'
 import { FieldDiffCard } from './FieldDiffCard'
-import { ConfirmationCard } from './ConfirmationCard'
+import { ConfirmationCard, ConfirmationErrorAlert } from './ConfirmationCard'
 import { MutationResultCard } from './MutationResultCard'
 import type { AiPendingActionCardAction } from './types'
 
@@ -180,7 +180,7 @@ export function MutationPreviewCard(props: MutationPreviewCardProps) {
 
   const batch = Array.isArray(action?.records) && action!.records!.length > 0 ? action!.records! : null
   const summary = batch ? summarizeBatch(batch) : null
-  const hasReviewDetails = Boolean(batch)
+  const hasReviewDetails = Boolean(batch) && !unavailable
 
   return (
     <section
@@ -209,39 +209,43 @@ export function MutationPreviewCard(props: MutationPreviewCardProps) {
         </div>
       </header>
 
-      <div className="mt-3" data-ai-mutation-preview-body>
-        {summary ? (
-          <div
-            className="rounded-md border border-border bg-muted/30 p-3 text-sm"
-            data-ai-mutation-preview-batch-summary
-          >
-            <p className="font-medium">
-              {t(
-                'ai_assistant.chat.mutation_cards.preview.batchSummary',
-                'Batch update',
-              )}
-              {': '}
-              <span data-ai-mutation-preview-count>{summary.count}</span>{' '}
-              <span>
+      {unavailable ? null : (
+        <div className="mt-3" data-ai-mutation-preview-body>
+          {summary ? (
+            <div
+              className="rounded-md border border-border bg-muted/30 p-3 text-sm"
+              data-ai-mutation-preview-batch-summary
+            >
+              <p className="font-medium">
                 {t(
-                  'ai_assistant.chat.mutation_cards.preview.batchRecords',
-                  'records',
+                  'ai_assistant.chat.mutation_cards.preview.batchSummary',
+                  'Batch update',
                 )}
-              </span>
-            </p>
-            {summary.labels.length > 0 ? (
-              <p className="mt-1 text-xs text-muted-foreground">
-                {summary.labels.join(', ')}
-                {summary.count > summary.labels.length
-                  ? ` +${summary.count - summary.labels.length}`
-                  : ''}
+                {': '}
+                <span data-ai-mutation-preview-count>{summary.count}</span>{' '}
+                <span>
+                  {t(
+                    'ai_assistant.chat.mutation_cards.preview.batchRecords',
+                    'records',
+                  )}
+                </span>
               </p>
-            ) : null}
-          </div>
-        ) : (
-          <FieldDiffCard fieldDiff={action?.fieldDiff ?? null} />
-        )}
-      </div>
+              {summary.labels.length > 0 ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {summary.labels.join(', ')}
+                  {summary.count > summary.labels.length
+                    ? ` +${summary.count - summary.labels.length}`
+                    : ''}
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <FieldDiffCard fieldDiff={action?.fieldDiff ?? null} />
+          )}
+        </div>
+      )}
+
+      {confirmError && !unavailable ? <ConfirmationErrorAlert error={confirmError} /> : null}
 
       {expanded && hasReviewDetails ? (
         <div className="mt-3 rounded-md border border-border bg-muted/20 p-3" data-ai-mutation-preview-details>
