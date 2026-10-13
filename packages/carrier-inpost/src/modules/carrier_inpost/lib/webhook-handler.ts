@@ -44,32 +44,46 @@ function resolveWebhookSecret(credentials: Record<string, unknown>): string | nu
   return null
 }
 
+function readShipmentId(value: unknown): string | null {
+  return match(value)
+    .with(P.string, (s) => (s.trim().length > 0 ? s.trim() : null))
+    .with(P.number, (n) => String(n))
+    .otherwise(() => null)
+}
+
+export function extractInpostWebhookShipmentId(payload: Record<string, unknown>): string | null {
+  const nested = payload.payload
+  if (!nested || typeof nested !== 'object') return null
+  return readShipmentId((nested as Record<string, unknown>).shipment_id)
+}
+
 export async function verifyInpostWebhook(input: VerifyWebhookInput): Promise<ShippingWebhookEvent> {
   const body = match(input.rawBody)
     .with(P.string, (s) => s)
     .otherwise((buf) => buf.toString('utf-8'))
   const secret = resolveWebhookSecret(input.credentials)
+  if (!secret) {
+    throw inpostErrors.missingWebhookSecret()
+  }
 
-  if (secret) {
-    const signature = readHeader(input.headers, 'x-inpost-signature')
-    if (!signature) {
-      throw inpostErrors.missingWebhookSignatureHeader()
-    }
+  const signature = readHeader(input.headers, 'x-inpost-signature')
+  if (!signature) {
+    throw inpostErrors.missingWebhookSignatureHeader()
+  }
 
-    const expected = crypto
-      .createHmac('sha256', secret)
-      .update(body)
-      .digest('hex')
+  const expected = crypto
+    .createHmac('sha256', secret)
+    .update(body)
+    .digest('hex')
 
-    const signatureBuffer = Buffer.from(signature, 'hex')
-    const expectedBuffer = Buffer.from(expected, 'hex')
+  const signatureBuffer = Buffer.from(signature, 'hex')
+  const expectedBuffer = Buffer.from(expected, 'hex')
 
-    if (
-      signatureBuffer.length !== expectedBuffer.length ||
-      !crypto.timingSafeEqual(signatureBuffer, expectedBuffer)
-    ) {
-      throw inpostErrors.webhookSignatureMismatch()
-    }
+  if (
+    signatureBuffer.length !== expectedBuffer.length ||
+    !crypto.timingSafeEqual(signatureBuffer, expectedBuffer)
+  ) {
+    throw inpostErrors.webhookSignatureMismatch()
   }
 
   let envelope: InpostWebhookEnvelope
@@ -88,12 +102,14 @@ export async function verifyInpostWebhook(input: VerifyWebhookInput): Promise<Sh
     .with([P._, P.string], ([, s]) => mapInpostStatus(s))
     .otherwise(() => 'unknown' as const)
 
-  // eventId is the shipment_id from the nested payload (string-coerced for idempotency).
-  // Fall back to a random UUID only when shipment_id is truly absent.
-  const eventId = match(envelope.payload?.shipment_id)
-    .with(P.string, (s) => s)
-    .with(P.number, (n) => String(n))
-    .otherwise(() => crypto.randomUUID())
+  // InPost sends several deliveries per shipment, so the idempotency key must identify the
+  // delivery (shipment + event + status + event_ts), not just the shipment.
+  const shipmentId = readShipmentId(envelope.payload?.shipment_id) ?? crypto.randomUUID()
+  const eventId = [shipmentId, envelope.event ?? '', inpostStatus ?? '', envelope.event_ts ?? ''].join(':')
+
+  // The shipping_carriers worker reads the raw carrier status from data.status and maps it
+  // through the adapter; shipment_confirmed carries no status, so report InPost's "confirmed".
+  const carrierStatus = envelope.event === 'shipment_confirmed' ? 'confirmed' : inpostStatus
 
   // event_ts is the canonical timestamp field per InPost docs (e.g. "2020-03-20 15:08:06 +0100").
   const timestamp = match(envelope.event_ts)
@@ -109,7 +125,10 @@ export async function verifyInpostWebhook(input: VerifyWebhookInput): Promise<Sh
     eventType,
     eventId,
     idempotencyKey: eventId,
-    data: envelope as Record<string, unknown>,
+    data: {
+      ...envelope,
+      ...(typeof carrierStatus === 'string' && { status: carrierStatus }),
+    } as Record<string, unknown>,
     timestamp,
     ...(trackingNumber !== undefined && { trackingNumber }),
   }

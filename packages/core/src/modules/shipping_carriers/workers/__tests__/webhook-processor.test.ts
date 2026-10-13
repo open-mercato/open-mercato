@@ -82,4 +82,81 @@ describe('shipping webhook processor', () => {
     expect(emitShippingEvent).not.toHaveBeenCalled()
     expect(releaseWebhookClaim).not.toHaveBeenCalled()
   })
+
+  function runJob(event: Record<string, unknown>, em: Record<string, unknown>) {
+    return handler(
+      {
+        payload: {
+          providerKey: 'inpost',
+          shipmentId: 'shipment-1',
+          scope: { organizationId: 'org-1', tenantId: 'tenant-1' },
+          event,
+        },
+      } as any,
+      {
+        resolve: (name: string) => {
+          if (name === 'em') return em
+          throw new Error(`Unknown dependency: ${name}`)
+        },
+      } as any,
+    )
+  }
+
+  it('releases the claim and leaves the shipment untouched when the transition is rejected', async () => {
+    const shipment = {
+      id: 'shipment-1',
+      providerKey: 'inpost',
+      unifiedStatus: 'delivered',
+      carrierStatus: 'delivered',
+      lastWebhookAt: null,
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+    }
+    findOneWithDecryption.mockResolvedValue(shipment)
+    getShippingAdapter.mockReturnValue({ mapStatus: jest.fn(() => 'in_transit') })
+    claimWebhookProcessing.mockResolvedValue(true)
+    const em = { flush: jest.fn() }
+
+    await runJob({ eventType: 'in_transit', idempotencyKey: '42:shipment_status_changed:taken_by_courier:ts', data: { status: 'taken_by_courier' } }, em)
+
+    expect(releaseWebhookClaim).toHaveBeenCalledWith(
+      em,
+      '42:shipment_status_changed:taken_by_courier:ts',
+      'inpost',
+      { organizationId: 'org-1', tenantId: 'tenant-1' },
+    )
+    expect(shipment.unifiedStatus).toBe('delivered')
+    expect(shipment.carrierStatus).toBe('delivered')
+    expect(shipment.lastWebhookAt).toBeNull()
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(emitShippingEvent).not.toHaveBeenCalled()
+  })
+
+  it('maps the raw carrier status from event data once and applies the transition', async () => {
+    const shipment = {
+      id: 'shipment-1',
+      providerKey: 'inpost',
+      unifiedStatus: 'label_created',
+      carrierStatus: 'confirmed',
+      lastWebhookAt: null as Date | null,
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+    }
+    findOneWithDecryption.mockResolvedValue(shipment)
+    const mapStatus = jest.fn((status: string) => (status === 'taken_by_courier' ? 'in_transit' : 'unknown'))
+    getShippingAdapter.mockReturnValue({ mapStatus })
+    claimWebhookProcessing.mockResolvedValue(true)
+    const em = { flush: jest.fn() }
+
+    await runJob({ eventType: 'in_transit', idempotencyKey: 'k', data: { status: 'taken_by_courier' } }, em)
+
+    expect(mapStatus).toHaveBeenCalledTimes(1)
+    expect(mapStatus).toHaveBeenCalledWith('taken_by_courier')
+    expect(shipment.unifiedStatus).toBe('in_transit')
+    expect(shipment.carrierStatus).toBe('taken_by_courier')
+    expect(shipment.lastWebhookAt).toBeInstanceOf(Date)
+    expect(em.flush).toHaveBeenCalled()
+    expect(releaseWebhookClaim).not.toHaveBeenCalled()
+    expect(emitShippingEvent).toHaveBeenCalledWith('shipping_carriers.shipment.status_changed', expect.objectContaining({ newStatus: 'in_transit' }))
+  })
 })

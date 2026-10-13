@@ -58,7 +58,7 @@ export const integration: IntegrationDefinition = {
         label: 'Webhook Secret',
         type: 'secret',
         required: false,
-        helpText: 'HMAC-SHA256 signing secret for webhook signature verification.',
+        helpText: 'HMAC-SHA256 signing secret for webhook signature verification. Required to receive webhooks: without it every InPost webhook is rejected.',
         helpDetails: inpostWebhookSetupGuide,
       },
     ],

@@ -1,11 +1,20 @@
 import Chance from 'chance'
 import * as crypto from 'node:crypto'
-import { verifyInpostWebhook } from '../lib/webhook-handler'
+import { extractInpostWebhookShipmentId, verifyInpostWebhook } from '../lib/webhook-handler'
 
 const chance = new Chance()
 
 function makeSignature(secret: string, body: string): string {
   return crypto.createHmac('sha256', secret).update(body).digest('hex')
+}
+
+function signed(body: string) {
+  const secret = chance.string({ length: 32 })
+  return {
+    rawBody: body,
+    headers: { 'x-inpost-signature': makeSignature(secret, body) },
+    credentials: { webhookSecret: secret },
+  }
 }
 
 // Build a realistic InPost webhook envelope matching the official docs shape:
@@ -61,8 +70,9 @@ describe('verifyInpostWebhook', () => {
     })
 
     expect(event.eventType).toBe('delivered')
-    expect(event.eventId).toBe(String(shipmentId))
-    expect(event.idempotencyKey).toBe(String(shipmentId))
+    expect(event.eventId).toBe(`${shipmentId}:shipment_status_changed:delivered:${eventTs}`)
+    expect(event.idempotencyKey).toBe(event.eventId)
+    expect(event.data.status).toBe('delivered')
     expect(event.timestamp).toBeInstanceOf(Date)
     expect(event.timestamp.toISOString()).toBe(eventTs)
   })
@@ -75,7 +85,7 @@ describe('verifyInpostWebhook', () => {
       payload: { shipment_id: 42, status: 'taken_by_courier', tracking_number: '123' },
     })
 
-    const event = await verifyInpostWebhook({ rawBody: body, headers: {}, credentials: {} })
+    const event = await verifyInpostWebhook(signed(body))
 
     expect(event.eventType).toBe('in_transit')
   })
@@ -84,25 +94,65 @@ describe('verifyInpostWebhook', () => {
     const shipmentId = chance.integer({ min: 1000, max: 999999 })
     const body = makeConfirmedEnvelope(shipmentId, chance.string({ length: 24, pool: '0123456789' }))
 
-    const event = await verifyInpostWebhook({ rawBody: body, headers: {}, credentials: {} })
+    const event = await verifyInpostWebhook(signed(body))
 
     expect(event.eventType).toBe('label_created')
-    expect(event.eventId).toBe(String(shipmentId))
+    expect(event.eventId.startsWith(`${shipmentId}:shipment_confirmed::`)).toBe(true)
+    expect(event.data.status).toBe('confirmed')
   })
 
-  it('extracts eventId from payload.shipment_id (integer)', async () => {
+  it('builds the idempotency key per delivery, not per shipment', async () => {
     const shipmentId = 709709700
+    const confirmed = await verifyInpostWebhook(signed(JSON.stringify({
+      event: 'shipment_confirmed',
+      event_ts: '2020-03-20 15:00:00 +0100',
+      organization_id: 12345,
+      payload: { shipment_id: shipmentId, tracking_number: '630055758325001130630004' },
+    })))
+    const inTransit = await verifyInpostWebhook(signed(JSON.stringify({
+      event: 'shipment_status_changed',
+      event_ts: '2020-03-21 09:00:00 +0100',
+      organization_id: 12345,
+      payload: { shipment_id: shipmentId, status: 'taken_by_courier' },
+    })))
+    const delivered = await verifyInpostWebhook(signed(JSON.stringify({
+      event: 'shipment_status_changed',
+      event_ts: '2020-03-22 12:00:00 +0100',
+      organization_id: 12345,
+      payload: { shipment_id: shipmentId, status: 'delivered' },
+    })))
+
+    const keys = [confirmed, inTransit, delivered].map((event) => event.idempotencyKey)
+    expect(new Set(keys).size).toBe(3)
+    for (const key of keys) expect(key.startsWith('709709700:')).toBe(true)
+  })
+
+  it('produces the same idempotency key for a redelivery of the same event', async () => {
+    const body = JSON.stringify({
+      event: 'shipment_status_changed',
+      event_ts: '2020-03-22 12:00:00 +0100',
+      organization_id: 12345,
+      payload: { shipment_id: 42, status: 'delivered' },
+    })
+
+    const first = await verifyInpostWebhook(signed(body))
+    const retry = await verifyInpostWebhook(signed(body))
+
+    expect(retry.idempotencyKey).toBe(first.idempotencyKey)
+  })
+
+  it('exposes the raw InPost status as data.status so the worker maps it exactly once', async () => {
     const body = JSON.stringify({
       event: 'shipment_status_changed',
       event_ts: new Date().toISOString(),
-      organization_id: 12345,
-      payload: { shipment_id: shipmentId, status: 'returned_to_sender', tracking_number: '630055758325001130630004' },
+      organization_id: 1,
+      payload: { shipment_id: 7, status: 'taken_by_courier' },
     })
 
-    const event = await verifyInpostWebhook({ rawBody: body, headers: {}, credentials: {} })
+    const event = await verifyInpostWebhook(signed(body))
 
-    expect(event.eventId).toBe('709709700')
-    expect(event.idempotencyKey).toBe('709709700')
+    expect(event.eventType).toBe('in_transit')
+    expect(event.data.status).toBe('taken_by_courier')
   })
 
   it('extracts timestamp from event_ts field', async () => {
@@ -114,7 +164,7 @@ describe('verifyInpostWebhook', () => {
       payload: { shipment_id: 49, status: 'delivered', tracking_number: '602677439331630337653846' },
     })
 
-    const event = await verifyInpostWebhook({ rawBody: body, headers: {}, credentials: {} })
+    const event = await verifyInpostWebhook(signed(body))
 
     expect(event.timestamp).toBeInstanceOf(Date)
     expect(event.timestamp.getTime()).toBe(new Date(eventTs).getTime())
@@ -128,7 +178,7 @@ describe('verifyInpostWebhook', () => {
       payload: { shipment_id: 1 },
     })
 
-    const event = await verifyInpostWebhook({ rawBody: body, headers: {}, credentials: {} })
+    const event = await verifyInpostWebhook(signed(body))
 
     expect(event.eventType).toBe('unknown')
   })
@@ -147,7 +197,7 @@ describe('verifyInpostWebhook', () => {
       },
     })
 
-    const event = await verifyInpostWebhook({ rawBody: body, headers: {}, credentials: {} })
+    const event = await verifyInpostWebhook(signed(body))
 
     expect(event.eventType).toBe('returned')
     const payload = (event.data as { payload?: { return_tracking_number?: string } }).payload
@@ -180,22 +230,29 @@ describe('verifyInpostWebhook', () => {
     ).rejects.toThrow('Missing X-Inpost-Signature header')
   })
 
-  it('accepts any payload when no webhookSecret is configured', async () => {
+  it('fails closed when no webhookSecret is configured', async () => {
     const body = makeStatusChangedEnvelope()
 
-    const event = await verifyInpostWebhook({ rawBody: body, headers: {}, credentials: {} })
+    await expect(verifyInpostWebhook({ rawBody: body, headers: {}, credentials: {} }))
+      .rejects.toThrow('InPost webhook secret is not configured')
+    await expect(verifyInpostWebhook({ rawBody: body, headers: {}, credentials: { webhookSecret: '   ' } }))
+      .rejects.toThrow('InPost webhook secret is not configured')
+  })
 
-    expect(event.eventType).toBeDefined()
+  it('rejects a forged status change signed with an arbitrary key when no secret is configured', async () => {
+    const body = makeStatusChangedEnvelope()
+
+    await expect(
+      verifyInpostWebhook({
+        rawBody: body,
+        headers: { 'x-inpost-signature': makeSignature(chance.string({ length: 32 }), body) },
+        credentials: {},
+      }),
+    ).rejects.toThrow('InPost webhook secret is not configured')
   })
 
   it('rejects non-JSON payload', async () => {
-    await expect(
-      verifyInpostWebhook({
-        rawBody: `not-json-${chance.word()}`,
-        headers: {},
-        credentials: {},
-      }),
-    ).rejects.toThrow('not valid JSON')
+    await expect(verifyInpostWebhook(signed(`not-json-${chance.word()}`))).rejects.toThrow('not valid JSON')
   })
 
   it('handles Buffer rawBody', async () => {
@@ -216,7 +273,7 @@ describe('verifyInpostWebhook', () => {
     })
 
     expect(event.eventType).toBe('delivered')
-    expect(event.eventId).toBe(String(shipmentId))
+    expect(event.eventId.startsWith(`${shipmentId}:`)).toBe(true)
   })
 
   it('falls back to random UUID when shipment_id is absent', async () => {
@@ -227,7 +284,7 @@ describe('verifyInpostWebhook', () => {
       payload: { status: 'delivered' },
     })
 
-    const event = await verifyInpostWebhook({ rawBody: body, headers: {}, credentials: {} })
+    const event = await verifyInpostWebhook(signed(body))
 
     expect(typeof event.eventId).toBe('string')
     expect(event.eventId.length).toBeGreaterThan(0)
@@ -241,7 +298,7 @@ describe('verifyInpostWebhook', () => {
       payload: { shipment_id: 1, status: 'delivered' },
     })
 
-    const event = await verifyInpostWebhook({ rawBody: body, headers: {}, credentials: {} })
+    const event = await verifyInpostWebhook(signed(body))
 
     expect(event.timestamp.getTime()).toBeGreaterThanOrEqual(before)
   })
@@ -251,7 +308,7 @@ describe('verifyInpostWebhook', () => {
     const shipmentId = chance.integer({ min: 1000, max: 999999 })
     const body = makeConfirmedEnvelope(shipmentId, trackingNumber)
 
-    const event = await verifyInpostWebhook({ rawBody: body, headers: {}, credentials: {} })
+    const event = await verifyInpostWebhook(signed(body))
 
     expect(event.trackingNumber).toBe(trackingNumber)
   })
@@ -265,7 +322,7 @@ describe('verifyInpostWebhook', () => {
       payload: { shipment_id: 42, status: 'delivered', tracking_number: trackingNumber },
     })
 
-    const event = await verifyInpostWebhook({ rawBody: body, headers: {}, credentials: {} })
+    const event = await verifyInpostWebhook(signed(body))
 
     expect(event.trackingNumber).toBe(trackingNumber)
   })
@@ -278,8 +335,22 @@ describe('verifyInpostWebhook', () => {
       payload: { shipment_id: 1, status: 'delivered' },
     })
 
-    const event = await verifyInpostWebhook({ rawBody: body, headers: {}, credentials: {} })
+    const event = await verifyInpostWebhook(signed(body))
 
     expect(event.trackingNumber).toBeUndefined()
+  })
+})
+
+describe('extractInpostWebhookShipmentId', () => {
+  it('reads payload.shipment_id as a string', () => {
+    expect(extractInpostWebhookShipmentId({ payload: { shipment_id: 49 } })).toBe('49')
+    expect(extractInpostWebhookShipmentId({ payload: { shipment_id: 'abc' } })).toBe('abc')
+  })
+
+  it('returns null when the envelope has no usable shipment id', () => {
+    expect(extractInpostWebhookShipmentId({})).toBeNull()
+    expect(extractInpostWebhookShipmentId({ payload: 'x' })).toBeNull()
+    expect(extractInpostWebhookShipmentId({ payload: { shipment_id: '  ' } })).toBeNull()
+    expect(extractInpostWebhookShipmentId({ payload: { shipment_id: null } })).toBeNull()
   })
 })

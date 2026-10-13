@@ -9,6 +9,8 @@ export const inpostErrors = {
   missingApiToken: () => throwError('InPost API token is required'),
   missingOrganizationId: () => throwError('InPost organization ID is required'),
   apiError: (status: number, text: string) => throwError(`InPost API error ${status}: ${text}`),
+  missingWebhookSecret: () =>
+    throwError('InPost webhook secret is not configured; webhooks are rejected until it is set'),
   missingWebhookSignatureHeader: () => throwError('Missing X-Inpost-Signature header'),
   webhookSignatureMismatch: () => throwError('InPost webhook signature verification failed'),
   webhookInvalidJson: () => throwError('InPost webhook payload is not valid JSON'),
@@ -19,6 +21,8 @@ export const inpostErrors = {
     throwError(
       'InPost does not support shipment cancellation via API. Cancel through the InPost merchant portal.',
     ),
+  disallowedApiHost: (url: string) =>
+    throwError(`InPost API base URL is not an allowed InPost host: ${url}`),
   incompleteEnvPreset: () =>
     throwError(
       '[carrier_inpost] Incomplete InPost env preset. Set OM_INTEGRATION_INPOST_API_TOKEN and OM_INTEGRATION_INPOST_ORGANIZATION_ID.',

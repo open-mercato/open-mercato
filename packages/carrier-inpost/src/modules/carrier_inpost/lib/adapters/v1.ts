@@ -13,8 +13,12 @@ import type {
 } from '@open-mercato/core/modules/shipping_carriers/lib/adapter'
 import { inpostRequest, inpostRequestRaw, inpostPointsRequest, resolveOrganizationId } from '../client'
 import { mapInpostStatus, mapServiceCodeToInpost, isLockerService } from '../status-map'
-import { verifyInpostWebhook } from '../webhook-handler'
+import { extractInpostWebhookShipmentId, verifyInpostWebhook } from '../webhook-handler'
 import { inpostErrors } from '../errors'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+
+const logger = createLogger('carrier_inpost').child({ component: 'adapter-v1' })
 
 type InpostPointAddress = {
   street?: string
@@ -281,7 +285,9 @@ async function fetchLabel(
       { format, type: 'A6' },
     )
     return arrayBufferToBase64(buffer)
-  } catch {
+  } catch (error) {
+    logger.warn('InPost label download failed; shipment created without a label', { shipmentId, format, err: error })
+    getTelemetryRuntime()?.reportError(error, { module: 'carrier_inpost', code: 'carrier_inpost.label_download_failed' })
     return undefined
   }
 }
@@ -530,6 +536,10 @@ export const inpostAdapterV1: ShippingAdapter = {
 
   async verifyWebhook(input): Promise<ShippingWebhookEvent> {
     return verifyInpostWebhook(input)
+  },
+
+  extractWebhookShipmentId(payload: Record<string, unknown>): string | null {
+    return extractInpostWebhookShipmentId(payload)
   },
 
   mapStatus(carrierStatus: string): UnifiedShipmentStatus {

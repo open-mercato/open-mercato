@@ -70,11 +70,19 @@ export default async function handle(job: QueuedJob<WebhookJobPayload>, ctx: Han
         ? job.payload.event.data.status
         : job.payload.event.eventType
       const unifiedStatus = adapter.mapStatus(carrierStatus)
-      shipment.carrierStatus = carrierStatus
-      shipment.lastWebhookAt = new Date()
 
       const transitionApplied = syncShipmentStatus(shipment, unifiedStatus)
-      if (!transitionApplied) return
+      if (!transitionApplied) {
+        await releaseWebhookClaim(
+          em,
+          job.payload.event.idempotencyKey,
+          job.payload.providerKey,
+          scope,
+        )
+        return
+      }
+      shipment.carrierStatus = carrierStatus
+      shipment.lastWebhookAt = new Date()
 
       await em.flush()
 

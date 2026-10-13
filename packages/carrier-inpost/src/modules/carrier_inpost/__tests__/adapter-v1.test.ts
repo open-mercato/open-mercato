@@ -1,6 +1,19 @@
 import Chance from 'chance'
+import * as crypto from 'node:crypto'
 import { inpostAdapterV1 } from '../lib/adapters/v1'
 import type { CreateShipmentInput } from '@open-mercato/core/modules/shipping_carriers/lib/adapter'
+
+const mockLoggerWarn = jest.fn()
+const mockReportError = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const logger = { warn: (...args: unknown[]) => mockLoggerWarn(...args), info: jest.fn(), error: jest.fn(), debug: jest.fn() }
+  return { createLogger: () => ({ ...logger, child: () => logger }) }
+})
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => mockReportError(...args) }),
+}))
 
 const chance = new Chance()
 
@@ -438,6 +451,14 @@ describe('inpostAdapterV1', () => {
       const result = await inpostAdapterV1.createShipment(makeShipmentInput())
 
       expect(result.labelData).toBe(fallbackLabel)
+      expect(mockLoggerWarn).toHaveBeenCalledWith(
+        expect.stringContaining('label download failed'),
+        expect.objectContaining({ shipmentId }),
+      )
+      expect(mockReportError).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({ code: 'carrier_inpost.label_download_failed' }),
+      )
     })
 
     it('returns no labelData when both the label endpoint and shipment.label are absent', async () => {
@@ -973,14 +994,28 @@ describe('inpostAdapterV1', () => {
         payload: { shipment_id: shipmentId, status: inpostStatus, tracking_number: '123' },
       })
 
+      const secret = chance.string({ length: 32 })
+      const signature = crypto.createHmac('sha256', secret).update(body).digest('hex')
+
       const event = await inpostAdapterV1.verifyWebhook({
         rawBody: body,
-        headers: {},
-        credentials: {},
+        headers: { 'x-inpost-signature': signature },
+        credentials: { webhookSecret: secret },
       })
 
       expect(typeof event.eventType).toBe('string')
-      expect(event.eventId).toBe(String(shipmentId))
+      expect(event.eventId.startsWith(`${shipmentId}:shipment_status_changed:${inpostStatus}:`)).toBe(true)
+      expect(event.data.status).toBe(inpostStatus)
+    })
+  })
+
+  describe('extractWebhookShipmentId', () => {
+    it('reads the carrier shipment id from the InPost envelope so the webhook route can find the shipment', () => {
+      expect(inpostAdapterV1.extractWebhookShipmentId?.({ event: 'shipment_status_changed', payload: { shipment_id: 709709700 } }))
+        .toBe('709709700')
+      expect(inpostAdapterV1.extractWebhookShipmentId?.({ payload: { shipment_id: ' 42 ' } })).toBe('42')
+      expect(inpostAdapterV1.extractWebhookShipmentId?.({ shipmentId: 'x' })).toBeNull()
+      expect(inpostAdapterV1.extractWebhookShipmentId?.({ payload: {} })).toBeNull()
     })
   })
 

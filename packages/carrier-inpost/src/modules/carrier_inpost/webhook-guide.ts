@@ -10,7 +10,7 @@ export const inpostWebhookSetupGuide: IntegrationCredentialWebhookHelp = {
     'Log in to InPost Manager and navigate to API -> Webhooks.',
     'Click "Add webhook" and set the destination URL to your public Open Mercato URL plus /api/shipping-carriers/webhook/inpost.',
     'Select the shipment status events you wish to receive.',
-    'Copy the signing secret displayed by InPost and paste it into the Webhook Secret field in Integrations.',
+    'Copy the signing secret displayed by InPost and paste it into the Webhook Secret field in Integrations. Webhooks are rejected until this secret is set.',
     'Save the InPost integration credentials, then create a test shipment to verify delivery.',
   ],
   events: [
