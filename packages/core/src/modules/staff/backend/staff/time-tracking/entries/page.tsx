@@ -81,6 +81,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { TimeEntryDialog } from '../../../../lib/time-tracking-ui/TimeEntryDialog'
+import { REPORTS_PATH, reportDetailHref } from '../../../../lib/time-tracking-ui/reportLinks'
 import { TimeEntryDurationCell } from '../../../../lib/time-tracking-ui/TimeEntryDurationCell'
 import { TimeEntriesSummaryFooter } from '../../../../lib/time-tracking-ui/TimeEntriesSummaryFooter'
 import {
@@ -120,7 +121,6 @@ const MANAGE_ALL_FEATURE = 'staff.timesheets.manage_all'
  * ordinary filter values, so they carry a removable chip like anything else.
  */
 const DEEP_LINK_PARAMS = ['taskId', 'ids'] as const
-const REPORTS_PATH = '/backend/staff/time-tracking/reports'
 const MUTATION_CONTEXT_ID = 'staff.time_tracking.entriesList'
 const RESOURCE_KIND = 'staff.timesheets.time_entry'
 
@@ -1171,7 +1171,7 @@ export default function TimeTrackingEntriesPage() {
                     id: 'show-report',
                     label: labels.showReport,
                     href: row.lockedReportId
-                      ? `${REPORTS_PATH}?id=${encodeURIComponent(row.lockedReportId)}`
+                      ? reportDetailHref(row.lockedReportId)
                       : REPORTS_PATH,
                   },
                 ]}
