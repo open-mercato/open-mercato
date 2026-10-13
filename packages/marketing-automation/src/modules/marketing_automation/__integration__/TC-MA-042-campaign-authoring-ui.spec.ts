@@ -364,13 +364,17 @@ test.describe('TC-MA-042 campaign authoring on the canvas', () => {
     let campaignId: string | null = null
     try {
       await login(page, 'admin')
+      await page.goto('/backend/marketing/campaigns', { waitUntil: 'domcontentloaded' })
+
+      // The gallery replaced the Select this test was written against, and it fetches on open rather than on
+      // page load — waiting for the templates before the dialog exists waits forever.
       const templates = page.waitForResponse((response) =>
         response.url().includes('/api/marketing_automation/templates') && response.request().method() === 'GET')
-      await page.goto('/backend/marketing/campaigns', { waitUntil: 'domcontentloaded' })
+      await page.getByRole('button', { name: 'Start from a template…' }).click()
       await templates
 
-      await page.getByText('Start from a template…').click()
-      await page.getByRole('option', { name: 'Welcome a new customer' }).click()
+      const card = page.getByText('Welcome a new customer', { exact: true }).locator('..')
+      await card.getByRole('button', { name: 'Use this one' }).click()
 
       await page.waitForURL(/\/backend\/marketing\/campaigns\/[0-9a-f-]{36}$/, { timeout: 20_000 })
       campaignId = page.url().split('/').pop() ?? null

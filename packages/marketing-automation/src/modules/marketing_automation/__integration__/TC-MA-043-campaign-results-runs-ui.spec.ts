@@ -90,7 +90,7 @@ test.describe('TC-MA-043 campaign results and runs screens', () => {
       await expect(page.getByText('This campaign has not run yet.')).toBeVisible()
       await expect(page.getByText('A run appears here for every customer the campaign starts for.')).toBeVisible()
       for (const filter of ['All', 'Waiting', 'Running', 'Completed', 'Given up']) {
-        await expect(page.getByRole('button', { name: filter, exact: true })).toBeVisible()
+        await expect(page.getByRole('radio', { name: filter, exact: true })).toBeVisible()
       }
       for (const column of ['Status', 'Customer', 'Trigger', 'Progress', 'Started', 'Resumes', 'Attempts']) {
         await expect(page.getByRole('columnheader', { name: column, exact: true })).toBeVisible()
@@ -171,18 +171,20 @@ test.describe('TC-MA-043 campaign results and runs screens', () => {
       await expect(profileLink).toHaveAttribute('href', `/backend/marketing/customers/${personId}`)
       await expect(profileLink).toHaveAttribute('title', 'Open the customer profile')
 
-      await row.getByRole('button', { name: 'Steps' }).click()
-      const stepLog = page.locator('ol').filter({ hasText: 'Add score points' })
-      await expect(stepLog).toBeVisible()
-      await expect(stepLog.getByText('done').first()).toBeVisible()
-      await expect(stepLog).toContainText('+1 points')
-      await row.getByRole('button', { name: 'Steps' }).click()
-      await expect(stepLog).toBeHidden()
+      // The step log is rendered as child rows of its run rather than a drawer, so it opens with the
+      // table's own expander and the assertions read the rows it adds.
+      await row.getByRole('button', { name: 'Expand row' }).click()
+      const stepRow = page.getByRole('row').filter({ hasText: 'Add score points' }).first()
+      await expect(stepRow).toBeVisible()
+      await expect(stepRow).toContainText('done')
+      await expect(stepRow).toContainText('+1 points')
+      await row.getByRole('button', { name: 'Collapse row' }).click()
+      await expect(page.getByRole('row').filter({ hasText: 'Add score points' })).toHaveCount(0)
 
       const filterTo = async (label: string) => {
         const refetched = page.waitForResponse((response) =>
           response.url().includes(`/api/marketing_automation/campaigns/${campaignId}/runs`) && response.request().method() === 'GET')
-        await page.getByRole('button', { name: label, exact: true }).click()
+        await page.getByRole('radio', { name: label, exact: true }).click()
         await refetched
       }
       await filterTo('Completed')

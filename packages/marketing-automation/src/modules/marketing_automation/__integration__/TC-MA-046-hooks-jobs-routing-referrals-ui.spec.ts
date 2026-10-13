@@ -282,13 +282,13 @@ test.describe('TC-MA-046 hooks, jobs, lead routing and referrals screens', () =>
       await expect(page.getByText('New leads from the last 7 days. Each new lead goes to whoever currently has the fewest.')).toBeVisible({ timeout: 20_000 })
 
       const busySection = page.locator('div').filter({ has: page.getByText(busyRep, { exact: true }) })
-        .filter({ hasText: 'Carrying' }).last()
-      await expect(busySection).toContainText('Carrying 1 leads in total')
+        .filter({ hasText: 'leads in total' }).last()
+      await expect(busySection).toContainText(/1\s*leads in total/)
       await expect(busySection.getByRole('link', { name: leadName })).toHaveAttribute('href', `/backend/marketing/customers/${leadId}`)
 
       const idleSection = page.locator('div').filter({ has: page.getByText(idleRep, { exact: true }) })
-        .filter({ hasText: 'Carrying' }).last()
-      await expect(idleSection).toContainText('Carrying 0 leads in total')
+        .filter({ hasText: 'leads in total' }).last()
+      await expect(idleSection).toContainText(/0\s*leads in total/)
       await expect(idleSection).toContainText('Nothing new this week.')
       await expect(idleSection.getByRole('link')).toHaveCount(0)
     } finally {
