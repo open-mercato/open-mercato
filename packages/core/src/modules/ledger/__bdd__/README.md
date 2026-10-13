@@ -200,14 +200,15 @@ thrown before any step even ran.
 
 ### Update (2026-10-13, PR #6340 review)
 
-`npm run test:bdd` passes end to end: 30 scenarios in 10 feature files, none
+`npm run test:bdd` passes end to end: 35 scenarios in 11 feature files, none
 pending. The review of PR #6340 added the scenarios for the numbering rule
 (`account_numbering.feature`), the frozen type and account numbers
 (`account_type_immutability.feature`), the reversal date
-(`journal_entry_reversal.feature`), overlapping periods
-(`fiscal_period_definition.feature`), unlocking a period
-(`fiscal_period_locking.feature`) and the append-only entry
-(`posted_entry_immutability.feature`). The scenario about an account type's
+(`journal_entry_reversal.feature`), overlapping periods and generating twelve
+consecutive monthly periods (`fiscal_period_definition.feature`), unlocking a
+period (`fiscal_period_locking.feature`), the append-only entry
+(`posted_entry_immutability.feature`) and the document type and number on an
+entry (`journal_entry_document.feature`). The scenario about an account type's
 parent in `delete_blocking.feature` is gone together with the parent columns.
 
 `posted_entry_immutability.feature` checks that no command or API route edits
