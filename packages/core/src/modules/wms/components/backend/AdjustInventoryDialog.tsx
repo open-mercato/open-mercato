@@ -146,7 +146,7 @@ export function AdjustInventoryDialog({
   // drops an in-progress decimal separator the instant it's typed (`2,5` collapses to `2`
   // then the next digit appends, producing `25`). Synced from `form.delta` only while the
   // field is not focused, mirroring `CrudForm.NumberInput`'s buffer.
-  const [deltaInputText, setDeltaInputText] = React.useState<string>(String(EMPTY_FORM.delta))
+  const [deltaInputText, setDeltaInputText] = React.useState<string>(() => formatLocaleNumberInput(EMPTY_FORM.delta, locale))
   const deltaInputFocusedRef = React.useRef(false)
   const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({})
   const [onHand, setOnHand] = React.useState<number | null>(null)
