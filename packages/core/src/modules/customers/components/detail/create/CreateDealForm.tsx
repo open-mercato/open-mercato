@@ -9,6 +9,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserId'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
@@ -56,10 +57,26 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
       translateWithFallback(t, key, fallback, params),
     [t],
   )
-  const seedValues = React.useMemo(() => ({
-    ...EMPTY_VALUES,
-    ...Object.fromEntries(Object.entries(initialValues ?? {}).filter(([, value]) => value !== undefined)),
-  }), [initialValues])
+  // Default the owner to the current user, matching the pipeline quick-create dialog so a
+  // deal created here does not start unowned (an unowned deal notifies nobody when it closes).
+  // useCurrentUserId resolves asynchronously; CrudForm merges the late seed without touching
+  // an explicit seed or a field the user has already edited.
+  const currentUserId = useCurrentUserId()
+  // Seeds the picker for the self-assigned id, which may not be on the assignable roster
+  // (an admin who is not a staff team member, or any user when the `staff` module is off).
+  const ownerInitialOption = React.useMemo(
+    () => (currentUserId
+      ? { id: currentUserId, name: tr('customers.filters.currentUser', 'Current user') }
+      : null),
+    [currentUserId, tr],
+  )
+  const seedValues = React.useMemo(() => {
+    const seeded: BaseValues = {
+      ...EMPTY_VALUES,
+      ...Object.fromEntries(Object.entries(initialValues ?? {}).filter(([, value]) => value !== undefined)),
+    }
+    return seeded.ownerUserId || !currentUserId ? seeded : { ...seeded, ownerUserId: currentUserId }
+  }, [initialValues, currentUserId])
   const [isSubmitting, setIsSubmitting] = React.useState(false)
   const { runMutation, retryLastMutation } = useGuardedMutation({ contextId: CONTEXT_ID, blockedMessage: tr('ui.forms.flash.saveBlocked', 'Save blocked by validation') })
   const { pipelines, stages, loadStages } = useDealPipelines()
@@ -81,6 +98,10 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
       probability: typeof data.probability === 'number' ? data.probability : undefined,
       expectedCloseAt: data.expectedCloseAt ? new Date(data.expectedCloseAt).toISOString() : undefined,
       description: data.description || undefined,
+      // `null`, not omitted — matching DealForm, so both create surfaces send the same
+      // shape. `dealCreateSchema.ownerUserId` is `.optional().nullable()` and
+      // createDealCommand maps null to null.
+      ownerUserId: data.ownerUserId && data.ownerUserId.length ? data.ownerUserId : null,
       personIds: data.personIds?.length ? data.personIds : undefined,
       companyIds: data.companyIds?.length ? data.companyIds : undefined,
     }
@@ -135,7 +156,7 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
           >
             <DealDetailsFields values={readCreateValues(values)} errors={errors} isSubmitting={isSubmitting} patch={patch}
               onPipelineChange={(pipelineId) => { patch({ pipelineId, pipelineStageId: '' }); void loadStages(pipelineId).catch(() => {}) }}
-              pipelines={pipelines} stages={stages} statusLabels={statusLabels} tr={tr} />
+              pipelines={pipelines} stages={stages} statusLabels={statusLabels} ownerInitialOption={ownerInitialOption} tr={tr} />
             {injectedFields}
           </DealSectionCard>
         )
@@ -162,7 +183,7 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
         {injectedFields}
       </>,
     },
-  ], [tr, handleCancel, isSubmitting, customFieldsLoaded, loadStages, pipelines, stages, statusLabels, customCount, handleCustomAttributesLoaded])
+  ], [tr, handleCancel, isSubmitting, customFieldsLoaded, loadStages, pipelines, stages, statusLabels, ownerInitialOption, customCount, handleCustomAttributesLoaded])
 
   return (
     <div className="mx-auto max-w-screen-2xl" onKeyDown={(event) => {

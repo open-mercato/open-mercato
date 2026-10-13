@@ -3,6 +3,7 @@ import type { ModuleEncryptionMap } from '@open-mercato/shared/modules/encryptio
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CacheStrategy } from '@open-mercato/cache/types'
 import { CustomEntity, CustomFieldDef, EncryptionMap } from './data/entities'
+import { upsertCanonicalEncryptionMap } from './lib/encryption-maps'
 import {
   installCustomEntitiesFromModules,
   getAggregatedCustomEntityConfigs,
@@ -28,6 +29,7 @@ import {
 import { resolveEntityIdFromMetadata } from '@open-mercato/shared/lib/encryption/entityIds'
 import { listEntityMetadata } from '@open-mercato/shared/lib/db/entityMetadata'
 import { Organization } from '../directory/data/entities'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'node:crypto'
 
 function parseArgs(rest: string[]) {
@@ -287,45 +289,62 @@ function getSystemScopedEntityIds(): Set<string> {
 // upgrade actions can backfill a newly-added encrypted entity for pre-existing tenants (whose maps were
 // seeded once at tenant creation and never re-run) without depending on the full CLI module registry.
 export async function upsertEncryptionMapSpecs(
-  em: any,
+  em: EntityManager,
   tenantId: string,
   organizationId: string | null,
   specs: ModuleEncryptionMap[],
   logger: (msg: string) => void = () => {},
-) {
+  onMaterializedScope?: (scope: { entityId: string; tenantId: string; organizationId: string | null }) => void | Promise<void>,
+): Promise<Array<{ entityId: string; tenantId: string; organizationId: string | null }>> {
+  const materializedScopes: Array<{ entityId: string; tenantId: string; organizationId: string | null }> = []
   for (const spec of specs) {
     if (spec.keyScope === 'system') {
       logger(`Skipping ${spec.entityId}: system-scoped map, resolved from module code rather than a tenant row.`)
       continue
     }
-    const existing = await em.findOne(EncryptionMap, {
+    await upsertCanonicalEncryptionMap(em, {
       entityId: spec.entityId,
       tenantId,
       organizationId,
-      deletedAt: null,
-    })
-    if (existing) {
-      existing.fieldsJson = spec.fields
-      existing.isActive = true
-      existing.updatedAt = new Date()
-      logger(`🔒 Updated encryption map for ${spec.entityId} ✨`)
-      await em.persist(existing).flush()
-      continue
-    }
-    const map = em.create(EncryptionMap, {
-      entityId: spec.entityId,
-      tenantId,
-      organizationId,
-      fieldsJson: spec.fields,
+      fields: spec.fields,
       isActive: true,
     })
-    await em.persist(map).flush()
-    logger(`Created encryption map for ${spec.entityId}`)
+    const materializedScope = { entityId: spec.entityId, tenantId, organizationId }
+    materializedScopes.push(materializedScope)
+    await onMaterializedScope?.(materializedScope)
+    logger(`🔒 Seeded encryption map for ${spec.entityId} ✨`)
   }
+  return materializedScopes
 }
 
-async function upsertEncryptionMaps(em: any, tenantId: string, organizationId: string | null, logger: (msg: string) => void) {
-  await upsertEncryptionMapSpecs(em, tenantId, organizationId, getDefaultEncryptionMaps(resolveEncryptionMapModules()), logger)
+async function upsertEncryptionMaps(
+  em: EntityManager,
+  tenantId: string,
+  organizationId: string | null,
+  logger: (msg: string) => void,
+  onMaterializedScope?: (scope: { entityId: string; tenantId: string; organizationId: string | null }) => void | Promise<void>,
+) {
+  return upsertEncryptionMapSpecs(
+    em,
+    tenantId,
+    organizationId,
+    getDefaultEncryptionMaps(resolveEncryptionMapModules()),
+    logger,
+    onMaterializedScope,
+  )
+}
+
+export async function invalidateEncryptionMapScopes(
+  encryptionService: Pick<TenantDataEncryptionService, 'invalidateMap'>,
+  scopes: ReadonlyArray<{ entityId: string; tenantId: string | null; organizationId: string | null }>,
+): Promise<void> {
+  const seen = new Set<string>()
+  for (const scope of scopes) {
+    const key = `${scope.entityId}\u0000${scope.tenantId ?? ''}\u0000${scope.organizationId ?? ''}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    await encryptionService.invalidateMap(scope.entityId, scope.tenantId, scope.organizationId)
+  }
 }
 
 const seedEncryptionMaps: ModuleCli = {
@@ -345,9 +364,12 @@ const seedEncryptionMaps: ModuleCli = {
     }
 
     const { resolve } = await createRequestContainer()
-    const em = resolve('em') as any
+    const em = resolve('em') as EntityManager
     const logger = (msg: string) => console.log(msg)
-    await upsertEncryptionMaps(em, tenantId, organizationId, logger)
+    const encryptionService = resolve('tenantEncryptionService') as Pick<TenantDataEncryptionService, 'invalidateMap'>
+    await upsertEncryptionMaps(em, tenantId, organizationId, logger, async (scope) => {
+      await invalidateEncryptionMapScopes(encryptionService, [scope])
+    })
     console.log('✅ Encryption maps seeded')
   },
 }

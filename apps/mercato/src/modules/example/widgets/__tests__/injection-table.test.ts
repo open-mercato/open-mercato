@@ -13,6 +13,7 @@ const originalCrudFormFlagValue = process.env[CRUDFORM_FLAG_NAME]
 const moduleRoot = path.join(__dirname, '..', '..')
 
 const CROSS_MODULE_SPOT_IDS = [
+  'calendar:customers.event-types',
   'crud-form:customers.person:fields',
   'crud-form:customers.customer_entity:fields',
   'data-table:customers.people:columns',
