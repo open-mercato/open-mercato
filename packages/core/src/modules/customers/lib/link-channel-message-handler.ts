@@ -114,6 +114,11 @@ export default async function handler(
   //
   // We look up the channel only when channelId is provided in the event payload.
   let channelUserId: string | null = null
+  // Denormalized onto each interaction so a read path can ask "is this row's
+  // channel shared?" without a three-join hop. NULL when the event carried no
+  // channelId — every predicate treats that as not shared (fail closed).
+  const resolvedChannelId: string | null =
+    typeof payload.channelId === 'string' && payload.channelId ? payload.channelId : null
   if (typeof payload.channelId === 'string' && payload.channelId) {
     const channel = (await findOneWithDecryption(
       em,
@@ -190,7 +195,7 @@ export default async function handler(
   // Early exit: no addresses AND no hint → nothing to link.
   if (normalized.length === 0 && !crmPersonId) {
     // Before giving up, try threading-inheritance (TC-CRM-EMAIL-005).
-    await handleThreadingInheritance(em, link, linkId, tenantId, organizationId, channelUserId, metaJson, payloadJson, occurredAt)
+    await handleThreadingInheritance(em, link, linkId, tenantId, organizationId, channelUserId, resolvedChannelId, metaJson, payloadJson, occurredAt)
     return
   }
 
@@ -201,7 +206,7 @@ export default async function handler(
 
   if (personIdSet.size === 0) {
     // Try threading-inheritance before giving up.
-    await handleThreadingInheritance(em, link, linkId, tenantId, organizationId, channelUserId, metaJson, payloadJson, occurredAt)
+    await handleThreadingInheritance(em, link, linkId, tenantId, organizationId, channelUserId, resolvedChannelId, metaJson, payloadJson, occurredAt)
     return
   }
 
@@ -247,6 +252,7 @@ export default async function handler(
       occurredAt,
       visibility,
       channelProviderKey: providerKey,
+      channelId: resolvedChannelId,
     },
   )
 }
@@ -272,6 +278,7 @@ async function handleThreadingInheritance(
   tenantId: string,
   organizationId: string | null,
   channelUserId: string | null,
+  channelId: string | null,
   metaJson: Record<string, unknown> | null,
   payloadJson: Record<string, unknown> | null,
   occurredAt: Date,
@@ -353,8 +360,14 @@ async function handleThreadingInheritance(
         body: bodyText,
         authorUserId: channelUserId,
         occurredAt,
-        visibility: channelUserId ? 'private' : 'shared',
+        // Single source of truth for the ingestion default (see resolveVisibility).
+        // The threading-inheritance path deliberately passes no metadata and no
+        // direction: a reply is matched by parent-thread lookup and its metadata is
+        // provider-derived, so it must never be able to downgrade privacy via the
+        // `crmVisibility` override.
+        visibility: resolveVisibility(null, channelUserId, null),
         channelProviderKey: providerKey,
+        channelId,
       })
       return
     }
@@ -432,7 +445,9 @@ async function handleThreadingInheritance(
 
   if (inheritedPersonIdSet.size === 0) return
 
-  const visibility: 'private' | 'shared' = channelUserId ? 'private' : 'shared'
+  // Same single source of truth as the primary ingestion path; no metadata and no
+  // direction on the inheritance path (see the sibling call above).
+  const visibility: 'private' | 'shared' = resolveVisibility(null, channelUserId, null)
   const link = _link
   const inheritedMeta = (link.channelMetadata ?? null) as Record<string, unknown> | null
   const subject =
@@ -454,6 +469,7 @@ async function handleThreadingInheritance(
       occurredAt,
       visibility,
       channelProviderKey: providerKey,
+      channelId,
     },
   )
 }
@@ -498,6 +514,12 @@ interface InteractionData {
   occurredAt: Date
   visibility: 'private' | 'shared'
   channelProviderKey: string | null
+  /**
+   * Denormalized channel id, so a read path can ask "is this row's channel
+   * shared?" without a three-join hop. NULL when the event carried no channelId
+   * (the predicate then treats the row as not shared — fail closed).
+   */
+  channelId: string | null
 }
 
 async function persistInteractions(
@@ -531,6 +553,7 @@ async function persistInteractions(
       externalMessageId: data.linkId,
       visibility: data.visibility,
       channelProviderKey: data.channelProviderKey,
+      channelId: data.channelId,
     } as any)
     try {
       await rowEm.flush()

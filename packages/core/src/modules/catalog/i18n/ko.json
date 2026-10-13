@@ -683,6 +683,7 @@
   "catalog.products.validation.canonicalUrlInvalid": "표준 URL은 http:// 또는 https://로 시작해야 합니다.",
   "catalog.products.validation.countryCodeInvalid": "원산지는 두 자리 ISO 코드여야 합니다.",
   "catalog.products.validation.handleFormat": "핸들은 소문자, 숫자, 하이픈, 밑줄만 포함해야 합니다.",
+  "catalog.products.validation.invalidNumber": "유효한 숫자를 입력하세요.",
   "catalog.products.validation.lifecycleDateRange": "판매 종료일은 출시일보다 이전일 수 없습니다.",
   "catalog.products.validation.orderQtyRange": "최대 주문 수량은 최소 주문 수량보다 작을 수 없습니다.",
   "catalog.products.validation.referenceUnitRequired": "단위 가격 표시가 활성화된 경우 기준 단위가 필요합니다.",

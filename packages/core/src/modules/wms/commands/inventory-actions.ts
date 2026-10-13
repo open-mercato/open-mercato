@@ -1796,6 +1796,15 @@ const cycleCountInventoryCommand: CommandHandler<InventoryCycleCountInput, { adj
           idempotentReplay: true,
         }
       }
+      if (delta < 0 && getAvailableQuantity(balance) < Math.abs(delta) - 0.000001) {
+        throw new CrudHttpError(409, {
+          error: 'insufficient_stock',
+          countedQuantity: toNumericString(input.countedQuantity),
+          committedQuantity: toNumericString(
+            toNumber(balance.quantityReserved) + toNumber(balance.quantityAllocated),
+          ),
+        })
+      }
       setNumeric(
         balance as unknown as Record<string, unknown>,
         'quantityOnHand',

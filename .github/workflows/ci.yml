@@ -113,11 +113,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-
-      - name: Fetch base branch for change detection
-        # Needed so the scope step can diff against the PR base.
-        if: github.event_name == 'pull_request'
-        run: git fetch origin ${{ github.base_ref }} --depth=1
+        with:
+          # Depth 2 brings in the merge commit's first parent, which the scope
+          # step diffs against (see audit-scope for why not `origin/<base>`).
+          fetch-depth: 2
 
       - name: Compute integration scope
         # Determines which integration tests to run and whether to shard them.
@@ -138,7 +137,7 @@ jobs:
             exit 0
           fi
 
-          CHANGED=$(git diff origin/${{ github.base_ref }} --name-only)
+          CHANGED=$(git diff --name-only HEAD^1 HEAD)
 
           # These paths affect behaviour across all modules — run the full sharded suite.
           # `packages/cli/src/lib/testing/` is the ephemeral harness that boots, drives and tears
@@ -284,10 +283,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
-
-      - name: Fetch comparison ref
-        if: github.event_name == 'pull_request'
-        run: git fetch origin ${{ github.base_ref }} --depth=1
+        with:
+          # A pull_request checkout is GitHub's merge commit; its first parent is
+          # the base commit the PR was merged onto, so depth 2 is enough to diff
+          # exactly the PR's own changes.
+          fetch-depth: 2
 
       - name: Detect dependency file changes
         id: dependency-files
@@ -296,7 +296,13 @@ jobs:
           set -euo pipefail
 
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            CHANGED=$(git diff origin/${{ github.base_ref }} --name-only)
+            # Diff against the merge commit's first parent, NOT the current tip of
+            # the base branch. The merge commit is frozen when the run is created,
+            # while the base branch keeps moving: diffing against a freshly fetched
+            # `origin/<base>` also reports every file the base branch changed since
+            # then, so a re-run of a UI-only PR after develop bumped `yarn.lock`
+            # ran (and failed) the audit (#6753).
+            CHANGED=$(git diff --name-only HEAD^1 HEAD)
           else
             BEFORE="${{ github.event.before }}"
 
@@ -334,6 +340,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          # Depth 2 brings in the merge commit's first parent, whose yarn.lock is
+          # the PR's audit baseline.
+          fetch-depth: 2
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
@@ -382,6 +392,39 @@ jobs:
         # it on exactly the inputs that can rot a key — manifests and lockfiles.
         run: yarn check:resolutions
 
+      - name: Resolve audit baseline lockfile
+        # This job gates the CHANGE, so it fails only on advisories the change
+        # introduces: an advisory already flagged on the base yarn.lock is
+        # reported but not blocking. Otherwise a PR adding one clean dependency
+        # stays red for every advisory already on develop (#5868). Those are
+        # owned by the scheduled `.github/workflows/audit.yml`, which audits
+        # without a baseline and keeps a tracking issue open until fixed.
+        # When no baseline can be resolved the audit runs strict (fails closed).
+        id: audit-baseline
+        shell: bash
+        run: |
+          set -uo pipefail
+          BASELINE="$RUNNER_TEMP/baseline-yarn.lock"
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_REF="HEAD^1"
+          else
+            BASE_REF="${{ github.event.before }}"
+            if [ -n "$BASE_REF" ] && ! [[ "$BASE_REF" =~ ^0+$ ]]; then
+              git fetch --no-tags --depth=1 origin "$BASE_REF" || true
+            else
+              BASE_REF=""
+            fi
+          fi
+
+          if [ -n "$BASE_REF" ] && git show "$BASE_REF:yarn.lock" > "$BASELINE" 2>/dev/null; then
+            echo "args=--baseline $BASELINE" >> "$GITHUB_OUTPUT"
+            echo "Auditing against baseline yarn.lock from $BASE_REF."
+          else
+            echo "args=" >> "$GITHUB_OUTPUT"
+            echo "::notice::No baseline yarn.lock available — auditing strictly."
+          fi
+
       - name: Audit dependencies for known CVEs
         # Uses scripts/audit-ci.mjs instead of `yarn npm audit` as a workaround for
         # an npm registry bug: the bulk advisories endpoint returns a gzip body with
@@ -390,7 +433,7 @@ jobs:
         # gate over every resolved package with defensive gunzip and fails closed.
         # Revert to `yarn npm audit --all --recursive --severity high` once npm
         # restores the encoding header on that endpoint.
-        run: node scripts/audit-ci.mjs --severity high
+        run: node scripts/audit-ci.mjs --severity high ${{ steps.audit-baseline.outputs.args }}
 
   # ── Lint ─────────────────────────────────────────────────────────────────────
   # Fast static analysis — runs in parallel with prepare and audit.

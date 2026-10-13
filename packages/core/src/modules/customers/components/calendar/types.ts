@@ -49,7 +49,7 @@ export const calendarInteractionPayloadSchema = z
 
 export type CalendarInteractionPayload = z.infer<typeof calendarInteractionPayloadSchema>
 
-export type CalendarParticipant = { userId?: string; name?: string; email?: string }
+export type CalendarParticipant = { userId?: string; name?: string; email?: string; status?: string }
 
 export interface CalendarItem {
   id: string

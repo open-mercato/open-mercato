@@ -1372,12 +1372,16 @@ function applyProductSnapshot(
 }
 
 /**
- * Output contract for the product commands, consumed by the workflows context
- * ledger through `commandRegistry.outputSchemaOf`. All three commands return
- * the product id and nothing else — create and update from `record.id`, delete
- * from the resolved input id.
+ * Output contracts for the product commands, consumed by the workflows context
+ * ledger through `commandRegistry.outputSchemaOf`. Create and delete return the
+ * product id and nothing else — create from `record.id`, delete from the
+ * resolved input id. Update also returns the persisted `updatedAt`, so callers
+ * can carry the optimistic-lock version forward without re-fetching the product.
  */
 const productIdOutputSchema = z.object({ productId: z.string().uuid() });
+const productUpdateOutputSchema = productIdOutputSchema.extend({
+  updatedAt: z.string(),
+});
 
 const createProductCommand: CommandHandler<
   ProductCreateInput,
@@ -1656,10 +1660,10 @@ const createProductCommand: CommandHandler<
 
 const updateProductCommand: CommandHandler<
   ProductUpdateInput,
-  { productId: string }
+  { productId: string; updatedAt: string }
 > = {
   id: "catalog.products.update",
-  outputSchema: productIdOutputSchema,
+  outputSchema: productUpdateOutputSchema,
   async prepare(input, ctx) {
     const id = requireId(input, "Product id is required");
     const em = ctx.container.resolve("em") as EntityManager;
@@ -2021,7 +2025,7 @@ const updateProductCommand: CommandHandler<
       action: "updated",
       product: record,
     });
-    return { productId: record.id };
+    return { productId: record.id, updatedAt: record.updatedAt.toISOString() };
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve("em") as EntityManager).fork();

@@ -522,3 +522,47 @@ describe('TenantDataEncryptionService tenant-wide scope parity (issue #5949)', (
     expect(aggregateReads).toHaveLength(2)
   })
 })
+
+describe('TenantDataEncryptionService map read failures (issue #6334)', () => {
+  const tenantId = 'tenant-6334'
+  const organizationId = 'org-6334'
+  const mapRow = (entityId: string) => [{ entity_id: entityId, fields_json: [{ field: 'display_name' }] }]
+
+  function makeService(execute: jest.Mock) {
+    const service = new TenantDataEncryptionService({ getConnection: () => ({ execute }) } as never)
+    jest.spyOn(service, 'isEnabled').mockReturnValue(true)
+    return service
+  }
+
+  it('retries the map read after a failed one instead of replaying the stored rejection', async () => {
+    const entityId = 'test:inflight_rejection_entity'
+    const execute = jest.fn()
+      .mockRejectedValueOnce(new Error('connection terminated'))
+      .mockImplementation(async () => mapRow(entityId))
+    const service = makeService(execute)
+
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId))
+      .rejects.toThrow('connection terminated')
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId))
+      .resolves.toEqual(['display_name'])
+  })
+
+  it('lets a caller that joined a failing read fall back to its own read', async () => {
+    const entityId = 'test:inflight_joined_rejection_entity'
+    let rejectFirst: (error: Error) => void = () => {}
+    const execute = jest.fn()
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectFirst = reject }))
+      .mockImplementation(async () => mapRow(entityId))
+    const service = makeService(execute)
+
+    const owner = service.getEncryptedFieldNames(entityId, tenantId, organizationId)
+    const joiner = service.getEncryptedFieldNames(entityId, tenantId, organizationId)
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(execute).toHaveBeenCalledTimes(1)
+    rejectFirst(new Error('statement timeout'))
+
+    await expect(owner).rejects.toThrow('statement timeout')
+    await expect(joiner).resolves.toEqual(['display_name'])
+    expect(execute).toHaveBeenCalledTimes(2)
+  })
+})

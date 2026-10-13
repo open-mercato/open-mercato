@@ -283,6 +283,7 @@
   "wms.backend.inventory.cycleCount.errors.ambiguousLot": "An diesem Standort wurden mehrere Chargen gefunden — wählen Sie eine Charge aus, um fortzufahren.",
   "wms.backend.inventory.cycleCount.errors.autoAdjustRequired": "Aktivieren Sie die Auto-Korrektur, um eine Abweichung zu buchen.",
   "wms.backend.inventory.cycleCount.errors.balance": "Das System konnte nicht geladen werden.",
+  "wms.backend.inventory.cycleCount.errors.belowCommitted": "Die gezählte Menge liegt unter den hier reservierten oder zugewiesenen {committed} Einheiten. Geben Sie die betroffenen Reservierungen frei, bevor Sie diese Zählung buchen.",
   "wms.backend.inventory.cycleCount.errors.scope": "Schließen Sie die Einrichtung ab und wählen Sie einen Zählstandort aus.",
   "wms.backend.inventory.cycleCount.errors.scopeEstimate": "Der Zählumfang konnte nicht geschätzt werden.",
   "wms.backend.inventory.cycleCount.errors.submit": "Die Anzahl der Zyklen konnte nicht gepostet werden.",

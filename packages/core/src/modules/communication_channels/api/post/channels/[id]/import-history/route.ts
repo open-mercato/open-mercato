@@ -10,7 +10,6 @@ import { ChannelAccessDeniedError, assertCanManageChannel } from '../../../../..
 import {
   getQueueImportHistorySchema,
   queueImportHistory,
-  queueImportHistorySchema,
 } from '../../../../../commands/queue-import-history'
 import { validateRouteMutationGuard } from '../../../../../lib/route-mutation-guard'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -48,8 +47,6 @@ export const metadata = {
 type RouteContext = {
   params: Promise<{ id: string }> | { id: string }
 }
-
-const bodySchema = queueImportHistorySchema.omit({ channelId: true })
 
 function buildBodySchema() {
   return getQueueImportHistorySchema().omit({ channelId: true })
@@ -194,7 +191,9 @@ export const openApi = {
       requestBody: {
         required: true,
         contentType: 'application/json',
-        schema: bodySchema,
+        get schema() {
+          return buildBodySchema()
+        },
       },
       responses: [
         { status: 202, description: 'Import job queued; returns { progressJobId }' },

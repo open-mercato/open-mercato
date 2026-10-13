@@ -23,15 +23,24 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => ({ resolve: jest.fn(() => ({})) })),
 }))
 
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveFeatureCheckContext: jest.fn(),
+}))
+
 jest.mock('@open-mercato/core/modules/auth/lib/tenantAccess', () => {
   const actual = jest.requireActual('@open-mercato/core/modules/auth/lib/tenantAccess')
   return { ...actual, enforceTenantSelection: jest.fn() }
 })
 
 import { enforceTenantSelection } from '@open-mercato/core/modules/auth/lib/tenantAccess'
+import { ALL_ORGANIZATIONS_COOKIE_VALUE } from '@open-mercato/core/modules/directory/constants'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { checkAuthorization, extractTenantCandidate, extractTenantCandidates } from '@/app/api/[...slug]/route'
 
 const enforceTenantSelectionMock = enforceTenantSelection as jest.MockedFunction<typeof enforceTenantSelection>
+const createRequestContainerMock = createRequestContainer as jest.MockedFunction<typeof createRequestContainer>
+const resolveFeatureCheckContextMock = resolveFeatureCheckContext as jest.MockedFunction<typeof resolveFeatureCheckContext>
 
 function buildMultipartRequest(formData: FormData): NextRequest {
   return new NextRequest('http://localhost:3001/api/example/test', {
@@ -213,5 +222,151 @@ describe('checkAuthorization tenant pollution enforcement (issue #2665)', () => 
     expect(response).toBeNull()
     expect(enforceTenantSelectionMock).toHaveBeenCalledTimes(1)
     expect(enforceTenantSelectionMock).toHaveBeenCalledWith(expect.anything(), foreignTenant)
+  })
+})
+
+describe('checkAuthorization organization feature narrowing', () => {
+  const tenantId = '00000000-0000-0000-0000-0000000000dd'
+  const userHasAllFeaturesMock = jest.fn()
+  const loadAclMock = jest.fn()
+
+  beforeEach(() => {
+    userHasAllFeaturesMock.mockReset().mockResolvedValue(true)
+    loadAclMock.mockReset().mockResolvedValue({
+      features: [],
+      isSuperAdmin: false,
+      organizations: [],
+    })
+    createRequestContainerMock.mockReset()
+    createRequestContainerMock.mockResolvedValue({
+      resolve: jest.fn((name: string) => {
+        if (name === 'rbacService') {
+          return {
+            userHasAllFeatures: userHasAllFeaturesMock,
+            loadAcl: loadAclMock,
+          }
+        }
+        return {}
+      }),
+    } as unknown as Awaited<ReturnType<typeof createRequestContainer>>)
+    resolveFeatureCheckContextMock.mockResolvedValue({
+      organizationId: null,
+      scope: {
+        selectedId: null,
+        filterIds: [],
+        allowedIds: [],
+        tenantId,
+      },
+      allowedOrganizationIds: [],
+    })
+  })
+
+  it('passes the feature guard when an authorized principal is narrowed to zero visible organizations', async () => {
+    const request = new NextRequest('http://localhost:3001/api/example/test', { method: 'GET' })
+
+    const response = await checkAuthorization(
+      { requireFeatures: ['api_keys.view'] },
+      buildAuth(tenantId),
+      request,
+    )
+
+    expect(response).toBeNull()
+    expect(userHasAllFeaturesMock).toHaveBeenCalledWith(
+      'user-1',
+      ['api_keys.view'],
+      { tenantId, organizationId: null },
+    )
+  })
+
+  it('still rejects a principal that does not hold the required feature', async () => {
+    userHasAllFeaturesMock.mockResolvedValue(false)
+    const warning = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const request = new NextRequest('http://localhost:3001/api/example/test', { method: 'GET' })
+
+    try {
+      const response = await checkAuthorization(
+        { requireFeatures: ['api_keys.view'] },
+        buildAuth(tenantId),
+        request,
+      )
+
+      expect(response?.status).toBe(403)
+      expect(loadAclMock).toHaveBeenCalled()
+    } finally {
+      warning.mockRestore()
+    }
+  })
+
+  it('rejects an all-organizations request when the feature is granted only outside the home organization', async () => {
+    const actualOrganizationScope = jest.requireActual<
+      typeof import('@open-mercato/core/modules/directory/utils/organizationScope')
+    >('@open-mercato/core/modules/directory/utils/organizationScope')
+    resolveFeatureCheckContextMock.mockImplementation(actualOrganizationScope.resolveFeatureCheckContext)
+    const homeOrganizationId = '00000000-0000-0000-0000-00000000000a'
+    const featureOrganizationId = '00000000-0000-0000-0000-00000000000b'
+    const organizations = [
+      { id: homeOrganizationId, ancestorIds: [], descendantIds: [] },
+      { id: featureOrganizationId, ancestorIds: [], descendantIds: [] },
+    ]
+    userHasAllFeaturesMock.mockImplementation(async (
+      _userId: string,
+      _features: string[],
+      scope: { organizationId: string | null },
+    ) => scope.organizationId === featureOrganizationId)
+    loadAclMock.mockResolvedValue({
+      features: ['business_rules.view'],
+      isSuperAdmin: false,
+      organizations: null,
+    })
+    const resolveFeatureOrganizationAccessMock = jest.fn(async () => ({
+      unrestricted: false,
+      filterOrganizationIds: () => [featureOrganizationId],
+    }))
+    const em = { find: jest.fn(async () => organizations) }
+    createRequestContainerMock.mockResolvedValue({
+      resolve: jest.fn((name: string) => {
+        if (name === 'em') return em
+        if (name === 'rbacService') {
+          return {
+            userHasAllFeatures: userHasAllFeaturesMock,
+            loadAcl: loadAclMock,
+            resolveFeatureOrganizationAccess: resolveFeatureOrganizationAccessMock,
+          }
+        }
+        return {}
+      }),
+    } as unknown as Awaited<ReturnType<typeof createRequestContainer>>)
+    const warning = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const request = new NextRequest('http://localhost:3001/api/business_rules/rules', {
+      method: 'POST',
+      headers: { cookie: `om_selected_org=${ALL_ORGANIZATIONS_COOKIE_VALUE}` },
+    })
+
+    try {
+      const response = await checkAuthorization(
+        { requireFeatures: ['business_rules.manage'] },
+        { sub: 'user-1', tenantId, orgId: homeOrganizationId },
+        request,
+      )
+
+      expect(response?.status).toBe(403)
+      expect(resolveFeatureOrganizationAccessMock).toHaveBeenCalledWith(
+        'user-1',
+        ['business_rules.manage'],
+        { tenantId },
+      )
+      expect(userHasAllFeaturesMock).toHaveBeenCalledWith(
+        'user-1',
+        ['business_rules.manage'],
+        { tenantId, organizationId: homeOrganizationId },
+      )
+      expect(userHasAllFeaturesMock).not.toHaveBeenCalledWith(
+        'user-1',
+        ['business_rules.manage'],
+        { tenantId, organizationId: featureOrganizationId },
+      )
+    } finally {
+      warning.mockRestore()
+    }
   })
 })

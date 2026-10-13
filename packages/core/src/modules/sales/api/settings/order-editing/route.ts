@@ -230,6 +230,11 @@ export const openApi: OpenApiRouteDoc = {
       responses: [
         { status: 200, description: 'Updated order editing guards', schema: settingsResponseSchema },
         { status: 401, description: 'Unauthorized', schema: settingsErrorSchema },
+        {
+          status: 403,
+          description: 'Changing a document-number counter requires sales.documents.number.edit',
+          schema: settingsErrorSchema,
+        },
         { status: 400, description: 'Invalid payload', schema: settingsErrorSchema },
       ],
     },
