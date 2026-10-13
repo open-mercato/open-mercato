@@ -232,3 +232,7 @@ No business data writes, tenant queries, database migrations, event emissions, o
 ### 2026-10-04
 
 - Extended the review target to the EN 301 549 and directive supplement defined in the master specification: wider impact scope, supplement identifiers in the report (blocked by R10 until the validator accepts them; such reviews return `incomplete` or `changes_required` meanwhile), and five new evaluation scenarios. No validator or routing change is made by this revision.
+
+### 2026-10-13
+
+- Marked the skill as a draft where installers and agents see it: the SKILL.md description, a draft-status paragraph in its body and the `.ai/skills/README.md` row now say it runs only when a user asks for it by name and is not for PR enforcement. This keeps the opt-in installed copy from auto-triggering on UI PRs while R2–R5 and R10 stay open. The `analysis` tier description names the draft accessibility review. No validator or routing change.

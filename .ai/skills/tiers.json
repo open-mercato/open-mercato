@@ -73,7 +73,7 @@
       "skills": ["om-auto-sec-report", "om-auto-sec-report-pr"]
     },
     "analysis": {
-      "description": "Business/engagement analysis skills (app specs, platform gap analysis). Opt-in.",
+      "description": "Business/engagement analysis skills (app specs, platform gap analysis) and the draft accessibility review. Opt-in.",
       "skills": ["om-app-spec-writing", "om-gap-analysis", "om-wcag-guardian"]
     },
     "migration": {

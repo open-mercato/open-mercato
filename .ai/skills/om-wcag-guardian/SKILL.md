@@ -1,11 +1,13 @@
 ---
 name: om-wcag-guardian
-description: Design accessibility contracts and review UI-impacting changes against WCAG 2.2 AA and the EN 301 549 supplement with verified evidence. Use for accessibility reviews and PRs affecting components, flows, styles, themes, accessible text, frontend dependencies, message or document templates, sanitizers, importers or exporters.
+description: DRAFT, not for PR enforcement - use only when a user explicitly asks for this skill by name. Designs accessibility contracts and reviews UI-impacting changes against WCAG 2.2 AA and the EN 301 549 supplement with verified evidence (components, flows, styles, themes, accessible text, frontend dependencies, message or document templates, sanitizers, importers or exporters). Its report validator is a structural prototype, so a ready verdict is not evidence of conformance.
 ---
 
 # WCAG Guardian
 
 Produce an evidence-based accessibility decision for the declared change scope. Target WCAG 2.2 A and AA and the supplement of EN 301 549 and directive requirements the active accessibility spec indexes; distinguish project enhancements and AAA recommendations. The skill is not a product conformance certificate.
+
+**Draft status.** Run this skill only when a user asks for it by name. Do not select it automatically for a PR review and do not connect it to a caller until the readiness blockers in the active guardian specification (R2–R5, R10) are resolved.
 
 ## Always
 
