@@ -562,13 +562,13 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 
 ## Staff Logout Runs Without A Valid Access Token (2026-10-13)
 
-`POST /api/auth/logout` could not revoke the remember-me refresh session once the access token had expired, because the route was gated by `requireAuth: true` and the dispatcher answered `401` before the handler ran ([#7225](https://github.com/open-mercato/open-mercato/issues/7225)). The route now declares `requireAuth: false`, mirroring `POST /api/customer_accounts/portal/logout`:
+`POST /api/auth/logout` answered `401` before its handler ran once the access token expired, so the remember-me session was never revoked ([#7225](https://github.com/open-mercato/open-mercato/issues/7225)). It now declares `requireAuth: false`, like the portal logout:
 
 | Surface | Change | Classification |
 |---------|--------|----------------|
-| API route gating (`POST /api/auth/logout`) | `metadata.POST.requireAuth` changes from `true` to `false`. The handler revokes only the sessions its own cookies identify, so a caller can end only the session it presents. A request with neither cookie gets the redirect without `Set-Cookie` (see UPGRADE_NOTES.md) | ⚠️ Narrow gating relaxation. A missing or unverifiable access token, or no cookie at all, previously got `401`. Regression-tested in `logout.test.ts` and `TC-AUTH-067` |
-| API route URL, method and response shape | Same URL, still POST-only, same redirect and cookie-clearing response | ✓ No shape change |
-| Event IDs (`auth.logout`) | Emitted only when the `auth_token` signature and expiry verify and it is not a customer token. A logout that revokes only through `session_token` (the expired-access-token case) emits none, and an MFA-pending token, which the dispatcher used to reject, now reaches the handler, so its pending session is revoked and the event is emitted for it | ✓ No ID or payload change |
+| API route gating | `requireAuth` `true` → `false`; the handler revokes only the sessions its own cookies identify | ⚠️ Narrow relaxation: missing/unverifiable token or no cookie got `401`, now `307` (UPGRADE_NOTES.md) |
+| URL, method, response shape | Unchanged | ✓ n/a |
+| `auth.logout` event | Emitted only for a verified staff `auth_token` (now incl. MFA-pending); `session_token`-only revocation emits none | ✓ No ID or payload change |
 | Database schema, ACL features, DI names, CLI commands | No change | ✓ n/a |
 
-**Migration path for existing modules**: none. A client that interpreted `401` from logout as "already signed out" receives the redirect instead.
+**Migration path for existing modules**: none. A client that read a logout `401` as "already signed out" gets the redirect instead.
