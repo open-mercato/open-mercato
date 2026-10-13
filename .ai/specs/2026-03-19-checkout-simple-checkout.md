@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification (v2.1 — rescoped 2026-08-14, pre-implementation fixes 2026-08-17) |
+| **Status** | Specification (v2.3 — rescoped 2026-08-14, pre-implementation fixes 2026-08-17, submit-path review fixes 2026-10-11) |
 | **Author** | Piotr Karwatka (v1), rescoped for the ecommerce suite (v2) |
 | **Created** | 2026-03-19 |
 | **Rescoped** | 2026-08-14 |
@@ -100,18 +100,20 @@ Purchase on account is not a payment method that skips payment — it consumes a
 
 Phase A pay links keep their existing path end to end. They create a `CheckoutTransaction` with no `session_id` and no cart, exactly as today. This spec adds nothing to them and removes nothing from them.
 
+A buyer-initiated session is created from a cart token; `POST /sessions` returns the existing live session (and its session token) to any holder of that cart token, which is intended because the cart token is the credential for the cart (§6).
+
 ### 3.3 Cross-module integration
 
 | Direction | Mechanism |
 |---|---|
-| → `cart` | DI `cartService`: read, lock, reprice, unlock, mark converted |
+| → `cart` | DI `cartService`: read, lock, reprice, extend, unlock, mark converted |
 | → `availability` | DI `availabilityService`: `reserve`, `release`, `commit` |
 | → `customer_groups` | DI `customerGroupsService`: `resolveTerms`, `checkCredit`, `reserveCredit`, `releaseCredit` |
 | → `shipping_carriers` | DI rate quoting; selected method snapshotted onto the session |
 | → `payment_gateways` | Phase A provider descriptor surface, unchanged |
 | → `sales` | `commandBus`: `sales.quotes.create`, `sales.quotes.convert_to_order`, order creation |
 | ← `sales` | UMES widget: "Created from checkout" badge when `metadata.sourceModule = 'checkout'` |
-| → `promotions` | DI `promotionsService.registerUsage()` at submit step 7 (§7.2); `revertUsage()` called by `sales` on order cancellation, not by `checkout` directly. **Added 2026-08-17** — an earlier draft used `promotionsService` in §7.2 without listing the dependency here; confirmed via `SPEC-055`'s Amendment §A.2, which names `checkout` as the architecturally-destined in-process caller. Hard dependency, same as `cart`'s own `requires: ['promotions']` (`cart-module.md` §A.2b) — no advisory/optional fallback: a failed `registerUsage` call is a real submit failure, not a degraded-but-functional path. |
+| → `promotions` | DI `promotionsService.registerUsage()` and `useCode()` in the finalize block (§7.2, §7.5); `revertUsage()` called by `sales` on order cancellation, not by `checkout` directly. **Added 2026-08-17**, `useCode` added 2026-10-11 — an earlier draft used `promotionsService` in §7.2 without listing the dependency here; confirmed via `SPEC-055`'s Amendment §A.2, which names `checkout` as the architecturally-destined in-process caller. Hard dependency, same as `cart`'s own `requires: ['promotions']` (`cart-module.md` §A.2b) — no advisory/optional fallback, so `evaluate` at re-price is a real submit input. `registerUsage` and `useCode` run in the finalize block **after** capture for an order outcome (§7.2, §7.5); a quote defers them to `sales.quotes.convert_to_order`. A failure there does not fail the submit — the write is retried and, if it persists, raises an operational notification, with refund/void as the last resort (§7.3, R1). |
 | → `workflows` | Four uses, all post-conversion per §5.1: post-submit orchestration, the B2B approval sub-flow (§8.2, session parks in `awaiting_approval` pending a workflow decision), abandoned-checkout recovery, and failed-compensation escalation. Coupling is the three touch points in §5.1 — event out, command bus in, `workflow_instance_id` for correlation — and nothing else. **Added 2026-08-17**, widened 2026-09-16. Soft: a tenant without `workflows` loses these four processes and keeps a working checkout. |
 
 Retained from v1 unchanged, except the two additions above. The quote→order path through the command bus was the right call and is reused for both entry modes.
@@ -150,7 +152,7 @@ Standard scoped columns.
 | `workflow_instance_id` | uuid, nullable | `workflows.WorkflowInstance.id` for the approval sub-flow (§5.1 touch point 3). FK id only, no ORM relation; null for every session that never requested approval |
 | `credit_reservation_key` | text, nullable | Idempotency key used with `reserveCredit` |
 | `stock_reservation_key` | text, nullable | Idempotency key used with `availabilityService.reserve` |
-| `submit_idempotency_key` | text, nullable | Unique per session; the duplicate-submit guard |
+| `submit_idempotency_key` | text, nullable | The current attempt's key; every attempt is recorded in `checkout_session_attempts` (§4.5). Not unique per session |
 | `outcome_kind` | text, nullable | `order \| quote` |
 | `sales_order_id` / `sales_quote_id` | uuid, nullable | |
 | `terms_accepted_at` | timestamptz, nullable | |
@@ -159,7 +161,7 @@ Standard scoped columns.
 | `expires_at` | timestamptz | |
 | `completed_at` | timestamptz, nullable | |
 
-Indexes: unique `token`; unique `(tenant_id, submit_idempotency_key)` where non-null; `(tenant_id, status, expires_at)`.
+Indexes: unique `token`; `(tenant_id, status, expires_at)`; partial unique `(tenant_id, cart_id)` over the active statuses (`open`, `awaiting_approval`, `submitting`, `awaiting_payment`) — one live session per cart (§6).
 
 **No `version` column** (fixed 2026-08-17): an earlier draft added one for optimistic locking, but this repo's real, already-shipped `@open-mercato/checkout` package (Phase A) never used one — `checkout.link.update`/`checkout.template.update` already lock via `enforceCommandOptimisticLockWithGuards` against `record.updatedAt` (`commands/links.ts`, `commands/templates.ts`), and their own test suite (`commands/__tests__/optimistic-lock.test.ts`) asserts ISO-timestamp comparison, not an integer counter. `CheckoutSession.updatedAt` (standard scoped column, above) is the sole concurrency token — same mechanism this package already uses for `CheckoutLink`/`CheckoutLinkTemplate`, applied here for the first time to a new entity rather than reinvented. The conditional `open → submitting` transition (§7.4) is a separate, additional CAS guard on `status`, not a substitute for this.
 
@@ -199,7 +201,7 @@ Currency rules from v1 are retained: one currency per link; mixed-currency templ
 
 `unit_price_override` is new and matters — with a real cart behind it, a template line without an override resolves the buyer's own price, so a simple checkout link sent to a wholesale customer prices at their contract rate. v1 could not do that.
 
-### 4.4 `CheckoutTransaction` (extended, additive)
+### 4.4 `CheckoutTransaction` (extended)
 
 | Column | Type | Notes |
 |---|---|---|
@@ -207,7 +209,24 @@ Currency rules from v1 are retained: one currency per link; mixed-currency templ
 | `quote_id` | uuid, nullable | New, additive — proposed in v1 but never implemented past Phase A (fixed 2026-08-17; the real `CheckoutTransaction` entity has no such column today) |
 | `order_id` | uuid, nullable | New, additive — same as above |
 
-Additive nullable columns only. Phase A behaviour is untouched.
+The three columns above are additive and nullable, but one **existing** column changes: the shipped entity's `link_id` is `NOT NULL` (`packages/checkout/src/modules/checkout/data/entities.ts`), and a storefront/POS/agent session has no link (§4.1), so it becomes nullable. Phase A's pay-link idempotency is preserved rather than lost: the existing unique index `(organization_id, tenant_id, link_id, idempotency_key)` becomes partial `where link_id is not null`, and a new unique index `(organization_id, tenant_id, session_id, idempotency_key)` where `session_id` is not null carries the guarantee for session transactions. Phase A readers that assume a transaction is link-bound — the link usage counters (`lib/utils.ts`), `commands/transactions.ts` (create and updateStatus load the link), the gateway-payment subscribers and the transaction admin list — are audited to tolerate a null link. Changing the nullability of a shipped column is a DB-schema contract-surface change and carries a migration note ([BACKWARD_COMPATIBILITY.md](../../BACKWARD_COMPATIBILITY.md)).
+
+### 4.5 `CheckoutSessionAttempt` (`checkout_session_attempts`)
+
+One row per submit attempt, so each `Idempotency-Key` replays its own result instead of overwriting a single session column (§4.1, §7.4). Standard scoped columns (`id`, `tenant_id`, `organization_id`, `created_at`) apply as everywhere in this spec; the columns below are the attempt-specific additions.
+
+| Column | Type | Notes |
+|---|---|---|
+| `session_id` | uuid | |
+| `idempotency_key` | text | Client-generated, one per attempt |
+| `outcome` | text | `in_flight \| completed \| failed` |
+| `sales_order_id` / `sales_quote_id` | uuid, nullable | The document this attempt produced |
+| `failure_code` / `failure_detail` | text, nullable | |
+| `updated_at` | timestamptz | |
+
+Indexes: unique `(tenant_id, session_id, idempotency_key)`; `(session_id, created_at)`.
+
+The current attempt's key is also kept on `CheckoutSession.submit_idempotency_key` (§4.1) for convenience; the table is the record, and there is no session-level unique index on the key.
 
 ---
 
@@ -302,9 +321,11 @@ Backward navigation is always allowed before submit. Changing an address after s
 | Submit fails | `active` (unlocked) | Yes |
 | Session expires or is canceled | `active` (unlocked) | Yes |
 
-The cart is locked **only for the duration of submit**, not for the whole funnel. Locking at session creation would strand a cart behind every abandoned checkout, and abandoned checkouts are the majority.
+The cart is locked **only for the duration of submit**, not for the whole funnel. Submit includes `awaiting_payment`, though: the lock covers the payment window as well as the synchronous sequence. Locking at session creation would strand a cart behind every abandoned checkout, and abandoned checkouts are the majority.
 
-`cart.lock()` forces a whole-cart re-price (cart spec §5.2 trigger 5). If that changes any total, **submit aborts before any side effect** and returns `409 price_changed` with the `priceChanges` payload. The buyer re-confirms an amount they have seen. This is the mechanism that prevents charging a price the buyer never agreed to.
+The lock is held by exactly one session. `cart.lock({ cartId, checkoutSessionId, assortmentScope, expectedTotal? })` records the locking session and a default lock expiry in `Cart.checkout_session_id` / `Cart.locked_until` (cart §4.1) and is a compare-and-swap that fails with `409` and `{ code: 'cart_locked', lockedBySessionId }` when another session already holds the cart — it is not idempotent for a different holder. A second `POST /sessions` over a cart that already has a live session returns that session rather than creating a second; a `failed` session retried into `open` fails with `409` if another active session still exists on the cart. A partial unique index on `checkout_sessions (tenant_id, cart_id)` over the active statuses (`open`, `awaiting_approval`, `submitting`, `awaiting_payment`) enforces the same rule at the database. The lock expiry is honoured unconditionally by `cart`'s `release-stale-locks` job; the owning session extends `locked_until` via `cart.extendLock({ cartId, checkoutSessionId, lockedUntil })` when it enters `awaiting_payment`, so a slow 3-D Secure or bank-redirect payment is not unlocked underneath the buyer without the lock job needing to special-case `awaiting_payment`.
+
+`cart.lock({ cartId, checkoutSessionId, assortmentScope, expectedTotal? })` forces a whole-cart re-price (cart spec §5.2 trigger 5) as part of the lock attempt. If that changes any total, the lock is not retained, **submit aborts before any side effect** and returns `409 price_changed` with the `priceChanges` payload. The buyer re-confirms an amount they have seen. This is the mechanism that prevents charging a price the buyer never agreed to.
 
 A locked cart rejects mutation with `423 Locked` and the session id, so a second tab sends the buyer back to checkout rather than showing a broken basket.
 
@@ -318,8 +339,8 @@ The only authoritative moment in the funnel.
 
 Checked before any side effect; all failures are cheap and leave nothing to undo.
 
-1. Session `open`, not expired, expected `updatedAt` matches (§4.1)
-2. `submit_idempotency_key` present and not already completed (§7.4)
+1. Session `open`, or `failed` on an explicit retry that first transitions it `failed → open` and carries a new attempt key (§7.4), not expired, expected `updatedAt` matches (§4.1)
+2. `submit_idempotency_key` present and, on a retry, a key not already recorded for this session (§4.5, §7.4)
 3. Cart non-empty and belongs to this session
 4. Required steps complete for the effective configuration
 5. Terms accepted where required
@@ -329,10 +350,15 @@ Checked before any side effect; all failures are cheap and leave nothing to undo
 ### 7.2 Sequence
 
 ```
- 1. cart.lock()                          → forced re-price
+ 1. cart.lock({ cartId, checkoutSessionId, assortmentScope, expectedTotal? }) → forced re-price
     ├─ totals changed → ABORT 409 price_changed (nothing to undo)
+    ├─ a line left the assortment → ABORT 409 product_unavailable (line named, nothing to undo)
+    ├─ approval required, no approved approval attached → ABORT 409 approval_required
+    ├─ another session holds the cart → ABORT 409 { code: 'cart_locked', lockedBySessionId }
+    ├─ the cart is not active → ABORT 409 cart_not_lockable
     └─ unchanged → continue
- 2. availabilityService.reserve(items, key = stock_reservation_key, ttl 900s)
+ 2. availabilityService.reserve(items, key = stock_reservation_key,
+       ttl within the payment window: intent TTL ≤ stock TTL ≤ lock timeout, §6)
     └─ shortfall → unlock cart, ABORT 409 stock_shortfall (line detail)
  3. IF payment_method = on_account:
        customerGroupsService.reserveCredit(amount, key = credit_reservation_key)
@@ -341,6 +367,11 @@ Checked before any side effect; all failures are cheap and leave nothing to undo
        outcome_kind = 'quote' → sales.quotes.create           (status awaiting_approval)
        outcome_kind = 'order' → sales.quotes.create
                               + sales.quotes.convert_to_order
+    sales.quotes.create carries metadata.checkoutSessionId and
+    metadata.submitAttemptKey, so recovery finds the document even when the
+    session pointer was never written, and a repeated convert_to_order that
+    finds the order already exists returns 409, which recovery reads as
+    success (§12).
     (fixed 2026-08-17: each commandBus.execute() call commits its own
      transaction in this platform — there is no mechanism for two
      sequential calls to share one. If sales.quotes.create succeeds and
@@ -349,21 +380,19 @@ Checked before any side effect; all failures are cheap and leave nothing to undo
      to the merchant exactly like any other unconverted quote; nothing
      is undone at the sales-document layer, only credit/stock/cart)
     └─ failure → release credit, release stock, unlock cart, ABORT 500
- 5. IF outcome is a quote → status = completed. DONE. (no payment)
+ 5. IF outcome is a quote → finalize block (§7.5). DONE. (no payment)
  6. IF payment via gateway:
-       status = awaiting_payment; create payment intent; hand off to the provider
+       status = awaiting_payment; cart.extendLock({ cartId, checkoutSessionId,
+       lockedUntil }) to cover the payment window; create payment intent with an
+       explicit TTL ≤ the stock reservation TTL; hand off to the provider
        └─ intent creation fails → compensate 4,3,2; ABORT 502
  7. Payment result (callback or polling — Phase A path):
-       success → availabilityService.commit(key, orderId)
-                 promotionsService.registerUsage(...)
-                 cart.markConverted()
-                 status = completed
-                 emit checkout.session.completed → post-submit workflow
+       success → capture landed → finalize block (§7.5), outcome_kind = 'order'
        failure → compensate: cancel order, release credit, release stock,
                  unlock cart, status = failed with failure_code
  8. IF on_account (no gateway):
-       availabilityService.commit(key, orderId); credit reservation stands
-       until settled by invoicing; status = completed
+       finalize block (§7.5), outcome_kind = 'order'; the credit reservation
+       stands until settled by invoicing
 ```
 
 ### 7.3 Compensation
@@ -377,21 +406,44 @@ Ordered, reverse of acquisition, each step idempotent and safe to re-run:
 | 4 (document) | Release credit; release stock; unlock cart. If `sales.quotes.create` succeeded but `.convert_to_order` failed (§7.2 step 4 note), the created quote is left in place rather than deleted — it is a legitimate, visible quote a merchant can still act on, not a failed-submit artifact to clean up |
 | 6 (intent) | Cancel document; release credit; release stock; unlock cart |
 | 7 (payment) | Cancel order; release credit; release stock; unlock cart |
+| 7 (after capture succeeded) | Refund or void the captured payment through the gateway; cancel the order; release credit; release stock; unlock cart; revert any `useCode` consumption and release any code reservation still held; `status = failed` with `failure_code` |
 
 Every compensation is keyed on the same idempotency keys as acquisition, so re-running is a no-op rather than a double release. Each writes a `CheckoutSessionEvent` of kind `compensation`.
 
+The "after capture succeeded" row is the last resort, not the normal path: the finalize block (§7.5) is retried by `retry-failed-compensations` and its failures are operational notifications, so a captured payment with a live order is never quietly cancelled. Refund/void is reached only when the finalize block cannot complete and the money must be returned. A code un-use command does not exist yet in SPEC-055 and must be added alongside `releaseCode` before this path ships.
+
 **A compensation that itself fails** is written as a `failure` event, raises an operational notification, and enqueues a retry job. It is never swallowed: a leaked stock or credit reservation is invisible inventory or invisible exposure, and both need a human.
 
-### 7.4 Idempotency and concurrency
+### 7.4 Idempotency, retry and concurrency
 
-`submit_idempotency_key` is client-generated, unique per session, sent on every submit attempt.
+`submit_idempotency_key` is client-generated per **attempt** and recorded with the attempt in `checkout_session_attempts` (§4.5), so every key replays its own result. It is not unique per session, and the session-level unique index is dropped (§4.1). `CheckoutSession.submit_idempotency_key` holds the current attempt's key.
+
+Status transitions during submit:
+
+```
+open ──submit──► submitting ──capture needed──► awaiting_payment ──callback──► completed | failed
+                     │                               │
+                     └──no payment / doc only───────► completed | failed
+failed ──explicit retry (new key)──► open
+```
 
 - First call proceeds
-- A repeat while the first is in flight returns `409 submit_in_progress` — it does not queue behind it
-- A repeat after success returns the original result, including `sales_order_id`, with `200`
-- A repeat after failure is permitted and starts a fresh attempt with fresh reservation keys
+- A repeat of an attempt's key while that attempt is in flight, **or while the session is `awaiting_payment`**, returns `409 submit_in_progress` — it neither queues behind the first nor starts a second attempt against a pending payment
+- A repeat of a completed attempt's key returns that attempt's original result, including `sales_order_id`, with `200`
+- After a failure the session transitions `failed → open` and an explicit retry with a new key starts a fresh attempt with fresh reservation keys
 
-Concurrency is enforced by a conditional update `status = 'open' → 'submitting'`. Exactly one caller wins. This is the guard against the double-tap and the retried-request duplicate order.
+Concurrency is enforced by a conditional update `status = 'open' → 'submitting'`. Exactly one caller wins per session; a second session over the same cart cannot reach submit at all, because the cart lock records its holder and is a compare-and-swap, and `POST /sessions` returns the existing live session rather than creating a second (§6). The two together are the guard against the double-tap and the retried-request duplicate order.
+
+### 7.5 Finalize (the completion block every outcome shares)
+
+Steps 5 (quote), 7-success (gateway) and 8 (on-account) all end in the same block, run once:
+
+1. Stock: for an order, `availabilityService.commit(key, orderId)` re-reserves live when the original reservation has already expired; only if that re-reservation shortfalls is the payment refunded and the session failed (§7.3) — the one explicit exception to the rule below that a failing finalize write does not fail the submit. For a quote, `availabilityService.release(key)` — a quote commits no stock.
+2. Usage and codes: for an order outcome, `promotionsService.registerUsage(...)` for every applied promotion and `promotionsService.useCode({ codeString, cartId, orderId, customerId })` for every applied single-use code (SPEC-055 §A.2), keyed on the created sales document; `customerId` may be null. A quote outcome runs neither here — codes and usage are consumed when `sales.quotes.convert_to_order` turns the quote into an order.
+3. Cart: `cart.markConverted({ cartId, checkoutSessionId, salesOrderId | salesQuoteId, lineMap })` — exactly one of `salesOrderId` / `salesQuoteId` — carrying the document id and the `lineMap: Array<{ cartLineId, salesDocumentLineId }>` payload `cart.cart.converted` requires (cart §11), where `salesDocumentLineId` is an order line id for `salesOrderId` and a quote line id for `salesQuoteId`; a quote marks the cart converted against the quote, not against an order.
+4. `status = completed`, and `checkout.session.completed` is emitted with `outcome_kind`.
+
+On the gateway path this block runs **after capture**. Apart from the expired-reservation `commit` of step 1, a write in it that fails does not fail the submit: the payment is captured and the document already exists, so the write is retried by `retry-failed-compensations` (§12) and a persistent failure raises an operational notification — never a buyer-facing failure, and never a captured payment with no reachable order (§7.3, R1).
 
 ---
 
@@ -425,22 +477,24 @@ Captured at the `payment` step when the group's terms require it, validated for 
 
 ## 9) API Contracts
 
-Base `/api/checkout`. Public, token-bound, optional buyer session. Mutating routes take the expected `updatedAt` (standard optimistic-lock header, or a typed body field).
+Base `/api/checkout`. Public, token-bound, optional buyer session. The session token is presented as a header or an httpOnly cookie, **never as a path segment** (§13); the collection route is `/sessions`, and the caller's own session is addressed as `/session/current/…`. Mutating routes take the expected `updatedAt` (standard optimistic-lock header, or a typed body field).
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/sessions` | Create from a cart token or a link |
-| GET | `/sessions/:token` | Current state, step, available transitions |
-| PATCH | `/sessions/:token` | Contact, addresses, PO number, consent |
-| POST | `/sessions/:token/step` | Navigate; validates the step being left |
-| GET | `/sessions/:token/delivery-options` | Live rate quote for the current address and cart |
-| POST | `/sessions/:token/delivery` | Select a method; snapshots the rate |
-| GET | `/sessions/:token/payment-methods` | Available methods incl. `on_account` eligibility |
-| POST | `/sessions/:token/payment` | Select method; create the intent when applicable |
-| POST | `/sessions/:token/request-approval` | B2B approval |
-| POST | `/sessions/:token/submit` | §7. Requires `Idempotency-Key` |
-| POST | `/sessions/:token/cancel` | Unlock the cart, release reservations |
-| GET | `/sessions/:token/result` | Post-submit outcome for the confirmation page |
+| POST | `/sessions` | Create from a cart token or a link. Returns the existing live session if the cart already has one (§6) |
+| GET | `/session/current` | Current state, step, available transitions |
+| PATCH | `/session/current` | Contact, addresses, PO number, consent |
+| POST | `/session/current/step` | Navigate; validates the step being left |
+| GET | `/session/current/delivery-options` | Live rate quote for the current address and cart |
+| POST | `/session/current/delivery` | Select a method; snapshots the rate |
+| GET | `/session/current/payment-methods` | Available methods incl. `on_account` eligibility |
+| POST | `/session/current/payment` | Select method; create the intent when applicable |
+| POST | `/session/current/request-approval` | B2B approval |
+| POST | `/session/current/submit` | §7. Requires `Idempotency-Key` |
+| POST | `/session/current/cancel` | Unlock the cart, release reservations |
+| GET | `/session/current/result` | Post-submit outcome for the confirmation page |
+
+The path-token shape is dropped in step with `cart` §16 Q5, resolved in cart rev 9: the same header/httpOnly-cookie `/api/cart/current/…` shape.
 
 Admin: `GET /api/checkout/sessions` and `/sessions/:id` under `checkout.sessions.view`, including the event trail. Read-only.
 
@@ -514,11 +568,11 @@ Admin mutations remain undoable. **Fixed 2026-08-17**: an earlier draft said ses
 | Job | Cadence | Purpose |
 |---|---|---|
 | `expire-checkout-sessions` | every 5 min | Expire past TTL; unlock carts; release reservations |
-| `recover-stuck-submits` | every minute | Sessions in `submitting` beyond 120 s: determine the true outcome from the gateway and either complete or compensate |
-| `retry-failed-compensations` | every 5 min | Re-run failed compensations with backoff; escalate after 5 attempts |
-| `expire-awaiting-payment` | every 5 min | Past the intent TTL: compensate and fail |
+| `recover-stuck-submits` | every minute | Sessions in `submitting` beyond 120 s: resolve the true outcome — a captured payment and/or a sales document found by `metadata.checkoutSessionId` (§7.2 step 4) even when the session pointer was never written — and either complete the finalize block or compensate. A repeated `convert_to_order` that finds the order already exists (`409`) is read as success |
+| `retry-failed-compensations` | every 5 min | Re-run failed compensations and failed finalize writes with backoff; escalate after 5 attempts |
+| `expire-awaiting-payment` | every 5 min | Past the intent TTL: a late gateway callback landing after the intent TTL is the captured case — if the payment was captured, refund/void it; compensate the order, credit, stock and cart; fail the session |
 
-`recover-stuck-submits` handles the crash-between-steps case. Without it, a process dying at step 6 leaves stock and credit reserved against a session nobody will ever complete.
+`recover-stuck-submits` handles the crash-between-steps case. Without it, a process dying between step 4 and the session write leaves an order with no session pointer, and a process dying at step 6 leaves stock and credit reserved against a session nobody will ever complete. The sales document carrying `metadata.checkoutSessionId` and `metadata.submitAttemptKey` is what lets the job find the order after the pointer write was lost.
 
 ---
 
@@ -552,12 +606,12 @@ Phase A is untouched: `CheckoutLinkTemplate`, `CheckoutLink` and `CheckoutTransa
 
 | # | Risk | Severity | Failure scenario | Mitigation | Residual |
 |---|---|---|---|---|---|
-| R1 | Payment captured without an order | **Critical** | Payment succeeds at step 7; order creation already succeeded at 4 but the completion write fails; the buyer is charged and sees a failure. | Document is created **before** payment (step 4 precedes 6), so a successful payment always has a document to attach to; `recover-stuck-submits` reconciles against the gateway; compensation cancels the order on payment failure | Low |
-| R2 | Duplicate order from double submit | **Critical** | Double-tap or a retried request creates two orders and two charges. | Conditional `open → submitting` transition admits exactly one caller; `submit_idempotency_key` unique per session; a repeat returns the original result (§7.4); a concurrent-submit test is a merge gate | Low |
-| R3 | Leaked stock or credit reservation | **High** | The process dies between steps 2 and 4; stock and credit stay reserved against a session that will never complete. Invisible inventory and invisible credit exposure. | `recover-stuck-submits` every minute; reservation TTLs are independent backstops; `retry-failed-compensations` with escalation; `checkout.compensation.failed` raises an operational notification | Low |
-| R4 | Price changed between review and charge | **High** | A promotion expires during checkout; the buyer is charged more than the reviewed total. | `cart.lock()` forces a re-price and submit **aborts** on any change with `409 price_changed` before any side effect; the buyer re-confirms (§6) | Low |
+| R1 | Payment captured without an order | **Critical** | Payment succeeds at step 7; the order exists from step 4 but a write in the finalize block (§7.5) fails, or the process dies before the session records the result; the buyer is charged and sees a failure. | Document is created **before** payment (step 4 precedes 6), so a successful payment always has a document to attach to; finalize writes after capture are retried by `retry-failed-compensations` and never fail the buyer's submit; `recover-stuck-submits` reconciles against the gateway and the sales document's `metadata.checkoutSessionId`; refund/void is the last resort (§7.3) | Low |
+| R2 | Duplicate order from double submit | **Critical** | Double-tap or a retried request creates two orders and two charges, including two sessions over one cart. | Conditional `open → submitting` transition admits exactly one caller per session; the cart lock records its holder and is a compare-and-swap (`409` with `{ code: 'cart_locked', lockedBySessionId }`), a partial unique index over active statuses allows one session per cart, and `POST /sessions` returns the existing session (§6); per-attempt keys replay their own result (§7.4); a concurrent-submit test is a merge gate | Low |
+| R3 | Leaked stock or credit reservation | **High** | The process dies between steps 2 and 4, or between step 4 and the session write; reservations or an order stay against a session nobody will complete. Invisible inventory, invisible credit exposure, or a duplicate order on retry. | `recover-stuck-submits` every minute resolves the document by `metadata.checkoutSessionId` even when the session pointer was never written, and reads a repeated `convert_to_order` 409 as success; reservation TTLs are independent backstops; `retry-failed-compensations` with escalation; `checkout.compensation.failed` raises an operational notification | Low |
+| R4 | Price changed between review and charge | **High** | A promotion expires during checkout; the buyer is charged more than the reviewed total. | `cart.lock({ cartId, checkoutSessionId, assortmentScope, expectedTotal? })` forces a re-price and submit **aborts** on any change with `409 price_changed` before any side effect; the buyer re-confirms (§6) | Low |
 | R5 | Stale shipping rate | Medium | The buyer changes the address after selecting delivery; the quoted rate no longer applies and the merchant absorbs the difference. | An address change invalidates the quote and returns the buyer to `delivery` with the reason stated (§5.2); the rate snapshot carries `quotedAt` and is re-validated at submit | Low |
-| R6 | Cart stranded in `locked` | Medium | Submit crashes after locking; the buyer cannot edit their basket and sees a permanently broken cart. | Lock only spans submit; `cart`'s `release-stale-locks` job runs every 5 minutes; every compensation path unlocks; session expiry unlocks | Low |
+| R6 | Cart stranded in `locked` | Medium | Submit crashes after locking, or a payment runs past the lock timeout; the buyer cannot edit their basket, or the cart is unlocked underneath a pending payment and converted against an old order. | Lock spans submit **including `awaiting_payment`**; the owning session extends `locked_until` via `cart.extendLock` when it enters `awaiting_payment`, and `cart`'s `release-stale-locks` job runs every 5 minutes and releases any lock past `locked_until` unconditionally; every compensation path unlocks; session expiry unlocks | Low |
 | R7 | Credit overshoot via concurrent checkouts | **High** | Two on-account checkouts for one customer each pass the precondition and jointly exceed the limit. | `reserveCredit` re-checks inside a serializable transaction (spec 1 R1); the precondition check is advisory and the reservation is authoritative | Low |
 | R8 | Approval bypassed by a price change | Medium | A cart approved at 150 000 re-prices to 180 000 after approval and is submitted against the stale approval. | On resume, the re-priced total is re-checked against the approved amount; a higher total re-requests approval (§8.2) | Low |
 | R9 | Compensation failure swallowed | **High** | A release call fails and is logged but not surfaced; the leak persists silently. | Never swallowed: a `failure` event, an operational notification, a retry job, escalation after 5 attempts (§7.3) | Low |
@@ -569,17 +623,25 @@ Phase A is untouched: `CheckoutLinkTemplate`, `CheckoutLink` and `CheckoutTransa
 
 **Submit correctness (Phase 3 gate):**
 - Happy-path B2C: order created, stock committed, payment captured, cart converted
-- Happy-path B2B on account: order created, credit reserved and standing, no gateway call
-- Quote outcome: quote created, no payment, no stock commitment
+- Happy-path B2B on account: order created, credit reserved and standing, no gateway call, cart converted, usage and codes registered and `checkout.session.completed` emitted (the shared finalize block, §7.5)
+- Quote outcome: quote created, no payment, stock released rather than committed, cart converted and `checkout.session.completed` emitted
 - Concurrent double submit creates exactly one order (R2)
-- Repeated `Idempotency-Key` after success returns the original `sales_order_id`
-- Repeat while in flight returns `409 submit_in_progress`
-- Retry after failure starts a fresh attempt with fresh reservation keys
+- Two sessions over one cart: only one reaches submit; the second is refused the lock with `409` and `{ code: 'cart_locked', lockedBySessionId }` or handed the existing session (§6, R2)
+- Submit step 1 handles every lock result: `409 price_changed`, `409 product_unavailable`, `409 approval_required`, `409 cart_locked`, `409 cart_not_lockable`
+- Repeated `Idempotency-Key` after success returns that attempt's original `sales_order_id`
+- Repeat while in flight, and repeat while `awaiting_payment`, returns `409 submit_in_progress`
+- Retry after failure transitions `failed → open` and starts a fresh attempt with fresh reservation keys; the first attempt's key still replays its own result; the retry gets `409` if another active session exists on the cart
+- A single-use code redeemed on a completed order cannot be redeemed again after the 24 h reservation TTL
+- A quote outcome leaves codes and promotion usage unconsumed until `sales.quotes.convert_to_order`; a quote marks the cart converted against the quote via the `salesQuoteId` variant
+- A storefront session writes a `CheckoutTransaction` with a null `link_id`; Phase A pay-link idempotency is unaffected
 
 **Compensation:**
 - Injected failure at each of steps 2, 3, 4, 6 and 7 leaves no reservation, no document and an unlocked cart
 - A failing compensation raises the notification and is retried (R9)
+- A finalize write failing after capture is retried, not surfaced as a buyer-facing failure; the refund/void row of §7.3 applies only when it cannot complete (R1)
 - A process killed mid-submit is reconciled by `recover-stuck-submits` (R3)
+- A process killed between step 4 and the session write: the order is found by `metadata.checkoutSessionId`, and a repeated `convert_to_order` `409` is read as success (R3)
+- A payment completing after the stock reservation TTL re-reserves live at `commit`; only a re-reservation shortfall refunds and fails the session rather than committing an expired reservation (R6, §7.5 step 1)
 
 **Price and rate integrity:**
 - A promotion expiring mid-checkout aborts submit with `409 price_changed` and no side effect (R4)
@@ -595,9 +657,10 @@ Phase A is untouched: `CheckoutLinkTemplate`, `CheckoutLink` and `CheckoutTransa
 - Below `min_order_value` blocked at precondition
 
 **Cart interaction:**
-- Cart locked only during submit; mutation while locked returns `423` with the session id
-- Every failure path unlocks; the stale-lock job unlocks a crashed one (R6)
-- Cart marked `converted` only on success
+- Cart locked only during submit (including `awaiting_payment`); mutation while locked returns `423` with the session id
+- Every failure path unlocks; the stale-lock job releases any lock past `locked_until` unconditionally (R6)
+- The owning session extends `locked_until` via `cart.extendLock` on entering `awaiting_payment`; a session that never extends and outlives the lock is unlocked and re-locked by a second session (§6, R6)
+- Cart marked `converted` only on a terminal-success outcome
 
 **Entry modes:**
 - Phase A pay link is unaffected: no session, no cart, existing path end to end
@@ -605,7 +668,7 @@ Phase A is untouched: `CheckoutLinkTemplate`, `CheckoutLink` and `CheckoutTransa
 - `is_quantity_editable = false` rejects a quantity change
 - A storefront session over an existing cart token
 
-**Security:** cross-tenant session/cart/link combinations rejected; addresses encrypted at rest; event payloads redacted; `on_account` refused without entitlement; rate limits enforced.
+**Security:** cross-tenant session/cart/link combinations rejected; addresses encrypted at rest; event payloads redacted; no public session route carries the token in the path; `on_account` refused without entitlement; rate limits enforced.
 
 ---
 
@@ -647,6 +710,7 @@ Rate limits, encryption, redaction, admin session viewer with the event trail, t
 2. **Partial fulfilment at submit** — when only part of a cart is reservable, the current design fails the whole submit. Allowing a split (ship what is available, backorder the rest) is a real B2B expectation and needs its own design.
 3. **Saved payment methods** — repeat B2B buyers will want stored instruments. Belongs to `payment_gateways` plus spec 9, not here.
 4. **Multi-currency on account** — a credit account is per currency (spec 1 §15.3). A buyer checking out in a currency with no account is refused; whether that should fall back to prepayment automatically is a merchandising decision.
+5. **Consuming quote codes and usage** — a quote outcome defers its codes and promotion usage to `sales.quotes.convert_to_order` (§7.5 step 2); who consumes them there, and what happens to a code reservation whose 24 h TTL lapses before the quote is converted, are unresolved. Both are a SPEC-055 / `sales` follow-up, not a subscriber added by this module.
 
 ---
 
@@ -666,7 +730,7 @@ Rate limits, encryption, redaction, admin session viewer with the event trail, t
 | Queue usage | All four jobs via the `queue` worker contract |
 | ACL feature reuse | Link/template routes gate on Phase A's real `checkout.view`/`.edit`/`.create`/`.delete` (fixed 2026-08-17 — an earlier draft fabricated `checkout.links.view`/`.manage`, which don't exist); only `checkout.sessions.view`/`.manage` are genuinely new (§9.1) |
 | Module dependencies (`requires`) | Hard: `cart`, `sales`, `promotions` (§3.3, added 2026-08-17), `availability`, `customer_groups`. Soft/consumer-only, unchanged from Phase A: `payment_gateways`, `shipping_carriers`. `workflows` is used (§5.1, §8.2) but only for the async approval/post-submit paths, not the synchronous funnel |
-| Backward compatibility | Phase A unchanged; `CheckoutTransaction` extended with nullable columns only; withdrawn v1 elements were never implemented, so no deprecation protocol applies |
+| Backward compatibility | Phase A behaviour unchanged, `CheckoutTransaction` gains `session_id`/`quote_id`/`order_id` as nullable columns, **and `link_id` changes from `NOT NULL` to nullable** so a storefront session can write one — a DB-schema contract-surface change with a migration note; the Phase A unique index becomes partial `where link_id is not null` and session idempotency moves to a new index (§4.4). Phase A readers that assume a link are audited. Withdrawn v1 elements were never implemented, so no deprecation protocol applies to them |
 | Integration coverage | §16, shipping in the same change |
 
 ---
@@ -692,7 +756,7 @@ Added 2026-09-16 to support the `om-mockup-prototype` click-through. Derived fro
 Every precondition failure is cheap and leaves nothing to undo (§7.1). Each names what went wrong and what the buyer can do instead.
 
 - **US-B1** — As a buyer, I want submit to abort when the price moved between review and charge, so that I am never charged an amount I did not agree to (R4).
-  - AC: `cart.lock()`'s forced re-price aborts with `409 price_changed` before any side effect, and the screen shows the per-line changes and the new total for re-confirmation (§6, §7.2 step 1).
+  - AC: `cart.lock({ cartId, checkoutSessionId, assortmentScope, expectedTotal? })`'s forced re-price aborts with `409 price_changed` before any side effect, and the screen shows the per-line changes and the new total for re-confirmation (§6, §7.2 step 1).
 - **US-B2** — As a buyer, I want a stock shortfall named per line, so that I can adjust rather than guess (§7.2 step 2).
 - **US-B3** — As a B2B buyer over my credit limit, I want to be told, and offered prepayment or a quote, so that the checkout is not simply a dead end (`402`, §8.1).
 - **US-B4** — As a buyer holding a line that left my assortment, I want the lock refused with that line named, so that I can remove it rather than face an unexplained failure ([Buyer-Scoped Catalog Visibility](./2026-08-21-buyer-scoped-catalog-visibility.md) §6.2, US-F1). Removing or replacing the line unblocks the lock.
@@ -737,6 +801,21 @@ Named here so a later reader does not look for them: **R1** (payment captured wi
 ## 21) Changelog
 
 - **§20 user story map added.** The spec described a step machine, a submit sequence and a risk register but never stated who wanted what, so a prototype had to infer the flow from a numbered procedure. Five epics derived from §5.2, §6, §7, §8 and §15; no new scope. The four risks with no screen of their own are named as such rather than left to look missing. The changelog moves from §20 to §21.
+
+### 2026-10-11 — v2.3 (submit-path review fixes)
+
+Closes the submit-path findings of the post-merge review of #5384. Contract changes: a new `checkout_session_attempts` table and per-attempt submit keys, `CheckoutTransaction.link_id` becomes nullable, the public session routes move to a token-header `/session/current/…` shape, and the cart lock gains `Cart.checkout_session_id` / `Cart.locked_until` plus the owner-only `cart.extendLock`. The sections below are corrected in place.
+
+- **§7.2/§7.5 — one completion block for every outcome.** Steps 5 (quote), 7-success and 8 (on-account) now run the same **finalize** block: stock committed for an order and released for a quote, `registerUsage` and `useCode({ codeString, cartId, orderId, customerId })` for an order only, `cart.markConverted({ cartId, checkoutSessionId, salesOrderId | salesQuoteId, lineMap })`, `status = completed`, and `checkout.session.completed` emitted with `outcome_kind`. A quote marks the cart converted against the quote rather than an order, and its codes and usage are consumed at `sales.quotes.convert_to_order`. Previously only the gateway-success branch registered usage and converted the cart, so B2B on-account and quote outcomes bypassed budget caps, left the cart locked, and fired no post-submit workflow.
+- **§7.2/§7.3/§3.3 — failure after capture.** Apart from the step-1 expired-reservation `commit`, a finalize write after a successful capture no longer fails the buyer's submit: it is retried and raises an operational notification, and refund/void is the last resort. §7.3 gains a "7 (after capture succeeded)" row and R1 is extended to cover it.
+- **§7.2/§7.5 — `useCode`.** Single-use codes are consumed through `promotionsService.useCode({ codeString, cartId, orderId, customerId })` in the finalize block for an order outcome (SPEC-055 §A.2), with code release/revert in the after-capture compensation; a quote defers them to `sales.quotes.convert_to_order`. Previously only `registerUsage` ran, so a used code was never deactivated and could be redeemed again once its 24 h reservation lapsed.
+- **§6/§7.2/§12/R6 — lock and reservation lifetimes.** The cart lock spans `awaiting_payment` and the owning session extends `locked_until` via `cart.extendLock` when it enters that state; `release-stale-locks` releases any lock past `locked_until` unconditionally, with no `awaiting_payment` exception. The intent TTL is required to be ≤ the stock-reservation TTL ≤ the lock timeout, and a `commit` on an expired reservation re-reserves live — only a re-reservation shortfall refunds and fails the session (§7.5 step 1). Previously a 3-D Secure or bank-redirect payment could outlive both the 15 min hold and the 30 min lock.
+- **§4.1/§4.5/§7.1/§7.4 — retry and per-attempt idempotency.** `failed → open` is an explicit retry transition; the submit key becomes per-attempt, recorded in the new `checkout_session_attempts` table, and the session-level unique index is dropped. A repeat while in flight or `awaiting_payment` returns `409 submit_in_progress`, and every attempt's key replays its own result.
+- **§7.2/§12/R3 — recovery finds the document.** `sales.quotes.create` carries `metadata.checkoutSessionId` and `metadata.submitAttemptKey`, so `recover-stuck-submits` resolves an order whose session pointer was never written and reads a repeated `convert_to_order` `409` as success.
+- **§4.4/§19 — `CheckoutTransaction.link_id` nullable.** The shipped `link_id` column is `NOT NULL`; it becomes nullable for storefront sessions, with the Phase A unique index made partial `where link_id is not null`, a new session-idempotency index, and the link-assuming readers named.
+- **§6/§7.4/R2 — per-cart double-submit guard.** The cart lock records its holder (`cart.lock({ cartId, checkoutSessionId, assortmentScope, expectedTotal? })` is a compare-and-swap returning `409` with `{ code: 'cart_locked', lockedBySessionId }`), `POST /sessions` returns the existing live session to any holder of the cart token, and a partial unique index over active statuses allows one session per cart; a `failed → open` retry fails with `409` if another active session exists.
+- **§9 — token out of the URL path.** Public session routes move to a header/httpOnly-cookie `/api/checkout/session/current/…` shape, in step with cart §16 Q5.
+- §16 integration coverage extended for every case above.
 
 ### 2026-09-16 — v2.2 (workflow boundary restated)
 
