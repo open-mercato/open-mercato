@@ -13,24 +13,18 @@ posting into it). Nothing else calls into `sales`, invoicing, or any
 other module — this is a standalone engine other modules will post to
 later, not built yet.
 
-## The five entities, one sentence each
+## The seven entities, one sentence each
 
 - **`FiscalPeriod`** — an accounting period (`startDate`, `endDate`)
-  with an `isLocked` flag; `postJournalEntry` rejects a post whose
-  `postedAt` falls in a locked one. User-editable, so it carries
+  with an `isLocked` flag; `postJournalEntry` rejects a post whose `operationDate` falls in a locked one, or in no period at all (never `postedAt`, which is server-set). User-editable, so it carries
   `updatedAt` / optimistic locking.
 - **`LedgerAccountType`** — a category (e.g. "Cash", "Revenue").
-  Hierarchical (`parentAccountTypeId`), carries `normalBalance`
-  (`DEBIT`/`CREDIT`) — locked once any account of that type has posted
-  entries.
-- **`LedgerAccount`** — a concrete account (e.g. "mBank — main"),
-  belongs to one `LedgerAccountType`.
-- **`JournalEntry`** — the header of one posted transaction: date,
-  description, currency, `sequenceNumber` (per-organization,
-  gapless), `type` (`NORMAL`/`OPENING`/`CLOSING`/`REVERSAL`),
-  `referenceType`/`referenceId` (unused this phase, don't populate).
-- **`JournalEntryLine`** — one side of one transaction: `accountId`,
-  `debit`, `credit` (exactly one non-zero), `amountCurrency`.
+  Hierarchical (`parentAccountTypeId`), carries `normalBalance` (`DEBIT`/`CREDIT`) and `accountGroupId` — both locked once any account of that type has posted entries.
+- **`LedgerAccountGroup`** — system reference data (the Polish zespoły 0–8), seeded per organization by `setup.ts` → `seedDefaults` (`lib/seeds.ts`); read-only API, no edit path.
+- **`LedgerAccount`** — a concrete account (e.g. "mBank — main"), belongs to one `LedgerAccountType` (immutable once the account has posted entries); optional `parentAccountId`.
+- **`JournalEntry`** — the header of one posted transaction: `operationDate` (required; the business date, and the date the period lock is checked against), `postedAt` (server-set), description, currency, `sequenceNumber` (per-organization, gapless), `type` (`NORMAL`/`OPENING`/`CLOSING`/`REVERSAL`), `referenceType`/`referenceId` (empty on everything except a `REVERSAL`, where `reverseJournalEntry` sets them to `'journal_entry'` and the original's id — don't populate them from anywhere else this phase).
+- **`JournalEntryLine`** — one side of one transaction: `accountId`, `debit`, `credit` (exactly one non-zero), `amountCurrency`.
+- **`JournalEntrySequence`** — the per-`(tenant_id, organization_id)` counter row `postJournalEntry` increments to allocate `sequenceNumber` (see "Don't use a native Postgres `SEQUENCE`" below).
 
 For exact fields/types, see the full spec's Architecture → Entities.
 Don't re-derive them here — copy from there.
@@ -42,9 +36,7 @@ Posting "paid 500 PLN for internet from company bank account":
 1. Caller invokes `postJournalEntry` with two lines: `{ accountId:
    internetExpenseAccount, debit: 500 }` and `{ accountId:
    mbankAccount, credit: 500 }`.
-2. Command checks the `FiscalPeriod` covering `postedAt` is not
-   `isLocked` — rejects before any write if it is — then validates
-   `SUM(debit) === SUM(credit)` for the whole entry, rejecting if not.
+2. Command reads the `FiscalPeriod` covering `operationDate` with a `for share` lock (so a concurrent `lockFiscalPeriod`, which takes `for update`, cannot close it between this check and the insert), rejects before any write if no period covers that date or if the period is `isLocked`, then validates `SUM(debit) === SUM(credit)` for the whole entry, rejecting if not.
 3. Command atomically allocates the next `sequenceNumber` for this
    `(tenant_id, organization_id)` from `journal_entry_sequence` (the
    counter table introduced in Build order step 1 — full mechanics
@@ -59,8 +51,7 @@ Posting "paid 500 PLN for internet from company bank account":
    step 2 and rely on the trigger alone.
 5. If someone made a mistake, they don't edit this entry. A new call
    to `reverseJournalEntry` posts a second entry, `type: 'REVERSAL'`,
-   with inverted lines, linked back via `referenceType: 'JournalEntry'`
-   / `referenceId: <original id>`. The original is untouched forever.
+   with inverted lines and its own `operationDate` (never the original's, or a reversal could be keyed back into the closed period it exists to get out of), linked back via `referenceType: 'journal_entry'` / `referenceId: <original id>`. A partial unique index allows only one reversal per entry, and a reversal cannot itself be reversed. The original is untouched forever.
 
 That's the whole write path. Everything else in the spec (ACL,
 optimistic locking, hierarchy) supports this, doesn't replace it.
@@ -81,14 +72,13 @@ anything else compiles or is reachable. High-level shape:
 4. `reverseJournalEntry`
 5. `createFiscalPeriod` / `lockFiscalPeriod` / `unlockFiscalPeriod`
 6. Account/account-type CRUD commands
-7. API routes (`journal-entries` read-only, `accounts`,
-   `account-types` via `makeCrudRoute`, `fiscal-periods` +
+7. API routes (`journal-entries` read-only, `account-groups` read-only, `accounts`, `account-types` via `makeCrudRoute`, `fiscal-periods` +
    lock/unlock custom routes)
 8. Backend pages (`CrudForm`/`DataTable` for accounts/types,
    `fiscal-periods` list with a lock/unlock row action, read-only
    list for journal entries)
 9–10. Unit + integration test coverage
-11. `yarn generate`, typecheck, manual QA
+11. `yarn generate`, typecheck, manual QA (post through a dev script that calls `postJournalEntry` — there is no entry-creation UI in Phase 1)
 
 ## Things that will bite you if you skip them
 
@@ -122,10 +112,12 @@ anything else compiles or is reachable. High-level shape:
 - **`postJournalEntry` must check the fiscal-period lock — but there
   is no automated year-end close.** The `isLocked` check before
   posting is in scope (restored 2026-09-03, see full spec's Changelog).
-  A year-end close is posted as an ordinary `JournalEntry` with `type:
-  'CLOSING'` by hand or a script — do *not* build an automated
+  The check is keyed on `operationDate`, not `postedAt`. A year-end close is posted as an ordinary `JournalEntry` with `type: 'CLOSING'` by a script or an integration (no entry-creation UI this phase) — do *not* build an automated
   closing-entry generator (identifying result accounts, computing the
   transfer to Retained Earnings); that stays out of scope.
+- **Posting and reversal have no caller in the UI this phase.** `postJournalEntry`/`reverseJournalEntry` are called in-process (a script, or another module's subscriber), there is no route or form for either, and the command bus does not check `ledger.entries.post` — don't write a test that expects a 403 from a command. The feature is declared for the route a later phase adds.
+- **Three rules are serialized in the database, not by read-before-write.** The period lock is `for share` in `postJournalEntry` against `for update` in lock/unlock; overlapping periods are serialized by an advisory lock in `createFiscalPeriod`; one reversal per entry is a partial unique index. Each has a concurrency test in the spec's Testing Strategy.
+- **`page.meta.ts` requires one exact feature, never `ledger.*`.** `matchFeature` expands wildcards on the granted side only, so `ledger.*` would lock the `employee` role out of every page. List pages require `view`, create/edit pages require `manage`.
 - **No `getAccountBalance` this phase.** Don't add a
   balance-calculation query or a `.../balance` route — explicitly out
   of scope (stakeholder-directed, see full spec's Changelog). It comes
