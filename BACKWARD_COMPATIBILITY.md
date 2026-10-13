@@ -562,14 +562,10 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 
 ## AI Pending Actions Are Owner-Scoped (2026-10-13)
 
-Same-organization users could read, cancel or confirm another user's pending AI mutation, and confirm skipped the tool's `requiredFeatures` ([#3806](https://github.com/open-mercato/open-mercato/issues/3806)):
+Fixes [#3806](https://github.com/open-mercato/open-mercato/issues/3806); details and migration in UPGRADE_NOTES.md.
 
 | Surface | Change | Classification |
 |---------|--------|----------------|
-| API routes (`GET /api/ai_assistant/ai/actions/:id`, `POST …/confirm`, `POST …/cancel`) | Same URLs and shapes. A non-creator now gets the existing `404 pending_action_not_found` instead of `200`; confirm answers `403 tool_features_denied` when the user lacks the tool's `requiredFeatures` | ⚠️ Intentional security narrowing (`TC-AI-ACTIONS-OWNER-008`) |
-| Function behaviour (`AiPendingActionRepository.getById`, `setStatus`, `listPendingForAgent`) | Same signatures. The context's `userId` must equal the row's `createdByUserId`; a missing or non-UUID `userId` matches nothing. Only an explicit `userId: null` (expiry sweeper) skips the owner filter | ⚠️ Intentional security narrowing |
-| Types / exports (`PendingActionRecheckCode`, `PENDING_ACTION_RECHECK_CODES`, `checkToolFeatures`, `computeMutationIdempotencyKey`, `UseAiPendingActionPollingResult`) | New union member `tool_features_denied`, new guard export, optional `userId` input (omitted → same digest), new `unavailable` field | ✓ ADDITIVE (exhaustive `switch` statements need one more case) |
-| Function behaviour (`executePendingActionConfirm`) | Refuses a caller without the tool's `requiredFeatures` before any state transition; the row stays `pending` | ⚠️ Intentional security narrowing |
-| Database schema, event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
-
-**Migration path for existing modules**: flows that resolved another user's pending action must let its creator do it. See UPGRADE_NOTES.md.
+| API routes (`GET /api/ai_assistant/ai/actions/:id`, `POST …/confirm`, `POST …/cancel`) | Same shapes. A non-creator gets the existing `404 pending_action_not_found`; confirm answers `403 tool_features_denied` without the tool's `requiredFeatures` | ⚠️ Intentional security narrowing |
+| Functions (`AiPendingActionRepository.getById`, `setStatus`, `listPendingForAgent`, `executePendingActionConfirm`) | Same signatures. Rows match only the context `userId` (explicit `null` = system scope); confirm re-checks tool features | ⚠️ Intentional security narrowing |
+| Types (`PendingActionRecheckCode`, `checkToolFeatures`, `computeMutationIdempotencyKey`, `UseAiPendingActionPollingResult`) | New `tool_features_denied` member, guard, optional `userId`, `unavailable` field | ✓ ADDITIVE |
