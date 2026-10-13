@@ -89,11 +89,10 @@ describe('CustomerUserService failed-login counter (#7232)', () => {
     expect(lockUntil).toBeLessThanOrEqual(Date.now() + 15 * 60 * 1000)
   })
 
-  it('extends the lock to the later of the stored lock and the new window so a longer admin-set lock is not shortened', async () => {
+  it('locks with GREATEST of the stored lock and the new window so a longer stored lock is not shortened', async () => {
     const { service, queries } = buildService([])
-    const user = buildUser({ failedLoginAttempts: 4, lockedUntil: new Date(Date.now() + 24 * 60 * 60 * 1000) })
 
-    await service.incrementFailedAttempts(user)
+    await service.incrementFailedAttempts(buildUser({ failedLoginAttempts: 4 }))
 
     expect(queries[0].sql).toContain('then greatest("locked_until", $3) else "locked_until" end')
     const lockUntil = (queries[0].parameters[2] as Date).getTime()
