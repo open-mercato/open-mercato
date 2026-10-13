@@ -53,6 +53,41 @@ describe('customer dictionary entry routes', () => {
     jest.clearAllMocks()
   })
 
+  it.each(['optimistic_lock_conflict', 'record_lock_conflict', 'record_locked'])('preserves the structured %s command conflict on PATCH', async (code) => {
+    const conflictBody = {
+      code,
+      error: 'The record changed since it was read.',
+      resourceKind: 'customers.dictionary_entry',
+      resourceId: '11111111-1111-4111-8111-111111111111',
+      expectedUpdatedAt: '2026-09-29T09:00:00.000Z',
+      currentUpdatedAt: '2026-09-29T10:00:00.000Z',
+    }
+    mockCommandBus.execute.mockRejectedValue(new CrudHttpError(409, conflictBody))
+    const { PATCH } = await import('../route')
+    const response = await PATCH(
+      new Request('http://localhost/api/customers/dictionaries/person-company-roles/11111111-1111-4111-8111-111111111111', {
+        method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ label: 'Updated label' }),
+      }),
+      { params: { kind: 'person-company-roles', id: conflictBody.resourceId } },
+    )
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual(conflictBody)
+    expect(mockRouteContext.em.fork).not.toHaveBeenCalled()
+  })
+
+  it('keeps the localized duplicate-value response for uncoded command conflicts', async () => {
+    mockCommandBus.execute.mockRejectedValue(new CrudHttpError(409, { error: 'An entry with this value already exists' }))
+    const { PATCH } = await import('../route')
+    const response = await PATCH(
+      new Request('http://localhost/api/customers/dictionaries/person-company-roles/11111111-1111-4111-8111-111111111111', {
+        method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ value: 'duplicate' }),
+      }),
+      { params: { kind: 'person-company-roles', id: '11111111-1111-4111-8111-111111111111' } },
+    )
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({ error: 'An entry with this value already exists' })
+  })
+
   it('returns a translated 409 when deleting a role type that is still in use', async () => {
     mockCommandBus.execute.mockRejectedValue(
       new CrudHttpError(409, {

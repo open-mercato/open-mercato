@@ -198,7 +198,7 @@ function buildWhereClause(
   whereClauses.push(`tenant_id = ?`)
   params.push(options.scope.tenantId)
 
-  if (options.scope.organizationIds && options.scope.organizationIds.length > 0) {
+  if (options.scope.organizationIds !== undefined) {
     whereClauses.push(`organization_id = ANY(?::uuid[])`)
     params.push(`{${options.scope.organizationIds.join(',')}}`)
   }

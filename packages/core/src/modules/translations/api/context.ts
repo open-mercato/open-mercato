@@ -1,6 +1,7 @@
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -35,7 +36,7 @@ export async function resolveTranslationsRouteContext(req: Request): Promise<Tra
   const em = container.resolve('em') as EntityManager
   const db = em.getKysely<any>()
   const tenantId: string = scope?.tenantId ?? auth.tenantId
-  const organizationId = scope?.selectedId ?? auth.orgId ?? null
+  const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth) ?? null
 
   const commandCtx: CommandRuntimeContext = {
     container,
