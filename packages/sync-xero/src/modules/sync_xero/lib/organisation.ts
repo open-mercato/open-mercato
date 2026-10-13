@@ -7,7 +7,7 @@ import type { RouteMutationGuardResult } from '@open-mercato/shared/lib/crud/rou
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { XeroApiClient } from './api-client'
 import { listConsentOrganisations, type XeroOrganisationOption } from './connections'
-import { XERO_INTEGRATION_ID } from './constants'
+import { XERO_COMPANY_MAPPING_TYPE, XERO_INTEGRATION_ID, XERO_INVOICE_MAPPING_TYPE } from './constants'
 import type { XeroScope } from './owner'
 import { parseXeroProviderData, xeroProviderDataSchema, type XeroProviderData } from './provider-data'
 
@@ -113,16 +113,16 @@ export async function countXeroMappingsByOrganisation(em: EntityManager, scope: 
     `SELECT split_part(external_id, ':', 1) AS prefix, internal_entity_type AS entity_type, count(*) AS total
        FROM sync_external_id_mappings
       WHERE integration_id = ? AND tenant_id = ? AND organization_id = ? AND deleted_at IS NULL
-        AND internal_entity_type IN ('customers.company', 'sales.invoice')
+        AND internal_entity_type IN (?, ?)
       GROUP BY 1, 2`,
-    [XERO_INTEGRATION_ID, scope.tenantId, scope.organizationId],
+    [XERO_INTEGRATION_ID, scope.tenantId, scope.organizationId, XERO_COMPANY_MAPPING_TYPE, XERO_INVOICE_MAPPING_TYPE],
   )
   const counts = new Map<string, XeroMappingCounts>()
   for (const row of rows) {
     if (!row.prefix) continue
     const entry = counts.get(row.prefix) ?? { companyCount: 0, invoiceCount: 0 }
     const total = Number(row.total)
-    if (row.entity_type === 'customers.company') entry.companyCount += total
+    if (row.entity_type === XERO_COMPANY_MAPPING_TYPE) entry.companyCount += total
     else entry.invoiceCount += total
     counts.set(row.prefix, entry)
   }
