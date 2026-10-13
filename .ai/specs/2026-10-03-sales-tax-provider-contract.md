@@ -590,7 +590,7 @@ States read on 2026-10-12 with read-only tracker queries; none is a base or a de
 - **Severity**: High
 - **Affected area**: every touchpoint
 - **Mitigation**: fail closed; `display` never remote; `fallback` reserved for a labelled policy in Spec 3.
-- **Residual risk**: fail closed blocks edits of that organization during an outage, by design; a line whose stored `tax_rate` is 0 from an exemption or a reverse charge stays at zero tax on a later write without a provider until Spec 4b re-rates it (§ 4.5).
+- **Residual risk**: fail closed blocks edits of that organization during an outage, by design; a line whose stored `tax_rate` is 0 from an exemption or a reverse charge stays at zero tax on a later write without a provider that supplies no rate, until a caller supplies one or Spec 4b re-rates it (§ 4.5).
 
 #### Stale tax after an address or customer change until Spec 4b
 - **Scenario**: a provider-taxed order gets a new ship-to; nothing recalculates (§ 5.8); an invoice copies the old tax.
