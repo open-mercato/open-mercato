@@ -254,7 +254,7 @@ correctness of forever. Rejected in favor of computing `SUM()` at read
 time: this matches #5663's own stated intent ("layers on later without
 changing the posting schema") and avoids optimizing for a load the
 system has not measured yet — the same reasoning already used
-elsewhere in this document family for `journal_entry_line_dimension`
+elsewhere in this document family for `journal_entry_line_dimensions`
 ("don't build the mechanism until there's a real consumer"). If a real
 measurement later shows this doesn't hold up at production data
 volumes, the fix is additive (a materialized/cached balance table
@@ -1130,7 +1130,7 @@ treated as fully settled.
   later); a live query rather than a maintained balance table, decided
   explicitly against building for an unmeasured scale — the same
   reasoning already applied elsewhere in this document family to
-  `journal_entry_line_dimension`, reversible later behind the same
+  `journal_entry_line_dimensions`, reversible later behind the same
   function signatures if real measurement says otherwise; ZSiO only,
   with Bilans/P&L/Cash Flow/tax reporting confirmed as separate future
   documents via the same scope-cohesion test (does each function
