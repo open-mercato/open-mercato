@@ -71,7 +71,7 @@ export async function ensureXeroFieldDefinitions(input: EnsureXeroFieldDefinitio
   return result
 }
 
-function resolveDefinitionsCache(container: AppContainer): DefinitionsCache {
+export function resolveDefinitionsCache(container: AppContainer): DefinitionsCache {
   try {
     return container.resolve<DefinitionsCache>('cache')
   } catch {

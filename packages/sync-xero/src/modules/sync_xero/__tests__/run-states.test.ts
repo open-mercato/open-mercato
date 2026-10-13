@@ -12,6 +12,31 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => mockCreateRequestContainer(...args),
 }))
 
+const mockEnsureFieldDefinitions = jest.fn(async (..._args: unknown[]) => ({ created: 0, updated: 0, unchanged: 3 }))
+const mockPreparePage = jest.fn(async (..._args: unknown[]) => undefined)
+
+jest.mock('../lib/field-definitions', () => ({
+  ...jest.requireActual('../lib/field-definitions'),
+  ensureXeroFieldDefinitions: (...args: unknown[]) => mockEnsureFieldDefinitions(...args),
+}))
+
+jest.mock('../lib/contacts/preload', () => ({
+  ...jest.requireActual('../lib/contacts/preload'),
+  loadXeroRunIndex: async () => ({ lookup: () => null, isMapped: () => false, add: () => undefined }),
+}))
+
+/** This suite covers the walk, the cursor and the grant states; company-writer.test.ts covers the writes. */
+jest.mock('../lib/contacts/company-writer', () => ({
+  ...jest.requireActual('../lib/contacts/company-writer'),
+  createXeroContactWriter: (deps: { xeroOrganisationId: string }) => ({
+    preparePage: (...args: unknown[]) => mockPreparePage(...args),
+    write: async (record: { ContactID: string }) => {
+      const externalId = `${deps.xeroOrganisationId}:${record.ContactID}`
+      return { externalId, action: 'skip', data: { sourceIdentifier: externalId } }
+    },
+  }),
+}))
+
 jest.mock('../lib/endpoints', () => ({
   ...jest.requireActual('../lib/endpoints'),
   resolveXeroEndpoints: (...args: unknown[]) => mockResolveEndpoints(...args),
@@ -63,6 +88,8 @@ async function setup(count = 3) {
   mockResolveEndpoints.mockResolvedValue({ authorize: 'https://a', token: 'https://t', ...api.endpoints })
   mockCreateRequestContainer.mockResolvedValue(
     createFakeContainer({
+      em: { fork() { return this } },
+      commandBus: {},
       integrationCredentialsService: { resolve: async () => ({ clientId: 'c', clientSecret: 's' }) },
       integrationOAuthGrantService: grants.service,
       integrationLogService: {
