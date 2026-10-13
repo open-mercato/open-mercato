@@ -28,3 +28,25 @@ export const XERO_ENDPOINTS: Readonly<Required<XeroEndpoints>> = Object.freeze({
 })
 
 export const XERO_CONTACT_URL_BASE = 'https://go.xero.com/Contacts/View/'
+
+export const XERO_GRANT_RESOURCE_KIND = 'integrations.oauth_grant'
+export const XERO_GRANT_RESOURCE_ID = `${XERO_INTEGRATION_ID}__oauth_grant`
+
+export const XERO_CALLBACK_RESULTS = [
+  'connected',
+  'account_pending',
+  'connect_cancelled',
+  'connect_state_invalid',
+  'client_misconfigured',
+  'connect_exchange_failed',
+  'connect_persist_failed',
+  'connect_grant_unreadable',
+  'oauth_base_url_not_configured',
+  'connect_origin_rejected',
+  'organization_scope_required',
+  'guard_blocked',
+  'connect_failed',
+] as const
+
+export type XeroCallbackResult = (typeof XERO_CALLBACK_RESULTS)[number]
+export const XERO_RESULT_QUERY_PARAM = 'xeroResult'

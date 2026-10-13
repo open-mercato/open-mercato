@@ -1,3 +1,11 @@
 {
+  "sync_xero.errors.connect_origin_rejected": "Öffnen Sie Open Mercato über die konfigurierte Adresse (APP_URL), um Xero zu verbinden.",
+  "sync_xero.errors.forbidden": "Sie haben keinen Zugriff auf die Xero-Verbindung dieser Organisation.",
+  "sync_xero.errors.invalid_request": "Die Anfrage ist ungültig.",
+  "sync_xero.errors.missing_secret": "Xero kann nicht verbunden werden: Auf dem Server ist kein OAuth-Statusschlüssel konfiguriert.",
+  "sync_xero.errors.not_configured": "Geben Sie zuerst die Xero Client ID und das Client Secret auf dem Tab „Zugangsdaten“ ein.",
+  "sync_xero.errors.oauth_base_url_not_configured": "Legen Sie APP_URL fest, bevor Sie Xero verbinden.",
+  "sync_xero.errors.organization_scope_required": "Wählen Sie eine Organisation aus, um ihre Xero-Verbindung zu verwalten.",
+  "sync_xero.errors.unauthorized": "Melden Sie sich an, um fortzufahren.",
   "sync_xero.tab.title": "Xero"
 }

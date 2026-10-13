@@ -1,3 +1,11 @@
 {
+  "sync_xero.errors.connect_origin_rejected": "Xero에 연결하려면 구성된 주소(APP_URL)로 Open Mercato를 여세요.",
+  "sync_xero.errors.forbidden": "이 조직의 Xero 연결에 접근할 권한이 없습니다.",
+  "sync_xero.errors.invalid_request": "요청이 올바르지 않습니다.",
+  "sync_xero.errors.missing_secret": "Xero에 연결할 수 없습니다. 서버에 OAuth 상태 키가 구성되어 있지 않습니다.",
+  "sync_xero.errors.not_configured": "먼저 자격 증명 탭에서 Xero Client ID와 Client Secret을 입력하세요.",
+  "sync_xero.errors.oauth_base_url_not_configured": "Xero에 연결하기 전에 APP_URL을 설정하세요.",
+  "sync_xero.errors.organization_scope_required": "Xero 연결을 관리할 조직을 선택하세요.",
+  "sync_xero.errors.unauthorized": "계속하려면 로그인하세요.",
   "sync_xero.tab.title": "Xero"
 }
