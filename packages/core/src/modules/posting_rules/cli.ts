@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { FiscalPeriod } from '../ledger/data/entities'
+import type { PostJournalEntryResult } from '../ledger/commands/postJournalEntry'
 import { Currency } from '../currencies/data/entities'
 import { seedPostingRulesDefaults } from './lib/seedDefaults'
 import handlePostedEvent from './subscribers/postingRulesEngineSubscriber'
@@ -136,7 +137,7 @@ const devPostCostEntry: ModuleCli = {
         return
       }
 
-      const executed = await commandBus.execute<unknown, { journalEntryId: string; sequenceNumber: number }>(
+      const executed = await commandBus.execute<unknown, PostJournalEntryResult>(
         'ledger.postJournalEntry',
         {
           input: {
