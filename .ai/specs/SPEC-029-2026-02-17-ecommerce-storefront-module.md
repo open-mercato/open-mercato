@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification (v4.2 — rescoped, pre-implementation fixes, sibling amendments applied) |
+| **Status** | Specification (v4.7 — rescoped, pre-implementation fixes, sibling amendments applied) |
 | **Created** | 2026-02-17 |
 | **Rescoped** | 2026-08-14 |
 | **Pre-implementation fixes** | 2026-08-17 — see §21 |
@@ -306,9 +306,9 @@ Truncated to 16 hex characters.
 
 **`assortmentScopeHash` hashes the resolved value, not the inputs (added 2026-09-16).** Once a customer can carry an assortment override of their own ([Buyer-Scoped Catalog Visibility](./2026-08-21-buyer-scoped-catalog-visibility.md) §3.6), this distinction decides the cache hit rate the same way `customerOverlayId` just did for price: hashing `customerId`, the contributing group ids, or a "has an override" flag gives every authenticated buyer a private entry, while hashing the canonicalized resolved `EffectiveAssortmentScope` means a buyer with no override resolves byte-identically to their group-only result and keeps sharing the count-facet entries `storefront-public-api.md` §9.1 splits out. Canonicalization is part of the requirement — id arrays sorted, keys sorted, branches sorted by their own canonical form — because otherwise two semantically identical scopes hash differently whenever their branches arrive in a different group-priority order, a performance-only regression no semantic test would catch. Whether the buyer has an override at all is resolved by `customer_groups` with a cached indexed `EXISTS`, the same shape as the `customerOverlayId` probe above.
 
-**Named components are addressable on purpose.** `digest` remains the default key for anything buyer-dependent, but roadmap ADR-7 (amended) requires a surface that varies with only one dimension to key on that dimension's named component instead — `assortmentScopeHash` for scope-only counts (the split `storefront-public-api.md` §9.1 already makes), `priceScopeKey` for group-level prices. `buildStorefrontCacheKey` still takes `StoreContext` as a required argument and the structural CI guard below is unchanged; a component key is built *through* the helper, not around it.
+**Named components are addressable on purpose.** Keys name their components rather than a whole-context digest: roadmap ADR-7 (amended) requires a surface that varies with only one dimension to key on that dimension's named component — `assortmentScopeHash` for scope-only counts (the split `storefront-public-api.md` §9.1 already makes), `priceScopeKey` for group-level prices. `digest` stays only as the identity value of the context. `buildStorefrontCacheKey` still takes `StoreContext` as a required argument and the structural CI guard below is unchanged; a component key is built *through* the helper, not around it.
 
-**Enforcement.** The suite ships a helper `buildStorefrontCacheKey(context: StoreContext, parts: string[])` that takes `StoreContext` as a required argument. Endpoints construct keys through it. A key built any other way is a review-blocking defect. Because R1 is Critical, review discipline alone is not the only gate: a Phase 1 deliverable is a structural test (`ecommerce/__tests__/no-raw-cache-calls.test.ts`, plain-regex grep over `ecommerce/api/**` for `cache.resolve(` / `.get(`/`.set(` calls outside `lib/cacheKeys.ts`, mirroring the existing `optimistic-lock-editable-entities.test.ts` pattern) that fails CI if a route bypasses the helper. This test MUST be registered in `scripts/repo-wide-guards.mjs`'s `REPO_WIDE_GUARDS` list — otherwise turbo's dependency-filtered CI silently skips it on PRs touching only `ecommerce` route files, which would defeat the point.
+**Enforcement.** The suite ships a helper `buildStorefrontCacheKey(context: StoreContext, parts: string[])` that takes `StoreContext` as a required argument and always prefixes `tenantId`, `storeId` and `effectiveLocale` before the caller's `parts`, so a key cannot collide across tenants, stores or locales even when its `parts` are otherwise identical. Endpoints construct keys through it. A key built any other way is a review-blocking defect. Because R1 is Critical, review discipline alone is not the only gate: a Phase 1 deliverable is a structural test (`ecommerce/__tests__/no-raw-cache-calls.test.ts`, plain-regex grep over `ecommerce/api/**` for `cache.resolve(` / `.get(`/`.set(` calls outside `lib/cacheKeys.ts`, mirroring the existing `optimistic-lock-editable-entities.test.ts` pattern) that fails CI if a route bypasses the helper. This test MUST be registered in `scripts/repo-wide-guards.mjs`'s `REPO_WIDE_GUARDS` list — otherwise turbo's dependency-filtered CI silently skips it on PRs touching only `ecommerce` route files, which would defeat the point.
 
 ### 6.1a Tax display mode is derived, not resolved independently (fixed 2026-08-17)
 
@@ -365,7 +365,7 @@ Font families are constrained to an allowlist of system stacks plus a curated Go
 | Data | TTL | Invalidation |
 |---|---|---|
 | Host → store resolution (steps 2–5) | 300s | Tag `ecommerce-store:{storeId}` and `ecommerce-domain:{host}` on store, binding or `DomainMapping` change |
-| Buyer context (step 6) | 60s | Tag `customer:{customerId}` — invalidated by `customer_groups.membership.*` events |
+| Buyer context (step 6) | 60s | Tagged with the `buildRecordTag`-shaped group record tag `crud:customer.groups.group:tenant:{tenantId}:record:{groupId}` (one per contributing group; group and terms writes) and the membership collection tag `crud:customer.group.membership:tenant:{tenantId}:org:null:collection` (membership writes); the `ecommerce` subscriber on the `customer_groups` events flushes them with `deleteByTags` inside `runWithCacheTenant(payload.tenantId)`, because the cache service scopes tags to the current cache tenant and the event bus does not set it, and CRUD cache invalidation is off by default (`ENABLE_CRUD_API_CACHE=false`). The membership collection tag is tenant-wide, so any membership write evicts every buyer context in the tenant — an accepted cost at the 60 s TTL; a per-customer tag keyed on the membership payload's `customerId` would narrow it. `customer_groups.assortment_override.created\|updated\|deleted\|expired` carries the same duty (spec 1 §10) but is not yet emitted |
 | Branding stylesheet | 300s | Tag `ecommerce-store:{storeId}` |
 
 ### 8.1 The resolution query
@@ -667,6 +667,7 @@ Renumbered from v3's `TC-EC-*`; cases covering moved scope now live in the specs
 - Two buyers in different groups on the same store produce different digests
 - The same buyer across two locales produces different digests
 - Membership change invalidates the buyer context within the TTL
+- A `membership.added`/`removed`, `terms.updated` or `group.updated`/`group.deleted` change invalidates the buyer context of every affected member once the `ecommerce` subscriber has processed the event (the test drains the queue rather than waiting out a wall-clock window) — the group's record tag carries the fan-out a per-request key alone cannot. `customer_groups.membership.expired` and `customer_groups.assortment_override.*` are declared in spec 1 §10 but not yet emitted, so an expiry relies on the TTL
 
 **Cache isolation (Phase 1 gate):**
 - An anonymous request following an authenticated one for the same URL never receives the authenticated body
@@ -757,6 +758,14 @@ Open:
 ---
 
 ## 21) Changelog
+
+### 2026-10-11 — v4.7 (buyer-context invalidation and cache-key prefix)
+
+Post-merge review of #5384.
+
+- §8 — the buyer-context row invalidated only on `customer_groups.membership.*` through a single per-customer tag nobody emits. It now uses the `buildRecordTag`-shaped group record tag `crud:customer.groups.group:tenant:{tenantId}:record:{groupId}` (group and terms writes) and the membership collection tag `crud:customer.group.membership:tenant:{tenantId}:org:null:collection` (membership writes), flushed by an `ecommerce` subscriber with `deleteByTags` inside `runWithCacheTenant(payload.tenantId)` because the cache service scopes tags per tenant and the event bus does not set it, and CRUD cache invalidation is off by default; the membership collection tag is tenant-wide, so every membership write evicts all buyer contexts in the tenant — an accepted cost at the 60 s TTL. Records that `membership.expired` and `assortment_override.*` are declared in spec 1 §10 but not yet emitted. §16 gains the corresponding membership/terms/group case.
+- §6.1 — stated that `buildStorefrontCacheKey` always prefixes `tenantId`, `storeId` and `effectiveLocale` before the caller's `parts`. The digest already carried `storeId` and `effectiveLocale`, but nothing required the helper to, so a named-component key such as `assortmentScopeHash` had no tenant, store or locale isolation.
+- §6.1 — "`digest` remains the default key for anything buyer-dependent" restated: keys name their components, and `digest` stays only as the identity value of the context, matching the per-row keys `storefront-public-api.md` §9 and merchandising §8 now use.
 
 ### 2026-09-16 — v4.5 (story and admin-surface coverage for `price_sort_fallback`)
 
