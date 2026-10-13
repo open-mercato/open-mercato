@@ -1,4 +1,5 @@
 import { Migration } from '@mikro-orm/migrations';
+import { buildEncryptionMapBackfillSql } from '@open-mercato/shared/lib/encryption/migration-backfill';
 
 export class Migration20261009180543_staff extends Migration {
 
@@ -23,6 +24,11 @@ export class Migration20261009180543_staff extends Migration {
     this.addSql(`create index "staff_time_tasks_portal_customer_idx" on "staff_time_tasks" ("tenant_id", "organization_id", "customer_id", "updated_at") where "source" = 'portal' and "deleted_at" is null;`);
 
     this.addSql(`alter table "staff_time_task_comments" add "visibility" text not null default 'internal', add "author_kind" text not null default 'staff', add "author_customer_user_id" uuid null, add "author_display_snapshot" jsonb null;`);
+
+    this.addSql(buildEncryptionMapBackfillSql({
+      entityId: 'staff:staff_support_ticket',
+      fields: [{ field: 'customer_request_snapshot' }],
+    }));
   }
 
   override down(): void | Promise<void> {
