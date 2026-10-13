@@ -69,7 +69,7 @@ describe('CustomerUserService failed-login counter (#7232)', () => {
     expect(queries).toHaveLength(1)
     expect(queries[0].sql).toBe(
       'update "customer_users" set "failed_login_attempts" = "failed_login_attempts" + $1, '
-        + '"locked_until" = case when "failed_login_attempts" >= $2 then $3 else "locked_until" end '
+        + '"locked_until" = case when "failed_login_attempts" >= $2 then greatest("locked_until", $3) else "locked_until" end '
         + 'where "id" = $4',
     )
     expect(queries[0].parameters[0]).toBe(1)
@@ -86,6 +86,17 @@ describe('CustomerUserService failed-login counter (#7232)', () => {
 
     const lockUntil = (queries[0].parameters[2] as Date).getTime()
     expect(lockUntil).toBeGreaterThanOrEqual(before + 15 * 60 * 1000)
+    expect(lockUntil).toBeLessThanOrEqual(Date.now() + 15 * 60 * 1000)
+  })
+
+  it('extends the lock to the later of the stored lock and the new window so a longer admin-set lock is not shortened', async () => {
+    const { service, queries } = buildService([])
+    const user = buildUser({ failedLoginAttempts: 4, lockedUntil: new Date(Date.now() + 24 * 60 * 60 * 1000) })
+
+    await service.incrementFailedAttempts(user)
+
+    expect(queries[0].sql).toContain('then greatest("locked_until", $3) else "locked_until" end')
+    const lockUntil = (queries[0].parameters[2] as Date).getTime()
     expect(lockUntil).toBeLessThanOrEqual(Date.now() + 15 * 60 * 1000)
   })
 

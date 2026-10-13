@@ -97,7 +97,7 @@ export class CustomerUserService {
         locked_until: eb
           .case()
           .when('failed_login_attempts', '>=', MAX_FAILED_ATTEMPTS - 1)
-          .then(lockedUntil)
+          .then(eb.fn<Date>('greatest', [eb.ref('locked_until'), eb.val(lockedUntil)]))
           .else(eb.ref('locked_until'))
           .end(),
       }))

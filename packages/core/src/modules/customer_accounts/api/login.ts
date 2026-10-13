@@ -29,6 +29,10 @@ export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth:
 // so account existence cannot be inferred from a timing side channel. Mirrors signup.ts.
 const TIMING_EQUALIZATION_HASH = '$2b$10$.F2A6UHFzk.d8trNdfqt4OLz05Nf3IOuMmN6VJKflhD4.rz.prR8i'
 
+function reportLoginEventError(error: unknown): void {
+  getTelemetryRuntime()?.reportError(error, { module: 'customer_accounts', code: 'customer_accounts.login_event_failed' })
+}
+
 export async function POST(req: Request) {
   let body: unknown
   try {
@@ -78,26 +82,26 @@ export async function POST(req: Request) {
   // conveyed out-of-band (e.g. email), never in the synchronous response.
   if (!user || !user.passwordHash) {
     await bcryptCompare(password, TIMING_EQUALIZATION_HASH)
-    void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'invalid_credentials', tenantId }).catch(() => undefined)
+    void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'invalid_credentials', tenantId }).catch(reportLoginEventError)
     return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
   }
 
   if (!user.isActive) {
     await bcryptCompare(password, TIMING_EQUALIZATION_HASH)
-    void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'inactive', tenantId }).catch(() => undefined)
+    void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'inactive', tenantId }).catch(reportLoginEventError)
     return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
   }
 
   if (customerUserService.checkLockout(user)) {
     await bcryptCompare(password, TIMING_EQUALIZATION_HASH)
-    void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'locked', tenantId }).catch(() => undefined)
+    void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'locked', tenantId }).catch(reportLoginEventError)
     return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
   }
 
   const passwordValid = await customerUserService.verifyPassword(user, password)
   if (!passwordValid) {
     await customerUserService.incrementFailedAttempts(user)
-    void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'invalid_password', tenantId }).catch(() => undefined)
+    void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'invalid_password', tenantId }).catch(reportLoginEventError)
     return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
   }
 
@@ -106,14 +110,12 @@ export async function POST(req: Request) {
       email,
       reason: 'email_not_verified',
       tenantId,
-    }).catch(() => undefined)
+    }).catch(reportLoginEventError)
     return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
   }
 
   if (!(await customerUserService.resetFailedAttemptsUnlessLocked(user))) {
-    void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'locked', tenantId }).catch((error) => {
-      getTelemetryRuntime()?.reportError(error, { module: 'customer_accounts', code: 'customer_accounts.login_event_failed' })
-    })
+    void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'locked', tenantId }).catch(reportLoginEventError)
     return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
   }
   await customerUserService.updateLastLoginAt(user)
@@ -136,7 +138,7 @@ export async function POST(req: Request) {
     email: user.email,
     tenantId,
     organizationId: user.organizationId,
-  }).catch(() => undefined)
+  }).catch(reportLoginEventError)
 
   const res = NextResponse.json({
     ok: true,
