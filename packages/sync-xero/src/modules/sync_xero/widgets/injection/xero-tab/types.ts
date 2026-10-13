@@ -1,12 +1,15 @@
 import type { XeroGrantView } from '../../../lib/connection-status'
+import type { XeroScheduleView } from '../../../lib/schedules'
 
 export type XeroConnectionView = {
   redirectUri: string | null
   baseUrlMissing: boolean
   configured: boolean
   canManage: boolean
+  canConfigureSchedules: boolean
   seamActive: boolean
   grant: XeroGrantView
+  schedules: XeroScheduleView[]
 }
 
 export type XeroOrganisationChoice = {

@@ -69,7 +69,9 @@ function connectionView(overrides: Partial<XeroConnectionView> = {}, grant: Part
     baseUrlMissing: false,
     configured: true,
     canManage: true,
+    canConfigureSchedules: true,
     seamActive: false,
+    schedules: [{ entityType: 'xero.contacts', exists: true, isEnabled: true, fullSync: false, scheduleValue: '1h' }],
     ...overrides,
     grant: {
       status: 'active',
@@ -338,5 +340,123 @@ describe('Xero tab', () => {
     const dialog = await screen.findByTestId('sync-xero-disconnect-dialog')
     fireEvent.click(within(dialog).getByRole('button', { name: enDict['sync_xero.disconnect.confirm'] }))
     await waitFor(() => expect(mockFlash).toHaveBeenCalledWith('Some follow-up steps failed: disabling the integration.', 'warning'))
+  })
+
+  it('creates the missing default schedule from the tab', async () => {
+    serve(connectionView({ schedules: [{ entityType: 'xero.contacts', exists: false, isEnabled: false, fullSync: false, scheduleValue: null }] }))
+    mockApiCallOrThrow.mockResolvedValue({ ok: true, status: 200, result: { schedules: [] } })
+    renderTab({ state: { isEnabled: true } })
+    expect(await screen.findByText(enDict['sync_xero.schedules.missing'])).toBeTruthy()
+    expect(screen.getByText("Nothing keeps Open Mercato's Xero access alive: Xero ends it in 60 days without a sync.")).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: enDict['sync_xero.schedules.create'] }))
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalledWith('/api/sync_xero/schedules', { method: 'POST' }))
+    await waitFor(() => expect(mockFlash).toHaveBeenCalledWith(enDict['sync_xero.schedules.created'], 'success'))
+  })
+
+  it('disables Create default schedule without data_sync.configure', async () => {
+    serve(connectionView({ canConfigureSchedules: false, schedules: [{ entityType: 'xero.contacts', exists: false, isEnabled: false, fullSync: false, scheduleValue: null }] }))
+    renderTab()
+    const button = await screen.findByRole('button', { name: enDict['sync_xero.schedules.create'] })
+    expect((button as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('warns that a paused integration lets Xero end the access, with the days left', async () => {
+    serve(connectionView({}, { refreshExpiresInDays: 12 }))
+    renderTab({ state: { isEnabled: false } })
+    expect(await screen.findByText('Syncing is paused, so Open Mercato does not renew its Xero access: Xero will require a Reconnect in 12 days.')).toBeTruthy()
+    expect(screen.getByText('Every 1h')).toBeTruthy()
+  })
+
+  it('says the access has probably expired once the days run out', async () => {
+    serve(connectionView({}, { refreshExpiresInDays: -3 }))
+    renderTab({ state: { isEnabled: false } })
+    expect(await screen.findByText(enDict['sync_xero.schedules.expired'])).toBeTruthy()
+  })
+
+  it('warns about a schedule with full sync on and shows no keep-alive warning for an enabled one', async () => {
+    serve(connectionView({ schedules: [{ entityType: 'xero.contacts', exists: true, isEnabled: true, fullSync: true, scheduleValue: '1h' }] }))
+    renderTab({ state: { isEnabled: true } })
+    expect(await screen.findByText(enDict['sync_xero.schedules.fullSyncWarning'])).toBeTruthy()
+    expect(screen.queryByText(/Nothing keeps Open Mercato/)).toBeNull()
+  })
+
+  it('flashes a failed Connect start and enables Connect again', async () => {
+    serve(connectionView({}, { status: 'none', connectionState: 'not_connected', organisation: null }))
+    mockApiCallOrThrow.mockRejectedValue('network down')
+    renderTab()
+    const connect = await screen.findByRole('button', { name: enDict['sync_xero.tab.connect'] })
+    fireEvent.click(connect)
+    await waitFor(() => expect(mockFlash).toHaveBeenCalledWith(enDict['sync_xero.tab.connectFailed'], 'error'))
+    expect(mockNavigate).not.toHaveBeenCalled()
+    await waitFor(() => expect((connect as HTMLButtonElement).disabled).toBe(false))
+  })
+
+  it('keeps Connect disabled while the browser leaves for Xero', async () => {
+    serve(connectionView({}, { status: 'none', connectionState: 'not_connected', organisation: null }))
+    mockApiCallOrThrow.mockResolvedValue({ ok: true, status: 200, result: { authorizeUrl: 'https://login.xero.com/identity/connect/authorize?x=1' } })
+    renderTab()
+    const connect = await screen.findByRole('button', { name: enDict['sync_xero.tab.connect'] })
+    fireEvent.click(connect)
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledTimes(1))
+    expect((connect as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('shows the load error with a retry that loads the connection again', async () => {
+    let fail = true
+    mockApiCall.mockImplementation(async (url: string) => {
+      if (url === '/api/sync_xero/connection') return fail ? { ok: false, status: 503, result: null } : { ok: true, status: 200, result: connectionView() }
+      return { ok: false, status: 404, result: null }
+    })
+    renderTab()
+    expect(await screen.findByText(enDict['sync_xero.tab.loadFailed'])).toBeTruthy()
+    fail = false
+    fireEvent.click(screen.getByRole('button', { name: enDict['sync_xero.tab.retry'] }))
+    expect((await screen.findByTestId('sync-xero-tab')).getAttribute('data-state')).toBe('connected')
+  })
+
+  it('shows the picker load error', async () => {
+    mockApiCall.mockImplementation(async (url: string) => {
+      if (url === '/api/sync_xero/connection') return { ok: true, status: 200, result: connectionView({}, { organisation: null }) }
+      return { ok: false, status: 503, result: null }
+    })
+    renderTab()
+    fireEvent.click(await screen.findByRole('button', { name: enDict['sync_xero.tab.chooseOrganisation'] }))
+    expect(await screen.findByText(enDict['sync_xero.picker.loadFailed'])).toBeTruthy()
+  })
+
+  it('closes the picker and reloads the tab on an optimistic-lock conflict', async () => {
+    serve(connectionView({}, { organisation: null }))
+    mockApiCallOrThrow.mockRejectedValue(Object.assign(new Error('Record changed'), { status: 409, code: 'optimistic_lock_conflict' }))
+    renderTab()
+    fireEvent.click(await screen.findByRole('button', { name: enDict['sync_xero.tab.chooseOrganisation'] }))
+    fireEvent.click(await screen.findByLabelText('Second Ltd'))
+    const fetchesBefore = mockApiCall.mock.calls.filter(([url]) => url === '/api/sync_xero/connection').length
+    fireEvent.click(screen.getByRole('button', { name: enDict['sync_xero.picker.save'] }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: enDict['sync_xero.picker.save'] })).toBeNull())
+    await waitFor(() => expect(mockApiCall.mock.calls.filter(([url]) => url === '/api/sync_xero/connection').length).toBeGreaterThan(fetchesBefore))
+    expect(mockFlash).not.toHaveBeenCalledWith(expect.anything(), 'error')
+  })
+
+  it('closes the disconnect dialog and reloads the tab on an optimistic-lock conflict', async () => {
+    serve(connectionView(), { ...organisations, selected: XERO_ORG_A })
+    mockApiCallOrThrow.mockRejectedValue(Object.assign(new Error('Record changed'), { status: 409, code: 'optimistic_lock_conflict' }))
+    renderTab()
+    fireEvent.click(await screen.findByRole('button', { name: enDict['sync_xero.disconnect.open'] }))
+    const dialog = await screen.findByTestId('sync-xero-disconnect-dialog')
+    const fetchesBefore = mockApiCall.mock.calls.filter(([url]) => url === '/api/sync_xero/connection').length
+    fireEvent.click(within(dialog).getByRole('button', { name: enDict['sync_xero.disconnect.confirm'] }))
+    await waitFor(() => expect(screen.queryByTestId('sync-xero-disconnect-dialog')).toBeNull())
+    await waitFor(() => expect(mockApiCall.mock.calls.filter(([url]) => url === '/api/sync_xero/connection').length).toBeGreaterThan(fetchesBefore))
+    expect(mockFlash).not.toHaveBeenCalledWith(expect.anything(), 'error')
+  })
+
+  it('shows the callback result only once when the effect runs again for the same URL', async () => {
+    mockSearch = 'tab=xero&xeroResult=connected'
+    serve(connectionView())
+    const { rerender } = renderTab()
+    await waitFor(() => expect(mockFlash).toHaveBeenCalledWith(enDict['sync_xero.result.connected'], 'success'))
+    rerender(<XeroTabWidget context={{ integrationId: 'sync_xero', refresh: 1 }} />)
+    await screen.findByTestId('sync-xero-tab')
+    expect(mockFlash.mock.calls.filter(([message]) => message === enDict['sync_xero.result.connected'])).toHaveLength(1)
   })
 })

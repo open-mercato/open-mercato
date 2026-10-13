@@ -14,6 +14,7 @@ async function expectTabState(page: Page, state: string): Promise<void> {
 /**
  * TC-XERO-001: a consent round with two Organisations leaves the Account pending, the picker saves
  * one, and Disconnect warns about the other Organisation before ending the connection.
+ * The save creates the hourly xero.contacts schedule.
  * Paths: initiate, callback, organisations, PUT organisation, connection, disconnect, the Xero tab.
  */
 test.describe('TC-XERO-001: Connect with two Organisations, choose one, then Disconnect', () => {
@@ -42,9 +43,9 @@ test.describe('TC-XERO-001: Connect with two Organisations, choose one, then Dis
     await expect(page.getByText('Test mode: this organization talks to the Xero test fakes, not to Xero.')).toBeVisible()
 
     await page.getByRole('button', { name: 'Connect to Xero' }).click()
-    await page.waitForURL(/\/backend\/integrations\/sync_xero/, { timeout: 30_000 })
+    await page.waitForURL(/\/backend\/integrations\/sync_xero\?.*xeroResult=/, { timeout: 30_000 })
     await expectTabState(page, 'account_pending')
-    await expect(page).not.toHaveURL(/xeroResult=/)
+    await expect(page).not.toHaveURL(/xeroResult=/, { timeout: 30_000 })
 
     await page.getByRole('button', { name: 'Choose Organisation' }).click()
     const picker = page.getByTestId('sync-xero-organisation-picker')
@@ -52,6 +53,7 @@ test.describe('TC-XERO-001: Connect with two Organisations, choose one, then Dis
     await picker.getByRole('button', { name: 'Save' }).click()
     await expectTabState(page, 'connected')
     await expect(page.getByText('Connected to the Xero Organisation Second Ltd.')).toBeVisible()
+    await expect(page.getByTestId('sync-xero-schedules').getByText('Every 1h')).toBeVisible()
 
     await page.getByRole('button', { name: 'Disconnect' }).click()
     const dialog = page.getByTestId('sync-xero-disconnect-dialog')

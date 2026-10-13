@@ -45,6 +45,14 @@ Open Mercato requests read-only access to Contacts and Invoices (`accounting.con
 
 Every Xero login has a **Demo Company** with sample contacts and invoices. Register the app with `APP_URL=http://localhost:3000` (or your local port), connect, and choose the Demo Company in Xero's consent screen. Nothing you do there touches real financial data.
 
+## Schedules and Xero's 60-day limit
+
+When the Organisation is saved, Open Mercato creates an hourly incremental schedule for Contacts, unless one exists already, also for a user without `data_sync.configure`: the schedule is what keeps the Xero connection alive. An existing schedule is never changed, and a `data_sync.schedule` mutation guard can still block the creation. Enable the integration to let it run. The Xero tab lists the schedule and offers **Create default schedule** when it is missing; that button needs `data_sync.configure`.
+
+Xero ends a connection that is not used for 60 days. Every sync renews it, so an enabled integration with its schedule never reaches the limit. When syncing is paused or no schedule is enabled, the Xero tab shows how many days are left before Xero requires a Reconnect.
+
+Keep **Run scheduled jobs as full sync** off: a full sync reads every contact on each run and cannot resume a run that Xero's daily limit interrupts. To re-read everything once, start a single run with **Run as full sync** from **Sync Runs**.
+
 ## Daily limits
 
 Xero limits each Organisation to 60 calls a minute and to a daily number of calls set by your Xero app's pricing tier: **1,000 a day** for a new app (Starter tier) and 5,000 on Core. One run reads up to 1,000 Contacts per call, so an hourly sync of a typical Organisation uses a few dozen calls a day. When the daily limit is reached, the run stops quietly and the next run continues where it left off.

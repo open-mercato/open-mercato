@@ -18,6 +18,7 @@ import { DisconnectDialog } from './DisconnectDialog'
 import { navigateToXero } from './navigation'
 import { OrganisationPicker, type SaveOrganisationInput } from './OrganisationPicker'
 import { RedirectUriField } from './RedirectUriField'
+import { ScheduleStatus } from './ScheduleStatus'
 import { asXeroHttpError, type XeroTabContext } from './types'
 import { useXeroConnection } from './useXeroConnection'
 import { useXeroDisconnect } from './useXeroDisconnect'
@@ -44,6 +45,7 @@ export default function XeroTabWidget({ context }: InjectionWidgetComponentProps
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [picker, setPicker] = React.useState<PickerState>({ open: false, scope: 'consent' })
   const [isStarting, setIsStarting] = React.useState(false)
+  const [isCreatingSchedules, setIsCreatingSchedules] = React.useState(false)
   useXeroResultFlash(reload)
 
   const mutationContext = React.useCallback(
@@ -69,10 +71,13 @@ export default function XeroTabWidget({ context }: InjectionWidgetComponentProps
           context: mutationContext(replaceUnreadable ? 'replace-unreadable' : 'connect'),
           mutationPayload: { replaceUnreadable },
         })
-        if (call.result?.authorizeUrl) navigateToXero(call.result.authorizeUrl)
+        if (call.result?.authorizeUrl) {
+          navigateToXero(call.result.authorizeUrl)
+          return
+        }
+        setIsStarting(false)
       } catch (error) {
         flash(asXeroHttpError(error)?.message ?? t('sync_xero.tab.connectFailed'), 'error')
-      } finally {
         setIsStarting(false)
       }
     },
@@ -106,6 +111,23 @@ export default function XeroTabWidget({ context }: InjectionWidgetComponentProps
     },
     [connection?.grant.revisedAt, mutationContext, runMutation],
   )
+
+  const createDefaultSchedules = React.useCallback(async () => {
+    setIsCreatingSchedules(true)
+    try {
+      await runMutation({
+        operation: () => apiCallOrThrow('/api/sync_xero/schedules', { method: 'POST' }),
+        context: mutationContext('create-default-schedules', 'update'),
+        mutationPayload: {},
+      })
+      flash(t('sync_xero.schedules.created'), 'success')
+    } catch (error) {
+      flash(asXeroHttpError(error)?.message ?? t('sync_xero.schedules.createFailed'), 'error')
+    } finally {
+      setIsCreatingSchedules(false)
+      await reload()
+    }
+  }, [mutationContext, reload, runMutation, t])
 
   const disconnect = useXeroDisconnect({
     revisedAt: connection?.grant.revisedAt ?? null,
@@ -162,6 +184,14 @@ export default function XeroTabWidget({ context }: InjectionWidgetComponentProps
           openCredentials: context.setActiveTab ? () => context.setActiveTab?.('credentials') : undefined,
         }}
       />
+      {state === 'connected' ? (
+        <ScheduleStatus
+          connection={connection}
+          integrationEnabled={typeof context.state?.isEnabled === 'boolean' ? context.state.isEnabled : null}
+          isCreating={isCreatingSchedules}
+          onCreateDefaults={() => void createDefaultSchedules()}
+        />
+      ) : null}
       <OrganisationPicker
         open={picker.open}
         scope={picker.scope}

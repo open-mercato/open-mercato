@@ -38,6 +38,7 @@ import { createXeroDescriptor } from '../../../../lib/descriptor'
 import { resolveXeroEndpoints } from '../../../../lib/endpoints'
 import { autoSelectOrganisation, hasXeroSyncHistory } from '../../../../lib/organisation'
 import { buildXeroGrantOwner, type XeroScope } from '../../../../lib/owner'
+import { ensureDefaultSchedules } from '../../../../lib/schedules'
 import { CREDENTIALS_MANAGE_FEATURE, userHoldsFeatures } from '../../../../lib/route-auth'
 import { clearXeroStateCookie, readXeroStateCookie } from '../../../../lib/state-cookie'
 import { XERO_OPENAPI_TAG } from '../../../openapi'
@@ -184,6 +185,9 @@ async function completeCallback(req: Request): Promise<XeroCallbackResult> {
         },
       }),
     actorUserId: auth.sub,
+    afterSave: async () => {
+      await ensureDefaultSchedules({ container, scope, guard: { req, userId: auth.sub } })
+    },
     reportFailure: (error) => reportCallbackError(error, 'sync_xero.organisation_auto_select_failed'),
   })
 }

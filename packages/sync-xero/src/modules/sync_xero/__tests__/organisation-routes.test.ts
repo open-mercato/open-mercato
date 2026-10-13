@@ -2,6 +2,7 @@
 import { registerMutationGuards } from '@open-mercato/shared/lib/crud/mutation-guard-store'
 import { createFakeGrantService, type FakeGrantService } from './support/fakeGrantService'
 import { createFakeContainer } from './support/fakeContainer'
+import { createFakeScheduleService, type FakeScheduleService } from './support/fakeScheduleService'
 import { startStubHttpServer, type StubHttpServer, type StubResponse } from './support/stubHttpServer'
 
 const mockGetAuthFromRequest = jest.fn()
@@ -40,6 +41,7 @@ jest.mock('../lib/endpoints', () => ({
 import { GET as getConnection, metadata as connectionMetadata } from '../api/get/connection/route'
 import { GET as getOrganisations } from '../api/get/organisations/route'
 import { PUT as putOrganisation } from '../api/put/organisation/route'
+import { POST as postSchedules, metadata as schedulesMetadata } from '../api/post/schedules/route'
 
 const APP_ORIGIN = 'http://localhost:3000'
 const USER_ID = 'user-1'
@@ -66,6 +68,7 @@ let connectionsHandler: (query: URLSearchParams) => StubResponse
 let grants: FakeGrantService
 let features: Set<string>
 let mappingRows: Array<{ prefix: string; entity_type: string; total: number }>
+let schedules: FakeScheduleService
 let cursorRows: Array<{ cursor: string | null }>
 const savedEnv = { ...process.env }
 
@@ -90,6 +93,8 @@ function buildContainer() {
       count: async () => 0,
       getConnection: () => ({ execute: async () => mappingRows }),
     },
+    dataSyncScheduleService: schedules,
+    integrationLogService: { write: async () => undefined },
   })
 }
 
@@ -122,8 +127,9 @@ beforeEach(() => {
   delete process.env.APP_URL
   registerMutationGuards([])
   grants = createFakeGrantService({ connected: true, providerData: PROVIDER_DATA_A })
-  features = new Set(['integrations.view', 'integrations.credentials.manage'])
+  features = new Set(['integrations.view', 'integrations.credentials.manage', 'data_sync.configure'])
   mappingRows = []
+  schedules = createFakeScheduleService()
   cursorRows = []
   mockFindWithDecryption.mockReset().mockImplementation(async () => cursorRows)
   connectionsHandler = () => ({ status: 200, body: [connection(CONN_A, XERO_ORG_A, 'Demo Company (Global)')] })
@@ -288,10 +294,21 @@ describe('GET /api/sync_xero/organisations', () => {
 })
 
 describe('PUT /api/sync_xero/organisation', () => {
-  it('saves the previous Organisation again without a confirmation', async () => {
+  it('saves the previous Organisation again without a confirmation and creates the default schedule', async () => {
     const response = await putOrganisation(putRequest({ xeroOrganisationId: XERO_ORG_A }, grants.state.revisedAt.toISOString()))
     expect(response.status).toBe(200)
-    expect(await json(response)).toMatchObject({ organisation: { id: XERO_ORG_A, name: 'Demo Company (Global)' } })
+    expect(await json(response)).toMatchObject({
+      organisation: { id: XERO_ORG_A, name: 'Demo Company (Global)' },
+      schedules: [{ entityType: 'xero.contacts', exists: true, isEnabled: true, fullSync: false, scheduleValue: '1h' }],
+    })
+  })
+
+  it('keeps the saved Organisation when the default schedule cannot be created', async () => {
+    schedules.failSaves = true
+    const response = await putOrganisation(putRequest({ xeroOrganisationId: XERO_ORG_A }, grants.state.revisedAt.toISOString()))
+    expect(response.status).toBe(200)
+    expect(await json(response)).toMatchObject({ schedules: [{ entityType: 'xero.contacts', exists: false }] })
+    expect(grants.calls.some((call) => call.method === 'updateProviderData')).toBe(true)
   })
 
   it('answers the core 409 for a stale revision', async () => {
@@ -403,5 +420,49 @@ describe('PUT /api/sync_xero/organisation', () => {
   it('rejects a body that is not a Xero Organisation id', async () => {
     const response = await putOrganisation(putRequest({ xeroOrganisationId: 'not-a-uuid' }))
     expect(response.status).toBe(400)
+  })
+})
+
+describe('POST /api/sync_xero/schedules', () => {
+  it('requires data_sync.configure and integrations.view', async () => {
+    expect(schedulesMetadata.POST.requireFeatures).toEqual(['data_sync.configure', 'integrations.view'])
+    features = new Set(['integrations.view'])
+    expect((await postSchedules(request('/api/sync_xero/schedules', { method: 'POST' }))).status).toBe(403)
+  })
+
+  it('creates the missing default schedule and leaves an existing one alone', async () => {
+    const created = await postSchedules(request('/api/sync_xero/schedules', { method: 'POST' }))
+    expect(created.status).toBe(200)
+    expect(await json(created)).toEqual({ schedules: [{ entityType: 'xero.contacts', exists: true, isEnabled: true, fullSync: false, scheduleValue: '1h' }] })
+    await postSchedules(request('/api/sync_xero/schedules', { method: 'POST' }))
+    expect(schedules.saves).toBe(1)
+  })
+
+  it('answers 503 xero.schedule_create_failed when a schedule cannot be created', async () => {
+    schedules.failSaves = true
+    const response = await postSchedules(request('/api/sync_xero/schedules', { method: 'POST' }))
+    expect(response.status).toBe(503)
+    expect(await json(response)).toMatchObject({ code: 'xero.schedule_create_failed', schedules: [{ entityType: 'xero.contacts', exists: false }] })
+  })
+})
+
+describe('GET /api/sync_xero/connection schedules', () => {
+  it('lists the xero.* schedules and whether the caller may create them', async () => {
+    await schedules.saveSchedule({
+      integrationId: 'sync_xero',
+      entityType: 'xero.contacts',
+      direction: 'import',
+      scheduleType: 'interval',
+      scheduleValue: '1h',
+      timezone: 'UTC',
+      fullSync: true,
+      isEnabled: false,
+    }, { organizationId: ORG_ID, tenantId: TENANT_ID })
+    features = new Set(['integrations.view'])
+    const body = await json(await getConnection(request('/api/sync_xero/connection')))
+    expect(body).toMatchObject({
+      canConfigureSchedules: false,
+      schedules: [{ entityType: 'xero.contacts', exists: true, isEnabled: false, fullSync: true, scheduleValue: '1h' }],
+    })
   })
 })
