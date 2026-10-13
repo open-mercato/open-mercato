@@ -91,6 +91,8 @@
   "posting_rules.settings.field.placeholder": "None",
   "posting_rules.settings.field.unallocatedCostAccount": "Unallocated-cost account",
   "posting_rules.settings.group.details": "Accounts",
+  "posting_rules.settings.hint.noClass4Accounts": "There is no account of class 4 in the chart of accounts. Create the clearing account (490) as an account of an account type in group 4 first.",
+  "posting_rules.settings.hint.noClass5Accounts": "There is no account of class 5 in the chart of accounts. The default chart ships only a few; add the cost-by-function accounts your business needs.",
   "posting_rules.settings.loading": "Loading posting rules settings…",
   "posting_rules.settings.page.title": "Posting rules settings",
   "posting_rules.settings.success.save": "Posting rules settings saved"
