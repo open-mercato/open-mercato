@@ -5,31 +5,42 @@
 document is the future spec it points to), [Posting Rules Engine](https://github.com/open-mercato/open-mercato/pull/6015)
 (first consumer — the 490 engine needs a CostCenter dimension on a
 line — see Design Decisions), [Fixed Assets](https://github.com/open-mercato/open-mercato/pull/6014)
+(second future consumer — Phase 2's `transferAsset` reassigns the
+cost centre (MPK) — see Design Decisions), [Contractor Registry](https://github.com/open-mercato/open-mercato/pull/5955)
+and [Accounts Payable](https://github.com/open-mercato/open-mercato/pull/5962)
+(the counterparty exclusion below rests on both), and the pending
+`.ai/specs/SPEC-024-2026-02-11-financial-module.md` on `develop` (its
+GL sketch puts a `dimensions` map on the journal line — see
+Alternatives Considered)
+, [Fixed Assets](https://github.com/open-mercato/open-mercato/pull/6014)
 (second, independent future consumer — Phase 2's `transferAsset` —
 see Design Decisions)
 
-**Depends on unmerged PRs — updated 2026-09-25.** All three documents
-above are open, unmerged PRs, not files in `.ai/specs/` yet — linked
-by PR number rather than by filename for exactly that reason.
-`ledger` (this module's hard dependency, `requires: ['ledger']`) is
-likewise not yet present under `packages/core/src/modules/`. Posting
-Rules Engine (#6015) and Fixed Assets (#6014) were untracked, no-
-commit-history drafts in this same working tree when this document
-was first reviewed (2026-09-08/09) — both are now real, independently
-reviewed PRs (each already carrying its own maintainer review and
-fixes), so the "untracked draft, take at face value" caveat that used
-to qualify their two-independent-consumers claim no longer applies —
-see Design Decisions and Verdict.
+**Depends on unmerged PRs.** #5663, #6015, #6014, #5955 and #5962 are
+open, unmerged PRs, not files in `.ai/specs/` yet, so they are linked by
+PR number rather than by filename. `ledger` (this module's hard
+dependency, `requires: ['ledger']`) is likewise not yet present under
+`packages/core/src/modules/`. The counterparty exclusion (Design
+Decisions, "Excludes the counterparty") is consistent across this
+document, Contractor Registry and Accounts Payable only as long as #5955
+and #5962 merge with their 2026-09-08 edits intact (counterparty held
+only in `contractorSnapshot`; per-contractor balance in the AP
+subsidiary ledger against one control account); if either changes, that
+section must be re-checked. Once the siblings land on `develop`, swap
+the PR links back to relative filenames.
+
 
 ## TLDR
 
-A dedicated `journal_entry_line_dimension` table that lets **more than
-one** independent dimension (cost centre/project, bank
-account, fixed asset, currency) be attached to a single journal entry
-line — without exploding the chart of accounts into a cartesian
-product of combinations. This document builds only the table, its own
-write command, and a directly-queryable entity for hard-dependency
-consumers to read; no module writes or reads it yet.
+A dedicated `journal_entry_line_dimensions` table that lets a journal
+entry line carry analytical dimensions as separate rows instead of
+through the chart of accounts, without exploding the chart into a
+cartesian product of combinations. The table is shaped for more than one
+independent dimension per line, but Phase 1 ships exactly one type,
+`CostCenter` (cost centre/project); further types are added when a
+consumer that writes them exists. This document builds only the table,
+its own write command, and a directly-queryable entity for
+hard-dependency consumers to read; no module writes or reads it yet.
 
 ## Overview
 
@@ -51,12 +62,14 @@ depending on each other.
 
 ## Problem Statement
 
-A single journal entry line (`JournalEntryLine`) can need **more than
-one** analytical dimension at the same time. Example: a fixed-asset
-purchase invoice line — it needs both a cost centre/department (which
-cost bucket it belongs to, for the 490 engine / Posting Rules Engine)
-and a fixed asset tag (which asset record it capitalizes, for Fixed
-Assets Phase 2). Trying to
+A single journal entry line (`JournalEntryLine`) needs an analytical
+dimension that the chart of accounts cannot carry without exploding.
+Example: a cost line posted for a department needs its cost centre/
+department (which cost bucket it belongs to, for the 490 engine /
+Posting Rules Engine), and a later asset transfer may need to change
+that cost centre (Fixed Assets Phase 2, `transferAsset`). Phase 1 needs
+only this one dimension, but the same line can later need a second,
+independent one at the same time. Trying to
 solve this through the chart-of-accounts hierarchy (`parentAccountId`,
 already in #5663) would explode the number of accounts — a separate
 account for every "department × project × region" combination, which
@@ -71,11 +84,11 @@ the chart-of-accounts structure.
 
 ## Proposed Solution
 
-A new, small, standalone module (`journal_entry_line_dimension`) that
+A new, small, standalone module (`journal_entry_line_dimensions`) that
 owns exactly one entity. Writes go through one Command, scoped to a
-single dimension type at a time so that two independent consumers
-never clobber each other's tags on the same line (see Design
-Decisions, "Writes are scoped per dimension type"). Reads are a direct
+single dimension type at a time, and each consumer tags only lines of
+entries it posted itself (see Design Decisions, "Writes are scoped per
+dimension type" and "Writers and line ownership"). Reads are a direct
 entity query by hard-dependency consumers — real, shipped precedent
 for exactly this shape exists in this codebase (`sales` reading
 `catalog`'s `CatalogProduct` directly, see Design Decisions,
@@ -89,150 +102,137 @@ codebase actually reads across a hard dependency today.
 pair of columns (`dimensionType`/`dimensionId`, analogous to
 `referenceType`/`referenceId` elsewhere in the codebase) would only
 support **one** dimension per line — it cannot solve "cost centre
-*and* fixed asset at the same time." One-to-many structure instead:
+*and* a second dimension at the same time." One-to-many structure instead:
 
 ```typescript
 JournalEntryLineDimension {
   id: uuid
   journalEntryLineId: uuid   // FK-id to ledger.JournalEntryLine
-  dimensionType: string       // 'CostCenter' | 'BankAccount' | 'FixedAsset' | 'Currency'
+  dimensionType: string       // Phase 1: 'CostCenter' (see DIMENSION_TYPES)
   dimensionId: string
+  writer: string              // owning consumer's module id: 'posting_rules' | 'fixed_assets'
   tenantId: uuid
   organizationId: uuid
   createdAt: timestamp
 }
 ```
 
-One line can have several rows in this table — a cost centre and a
-fixed asset at once, with no conflict.
+One line can have several rows in this table — one per dimension type
+(and, for a type that needs it, several values) — so a second dimension
+type later needs no schema change.
 
 **Excludes the counterparty.** The counterparty on a journal entry
 line is already handled by `contractorSnapshot: json` (nullable)
-directly on `JournalEntryLine` (see `2026-09-06-contractor-registry.md`;
-`json`, not `jsonb` — #5663's own Design Decisions specify `json`
-explicitly, and an earlier draft of this document mistyped it as
-`jsonb`, the identical mistake `contractor-registry.md` already caught
-and fixed in itself the day before — corrected here) — for audit
+directly on `JournalEntryLine` (see Contractor Registry, #5955;
+`json`, not `jsonb`, per #5663's Design Decisions) — for audit
 reasons (a snapshot at posting time, not a live reference). This table
-handles the remaining dimensions: cost centre/project, bank account,
-fixed asset, currency. This table
+handles the remaining dimensions, of which Phase 1 ships only the cost
+centre/project. This table
 is not the place to compute a per-contractor running balance — that
 lives in `accounts_payable`'s own subsidiary-ledger-shaped tables
 (`VendorInvoice` and `accounts_payable_payments`, both keyed by
 `vendorId`), reconciled against the single shared control account
 (`accounts_payable.liabilityAccountId`; see
-`2026-09-06-accounts-payable.md`, Design decisions).
+Accounts Payable, #5962, Design decisions).
 `contractorSnapshot` here is audit-only (a point-in-time copy), not a
 queryable balance mechanism.
 
-**Why this is a separate document from Posting Rules Engine, and why
-that split is now justified differently than an earlier draft claimed
-(2026-09-08, this review round).** An earlier draft of this section
-justified the split by citing #5663's Out of Scope section as already
-treating the dimension table as a separate concern from the engine
-that uses it. That citation was checked directly against #5663's real
-text and found to be wrong: #5663 says the table "ships together with
-the posting-rules/konto 490 engine in a future spec, not here" — i.e.
-#5663 anticipated *one* combined future document, not two. The real,
-verified reason to keep this as its own document is different and
-stronger: this table has **more than one independent consumer**.
-#6015 (Posting Rules Engine) consumes it now (the 4→5 engine).
-Separately, #6014 (Fixed Assets, Design Decisions, `transferAsset`)
-already commits its own future Phase 2 to consuming this same table,
-independent of Posting Rules Engine. **Caveat resolved, updated
-2026-09-25**: when this section was first written (2026-09-08/09),
-both #6015 and #6014 were untracked, no-commit-history drafts sitting
-in this same working tree, so the two-consumers claim rested on
-taking them at face value rather than on independently reviewed
-sources. Both have since become real, open PRs, each with its own
-maintainer review round (2026-09-14) and each already carrying its
-own fixes for every finding raised — #6015 and #6014 now confirm the
-two-consumers claim with the same independent weight as the #5663
-check, not less. If this table's entity lived inside the `posting_rules` module, Fixed
-Assets Phase 2 would need a hard dependency on the entire
-`posting_rules` module (its event subscriber, its reconciliation
-sweeper, its fiscal-period guard) just to write one dimension tag it
-has no other use for. A separate, minimal module with no logic of its
-own avoids that coupling for either consumer.
+**Why this is a separate document from Posting Rules Engine.** #5663's
+Out of Scope section says the table "ships together with the
+posting-rules/konto 490 engine in a future spec, not here", so #5663
+anticipated one combined future document and is not the justification
+for a split. The real reason to keep this as its own document is that
+the table has **more than one independent consumer**: #6015 (Posting
+Rules Engine) consumes it now (the 4→5 engine), and #6014 (Fixed
+Assets, Design Decisions, `transferAsset`) commits its Phase 2 to the
+same table independently of Posting Rules Engine. Both are open PRs that
+have been through their own maintainer reviews. If this table's entity
+lived inside the `posting_rules` module, Fixed Assets Phase 2 would need
+a hard dependency on the entire `posting_rules` module (its event
+subscriber, its reconciliation sweeper, its fiscal-period guard) just to
+write one dimension tag it has no other use for. A separate, minimal
+module with no logic of its own avoids that coupling for either
+consumer.
 
 **Cross-module access: a direct entity read for hard-dependency
-consumers, matching real precedent — corrected this round.** An
-earlier draft of this document argued that none of
-`packages/core/AGENTS.md`'s three sanctioned Cross-Module Coupling
-mechanisms (Events, Widget injection/enrichers, FK-id + snapshot)
-fits a hard-dependency backend read, and that a direct `entityManager`
-read across a module boundary is "new, unprecedented coupling" —
-inheriting that characterization from the Accounts Payable Payments
-document's own review, which flagged its own read of
-`accounts_payable.VendorInvoice` as having "zero existing repo
-precedent." **That characterization does not hold up once checked
-against the wider codebase, not just against `ModuleConfigService`
-call sites** (which is what the AP Payments check actually verified).
-Real, shipped counter-example: `sales/commands/documents.ts` (`sales`
-declares `requires: ['catalog', 'customers', 'dictionaries']`) directly
-imports `CatalogProduct`/`CatalogProductUnitConversion` from
+consumers, matching real precedent.** None of `packages/core/AGENTS.md`'s
+three Cross-Module Coupling mechanisms (Events, Widget injection/
+enrichers, FK-id + snapshot) is aimed at a hard-dependency backend read,
+and the codebase already has shipped precedent for a direct entity read
+in that case: `sales/commands/documents.ts` (`sales` declares
+`requires: ['catalog', 'customers', 'dictionaries']`) imports
+`CatalogProduct`/`CatalogProductUnitConversion` from
 `../../catalog/data/entities` and queries them with its own
-`entityManager` via `findOneWithDecryption`/`findWithDecryption` —
-exactly the "hard-dependency module reads another hard-dependency
-module's entity directly" shape this document previously claimed had
-no precedent. Given that real precedent exists, this document adopts
-it directly rather than inventing a "read exposed as a command"
-workaround for a problem the codebase doesn't actually have: hard-
-dependency consumers (`posting_rules`, later `fixed_assets`) import
-`JournalEntryLineDimension` from this module's `data/entities.ts` and
-query it themselves, scoped by `tenantId`/`organizationId`, exactly
-like `sales` does for `CatalogProduct`. This does **not** change how
-*writes* work (see next decision) — root `AGENTS.md`'s Command Side
-Effects rule ("write operations via the Command pattern") is about
-mutation, and nothing in the `sales`/`catalog` precedent shows a
-foreign module writing to another module's entity directly; every
-real write in this codebase still goes through the owning module's own
-command.
+`entityManager` via `findOneWithDecryption`/`findWithDecryption`.
+Hard-dependency consumers (`posting_rules`, later `fixed_assets`)
+therefore import `JournalEntryLineDimension` from this module's
+`data/entities.ts` and query it themselves, scoped by
+`tenantId`/`organizationId`, exactly like `sales` does for
+`CatalogProduct`. This does **not** change how *writes* work (see next
+decision): root `AGENTS.md`'s Command Side Effects rule ("write
+operations via the Command pattern") is about mutation, and nothing in
+the `sales`/`catalog` precedent shows a foreign module writing another
+module's entity directly; every real write in this codebase still goes
+through the owning module's own command.
 
-**Writes are scoped per dimension type, not a full-line replace —
-corrected this round.** An earlier draft of `setJournalEntryLineDimensions`
-replaced *every* dimension row for a line in one call, justified by
-"every real caller has the complete target set in hand." That
-assumption directly contradicts this document's own reason for
-existing: Posting Rules Engine and Fixed Assets Phase 2 are
-independent, decoupled consumers of the same table. If Fixed Assets'
-future `transferAsset` called a full-line replace with only
-`{CostCenter: X}`, it would silently delete a `{FixedAsset: assetId}`
-tag Posting Rules Engine (or anything else) had already set on that
-same line — neither consumer has the other's dimensions "in hand" by
-design. Corrected: the command is
-`setJournalEntryLineDimension(journalEntryLineId, dimensionType,
-dimensionIds: string[])` — replaces only the rows matching that one
-`(journalEntryLineId, dimensionType)` pair, leaving every other
-dimension type on the line untouched. Each consumer owns and replaces
-only the dimension type(s) it's responsible for; two consumers writing
-different types to the same line never collide. `dimensionIds` is an
-array (not a single id) to leave room for a dimension type that
-genuinely needs more than one value per line (none identified yet) —
-the common case (one `CostCenter`, one `FixedAsset`) is simply an
-array of length one; nothing in Phase 1 enforces a maximum, since no
-real case needing a limit has been identified (tracked in Out of
-Scope if one ever does).
+**Writes are scoped per `(line, dimensionType)` pair, not a full-line
+replace.** The command is `setJournalEntryLineDimension(journalEntryLineId,
+dimensionType, dimensionIds: string[])`. It replaces only the rows
+matching that one pair and leaves every other dimension type on the line
+untouched. A full-line replace would make a consumer that tags one type
+delete the tags of another type it knows nothing about, which defeats
+the purpose of independent dimensions. `dimensionIds` is an array to
+leave room for a type that genuinely needs more than one value per line
+(none identified yet); the common case is an array of length one, and
+nothing in Phase 1 enforces a maximum (tracked in Out of Scope). Per-type
+scoping separates *different types* from each other; it does not by
+itself separate two writers of the *same* type — that is the job of the ownership claim below.
 
-**Undo contract, using the real `prepare`/`buildLog`/`undo` hooks —
-corrected this round.** An earlier draft cited a `captureBefore` hook
-as "the real pattern already used in `customers/commands/people.ts`."
-Checked directly against `packages/shared/src/lib/commands/types.ts`
-and against `people.ts` itself: no `captureBefore` hook exists
-anywhere in the codebase (a repo-wide grep returns zero matches); the
-real `CommandHandler` interface defines `prepare?(input, ctx):
-Promise<{ before?: unknown } | null>`, called by the command bus
-before `execute()` runs, and `people.ts`'s own update command uses
-exactly that — `async prepare(rawInput, ctx) { ...; return snapshot ?
-{ before: snapshot } : {} }`. Corrected:
-`setJournalEntryLineDimension`'s `prepare()` loads the line's current
-rows for that one `(journalEntryLineId, dimensionType)` pair before
-the replace and returns `{ before: existingRows }`; `buildLog` records
-`payload: { undo: { before, after } }` (mirroring the real
-`snapshotBefore`/`snapshotAfter` shape); `undo` reads
-`extractUndoPayload` and restores exactly the `before` rows for that
-type (delete the current rows for that type, reinsert `before`). Every
-write is content-idempotent (calling it twice with the same
+**Writers and line ownership.** The writer map, checked against the
+current heads of the sibling documents:
+
+| Dimension type | Writer (`writer` value) | Source |
+|----------------|-------------------------|--------|
+| `CostCenter` | Posting Rules Engine, `posting_rules` (tags the zespół 5 line of the reclassification entry it posts), Phase 1 | #6015 |
+| `CostCenter` | Fixed Assets, `fixed_assets` (`transferAsset`, MPK reassignment), Phase 2 | #6014 |
+| `CostCenter` | Accounts Payable — not a writer today; #6015 only reads tags "entered manually in AP, once that field exists" | #6015 |
+| `BankAccount`, `FixedAsset`, `Currency` | none — not shipped | — |
+
+Two consumers write the same type, so per-type scoping alone does not
+separate them: a `transferAsset` that re-tagged a line already tagged by
+Posting Rules would replace that tag with no conflict policy and no
+error. The module therefore enforces ownership of each `(line,
+dimensionType)` pair. Every row carries `writer`, the module id of the
+consumer (a closed set, `DIMENSION_WRITERS = ['posting_rules',
+'fixed_assets']`), and the command rejects a write when rows for that
+pair already exist with a different `writer`. The first writer to tag a
+pair owns it; the owner replaces its own rows freely; any other writer
+gets an error instead of silently replacing the tag. Consumers tag lines
+of entries they posted themselves, so claims never collide in normal
+operation and a violation fails loudly. `writer` is declared by the
+in-process caller (the command has no HTTP surface), so it guards
+against accidental overwrite between trusted modules, not against a
+hostile caller. A change of cost centre on a pair owned by another
+writer, or after the period is closed, is a correcting entry with its
+own tags, not a re-tag.
+
+**Undo contract, using the real `prepare`/`buildLog`/`undo` hooks.**
+The command bus calls `prepare?(input, ctx): Promise<{ before?: unknown }
+| null>` before `execute()` runs (`packages/shared/src/lib/commands/
+types.ts`), and `customers/commands/people.ts`'s update command uses
+exactly that: `async prepare(rawInput, ctx) { ...; return snapshot ? {
+before: snapshot } : {} }`. `setJournalEntryLineDimension`'s `prepare()`
+loads the line's current rows for the one `(journalEntryLineId,
+dimensionType)` pair before the replace and returns `{ before:
+existingRows }`; `buildLog` records `payload: { undo: { before, after }
+}` (mirroring the real `snapshotBefore`/`snapshotAfter` shape); `undo`
+reads `extractUndoPayload` and restores exactly the `before` rows for
+that type (delete the current rows for that type, reinsert `before`). It
+must read the payload through `extractUndoPayload(logEntry)`: reading
+`logEntry.payload` directly is always `undefined` and silently turns the
+undo into a no-op (`packages/shared/src/lib/commands/types.ts`, issue
+#2504). `undo` runs the same line and locked-period checks as `execute`.
+Every write is content-idempotent (calling it twice with the same
 `dimensionIds` array leaves the same rows in place, modulo fresh
 `id`/`createdAt` on the reinsert — see Testing Strategy) but not
 row-identity-idempotent: nothing today reads a dimension row's own
@@ -242,7 +242,7 @@ row-identity-idempotent: nothing today reads a dimension row's own
 yet — Posting Rules Engine calls `setJournalEntryLineDimension`
 synchronously as part of its own reclassification flow and needs no
 notification. Adding
-`journal_entry_line_dimension.line_dimension_set` now, with zero
+`journal_entry_line_dimensions.line_dimension_set` now, with zero
 subscribers, would be speculative (YAGNI, same reasoning already used
 elsewhere in this document family for cross-organization sharing and
 async contractor verification). Revisit if a real asynchronous
@@ -259,53 +259,52 @@ once a real admin need appears (e.g. "show me every line tagged with
 cost centre X" as a reporting screen) — tracked in Out of Scope.
 
 **No encryption.ts.** Neither `dimensionType` (a closed enum-like
-string) nor `dimensionId` (a UUID reference to another entity) is
+string) nor `dimensionId` (an opaque reference to another entity's id) is
 PII or GDPR-sensitive on its own — the sensitive data those ids point
 to (a specific contractor's bank account, say) already has its own
 encryption map in the module that owns it. This table stores only
 references.
 
-**Zod validation on the write command's input — added this round.**
-An earlier draft specified no input schema anywhere for
-`setJournalEntryLineDimension`, missing root `AGENTS.md`'s "Validate
-all inputs with zod; place validators in `data/validators.ts`" rule —
-a rule that applies to command inputs generally, not only HTTP API
-routes (real precedent: `sales/commands/documents.ts` defines
-`z.object({...})` schemas directly for its own custom, non-CRUD
+**Zod validation on the write command's input.** Root `AGENTS.md`
+requires "validate all inputs with zod; place validators in
+`data/validators.ts`", and the rule applies to command inputs generally,
+not only HTTP routes (real precedent: `sales/commands/documents.ts`
+defines `z.object({...})` schemas directly for its own custom, non-CRUD
 commands, e.g. `quoteConvertToOrderSchema`).
 
-**Corrected this round — closed enum, not `z.string().min(1)`.** An
-earlier draft validated `dimensionType` as any non-empty string, which
-would accept a typo'd or made-up dimension type at the command
-boundary with no error until a consumer's read silently found nothing.
-Corrected: `data/validators.ts` exports a module-owned constant
-`DIMENSION_TYPES = ['CostCenter', 'BankAccount', 'FixedAsset',
-'Currency'] as const` (the same four values already listed in Data
-Models) and validates against it with `z.enum(DIMENSION_TYPES)`. The
-`dimension_type` database column itself stays `text`, not a Postgres
-enum — adding a fifth type is still a one-line change to
-`DIMENSION_TYPES` plus a Zod-boundary deploy, not a migration; the
-enum lives at the validation layer, not the schema layer.
+**`dimensionType` is a closed enum, not a free string.**
+`data/validators.ts` exports a module-owned constant
+`DIMENSION_TYPES = ['CostCenter'] as const` and validates against it
+with `z.enum(DIMENSION_TYPES)`, so a typo'd or made-up type fails at the
+command boundary instead of a consumer's read silently finding nothing.
+Phase 1 lists only a type that has a named writer (see "Writers and line
+ownership"); `BankAccount`, `FixedAsset` and `Currency` are added when a
+consumer that writes them exists. `Currency` is not a candidate
+regardless of writers while GL fixes one currency per entry through
+`JournalEntry.currencyId` and stores `amountCurrency` on the line (#5663):
+a line-level currency tag would duplicate, and could contradict, the
+entry header. The `dimension_type` database column itself stays `text`,
+not a Postgres enum — adding a type is a one-line change to
+`DIMENSION_TYPES` plus a validation-layer deploy, not a migration; the enum lives at the validation layer, not the schema layer.
+
+`DIMENSION_WRITERS = ['posting_rules', 'fixed_assets'] as const` is the
+closed set of consumers allowed to own a `(line, dimensionType)` pair
+(see "Writers and line ownership"); a new consumer adds its module id
+there, a validation-layer change like adding a dimension type.
 
 `data/validators.ts` declares
 `setJournalEntryLineDimensionSchema = z.object({ journalEntryLineId:
-z.string().uuid(), dimensionType: z.enum(DIMENSION_TYPES),
-dimensionIds: z.array(z.string().min(1)).min(1) }).refine((v) => new
+z.string().uuid(), dimensionType: z.enum(DIMENSION_TYPES), writer: z.enum(DIMENSION_WRITERS), dimensionIds: z.array(z.string().min(1)).min(1) }).refine((v) => new
 Set(v.dimensionIds).size === v.dimensionIds.length, { message:
-'dimensionIds must not contain duplicates', path: ['dimensionIds'] })`
-— **corrected, m3**: `dimensionIds` dropped `.uuid()` (was
-`z.array(z.string().uuid())`) because `'Currency'`, the one advertised
-dimension type with a real, shipped target entity, is identified by
-ISO code in this codebase (`currencies/data/entities.ts`,
-`sales/data/entities.ts`), not a uuid — a `.uuid()` validator would
-have rejected every currency dimension at the boundary. `dimension_id`
-(Data Models) is `text`, not `uuid`, for the same reason; already
-described as an opaque reference "resolved by the caller, not by this
-table" (Data Models), so widening its type costs nothing. The
-`.refine()` was added this round so a caller passing the same id
-twice in one call fails validation instead of relying on the
-database's `ON CONFLICT DO NOTHING` to silently absorb it. The
-command's `execute` parses input through it before touching the
+'dimensionIds must not contain duplicates', path: ['dimensionIds'] })`.
+`dimensionIds` is validated as a non-empty string, not `.uuid()`:
+`dimension_id` is stored as `text` and treated as an opaque reference
+resolved by the caller (Phase 1's `CostCenter` ids are uuids, but a
+later type need not be, and widening the column later would be a
+migration). The `.refine()` makes a caller passing the same id twice in
+one call fail validation instead of relying on the database's
+`ON CONFLICT DO NOTHING` to silently absorb it. The command's `execute`
+parses input through it before touching the
 database.
 
 ## Alternatives Considered
@@ -313,23 +312,20 @@ database.
 | Alternative | Why Rejected |
 |-------------|-------------|
 | A single `dimensionType`/`dimensionId` pair directly on `JournalEntryLine` | Cannot represent more than one dimension per line (the whole reason this table exists) |
-| Build this table as part of `2026-09-06-posting-rules-engine.md` (one combined document) | Rejected 2026-09-08 after checking #5663's real text and Fixed Assets' own Phase 2 plans — see Design Decisions, "Why this is a separate document" |
-| Full-line replace (`setJournalEntryLineDimensions`, replacing every dimension type on a line in one call) | Rejected this round: silently drops another independent consumer's dimensions on the same line — see Design Decisions, "Writes are scoped per dimension type" |
-| Expose reads as a `commandBus` command (`getJournalEntryLineDimensions`) | Rejected this round: real precedent (`sales` reading `catalog`'s `CatalogProduct` directly) already covers a hard-dependency direct entity read; wrapping it as a command solves a problem this codebase doesn't actually have — see Design Decisions, "Cross-module access" |
+| Build this table as part of the Posting Rules Engine document (#6015, one combined document) | Rejected 2026-09-08 after checking #5663's real text and Fixed Assets' own Phase 2 plans — see Design Decisions, "Why this is a separate document" |
+| Full-line replace (`setJournalEntryLineDimensions`, replacing every dimension type on a line in one call) | Rejected: silently drops another independent consumer's dimensions on the same line — see Design Decisions, "Writes are scoped per dimension type" |
+| Expose reads as a `commandBus` command (`getJournalEntryLineDimensions`) | Rejected: real precedent (`sales` reading `catalog`'s `CatalogProduct` directly) already covers a hard-dependency direct entity read; wrapping it as a command solves a problem this codebase doesn't actually have — see Design Decisions, "Cross-module access" |
+| A `dimensions: Record<string, string>` map and `costCenterId` column on `JournalEntryLine` (the GL sketch in `.ai/specs/SPEC-024-2026-02-11-financial-module.md`, pending on `develop`) | Rejected. A map answers the "several dimensions per line" objection that rules out the single `dimensionType`/`dimensionId` pair, but #5663 makes `JournalEntryLine` append-only and immutable once posted, and consumers tag lines *after* the entry is posted (Posting Rules tags the line of the reclassification entry it posts; `transferAsset` re-tags later). A column or map on an immutable line cannot be written afterwards, so tags need their own table with their own lifecycle. A separate table also keeps each dimension type's replace and undo scoped, which one map rewritten as a whole would not. #5663 points to this document for that divergence rationale. The tag-after-post flow is as specified in #6015 (it posts through `ledger.postJournalEntry` and, on success, tags the new line) and #6014 (`transferAsset` re-tags posted lines in Phase 2). |
+| A `writer` column that lets several consumers write the *same* `(line, dimensionType)` side by side | Rejected: two cost centres on one line is ambiguous for every report that cuts by cost centre. `writer` is used instead as an ownership claim: one writer per `(line, dimensionType)`, other writers rejected (see Design Decisions, "Writers and line ownership") |
 | Direct `entityManager` write from a consumer module against this module's entity | Never seriously considered: every real write in this document family goes through the owning module's own Command (undo, validation, transaction discipline live there) — no precedent anywhere for a foreign module writing another module's entity directly |
 
 ## Literature & Prior Art
 
-Per the project's financial-spec-writing-process, this section grounds
-this document's multi-dimensional tagging design against Fowler and
-Hay and adds the real-system comparison this document has never had.
-Two citations already sit in
-`financial-module-knowledge-base.md` §3/§4 under this document's own
-heading — re-verified here against the full extracted text rather than
-taken at the knowledge base's own word, per financial-spec-citation-check
-— plus one citation that pass never found. All page numbers verified
-against the full-text extraction; see `financial-module-knowledge-base.md`
-§3 for the verification method.
+This section grounds this document's multi-dimensional tagging design
+against Fowler and Hay and adds a real-system comparison. Citations were
+checked against the full extracted text of each book rather than against
+chapter or figure titles, and the page numbers below are from that
+extraction.
 
 **Fowler's Booking Entries to Multiple Accounts (§6.15, pp.127-131) is
 the strongest match found in either book — confirmed, and precisely
@@ -353,23 +349,22 @@ postable account at all. Fowler's own closing line states the exact
 tradeoff this document made explicitly: "whenever we are trying to
 represent an aspect of an entry, we have a choice between an attribute
 of the entry or a new account level... If it is simply the reporting
-side, we can use an attribute." `journal_entry_line_dimension` is
+side, we can use an attribute." `journal_entry_line_dimensions` is
 precisely that attribute-based path, generalized to more than one
 simultaneous attribute per line — the closest structural match to this
 document's design found anywhere in either book.
 
 **Hay's Cost Center Assignment (Figure 7.19 "Allocating Expenses,"
-pp.150-151) is a new find — not previously in the knowledge base under
-this document's own entry, and a more precise match than the 7.21
-citation already there for the `CostCenter` dimension type this
+pp.150-151) is a closer match than the 7.21
+citation below for the `CostCenter` dimension type this
 document names literally.** Hay models a COST CENTER ASSIGNMENT that
 can be "of" a broad, open-ended set of entities — an internal
 organization, work centre, piece of equipment or product, a project,
 or "(something else)" — explicitly because "the possibilities for
 allocating expenses are so broad, COST CENTER could refer to virtually
 anything in the organization." That open "(something else)" is what
-this document's own `DIMENSION_TYPES` enum enumerates concretely
-(`CostCenter`, `BankAccount`, `FixedAsset`, `Currency`) instead of
+this document's own `DIMENSION_TYPES` enum bounds explicitly (Phase 1:
+`CostCenter` only; further types as writers appear) instead of
 leaving unbounded — worth naming precisely, not just as a match: Hay's
 assignment is anchored on the EXPENSE ACCOUNT ("each EXPENSE ACCOUNT
 must be for a COST CENTER" — an account-level tag), while this
@@ -380,21 +375,20 @@ several co-occurring ones; for that broader claim, Fowler's §6.15
 above remains the closer match.
 
 **Hay's Account Categories and Structure (Figure 7.21, pp.153-154) —
-corrected here on completeness, not accuracy.** The knowledge base's
-own existing note describes 7.21 only as "a simple hierarchical
-account roll-up," which is incomplete: the figure actually shows two
-distinct mechanisms. The "pig's ear" roll-up (an ACCOUNT that is "part
-of" another ACCOUNT) is the single-parent hierarchy the earlier note
-described, and Hay explicitly notes that generalizing it to a DAG
+two mechanisms, not only a roll-up.** Describing 7.21 only as "a
+simple hierarchical account roll-up" is incomplete: the figure shows
+two distinct mechanisms. The "pig's ear" roll-up (an ACCOUNT that is "part
+of" another ACCOUNT) is the single-parent hierarchy that description
+suggests, and Hay explicitly notes that generalizing it to a DAG
 ("replace the loop with a 'structure' entity") "would be extremely
 difficult to administer" — independent confirmation, from a second Hay
-figure, of the same single-parent-over-DAG caution this knowledge base
-already cites elsewhere (Fowler §6.15/Hay's Summarization section) for
+figure, of the same single-parent-over-DAG caution cited
+elsewhere (Fowler §6.15/Hay's Summarization section) for
 `parentAccountId`. But the same figure also shows ACCOUNT CATEGORY /
 ACCOUNT CLASSIFICATION — an explicit many-to-many join ("one ACCOUNT
 may be in more than one ACCOUNT CATEGORY, and one ACCOUNT CATEGORY may
-be a classification for more than one ACCOUNT") the earlier note
-missed entirely. ACCOUNT CLASSIFICATION is real precedent for "more
+be a classification for more than one ACCOUNT") that description
+misses entirely. ACCOUNT CLASSIFICATION is real precedent for "more
 than one independent tag on the same thing at once" — the same shape
 this document's own dimension table has — but, like Hay's COST CENTER
 ASSIGNMENT above, it tags the ACCOUNT, not the individual line. This
@@ -461,19 +455,15 @@ instead.
 ### Entities (`data/entities.ts`)
 
 - `JournalEntryLineDimension` — `journalEntryLineId` (FK-id to
-  `ledger.JournalEntryLine`, no ORM relation), `dimensionType`,
-  `dimensionId`, `tenantId`, `organizationId`, `createdAt`. No
+  `ledger.JournalEntryLine`, no ORM relation), `dimensionType`, `dimensionId`, `writer`, `tenantId`, `organizationId`, `createdAt`. No
   `updatedAt`/`deletedAt`: rows are never individually edited or soft-
   deleted — a `(line, dimensionType)` pair's rows are replaced
   atomically by `setJournalEntryLineDimension` (old rows for that pair
-  hard-deleted, new rows inserted, in the same transaction), matching
-  the exemption already used for real, shipped sub-resource rows —
-  **corrected, m2**: `customers/data/entities.ts`'s
-  `CustomerDealPersonLink`/`CustomerTagAssignment`/
-  `CustomerLabelAssignment` and `auth/data/entities.ts`'s `UserRole`
-  all carry `createdAt` with no `updatedAt`/`deletedAt` (an earlier
-  draft cited `VendorInvoiceLine`/`PaymentBatchLine`, which don't exist
-  in this codebase). Exported from this module so hard-dependency consumers
+  hard-deleted, new rows inserted, in the same transaction), matching the exemption already used for real, shipped sub-resource
+  rows: `customers/data/entities.ts`'s `CustomerDealPersonLink`/
+  `CustomerTagAssignment`/`CustomerLabelAssignment` and
+  `auth/data/entities.ts`'s `UserRole` all carry `createdAt` with no
+  `updatedAt`/`deletedAt`. Exported from this module so hard-dependency consumers
   can import and query it directly (see Design Decisions,
   Cross-module access).
 
@@ -494,11 +484,11 @@ mechanism (`packages/shared/src/modules/registry.ts`), already used by
 import type { ModuleInfo } from '@open-mercato/shared/modules/registry'
 
 export const metadata: ModuleInfo = {
-  name: 'journal_entry_line_dimension',
+  name: 'journal_entry_line_dimensions',
   title: 'Journal Entry Line Dimension',
   version: '0.1.0',
   description:
-    'Multi-dimensional analytical tags (cost centre, bank account, fixed asset, currency) on a journal entry line.',
+    'Analytical dimension tags (Phase 1: cost centre) on a journal entry line.',
   author: 'Open Mercato Team',
   license: 'MIT',
   requires: ['ledger'],
@@ -519,8 +509,7 @@ defaultRoleFeatures: {
 ```
 
 No features exist yet to grant (see Access Control); this stays empty
-until a real UI need adds some. **Not dead boilerplate — corrected,
-m6**: `packages/core/AGENTS.md`'s own convention (*"When adding
+until a real UI need adds some. **Not dead boilerplate:** `packages/core/AGENTS.md`'s own convention (*"When adding
 features to `acl.ts`, also add them to `setup.ts` —
 `defaultRoleFeatures`..."*) treats `acl.ts` and `setup.ts` as a paired
 contract, verified against real minimal modules (`api_keys`, `auth`,
@@ -532,23 +521,48 @@ no structural change needed.
 
 ### Commands (Command Pattern, `commands/`)
 
-- `setJournalEntryLineDimension` — replaces the dimension rows for one
-  `(journalEntryLineId, dimensionType)` pair. Input:
-  `{ journalEntryLineId, dimensionType, dimensionIds: string[] }`,
-  validated through `data/validators.ts`'s
-  `setJournalEntryLineDimensionSchema`, always scoped by
-  `tenantId`/`organizationId`. Implementation: `prepare()` loads the
-  existing rows for that pair (`{ before: existingRows }`); `execute`
-  runs, inside `withAtomicFlush(fn, { transaction: true })` — the
-  option named explicitly (**corrected, m1**: `withAtomicFlush` does
-  not open a transaction unless told to; matching
-  `customers/commands/deals.ts:577-582`'s own call shape) — a
-  hard-delete of that pair's existing rows followed by inserting the
-  new `dimensionIds` set; `buildLog`
-  records `{ undo: { before, after } }`; `undo` restores the `before`
-  rows for that pair. Content-idempotent (see Design Decisions).
-  Every other dimension type already set on the same line is left
-  untouched.
+- `setJournalEntryLineDimension` (command id
+  `journal_entry_line_dimensions.dimensions.set`, the repo's
+  `module.entity.action` shape; handler file
+  `commands/setJournalEntryLineDimension.ts`) — replaces the dimension
+  rows for one `(journalEntryLineId, dimensionType)` pair on behalf of
+  one `writer`. Input: `{ journalEntryLineId, dimensionType, writer,
+  dimensionIds: string[], tenantId?, organizationId? }`, validated
+  through `data/validators.ts`'s `setJournalEntryLineDimensionSchema`,
+  always scoped by `tenantId`/`organizationId`. The scope comes from the
+  command context (`ctx.auth.tenantId`, the selected organization); the
+  optional input `tenantId`/`organizationId` are read only when the
+  context carries no `auth`, i.e. for a trusted in-process `systemActor`
+  caller such as the Posting Rules engine (`ctx.auth: null`), and never
+  override a context that has one — the same shape `warranty_claims`'
+  system-actor subscriber uses for `create_vendor_recovery`. Implementation: `prepare()` loads the
+  existing rows for that pair (`{ before: existingRows }`). `execute`
+  (1) parses the input; (2) loads the `ledger.JournalEntryLine` by id
+  under the caller's tenant and organization
+  (`findOneWithDecryption`, because `ledger:journal_entry_line` has an
+  encrypted `contractor_snapshot` column) and rejects when it does not
+  exist, so a
+  mistyped or cross-tenant id never creates a row; (3) inside `withAtomicFlush(fn, {
+  transaction: true })`, loads the line's entry and the `FiscalPeriod`
+  covering the entry's `operationDate` with `PESSIMISTIC_READ` (`for
+  share`) — the lookup and lock mode `postJournalEntry` uses
+  (`requireCoveringUnlockedFiscalPeriod`, #6340), so a concurrent period
+  lock, which takes the conflicting `for update` lock, serializes with
+  this write — and rejects with a translated error when that period
+  `isLocked` or no period covers the date; (4) in the same transaction
+  takes the advisory lock on the pair (see Risks), loads the pair's
+  existing rows and rejects when any of them has a `writer` other than
+  the input's, then hard-deletes the existing rows
+  and inserts the new `dimensionIds` set with the input's `writer` and
+  `ON CONFLICT DO NOTHING`. The `{ transaction: true }` option is named
+  explicitly because `withAtomicFlush` does not open a transaction unless
+  told to (same call shape as the update command in
+  `customers/commands/deals.ts`). `buildLog` records `{ undo: { before,
+  after } }`; `undo` restores the `before` rows for that pair and re-runs
+  checks (2), (3) and the ownership check, so undoing a tag change in a
+  locked period, or over rows another writer has since claimed, is
+  rejected. Content-idempotent (see Design Decisions). Every other
+  dimension type already set on the same line is left untouched.
 
 This is a plain custom command (like AP's
 `postVendorInvoice`/`markPaymentBatchSent`), not built on
@@ -563,18 +577,23 @@ consumers read.
 ### Cross-module integration
 
 - **`ledger` — a hard, declared dependency, not an optional peer.**
-  `journalEntryLineId` is a plain FK-id (no ORM relation); this module
-  never resolves or calls any `ledger` service — it only stores a
-  reference for its own command to filter by.
+  `journalEntryLineId` is a plain FK-id (no ORM relation). The command
+  reads `ledger`'s `JournalEntryLine`, `JournalEntry` and `FiscalPeriod`
+  entities directly through its own `entityManager` (to check that the
+  line exists in the caller's tenant and that its period is not locked —
+  the same direct-read shape consumers use for this module's entity,
+  precedent: `sales` reading `catalog`'s `CatalogProduct`). It never
+  writes a `ledger` entity and never calls a `ledger` service or
+  command.
 - **Consumers (`posting_rules` now, `fixed_assets` later) — hard
   dependencies on this module.** A consumer declares `requires:
-  ['journal_entry_line_dimension']` (alongside whatever else it
+  ['journal_entry_line_dimensions']` (alongside whatever else it
   needs). For writes, it calls
-  `container.resolve('commandBus').execute('journal_entry_line_dimension.setJournalEntryLineDimension',
+  `container.resolve('commandBus').execute('journal_entry_line_dimensions.dimensions.set',
   input, ctx)` — the same generic mechanism `workflows`'
   `UPDATE_ENTITY` already uses for a hard-dependency call by string
   `commandId`. For reads, it imports `JournalEntryLineDimension` from
-  `journal_entry_line_dimension/data/entities` and queries it directly
+  `journal_entry_line_dimensions/data/entities` and queries it directly
   with its own `entityManager` (scoped by `tenantId`/`organizationId`),
   matching the real, verified precedent of `sales` reading `catalog`'s
   `CatalogProduct` the same way. No degradation to design for either
@@ -582,7 +601,7 @@ consumers read.
   functional meaning without it, exactly like AP without `ledger`.
 - **This module never imports or resolves anything belonging to its
   consumers.** One-way dependency direction (consumer →
-  `journal_entry_line_dimension`), matching `packages/core/AGENTS.md`'s
+  `journal_entry_line_dimensions`), matching `packages/core/AGENTS.md`'s
   "upstream module MUST NOT import, resolve, or hard-require the
   consumer."
 
@@ -598,8 +617,9 @@ consumers read.
 |--------|------|-------|
 | `id` | uuid, PK | |
 | `journal_entry_line_id` | uuid | FK-id to `ledger.journal_entry_line`, no ORM relation |
-| `dimension_type` | text | `'CostCenter'` \| `'BankAccount'` \| `'FixedAsset'` \| `'Currency'` (open string, not a DB enum, so a future dimension type needs no migration) |
-| `dimension_id` | text | References an entity in another module by id; which module depends on `dimension_type` and is resolved by the caller, not by this table — **corrected, m3**: `text`, not `uuid`, since `'Currency'` (the one advertised type with a real shipped target entity) is identified by ISO code here, not a uuid |
+| `dimension_type` | text | Phase 1: `'CostCenter'` only (closed set enforced by `DIMENSION_TYPES` in validation; `text`, not a DB enum, so a later type needs no migration) |
+| `dimension_id` | text | References an entity in another module by id; which module depends on `dimension_type` and is resolved by the caller, not by this table. `text`, not `uuid`, so it stays an opaque reference and a later type with a non-uuid identifier needs no migration; Phase 1's `CostCenter` ids are uuids |
+| `writer` | text | Module id of the consumer that owns this `(line, dimension_type)` pair (`'posting_rules'` \| `'fixed_assets'`, closed set `DIMENSION_WRITERS` in validation); a write by a different writer to an already-tagged pair is rejected |
 | `tenant_id` | uuid | |
 | `organization_id` | uuid | |
 | `created_at` | timestamp | |
@@ -607,14 +627,17 @@ consumers read.
 Index: `(journal_entry_line_id, dimension_type)` — the only query
 shape this module serves today: `setJournalEntryLineDimension` deletes
 by this pair, and every consumer read filters by this same pair (plus
-tenant/org). **Corrected this round**: an earlier draft also added a
-second, speculative index (`tenant_id, organization_id, dimension_type,
-dimension_id`) for a hypothetical future reporting query with no
-identified caller — inconsistent with this same document's own YAGNI
-reasoning for deferring ACL/UI/events. Dropped; add it in Phase 2 if
-and when a real reporting screen needs it (tracked in Out of Scope).
+tenant/org). No second index on `(tenant_id, organization_id, dimension_type,
+dimension_id)` is created: it would serve a hypothetical future
+reporting query with no identified caller, inconsistent with this
+document's own YAGNI reasoning for deferring ACL/UI/events. Add it in
+Phase 2 if and when a real reporting screen needs it (tracked in Out of
+Scope).
+The tenant columns are not in this index: the line uuid already selects
+only a handful of rows, and tenant/organization are applied as a filter
+on them.
 
-**Added this round — unique constraint on the insert.** A separate,
+**Unique constraint on the insert.** A separate,
 non-speculative `UNIQUE` constraint on `(journal_entry_line_id,
 dimension_type, dimension_id, tenant_id, organization_id)` (distinct
 in purpose from the dropped reporting index above — this one enforces
@@ -634,7 +657,7 @@ Architecture → Backend Pages.
 
 ## Migration & Deployment
 
-One new, additive table (`journal_entry_line_dimension`), zero changes
+One new, additive table (`journal_entry_line_dimensions`), zero changes
 to any existing table. No backfill: the table starts empty and stays
 empty until a consumer (Posting Rules Engine) starts calling
 `setJournalEntryLineDimension`. No `onTenantCreated` hook needed —
@@ -642,7 +665,7 @@ nothing to seed (no default role features, no module config).
 
 ## Implementation Plan
 
-**Hard prerequisite, added m7**: `requires: ['ledger']` (step 2 below)
+**Hard prerequisite**: `requires: ['ledger']` (step 2 below)
 means Phase 1 is not buildable until #5663 ships the `ledger` module —
 `ModuleInfo.requires` is validated at generation time
 (`packages/cli/src/lib/generators/module-registry.ts`), so `yarn
@@ -655,15 +678,19 @@ immediately actionable on its own.
 
 1. `JournalEntryLineDimension` entity + migration (FK-id to
    `ledger.journal_entry_line`, the `(journal_entry_line_id,
-   dimension_type)` index above).
+   dimension_type)` index and the `UNIQUE (journal_entry_line_id,
+   dimension_type, dimension_id, tenant_id, organization_id)` constraint
+   above).
 2. `index.ts` with `ModuleInfo.requires: ['ledger']`.
-3. `acl.ts` with an empty features array (**added, m5**: was in the
-   File Manifest but missing from this plan — paired with step 6 per
-   `packages/core/AGENTS.md`'s `acl.ts`/`setup.ts` convention).
-4. `data/validators.ts` with `setJournalEntryLineDimensionSchema`.
-5. `setJournalEntryLineDimension` command (type-scoped replace,
-   transaction-wrapped via `withAtomicFlush(fn, { transaction: true })`,
-   undo-capable via `prepare`/`buildLog`/`undo` per Design Decisions).
+3. `acl.ts` with an empty features array (paired with step 6 per `packages/core/AGENTS.md`'s
+   `acl.ts`/`setup.ts` convention).
+4. `data/validators.ts` with `DIMENSION_TYPES` and
+   `setJournalEntryLineDimensionSchema`.
+5. `setJournalEntryLineDimension` command (type-scoped replace;
+   rejects a line that does not exist in the caller's tenant and a line
+   whose entry falls in a locked fiscal period, and a write by a writer other than the pair's owner (translated rejection messages in `i18n/`); transaction-wrapped via
+   `withAtomicFlush(fn, { transaction: true })`; undo-capable via
+   `prepare`/`buildLog`/`undo` per Design Decisions).
 6. `setup.ts` with an empty `defaultRoleFeatures.admin: []` (see
    Module Setup for why this pairs with step 3 rather than being dead
    weight).
@@ -684,15 +711,18 @@ immediately actionable on its own.
 ## File Manifest
 
 ```
-packages/core/src/modules/journal_entry_line_dimension/
+packages/core/src/modules/journal_entry_line_dimensions/
 ├── index.ts
 ├── acl.ts                          (empty features array)
 ├── setup.ts
+├── i18n/
+│   ├── en.json                     (rejection messages: line not found, locked or missing period, written by another writer)
+│   └── pl.json
 ├── data/
 │   ├── entities.ts                 (JournalEntryLineDimension)
-│   └── validators.ts               (setJournalEntryLineDimensionSchema)
+│   └── validators.ts               (DIMENSION_TYPES, setJournalEntryLineDimensionSchema)
 ├── data/migrations/
-│   └── ...                         (create table + index)
+│   └── ...                         (create table + index + unique constraint)
 └── commands/
     └── setJournalEntryLineDimension.ts
 ```
@@ -701,8 +731,7 @@ packages/core/src/modules/journal_entry_line_dimension/
 
 - `setJournalEntryLineDimension` replaces only the rows for the given
   `(journalEntryLineId, dimensionType)` pair — a different type
-  already set on the same line is left untouched (regression test for
-  the full-line-replace bug this round fixed).
+  already set on the same line is left untouched (regression test: a full-line replace would delete the other type).
 - Calling it twice with the same `dimensionIds` leaves the same
   *content* in place (content-idempotent); row `id`/`createdAt` are
   not asserted to be stable across the two calls (not
@@ -711,8 +740,31 @@ packages/core/src/modules/journal_entry_line_dimension/
   `(journalEntryLineId, dimensionType)` pair (unit test against the
   real `prepare`/`buildLog`/`undo` contract).
 - `setJournalEntryLineDimensionSchema` rejects a non-UUID
-  `journalEntryLineId`, an empty `dimensionType`, and an empty
-  `dimensionIds` array.
+  `journalEntryLineId`, an unknown `dimensionType` (e.g. `'costcenter'`,
+  `'Currency'`, an empty string — the closed `DIMENSION_TYPES` boundary,
+  not merely a non-empty check), an empty `dimensionIds` array, and a
+  `dimensionIds` array containing a duplicate.
+- Scope: with `ctx.auth` the context scope wins over any input
+  `tenantId`/`organizationId`; with `ctx.auth: null` (system actor) the
+  input scope is used; with neither the call is rejected and writes
+  nothing.
+- The command rejects a `journalEntryLineId` that does not exist, and one
+  that belongs to another tenant/organization — no row is written in
+  either case.
+- The command rejects a write (and an `undo`) for a line whose entry's
+  `operationDate` falls in a locked `FiscalPeriod`, and accepts it in an
+  unlocked one.
+- Rollback: when the insert phase throws, the delete phase is rolled
+  back with it and the pair's previous rows are still present
+  (`{ transaction: true }`).
+- The unique constraint plus `ON CONFLICT DO NOTHING`: calling the
+  command twice with the same ids leaves one row per id, not two.
+- A write whose `writer` differs from the writer of the existing rows for
+  that `(line, dimensionType)` is rejected and leaves the rows untouched;
+  the same writer replaces its own rows; a `writer` outside
+  `DIMENSION_WRITERS` fails validation.
+- Two concurrent calls for the same pair serialize on the advisory lock:
+  the result is one writer's complete set, never a union.
 - A direct consumer-style read (querying `JournalEntryLineDimension`
   with an `entityManager`, as `posting_rules`/`fixed_assets` will)
   returns rows scoped to the correct `tenantId`/`organizationId` only
@@ -726,72 +778,108 @@ packages/core/src/modules/journal_entry_line_dimension/
 
 ### Data integrity failures
 
-#### Orphan lifecycle — added, m4
+#### Orphan lifecycle
 - **Question**: nothing in this design removes a dimension row when
   its `journalEntryLineId` is deleted, an entry is reversed, or a
   fiscal period closes — is that a real gap?
-- **Answer**: no, by construction. GL core engine (#5663) makes
-  `JournalEntryLine` append-only and immutable once posted — *"a
-  posted entry is immutable"*, *"`JournalEntry` is always immutable"*
-  (Design Decisions) — a line is never edited or hard-deleted, and a
-  correction posts a new `REVERSAL` entry with its own new lines
-  rather than mutating the original. A `journal_entry_line_dimension`
-  row's `journalEntryLineId` therefore never stops referencing a real
-  row, so it can never become a dangling FK. A reversal's own new
-  lines simply carry no dimension tags unless a consumer explicitly
-  tags them too — an omission a consumer might make, not a lifecycle
-  bug this table has to guard against.
-- **Severity**: N/A — not a defect, a property inherited from
-  `ledger`'s own immutability guarantee, stated explicitly here rather
-  than left as an unstated assumption
-- **Affected area**: `journal_entry_line_dimension` only
-- **Mitigation**: none needed; documented so a future reader does not
-  rediscover this as an open question
-- **Residual risk**: none
+- **Answer**: no, for rows written through the command. The command
+  loads the line under the caller's tenant and organization before it
+  writes, so a row never starts out pointing at a missing or foreign
+  line. After that, GL core engine (#5663) makes `JournalEntryLine`
+  append-only and immutable once posted — *"a posted entry is
+  immutable"*, *"`JournalEntry` is always immutable"* (Design
+  Decisions) — a line is never edited or hard-deleted, and a correction
+  posts a new `REVERSAL` entry with its own new lines. A row's
+  `journalEntryLineId` therefore never becomes a dangling FK. A
+  reversal's own new lines carry no dimension tags unless a consumer
+  tags them too, which is the consumer's responsibility, not a
+  lifecycle bug here. A row written by direct SQL or a future code path
+  that bypasses the command is outside this guarantee.
+- **Severity**: Low
+- **Affected area**: `journal_entry_line_dimensions` only
+- **Mitigation**: line-existence check in the command; ledger's
+  immutability for the rest
+- **Residual risk**: none for command-written rows
 
-#### Two independent consumers writing different dimension types to the same line
-- **Scenario**: Posting Rules Engine sets `{CostCenter: X}` and,
-  independently, Fixed Assets Phase 2 sets `{FixedAsset: Y}` on the
-  same `journalEntryLineId`.
-- **Severity**: Low — this is the expected, designed-for case, not a
-  failure
-- **Affected area**: `journal_entry_line_dimension` only
-- **Mitigation**: `setJournalEntryLineDimension` is scoped to one
-  `(journalEntryLineId, dimensionType)` pair per call (see Design
-  Decisions, "Writes are scoped per dimension type") — the two calls
-  touch disjoint rows and never collide. This risk entry exists to
-  record that the earlier, full-line-replace design would **not** have
-  been safe here; the corrected design is.
-- **Residual risk**: none for disjoint types. If two consumers ever
-  need to write the *same* `dimensionType` for the *same* line with
-  different values, that is a genuine business-rule conflict (not a
-  technical race) requiring its own resolution policy — not identified
-  in Phase 1, since no two consumers share a dimension type today.
+#### Tags changing on lines in a locked fiscal period
+- **Scenario**: after year-end close, a consumer retags a December line
+  from cost centre A to cost centre B, and the closed year's P&L by cost
+  centre silently changes. Posted lines and the locked period protect
+  amounts, but a tag lives in a separate table that ledger's lock never
+  sees.
+- **Severity**: High for a module whose purpose is cost-centre
+  analytics
+- **Affected area**: cost-centre reporting for closed periods
+- **Mitigation**: the command (and its `undo`) rejects any write for a
+  line whose entry falls in a locked `FiscalPeriod` — or in no period at
+  all. The covering period is found by the same lookup as
+  `postJournalEntry` (#5663/#6340, keyed on the entry's `operationDate`)
+  and read `for share` inside the write's transaction, so a concurrent
+  `lockFiscalPeriod` (which takes the conflicting `for update` lock)
+  serializes with the write. Tags are therefore part of what a period
+  close freezes. A consumer that needs to change a closed period's
+  cost-centre allocation posts a correcting entry with its own tags
+  instead of editing a tag.
+- **Decision and legal basis**: tags of a closed period are frozen. The
+  tags are the analytical description of a posted entry; if a close
+  froze the amounts but not the cost-centre cut, the closed period's
+  cost-centre report could change while the ledger stays locked. Ustawa
+  o rachunkowości art. 25: after a month is closed, or when the books
+  are kept on a computer, an error in an entry may be corrected only by
+  a correcting document entered into the books (art. 25 ust. 1 pkt 2,
+  ust. 2: entries that are all positive or all negative), not by
+  overwriting the earlier entry. Treating the cost-centre tag as part of
+  the booked entry, a change after the period lock is a correcting entry
+  with its own tags. Source: tekst jednolity Dz.U. 2026 poz. 522,
+  art. 25 ust. 1 pkt 2 and ust. 2 (eli.gov.pl, p. 37); closing the books
+  as the irreversible exclusion of entries is art. 12 ust. 5. That the
+  tag counts as part of the entry, rather than as reporting metadata
+  outside the books, is the author's reading.
+- **Residual risk**: none for correctness. The guard sits in this
+  module's command, so a consumer that bypassed the command and wrote
+  `JournalEntryLineDimension` rows directly would bypass it too; every
+  real write in this document family goes through the owning module's
+  command.
+
+#### Several consumers writing `CostCenter` to lines
+- **Scenario**: Posting Rules Engine (#6015) and Fixed Assets Phase 2
+  `transferAsset` (#6014) write the same dimension type, `CostCenter`.
+  A consumer that re-tags a line another consumer already tagged would
+  replace that tag with no conflict policy and no error.
+- **Severity**: Medium — silent loss of another module's tag
+- **Affected area**: `journal_entry_line_dimensions` and every report
+  that reads `CostCenter` tags
+- **Mitigation**: the ownership claim enforced by the command (Design
+  Decisions, "Writers and line ownership"): rows carry `writer`, and a
+  write by a different writer to an already-tagged `(line,
+  dimensionType)` is rejected with a translated error, never a silent
+  replace.
+- **Residual risk**: `writer` is declared by the caller, so the guard
+  stops accidental overwrite between trusted in-process modules but does
+  not authenticate the caller; the command has no HTTP surface. A new
+  consumer adds its module id to `DIMENSION_WRITERS`.
 
 #### Concurrent `setJournalEntryLineDimension` calls for the same `(line, type)` pair
 - **Scenario**: two calls replace the same pair's rows at nearly the
-  same time.
+  same time (same writer), or two different writers claim the same
+  untagged pair at once.
 - **Severity**: Low
-- **Affected area**: `journal_entry_line_dimension` only — no
-  financial data, no ledger balance is affected either way
-- **Mitigation**: `withAtomicFlush`/transaction wrapping makes each
-  call's own delete-then-insert atomic. **Corrected this round**: an
-  earlier draft claimed "the last call to commit wins" — checked
-  against the actual delete-then-insert shape and that claim doesn't
-  hold under real interleaving: if both transactions' deletes run
-  before either's insert (each sees no rows to remove), the result is
-  the **union** of both calls' rows, not the second call's rows alone.
-  The new unique constraint + `ON CONFLICT DO NOTHING` (see Data
-  Models) only prevents an *identical* row from being inserted twice;
-  it does not collapse two different `dimensionIds` sets down to one.
-- **Residual risk**: two overlapping calls for the same `(line, type)`
-  can leave a union of both sets of tags rather than either caller's
-  intended final state. Unlike a financial posting this doesn't
-  corrupt a balance, but it's a real (if unlikely, given today's single
-  writer per type) outcome, not the clean "last writer wins" the
-  earlier draft claimed — not addressed further in Phase 1 since no
-  two consumers write the same type today (see the disjoint-types risk
-  entry above and Out of Scope).
+- **Affected area**: `journal_entry_line_dimensions` only — no
+  financial data, no ledger balance is affected
+- **Mitigation**: inside its transaction the command first takes a
+  transaction-scoped advisory lock keyed on `(journalEntryLineId,
+  dimensionType)` (`pg_advisory_xact_lock`, issued through
+  `em.execute(...)` so it runs on the transaction's own connection, not
+  on the pool), then checks ownership and does the delete-then-insert.
+  Concurrent calls for the same pair serialize: the second sees the
+  first's committed rows, so a second writer is rejected and a second
+  call by the same writer replaces the first call's set cleanly (last
+  committed call wins). Without the lock, two deletes could both run
+  before either insert and leave the union of both sets; the unique
+  constraint + `ON CONFLICT DO NOTHING` alone only prevents an
+  *identical* row from being inserted twice.
+- **Residual risk**: none for correctness; the lock is held only for
+  the one short delete-then-insert.
 
 ### Cascading failures & side effects
 
@@ -813,9 +901,7 @@ packages/core/src/modules/journal_entry_line_dimension/
 `organization_id` columns (not just inherited through the FK to
 `JournalEntryLine`), matching the pattern already used for real,
 shipped sub-resource rows (`CustomerDealPersonLink`,
-`CustomerTagAssignment`, `CustomerLabelAssignment`, `UserRole` —
-**corrected, m2**, a third instance of the same stale citation caught
-during the m2 pass). Every consumer read is required to filter by
+`CustomerTagAssignment`, `CustomerLabelAssignment`, `UserRole`). Every consumer read is required to filter by
 both, exactly as `sales`'s own direct `catalog` reads do.
 
 ### Migration & deployment
@@ -826,32 +912,33 @@ One new, additive table. No backfill, no default config, no
 ## Out of scope (tracked separately)
 
 - ACL features and a reporting/admin backend page, plus the reporting
-  index this round dropped from Phase 1 — deferred until a real need
+  index left out of Phase 1 — deferred until a real need
   appears (Phase 2).
 - Events for dimension changes — no identified subscriber yet (Phase
   2, revisit when one emerges).
 - A maximum-`dimensionIds`-per-type constraint — no identified need
   yet (Phase 2, if one surfaces).
-- A conflict-resolution policy for two consumers writing the *same*
-  dimension type to the same line — not needed today (no two
-  consumers share a type), tracked as a future risk if that ever
-  changes (see Risks & Impact Review).
+- Handing a pair's tags from one writer to another (releasing an
+  ownership claim): not supported; a change after the fact is a
+  correcting entry with its own tags.
+- Dimension types `BankAccount`, `FixedAsset` and `Currency` — added to
+  `DIMENSION_TYPES` when a consumer that writes them exists (`Currency`
+  only if GL's one-currency-per-entry model changes).
 - The posting-rule logic that decides *which* dimension to attach
   (e.g. "check `DefaultAccountPostingRule` if no explicit dimension
   exists") — that decision logic belongs to each consumer
-  (`2026-09-06-posting-rules-engine.md`), not to this table.
+  (Posting Rules Engine, #6015), not to this table.
 - Reporting/aggregation by dimension (e.g. a P&L cut by cost centre)
   — a future reporting-layer concern, not this module's.
 
-## Final Compliance Report — 2026-09-08 (self-review round, before external review — corrected, m8)
+## Final Compliance Report — 2026-09-08 (self-review snapshot)
 
 ### AGENTS.md Files Reviewed
 
 - `AGENTS.md` (root)
 - `packages/core/AGENTS.md`
 - `.ai/skills/om-spec-writing/SKILL.md` (Quick Rule Reference, cited in
-  the Compliance Matrix below — added this round; an earlier draft's
-  reviewed-files list omitted it despite citing it)
+  the Compliance Matrix below )
 
 ### Compliance Matrix
 
@@ -859,13 +946,13 @@ One new, additive table. No backfill, no default config, no
 |-------------|------|--------|-------|
 | root AGENTS.md | No direct ORM relationships between modules | Compliant | `journalEntryLineId`, `dimensionId` are both plain FK-id, no relation decorators |
 | root AGENTS.md | Filter by organization_id | Compliant | Own `tenant_id`/`organization_id` columns, not just inherited through the FK |
-| `packages/core/AGENTS.md` → Cross-Module Coupling | Hard dependency uses direct resolution, not `tryResolve` | Compliant | Write via direct `commandBus.execute` (real `workflows`/`UPDATE_ENTITY` precedent); reads via a direct entity query (real `sales`/`catalog` precedent) — **corrected this round**, see Design Decisions, "Cross-module access" |
+| `packages/core/AGENTS.md` → Cross-Module Coupling | Hard dependency uses direct resolution, not `tryResolve` | Compliant | Write via direct `commandBus.execute` (real `workflows`/`UPDATE_ENTITY` precedent); reads via a direct entity query (real `sales`/`catalog` precedent) — see Design Decisions, "Cross-module access" |
 | `packages/core/AGENTS.md` → Cross-Module Coupling (hard dependency mechanism) | Hard dependency declared through `ModuleInfo.requires` | Compliant | `index.ts` with `metadata.requires: ['ledger']` |
-| `packages/core/AGENTS.md` → Database Entities | User-editable entities MUST include `updated_at`/`deleted_at` | N/A, exempt | Rows are never individually edited or soft-deleted — a `(line, type)` pair's rows are replaced atomically, matching the exemption real, shipped sub-resource rows already use (`CustomerDealPersonLink`/`CustomerTagAssignment`/`CustomerLabelAssignment`, `UserRole` — **corrected, m2**, replacing a citation of two entities that don't exist in this codebase) |
+| `packages/core/AGENTS.md` → Database Entities | User-editable entities MUST include `updated_at`/`deleted_at` | N/A, exempt | Rows are never individually edited or soft-deleted — a `(line, type)` pair's rows are replaced atomically, matching the exemption real, shipped sub-resource rows already use (`CustomerDealPersonLink`/`CustomerTagAssignment`/`CustomerLabelAssignment`, `UserRole`) |
 | `packages/core/AGENTS.md` → Command Side Effects | Write operations via the Command pattern | Compliant | `setJournalEntryLineDimension` is a command, not a direct mutation from a route handler or a foreign module (there is no route, and no foreign module writes this entity directly) |
-| `packages/core/AGENTS.md` → Entity Update Safety | Multi-phase mutations use `withAtomicFlush` | Compliant | Delete-then-insert (for one type) wrapped in one transaction via `withAtomicFlush(fn, { transaction: true })` — the option named explicitly, not merely asserted as an outcome (**corrected, m1**) |
-| Quick Rule Reference (`om-spec-writing` SKILL.md) | Undoability is the default for state changes | Compliant | `prepare`/`buildLog`/`undo` contract using the real hook names, verified against `packages/shared/src/lib/commands/types.ts` and `customers/commands/people.ts` — **corrected this round** (an earlier draft cited a non-existent `captureBefore` hook) |
-| Quick Rule Reference (`om-spec-writing` SKILL.md) | Zod validation for all inputs, in `data/validators.ts` | Compliant | `setJournalEntryLineDimensionSchema` — **added this round**, an earlier draft had no validator anywhere |
+| `packages/core/AGENTS.md` → Entity Update Safety | Multi-phase mutations use `withAtomicFlush` | Compliant | Delete-then-insert (for one type) wrapped in one transaction via `withAtomicFlush(fn, { transaction: true })` — the option named explicitly, not merely asserted as an outcome |
+| Quick Rule Reference (`om-spec-writing` SKILL.md) | Undoability is the default for state changes | Compliant | `prepare`/`buildLog`/`undo` contract using the real hook names, verified against `packages/shared/src/lib/commands/types.ts` and `customers/commands/people.ts` |
+| Quick Rule Reference (`om-spec-writing` SKILL.md) | Zod validation for all inputs, in `data/validators.ts` | Compliant | `setJournalEntryLineDimensionSchema` |
 | `packages/core/AGENTS.md` → Encryption | GDPR/PII fields declared in `<module>/encryption.ts` | N/A | No PII/GDPR-sensitive field — see Encryption |
 | `packages/core/AGENTS.md` → Access Control (RBAC) | Features declared per module | N/A | No UI/API surface in Phase 1 — nothing to gate, see Access Control |
 | `BACKWARD_COMPATIBILITY.md` | Database schema additive-only | Compliant | One new table only |
@@ -876,7 +963,7 @@ One new, additive table. No backfill, no default config, no
 |-------|--------|-------|
 | Data models match architecture | Pass | One entity, matches the Architecture section |
 | Commands defined for the module's mutating operation | Pass | The one write operation has a named command; reads are a direct query, not a command (see Design Decisions) |
-| Undo contract present for the state-changing command | Pass | Uses the real `prepare`/`buildLog`/`undo` hooks — corrected this round |
+| Undo contract present for the state-changing command | Pass | Uses the real `prepare`/`buildLog`/`undo` hooks |
 | Risks cover all write operations | Pass | Multi-consumer collision (now architecturally prevented) and `ledger`-unavailable cascade both addressed |
 | Scope cohesion vs. other modules | Pass | Single, narrow capability (multi-dimensional tagging), independently deployable given its one hard dependency (`ledger`); has zero consumers on its own by design, but that's a Phase-1 characteristic, not a scope-bundling problem (see Design Decisions on why it's split from Posting Rules Engine) |
 | Scope cohesion *within* this document | Pass | One entity, one write command, one integration seam (`ledger`) |
@@ -884,66 +971,14 @@ One new, additive table. No backfill, no default config, no
 
 ### Non-Compliant Items
 
-None outstanding against this pass's own checklist (2026-09-08,
-before the external review below). **Corrected, m8**: an earlier
-version of this line read "None outstanding" with no date-stamp,
-which a reader landing here after the external maintainer review
-(below) would take at face value even though that review found real,
-now-fixed defects this self-review round did not catch. See Verdict
-for the current, post-external-review status.
+None outstanding against this pass's own checklist (2026-09-08). Findings
+from the external review are tracked in the PR #5972 thread, not here.
 
 ### Verdict
 
-**Corrected, m8 — this Verdict described only the self-review round
-and did not disclose that an external maintainer review had already
-run and found real defects; current status is now stated below rather
-than left for a reader to assume "Ready for maintainer review" still
-describes where this document stands.**
-
-**Current status (2026-09-25): fully compliant, all external review
-findings fixed.** External maintainer review (PR #5972, @pkarw) ran
-two rounds on 2026-09-08, finding 2 blockers, 3 majors, and 9 minors
-across both rounds. All are now fixed — see the 2026-09-09 and
-2026-09-25 Changelog entries for the itemized list (B1 README
-placement; B2 counterparty-example contradiction; M1 concurrency/
-unique-constraint fix; M2 closed `dimensionType` enum; M3 unmerged-
-sibling links and caveat; m1 named `{ transaction: true }` option; m2
-real sub-resource-exemption precedent; m3 `dimension_id` widened to
-`text`; m4 orphan lifecycle; m5 `acl.ts` Implementation Plan step; m6
-`setup.ts`/`acl.ts` pairing justified; m7 #5663 hard-prerequisite
-note). m9 (branch 1451 commits behind `develop`, CI `scope` job noise)
-remains open — a rebase, not a document change; see Testing Strategy.
-
-**Original self-review verdict (2026-09-08), preserved below:**
-
-Ready for maintainer review, with the caveat below made explicit
-rather than glossed over. This document went through the
-`om-spec-writing` Step 8 checklist (including a fresh-context
-subagent review) and Step 9 Compliance Gate twice: once producing the
-version described in the first Changelog entry below, and a second
-time — this entry — after the fresh-context reviewer found, and this
-review round personally verified against the real repository, six
-concrete errors in that first version: a non-existent `captureBefore`
-undo hook (real hook is `prepare`), a false "no precedent for direct
-cross-module reads" claim (real counter-example: `sales` reading
-`catalog`'s `CatalogProduct`), a full-line-replace write design that
-would have silently deleted one consumer's tags when a second,
-independent consumer wrote to the same line, a `jsonb`/`json` type
-error on `contractorSnapshot` already caught and fixed once before in
-a sibling document, a missing Zod validator, and a speculative index
-inconsistent with this document's own YAGNI reasoning elsewhere. All
-six are fixed in this version; the fixes are load-bearing, not
-cosmetic — the undo hook and the direct-read design would not have
-worked as originally specified, and the full-line-replace design would
-have caused real data loss the moment a second consumer existed. One
-caveat is now resolved (updated 2026-09-25, see Design Decisions and
-header): this document's "two independent consumers" justification
-for staying split from Posting Rules Engine (#6015) leaned partly on
-Fixed Assets (#6014), which was an untracked sibling draft at the time
-this was written. Both #6015 and #6014 have since gone through their
-own independent maintainer review rounds and had every finding fixed
-— the justification now rests on two independently reviewed sources,
-not an unverified same-session draft.
+This file is the design of the `journal_entry_line_dimensions` module.
+Review status and the resolution of each finding live in the PR #5972
+thread; the Changelog below records what changed in the design and why.
 
 ## Changelog
 
@@ -1098,7 +1133,7 @@ taken at the reviewer's word):
   against that file's current text — confirmed accurate (see its
   "Korekta (2026-09-08)" note); left as-is.
 
-### 2026-09-15 (financial-spec-writing-process applied for the first time)
+### 2026-09-15 — literature grounding and real-system comparison
 
 - Merged `upstream/develop` (166 commits) first; one conflict this
   time (unlike the clean auto-merges for AP/GL Account Balances/Fixed
@@ -1106,18 +1141,15 @@ taken at the reviewer's word):
   Pending Specifications table at the same position. Resolved by
   keeping both rows, in date order; commit `65c6a15e4`.
 - Added this document's first "Literature & Prior Art" section.
-  Independently re-verified two citations already sitting in
-  `financial-module-knowledge-base.md` under this document's own
-  entry: Fowler §6.15 "Booking Entries to Multiple Accounts" (confirmed
+  Verified two citations against the books' full text: Fowler §6.15 "Booking Entries to Multiple Accounts" (confirmed
   accurate — the strongest match in either book for this document's
   own "more than one simultaneous dimension" problem); Hay §7.21
   "Account Categories and Structure" (corrected for completeness —
-  the knowledge base's note described only the single-parent roll-up
-  half of the figure, missing that the same figure also shows an
+  the figure shows more than the single-parent roll-up: it also shows an
   ACCOUNT CATEGORY/ACCOUNT CLASSIFICATION many-to-many join, real
   precedent for "more than one independent tag on one thing," just at
   the account level rather than this document's line level). Added one
-  citation that knowledge-base pass never found: Hay's Cost Center
+  further citation: Hay's Cost Center
   Assignment (Figure 7.19, pp.150-151) — a more precise match than 7.21
   for the `CostCenter` dimension type this document names literally,
   and confirmation that Hay's own open "(something else)" placeholder
@@ -1137,11 +1169,8 @@ taken at the reviewer's word):
   public documentation doesn't confirm multi-dimension-per-line
   support specifically — recorded as unverified, not a match).
 - No structural changes to Architecture/Data Models/Commands from this
-  pass — Steps 1-3 of `financial-spec-writing-process` only; Step 4
-  (structure) was already satisfied by the existing document, and Step
-  1 (cross-spec consistency) found no conflicts: this document already
-  is one of the three sources §2's "Three distinct tagging mechanisms"
-  convention was built from.
+  pass; a cross-spec consistency check against the sibling documents
+  found no conflicts at the time.
 
 ### 2026-09-25 — M3 resolved: unmerged siblings linked by PR, "untracked draft" caveat lifted
 
@@ -1161,6 +1190,7 @@ claim (Design Decisions, Verdict) is updated to say so rather than
 still describing them as unverified same-session drafts. Once
 #5663/#6015/#6014 land on `develop`, these three links should be
 swapped back to relative filenames.
+
 ### 2026-09-25 (cont.) — m1, m2, m3, m4, m5, m6, m7, m8 resolved
 
 Closed every remaining open item from PR #5972's second review round
@@ -1170,7 +1200,7 @@ repository before editing:
 - **m1** — `withAtomicFlush` now names its `{ transaction: true }`
   option explicitly (Architecture, Implementation Plan, Compliance
   Matrix) instead of asserting atomicity as a bare outcome; the option
-  is not the default, matching `customers/commands/deals.ts:577-582`'s
+  is not the default, matching `customers/commands/deals.ts`'s
   own call shape.
 - **m2** — the `updated_at`/`deleted_at` exemption now cites real,
   shipped precedent (`CustomerDealPersonLink`, `CustomerTagAssignment`,
@@ -1185,7 +1215,7 @@ repository before editing:
   `'Currency'` from the list.
 - **m4** — added an explicit "Orphan lifecycle" Risk entry: GL core
   engine (#5663) makes `JournalEntryLine` append-only and immutable
-  once posted, so a `journal_entry_line_dimension` row's
+  once posted, so a `journal_entry_line_dimensions` row's
   `journalEntryLineId` can never become a dangling FK — not a gap,
   but previously unstated.
 - **m5** — added `acl.ts` (empty features array) as its own
@@ -1205,6 +1235,66 @@ repository before editing:
   reading as an up-to-date claim after a maintainer review had already
   found real defects.
 
-**m9** (branch 1451 commits behind `develop`) remains open — a rebase
-before the next push, not a document change.
+**m9** (branch 1451 commits behind `develop`) was resolved by merging
+`develop` into the branch.
 
+### 2026-10-13 — third review round (PR #5972)
+
+Applied the findings of the 2026-10-07 specification review at head
+`544ef441a`, each checked against the sibling documents at their current
+heads (#5663, #6015, #6014) before editing:
+
+- **B1** — the premise "no two consumers share a dimension type" was
+  false: #6015 and #6014's `transferAsset` both write `CostCenter`; no
+  cited consumer writes `FixedAsset`. Added the writer map and made
+  ownership a module guarantee: rows carry `writer` (closed set
+  `DIMENSION_WRITERS`), the first writer owns a `(line, dimensionType)`
+  pair and the command rejects any other writer instead of silently
+  replacing its tag. The command also serializes per pair with an
+  advisory lock, which removes the union-of-two-calls outcome the earlier
+  concurrency entry accepted. #6015 passes `writer: 'posting_rules'`;
+  #6014's `transferAsset` passes `writer: 'fixed_assets'`. Rewrote the
+  motivating example, the same-type risk entry and the Out of Scope item
+  accordingly.
+- **M1** — added SPEC-024's `dimensions` map / `costCenterId` column to
+  Related and Alternatives Considered, with the rejection reason (posted
+  lines are immutable, tags are written after posting, as #6015 does).
+- **M2** — the command and its `undo` reject writes for a line in a
+  locked (or no) fiscal period; new risk entry; ledger entities are read
+  directly under the hard dependency. Decision: tags of a closed period
+  are frozen, on the basis of Ustawa o rachunkowości art. 25 (post-close
+  corrections only by a correcting entry), checked against the
+  official tekst jednolity (Dz.U. 2026 poz. 522); that a cost-centre tag
+  is part of the booked entry is the author's reading.
+- **m1** — the command loads the line under the caller's tenant and
+  organization and rejects a miss; Orphan lifecycle entry corrected.
+- **m2** — Testing Strategy, Implementation Plan and File Manifest cover
+  the closed enum, duplicate rejection, unique constraint, rollback, line
+  existence, locked-period guard, writer ownership and the advisory lock;
+  the module gains `i18n/` rejection messages.
+- **m3** — removed stale text (`dimensionId` as a UUID, "m9 remains
+  open", the self-certifying "fully compliant" status); the Verdict no
+  longer narrates review status.
+- **m4** — `DIMENSION_TYPES = ['CostCenter']`; `BankAccount`,
+  `FixedAsset` and `Currency` wait for a writer, and `Currency`
+  duplicates the entry header (`JournalEntry.currencyId`). `dimension_id`
+  stays `text`.
+- **m5** — #5955 and #5962 added to the dependency paragraph and linked
+  by PR number, with the merge-order sentence.
+- **m6** — removed references to process documents that are not in this
+  repository from the Literature section.
+- **Implementation finding (#6711, applied to #6708)** — the Posting Rules
+  engine runs as a system actor with `ctx.auth: null`, so a scope taken
+  from the context alone rejected every real call. The command accepts an
+  optional input `tenantId`/`organizationId`, consulted only when the
+  context has no `auth`; documented in Commands and covered by Testing
+  Strategy.
+- Nits: tenant columns in the index explained; `extractUndoPayload`
+  footgun stated; `deals.ts` cite no longer points at a line number;
+  blank line before the 2026-09-25 (cont.) heading; module and table
+  renamed to the plural (`journal_entry_line_dimensions`, per root
+  `AGENTS.md`) and the command given the `module.entity.action` id
+  `journal_entry_line_dimensions.dimensions.set`, with the same rename in
+  #6015, #6014 and #5663; review-history markers and "earlier draft"
+  narrative removed from the design sections, the history living in this
+  Changelog only.
