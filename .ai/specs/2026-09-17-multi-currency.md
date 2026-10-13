@@ -617,7 +617,7 @@ not moved ledger-side.** The per-invoice detail is the subsidiary ledger
 shared liability account is the control account and the per-invoice
 breakdown lives in the consuming module's own tables. None of the three
 tagging mechanisms fits "this line settled that invoice" (the chart-of-accounts
-parent is static, `journal_entry_line_dimension` deliberately excludes the
+parent is static, `journal_entry_line_dimensions` deliberately excludes the
 counterparty, `contractorSnapshot` is a counterparty audit copy), and posting
 one entry per invoice would break the one-entry-per-batch shape that bank
 statement matching relies on. Sales invoices differ for a different reason:
