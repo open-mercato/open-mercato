@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { ImportItem } from '@open-mercato/core/modules/data_sync/lib/adapter'
+import type { AddressSnapshot } from '../lib/contacts/addresses'
 import type { ClaimCompanyMappingInput } from '../lib/contacts/claim'
 import type { CompanySnapshot } from '../lib/contacts/compare'
 import { buildXeroCommandContext, createXeroContactWriter, type XeroContactWriter } from '../lib/contacts/company-writer'
@@ -13,11 +14,18 @@ const mockLoadSnapshots = jest.fn()
 const mockClaim = jest.fn()
 const mockLoadRunIndex = jest.fn()
 const mockLoadIndexSources = jest.fn()
+const mockLoadAddressState = jest.fn()
+const mockStoreMapping = jest.fn()
 
 jest.mock('../lib/contacts/preload', () => ({
   ...jest.requireActual('../lib/contacts/preload'),
   loadCompanySnapshots: (...args: unknown[]) => mockLoadSnapshots(...args),
   loadXeroRunIndex: (...args: unknown[]) => mockLoadRunIndex(...args),
+  loadXeroAddressState: (...args: unknown[]) => mockLoadAddressState(...args),
+}))
+
+jest.mock('@open-mercato/core/modules/data_sync/lib/id-mapping', () => ({
+  createExternalIdMappingService: () => ({ storeExternalIdMapping: (...args: unknown[]) => mockStoreMapping(...args) }),
 }))
 
 jest.mock('../lib/contacts/indexes', () => ({
@@ -35,10 +43,13 @@ const ORG = 'a3b1c2d3-0000-4000-8000-000000000001'
 const PERSONAL = ['Acme Ltd', 'billing@acme.example', '+44 20 7946 0000', 'GB 123 456']
 
 type StoredCompany = CompanySnapshot & { createdAt: number }
+type StoredAddress = AddressSnapshot & { purpose?: string; isPrimary?: boolean }
 type Command = { id: string; input: Record<string, unknown> }
 
 let companies: Map<string, StoredCompany>
 let mappings: Map<string, string>
+let addresses: Map<string, StoredAddress>
+let addressMappings: Map<string, string>
 let commands: Command[]
 let logWrites: Array<Record<string, unknown>>
 let sequence: number
@@ -106,6 +117,17 @@ const commandBus = {
     if (id === 'customers.companies.update') {
       applyInput(companies.get(String(input.id))!, input)
       return { result: { entityId: input.id } as TResult, logEntry: null }
+    }
+    if (id === 'customers.addresses.create') {
+      const addressId = `a-${++sequence}`
+      const { organizationId: _organizationId, tenantId: _tenantId, ...values } = input
+      addresses.set(addressId, { id: addressId, ...(values as Omit<StoredAddress, 'id'>) })
+      return { result: { addressId } as TResult, logEntry: null }
+    }
+    if (id === 'customers.addresses.update') {
+      const { id: addressId, organizationId: _organizationId, tenantId: _tenantId, ...values } = input
+      addresses.set(String(addressId), { ...addresses.get(String(addressId))!, ...(values as Partial<StoredAddress>) })
+      return { result: { addressId } as TResult, logEntry: null }
     }
     if (id === 'customers.companies.delete') {
       if (refuseDelete) throw new CrudHttpError(422, { error: 'Company has dependents', code: 'COMPANY_HAS_DEPENDENTS' })
@@ -185,6 +207,8 @@ function logCodes(): unknown[] {
 beforeEach(() => {
   companies = new Map()
   mappings = new Map()
+  addresses = new Map()
+  addressMappings = new Map()
   commands = []
   logWrites = []
   sequence = 0
@@ -202,6 +226,20 @@ beforeEach(() => {
   mockClaim.mockReset().mockImplementation(async (input: ClaimCompanyMappingInput) => claimAgainstMappings(input))
   mockLoadRunIndex.mockReset().mockImplementation(async () => runIndexFrom(mappings))
   mockLoadIndexSources.mockReset().mockImplementation(async () => indexSources())
+  mockLoadAddressState.mockReset().mockImplementation(async (_em: EntityManager, _scope: unknown, externalIds: string[]) => {
+    const state = { addressIdByExternalId: new Map<string, string>(), addresses: new Map<string, AddressSnapshot>() }
+    for (const externalId of externalIds) {
+      const addressId = addressMappings.get(externalId)
+      if (!addressId) continue
+      state.addressIdByExternalId.set(externalId, addressId)
+      const row = addresses.get(addressId)
+      if (row) state.addresses.set(addressId, { ...row })
+    }
+    return state
+  })
+  mockStoreMapping.mockReset().mockImplementation(async (_integrationId: string, _type: string, localId: string, externalId: string) => {
+    addressMappings.set(externalId, localId)
+  })
 })
 
 describe('buildXeroCommandContext', () => {
@@ -353,6 +391,16 @@ describe('createXeroContactWriter', () => {
     expect(logWrites).toEqual([expect.objectContaining({ code: 'xero.company_duplicate_risk', payload: { sourceIdentifier: externalIdOf('c1'), entityIds: [item.data?.localId, 'e-namesake'] } })])
   })
 
+  it('caps the Companies named in a log row at 20 and gives their total', async () => {
+    for (let index = 0; index < 25; index += 1) storeCompany({ entityId: `e-namesake-${index}`, displayName: 'ACME LTD.' })
+
+    await writePage(createWriter(), [record('c1')])
+
+    const payload = logWrites.find((write) => write.code === 'xero.company_duplicate_risk')?.payload as { entityIds: string[]; entityIdCount: number }
+    expect(payload.entityIds).toHaveLength(20)
+    expect(payload.entityIdCount).toBe(26)
+  })
+
   it('warns when a second Contact carries a tax number another Contact claimed in the run', async () => {
     storeCompany({ entityId: 'e-tax', custom: { xero_tax_number: 'GB 123' } })
     const writer = createWriter()
@@ -415,6 +463,22 @@ describe('createXeroContactWriter', () => {
 
     failNextCommand = new Error('connection terminated')
     await expect(writePage(writer, [record('c3')])).rejects.toThrow('connection terminated')
+  })
+
+  it('refuses a mapped Contact whose Company is deleted between the page preload and the update', async () => {
+    storeCompany({ entityId: 'e-mapped', displayName: 'Acme Ltd', legalName: 'Acme Ltd', primaryEmail: 'old@acme.example', custom: { xero_contact_id: externalIdOf('c1') } })
+    mappings.set(externalIdOf('c1'), 'e-mapped')
+    failNextCommand = new CrudHttpError(404, { error: 'Not found' })
+
+    const [item] = await writePage(createWriter(), [record('c1')])
+
+    expect(item).toMatchObject({ action: 'skip', data: { localId: 'e-mapped', errorCode: 'xero.company_deleted_in_om' } })
+    expect(logWrites).toEqual([expect.objectContaining({ level: 'warn', code: 'xero.company_deleted_in_om', payload: { sourceIdentifier: externalIdOf('c1'), entityIds: ['e-mapped'] } })])
+  })
+
+  it.each([403, 409])('rethrows a %i from a customers command so the run fails and resumes from the cursor', async (status) => {
+    failNextCommand = new CrudHttpError(status, { error: 'Refused' })
+    await expect(writePage(createWriter(), [record('c1')])).rejects.toMatchObject({ status })
   })
 
   it('loads the mapped Companies of a page once, whatever the page size', async () => {
@@ -519,5 +583,78 @@ describe('createXeroContactWriter', () => {
     mockLoadIndexSources.mockRejectedValueOnce(new Error('database unavailable'))
     await expect(writer.reportOrphans()).resolves.toBeUndefined()
     expect(commands).toEqual([])
+  })
+
+  describe('Xero-owned addresses', () => {
+    const street = { AddressType: 'STREET', AddressLine1: '1 High Street', City: 'London', PostalCode: 'SW1A 1AA', Country: 'United Kingdom' }
+    const pobox = { AddressType: 'POBOX', AddressLine1: 'PO Box 12', Country: 'Narnia' }
+
+    function mappedCompany(contactId: string): string {
+      const entityId = `e-${contactId}`
+      storeCompany({ entityId, displayName: 'Acme Ltd', legalName: 'Acme Ltd', primaryEmail: 'billing@acme.example', primaryPhone: '+44 20 7946 0000', custom: { xero_contact_id: externalIdOf(contactId) } })
+      mappings.set(externalIdOf(contactId), entityId)
+      return entityId
+    }
+
+    it('creates and maps one non-primary row per Xero address type, converting the country', async () => {
+      const [item] = await writePage(createWriter(), [record('c1', { Addresses: [street, pobox] })])
+
+      const addressCommands = commands.filter((command) => command.id === 'customers.addresses.create')
+      expect(addressCommands.map((command) => command.input)).toEqual([
+        { organizationId: scope.organizationId, tenantId: scope.tenantId, entityId: 'e-1', purpose: 'billing', isPrimary: false, addressLine1: 'PO Box 12', country: 'Narnia' },
+        { organizationId: scope.organizationId, tenantId: scope.tenantId, entityId: 'e-1', purpose: 'office', isPrimary: false, addressLine1: '1 High Street', city: 'London', postalCode: 'SW1A 1AA', country: 'GB' },
+      ])
+      expect(addressMappings).toEqual(new Map([[`${externalIdOf('c1')}:POBOX`, 'a-3'], [`${externalIdOf('c1')}:STREET`, 'a-4']]))
+      expect(item).toMatchObject({ action: 'create', data: { localId: 'e-1' } })
+      expect(logWrites).toEqual([
+        expect.objectContaining({ code: 'xero.address_country_unrecognised', payload: { sourceIdentifier: `${externalIdOf('c1')}:POBOX`, entityIds: ['e-1'], field: 'country' } }),
+      ])
+    })
+
+    it('updates a mapped row only where a Xero value differs and reports the item as updated', async () => {
+      const entityId = mappedCompany('c1')
+      addresses.set('a-street', { id: 'a-street', entityId, addressLine1: '1 High Street', city: 'Leeds', postalCode: 'SW1A 1AA', country: 'GB', isPrimary: true })
+      addressMappings.set(`${externalIdOf('c1')}:STREET`, 'a-street')
+
+      const [item] = await writePage(createWriter(), [record('c1', { Addresses: [street] })])
+
+      expect(commands).toEqual([
+        { id: 'customers.addresses.update', input: { id: 'a-street', organizationId: scope.organizationId, tenantId: scope.tenantId, city: 'London' } },
+      ])
+      expect(addresses.get('a-street')).toMatchObject({ city: 'London', isPrimary: true })
+      expect(item).toMatchObject({ action: 'update', data: { localId: entityId } })
+
+      commands = []
+      const [unchanged] = await writePage(createWriter(), [record('c1', { Addresses: [street] })])
+      expect(commands).toEqual([])
+      expect(unchanged.action).toBe('skip')
+    })
+
+    it('re-creates a row a user moved to another customer and never touches the user\'s own rows', async () => {
+      const entityId = mappedCompany('c1')
+      addresses.set('a-moved', { id: 'a-moved', entityId: 'e-someone-else', addressLine1: 'Old line' })
+      addresses.set('a-user', { id: 'a-user', entityId, addressLine1: 'User line', isPrimary: true })
+      addressMappings.set(`${externalIdOf('c1')}:STREET`, 'a-moved')
+
+      await writePage(createWriter(), [record('c1', { Addresses: [street] })])
+
+      expect(commands.map((command) => [command.id, command.input.id ?? command.input.entityId])).toEqual([['customers.addresses.create', entityId]])
+      expect(addressMappings.get(`${externalIdOf('c1')}:STREET`)).not.toBe('a-moved')
+      expect(addresses.get('a-moved')).toEqual({ id: 'a-moved', entityId: 'e-someone-else', addressLine1: 'Old line' })
+      expect(addresses.get('a-user')).toEqual({ id: 'a-user', entityId, addressLine1: 'User line', isPrimary: true })
+      expect(commands.some((command) => 'isPrimary' in command.input && command.input.isPrimary === true)).toBe(false)
+    })
+
+    it('writes no address for a GDPR-redacted or merged-away Contact', async () => {
+      mappedCompany('c1')
+      mappedCompany('c2')
+
+      await writePage(createWriter(), [
+        record('c1', { ContactStatus: 'GDPRREQUEST', Addresses: [street] }),
+        record('c2', { MergedToContactID: 'c9', Addresses: [street] }),
+      ])
+
+      expect(commands.some((command) => command.id.startsWith('customers.addresses.'))).toBe(false)
+    })
   })
 })

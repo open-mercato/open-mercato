@@ -7,18 +7,20 @@ import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { ZodError } from 'zod'
-import { XERO_INTEGRATION_ID } from '../constants'
-import { formatContactExternalId } from '../external-ids'
+import { createExternalIdMappingService } from '@open-mercato/core/modules/data_sync/lib/id-mapping'
+import { XERO_ADDRESS_MAPPING_TYPE, XERO_INTEGRATION_ID } from '../constants'
+import { formatAddressExternalId, formatContactExternalId } from '../external-ids'
 import type { XeroContactRecord } from '../keyset'
 import type { XeroScope } from '../owner'
 import { XERO_MERGED_INTO_FIELD } from '../field-definitions'
+import { diffAddress, mapXeroAddresses, XERO_ADDRESS_PURPOSE, XERO_ADDRESS_TYPES, type XeroAddressWarning } from './addresses'
 import { claimCompanyMapping } from './claim'
 import { buildCompanyCreateInput, diffCompanyUpdate, resolveCompanyStatus, type CompanySnapshot, type CompanyWriteInput } from './compare'
 import { parseXeroContact, type XeroContact } from './contact'
 import { loadXeroCompanyIndexSources, normalizeTaxNumber, type XeroCompanyIndexes } from './indexes'
 import { mapXeroContactToCompany, type MappedXeroCompany, type XeroValueWarning } from './mapping'
 import { findXeroOrphanedCompanies } from './orphans'
-import { loadCompanySnapshots, loadXeroRunIndex, type XeroRunIndex } from './preload'
+import { emptyXeroAddressState, loadCompanySnapshots, loadXeroAddressState, loadXeroRunIndex, type XeroRunIndex } from './preload'
 import { classifyXeroContact } from './rules'
 
 const MAX_CLAIM_ATTEMPTS = 20
@@ -33,6 +35,7 @@ export type XeroItemLogCode =
   | 'xero.contact_merged'
   | 'xero.company_orphaned'
   | XeroValueWarning['code']
+  | XeroAddressWarning['code']
 
 /** One fixed English sentence per code; a row names Contacts and Companies by id only, never by personal data. */
 export const XERO_ITEM_LOG_MESSAGES: Record<XeroItemLogCode, string> = {
@@ -46,6 +49,7 @@ export const XERO_ITEM_LOG_MESSAGES: Record<XeroItemLogCode, string> = {
   'xero.company_orphaned': 'A Company carries the Xero mark of a Contact that is mapped to another Company or to none; it was not changed.',
   'xero.value_left_out': 'A Xero value Open Mercato does not accept was left out.',
   'xero.value_truncated': 'A Xero value longer than Open Mercato allows was truncated.',
+  'xero.address_country_unrecognised': 'A Xero address country is not a country Open Mercato recognises; it was kept as written.',
 }
 
 const CONTACT_INVALID_MESSAGE = 'The Xero Contact could not be written as a Company.'
@@ -86,9 +90,19 @@ export function buildXeroCommandContext(container: AppContainer, scope: XeroScop
   }
 }
 
+const LOGGED_ENTITY_ID_LIMIT = 20
+
+function loggedEntityIds(ids: string[]): { entityIds: string[]; entityIdCount?: number } {
+  return ids.length > LOGGED_ENTITY_ID_LIMIT ? { entityIds: ids.slice(0, LOGGED_ENTITY_ID_LIMIT), entityIdCount: ids.length } : { entityIds: ids }
+}
+
 function isRejectedInput(error: unknown): boolean {
   if (error instanceof ZodError) return true
-  return isCrudHttpError(error) && error.status >= 400 && error.status < 500
+  return isCrudHttpError(error) && (error.status === 400 || error.status === 422)
+}
+
+function isMissingCompany(error: unknown): boolean {
+  return isCrudHttpError(error) && error.status === 404
 }
 
 /**
@@ -100,6 +114,7 @@ function isRejectedInput(error: unknown): boolean {
 export function createXeroContactWriter(deps: XeroContactWriterDeps): XeroContactWriter {
   const { scope, xeroOrganisationId } = deps
   let pageSnapshots = new Map<string, CompanySnapshot>()
+  let pageAddresses = emptyXeroAddressState()
 
   async function log(level: 'info' | 'warn', code: XeroItemLogCode, payload: Record<string, unknown>): Promise<void> {
     try {
@@ -137,15 +152,70 @@ export function createXeroContactWriter(deps: XeroContactWriterDeps): XeroContac
     return { externalId, action, data: { ...data, sourceIdentifier: externalId } }
   }
 
-  async function updateCompany(company: MappedXeroCompany, externalId: string, entityId: string): Promise<ImportItem> {
+  /**
+   * App Spec § 6.2a "Addresses": per Xero address type, the mapped row is updated where a value
+   * differs while it still belongs to the Company; otherwise a row is created (never primary) and
+   * the mapping re-pointed to it. Every other address row of the Company is the user's.
+   */
+  async function writeAddresses(contact: XeroContact, entityId: string): Promise<boolean> {
+    let written = false
+    for (const address of mapXeroAddresses(contact)) {
+      const addressExternalId = formatAddressExternalId(xeroOrganisationId, contact.ContactID, address.addressType)
+      const mappedAddressId = pageAddresses.addressIdByExternalId.get(addressExternalId) ?? null
+      const current = mappedAddressId ? pageAddresses.addresses.get(mappedAddressId) ?? null : null
+      if (current && current.entityId === entityId) {
+        const update = diffAddress(address, current)
+        if (!update) continue
+        await execute('customers.addresses.update', { id: current.id, organizationId: scope.organizationId, tenantId: scope.tenantId, ...update })
+        pageAddresses.addresses.set(current.id, { ...current, ...update })
+      } else {
+        const created = await execute<{ addressId: string }>('customers.addresses.create', {
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          entityId,
+          purpose: XERO_ADDRESS_PURPOSE[address.addressType],
+          isPrimary: false,
+          ...address.values,
+        })
+        await createExternalIdMappingService(deps.em.fork()).storeExternalIdMapping(
+          XERO_INTEGRATION_ID,
+          XERO_ADDRESS_MAPPING_TYPE,
+          created.addressId,
+          addressExternalId,
+          scope,
+        )
+        pageAddresses.addressIdByExternalId.set(addressExternalId, created.addressId)
+        pageAddresses.addresses.set(created.addressId, { id: created.addressId, entityId, ...address.values })
+      }
+      written = true
+      for (const warning of address.warnings) {
+        await log('warn', warning.code, { sourceIdentifier: addressExternalId, entityIds: [entityId], field: warning.field })
+      }
+    }
+    return written
+  }
+
+  async function updateCompany(company: MappedXeroCompany, contact: XeroContact, externalId: string, entityId: string): Promise<ImportItem> {
     const current = await snapshotOf(entityId)
     if (!current) return refuseDeleted(externalId, entityId)
     const update = diffCompanyUpdate(company, externalId, current)
-    if (!update) return item(externalId, 'skip', { localId: entityId })
-    await execute('customers.companies.update', { id: entityId, ...companyInput(update) })
-    pageSnapshots.delete(entityId)
-    await logValueWarnings(company, externalId, entityId)
-    return item(externalId, 'update', { localId: entityId })
+    if (update) {
+      if (!(await updateExistingCompany(entityId, companyInput(update)))) return refuseDeleted(externalId, entityId)
+      pageSnapshots.delete(entityId)
+      await logValueWarnings(company, externalId, entityId)
+    }
+    const addressesWritten = await writeAddresses(contact, entityId)
+    return item(externalId, update || addressesWritten ? 'update' : 'skip', { localId: entityId })
+  }
+
+  async function updateExistingCompany(entityId: string, input: Record<string, unknown>): Promise<boolean> {
+    try {
+      await execute('customers.companies.update', { id: entityId, ...input })
+      return true
+    } catch (error) {
+      if (isMissingCompany(error)) return false
+      throw error
+    }
   }
 
   async function refuseDeleted(externalId: string, entityId: string): Promise<ImportItem> {
@@ -157,7 +227,8 @@ export function createXeroContactWriter(deps: XeroContactWriterDeps): XeroContac
     const current = await snapshotOf(entityId)
     if (!current) return refuseDeleted(externalId, entityId)
     if (current.custom[XERO_MERGED_INTO_FIELD] !== survivingContactId) {
-      await execute('customers.companies.update', { id: entityId, ...companyInput({ customFields: { [XERO_MERGED_INTO_FIELD]: survivingContactId } }) })
+      const marked = await updateExistingCompany(entityId, companyInput({ customFields: { [XERO_MERGED_INTO_FIELD]: survivingContactId } }))
+      if (!marked) return refuseDeleted(externalId, entityId)
       pageSnapshots.delete(entityId)
     }
     const survivorEntityId = deps.runIndex.lookup(formatContactExternalId(xeroOrganisationId, survivingContactId))
@@ -174,7 +245,7 @@ export function createXeroContactWriter(deps: XeroContactWriterDeps): XeroContac
     if (!current) return refuseDeleted(externalId, entityId)
     const status = resolveCompanyStatus('GDPRREQUEST', current)!
     if (status.status === current.status && status.isActive === current.isActive) return item(externalId, 'skip', { localId: entityId })
-    await execute('customers.companies.update', { id: entityId, ...companyInput(status) })
+    if (!(await updateExistingCompany(entityId, companyInput(status)))) return refuseDeleted(externalId, entityId)
     pageSnapshots.delete(entityId)
     return item(externalId, 'update', { localId: entityId })
   }
@@ -209,7 +280,7 @@ export function createXeroContactWriter(deps: XeroContactWriterDeps): XeroContac
           if (candidates.length === 0) continue
           if (candidates.length > 1 && !ambiguityReported) {
             ambiguityReported = true
-            await log('warn', 'xero.company_match_ambiguous', { sourceIdentifier: externalId, entityIds: candidates })
+            await log('warn', 'xero.company_match_ambiguous', { sourceIdentifier: externalId, ...loggedEntityIds(candidates) })
           }
           candidate = candidates[0]
           matchedByNumber = true
@@ -225,7 +296,7 @@ export function createXeroContactWriter(deps: XeroContactWriterDeps): XeroContac
         created = true
         indexes.addCompanyName(candidate, company.displayName)
         if (namesakes.length > 0) {
-          await log('warn', 'xero.company_duplicate_risk', { sourceIdentifier: externalId, entityIds: [candidate, ...namesakes] })
+          await log('warn', 'xero.company_duplicate_risk', { sourceIdentifier: externalId, ...loggedEntityIds([candidate, ...namesakes]) })
         }
       }
 
@@ -236,12 +307,13 @@ export function createXeroContactWriter(deps: XeroContactWriterDeps): XeroContac
         if (taxKey) indexes.recordTaxNumberClaim(taxKey, contactId)
         if (created) {
           await logValueWarnings(company, externalId, candidate)
+          await writeAddresses(contact, candidate)
           return item(externalId, 'create', { localId: candidate })
         }
         if (matchedByNumber) {
           await log('info', 'xero.company_matched_by_tax_number', { sourceIdentifier: externalId, entityIds: [candidate] })
         }
-        return updateCompany(company, externalId, candidate)
+        return updateCompany(company, contact, externalId, candidate)
       }
 
       indexes.markClaimed(candidate)
@@ -249,7 +321,7 @@ export function createXeroContactWriter(deps: XeroContactWriterDeps): XeroContac
       if (claim.winnerEntityId) {
         deps.runIndex.add(externalId, claim.winnerEntityId)
         if (claim.winnerDeleted) return refuseDeleted(externalId, claim.winnerEntityId)
-        return updateCompany(company, externalId, claim.winnerEntityId)
+        return updateCompany(company, contact, externalId, claim.winnerEntityId)
       }
     }
     throw new Error(`[internal] sync_xero could not claim a Company after ${MAX_CLAIM_ATTEMPTS} attempts`)
@@ -261,6 +333,10 @@ export function createXeroContactWriter(deps: XeroContactWriterDeps): XeroContac
         .map((record) => deps.runIndex.lookup(formatContactExternalId(xeroOrganisationId, record.ContactID)))
         .filter((entityId): entityId is string => entityId !== null)
       pageSnapshots = await loadCompanySnapshots(deps.em.fork(), scope, mapped)
+      const addressExternalIds = records.flatMap((record) =>
+        XERO_ADDRESS_TYPES.map((addressType) => formatAddressExternalId(xeroOrganisationId, record.ContactID, addressType)),
+      )
+      pageAddresses = await loadXeroAddressState(deps.em.fork(), scope, addressExternalIds)
     },
 
     async write(record) {
@@ -278,7 +354,7 @@ export function createXeroContactWriter(deps: XeroContactWriterDeps): XeroContac
         if (mappedEntityId && decision.kind === 'status_only') return await flipStatusOnly(externalId, mappedEntityId)
         const mapping = mapXeroContactToCompany(contact)
         if (!mapping.ok) return invalid()
-        if (mappedEntityId) return await updateCompany(mapping.company, externalId, mappedEntityId)
+        if (mappedEntityId) return await updateCompany(mapping.company, contact, externalId, mappedEntityId)
         return await writeFirstSync(mapping.company, contact, externalId)
       } catch (error) {
         if (!isRejectedInput(error)) throw error

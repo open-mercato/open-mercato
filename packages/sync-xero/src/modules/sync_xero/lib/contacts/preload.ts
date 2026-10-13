@@ -1,11 +1,12 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CustomerCompanyProfile, CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
+import { CustomerAddress, CustomerCompanyProfile, CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import { SyncExternalIdMapping } from '@open-mercato/core/modules/integrations/data/entities'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { XERO_COMPANY_MAPPING_TYPE, XERO_INTEGRATION_ID } from '../constants'
+import { XERO_ADDRESS_MAPPING_TYPE, XERO_COMPANY_MAPPING_TYPE, XERO_INTEGRATION_ID } from '../constants'
 import { XERO_COMPANY_FIELDS_ENTITY_ID } from '../field-definitions'
 import type { XeroScope } from '../owner'
+import type { AddressSnapshot } from './addresses'
 import type { CompanySnapshot } from './compare'
 
 const CUSTOM_FIELD_PREFIX = 'cf_'
@@ -97,4 +98,55 @@ export async function loadCompanySnapshots(em: EntityManager, scope: XeroScope, 
     })
   }
   return snapshots
+}
+
+/** A page's Xero-owned address rows: the `customers.address` mappings of its Contacts and the rows they name. */
+export type XeroAddressState = {
+  addressIdByExternalId: Map<string, string>
+  addresses: Map<string, AddressSnapshot>
+}
+
+export function emptyXeroAddressState(): XeroAddressState {
+  return { addressIdByExternalId: new Map(), addresses: new Map() }
+}
+
+export async function loadXeroAddressState(em: EntityManager, scope: XeroScope, externalIds: string[]): Promise<XeroAddressState> {
+  const state = emptyXeroAddressState()
+  if (externalIds.length === 0) return state
+  const mappings = await findWithDecryption(
+    em,
+    SyncExternalIdMapping,
+    {
+      integrationId: XERO_INTEGRATION_ID,
+      internalEntityType: XERO_ADDRESS_MAPPING_TYPE,
+      externalId: { $in: [...new Set(externalIds)] },
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+    },
+    {},
+    scope,
+  )
+  if (mappings.length === 0) return state
+  for (const mapping of mappings) state.addressIdByExternalId.set(mapping.externalId, mapping.internalEntityId)
+  const rows = await findWithDecryption(
+    em,
+    CustomerAddress,
+    { id: { $in: mappings.map((mapping) => mapping.internalEntityId) }, organizationId: scope.organizationId, tenantId: scope.tenantId },
+    {},
+    scope,
+  )
+  for (const row of rows) {
+    state.addresses.set(row.id, {
+      id: row.id,
+      entityId: row.entity.id,
+      addressLine1: row.addressLine1,
+      addressLine2: row.addressLine2 ?? null,
+      city: row.city ?? null,
+      region: row.region ?? null,
+      postalCode: row.postalCode ?? null,
+      country: row.country ?? null,
+    })
+  }
+  return state
 }

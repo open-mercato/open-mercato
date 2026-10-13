@@ -3,6 +3,7 @@ export const XERO_PROVIDER_KEY = 'xero'
 export const XERO_CONTACTS_ENTITY_TYPE = 'xero.contacts'
 export const XERO_SUPPORTED_ENTITY_TYPES = [XERO_CONTACTS_ENTITY_TYPE] as const
 export const XERO_COMPANY_MAPPING_TYPE = 'customers.company'
+export const XERO_ADDRESS_MAPPING_TYPE = 'customers.address'
 
 export const XERO_SCOPES = ['offline_access', 'accounting.contacts.read', 'accounting.invoices.read'] as const
 export const XERO_ACCESS_TOKEN_TTL_SEC = 1800
