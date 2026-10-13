@@ -745,6 +745,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
       await capturePriceHistoryEntry(em, historyAfter, 'update', {
         cache: resolveOmnibusCache(ctx.container),
         invalidatePrices: [historyBefore],
+        previous: historyBefore,
       })
     }
     return { priceId: record.id }
@@ -825,6 +826,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
       metadata: { undoneCommand: 'catalog.prices.update' },
       cache: resolveOmnibusCache(ctx.container),
       invalidatePrices: [after],
+      previous: after,
     })
     const resetValues = buildCustomFieldResetMap(
       before.custom ?? undefined,

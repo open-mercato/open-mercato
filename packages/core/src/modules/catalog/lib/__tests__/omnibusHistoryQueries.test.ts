@@ -71,6 +71,31 @@ describe('fetchOmnibusWindowIds SQL', () => {
     await fetchOmnibusWindowIds(em, [windowLookup(null)])
     expect(queries[0].sql).not.toContain('h.channel_id')
   })
+
+  it('keeps variant rows out of a product-level lookup', async () => {
+    const { em, queries } = recordingEm()
+    await fetchOmnibusWindowIds(em, [windowLookup(null)])
+    expect(queries[0].sql.match(/AND h\.variant_id IS NULL/g)).toHaveLength(2)
+  })
+
+  it('does not narrow a variant-level lookup by level', async () => {
+    const { em, queries } = recordingEm()
+    await fetchOmnibusWindowIds(em, [{ ...windowLookup(null), scopeColumn: 'variant_id' }])
+    expect(queries[0].sql).not.toContain('h.variant_id IS NULL')
+    expect(queries[0].sql).toContain('"h"."variant_id" = w.scope_id')
+  })
+
+  it('drops a baseline whose price ended before the window starts', async () => {
+    const { em, queries } = recordingEm()
+    await fetchOmnibusWindowIds(em, [windowLookup(null)])
+    const sql = queries[0].sql
+    const [baselinePart, windowPart] = sql.split('UNION ALL')
+    expect(baselinePart).toMatch(/AND NOT EXISTS \(\s+SELECT 1 FROM catalog_price_history_entries ended/)
+    expect(baselinePart).toMatch(/ended\.price_id = h\.price_id/)
+    expect(baselinePart).toMatch(/ended\.recorded_at > h\.recorded_at\s+AND ended\.recorded_at <= w\.window_start/)
+    expect(baselinePart).toMatch(/ended\.change_type = 'delete'/)
+    expect(windowPart).not.toContain('ended.')
+  })
 })
 
 describe('fetchOmnibusFirstOfferIds SQL', () => {

@@ -48,6 +48,7 @@ export type BuildHistoryEntryOptions = {
 export type CapturePriceHistoryOptions = BuildHistoryEntryOptions & {
   cache?: CacheStrategy | null
   invalidatePrices?: Array<PriceHistoryPriceInput | null | undefined>
+  previous?: PriceHistoryPriceInput | null
 }
 
 export type RecordPriceHistoryResult = 'recorded' | 'duplicate'
@@ -275,6 +276,20 @@ export async function recordPriceHistoryEntry(
   return 'recorded'
 }
 
+async function closeUntrackedPriceHistory(
+  em: EntityManager,
+  previous: PriceHistoryPriceInput | null | undefined,
+  changeType: PriceHistoryChangeType,
+  options: BuildHistoryEntryOptions,
+): Promise<RecordPriceHistoryResult | null> {
+  if (!previous || !isOmnibusTrackedPrice(previous)) return null
+  return recordPriceHistoryEntry(em, previous, 'delete', {
+    recordedAt: options.recordedAt,
+    source: options.source,
+    metadata: { ...(options.metadata ?? {}), closedBy: changeType, reason: 'untracked' },
+  })
+}
+
 export async function capturePriceHistoryEntry(
   em: EntityManager,
   price: PriceHistoryPriceInput | null | undefined,
@@ -283,7 +298,9 @@ export async function capturePriceHistoryEntry(
 ): Promise<RecordPriceHistoryResult | null> {
   if (!price) return null
   try {
-    const result = isOmnibusTrackedPrice(price) ? await recordPriceHistoryEntry(em, price, changeType, options) : null
+    const result = isOmnibusTrackedPrice(price)
+      ? await recordPriceHistoryEntry(em, price, changeType, options)
+      : await closeUntrackedPriceHistory(em, options.previous, changeType, options)
     await invalidateOmnibusCacheForPrices(options.cache, [price, ...(options.invalidatePrices ?? [])])
     return result
   } catch (err) {

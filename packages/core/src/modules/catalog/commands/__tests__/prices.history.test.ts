@@ -431,6 +431,46 @@ describe('catalog price commands record omnibus price history', () => {
     expect(harness.historyRows).toHaveLength(0)
   })
 
+  it('closes the public history when an update makes a tracked price customer-specific', async () => {
+    findOneWithDecryption.mockResolvedValue(buildPriceRecord())
+    const harness = buildHarness()
+    await commandById('catalog.prices.update').execute(
+      { id: PRICE_ID, customerGroupId: '99999999-9999-4999-8999-999999999992' },
+      harness.ctx,
+    )
+    expect(harness.historyRows).toHaveLength(1)
+    expect(harness.historyRows[0]).toMatchObject({
+      changeType: 'delete',
+      priceId: PRICE_ID,
+      metadata: { closedBy: 'update', reason: 'untracked' },
+    })
+  })
+
+  it('closes the public history when an undo restores a customer-specific price', async () => {
+    const harness = buildHarness({ existingPrice: buildPriceRecord() })
+    await commandById('catalog.prices.update').undo({
+      logEntry: undoLog({
+        before: buildSnapshot({ customerGroupId: '99999999-9999-4999-8999-999999999992' }),
+        after: buildSnapshot(),
+      }),
+      ctx: harness.ctx,
+    })
+    expect(harness.historyRows).toHaveLength(1)
+    expect(harness.historyRows[0]).toMatchObject({
+      changeType: 'delete',
+      metadata: { undoneCommand: 'catalog.prices.update', closedBy: 'undo', reason: 'untracked' },
+    })
+  })
+
+  it('records nothing when an update keeps an untracked price untracked', async () => {
+    findOneWithDecryption.mockResolvedValue(
+      buildPriceRecord({ customerGroupId: '99999999-9999-4999-8999-999999999992' }),
+    )
+    const harness = buildHarness()
+    await commandById('catalog.prices.update').execute({ id: PRICE_ID, unitPriceNet: 55 }, harness.ctx)
+    expect(harness.historyRows).toHaveLength(0)
+  })
+
   it('invalidates both the restored and the undone scope when an update is undone', async () => {
     const harness = buildHarness({ existingPrice: buildPriceRecord() })
     await commandById('catalog.prices.update').undo({

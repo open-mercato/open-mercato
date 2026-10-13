@@ -42,8 +42,27 @@ const SCOPE_COLUMNS: Record<OmnibusScopeColumn, RawBuilder<unknown>> = {
   offer_id: sql.ref('h.offer_id'),
 }
 
+const SCOPE_LEVEL_CLAUSES: Record<OmnibusScopeColumn, RawBuilder<unknown>> = {
+  product_id: sql`AND h.variant_id IS NULL`,
+  variant_id: sql``,
+  offer_id: sql``,
+}
+
 const OBSERVATION_CLAUSE = sql`AND h.change_type <> 'delete'
         AND NOT (h.change_type = 'undo' AND h.metadata->>'undoneCommand' = ${OMNIBUS_PRICE_REMOVING_UNDO_COMMAND})`
+
+const NOT_ENDED_BEFORE_WINDOW_CLAUSE = sql`AND NOT EXISTS (
+          SELECT 1 FROM catalog_price_history_entries ended
+          WHERE ended.tenant_id = h.tenant_id
+            AND ended.organization_id = h.organization_id
+            AND ended.price_id = h.price_id
+            AND ended.recorded_at > h.recorded_at
+            AND ended.recorded_at <= w.window_start
+            AND (
+              ended.change_type = 'delete'
+              OR (ended.change_type = 'undo' AND ended.metadata->>'undoneCommand' = ${OMNIBUS_PRICE_REMOVING_UNDO_COMMAND})
+            )
+        )`
 
 function lookupGroupKey(lookup: OmnibusWindowLookup): string {
   return `${lookup.scopeColumn}|${lookup.channelId ? 'channel' : 'any'}`
@@ -60,6 +79,7 @@ async function runWindowGroup(
   lookups: OmnibusWindowLookup[],
 ): Promise<LookupRow[]> {
   const scopeRef = SCOPE_COLUMNS[scopeColumn]
+  const scopeLevelClause = SCOPE_LEVEL_CLAUSES[scopeColumn]
   const channelClause = withChannel ? sql`AND (h.channel_id = w.channel_id OR h.channel_id IS NULL)` : sql``
   const tenantIds = lookups.map((lookup) => lookup.tenantId)
   const organizationIds = lookups.map((lookup) => lookup.organizationId)
@@ -89,11 +109,13 @@ async function runWindowGroup(
       WHERE h.tenant_id = w.tenant_id
         AND h.organization_id = w.organization_id
         AND ${scopeRef} = w.scope_id
+        ${scopeLevelClause}
         ${channelClause}
         AND h.price_kind_id = w.price_kind_id
         AND h.currency_code = w.currency_code
         ${OBSERVATION_CLAUSE}
         AND h.recorded_at <= w.window_start
+        ${NOT_ENDED_BEFORE_WINDOW_CLAUSE}
       ORDER BY h.recorded_at DESC, h.id DESC
       LIMIT 1
     ) baseline
@@ -105,6 +127,7 @@ async function runWindowGroup(
       WHERE h.tenant_id = w.tenant_id
         AND h.organization_id = w.organization_id
         AND ${scopeRef} = w.scope_id
+        ${scopeLevelClause}
         ${channelClause}
         AND h.price_kind_id = w.price_kind_id
         AND h.currency_code = w.currency_code
