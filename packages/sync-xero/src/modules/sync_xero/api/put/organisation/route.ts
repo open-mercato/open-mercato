@@ -9,6 +9,7 @@ import { OAuthGrantError } from '@open-mercato/core/modules/integrations/lib/oau
 import { listAllOrganisations, type XeroOrganisationOption } from '../../../lib/connections'
 import { XERO_GRANT_RESOURCE_ID, XERO_GRANT_RESOURCE_KIND, XERO_INTEGRATION_ID } from '../../../lib/constants'
 import { decideOrganisationChange, toXeroProviderData } from '../../../lib/organisation'
+import { ensureXeroFieldDefinitionsAfterSave } from '../../../lib/field-definitions'
 import { ensureDefaultSchedules } from '../../../lib/schedules'
 import { authorizeXeroRoute, CREDENTIALS_MANAGE_FEATURE } from '../../../lib/route-auth'
 import { interactiveFailureResponse, xeroErrorResponse, seamFailureResponse } from '../../../lib/route-errors'
@@ -106,6 +107,7 @@ export async function PUT(req: Request): Promise<Response> {
     throw error
   }
   await guard.runAfterSuccess()
+  await ensureXeroFieldDefinitionsAfterSave(container, scope)
   const ensured = await ensureDefaultSchedules({ container, scope, guard: { req, userId } })
 
   return NextResponse.json({

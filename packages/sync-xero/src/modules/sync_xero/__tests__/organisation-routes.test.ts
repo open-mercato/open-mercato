@@ -33,14 +33,21 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: (...args: unknown[]) => mockFindWithDecryption(...args),
 }))
 
+const mockEnsureFieldDefinitions = jest.fn()
+
+jest.mock('../lib/field-definitions', () => ({
+  ...jest.requireActual('../lib/field-definitions'),
+  ensureXeroFieldDefinitionsAfterSave: (...args: unknown[]) => mockEnsureFieldDefinitions(...args),
+}))
+
 jest.mock('../lib/endpoints', () => ({
   ...jest.requireActual('../lib/endpoints'),
   resolveXeroEndpoints: (...args: unknown[]) => mockResolveEndpoints(...args),
 }))
 
 import { GET as getConnection, metadata as connectionMetadata } from '../api/get/connection/route'
-import { GET as getOrganisations } from '../api/get/organisations/route'
-import { PUT as putOrganisation } from '../api/put/organisation/route'
+import { GET as getOrganisations, metadata as organisationsMetadata } from '../api/get/organisations/route'
+import { PUT as putOrganisation, metadata as organisationMetadata } from '../api/put/organisation/route'
 import { POST as postSchedules, metadata as schedulesMetadata } from '../api/post/schedules/route'
 
 const APP_ORIGIN = 'http://localhost:3000'
@@ -127,6 +134,7 @@ beforeEach(() => {
   delete process.env.APP_URL
   registerMutationGuards([])
   grants = createFakeGrantService({ connected: true, providerData: PROVIDER_DATA_A })
+  mockEnsureFieldDefinitions.mockReset().mockResolvedValue(true)
   features = new Set(['integrations.view', 'integrations.credentials.manage', 'data_sync.configure'])
   mappingRows = []
   schedules = createFakeScheduleService()
@@ -142,6 +150,13 @@ beforeEach(() => {
     revoke: 'https://identity.xero.com/connect/revocation',
     connections: `${xeroApi.url}/connections`,
     accounting: `${xeroApi.url}/api.xro/2.0`,
+  })
+})
+
+describe('Organisation route guards', () => {
+  it('require integrations.credentials.manage for listing and choosing the Organisation', () => {
+    expect(organisationsMetadata).toEqual({ path: '/sync_xero/organisations', GET: { requireAuth: true, requireFeatures: ['integrations.credentials.manage'] } })
+    expect(organisationMetadata).toEqual({ path: '/sync_xero/organisation', PUT: { requireAuth: true, requireFeatures: ['integrations.credentials.manage'] } })
   })
 })
 
@@ -301,6 +316,15 @@ describe('PUT /api/sync_xero/organisation', () => {
       organisation: { id: XERO_ORG_A, name: 'Demo Company (Global)' },
       schedules: [{ entityType: 'xero.contacts', exists: true, isEnabled: true, fullSync: false, scheduleValue: '1h' }],
     })
+    expect(mockEnsureFieldDefinitions).toHaveBeenCalledTimes(1)
+    expect(mockEnsureFieldDefinitions).toHaveBeenCalledWith(expect.anything(), { tenantId: TENANT_ID, organizationId: ORG_ID })
+  })
+
+  it('keeps the saved Organisation when the Company field definitions cannot be ensured', async () => {
+    mockEnsureFieldDefinitions.mockResolvedValue(false)
+    const response = await putOrganisation(putRequest({ xeroOrganisationId: XERO_ORG_A }, grants.state.revisedAt.toISOString()))
+    expect(response.status).toBe(200)
+    expect(await json(response)).toMatchObject({ schedules: [{ entityType: 'xero.contacts', exists: true }] })
   })
 
   it('keeps the saved Organisation when the default schedule cannot be created', async () => {

@@ -31,6 +31,13 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({ translate: (_key: string, fallback: string) => fallback }),
 }))
 
+const mockEnsureFieldDefinitions = jest.fn()
+
+jest.mock('../lib/field-definitions', () => ({
+  ...jest.requireActual('../lib/field-definitions'),
+  ensureXeroFieldDefinitionsAfterSave: (...args: unknown[]) => mockEnsureFieldDefinitions(...args),
+}))
+
 jest.mock('../lib/endpoints', () => ({
   ...jest.requireActual('../lib/endpoints'),
   resolveXeroEndpoints: (...args: unknown[]) => mockResolveEndpoints(...args),
@@ -176,6 +183,7 @@ beforeEach(() => {
   delete process.env.NEXT_PUBLIC_APP_URL
   authorizationServer.reset()
   registerMutationGuards([])
+  mockEnsureFieldDefinitions.mockReset().mockResolvedValue(true)
   rbacCalls.length = 0
   grants = createFakeGrantService()
   cache = createMemoryCache()
@@ -426,12 +434,15 @@ describe('GET /api/sync_xero/oauth/callback — automatic Organisation selection
     connectionsHandler = (query) => ({ status: 200, body: query.get('authEventId') === 'evt-1' ? [organisationA] : [organisationA, organisationB] })
     expect(resultOf(await finishConnect(await startConnect()))).toBe('connected')
     expect(xeroApi.requests.at(-1)?.query.get('authEventId')).toBe('evt-1')
+    expect(mockEnsureFieldDefinitions).toHaveBeenCalledTimes(1)
+    expect(mockEnsureFieldDefinitions).toHaveBeenCalledWith(expect.anything(), { tenantId: TENANT_ID, organizationId: ORG_ID })
   })
 
   it('leaves the Account pending when the consent covered several Organisations', async () => {
     connectionsHandler = () => ({ status: 200, body: [organisationA, organisationB] })
     expect(resultOf(await finishConnect(await startConnect()))).toBe('account_pending')
     expect(updateProviderDataCalls()).toHaveLength(0)
+    expect(mockEnsureFieldDefinitions).not.toHaveBeenCalled()
   })
 
   it('leaves the Account pending on a first connect over existing Xero mappings', async () => {
