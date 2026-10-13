@@ -10,8 +10,8 @@ import { listAllOrganisations, type XeroOrganisationOption } from '../../../lib/
 import { XERO_GRANT_RESOURCE_ID, XERO_GRANT_RESOURCE_KIND, XERO_INTEGRATION_ID } from '../../../lib/constants'
 import { decideOrganisationChange, toXeroProviderData } from '../../../lib/organisation'
 import { authorizeXeroRoute, CREDENTIALS_MANAGE_FEATURE } from '../../../lib/route-auth'
-import { interactiveFailureResponse, xeroErrorResponse } from '../../../lib/route-errors'
-import { createInteractiveXeroClient, loadPreviousOrganisations, resolveXeroRouteGrant } from '../../../lib/route-grant'
+import { interactiveFailureResponse, xeroErrorResponse, seamFailureResponse } from '../../../lib/route-errors'
+import { createInteractiveXeroClient, loadPreviousOrganisations, resolveXeroRouteGrant, type XeroRouteGrant } from '../../../lib/route-grant'
 import { XERO_OPENAPI_TAG, xeroErrorSchema, xeroRuleOneErrors } from '../../openapi'
 
 export const metadata = {
@@ -41,7 +41,14 @@ export async function PUT(req: Request): Promise<Response> {
   const body = bodySchema.safeParse(await readJsonSafe(req, null))
   if (!body.success) return xeroErrorResponse(400, 'invalid_request')
 
-  const grant = await resolveXeroRouteGrant(container, scope)
+  let grant: XeroRouteGrant
+  try {
+    grant = await resolveXeroRouteGrant(container, scope)
+  } catch (error) {
+    const response = await seamFailureResponse(error)
+    if (response) return response
+    throw error
+  }
   const inspection = await grant.grantService.inspectGrant(grant.descriptor, grant.owner)
   if (inspection.status === 'none') return xeroErrorResponse(409, 'not_connected')
   if (inspection.status === 'unavailable') return xeroErrorResponse(409, 'xero.account_unavailable')

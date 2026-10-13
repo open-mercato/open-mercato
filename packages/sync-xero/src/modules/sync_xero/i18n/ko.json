@@ -36,6 +36,7 @@
   "sync_xero.errors.organisation_switch_blocked": "이전 조직의 청구서가 연결되어 있는 동안에는 Xero 조직을 변경할 수 없습니다.",
   "sync_xero.errors.organization_scope_required": "Xero 연결을 관리할 조직을 선택하세요.",
   "sync_xero.errors.platform_unavailable": "저장된 Xero 연결을 지금 읽을 수 없습니다. 나중에 다시 시도하세요.",
+  "sync_xero.errors.test_fakes_unavailable": "이 조직의 Xero 테스트 대역이 실행되고 있지 않습니다. 다시 시작하거나 테스트 조직을 초기화하세요.",
   "sync_xero.errors.transient": "Xero 연결을 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도하세요.",
   "sync_xero.errors.unauthorized": "계속하려면 로그인하세요.",
   "sync_xero.errors.unavailable": "Xero가 제때 응답하지 않았습니다. 잠시 후 다시 시도하세요.",

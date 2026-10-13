@@ -10,8 +10,8 @@ import type { OAuthDisconnectResult } from '@open-mercato/core/modules/integrati
 import { XERO_GRANT_RESOURCE_ID, XERO_GRANT_RESOURCE_KIND, XERO_INTEGRATION_ID } from '../../../lib/constants'
 import { runDisconnectSteps, SKIPPED_DISCONNECT_STEPS } from '../../../lib/disconnect-steps'
 import { authorizeXeroRoute, CREDENTIALS_MANAGE_FEATURE } from '../../../lib/route-auth'
-import { xeroErrorResponse } from '../../../lib/route-errors'
-import { resolveXeroRouteGrant } from '../../../lib/route-grant'
+import { xeroErrorResponse, seamFailureResponse } from '../../../lib/route-errors'
+import { resolveXeroRouteGrant, type XeroRouteGrant } from '../../../lib/route-grant'
 import { XERO_OPENAPI_TAG, xeroErrorSchema, xeroRuleOneErrors } from '../../openapi'
 
 export const metadata = {
@@ -55,7 +55,14 @@ export async function POST(req: Request): Promise<Response> {
   })
   if (!guard.ok) return guard.response
 
-  const grant = await resolveXeroRouteGrant(container, scope)
+  let grant: XeroRouteGrant
+  try {
+    grant = await resolveXeroRouteGrant(container, scope)
+  } catch (error) {
+    const response = await seamFailureResponse(error)
+    if (response) return response
+    throw error
+  }
   let result: OAuthDisconnectResult
   try {
     result = await grant.grantService.disconnect(grant.descriptor, grant.owner, {
