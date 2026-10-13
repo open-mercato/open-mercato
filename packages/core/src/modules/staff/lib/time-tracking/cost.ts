@@ -19,6 +19,7 @@ import {
   decimalToString,
   divideDecimals,
   parseDecimal,
+  resolveExactDecimal,
   roundDecimal,
   sumDecimals,
   toDecimal,
@@ -43,14 +44,32 @@ export type CostProject = {
 export const DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES = 2
 
 /**
+ * The entry as a rate resolver sees it: `rateOverrideAmount` is the float copy,
+ * `rateOverrideAmountExact` the exact decimal string when the caller has one.
+ */
+export type TimeRateEntryContext = {
+  rateOverrideAmount?: number | null
+  rateOverrideAmountExact?: string | null
+}
+
+/**
+ * The project as a rate resolver sees it: `hourlyRate` is the float copy,
+ * `hourlyRateExact` the exact decimal string when the caller has one.
+ */
+export type TimeRateProjectContext = {
+  hourlyRate?: number | null
+  hourlyRateExact?: string | null
+}
+
+/**
  * Everything a rate resolver may reason about. Only `entry` and `project` are
  * populated by the module's own call sites; the remaining fields exist so a
  * contributed resolver can key off seniority, task type, customer contract or an
  * effective date without the call site having to invent its own context shape.
  */
 export type TimeRateContext = ScopedResolverContext & {
-  entry?: Pick<CostEntry, 'rateOverrideAmount'> | null
-  project?: CostProject | null
+  entry?: TimeRateEntryContext | null
+  project?: TimeRateProjectContext | null
   task?: { id?: string | null; timeProjectId?: string | null } | null
   staffMember?: { id?: string | null } | null
   role?: { id?: string | null; name?: string | null } | null
@@ -61,8 +80,12 @@ export type TimeRateContext = ScopedResolverContext & {
 export type TimeRateResolver = {
   id: string
   priority?: number
-  /** A number, or an exact decimal string for rates beyond float precision. */
-  resolve(ctx: TimeRateContext): number | string | null
+  resolve(ctx: TimeRateContext): number | null
+  /**
+   * Optional exact-decimal answer. When present it is asked instead of
+   * `resolve`, so a rate beyond float precision survives the chain.
+   */
+  resolveExact?(ctx: TimeRateContext): string | null
 }
 
 export const TIME_RATE_REGISTRY_ID = extensionPoints.hosts.timeRateRegistry.spotId
@@ -100,34 +123,48 @@ function exactRate(value: unknown): string | null {
   return parsed ? decimalToString(parsed) : null
 }
 
-function builtInRate(ctx: TimeRateContext): number | string | null {
-  const override = ctx.entry?.rateOverrideAmount
-  if (exactRate(override) !== null) return override as number | string
-  const projectRate = ctx.project?.hourlyRate
-  if (exactRate(projectRate) !== null) return projectRate as number | string
-  return null
+function finiteNumberOrNull(exact: string | null): number | null {
+  if (exact === null) return null
+  const value = decimalToNumber(exact)
+  return Number.isFinite(value) ? value : null
+}
+
+function finiteNumberRate(value: unknown): string | null {
+  return typeof value === 'number' && Number.isFinite(value) ? exactRate(value) : null
+}
+
+function builtInRateExact(ctx: TimeRateContext): string | null {
+  const override = resolveExactDecimal(ctx.entry?.rateOverrideAmountExact, ctx.entry?.rateOverrideAmount)
+  if (override !== null) return override
+  return resolveExactDecimal(ctx.project?.hourlyRateExact, ctx.project?.hourlyRate)
 }
 
 const builtInRateResolver: TimeRateResolver = registry.registerBuiltIn({
   id: BUILT_IN_TIME_RATE_RESOLVER_ID,
   priority: BUILT_IN_STRATEGY_PRIORITY,
-  resolve: builtInRate,
+  resolve: (ctx) => finiteNumberOrNull(builtInRateExact(ctx)),
+  resolveExact: builtInRateExact,
 })
+
+function resolverRateExact(resolver: TimeRateResolver, ctx: TimeRateContext): string | null {
+  if (typeof resolver.resolveExact === 'function') return exactRate(resolver.resolveExact(ctx))
+  return finiteNumberRate(resolver.resolve(ctx))
+}
 
 /**
  * Walks the registry in priority order and takes the first non-null answer.
  * Contributed resolvers are skipped entirely when the context carries no
- * complete scope, which leaves the built-in as the only candidate.
+ * complete scope, which leaves the built-in as the only candidate. A resolver
+ * with `resolveExact` answers through it; otherwise its `resolve` number is used.
  */
-/** Exact-decimal variant of {@link resolveTimeRate}. */
 export function resolveTimeRateExact(ctx: TimeRateContext): string | null {
   const scoped = hasResolverScope(ctx)
   for (const resolver of registry.list()) {
     if (!scoped && resolver.id !== BUILT_IN_TIME_RATE_RESOLVER_ID) continue
     // A chain asks the next candidate anyway, so a thrower is skipped rather than
     // replaced — and the built-in is always the last candidate.
-    const rate = exactRate(tryStrategy(TIME_RATE_REGISTRY_ID, resolver.id, () => resolver.resolve(ctx)))
-    if (rate !== null) return rate
+    const rate = tryStrategy(TIME_RATE_REGISTRY_ID, resolver.id, () => resolverRateExact(resolver, ctx))
+    if (rate !== null && rate !== undefined) return rate
   }
   return null
 }
@@ -137,13 +174,29 @@ export function resolveTimeRate(ctx: TimeRateContext): number | null {
   return rate === null ? null : decimalToNumber(rate)
 }
 
+function entryRateContext(entry: Pick<CostEntry, 'rateOverrideAmount'> | null | undefined): TimeRateEntryContext | null {
+  if (!entry) return null
+  const exact = exactRate(entry.rateOverrideAmount)
+  return { ...entry, rateOverrideAmount: finiteNumberOrNull(exact), rateOverrideAmountExact: exact }
+}
+
+function projectRateContext(project: CostProject | null | undefined): TimeRateProjectContext | null {
+  if (!project) return null
+  const exact = exactRate(project.hourlyRate)
+  return { ...project, hourlyRate: finiteNumberOrNull(exact), hourlyRateExact: exact }
+}
+
 /** Exact-decimal variant of {@link applicableRate}. */
 export function applicableRateExact(
   entry: Pick<CostEntry, 'rateOverrideAmount'> | null | undefined,
   project: CostProject | null | undefined,
   ctx?: Omit<TimeRateContext, 'entry' | 'project'> | null,
 ): string | null {
-  return resolveTimeRateExact({ ...(ctx ?? {}), entry: entry ?? null, project: project ?? null })
+  return resolveTimeRateExact({
+    ...(ctx ?? {}),
+    entry: entryRateContext(entry),
+    project: projectRateContext(project),
+  })
 }
 
 export function applicableRate(
