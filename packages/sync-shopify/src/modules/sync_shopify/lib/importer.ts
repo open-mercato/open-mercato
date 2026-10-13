@@ -1,4 +1,3 @@
-import { randomUUID } from 'crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -12,7 +11,17 @@ import {
   CatalogProductVariant,
 } from '@open-mercato/core/modules/catalog/data/entities'
 import type { ImportItem } from '@open-mercato/core/modules/data_sync/lib/adapter'
-import { buildOrderCommandInput, primaryVariant, productIsActive, shopifyNumericId, splitPersonName, variantPriceAmount, type CatalogLink } from './map'
+import {
+  buildOrderCommandInput,
+  primaryVariant,
+  productIsActive,
+  sanitizeHandle,
+  sanitizeSku,
+  shopifyNumericId,
+  splitPersonName,
+  variantPriceAmount,
+  type CatalogLink,
+} from './map'
 import { SHOPIFY_INTEGRATION_ID, type ShopifyCustomerNode, type ShopifyOrderNode, type ShopifyProductNode } from './types'
 
 const PRODUCT_ENTITY = 'catalog_product'
@@ -79,14 +88,14 @@ export async function createShopifyImporter(scope: TenantScope): Promise<Shopify
     return priceKind
   }
 
-  async function upsertPrice(variant: CatalogProductVariant, product: CatalogProduct, amount: number, currencyCode: string): Promise<void> {
+  async function upsertPrice(variantId: string, productId: string, amount: number, currencyCode: string): Promise<void> {
     const kind = await resolvePriceKind()
     if (!kind || !/^[A-Z]{3}$/.test(currencyCode)) return
     const existing = await findOneWithDecryption(
       em,
       CatalogProductPrice,
       {
-        variant: variant.id,
+        variant: variantId,
         priceKind: kind.id,
         currencyCode,
         tenantId: scope.tenantId,
@@ -95,23 +104,30 @@ export async function createShopifyImporter(scope: TenantScope): Promise<Shopify
       undefined,
       scope,
     )
-    const value = amount.toFixed(4)
     if (existing) {
-      existing.unitPriceGross = value
-      existing.unitPriceNet = value
+      await commandBus.execute('catalog.prices.update', {
+        input: {
+          id: existing.id,
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          unitPriceGross: amount,
+        },
+        ctx,
+      })
       return
     }
-    em.create(CatalogProductPrice, {
-      variant,
-      product,
-      priceKind: kind,
-      organizationId: scope.organizationId,
-      tenantId: scope.tenantId,
-      currencyCode,
-      kind: 'regular',
-      minQuantity: 1,
-      unitPriceGross: value,
-      unitPriceNet: value,
+    await commandBus.execute('catalog.prices.create', {
+      input: {
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        variantId,
+        productId,
+        priceKindId: kind.id,
+        currencyCode,
+        minQuantity: 1,
+        unitPriceGross: amount,
+      },
+      ctx,
     })
   }
 
@@ -130,31 +146,47 @@ export async function createShopifyImporter(scope: TenantScope): Promise<Shopify
         const lead = primaryVariant(product)
         const title = product.title.trim() || 'Untitled product'
         const action = existing ? 'update' as const : 'create' as const
-        const record = existing ?? em.create(CatalogProduct, {
-          id: randomUUID(),
-          organizationId: scope.organizationId,
-          tenantId: scope.tenantId,
-          title,
-          productType: product.variants.length > 1 ? 'configurable' : 'simple',
-          isConfigurable: product.variants.length > 1,
-          isActive: productIsActive(product.status),
-        })
-        record.title = title
-        record.description = product.descriptionHtml
-        record.handle = await uniqueHandle(em, scope, product.handle || shopifyNumericId(product.id), record.id, product.id)
-        record.sku = lead?.sku ?? null
-        record.productType = product.variants.length > 1 ? 'configurable' : 'simple'
-        record.isActive = productIsActive(product.status)
-        record.primaryCurrencyCode = /^[A-Z]{3}$/.test(currencyCode) ? currencyCode : null
-        record.metadata = {
-          ...(record.metadata ?? {}),
+        const productType = product.variants.length > 1 ? 'configurable' : 'simple'
+        const handle = sanitizeHandle(
+          product.handle || shopifyNumericId(product.id),
+          `product-${shopifyNumericId(product.id)}`,
+        )
+        const unique = await uniqueHandle(em, scope, handle, existing?.id ?? null, product.id)
+        const metadata = {
+          ...(existing?.metadata ?? {}),
           shopifyProductId: product.id,
           shopifyVendor: product.vendor,
           shopifyProductType: product.productType,
           shopifyTags: product.tags,
         }
-        await em.flush()
-        await mapping.storeExternalIdMapping(SHOPIFY_INTEGRATION_ID, PRODUCT_ENTITY, record.id, product.id, scope)
+        const sharedInput = {
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          title,
+          description: product.descriptionHtml ?? undefined,
+          handle: unique,
+          sku: sanitizeSku(lead?.sku) ?? undefined,
+          productType,
+          isConfigurable: product.variants.length > 1,
+          isActive: productIsActive(product.status),
+          primaryCurrencyCode: /^[A-Z]{3}$/.test(currencyCode) ? currencyCode : undefined,
+          metadata,
+        }
+
+        let productId = existing?.id ?? null
+        if (existing) {
+          await commandBus.execute('catalog.products.update', {
+            input: { ...sharedInput, id: existing.id },
+            ctx,
+          })
+        } else {
+          const { result } = await commandBus.execute('catalog.products.create', {
+            input: sharedInput,
+            ctx,
+          })
+          productId = readResultId(result, 'productId')
+          if (!productId) throw new Error('Product command did not return an id.')
+        }
 
         for (const [index, variant] of product.variants.entries()) {
           const variantLocalId = await mapping.lookupLocalId(SHOPIFY_INTEGRATION_ID, VARIANT_ENTITY, variant.id, scope)
@@ -166,36 +198,48 @@ export async function createShopifyImporter(scope: TenantScope): Promise<Shopify
                 deletedAt: null,
               }, undefined, scope)
             : null
-          const row = existingVariant ?? em.create(CatalogProductVariant, {
-            id: randomUUID(),
-            product: record,
+          const variantInput = {
             organizationId: scope.organizationId,
             tenantId: scope.tenantId,
+            productId: productId!,
+            name: variant.title,
+            sku: sanitizeSku(variant.sku) ?? undefined,
+            barcode: variant.barcode ?? undefined,
             isDefault: index === 0,
             isActive: productIsActive(product.status),
-          })
-          row.product = record
-          row.name = variant.title
-          row.sku = variant.sku
-          row.barcode = variant.barcode
-          row.isDefault = index === 0
-          row.isActive = record.isActive
-          row.metadata = {
-            ...(row.metadata ?? {}),
-            shopifyVariantId: variant.id,
-            shopifyOptions: variant.selectedOptions,
-            shopifyCompareAtPrice: variant.compareAtPrice,
+            metadata: {
+              ...(existingVariant?.metadata ?? {}),
+              shopifyVariantId: variant.id,
+              shopifyOptions: variant.selectedOptions,
+              shopifyCompareAtPrice: variant.compareAtPrice,
+            },
           }
-          await em.flush()
-          await mapping.storeExternalIdMapping(SHOPIFY_INTEGRATION_ID, VARIANT_ENTITY, row.id, variant.id, scope)
+          let variantId: string
+          if (existingVariant) {
+            await commandBus.execute('catalog.variants.update', {
+              input: { ...variantInput, id: existingVariant.id },
+              ctx,
+            })
+            variantId = existingVariant.id
+          } else {
+            const { result } = await commandBus.execute('catalog.variants.create', {
+              input: variantInput,
+              ctx,
+            })
+            const createdVariantId = readResultId(result, 'variantId')
+            if (!createdVariantId) throw new Error('Variant command did not return an id.')
+            variantId = createdVariantId
+          }
+          await mapping.storeExternalIdMapping(SHOPIFY_INTEGRATION_ID, VARIANT_ENTITY, variantId, variant.id, scope)
           const amount = variantPriceAmount(variant)
-          if (amount !== null) await upsertPrice(row, record, amount, currencyCode)
+          if (amount !== null) await upsertPrice(variantId, productId!, amount, currencyCode)
         }
-        await em.flush()
+
+        await mapping.storeExternalIdMapping(SHOPIFY_INTEGRATION_ID, PRODUCT_ENTITY, productId!, product.id, scope)
         return {
           externalId: product.id,
           action,
-          data: { localId: record.id, title: record.title, variantCount: product.variants.length },
+          data: { localId: productId, title, variantCount: product.variants.length },
         }
       } catch (error) {
         return failedItem(product.id, error)
@@ -276,7 +320,12 @@ export async function createShopifyImporter(scope: TenantScope): Promise<Shopify
         return {
           externalId: order.id,
           action: 'create',
-          data: { localId: orderId, name: order.name },
+          data: {
+            localId: orderId,
+            name: order.name,
+            lineCount: order.lines.length,
+            shopifyTotal: order.total,
+          },
         }
       } catch (error) {
         return failedItem(order.id, error)
@@ -289,16 +338,15 @@ async function uniqueHandle(
   em: EntityManager,
   scope: TenantScope,
   handle: string,
-  currentId: string,
+  currentId: string | null,
   externalId: string,
 ): Promise<string> {
-  const base = handle.trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'product'
   const taken = await findOneWithDecryption(em, CatalogProduct, {
-    handle: base,
+    handle,
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
     deletedAt: null,
   }, undefined, scope)
-  if (!taken || taken.id === currentId) return base
-  return `${base}-${shopifyNumericId(externalId)}`.slice(0, 191)
+  if (!taken || taken.id === currentId) return handle
+  return sanitizeHandle(`${handle}-${shopifyNumericId(externalId)}`, `product-${shopifyNumericId(externalId)}`)
 }

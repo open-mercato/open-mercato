@@ -1,4 +1,5 @@
 import type { DataMapping, DataSyncAdapter, ImportBatch, ImportItem, ValidationResult } from '@open-mercato/core/modules/data_sync/lib/adapter'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createShopifyClient, type ShopifyClient } from './client'
 import { createShopifyImporter, type ShopifyImporter } from './importer'
 import { SHOPIFY_ENTITY_TYPES, SHOPIFY_PROVIDER_KEY, type ShopifyEntityType } from './types'
@@ -86,13 +87,25 @@ export function createShopifyDataSyncAdapter(deps: ShopifyAdapterDeps = {}): Dat
     },
 
     async validateConnection(input): Promise<ValidationResult> {
+      const { translate } = await resolveTranslations()
       try {
         assertEntityType(input.entityType)
         const client = createClient(input.credentials)
         const shop = await client.shop()
-        return { ok: true, message: `Connected to ${shop.name}`, details: { currencyCode: shop.currencyCode } }
+        return {
+          ok: true,
+          message: translate('sync_shopify.health.connected', 'Connected to {shopName}', {
+            shopName: shop.name,
+          }),
+          details: { currencyCode: shop.currencyCode },
+        }
       } catch (error) {
-        return { ok: false, message: error instanceof Error ? error.message : 'Shopify validation failed' }
+        return {
+          ok: false,
+          message: error instanceof Error
+            ? error.message
+            : translate('sync_shopify.validation.failed', 'Shopify validation failed'),
+        }
       }
     },
 

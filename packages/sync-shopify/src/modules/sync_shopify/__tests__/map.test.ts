@@ -43,10 +43,16 @@ describe('buildOrderCommandInput', () => {
     email: 'cafe@example.com',
     createdAt: '2026-10-01T00:00:00.000Z',
     currencyCode: 'eur',
+    taxesIncluded: true,
     displayFinancialStatus: 'PAID',
     displayFulfillmentStatus: 'UNFULFILLED',
     customerId: 'gid://shopify/Customer/1',
     total: { amount: '12.00', currencyCode: 'EUR' },
+    subtotal: { amount: '12.00', currencyCode: 'EUR' },
+    totalDiscounts: { amount: '0.00', currencyCode: 'EUR' },
+    totalShipping: { amount: '0.00', currencyCode: 'EUR' },
+    totalTax: { amount: '0.00', currencyCode: 'EUR' },
+    shippingLines: [],
     lines: [
       {
         id: 'gid://shopify/LineItem/1',
@@ -54,7 +60,11 @@ describe('buildOrderCommandInput', () => {
         sku: 'BEAN',
         quantity: 2,
         variantId: 'gid://shopify/ProductVariant/9',
-        unitPrice: { amount: '6.00', currencyCode: 'EUR' },
+        originalUnitPrice: { amount: '6.00', currencyCode: 'EUR' },
+        discountedUnitPrice: { amount: '6.00', currencyCode: 'EUR' },
+        discountTotal: null,
+        taxTotal: null,
+        totalPrice: { amount: '12.00', currencyCode: 'EUR' },
       },
       {
         id: 'gid://shopify/LineItem/2',
@@ -62,7 +72,11 @@ describe('buildOrderCommandInput', () => {
         sku: null,
         quantity: 0,
         variantId: null,
-        unitPrice: null,
+        originalUnitPrice: null,
+        discountedUnitPrice: null,
+        discountTotal: null,
+        taxTotal: null,
+        totalPrice: null,
       },
     ],
   }
@@ -89,6 +103,56 @@ describe('buildOrderCommandInput', () => {
       priceMode: 'gross',
     })
     expect(orderCreateSchema.parse(input).lines).toHaveLength(1)
+  })
+
+  it('maps line discounts, shipping, and tax-exclusive prices', () => {
+    const discounted: ShopifyOrderNode = {
+      ...order,
+      taxesIncluded: false,
+      total: { amount: '88.00', currencyCode: 'EUR' },
+      subtotal: { amount: '80.00', currencyCode: 'EUR' },
+      totalDiscounts: { amount: '20.00', currencyCode: 'EUR' },
+      totalShipping: { amount: '8.00', currencyCode: 'EUR' },
+      totalTax: { amount: '0.00', currencyCode: 'EUR' },
+      shippingLines: [{
+        id: 'gid://shopify/ShippingLine/1',
+        title: 'Standard',
+        originalPrice: { amount: '8.00', currencyCode: 'EUR' },
+        discountedPrice: { amount: '8.00', currencyCode: 'EUR' },
+      }],
+      lines: [{
+        id: 'gid://shopify/LineItem/1',
+        title: 'Beans',
+        sku: 'BEAN',
+        quantity: 1,
+        variantId: 'gid://shopify/ProductVariant/9',
+        originalUnitPrice: { amount: '100.00', currencyCode: 'EUR' },
+        discountedUnitPrice: { amount: '80.00', currencyCode: 'EUR' },
+        discountTotal: { amount: '20.00', currencyCode: 'EUR' },
+        taxTotal: { amount: '0.00', currencyCode: 'EUR' },
+        totalPrice: { amount: '80.00', currencyCode: 'EUR' },
+      }],
+    }
+    const input = buildOrderCommandInput({
+      scope: { organizationId, tenantId },
+      order: discounted,
+      customerEntityId: personId,
+      catalogByVariantId: new Map([
+        ['gid://shopify/ProductVariant/9', { productId, variantId }],
+      ]),
+    })
+    const lines = input.lines as Array<Record<string, unknown>>
+    expect(lines[0]).toMatchObject({
+      priceMode: 'net',
+      unitPriceNet: 100,
+      discountAmount: 20,
+      discountAmountBasis: 'line',
+    })
+    const adjustments = input.adjustments as Array<Record<string, unknown>>
+    expect(adjustments).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'shipping', amountNet: 8, label: 'Standard' }),
+    ]))
+    expect(orderCreateSchema.parse(input).adjustments).toHaveLength(1)
   })
 
   it('rejects an order with no importable lines', () => {

@@ -23,9 +23,11 @@ Operators running a Shopify storefront have no way to pull products, customers, 
 
 One data-sync integration, `sync_shopify`, with a Dev Dashboard Client ID and client secret. The client exchanges those for a short-lived Admin API token and refreshes it before expiry. A run walks one entity type (`products`, `customers`, or `orders`) with Shopify cursor pagination. Each record is upserted by Shopify GID:
 
-- products and variants land on `CatalogProduct` / `CatalogProductVariant`, with a regular price when the tenant has a non-promotion price kind
+- products, variants, and prices go through `catalog.products.*`, `catalog.variants.*`, and `catalog.prices.*` (mutation guards, CRUD events, and indexing stay on the command path)
 - customers go through `customers.people.create` / `customers.people.update`
 - orders go through `sales.orders.create` once; a second run skips an order that already has an external-id mapping
+- product variant connections and order line-item connections are drained with nested cursors before the parent is imported
+- order lines carry discounts (`discountAmount` / `discountAmountBasis: 'line'`), shipping adjustments, and tax amounts, respecting Shopify `taxesIncluded`
 
 The cursor is one run's page position, not a change log, so `persistsSharedCursor` is false. A finished run starts from the top next time. An interrupted run resumes from its own cursor.
 
@@ -64,7 +66,7 @@ No new tables. External ids are stored on the existing sync mapping:
 | Customer | `customer_person` (customer entity id) |
 | Order | `sales_order` |
 
-Shopify prices are stored as both net and gross on the catalog price row because the shop payload does not say whether the amount includes tax. Order lines are imported as gross.
+Shopify variant prices are written through `catalog.prices.create/update` with `unitPriceGross` so the catalog tax calculation service derives net/gross. Order lines use gross pricing when Shopify `taxesIncluded` is true and net pricing otherwise, with line discounts and shipping/tax adjustments mapped into `sales.orders.create`.
 
 ## API Contracts
 
@@ -96,15 +98,37 @@ This pull request stops at the import slice above. Later slices, in the order th
 
 A Shopify App Store listing is not one of those slices. The grant in this package only works for a shop in the same organization, which matches a merchant who already runs Open Mercato and connects their own store. A public listing is a separate product: an authorization-code install, a protected-customer-data review because the import stores name, email, and phone, the mandatory privacy webhooks, and a Shopify review. It is worth doing only if merchants should discover and install Open Mercato from the Shopify App Store. Until that is the goal, the install path stays the Dev Dashboard app plus the credentials on this integration.
 
+## Integration Coverage
+
+Executable Playwright coverage lives in `packages/sync-shopify/src/modules/sync_shopify/__integration__/TC-SS-001.spec.ts` and runs against a network-free fake Admin API (`OM_SYNC_SHOPIFY_FAKE_API=1`):
+
+| Path | Covered |
+| --- | --- |
+| Credentials save + health check | yes |
+| `POST /api/data_sync/run` for `products`, `customers`, `orders` | yes |
+| Product/variant persistence (including >100 variants via nested pagination) | yes |
+| Customer persistence | yes |
+| Order persistence with discounts/shipping and line counts >50 | yes |
+| Repeat order run / idempotent skip | yes |
+| Marketplace detail UI reachability | yes |
+| Tenant/organization scoping smoke | yes |
+
+Unit tests cover nested pagination fixtures, order financial mapping, client-credentials exchange, preset failure reporting (`sync_shopify.preset_failed`), and adapter cancellation. Fixture data is created per run and cleaned up in `finally`.
+
 ## Final Compliance Report
 
 - Connector lives in its own workspace package and registers a `DataSyncAdapter`.
 - Provider env bootstrap stays in the package (`setup.ts` + CLI), not in core.
 - Batch cancellation returns before yielding the abandoned page.
-- Tests cover the client, name/order mapping, pagination, and cancellation. They do not hit Shopify or the database.
+- Catalog writes go through catalog commands; customers and orders go through their command handlers.
+- Nested variant and line-item connections are fully drained before mapping storage.
+- Credential labels/help and health/connection copy resolve through provider locale resources (`i18n/en.json`, `i18n/pl.json`) via additive `labelKey` / `helpTextKey` / `placeholderKey` fields.
+- Preset failures report `sync_shopify.preset_failed` without credential values.
+- Integration coverage is listed above and ships in the same change.
 
 ## Changelog
 
 - 2026-10-06 — Import slice for products, customers, and orders.
 - 2026-10-06 — Credentials are a Dev Dashboard Client ID and client secret. The client exchanges them for a short-lived Admin API token.
 - 2026-10-06 — Follow-ups recorded for inventory, metafields, webhooks, export, and OAuth. A Shopify App Store listing stays a later product decision, not the next slice.
+- 2026-10-08 — Nested pagination, catalog command writes, order discounts/shipping/tax mapping, i18n credential keys, preset error reporting, and fake-API integration coverage.

@@ -7,12 +7,14 @@ import {
   type ShopifyOrderNode,
   type ShopifyPage,
   type ShopifyProductNode,
+  type ShopifyShippingLineNode,
   type ShopifyShop,
   type ShopifyVariantNode,
 } from './types'
 
 const SHOP_DOMAIN_PATTERN = /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/
 const MAX_BATCH_SIZE = 25
+export const SHOPIFY_NESTED_PAGE_SIZE = 50
 
 export class ShopifyClientError extends Error {
   constructor(message: string) {
@@ -30,6 +32,13 @@ export type ShopifyClient = {
 
 export type ShopifyClientDeps = {
   fetchImpl?: typeof fetch
+  nestedPageSize?: number
+}
+
+let defaultFetchImpl: typeof fetch | null = null
+
+export function setShopifyDefaultFetch(fetchImpl: typeof fetch | null): void {
+  defaultFetchImpl = fetchImpl
 }
 
 type GraphqlResponse<T> = {
@@ -130,6 +139,11 @@ function clampBatchSize(batchSize: number): number {
   return Math.min(Math.floor(batchSize), MAX_BATCH_SIZE)
 }
 
+function clampNestedPageSize(pageSize: number): number {
+  if (!Number.isFinite(pageSize) || pageSize < 1) return 1
+  return Math.min(Math.floor(pageSize), SHOPIFY_NESTED_PAGE_SIZE)
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   return value as Record<string, unknown>
@@ -184,23 +198,25 @@ function mapVariant(value: unknown): ShopifyVariantNode | null {
   }
 }
 
-function mapProduct(value: unknown): ShopifyProductNode | null {
+function mapProductShell(value: unknown): {
+  product: Omit<ShopifyProductNode, 'variants'>
+  variantsConnection: unknown
+} | null {
   const record = asRecord(value)
   const id = asString(record?.id)
   if (!record || !id) return null
   return {
-    id,
-    title: asString(record.title) ?? 'Untitled product',
-    descriptionHtml: asString(record.descriptionHtml),
-    handle: asString(record.handle) ?? id,
-    status: asString(record.status) ?? 'DRAFT',
-    vendor: asString(record.vendor),
-    productType: asString(record.productType),
-    tags: Array.isArray(record.tags) ? record.tags.filter((tag): tag is string => typeof tag === 'string') : [],
-    variants: connectionNodes(record.variants).flatMap((node) => {
-      const variant = mapVariant(node)
-      return variant ? [variant] : []
-    }),
+    product: {
+      id,
+      title: asString(record.title) ?? 'Untitled product',
+      descriptionHtml: asString(record.descriptionHtml),
+      handle: asString(record.handle) ?? id,
+      status: asString(record.status) ?? 'DRAFT',
+      vendor: asString(record.vendor),
+      productType: asString(record.productType),
+      tags: Array.isArray(record.tags) ? record.tags.filter((tag): tag is string => typeof tag === 'string') : [],
+    },
+    variantsConnection: record.variants,
   }
 }
 
@@ -218,44 +234,121 @@ function mapCustomer(value: unknown): ShopifyCustomerNode | null {
   }
 }
 
+function sumMoney(values: Array<ShopifyMoney | null>): ShopifyMoney | null {
+  let total = 0
+  let currencyCode: string | null = null
+  for (const value of values) {
+    if (!value) continue
+    const amount = Number(value.amount)
+    if (!Number.isFinite(amount)) continue
+    total += amount
+    currencyCode = currencyCode ?? value.currencyCode
+  }
+  if (!currencyCode) return null
+  return { amount: total.toFixed(2), currencyCode }
+}
+
 function mapOrderLine(value: unknown): ShopifyOrderLineNode | null {
   const record = asRecord(value)
   const id = asString(record?.id)
   if (!record || !id) return null
   const quantity = typeof record.quantity === 'number' ? record.quantity : Number(record.quantity)
+  const discountAllocations = Array.isArray(record.discountAllocations)
+    ? record.discountAllocations.map((allocation) => asMoney(asRecord(allocation)?.allocatedAmountSet))
+    : []
+  const taxLines = Array.isArray(record.taxLines)
+    ? record.taxLines.map((taxLine) => asMoney(asRecord(taxLine)?.priceSet))
+    : []
   return {
     id,
     title: asString(record.title) ?? 'Line',
     sku: asString(record.sku),
     quantity: Number.isFinite(quantity) ? quantity : 0,
     variantId: asString(asRecord(record.variant)?.id),
-    unitPrice: asMoney(record.originalUnitPriceSet),
+    originalUnitPrice: asMoney(record.originalUnitPriceSet),
+    discountedUnitPrice: asMoney(record.discountedUnitPriceSet),
+    discountTotal: sumMoney(discountAllocations),
+    taxTotal: sumMoney(taxLines),
+    totalPrice: asMoney(record.discountedTotalSet) ?? asMoney(record.originalTotalSet),
   }
 }
 
-function mapOrder(value: unknown): ShopifyOrderNode | null {
+function mapShippingLine(value: unknown): ShopifyShippingLineNode | null {
   const record = asRecord(value)
   const id = asString(record?.id)
   if (!record || !id) return null
   return {
     id,
-    name: asString(record.name) ?? id,
-    email: asString(record.email),
-    createdAt: asString(record.createdAt) ?? new Date(0).toISOString(),
-    currencyCode: asString(record.currencyCode) ?? '',
-    displayFinancialStatus: asString(record.displayFinancialStatus),
-    displayFulfillmentStatus: asString(record.displayFulfillmentStatus),
-    customerId: asString(asRecord(record.customer)?.id),
-    total: asMoney(record.totalPriceSet),
-    lines: connectionNodes(record.lineItems).flatMap((node) => {
-      const line = mapOrderLine(node)
-      return line ? [line] : []
-    }),
+    title: asString(record.title) ?? 'Shipping',
+    originalPrice: asMoney(record.originalPriceSet),
+    discountedPrice: asMoney(record.discountedPriceSet),
   }
 }
 
+function mapOrderShell(value: unknown): {
+  order: Omit<ShopifyOrderNode, 'lines' | 'shippingLines'>
+  lineItemsConnection: unknown
+  shippingLines: ShopifyShippingLineNode[]
+} | null {
+  const record = asRecord(value)
+  const id = asString(record?.id)
+  if (!record || !id) return null
+  const shippingLines = connectionNodes(record.shippingLines).flatMap((node) => {
+    const line = mapShippingLine(node)
+    return line ? [line] : []
+  })
+  return {
+    order: {
+      id,
+      name: asString(record.name) ?? id,
+      email: asString(record.email),
+      createdAt: asString(record.createdAt) ?? new Date(0).toISOString(),
+      currencyCode: asString(record.currencyCode) ?? '',
+      taxesIncluded: record.taxesIncluded === true,
+      displayFinancialStatus: asString(record.displayFinancialStatus),
+      displayFulfillmentStatus: asString(record.displayFulfillmentStatus),
+      customerId: asString(asRecord(record.customer)?.id),
+      total: asMoney(record.totalPriceSet),
+      subtotal: asMoney(record.subtotalPriceSet),
+      totalDiscounts: asMoney(record.totalDiscountsSet),
+      totalShipping: asMoney(record.totalShippingPriceSet),
+      totalTax: asMoney(record.totalTaxSet),
+    },
+    lineItemsConnection: record.lineItems,
+    shippingLines,
+  }
+}
+
+const VARIANT_FIELDS = `
+  id
+  sku
+  barcode
+  title
+  price
+  compareAtPrice
+  selectedOptions { name value }
+`
+
+const LINE_ITEM_FIELDS = `
+  id
+  title
+  sku
+  quantity
+  variant { id }
+  originalUnitPriceSet { shopMoney { amount currencyCode } }
+  discountedUnitPriceSet { shopMoney { amount currencyCode } }
+  originalTotalSet { shopMoney { amount currencyCode } }
+  discountedTotalSet { shopMoney { amount currencyCode } }
+  discountAllocations {
+    allocatedAmountSet { shopMoney { amount currencyCode } }
+  }
+  taxLines {
+    priceSet { shopMoney { amount currencyCode } }
+  }
+`
+
 const PRODUCTS_QUERY = `
-  query ShopifyProducts($first: Int!, $after: String) {
+  query ShopifyProducts($first: Int!, $after: String, $variantFirst: Int!) {
     products(first: $first, after: $after, sortKey: UPDATED_AT) {
       pageInfo { hasNextPage endCursor }
       nodes {
@@ -267,9 +360,21 @@ const PRODUCTS_QUERY = `
         vendor
         productType
         tags
-        variants(first: 100) {
-          nodes { id sku barcode title price compareAtPrice selectedOptions { name value } }
+        variants(first: $variantFirst) {
+          pageInfo { hasNextPage endCursor }
+          nodes { ${VARIANT_FIELDS} }
         }
+      }
+    }
+  }
+`
+
+const PRODUCT_VARIANTS_QUERY = `
+  query ShopifyProductVariants($id: ID!, $first: Int!, $after: String) {
+    product(id: $id) {
+      variants(first: $first, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        nodes { ${VARIANT_FIELDS} }
       }
     }
   }
@@ -285,7 +390,7 @@ const CUSTOMERS_QUERY = `
 `
 
 const ORDERS_QUERY = `
-  query ShopifyOrders($first: Int!, $after: String) {
+  query ShopifyOrders($first: Int!, $after: String, $lineFirst: Int!) {
     orders(first: $first, after: $after, sortKey: UPDATED_AT) {
       pageInfo { hasNextPage endCursor }
       nodes {
@@ -294,20 +399,38 @@ const ORDERS_QUERY = `
         email
         createdAt
         currencyCode
+        taxesIncluded
         displayFinancialStatus
         displayFulfillmentStatus
         customer { id }
         totalPriceSet { shopMoney { amount currencyCode } }
-        lineItems(first: 50) {
+        subtotalPriceSet { shopMoney { amount currencyCode } }
+        totalDiscountsSet { shopMoney { amount currencyCode } }
+        totalShippingPriceSet { shopMoney { amount currencyCode } }
+        totalTaxSet { shopMoney { amount currencyCode } }
+        shippingLines(first: 20) {
           nodes {
             id
             title
-            sku
-            quantity
-            variant { id }
-            originalUnitPriceSet { shopMoney { amount currencyCode } }
+            originalPriceSet { shopMoney { amount currencyCode } }
+            discountedPriceSet { shopMoney { amount currencyCode } }
           }
         }
+        lineItems(first: $lineFirst) {
+          pageInfo { hasNextPage endCursor }
+          nodes { ${LINE_ITEM_FIELDS} }
+        }
+      }
+    }
+  }
+`
+
+const ORDER_LINE_ITEMS_QUERY = `
+  query ShopifyOrderLineItems($id: ID!, $first: Int!, $after: String) {
+    order(id: $id) {
+      lineItems(first: $first, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        nodes { ${LINE_ITEM_FIELDS} }
       }
     }
   }
@@ -325,7 +448,8 @@ export function createShopifyClient(
 ): ShopifyClient {
   const shopDomain = normalizeShopDomain(credentials.shopDomain)
   const apiVersion = resolveApiVersion(credentials.apiVersion)
-  const fetchImpl = deps.fetchImpl ?? fetch
+  const fetchImpl = deps.fetchImpl ?? defaultFetchImpl ?? fetch
+  const nestedPageSize = clampNestedPageSize(deps.nestedPageSize ?? SHOPIFY_NESTED_PAGE_SIZE)
   const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`
   const clientCredentials = readClientCredentials(credentials)
   const staticAccessToken = readTrimmed(credentials, 'accessToken')
@@ -393,6 +517,46 @@ export function createShopifyClient(
     }
   }
 
+  async function drainVariants(productId: string, firstPage: unknown): Promise<ShopifyVariantNode[]> {
+    const first = pageOf(firstPage, mapVariant)
+    const variants = [...first.nodes]
+    let cursor = first.endCursor
+    let hasNextPage = first.hasNextPage
+    while (hasNextPage) {
+      if (!cursor) throw new ShopifyClientError('Shopify returned another variants page without a cursor.')
+      const data = await graphql<{ product?: { variants?: unknown } }>(PRODUCT_VARIANTS_QUERY, {
+        id: productId,
+        first: nestedPageSize,
+        after: cursor,
+      })
+      const page = pageOf(data.product?.variants, mapVariant)
+      variants.push(...page.nodes)
+      cursor = page.endCursor
+      hasNextPage = page.hasNextPage
+    }
+    return variants
+  }
+
+  async function drainLineItems(orderId: string, firstPage: unknown): Promise<ShopifyOrderLineNode[]> {
+    const first = pageOf(firstPage, mapOrderLine)
+    const lines = [...first.nodes]
+    let cursor = first.endCursor
+    let hasNextPage = first.hasNextPage
+    while (hasNextPage) {
+      if (!cursor) throw new ShopifyClientError('Shopify returned another line-items page without a cursor.')
+      const data = await graphql<{ order?: { lineItems?: unknown } }>(ORDER_LINE_ITEMS_QUERY, {
+        id: orderId,
+        first: nestedPageSize,
+        after: cursor,
+      })
+      const page = pageOf(data.order?.lineItems, mapOrderLine)
+      lines.push(...page.nodes)
+      cursor = page.endCursor
+      hasNextPage = page.hasNextPage
+    }
+    return lines
+  }
+
   return {
     async shop() {
       const data = await graphql<{ shop?: { name?: string; currencyCode?: string } }>(SHOP_QUERY)
@@ -405,8 +569,24 @@ export function createShopifyClient(
       const data = await graphql<{ products?: unknown }>(PRODUCTS_QUERY, {
         first: clampBatchSize(batchSize),
         after: cursor,
+        variantFirst: nestedPageSize,
       })
-      return pageOf(data.products, mapProduct)
+      const page = readPageInfo(data.products)
+      if (page.hasNextPage && !page.endCursor) {
+        throw new ShopifyClientError('Shopify returned another page without a cursor.')
+      }
+      const nodes: ShopifyProductNode[] = []
+      for (const raw of connectionNodes(data.products)) {
+        const shell = mapProductShell(raw)
+        if (!shell) continue
+        const variants = await drainVariants(shell.product.id, shell.variantsConnection)
+        nodes.push({ ...shell.product, variants })
+      }
+      return {
+        nodes,
+        endCursor: page.endCursor,
+        hasNextPage: page.hasNextPage,
+      }
     },
     async listCustomers(cursor, batchSize) {
       const data = await graphql<{ customers?: unknown }>(CUSTOMERS_QUERY, {
@@ -419,8 +599,24 @@ export function createShopifyClient(
       const data = await graphql<{ orders?: unknown }>(ORDERS_QUERY, {
         first: clampBatchSize(batchSize),
         after: cursor,
+        lineFirst: nestedPageSize,
       })
-      return pageOf(data.orders, mapOrder)
+      const page = readPageInfo(data.orders)
+      if (page.hasNextPage && !page.endCursor) {
+        throw new ShopifyClientError('Shopify returned another page without a cursor.')
+      }
+      const nodes: ShopifyOrderNode[] = []
+      for (const raw of connectionNodes(data.orders)) {
+        const shell = mapOrderShell(raw)
+        if (!shell) continue
+        const lines = await drainLineItems(shell.order.id, shell.lineItemsConnection)
+        nodes.push({ ...shell.order, shippingLines: shell.shippingLines, lines })
+      }
+      return {
+        nodes,
+        endCursor: page.endCursor,
+        hasNextPage: page.hasNextPage,
+      }
     },
   }
 }

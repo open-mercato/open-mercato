@@ -1,0 +1,18 @@
+{
+  "sync_shopify.integration.title": "Shopify",
+  "sync_shopify.integration.description": "Import Shopify products, customers, and orders into Open Mercato.",
+  "sync_shopify.credentials.shopDomain.label": "Shop domain",
+  "sync_shopify.credentials.shopDomain.placeholder": "your-store.myshopify.com",
+  "sync_shopify.credentials.shopDomain.help": "The *.myshopify.com host, without https://.",
+  "sync_shopify.credentials.clientId.label": "Client ID",
+  "sync_shopify.credentials.clientId.help": "Client ID from the Dev Dashboard app settings. Release read_products, read_customers, and read_orders, then install the app on this shop.",
+  "sync_shopify.credentials.clientSecret.label": "Client secret",
+  "sync_shopify.credentials.clientSecret.help": "Client secret from the same settings page. Open Mercato exchanges it for a short-lived Admin API token.",
+  "sync_shopify.credentials.apiVersion.label": "API version",
+  "sync_shopify.credentials.apiVersion.help": "Shopify Admin API version used for GraphQL. Defaults to 2026-07.",
+  "sync_shopify.credentials.apiVersion.defaultOption": "{version} (default)",
+  "sync_shopify.health.connected": "Connected to {shopName}",
+  "sync_shopify.health.failed": "Shopify connection failed: {message}",
+  "sync_shopify.health.unknownError": "Unknown Shopify error",
+  "sync_shopify.validation.failed": "Shopify validation failed"
+}

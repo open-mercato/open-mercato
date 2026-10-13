@@ -53,7 +53,18 @@ export type ShopifyOrderLineNode = {
   sku: string | null
   quantity: number
   variantId: string | null
-  unitPrice: ShopifyMoney | null
+  originalUnitPrice: ShopifyMoney | null
+  discountedUnitPrice: ShopifyMoney | null
+  discountTotal: ShopifyMoney | null
+  taxTotal: ShopifyMoney | null
+  totalPrice: ShopifyMoney | null
+}
+
+export type ShopifyShippingLineNode = {
+  id: string
+  title: string
+  originalPrice: ShopifyMoney | null
+  discountedPrice: ShopifyMoney | null
 }
 
 export type ShopifyOrderNode = {
@@ -62,10 +73,16 @@ export type ShopifyOrderNode = {
   email: string | null
   createdAt: string
   currencyCode: string
+  taxesIncluded: boolean
   displayFinancialStatus: string | null
   displayFulfillmentStatus: string | null
   customerId: string | null
   total: ShopifyMoney | null
+  subtotal: ShopifyMoney | null
+  totalDiscounts: ShopifyMoney | null
+  totalShipping: ShopifyMoney | null
+  totalTax: ShopifyMoney | null
+  shippingLines: ShopifyShippingLineNode[]
   lines: ShopifyOrderLineNode[]
 }
 

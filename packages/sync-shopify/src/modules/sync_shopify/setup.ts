@@ -1,5 +1,6 @@
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { CredentialsService } from '@open-mercato/core/modules/integrations/lib/credentials-service'
 import type { IntegrationLogService } from '@open-mercato/core/modules/integrations/lib/log-service'
 import type { IntegrationStateService } from '@open-mercato/core/modules/integrations/lib/state-service'
@@ -26,6 +27,18 @@ export const setup: ModuleSetupConfig = {
       })
     } catch (error) {
       logger.warn('Failed to apply Shopify env preset during tenant setup', { err: error })
+      try {
+        getTelemetryRuntime()?.reportError(error, {
+          module: 'sync_shopify',
+          code: 'sync_shopify.preset_failed',
+          attributes: {
+            tenantId,
+            organizationId,
+          },
+        })
+      } catch (telemetryError) {
+        logger.warn('Failed to report Shopify preset error to telemetry', { err: telemetryError as Error })
+      }
     }
   },
 }
