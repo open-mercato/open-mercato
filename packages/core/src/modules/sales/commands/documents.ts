@@ -128,14 +128,19 @@ import type { SalesCalculationService } from "../services/salesCalculationServic
 import {
   DEFAULT_AMOUNT_DECIMAL_PLACES,
   FX_DECIMAL_PLACES,
+  absDecimal,
+  addDecimals,
   countDecimalPlaces,
   decimalToNumber,
   decimalToString,
   divideDecimals,
+  maxDecimal,
   multiplyDecimals,
   parseDecimal,
   resolveExactDecimal,
   roundDecimal,
+  subtractDecimals,
+  toDecimal,
   withExactAmounts,
 } from "@open-mercato/shared/lib/decimal";
 import { resolveCurrencyAmountDecimalPlaces } from "@open-mercato/shared/lib/currencyPrecision";
@@ -7388,7 +7393,42 @@ type ShippedLineComparable = Pick<
   | "quantityUnit"
   | (typeof SHIPPED_LINE_NUMERIC_PRICING_FIELDS)[number]
   | (typeof SHIPPED_LINE_DERIVED_TOTAL_FIELDS)[number]
+  | `${(typeof SHIPPED_LINE_DERIVED_TOTAL_FIELDS)[number]}Exact`
 >;
+
+const SHIPPED_TOTAL_FLOAT_RELATIVE_TOLERANCE = 1e-9;
+
+/**
+ * Whether `nextTotal` still carries the per-unit economics of `previousTotal`
+ * once rescaled from `previousQuantity` to `nextQuantity`. Both totals may be
+ * stored rounded to `decimalPlaces`, so each can be off by half a unit at that
+ * scale, and the previous one's error grows with the quantity ratio. Float
+ * products sent by older clients stay within the relative float tolerance.
+ */
+function isRescaledShippedTotal(
+  nextTotal: string,
+  previousTotal: string,
+  previousQuantity: number,
+  nextQuantity: number,
+  decimalPlaces: number,
+): boolean {
+  const quantityRatio = absDecimal(divideDecimals(nextQuantity, previousQuantity));
+  const expectedTotal = divideDecimals(
+    multiplyDecimals(previousTotal, nextQuantity),
+    previousQuantity,
+  );
+  const storedPlaces = Math.max(decimalPlaces, countDecimalPlaces(previousTotal));
+  const roundingTolerance = multiplyDecimals(
+    toDecimal(`5e-${storedPlaces + 1}`),
+    addDecimals(1, quantityRatio),
+  );
+  const tolerance = maxDecimal(
+    SHIPPED_QUANTITY_TOLERANCE,
+    multiplyDecimals(absDecimal(expectedTotal), SHIPPED_TOTAL_FLOAT_RELATIVE_TOLERANCE),
+    roundingTolerance,
+  );
+  return absDecimal(subtractDecimals(nextTotal, expectedTotal)).lte(tolerance);
+}
 
 const hasNumericChange = (
   next: number | null | undefined,
@@ -7432,6 +7472,7 @@ function hasShippedLineTotalChange(
   previous: ShippedLineComparable,
   nextQuantity: number | null | undefined,
   exact: boolean,
+  amountDecimalPlaces: number,
 ): boolean {
   const numericChange = exact ? hasExactNumericChange : hasNumericChange;
   const previousQuantity = previous.quantity;
@@ -7451,15 +7492,21 @@ function hasShippedLineTotalChange(
     if (nextTotal === undefined || nextTotal === null) {
       return exact ? numericChange(nextTotal, previousTotal) : false;
     }
-    const expectedTotal =
-      (previousTotal / (previousQuantity as number)) * (nextQuantity as number);
-    // Scale the tolerance with magnitude: a fixed 1e-6 is below the float noise
-    // floor once totals reach six figures.
-    const tolerance = Math.max(
-      SHIPPED_QUANTITY_TOLERANCE,
-      Math.abs(expectedTotal) * 1e-9,
+    const nextExact = resolveExactDecimal(next[`${field}Exact` as const], nextTotal);
+    const previousExact = resolveExactDecimal(
+      previous[`${field}Exact` as const],
+      previousTotal,
     );
-    return Math.abs(nextTotal - expectedTotal) > tolerance;
+    if (nextExact === null || previousExact === null) {
+      return numericChange(nextTotal, previousTotal);
+    }
+    return !isRescaledShippedTotal(
+      nextExact,
+      previousExact,
+      previousQuantity as number,
+      nextQuantity as number,
+      amountDecimalPlaces,
+    );
   });
 }
 
@@ -7468,13 +7515,20 @@ function hasShippedLinePricingChange(
   previous: ShippedLineComparable,
   nextQuantity: number | null | undefined,
   exact: boolean,
+  amountDecimalPlaces: number,
 ): boolean {
   const numericChange = exact ? hasExactNumericChange : hasNumericChange;
   return (
     SHIPPED_LINE_NUMERIC_PRICING_FIELDS.some((field) =>
       numericChange(next[field], previous[field]),
     ) ||
-    hasShippedLineTotalChange(next, previous, nextQuantity, exact) ||
+    hasShippedLineTotalChange(
+      next,
+      previous,
+      nextQuantity,
+      exact,
+      amountDecimalPlaces,
+    ) ||
     (exact
       ? hasExactUnitChange(next.quantityUnit, previous.quantityUnit)
       : hasUnitChange(next.quantityUnit, previous.quantityUnit))
@@ -7486,6 +7540,7 @@ async function assertShippedOrderLineChangeAllowed(
   nextSnapshot: Partial<ShippedLineComparable> | null,
   shippedQuantity: number,
   exact: boolean,
+  amountDecimalPlaces: number,
 ): Promise<void> {
   if (shippedQuantity <= 0) return;
 
@@ -7504,6 +7559,7 @@ async function assertShippedOrderLineChangeAllowed(
       existingSnapshot,
       nextQuantity,
       exact,
+      amountDecimalPlaces,
     );
   if (!quantityInvalid && !pricingChanged) return;
 
@@ -7530,6 +7586,7 @@ async function assertShippedOrderLineEditable(
   order: SalesOrder,
   existingSnapshot: SalesLineSnapshot | null,
   parsed: z.infer<typeof orderLineUpsertSchema>,
+  amountDecimalPlaces: number,
 ): Promise<void> {
   const lineId = existingSnapshot?.id;
   if (!existingSnapshot || !lineId) return;
@@ -7543,6 +7600,7 @@ async function assertShippedOrderLineEditable(
     parsed,
     shippedQuantity,
     false,
+    amountDecimalPlaces,
   );
 }
 
@@ -7569,6 +7627,7 @@ async function assertShippedOrderGraphRestorable(
       snapshotLinesById.get(line.id) ?? null,
       shippedQuantity,
       true,
+      DEFAULT_AMOUNT_DECIMAL_PLACES,
     );
   }
 }
@@ -7648,7 +7707,6 @@ const orderLineUpsertCommand: CommandHandler<
       ? (lineSnapshots.find((line) => line.id === parsed.id) ?? null)
       : null;
     await assertOrderAcceptsNewLine(order, existingSnapshot);
-    await assertShippedOrderLineEditable(em, order, existingSnapshot, parsed);
     const priceMode =
       parsed.priceMode === "gross"
         ? "gross"
@@ -7666,6 +7724,13 @@ const orderLineUpsertCommand: CommandHandler<
       tenantId: parsed.tenantId,
       organizationId: parsed.organizationId,
     });
+    await assertShippedOrderLineEditable(
+      em,
+      order,
+      existingSnapshot,
+      parsed,
+      lineAmountDecimalPlaces,
+    );
     if (priceMode && (unitPriceNet === null || unitPriceGross === null)) {
       let taxService: TaxCalculationService | null = null;
       try {
