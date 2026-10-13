@@ -47,7 +47,7 @@ event this spec's depreciation postings emit — see Architecture → Events)
   depreciation) is deliberately deferred to Phase 2 — this spec's schedule
   is book-only. See Out of Scope.
 - `transferAsset` (MPK reassignment) and `revalueAsset` both wait on the
-  `journal_entry_line_dimension` table (a separate, earlier document) and
+  `journal_entry_line_dimensions` table (a separate, earlier document) and
   are Phase 2.
 
 ## Overview
@@ -119,7 +119,7 @@ are embedded throughout the rest of the document:
   entry sources) before `accounts_payable` merges — but the
   `AP_LINKED` path itself cannot be exercised until it does.
 
-`journal_entry_line_dimension` (MPK tagging for `transferAsset`) is
+`journal_entry_line_dimensions` (MPK tagging for `transferAsset`) is
 already scoped as a Phase 2, not Phase 1, dependency (see the header
 above and Out of Scope) and needs no merge-order note here.
 
@@ -504,18 +504,24 @@ rare, annual event (wycena majątku — asset appraisal); transfer to a cost
 centre (MPK) is waiting on the dimension table
 (`2026-09-06-journal-entry-line-dimension.md`) anyway, which is itself
 being built as a separate, earlier step ahead of Fixed Assets Phase 2.
-Phase 2's `transferAsset` will declare `requires: ['journal_entry_line_dimension']`
-and write through that module's own `journal_entry_line_dimension.
-setJournalEntryLineDimension` command — the same integration shape
+Phase 2's `transferAsset` will declare `requires: ['journal_entry_line_dimensions']`
+and write through that module's own `journal_entry_line_dimensions.dimensions.set` command — the same integration shape
 `posting_rules` already documents for the same table
 (`2026-09-06-posting-rules-engine.md` → Design Decisions) — not by
-reading its entities directly. **Impairment (below) is a distinct
+reading its entities directly. `transferAsset` writes with `writer: 'fixed_assets'`. The dimension
+command rejects a write when the line's `CostCenter` tag is already owned
+by another writer, so a transfer can re-tag only lines that `fixed_assets`
+itself tagged (lines of entries it posted), never lines tagged by Posting
+Rules — the ownership rule of the `journal_entry_line_dimensions` spec
+(#5972, Design Decisions, "Writers and line ownership"). The same command
+rejects writes in a locked fiscal period, so a transfer into a closed
+period is a correcting entry with its own tags, not a re-tag. **Impairment (below) is a distinct
 mechanism from `revalueAsset`**, not a Phase 1 preview of it:
 `revalueAsset` is a periodic, appraisal-based restatement of an asset's
 carrying value (wycena majątku, Phase 2, still waiting on the dimension
 table for its MPK-tagged posting); impairment is a trigger-based,
 required-now write-down with its own, narrower legal basis (art. 32 ust.
-4/art. 35c) and does not depend on `journal_entry_line_dimension` at all.
+4/art. 35c) and does not depend on `journal_entry_line_dimensions` at all.
 
 **Impairment (odpis aktualizujący z tytułu trwałej utraty wartości) — new,
 resolved 2026-09-09.** Modeled as its own entity, `AssetImpairment`, with
@@ -1375,7 +1381,7 @@ account-group check has no dependency on an MPK dimension being present —
 its own priority-hybrid decision falls back to
 `DefaultAccountPostingRule` or the `500-99` suspense account when no
 explicit dimension exists, exactly the case here, since `fixed_assets`
-writes no `journal_entry_line_dimension` row until its own Phase 2), but
+writes no `journal_entry_line_dimensions` row until its own Phase 2), but
 does **not** claim this as a verified, zero-risk guarantee. Concretely:
 this is called out as an explicit manual-QA step in Testing Strategy
 (confirm the reclassification actually fires against a real
@@ -2060,7 +2066,7 @@ All user-facing strings resolve through `useT()` client-side /
 ### Phase 2: Tax depreciation, revaluation, transfer, automation
 
 1. `revalueAsset`, `transferAsset` (the latter depending on
-   `journal_entry_line_dimension` shipping first).
+   `journal_entry_line_dimensions` shipping first).
 2. A second, tax-basis depreciation schedule alongside the book schedule
    this spec builds.
 3. An automated depreciation-accrual scheduler, replacing the manual
@@ -2522,7 +2528,7 @@ for its own manual `CLOSING`/`OPENING` entries.
   book depreciation) — Phase 2 (see Design Decisions).
 - **`revalueAsset`** (asset appraisal/wycena majątku) — Phase 2.
 - **`transferAsset`** (MPK/cost-centre reassignment) — Phase 2, depends
-  on `journal_entry_line_dimension` shipping first.
+  on `journal_entry_line_dimensions` shipping first.
 - **Automated depreciation-accrual scheduler** — Phase 1 is a manual
   trigger only (see Design Decisions).
 - **Bulk asset-import tooling** for large legacy-register migrations —
@@ -2549,7 +2555,7 @@ for its own manual `CLOSING`/`OPENING` entries.
   Risk Register, "Impairment write-down creates an unrecognized book-tax
   difference," tracked alongside the existing tax-depreciation gap above.
 - **`AssetImpairment` dimension-tagging for reporting** (e.g. filtering
-  impairments by MPK/cost-centre) — waits on `journal_entry_line_dimension`
+  impairments by MPK/cost-centre) — waits on `journal_entry_line_dimensions`
   the same as `transferAsset` above, not built here.
 
 ## Final Compliance Report — 2026-09-09 (rev. 3 — accumulated-impairment account correction)
