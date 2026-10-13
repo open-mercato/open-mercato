@@ -69,7 +69,9 @@ function connectionView(overrides: Partial<XeroConnectionView> = {}, grant: Part
     baseUrlMissing: false,
     configured: true,
     canManage: true,
+    canConfigureSchedules: true,
     seamActive: false,
+    schedules: [{ entityType: 'xero.contacts', exists: true, isEnabled: true, fullSync: false, scheduleValue: '1h' }],
     ...overrides,
     grant: {
       status: 'active',
@@ -338,5 +340,43 @@ describe('Xero tab', () => {
     const dialog = await screen.findByTestId('sync-xero-disconnect-dialog')
     fireEvent.click(within(dialog).getByRole('button', { name: enDict['sync_xero.disconnect.confirm'] }))
     await waitFor(() => expect(mockFlash).toHaveBeenCalledWith('Some follow-up steps failed: disabling the integration.', 'warning'))
+  })
+
+  it('creates the missing default schedule from the tab', async () => {
+    serve(connectionView({ schedules: [{ entityType: 'xero.contacts', exists: false, isEnabled: false, fullSync: false, scheduleValue: null }] }))
+    mockApiCallOrThrow.mockResolvedValue({ ok: true, status: 200, result: { schedules: [] } })
+    renderTab({ state: { isEnabled: true } })
+    expect(await screen.findByText(enDict['sync_xero.schedules.missing'])).toBeTruthy()
+    expect(screen.getByText("Nothing keeps Open Mercato's Xero access alive: Xero ends it in 60 days without a sync.")).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: enDict['sync_xero.schedules.create'] }))
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalledWith('/api/sync_xero/schedules', { method: 'POST' }))
+    await waitFor(() => expect(mockFlash).toHaveBeenCalledWith(enDict['sync_xero.schedules.created'], 'success'))
+  })
+
+  it('disables Create default schedule without data_sync.configure', async () => {
+    serve(connectionView({ canConfigureSchedules: false, schedules: [{ entityType: 'xero.contacts', exists: false, isEnabled: false, fullSync: false, scheduleValue: null }] }))
+    renderTab()
+    const button = await screen.findByRole('button', { name: enDict['sync_xero.schedules.create'] })
+    expect((button as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('warns that a paused integration lets Xero end the access, with the days left', async () => {
+    serve(connectionView({}, { refreshExpiresInDays: 12 }))
+    renderTab({ state: { isEnabled: false } })
+    expect(await screen.findByText('Syncing is paused, so Open Mercato does not renew its Xero access: Xero will require a Reconnect in 12 days.')).toBeTruthy()
+    expect(screen.getByText('Every 1h')).toBeTruthy()
+  })
+
+  it('says the access has probably expired once the days run out', async () => {
+    serve(connectionView({}, { refreshExpiresInDays: -3 }))
+    renderTab({ state: { isEnabled: false } })
+    expect(await screen.findByText(enDict['sync_xero.schedules.expired'])).toBeTruthy()
+  })
+
+  it('warns about a schedule with full sync on and shows no keep-alive warning for an enabled one', async () => {
+    serve(connectionView({ schedules: [{ entityType: 'xero.contacts', exists: true, isEnabled: true, fullSync: true, scheduleValue: '1h' }] }))
+    renderTab({ state: { isEnabled: true } })
+    expect(await screen.findByText(enDict['sync_xero.schedules.fullSyncWarning'])).toBeTruthy()
+    expect(screen.queryByText(/Nothing keeps Open Mercato/)).toBeNull()
   })
 })

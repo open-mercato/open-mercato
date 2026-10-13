@@ -7,6 +7,7 @@ import {
 } from '@open-mercato/core/modules/integrations/lib/oauth/testing/fakeAuthorizationServer'
 import { createFakeGrantService, type FakeGrantService } from './support/fakeGrantService'
 import { createFakeContainer, createMemoryCache, type MemoryCache } from './support/fakeContainer'
+import { createFakeScheduleService, type FakeScheduleService } from './support/fakeScheduleService'
 import { startStubHttpServer, type StubHttpServer, type StubResponse } from './support/stubHttpServer'
 
 const mockGetAuthFromRequest = jest.fn()
@@ -61,6 +62,7 @@ let cache: MemoryCache
 let clientConfiguration: Record<string, unknown> | null
 let mappingCount: number
 let allowedOrganizations: Set<string>
+let schedules: FakeScheduleService
 const rbacCalls: Array<{ userId: string; features: string[]; scope: unknown }> = []
 const savedEnv = { ...process.env }
 
@@ -84,6 +86,8 @@ function buildContainer() {
     integrationOAuthGrantService: grants.service,
     cache,
     em: { count: async () => mappingCount },
+    dataSyncScheduleService: schedules,
+    integrationLogService: { write: async () => undefined },
   })
 }
 
@@ -178,6 +182,7 @@ beforeEach(() => {
   clientConfiguration = { clientId: authorizationServer.clientId, clientSecret: authorizationServer.clientSecret }
   mappingCount = 0
   allowedOrganizations = new Set([ORG_ID])
+  schedules = createFakeScheduleService()
   connectionsHandler = () => ({ status: 200, body: [organisationA] })
   mockGetAuthFromRequest.mockReset().mockResolvedValue({ sub: USER_ID, tenantId: TENANT_ID, orgId: ORG_ID })
   mockCreateRequestContainer.mockReset().mockImplementation(async () => buildContainer())
@@ -303,6 +308,14 @@ describe('GET /api/sync_xero/oauth/callback', () => {
     })
     expect(grants.state.providerData).toEqual({ xeroOrganisationId: XERO_ORG_A, xeroConnectionId: CONN_A, xeroOrganisationName: 'Demo Company (Global)' })
     expect(response.headers.get('location')).not.toContain(grants.state.accessToken as string)
+    expect([...schedules.schedules.values()]).toEqual([expect.objectContaining({ entityType: 'xero.contacts', scheduleValue: '1h', fullSync: false })])
+  })
+
+  it('keeps the automatic selection when the default schedule cannot be created', async () => {
+    schedules.failSaves = true
+    expect(resultOf(await finishConnect(await startConnect()))).toBe('connected')
+    expect(grants.state.providerData).toMatchObject({ xeroOrganisationId: XERO_ORG_A })
+    expect(schedules.schedules.size).toBe(0)
   })
 
   it('refuses a replayed state', async () => {

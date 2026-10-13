@@ -9,10 +9,11 @@ import { OAuthGrantError } from '@open-mercato/core/modules/integrations/lib/oau
 import { listAllOrganisations, type XeroOrganisationOption } from '../../../lib/connections'
 import { XERO_GRANT_RESOURCE_ID, XERO_GRANT_RESOURCE_KIND, XERO_INTEGRATION_ID } from '../../../lib/constants'
 import { decideOrganisationChange, toXeroProviderData } from '../../../lib/organisation'
+import { ensureDefaultSchedules } from '../../../lib/schedules'
 import { authorizeXeroRoute, CREDENTIALS_MANAGE_FEATURE } from '../../../lib/route-auth'
 import { interactiveFailureResponse, xeroErrorResponse, seamFailureResponse } from '../../../lib/route-errors'
 import { createInteractiveXeroClient, loadPreviousOrganisations, resolveXeroRouteGrant, type XeroRouteGrant } from '../../../lib/route-grant'
-import { XERO_OPENAPI_TAG, xeroErrorSchema, xeroRuleOneErrors } from '../../openapi'
+import { XERO_OPENAPI_TAG, xeroErrorSchema, xeroRuleOneErrors, xeroScheduleSchema } from '../../openapi'
 
 export const metadata = {
   path: '/sync_xero/organisation',
@@ -105,10 +106,12 @@ export async function PUT(req: Request): Promise<Response> {
     throw error
   }
   await guard.runAfterSuccess()
+  const ensured = await ensureDefaultSchedules({ container, scope, guard: { req, userId } })
 
   return NextResponse.json({
     organisation: { id: providerData.xeroOrganisationId, name: providerData.xeroOrganisationName },
     revisedAt: revisedAt.toISOString(),
+    schedules: ensured.schedules,
   })
 }
 
@@ -121,14 +124,14 @@ export const openApi: OpenApiRouteDoc = {
     PUT: {
       summary: 'Save the Xero Organisation the organization syncs with',
       description:
-        'Re-reads the grant\'s Organisations (one attempt, 5 s) and saves the chosen one as the grant\'s External Account. Choosing an Organisation other than the previous ones needs confirmChange, and is refused while invoices are mapped under a previous one. Send the grant revision (revisedAt) in x-om-ext-optimistic-lock-expected-updated-at.',
+        'Re-reads the grant\'s Organisations (one attempt, 5 s) and saves the chosen one as the grant\'s External Account. Choosing an Organisation other than the previous ones needs confirmChange, and is refused while invoices are mapped under a previous one. Then it creates the hourly default schedule of every xero.* entity type that has none. Send the grant revision (revisedAt) in x-om-ext-optimistic-lock-expected-updated-at.',
       tags: [XERO_OPENAPI_TAG],
       requestBody: { schema: bodySchema },
       responses: [
         {
           status: 200,
           description: 'The saved Organisation and the new grant revision',
-          schema: z.object({ organisation: z.object({ id: z.string(), name: z.string() }), revisedAt: z.string() }),
+          schema: z.object({ organisation: z.object({ id: z.string(), name: z.string() }), revisedAt: z.string(), schedules: z.array(xeroScheduleSchema) }),
         },
       ],
       errors: [
