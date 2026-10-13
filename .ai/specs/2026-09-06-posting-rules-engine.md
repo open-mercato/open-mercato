@@ -31,13 +31,13 @@ counterpart. This module is that reclassification engine — an
 automatic, real-time subscriber that mirrors every zespół 4 posting
 into zespół 5 through the technical clearing account 490 ("Rozliczenie
 kosztów"), tagged with a cost centre (MPK) dimension via
-`journal_entry_line_dimension`.
+`journal_entry_line_dimensions`.
 
 It is deliberately narrow: it does not compute or present the P&L in
 either variant (that is #6013/ZSiO's job, a reporting-layer concern,
 different owner — see Design Decisions), it does not let a user record
 an MPK on a purchase invoice yet (a future AP UI change consumes this
-module's `journal_entry_line_dimension` write path once it exists, no
+module's `journal_entry_line_dimensions` write path once it exists, no
 change needed here), and it does not manage the chart of accounts
 itself (`ledger` owns that). Its only job is to make sure that once a
 zespół 4 entry lands, a correct, tagged zespół 5 mirror entry exists
@@ -74,7 +74,7 @@ posts a second, linked `JournalEntry`: a debit to the zespół 5 account
 named by that source account's `DefaultAccountPostingRule` and a
 credit to the technical clearing account 490, for the same amount —
 tagged with a `CostCenter` dimension (via
-`journal_entry_line_dimension`) resolved through a three-step priority
+`journal_entry_line_dimensions`) resolved through a three-step priority
 hybrid (explicit tag → default rule → suspense account; see Design
 Decisions). Two supporting mechanisms cover the event's fire-and-forget
 nature: a reconciliation sweeper (`reconcileCostRing`) that finds and
@@ -122,7 +122,7 @@ onward, per the platform plan: country plugins) are later pure data,
 zero schema change. `accountGroupId` is immutable once the first entry
 is posted to an account of that type, same as `normalBalance`.
 
-**The dimension table (`journal_entry_line_dimension`) is a separate,
+**The dimension table (`journal_entry_line_dimensions`) is a separate,
 earlier document, not part of this spec.** Originally planned as
 "Phase 1 of this spec" — split out after review. **Correction
 (2026-09-08)**: the earlier justification ("#5663 already treats this
@@ -266,7 +266,7 @@ Dimension → `DefaultAccountPostingRule` → a real, seeded sentinel
 `CostCenter`, not a fabricated suspense account.** Where does the MPK
 for a cost line come from, given that AP doesn't yet have a field to
 set it manually: the engine checks, in order — (1) whether the line
-already has an MPK dimension recorded in `journal_entry_line_dimension`
+already has an MPK dimension recorded in `journal_entry_line_dimensions`
 (entered manually in AP, once that field exists); (2) if not, whether a
 `DefaultAccountPostingRule` exists for that account (a new reference
 entity, e.g. a mapping like "account 401 → MPK Administration"); (3)
@@ -274,7 +274,7 @@ if not — whether because no rule exists at all, or a rule exists but
 its `defaultCostCenterId` is `null` — the line is tagged with a
 seeded, non-deletable sentinel `CostCenter` (`code: 'UNALLOCATED'`,
 see Module Setup) instead of being left untagged, which
-`journal_entry_line_dimension`'s own `dimensionIds: z.array(...).min(1)`
+`journal_entry_line_dimensions`'s own `dimensionIds: z.array(...).min(1)`
 validator would reject outright (see Final Compliance Report — a real
 review-caught bug, not a hypothetical). **Corrected (2026-09-14):**
 an earlier draft of this decision posted case (3) to a fabricated
@@ -352,7 +352,7 @@ guessing or silently skipping, if the relevant one is unset when they
 run (see Events & Subscribers, Risks).
 
 **`CostCenter` is a new, minimal master-data entity — Phase 1 needs
-somewhere for an MPK to actually exist.** `journal_entry_line_dimension`
+somewhere for an MPK to actually exist.** `journal_entry_line_dimensions`
 (#5972) defines the *tagging* mechanism (`dimensionType: 'CostCenter'`,
 `dimensionId: string`) but, checked directly against that document's
 own Data Models and Architecture, never defines what a valid cost
@@ -467,7 +467,7 @@ tenant with `posting_rules` installed:
 | Reclassify inside the same transaction/command as the source posting (e.g. `postVendorInvoice` calls this engine directly) | Rejected: requires a direct cross-module call from `accounts_payable` (or any future cost source) into `posting_rules`, which `packages/events/AGENTS.md` bans; also couples every cost-source module to this engine's existence, defeating the "AP works standalone without `posting_rules`" requirement (see Design Decisions, "Real-time, not batch") |
 | A subscriber-side veto on `lockFiscalPeriod` (subscriber returns an error that blocks the lock) | Rejected: subscriber errors are only logged, never propagated to the emitting command — architecturally impossible in this event system, not just undesirable (see Design Decisions, "Period-close guard") |
 | Store the 4→5 mapping and default cost centre as two separate reference tables | Rejected: both are one fact per source account in practice; two tables means two lookups and two places to keep in sync for no separation of concerns that matters here (see Design Decisions, "`DefaultAccountPostingRule` does double duty") |
-| Let `CostCenter` be a free-standing string with no entity at all (just whatever `AP` or a rule types in) | Rejected: nothing to reference from `DefaultAccountPostingRule`, no way to rename a department consistently, no place to mark one inactive — `journal_entry_line_dimension` (#5972) explicitly leaves this identity question to its consumers, and this is the first consumer that needs an answer |
+| Let `CostCenter` be a free-standing string with no entity at all (just whatever `AP` or a rule types in) | Rejected: nothing to reference from `DefaultAccountPostingRule`, no way to rename a department consistently, no place to mark one inactive — `journal_entry_line_dimensions` (#5972) explicitly leaves this identity question to its consumers, and this is the first consumer that needs an answer |
 
 ## Literature & Prior Art
 
@@ -520,7 +520,7 @@ Alternatives Considered above ("Let `CostCenter` be a free-standing
 string with no entity at all"), which already rejected going the other
 direction (no entity at all). Hay's model is the natural Phase 2
 extension if a cost center ever needs to attach to more than a
-`journal_entry_line_dimension` row (e.g. direct equipment or project
+`journal_entry_line_dimensions` row (e.g. direct equipment or project
 costing) — noted here so that extension has prior art to build from
 rather than inventing one.
 
@@ -614,13 +614,13 @@ export const metadata: ModuleInfo = {
     'Automatic zespół 4 → zespół 5 cost reclassification (account 490) for Polish dual-view accounting.',
   author: 'Open Mercato Team',
   license: 'MIT',
-  requires: ['ledger', 'journal_entry_line_dimension'],
+  requires: ['ledger', 'journal_entry_line_dimensions'],
   ejectable: true,
 }
 ```
 
 A hard dependency on both, expressed the same generation-time-validated
-way `journal_entry_line_dimension` itself declares its dependency on
+way `journal_entry_line_dimensions` itself declares its dependency on
 `ledger` (see that document's Architecture → Module Dependency).
 
 ### Encryption (`encryption.ts`)
@@ -738,7 +738,7 @@ stay `null` until an admin configures them, exactly like
     case that becomes the target account instead (see Design
     Decisions, "New settings: `PostingRulesSettings`"). Resolves the
     `CostCenter` tag via the priority hybrid (explicit
-    `journal_entry_line_dimension` tag → the rule's
+    `journal_entry_line_dimensions` tag → the rule's
     `defaultCostCenterId` → the seeded sentinel `CostCenter`, `code:
     'UNALLOCATED'` — see Design Decisions, MPK priority hybrid;
     **corrected 2026-09-14**, replacing the earlier, fabricated
@@ -761,7 +761,7 @@ stay `null` until an admin configures them, exactly like
     source entry (**corrected 2026-09-14**, replacing the generic
     `'JournalEntry'` literal — see Design Decisions). On success,
     tags the new zespół 5 line with the resolved `CostCenter` via
-    `journal_entry_line_dimension.setJournalEntryLineDimension` —
+    `journal_entry_line_dimensions.dimensions.set` —
     always a real `CostCenter` id (the sentinel row when nothing more
     specific resolved), never an empty array (**corrected
     2026-09-14**: an earlier draft's third hybrid path had nothing to
@@ -779,13 +779,13 @@ stay `null` until an admin configures them, exactly like
   from this spec alone.
 - Declares no events of its own in Phase 1 — nothing downstream
   reacts to a reclassification today (Fixed Assets Phase 2 reacts to
-  `journal_entry_line_dimension` writes directly, not to this module).
+  `journal_entry_line_dimensions` writes directly, not to this module).
 
 ### Cross-module integration
 
 - **`ledger` (hard dependency).** Reads `LedgerAccountType`/
   `LedgerAccountGroup` directly via its own `entityManager` (same
-  precedent `journal_entry_line_dimension` and `sales`/`catalog`
+  precedent `journal_entry_line_dimensions` and `sales`/`catalog`
   already establish for hard-dependency reads — see that document's
   Design Decisions, "Cross-module access"). Writes exclusively through
   `commandBus.execute('ledger.postJournalEntry', { input, ctx })` and,
@@ -794,24 +794,28 @@ stay `null` until an admin configures them, exactly like
   real, two-argument `execute(commandId, options)` signature, never a
   direct write to `ledger`'s entities, matching AP's own
   `postVendorInvoice → ledger.postJournalEntry` precedent.
-- **`journal_entry_line_dimension` (hard dependency) — both a direct
+- **`journal_entry_line_dimensions` (hard dependency) — both a direct
   read and a command write, not writes-only.** For the MPK priority
   hybrid's step (1), this module imports `JournalEntryLineDimension`
-  from `journal_entry_line_dimension/data/entities` and queries it
+  from `journal_entry_line_dimensions/data/entities` and queries it
   directly with its own `entityManager` — the same hard-dependency
-  direct-entity-read precedent `journal_entry_line_dimension` itself
+  direct-entity-read precedent `journal_entry_line_dimensions` itself
   documents for `fixed_assets` later (and, before that, for `sales`
   reading `catalog`'s `CatalogProduct`). Once the `CostCenter` is
   resolved (by whichever step of the hybrid), it is *written* back
   onto the new zespół 5 line the normal way — through
-  `commandBus.execute('journal_entry_line_dimension.setJournalEntryLineDimension',
+  `commandBus.execute('journal_entry_line_dimensions.dimensions.set',
   { input: { journalEntryLineId, dimensionType: 'CostCenter',
-  dimensionIds: [costCenterId] }, ctx })`. Reads bypass the command
+  writer: 'posting_rules', dimensionIds: [costCenterId], tenantId,
+  organizationId }, ctx })`, with `tenantId`/`organizationId` passed
+  explicitly because the engine runs as a system actor (`ctx.auth:
+  null`) and the command takes its scope from the input only when the
+  context has none. Reads bypass the command
   layer (matching real precedent); writes never do (matching root
   `AGENTS.md`'s Command Side Effects rule) — the same split this
   module already follows for `ledger`.
 - **This module is never imported or resolved by `ledger` or
-  `journal_entry_line_dimension`.** One-way dependency direction only,
+  `journal_entry_line_dimensions`.** One-way dependency direction only,
   matching `packages/core/AGENTS.md`.
 - **Known integration gap, not addressed in this document**: #5663's
   own Fiscal Periods backend page calls `ledger.lockFiscalPeriod`
@@ -927,7 +931,7 @@ yet).
 
 Three new tables (`cost_center`, `default_account_posting_rule`,
 `posting_rules_settings`), zero changes to any existing `ledger` or
-`journal_entry_line_dimension` table. `seedDefaults` runs once per
+`journal_entry_line_dimensions` table. `seedDefaults` runs once per
 organization at module-enable time, the same lifecycle point #5663's
 `seedPolishAccountGroups` uses — safe to re-run (upserts the sentinel
 `CostCenter` by its well-known `code` and the single
@@ -987,7 +991,7 @@ already configured `PostingRulesSettings` and at least one
 | `lib/seedDefaults.ts` | Create | Seeds the sentinel `CostCenter` and an empty `PostingRulesSettings` row (**corrected 2026-09-14** — no 4→5 template) |
 | `acl.ts` | Create | Four features (see Architecture) |
 | `setup.ts` | Create | `defaultRoleFeatures` + calls `seedDefaults` |
-| `index.ts` | Create | `requires: ['ledger', 'journal_entry_line_dimension']` |
+| `index.ts` | Create | `requires: ['ledger', 'journal_entry_line_dimensions']` |
 | `api/cost-centers/route.ts` | Create | `makeCrudRoute`, with `openApi` (**corrected 2026-09-14**: no `posting-rules/` subfolder — see API Contracts) |
 | `api/default-account-posting-rules/route.ts` | Create | `makeCrudRoute`, with `openApi` |
 | `api/settings/route.ts` | Create | Thin wrapper around `updatePostingRulesSettings`, with `openApi` |
@@ -1009,7 +1013,7 @@ already configured `PostingRulesSettings` and at least one
   resolved, not the fixed `targetAccountId`/"490" pair an earlier
   draft assumed).
 - Assert the MPK priority hybrid in order: explicit
-  `journal_entry_line_dimension` tag wins over
+  `journal_entry_line_dimensions` tag wins over
   `DefaultAccountPostingRule.defaultCostCenterId`; the rule's default
   wins over the seeded sentinel `CostCenter` (`code: 'UNALLOCATED'`);
   no rule, no tag, and no matching `DefaultAccountPostingRule` at all
@@ -1198,7 +1202,7 @@ or residual risk.
   Decisions).
 - Letting a user set an MPK manually on a purchase invoice line — a
   future Accounts Payable UI change; this module's write path
-  (`journal_entry_line_dimension`) is already the right shape for it,
+  (`journal_entry_line_dimensions`) is already the right shape for it,
   no change needed here when it lands.
 - A general chart-of-accounts import mechanism — bulk-loading a
   tenant's own accountant-maintained numbering scheme into
@@ -1255,15 +1259,15 @@ or residual risk.
 ## Final Compliance Report
 
 Went through one independent, fresh-context adversarial review pass
-against #5663, `journal_entry_line_dimension`, and `2026-09-06-accounts-payable.md`
+against #5663, `journal_entry_line_dimensions`, and `2026-09-06-accounts-payable.md`
 before this draft settled, which found and fixed: two uses of a
 non-existent three-argument `commandBus.execute(commandId, input, ctx)`
 form — the exact stale signature AP's own spec had already caught and
 corrected, missed here because the first draft's citation-verification
 claim never named AP as checked; a fabricated quote attributed to
-`journal_entry_line_dimension`'s "own Design Decisions" that doesn't
+`journal_entry_line_dimensions`'s "own Design Decisions" that doesn't
 exist there; a stated "writes only" relationship to
-`journal_entry_line_dimension` directly contradicted, one paragraph
+`journal_entry_line_dimensions` directly contradicted, one paragraph
 later, by a description of reading that same table; a wrong invariant
 claiming account 490 "nets to zero" when the design as written only
 ever credits it (490 accumulates a running balance instead — the P&L
@@ -1304,7 +1308,7 @@ recorded with reasoning.
 ### 2026-09-08 — Dimension-table split corrected
 
 Corrected a misquoted citation of #5663 justifying
-`journal_entry_line_dimension` as a separate document; replaced with
+`journal_entry_line_dimensions` as a separate document; replaced with
 the real, verified reason (more than one independent consumer).
 
 ### 2026-09-10 — Full first draft
@@ -1321,11 +1325,11 @@ Data Model. Flagged one open gap honestly rather than guessing past it:
 
 ### 2026-09-10 (cont.) — Independent review pass, nine issues fixed
 
-Fresh-context adversarial review against #5663, `journal_entry_line_dimension`,
+Fresh-context adversarial review against #5663, `journal_entry_line_dimensions`,
 and Accounts Payable found and fixed: a stale three-argument
 `commandBus.execute` form (the same bug AP's own spec had already
 caught elsewhere); a fabricated quote attributed to
-`journal_entry_line_dimension`; a "writes only" claim contradicted by
+`journal_entry_line_dimensions`; a "writes only" claim contradicted by
 this same document's own MPK-hybrid read; a wrong "490 nets to zero"
 invariant (490 accumulates a running credit balance — corrected, with
 the actual checkable invariant restated); a self-contradictory
