@@ -22,7 +22,7 @@ import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { hasFeature } from '@open-mercato/shared/security/features'
-import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useOrganizationScopeDetail, useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
@@ -177,6 +177,7 @@ function listStaleBackfillScopes(stored: StoredOmnibusConfig | null, form: Omnib
 export function OmnibusSettings() {
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
+  const scopeTenantId = useOrganizationScopeDetail().tenantId
   const { payload: chromePayload, isReady: chromeReady } = useBackendChrome()
   const grantedFeatures = chromePayload?.grantedFeatures
   const canManage = hasFeature(grantedFeatures, 'catalog.settings.manage')
@@ -192,6 +193,7 @@ export function OmnibusSettings() {
   const [backfillChannels, setBackfillChannels] = React.useState<string[] | null>(null)
   const [backfillChannelNames, setBackfillChannelNames] = React.useState<Record<string, string>>({})
   const [reloadToken, setReloadToken] = React.useState(0)
+  const loadedSourceRef = React.useRef<{ tenantId: string | null; configKey: string } | null>(null)
 
   const { runMutation, retryLastMutation } = useGuardedMutation<OmnibusMutationContext>({
     contextId: MUTATION_CONTEXT_ID,
@@ -249,17 +251,26 @@ export function OmnibusSettings() {
   React.useEffect(() => {
     if (!chromeReady || !canView) return
     let cancelled = false
-    setLoading(true)
+    const previous = loadedSourceRef.current
+    if (!previous) setLoading(true)
     setLoadError(null)
     apiCall<unknown>(OMNIBUS_CONFIG_PATH)
       .then((call) => {
         if (cancelled) return
         if (!call.ok) {
+          loadedSourceRef.current = null
           setLoadError(loadErrorMessage)
           return
         }
         const config = asStoredConfig(call.result)
+        const configKey = JSON.stringify(config)
+        const keepsEdits =
+          previous !== null &&
+          previous.configKey === configKey &&
+          (previous.tenantId === null || previous.tenantId === scopeTenantId)
+        loadedSourceRef.current = { tenantId: scopeTenantId, configKey }
         setStored(config)
+        if (keepsEdits) return
         setForm(toFormState(config))
         setFieldErrors({})
         setFormError(null)
@@ -276,7 +287,7 @@ export function OmnibusSettings() {
     return () => {
       cancelled = true
     }
-  }, [canView, chromeReady, loadErrorMessage, reloadToken, scopeVersion])
+  }, [canView, chromeReady, loadErrorMessage, reloadToken, scopeTenantId, scopeVersion])
 
   const translateServerError = React.useCallback(
     (messages: unknown): string => {
@@ -385,6 +396,7 @@ export function OmnibusSettings() {
         },
         mutationPayload: patch,
       })
+      loadedSourceRef.current = { tenantId: scopeTenantId, configKey: JSON.stringify(saved) }
       setStored(saved)
       setForm(toFormState(saved))
       setFieldErrors({})
@@ -416,7 +428,7 @@ export function OmnibusSettings() {
     } finally {
       setSaving(false)
     }
-  }, [buildPatch, canManage, mapServerFieldErrors, retryLastMutation, runMutation, saveErrorMessage, saving, t])
+  }, [buildPatch, canManage, mapServerFieldErrors, retryLastMutation, runMutation, saveErrorMessage, saving, scopeTenantId, t])
 
   const handleCancel = React.useCallback(() => {
     setForm(toFormState(stored))

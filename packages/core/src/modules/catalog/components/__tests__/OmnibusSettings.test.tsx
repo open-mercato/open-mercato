@@ -42,8 +42,10 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
   flash: (...args: unknown[]) => mockFlash(...args),
 }))
 
+let mockScope = { version: 1, tenantId: null as string | null }
 jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
-  useOrganizationScopeVersion: () => 1,
+  useOrganizationScopeVersion: () => mockScope.version,
+  useOrganizationScopeDetail: () => ({ tenantId: mockScope.tenantId, organizationId: null }),
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => {
@@ -102,6 +104,48 @@ describe('OmnibusSettings', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockGrantedFeatures = ['catalog.settings.view', 'catalog.settings.manage']
+    mockScope = { version: 1, tenantId: null }
+  })
+
+  it('keeps unsaved edits when the organization scope resolves and the stored config is unchanged', async () => {
+    mockLoad()
+    const view = render(<OmnibusSettings />)
+    await screen.findByTestId('catalog-omnibus-lookback')
+    const enabledSwitch = screen.getByRole('switch', { name: 'Enable Omnibus reference prices' })
+    fireEvent.click(enabledSwitch)
+    expect(enabledSwitch).toHaveAttribute('aria-checked', 'true')
+
+    mockScope = { version: 2, tenantId: 'tenant-a' }
+    view.rerender(<OmnibusSettings />)
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Enable Omnibus reference prices' })).toHaveAttribute('aria-checked', 'true'))
+    expect(screen.queryByText('Loading Omnibus settings…')).toBeNull()
+  })
+
+  it('replaces unsaved edits when a refresh returns a different stored config', async () => {
+    mockLoad()
+    const view = render(<OmnibusSettings />)
+    await screen.findByTestId('catalog-omnibus-lookback')
+    fireEvent.click(screen.getByRole('switch', { name: 'Enable Omnibus reference prices' }))
+
+    mockLoad({ ...STORED_CONFIG, lookbackDays: 60 })
+    mockScope = { version: 2, tenantId: 'tenant-a' }
+    view.rerender(<OmnibusSettings />)
+    await waitFor(() => expect(screen.getByTestId('catalog-omnibus-lookback')).toHaveValue(60))
+    expect(screen.getByRole('switch', { name: 'Enable Omnibus reference prices' })).toHaveAttribute('aria-checked', 'false')
+  })
+
+  it('replaces unsaved edits when the tenant switches, even with an identical stored config', async () => {
+    mockScope = { version: 1, tenantId: 'tenant-a' }
+    mockLoad()
+    const view = render(<OmnibusSettings />)
+    await screen.findByTestId('catalog-omnibus-lookback')
+    fireEvent.click(screen.getByRole('switch', { name: 'Enable Omnibus reference prices' }))
+
+    mockScope = { version: 2, tenantId: 'tenant-b' }
+    view.rerender(<OmnibusSettings />)
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Enable Omnibus reference prices' })).toHaveAttribute('aria-checked', 'false'))
   })
 
   it('loads the config and saves the patch through the guarded mutation', async () => {
