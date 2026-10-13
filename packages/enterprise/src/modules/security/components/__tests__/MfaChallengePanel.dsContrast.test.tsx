@@ -22,7 +22,11 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   readApiResultOrThrow: jest.fn(async () => ({ ok: true })),
 }))
 
-const RAW_PALETTE_CLASS = /(?:^|\s|:)(?:text|bg|border|placeholder|ring)-(?:slate|gray|zinc|neutral|stone|red|amber|emerald|green)-\d{2,3}(?:\s|$)/
+jest.mock('../mfa-ui-registry', () => ({
+  useProviderChallengeComponent: () => jest.requireActual('../OtpEmailChallengeVerify').default,
+}))
+
+const RAW_PALETTE_CLASS = /(?:^|\s|:)(?:text|bg|border|placeholder|ring)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}(?:\s|$)/
 
 function expectNoRawPaletteClasses(container: HTMLElement) {
   const offenders = Array.from(container.querySelectorAll<HTMLElement>('[class]'))
@@ -44,7 +48,7 @@ const verifyProps = {
 }
 
 describe('MFA challenge DS contrast (issue #5011)', () => {
-  it('renders the challenge panel on a DS card surface without raw palette shades', async () => {
+  it('renders the panel with the real OTP email verify component on a DS card surface', async () => {
     const { container } = renderWithI18n(
       <MfaChallengePanel
         challengeId="challenge-1"
@@ -55,6 +59,7 @@ describe('MFA challenge DS contrast (issue #5011)', () => {
     const panel = screen.getByTestId('security-mfa-challenge-panel')
     expect(panel).toHaveClass('bg-card', 'text-card-foreground')
     await waitFor(() => expect(screen.getByRole('button', { name: 'Verify' })).toBeInTheDocument())
+    expect(container.querySelector('#otp-email-code')).not.toBeNull()
     expectNoRawPaletteClasses(container)
   })
 

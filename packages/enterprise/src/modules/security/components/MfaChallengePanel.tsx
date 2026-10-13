@@ -1,10 +1,10 @@
 'use client'
 
 import * as React from 'react'
-import { AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react'
+import { ChevronDown, ChevronUp } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { cn } from '@open-mercato/shared/lib/utils'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useProviderChallengeComponent } from './mfa-ui-registry'
 
@@ -222,11 +222,8 @@ export default function MfaChallengePanel({
                       <Button
                         key={`${challengeId}:${method.type}`}
                         type="button"
-                        variant="outline"
-                        className={cn(
-                          'h-10 w-full justify-center text-sm',
-                          method.type === RECOVERY_CODE_METHOD_TYPE && 'text-status-error-text hover:text-status-error-text',
-                        )}
+                        variant={method.type === RECOVERY_CODE_METHOD_TYPE ? 'destructive-ghost' : 'outline'}
+                        className="h-10 w-full justify-center text-sm"
                         onClick={() => {
                           setSelectedMethod(method.type)
                           setError(null)
@@ -258,10 +255,11 @@ export default function MfaChallengePanel({
             </div>
           </div>
         ) : (
-          <div className="flex items-center gap-2 rounded-md border border-status-warning-border bg-status-warning-bg px-3 py-2 text-sm text-status-warning-text">
-            <AlertTriangle className="size-4" aria-hidden="true" />
-            <span>{t('security.login.mfaChallenge.noMethods', 'No MFA methods are currently available for this account.')}</span>
-          </div>
+          <Alert status="warning" style="lighter">
+            <AlertDescription>
+              {t('security.login.mfaChallenge.noMethods', 'No MFA methods are currently available for this account.')}
+            </AlertDescription>
+          </Alert>
         )}
       </div>
     </section>
