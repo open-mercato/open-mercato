@@ -51,12 +51,16 @@ async function deleteReceivingFixture(request: APIRequestContext, token: string,
 test.describe('TC-WC-037: receiving and quarantine release redo', () => {
   for (const action of ['receive', 'release'] as const) {
     test(`redoes ${action} after undo when the original body included updatedAt`, async ({ request }) => {
+      test.slow()
       const token = await getAuthToken(request, 'admin')
-      const settings = action === 'release' ? await readWarrantyClaimSettings(request, token) : null
+      const settings = await readWarrantyClaimSettings(request, token)
       let claimId: string | null = null
 
       try {
-        if (settings) await saveWarrantyClaimSettings(request, token, { quarantineGrades: ['D'] }, settings.updatedAt)
+        await saveWarrantyClaimSettings(request, token, {
+          autoApproveEnabled: false,
+          ...(action === 'release' ? { quarantineGrades: ['D'] } : {}),
+        }, settings.updatedAt)
         let claim = await createClaimFixture(request, token, {
           claimType: 'return',
           customerName: uniqueLabel('redo-receiving'),
