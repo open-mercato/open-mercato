@@ -36,6 +36,7 @@
   "directory.nav.tenants.create": "Mandanten erstellen",
   "directory.organizations.common.none": "—",
   "directory.organizations.errors.deleteFailed": "Organisation konnte nicht gelöscht werden",
+  "directory.organizations.errors.invalidQuery": "Ungültige Abfrage",
   "directory.organizations.errors.orgIdRequired": "Organisationskennung ist erforderlich",
   "directory.organizations.errors.tenantRequired": "Die Mandantenauswahl ist für Superadministratoren erforderlich",
   "directory.organizations.flash.created": "Organisation erstellt",
