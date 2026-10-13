@@ -4,6 +4,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { z } from 'zod'
 import type { ProgressService } from '@open-mercato/core/modules/progress/lib/progressService'
 import type { SyncRunService } from '@open-mercato/core/modules/data_sync/lib/sync-run-service'
@@ -42,7 +43,7 @@ export const openApi = {
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 404, description: 'Upload not found', schema: errorSchema },
         { status: 409, description: 'Import overlap detected', schema: errorSchema },
-        { status: 422, description: 'Invalid import payload', schema: errorSchema },
+        { status: 422, description: 'Invalid import payload or import blocked by a mutation guard', schema: errorSchema },
       ],
     },
   },
@@ -105,15 +106,36 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Upload attachment not found.' }, { status: 404 })
     }
 
-    if (upload.entityType !== parsedPayload.data.entityType) {
+    const guarded = await runRouteMutationGuards({
+      container,
+      req: request,
+      auth: { userId: auth.sub, tenantId: scope.tenantId, organizationId: scope.organizationId },
+      input: {
+        resourceKind: 'sync_excel.upload',
+        resourceId: upload.id,
+        operation: 'update',
+        mutationPayload: { ...parsedPayload.data },
+      },
+    })
+    if (!guarded.ok) return guarded.response
+
+    const guardedPayload = guarded.modifiedPayload
+      ? syncExcelImportRequestSchema.safeParse({ ...parsedPayload.data, ...guarded.modifiedPayload })
+      : parsedPayload
+    if (!guardedPayload.success) {
+      return NextResponse.json({ error: 'Invalid import payload.' }, { status: 422 })
+    }
+    const input = guardedPayload.data
+
+    if (upload.entityType !== input.entityType) {
       return NextResponse.json({ error: 'Upload entity type does not match requested import target.' }, { status: 422 })
     }
 
-    if (parsedPayload.data.mapping.entityType !== parsedPayload.data.entityType) {
+    if (input.mapping.entityType !== input.entityType) {
       return NextResponse.json({ error: 'Mapping entity type does not match requested import target.' }, { status: 422 })
     }
 
-    const overlap = await syncRunService.findRunningOverlap('sync_excel', parsedPayload.data.entityType, 'import', scope)
+    const overlap = await syncRunService.findRunningOverlap('sync_excel', input.entityType, 'import', scope)
     if (overlap) {
       return NextResponse.json({ error: 'A sync_excel import is already in progress for this entity type.' }, { status: 409 })
     }
@@ -123,7 +145,7 @@ export async function POST(request: Request) {
       SyncMapping,
       {
         integrationId: 'sync_excel',
-        entityType: parsedPayload.data.entityType,
+        entityType: input.entityType,
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
       },
@@ -134,22 +156,26 @@ export async function POST(request: Request) {
     // Persist the mapping, credentials, and integration-state config atomically.
     // credentialsService / integrationStateService are request-scoped and share
     // this request `em`, so a single transaction covers all of their writes.
+    const afterCommitCallbacks: Array<() => void | Promise<void>> = []
     await em.transactional(async () => {
       if (existingMapping) {
-        existingMapping.mapping = parsedPayload.data.mapping
+        existingMapping.mapping = input.mapping
       } else {
         em.persist(em.create(SyncMapping, {
           integrationId: 'sync_excel',
-          entityType: parsedPayload.data.entityType,
-          mapping: parsedPayload.data.mapping,
+          entityType: input.entityType,
+          mapping: input.mapping,
           organizationId: scope.organizationId,
           tenantId: scope.tenantId,
         }))
       }
 
-      await credentialsService.save('sync_excel', {}, scope)
+      await credentialsService.save('sync_excel', {}, scope, {
+        deferAfterCommit: (callback) => afterCommitCallbacks.push(callback),
+      })
       await integrationStateService.upsert('sync_excel', { isEnabled: true }, scope)
     })
+    for (const callback of afterCommitCallbacks) await callback()
 
     const { run, progressJob } = await startDataSyncRun({
       syncRunService,
@@ -160,14 +186,14 @@ export async function POST(request: Request) {
       },
       input: {
         integrationId: 'sync_excel',
-        entityType: parsedPayload.data.entityType,
+        entityType: input.entityType,
         direction: 'import',
         cursor: createCursor(upload.id, 0),
         triggeredBy: auth.sub,
-        batchSize: parsedPayload.data.batchSize ?? 100,
+        batchSize: input.batchSize ?? 100,
         progressJob: {
           jobType: 'sync_excel:import',
-          name: `CSV import — ${parsedPayload.data.entityType}`,
+          name: `CSV import — ${input.entityType}`,
           description: upload.filename,
           meta: {
             integrationId: 'sync_excel',
@@ -182,6 +208,8 @@ export async function POST(request: Request) {
       upload.syncRunId = run.id
       upload.status = 'importing'
     })
+
+    await guarded.runAfterSuccess()
 
     return NextResponse.json(syncExcelImportResponseSchema.parse({
       runId: run.id,
