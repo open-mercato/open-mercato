@@ -135,6 +135,7 @@ test.describe('TC-AUTH-067: logout revokes the refresh session without a valid a
       const refreshToken = await loginWithRememberMe(fixture.email);
       expect(await refreshStatus(refreshToken), 'the refresh token should work before logout').toBe(200);
 
+      // A real token cannot expire mid-test, so a bad signature stands in: the dispatcher resolves both as `missing`; logout.test.ts covers a signed, expired JWT.
       const staleAccessToken = 'eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjF9.c3RhbGU';
       const response = await logoutWithCookies(
         `auth_token=${staleAccessToken}; session_token=${encodeURIComponent(refreshToken)}`,
