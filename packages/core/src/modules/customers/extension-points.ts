@@ -1,4 +1,5 @@
 import {
+  componentExtensionHost,
   crudFormExtensionHost,
   dataTableExtensionHost,
   defineModuleExtensionPoints,
@@ -23,6 +24,18 @@ export const extensionPoints = defineModuleExtensionPoints({
     companyForm: crudFormExtensionHost({ entityId: 'customers.company', spotId: 'crud-form:customers.company', source: 'backend/customers/companies-v2/[id]/page.tsx' }),
     dealForm: crudFormExtensionHost({ entityId: 'customers.deal', spotId: 'crud-form:customers.deal', source: 'backend/customers/deals/[id]/page.tsx' }),
     personForm: crudFormExtensionHost({ entityId: 'customers.person', spotId: 'crud-form:customers.person', source: 'backend/customers/people-v2/[id]/page.tsx' }),
+    calendarEventTypes: injectionExtensionHost({
+      family: 'generic',
+      spotId: 'calendar:customers.event-types',
+      supported: ['headless-widget', 'registry-contribution'],
+      dataContract: 'customers.calendar.event-types.v1',
+      source: 'lib/calendar/eventTypeResolver.ts',
+    }),
+    calendarEventTypePanel: componentExtensionHost({
+      componentId: 'section:customers.calendar-event-editor.type-panel',
+      propsContract: 'customers.calendar.event-type-panel.v1',
+      source: 'components/calendar/editor/EventTypePanel.tsx',
+    }),
     companyHeader: detailHost('detail:customers.company:header', 'backend/customers/companies-v2/[id]/page.tsx'),
     companyStatusBadges: detailHost('detail:customers.company:status-badges', 'backend/customers/companies-v2/[id]/page.tsx'),
     companyFooter: detailHost('detail:customers.company:footer', 'backend/customers/companies-v2/[id]/page.tsx'),

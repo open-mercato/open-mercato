@@ -1,4 +1,5 @@
 {
+  "notifications.categories.wms": "Lager",
   "search.entityType.wms.inventory_lot": "Lagerbestand",
   "search.entityType.wms.product_inventory_profile": "Bestandsprofil",
   "search.entityType.wms.warehouse": "Lager",
