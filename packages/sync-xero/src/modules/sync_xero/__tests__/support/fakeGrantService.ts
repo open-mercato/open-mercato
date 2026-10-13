@@ -35,6 +35,7 @@ export type FakeGrantState = {
   missingScopes: string[]
   unavailableReason: 'unreadable' | 'platform' | null
   baseUrlMissing: boolean
+  clientConfigured: boolean
   lastDisconnect: OAuthLastDisconnect | null
   issuedTokens: string[]
 }
@@ -87,6 +88,7 @@ export function createFakeGrantService(options: FakeGrantServiceOptions = {}): F
     missingScopes: [],
     unavailableReason: null,
     baseUrlMissing: false,
+    clientConfigured: true,
     lastDisconnect: null,
     issuedTokens: [],
   }
@@ -170,7 +172,7 @@ export function createFakeGrantService(options: FakeGrantServiceOptions = {}): F
         resourceId: owner.integrationId,
         expected: callOptions.expectedRevisedAt,
         current: state.revisedAt,
-        envValue: 'on',
+        envValue: 'all',
       })
       state.providerData = { ...data }
       state.previousProviderData = null
@@ -182,7 +184,7 @@ export function createFakeGrantService(options: FakeGrantServiceOptions = {}): F
       if (state.status === 'none') {
         const inspection: OAuthGrantInspection = {
           status: 'none',
-          connectionState: 'not_connected',
+          connectionState: state.clientConfigured ? 'not_connected' : 'not_configured',
           unavailableReason: null,
           baseUrlMissing: state.baseUrlMissing,
           lastDisconnect: state.lastDisconnect,
@@ -200,7 +202,7 @@ export function createFakeGrantService(options: FakeGrantServiceOptions = {}): F
       }
       const inspection: OAuthGrantInspection = {
         status: state.status,
-        connectionState: state.status,
+        connectionState: state.clientConfigured ? state.status : 'not_configured',
         unavailableReason: null,
         baseUrlMissing: state.baseUrlMissing,
         expiresAt: state.expiresAt,
@@ -237,7 +239,7 @@ export function createFakeGrantService(options: FakeGrantServiceOptions = {}): F
           resourceId: owner.integrationId,
           expected: callOptions.expectedRevisedAt,
           current: state.revisedAt,
-          envValue: 'on',
+          envValue: 'all',
         })
       }
       const revocation = callOptions.force ? 'failed' : state.status === 'invalidated' ? 'skipped_invalidated' : 'confirmed'
