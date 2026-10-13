@@ -10,6 +10,7 @@ import {
 import { User } from '../../auth/data/entities'
 import { Message } from '../data/entities'
 import { notificationTypes } from '../notifications'
+import { resolveMessageChannelThreadAccess } from '../lib/channelThreadAccess'
 import {
   EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
   SEND_AS_USER_SOURCE_ENTITY_TYPE,
@@ -135,10 +136,19 @@ async function isChannelRoutedMessage(payload: MessageSentPayload, ctx: Resolver
       },
     )
     if (!message) return false
-    return (
-      message.sourceEntityType === SEND_AS_USER_SOURCE_ENTITY_TYPE ||
-      message.sourceEntityType === EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE
+    if (message.sourceEntityType === SEND_AS_USER_SOURCE_ENTITY_TYPE) return true
+    if (message.sourceEntityType !== EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE) return false
+
+    const channelThreadAccess = await resolveMessageChannelThreadAccess(
+      ctx,
+      {
+        tenantId: payload.tenantId,
+        organizationId: payload.organizationId ?? null,
+      },
+      { messageThreadId: message.threadId },
+      { userId: null, features: [] },
     )
+    return channelThreadAccess !== null
   } catch {
     return false
   }
