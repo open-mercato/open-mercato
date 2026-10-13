@@ -31,7 +31,7 @@ import {
   suggestedDispositionForGrade,
   type ConditionGrade,
 } from '../lib/grading'
-import { assertDispositionAllowedForType } from '../lib/claimTypeConfig'
+import { assertDispositionAllowedForType, resolveClaimTypeUiConfig } from '../lib/claimTypeConfig'
 import { resolveEffectiveWarrantyClaimSettings } from '../lib/settings'
 import { computeHeaderRollups, lineStatusGuards } from '../lib/stateMachine'
 import {
@@ -860,7 +860,7 @@ const receiveClaimLineCommand: CommandHandler<ClaimLineReceiveInput, { lineId: s
         if (input.inspectionNotes !== undefined) line.inspectionNotes = input.inspectionNotes ?? null
 
         const suggestedDisposition = suggestedDispositionForGrade(grade)
-        if (!line.disposition && suggestedDisposition) {
+        if (!line.disposition && suggestedDisposition && resolveClaimTypeUiConfig(claim.claimType).allowedDispositions.includes(suggestedDisposition)) {
           assertDispositionAllowedForGrade(grade, suggestedDisposition)
           if (suggestedDisposition === 'restock' || suggestedDisposition === 'repair' || suggestedDisposition === 'scrap') {
             line.disposition = suggestedDisposition

@@ -1002,6 +1002,93 @@ describe('warranty claim commands', () => {
     expect(line.conditionGrade).toBe('D')
   })
 
+  test.each([
+    ['warranty', 'A', 'restock'],
+    ['warranty', 'B', 'repair'],
+    ['warranty', 'C', 'scrap'],
+    ['warranty', 'D', 'scrap'],
+    ['return', 'A', 'restock'],
+    ['return', 'B', null],
+    ['return', 'C', null],
+    ['return', 'D', null],
+    ['core_return', 'A', 'restock'],
+    ['core_return', 'B', null],
+    ['core_return', 'C', 'scrap'],
+    ['core_return', 'D', 'scrap'],
+    ['vendor_recovery', 'A', null],
+    ['vendor_recovery', 'B', null],
+    ['vendor_recovery', 'C', null],
+    ['vendor_recovery', 'D', null],
+  ] as const)('receiving %s grade %s keeps the line editable with disposition %s', async (claimType, conditionGrade, disposition) => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('received', { claimType })
+    const line = makeLine(claim)
+    mockClaims.push(claim)
+    mockLines.push(line)
+
+    await receiveClaimLineCommand.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, id: LINE_ID, conditionGrade }, ctx)
+
+    expect(line.conditionGrade).toBe(conditionGrade)
+    expect(line.disposition).toBe(disposition)
+    expect(mockEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ payload: expect.objectContaining({ action: 'line_received', disposition }) }),
+    ]))
+
+    await updateClaimLineCommand.execute({
+      id: LINE_ID,
+      claimId: CLAIM_ID,
+      disposition: line.disposition,
+      qtyClaimed: 1,
+      inspectionNotes: 'Updated after receiving',
+    }, ctx)
+
+    expect(line.inspectionNotes).toBe('Updated after receiving')
+    expect(line.disposition).toBe(disposition)
+  })
+
+  test.each(['C', 'D'] as const)('receiving return grade %s preserves the chosen refund disposition', async (conditionGrade) => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('received', { claimType: 'return' })
+    const line = makeLine(claim, { disposition: 'refund' })
+    mockClaims.push(claim)
+    mockLines.push(line)
+
+    await receiveClaimLineCommand.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, id: LINE_ID, conditionGrade }, ctx)
+
+    expect(line.disposition).toBe('refund')
+    await expect(updateClaimLineCommand.execute({ id: LINE_ID, disposition: 'scrap' }, ctx))
+      .rejects.toMatchObject({ status: 400, body: { error: 'warranty_claims.errors.dispositionTypeConflict' } })
+    await expect(updateClaimLineCommand.execute({ id: LINE_ID, disposition: 'restock' }, ctx))
+      .rejects.toMatchObject({ status: 400, body: { error: 'warranty_claims.errors.dispositionGradeConflict' } })
+    expect(line.disposition).toBe('refund')
+  })
+
+  test.each(['C', 'D'] as const)('a quarantined return grade %s stays editable before and after release', async (conditionGrade) => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('received', { claimType: 'return' })
+    const line = makeLine(claim)
+    mockClaims.push(claim)
+    mockLines.push(line)
+    resolveEffectiveWarrantyClaimSettingsMock.mockResolvedValue({ ...defaultSettings, quarantineGrades: ['C', 'D'] })
+
+    await receiveClaimLineCommand.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, id: LINE_ID, conditionGrade }, ctx)
+
+    expect(line.quarantineStatus).toBe('held')
+    expect(line.disposition).toBeNull()
+    expect(emitWarrantyClaimsEventMock).toHaveBeenCalledWith(
+      'warranty_claims.claim_line.quarantined',
+      expect.objectContaining({ lineId: LINE_ID, grade: conditionGrade }),
+      expect.objectContaining({ tenantId: TENANT_ID, organizationId: ORG_ID }),
+    )
+
+    await updateClaimLineCommand.execute({ id: LINE_ID, disposition: line.disposition, inspectionNotes: 'Held edit' }, ctx)
+    expect(line.inspectionNotes).toBe('Held edit')
+    await releaseClaimLineQuarantineCommand.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, id: LINE_ID }, ctx)
+    expect(line.quarantineStatus).toBe('released')
+    await updateClaimLineCommand.execute({ id: LINE_ID, disposition: line.disposition, inspectionNotes: 'Released edit' }, ctx)
+    expect(line.inspectionNotes).toBe('Released edit')
+  })
+
   test('receiving and quarantine release version the line, not the parent claim', async () => {
     const { ctx } = makeContext()
     const claimUpdatedAt = new Date('2026-07-05T12:00:00.000Z')
