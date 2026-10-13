@@ -1,6 +1,7 @@
 import BigConstructor from 'big.js'
 import type { Big, BigSource } from 'big.js'
 import { z } from 'zod'
+import { ISO_4217_MINOR_UNITS } from './isoCurrencyMinorUnits'
 
 export type DecimalValue = Big
 export type DecimalInput = string | number | Big
@@ -282,11 +283,15 @@ function resolveIsoCurrencyCodes(): Set<string> | null {
 }
 
 /**
- * ISO 4217 decimal places of `currencyCode`, or `null` when the runtime does not
- * know the code. `Intl.NumberFormat` accepts any well-formed code (ETH, XYZ) and
- * reports 2 digits for it, so only codes listed by `Intl.supportedValuesOf` count.
+ * Decimal places `Intl.NumberFormat` displays for `currencyCode`, or `null` when
+ * the runtime does not know the code. These are CLDR display digits, not ISO 4217
+ * minor units (HUF, COP and IDR display 0 digits but have 2 minor units), and may
+ * change with the ICU version, so use them to format amounts, never to validate
+ * or round stored ones. `Intl.NumberFormat` accepts any well-formed code (ETH,
+ * XYZ) and reports 2 digits for it, so only codes listed by
+ * `Intl.supportedValuesOf` count.
  */
-export function resolveIsoCurrencyDecimalPlaces(currencyCode?: string | null): number | null {
+export function resolveCurrencyDisplayDecimalPlaces(currencyCode?: string | null): number | null {
   if (!currencyCode) return null
   const code = currencyCode.toUpperCase()
   const knownCodes = resolveIsoCurrencyCodes()
@@ -297,6 +302,19 @@ export function resolveIsoCurrencyDecimalPlaces(currencyCode?: string | null): n
   } catch {
     return null
   }
+}
+
+/**
+ * ISO 4217 minor units (decimal places) of `currencyCode`, or `null` when the code
+ * is unknown. Active ISO 4217 codes are read from a static table, so the result
+ * does not depend on the ICU version; other codes the runtime supports fall back
+ * to their `Intl.NumberFormat` digits.
+ */
+export function resolveIsoCurrencyDecimalPlaces(currencyCode?: string | null): number | null {
+  if (!currencyCode) return null
+  const code = currencyCode.toUpperCase()
+  if (Object.hasOwn(ISO_4217_MINOR_UNITS, code)) return ISO_4217_MINOR_UNITS[code]
+  return resolveCurrencyDisplayDecimalPlaces(code)
 }
 
 /**

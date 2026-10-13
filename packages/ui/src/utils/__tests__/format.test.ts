@@ -25,6 +25,12 @@ describe('formatCurrency', () => {
     expect(formatCurrency('1234.5', 'JPY', EN)).toBe('¥1,235')
   })
 
+  it('rounds to the Intl display digits, not the ISO 4217 minor units', () => {
+    expect(formatCurrency('1234.56', 'HUF', EN)?.replace(/\s/g, ' ')).toBe('HUF 1,235')
+    expect(formatCurrency('1234', 'HUF', EN)?.replace(/\s/g, ' ')).toBe('HUF 1,234')
+    expect(formatCurrency('1234.56', 'HUF', EN, 2)?.replace(/\s/g, ' ')).toBe('HUF 1,234.56')
+  })
+
   it('rounds to the configured precision before the iso digits', () => {
     expect(formatCurrency('8.1301', 'USD', EN, 4)).toBe('$8.1301')
     expect(formatCurrency('5.25', 'USD', EN, 0)).toBe('$5')

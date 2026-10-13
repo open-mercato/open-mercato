@@ -18,6 +18,7 @@ import {
   positiveDecimalStringSchema,
   resolveAmountDecimalPlaces,
   resolveExactDecimal,
+  resolveCurrencyDisplayDecimalPlaces,
   resolveIsoCurrencyDecimalPlaces,
   roundDecimal,
   subtractDecimals,
@@ -152,6 +153,32 @@ describe('decimal', () => {
     expect(resolveIsoCurrencyDecimalPlaces('JPY')).toBe(0)
     expect(resolveIsoCurrencyDecimalPlaces('kwd')).toBe(3)
     expect(resolveIsoCurrencyDecimalPlaces(null)).toBeNull()
+  })
+
+  it('resolves ISO 4217 minor units from the static table, not Intl display digits', () => {
+    expect(resolveIsoCurrencyDecimalPlaces('HUF')).toBe(2)
+    expect(resolveIsoCurrencyDecimalPlaces('COP')).toBe(2)
+    expect(resolveIsoCurrencyDecimalPlaces('IDR')).toBe(2)
+    expect(resolveIsoCurrencyDecimalPlaces('huf')).toBe(2)
+    expect(resolveIsoCurrencyDecimalPlaces('IQD')).toBe(3)
+    expect(resolveIsoCurrencyDecimalPlaces('BHD')).toBe(3)
+    expect(resolveIsoCurrencyDecimalPlaces('CLF')).toBe(4)
+    expect(resolveIsoCurrencyDecimalPlaces('UYW')).toBe(4)
+    expect(resolveIsoCurrencyDecimalPlaces('ISK')).toBe(0)
+    expect(resolveIsoCurrencyDecimalPlaces('VND')).toBe(0)
+  })
+
+  it('falls back to Intl digits for codes the ISO table lacks', () => {
+    const intlOnlyCode = 'HRK'
+    expect(resolveIsoCurrencyDecimalPlaces(intlOnlyCode)).toBe(resolveCurrencyDisplayDecimalPlaces(intlOnlyCode))
+  })
+
+  it('resolves Intl display digits for display only', () => {
+    expect(resolveCurrencyDisplayDecimalPlaces('USD')).toBe(2)
+    expect(resolveCurrencyDisplayDecimalPlaces('jpy')).toBe(0)
+    expect(resolveCurrencyDisplayDecimalPlaces('KWD')).toBe(3)
+    expect(resolveCurrencyDisplayDecimalPlaces('ETH')).toBeNull()
+    expect(resolveCurrencyDisplayDecimalPlaces(null)).toBeNull()
   })
 
   it('returns null for codes Intl formats but does not know', () => {

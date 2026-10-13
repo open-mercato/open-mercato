@@ -2,7 +2,7 @@ import {
   countDecimalPlaces,
   decimalToString,
   parseDecimal,
-  resolveIsoCurrencyDecimalPlaces,
+  resolveCurrencyDisplayDecimalPlaces,
   type DecimalValue,
 } from '@open-mercato/shared/lib/decimal'
 
@@ -22,9 +22,9 @@ export type FormatCurrencyOptions = {
  * their shortest decimal representation (`9007199254740991` keeps every digit),
  * so only the display precision below rounds the value. The value is
  * rounded to the currency precision when it is known: `decimalPlaces` (the
- * currency's configured precision), else the ISO 4217 digits of the code
- * (`8.1301` USD shows `$8.13`). Shorter values are padded to that precision
- * (`5.000` KWD, `5` JPY). For codes without a known precision (`ETH`) every
+ * currency's configured precision), else the digits `Intl.NumberFormat` displays
+ * for the code (`8.1301` USD shows `$8.13`, `1234.56` HUF shows `HUF 1,235`).
+ * Shorter values are padded to that precision (`5.000` KWD, `5` JPY). For codes without a known precision (`ETH`) every
  * decimal is kept and shorter values are padded to 2; pass
  * `{ showAllDigits: true }` to keep every decimal for any currency. Without a
  * currency code the value is formatted as a plain number.
@@ -97,11 +97,11 @@ function resolveFractionDigits(
 ): Intl.NumberFormatOptions {
   const configured =
     typeof decimalPlaces === 'number' && Number.isInteger(decimalPlaces) && decimalPlaces >= 0 ? decimalPlaces : null
-  const isoDigits = code ? resolveIsoCurrencyDecimalPlaces(code) : null
+  const displayDigits = code ? resolveCurrencyDisplayDecimalPlaces(code) : null
   if (!code && configured === null && !showAllDigits) return {}
-  const currencyDigits = code ? isoDigits ?? DEFAULT_CURRENCY_FRACTION_DIGITS : configured === null ? 0 : DEFAULT_CURRENCY_FRACTION_DIGITS
+  const currencyDigits = code ? displayDigits ?? DEFAULT_CURRENCY_FRACTION_DIGITS : configured === null ? 0 : DEFAULT_CURRENCY_FRACTION_DIGITS
   const minimum = configured === null ? currencyDigits : Math.min(currencyDigits, configured)
-  const precision = configured ?? isoDigits
+  const precision = configured ?? displayDigits
   const valueDigits = showAllDigits || precision === null ? countDecimalPlaces(exact) : precision
   const maximum = Math.min(Math.max(minimum, valueDigits), resolveMaxIntlFractionDigits())
   return { minimumFractionDigits: Math.min(minimum, maximum), maximumFractionDigits: maximum }
