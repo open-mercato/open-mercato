@@ -1566,8 +1566,8 @@ deploy independently of any other module.
   attachment table keyed to `JournalEntry.id`, or a decision that
   attachments belong on the source document (`VendorInvoice`, etc.)
   instead of the entry itself.
-- **Manual journal-entry creation (a minimal form is Phase 2 —
-  ⚠ NEEDS HUMAN CONFIRMATION) and an approval workflow
+- **Manual journal-entry creation (a minimal form is Phase 2 — decided
+  by the author on 2026-10-13, open to the reviewer's objection) and an approval workflow
   (draft → pending_approval → posted).** **Revised 2026-10-13** (PR
   #5663 review): the OM Core mockup shows a full manual entry form and
   this spec had no create UI at all. A minimal form is named for
@@ -2716,6 +2716,6 @@ code. Not yet reviewed by a maintainer.
   added BDD scenarios for the stored and the absent reference.
 - **Manual entry form.** Named Phase 2 for a minimal form (and the
   route and reversal action it needs), with the reason, instead of
-  leaving it unnamed. ⚠ NEEDS HUMAN CONFIRMATION: Phase 2 is an
-  autonomous default; Phase 1 would need the `postJournalEntry` route
+  leaving it unnamed. Phase 2 is the author's decision (2026-10-13), not
+  an autonomous default; Phase 1 would need the `postJournalEntry` route
   and `ledger.entries.post` enforcement as well.
