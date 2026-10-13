@@ -23,32 +23,38 @@ Forecasting, Cost Accounting, plus Payroll/Compliance contracts in the
 localization layer. Not all of it is committed to yet — treat it as the map,
 not a promise.
 
-What actually exists right now, and where. All branches below live on
-the contributor's fork (`mikoajp/open-mercato`), not on `develop` — the
-PR links are the only way to browse a spec's actual content until it
-merges.
+This is an index, not a status report. Review state, merge state and
+open findings are deliberately not recorded here: the PR page is the
+status and it is never stale, whereas a hand-maintained copy of the state of
+twenty PRs has drifted twice. Spec branches live on the contributor's fork
+(`mikoajp/open-mercato`, `mikoajp/official-modules`), not on `develop`, so the
+PR links are the way to browse a spec until it merges. Checked against the
+PR heads on 2026-10-09.
 
-| Module | File | Branch | Status |
-|---|---|---|---|
-| Contractor Registry | [`2026-09-06-contractor-registry.md`](https://github.com/open-mercato/open-mercato/pull/5955) + `...-implementation-guide.md` | `docs/contractor-registry` | Open, PR #5955 — full spec, closed external maintainer review (two blockers + six majors fixed); Final Compliance Report: ready for maintainer review; literature/real-system findings from the 2026-09-12 pass are proposed, not yet applied (see Notes below the table and Changelog) |
-| General Ledger core engine | [`2026-08-18-general-ledger-core-engine.md`](https://github.com/open-mercato/open-mercato/pull/5663) + `...-implementation-guide.md` | `docs/spec-072-general-ledger-core-engine` | Open, PR #5663 — see Changelog for the two 2026-09-14 corrections (leaf-postability guard ownership; `reverseJournalEntry` event emission); 2026-09-15 forward-pointer to Default Chart of Accounts (#6137) added, commit `7f8180e55` |
-| Accounts Payable (invoices) | [`2026-09-06-accounts-payable.md`](https://github.com/open-mercato/open-mercato/pull/5962) | `docs/accounts-payable` | Open, PR #5962 — merged latest `develop`; first `financial-spec-writing-process` pass applied (own new Literature & Prior Art section + real-system comparison, commit `d572a4001`), see Changelog |
-| Accounts Payable (payments) | [`2026-09-06-accounts-payable-payments.md`](https://github.com/open-mercato/open-mercato/pull/5962) | `docs/accounts-payable` | Open, PR #5962 |
-| Journal Entry Line Dimension | [`2026-09-06-journal-entry-line-dimension.md`](https://github.com/open-mercato/open-mercato/pull/5972) | `docs/journal-entry-line-dimension` | Open, PR #5972 — merged latest `develop`; first `financial-spec-writing-process` pass applied (own new Literature & Prior Art section + real-system comparison, commit `3b3780bd6`), see Changelog |
-| GL account balances / Trial Balance (ZSiO) | [`2026-09-09-general-ledger-account-balances.md`](https://github.com/open-mercato/open-mercato/pull/6013) | `docs/general-ledger-account-balances` | Open, PR #6013 — merged latest `develop`; first `financial-spec-writing-process` pass applied (own new Literature & Prior Art section + real-system comparison, commit `8afb415a7`), see Changelog |
-| Fixed Assets | [`2026-09-06-fixed-assets.md`](https://github.com/open-mercato/open-mercato/pull/6014) | `docs/fixed-assets` | Open, PR #6014 — full spec, adversarially reviewed, Final Compliance Report: fully compliant; merged latest `develop` and `financial-spec-writing-process` Steps 2-3 applied (own new Literature & Prior Art section + real-system comparison, commit `fc1cf0464`), see Changelog |
-| Posting Rules Engine (konto 490) | [`2026-09-06-posting-rules-engine.md`](https://github.com/open-mercato/open-mercato/pull/6015) | `docs/posting-rules-engine` | Open, PR #6015 — two external-maintainer review rounds (nine issues, then eight more), both resolved; 2026-09-15 Out of scope annotated re: Default Chart of Accounts (#6137) — its own chart-of-accounts-import gap stays open, commit `72469b961`; **2026-09-29: implementation shipped** as [PR #6711](https://github.com/open-mercato/open-mercato/pull/6711) (`feat/posting-rules-engine`, stacked on the still-unmerged GL core engine + JELD branches) — full CRUD (CostCenter, DefaultAccountPostingRule, PostingRulesSettings) plus the reclassifyLine engine, reconcileCostRing sweeper, and lockFiscalPeriod guard; unit tests cover Invariant 3, zespół-4 detection, and all three MPK priority-hybrid paths, reversal/mirror-path coverage deferred; see the spec's own Changelog |
-| This knowledge base | [`2026-09-08-financial-module-knowledge-base.md`](https://github.com/open-mercato/open-mercato/pull/6016) | `docs/financial-module-knowledge-base` | Open, PR #6016 (self-referential row — will read stale the moment this PR merges; treat "Open" as provisional) |
-| GL bulk cross-module read service | [`2026-09-10-general-ledger-bulk-read-service.md`](https://github.com/open-mercato/open-mercato/pull/6038) | `docs/general-ledger-bulk-read-service` | Open, PR #6038 — not yet reviewed by a maintainer; prerequisite for SPEC-010 below. **Update (2026-09-16):** Phase 2 added — Compliance & Audit export/read-only access (`ledger.audit.export`, `GET /api/ledger/audit/export`), following #6013's own Phase 2 precedent; see the spec's own Changelog |
-| SPEC-010 — JPK_KR_PD (`financial_pl`, in `official-modules`) | [`SPEC-010-2026-09-11-jpk-kr-pd-financial-pl.md`](https://github.com/open-mercato/official-modules/pull/54) | `official-modules` fork `mikoajp:docs/spec-010-jpk-kr-pd-financial-pl` → `official-modules:develop` | **Moved 2026-09-18** from `open-mercato#6069` (closed) — reviewed by @pkarw, two rounds of fixes applied and verified against real `official-modules` code, then a compliance pass against `official-modules`' own `AGENTS.md`/spec-writing rules (4 items still Non-compliant, see the spec's own Final Compliance Report); depends on #6038 merging first; number `010` is provisional, not reserved (see the spec's own banner) |
-| Accounts Receivable (sales invoice → GL posting) | [`2026-08-18-sales-invoice-gl-posting.md`](https://github.com/open-mercato/open-mercato/pull/6046) | `docs/sales-invoice-gl-posting` | Open, PR #6046 — full spec, one independent adversarial review pass (eleven issues fixed) plus a Final Compliance Matrix; not yet reviewed by a maintainer |
-| Cash & Bank Management | [`2026-09-10-cash-bank-management.md`](https://github.com/open-mercato/open-mercato/pull/6055) | `docs/cash-bank-management` | Open, PR #6055 — full spec, two independent adversarial review passes (14 + 5 issues fixed) plus a literature-verification pass; not yet reviewed by a maintainer |
-| Default Chart of Accounts (Polish plan kont importer) | [`2026-09-15-default-chart-of-accounts.md`](https://github.com/open-mercato/open-mercato/pull/6137) | `docs/default-chart-of-accounts` | Open, PR #6137 — first document in this family to carry the full `financial-spec-writing-process` (own Literature & Prior Art section + real-system comparison) from its very first draft; cross-spec pass against every sibling spec found and fixed a real defect (070/071/072 split vs. Fixed Assets, commit `981dbf470`), see Changelog |
-| Tax Management (Core framework `tax_management` + Poland `financial_pl`) | [`2026-09-16-tax-management.md`](https://github.com/open-mercato/open-mercato/pull/6168) | `docs/tax-management` | Open, PR #6168 — `om-auto-review-pr` pass resolved 2026-09-28 (1 Blocker, 6 Majors, 6 Minors; commit `af7f6ff18`); split into Core-only (this document) + Poland-specific `financial_pl` half, moved to `official-modules` as [`SPEC-011-2026-09-16-tax-management-financial-pl.md`](https://github.com/open-mercato/official-modules/pull/55) (fork `mikoajp:docs/spec-011-tax-management-financial-pl` → `official-modules:develop`), mirroring the SPEC-010 precedent above; not yet reviewed by a maintainer under either repo's own process |
-| Annual Financial Statements (Core `financial_statements` + Poland `financial_pl` — Bilans/RZiS) | [`2026-09-17-annual-financial-statements.md`](https://github.com/open-mercato/open-mercato/pull/6188) | `docs/annual-financial-statements` | Open, PR #6188 — first draft, not yet reviewed; follows the same `SPEC-024-2026-02-11-financial-module.md` §11 Core-framework-plus-country-plugin split as Tax Management (§10); the actual Załącznik nr 1 line templates are Unverified pending a primary-source read (see Tier 1 below) |
-| Multi-Currency (exchange rate integration + period-end FX revaluation) | [`2026-09-17-multi-currency.md`](https://github.com/open-mercato/open-mercato/pull/6190) | `docs/multi-currency` | Open, PR #6190 — first draft, not yet reviewed; integration spec against the already-implemented `currencies` module, not a new rate engine; UoR Art. 30 ("wycena bilansowa") is Unverified pending a primary-source read (see Tier 1 below) |
-| Deferred Revenue (RMP — scheduled recognition over time for AR/Sales) | [`2026-09-17-deferred-revenue.md`](https://github.com/open-mercato/open-mercato/pull/6193) | `docs/deferred-revenue` | Open, PR #6193 — first draft, not yet reviewed; scope deliberately narrowed to what the Event Storming source material actually supports (AR/Sales only) after an earlier, informal "generic RMK+leasing+loan-installment mechanism" framing was checked against the primary transcript and found to have no basis there (see Changelog); models `RevenueRecognitionScheduleEntry` closely on Fixed Assets' own `DepreciationScheduleEntry`/`accrueDepreciation` shape |
-| Budgeting & Forecasting, Cost Accounting | — | — | Not started (SPEC-024 only) |
+| Module | Spec file | Branch | Spec PR | Implementation PR |
+|---|---|---|---|---|
+| Contractor Registry | `2026-09-06-contractor-registry.md` + `...-implementation-guide.md` | `docs/contractor-registry` | [#5955](https://github.com/open-mercato/open-mercato/pull/5955) | — |
+| General Ledger core engine | `2026-08-18-general-ledger-core-engine.md` + `...-implementation-guide.md` | `docs/spec-072-general-ledger-core-engine` | [#5663](https://github.com/open-mercato/open-mercato/pull/5663) | [#6340](https://github.com/open-mercato/open-mercato/pull/6340) |
+| Accounts Payable (invoices) | `2026-09-06-accounts-payable.md` | `docs/accounts-payable` | [#5962](https://github.com/open-mercato/open-mercato/pull/5962) | — |
+| Accounts Payable (payments) | `2026-09-06-accounts-payable-payments.md` | `docs/accounts-payable` | [#5962](https://github.com/open-mercato/open-mercato/pull/5962) | — |
+| Journal Entry Line Dimension | `2026-09-06-journal-entry-line-dimension.md` | `docs/journal-entry-line-dimension` | [#5972](https://github.com/open-mercato/open-mercato/pull/5972) | [#6708](https://github.com/open-mercato/open-mercato/pull/6708) |
+| GL account balances / Trial Balance (ZSiO) | `2026-09-09-general-ledger-account-balances.md` | `docs/general-ledger-account-balances` | [#6013](https://github.com/open-mercato/open-mercato/pull/6013) | — |
+| Fixed Assets | `2026-09-06-fixed-assets.md` | `docs/fixed-assets` | [#6014](https://github.com/open-mercato/open-mercato/pull/6014) | — |
+| Posting Rules Engine (konto 490) | `2026-09-06-posting-rules-engine.md` | `docs/posting-rules-engine` | [#6015](https://github.com/open-mercato/open-mercato/pull/6015) | [#6711](https://github.com/open-mercato/open-mercato/pull/6711) (`feat/posting-rules-engine`) |
+| This knowledge base | `2026-09-08-financial-module-knowledge-base.md` | `docs/financial-module-knowledge-base` | [#6016](https://github.com/open-mercato/open-mercato/pull/6016) | — |
+| GL bulk cross-module read service | `2026-09-10-general-ledger-bulk-read-service.md` | `docs/general-ledger-bulk-read-service` | [#6038](https://github.com/open-mercato/open-mercato/pull/6038) | — |
+| SPEC-010 — JPK_KR_PD (`financial_pl`, in `official-modules`) | `SPEC-010-2026-09-11-jpk-kr-pd-financial-pl.md` | `docs/spec-010-jpk-kr-pd-financial-pl` (fork `mikoajp/official-modules`) | [official-modules#54](https://github.com/open-mercato/official-modules/pull/54) (moved from [#6069](https://github.com/open-mercato/open-mercato/pull/6069), closed) | — |
+| Accounts Receivable (sales invoice → GL posting) | `2026-08-18-sales-invoice-gl-posting.md` | `docs/sales-invoice-gl-posting` | [#6046](https://github.com/open-mercato/open-mercato/pull/6046) | — |
+| Cash & Bank Management | `2026-09-10-cash-bank-management.md` | `docs/cash-bank-management` | [#6055](https://github.com/open-mercato/open-mercato/pull/6055) | — |
+| Default Chart of Accounts (Polish plan kont importer) | `2026-09-15-default-chart-of-accounts.md` | `docs/default-chart-of-accounts` | [#6137](https://github.com/open-mercato/open-mercato/pull/6137) | [#6439](https://github.com/open-mercato/open-mercato/pull/6439) (`feat/default-chart-of-accounts`) |
+| Tax Management (Core framework `tax_management`) | `2026-09-16-tax-management.md` | `docs/tax-management` | [#6168](https://github.com/open-mercato/open-mercato/pull/6168) | — |
+| SPEC-011 — Tax Management, Poland part (`financial_pl`) | `SPEC-011-2026-09-16-tax-management-financial-pl.md` | `docs/spec-011-tax-management-financial-pl` (fork `mikoajp/official-modules`) | [official-modules#55](https://github.com/open-mercato/official-modules/pull/55) | — |
+| Annual Financial Statements (Core `financial_statements` + Poland Bilans/RZiS) | `2026-09-17-annual-financial-statements.md` | `docs/annual-financial-statements` | [#6188](https://github.com/open-mercato/open-mercato/pull/6188) | — |
+| Multi-Currency (exchange rate integration + period-end FX revaluation) | `2026-09-17-multi-currency.md` | `docs/multi-currency` | [#6190](https://github.com/open-mercato/open-mercato/pull/6190) | — |
+| Deferred Revenue (RMP — scheduled recognition over time for AR/Sales) | `2026-09-17-deferred-revenue.md` | `docs/deferred-revenue` | [#6193](https://github.com/open-mercato/open-mercato/pull/6193) | — |
+| SPEC-012 — `financial_pl` integration contracts (`official-modules`) | `SPEC-012-2026-10-08-financial-pl-integration-contracts.md` | `docs/spec-012-financial-pl-integration-contracts` (fork `mikoajp/official-modules`) | [official-modules#60](https://github.com/open-mercato/official-modules/pull/60) | — |
+| SPEC-013 — `financial_pl_accounting` package (`official-modules`) | `SPEC-013-2026-10-08-financial-pl-accounting-package.md` | `docs/spec-013-financial-pl-accounting-package` (fork `mikoajp/official-modules`) | [official-modules#61](https://github.com/open-mercato/official-modules/pull/61) | — |
+| Budgeting & Forecasting, Cost Accounting | — | — | Not started (SPEC-024 only) | — |
 
 **`financial-pl` (JPK_V7/KSeF) lives outside this repo.** It's a real,
 substantial module, but in the separate `official-modules` repository —
@@ -60,25 +66,98 @@ Not shown in the table above, which is scoped to this repo's
 (no longer hypothetical); SPEC-010 above is the in-repo spec for the
 cross-module read contract it will depend on.
 
-**Findings recorded here but not yet written into the spec files they
-describe** (the 2026-09-12 research pass produced these; only three of
-the seven "written directly into the spec" claims from that pass were
-actually followed through — see Changelog for which):
+**2026-09-12 findings: all written into their specs.** The seven findings
+of the 2026-09-12 research pass are on their sibling branches. Checked on
+2026-10-09, each commit is reachable from the PR head named:
 
-- Contractor Registry (`2026-09-06-contractor-registry.md`) — Fowler
-  Ch.2 "Party" + Hay Ch.3 "Parties" citations, the ERPNext/Odoo/Comarch
-  real-system comparison, and a fix for the stale "`sales-invoice-gl-posting`
-  … planned, not yet written" cross-reference (that spec now exists,
-  PR #6046) are all proposed only — no "Literature & Prior Art" section
-  exists on `docs/contractor-registry` today.
-- Cash & Bank Management (`2026-09-10-cash-bank-management.md`) —
-  literature grounding (Kieso Appendix 7A, Fowler's Corresponding
-  Account) is genuinely cited inline in Design Decisions, but was never
-  consolidated into its own dedicated "Literature & Prior Art" section.
-- SPEC-010 (`2026-09-11-jpk-kr-pd-financial-pl.md`) — the Q2 correction
-  (VAT-filing-frequency cohort split, not the size-based one) and the
-  new Q4 (`S_12_1` field gap) are both proposed only; the file as
-  pushed still has the old, size-based Q2 wording and only Q1–Q3.
+- Contractor Registry: `e8dd1b1de` on #5955 (head `dcbc4fc92`). The spec has
+  its own `## Literature & Prior Art` section, which also records the
+  correction of the `sales-invoice-gl-posting` cross-reference.
+- Cash & Bank Management: `9843e3e2d` on #6055 (head `60749bf32`), which has its
+  own `## Literature & Prior Art` section.
+- SPEC-010: Q2 correction `8c4402def` and the XSD pass `970d42e07` (new Q4,
+  the `S_12_1` gap) on #6069 (closed, head `70612750d`). SPEC-010 now lives in
+  `official-modules#54`.
+- Applied from the start and re-checked as reachable: `80b642585` (#6046),
+  `a12b8fd15` (#6015), `dfb9b77a0` (#6038).
+
+**New 2026-10-08 — what belongs to `financial_pl`, mapped from our own
+specs (#6061 map) and the real module code.** Recorded here so the next
+spec does not redo it.
+
+- **Already in code** (`official-modules`, branch
+  `feat/financial-pl-invoice-ux`, last commits 2026-07-27): KSeF 2.0
+  FA(3) send/receive, JPK_V7 from its own register tables
+  (`PurchaseVatRecord`, `ReceivedInvoice`, `SalesInvoicePlMeta`), invoice
+  authoring UI and PDF. No `requires`, no `ledger` dependency; imports from
+  core are only `directory`, `progress` and `sales`. The package README
+  positions it for standalone installs.
+- **Assigned to it by our specs, not yet in code:** the Poland VAT/CIT/PIT
+  engines and the tax-payment instruction (`2026-09-16-tax-management.md`,
+  #6168), Bilans/RZiS templates, line mapping and closing resolution
+  (`2026-09-17-annual-financial-statements.md`, #6188), JPK_KR_PD
+  (SPEC-010, `official-modules#54`, blocked on #6038). No other spec in the
+  family (AP, AP Payments, Contractor Registry, Posting Rules, JELD,
+  Default Chart of Accounts, Fixed Assets, Cash & Bank, Deferred Revenue)
+  assigns anything to `financial_pl`.
+- **Gaps closed as working decisions (pending maintainer review):**
+  Contractor Registry gets a read-only `contractorLookupByNip` DI service
+  (#5955); AP gets a partial unique index on `(vendor, normalized invoice
+  number)` and a note that other modules create invoices through
+  `createVendorInvoice` (#5962); the VAT engine reads `financial_pl`'s VAT
+  register, CIT/PIT read GL balances, and GL balances only reconcile the
+  register (#6168).
+- **Still open, owned by the `financial_pl` authors:** whether GL-dependent
+  Poland features live in a separate package with a hard
+  `requires: ['ledger']` (working proposal: yes, because KSeF and JPK_V7
+  work without a ledger and `packages/core/AGENTS.md` reserves hard
+  `requires` for non-optional dependencies) or in `financial_pl` itself
+  (SPEC-010's current wording); and the KSeF received invoice →
+  Accounts Payable draft bridge, which no spec covers yet and which would
+  need its own `official-modules` spec. If the separate package is chosen,
+  SPEC-010's reuse of `submitJpk`/`pollJpkStatus` becomes a cross-module
+  call and needs a public DI transport service in `financial_pl`, with the
+  signing certificate staying inside it.
+
+**Update 2026-10-08 (later pass) — target layout and the decisions that
+close the open items above.**
+
+- **Target layout.** `financial_pl` stays as it is (KSeF, JPK_V7, invoices),
+  installable without a ledger, no `requires`. The GL-dependent Poland
+  features (VAT/CIT/PIT engines and tax-payment instruction, Bilans/RZiS,
+  JPK_KR_PD, VAT reconciliation report) go to a separate `official-modules`
+  package, `financial_pl_accounting`, with a hard `requires`
+  on `financial_pl`, `ledger`, `tax_management` and `financial_statements`
+  (not `posting_rules`: it only reads period state). Dependency direction:
+  `financial_pl_accounting` → `financial_pl`, core; never the reverse.
+  `financial_pl` gains three things: a DI transport service for JPK
+  (`submit`, `pollStatus`; certificate and key stay inside), a read-only DI
+  service over its VAT register, and the KSeF received invoice → AP draft
+  bridge (optional, `tryResolve`; needs its own spec). Feature ids of the
+  new package carry its own module-id prefix.
+- **Decisions.** NIP normalization is one shared function with a checksum
+  (#5955); `vendorSnapshot` is an optional, caller-supplied input of
+  `createVendorInvoice`, because AP never reads `contractors` (#5962); the
+  duplicate-invoice guard stays a hard `409`; the input-VAT account for the
+  reconciliation report is the new package's own setting, not AP's
+  `vatInputAccountId`, which AP documents as used only by itself.
+- **Findings.** `ledger.lockFiscalPeriod` bypasses the Posting Rules guard
+  by design, so a locked period does not prove zespół 4→5 was reconciled
+  (the annual statements spec said otherwise; corrected, with the two-variant
+  parity check as backstop). No spec gave an in-process read of period state
+  or of the `CLOSING` entry; two methods were added to #6038. The
+  `packages/modules/` path in the annual statements spec does not exist in
+  the repository; corrected to `packages/core/src/modules/`. The JPK
+  transport code is generic over the XML (the `InitUpload` metadata carries
+  no form code) and currently uploads a single part, which a full-year
+  journal export may outgrow; multi-part support is part of the transport
+  service. The `RPD` node has eight amount fields (`K_1`–`K_8`) in
+  Comarch XL's documentation, entered manually; the vendored XSD is the
+  tie-breaker, not yet read.
+- **Not yet written into the specs concerned:** SPEC-010 and SPEC-011 in
+  `official-modules` (location, `requires`, transport via the DI service)
+  and the two new `official-modules` specs (financial_pl integration
+  contracts; `financial_pl_accounting` package overview).
 
 ---
 
@@ -100,9 +179,14 @@ independently in `general-ledger-core-engine.md` (Out of Scope →
 decisions), and `journal-entry-line-dimension.md` ("Excludes the
 counterparty") — all three cross-checked against each other on 2026-09-08.
 Grounded in real law, not just convention: **Ustawa o rachunkowości
-(Polish Accounting Act), art. 13 ust. 1 pkt 3 and art. 16** require exactly
-this — subsidiary ledgers (księgi pomocnicze) per counterparty, reconciled
-against the control account. This is a stronger, more directly applicable
+(Polish Accounting Act), art. 13 ust. 1 pkt 3, art. 16 ust. 1 and art. 17
+ust. 1 pkt 2** ground this — subsidiary ledgers (księgi pomocnicze) are part of
+the books (art. 13), detail and are reconciled with the general-ledger accounts
+(art. 16 ust. 1), and accounts for settlements with counterparties
+("rozrachunki z kontrahentami") are kept as subsidiary accounts (art. 17 ust. 1
+pkt 2). "Control account" is our term; the Act speaks of "konto księgi głównej".
+(Corrected 2026-10-12: the per-counterparty part was earlier attributed to art.
+13 and 16 alone; see the last entry.) This is a stronger, more directly applicable
 citation than anything in Fowler or Hay (see §3) — use *this* for any
 design-decision citation in future AP/AR/GL-adjacent specs, not the
 software-pattern books.
@@ -126,14 +210,19 @@ which of these three shapes actually fits before adding a new mechanism —
 most needs are already one of these three.
 
 **Event-driven cross-module posting, not synchronous coupling.**
-`postJournalEntry` emits an ephemeral, in-process, no-retry event
-(`ledger.journal_entry.posted`); consumers (e.g. the planned Posting Rules
+`postJournalEntry` emits `ledger.journal_entry.posted` after the commit
+(whether a subscriber needs at-least-once delivery is its own choice, via
+`metadata.persistent`; the Posting Rules Engine subscriber is persistent,
+corrected 2026-10-12 — an earlier version of this sentence called the event
+ephemeral and no-retry). The emit itself is fire-and-forget
+(`void emitPostedEvent(...)`), so an event can still be lost if the process
+dies between the commit and the enqueue; consumers (e.g. the unmerged Posting Rules
 Engine) subscribe and post their own follow-up entries via their own
 `postJournalEntry` call. Because delivery isn't guaranteed atomic with the
 source commit, every consumer that relies on this needs two more things: a
 sweeper/reconciliation command that finds and fixes orphaned unprocessed
 entries after a crash (see `ReconcileCostRingCommand` in the Posting Rules
-Engine draft), and its own period-lock guard at the consumer level (the
+Engine spec, unmerged), and its own period-lock guard at the consumer level (the
 emitter's `lockFiscalPeriod` can't be vetoed by a subscriber, since
 subscriber errors are only logged, never propagated).
 
@@ -226,10 +315,12 @@ silently leave off later ones (see Changelog, 2026-09-14).
   Design decisions for the full correction.
 
 - **Załącznik nr 1 do Ustawy o rachunkowości** (the statutory Bilans/RZiS
-  line-item schema) — **Unverified.** `2026-09-17-annual-financial-
+  line-item schema) — **Confirmed 2026-10-12 at the structural level** against
+  the consolidated text including annexes (see the last entry); the status below
+  is the earlier one. `2026-09-17-annual-financial-
   statements.md` (Annual Financial Statements) names this annex as the
   authoritative source for `financial_pl`'s Bilans/RZiS line templates,
-  but this session's own extracted UoR text (`/tmp/uor.txt`) starts at
+  but the statute text read for this document (the ISAP text linked in §5) starts at
   Rozdział 2 and does not include the annexes — no primary-source
   verification of the actual line-item text has been done. Flagged
   honestly as a gap, the same discipline already applied to entry-level
@@ -266,8 +357,9 @@ silently leave off later ones (see Changelog, 2026-09-14).
   Implementation Plan Step 0 for the resulting fix.
 - **Ustawa o rachunkowości, Art. 6** (zasada memoriału / accrual
   principle) — **Confirmed**, 2026-09-21, same source as Art. 30 above.
-  Ust. 1: *"W księgach rachunkowych jednostki oraz w wyniku finansowym
-  jednostki należy ująć wszystkie osiągnięte, przypadające na jej rzecz
+  Ust. 1 (quote corrected 2026-10-12: the words "oraz w wyniku finansowym
+  jednostki" are not in the consolidated text of 2026-10-08): *"W księgach
+  rachunkowych jednostki należy ująć wszystkie osiągnięte, przypadające na jej rzecz
   przychody i obciążające ją koszty związane z tymi przychodami
   dotyczące danego roku obrotowego, niezależnie od terminu ich
   zapłaty."* — the general accrual principle: revenue and the costs
@@ -772,8 +864,8 @@ module (AR is next per SPEC-024's ordering) is designed:
   triggering a posting rule from any subsidiary of a summary account, and
   the knowledge-level (account-type-based) vs. summary-account-based choice
   for defining rules across many accounts. Directly relevant precedent for
-  the Posting Rules Engine draft's own 4→5 reclassification design — worth
-  a compare-and-contrast once that spec moves past draft.
+  the Posting Rules Engine spec's own 4→5 reclassification design — worth
+  a compare-and-contrast once that spec is merged.
 - **Hay's Account Categories and Structure** (7.21, p.153–154) —
   **corrected 2026-09-15 for completeness, not accuracy**: this note
   previously described 7.21 as only "a simple hierarchical account
@@ -943,12 +1035,10 @@ pointed at the wrong section.
   full (2026-09-12, not just the chapter intro as in the original
   2026-09-08 spot-check). Fowler's Party is exactly "the supertype of
   person and organization" — a full, developed pattern, not a stub.
-  Proposed for `2026-09-06-contractor-registry.md`'s own future
-  "Literature & Prior Art" section, alongside an independent second
-  confirmation from Hay Ch.3 "Parties" (pp.23-24) — **not yet applied**;
-  no such section or commit exists on `docs/contractor-registry` today
-  (see Notes in §1 and Changelog, 2026-09-12). No longer an unread lead
-  as far as the *research* goes, even though the write-back is pending.
+  Written into `2026-09-06-contractor-registry.md`'s own `## Literature &
+  Prior Art` section (commit `e8dd1b1de`, 2026-09-12, reachable from #5955;
+  section present at head `dcbc4fc92`, checked 2026-10-09), alongside an
+  independent second confirmation from Hay Ch.3 "Parties" (pp.23-24).
 
 ## 5. Quick links
 
@@ -1025,9 +1115,10 @@ pointed at the wrong section.
 ### 2026-09-12
 
 `financial-spec-writing-process` applied across several specs in one
-pass. Three of the following seven findings were actually written back
-into their spec files (marked **applied**); the other four were only
-ever recorded here (marked **proposed, not applied** — see §1 Notes):
+pass. All the findings below are now written into their spec files. When
+first recorded only three were (marked **applied**); the others were written
+back later and are marked **applied later** (checked against the current PR
+heads on 2026-10-09, see that entry):
 
 - Accounts Receivable — added a missing citation (Kieso Ch.7
   receivable-control-account footnote, art. 13/16 UoR) and an ERPNext
@@ -1051,18 +1142,16 @@ ever recorded here (marked **proposed, not applied** — see §1 Notes):
 - Contractor Registry — added to the module map for the first time.
   Fowler Ch.2 "Party" (confirmed, read in full) and Hay Ch.3 "Parties"
   (independent second confirmation) plus an ERPNext/Odoo/Comarch
-  real-system comparison. **Proposed, not applied** — no "Literature &
-  Prior Art" section exists on `docs/contractor-registry` (the cited
-  commit `e8dd1b1de` does not exist). The stale
-  `sales-invoice-gl-posting` "planned, not yet written" cross-reference
-  in that same file is likewise still uncorrected.
+  real-system comparison. **Applied later** — `e8dd1b1de` is reachable from #5955 and
+  `## Literature & Prior Art` is on its head. The stale
+  `sales-invoice-gl-posting` "planned, not yet written" cross-reference is
+  corrected in that section.
 - SPEC-010 Q2 — re-derived the filing cohort as VAT-filing-frequency-based
   (Group 1: monthly `JPK_V7M`, FY2026, due April 2027; Group 2:
   quarterly/exempt, FY2027, due April 2028), not the size-based
   "largest-taxpayer window" the original Q2 wrongly borrowed from
-  `JPK_CIT`. **Proposed, not applied** — `docs/jpk-kr-pd-financial-pl`
-  still has the old, size-based Q2 wording (the cited commit
-  `8c4402def` does not exist). Confirmed against gov.pl/web/kas
+  `JPK_CIT`. **Applied later** — `8c4402def` is reachable from #6069 (now closed;
+  SPEC-010 moved to `official-modules#54`). Confirmed against gov.pl/web/kas
   (cross-checked with taxeo.pl) that the target deployment profile
   keeps full accounting books, not `PKPiR`, so `JPK_KR_PD` is the
   right structure to keep building regardless of cohort.
@@ -1075,9 +1164,8 @@ ever recorded here (marked **proposed, not applied** — see §1 Notes):
   deployment profile needs ZOiS7 ("jednostki pozostałe"); a mandatory
   field, `S_12_1` (per-account financial-statement-category marker),
   has no source anywhere in `LedgerAccount`/`LedgerAccountGroup` today.
-  **Proposed, not applied** — `docs/jpk-kr-pd-financial-pl` still has
-  only Q1–Q3, no Q4 for the `S_12_1` gap (the cited commit `970d42e07`
-  does not exist).
+  **Applied later** — `970d42e07` is reachable from #6069; Q4 and the
+  `S_12_1` gap are in that file.
 - A paragraph describing Posting Rules Engine as draft-quality-only
   (contradicting this document's own module-map row) was corrected in
   place: the spec already had every required section and one
@@ -1358,9 +1446,9 @@ ever recorded here (marked **proposed, not applied** — see §1 Notes):
   directly informed that document's own Data Models section. No
   changes needed to §2.
 
-### 2026-09-15 (cont. — Default Chart of Accounts cross-spec consistency pass, at the user's request)
+### 2026-09-15 (cont. — Default Chart of Accounts cross-spec consistency pass, at the spec author's request)
 
-- Per the user's request to check whether any sibling spec needed
+- At the spec author's request, to check whether any sibling spec needed
   updating relative to the new Default Chart of Accounts document (or
   vice versa), read every sibling spec directly (GL core engine, JELD,
   Posting Rules Engine, Accounts Payable, GL account balances, AR
@@ -1422,7 +1510,7 @@ already-shipped module).
   Management (KIS/mikrorachunek podatkowy) are two unrelated concerns
   that only ever shared a sentence in an early, informal topic list,
   not a real architectural relationship. Tax Management's own
-  placement remains an open, paused question — the user asked to
+  placement remains an open, paused question — the spec author asked to
   defer deciding it; not resolved by this pass.
 - **Step 2 (literature):** see the new Tier 3 entry in §3 above
   (Fowler §6.2/§6.5.2, Hay zero hits for "audit").
@@ -1488,7 +1576,7 @@ Assets, JELD, GL bulk read service, and now this one). Per Step 5:
 - **Placement**: `SPEC-024-2026-02-11-financial-module.md` §11
   ("Financial Statements") mandates the same Core-framework-plus-
   country-plugin split already found for Tax Management (§10) —
-  confirmed with the user before drafting, given the two prior false
+  confirmed with the spec author before drafting, given the two prior false
   starts on Tax Management's own scope. `financial_statements` (Core)
   ships only the generic `ReportFormat`/`ReportSection`/`ReportLine`
   shape plus a trial-balance aggregation function; `financial_pl` owns
@@ -1514,8 +1602,8 @@ Assets, JELD, GL bulk read service, and now this one). Per Step 5:
   §3 above for all.
 - **Explicit gap flagged, not silently assumed**: Załącznik nr 1 do
   Ustawy o rachunkowości (the actual Bilans/RZiS statutory line
-  schema) has not been primary-source verified in this session — the
-  extracted UoR text starts at Rozdział 2 and omits the annexes. Recorded
+  schema) has not been primary-source verified — the
+  statute text read for this document starts at Rozdział 2 and omits the annexes. Recorded
   as Unverified (Tier 1, new) rather than implemented from recollection;
   a real UoR text including annexes is needed before
   `bilansTemplate.ts`/`rzisTemplate.ts` are actually written.
@@ -1571,12 +1659,12 @@ Assets, JELD, GL bulk read service, and now this one). Per Step 5:
   pattern Cash & Bank Management already uses), avoiding a schema
   change to `ledger` for a case its own reversal design already covers.
 - **Cross-spec forward-pointer patches applied**: `accounts-payable.md`
-  (`VendorInvoice.exchangeRate`, commit `31a08b1aa`),
+  (`VendorInvoice.exchangeRate`, commit `438b4410a`),
   `sales-invoice-gl-posting.md` (`SalesInvoice.currencyId`/
   `exchangeRate` + a coordination note on the now-partially-redundant
-  `currencyCode`→`currencyId` resolution step, commit `f7bb59473`), and
+  `currencyCode`→`currencyId` resolution step, commit `5a25ee7d9`), and
   `cash-bank-management.md` (`bookedExchangeRate` default-from-invoice,
-  commit `e9dd3da8d`).
+  commit `ec85ede99`).
 
 ### 2026-09-17 (cont. — Deferred Revenue: initial draft, PR #6193)
 
@@ -1706,9 +1794,8 @@ Assets, JELD, GL bulk read service, and now this one). Per Step 5:
   second, parallel reconciliation check kept the two modules from
   silently disagreeing about when a period is "closed enough."
 - **A full `om-spec-writing` process run surfaced gaps a review-findings-only
-  pass had missed, on direct challenge from the user** ("czy to pokrywa
-  wszystkie zgłoszone issues w review i naniosłeś zgodnie ze strategią
-  naszą literature i wywołałeś om-spec-writing"). The maintainer-review
+  pass had missed, on direct challenge from the spec author** (whether the fix pass
+  covered every review finding and followed the literature strategy). The maintainer-review
   fix pass had approximated the skill's structure from its own summary
   rather than reading `.agents/skills/om-spec-writing/` itself. Reading
   it surfaced: a missing Internationalization (i18n) section (an
@@ -1980,7 +2067,7 @@ Assets, JELD, GL bulk read service, and now this one). Per Step 5:
   financial-pl` → `official-modules:develop`); Core-only
   `tax_management` stays in this document. Module map (§1) updated.
 - **financial-spec-writing-process retrospective, prompted directly by
-  the user asking whether the process had actually been followed**:
+  the spec author asking whether the process had actually been followed**:
   checked against real file state (`git log`, `grep` on the actual
   documents and skill files) rather than recollection, per
   `financial-spec-citation-check`. Step 2 (Kieso citations) and the
@@ -2101,6 +2188,346 @@ Assets, JELD, GL bulk read service, and now this one). Per Step 5:
   integration coverage, and priority/risk/QA-routing labels on PR
   #6711 are all still open, left for the maintainer/user rather than
   guessed at.
+
+### 2026-10-09 — re-review of this document (#6016, reviewed head `084fbdc7`)
+
+- **Evidence trail re-verified (B1).** The four 2026-09-12 commits that this
+  document called missing all exist and are reachable from the current heads:
+  `e8dd1b1de` (#5955, head `dcbc4fc92`), `8c4402def` and `970d42e07` (#6069,
+  head `70612750d`; closed, content moved to `official-modules#54`),
+  `9843e3e2d` (#6055, head `60749bf32`). The three "applied" commits
+  (`80b642585`, `a12b8fd15`, `dfb9b77a0`) are reachable too. §1 Notes, the §4b
+  Contractor Registry paragraph and the 2026-09-12 entry were corrected. The
+  09-14 and 09-15 entries below are history and still describe the earlier
+  state.
+- **§1 reduced to an index (M1, M2).** The status column is gone, because the
+  PR page is the status; a column for the implementation PR was added
+  (#6340, #6439, #6708, #6711), and the `official-modules` specs SPEC-010 to
+  SPEC-013 are listed. The per-sibling findings in this Changelog were not
+  moved to the sibling specs in this pass; that is a separate, larger edit.
+- **Session residue removed (m1).** `/tmp/uor.txt`, "in this session" and "the
+  user" are replaced by checkable sources or a role ("the spec author").
+- **Rewritten SHAs replaced (m2).** The three SHAs lost in the 2026-09-17
+  force-push now point to `438b4410a` (#5962), `5a25ee7d9` (#6046) and
+  `ec85ede99` (#6055).
+- **Wording (n1).** "planned" and "draft" for the Posting Rules Engine are now
+  "unmerged".
+
+### 2026-10-09 (cont. — Cash & Bank / Sales Invoice GL Posting: receipt posting, overpayments)
+
+- **`sales` does not maintain invoice balances.** `sales.payments.create`
+  recalculates the *order's* `outstandingAmount`/`paidTotalAmount` only, and
+  requires an `orderId`; `sales.invoices.create`/`update` take
+  `outstandingAmount` from caller input (default `0`). Neither #6046 nor #6055
+  may size a posting from `SalesInvoice.outstandingAmount`. Maintaining invoice
+  balances from payment allocations is an OM Core `sales` change, outside the
+  financial family (needs its own issue).
+- **Ownership of receipt posting (decided by the spec author).** #6055 posts the
+  receipt into `ledger` and owns `cash_bank_management.statement_line.matched`;
+  #6046 owns the Phase 2 payment bridge to `sales.payments.create` (the only
+  financial module that may depend on `sales`; a `sales`-owned subscriber would
+  reverse the dependency direction); `sales` owns invoice-balance maintenance.
+  #6046 stays API-only in Phase 1.
+- **Cash & Bank sizing corrected.** The settled portion is an explicit
+  `settledAmount` (derived from the line it made the FX gain/loss identically
+  zero and booked overpayments as FX gain); the remaining balance is invoice
+  gross less this module's own earlier matches; the invoice must have a
+  `sales:sales_invoice` `JournalEntry` (`409 INVOICE_NOT_POSTED`).
+- **Overpayments (UoR art. 7 ust. 3).** A customer's overpayment is a liability
+  and is shown in liabilities, not netted against receivables; the only
+  exceptions (art. 37 ust. 7, art. 46 ust. 2a) do not cover trade settlements.
+  **Corrected 2026-10-12 against the primary text, see the entry at the end of
+  this document: the art. 7 ust. 3 part is confirmed; the sentence about the two
+  exceptions is a mismatch (art. 46 ust. 2a can apply to trade settlements).**
+  Hence a separate `customerOverpaymentAccountId` in #6055. Sources checked:
+  two secondary articles on poradnikprzedsiebiorcy.pl (overpayments in the
+  balance sheet; per-saldo presentation). Kieso not consulted (no copy
+  in the session). The account number is the tenant's chart, not prescribed.
+
+### 2026-10-12 — Posting Rules Engine tested end to end in a local demo; decisions taken without expert confirmation
+
+The engine was run end to end in a local demo (entry #5 `DEV` Dr `402-1` / Cr
+`210-1`; engine entry #6 Dr `552-1` / Cr `490-1`, `referenceType`
+`PostingRulesEngineReclassification`). What it showed, and what was decided.
+These decisions are the project's own, taken after checking the specs, the code
+and the knowledge base; none went to an external expert. Marked
+**⚠ NEEDS HUMAN CONFIRMATION** where a convention rests on that alone.
+
+- **Why the demo posted nothing at first (three independent causes).** (1) The
+  demo's chart of accounts predated the `490` fix in the default chart (#6137
+  review m3; 39 types / 43 accounts instead of 40 / 44), so no clearing account
+  existed to pick. (2) The clearing account setting pointed at the cost account
+  itself; the engine never treats the clearing account as a source, so the line
+  was skipped without an error. (3) The sentinel `UNALLOCATED` cost centre and the
+  settings row are seeded at module-enable time, which never ran for a tenant
+  that existed before the module was enabled. Neither (1) nor (3) is a code
+  bug; (2) is a configuration mistake the UI now makes harder (pickers filter
+  by account class).
+- **`490` normal balance: CREDIT.** The engine's spec describes the clearing
+  account's engine-posted balance as a credit balance; the default chart had
+  it as `DEBIT` (justified there as a formality, since the account clears to
+  near zero). `normalBalance` is immutable once an account of the type has
+  posted entries, so it was changed in the default-chart spec and #6439 before
+  the first live import. Decided by the team 2026-10-12: checked against our own
+  spec only, no external accounting source.
+- **Zespół 5 scope in the default chart: unchanged (`550`, `552`).** The
+  template is "representative, not exhaustive"; real systems checked ship an
+  adjustable starting point; widening it is data only. The numbers `500`/`520`/
+  `530` for production-type costs were recalled, not verified, and are not
+  added. The Posting Rules settings page now says so when no zespół 5 account
+  exists. Verification of the plan-of-accounts obligation (UoR art. 10 ust. 1
+  pkt 3) is pending a primary source.
+- **Vendor invoice open amount stays AP-derived (#6190, decision 18).** The
+  per-invoice detail is the subsidiary ledger; none of the three tagging
+  mechanisms fits "this line settled that invoice", and one entry per invoice
+  would break the one-entry-per-batch shape bank matching relies on. Sales
+  invoices read ledger-side only because `sales` does not maintain balances.
+  `fx_revaluation` may read `PaymentBatchLine` as an optional, FK-id-only,
+  scoped read (precedent: `communication_channels` reading `messages`), with
+  the used columns listed as a contract in the payments spec.
+- **Concurrency tests (#6340 / #7207).** The `documents` module already tests
+  concurrency with mocks that assert the lock mode (the same class as our
+  fake-EM tests) and has a `testcontainers`-based integration test, so a
+  container-based suite would not be a new technology in the repository. Decision:
+  no new infrastructure in #6340; a real-Postgres proof of lock-versus-post and
+  double-reversal waits for an HTTP route to posting or for OM Core to adopt a
+  container-based Jest suite. Nothing was changed in #6340 for this.
+- **Tooling lesson.** A process outside the app server (a CLI) that posts an
+  entry hands its `posted` event to a different local queue directory (`.mercato/queue`
+  relative to the working directory) than the server's worker reads, and the
+  fire-and-forget emit may not finish before the process exits. The dev command
+  therefore runs the engine's idempotent subscriber inline. This affects only
+  local tooling, not the server.
+- **Naming collision to resolve.** `TC-GL-004` is used both by
+  `TC-GL-004-fiscal-periods-overlap.spec.ts` (#6340) and by
+  `TC-GL-004-import-default-chart-of-accounts.spec.ts` (default chart); one of
+  them needs a new number before both are merged.
+
+### 2026-10-12 (cont. — Ustawa o rachunkowości checked against the consolidated text)
+
+Checked in the consolidated text of the Accounting Act (Dz. U. z 2026 r.
+poz. 522, 640, 644, 1206; the copy was a Sejm print of 2026-10-08, supplied as a
+PDF from eli.gov.pl). This replaces the earlier "unverified, secondary sources
+only" status for these provisions.
+
+- **Art. 7 ust. 3 — Confirmed.** Values of assets, liabilities, revenues and the
+  related costs are determined separately, and values of assets and liabilities
+  of different kinds may not be offset. The statute does not mention
+  overpayments; "a customer's overpayment is a liability" is our reading of
+  this rule, not statutory wording.
+- **Art. 10 ust. 1 pkt 3 lit. a — Confirmed.** The entity documents its
+  chart of accounts: the list of general-ledger accounts, the classification
+  rules, the rules for keeping subsidiary accounts and how they link to
+  general-ledger accounts; the head of the entity sets it in writing (ust. 2).
+  This supports both points made earlier in this document: the chart of
+  accounts is the entity's own (a default chart is only a starting point), and
+  the control-account + subsidiary-ledger model matches a documented
+  requirement, in addition to art. 13 ust. 1 pkt 3 and art. 16.
+- **Art. 37 ust. 7 — Mismatch with how it was used.** It is about deferred
+  income tax only: the provision and the asset are shown separately in the
+  balance sheet and may be offset if the entity has a title to take them into
+  account together when computing the tax liability. It is not an exception
+  that touches trade settlements. Relevant to annual statements (#6188) and
+  tax, not to overpayments.
+- **Art. 46 ust. 2a — Mismatch.** Financial assets and financial liabilities
+  are shown in the balance sheet net when the entity has an unconditional right
+  to offset assets and liabilities of that kind and intends to settle net or
+  to realize the asset and settle the liability at the same time. The earlier
+  sentence "the exceptions do not cover trade settlements" is not supported:
+  art. 3 ust. 1 pkt 24 defines financial assets to include a contractual right
+  to receive cash, and pkt 27 financial liabilities as an obligation to
+  deliver financial assets, so a trade receivable and a refund obligation to the
+  same customer can fall under it. The statute does not say so expressly; this
+  is an interpretation, decided by the team 2026-10-12 (no external accounting
+  source). Its only effect is that Phase 1 shows these items gross.
+- **Consequence.** The decision to book the excess of an overpayment to a separate
+  liability account (`customerOverpaymentAccountId`, #6055) stands: the
+  default in the ledger is gross, per art. 7 ust. 3. What changes is the
+  reason. Net presentation under art. 46 ust. 2a depends on the entity's right
+  and intent, which the system cannot know, so it is a presentation choice for
+  the balance sheet (#6188), not a posting rule. Phase 1 shows these items
+  gross.
+- **Citation hygiene.** Earlier specs cite `Dz.U.2026.0.522`. The consolidated
+  text now also carries poz. 640, 644 and 1206; cite the current version.
+
+### 2026-10-12 (cont. — second pass: remaining Ustawa o rachunkowości citations checked against the consolidated text)
+
+Same source as the entry above (Dz. U. z 2026 r. poz. 522, 640, 644, 1206; Sejm
+print of 2026-10-08). Every citation used in the financial specs was compared
+with the text.
+
+**Mismatches (corrected in the specs where they are ours):**
+
+- **Art. 25 ust. 2 — the General Ledger spec has it the wrong way round.** It
+  says a direct correction is allowed before a period is closed, so "always a
+  reversal" is stricter than the law. The Act says that after the month is
+  closed **or when the books are kept by computer**, only corrections under ust.
+  1 pkt 2 are allowed: a correcting document with only positive or only negative
+  entries. For this system that means always. "Always a reversal" is therefore a
+  legal requirement, and the rejected "conditional pre-closure edit path" would
+  have been unlawful. A reversal must not mix signs inside one correction. The
+  GL spec (#5663) is not changed here; to be fixed there after #6340 merges.
+- **Per-counterparty subsidiary accounts — art. 17 ust. 1 pkt 2, not art. 13/16
+  alone.** Art. 13 ust. 1 pkt 3 only lists księgi pomocnicze among the books; art.
+  16 ust. 1 says they detail and are reconciled with the general ledger. Art.
+  17 ust. 1 lists the subject areas: pkt 1 fixed assets, pkt 2 settlements with
+  counterparties, pkt 4 sales, pkt 5 purchases, pkt 7 cash operations if a cash
+  desk is kept. Corrected above and in #6046.
+- **"Art. 40–41 UoR" for cost views (posting-rules spec) — wrong.** Art. 40 is
+  repealed; art. 41 is about deferred income (rozliczenia międzyokresowe
+  przychodów). The profit and loss account is prepared in the cost-of-sales
+  (kalkulacyjny) **or** the by-nature (porównawczy) variant, at the choice of the
+  head of the entity (art. 47 ust. 4 pkt 1, Załącznik 1). Keeping classes 4 and
+  5 side by side is a chart-of-accounts practice, not a statutory rule.
+- **`documentType` enum is missing a category.** Art. 20 ust. 2–3 lists seven
+  kinds of document: external foreign, external own, internal, collective,
+  corrective, substitute, and "rozliczeniowe" (art. 20 ust. 3 pkt 4, entries
+  that restate already booked entries under new classification criteria). The GL
+  spec has six and omits the last. The reclassification entries of the Posting
+  Rules Engine are exactly that kind. Add `settlement` to the enum (nullable
+  column, so non-breaking) after #6340; not done here because #5663 and #6340
+  are not touched.
+- **Art. 6 quote** — see the corrected quote above. Art. 41 ust. 1 pkt 1
+  (consideration received or due for services to be performed in later periods)
+  is the direct statutory basis for deferred income; art. 6 ust. 2 is the
+  general matching rule.
+- **Art. 30 — incomplete, not wrong.** Ust. 4 also allows, in justified cases,
+  capitalising exchange differences into production cost, purchase price or the
+  cost of fixed assets; and it covers differences arising on payment of
+  receivables and payables, not only on balance-sheet valuation. Ust. 2 says
+  that day-to-day operations in a foreign currency are booked at the NBP average
+  rate of the **preceding day** (or, for payments, the rate actually applied
+  where that is justified). #6190 has no rule for this yet.
+- **Art. 64–65 (bulk-read spec):** art. 65 is repealed; the audit obligation is
+  in art. 64.
+
+**Confirmed against the text:** art. 3 ust. 1 pkt 24 and 27, art. 9, art. 14 ust.
+2, art. 16 ust. 1, art. 18 ust. 1, art. 20 ust. 1 and ust. 2 pkt 1, art. 23 ust.
+2 (five elements; the GL spec's "last two are postedAt and description" is
+loosely worded: description is pkt 3, amount and date of the entry pkt 4,
+designation of the accounts pkt 5), art. 30 ust. 1.
+
+**Provisions worth citing that no spec cites yet:** art. 23 ust. 1 (computer
+books: procedures against destruction, modification or hiding of an entry —
+supports immutability of posted entries), art. 23 ust. 3 (foreign-currency
+operations recorded so that both the Polish and the foreign amount can be
+determined — supports `amountCurrency` on lines), art. 14 ust. 4 (computer
+books: automatic position number **and** data identifying the person responsible
+for the entry — the GL spec does not show a user field on `JournalEntry`; to be
+checked), art. 17 ust. 1 pkt 1 and 7 (fixed assets, cash desk).
+
+Not yet checked: the 20 citations in SPEC-024 (skipped on purpose, the spec is old).
+
+### 2026-10-12 (cont. — scope decisions for cash/bank and overpayments)
+
+Decided by the team:
+
+- **Manual `sales` payments to the ledger:** not in #6055 or #6046. A separate spec
+  after #6055 settles the contract (cash or bank account and rate, which `sales`
+  does not hold today). Until then manual `sales` payments are not posted.
+- **Overpayments:** Phase 1 only books the excess to `customerOverpaymentAccountId`
+  (#6055). A per-customer view, a refund command and offsetting (kompensata) are a
+  separate later spec: a refund is a bank payout, and an offset touches AR and AP
+  at once.
+
+### 2026-10-12 (cont. — Załącznik nr 1 and art. 45 checked)
+
+Checked against the consolidated text including annexes (Dz. U. z 2026 r. poz.
+522, 640, 644, 1206; Sejm print of 2026-10-08). This replaces the "Unverified,
+annexes not available" status of the Załącznik nr 1 entries above, for the
+structure (not yet line by line, because the templates in #6188 are not written).
+
+- **Structure confirmed.** One Bilans (Aktywa, Pasywa, with "razem" on both
+  sides) and an RZiS in two variants, kalkulacyjny (costs by function, class 5)
+  and porównawczy (costs by nature, class 4); the final line is "Zysk (strata)
+  netto". The entity chooses one variant (art. 47 ust. 4 pkt 1).
+- **Scope gap in #6188, recorded there.** Art. 45 ust. 2: the statement consists
+  of the balance sheet, the profit and loss account and the informacja dodatkowa;
+  art. 45 ust. 3 adds the statement of changes in equity and the cash flow
+  statement for entities other than micro and small. #6188 delivers the first two
+  only. Simplified forms (Załączniki 4, 5, 6) and the filing format (art. 45 ust.
+  1f–1g: electronic, signed, in the structure published in the BIP for KRS
+  entities) are out of scope there.
+- **For implementation:** generate the line codes of `bilansTemplate.ts` and
+  `rzisTemplate.ts` from the text of the annex, not from memory.
+
+### 2026-10-12 (cont. — VAT, CIT and PIT checked against consolidated texts)
+
+Checked against consolidated texts supplied as PDFs: VAT Act (Dz. U. z 2025 r.
+poz. 775, 894, 896, 1203, 1541, 1811, z 2026 r. poz. 507, 846), CIT (Dz. U. z
+2026 r. poz. 554, 779, 846, 912, 1123) and PIT (Dz. U. z 2026 r. poz. 592, 779,
+846, 1079, 1098, 1123). Only the provisions below were read, not the whole acts.
+
+- **VAT art. 96b: Confirmed as the register, not as a duty.** The Head of the KAS
+  keeps the wykaz (ust. 1), with settlement-account numbers (ust. 3 pkt 13),
+  queryable for a chosen day (ust. 2) and updated once per business day (ust. 8).
+  It carries no obligation to check and no liability rule.
+- **CIT art. 15d ust. 1 pkt 2 and PIT art. 22p ust. 1 pkt 2: Confirmed.** The
+  "day of transfer" rule is here: the cost is not deductible when the payment is
+  made to an account other than the one in the wykaz "na dzień zlecenia
+  przelewu" (supply confirmed by an invoice from an active VAT taxpayer, a
+  transaction under art. 19 Prawo przedsiębiorców). Exceptions in ust. 4,
+  including notification within 7 days (art. 117ba § 3 pkt 2 Ordynacji
+  podatkowej). **Correction** to the contractor-registry spec, which had cited
+  art. 96b for the rule and for joint liability.
+- **Art. 117ba Ordynacja podatkowa and art. 19 Prawo przedsiębiorców:** checked
+  later the same day, see the next entry.
+- **PIT art. 22f ust. 3 and CIT art. 16f ust. 3: Confirmed.** 10 000 zł applies to
+  the initial value (wartość początkowa); at or below it a one-time write-off is
+  optional.
+- **Accounting Act art. 32 ust. 2, 3, 4, 6 and art. 35c: Confirmed** in the
+  consolidated text (previously only secondary websites). Art. 32 ust. 7–8
+  (micro and small units may apply tax-law depreciation rules, except among
+  others capital companies) added to the fixed-assets spec.
+- **Not checked:** the other provisions of VAT, PIT and CIT; JPK_V7 and KSeF
+  documents of the Ministry of Finance.
+
+### 2026-10-12 (cont. — Ordynacja podatkowa and Prawo przedsiębiorców checked)
+
+Checked against the consolidated texts: Ordynacja podatkowa (Dz. U. z 2026 r.
+poz. 622, state of 21 April 2026; the 2025 poz. 111 text was also supplied and
+is superseded) and Prawo przedsiębiorców (t.j. Dz. U. z 2025 r. poz. 1480 and
+later amendments through 2026 poz. 507). Only the provisions below were read.
+
+- **Art. 117ba Ordynacji podatkowej: Confirmed.** The payer (a VAT taxpayer) is
+  jointly liable with the supplier for the supplier's VAT arrears proportional to
+  the supply when the invoice-confirmed payment goes to an account not in the
+  wykaz "na dzień zlecenia przelewu". Exceptions (§ 3): transaction other than
+  one under art. 19 Prawo przedsiębiorców; notification to the tax office within
+  7 days of ordering the transfer, at the first payment to that account; certain
+  bank accounts; split payment; intra-Community acquisition, import and
+  reverse-charge invoices.
+- **Art. 19 Prawo przedsiębiorców: Confirmed.** Transactions with another
+  entrepreneur whose one-off value exceeds PLN 15,000 go through a payment
+  account; foreign-currency transactions are converted at the NBP average rate of
+  the last working day before the transaction day.
+- **Art. 61b Ordynacji podatkowej: Confirmed for the structure only.** The
+  mikrorachunek follows the NRB format (check number, bank settlement number,
+  account serial number containing the tax identifier or tax office code) and is
+  made available through e-Urząd Skarbowy or the tax office (§ 1–3). The fixed
+  prefix, the check-digit algorithm and the payment-title requirement are not in
+  art. 61b and still rest on the Ministry of Finance page cited above.
+- **Design note.** Split payment and the 7-day notification each remove the
+  joint liability and the cost-deduction loss; the contractor-registry design
+  enforces only the live check on the day of the transfer.
+
+### 2026-10-12 (cont. — CIT art. 7, 15, 16 checked for SPEC-010)
+
+Checked against the consolidated CIT text (Dz. U. z 2026 r. poz. 554 and later).
+Only the provisions below were read.
+
+- **Art. 15 ust. 1: Confirmed.** Costs of earning income or securing its source,
+  except those in art. 16 ust. 1. Foreign-currency costs are converted at the NBP
+  average rate of the last working day before the day the cost was incurred.
+- **Art. 16 ust. 1: Confirmed** as the list of costs that are not deductible
+  (category contents not mapped yet).
+- **Art. 7 ust. 5: Confirmed.** Loss carryforward over five years, at most 50% of
+  the loss per year, or one deduction up to PLN 5,000,000 with the rest settled
+  within the same five years.
+- **For multi-currency (#6190).** The tax side uses the same convention as the
+  team decision for the booking-day rate (NBP average rate of the preceding
+  working day; art. 15 ust. 1 CIT, art. 19 Prawo przedsiębiorców). The statutory
+  source for the accounting side remains art. 30 of the Accounting Act.
 
 ### 2026-10-13 (cont. — JELD #5972: third review round; UoR Art. 25 verified, ownership guard)
 
