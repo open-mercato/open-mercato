@@ -288,18 +288,19 @@ skipped, not treated as an error — see Architecture → Commands,
 `accrueDepreciation`, and Risk Register.
 
 **Low-value asset one-time write-off — new, resolved 2026-09-09.**
-Art. 32 ust. 6 Ustawy o rachunkowości lets a unit's accounting policy
-depreciate "składniki majątku o niskiej jednostkowej wartości" through a
-simplified, one-time write-off rather than a multi-period schedule.
+Art. 32 ust. 6 Ustawy o rachunkowości lets a unit depreciate
+"środków trwałych o niskiej jednostkowej wartości początkowej" in a
+simplified way (grouped write-offs for groups of similar assets, or a
+one-time write-off of their value) rather than through a multi-period schedule.
 Rather than inventing an arbitrary policy amount, Phase 1 defaults the
-threshold to the 10 000 PLN net value already established by tax law
+threshold to the 10 000 PLN initial value (wartość początkowa) already established by tax law
 (art. 22f ust. 3 ustawy o PIT, mirrored for CIT taxpayers by art. 16f
-ust. 3 ustawy o CIT) — the amount below which a taxpayer may deduct an
+ust. 3 ustawy o CIT) — the amount at or below which a taxpayer may, optionally, write off an
 asset's full value in the month put into use or the following month.
 Aligning the accounting-policy threshold to the tax threshold by default
 avoids a permanent book-tax difference for the common case, while
 `FixedAssetSettings.lowValueThresholdAmount` stays organization-editable
-for units whose accounting policy sets a different figure. An asset whose
+for units whose accounting policy sets a different figure. Art. 32 ust. 7–8 let micro and small units apply the tax-law depreciation rules (except, among others, capital companies), so for those units the alignment is the statutory route, for others only a default. An asset whose
 `acquisitionValue` is at or below the threshold in effect at acceptance
 gets `depreciationMethod: 'ONE_TIME'`; `acceptFixedAsset` posts its full
 value to depreciation expense — a second, separate journal entry from the
@@ -399,7 +400,7 @@ capability.
 
 **Useful-life/salvage-value revision: `reviseDepreciationParameters`,
 prospective-only, no catch-up entry — new, resolved 2026-09-09.** Art. 32
-ust. 3 Ustawy o rachunkowości requires — not merely permits — that "the
+ust. 3 Ustawy o rachunkowości states (the Polish wording is "powinna być ... weryfikowana", i.e. "should be verified") that "the
 correctness of the periods and rates of depreciation applied to fixed
 assets should be periodically verified by the entity, causing an
 appropriate correction of the depreciation write-offs made in subsequent
@@ -3057,3 +3058,40 @@ Full response to the CHANGES REQUESTED review:
 - No structural changes to Architecture/Data Models/Commands from this
   pass — Steps 1-3 of `financial-spec-writing-process` only; Step 4
   (structure) was already satisfied by the existing document.
+
+### 2026-10-12 — Statutory ground of the asset register
+
+Checked against the consolidated text of the Accounting Act (Dz. U. z 2026 r.
+poz. 522, 640, 644, 1206). Art. 17 ust. 1 pkt 1 requires subsidiary accounts for
+fixed assets, including fixed assets under construction, intangible assets and
+the depreciation or amortisation charged on them; art. 16 ust. 1 requires such
+accounts to detail the general-ledger entries and to be reconciled with the
+balances of the general-ledger accounts. The `FixedAsset` register and its
+depreciation schedule are that subsidiary system, and the reconciliation of
+`ledgerAssetAccountId` and the accumulated-depreciation account with the register
+is the check art. 16 ust. 1 asks for. No change to the design. Not yet reviewed
+by a maintainer.
+
+### 2026-10-12 — Statutory citations checked against the consolidated tax and accounting texts
+
+Checked against the consolidated texts supplied as PDFs: Accounting Act (Dz. U. z
+2026 r. poz. 522, 640, 644, 1206), PIT (Dz. U. z 2026 r. poz. 592 and later) and
+CIT (Dz. U. z 2026 r. poz. 554 and later). This replaces the earlier "sourced
+from secondary websites, ISAP unreachable" status for these provisions.
+
+- **Confirmed.** Art. 32 ust. 2 (residual value is one of the factors for the
+  depreciation period and rate), ust. 3 (period, rate and method set on the day
+  of acceptance; periodic review with correction in subsequent fiscal years),
+  ust. 4 (impairment for permanent loss of value, booked to other operating
+  costs) and art. 35c (reversal of a write-down, booked to other operating
+  income or financial income). Art. 22f ust. 3 PIT and art. 16f ust. 3 CIT: the
+  10 000 PLN figure applies to the initial value, with a one-time write-off
+  optional at or below it.
+- **Corrected in the text.** The quoted phrase for art. 32 ust. 6 was not the
+  statutory wording (it is "środków trwałych o niskiej jednostkowej wartości
+  początkowej"); "net value" became "initial value (wartość początkowa)"; the
+  tax threshold is "at or below", not "below"; and art. 32 ust. 3 says the
+  verification "powinna być" done ("should be"), not "requires".
+- **Added.** Art. 32 ust. 7–8: micro and small units may apply the tax-law
+  depreciation rules, except among others capital companies. Phase 1 design
+  unchanged. Not yet reviewed by a maintainer.
