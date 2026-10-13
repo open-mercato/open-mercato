@@ -44,7 +44,7 @@ describe('backend writes', () => {
 
   it('finds the pages it is meant to be guarding', () => {
     // A restructure that empties this list would turn the suite into a silent pass.
-    expect(pages.length).toBeGreaterThanOrEqual(7)
+    expect(pages.length).toBeGreaterThanOrEqual(8)
   })
 
   for (const { path, source } of pages) {
