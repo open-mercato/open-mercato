@@ -4,8 +4,8 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { listAllOrganisations, listConsentOrganisations } from '../../../lib/connections'
 import { parseXeroProviderData } from '../../../lib/provider-data'
 import { authorizeXeroRoute, CREDENTIALS_MANAGE_FEATURE } from '../../../lib/route-auth'
-import { interactiveFailureResponse, xeroErrorResponse } from '../../../lib/route-errors'
-import { createInteractiveXeroClient, grantSelection, loadPreviousOrganisations, resolveXeroRouteGrant } from '../../../lib/route-grant'
+import { interactiveFailureResponse, xeroErrorResponse, seamFailureResponse } from '../../../lib/route-errors'
+import { createInteractiveXeroClient, grantSelection, loadPreviousOrganisations, resolveXeroRouteGrant, type XeroRouteGrant } from '../../../lib/route-grant'
 import { XERO_OPENAPI_TAG, xeroErrorSchema, xeroRuleOneErrors } from '../../openapi'
 
 export const metadata = {
@@ -23,7 +23,14 @@ export async function GET(req: Request): Promise<Response> {
   const query = querySchema.safeParse({ scope: new URL(req.url).searchParams.get('scope') ?? undefined })
   if (!query.success) return xeroErrorResponse(400, 'invalid_request')
 
-  const grant = await resolveXeroRouteGrant(container, scope)
+  let grant: XeroRouteGrant
+  try {
+    grant = await resolveXeroRouteGrant(container, scope)
+  } catch (error) {
+    const response = await seamFailureResponse(error)
+    if (response) return response
+    throw error
+  }
   const inspection = await grant.grantService.inspectGrant(grant.descriptor, grant.owner)
   if (inspection.status === 'none') return xeroErrorResponse(409, 'not_connected')
   if (inspection.status === 'unavailable') return xeroErrorResponse(409, 'xero.account_unavailable')

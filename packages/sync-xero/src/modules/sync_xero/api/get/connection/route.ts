@@ -6,7 +6,8 @@ import { resolveOAuthRedirectUri } from '@open-mercato/core/modules/integrations
 import { toXeroGrantView } from '../../../lib/connection-status'
 import { XERO_CALLBACK_PATH } from '../../../lib/constants'
 import { authorizeXeroRoute, CREDENTIALS_MANAGE_FEATURE, userHoldsFeatures } from '../../../lib/route-auth'
-import { resolveXeroRouteGrant } from '../../../lib/route-grant'
+import { seamFailureResponse } from '../../../lib/route-errors'
+import { resolveXeroRouteGrant, type XeroRouteGrant } from '../../../lib/route-grant'
 import { XERO_OPENAPI_TAG, xeroRuleOneErrors } from '../../openapi'
 
 const VIEW_FEATURE = 'integrations.view'
@@ -30,7 +31,14 @@ export async function GET(req: Request): Promise<Response> {
   if (!authorized.ok) return authorized.response
   const { container, scope, userId } = authorized.context
 
-  const grant = await resolveXeroRouteGrant(container, scope)
+  let grant: XeroRouteGrant
+  try {
+    grant = await resolveXeroRouteGrant(container, scope)
+  } catch (error) {
+    const response = await seamFailureResponse(error)
+    if (response) return response
+    throw error
+  }
   const inspection = await grant.grantService.inspectGrant(grant.descriptor, grant.owner)
 
   return NextResponse.json({

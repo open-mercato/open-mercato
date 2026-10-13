@@ -33,6 +33,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 
 jest.mock('../lib/endpoints', () => ({
+  ...jest.requireActual('../lib/endpoints'),
   resolveXeroEndpoints: (...args: unknown[]) => mockResolveEndpoints(...args),
 }))
 

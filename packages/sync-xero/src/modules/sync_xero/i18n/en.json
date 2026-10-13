@@ -36,6 +36,7 @@
   "sync_xero.errors.organisation_switch_blocked": "The Xero Organisation cannot be changed while invoices are linked to the previous one.",
   "sync_xero.errors.organization_scope_required": "Select an organization to manage its Xero connection.",
   "sync_xero.errors.platform_unavailable": "The stored Xero connection cannot be read right now. Try again later.",
+  "sync_xero.errors.test_fakes_unavailable": "The Xero test fakes of this organization are not running. Start them again or reset the test organization.",
   "sync_xero.errors.transient": "The Xero connection is temporarily unavailable. Try again in a moment.",
   "sync_xero.errors.unauthorized": "Sign in to continue.",
   "sync_xero.errors.unavailable": "Xero did not answer in time. Try again in a moment.",

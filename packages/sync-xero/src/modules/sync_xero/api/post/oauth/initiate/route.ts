@@ -14,7 +14,7 @@ import { XERO_CALLBACK_PATH, XERO_PROVIDER_KEY } from '../../../../lib/constants
 import { createXeroDescriptor } from '../../../../lib/descriptor'
 import { resolveXeroEndpoints } from '../../../../lib/endpoints'
 import { authorizeXeroRoute, CREDENTIALS_MANAGE_FEATURE } from '../../../../lib/route-auth'
-import { xeroErrorResponse } from '../../../../lib/route-errors'
+import { seamFailureResponse, xeroErrorResponse } from '../../../../lib/route-errors'
 import { setXeroStateCookie } from '../../../../lib/state-cookie'
 import { XERO_OPENAPI_TAG, xeroErrorSchema, xeroRuleOneErrors } from '../../../openapi'
 
@@ -49,7 +49,14 @@ export async function POST(req: Request): Promise<Response> {
     throw error
   }
 
-  const descriptor = createXeroDescriptor(await resolveXeroEndpoints({ scope, credentialsService }))
+  let descriptor: ReturnType<typeof createXeroDescriptor>
+  try {
+    descriptor = createXeroDescriptor(await resolveXeroEndpoints({ scope, credentialsService }))
+  } catch (error) {
+    const response = await seamFailureResponse(error)
+    if (response) return response
+    throw error
+  }
   const pkce = createPkcePair()
   let state: ReturnType<typeof createOAuthState>
   try {

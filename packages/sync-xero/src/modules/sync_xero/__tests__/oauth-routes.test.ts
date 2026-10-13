@@ -31,6 +31,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 
 jest.mock('../lib/endpoints', () => ({
+  ...jest.requireActual('../lib/endpoints'),
   resolveXeroEndpoints: (...args: unknown[]) => mockResolveEndpoints(...args),
 }))
 

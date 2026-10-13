@@ -1,6 +1,7 @@
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { OAuthGrantError } from '@open-mercato/core/modules/integrations/lib/oauth/descriptor'
+import { XeroTestFakesUnavailableError } from './endpoints'
 import { XeroApiError } from './errors'
 
 export const XERO_ROUTE_ERROR_FALLBACKS = {
@@ -22,6 +23,7 @@ export const XERO_ROUTE_ERROR_FALLBACKS = {
   'xero.organisation_change_confirmation_required': 'Confirm the change of Xero Organisation.',
   'xero.organisation_switch_blocked': 'The Xero Organisation cannot be changed while invoices are linked to the previous one.',
   disconnect_tokens_unreadable: 'The stored Xero connection cannot be read. Use Disconnect anyway.',
+  'xero.test_fakes_unavailable': 'The Xero test fakes of this organization are not running. Start them again or reset the test organization.',
 } as const
 
 export type XeroRouteErrorCode = keyof typeof XERO_ROUTE_ERROR_FALLBACKS
@@ -66,4 +68,8 @@ export async function interactiveFailureResponse(error: unknown): Promise<Respon
   }
   if (error instanceof XeroApiError) return xeroErrorResponse(503, 'xero.unavailable')
   return null
+}
+
+export async function seamFailureResponse(error: unknown): Promise<Response | null> {
+  return error instanceof XeroTestFakesUnavailableError ? xeroErrorResponse(409, 'xero.test_fakes_unavailable') : null
 }

@@ -36,6 +36,7 @@
   "sync_xero.errors.organisation_switch_blocked": "Nie można zmienić organizacji Xero, dopóki istnieją faktury powiązane z poprzednią organizacją.",
   "sync_xero.errors.organization_scope_required": "Wybierz organizację, aby zarządzać jej połączeniem z Xero.",
   "sync_xero.errors.platform_unavailable": "Zapisanego połączenia z Xero nie można teraz odczytać. Spróbuj ponownie później.",
+  "sync_xero.errors.test_fakes_unavailable": "Atrapy testowe Xero tej organizacji nie działają. Uruchom je ponownie albo zresetuj organizację testową.",
   "sync_xero.errors.transient": "Połączenie z Xero jest chwilowo niedostępne. Spróbuj ponownie za chwilę.",
   "sync_xero.errors.unauthorized": "Zaloguj się, aby kontynuować.",
   "sync_xero.errors.unavailable": "Xero nie odpowiedziało na czas. Spróbuj ponownie za chwilę.",

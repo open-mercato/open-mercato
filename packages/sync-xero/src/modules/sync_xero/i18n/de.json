@@ -36,6 +36,7 @@
   "sync_xero.errors.organisation_switch_blocked": "Die Xero-Organisation kann nicht gewechselt werden, solange Rechnungen der vorherigen Organisation verknüpft sind.",
   "sync_xero.errors.organization_scope_required": "Wählen Sie eine Organisation aus, um ihre Xero-Verbindung zu verwalten.",
   "sync_xero.errors.platform_unavailable": "Die gespeicherte Xero-Verbindung kann gerade nicht gelesen werden. Versuchen Sie es später erneut.",
+  "sync_xero.errors.test_fakes_unavailable": "Die Xero-Testattrappen dieser Organisation laufen nicht. Starten Sie sie erneut oder setzen Sie die Testorganisation zurück.",
   "sync_xero.errors.transient": "Die Xero-Verbindung ist vorübergehend nicht verfügbar. Versuchen Sie es gleich noch einmal.",
   "sync_xero.errors.unauthorized": "Melden Sie sich an, um fortzufahren.",
   "sync_xero.errors.unavailable": "Xero hat nicht rechtzeitig geantwortet. Versuchen Sie es gleich noch einmal.",
