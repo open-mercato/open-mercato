@@ -176,6 +176,10 @@ export function TimeGrid({
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
   const [drag, setDrag] = React.useState<DragState | null>(null)
   const dragRef = React.useRef<DragState | null>(null)
+  const updateDrag = (next: DragState | null) => {
+    dragRef.current = next
+    setDrag(next)
+  }
 
   const dayStarts = React.useMemo(() => {
     const rangeStart = getVisibleRange(days === 7 ? 'week' : 'day', new Date(anchorMs), 0).from
@@ -258,38 +262,29 @@ export function TimeGrid({
       // Pointer capture is best-effort; ignore environments that reject it.
     }
     setSelectedId(null)
-    const nextDrag = { dayMs: dayStart.getTime(), startMin: minute, endMin: minute, moved: false }
-    dragRef.current = nextDrag
-    setDrag(nextDrag)
+    updateDrag({ dayMs: dayStart.getTime(), startMin: minute, endMin: minute, moved: false })
   }
 
   const moveDrag = (event: React.PointerEvent<HTMLDivElement>) => {
-    const currentDrag = dragRef.current
-    if (!currentDrag) return
+    const previous = dragRef.current
+    if (!previous) return
     const rect = event.currentTarget.getBoundingClientRect()
     const minute = offsetYToMinutes(event.clientY - rect.top, HOUR_HEIGHT_PX)
-    const nextDrag = {
-      ...currentDrag,
+    if (minute === previous.endMin) return
+    updateDrag({
+      ...previous,
       endMin: minute,
-      moved: currentDrag.moved || Math.abs(minute - currentDrag.startMin) >= DRAG_SNAP_MINUTES,
-    }
-    dragRef.current = nextDrag
-    setDrag(nextDrag)
+      moved: previous.moved || Math.abs(minute - previous.startMin) >= DRAG_SNAP_MINUTES,
+    })
   }
 
   const endDrag = (dayStart: Date) => {
-    const currentDrag = dragRef.current
-    dragRef.current = null
-    if (currentDrag && currentDrag.moved && onCreateRange) {
-      const range = buildDragRange(dayStart, currentDrag.startMin, currentDrag.endMin)
+    const previous = dragRef.current
+    updateDrag(null)
+    if (previous && previous.moved && onCreateRange) {
+      const range = buildDragRange(dayStart, previous.startMin, previous.endMin)
       onCreateRange(range.start, range.end)
     }
-    setDrag(null)
-  }
-
-  const cancelDrag = () => {
-    dragRef.current = null
-    setDrag(null)
   }
 
   return (
@@ -435,7 +430,7 @@ export function TimeGrid({
                     onPointerDown={(event) => beginDrag(event, dayStart)}
                     onPointerMove={moveDrag}
                     onPointerUp={() => endDrag(dayStart)}
-                    onPointerCancel={cancelDrag}
+                    onPointerCancel={() => updateDrag(null)}
                     aria-hidden
                   />
                 ) : null}
