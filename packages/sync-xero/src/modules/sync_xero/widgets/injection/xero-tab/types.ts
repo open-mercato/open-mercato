@@ -5,6 +5,7 @@ export type XeroConnectionView = {
   baseUrlMissing: boolean
   configured: boolean
   canManage: boolean
+  seamActive: boolean
   grant: XeroGrantView
 }
 

@@ -96,6 +96,7 @@
   "sync_xero.tab.redirectUri.unavailable": "Ustaw APP_URL, aby zobaczyć redirect URI",
   "sync_xero.tab.retry": "Spróbuj ponownie",
   "sync_xero.tab.revocationUnconfirmed": "Xero nie potwierdziło odebrania dostępu Open Mercato. Usuń aplikację z listy Connected apps organizacji w Xero.",
+  "sync_xero.tab.seamNotice": "Tryb testowy: ta organizacja łączy się z atrapami testowymi Xero, a nie z Xero.",
   "sync_xero.tab.state.account_pending": "Nie wybrano organizacji",
   "sync_xero.tab.state.connected": "Połączone",
   "sync_xero.tab.state.invalidated": "Wymaga ponownego połączenia",

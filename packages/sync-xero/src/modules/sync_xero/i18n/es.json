@@ -96,6 +96,7 @@
   "sync_xero.tab.redirectUri.unavailable": "Configura APP_URL para ver la URI de redirección",
   "sync_xero.tab.retry": "Reintentar",
   "sync_xero.tab.revocationUnconfirmed": "Xero no confirmó que haya retirado el acceso de Open Mercato. Elimina la app de las Connected apps de la organización en Xero.",
+  "sync_xero.tab.seamNotice": "Modo de prueba: esta organización se comunica con los simuladores de prueba de Xero, no con Xero.",
   "sync_xero.tab.state.account_pending": "Organización sin elegir",
   "sync_xero.tab.state.connected": "Conectado",
   "sync_xero.tab.state.invalidated": "Requiere reconexión",

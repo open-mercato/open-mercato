@@ -96,6 +96,7 @@
   "sync_xero.tab.redirectUri.unavailable": "리디렉션 URI를 표시하려면 APP_URL을 설정하세요",
   "sync_xero.tab.retry": "다시 시도",
   "sync_xero.tab.revocationUnconfirmed": "Xero가 Open Mercato의 접근 해제를 확인하지 않았습니다. Xero에서 조직의 Connected apps 목록에서 앱을 제거하세요.",
+  "sync_xero.tab.seamNotice": "테스트 모드: 이 조직은 Xero가 아니라 Xero 테스트 대역과 통신합니다.",
   "sync_xero.tab.state.account_pending": "조직 선택 안 됨",
   "sync_xero.tab.state.connected": "연결됨",
   "sync_xero.tab.state.invalidated": "다시 연결 필요",

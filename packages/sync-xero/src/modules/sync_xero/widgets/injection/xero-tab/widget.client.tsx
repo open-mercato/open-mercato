@@ -137,6 +137,11 @@ export default function XeroTabWidget({ context }: InjectionWidgetComponentProps
         title={t('sync_xero.tab.heading')}
         action={<StatusBadge variant={STATE_BADGES[state]} dot>{t(`sync_xero.tab.state.${state}`)}</StatusBadge>}
       />
+      {connection.seamActive ? (
+        <Alert status="feature">
+          <AlertDescription>{t('sync_xero.tab.seamNotice')}</AlertDescription>
+        </Alert>
+      ) : null}
       <RedirectUriField redirectUri={connection.redirectUri} />
       {connection.baseUrlMissing ? (
         <Alert status="warning">

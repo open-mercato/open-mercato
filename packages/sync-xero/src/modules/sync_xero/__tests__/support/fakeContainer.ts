@@ -1,20 +1,16 @@
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { OAuthStateConsumeStore } from '@open-mercato/core/modules/communication_channels/lib/oauth-state'
 
-export type FakeContainer = {
-  registrations: Record<string, unknown>
-  hasRegistration(name: string): boolean
-  resolve<T = unknown>(name: string): T
-}
-
-export function createFakeContainer(registrations: Record<string, unknown>): FakeContainer {
-  return {
-    registrations,
-    hasRegistration: (name) => name in registrations,
+/** A container double for route and service tests: only `resolve` and `hasRegistration` are real. */
+export function createFakeContainer(registrations: Record<string, unknown>): AppContainer {
+  const container = {
+    hasRegistration: (name: string) => name in registrations,
     resolve<T>(name: string): T {
       if (!(name in registrations)) throw new Error(`[internal] unexpected resolve: ${name}`)
       return registrations[name] as T
     },
   }
+  return container as unknown as AppContainer
 }
 
 export type MemoryCache = OAuthStateConsumeStore & { entries: Map<string, unknown>; failSet: boolean }

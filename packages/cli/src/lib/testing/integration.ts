@@ -2212,6 +2212,9 @@ function buildReusableEnvironment(
     OM_DISABLE_EMAIL_DELIVERY: '0',
     OM_ENABLE_TEST_CHANNEL_SEEDING: 'true',
     OM_ENABLE_TEST_OAUTH_GRANTS: 'true',
+    // OAuth providers that encrypt their Connect state (communication_channels/lib/oauth-state,
+    // used by sync_xero's Connect) fail closed under NODE_ENV=production without a state key.
+    OM_HUB_OAUTH_STATE_KEY: process.env.OM_HUB_OAUTH_STATE_KEY ?? 'om-ephemeral-integration-oauth-state-key',
     OM_ENABLE_TEST_EMAIL_CAPTURE_DELIVERY: 'true',
     OM_TEST_SYSTEM_EMAIL_CAPTURE_PATH: EPHEMERAL_SYSTEM_EMAIL_CAPTURE_PATH,
     OM_TEST_EMAIL_CAPTURE_ACCESS_TOKEN: TEST_EMAIL_CAPTURE_ACCESS_TOKEN,
@@ -3614,6 +3617,8 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       OM_TEST_BROWSER_TELEMETRY_MODE: 'opt-in',
       OM_ENABLE_TEST_CHANNEL_SEEDING: 'true',
       OM_ENABLE_TEST_OAUTH_GRANTS: 'true',
+      // See buildReusableEnvironment: the OAuth Connect state needs a key under NODE_ENV=production.
+      OM_HUB_OAUTH_STATE_KEY: process.env.OM_HUB_OAUTH_STATE_KEY ?? 'om-ephemeral-integration-oauth-state-key',
       OM_ENABLE_TEST_EMAIL_CAPTURE_DELIVERY: 'true',
       OM_TEST_SYSTEM_EMAIL_CAPTURE_PATH: EPHEMERAL_SYSTEM_EMAIL_CAPTURE_PATH,
       OM_TEST_EMAIL_CAPTURE_ACCESS_TOKEN: TEST_EMAIL_CAPTURE_ACCESS_TOKEN,
