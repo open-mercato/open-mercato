@@ -33,6 +33,13 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: (...args: unknown[]) => mockFindWithDecryption(...args),
 }))
 
+const mockEnsureFieldDefinitions = jest.fn()
+
+jest.mock('../lib/field-definitions', () => ({
+  ...jest.requireActual('../lib/field-definitions'),
+  ensureXeroFieldDefinitionsAfterSave: (...args: unknown[]) => mockEnsureFieldDefinitions(...args),
+}))
+
 jest.mock('../lib/endpoints', () => ({
   ...jest.requireActual('../lib/endpoints'),
   resolveXeroEndpoints: (...args: unknown[]) => mockResolveEndpoints(...args),
@@ -127,6 +134,7 @@ beforeEach(() => {
   delete process.env.APP_URL
   registerMutationGuards([])
   grants = createFakeGrantService({ connected: true, providerData: PROVIDER_DATA_A })
+  mockEnsureFieldDefinitions.mockReset().mockResolvedValue(true)
   features = new Set(['integrations.view', 'integrations.credentials.manage', 'data_sync.configure'])
   mappingRows = []
   schedules = createFakeScheduleService()
@@ -301,6 +309,15 @@ describe('PUT /api/sync_xero/organisation', () => {
       organisation: { id: XERO_ORG_A, name: 'Demo Company (Global)' },
       schedules: [{ entityType: 'xero.contacts', exists: true, isEnabled: true, fullSync: false, scheduleValue: '1h' }],
     })
+    expect(mockEnsureFieldDefinitions).toHaveBeenCalledTimes(1)
+    expect(mockEnsureFieldDefinitions).toHaveBeenCalledWith(expect.anything(), { tenantId: TENANT_ID, organizationId: ORG_ID })
+  })
+
+  it('keeps the saved Organisation when the Company field definitions cannot be ensured', async () => {
+    mockEnsureFieldDefinitions.mockResolvedValue(false)
+    const response = await putOrganisation(putRequest({ xeroOrganisationId: XERO_ORG_A }, grants.state.revisedAt.toISOString()))
+    expect(response.status).toBe(200)
+    expect(await json(response)).toMatchObject({ schedules: [{ entityType: 'xero.contacts', exists: true }] })
   })
 
   it('keeps the saved Organisation when the default schedule cannot be created', async () => {
