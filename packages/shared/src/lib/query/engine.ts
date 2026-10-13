@@ -38,6 +38,7 @@ import { resolveListCountCap } from './count-cap'
 import { mapWithConcurrency } from './bounded-decrypt'
 import { parseNumberWithDefault } from '../number'
 import { createLogger } from '../logger'
+import { listEntityMetadataFromRegistry } from '../db/entityMetadata'
 
 const logger = createLogger('shared').child({ component: 'query' })
 
@@ -239,8 +240,7 @@ export function resolveRegisteredEntityTableName(
     `${modulePrefix}_${pluralizeBaseName(rawName)}`,
   ]
   try {
-    const allMeta: any[] = metadata.getAll?.() ?? []
-    for (const meta of allMeta) {
+    for (const meta of listEntityMetadataFromRegistry(metadata)) {
       if (meta?.tableName && candidateTables.includes(String(meta.tableName))) {
         return String(meta.tableName)
       }
