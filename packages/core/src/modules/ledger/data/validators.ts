@@ -174,6 +174,23 @@ export const createFiscalPeriodSchema = z
 
 export type CreateFiscalPeriodInput = z.infer<typeof createFiscalPeriodSchema>
 
+// `generateFiscalPeriods` input: twelve consecutive calendar months starting
+// on `startDate`, which must be the first day of a month (PR #5663 review,
+// point 3). The ranges themselves are built in `lib/fiscalPeriodRanges.ts`.
+export const generateFiscalPeriodsSchema = z
+  .object({
+    organizationId: z.uuid(),
+    tenantId: z.uuid(),
+    startDate: z.coerce.date(),
+  })
+  .refine((data) => data.startDate.getUTCDate() === 1, {
+    message: 'startDate must be the first day of a month.',
+    path: ['startDate'],
+    params: { i18nKey: 'ledger.errors.fiscalPeriodStartNotFirstOfMonth', i18nFallback: 'startDate must be the first day of a month.' },
+  })
+
+export type GenerateFiscalPeriodsInput = z.infer<typeof generateFiscalPeriodsSchema>
+
 // `lockFiscalPeriod` / `unlockFiscalPeriod` input. The expected `updatedAt`
 // version is not a schema field — per the spec it travels as the
 // `x-om-ext-optimistic-lock-expected-updated-at` request header, read by

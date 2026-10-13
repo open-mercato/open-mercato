@@ -141,4 +141,53 @@ test.describe('TC-GL-004: fiscal-period overlap rejection and concurrent creates
       await deleteGeneralEntityIfExists(request, superadminToken, '/api/directory/tenants', tenantId);
     }
   });
+
+  test('generate 12 months creates twelve consecutive periods, all or nothing', async ({ request }) => {
+    const superadminToken = await getAuthToken(request, 'superadmin');
+    const stamp = randomUUID();
+    let tenantId: string | null = null;
+    let organizationId: string | null = null;
+    try {
+      tenantId = await createTenant(request, superadminToken, `QA TC-GL-004c Tenant ${stamp}`);
+      organizationId = await createOrganizationFixture(request, superadminToken, {
+        name: `QA TC-GL-004c Organization ${stamp}`,
+        tenantId,
+      });
+      const headers = scopedHeaders({ tenantId, organizationId });
+      const generate = (startDate: string) =>
+        apiRequest(request, 'POST', '/api/ledger/fiscal-periods/generate', {
+          token: superadminToken,
+          data: { startDate },
+          headers,
+        });
+
+      // The start must be the first day of a month.
+      const midMonth = await generate('2034-01-15');
+      expect(midMonth.status(), 'a start that is not the first of a month should return 400').toBe(400);
+
+      const created = await generate('2034-01-01');
+      expect(created.status(), 'generate from 2034-01-01 should return 201').toBe(201);
+      const periods = (await listPeriodsInRange(request, superadminToken, headers, '2034-01-01', '2034-12-31')).sort(
+        (a, b) => a.startDate.localeCompare(b.startDate),
+      );
+      expect(periods, 'twelve periods should exist').toHaveLength(12);
+      expect(periods[0].startDate).toBe('2034-01-01');
+      expect(periods[0].endDate).toBe('2034-01-31');
+      expect(periods[1].startDate, 'February follows January with no gap').toBe('2034-02-01');
+      expect(periods[11].endDate).toBe('2034-12-31');
+
+      // A second generate over the same year overlaps, answers 409 and creates nothing.
+      const again = await generate('2034-01-01');
+      expect(again.status(), 'generating over existing periods should return 409').toBe(409);
+      const after = await listPeriodsInRange(request, superadminToken, headers, '2034-01-01', '2034-12-31');
+      expect(after, 'a rejected generate must not add rows').toHaveLength(12);
+
+      // A span that starts inside the year but runs past it overlaps too.
+      const partial = await generate('2034-07-01');
+      expect(partial.status(), 'a span that overlaps the existing year should return 409').toBe(409);
+    } finally {
+      await deleteOrganizationIfExists(request, superadminToken, organizationId);
+      await deleteGeneralEntityIfExists(request, superadminToken, '/api/directory/tenants', tenantId);
+    }
+  });
 });
