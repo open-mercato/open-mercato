@@ -157,6 +157,9 @@ export type ReadScopedAttachmentResult = {
  * caller's tenant and organization at the database boundary and the row must
  * belong to `expectedOwner` in `expectedPartitionCode`. Resolve the attachment
  * id and the owner from the module's own records, never from request input.
+ * This is a trusted, request-facing boundary: when attachment access resolvers
+ * ship (#6726), it must refuse rows a resolver requirement protects rather than
+ * serve them (see `.ai/specs/2026-10-06-attachments-owner-scoped-reads.md`).
  */
 export type ReadScopedAttachmentForOwnerInput = {
   attachmentId: string

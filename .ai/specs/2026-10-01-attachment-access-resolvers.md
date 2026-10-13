@@ -152,6 +152,7 @@ No URL, method, input or successful response field is removed.
 | `GET /api/attachments/file/:id` | `read` for download, `render` for inline; before bytes. |
 | `GET /api/attachments/image/:id/...` | `render`, before cache/storage. |
 | `attachmentService.readScoped` | `read`, retaining expected owner/assignment, partition and scope checks. |
+| `attachmentService.readScopedForOwner` | Trusted, principal-free, request-facing ([owner-scoped reads](2026-10-06-attachments-owner-scoped-reads.md)). No resolver runs; a row whose partition `accessResolverRequirements` or owner/assignment matches a resolver declaration is refused with 404 before bytes, retaining its owner, partition and scope checks. |
 | `attachmentTargetAccessService.canAccessLinkedTarget` | `read`, preserving expected link membership; policy denial returns false. |
 | `GET /api/attachments/library` | `metadata` before enrichment, with authorized pagination/count/facets. |
 | `GET /api/attachments/library/:id` | `metadata` before content/custom fields. |
@@ -163,7 +164,7 @@ No URL, method, input or successful response field is removed.
 
 Document policy 401/403/404 and timeout 504 in affected OpenAPI contracts. Reuse localized auth/not-found messages and add access-timeout translations in all locales. Preserve mutation guards, modified payloads, callbacks, indexer events, quotas and transaction order; authorize after guard modifications and before mutation.
 
-Explicit trusted principal-free boundaries remain: attachment CLI deletion, OCR/text extraction workers, and `createScoped`/`releaseScoped` called by authorized owner commands. Do not invent user principals for background jobs or require new arguments on their public inputs. Request-facing host writes and authenticated `readScoped` cannot use that trusted bypass. There is no attachment-owned AI/MCP endpoint; consumers of authenticated read/link services inherit the restriction. No new generic search indexing is enabled.
+Explicit trusted principal-free boundaries remain: attachment CLI deletion, OCR/text extraction workers, and `createScoped`/`releaseScoped` called by authorized owner commands. `readScopedForOwner` is the one request-facing principal-free read: it serves files a module published from its own records, and it refuses rather than serves any row that a durable requirement or resolver declaration protects, since resolver subjects are authenticated and this contract adds no anonymous owner policies. Do not invent user principals for background jobs or require new arguments on their public inputs. Request-facing host writes and authenticated `readScoped` cannot use that trusted bypass. There is no attachment-owned AI/MCP endpoint; consumers of authenticated read/link services inherit the restriction. No new generic search indexing is enabled.
 
 ## 📝 UI/UX
 
@@ -260,6 +261,7 @@ Fault/disabled-registry tests may use controlled registry real-route fixtures; l
 
 ## Changelog
 
+- 2026-10-13: Classified `attachmentService.readScopedForOwner` (owner-scoped reads) as a trusted, request-facing boundary that refuses resolver-protected rows.
 - 2026-10-01: Skeleton followed by repository research and autonomous resolution. Specified complete host enforcement, real Documents adoption, durable named-provider requirements, historical backfill, metadata confidentiality and pending human compatibility acknowledgment for #6726.
 
 - 2026-10-01: Readiness audit clarified legacy single-object assignment normalization, transactional locking for owner-changing mutations, and stricter metadata/export authorization for multiple Documents targets.

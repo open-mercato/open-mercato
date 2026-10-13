@@ -118,6 +118,34 @@ comment and miss an indirect call; and it guarded nothing the method does not al
 caller, route or not, must still supply the owner, tenant, organization and partition the method
 checks.
 
+**Relationship to attachment access resolvers.** The accepted design in
+[`2026-10-01-attachment-access-resolvers.md`](2026-10-01-attachment-access-resolvers.md) (#6726,
+not implemented yet) places owner policy on `readScoped` and the file and image routes, lists the
+trusted principal-free boundaries (attachment CLI deletion, OCR/text extraction workers,
+`createScoped`/`releaseScoped` called by authorized owner commands), and adds no anonymous owner
+policies. `readScopedForOwner` is a fourth trusted boundary of a different kind: principal-free
+**and request-facing**, because its caller serves the bytes to anonymous visitors. It is trusted
+only for files the calling module has itself published, and it must never become a way around a
+resolver another module declared. The rule, binding on the implementation of #6726:
+
+- When access resolvers ship, `readScopedForOwner` refuses — 404, like every other owner-scoped
+  refusal — a row whose partition carries a durable access-resolver requirement
+  (`accessResolverRequirements`) matching the row's owner entity or any of its assignments, or
+  whose owner or assignments match a registered resolver declaration. It does not run the resolver
+  with an anonymous subject: the resolver contract's subjects are authenticated, and refusing is
+  simpler than defining anonymous policy.
+- A module that wants to publish files of a resolver-protected owner type must not rely on
+  `readScopedForOwner`; that needs an explicit anonymous policy, which the first resolver contract
+  does not provide.
+- No resolver requirement exists in the data model or code on `develop` today (the
+  `access_resolver_requirements` column and the declaration registry are part of #6726), so there
+  is nothing to check yet. The guard lands with #6726, together with a test that a matching
+  requirement refuses the read. The resolver spec's API contract table carries the matching row.
+
+The checkout pay link logo is unaffected: its owners are `checkout:checkout_link` and
+`checkout:checkout_link_template`, which declare no resolver, and its files live in the default
+partition for those entities.
+
 ### 2. `GET /api/checkout/pay/{slug}/logo` (checkout)
 
 Public (`requireAuth: false`). The link is resolved and gated as follows:
@@ -196,6 +224,7 @@ staff keep the resized image-route preview.
 | Oversized logo served publicly | Low | bandwidth | 640×240 rendition; per-size thumbnail cache | — |
 | Extra request per pay page view | Low | load | separate rate-limit namespace, fail-open; 5-minute cache for published links | — |
 | Logo uploaded to a non-default partition | Low | UX | the partition is the attachments module's default for the owner entity, the one the upload route uses when no partition is named; the editor never names one. A logo uploaded with an explicit `partitionCode`, or after an operator maps checkout entities to another default, is a 404 rather than served from an unexpected partition | Re-upload through the editor |
+| `readScopedForOwner` bypasses a future access resolver | Medium | data exposure | classified as a trusted, request-facing boundary in both specs; when #6726 ships it refuses rows whose partition requirement or owner declaration matches a resolver, without running the resolver anonymously | Until #6726 lands there is nothing to bypass; the guard and its test are part of that change |
 | Corrupt logo | Low | availability | a file Sharp cannot decode is a 422 from the service and a 404 from the route | — |
 | An operational fault hidden as a missing logo | Low | operability | only Sharp decode errors become 422; cache, storage, memory and encoder failures are logged, reported and answered 500 | A new libvips loader message format would be answered 500 until the classifier learns it, which fails loud, not silent |
 
@@ -351,6 +380,10 @@ Regression proofs:
 
 ## Changelog
 
+- 2026-10-13 — Review: reconciled with the attachment access resolver design (#6726).
+  `readScopedForOwner` is classified as a trusted, request-facing boundary that must refuse rows
+  protected by a matching resolver requirement once resolvers ship; the resolver spec has the
+  matching contract row.
 - 2026-10-08 — Consistency pass after the rebase onto `develop` `7187041c2`:
   - the refusal statuses match the code (a missing partition record is a 500);
   - `CHECKOUT_LOGO_ATTACHMENT_PARTITION`, removed earlier, is gone from the API table;
