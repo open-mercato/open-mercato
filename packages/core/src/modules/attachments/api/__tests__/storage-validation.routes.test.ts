@@ -21,7 +21,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({ t: (_key: string, fallback: string) => fallback }),
 }))
 jest.mock('@open-mercato/shared/lib/commands/helpers', () => ({ emitCrudSideEffects: jest.fn() }))
-jest.mock('../../lib/requestScope', () => ({ resolveAttachmentOrganizationId: async () => 'org-test' }))
+jest.mock('../../lib/requestScope', () => ({ resolveAttachmentRequestScope: async () => ({ denied: false, organizationId: 'org-test' }) }))
 jest.mock('../../lib/quota-recovery-queue', () => ({ scheduleAttachmentQuotaRecovery: jest.fn(async () => undefined) }))
 jest.mock('../../lib/thumbnailCache', () => ({
   buildThumbnailCacheKey: jest.fn(() => null),
