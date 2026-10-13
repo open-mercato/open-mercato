@@ -28,6 +28,11 @@ const scope = { tenantId: '11111111-1111-4111-8111-111111111111', organizationId
 let api: FakeXeroApi
 let grants: FakeGrantService
 let rejectedTokens: Set<string>
+const logWrites: Array<Record<string, unknown>> = []
+const runs = new Map<string, { triggeredBy: string | null }>([
+  ['manual-run', { triggeredBy: 'user-1' }],
+  ['scheduled-run', { triggeredBy: 'scheduler' }],
+])
 
 function contact(id: string, iso: string): FakeXeroContact {
   return { ContactID: id, Name: `Contact ${id}`, EmailAddress: `${id}@example.com`, ContactStatus: 'ACTIVE', UpdatedDateUTC: toXeroDotNetDate(new Date(iso)) }
@@ -43,10 +48,13 @@ async function setup(seeded: FakeXeroContact[]) {
   api = await startFakeXeroApi({ isTokenValid: (token) => grants.isTokenValid(token) && !rejectedTokens.has(token), now: () => XERO_NOW })
   api.seed({ organisations: [{ tenantId: ORG, connectionId: 'conn', name: 'Demo' }], contacts: { [ORG]: seeded } })
   mockResolveEndpoints.mockResolvedValue({ authorize: 'https://a', token: 'https://t', ...api.endpoints })
+  logWrites.length = 0
   mockCreateRequestContainer.mockResolvedValue(
     createFakeContainer({
       integrationCredentialsService: { resolve: async () => ({ clientId: 'c', clientSecret: 's' }) },
       integrationOAuthGrantService: grants.service,
+      integrationLogService: { write: async (entry: Record<string, unknown>) => { logWrites.push(entry) } },
+      dataSyncRunService: { getRun: async (runId: string) => runs.get(runId) ?? null },
     }),
   )
 }
@@ -188,7 +196,7 @@ describe('xeroContactsAdapter', () => {
   it('makes the first token call before any Xero request', async () => {
     await setup(contacts(1))
     grants.failNext('getAccessToken', 'transient')
-    await expect(run()).rejects.toMatchObject({ code: 'transient' })
+    await expect(run()).rejects.toThrow(/^xero\.transient: /)
     expect(api.requests()).toHaveLength(0)
   })
 
@@ -212,10 +220,12 @@ describe('xeroContactsAdapter', () => {
     expect(grants.state.accessToken).not.toBe(rotated)
   })
 
-  it('refuses to run while the Organisation is not chosen', async () => {
+  it('fails a manual run while the Organisation is not chosen, and ends a scheduled one quietly', async () => {
     await setup(contacts(1))
     grants.state.providerData = null
-    await expect(run()).rejects.toThrow(/^xero\.account_pending/)
+    await expect(run({ runId: 'manual-run' })).rejects.toThrow(/^xero\.account_pending: /)
+    await expect(run({ runId: 'scheduled-run' })).resolves.toEqual([])
+    expect(logWrites).toEqual([expect.objectContaining({ level: 'warn', code: 'xero.account_pending', runId: 'scheduled-run' })])
     expect(api.requests()).toHaveLength(0)
   })
 })
