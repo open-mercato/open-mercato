@@ -17,6 +17,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { organizationUpdateSchema } from '@open-mercato/core/modules/directory/data/validators'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { isExplicitlyEmptyOrganizationScope } from '@open-mercato/shared/lib/auth/organizationScope'
 import '@open-mercato/core/modules/directory/commands/organizations'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
@@ -81,6 +82,11 @@ async function resolveCurrentOrganization(req: Request) {
 
   const container = await createRequestContainer()
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  if (isExplicitlyEmptyOrganizationScope(scope)) {
+    return {
+      response: NextResponse.json({ error: translate('api.errors.forbidden', 'Forbidden') }, { status: 403 }),
+    }
+  }
   const organizationId = scope.selectedId
   const tenantId = scope.tenantId ?? auth.tenantId ?? null
   if (!organizationId || !tenantId) {

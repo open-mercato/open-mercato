@@ -280,4 +280,21 @@ describe('query_index status route — entity listing and coverage semantics', (
     expect(res.status).toBe(200)
     expect(selects.filter((table) => table === 'entity_index_jobs')).toHaveLength(1)
   })
+
+  it('denies an explicit empty organization scope even when auth has a home organization', async () => {
+    const selects: string[] = []
+    mockResolveOrganizationScopeForRequest.mockResolvedValueOnce({
+      selectedId: null,
+      filterIds: [],
+      allowedIds: [],
+      tenantId: 'tenant-1',
+    })
+    mockCreateRequestContainer.mockResolvedValue(makeContainer({ onSelect: (table) => selects.push(table) }))
+
+    const res = await GET(makeRequest())
+
+    expect(res.status).toBe(403)
+    await expect(res.json()).resolves.toEqual({ error: 'Organization access denied' })
+    expect(selects).toEqual([])
+  })
 })

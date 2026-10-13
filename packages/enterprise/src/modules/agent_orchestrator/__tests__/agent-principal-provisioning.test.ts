@@ -4,7 +4,7 @@ import { User, Role, RoleAcl, UserRole } from '@open-mercato/core/modules/auth/d
 
 /**
  * In-memory EntityManager fake covering the surface the provisioning service uses
- * (transactional, findOne with simple equality where-clauses, create, persist,
+ * (transactional, find/findOne with relation-aware where-clauses, create, persist,
  * flush). Idempotency (one User/Role/AgentPrincipal per (org, agentDefinitionId))
  * and the non-interactive-credential property are behaviors of
  * provisionAgentPrincipal, so a fake EM exercises them without a DB; the
@@ -24,10 +24,29 @@ function createFakeEm() {
     if (rowValue instanceof Date && condition instanceof Date) {
       return rowValue.getTime() === condition.getTime()
     }
+    if (typeof condition === 'object' && condition !== null && '$in' in condition) {
+      const candidates = (condition as { $in?: unknown }).$in
+      if (!Array.isArray(candidates)) return false
+      const comparableValue = typeof rowValue === 'object' && rowValue !== null && 'id' in rowValue
+        ? (rowValue as { id?: unknown }).id
+        : rowValue
+      return candidates.includes(comparableValue)
+    }
+    if (typeof condition === 'object' && condition !== null && '$contains' in condition) {
+      const candidates = (condition as { $contains?: unknown }).$contains
+      return Array.isArray(rowValue)
+        && Array.isArray(candidates)
+        && candidates.every((candidate) => rowValue.includes(candidate))
+    }
     return rowValue === condition
   }
   function matches(row: Record<string, unknown>, where: Record<string, unknown>): boolean {
     return Object.entries(where).every(([key, value]) => {
+      if (key === '$or') {
+        return Array.isArray(value) && value.some((condition) => (
+          typeof condition === 'object' && condition !== null && matches(row, condition as Record<string, unknown>)
+        ))
+      }
       // Relation filters (e.g. { user }, { role }) compare the linked object identity.
       return matchValue(row[key], value)
     })
@@ -55,6 +74,9 @@ function createFakeEm() {
     },
     async findOne(entity: unknown, where: Record<string, unknown>) {
       return storeFor(entity).find((row) => matches(row, where)) ?? null
+    },
+    async find(entity: unknown, where: Record<string, unknown>) {
+      return storeFor(entity).filter((row) => matches(row, where))
     },
     async transactional<T>(cb: (tem: typeof em) => Promise<T>): Promise<T> {
       return cb(em)
