@@ -24,6 +24,7 @@ import type { OmnibusBlock } from '@open-mercato/core/modules/catalog/lib/omnibu
 import { DefaultCatalogPricingService } from '@open-mercato/core/modules/catalog/services/catalogPricingService'
 import { batchLoadTranslationsMany } from '@open-mercato/core/modules/translations/lib/batch'
 import { ecommerceStoreSettingsSchema, type EcommercePriceSortFallback } from '../../data/validators'
+import { queryStorefrontOptionProductIds } from '../storefrontOptionFilter'
 import { parseStorefrontProductListQuery } from '../storefrontQuery'
 import { isCategoryInAssortment, listStorefrontProducts } from '../storefrontProducts'
 import type { BuyerContext, StoreContext } from '../types'
@@ -31,6 +32,10 @@ import type { BuyerContext, StoreContext } from '../types'
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(),
   findOneWithDecryption: jest.fn(),
+}))
+
+jest.mock('../storefrontOptionFilter', () => ({
+  queryStorefrontOptionProductIds: jest.fn(),
 }))
 
 jest.mock('@open-mercato/core/modules/translations/lib/batch', () => ({
@@ -57,6 +62,7 @@ jest.mock('@open-mercato/core/modules/catalog/lib/omnibusPresentedEntry', () => 
 }))
 
 const mockedFind = findWithDecryption as jest.Mock
+const mockedOptionProductIds = queryStorefrontOptionProductIds as jest.Mock
 const mockedTranslations = batchLoadTranslationsMany as jest.Mock
 
 const TENANT_ID = 'tenant-1'
@@ -450,8 +456,27 @@ const queryEngine = {
 }
 
 let searchTerm = ''
+let extraVariants: typeof VARIANTS = []
+
+function installOptionFilter() {
+  mockedOptionProductIds.mockImplementation(
+    async (_em: unknown, scope: { tenantId: string; organizationId: string }, options: Record<string, string[]>, cap: number) => {
+      const productIds = new Set<string>()
+      for (const variant of [...VARIANTS, ...extraVariants]) {
+        if (variant.tenantId !== scope.tenantId || variant.organizationId !== scope.organizationId) continue
+        if (!variant.isActive || variant.deletedAt !== null) continue
+        const values = variant.optionValues as Record<string, string>
+        if (Object.entries(options).every(([code, accepted]) => accepted.includes(values[code]))) {
+          productIds.add(variant.product.id)
+        }
+      }
+      return productIds.size > Math.max(1, cap) ? null : Array.from(productIds)
+    },
+  )
+}
 
 function installFind() {
+  installOptionFilter()
   mockedFind.mockImplementation(async (_em: unknown, entity: unknown, where: Record<string, unknown>) => {
     counters.find += 1
     if (entity === CatalogProductCategory) {
@@ -733,6 +758,7 @@ beforeEach(() => {
   searchTerm = ''
   mockedFind.mockReset()
   mockedTranslations.mockReset()
+  mockedOptionProductIds.mockReset()
   installFind()
   installTranslations()
   resetCounters()
@@ -964,6 +990,33 @@ describe('listStorefrontProducts — filters', () => {
     expect(response.appliedFilters.options).toEqual({ color: ['red'] })
     const none = await list('options[color]=green')
     expect(none.items).toEqual([])
+  })
+
+  it('reads the option filter in one capped query scoped to the store organization', async () => {
+    await list('options[color]=red,blue&options[size]=m')
+    expect(mockedOptionProductIds).toHaveBeenCalledTimes(1)
+    const [, scope, options, cap] = mockedOptionProductIds.mock.calls[0]
+    expect(scope).toEqual({ tenantId: TENANT_ID, organizationId: ORGANIZATION_ID })
+    expect(options).toEqual({ color: ['red', 'blue'], size: ['m'] })
+    expect(cap).toBe(10_000)
+    const variantOptionReads = mockedFind.mock.calls.filter(
+      ([, entity, where]) => entity === CatalogProductVariant && where && 'optionValues' in where,
+    )
+    expect(variantOptionReads).toEqual([])
+  })
+
+  it('leaves an option filter matching more products than the cap unapplied and unreported', async () => {
+    extraVariants = [
+      { id: 'v-a1', product: { id: 'p-alpha' }, optionValues: { color: 'red', size: 's' }, isActive: true, deletedAt: null, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
+    ]
+    try {
+      const response = await list('options[color]=red', { universeCap: 1 })
+      expect(response.appliedFilters.options).toBeUndefined()
+      expect(response.total).toBeGreaterThan(1)
+      expect(ids(response)).toEqual(expect.arrayContaining(['p-alpha', 'p-delta']))
+    } finally {
+      extraVariants = []
+    }
   })
 
   it('filters by product type', async () => {

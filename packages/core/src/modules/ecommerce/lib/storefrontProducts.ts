@@ -27,6 +27,7 @@ import type {
   EcommerceStorefrontProductSort,
 } from '../data/validators'
 import {
+  STOREFRONT_FACET_UNIVERSE_CAP,
   countStorefrontFacets,
   labelStorefrontCountFacets,
   loadStorefrontFacetSource,
@@ -44,6 +45,7 @@ import {
 } from './storefrontFacets'
 import { buildStorefrontProductScope, composeStorefrontProductFilters, type StorefrontProductScope } from './storefrontProductScope'
 import { resolveStorefrontPrices, type StorefrontProductPricing } from './storefrontPricing'
+import { queryStorefrontOptionProductIds } from './storefrontOptionFilter'
 import {
   STOREFRONT_CATEGORY_ENTITY_TYPE,
   STOREFRONT_PRODUCT_ENTITY_TYPE,
@@ -276,25 +278,22 @@ async function resolveTagFilter(runtime: Runtime, slugs: string[] | undefined): 
   })
 }
 
-async function resolveOptionProductIds(runtime: Runtime, options: Record<string, string[]>): Promise<string[]> {
-  const { ctx } = runtime
-  const optionValues: Record<string, { $in: string[] }> = {}
-  for (const [code, values] of Object.entries(options)) optionValues[code] = { $in: values }
-  const where = {
-    tenantId: ctx.tenantId,
-    organizationId: ctx.organizationId,
-    deletedAt: null,
-    isActive: true,
-    optionValues,
-  } as FilterQuery<CatalogProductVariant>
-  const variants = await findWithDecryption(
+const OPTION_FILTER_OVER_CAP = 'over_cap'
+
+type OptionFilterResolution = string[] | typeof OPTION_FILTER_OVER_CAP | null
+
+async function resolveOptionProductIds(
+  runtime: Runtime,
+  options: Record<string, string[]> | undefined,
+): Promise<OptionFilterResolution> {
+  if (!options) return null
+  const ids = await queryStorefrontOptionProductIds(
     runtime.em,
-    CatalogProductVariant,
-    where,
-    { fields: ['id', 'product'] },
     runtime.decryptionScope,
+    options,
+    runtime.facetUniverseCap ?? STOREFRONT_FACET_UNIVERSE_CAP,
   )
-  return Array.from(new Set(variants.map((variant) => referenceId(variant.product)).filter((id): id is string => !!id)))
+  return ids ?? OPTION_FILTER_OVER_CAP
 }
 
 async function productFilterClause(
@@ -347,13 +346,14 @@ async function resolveListFilters(
   const [category, resolvedTags, optionProductIds] = await Promise.all([
     resolveCategoryFilter(runtime, query),
     resolveTagFilter(runtime, query.tagSlugs),
-    query.options ? resolveOptionProductIds(runtime, query.options) : Promise.resolve(null),
+    resolveOptionProductIds(runtime, query.options),
   ])
   if (searchTerm) applied.search = searchTerm
   if (category) applied.category = { id: category.id, slug: category.slug, includesDescendants: true }
   if (resolvedTags.length) applied.tagSlugs = resolvedTags.map((tag) => tag.slug)
   if (query.productType) applied.productType = query.productType
-  if (query.options) applied.options = query.options
+  const optionsApplied = Array.isArray(optionProductIds)
+  if (optionsApplied && query.options) applied.options = query.options
 
   const [searchClause, facetClause] = await Promise.all([
     searchTerm ? productFilterClause(runtime, { search: searchTerm }) : Promise.resolve(null),
@@ -365,7 +365,7 @@ async function resolveListFilters(
         })
       : Promise.resolve(null),
   ])
-  const optionClause: Where | null = optionProductIds
+  const optionClause: Where | null = Array.isArray(optionProductIds)
     ? optionProductIds.length
       ? { id: { $in: optionProductIds } }
       : { id: { $eq: NO_MATCH_ID } }
@@ -377,7 +377,7 @@ async function resolveListFilters(
       categoryId: category?.id ?? null,
       tagIds: resolvedTags.map((tag) => tag.id),
       productType: query.productType ?? null,
-      options: query.options ?? {},
+      options: optionsApplied ? query.options ?? {} : {},
     },
     applied,
     searchTerm: searchTerm || null,
@@ -773,8 +773,10 @@ async function resolveCountFacetState(
  * The count facets come from `storefrontFacets` — cached per assortment scope (§9.1); on a miss
  * their universe load also supplies the variant index the pricing reads, and their labels ride on
  * the page's translation query. A facet universe past `STOREFRONT_FACET_UNIVERSE_CAP` products is
- * not loaded and the count facets are empty. The whole response, `priceRange` included, is cached by the caller
- * on the full digest.
+ * not loaded and the count facets are empty. An `options[code]` filter is resolved in one query of
+ * at most `STOREFRONT_FACET_UNIVERSE_CAP` product ids; when more products match, it is left
+ * unapplied like a price filter past the cap — absent from `appliedFilters` and from the facet
+ * selection. The whole response, `priceRange` included, is cached by the caller on the full digest.
  */
 export async function listStorefrontProducts(
   container: AwilixContainer,
