@@ -7,6 +7,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { WebhookDeliveryEntity, WebhookEntity } from '../../data/entities'
 import { webhookDeliveryQuerySchema } from '../../data/validators'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/shared/lib/auth/organizationScope'
 import { serializeDeliveryListItem } from '../helpers'
 
 function json(payload: unknown, init: ResponseInit = { status: 200 }) {
@@ -54,6 +55,7 @@ const crud = makeCrudRoute<never, never, z.infer<typeof webhookDeliveryQuerySche
   hooks: {
     beforeList: async (query, ctx) => {
       const auth = ctx.auth
+      const scopedOrganizationId = resolveSingleOrganizationIdOrDeny(ctx.organizationScope, auth)
       const { translate } = await resolveTranslations()
       if (!auth?.tenantId) throw json({ error: translate('webhooks.errors.tenantRequired', 'Tenant context required') }, { status: 400 })
 
@@ -67,8 +69,8 @@ const crud = makeCrudRoute<never, never, z.infer<typeof webhookDeliveryQuerySche
       const allowedIds = ctx.organizationScope?.allowedIds ?? null
       if (allowedIds && allowedIds.length > 0) {
         qb.andWhere({ organizationId: { $in: allowedIds } })
-      } else if (auth.orgId) {
-        qb.andWhere({ organizationId: auth.orgId })
+      } else if (scopedOrganizationId) {
+        qb.andWhere({ organizationId: scopedOrganizationId })
       }
 
       if (query.webhookId) {

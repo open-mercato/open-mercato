@@ -254,9 +254,9 @@ test.describe('TC-WC-009: warranty claim settings and auto-adjudication', () => 
       expect((await submitAndRead(request, adminToken, settingsOff)).status, 'default/off auto-approval should stay submitted').toBe('submitted')
     } finally {
       await restoreWarrantyClaimSettings(request, adminToken, settingsBefore)
-      for (const claimId of [...createdClaimIds].reverse()) {
-        await cancelThenDeleteClaimIfPossible(request, adminToken, claimId)
-      }
+      await Promise.all(
+        createdClaimIds.map((claimId) => cancelThenDeleteClaimIfPossible(request, adminToken, claimId)),
+      )
       await deleteUserIfExists(request, superadminToken, orgBUserId)
       await deleteRoleIfExists(request, superadminToken, orgBRoleId)
       await deleteOrganizationIfExists(request, superadminToken, orgBId)

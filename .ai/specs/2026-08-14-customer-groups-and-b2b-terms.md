@@ -167,13 +167,15 @@ One row per group. Absent row means "inherit from parent group, then tenant defa
 | `group_id` | uuid | FK → `customer_groups`, unique |
 | `price_kind_id` | uuid, nullable | `catalog.CatalogPriceKind.id` — the price kind this group buys at; its own `displayMode` (`including-tax` \| `excluding-tax`) is the **only** source of gross/net display for this group — see §6.1a. No separate `tax_display_mode` column: a `/om-pre-implement-spec` audit found the original draft stored gross/net twice (here, independently of `price_kind_id`), with no reconciliation rule and no codebase precedent for a buyer-level tax preference independent of the selected price kind (`catalog`'s own `LineItemDialog.tsx` derives mode from `displayMode` 1:1 everywhere). |
 | `payment_terms_days` | integer, nullable | Net days; `0` = prepayment |
-| `allow_purchase_on_account` | boolean | Default `false` |
+| `allow_purchase_on_account` | boolean, nullable | `null` = not set on this group, inherit from the parent chain; the tenant default is `false` |
 | `default_credit_limit` | numeric(16,2), nullable | Applied to new credit accounts in this group |
 | `credit_currency_code` | text, nullable | |
 | `approval_required_above` | numeric(16,2), nullable | Order gross above this routes to approval; null = never |
 | `min_order_value` | numeric(16,2), nullable | Rejected below this at checkout |
 | `assortment_scope` | jsonb, nullable | `AssortmentScope \| null` — `{ categoryIds?, tagIds?, excludeProductIds?, excludeCategoryIds?, excludeTagIds? }`, the shared type from `packages/shared/src/lib/catalog-visibility/` ([Buyer-Scoped Catalog Visibility](./2026-08-21-buyer-scoped-catalog-visibility.md) §3.3). Same shape as the channel binding scope. `excludeCategoryIds`/`excludeTagIds` added 2026-09-06 for symmetry with `excludeProductIds`; additive jsonb keys, no migration. Resolved by `resolveAssortmentScope()`, **not** by `resolveTerms()` — §6.4 |
 | `metadata` | jsonb, nullable | |
+
+> **Status 2026-10-05: `assortment_scope` is not on `develop`.** #6709 shipped `CustomerGroupTerms` without this column. As a result, `resolveAssortmentScope()` is a stub: every matching group contributes `null`, so every buyer resolves to `scope: null` (unrestricted) (`customer_groups/services/customerGroupsService.ts:103-111`). The stub's comment calls the column "Phase 5 scope", which is wrong. Phase 5 is the per-customer override (§5.7); this column belongs to Phase 2's terms and is specified in this row. The column (additive, nullable `jsonb`, no backfill) and the group-terms pickers ship with the storefront release (owner decision D13, `.ai/specs/analysis/ANALYSIS-2026-10-05-storefront-release-decisions.md`), replacing the stub's body with a read of the column.
 
 ### 5.4 `CustomerCreditAccount` (`customer_credit_accounts`)
 
@@ -282,13 +284,19 @@ type CreditCheck = {
   currencyCode: string
 }
 
-interface CustomerGroupsService {
-  resolveGroups(input: { customerId: string | null; at?: Date }): Promise<GroupResolution>
+// Shipped (#6709) inputs carry `tenantId` — groups are tenant-scoped, `organization_id` is nullable.
+// `customerIds` added 2026-10-05 (additive; see §6.0): the storefront buyer is a person AND their company.
+type BuyerIdentityInput =
+  | { customerId: string | null; tenantId: string; at?: Date }          // shipped, kept
+  | { customerIds: string[]; tenantId: string; at?: Date }              // new — person first, then company
 
-  resolveTerms(input: { customerId: string | null; groupIds?: string[] }): Promise<ResolvedTerms>
+interface CustomerGroupsService {
+  resolveGroups(input: BuyerIdentityInput): Promise<GroupResolution>
+
+  resolveTerms(input: BuyerIdentityInput & { groupIds?: string[] }): Promise<ResolvedTerms>
 
   // Assortment scope resolves separately from the scalar terms above — §6.4.
-  resolveAssortmentScope(input: { customerId: string | null; at?: Date }): Promise<{
+  resolveAssortmentScope(input: BuyerIdentityInput): Promise<{
     scope: EffectiveAssortmentScope   // groups unioned, the customer's own grant unioned in and its restriction intersected over the result (§6.4); nothing matching → null (unrestricted)
     sourceGroupIds: string[]          // every group that contributed, for the explain-terms panel
     sourceCustomerOverrideId: string | null   // the customer's own §5.7 row, or null — the common case
@@ -318,6 +326,17 @@ interface CustomerGroupsService {
   }): Promise<void>
 }
 ```
+
+### 6.0 Multiple buyer identities (added 2026-10-05)
+
+A storefront buyer is resolved as their person entity **and** their company entity (`CustomerUser.person_entity_id`, `CustomerUser.customer_entity_id`; SPEC-029 §6, roadmap ADR-7). Memberships can be attached to either one: the module injects group tabs on both `detail:customers.person` and `detail:customers.company`. `customerIds` is therefore accepted alongside the shipped single `customerId`. That is an additive input, and the single-id form stays valid and behaves exactly as today.
+
+- **Groups** are the union of the memberships of every id in `customerIds` (each valid-at-`at`, active, not deleted, same as today), de-duplicated by group.
+- **Ordering** of `groupIds`: `priority` descending; on equal priority, a membership of `customerIds[0]` (the person) comes before one of a later id (the company); then the newest membership first, as shipped.
+- **Default group**: applied only when none of the ids has an effective membership, the same rule as shipped for one id.
+- **Terms** (§6.1) and **assortment** (§6.4) run over that ordered union without any other change. Scalar terms follow it per field; assortment unions every contributing group regardless of order.
+
+**Shipped `ResolvedTerms` differs from the type above (code = current behavior).** #6709 replaced the single `sourceGroupId` with a per-field `sources: Record<field, string | null>` map (`services/customerGroupsService.ts:25-43`), and `explain-terms` reads it per field. Treat the `sources` map as the contract; `sourceGroupId` above is the pre-implementation sketch.
 
 ### 6.1 Terms inheritance
 
@@ -432,6 +451,8 @@ All admin routes use `makeCrudRoute`, export `openApi`, validate with Zod, and s
 | POST | `/api/customer-groups/approvals/:id/decide` | `customer_groups.approvals.decide` |
 | GET | `/api/customer-groups/reconcile` | `customer_groups.groups.manage` |
 
+`POST /api/customer-groups` returns `{ id, isDefault }`. When `isDefault: true` was requested but the default promotion lost a concurrent race, the group is still created (201) and the response carries `isDefault: false`; the admin UI warns about it.
+
 The ledger has no update or delete route. Corrections go through `/adjust`, which appends a compensating entry.
 
 ### 9.1 ACL features (`acl.ts`)
@@ -461,13 +482,16 @@ export const features = [
 ```typescript
 'customer_groups.group.created' | '.updated' | '.deleted'
 'customer_groups.membership.added' | '.removed' | '.expired'
+'customer_groups.terms.updated'
 'customer_groups.credit.reserved' | '.released' | '.settled' | '.limit_exceeded'
 'customer_groups.credit_account.put_on_hold' | '.released_from_hold'
 'customer_groups.approval.requested' | '.approved' | '.rejected' | '.expired'
 'customer_groups.assortment_override.created' | '.updated' | '.deleted' | '.expired'
 ```
 
-`customer_groups.membership.added` and `.removed` MUST invalidate any cached buyer context and any price cache keyed on that customer — see R2.
+**Shipped on `develop` (2026-10-05):** `customer_groups.group.created|updated|deleted`, `customer_groups.membership.added|removed|expired`, `customer_groups.terms.updated` (`events.ts:4-10`). Everything else above is unshipped Phase 3–5 scope. `customer_groups.membership.expired` is **declared but never emitted**; no worker or subscriber produces it. Consumers MUST therefore bound their membership-derived caches by TTL rather than rely on that event, until an expiry job emits it (§11). `terms.updated` and `group.*` carry `groupId` and no `customerId` (`lib/groupEvents.ts:19-49`). Consumers that cache per buyer need a per-group tag (for example `customer-group:{groupId}`) to honor the "every member of the group" duty below.
+
+`customer_groups.membership.added` and `.removed` MUST invalidate any cached buyer context and any price cache keyed on that customer — see R2. `customer_groups.terms.updated` carries the same duty for every member of the group, since a terms change alters their resolved pricing.
 
 `customer_groups.assortment_override.*` carries the same duty for catalog visibility: it MUST invalidate the cached buyer context, the cached "does this customer have an override" probe (visibility spec §3.7) and any storefront cache entry keyed on that buyer's `assortmentScopeHash`. It is also a buyer-identity-class change for `cart`, which re-runs its whole-cart re-visibility pass on it exactly as it does on a membership change (`2026-08-14-cart-module.md` §5.2 trigger 2) — otherwise an override's `valid_until` would be the one buyer-side change that reaches checkout unchecked.
 
@@ -549,6 +573,8 @@ Entities `CustomerGroup`, `CustomerGroupMembership`; `resolveGroups`; admin CRUD
 `CustomerAssortmentOverride` (§5.7) and its `data/extensions.ts` link; `resolveAssortmentScope` extended per §6.4 to union the grant and intersect the restriction, returning `sourceCustomerOverrideId`; the override's CRUD events and their invalidation duty (§10); the injected "Assortment" section on the customer detail page. Tracked as Phase 4 of the visibility spec, which owns the algebra, the cache rule and the tests.
 
 **Gate:** a grant-only override widens without losing any group grant; a restriction cuts a product a group granted; an absent grant does not unrestrict the buyer; a buyer with no override row resolves byte-identically to the group-only result.
+
+**Release status (2026-10-05).** Phases 1 and 2 shipped in #6709 (squashed into `2338e5ea96`), except Phase 2's `CustomerGroupTerms.assortment_scope` column (§5.3 status note), which ships with the storefront release along with the additive `customerIds` input (§6.0). Phases 3, 4 and 5 are not started.
 
 Phases 1 and 2 unblock the rest of the ecommerce suite. Phases 3 and 4 are required only by checkout (spec 7) and may land in parallel with specs 3–5. Phase 5 depends only on Phase 2 and is deliberately sequenced after the visibility spec's own Phase 3 (the cart write-side enforcement), so a merchandising convenience does not ship ahead of that spec's Critical fix.
 
@@ -678,6 +704,22 @@ Approver/account manager reviews over-threshold purchase requests.
 ---
 
 ## 18) Changelog
+
+### 2026-10-08 (terms price kind picker, #7077)
+- §10: new read-only `GET /api/customer_groups/customer-groups/price-kinds` (`customer_groups.terms.view`) lists the tenant's catalog price kinds as `{ id, code, title }` (`search`, `ids`, `pageSize` ≤ 100; empty when `catalog` is absent). The terms price kind picker and the explain-terms panel read it instead of `/api/catalog/price-kinds`, which requires `catalog.settings.manage` — without that feature the picker was empty and its 403 flash replaced the "terms saved" message.
+
+### 2026-10-05 (storefront release decisions)
+- §6 / new §6.0: service inputs show the shipped `tenantId`, and gain an additive `customerIds: string[]` (person first, then company) for `resolveGroups`, `resolveTerms` and `resolveAssortmentScope`. Groups are the union of every id's memberships, ordered by priority, then person before company, then newest. This applies owner decision D3/D3a; the suite-wide shape is in roadmap ADR-7 and SPEC-029 v4.6. Recorded that shipped `ResolvedTerms` uses a per-field `sources` map instead of a single `sourceGroupId`.
+- §5.3: recorded that #6709 did not ship `assortment_scope`, that `resolveAssortmentScope()` is a stub returning `null` (its "Phase 5 scope" comment is wrong), and that the column ships with the storefront release (D13).
+- §10: listed the event IDs actually shipped. `membership.expired` is declared but never emitted, and `terms.updated`/`group.*` carry no `customerId`, which per-buyer caches must handle with a per-group tag plus a TTL.
+- §14: release status.
+
+### 2026-09-30 (review fixes on PR #6709)
+- §9: group create returns `{ id, isDefault }` and never fails after commit when the default promotion loses a race.
+- §10: new `customer_groups.terms.updated` event, emitted on terms writes together with the group's cache-tag invalidation. Full command/undo support for terms remains tracked in #6728.
+
+### 2026-09-29 (nullable `allow_purchase_on_account`)
+- §5.3: `allow_purchase_on_account` is now nullable. `null` means "not set on this group": the value is inherited from the parent chain, falling back to the tenant default `false`. Before, a terms row always carried an explicit `true`/`false`, so saving a child group's terms to change any other field silently switched off purchase-on-account inherited from its parent. The admin form offers Inherit / Allow / Do not allow. Migration `Migration20260929083000_customer_groups` drops the column's `NOT NULL` and default, keeping stored values.
 
 ### 2026-09-16 (per-customer assortment overrides)
 

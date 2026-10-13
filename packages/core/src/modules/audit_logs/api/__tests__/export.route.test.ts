@@ -130,4 +130,28 @@ describe('GET /api/audit_logs/audit-logs/actions/export', () => {
     expect(res.status).toBe(200)
     expect(mockActionLogs.list).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'tenant-1' }))
   })
+
+  it('uses the canonical API-key subject for self-only exports', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const { loadAuditLogDisplayMaps } = await import('@open-mercato/core/modules/audit_logs/api/audit-logs/display')
+    const keyId = '11111111-1111-4111-8111-111111111111'
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: `api_key:${keyId}`,
+      keyId,
+      isApiKey: true,
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ users: {}, tenants: {}, organizations: {} })
+    mockRbac.userHasAllFeatures.mockResolvedValue(false)
+    mockActionLogs.list.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 50, totalPages: 0 })
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions/export'))
+
+    expect(res.status).toBe(200)
+    expect(mockActionLogs.list).toHaveBeenCalledWith(expect.objectContaining({
+      actorSubject: `api_key:${keyId}`,
+      actorUserId: undefined,
+    }))
+  })
 })
