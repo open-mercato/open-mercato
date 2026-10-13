@@ -462,7 +462,7 @@ registration frees its NIP for re-registration.
 |-------------|---------------|
 | Extend `customers.CustomerEntity` with tax fields instead of a new module | Violates single responsibility — `customers` is CRM (pipeline, deals), not tax identity; GUS/VIES/Biała Lista is a completely different data lifecycle |
 | Separate `Vendor`/`Customer` entities instead of one `Contractor` with flags | Would duplicate GUS/VIES/account data for an entity that is simultaneously a vendor and a customer of the same company |
-| Contractor snapshot based on the future `journal_entry_line_dimension` instead of a field on `JournalEntryLine` | Would create a transitional audit gap — AP invoices posted before the Posting Rules Engine even exists would have no protection at all for contractor history |
+| Contractor snapshot based on the future `journal_entry_line_dimensions` instead of a field on `JournalEntryLine` | Would create a transitional audit gap — AP invoices posted before the Posting Rules Engine even exists would have no protection at all for contractor history |
 | Bank account as a single field/JSON array on `Contractor` | Violates the project's rule against unbounded arrays/nested JSON; doesn't reflect the reality of multiple registered accounts per NIP |
 | `lastVerifiedAt`/`lastVerificationStatus` as a shortcut skipping the live check when the cache is "fresh" | Directly violates Art. 96b of the VAT Act ("on the day of transfer"); restores the joint-liability risk this module exists to eliminate |
 | Sharing a contractor across a tenant's organizations | No precedent in the code and no confirmed business requirement — YAGNI |
@@ -1359,7 +1359,7 @@ independently of AP, which does not yet exist.
   decisions).
 - **Purchase order / three-way matching, invoice lifecycle, payment
   execution.** Accounts Payable's concern, not this module's.
-- **`journal_entry_line_dimension` (cost-center/MPK tagging).**
+- **`journal_entry_line_dimensions` (cost-center/MPK tagging).**
   Separate, earlier-sequenced document; unrelated to contractor
   identity.
 - **Full historical versioning of contractor data.** Deliberately
