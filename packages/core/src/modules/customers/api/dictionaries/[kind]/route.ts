@@ -26,6 +26,8 @@ import { CUSTOMER_DICTIONARY_ORGANIZATION_REQUIRED_CODE } from '../../../lib/dic
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { getTranslationOverlayPlugin } from '@open-mercato/shared/lib/localization/overlay-plugin'
 import { localizeCustomerDictionaryEntries } from '../../../lib/dictionaryLabels'
+import { calendarEventTypeBehaviorSchema } from '../../../calendar-event-types'
+import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth/principal-service'
 
 const logger = createLogger('customers')
 
@@ -37,6 +39,7 @@ const postSchema = z.object({
   label: z.string().trim().max(150).optional(),
   color: colorSchema.or(z.null()).optional(),
   icon: iconSchema.or(z.null()).optional(),
+  behavior: calendarEventTypeBehaviorSchema.nullable().optional(),
 })
 
 const querySchema = z.object({
@@ -82,7 +85,15 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
     }
     const settings = await loadCustomerSettings(em, { tenantId, organizationId })
     const sortMode = resolveDictionaryEntrySortMode(settings?.dictionarySortModes?.[kind])
-    const scopedOrganizationIds = readableOrganizationIds.length > 0 ? readableOrganizationIds : [organizationId]
+    let scopedOrganizationIds = readableOrganizationIds.length > 0 ? readableOrganizationIds : [organizationId]
+    if (mappedKind === 'activity_type') {
+      const hierarchy = container.resolve('organizationHierarchyService') as OrganizationHierarchyService
+      const ancestors = await hierarchy.resolveAncestorIds({ tenantId, organizationId })
+      if (ancestors === null) {
+        throw new CrudHttpError(403, { error: translate('customers.errors.organization_forbidden', 'Organization not accessible') })
+      }
+      scopedOrganizationIds = Array.from(new Set([organizationId, ...ancestors.slice().reverse()]))
+    }
     const canUseCache = Boolean(cache) && mappedKind !== 'person_company_role'
 
     let cacheKey: string | null = null
@@ -151,6 +162,7 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
           label: entry.label,
           color: entry.color,
           icon: entry.icon,
+          ...(mappedKind === 'activity_type' ? { behavior: entry.activityTypeBehavior ?? null } : {}),
           organizationId: entry.organizationId,
           isInherited: entry.organizationId !== organizationId,
           createdAt: entry.createdAt,
@@ -231,6 +243,7 @@ export async function POST(req: Request, ctx: { params?: { kind?: string } }) {
           label: body.label,
           color: body.color,
           icon: body.icon,
+          behavior: body.behavior,
         },
         ctx: context.ctx,
       })) as CommandExecuteResult<{ entryId: string; mode: 'created' | 'updated' | 'unchanged' }>
@@ -266,8 +279,10 @@ export async function POST(req: Request, ctx: { params?: { kind?: string } }) {
         label: entry.label,
         color: entry.color,
         icon: entry.icon,
+        ...(mappedKind === 'activity_type' ? { behavior: entry.activityTypeBehavior ?? null } : {}),
         organizationId: entry.organizationId,
         isInherited: false,
+        updatedAt: entry.updatedAt,
       },
       { status: result.mode === 'created' ? 201 : 200 }
     )
@@ -306,6 +321,7 @@ const dictionaryEntrySchema = z.object({
   label: z.string().nullable().optional(),
   color: z.string().nullable().optional(),
   icon: z.string().nullable().optional(),
+  behavior: calendarEventTypeBehaviorSchema.nullable().optional(),
   organizationId: z.string().uuid().nullable().optional(),
   isInherited: z.boolean().optional(),
   createdAt: z.date().or(z.string()).optional(),
