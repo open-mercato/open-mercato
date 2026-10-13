@@ -205,7 +205,7 @@ describe('inpostRequest', () => {
     await inpostRequest(credentials, '/v1/organizations/org-1')
 
     const [url] = (global.fetch as jest.Mock).mock.calls[0] as [string]
-    expect(url.startsWith(customBase)).toBe(true)
+    expect(new URL(url).origin).toBe(customBase)
   })
 
   it('strips Bearer prefix from credentials before building the Authorization header', async () => {
