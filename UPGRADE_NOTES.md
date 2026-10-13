@@ -49,6 +49,8 @@ Confirm also re-checks the tool's `requiredFeatures` against the confirming user
 
 **Action for module/app authors:** code that resolved another user's pending action must let the creator do it. An exhaustive `switch` over `PendingActionRecheckCode` needs a `tool_features_denied` case. Custom `useAiPendingActionPolling` consumers can read the new `unavailable` flag, which is set when the action returns 404 and polling stops.
 
+**Compatibility classification:** the three API routes and the repository/executor functions keep their URLs, response shapes and signatures; the owner scope and the tool-feature re-check are an intentional security narrowing. `tool_features_denied`, `checkToolFeatures`, the optional `userId` on `computeMutationIdempotencyKey` and the `unavailable` polling field are ADDITIVE. Database schema, event IDs, ACL features, DI names and CLI commands do not change. Regression coverage: `TC-AI-ACTIONS-OWNER-008` (API) and `TC-AI-ACTIONS-OWNER-009` (approval cards).
+
 ### The communication-channels OAuth callback reports its result in `?oauth=`, not `?flash=` (#6402)
 
 `GET /api/communication_channels/oauth/[provider]/callback` used to redirect back to `returnUrl`

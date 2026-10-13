@@ -557,15 +557,3 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 | Database schema, event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
 
 **Migration path for existing modules**: send `parentId: null` / `childIds: []` where clearing is intended. Trees flattened before the upgrade are not repaired (see UPGRADE_NOTES.md).
-
----
-
-## AI Pending Actions Are Owner-Scoped (2026-10-13)
-
-Fixes [#3806](https://github.com/open-mercato/open-mercato/issues/3806); details and migration in UPGRADE_NOTES.md.
-
-| Surface | Change | Classification |
-|---------|--------|----------------|
-| API routes (`GET /api/ai_assistant/ai/actions/:id`, `POST …/confirm`, `POST …/cancel`) | Same shapes. A non-creator gets the existing `404 pending_action_not_found`; confirm answers `403 tool_features_denied` without the tool's `requiredFeatures` | ⚠️ Intentional security narrowing |
-| Functions (`AiPendingActionRepository.getById`, `setStatus`, `listPendingForAgent`, `executePendingActionConfirm`) | Same signatures. Rows match only the context `userId` (explicit `null` = system scope); confirm re-checks tool features | ⚠️ Intentional security narrowing |
-| Types (`PendingActionRecheckCode`, `checkToolFeatures`, `computeMutationIdempotencyKey`, `UseAiPendingActionPollingResult`) | New `tool_features_denied` member, guard, optional `userId`, `unavailable` field | ✓ ADDITIVE |
