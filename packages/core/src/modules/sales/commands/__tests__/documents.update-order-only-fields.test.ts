@@ -399,6 +399,26 @@ describe('sales.orders.update — dueAt', () => {
     expect(result.error?.issues.map((issue) => issue.path.join('.'))).toContain('dueAt')
   })
 
+  // `new Date()` rolls a day past the end of the month over into the next one,
+  // so without a round-trip check 2026-02-31 would be stored as 2026-03-03.
+  it.each(['dueAt', 'placedAt', 'expectedDeliveryAt'])(
+    'rejects a %s that is not a real calendar day instead of shifting it',
+    (field) => {
+      for (const value of ['2026-02-31', '2026-02-29', '2026-04-31']) {
+        const result = documentUpdateSchema.safeParse({ id: ORDER_ID, [field]: value })
+
+        expect(result.success).toBe(false)
+        expect(result.error?.issues.map((issue) => issue.path.join('.'))).toContain(field)
+      }
+    },
+  )
+
+  it('accepts 29 February in a leap year', () => {
+    const result = documentUpdateSchema.safeParse({ id: ORDER_ID, dueAt: '2028-02-29' })
+
+    expect(result.success).toBe(true)
+  })
+
   it('sets a due date on an order that has none', async () => {
     const order = await updateOrder({ dueAt: '2026-11-30' }, { ...makeOrder(), dueAt: null })
 

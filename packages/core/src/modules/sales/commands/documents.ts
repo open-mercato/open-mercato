@@ -585,13 +585,21 @@ const currencyCodeSchema = z
   .toUpperCase()
   .regex(/^[A-Z]{3}$/, { message: "currency_code_invalid" });
 
+// `new Date("2026-02-31")` does not fail — it rolls over to 2026-03-03 — so a
+// parse alone would persist a different day than the caller sent.
+function isCalendarDate(value: string): boolean {
+  const parsed = new Date(value);
+  return (
+    !Number.isNaN(parsed.getTime()) &&
+    parsed.toISOString().slice(0, 10) === value
+  );
+}
+
 const dateOnlySchema = z
   .string()
   .trim()
   .regex(/^\d{4}-\d{2}-\d{2}$/, { message: "invalid_date" })
-  .refine((value) => !Number.isNaN(new Date(value).getTime()), {
-    message: "invalid_date",
-  });
+  .refine(isCalendarDate, { message: "invalid_date" });
 
 const addressSnapshotSchema = z
   .record(z.string(), z.unknown())
