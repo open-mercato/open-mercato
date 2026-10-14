@@ -90,7 +90,7 @@ export default function ContentBlocksPage() {
     try {
       if (selected) {
         await runLockedMutation(
-          selected.updatedAt,
+          { optimisticLockUpdatedAt: selected.updatedAt },
           () => apiCallOrThrow(`/api/marketing_automation/content-blocks/${selected.id}`, {
             method: 'PUT',
             body: JSON.stringify({ updatedAt: selected.updatedAt, name: draft.name, html: draft.html }),
@@ -129,7 +129,7 @@ export default function ContentBlocksPage() {
     if (!confirmed) return
     try {
       await runLockedMutation(
-        row.updatedAt,
+        { optimisticLockUpdatedAt: row.updatedAt },
         () => apiCallOrThrow(`/api/marketing_automation/content-blocks/${row.id}`, { method: 'DELETE' }),
         { id: row.id },
       )

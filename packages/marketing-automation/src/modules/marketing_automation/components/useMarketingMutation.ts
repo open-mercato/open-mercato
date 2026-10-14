@@ -56,7 +56,12 @@ export function useMarketingMutation(resourceKind: string, resourceId?: string) 
  * three call sites apiece: a guarded mutation wrapping a scoped header wrapping the call. Nine copies of one
  * idea, and every one of them a place to forget the header and silently turn the lock off for that write.
  *
- * `expectedUpdatedAt` is passed straight through and never defaulted. `buildOptimisticLockHeader` returns an
+ * The version arrives as a named field rather than a bare first argument. A call site that writes
+ * `{ optimisticLockUpdatedAt: row.updatedAt }` says on its own line which version it is sending, which is
+ * what `packages/core/src/__tests__/optimistic-lock-ui-coverage-workspace.test.ts` reads each mutating
+ * screen for — a positional argument hides it behind this hook and leaves the screen looking unlocked.
+ *
+ * The value is passed straight through and never defaulted. `buildOptimisticLockHeader` returns an
  * EMPTY header for a missing value, and the platform falls back to the extension header only when the value
  * is absent — so coercing a missing version to `''` here would switch the lock off while looking like it was
  * on. A caller with no version is a caller that genuinely has none.
@@ -70,11 +75,11 @@ export function useLockedMarketingMutation(resourceKind: string, resourceId?: st
   const runMutation = useMarketingMutation(resourceKind, resourceId)
   return React.useCallback(
     <T,>(
-      expectedUpdatedAt: string | null | undefined,
+      lock: { optimisticLockUpdatedAt: string | null | undefined },
       operation: () => Promise<T>,
       mutationPayload?: Record<string, unknown>,
     ): Promise<T> => runMutation(
-      () => withScopedApiRequestHeaders(buildOptimisticLockHeader(expectedUpdatedAt), operation),
+      () => withScopedApiRequestHeaders(buildOptimisticLockHeader(lock.optimisticLockUpdatedAt), operation),
       mutationPayload,
     ),
     [runMutation],
