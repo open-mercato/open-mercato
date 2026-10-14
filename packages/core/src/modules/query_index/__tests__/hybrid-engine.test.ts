@@ -2379,6 +2379,7 @@ describe('HybridQueryEngine decrypt tenant binding (#5430)', () => {
       expect.objectContaining({ id: 'user-1' }),
       'tenant-a',
       'org1',
+      { em: expect.anything() },
     )
     expect(result.items).toEqual([expect.objectContaining({ name: 'Alice Owner' })])
   })
@@ -2397,6 +2398,7 @@ describe('HybridQueryEngine decrypt tenant binding (#5430)', () => {
       expect.objectContaining({ id: 'user-1' }),
       'tenant-a',
       'org1',
+      { em: expect.anything() },
     )
     expect(result.items).toEqual([expect.objectContaining({ name: 'Alice Owner' })])
   })
