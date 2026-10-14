@@ -183,6 +183,13 @@ export interface EvaluationContext {
   codes: CodeRef[]
   appliedTags: string[]
   excludeFlags: Record<string, boolean>
+  // Optional (Step 2.3b, D-R4-10): the currency's fraction digits for half-up rounding of
+  // resolved effect amounts. This pure, DB-free pipeline never resolves it itself — a
+  // later step (the `promotionsService` facade, Phase 2 Step 2.6) looks it up from
+  // `currencies.Currency.decimalPlaces` and passes it down. `lib/effect-resolvers.ts`
+  // defaults to 2 (the ISO 4217 default for the overwhelming majority of currencies) when
+  // absent, so this field stays optional and no existing fixture builder needs updating.
+  currencyFractionDigits?: number
 }
 
 // Enrichment output (SPEC-055 §Data Models "category" row / §API Contracts line ~722):

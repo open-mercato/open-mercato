@@ -41,7 +41,7 @@ export function evaluatePromotions(
     if (!matched) continue
 
     const benefits = collectBenefits(promotion.rootGroup)
-    const effects = resolveEffects(benefits, context)
+    const effects = resolveEffects(benefits, context, promotion.id)
 
     appliedPromotions.push({
       promotionId: promotion.id,
