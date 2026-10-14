@@ -1,15 +1,16 @@
-// Step 2.1 — orchestration-only coverage. `evaluateGroup` (lib/rule-evaluators.ts) and
-// `resolveEffects` (lib/effect-resolvers.ts) are still throwing placeholders until Steps
-// 2.2/2.3, so every test here must prove its promotion is skipped *before* Pass 1 is
-// reached — none of these promotions ever match, and none of these tests exercise the
-// true-match path (Pass 1 returning true, Pass 2/3 running, tags accumulating). Full
-// end-to-end evaluation is Step 2.8's job.
+// Step 2.1 — orchestration-only coverage, written while `evaluateGroup`
+// (lib/rule-evaluators.ts) and `resolveEffects` (lib/effect-resolvers.ts) were still
+// throwing placeholders, so every test in the first describe block below proves its
+// promotion is skipped *before* Pass 1 is reached. The excluded-tags check was the one
+// exception at the time, exercised directly through the extracted `isPromotionEligible`
+// predicate with a manually constructed tag list rather than through a real match.
 //
-// The excluded-tags check is the one exception to testing purely through
-// `evaluatePromotions`: its `appliedTagsSoFar` input is, in the real engine, only ever
-// populated by a promotion that already passed Pass 1 — which the current stub cannot
-// do. So that check is exercised directly through the extracted `isPromotionEligible`
-// predicate with a manually constructed tag list, never through a real match.
+// Steps 2.2/2.3 later made Pass 1-3 real, which is what the "ordering, cumulativity, tag
+// exclusion across REAL matching promotions" describe block at the bottom covers (Step
+// 2.4's actual remaining scope — the logic itself already lived here since Step 2.1; see
+// PLAN.md's Step 2.4 note). Step 2.8 still owns the comprehensive, spec-wide end-to-end
+// suite; the block below is deliberately narrow, proving only the three orchestration
+// properties Step 2.4 named.
 
 import { evaluatePromotions, isPromotionEligible } from '../evaluation-engine'
 import type { EvaluationInput, NormalizedPromotion } from '../types'
@@ -78,6 +79,96 @@ describe('evaluatePromotions — orchestration skip checks', () => {
       input(),
     )
     expect(result).toEqual({ appliedPromotions: [] })
+  })
+})
+
+// A promotion that actually matches (Pass 1 real), via the simplest real rule/benefit
+// pairing available: a `code` rule (matches iff the caller's `codes` includes the
+// configured `codeId`) and a `cart_discount` benefit (one CART_DISCOUNT effect, no unit
+// selection involved) — neither needs cart items or category data, keeping these
+// fixtures focused on the orchestration behavior under test, not rule/benefit math
+// (already covered by `rule-evaluators.test.ts`/`effect-resolvers.test.ts`).
+function matchingPromotion(overrides: Partial<NormalizedPromotion> & { codeId: string }): NormalizedPromotion {
+  const { codeId, ...rest } = overrides
+  return promotion({
+    rootGroup: {
+      operator: 'and',
+      rules: [{ type: 'code', config: { codeId } }],
+      benefits: [
+        {
+          type: 'cart_discount',
+          appliesTo: 'order',
+          config: { discountType: 'percentage', value: '10', maxDiscount: null, labels: { en: 'Test' } },
+        },
+      ],
+      children: [],
+    },
+    ...rest,
+  })
+}
+
+describe('evaluatePromotions — ordering, cumulativity, and tag exclusion across real matches (Step 2.4)', () => {
+  it('applies every cumulative promotion that matches, in the order given', () => {
+    const promoA = matchingPromotion({ id: 'promo-a', codeId: 'code-a', tags: ['seasonal'] })
+    const promoB = matchingPromotion({ id: 'promo-b', codeId: 'code-b', tags: ['vip'] })
+
+    const result = evaluatePromotions(
+      [promoA, promoB],
+      input({ codes: [{ id: 'code-a', type: 'static' }, { id: 'code-b', type: 'static' }] }),
+    )
+
+    expect(result.appliedPromotions.map((applied) => applied.promotionId)).toEqual(['promo-a', 'promo-b'])
+  })
+
+  it('a non-cumulative match stops evaluation — a later promotion that would also match is never applied', () => {
+    const promoA = matchingPromotion({ id: 'promo-a', codeId: 'code-a', cumulative: false, tags: ['seasonal'] })
+    const promoB = matchingPromotion({ id: 'promo-b', codeId: 'code-b', tags: ['vip'] })
+
+    const result = evaluatePromotions(
+      [promoA, promoB],
+      input({ codes: [{ id: 'code-a', type: 'static' }, { id: 'code-b', type: 'static' }] }),
+    )
+
+    expect(result.appliedPromotions.map((applied) => applied.promotionId)).toEqual(['promo-a'])
+  })
+
+  it('a promotion excluded by an earlier real match\'s tags is skipped, even though its own rule would match', () => {
+    const promoA = matchingPromotion({ id: 'promo-a', codeId: 'code-a', tags: ['seasonal'] })
+    const promoC = matchingPromotion({ id: 'promo-c', codeId: 'code-c', excludedTags: ['seasonal'] })
+
+    const result = evaluatePromotions(
+      [promoA, promoC],
+      input({ codes: [{ id: 'code-a', type: 'static' }, { id: 'code-c', type: 'static' }] }),
+    )
+
+    expect(result.appliedPromotions.map((applied) => applied.promotionId)).toEqual(['promo-a'])
+  })
+
+  it('evaluates in the given array order, never re-sorting by the `order` field itself', () => {
+    // promo-b has a numerically lower `order` than promo-a, but is placed SECOND in the
+    // input array — `evaluatePromotions` must follow array order (the cache's own
+    // responsibility to pre-sort), proven here by making promo-a non-cumulative: if the
+    // function re-sorted by `order`, promo-b (order 0) would run first and promo-a
+    // (order 1) would never even be reached.
+    const promoA = matchingPromotion({ id: 'promo-a', codeId: 'code-a', order: 1, cumulative: false })
+    const promoB = matchingPromotion({ id: 'promo-b', codeId: 'code-b', order: 0 })
+
+    const result = evaluatePromotions(
+      [promoA, promoB],
+      input({ codes: [{ id: 'code-a', type: 'static' }, { id: 'code-b', type: 'static' }] }),
+    )
+
+    expect(result.appliedPromotions.map((applied) => applied.promotionId)).toEqual(['promo-a'])
+  })
+
+  it('a real match produces a genuine ResolvedEffect, not an empty effects array', () => {
+    const promoA = matchingPromotion({ id: 'promo-a', codeId: 'code-a' })
+    const result = evaluatePromotions([promoA], input({ codes: [{ id: 'code-a', type: 'static' }] }))
+
+    expect(result.appliedPromotions).toHaveLength(1)
+    expect(result.appliedPromotions[0].effects).toEqual([
+      { type: 'CART_DISCOUNT', appliesTo: 'order', currency: 'USD', label: { en: 'Test' }, amountNet: '0.00', amountGross: '0.00', basis: 'net' },
+    ])
   })
 })
 
