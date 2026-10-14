@@ -76,7 +76,7 @@ Features are string-based permissions: `<module>.<action>` (e.g., `users.view`, 
 
 ### Special Flags
 
-- `isSuperAdmin` — bypasses stored-grant matching, but not invalid scope, disabled modules, or nulled ACL features
+- `isSuperAdmin` — bypasses stored-grant matching, but not invalid scope, disabled modules, modules unavailable to the tenant in scope (per-tenant module availability), or nulled ACL features
 - Organization visibility list — restricts which organizations a user can access
 
 ### Declarative Guards

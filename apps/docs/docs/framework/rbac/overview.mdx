@@ -12,7 +12,7 @@ Open Mercato enforces access control through a two-layer RBAC system: role assig
 - **Super admin flag** bypasses stored-grant matching for active features.
 - **Organization visibility list** optionally narrows which organizations a user can act on, even if the feature check passes.
 
-All server-side decisions use one shared feature policy. It rejects invalid scope, features removed with `entry.overrides.acl.features[id] = null`, and features owned by disabled modules before applying staff/portal admin bypasses or wildcard grants.
+All server-side decisions use one shared feature policy. It rejects invalid scope, features removed with `entry.overrides.acl.features[id] = null`, and features owned by disabled modules before applying staff/portal admin bypasses or wildcard grants. Apps can also deny the features of modules per tenant through [per-tenant module availability](./tenant-module-availability).
 
 ## Declaring Features in Modules
 

@@ -26,7 +26,11 @@ const mockRbac = {
   loadAcl: jest.fn<
     ReturnType<RbacService['loadAcl']>,
     Parameters<RbacService['loadAcl']>
-  >()
+  >(),
+  getUnavailableModuleIds: jest.fn<
+    ReturnType<RbacService['getUnavailableModuleIds']>,
+    Parameters<RbacService['getUnavailableModuleIds']>
+  >(async () => []),
 }
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
@@ -93,6 +97,13 @@ const emptyMetadataRouteModule = {
   metadata: {},
 }
 
+const foreignFeatureGuardedRouteModule = {
+  POST: createResponseHandler('DELETE PRODUCTS'),
+  metadata: {
+    POST: { requireAuth: true, requireFeatures: ['data_sync.configure'] },
+  },
+}
+
 const topLevelPublicRouteModule = {
   POST: createResponseHandler('TOP LEVEL PUBLIC POST'),
   metadata: { requireAuth: false },
@@ -127,6 +138,13 @@ function getMockedApiRoutes(): ApiRouteManifestEntry[] {
       path: '/example/empty-metadata',
       methods: ['GET'],
       load: async () => emptyMetadataRouteModule,
+    },
+    {
+      moduleId: 'sync_akeneo',
+      kind: 'route-file',
+      path: '/sync_akeneo/delete-products',
+      methods: ['POST'],
+      load: async () => foreignFeatureGuardedRouteModule,
     },
     {
       moduleId: 'example',
@@ -221,6 +239,29 @@ describe('API Route Authorization', () => {
       isSuperAdmin: false,
       features: [],
       organizations: null,
+    })
+  })
+
+  describe('per-tenant module availability', () => {
+    afterEach(() => {
+      mockRbac.getUnavailableModuleIds.mockImplementation(async () => [])
+    })
+
+    it('refuses a route of an unavailable module guarded only by another module feature', async () => {
+      mockResolveAuthFromRequestDetailed.mockResolvedValue(authenticatedAuth(['admin']))
+      const request = () => POST(
+        new NextRequest('http://localhost/api/sync_akeneo/delete-products', { method: 'POST' }),
+        { params: Promise.resolve({ slug: ['sync_akeneo', 'delete-products'] }) },
+      )
+
+      mockRbac.getUnavailableModuleIds.mockImplementation(async () => ['sync_akeneo'])
+      const denied = await request()
+      expect(denied.status).toBe(403)
+      expect(mockRbac.getUnavailableModuleIds).toHaveBeenCalledWith('tenant1', 'user1')
+
+      mockRbac.getUnavailableModuleIds.mockImplementation(async () => [])
+      const allowed = await request()
+      expect(allowed.status).toBe(200)
     })
   })
 
