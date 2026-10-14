@@ -45,6 +45,7 @@ type CampaignsResponse = {
     updatedAt?: unknown
   }>
   total?: number
+  totalIsCapped?: boolean
 }
 
 export default function CampaignsListPage() {
@@ -67,6 +68,11 @@ export default function CampaignsListPage() {
   const [page, setPage] = React.useState(1)
   const [pageSize, setPageSize] = React.useState(25)
   const [total, setTotal] = React.useState(0)
+  /**
+   * The list count is capped server-side, so a large tenant gets a floor rather than a true total.
+   * Without this flag the footer reads the floor as the whole set and the last pages look empty.
+   */
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -84,11 +90,13 @@ export default function CampaignsListPage() {
     if (!result.ok || !Array.isArray(result.result?.items)) {
       setRows([])
       setTotal(0)
+      setTotalIsCapped(false)
       setLoadFailed(true)
       return
     }
     const items = result.result.items
     setTotal(typeof result.result?.total === 'number' ? result.result.total : items.length)
+    setTotalIsCapped(result.result?.totalIsCapped === true)
     setRows(items.flatMap((item) => {
       if (typeof item.id !== 'string' || typeof item.name !== 'string') return []
       const triggers = Array.isArray(item.triggers) ? item.triggers : []
@@ -358,6 +366,7 @@ export default function CampaignsListPage() {
               page,
               pageSize,
               total,
+              totalIsCapped,
               totalPages: Math.max(1, Math.ceil(total / pageSize)),
               onPageChange: setPage,
               pageSizeOptions: [10, 25, 50, 100],
