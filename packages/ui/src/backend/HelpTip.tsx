@@ -27,8 +27,11 @@ export type HelpTipProps = {
  * out, and holds a few sentences without the cramping a tooltip surface implies.
  *
  * The icon is imported from `lucide-react` directly, NOT named as an `icon:` / `icon=` string. Those
- * two forms are what the repo-wide scan behind `lucideRegistry.generated.tsx` collects, so naming it
+ * two forms are what the repo-wide scan behind the generated lucide registry collects, so naming it
  * would make `yarn ui:icons:check` demand a regenerated file in `packages/ui` for every caller.
+ *
+ * The registry's own file name is deliberately not spelled out above: the guard that keeps it private
+ * greps the tree for that literal, so a comment mentioning it reports itself as an importer.
  */
 export function HelpTip({ title, body, size = 'xs', className }: HelpTipProps) {
   const t = useT()
