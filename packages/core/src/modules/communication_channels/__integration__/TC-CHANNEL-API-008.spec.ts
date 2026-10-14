@@ -46,7 +46,9 @@ async function findReassignLog(
  * The test-seed fixture connects a personal channel owned by the calling admin.
  * A second admin of the same organization holds `communication_channels.assign`
  * but does not own the mailbox, so reassigning its thread must be masked as 404
- * and leave the assignment untouched; the owner can still reassign it. Redoing
+ * and leave the assignment untouched; the owner can still reassign it. Undoing
+ * the owner's reassignment as the non-owner (who holds `audit_logs.undo_tenant`)
+ * must likewise be refused without consuming the undo. Redoing
  * the owner's undone reassignment as the non-owner (who holds
  * `audit_logs.redo_tenant`) must be refused without consuming the redo, and the
  * owner's own redo must still succeed afterwards.
@@ -123,6 +125,25 @@ test.describe('TC-CHANNEL-API-008: personal-mailbox thread reassignment is owner
 
       const reassignLog = await findReassignLog(request, ownerToken, seeded.conversationId)
       expect(reassignLog.undoToken, 'the owner reassignment should be undoable').toBeTruthy()
+
+      const deniedUndo = await apiRequest(request, 'POST', '/api/audit_logs/audit-logs/actions/undo', {
+        token: otherToken,
+        data: { undoToken: reassignLog.undoToken },
+      })
+      expect(deniedUndo.status(), 'a non-owner undo must be refused with the masked 404').toBe(404)
+      expect(
+        (await findReassignLog(request, ownerToken, seeded.conversationId, reassignLog.id)).executionState,
+        'a refused undo must leave the log done',
+      ).toBe('done')
+      const stillAssigned = await apiRequest(
+        request,
+        'PUT',
+        `/api/communication_channels/threads/${threadId}/assign`,
+        { token: ownerToken, data: { assignedUserId: ownerScope.userId } },
+      )
+      const stillAssignedBody = await readJsonSafe<{ unchanged?: boolean }>(stillAssigned)
+      expect(stillAssignedBody?.unchanged, 'a refused undo must leave the assignment in place').toBe(true)
+
       const undone = await apiRequest(request, 'POST', '/api/audit_logs/audit-logs/actions/undo', {
         token: ownerToken,
         data: { undoToken: reassignLog.undoToken },

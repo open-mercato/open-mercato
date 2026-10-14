@@ -90,11 +90,8 @@ export async function PUT(req: Request, context: RouteContext): Promise<Response
     },
   })
 
-  if (result.status === 'access_denied') {
+  if (result.status === 'access_denied' || result.status === 'no_channel_link') {
     return NextResponse.json({ error: await resolveThreadNotFoundMessage() }, { status: 404 })
-  }
-  if (result.status === 'no_channel_link') {
-    return NextResponse.json({ error: result.reason }, { status: 404 })
   }
   if (result.status === 'invalid_assignee') {
     return NextResponse.json({ error: result.reason }, { status: 422 })

@@ -236,6 +236,8 @@ const bodySchema = z.discriminatedUnion('action', [
 
 const logger = createLogger('communication_channels').child({ component: 'test-seed' })
 
+const TEST_SEED_CONVERSATION_PREFIX = 'inbound-seed:'
+
 function ingestFailureResponse(err: unknown): Response {
   if (err instanceof z.ZodError) {
     return NextResponse.json({ error: err.message, issues: err.issues }, { status: 422 })
@@ -527,6 +529,23 @@ export async function POST(req: Request): Promise<Response> {
 
   if (body.action === 'purge-inbound') {
     const rowScope = { tenantId, organizationId }
+    // Only rows hanging off a conversation `emit-inbound` minted are purgeable,
+    // so a caller cannot use this action to hard-delete real channel traffic.
+    const seededConversation = await findOneWithDecryption(
+      em,
+      ExternalConversation,
+      {
+        id: body.conversationId,
+        channelId: body.channelId,
+        externalConversationId: { $like: `${TEST_SEED_CONVERSATION_PREFIX}%` },
+        ...rowScope,
+      },
+      undefined,
+      rowScope,
+    )
+    if (!seededConversation) {
+      return NextResponse.json({ error: 'seeded inbound conversation not found' }, { status: 404 })
+    }
     await em.nativeDelete(ChannelThreadMapping, {
       externalConversationId: body.conversationId,
       channelId: body.channelId,
@@ -652,7 +671,7 @@ export async function POST(req: Request): Promise<Response> {
   // so the link is shaped like a real inbound row the subscriber can consume.
   const conversation = em.create(ExternalConversation, {
     channelId: body.channelId,
-    externalConversationId: `inbound-seed:${Date.now()}:${Math.random().toString(16).slice(2, 8)}`,
+    externalConversationId: `${TEST_SEED_CONVERSATION_PREFIX}${Date.now()}:${Math.random().toString(16).slice(2, 8)}`,
     subject: body.subject ?? null,
     tenantId,
     organizationId,

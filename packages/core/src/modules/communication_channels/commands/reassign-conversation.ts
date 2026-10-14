@@ -70,6 +70,31 @@ async function resolveActorFeatures(
   }
 }
 
+/**
+ * Run the channel-ownership check for the acting user: a personal mailbox is
+ * owner-only, a shared channel needs `communication_channels.assign`. Returns
+ * the denial reason, or `null` when the actor may manage the channel.
+ */
+async function checkChannelAccess(
+  ctx: CommandRuntimeContext,
+  channel: CommunicationChannel,
+  scope: ReassignConversationInput['scope'],
+): Promise<string | null> {
+  const actorUserId = ctx.auth?.sub ?? null
+  try {
+    assertCanManageChannel(
+      { userId: channel.userId ?? null },
+      actorUserId,
+      channel.userId == null ? await resolveActorFeatures(ctx, actorUserId, scope) : [],
+      'communication_channels.assign',
+    )
+    return null
+  } catch (err) {
+    if (err instanceof ChannelAccessDeniedError) return err.message
+    throw err
+  }
+}
+
 const THREAD_NOT_FOUND_FALLBACK = 'Thread not found'
 
 /**
@@ -177,21 +202,9 @@ const reassignConversationCommand: CommandHandler<
         reason: `no CommunicationChannel for thread ${input.threadId}`,
       }
     }
-    const actorUserId = ctx.auth?.sub ?? null
-    try {
-      assertCanManageChannel(
-        { userId: channel.userId ?? null },
-        actorUserId,
-        channel.userId == null
-          ? await resolveActorFeatures(ctx, actorUserId, input.scope)
-          : [],
-        'communication_channels.assign',
-      )
-    } catch (err) {
-      if (err instanceof ChannelAccessDeniedError) {
-        return { status: 'access_denied', reason: err.message }
-      }
-      throw err
+    const denialReason = await checkChannelAccess(ctx, channel, input.scope)
+    if (denialReason) {
+      return { status: 'access_denied', reason: denialReason }
     }
 
     const previousAssignedUserId = mapping.assignedUserId ?? null
@@ -326,6 +339,28 @@ const reassignConversationCommand: CommandHandler<
       undefined,
       dscope,
     )
+    // An undo writes the assignment just like execute(), so it must pass the
+    // same ownership check — otherwise `audit_logs.undo_tenant` would let a
+    // non-owner change who is assigned on someone else's personal mailbox.
+    const channel = mapping
+      ? await findOneWithDecryption(
+          em,
+          CommunicationChannel,
+          { id: mapping.channelId, tenantId: snapshot.tenantId },
+          undefined,
+          dscope,
+        )
+      : null
+    if (!mapping || !channel) {
+      throw new CrudHttpError(404, { error: await resolveThreadNotFoundMessage() })
+    }
+    const denialReason = await checkChannelAccess(ctx, channel, {
+      tenantId: snapshot.tenantId,
+      organizationId: mapping.organizationId ?? null,
+    })
+    if (denialReason) {
+      throw new CrudHttpError(404, { error: await resolveThreadNotFoundMessage() })
+    }
     const conversation = await findOneWithDecryption(
       em,
       ExternalConversation,
@@ -333,9 +368,9 @@ const reassignConversationCommand: CommandHandler<
       undefined,
       dscope,
     )
-    if (mapping) mapping.assignedUserId = snapshot.previousAssignedUserId
+    mapping.assignedUserId = snapshot.previousAssignedUserId
     if (conversation) conversation.assignedUserId = snapshot.previousAssignedUserId
-    if (mapping || conversation) await em.flush()
+    await em.flush()
   },
 }
 

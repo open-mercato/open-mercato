@@ -383,38 +383,85 @@ describe('reassignConversationCommand undo', () => {
     mockFindOne.mockReset()
   })
 
-  it('restores the previous owner on both the mapping and the conversation', async () => {
-    const mapping = { id: 'mapping-1', assignedUserId: 'new-owner' }
+  const OWNER = '55555555-5555-4555-8555-555555555555'
+  const OTHER = '66666666-6666-4666-8666-666666666666'
+
+  function undoEntry() {
+    // The shared `extractUndoPayload` helper unwraps the snapshot from
+    // `logEntry.commandPayload.undo`.
+    return {
+      commandPayload: {
+        undo: {
+          threadMappingId: 'mapping-1',
+          conversationId: 'conv-1',
+          tenantId: TENANT,
+          previousAssignedUserId: 'old-owner',
+          newAssignedUserId: 'new-owner',
+        },
+      },
+    } as never
+  }
+
+  function undo(actor: { userId?: string | null; features?: string[] }) {
+    const { ctx, em } = ctxFor(TENANT, actor)
+    const promise = reassignConversationCommand.undo!({
+      input: { threadId: 'thread-1' } as never,
+      ctx,
+      logEntry: undoEntry(),
+    })
+    return { promise, em }
+  }
+
+  function seedRows(channel: { id: string; userId: string | null }) {
+    const mapping = { id: 'mapping-1', assignedUserId: 'new-owner', channelId: channel.id, organizationId: null }
     const conversation = { id: 'conv-1', assignedUserId: 'new-owner' }
     mockFindOne
       .mockResolvedValueOnce(mapping as never)
+      .mockResolvedValueOnce(channel as never)
       .mockResolvedValueOnce(conversation as never)
-    const em = { flush: jest.fn(async () => undefined) }
-    const ctx = {
-      container: {
-        resolve: ((name: string) => (name === 'em' ? { fork: () => em } : null)) as <T>(name: string) => T,
-      },
-    } as never
-    // The shared `extractUndoPayload` helper unwraps the snapshot from
-    // `logEntry.commandPayload.undo`.
-    await reassignConversationCommand.undo!({
-      input: { threadId: 'thread-1' } as never,
-      ctx,
-      logEntry: {
-        commandPayload: {
-          undo: {
-            threadMappingId: 'mapping-1',
-            conversationId: 'conv-1',
-            tenantId: TENANT,
-            previousAssignedUserId: 'old-owner',
-            newAssignedUserId: 'new-owner',
-          },
-        },
-      } as never,
-    })
+    return { mapping, conversation }
+  }
+
+  it('restores the previous owner on both the mapping and the conversation for the mailbox owner', async () => {
+    const { mapping, conversation } = seedRows({ id: 'channel-1', userId: OWNER })
+    const { promise, em } = undo({ userId: OWNER })
+    await promise
     expect(em.flush).toHaveBeenCalledTimes(1)
     expect(mapping.assignedUserId).toBe('old-owner')
     expect(conversation.assignedUserId).toBe('old-owner')
+  })
+
+  it('throws a masked, translated 404 and writes nothing when a non-owner undoes a personal-mailbox reassignment', async () => {
+    const { mapping, conversation } = seedRows({ id: 'channel-1', userId: OWNER })
+    const { promise, em } = undo({ userId: OTHER, features: ['*'] })
+    const error = await promise.then(() => null, (err: unknown) => err)
+    expect(isCrudHttpError(error)).toBe(true)
+    expect(error).toMatchObject({ status: 404, body: { error: 'Wątek nie znaleziony' } })
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(mapping.assignedUserId).toBe('new-owner')
+    expect(conversation.assignedUserId).toBe('new-owner')
+  })
+
+  it('lets an assign holder undo a shared-channel reassignment', async () => {
+    const { mapping } = seedRows({ id: 'channel-1', userId: null })
+    const { promise, em } = undo({ userId: OTHER, features: ['communication_channels.assign'] })
+    await promise
+    expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(mapping.assignedUserId).toBe('old-owner')
+  })
+
+  it('denies a shared-channel undo to a caller without assign', async () => {
+    seedRows({ id: 'channel-1', userId: null })
+    const { promise, em } = undo({ userId: OTHER, features: [] })
+    await expect(promise).rejects.toMatchObject({ status: 404 })
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('throws a masked 404 when the mapping no longer exists', async () => {
+    mockFindOne.mockResolvedValueOnce(null)
+    const { promise, em } = undo({ userId: OWNER })
+    await expect(promise).rejects.toMatchObject({ status: 404 })
+    expect(em.flush).not.toHaveBeenCalled()
   })
 
   it('refuses to resolve when the snapshot lacks a tenantId', async () => {
