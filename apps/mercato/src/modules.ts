@@ -94,6 +94,9 @@ export const enabledModules: ModuleEntry[] = [
   // case'). Run the om-refresh-standalone-harness skill to add that coverage,
   // then enable it in the template.
   { id: 'availability', from: '@open-mercato/core' },
+  // Ecommerce store module (SPEC-029): store, hostname and channel binding,
+  // buyer-context resolution and the public storefront read API.
+  { id: 'ecommerce', from: '@open-mercato/core' },
   { id: 'api_keys', from: '@open-mercato/core' },
   { id: 'devices', from: '@open-mercato/core' },
   { id: 'dictionaries', from: '@open-mercato/core' },
@@ -137,6 +140,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'checkout', from: '@open-mercato/checkout' },
   { id: 'documents', from: '@open-mercato/documents' },
   { id: 'gateway_stripe', from: '@open-mercato/gateway-stripe' },
+  { id: 'gateway_tpay', from: '@open-mercato/gateway-tpay' },
   // Per-user email channels for the Communications Hub (SPEC-045d / email
   // integration spec). Each provider package registers its `ChannelAdapter`
   // at import time via `setup.ts`; the hub picks them up by `providerKey`.
@@ -164,6 +168,11 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'telemetry', from: '@open-mercato/telemetry' },
   { id: 'customer_accounts', from: '@open-mercato/core' },
   { id: 'portal', from: '@open-mercato/core' },
+  // Audit-grade questionnaire/form primitive — versioned definitions, append-only
+  // submissions, role-sliced rendering, public runner + portal + embed surfaces.
+  // Listed after customer_accounts/portal because its portal pages and public
+  // runner resolve customer auth through them.
+  { id: 'forms', from: '@open-mercato/core' },
   {
     id: 'example',
     from: '@app',

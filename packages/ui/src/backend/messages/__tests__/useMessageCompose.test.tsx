@@ -58,3 +58,72 @@ describe('useMessageCompose recipient suggestions', () => {
     expect(requestedUrl.searchParams.get('scopeToActiveOrganization')).toBe('1')
   })
 })
+
+describe('useMessageCompose Escape handling', () => {
+  beforeEach(() => {
+    jest.resetAllMocks()
+    ;(apiCall as jest.Mock).mockResolvedValue({
+      ok: true,
+      status: 200,
+      result: { items: [] },
+      response: { status: 200 },
+    })
+  })
+
+  function buildEscapeEvent(options: { defaultPrevented?: boolean, targetInsideComposer?: boolean }) {
+    const composer = document.createElement('div')
+    const insideField = document.createElement('input')
+    composer.appendChild(insideField)
+    const portaledContent = document.createElement('div')
+    const preventDefault = jest.fn()
+    const event = {
+      key: 'Escape',
+      metaKey: false,
+      ctrlKey: false,
+      defaultPrevented: options.defaultPrevented ?? false,
+      currentTarget: composer,
+      target: options.targetInsideComposer === false ? portaledContent : insideField,
+      preventDefault,
+    } as unknown as React.KeyboardEvent<HTMLDivElement>
+    return { event, preventDefault }
+  }
+
+  function renderInlineCompose(onCancel: jest.Mock) {
+    return renderHook(() => useMessageCompose({ variant: 'compose', inline: true, onCancel }), {
+      wrapper: createWrapper(),
+    })
+  }
+
+  it('cancels on a plain Escape from inside the composer', () => {
+    const onCancel = jest.fn()
+    const { result } = renderInlineCompose(onCancel)
+    const { event, preventDefault } = buildEscapeEvent({})
+
+    result.current.handleKeyDown(event)
+
+    expect(preventDefault).toHaveBeenCalledTimes(1)
+    expect(onCancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores an Escape a nested layer already handled', () => {
+    const onCancel = jest.fn()
+    const { result } = renderInlineCompose(onCancel)
+    const { event, preventDefault } = buildEscapeEvent({ defaultPrevented: true })
+
+    result.current.handleKeyDown(event)
+
+    expect(preventDefault).not.toHaveBeenCalled()
+    expect(onCancel).not.toHaveBeenCalled()
+  })
+
+  it('ignores an Escape bubbling from portaled content outside the composer', () => {
+    const onCancel = jest.fn()
+    const { result } = renderInlineCompose(onCancel)
+    const { event, preventDefault } = buildEscapeEvent({ targetInsideComposer: false })
+
+    result.current.handleKeyDown(event)
+
+    expect(preventDefault).not.toHaveBeenCalled()
+    expect(onCancel).not.toHaveBeenCalled()
+  })
+})

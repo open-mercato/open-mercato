@@ -1012,7 +1012,16 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const navigationConfirmPendingRef = React.useRef(false)
   const submitNavigationBypassRef = React.useRef(false)
   const submitNavigationBypassTimeoutRef = React.useRef<number | null>(null)
-  const [hasUnsavedChanges, setHasUnsavedChanges] = React.useState(false)
+  const [hasUnsavedChanges, setHasUnsavedChangesState] = React.useState(false)
+  const hasUnsavedChangesRef = React.useRef(false)
+  // Writing a state hook the value it already holds still re-runs this whole
+  // component once before React bails out. The dirty check runs on every edit,
+  // so the flag is only written when it actually flips.
+  const setHasUnsavedChanges = React.useCallback((next: boolean) => {
+    if (hasUnsavedChangesRef.current === next) return
+    hasUnsavedChangesRef.current = next
+    setHasUnsavedChangesState(next)
+  }, [])
   const popStateRollbackRef = React.useRef(false)
   const shouldBypassUnsavedChangesGuardRef = React.useRef(shouldBypassUnsavedChangesGuard)
   React.useEffect(() => {
@@ -1037,7 +1046,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     const dirty = currentSnapshot !== snapshot
     isDirtyRef.current = dirty
     setHasUnsavedChanges(dirty)
-  }, [embedded, trackDirtyWhenEmbedded, values])
+  }, [embedded, trackDirtyWhenEmbedded, values, setHasUnsavedChanges])
 
   React.useEffect(() => {
     onDirtyChange?.(hasUnsavedChanges)
@@ -1087,7 +1096,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     everEditedFieldIdsRef.current.clear()
     isDirtyRef.current = false
     setHasUnsavedChanges(false)
-  }, [])
+  }, [setHasUnsavedChanges])
 
   const confirmUnsavedChanges = React.useCallback(async (): Promise<boolean> => {
     if (!isDirtyRef.current || typeof window === 'undefined') return true
@@ -1205,7 +1214,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       window.history.pushState = originalPushState
       window.history.replaceState = originalReplaceState
     }
-  }, [allowNextNavigation, clearDirtyState, confirmUnsavedChanges, embedded, hasUnsavedChanges, router, trackDirtyWhenEmbedded])
+  }, [allowNextNavigation, clearDirtyState, confirmUnsavedChanges, embedded, hasUnsavedChanges, router, trackDirtyWhenEmbedded, setHasUnsavedChanges])
 
   const { widgets: primaryInjectionWidgets } = useInjectionWidgets(resolvedInjectionSpotId, {
     context: injectionContext,
@@ -1631,6 +1640,15 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       {versionHistoryEnabled ? versionHistoryAction : null}
       {headerInjectionAction}
       {extraActions}
+    </>
+  ) : undefined
+  const renderFooterActions = !hideFooterActions && !formReadOnly
+  const embeddedExtraActions = renderFooterActions ? undefined : extraActions
+  const embeddedHeaderActions = versionHistoryEnabled || headerInjectionAction || embeddedExtraActions ? (
+    <>
+      {versionHistoryEnabled ? versionHistoryAction : null}
+      {headerInjectionAction}
+      {embeddedExtraActions}
     </>
   ) : undefined
 
@@ -2708,18 +2726,29 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       ) {
         activeFieldChangeDispatchRef.current = null
       }
+      // Re-run the dispatcher only when an edit queued behind this dispatch is
+      // still waiting. Bumping unconditionally re-rendered the whole form a
+      // second time for every keystroke, even with no widget listening.
       if (
         fieldChangeDispatcherMountedRef.current &&
-        fieldChangeFormGenerationRef.current === dispatchToken.formGeneration
+        fieldChangeFormGenerationRef.current === dispatchToken.formGeneration &&
+        pendingFieldChangeEventsRef.current.length > 0
       ) {
         setFieldChangeDispatchVersion((version) => version + 1)
       }
     })
   }, [extendedInjectionEventsEnabled, fieldChangeDispatchVersion, triggerInjectionEvent, values])
 
-  const onBlurRequest = React.useCallback((fieldId: string) => {
-    void validateFieldOnBlur(fieldId)
+  // `validateFieldOnBlur` is rebuilt whenever the form values change. Passing
+  // that identity down would invalidate every memoized field control on each
+  // keystroke, so the fields get a stable callback that reads the latest one.
+  const validateFieldOnBlurRef = React.useRef(validateFieldOnBlur)
+  React.useLayoutEffect(() => {
+    validateFieldOnBlurRef.current = validateFieldOnBlur
   }, [validateFieldOnBlur])
+  const onBlurRequest = React.useCallback((fieldId: string) => {
+    void validateFieldOnBlurRef.current(fieldId)
+  }, [])
 
   const handleFieldsetSelectionChange = React.useCallback(
     (entityId: string, nextCode: string | null) => {
@@ -3909,8 +3938,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               submit: formReadOnly ? undefined : { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
             }}
           />
-        ) : headerExtraActions ? (
-          <div className="flex justify-end gap-2 mb-2">{headerExtraActions}</div>
+        ) : embeddedHeaderActions ? (
+          <div className="flex justify-end gap-2 mb-2">{embeddedHeaderActions}</div>
         ) : null}
         {contentHeader}
         <DataLoader
@@ -3948,7 +3977,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               {hasSecondaryColumn ? <div className={densityStackMd} data-crud-injection-region>{col2Content}</div> : null}
             </div>
             {formError && !Object.keys(errors).length ? <div className="text-sm text-status-error-text">{formError}</div> : null}
-            {hideFooterActions || formReadOnly ? null : (
+            {renderFooterActions ? (
               <FormFooter
                 embedded={embedded}
                 className={dialogFooterClass}
@@ -3962,7 +3991,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                   submit: { pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon }
                 }}
               />
-            )}
+            ) : null}
             </form>,
           )}
         </DataLoader>
@@ -3992,8 +4021,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             submit: formReadOnly ? undefined : { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
           }}
         />
-      ) : headerExtraActions ? (
-        <div className="flex justify-end gap-2 mb-2">{headerExtraActions}</div>
+      ) : embeddedHeaderActions ? (
+        <div className="flex justify-end gap-2 mb-2">{embeddedHeaderActions}</div>
       ) : null}
       {contentHeader}
       <DataLoader
@@ -4047,7 +4076,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               })}
             </div>
             {formError && !Object.keys(errors).length ? <div className="text-sm text-status-error-text">{formError}</div> : null}
-            {hideFooterActions || formReadOnly ? null : (
+            {renderFooterActions ? (
               <FormFooter
                 embedded={embedded}
                 className={dialogFooterClass}
@@ -4061,7 +4090,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                   submit: { pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
                 }}
               />
-            )}
+            ) : null}
           </form>
           </div>,
         )}
@@ -4256,6 +4285,8 @@ function NumberInput({
   placeholder,
   autoFocus,
   onSubmit,
+  disabled,
+  readOnly,
 }: {
   id?: string
   value: number | string | null | undefined
@@ -4263,6 +4294,8 @@ function NumberInput({
   placeholder?: string
   autoFocus?: boolean
   onSubmit?: () => void
+  disabled?: boolean
+  readOnly?: boolean
 }) {
   const locale = useOptionalLocale()
   const serializedValue = value !== undefined && value !== null ? String(value) : ''
@@ -4345,6 +4378,8 @@ function NumberInput({
       onFocus={handleFocus}
       onBlur={handleBlur}
       autoFocus={autoFocus}
+      disabled={disabled}
+      readOnly={readOnly}
       data-crud-focus-target=""
     />
   )
@@ -4868,6 +4903,8 @@ const FieldControl = React.memo(function FieldControlImpl({
           onChange={fieldSetValue}
           autoFocus={autoFocusField}
           onSubmit={onSubmitRequest}
+          disabled={disabled}
+          readOnly={readOnly}
         />
       )}
       {field.type === 'date' && (
@@ -4984,6 +5021,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           suppressInitialSuggestionsOnFocus={autoFocusField}
           suggestions={options.map((opt) => ({ value: opt.value, label: opt.label }))}
           loadSuggestions={loadFieldSuggestions}
+          disabled={disabled}
         />
       )}
       {field.type === 'combobox' && (

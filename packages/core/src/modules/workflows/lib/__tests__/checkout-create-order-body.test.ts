@@ -1,6 +1,7 @@
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals'
 import { executeCallApi } from '../activity-executor'
 import { workflowsConfig } from '../../workflows'
+import { createTransactionalEntityManagerDouble } from '../../../../test-utils/transactionalEntityManagerDouble'
 
 /**
  * End-to-end guard for issue #4211: the code-defined checkout demo's
@@ -24,10 +25,7 @@ afterEach(() => { global.fetch = originalFetch })
 
 function makeEm() {
   const createdApiKeys: any[] = []
-  return {
-    // The one-time API key is created on a forked, context-detached EM; the
-    // fork returns the same mock so persist/flush/find tracking still works.
-    fork: jest.fn(function (this: any) { return this }),
+  const entityManagerDouble = createTransactionalEntityManagerDouble({
     create: jest.fn((_E: any, data: any) => { const r = { ...data, id: `k${createdApiKeys.length}` }; createdApiKeys.push(r); return r }),
     persist: jest.fn(function (this: any) { return this }),
     flush: jest.fn(),
@@ -36,6 +34,7 @@ function makeEm() {
       const n = E?.name ?? ''
       if (n === 'WorkflowDefinition') return Promise.resolve({ id: 'def-1', tenantId: q.tenantId || 't1', createdBy: 'u1' })
       if (n === 'User') return Promise.resolve({ id: 'u1', tenantId: q.tenantId || 't1', deletedAt: null })
+      if (n === 'ApiKey') return Promise.resolve(createdApiKeys.find((record) => record.id === q.id) ?? null)
       return Promise.resolve(null)
     }),
     find: jest.fn((E: any, q: any) => {
@@ -44,7 +43,10 @@ function makeEm() {
       if (n === 'Role') return Promise.resolve([{ id: 'r1', name: 'author', tenantId: q.tenantId || 't1' }])
       return Promise.resolve([])
     }),
-  } as any
+  })
+  const createIsolatedFork = entityManagerDouble.fork
+  entityManagerDouble.fork = jest.fn(() => createIsolatedFork())
+  return entityManagerDouble as any
 }
 
 describe('checkout-demo create_order request body', () => {
