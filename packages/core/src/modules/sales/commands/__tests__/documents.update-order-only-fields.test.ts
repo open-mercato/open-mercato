@@ -16,6 +16,10 @@
  * them — dropping would let an otherwise-empty payload reach execution, and
  * `updateQuoteCommand` strips a sent quote's acceptance link on any update that
  * gets that far.
+ *
+ * `dueAt` (the payment due date) had the same gap: the create schema accepts it,
+ * the update schema did not, so an order paid on terms kept whatever due date it
+ * was created with. It is order-only too and follows the same two halves.
  */
 
 import { createContainer, asValue, InjectionMode } from 'awilix'
@@ -87,6 +91,7 @@ function makeOrder() {
     comments: null,
     internalNotes: null,
     metadata: null,
+    dueAt: new Date('2026-10-31T00:00:00.000Z') as Date | null,
     deletedAt: null,
   }
 }
@@ -102,6 +107,7 @@ function makeQuote(overrides: Record<string, unknown> = {}) {
     paymentStatusEntryId: _paymentStatusEntryId,
     fulfillmentStatus: _fulfillmentStatus,
     fulfillmentStatusEntryId: _fulfillmentStatusEntryId,
+    dueAt: _dueAt,
     ...rest
   } = makeOrder()
   return { ...rest, id: QUOTE_ID, quoteNumber: 'Q-1', ...overrides }
@@ -142,6 +148,10 @@ function makeEm(document: StoredDocument, entityClass: unknown = SalesOrder) {
     commit: jest.fn(async () => {}),
     rollback: jest.fn(async () => {}),
     fork: () => em,
+    transactional: async (work: (tx: unknown) => Promise<unknown>) => work(em),
+    count: jest.fn(async () => 0),
+    clear: jest.fn(),
+    getUnitOfWork: () => ({ unsetIdentity: jest.fn() }),
   }
   return em
 }
@@ -192,6 +202,7 @@ const ORDER_ONLY_FIELDS: Array<[string, unknown]> = [
   ['exchangeRate', 4.25],
   ['paymentStatusEntryId', PAID_ENTRY_ID],
   ['fulfillmentStatusEntryId', SHIPPED_ENTRY_ID],
+  ['dueAt', '2026-11-30'],
 ]
 
 describe('documentUpdateSchema — order-only fields', () => {
@@ -378,6 +389,95 @@ describe('sales.orders.update — order-only columns', () => {
       expect(Object.keys(log?.changes ?? {}).sort()).toEqual(expectedKeys)
     },
   )
+})
+
+describe('sales.orders.update — dueAt', () => {
+  it('rejects a dueAt that is not a YYYY-MM-DD date', () => {
+    const result = documentUpdateSchema.safeParse({ id: ORDER_ID, dueAt: '30.11.2026' })
+
+    expect(result.success).toBe(false)
+    expect(result.error?.issues.map((issue) => issue.path.join('.'))).toContain('dueAt')
+  })
+
+  // `new Date()` rolls a day past the end of the month over into the next one,
+  // so without a round-trip check 2026-02-31 would be stored as 2026-03-03.
+  it.each(['dueAt', 'placedAt', 'expectedDeliveryAt'])(
+    'rejects a %s that is not a real calendar day instead of shifting it',
+    (field) => {
+      for (const value of ['2026-02-31', '2026-02-29', '2026-04-31']) {
+        const result = documentUpdateSchema.safeParse({ id: ORDER_ID, [field]: value })
+
+        expect(result.success).toBe(false)
+        expect(result.error?.issues.map((issue) => issue.path.join('.'))).toContain(field)
+      }
+    },
+  )
+
+  it('accepts 29 February in a leap year', () => {
+    const result = documentUpdateSchema.safeParse({ id: ORDER_ID, dueAt: '2028-02-29' })
+
+    expect(result.success).toBe(true)
+  })
+
+  it('sets a due date on an order that has none', async () => {
+    const order = await updateOrder({ dueAt: '2026-11-30' }, { ...makeOrder(), dueAt: null })
+
+    expect(order.dueAt).toEqual(new Date('2026-11-30T00:00:00.000Z'))
+  })
+
+  it('moves an existing due date', async () => {
+    const order = await updateOrder({ dueAt: '2026-12-15' })
+
+    expect(order.dueAt).toEqual(new Date('2026-12-15T00:00:00.000Z'))
+  })
+
+  it('clears the due date when sent as null', async () => {
+    const order = await updateOrder({ dueAt: null })
+
+    expect(order.dueAt).toBeNull()
+  })
+
+  it('keeps the due date untouched when the update omits it', async () => {
+    const order = await updateOrder({ customerReference: 'REF-1' })
+
+    expect(order.dueAt).toEqual(new Date('2026-10-31T00:00:00.000Z'))
+  })
+
+  it('reports dueAt to the audit log', async () => {
+    const before = { order: { ...makeOrder(), dueAt: '2026-10-31T00:00:00.000Z' }, tags: [] }
+    const after = { order: { ...makeOrder(), dueAt: '2026-12-15T00:00:00.000Z' }, tags: [] }
+
+    const log = await getHandler().buildLog?.({
+      input: { id: ORDER_ID, dueAt: '2026-12-15' },
+      snapshots: { before, after },
+      result: { order: after.order },
+    } as never)
+
+    expect(log?.changes).toEqual({
+      dueAt: { from: '2026-10-31T00:00:00.000Z', to: '2026-12-15T00:00:00.000Z' },
+    })
+  })
+
+  it.each([
+    ['restores the replaced due date', '2026-10-31T00:00:00.000Z', new Date('2026-10-31T00:00:00.000Z')],
+    ['clears a due date the order did not have before', null, null],
+  ] as Array<[string, string | null, Date | null]>)('undo %s', async (_label, snapshotDueAt, expected) => {
+    const order = { ...makeOrder(), dueAt: new Date('2026-12-15T00:00:00.000Z') }
+    const em = makeEm(order)
+    const before = {
+      order: { ...makeOrder(), dueAt: snapshotDueAt },
+      lines: [],
+      adjustments: [],
+    }
+
+    await getHandler().undo?.({
+      logEntry: { commandPayload: { undo: { before } } },
+      ctx: makeCtx(em),
+      input: {},
+    } as never)
+
+    expect(order.dueAt).toEqual(expected)
+  })
 })
 
 describe('sales.quotes.update — order-only columns are rejected, not dropped', () => {

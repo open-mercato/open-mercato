@@ -585,13 +585,21 @@ const currencyCodeSchema = z
   .toUpperCase()
   .regex(/^[A-Z]{3}$/, { message: "currency_code_invalid" });
 
+// `new Date("2026-02-31")` does not fail — it rolls over to 2026-03-03 — so a
+// parse alone would persist a different day than the caller sent.
+function isCalendarDate(value: string): boolean {
+  const parsed = new Date(value);
+  return (
+    !Number.isNaN(parsed.getTime()) &&
+    parsed.toISOString().slice(0, 10) === value
+  );
+}
+
 const dateOnlySchema = z
   .string()
   .trim()
   .regex(/^\d{4}-\d{2}-\d{2}$/, { message: "invalid_date" })
-  .refine((value) => !Number.isNaN(new Date(value).getTime()), {
-    message: "invalid_date",
-  });
+  .refine(isCalendarDate, { message: "invalid_date" });
 
 const addressSnapshotSchema = z
   .record(z.string(), z.unknown())
@@ -632,6 +640,7 @@ export const documentUpdateSchema = z
     statusEntryId: z.string().uuid().nullable().optional(),
     placedAt: z.union([dateOnlySchema, z.null()]).optional(),
     expectedDeliveryAt: z.union([dateOnlySchema, z.null()]).optional(),
+    dueAt: z.union([dateOnlySchema, z.null()]).optional(),
     shippingAddressId: z.string().uuid().nullable().optional(),
     billingAddressId: z.string().uuid().nullable().optional(),
     shippingAddressSnapshot: addressSnapshotSchema,
@@ -657,6 +666,7 @@ export const documentUpdateSchema = z
       typeof input.currencyCode === "string" ||
       input.placedAt !== undefined ||
       input.expectedDeliveryAt !== undefined ||
+      input.dueAt !== undefined ||
       input.channelId !== undefined ||
       input.statusEntryId !== undefined ||
       input.exchangeRate !== undefined ||
@@ -1371,6 +1381,26 @@ async function applyDocumentUpdate({
       const parsed = new Date(input.expectedDeliveryAt);
       (entity as SalesOrder).expectedDeliveryAt = Number.isNaN(parsed.getTime())
         ? (entity as SalesOrder).expectedDeliveryAt
+        : parsed;
+    }
+  }
+  // Orders only — SalesQuote has no due_at column, so the field is rejected
+  // rather than ignored for the same reason as internalNotes above.
+  if (kind === "quote" && input.dueAt !== undefined) {
+    throw new CrudHttpError(400, {
+      error: translate(
+        "sales.quotes.due_at_unsupported",
+        "Due date is not available on quotes.",
+      ),
+    });
+  }
+  if (kind === "order" && input.dueAt !== undefined) {
+    if (input.dueAt === null) {
+      (entity as SalesOrder).dueAt = null;
+    } else {
+      const parsed = new Date(input.dueAt);
+      (entity as SalesOrder).dueAt = Number.isNaN(parsed.getTime())
+        ? (entity as SalesOrder).dueAt
         : parsed;
     }
   }
@@ -3809,6 +3839,7 @@ function buildDocumentUpdateChangeKeys(kind: SalesDocumentKind, input: DocumentU
     if (input.internalNotes !== undefined) keys.add("internalNotes");
     if (input.placedAt !== undefined) keys.add("placedAt");
     if (input.expectedDeliveryAt !== undefined) keys.add("expectedDeliveryAt");
+    if (input.dueAt !== undefined) keys.add("dueAt");
     if (input.exchangeRate !== undefined) keys.add("exchangeRate");
     if (input.paymentStatusEntryId !== undefined) {
       keys.add("paymentStatusEntryId");
