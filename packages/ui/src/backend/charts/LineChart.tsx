@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import dynamic from 'next/dynamic.js'
+import dynamic from 'next/dynamic'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 
 export type LineChartDataItem = Record<string, string | number | null | undefined>

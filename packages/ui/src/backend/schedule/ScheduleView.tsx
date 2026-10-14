@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { LoadingMessage } from '../detail'
-import dynamic from 'next/dynamic.js'
+import dynamic from 'next/dynamic'
 import type { ScheduleItem, ScheduleRange, ScheduleSlot, ScheduleViewMode } from './types'
 import { ScheduleToolbar } from './ScheduleToolbar'
 import type { ScheduleCalendarProps } from './ScheduleCalendar'
