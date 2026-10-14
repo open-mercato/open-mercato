@@ -187,7 +187,11 @@ source line (in the ledger `amountCurrency` is an unsigned magnitude,
 which `reverseJournalEntry` also copies unchanged), so the zespół 5 line
 shows the same original-currency amount as the cost it reclassifies.
 **Gap found while checking this:** an earlier draft, and #6711, copied
-only `currencyId`.
+only `currencyId`. Amounts are copied verbatim as the ledger's decimal
+strings: the engine does no arithmetic on them in Phase 1 (no
+allocation, no rounding) and checks which side a line is on by
+inspecting the string, never by converting it to a JS number — the
+string-only rule of #5663's implementation guide.
 
 Because delivery is retried, **the subscriber must be idempotent**, and
 that is a requirement of this module, not something the event
@@ -1801,3 +1805,13 @@ statute. The "P&L consistency" invariant stays as a design rule, now without a
 statutory claim. Also noted: the reclassification entries are "dowody
 rozliczeniowe" (art. 20 ust. 3 pkt 4), a category missing from #5663's
 `documentType` enum. Not yet reviewed by a maintainer.
+
+### 2026-10-14 — Amounts copied verbatim, no `Number()` (cross-check of #7332)
+
+Stated in the reclassification step that amounts are copied as the ledger's
+decimal strings, that the engine does no arithmetic on them in Phase 1, and that
+the debit/credit side of a line is read from the string, never by converting it
+to a JS number (the string-only rule of #5663's implementation guide). The
+implementation (#6711) had one `Number(line.debit) > 0` sign check and one in the
+dev CLI; both now inspect the string. No behaviour change. Not yet reviewed by a
+maintainer.
