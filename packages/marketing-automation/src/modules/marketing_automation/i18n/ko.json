@@ -641,7 +641,6 @@
   "marketing_automation.routing.newLeads": "이번 주 신규",
   "marketing_automation.routing.nextUp": "다음 리드는 여기로",
   "marketing_automation.routing.noNew": "이번 주에는 새 리드가 없습니다.",
-  "marketing_automation.routing.owned": "총 {total}건을 담당",
   "marketing_automation.routing.ownedShort": "건 담당",
   "marketing_automation.routing.retry": "다시 시도",
   "marketing_automation.routing.title": "리드 배정",
