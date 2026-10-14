@@ -3,6 +3,11 @@
  */
 import React from 'react'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { RbacService as RealRbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { User, UserAcl } from '@open-mercato/core/modules/auth/data/entities'
+import { createMemoryStrategy } from '@open-mercato/cache'
+import { createTenantModuleAvailability } from '@open-mercato/shared/security/tenantModuleAvailability'
+import { registerModules } from '@open-mercato/shared/lib/modules/registry'
 
 jest.mock('@/.mercato/generated/backend-route-shards.generated', () => ({
   backendRouteFacades: [],
@@ -87,7 +92,11 @@ const mockRbac = {
   userHasAllFeatures: jest.fn<
     ReturnType<RbacService['userHasAllFeatures']>,
     Parameters<RbacService['userHasAllFeatures']>
-  >()
+  >(),
+  getUnavailableModuleIds: jest.fn<
+    ReturnType<RbacService['getUnavailableModuleIds']>,
+    Parameters<RbacService['getUnavailableModuleIds']>
+  >(async () => []),
 }
 const mockMfaEnforcement = {
   checkUserCompliance: jest.fn<Promise<{ compliant: boolean; enforced: boolean; deadline?: Date }>, [string]>(),
@@ -194,5 +203,100 @@ describe('Backend requireFeatures guard', () => {
     await expect(
       BackendCatchAll({ params: Promise.resolve({ slug: ['entities', 'records'] }) }),
     ).rejects.toThrow(/REDIRECT \/backend\/profile\/security\/mfa\?/)
+  })
+})
+
+describe('Backend requireFeatures guard with per-tenant module availability', () => {
+  beforeAll(() => {
+    registerModules([
+      { id: 'entities', features: [{ id: 'entities.records.view', title: 'View records', module: 'entities' }] },
+      { id: 'data_sync', features: [{ id: 'data_sync.configure', title: 'Configure sync', module: 'data_sync' }] },
+      { id: 'sync_akeneo' },
+    ])
+  })
+
+  const superAdminEm = () => {
+    const em = {
+      findOne: jest.fn(async (entity: unknown) => {
+        if (entity === UserAcl) return { isSuperAdmin: true, featuresJson: [], organizationsJson: null }
+        if (entity === User) return { id: 'u1', tenantId: 't1', organizationId: 'o1' }
+        return null
+      }),
+      find: jest.fn(async () => []),
+      fork: jest.fn(),
+    }
+    em.fork.mockReturnValue(em)
+    return em
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockMfaEnforcement.checkUserCompliance.mockResolvedValue({ compliant: true, enforced: false })
+    cookieStore.get.mockReturnValue(undefined)
+    const realRbac = new RealRbacService(
+      superAdminEm() as never,
+      createMemoryStrategy(),
+      undefined,
+      createTenantModuleAvailability({
+        provider: {
+          governedModuleIds: ['entities', 'sync_akeneo'],
+          getUnavailableModuleIds: async ({ tenantId }) => (tenantId === 't1' ? ['entities', 'sync_akeneo'] : []),
+        },
+        cache: createMemoryStrategy(),
+      }),
+    )
+    mockRbac.userHasAllFeatures.mockImplementation((userId, required, scope) => (
+      realRbac.userHasAllFeatures(userId, required, scope)
+    ))
+    mockRbac.getUnavailableModuleIds.mockImplementation((tenantId, userId) => (
+      realRbac.getUnavailableModuleIds(tenantId, userId)
+    ))
+  })
+
+  afterEach(() => {
+    mockRbac.getUnavailableModuleIds.mockImplementation(async () => [])
+  })
+
+  it('renders access denied for a page of an unavailable module guarded only by another module feature', async () => {
+    const { findRouteManifestMatch } = await import('@open-mercato/shared/modules/registry')
+    const mocked = findRouteManifestMatch as jest.MockedFunction<typeof findRouteManifestMatch>
+    const syncPageMatch = () => ({
+      route: {
+        moduleId: 'sync_akeneo',
+        requireAuth: true,
+        requireRoles: [],
+        requireFeatures: ['data_sync.configure'],
+        title: 'Akeneo',
+        load: async () => () => React.createElement('div', null, 'Akeneo'),
+        Component: () => React.createElement('div', null, 'Akeneo'),
+      },
+      params: {},
+    })
+    mocked.mockReturnValueOnce(syncPageMatch() as never)
+    await setAuthMock({ sub: 'u1', tenantId: 't1', orgId: 'o1', roles: [] })
+    const denied = await BackendCatchAll({ params: Promise.resolve({ slug: ['sync-akeneo'] }) })
+    expect(React.isValidElement(denied) && (denied.props as { label?: string }).label).toBe('Access Denied')
+
+    mocked.mockReturnValueOnce(syncPageMatch() as never)
+    await setAuthMock({ sub: 'u1', tenantId: 't2', orgId: 'o1', roles: [] })
+    const allowed = await BackendCatchAll({ params: Promise.resolve({ slug: ['sync-akeneo'] }) })
+    expect(React.isValidElement(allowed) && (allowed.props as { label?: string }).label).toBeFalsy()
+  })
+
+  it('renders access denied for a super admin when the page module is unavailable to the tenant', async () => {
+    await setAuthMock({ sub: 'u1', tenantId: 't1', orgId: 'o1', roles: [] })
+
+    const el = await BackendCatchAll({ params: Promise.resolve({ slug: ['entities', 'records'] }) })
+
+    expect(React.isValidElement(el) && (el.props as { label?: string }).label).toBe('Access Denied')
+    expect(mockRbac.userHasAllFeatures).toHaveBeenCalledWith('u1', ['entities.records.view'], expect.objectContaining({ tenantId: 't1' }))
+  })
+
+  it('renders the page for the same super admin in a tenant where the module is available', async () => {
+    await setAuthMock({ sub: 'u1', tenantId: 't2', orgId: 'o1', roles: [] })
+
+    const el = await BackendCatchAll({ params: Promise.resolve({ slug: ['entities', 'records'] }) })
+
+    expect(React.isValidElement(el) && (el.props as { label?: string }).label).toBeFalsy()
   })
 })

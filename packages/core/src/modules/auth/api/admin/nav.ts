@@ -20,6 +20,21 @@ export const metadata = {
 // scoped queries), so the bound is generous rather than aggressive.
 const NAV_CACHE_TTL_MS = 30 * 60 * 1000
 
+type ModuleAvailabilityReader = {
+  getUnavailableModuleIds?: (tenantId: string | null, userId?: string | null) => Promise<string[]>
+}
+
+async function resolveModuleAvailabilityCacheSegment(
+  container: { resolve: (name: string) => unknown },
+  tenantId: string | null,
+  userId: string,
+): Promise<string> {
+  const rbac = container.resolve('rbacService') as ModuleAvailabilityReader | null
+  if (typeof rbac?.getUnavailableModuleIds !== 'function') return ''
+  const unavailableModuleIds = await rbac.getUnavailableModuleIds(tenantId, userId)
+  return unavailableModuleIds.length ? `:unavailable=${[...unavailableModuleIds].sort().join(',')}` : ''
+}
+
 const sidebarNavItemSchema: z.ZodType<{
   id?: string
   href: string
@@ -165,7 +180,8 @@ export async function GET(req: Request) {
   // The fingerprint invalidates module-surface changes; the TTL bounds anything it cannot observe.
   const cacheVersion = `v7:${getModuleSurfaceFingerprint()}`
   const cacheSelection = cacheScopeSelectedOrganizationId ?? '__all__'
-  const cacheKey = `nav:sidebar:${cacheVersion}:${locale}:${auth.sub}:${cacheScopeTenantId || 'null'}:${cacheScopeOrganizationId || 'null'}:${cacheSelection}`
+  const availabilitySegment = await resolveModuleAvailabilityCacheSegment(container, cacheScopeTenantId, auth.sub)
+  const cacheKey = `nav:sidebar:${cacheVersion}:${locale}:${auth.sub}:${cacheScopeTenantId || 'null'}:${cacheScopeOrganizationId || 'null'}:${cacheSelection}${availabilitySegment}`
   try {
     if (cache?.get) {
       const cached = await cache.get(cacheKey)
