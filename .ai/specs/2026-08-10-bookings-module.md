@@ -206,9 +206,13 @@ scope        organization + the user who writes; for a public page, organization
 stored       the key, a hash of the submitted payload, the reservation it created, when
 same key, same payload       the reservation it created, re-read; nothing is written
 same key, other payload      409, "this key was already used for another request"
-kept for                     twenty-four hours, then deleted for real: every insert first deletes
-                             all expired rows of the organization, so no tick is needed and a scope
-                             that never writes again does not keep its keys forever (7)
+valid for                    twenty-four hours: a lookup ignores an older key, so a repeat after
+                             that writes a new reservation — expiry never waits for a clean-up
+deleted                      every insert first deletes the organization's expired rows, and the
+                             hourly tick deletes them for every organization it walks (5, 7.6);
+                             without the scheduler, the last keys of an organization that never
+                             writes again stay as rows nothing reads — key, payload hash and
+                             reservation id, no personal data
 stored answer                the reservation's id, not the response; a repeat re-reads the
                              reservation and answers with its current state
 ```
@@ -629,12 +633,15 @@ notifications of conflicts with windows that send no event   phase 1 — HR leav
                                                      through the planner subscriber
 removal of notifications that are no longer true     phase 1 — writes still remove theirs
 the expiry safety net for page requests              phase 4 — the delayed jobs still run
-clearing contact details after the retention         phase 4
+the safety net for clearing contact details          phase 4 — the delayed jobs still run
+deletion of expired idempotency keys of an           phase 1 — inserts still delete their
+organization that no longer writes                   organization's; lookups ignore them
 ```
 
-The screens still compute everything on read, and the settings screen says the scan is off. The
-idempotency keys do not depend on the tick: every insert deletes the organization's expired keys
-first, so the table holds at most a day of keys per organization. The job queue itself is a platform library,
+The screens still compute everything on read, and the settings screen says the scan is off.
+Nothing that protects personal data or decides a write rides the tick alone: an
+idempotency key expires on lookup (section 4), and expiry and clearing of page requests run as
+delayed jobs (section 19). The job queue itself is a platform library,
 not a module — it needs no enabling and no declaration.
 
 Permissions, dictionaries, search and the audit log come from the platform.
@@ -1261,7 +1268,7 @@ Every read named in section 12 and every scan step has its index:
 | `bookings_holidays` | (tenant, organization, date) unique | the working calendar |
 | `bookings_conflict_policy_exceptions` | (tenant, organization, category) unique | the policy of a write |
 | `bookings_settings` | (tenant, organization) unique | one row per organization |
-| `bookings_idempotency_keys` | (scope, key) unique; (tenant, organization, created at) | the duplicate check; the clean-up on insert |
+| `bookings_idempotency_keys` | (scope, key) unique; (tenant, organization, created at) | the duplicate check; the clean-up on insert and on the hourly tick |
 
 The timeline read costs a fixed number of queries per view: one page of rows, one query for their
 bars by window over the first index, one bulk question per provider for unavailability, one read of
@@ -2274,7 +2281,9 @@ users or roles when the event names them; it does not filter by feature, and the
 resolver of feature holders the event could name. So every signed-in user of the organization
 receives a module event, also one without `bookings.view`, and a
 target's name can be a patient's (7.4). So none of the reservation events above is sent to the
-browser; they keep their full payload for server-side subscribers. After every reservation write
+browser; they keep their full payload for server-side subscribers. Reservation and target events
+carry the target's id, never its name; a subscriber that needs the name reads it through the
+module's routes, so an event job kept by the queue holds no personal data. After every reservation write
 the module emits `bookings.booking.changed` as well, marked for the browser, carrying only the
 fields listed above — identifiers, window, status, kind of change — and no names. An
 open screen refetches through the module's routes, which check the user's features. The small
@@ -2300,7 +2309,9 @@ insides. So the cap is lifted where it lives — the change makes the organizati
 page through its candidates instead of returning nobody, an additive change to `notifications`
 (section 23), the same way the read method is a contribution to `planner`. Phase 4 adds the types `bookings.request` — a new
 request from a page — and `bookings.request_expiring`, with the same recipients; the customer is
-told by e-mail, not by a notification.
+told by e-mail, not by a notification. Their text carries the service, the date and a link to the
+request, never the customer's name or contact: a stored notification would outlive the clearing
+of the request (section 19).
 
 A notification is removed for every recipient when what it reported is gone. Each one is
 created with the record it is about as its source: the subject for a conflict, the target for a
@@ -2397,7 +2408,7 @@ This table is also the definition of done: until a row has coverage, the module 
 | permissions | a view role does not write; manage reservations without the planner right does not write a window; the administrator does |
 | board screen | rows and bars draw, conflicts are marked with their kind and the other side, the view refreshes after an event; a reservation with two participants draws in both rows and moves as one; in edit mode moves and resizes stay a draft, changed bars are marked, "Save" writes all changes as one compound command and keeps refused ones marked, "Discard" drops the draft, leaving with unsaved changes asks first; a viewer has no edit mode; the timeline library loads only on this screen |
 | forms | creating a reservation, saving a target, saving settings section by section; the unavailability form takes whole days, writes one rule at the subject zone's midnights, offers planner's reasons for the subject's type and only subjects in use, sends the request to the planner endpoint and, after success, calls the conflict read, which returns unavailability conflicts too (a contract test, not a pass through our server) |
-| idempotency | the same create sent twice with one key gives one reservation and the same response; the same key with another payload gives 409 `idempotency_key_reused`; the same key from another user or another organization is independent; a key older than twenty-four hours is removed |
+| idempotency | the same create sent twice with one key gives one reservation and the same response; the same key with another payload gives 409 `idempotency_key_reused`; the same key from another user or another organization is independent; a key older than twenty-four hours is ignored on lookup, so a repeat writes a new reservation; the next insert of the organization deletes its expired keys; the hourly tick deletes the expired keys of an organization that has not written since; without the scheduler those keys stay and a lookup still ignores them |
 | API contracts | every route answers the shapes and error codes of section 12; 409 `booking_conflict` carries the conflict list; 422 for a transition outside the matrix; `pageSize` above 100 rejected |
 | customer link | a target linked to a person shows the person's name; a reservation tab on the customer card lists its reservations; with `customers` disabled the link stays stored and is not shown |
 | extension points | every declared host appears in the extension-point catalog the build produces; for each injection spot and replaceable component a test on the real screen, not only on the registry; a mutation guard and a "before" lifecycle subscriber can each refuse a reservation write with their message, in every mode |
@@ -2422,7 +2433,7 @@ Phases 2–4 bring their rows with their code:
 | free slots (3) | only starts where every requirement has a free member; the grid and the ninety-day cap; computed on committed data |
 | pages (4) | slots respect lead time, horizon and grid; a public free slots call longer than fourteen days is rejected; a request holds its slot; a slot taken a second earlier gives "just taken"; `planner` unreadable gives no slots; rate limit and origin check; the same request twice gives one reservation; a reused key with other details is refused and returns nothing of the first request; the organization comes from the page, never from the request |
 | confirmation (4) | confirm and decline; an unconfirmed request expires on time through its delayed job, and through the hourly safety net when the job is lost; "close to expiring" notifies staff; changing time or person of an unpaid request sets it back to awaiting and restarts the waiting time — the old expiry job does nothing; a paid reservation moved by staff stays confirmed and the customer gets an e-mail |
-| customer (4) | an anonymous request links to no person and creates none, whatever e-mail is typed; its provisional target is absent from the target list and picker; at confirmation staff see the matching targets and attach, create or leave unlinked; attaching moves the reservation and soft-deletes the provisional target; decline and expiry soft-delete it; with the account option the target is linked to the logged-in person at once; contact fields are stored encrypted with the consent proof and cleared after the page's retention |
+| customer (4) | an anonymous request links to no person and creates none, whatever e-mail is typed; its provisional target is absent from the target list and picker; at confirmation staff see the matching targets and attach, create or leave unlinked; attaching moves the reservation and soft-deletes the provisional target; decline and expiry soft-delete it; in all three cases the soft-deleted target's name is replaced with the fixed marker in the same transaction; with the account option the target is linked to the logged-in person at once; contact fields are stored encrypted with the consent proof; after the page's retention the clearing job empties them — with the scheduler off too — and a test then reads the request, the soft-deleted target, the audit entries of the request, confirm and decline commands and of the expiry, and the staff notifications, and finds neither the name nor the e-mail nor the phone; a clearing job that runs after the retention was lengthened puts itself back |
 | payment (4) | confirming with payment on creates a checkout link for the reservation's total; a completed transaction marks it paid |
 
 ## 14. Translations, logs, deployment
@@ -2458,6 +2469,7 @@ bookings.name_refresh_failed     a registry's update event could not refresh a s
 bookings.notification_failed     a notification could not be created or removed
 bookings.scan_org_skipped        the scan skipped an organization after an error
 bookings.expiry_job_failed       phase 4: an expiry job failed and waits for the safety net
+bookings.clear_job_failed        phase 4: a clear job failed and waits for the safety net
 ```
 
 ### Where the module lives
@@ -2965,11 +2977,18 @@ happens to one depends on how the request ends:
 confirmed, linked to an existing target    the reservation moves to that target; the provisional
                                            one is soft-deleted
 confirmed, new person or left unlinked     the provisional target becomes a normal target
-declined or expired                        the provisional target is soft-deleted with the request
+declined or expired                        the provisional target is soft-deleted; the request
+                                           row stays, its contact fields until the retention
 ```
 
 So "one person, one target" (7.4) holds for everything staff see: a returning customer is attached
 to their existing target at confirmation, and the provisional one disappears.
+
+A soft-deleted row is still a row, so a provisional target that is soft-deleted does not keep the
+customer's name: the same transaction replaces it with a fixed marker, which screens render through
+a translation key with the first eight characters of the request's id. From then on the name exists only in the request's contact fields, and
+the retention below clears it in one place. Only a provisional target that staff confirm as a
+normal target keeps the name — then it is a target like any other, kept by staff's decision.
 
 When staff confirm the request, the confirmation screen shows the targets linked to people in
 `customers` that match the e-mail or the phone, and staff choose: attach to one of them, create a
@@ -2993,11 +3012,34 @@ identity is then verified, and the target is linked to their person at once.
 
 The contact fields are personal data and are declared in the module's encryption map. The platform
 has no retention setting for customer data to lean on, so the page carries its own: **keep declined
-and expired requests for N days**, ninety by default. After that the scan's hourly tick clears the
-contact fields of those requests and keeps the rest — dates, service, consent proof without the
-person — so reports still count them. A confirmed request keeps its contact fields as long as the
-reservation exists; once staff linked it to a person, that person in `customers` is the record of
-truth.
+and expired requests for N days**, ninety by default. Clearing empties the contact fields of those
+requests and keeps the rest — dates, service, consent proof without the person — so reports still
+count them. A confirmed request keeps its contact fields as long as the reservation exists; once
+staff linked it to a person, that person in `customers` is the record of truth.
+
+Clearing has its own trigger, like expiry, because the scheduler is optional (section 5) and
+personal data must not stay forever where it is off. Declining or expiring a request puts a
+delayed "clear" job on `bookings-requests`, delayed by the page's retention. The job reads the
+page's current retention when it runs: when the retention was lengthened since, it puts itself back
+for the rest of the time; when it was shortened, the hourly tick clears the overdue requests
+earlier, and without the scheduler they are cleared at the original date. The tick is a safety net
+for a lost job, as for expiry.
+
+The contact fields are the only place the module keeps what the customer typed, so clearing them is
+enough. Everything else written for a request carries identifiers, not the person:
+
+- the provisional target loses the name when it is soft-deleted (The customer, above),
+- the audit entries of `bookings.requests.create`, `.confirm`, `.decline` and of the expiry keep
+  identifiers only: each sets `redoInput` in its log metadata to a copy of its input without the
+  contact fields, and its snapshots — those its log builder returns and the before and after
+  captures the command bus falls back to — leave out the contact fields and the target name, so
+  the changes derived from them hold neither,
+- the request events — `bookings.booking.requested`, `.confirmed`, `.declined`, `.expired` — and
+  the staff notifications (section 12) carry identifiers, the service and the window, not the name
+  or the contact; reservation and target events carry the target's id, not its name (section 12),
+- provisional targets are not indexed for search (7.7).
+
+The e-mails sent to the customer leave the platform and are outside this clearing.
 
 ### Payment
 
@@ -3081,6 +3123,20 @@ configuration of the same reservation: its services, its custom fields, its vali
 replaced components.
 
 ## 21. What changed and what we do not know yet
+
+### Changes in version 4.1
+
+Answering the review of 8 October on this pull request.
+
+**Personal data of page requests.** A soft-deleted provisional target no longer keeps the
+customer's name; the contact fields of the request are the only copy. Clearing them after the
+retention runs as a delayed job on `bookings-requests`, so it no longer depends on the optional
+scheduler. Audit entries, staff notifications and events of a request carry identifiers only;
+reservation and target events carry the target's id, not its name (5, 12, 13, 19, 22, 25).
+
+**Idempotency keys.** Expiry is checked on lookup; deletion runs on insert and on the hourly tick.
+Without the scheduler the last keys of an inactive organization stay as inert rows with no personal
+data, and the document no longer promises otherwise (4, 5, 7.6).
 
 ### Changes in version 4
 
@@ -3337,7 +3393,8 @@ after any step, and what is not built yet is simply not there.
 
 1. Pages and their screens (19).
 2. The public routes and the public request command, on the `checkout` pattern (19).
-3. Requests, consents, the confirmation state, expiry jobs (19).
+3. Requests, consents, the confirmation state, expiry and clear jobs, the marker on a soft-deleted
+   provisional target (19).
 4. Confirmation screen with customer matching (19).
 5. Payment through `checkout` (19).
 
@@ -3583,6 +3640,22 @@ Risks of phase 1 come first; later phases are marked.
 - **Residual risk**: staff can still link the wrong person by mistake; `customers` has no merge
   tool, so a duplicate person created at confirmation stays until such a tool exists.
 
+#### A customer's data outlives the retention
+- **Scenario** (phase 4): a request is declined or expires; the contact fields are cleared after
+  the retention, but a copy of the name or contact stays elsewhere — on the soft-deleted
+  provisional target, in an audit entry, a stored notification or an event payload — or the
+  clearing never runs because the scheduler is off.
+- **Severity**: High
+- **Affected area**: customers' personal data, the page's retention promise
+- **Mitigation**: the contact fields are the only copy; the provisional target loses the name when
+  it is soft-deleted; audit entries, notifications and events of a request carry identifiers only;
+  clearing runs as a delayed job, with the hourly tick as a safety net (section 19). A test reads
+  the request, the target, the audit entries and the notifications after the retention (section 13).
+- **Residual risk**: the e-mails already sent to the customer; a backup taken before the clearing
+  keeps the data until the backup itself expires. With the scheduler off, a lost clear job leaves
+  the contact fields until the organization enables it, and a shortened retention applies only
+  from the original date; `bookings.clear_job_failed` makes a failed job visible (section 13).
+
 #### Free slots on a public page are expensive to compute
 - **Scenario** (phase 4): anonymous visitors ask for free slots of a service with several pooled
   requirements over a long range.
@@ -3621,7 +3694,7 @@ Risks of phase 1 come first; later phases are marked.
   (section 13).
 - **Residual risk**: none accepted.
 
-## 26. Final compliance report — 2026-10-07
+## 26. Final compliance report — 2026-10-14
 
 This is a proposal, not an implementation. The report checks the design against the rules of the
 core repository; each row is verified again against the code of each phase.
@@ -3660,7 +3733,7 @@ core repository; each row is verified again against the code of each phase.
 | .ai/docs/module-development.md | A new module adds an `error`-severity `om-ds/*` override in `eslint.ds.config.mjs` | Compliant | section 14 |
 | BACKWARD_COMPATIBILITY.md | New contract surfaces listed; changes to existing modules additive | Compliant | section 23 |
 | root AGENTS.md → Ask First | Adding a production dependency needs approval | Pending approval | the `vis-timeline` tree with `moment` (section 11) and `@date-fns/tz` (section 8); `date-fns` itself is already a core dependency |
-| root AGENTS.md | Personal data and consents handled explicitly | Compliant | consents with their proof on the page request (section 19) |
+| root AGENTS.md | Personal data and consents handled explicitly | Compliant | consents with their proof on the page request; the contact fields are the only copy of what the customer typed and are cleared by a delayed job after the page's retention, scheduler or not; audit entries, notifications and events of a request carry identifiers only (section 19) |
 | platform convention (`catalog`, `customers`, … `extension-points.ts`) | Extension hosts declared with `defineModuleExtensionPoints` | Compliant | section 20 |
 | packages/ui/AGENTS.md | Forms with `CrudForm`, lists with `DataTable` and stable table ids, guarded mutations elsewhere | Compliant | section 12 |
 | packages/events/AGENTS.md | Cross-module side effects through events and subscribers | Compliant | notifications, payment completion (sections 12, 19) |
@@ -3695,6 +3768,15 @@ Ready for review as a design of phase 1 and a plan of phases 2–4. Each phase r
 against its code.
 
 ## Changelog
+
+### 2026-10-14
+- Version 4.1, answering the review of 8 October: a soft-deleted provisional target loses the
+  customer's name; clearing a request's contact fields after the retention runs as a delayed job,
+  with the tick as a safety net; audit entries, notifications and events of a request carry
+  identifiers only; reservation and target events carry the target's id, not its name; a new log
+  code, a new risk and an extended test (sections 5, 12, 13, 19, 22, 25, 26). Idempotency keys
+  expire on lookup and are deleted on insert and on the hourly tick; the retention claim and the
+  test match (sections 4, 5, 7.6, 13). Section 21 lists the changes.
 
 ### 2026-10-07
 - Version 4, answering the core maintainers' comment of 2 October: the module moves to the core
