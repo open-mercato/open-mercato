@@ -478,7 +478,7 @@ export function TopbarSearchInline({
               id={RESULTS_LISTBOX_ID}
               role="listbox"
               aria-label={t('search.dialog.results.label', 'Search results')}
-              className="max-h-[380px] overflow-y-auto p-1"
+              className="max-h-96 overflow-y-auto p-1"
             >
               {results.map((result, index) => {
                 const presenter = result.presenter

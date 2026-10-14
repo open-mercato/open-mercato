@@ -1202,7 +1202,7 @@ function ViewSwitcherDropdown({
             size="sm"
             // `shrink min-w-0` undoes the Button default `shrink-0`, so the
             // active view name truncates instead of pushing the page wider.
-            className="h-full min-w-0 max-w-[200px] shrink rounded-none rounded-r-md px-3 font-normal text-muted-foreground"
+            className="h-full min-w-0 max-w-52 shrink rounded-none rounded-r-md px-3 font-normal text-muted-foreground"
           >
             <span className="truncate">{activeLabel}</span>
             <ChevronDown className="size-3.5 shrink-0 ml-1.5" />

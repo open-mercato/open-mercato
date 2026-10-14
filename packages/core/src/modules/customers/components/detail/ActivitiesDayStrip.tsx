@@ -379,7 +379,7 @@ function DayCard({ day, isActive, isToday, busyness, label, dayName, onSelect }:
       </div>
       <span
         className={cn(
-          'text-overline leading-[14px] font-normal whitespace-nowrap',
+          'text-overline leading-tight font-normal whitespace-nowrap',
           isActive ? 'text-background/70' : 'text-muted-foreground',
         )}
       >
