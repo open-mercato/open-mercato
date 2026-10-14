@@ -24,6 +24,19 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
+### Forms: the participant PDF holds only the answers the participant's role can read (#7229)
+
+`GET /api/forms/public/submissions/:id/pdf` (access token or portal session) now applies the same
+role slice as the JSON read of the submission, and every response carries
+`cache-control: private, no-store`. A participant whose role can read every field still gets the
+canonical stored snapshot; any other participant gets an uncached, role-filtered copy
+(`submission-<id>-v<n>-participant.pdf`) that is never stored or linked. The staff route
+`GET /api/forms/submissions/:id/pdf` is unchanged.
+
+**Action for module authors:** code that serves `PdfSnapshotService.ensureSnapshot(...)` to a request
+principal should call `readSnapshotForViewer({ organizationId, tenantId, submissionId, viewerRole })`
+instead. `ensureSnapshot` / `readSnapshot` still return the full canonical snapshot.
+
 ### Payment gateway webhooks: opt-in transport, locator and response options; ambiguous matches are rejected
 
 `registerWebhookHandler(...)` accepts new optional options for providers that sign form-encoded bodies or expect a specific acknowledgement:
