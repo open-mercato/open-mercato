@@ -5,7 +5,9 @@
  * category points at; an assigner of that project is notified, claims it in the
  * backoffice drawer, adds an internal note and replies to the customer; the ticket is
  * resolved; the customer sees only the reply and the resolved status, replies again,
- * which reopens it; staff resolve it for good.
+ * which reopens it; staff resolve it for good. The portal page stays open the whole
+ * time: the reply and every status change reach it live (`portal_updated`), never by
+ * a reload.
  */
 import { expect, test } from '@playwright/test'
 import {
@@ -53,7 +55,12 @@ test.describe('TC-STAFF-SUP-010: Support ticket lifecycle through the portal and
       cleanup.add(() => portalContext.close())
       const portal = await portalContext.newPage()
       await usePortalSessionInBrowser(portal, customer)
+      const portalStreamOpened = portal.waitForResponse(
+        (response) => response.url().includes('/api/customer_accounts/portal/events/stream'),
+        { timeout: 60_000 },
+      )
       await portal.goto(`/${slug}/portal/support/new`, { waitUntil: 'domcontentloaded' })
+      await portalStreamOpened
       await dismissNotices(portal)
       await portal.locator('#support-category').click()
       await portal.getByRole('option', { name: category.label }).click()
@@ -65,6 +72,10 @@ test.describe('TC-STAFF-SUP-010: Support ticket lifecycle through the portal and
       cleanup.add(() => deleteTask(request, admin, taskId))
       await expect(portal.getByText(subject).first()).toBeVisible()
       await expect(portal.getByText('Received').first()).toBeVisible()
+      let portalNavigations = 0
+      portal.on('framenavigated', (frame) => {
+        if (frame === portal.mainFrame()) portalNavigations += 1
+      })
 
       const routed = await getStaffTask(request, admin, taskId)
       expect(routed?.time_project_id).toBe(supportProject.id)
@@ -90,23 +101,26 @@ test.describe('TC-STAFF-SUP-010: Support ticket lifecycle through the portal and
       await drawer.getByTestId('task-drawer-comment-reply-customer').click()
       await expect(drawer.getByText('Thanks! A fix is on the way.')).toBeVisible({ timeout: 30_000 })
       expect((await getStaffTask(request, admin, taskId))?.assignee_staff_member_id).toBe(assigner.staffMemberId)
+      await expect(portal.getByText('Thanks! A fix is on the way.')).toBeVisible({ timeout: 30_000 })
+      await expect(portal.getByText('Internal: reproduced with a 51-row file.')).toHaveCount(0)
 
       const doneStatus = await findStatus(request, assigner.token, supportProject.id, 'done')
       expect((await moveTask(request, assigner.token, taskId, doneStatus)).ok()).toBeTruthy()
 
-      await portal.reload({ waitUntil: 'domcontentloaded' })
-      await expect(portal.getByText('Thanks! A fix is on the way.')).toBeVisible({ timeout: 60_000 })
+      await expect(portal.getByText('Resolved').first()).toBeVisible({ timeout: 30_000 })
       await expect(portal.getByText('Internal: reproduced with a 51-row file.')).toHaveCount(0)
-      await expect(portal.getByText('Resolved').first()).toBeVisible()
 
       await portal.getByLabel('Your reply').fill('Still failing for 120 rows.')
       await portal.getByRole('button', { name: 'Send reply' }).click()
       await expect(portal.getByText('Still failing for 120 rows.')).toBeVisible({ timeout: 30_000 })
       await expect.poll(async () => (await getPortalTicket(request, customer, taskId)).body?.portalStatus, { timeout: 30_000 }).toBe('received')
+      await expect(portal.getByText('Resolved')).toHaveCount(0, { timeout: 30_000 })
       expect(await waitForNotification(request, assigner.token, 'staff.support_ticket.customer_replied', taskId)).not.toBeNull()
 
       expect((await moveTask(request, assigner.token, taskId, doneStatus)).ok()).toBeTruthy()
       await expect.poll(async () => (await getPortalTicket(request, customer, taskId)).body?.portalStatus, { timeout: 30_000 }).toBe('resolved')
+      await expect(portal.getByText('Resolved').first()).toBeVisible({ timeout: 30_000 })
+      expect(portalNavigations, 'the portal ticket page must update in place, not by navigating').toBe(0)
       const finalDetail = await getPortalTicket(request, customer, taskId)
       expect(finalDetail.body?.messages.map((message) => message.body)).not.toContain('Internal: reproduced with a 51-row file.')
     } finally {

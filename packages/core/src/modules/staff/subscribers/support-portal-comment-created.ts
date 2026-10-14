@@ -4,9 +4,15 @@ import { publishTicketReply, readEventScope } from '../lib/support/portalBroadca
 
 const logger = createLogger('staff').child({ component: 'subscribers/support-portal-comment-created' })
 
+/**
+ * Ephemeral on purpose: `portal_updated` is portal-only, and the event bus does not
+ * relay portal-only events across processes (open issue #2973). Run inline in the web
+ * process that executed the command, where the portal SSE stream lives. Make this
+ * persistent again once #2973 lands.
+ */
 export const metadata = {
   event: 'staff.timesheets.time_task_comment.created',
-  persistent: true,
+  persistent: false,
   id: 'staff:support-portal-comment-created',
 }
 

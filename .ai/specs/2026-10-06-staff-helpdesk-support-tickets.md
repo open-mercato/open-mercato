@@ -732,3 +732,6 @@ Each phase ends with the validation gate from `.ai/agentic.config.json`.
 - **2026-10-14** — Support Inbox customer filter:
   - The Support Inbox gains the spec's missing **Customer** filter: a searchable combobox over people and companies (`searchCustomers`), sent to the tasks API as `customerId`.
   - `TC-STAFF-SUP-015` covers the customer filter (API and UI) and the inbox's live refresh: a newly filed ticket (`activity_recorded`) and a claim (`assignee_changed`) appear without a reload.
+- **2026-10-14** — Portal live updates:
+  - `TC-STAFF-SUP-010` now keeps the portal ticket page open and asserts that the staff reply and every status change arrive live, with no navigation.
+  - That check exposed open issue #2973: the event bus relays only `clientBroadcast`/`crossProcessBroadcast` events across processes, so `portal_updated` (portal-only) emitted from the queue worker never reached the web process holding the portal SSE stream. The six `support-portal-*` subscribers are therefore ephemeral and run inline in the web process that executed the command, as `warranty_claims` emits its portal event from the command. Portal state is derived on read, so a live update lost to a crash only delays it until the next load. Make them persistent again once #2973 lands.
