@@ -35,9 +35,9 @@
 | 2 | 2.6 | Promotions: promotionsService evaluate and evaluateForProduct with context enrichment | dispatch | done | see `git log` |
 | 2 | 2.7 | Promotions: evaluate, product-page, dynamic-labels, free-products routes with API-key auth | dispatch | done | see `git log` |
 | 2 | 2.8 | Promotions: Phase 2 tests (engine unit, API, zero-DB assertion, 200-promotion benchmark) | dispatch | done | see `git log` |
-| 3 | 3.1 | Catalog: catalogBuyerPricingService extracted from ecommerce | dispatch:capable | todo | — |
-| 3 | 3.2 | Catalog: catalogScopedProductService with equivalence property test | dispatch:capable | todo | — |
-| 3 | 3.3 | Availability: shared quantity-rule derivation | dispatch | todo | — |
+| 3 | 3.1 | Catalog: catalogBuyerPricingService extracted from ecommerce | dispatch:capable | done | see `git log` |
+| 3 | 3.2 | Catalog: catalogScopedProductService with equivalence property test | dispatch:capable | done | see `git log` |
+| 3 | 3.3 | Availability: shared quantity-rule derivation | dispatch | done | see `git log` |
 | 3 | 3.4 | Ecommerce: repoint onto the shared seams and add the fresh buyer-context option | dispatch:capable | todo | — |
 | 4 | 4.1 | Cart: scaffold module, ACL, setup, events, DI, encryption, i18n | dispatch | todo | — |
 | 4 | 4.2 | Cart: entities, validators and migration (incl. Phase 4 seam columns) | dispatch:capable | todo | — |
@@ -138,9 +138,9 @@ Each Step below matches the Tasks table. Spec section numbers refer to the specs
 
 ### Phase 3 — Shared seams (D-R4-3)
 
-- **3.1** `catalogBuyerPricingService.resolveLinePrice(...)` (winning row, net/gross/tax rate, tier + next tier, `priceIsPromotional`) extracted from `ecommerce/lib/storefrontPricing.ts`; additive DI key; unit tests.
-- **3.2** `catalogScopedProductService.loadScopedProducts(ids, scope)` returning `{ id, categoryIds (ancestor-expanded), tagIds, isActive }`, batch via `computeProductScopeKeys`, `null` for missing/deleted/other-tenant; property test tying it to `matchesScope` and the existing `evaluateIndexDocFilter`/`buildProductScopeKeys` equivalence (seeded `mulberry32`).
-- **3.3** Shared quantity-rule derivation in `availability` (from `ecommerce/lib/storefrontDetail.ts`).
+- **3.1** `catalogBuyerPricingService.resolveLinePrice(...)` (winning row, net/gross/tax rate, tier + next tier, `priceIsPromotional`) extracted from `ecommerce/lib/storefrontPricing.ts`; additive DI key (singleton); unit tests. Intentionally duplicates the tax-rate fallback's `SalesTaxRate` lookup rather than inventing a new cross-module seam for it (`catalog` already imports from `sales` elsewhere); `ecommerce`'s own copy is removed only in Step 3.4.
+- **3.2** `catalogScopedProductService.loadScopedProducts(ids, scope)` returning `{ id, categoryIds (ancestor-expanded), tagIds, isActive }`, batch via `computeProductScopeKeys`, `null` for missing/deleted/other-tenant; property test tying it to `matchesScope` and the existing `evaluateIndexDocFilter`/`buildProductScopeKeys` equivalence (seeded `mulberry32`, 80 randomized batches).
+- **3.3** Shared quantity-rule derivation in `availability` (from `ecommerce/lib/storefrontDetail.ts`) — a plain exported pure function (`deriveQuantityRules`), not a DI service: the logic is a stateless merge over inputs the caller already holds, with no I/O of its own.
 - **3.4** Repoint ecommerce onto 3.1–3.3 without behaviour change; add the optional `fresh` option to `storeContextService.resolve` (D-R4-22). `TC-ECOM-010/012` and the other ecommerce suites stay green.
 
 ### Phase 4 — Cart Phase 1 (core cart with visibility built in)
