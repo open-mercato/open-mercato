@@ -1,6 +1,7 @@
 import { asFunction } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { PromotionCacheService } from './services/promotion-cache'
+import { PromotionsServiceImpl } from './lib/promotions-service'
 
 export function register(container: AppContainer) {
   container.register({
@@ -10,5 +11,10 @@ export function register(container: AppContainer) {
     // request-scoped container at call time — matching how commands resolve them
     // (`ctx.container.resolve('em')`, see `commands/promotions.ts`).
     promotionCacheService: asFunction(() => new PromotionCacheService(container)).scoped().proxy(),
+    // SPEC-055 §Amendment A.2 — the primary in-process integration facade. Same
+    // closure-over-`container` pattern as `promotionCacheService` above, so `evaluate`/
+    // `evaluateForProduct` resolve `em`/`promotionCacheService`/`auth` from the SAME
+    // request-scoped container at call time.
+    promotionsService: asFunction(() => new PromotionsServiceImpl(container)).scoped().proxy(),
   })
 }

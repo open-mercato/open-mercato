@@ -216,6 +216,13 @@ export interface EvaluationInput {
   customerOrderCount: number | null
   cartWeight: string | null
   codes: CodeRef[]
+  // Optional (Step 2.6): mirrors `EvaluationContext.currencyFractionDigits` one level up —
+  // `evaluatePromotions()` copies it straight into every promotion's `EvaluationContext`
+  // (see `lib/evaluation-engine.ts`). `promotionsService.evaluate()` is the only caller
+  // that ever sets it, resolved from `currencies.Currency.decimalPlaces`; every existing
+  // fixture/test omits it and gets the same default-2 behavior as before this field
+  // existed (`lib/effect-resolvers.ts`'s `getCurrencyFractionDigits`).
+  currencyFractionDigits?: number
 }
 
 // ---------------------------------------------------------------------------

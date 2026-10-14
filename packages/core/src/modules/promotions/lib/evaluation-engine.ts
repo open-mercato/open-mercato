@@ -35,6 +35,7 @@ export function evaluatePromotions(
       codes: input.codes,
       appliedTags,
       excludeFlags: promotion.excludeFlags,
+      currencyFractionDigits: input.currencyFractionDigits,
     }
 
     const matched = evaluateGroup(promotion.rootGroup, context)
