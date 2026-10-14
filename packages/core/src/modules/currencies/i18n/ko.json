@@ -120,7 +120,7 @@
   "exchangeRates.form.field.metadata": "메타데이터",
   "exchangeRates.form.field.metadataHelp": "공급자 테이블 번호나 메모 등 추가 정보를 담은 선택적 JSON 객체",
   "exchangeRates.form.field.rate": "환율",
-  "exchangeRates.form.field.rateHelp": "원본 통화 1단위당 대상 통화의 단위 수 (소수 자릿수 제한 없음)",
+  "exchangeRates.form.field.rateHelp": "원본 통화 1단위당 대상 통화의 단위 수",
   "exchangeRates.form.field.source": "소스",
   "exchangeRates.form.field.sourceHelp": "이 환율의 출처 (필수, 2~50자)",
   "exchangeRates.form.field.sourcePlaceholder": "예: ECB, 수동",

@@ -38,7 +38,8 @@ uses exact decimals. Public contracts keep their `number` fields (a float copy) 
 - Payment gateway adapters should prefer `input.amountExact` and may return `capturedAmountExact` /
   `refundedAmountExact` / `amountExact`.
 - Code that compared stored amount strings literally (`'40.0000'`) must compare numerically: new rows
-  are stored without scale padding.
+  are stored without scale padding. Catalog history responses retain at least four decimal places
+  without truncating additional digits.
 - The existing capture-ledger exports keep their fixed four-decimal bigint fields and signatures,
   including `CaptureAmounts`, `resolveCaptureAmounts`, `assertCaptureWithinRemaining`, and the
   reserve/settle/release helpers. They are deprecated and remain available until no earlier than
@@ -49,9 +50,9 @@ uses exact decimals. Public contracts keep their `number` fields (a float copy) 
   read `rateOverrideAmountExact` / `hourlyRateExact` and implement the optional `resolveExact(ctx)`.
 - Payment gateway session, capture and refund requests with more decimals than the currency allows
   (e.g. `10.005` USD) now get a 400. Money inputs with more than 1000 significant digits or 300
-  integer digits get a 400 (`withDecimalCaps` guards the number-coercing money schemas).
+  integer digits get a 400 on CRUD money endpoints (`withDecimalCaps` guards the number-coercing schemas); invalid payment gateway payloads get a 422.
 - Positive gateway amounts whose required numeric copy underflows to zero, such as `1e-400`,
-  are rejected as invalid payloads before a provider is called.
+  are rejected with 422 as invalid payloads before a provider is called.
 - The money migrations' `down()` narrows the columns back to their old precision: extra decimals are
   rounded away, and values beyond the old integer digits make the rollback fail with
   "numeric field overflow". Back up before rolling back.

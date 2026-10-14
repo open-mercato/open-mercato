@@ -120,7 +120,7 @@
   "exchangeRates.form.field.metadata": "Metadane",
   "exchangeRates.form.field.metadataHelp": "Opcjonalny obiekt JSON z dodatkowym kontekstem, np. numerem tabeli dostawcy lub notatkami",
   "exchangeRates.form.field.rate": "Kurs Wymiany",
-  "exchangeRates.form.field.rateHelp": "Ile jednostek waluty docelowej za 1 jednostkę waluty źródłowej (dowolna liczba miejsc dziesiętnych)",
+  "exchangeRates.form.field.rateHelp": "Ile jednostek waluty docelowej za 1 jednostkę waluty źródłowej",
   "exchangeRates.form.field.source": "Źródło",
   "exchangeRates.form.field.sourceHelp": "Skąd pochodzi ten kurs (wymagane, 2-50 znaków)",
   "exchangeRates.form.field.sourcePlaceholder": "np. NBP, Raiffeisen",

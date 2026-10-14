@@ -120,7 +120,7 @@
   "exchangeRates.form.field.metadata": "Metadata",
   "exchangeRates.form.field.metadataHelp": "Optional JSON object with extra context, e.g. provider table number or notes",
   "exchangeRates.form.field.rate": "Exchange Rate",
-  "exchangeRates.form.field.rateHelp": "How many units of target currency per 1 unit of source currency (any number of decimal places)",
+  "exchangeRates.form.field.rateHelp": "How many units of target currency per 1 unit of source currency",
   "exchangeRates.form.field.source": "Source",
   "exchangeRates.form.field.sourceHelp": "Where this rate came from (required, 2-50 characters)",
   "exchangeRates.form.field.sourcePlaceholder": "e.g., ECB, Manual",

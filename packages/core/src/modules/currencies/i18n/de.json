@@ -120,7 +120,7 @@
   "exchangeRates.form.field.metadata": "Metadaten",
   "exchangeRates.form.field.metadataHelp": "Optionales JSON-Objekt mit zusätzlichem Kontext, z. B. Tabellennummer des Anbieters oder Notizen",
   "exchangeRates.form.field.rate": "Wechselkurs",
-  "exchangeRates.form.field.rateHelp": "Wie viele Einheiten der Zielwährung pro 1 Einheit der Quellwährung (beliebig viele Dezimalstellen)",
+  "exchangeRates.form.field.rateHelp": "Wie viele Einheiten der Zielwährung pro 1 Einheit der Quellwährung",
   "exchangeRates.form.field.source": "Quelle",
   "exchangeRates.form.field.sourceHelp": "Woher stammt dieser Kurs (erforderlich, 2-50 Zeichen)",
   "exchangeRates.form.field.sourcePlaceholder": "z.B. EZB, Manuell",

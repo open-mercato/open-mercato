@@ -120,7 +120,7 @@
   "exchangeRates.form.field.metadata": "Metadatos",
   "exchangeRates.form.field.metadataHelp": "Objeto JSON opcional con contexto adicional, p. ej. número de tabla del proveedor o notas",
   "exchangeRates.form.field.rate": "Tipo de Cambio",
-  "exchangeRates.form.field.rateHelp": "Cuántas unidades de moneda de destino por 1 unidad de moneda de origen (cualquier número de decimales)",
+  "exchangeRates.form.field.rateHelp": "Cuántas unidades de moneda de destino por 1 unidad de moneda de origen",
   "exchangeRates.form.field.source": "Fuente",
   "exchangeRates.form.field.sourceHelp": "De dónde proviene este tipo (requerido, 2-50 caracteres)",
   "exchangeRates.form.field.sourcePlaceholder": "ej. BCE, Manual",

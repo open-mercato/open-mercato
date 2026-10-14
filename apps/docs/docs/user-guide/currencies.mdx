@@ -25,7 +25,7 @@ Exchange rates can be added manually or fetched automatically from configured pr
 
 1. Navigate to **Backend → Exchange Rates** and click **Add exchange rate**.
 2. Select the source and target currencies (e.g., USD → EUR).
-3. Enter the exchange rate value. Any number of decimal places is stored exactly, so tiny or inverted rates (for example 1 IDR = 0.000056 USD) keep every digit.
+3. Enter the exchange rate value. The entered decimal string is stored exactly within the input limits (1000 significant digits, 300 integer digits, and no non-zero digit below `1e-1000`). Tiny or inverted rates (for example 1 IDR = 0.000056 USD) keep every digit.
 4. Choose the date for this rate—historical rates are fully supported.
 5. Optionally specify the rate type:
    - **Buy**: Rate when the bank buys the foreign currency (you sell it to them)

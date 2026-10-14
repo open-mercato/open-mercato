@@ -37,7 +37,7 @@ Open Mercato stores money in fixed-scale columns: `(18,4)` in sales, `(16,4)` fo
 | D1 | Money and FX columns become unconstrained `numeric` | Postgres allows 131072 integer and 16383 fractional digits. `ALTER ... TYPE numeric` from `numeric(p,s)` does not rewrite the table |
 | D2 | `big.js` is a production dependency of `@open-mercato/shared` | Small (~3 KB), immutable, exact `plus`/`minus`/`times`. Decimal places apply only to `div`/`sqrt`. `decimal.js` rounds every operation to N significant digits, which would re-introduce a limit |
 | D3 | Division keeps `max(decimalPlaces, 17 significant digits)` decimals. `decimalPlaces` is a lower bound, not a rounding step | Infinite expansions (`1/3`) must be cut somewhere. 17 significant digits is what an IEEE 754 double needs to round-trip, so the result is never worse than `number`. Only FX values and intermediate results keep the extra digits; stored amounts are rounded afterwards (D4) |
-| D4 | Every stored amount derived by division is rounded with `roundDecimal(value, amountDecimalPlaces)`, where `amountDecimalPlaces` is `max(4, currency.decimalPlaces)`, falling back to the `Intl` ISO digits and then to 4 | Fiat keeps today's 4 dp internal precision (currencies AGENTS rule 1): `100 / 1.23` is stored as `81.3008`. Crypto gets its full precision. Entered amounts (catalog prices, unit prices) stay exact; client-supplied sales line discount, tax and gross totals are rounded to this precision, as the old `(18,4)` columns did for fiat |
+| D4 | Every stored amount derived by division is rounded with `roundDecimal(value, amountDecimalPlaces)`, where `amountDecimalPlaces` is `max(4, currency.decimalPlaces)`, falling back to the static ISO 4217 minor-unit table and then to 4 | Fiat keeps today's 4 dp internal precision (currencies AGENTS rule 1): `100 / 1.23` is stored as `81.3008`. Crypto gets its full precision. Entered amounts (catalog prices, unit prices) stay exact; client-supplied sales line discount, tax and gross totals are rounded to this precision, as the old `(18,4)` columns did for fiat |
 | D5 | FX division precision is 50 dp | Far beyond any real rate. Combined with D3, tiny rates still keep 17 significant digits |
 | D6 | Rounding mode is half-up (away from zero) | Matches `Math.round` for positive values. Negative halves now round away from zero, the accounting convention |
 | D7 | Dual fields: keep `number` fields as float copies (documented "prefer the exact field"), add optional `<field>Exact: string` | Additive for TS contracts and API payloads; existing consumers keep compiling |
@@ -61,7 +61,7 @@ Open Mercato stores money in fixed-scale columns: `(18,4)` in sales, `(16,4)` fo
 
 Plain functions over `big.js`:
 
-- `toDecimal(value)`: accepts `string | number | Big` and throws on NaN, Infinity or a malformed string. A value is malformed when its exponent exceeds `MAX_DECIMAL_EXPONENT = 1000`, it has more than `MAX_DECIMAL_SIGNIFICANT_DIGITS = 1000` significant digits, more than `MAX_DECIMAL_INTEGER_DIGITS = 300` integer digits (so the float copy stays finite), or a digit below `1e-1000`. Oversized input is a 400, never a slow request or a Postgres overflow.
+- `toDecimal(value)`: accepts `string | number | Big` and throws on NaN, Infinity or a malformed string. A value is malformed when its exponent exceeds `MAX_DECIMAL_EXPONENT = 1000`, it has more than `MAX_DECIMAL_SIGNIFICANT_DIGITS = 1000` significant digits, more than `MAX_DECIMAL_INTEGER_DIGITS = 300` integer digits (so the float copy stays finite), or a digit below `1e-1000`. Oversized input is rejected before persistence. CRUD money endpoints return 400; payment gateway payload validation returns 422.
 - `decimalToString(value)`: no exponent, no padding.
 - `addDecimals`, `subtractDecimals`, `multiplyDecimals`, `sumDecimals`.
 - `divideDecimals(a, b, decimalPlaces)`: applies D3.
@@ -75,14 +75,14 @@ Plain functions over `big.js`:
 - `withExactListAmounts(items, raw, key, fields)` - the same for each item of a nested list (document lines, payment allocations).
 - `withDecimalCaps(schema, message?)` - wraps a number-coercing money schema so oversized input is rejected before coercion instead of being stored as `0` or `null`.
 - `padDecimalPlaces(value, min)` - plain decimal string with at least `min` decimals, never cut (emails, exports of frozen amounts).
-- `amountComparisonTolerance(dp)` - half a minor unit at the given precision (0.005 at 4).
+- `amountComparisonTolerance(dp)` - reconciliation tolerance of `5 × 10^-(max(dp, 4) - 1)`: 0.005 at 4 places and 0.0000005 at 8 places. Settlement checks use their separate one-unit tolerance.
 - `@open-mercato/shared/lib/currencyPrecision`: `resolveCurrencyDecimalPlaces` (raw currency digits) and `resolveCurrencyAmountDecimalPlaces` (`max(4, dp)`).
-- `resolveIsoCurrencyDecimalPlaces(code)` only trusts `Intl` for codes in `Intl.supportedValuesOf('currency')`, so unknown codes such as ETH return `null` instead of 2.
+- `resolveIsoCurrencyDecimalPlaces(code)` reads the static ISO 4217 minor-unit table, including `null` for codes without defined minor units. Codes outside that table fall back to `resolveCurrencyDisplayDecimalPlaces`, which checks the runtime's supported currency list when available. `Intl` display digits are separate from ISO minor units.
 - `parseLocaleDecimal(input, locale)` in `lib/number.ts` - exact variant of `parseLocaleNumber` for user-typed money.
 
 ### Currency precision source
 
-The currencies module registers a `currencyPrecisionService` DI service with `getDecimalPlaces({ code, tenantId, organizationId })`. It reads the currency with `findOneWithDecryption` scoped to the tenant and organization, and returns `null` without an organization. Consumers resolve it soft-optionally, so modules without currencies fall back to the `Intl` ISO digits and then to 4. The `decimalPlaces` validator cap rises from 8 to 50.
+The currencies module registers a `currencyPrecisionService` DI service with `getDecimalPlaces({ code, tenantId, organizationId })`. It reads the currency with `findOneWithDecryption` scoped to the tenant and organization, and returns `null` without an organization. Consumers resolve it soft-optionally, so modules without currencies fall back to the static ISO 4217 minor-unit table. General money calculations default to 4 places when precision is unknown; staff and checkout default to 2. The `decimalPlaces` validator cap rises from 8 to 50.
 
 ### Sales calculation engine
 
@@ -90,7 +90,7 @@ The currencies module registers a `currencyPrecisionService` DI service with `ge
 - Divisions run at FX precision; each resulting amount is rounded to `amountDecimalPlaces` (D4).
 - `number` fields are filled with `Number(exact)` at the end of each step.
 - The calculation context and line results carry `amountDecimalPlaces`.
-- **Hook bridge.** Every amount pair is compared with its value before each hook, paired by line or adjustment `id`; when no item has an id and the count is unchanged, by position; otherwise the float/exact consistency rule applies. Line snapshots keep their ids. The same change-aware rule applies to the `sales.tax.calculate.*` hooks. If only the `number` changed, the hook is a legacy one and `Exact` is re-derived from the `number`, rounded to `amountDecimalPlaces`. If `Exact` changed, it wins and the `number` is refreshed from it. Untouched fields keep full precision.
+- **Hook bridge.** Every amount pair is compared with its value before each hook, paired by line or adjustment `id`, then by object identity, then by position only when both lists have no ids and counts are unchanged; otherwise the float/exact consistency rule applies. Line snapshots keep their ids. The same change-aware rule applies to the `sales.tax.calculate.*` hooks. If only the `number` changed, the hook is a legacy one and `Exact` is re-derived from the `number`, rounded to `amountDecimalPlaces`. If `Exact` changed, it wins and the `number` is refreshed from it. Untouched fields keep full precision.
 
 ### Persistence
 
@@ -99,7 +99,7 @@ The currencies module registers a `currencyPrecisionService` DI service with `ge
 - Checkout configured amounts (fixed price, original price, custom min/max, price-list items) and transactions are rounded to the currency's own decimals, so the shown, validated and charged amounts match. The pay page submits exact strings.
 - Catalog prices keep the entered side exact; only the derived side (gross in net mode, net in gross mode) is rounded, and tax is the exact difference.
 - Payment gateway session, capture and refund routes, and the public checkout submit route before it reserves a transaction, reject amounts with more decimals than `min(tenant decimals, ISO minor-unit digits)` (400).
-- Settlement checks (fully paid, refunded or shipped) use a tolerance of one unit at the currency's amount precision. Float-only resolvers keep the old `1e-4`.
+- Sales settlement checks use a tolerance of one unit at the greater of the currency amount precision and the compared amounts' decimal places. Gateway order-amount reconciliation uses half a unit at the currency amount precision for exact resolvers; float-only resolvers keep the old `1e-4`.
 - Closed staff reports sum and export frozen amounts as stored; live amounts round per D10.
 - The sales dialogs read the configured currency decimals (`/api/currencies/currencies`) for auto-fill and shipped-line rescaling; `formatCurrency` rounds display to the currency precision when it is known.
 
@@ -132,10 +132,10 @@ Existing rows keep their stored scale (`40.0000`). New rows store the value as w
 
 ## API Contracts
 
-- `GET /api/currencies/exchange-rates` items gain `metadata: Record<string, unknown> | null`. `POST` and `PUT` accept `metadata` up to 16 KB of JSON. `rate` accepts any number of decimals.
+- `GET /api/currencies/exchange-rates` items gain `metadata: Record<string, unknown> | null`. `POST` and `PUT` accept `metadata` up to 16 KB of JSON. `rate` accepts a positive plain decimal string within the shared decimal input caps; it is no longer limited to eight fractional digits.
 - **Endpoints that return amounts as JSON numbers** keep them and add a `<field>Exact` string sibling: sales document list/detail totals, checkout templates/links/transactions, payment gateway status (`amountExact`, `amountReceivedExact`), capture (`capturedAmountExact`) and refund (`refundedAmountExact`), customer deal stats (`dealValueExact`), summary (`valueExact`, `avgDealExact`) and aggregate (`totalInBaseCurrencyExact`, `byCurrency[].totalExact`; the number fields stay rounded to whole units), customer group terms, warranty claim settings (`autoApproveMaxAmountExact`), staff report totals, staff project list and time entries (`costExact`, `hourlyRateExact`).
 - **Endpoints that return amounts as strings** keep strings. Their OpenAPI schemas are corrected from `number` to `string`: sales lines, adjustments, payments, shipments, catalog prices, warranty claim totals.
-- **Write endpoints** accept amounts as `number` or decimal `string`. Strings are recommended for exactness.
+- **Money write endpoints** accept amounts as `number` or decimal `string`. Strings are recommended for exactness. Exchange-rate `rate` remains a positive plain decimal string.
 
 ## Integration Coverage
 
@@ -177,7 +177,7 @@ Every module whose API gains `<field>Exact` fields or wider money columns gets a
 | A third-party hook writes only `number` and loses precision | Medium | sales hooks | Hook bridge re-derives `Exact` from changed `number` fields | That field is limited to float precision |
 | Clients compare padded strings (`"40.0000"`) | Low | API | Values are numerically equal; documented | Exact string equality checks need updating |
 | `big.js` adds bundle weight to the client | Low | UI | ~3 KB gzipped | - |
-| Oversized input (`1e-100000000`, 100k-digit strings, values past Postgres or float limits) costs CPU or fails in the database | Medium | write APIs | Exponent, significant-digit, integer-digit and smallest-digit caps reject it as invalid input (400) | A valid price just under 1e300 times a large quantity can still overflow the float copy |
+| Oversized input (`1e-100000000`, 100k-significant-digit strings, values past Postgres or float limits) costs CPU or fails in the database | Medium | write APIs | Exponent, significant-digit, integer-digit and smallest-digit caps reject it before persistence (400 for CRUD money endpoints, 422 for gateway payloads) | A valid price just under 1e300 times a large quantity can still overflow the float copy |
 | Postgres `numeric` division in SQL aggregates | Low | analytics | SQL `SUM` is exact; only `AVG`/division uses PG's own scale rules | - |
 
 ## Final Compliance Report
@@ -190,7 +190,7 @@ Every module whose API gains `<field>Exact` fields or wider money columns gets a
 ## Implementation Notes
 
 - MikroORM maps a bare `type: 'numeric'` to `numeric(10,0)`; entities declare `columnType: 'numeric'` to get an unconstrained column.
-- MikroORM's `DecimalType` detects changes by comparing `+value`, so an edit beyond float precision was never flushed. Money and FX columns use `ExactDecimalType` (`@open-mercato/shared/lib/db/exactDecimalType`), which compares exact decimal values. The schema is unchanged.
+- MikroORM's `DecimalType` detects changes by comparing `+value`, so an edit beyond float precision was never flushed. Money and FX columns use `ExactDecimalType` (`@open-mercato/shared/lib/db/exactDecimalType`), which compares exact decimal values. The custom type preserves the unconstrained `numeric` schema introduced by the widening migrations.
 - Hook bridge lives in `calculations.ts` (`syncLineResultExactAmounts`, `syncDocumentResultExactAmounts`) and runs after every calculator and event hook.
 - The gateway service uses exact capture-ledger helpers. Existing bigint exports retain fixed four-decimal behavior as deprecated bridges until no earlier than 0.11.0.
 - Positive gateway amounts must retain a positive numeric copy; underflow inputs such as `1e-400` fail payload validation before a provider call. Core and checkout share the pure precision validator, with each module owning its scoped currency lookup and translations.
@@ -210,3 +210,4 @@ Every module whose API gains `<field>Exact` fields or wider money columns gets a
 - 2026-10-12: Third re-review fixes. Exact siblings on the exported staff report types are optional again (D7), with `Exact*` result types for internal use; checkout submit enforces payment precision before reserving and the pay page displays exact amounts; staff project and time-entry editors preserve exact rates; the sales line dialog derives prices at the configured currency precision; command snapshots keep line ids, id-less hook results pair by identity, then by position; tax hooks keep exact-only edits.
 - 2026-10-14: Upstream merge includes catalog price history. History money columns use unconstrained numeric, change detection compares exact decimals, and history responses preserve all digits while retaining the legacy minimum of four decimal places. The catalog migration is regenerated from the upstream snapshot; precision integration coverage now checks history snapshots.
 - 2026-10-14: Address haxiorz's review: restore deprecated bigint capture-ledger bridges, reject positive gateway amount underflow, move the pure currency precision check into shared, and regenerate money snapshots with unconstrained numeric metadata. The gateway precision integration test includes the underflow rejection; metadata/schema regression coverage verifies repeated migration generation is a no-op.
+- 2026-10-14: Align compatibility notes, currency precision sources, reconciliation tolerance, and input-limit documentation with the implemented helpers and routes.
