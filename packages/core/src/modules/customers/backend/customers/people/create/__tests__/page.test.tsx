@@ -57,13 +57,11 @@ describe('person create page injection host (#5882)', () => {
     expect(crudFormPropsCapture.current?.injectionSpotId).toBe(extensionPoints.hosts.personForm.spotId)
   })
 
-  it('no longer publishes the legacy derived spot', () => {
+  it('keeps the legacy derived spot bound as a deprecation bridge', () => {
     render(<CreatePersonPage />)
 
-    // Asserted as a literal rather than by recomputing `CrudForm`'s derivation: the point
-    // is that this specific published id is gone, and a test that re-derived it would keep
-    // passing even if the framework's fallback changed shape.
     expect(crudFormPropsCapture.current?.injectionSpotId).not.toBe('crud-form:customers.customer_entity')
+    expect(crudFormPropsCapture.current?.legacyInjectionSpotId).toBe('crud-form:customers.customer_entity')
   })
 
   it('keeps the existing entityIds so custom-field resolution is unchanged', () => {

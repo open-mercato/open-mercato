@@ -213,14 +213,24 @@ export async function bootstrap(container: AwilixContainer) {
       defaultEncryptionMaps,
     })
     container.register({ tenantEncryptionService: asValue(tenantEncryptionService) })
-    if (isTenantDataEncryptionEnabled() && kmsService.isHealthy()) {
+    // Register on the static config toggle only — never on KMS health. The
+    // subscriber re-checks `service.isEnabled()` (which includes KMS health) on
+    // every read/write, so registering while Vault is down is a no-op that
+    // starts encrypting again the moment KMS recovers. Gating registration on
+    // health instead left a boot-time outage fail-open for the whole process
+    // lifetime, recoverable only by a restart (#5948).
+    if (isTenantDataEncryptionEnabled()) {
       try {
         registerTenantEncryptionSubscriber(em, tenantEncryptionService)
       } catch (err) {
         logger.warn('Failed to register MikroORM encryption subscriber', { component: 'encryption', err })
       }
-    } else if (isTenantDataEncryptionEnabled() && !kmsService.isHealthy()) {
-      logger.warn('Vault/KMS unhealthy - tenant data encryption is disabled until recovery', { component: 'encryption' })
+      if (!kmsService.isHealthy()) {
+        logger.warn(
+          'Vault/KMS unhealthy - tenant data encryption is paused until it recovers; the subscriber is registered and resumes automatically',
+          { component: 'encryption' },
+        )
+      }
     }
   } catch (err) {
     logger.warn('Failed to initialize tenant encryption service', { component: 'encryption', err })

@@ -93,7 +93,7 @@ test.describe('TC-WC-016: warranty claim receiving grading', () => {
         restockResponse.status(),
         `C-graded lines should reject restock: ${JSON.stringify(restockBody)}`,
       ).toBe(400)
-      expect(restockBody?.error).toBe('warranty_claims.errors.dispositionGradeConflict')
+      expect(restockBody?.error).toBe('Restock is only allowed for grade A or B items.')
 
       const finalClaim = await readClaim(request, adminToken, claim.id!)
       expect(finalClaim.status).toBe('received')

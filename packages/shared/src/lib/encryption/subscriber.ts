@@ -1,7 +1,9 @@
-import type { EntityMetadata, EventArgs, EventSubscriber } from '@mikro-orm/core'
-import { ReferenceKind } from '@mikro-orm/core'
+import type { EntityMetadata, EventArgs, EventSubscriber, FlushEventArgs } from '@mikro-orm/core'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { DriverException, ReferenceKind } from '@mikro-orm/core'
 import { resolveEntityIdFromMetadata } from './entityIds'
 import { TenantDataEncryptionService, parseDecryptedFieldValue } from './tenantDataEncryptionService'
+import { forgetEncryptionPolicyMemo } from './policyMemo'
 import { isTenantDataEncryptionEnabled } from './toggles'
 import { isEncryptionDebugEnabled } from './toggles'
 import { resolveTenantEncryptionService } from './customFieldValues'
@@ -50,6 +52,31 @@ function isJsonColumnProperty(prop: unknown): boolean {
   return typeof customTypeName === 'string' && customTypeName.toLowerCase().includes('json')
 }
 
+// Encryption is configured on but the service reports disabled — the KMS is
+// unreachable, so this write lands as plaintext. Throttle the warning so a long
+// outage does not flood the log while still leaving an ongoing signal that the
+// fail-open window is open (#5948).
+const ENCRYPTION_PAUSED_WARN_INTERVAL_MS = 60_000
+let lastEncryptionPausedWarnAt = 0
+
+function warnEncryptionPaused(entity: string | undefined): void {
+  const now = Date.now()
+  if (lastEncryptionPausedWarnAt && now - lastEncryptionPausedWarnAt < ENCRYPTION_PAUSED_WARN_INTERVAL_MS) return
+  lastEncryptionPausedWarnAt = now
+  try {
+    logger.warn(
+      'Tenant data encryption is enabled but the KMS is unavailable - entity writes persist as plaintext until it recovers',
+      { entity },
+    )
+  } catch {
+    // ignore
+  }
+}
+
+export function resetEncryptionPausedWarnThrottle(): void {
+  lastEncryptionPausedWarnAt = 0
+}
+
 const registeredEventManagers = new WeakSet<object>()
 
 const subscribersByService = new WeakMap<TenantDataEncryptionService, TenantEncryptionSubscriber>()
@@ -64,6 +91,26 @@ function getSubscriberForService(service: TenantDataEncryptionService): TenantEn
 
 const toSnakeCase = (value: string): string =>
   value.replace(/([A-Z])/g, '_$1').replace(/__/g, '_').toLowerCase()
+
+function isDatabaseError(err: unknown): boolean {
+  if (err instanceof DriverException) return true
+  if (!err || typeof err !== 'object') return false
+  const candidate = err as { code?: unknown; severity?: unknown; sqlState?: unknown }
+  if (typeof candidate.sqlState === 'string') return true
+  return typeof candidate.code === 'string' && typeof candidate.severity === 'string'
+}
+
+function isInTransaction(em: unknown): boolean {
+  if (!em || typeof em !== 'object') return false
+  const candidate = em as { isInTransaction?: () => boolean; getTransactionContext?: () => unknown }
+  try {
+    if (typeof candidate.isInTransaction === 'function') return candidate.isInTransaction()
+    if (typeof candidate.getTransactionContext === 'function') return candidate.getTransactionContext() != null
+  } catch {
+    return false
+  }
+  return false
+}
 
 export class TenantEncryptionSubscriber implements EventSubscriber<any> {
   constructor(private readonly service: TenantDataEncryptionService) {}
@@ -206,8 +253,10 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     em?: { getMetadata?: () => any; getComparator?: () => any },
     changeSet?: { payload?: Record<string, unknown> },
   ) {
-    if (!isTenantDataEncryptionEnabled() || !this.service.isEnabled()) {
+    const encryptionConfigured = isTenantDataEncryptionEnabled()
+    if (!encryptionConfigured || !this.service.isEnabled()) {
       debug('⚪️ subscriber.skip', { reason: 'disabled', entity: meta?.className || meta?.name })
+      if (encryptionConfigured) warnEncryptionPaused(meta?.className || meta?.name)
       return
     }
     const resolvedMeta = this.resolveMeta(meta, target, em)
@@ -220,7 +269,13 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
       return
     }
     const { tenantId, organizationId } = resolveScope(target)
-    const encrypted = await this.service.encryptEntityPayload(entityId, target, tenantId, organizationId)
+    // Hand the flushing EntityManager to the policy read so it runs on this
+    // transaction's own connection instead of acquiring a second pooled one
+    // (an uncached lookup from inside an open write transaction deadlocks the
+    // pool once every slot is held by such a transaction).
+    const encrypted = await this.service.encryptEntityPayload(entityId, target, tenantId, organizationId, {
+      em: em as EntityManager | undefined,
+    })
     const metaProps: Record<string, unknown> = resolvedMeta?.properties && typeof resolvedMeta.properties === 'object'
       ? resolvedMeta.properties
       : {}
@@ -322,7 +377,9 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     // drop the pending write (e.g. an undo handler that mutates an entity, then loads a related
     // encrypted entity whose deep-decrypt recurses back into the still-dirty entity before flush).
     const hadPendingChanges = syncOriginal ? this.hasPendingChanges(target, resolvedMeta, em as any) : false
-    const decrypted = await this.service.decryptEntityPayload(entityId, target, scopedTenantId, scopedOrgId)
+    const decrypted = await this.service.decryptEntityPayload(entityId, target, scopedTenantId, scopedOrgId, {
+      em: em as EntityManager | undefined,
+    })
     Object.assign(target, decrypted)
     this.restoreDecryptedJsonColumns(target, resolvedMeta)
     if (syncOriginal && !hadPendingChanges) {
@@ -399,6 +456,9 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
         }
       }
     } catch (err) {
+      // A failed statement aborts the surrounding Postgres transaction; swallowing it here would
+      // only move the failure to the caller's next statement ("current transaction is aborted").
+      if (isDatabaseError(err) && isInTransaction(em)) throw err
       debug('⚠️ subscriber.deep_decrypt.error', {
         entityId,
         message: (err as Error)?.message ?? String(err),
@@ -429,6 +489,10 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
 
   async onLoad(args: EventArgs<any>) {
     await this.decrypt(args.entity as Record<string, unknown>, args.meta, args.em, { syncOriginal: true })
+  }
+
+  afterFlush(args: FlushEventArgs) {
+    forgetEncryptionPolicyMemo(args.em as unknown as EntityManager)
   }
 
   async afterFind(args: EventArgs<any> & { entities?: unknown[] }) {

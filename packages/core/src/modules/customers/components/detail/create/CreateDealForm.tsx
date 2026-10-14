@@ -11,6 +11,7 @@ import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { InjectionSpot, useInjectionSpotEvents } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserId'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
@@ -31,10 +32,6 @@ const CONTEXT_ID = 'customers.deals.create'
 const DEAL_ENTITY_ID = 'customers:customer_deal'
 const CUSTOM_FIELDS_MANAGE_HREF = `/backend/entities/system/${encodeURIComponent(DEAL_ENTITY_ID)}`
 
-// This form is hand-rolled rather than a `CrudForm`, so nothing derives the module's
-// declared deal form host for it. Without this the create surface publishes no injection
-// spot at all and `extensionPoints.hosts.dealForm` is reachable only on the edit page
-// (#5882). Read the id from the module's own declaration so the two surfaces cannot drift.
 const DEAL_FORM_SPOT_ID = extensionPoints.hosts.dealForm.spotId
 
 type DealFormInjectionContext = {
@@ -70,6 +67,27 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
   const [errors, setErrors] = React.useState<Record<string, string>>({})
   const [isSubmitting, setIsSubmitting] = React.useState(false)
 
+  // Default the owner to the current user, matching the pipeline quick-create dialog so a
+  // deal created here does not start unowned (an unowned deal notifies nobody when it closes).
+  // useCurrentUserId resolves asynchronously, so this seeds once the id arrives and never
+  // overrides an explicit seed or a choice the user has already made.
+  const currentUserId = useCurrentUserId()
+  // Seeds the picker for the self-assigned id, which may not be on the assignable roster
+  // (an admin who is not a staff team member, or any user when the `staff` module is off).
+  const ownerInitialOption = React.useMemo(
+    () => (currentUserId
+      ? { id: currentUserId, name: tr('customers.filters.currentUser', 'Current user') }
+      : null),
+    [currentUserId, tr],
+  )
+  const ownerSeeded = React.useRef(false)
+  React.useEffect(() => {
+    if (ownerSeeded.current || !currentUserId) return
+    ownerSeeded.current = true
+    if (initialValues?.ownerUserId) return
+    setValues((current) => (current.ownerUserId ? current : { ...current, ownerUserId: currentUserId }))
+  }, [currentUserId, initialValues?.ownerUserId])
+
   const { pipelines, stages, loadStages } = useDealPipelines()
   const {
     customValues,
@@ -96,6 +114,9 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
   )
 
   const patch = React.useCallback((partial: Partial<BaseValues>) => {
+    // A user touching the owner before useCurrentUserId resolves must not be overridden by
+    // the seeding effect below.
+    if ('ownerUserId' in partial) ownerSeeded.current = true
     setValues((current) => ({ ...current, ...partial }))
   }, [])
 
@@ -112,8 +133,6 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
     router.push(returnTo)
   }, [returnTo, router])
 
-  // Same shape `CrudForm` publishes to its own injection spot, so a widget registered on
-  // `crud-form:customers.deal` reads a familiar context on create as well as on edit.
   // `recordId` is intentionally absent — the deal does not exist yet, which is how
   // record-scoped widgets detect create mode and render their empty state.
   const injectionContext = React.useMemo<DealFormInjectionContext>(
@@ -130,11 +149,6 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
     [customFieldsLoaded, isSubmitting],
   )
 
-  // The declared deal host advertises the `lifecycle-handler` capability, and the facts
-  // generator stamps it with every `CRUD_FORM_LIFECYCLE_PHASES` entry. On the edit page
-  // `DealForm` forwards the spot into `CrudForm`, which dispatches them; this hand-rolled
-  // create form has to dispatch the save phases itself, or a widget's `onBeforeSave` guard
-  // would render here and never run (#5915 review).
   const { triggerEvent: triggerDealFormEvent } = useInjectionSpotEvents<
     DealFormInjectionContext,
     Record<string, unknown>
@@ -168,8 +182,6 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
       return
     }
 
-    // Mirrors `CrudForm`'s order (onBeforeSave -> onSave -> write -> onAfterSave) so a
-    // widget behaves identically on the create and edit surfaces of the same host.
     let injectionRequestHeaders: Record<string, string> | undefined
     try {
       const beforeSave = await triggerDealFormEvent('onBeforeSave', merged, injectionContext)
@@ -205,6 +217,10 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
         probability: typeof data.probability === 'number' ? data.probability : undefined,
         expectedCloseAt,
         description: data.description && data.description.length ? data.description : undefined,
+        // `null`, not omitted — matching DealForm, so both create surfaces send the same
+        // shape. `dealCreateSchema.ownerUserId` is `.optional().nullable()` (validators.ts:183)
+        // and createDealCommand maps null to null (commands/deals.ts:591).
+        ownerUserId: data.ownerUserId && data.ownerUserId.length ? data.ownerUserId : null,
         personIds: values.personIds.length ? values.personIds : undefined,
         companyIds: values.companyIds.length ? values.companyIds : undefined,
       }
@@ -224,9 +240,6 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
       } else {
         await createDeal()
       }
-      // Isolated exactly as `CrudForm` isolates its own `onAfterSave`: the deal already
-      // exists by this point, so a widget failing after the write must not be reported as
-      // a failed create or block the redirect.
       try {
         await triggerDealFormEvent('onAfterSave', merged, injectionContext)
       } catch (err) {
@@ -274,9 +287,6 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
     [handleSubmit],
   )
 
-  // `CrudForm` hands widgets a `values` object that already carries custom-field keys, so
-  // the create surface merges `customValues` in too — otherwise a widget reading a `cf_*`
-  // key would see it on edit and `undefined` on create.
   const injectionData = React.useMemo(
     () => ({ ...values, ...customValues }),
     [customValues, values],
@@ -335,6 +345,7 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
               pipelines={pipelines}
               stages={stages}
               statusLabels={statusLabels}
+              ownerInitialOption={ownerInitialOption}
               tr={tr}
             />
           </DealSectionCard>

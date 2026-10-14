@@ -91,6 +91,45 @@ describe('entity-to-snapshot mappers', () => {
     expect(snapshot.unitPriceNet).toBe(85)
   })
 
+  it.each([
+    ['order', mapOrderLineEntityToSnapshot],
+    ['quote', mapQuoteLineEntityToSnapshot],
+  ])('carries the %s line columns the engine never reads (issue #5911)', (_kind, map) => {
+    // The write paths rebuild every line of the document from this snapshot and
+    // assign the result back onto the row, so a column missing here is written
+    // back as null over the stored value of a line nobody edited.
+    const snapshot = (map as (line: never) => ReturnType<typeof mapOrderLineEntityToSnapshot>)(
+      persistedLine({
+        statusEntryId: 'status-1',
+        catalogSnapshot: { sku: 'HB-1' },
+        promotionSnapshot: { campaign: 'spring' },
+      }) as never,
+    )
+
+    expect(snapshot.statusEntryId).toBe('status-1')
+    expect(snapshot.catalogSnapshot).toEqual({ sku: 'HB-1' })
+    expect(snapshot.promotionSnapshot).toEqual({ campaign: 'spring' })
+  })
+
+  it('clones the carried snapshots so the row cannot be mutated through them', () => {
+    const line = persistedLine({ catalogSnapshot: { sku: 'HB-1' }, promotionSnapshot: { campaign: 'spring' } })
+    const snapshot = mapQuoteLineEntityToSnapshot(line as unknown as SalesQuoteLine)
+
+    ;(snapshot.catalogSnapshot as Record<string, unknown>).sku = 'mutated'
+    ;(snapshot.promotionSnapshot as Record<string, unknown>).campaign = 'mutated'
+
+    expect(line.catalogSnapshot).toEqual({ sku: 'HB-1' })
+    expect(line.promotionSnapshot).toEqual({ campaign: 'spring' })
+  })
+
+  it('maps absent carried columns to null rather than undefined', () => {
+    const snapshot = mapQuoteLineEntityToSnapshot(persistedLine() as unknown as SalesQuoteLine)
+
+    expect(snapshot.statusEntryId).toBeNull()
+    expect(snapshot.catalogSnapshot).toBeNull()
+    expect(snapshot.promotionSnapshot).toBeNull()
+  })
+
   it('coerces a non-finite stored value to zero rather than propagating NaN', () => {
     const snapshot = mapQuoteLineEntityToSnapshot(
       persistedLine({ discountAmount: 'not-a-number' }) as unknown as SalesQuoteLine,

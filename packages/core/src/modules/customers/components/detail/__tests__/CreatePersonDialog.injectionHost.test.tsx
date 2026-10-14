@@ -48,12 +48,13 @@ describe('CreatePersonDialog injection host (#5915 review)', () => {
     expect(crudFormPropsCapture.current?.injectionSpotId).toBe('crud-form:customers.person')
   })
 
-  it('no longer publishes the legacy derived spot', () => {
+  it('keeps the legacy derived spot bound as a deprecation bridge', () => {
     render(
       <CreatePersonDialog open onClose={() => {}} companyId="company-1" companyName="Copperleaf Design" />,
     )
 
     expect(crudFormPropsCapture.current?.injectionSpotId).not.toBe('crud-form:customers.customer_entity')
+    expect(crudFormPropsCapture.current?.legacyInjectionSpotId).toBe('crud-form:customers.customer_entity')
   })
 
   it('keeps the existing entityIds so custom-field resolution is unchanged', () => {

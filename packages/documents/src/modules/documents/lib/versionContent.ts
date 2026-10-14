@@ -1,5 +1,6 @@
 import * as Y from 'yjs'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { htmlToPlainText } from '@open-mercato/shared/lib/html/htmlToPlainText'
 import { sanitizeRichTextHtml } from '@open-mercato/shared/lib/html/sanitizeRichText'
 import { htmlToYDoc, yDocToContent } from './collabMaterializer'
 import {
@@ -59,7 +60,7 @@ export function normalizeDocumentEntityRefLabels(
     if (!/(?:^|\s)data-entity-ref(?:\s|=|$)/i.test(attributes)) return whole
     const markedInvalid = /(?:^|\s)data-entity-label-invalid(?:\s|=|$)/i.test(attributes)
     const attributeLabel = readAttribute(attributes, 'data-label')
-    const innerText = decodeCandidate(sanitizeRichTextHtml(innerHtml).replace(/<[^>]*>/g, ''))
+    const innerText = decodeCandidate(htmlToPlainText(sanitizeRichTextHtml(innerHtml)))
     const label = markedInvalid
       ? readableFallback
       : firstSafeDocumentsDisplayLabel(attributeLabel, innerText, readableFallback)!

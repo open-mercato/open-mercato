@@ -1,0 +1,223 @@
+---
+title: Web Research
+description: The adapter-based web search and page-reading engine agents use, how it races sources under one deadline, and how to add your own adapter package.
+---
+
+# Web Research
+
+Agents reach the public web through `@open-mercato/web-research`: an engine that
+runs several search sources concurrently under one deadline, fuses their results,
+and narrates what it did. Each source is a separate npm package, so a deployment
+installs only what it uses and anyone can publish their own.
+
+## Why it is shaped this way
+
+The previous implementation picked **one** provider from an env var. That meant a
+single point of failure (one 429 starved the whole run), no way to combine a fast
+free source with an accurate paid one, and — because the default adapter returned
+bare URLs with empty snippets — an agent had to spend a page fetch per link
+before it learned anything.
+
+The engine addresses each of those directly:
+
+- **Adapters return outcomes, never exceptions.** `unavailable` (no key), `empty`
+  (nothing matched), `blocked` (429/captcha), `timeout` and `error` are distinct,
+  because each one should produce different behaviour. Collapsing them into a
+  thrown error — as the old code did — makes them indistinguishable.
+- **Several adapters race under one budget**, so a slow source cannot hold up an
+  answer a fast one already has.
+- **A last-resort adapter runs when everything else came up short**, even if it is
+  disabled in the normal order. This is what makes "the engine returns something"
+  true rather than aspirational.
+- **A confidence threshold never manufactures an empty answer.** If filtering
+  would drop the set below the minimum, the threshold relaxes and the result is
+  flagged `degraded`.
+
+## Shipped adapters
+
+| Package | id | Notes |
+|---|---|---|
+| `@open-mercato/web-research-model` | `model-native` | Uses the agent's own LLM with its native web search. No extra key, no extra vendor. **Enabled by default.** Works on Anthropic, OpenAI and Azure OpenAI / Foundry. |
+| `@open-mercato/web-research-serp` | `serp-html` | Our own crawler over public SERP HTML. Free, no key, no dependencies. **Off by default** — enabling it is the operator's decision. |
+| `@open-mercato/web-research-firecrawl` | `firecrawl` | Keyed API that returns page content inline. |
+| `@open-mercato/web-research-tavily` | `tavily` | Keyed API oriented at LLM consumption. |
+| `@open-mercato/web-research-exa` | `exa` | Keyed API with an embeddings index. Filters by domain and publication date natively, and returns the passages it judged relevant rather than a page preview. Priced per call and reports the cost of each search in the live step feed. |
+| `@open-mercato/web-research-searxng` | `searxng` | Client for an instance **you** run. SearXNG is AGPL-3.0, so we ship the client only. |
+| `@open-mercato/web-research-browser` | `browser` | Renders blocked SERPs and JavaScript-only pages in a Playwright sidecar. Ships Playwright as a dependency and downloads the Chromium binary on first use, so installing the package is the only step. |
+
+## How a search runs
+
+1. **Plan.** Adapters are ordered by policy; `readiness()` is synchronous and
+   I/O-free, so an unconfigured adapter is skipped before it costs anything — and
+   is reported as skipped, with the reason.
+2. **Waves.** `concurrency` adapters start at once; each time one settles the next
+   queued adapter starts.
+3. **Settle.** `race` resolves on the first adapter that meets the minimum;
+   `quorum` (default) waits for `minAdapters` successes; `exhaustive` runs
+   everything. Past the soft deadline the engine only keeps waiting while it has
+   nothing at all — holding back a usable answer for a straggler is the worse
+   failure.
+4. **Escalate.** If a wave produced only `blocked`/`empty` and a browser adapter
+   is ready, the scheduler runs it. This decision is made **in code**, not by
+   prompting the model, so it costs no round-trip and behaves the same every time.
+5. **Fuse.** URLs are canonicalized (tracking parameters stripped, engine
+   redirectors unwrapped), deduped, and ranked by reciprocal rank fusion.
+
+:::note Why reciprocal rank, not blended scores
+An LLM citation list has no score at all, a SERP has an opaque one, and a paid API
+has its own scale. Rank is the only signal every source genuinely agrees on, and
+RRF naturally rewards a result that two independent sources both surfaced.
+:::
+
+## Configuration
+
+Env is the deployment default; a tenant row overrides it. Edit it at
+**Agents → Web search**, which also shows per-adapter health.
+
+```bash
+OM_WEB_SEARCH_ADAPTERS=serp-html,model-native   # ordered; default: model-native
+OM_WEB_SEARCH_SETTLE_MODE=quorum                # race | quorum | exhaustive
+OM_WEB_SEARCH_CONCURRENCY=2
+OM_WEB_SEARCH_MIN_RESULTS=5
+OM_WEB_SEARCH_SOFT_DEADLINE_MS=6000
+OM_WEB_SEARCH_HARD_DEADLINE_MS=15000
+OM_WEB_SEARCH_LAST_RESORT=model-native
+OM_WEB_SEARCH_ALLOW_DOMAINS=                    # empty = allow all
+OM_WEB_SEARCH_DENY_DOMAINS=
+OM_WEB_SEARCH_ALLOW_PRIVATE_HOSTS=              # empty = every private address refused
+```
+
+### Azure OpenAI and Foundry
+
+Azure exposes `web_search` as a **Responses API** built-in, and `model-native`
+picks it up automatically once the agent's provider is `azure`. Two things follow
+from how Azure implements it, and both are worth a deliberate decision rather
+than a discovery:
+
+- It is **Grounding with Bing Search** underneath. It is billed on the Bing APIs
+  price list, on top of tokens.
+- Microsoft states that the **Data Protection Addendum does not apply** to data
+  sent to Grounding with Bing, and that the data **flows outside your compliance
+  and geo boundary**. If you run on Azure specifically for data residency, that is
+  the trade-off you are accepting by enabling web search. The adapter's health row
+  says so in the settings page.
+
+An admin can also block the tool for a whole subscription
+(`az feature register --name OpenAI.BlockedTools.web_search …`), in which case the
+adapter reports `unavailable` rather than a transient error.
+
+Azure is configured with `AZURE_OPENAI_API_KEY` plus either
+`AZURE_OPENAI_RESOURCE_NAME` (preferred — the SDK assembles the endpoint) or
+`AZURE_OPENAI_BASE_URL` pointing at the `/openai` prefix.
+
+## Tools agents see
+
+`agent_orchestrator.web_search` returns ranked results with snippets, confidence
+and provenance, an optional prose `answer`, and a `diagnostics` block naming what
+each adapter did. Setting `includeContent: true` reads the top pages in the same
+call — prefer it over a fetch per result.
+
+`agent_orchestrator.web_fetch` retrieves one URL as readable text. `render: 'auto'`
+(the default) escalates to the browser tier only when the plain read classifies as
+a JavaScript shell.
+
+Both are read-only. `web_search` needs the `agent_orchestrator.web_search` ACL
+feature; `web_fetch` needs that **and** `agent_orchestrator.web_fetch`, so a tenant
+can be granted discovery without arbitrary URL retrieval.
+
+## Security
+
+All egress goes through one hardened client. Adapters never call `fetch`
+themselves — that would bypass every control below in a single step.
+
+- **SSRF guard** on every request and every redirect hop: private, loopback,
+  link-local, CGNAT and cloud-metadata targets are blocked, including the
+  IPv4-mapped IPv6 spelling (`new URL('http://[::ffff:127.0.0.1]/').hostname` is
+  `::ffff:7f00:1`, which a dotted-quad check never matches).
+- **A named escape hatch, not a switch.** A service you run yourself — a SearXNG
+  instance on the container network — is unreachable under that guard, so
+  **Agents → Web search → Network egress** takes a list of hosts allowed to
+  resolve privately, matched on exact host or a dot-boundary suffix and empty by
+  default. It is deliberately not an "allow private" boolean: that would open
+  every internal address to whatever URL a model or a search result produces,
+  where this only unblocks destinations you named. A host you name is also
+  reachable by `web_fetch`; add it to the deny list as well when only an adapter
+  should talk to it. The browser tier never gets this — it renders public pages
+  only.
+- **DNS pinning**: the connection resolves to exactly the addresses the guard
+  vetted, closing the rebinding window between check and connect.
+- **Content-type gating and streaming byte caps**, decoded incrementally so a cap
+  landing mid-codepoint does not corrupt the tail.
+- **Per-run and per-tenant rate ceilings**, with separate budgets for search and
+  fetch so a page-reading loop cannot starve discovery.
+- **A per-adapter hourly call ceiling**, because the same tool costs nothing on a
+  free SERP and real money on a model doing its own web search. Set it per adapter
+  in the settings page. It is charged from what actually ran, not what was
+  planned — quorum usually settles before the expensive adapter is reached — and
+  once spent the adapter sits searches out, **including as `lastResort`**, which
+  otherwise bypasses `enabled` on exactly the short runs the ceiling exists for.
+- **The browser tier keeps Chromium's sandbox.** It renders pages chosen by a
+  search engine or a model, so the renderer parses hostile input by definition. If
+  the sandbox cannot start the adapter refuses to launch and says how to fix the
+  container, rather than quietly falling back; `OM_WEB_RESEARCH_BROWSER_NO_SANDBOX=1`
+  is the explicit, logged opt-out for environments that genuinely cannot.
+
+## Live status
+
+Every adapter transition emits `agent_orchestrator.web_search.progress`
+(`clientBroadcast`), so an operator watching a run sees which source was queried,
+whether it answered or was blocked, and why. Payloads are summary-only — the SSE
+frame cap is 4KB — and are never returned to the model, which gets the compact
+`diagnostics` block instead.
+
+## Writing your own adapter
+
+Run the `om-create-web-research-adapter` skill, or follow
+`packages/web-research/AGENTS.md`. The shape:
+
+```ts
+export const myAdapterModule = defineAdapterModule({
+  id: 'my-source',
+  kind: 'api',                       // 'serp' | 'api' | 'model' | 'browser'
+  contractVersion: CONTRACT_VERSION,
+  optionsSchema: z.object({ apiKey: z.string().min(1).optional() }),
+  createAdapter: (options) => ({
+    id: 'my-source',
+    kind: 'api',
+    capabilities: { search: true, fetch: false, snippets: true, content: false,
+                    freshness: false, siteFilter: true, cost: 'metered' },
+    readiness: () => (options.apiKey ? READY : notReady('API key is not set')),
+    async search(request, context) {
+      try {
+        const response = await context.http.request(/* … */)
+        return searchOk(/* … */)
+      } catch (error) {
+        return toOutcomeFailure(error)
+      }
+    },
+  }),
+})
+```
+
+Declare it in your `package.json` and the generator finds it:
+
+```json
+{ "openMercato": { "webResearchAdapter": { "id": "my-source" } },
+  "peerDependencies": { "@open-mercato/web-research": "^0.6.0" } }
+```
+
+Then `yarn add @acme/web-research-my-source && yarn generate`. It appears in the
+settings page with a form built from your own `optionsSchema`, disabled until an
+operator enables it.
+
+`@open-mercato/web-research/testing` publishes `describeAdapterContract()` — the
+same suite the shipped adapters run. It pins the behaviour the scheduler depends
+on, most importantly that an adapter reports rather than throws.
+
+:::warning A broken adapter must not break the others
+The MCP server loads every module tool through one ESM graph, where a single
+failed import drops all of them. The loader therefore converts any adapter fault —
+bad descriptor, contract-version mismatch, invalid options, a constructor that
+throws — into an `unavailable` placeholder carrying the reason, so it shows up as
+one skipped adapter instead of a missing tool set.
+:::

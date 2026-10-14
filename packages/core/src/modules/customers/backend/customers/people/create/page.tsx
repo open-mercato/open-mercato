@@ -10,6 +10,7 @@ import { E } from '#generated/entities.ids.generated'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { crudFormExtensionSpotId } from '@open-mercato/shared/modules/widgets/extension-points'
 import { extensionPoints } from '../../../../extension-points'
 import {
   buildPersonPayload,
@@ -18,6 +19,8 @@ import {
   createPersonFormSchema,
   type PersonFormValues,
 } from '../../../../components/formConfig'
+
+const PERSON_CREATE_LEGACY_INJECTION_SPOT_ID = crudFormExtensionSpotId('customers.customer_entity')
 
 export default function CreatePersonPage() {
   const t = useT()
@@ -55,6 +58,7 @@ export default function CreatePersonPage() {
           initialValues={initialValues}
           entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
           injectionSpotId={extensionPoints.hosts.personForm.spotId}
+          legacyInjectionSpotId={PERSON_CREATE_LEGACY_INJECTION_SPOT_ID}
           submitLabel={t('customers.people.form.submit')}
           cancelHref={returnTo ?? '/backend/customers/people'}
           schema={formSchema}

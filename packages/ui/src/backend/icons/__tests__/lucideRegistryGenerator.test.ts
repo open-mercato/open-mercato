@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Project, ScriptKind, SyntaxKind, type ObjectLiteralExpression, type SourceFile } from 'ts-morph'
 import { discoverResolvedIcons } from '../../../../scripts/lucideIconDiscovery.cjs'
-import { buildLucideRegistrySource } from '../../../../scripts/lucideRegistrySource.cjs'
+import { buildLucideRegistrySource, checkLucideRegistryDrift } from '../../../../scripts/lucideRegistrySource.cjs'
 import jestConfig from '../../../../jest.config.cjs'
 
 const packageDir = join(__dirname, '..', '..', '..', '..')
@@ -269,6 +269,32 @@ describe('committed lucideRegistry.generated.tsx', () => {
     const probe = detectMonorepoCheckout(join(tmpdir(), 'lucide-registry-absent-monorepo'))
     expect(probe.available).toBe(false)
     expect(probe.available ? '' : probe.reason).toContain('build.mjs')
+  })
+})
+
+// `yarn ui:icons:check` runs this decision unfiltered in CI, where only the in-sync
+// branch is ever exercised — every PR runs it against a registry that matches. The
+// branch that does the work is the drifted one, so it is asserted here instead.
+describe('checkLucideRegistryDrift', () => {
+  const source = buildLucideRegistrySource(populatedFixture)
+
+  it('reports no drift when the committed file matches the emitter', () => {
+    expect(checkLucideRegistryDrift(source, source)).toEqual({ drifted: false })
+  })
+
+  it('reports drift when an icon is missing from the committed file', () => {
+    const stale = buildLucideRegistrySource(populatedFixture.slice(0, -1))
+    expect(checkLucideRegistryDrift(stale, source).drifted).toBe(true)
+  })
+
+  it('reports drift when the committed file has never been written', () => {
+    expect(checkLucideRegistryDrift('', source).drifted).toBe(true)
+  })
+
+  it('names the drifted file and the command that regenerates it', () => {
+    const drift = checkLucideRegistryDrift('', source, '/repo/lucideRegistry.generated.tsx')
+    expect(drift.message).toContain('/repo/lucideRegistry.generated.tsx')
+    expect(drift.message).toContain('yarn workspace @open-mercato/ui build')
   })
 })
 

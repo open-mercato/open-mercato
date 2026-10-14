@@ -24,7 +24,15 @@ jest.mock('../../../auth/data/entities', () => ({
   Role: class Role {},
 }))
 
-import { resolveCallApiRoleIds } from '../activity-executor'
+const resolvePrincipalMock = jest.fn(async () => null as string | null)
+jest.mock('../../../auth/lib/executionPrincipal', () => ({
+  normalizeFeatureList: (value: unknown) =>
+    Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [],
+  provisionExecutionPrincipal: jest.fn(),
+  resolveExecutionPrincipalUserId: (...args: unknown[]) => resolvePrincipalMock(...(args as [])),
+}))
+
+import { resolveCallApiRoleIds, resolveWorkflowPrincipalUserId } from '../activity-executor'
 import {
   findOneWithDecryption,
   findWithDecryption,
@@ -38,6 +46,7 @@ const ORG_ID = 'org-1'
 const DEFINITION_ID = 'def-1'
 const AUTHOR_ID = 'author-admin'
 const INITIATOR_ID = 'initiator-low-priv'
+const PRINCIPAL_ID = 'workflow-execution-principal'
 
 type FindOneCall = { entity: string; filter: Record<string, unknown> }
 
@@ -54,14 +63,22 @@ function setupCommonStubs({
   initiatorExists = true,
   authorRoleIds = ['role-admin'],
   initiatorRoleIds = ['role-low-priv'],
+  definitionDeletedAt = null,
+  grantedFeatures = null,
+  principalRoleIds = ['role-granted'],
 }: {
   authorExists?: boolean
   initiatorExists?: boolean
   authorRoleIds?: string[]
   initiatorRoleIds?: string[]
+  definitionDeletedAt?: Date | null
+  grantedFeatures?: string[] | null
+  principalRoleIds?: string[]
 } = {}) {
   mockFindOne.mockReset()
   mockFindMany.mockReset()
+  resolvePrincipalMock.mockReset()
+  resolvePrincipalMock.mockResolvedValue(PRINCIPAL_ID)
 
   mockFindOne.mockImplementation(async (_em: unknown, Entity: any, filter: Record<string, unknown>) => {
     const name = entityName(Entity)
@@ -70,11 +87,15 @@ function setupCommonStubs({
         id: filter.id,
         createdBy: AUTHOR_ID,
         tenantId: filter.tenantId,
+        organizationId: ORG_ID,
+        grantedFeatures,
+        deletedAt: definitionDeletedAt,
       }
     }
     if (name === 'User') {
       if (filter.id === AUTHOR_ID && authorExists) return { id: AUTHOR_ID }
       if (filter.id === INITIATOR_ID && initiatorExists) return { id: INITIATOR_ID }
+      if (filter.id === PRINCIPAL_ID) return { id: PRINCIPAL_ID }
       return null
     }
     return null
@@ -84,7 +105,12 @@ function setupCommonStubs({
     const name = entityName(Entity)
     if (name === 'UserRole') {
       const userFilter = filter.user as string | undefined
-      const ids = userFilter === INITIATOR_ID ? initiatorRoleIds : authorRoleIds
+      const ids =
+        userFilter === PRINCIPAL_ID
+          ? principalRoleIds
+          : userFilter === INITIATOR_ID
+            ? initiatorRoleIds
+            : authorRoleIds
       return ids.map((id) => ({ role: { id } }))
     }
     if (name === 'Role') {
@@ -124,9 +150,11 @@ describe('resolveCallApiRoleIds', () => {
     const userCalls = calls.filter((c) => c.entity === 'User')
     expect(userCalls.map((c) => c.filter.id)).toEqual([INITIATOR_ID])
 
-    // Definition lookup is not required when initiator is present.
+    // The definition IS read even when an initiator is present — it is the only
+    // place a declared execution grant can be discovered, and a grant outranks
+    // the initiator. With no grant declared the initiator still wins.
     const definitionCalls = calls.filter((c) => c.entity === 'WorkflowDefinition')
-    expect(definitionCalls.length).toBe(0)
+    expect(definitionCalls.length).toBe(1)
   })
 
   test('refuses to run when the initiator has no active scoped roles (never falls back to author)', async () => {
@@ -199,10 +227,10 @@ describe('resolveCallApiRoleIds', () => {
     expect(result).toEqual(['role-admin'])
   })
 
-  test('filters soft-deleted workflow definitions (deletedAt: null)', async () => {
-    setupCommonStubs()
+  test('a soft-deleted definition never mints a key through the author fallback', async () => {
+    setupCommonStubs({ definitionDeletedAt: new Date() })
 
-    await resolveCallApiRoleIds({}, {
+    const result = await resolveCallApiRoleIds({}, {
       id: 'inst-6',
       tenantId: TENANT_ID,
       organizationId: ORG_ID,
@@ -210,9 +238,13 @@ describe('resolveCallApiRoleIds', () => {
       metadata: null,
     })
 
+    // The row is now fetched WITHOUT a deletedAt filter (a grant on a deleted
+    // definition must still bind a run that is still executing) and the author
+    // fallback is refused in code instead.
+    expect(result).toEqual([])
     const definitionCall = findOneCalls().find((c) => c.entity === 'WorkflowDefinition')
     expect(definitionCall).toBeDefined()
-    expect(definitionCall!.filter.deletedAt).toBeNull()
+    expect(definitionCall!.filter.deletedAt).toBeUndefined()
   })
 
   test('returns empty array when no definitionId', async () => {
@@ -225,5 +257,77 @@ describe('resolveCallApiRoleIds', () => {
       metadata: { initiatedBy: INITIATOR_ID },
     })
     expect(result).toEqual([])
+  })
+})
+
+describe('a definition declaring grantedFeatures outranks both the initiator and the author', () => {
+  test('CALL_API mints its one-time key from the definition principal, not the admin who started the run', async () => {
+    setupCommonStubs({ grantedFeatures: ['customers.deals.view'], initiatorRoleIds: ['role-admin'] })
+
+    const result = await resolveCallApiRoleIds({}, {
+      id: 'inst-granted',
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      definitionId: DEFINITION_ID,
+      metadata: { initiatedBy: INITIATOR_ID },
+    })
+
+    // Without this, a granted workflow started by an admin would route straight
+    // around its own grant through a CALL_API activity.
+    expect(result).toEqual(['role-granted'])
+    expect(findOneCalls().some((c) => c.entity === 'User' && c.filter.id === INITIATOR_ID)).toBe(false)
+  })
+
+  test('CALL_API refuses when the declared grant has no provisioned principal', async () => {
+    setupCommonStubs({ grantedFeatures: ['customers.deals.view'] })
+    resolvePrincipalMock.mockResolvedValue(null)
+
+    await expect(
+      resolveCallApiRoleIds({}, {
+        id: 'inst-granted',
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+        definitionId: DEFINITION_ID,
+        metadata: { initiatedBy: INITIATOR_ID },
+      }),
+    ).rejects.toThrow('execution principal is not provisioned')
+  })
+
+  test('INVOKE_AGENT runs as the definition principal rather than the initiator', async () => {
+    setupCommonStubs({ grantedFeatures: ['customers.deals.view'] })
+
+    const userId = await resolveWorkflowPrincipalUserId({}, {
+      id: 'inst-granted',
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      definitionId: DEFINITION_ID,
+      metadata: { initiatedBy: INITIATOR_ID },
+    })
+
+    expect(userId).toBe(PRINCIPAL_ID)
+  })
+
+  test('REGRESSION: without a grant, INVOKE_AGENT keeps the initiator → author chain', async () => {
+    setupCommonStubs()
+
+    expect(
+      await resolveWorkflowPrincipalUserId({}, {
+        id: 'inst-a',
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+        definitionId: DEFINITION_ID,
+        metadata: { initiatedBy: INITIATOR_ID },
+      }),
+    ).toBe(INITIATOR_ID)
+
+    expect(
+      await resolveWorkflowPrincipalUserId({}, {
+        id: 'inst-b',
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+        definitionId: DEFINITION_ID,
+        metadata: null,
+      }),
+    ).toBe(AUTHOR_ID)
   })
 })
