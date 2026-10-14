@@ -68,8 +68,7 @@ export const openApi: OpenApiRouteDoc = {
         },
       ],
       errors: [
-        { status: 400, description: 'Invalid cancel request body (unknown field, reason exceeds 500 chars, wrong type).' },
-        { status: 400, description: 'The `:id` path parameter is not a UUID.' },
+        { status: 400, description: 'The `:id` path parameter is not a UUID, or the cancel request body is invalid (unknown field, reason exceeds 500 chars, wrong type).' },
         { status: 401, description: 'Unauthenticated caller.' },
         { status: 403, description: 'Caller lacks `ai_assistant.view`.' },
         { status: 404, description: 'Pending action not found in the caller scope.' },
