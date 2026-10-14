@@ -94,6 +94,39 @@ export type SearchOptions = {
   offset?: number
   /** How to combine results: 'or' merges all, 'and' requires match in all strategies */
   combineMode?: 'or' | 'and'
+  /**
+   * Restricts results to records whose query-index row (`entity_indexes`) matches this predicate,
+   * evaluated inside the strategy's ranking query so a restrictive filter never starves the result
+   * set (additive, 2026-10-06). Only strategies with `supportsIndexDocFilter: true` receive a
+   * filtered search; any other strategy returns no results for it rather than unfiltered ones.
+   */
+  indexDocFilter?: SearchIndexDocFilter
+}
+
+/**
+ * One condition over a record's query-index document (`entity_indexes.doc`), with the query
+ * engine's index-document semantics:
+ * - `exists`: the key is present and not JSON `null`;
+ * - `eq`: the key's text value equals `value` (booleans and numbers compare by their JSON text);
+ * - `overlap`: the key holds an array sharing at least one entry with `values`; empty `values`
+ *   matches nothing;
+ * - `noverlap`: the key holds an array sharing no entry with `values`; a missing key never matches;
+ * - `recordIdNotIn`: the record id is none of `values`.
+ */
+export type SearchIndexDocCondition =
+  | { op: 'exists'; key: string }
+  | { op: 'eq'; key: string; value: string | number | boolean }
+  | { op: 'overlap'; key: string; values: string[] }
+  | { op: 'noverlap'; key: string; values: string[] }
+  | { op: 'recordIdNotIn'; values: string[] }
+
+/**
+ * A predicate over a record's `entity_indexes` row in disjunctive normal form: the record matches
+ * when its index row is not deleted and every condition of at least one `anyOf` branch holds.
+ * An empty `anyOf` matches nothing; an empty branch matches every indexed record.
+ */
+export type SearchIndexDocFilter = {
+  anyOf: SearchIndexDocCondition[][]
 }
 
 // =============================================================================
@@ -143,6 +176,12 @@ export interface SearchStrategy {
 
   /** Priority for result merging (higher = more prominent in results) */
   readonly priority: number
+
+  /**
+   * Whether `search()` applies `SearchOptions.indexDocFilter` inside its ranking query. Absent or
+   * `false` means the strategy is skipped for filtered searches (fail closed).
+   */
+  readonly supportsIndexDocFilter?: boolean
 
   /** Check if strategy is available and configured */
   isAvailable(): Promise<boolean>

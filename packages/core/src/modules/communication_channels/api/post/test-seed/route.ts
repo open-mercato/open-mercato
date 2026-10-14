@@ -6,6 +6,9 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   ChannelThreadMapping,
   CommunicationChannel,
@@ -211,6 +214,22 @@ const bodySchema = z.discriminatedUnion('action', [
   clearCaptureSchema,
   listCaptureSchema,
 ])
+
+const logger = createLogger('communication_channels').child({ component: 'test-seed' })
+
+function ingestFailureResponse(err: unknown): Response {
+  if (err instanceof z.ZodError) {
+    return NextResponse.json({ error: err.message, issues: err.issues }, { status: 422 })
+  }
+  if (isCrudHttpError(err)) {
+    return NextResponse.json(err.body, { status: err.status })
+  }
+  logger.error('ingest-inbound failed', { err })
+  return NextResponse.json(
+    { error: err instanceof Error ? err.message : '[internal] ingest-inbound failed' },
+    { status: 500 },
+  )
+}
 
 export async function POST(req: Request): Promise<Response> {
   // Fail-closed: invisible in production. Mirrors an unknown route (404) rather
@@ -520,17 +539,25 @@ export async function POST(req: Request): Promise<Response> {
       )
     }
 
-    const normalized = await adapter.normalizeInbound({
-      raw: {
-        externalMessageId: body.externalMessageId,
-        externalConversationId: body.externalConversationId,
-        senderIdentifier: body.senderIdentifier,
-        senderDisplayName: body.senderDisplayName,
-        body: body.body ?? '',
-      },
-      eventType: 'message',
-      metadata: {},
-    })
+    let normalized: unknown
+    try {
+      normalized = await adapter.normalizeInbound({
+        raw: {
+          externalMessageId: body.externalMessageId,
+          externalConversationId: body.externalConversationId,
+          senderIdentifier: body.senderIdentifier,
+          senderDisplayName: body.senderDisplayName,
+          body: body.body ?? '',
+        },
+        eventType: 'message',
+        metadata: {},
+      })
+    } catch (err) {
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : '[internal] adapter rejected the inbound frame' },
+        { status: 422 },
+      )
+    }
 
     const ingestInput = {
       channelId: body.channelId,
@@ -540,19 +567,29 @@ export async function POST(req: Request): Promise<Response> {
       message: normalized,
     } as IngestInboundMessageInput
 
-    const { result } = await commandBus.execute<
-      IngestInboundMessageInput,
-      IngestInboundMessageResult
-    >(COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID, {
-      input: ingestInput,
-      ctx: {
-        container,
-        auth: auth as never,
-        organizationScope: null,
-        selectedOrganizationId: organizationId,
-        organizationIds: organizationId ? [organizationId] : null,
-      },
-    })
+    let result: IngestInboundMessageResult
+    try {
+      const execution = await commandBus.execute<
+        IngestInboundMessageInput,
+        IngestInboundMessageResult
+      >(COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID, {
+        input: ingestInput,
+        ctx: {
+          container,
+          auth: auth as never,
+          organizationScope: null,
+          selectedOrganizationId: organizationId,
+          organizationIds: organizationId ? [organizationId] : null,
+        },
+      })
+      result = execution.result
+    } catch (err) {
+      const interceptorRejection = getCommandInterceptorHttpRejection(err)
+      if (interceptorRejection) {
+        return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+      }
+      return ingestFailureResponse(err)
+    }
 
     return NextResponse.json(
       {

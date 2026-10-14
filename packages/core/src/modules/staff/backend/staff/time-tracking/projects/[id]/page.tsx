@@ -177,7 +177,13 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [isNotFound, setIsNotFound] = React.useState(false)
-  const [accessDenied, setAccessDenied] = React.useState(false)
+  // Keyed by project id so a route change to another project never shows the
+  // previous project's guard (with a live request button) while the new one loads.
+  const [accessDeniedProjectId, setAccessDeniedProjectId] = React.useState<string | null>(null)
+  const accessDenied = accessDeniedProjectId !== null && accessDeniedProjectId === projectId
+  // The id the last finished load was for. Until it matches the route, the page
+  // is still loading — never the previous project's error or empty state.
+  const [settledProjectId, setSettledProjectId] = React.useState<string | null>(null)
 
   const [employees, setEmployees] = React.useState<EmployeeAssignment[]>([])
   const [employeesLoading, setEmployeesLoading] = React.useState(false)
@@ -380,31 +386,13 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   )
 
   // --- Load project ---
-  // The organization switcher settles the scope just after mount, bumping the
-  // scope version from 0 and reloading the project. A screen resolved before
-  // that stays up until the answer arrives: falling back to the full-page
-  // loader would unmount it and drop its local state, such as an access request
-  // the user has just sent. A switch between two known scopes still goes
-  // through the loader, so no screen outlives the scope it was loaded for. The
-  // decision looks at the load this one replaces, settled or not: a version-0
-  // load cancelled by a quick second switch must not let that switch through.
-  const lastLoadRef = React.useRef<{ projectId: string; scopeVersion: number } | null>(null)
   React.useEffect(() => {
     if (!projectId) return
     let cancelled = false
-    const replaced = lastLoadRef.current
-    lastLoadRef.current = { projectId, scopeVersion }
-    const keepScreen = replaced !== null && replaced.projectId === projectId && replaced.scopeVersion === 0
     async function loadProject() {
-      if (!keepScreen) setLoading(true)
-      const settle = (outcome: { project?: ProjectRecord; accessDenied?: boolean; isNotFound?: boolean; error?: string }) => {
-        if (cancelled) return
-        setAccessDenied(outcome.accessDenied === true)
-        setIsNotFound(outcome.isNotFound === true)
-        setError(outcome.error ?? null)
-        if (outcome.project) setProject(outcome.project)
-        setLoading(false)
-      }
+      setLoading(true)
+      setError(null)
+      setIsNotFound(false)
       try {
         const queryParams = new URLSearchParams({ page: '1', pageSize: '1', ids: projectId! })
         const call = await apiCall<ProjectResponse>(
@@ -413,21 +401,29 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
         // Screen 17: the route answers 404 with this discriminator for a project
         // the caller is not a member of, without naming it.
         if (call.status === 404 && readDenialReason(call.result) === NO_PROJECT_ACCESS_REASON) {
-          settle({ accessDenied: true })
+          if (!cancelled) setAccessDeniedProjectId(projectId ?? null)
           return
         }
+        if (!cancelled) setAccessDeniedProjectId(null)
         if (!call.ok) {
           throw new Error(t('staff.timesheets.projects.errors.load', 'Failed to load project.'))
         }
         const payload = call.result
         const record = Array.isArray(payload?.items) ? payload.items[0] : null
         if (!record) {
-          settle({ isNotFound: true })
+          if (!cancelled) setIsNotFound(true)
           return
         }
-        settle({ project: record })
+        if (!cancelled) setProject(record)
       } catch (loadError) {
-        settle({ error: loadError instanceof Error ? loadError.message : t('staff.timesheets.projects.errors.load', 'Failed to load project.') })
+        if (!cancelled) {
+          setError(loadError instanceof Error ? loadError.message : t('staff.timesheets.projects.errors.load', 'Failed to load project.'))
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false)
+          setSettledProjectId(projectId ?? null)
+        }
       }
     }
     loadProject()
@@ -662,7 +658,18 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   }, [handleAddEmployee])
 
   // --- Render ---
-  if (loading) {
+  // Screen 17 — the caller may not open this project. The guard state names
+  // neither the customer nor the project (note 1), and the surrounding shell
+  // (sidebar, topbar) is untouched because the caller still has other projects
+  // (note 3). It is checked before `loading` and only cleared by a response that
+  // grants access, so a background reload (e.g. the organization scope
+  // resolving late) keeps the guard mounted instead of resetting a request the
+  // user has just sent.
+  if (accessDenied) {
+    return <NoProjectAccess timeProjectId={projectId} />
+  }
+
+  if (loading || settledProjectId !== (projectId ?? null)) {
     return (
       <Page>
         <PageBody>
@@ -670,14 +677,6 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
         </PageBody>
       </Page>
     )
-  }
-
-  // Screen 17 — the caller may not open this project. The guard state names
-  // neither the customer nor the project (note 1), and the surrounding shell
-  // (sidebar, topbar) is untouched because the caller still has other projects
-  // (note 3).
-  if (accessDenied) {
-    return <NoProjectAccess timeProjectId={projectId} />
   }
 
   if (isNotFound) {

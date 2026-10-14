@@ -994,6 +994,8 @@
   "ui.inputs.eventSelect.empty": "사용 가능한 이벤트가 없습니다",
   "ui.inputs.eventSelect.loading": "불러오는 중...",
   "ui.inputs.eventSelect.placeholder": "이벤트를 선택하세요...",
+  "ui.inputs.lookupPicker.forbidden": "이 옵션을 불러올 권한이 없습니다.",
+  "ui.inputs.lookupPicker.loadFailed": "옵션을 불러올 수 없습니다. 다시 시도하세요.",
   "ui.inputs.passwordInput.hide": "비밀번호 숨기기",
   "ui.inputs.passwordInput.show": "비밀번호 표시",
   "ui.inputs.phoneNumberField.checking": "중복 여부 확인 중…",

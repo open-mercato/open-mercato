@@ -37,6 +37,13 @@ export type RefreshCredentialsIfNeededInput = {
   refreshWindowMs?: number
   /** Force a refresh regardless of expiry — used after a 401 response from the provider. */
   force?: boolean
+  /**
+   * How long a pending refresh for this channel is handed to later callers.
+   * Past this deadline later callers stop waiting on it and continue with their
+   * stored credentials; no second refresh starts while it is unsettled.
+   * Defaults to 2 minutes; `Infinity` waits on the pending refresh indefinitely.
+   */
+  inFlightTtlMs?: number
 }
 
 export type RefreshCredentialsIfNeededResult = {
@@ -46,6 +53,7 @@ export type RefreshCredentialsIfNeededResult = {
 }
 
 const DEFAULT_REFRESH_WINDOW_MS = 60_000
+const DEFAULT_IN_FLIGHT_TTL_MS = 120_000
 
 /**
  * In-process single-flight for credential refresh, keyed by `channelId`. The
@@ -56,8 +64,14 @@ const DEFAULT_REFRESH_WINDOW_MS = 60_000
  * flaps the channel to `requires_reauth`. Coalescing concurrent refreshes for
  * the same channel onto one in-flight promise prevents that race for the common
  * single-process case. Entries are deleted in `finally` once settled.
+ *
+ * A refresh that never settles (e.g. a token exchange whose response body is
+ * never closed) would otherwise be handed to every later caller forever, so an
+ * entry older than `inFlightTtlMs` is no longer shared: later callers proceed
+ * with their stored credentials instead of hanging on it.
  */
-const inFlightRefreshes = new Map<string, Promise<RefreshCredentialsIfNeededResult>>()
+type InFlightRefresh = { promise: Promise<RefreshCredentialsIfNeededResult>; startedAt: number }
+const inFlightRefreshes = new Map<string, InFlightRefresh>()
 
 /**
  * Refresh OAuth credentials when an access token is near expiry, or when the
@@ -88,13 +102,21 @@ export async function refreshCredentialsIfNeeded(
   // Coalesce concurrent refreshes for the same channel onto one in-flight
   // promise so rotating refresh tokens are not exchanged twice in parallel.
   const existing = inFlightRefreshes.get(input.channelId)
-  if (existing) return existing
+  if (existing) {
+    const inFlightTtl = input.inFlightTtlMs ?? DEFAULT_IN_FLIGHT_TTL_MS
+    if (Date.now() - existing.startedAt <= inFlightTtl) return existing.promise
+    log(
+      '[communication_channels] credential refresh still pending past its deadline; continuing with stored credentials for channel',
+      input.channelId,
+    )
+    return { refreshed: false, credentials: input.credentials }
+  }
 
   const refreshCredentials = input.adapter.refreshCredentials.bind(input.adapter)
   const refreshPromise = runRefresh(input, refreshCredentials, deps, log).finally(() => {
     inFlightRefreshes.delete(input.channelId)
   })
-  inFlightRefreshes.set(input.channelId, refreshPromise)
+  inFlightRefreshes.set(input.channelId, { promise: refreshPromise, startedAt: Date.now() })
   return refreshPromise
 }
 
