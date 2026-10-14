@@ -4,8 +4,9 @@
  * Comments default to internal; only portal tickets can carry customer-visible
  * replies; customer messages are immutable for staff, managers included; a retracted
  * reply disappears from the portal; the portal never sees staff-edited task text,
- * the project or the internal task reference; ticket creation and file uploads are
- * rate limited per customer user.
+ * the project or the internal task reference; the portal list orders tickets by
+ * the newest customer-visible activity; ticket creation and file uploads are rate
+ * limited per customer user.
  */
 import { expect, test } from '@playwright/test'
 import { apiRequest } from '@open-mercato/core/helpers/integration/api'
@@ -112,6 +113,37 @@ test.describe('TC-STAFF-SUP-014: Conversation visibility and portal hygiene', ()
       for (const forbidden of ['timeProjectId', 'projectName', 'reference"', 'assignee', 'hourlyRate', 'amount']) {
         expect(raw, `portal detail must not expose ${forbidden}`).not.toContain(forbidden)
       }
+    } finally {
+      await cleanup.run()
+    }
+  })
+
+  test('the portal list puts the newest customer-visible activity first', async ({ request }) => {
+    const cleanup = new Cleanup()
+    try {
+      const admin = await adminToken(request)
+      const project = await createProject(request, admin, cleanup, 'ordering')
+      await pointFallbackAt(request, admin, cleanup, project.id)
+      const category = await createCategory(request, admin, cleanup, 'ordering')
+      const customer = await createPortalCustomer(request, admin, cleanup, { features: [PORTAL_VIEW, PORTAL_MANAGE], label: 'ordering' })
+
+      const older = await fileTicket(request, customer, { categoryValue: category.value, subject: `Ordering older ${Date.now()}` })
+      cleanup.add(() => deleteTask(request, admin, older.id))
+      const newer = await fileTicket(request, customer, { categoryValue: category.value, subject: `Ordering newer ${Date.now()}` })
+      cleanup.add(() => deleteTask(request, admin, newer.id))
+
+      const listIds = async (): Promise<string[]> => {
+        const response = await portalRequest(request, customer, 'GET', '/api/staff/portal/support-tickets?pageSize=50')
+        expect(response.status()).toBe(200)
+        return ((await readJsonSafe<{ items?: Array<{ id: string }> }>(response))?.items ?? []).map((item) => item.id)
+      }
+      expect(await listIds()).toEqual([newer.id, older.id])
+
+      expect((await staffComment(request, admin, older.id, 'We are on it.', 'customer')).status()).toBe(201)
+      expect(await listIds()).toEqual([older.id, newer.id])
+
+      expect((await staffComment(request, admin, newer.id, 'Internal triage note.', 'internal')).status()).toBe(201)
+      expect(await listIds()).toEqual([older.id, newer.id])
     } finally {
       await cleanup.run()
     }

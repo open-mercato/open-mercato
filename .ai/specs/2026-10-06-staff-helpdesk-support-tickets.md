@@ -1,6 +1,6 @@
 # Helpdesk: Customer Support Tickets on Staff Projects
 
-> **Status:** Implemented on branch `spec/staff-helpdesk-support-tickets-impl` (pending review)
+> **Status:** In progress. Implementation PR #7421 is under review.
 > **Module:** `staff` (`packages/core/src/modules/staff`). Helpdesk data is kept in a helpdesk-shaped extension entity, so a later `staff` split can move it as a file move (see D1).
 > **Reference for the portal surface:** `warranty_claims` (portal intake, customer-pinned ownership, portal attachments) and staff's own EP-50 portal time reports (identity resolution, recipient pinning)
 > **Supersedes:** issue [#430](https://github.com/open-mercato/open-mercato/issues/430) "feat: Helpdesk Module" (see D3)
@@ -652,6 +652,26 @@ Staff-side handling ships **before** portal intake, so customers never get a cha
 
 Each phase ends with the validation gate from `.ai/agentic.config.json`.
 
+## 🧪 Planned Test IDs → Shipped Coverage
+
+The step-level test IDs above were planned before implementation. The suite shipped under different IDs:
+
+| Planned | Shipped coverage |
+|---|---|
+| TC-STAFF-SUP-001 (routing-rule CRUD) | Integration `TC-STAFF-SUP-011` (routing variants, fallback-rule guards); unit `commands/__tests__/support-routing-rules.test.ts` |
+| TC-STAFF-SUP-002 (settings UI) | Playwright `TC-STAFF-SUP-016` (Settings → Support tab) |
+| TC-STAFF-ASG-001 (assigner toggle, default-assignee validation) | Integration `TC-STAFF-SUP-012` ("assigner and default-assignee settings are validated") |
+| TC-STAFF-ASG-002 (claim race) | Integration `TC-STAFF-SUP-012` ("two assigners racing for one ticket"); unit `commands/__tests__/timesheets-task-assignment.test.ts` |
+| TC-STAFF-ASG-003 (Unassigned chip, claim flow in the UI) | Unit tests only: `boardFilters.test.ts` (unassigned filter) and `TaskDrawer` tests (Claim/Release from the server-computed `_staffAssignment`). No Playwright flow for the chip |
+| TC-STAFF-ASG-004 (D2 regression) | Integration `TC-STAFF-SUP-012` ("staff task creation still assigns the creator") |
+| TC-STAFF-SUP-003 (comment visibility) | Integration `TC-STAFF-SUP-014` |
+| TC-STAFF-SUP-004 (drawer, Support Inbox live refresh) | Playwright `TC-STAFF-SUP-010`, `TC-STAFF-SUP-015` |
+| TC-STAFF-SUP-005 (portal API, isolation, rate limits) | Integration `TC-STAFF-SUP-012`, `TC-STAFF-SUP-014`; unit `lib/support/__tests__/{portalTickets,portalRoute}.test.ts` |
+| TC-STAFF-SUP-006 (portal pages) | Playwright `TC-STAFF-SUP-010` (portal page kept open, live updates) |
+| TC-STAFF-SUP-007 (portal dashboard widget) | Unit test of `usePortalDashboardWidgets` only. No Playwright check of the widget |
+| TC-STAFF-SUP-008 (attachments API) | Integration `TC-STAFF-SUP-013` |
+| TC-STAFF-SUP-009 (attachments UI) | Playwright `TC-STAFF-SUP-013` (portal), `TC-STAFF-SUP-017` (drawer "Share with customer") |
+
 ## ✅ Final Compliance Report
 
 | Rule (root / staff `AGENTS.md`) | Status |
@@ -662,12 +682,12 @@ Each phase ends with the validation gate from `.ai/agentic.config.json`.
 | Tenant and organization scoping on every query | ✅ The ownership clause and routing resolver carry both; notification step 4 passes `restrictRecipientsToOrganization: true`, which a test pins |
 | Portal broadcast pins recipients and skips an empty list | ✅ `portal_updated` |
 | No browser broadcast of customer identity to the whole organization | ✅ Events carrying `customerId` are server-side only; `activity_recorded` carries ids only |
-| Atomic claim (no lost update between concurrent assigners) | ✅ Conditional update plus 409; covered by TC-STAFF-ASG-002 |
+| Atomic claim (no lost update between concurrent assigners) | ✅ Conditional update plus 409; covered by TC-STAFF-SUP-012 and the claim/release command unit tests |
 | Optimistic locking on new user-editable entities | ✅ Routing rules (`updated_at`, CRUD default ON); tasks and comments keep their existing locks |
 | Encryption for sensitive free text | ⚠️ Partial. The original request is encrypted; comment and task text stay plaintext as an accepted, documented v1 risk with a listed follow-up |
 | i18n, no hard-coded strings, DS status tokens | ✅ Planned per step; checked by `yarn i18n:check-sync` |
 | `BACKWARD_COMPATIBILITY.md` | ✅ Additive only. Task-create assignment is explicitly unchanged (D2). One narrowed behavior (customer comments are immutable) affects no existing data |
-| Integration tests for every new API path and key UI path | ✅ TC-STAFF-SUP-001…009 and TC-STAFF-ASG-001…004 |
+| Integration tests for every new API path and key UI path | ⚠️ `TC-STAFF-SUP-010`…`017` cover every new API path and the key UI paths; the Unassigned chip flow and the portal dashboard widget are unit-tested only (see the mapping above) |
 
 ## Changelog
 
@@ -735,3 +755,13 @@ Each phase ends with the validation gate from `.ai/agentic.config.json`.
 - **2026-10-14** — Portal live updates:
   - `TC-STAFF-SUP-010` now keeps the portal ticket page open and asserts that the staff reply and every status change arrive live, with no navigation.
   - That check exposed open issue #2973: the event bus relays only `clientBroadcast`/`crossProcessBroadcast` events across processes, so `portal_updated` (portal-only) emitted from the queue worker never reached the web process holding the portal SSE stream. The six `support-portal-*` subscribers are therefore ephemeral and run inline in the web process that executed the command, as `warranty_claims` emits its portal event from the command. Portal state is derived on read, so a live update lost to a crash only delays it until the next load. Make them persistent again once #2973 lands.
+- **2026-10-14** — Code-review follow-ups (PR #7421):
+  - Exported schemas stay backward compatible: `staffTimeTaskCommentUpdateSchema` is a plain object again; the "body or visibility" rule lives in the new `staffTimeTaskCommentUpdateRequestSchema`; create `visibility` and `TimeTrackingBuiltInSettings.support` are optional. A settings `PUT` that omits the `support` group keeps the stored prefix.
+  - New `GET /api/staff/timesheets/support-tickets/options` (`staff.timesheets.tasks.view`) serves the Support Inbox's category and assignee filters, so agents without `settings.manage` or `staff.view` get complete filters.
+  - New enricher field `_staffAssignment: { canClaim, canRelease }` on tasks, computed with the claim command's predicate; the drawer no longer guesses assigner status client-side.
+  - "Create fallback project" emits project side effects, has audit and undo, and resolves a concurrent call as `created: false`. Support sequence numbers use one indexed query (`staff_support_tickets_sequence_idx`). Undo paths restore only what their action changed.
+  - Portal: uploads are rate limited (30/hour per customer user), upload errors are translated, the list is ordered by the newest customer-visible activity, the detail response includes the customer-visible attachments, failed uploads can be retried, and the upload limit comes from the server (`maxUploadBytes` in `options`).
+  - The status-column fan-out subscriber is persistent again; the other five `support-portal-*` subscribers stay ephemeral until #2973 (PR #7420) lands.
+  - Event payload schemas for `staff.support_ticket.*` are in `events.payloads.ts`; `UPGRADE_NOTES.md` lists the steps for existing tenants.
+  - Deferred: the portal attachment validator and upload error map duplicate `warranty_claims`' copies (a shared attachments lib would touch other modules); the TaskDrawer assignee select and the board's assignee directory still call `/api/staff/team-members` (`staff.view`), as before this feature.
+

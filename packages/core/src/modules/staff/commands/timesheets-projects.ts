@@ -24,7 +24,6 @@ import {
   type StaffTimeProjectMemberStatus,
 } from '../data/entities'
 
-const timeProjectCrudIndexer = staffTimeProjectCrudIndexer
 const timeProjectMemberCrudIndexer: CrudIndexerConfig<StaffTimeProjectMember> = {
   entityType: 'staff:staff_time_project_member',
 }
@@ -372,7 +371,7 @@ const createTimeProjectCommand: CommandHandler<StaffTimeProjectCreateInput, { ti
         tenantId: project.tenantId,
       },
       events: staffTimeProjectCrudEvents,
-      indexer: timeProjectCrudIndexer,
+      indexer: staffTimeProjectCrudIndexer,
     })
 
     return { timeProjectId: project.id }
@@ -422,7 +421,7 @@ const createTimeProjectCommand: CommandHandler<StaffTimeProjectCreateInput, { ti
           tenantId: project.tenantId,
         },
         events: staffTimeProjectCrudEvents,
-        indexer: timeProjectCrudIndexer,
+        indexer: staffTimeProjectCrudIndexer,
       })
     }
   },
@@ -432,7 +431,7 @@ const createTimeProjectCommand: CommandHandler<StaffTimeProjectCreateInput, { ti
     seedFromSnapshot: timeProjectSeedFromSnapshot,
     buildResult: (entity) => ({ timeProjectId: entity.id }),
     events: staffTimeProjectCrudEvents,
-    indexer: timeProjectCrudIndexer,
+    indexer: staffTimeProjectCrudIndexer,
   }),
 }
 
@@ -595,7 +594,7 @@ const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { ti
         tenantId: project.tenantId,
       },
       events: staffTimeProjectCrudEvents,
-      indexer: timeProjectCrudIndexer,
+      indexer: staffTimeProjectCrudIndexer,
     })
 
     return { timeProjectId: project.id }
@@ -689,7 +688,7 @@ const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { ti
         tenantId: project.tenantId,
       },
       events: staffTimeProjectCrudEvents,
-      indexer: timeProjectCrudIndexer,
+      indexer: staffTimeProjectCrudIndexer,
     })
   },
 }
@@ -734,7 +733,7 @@ const deleteTimeProjectCommand: CommandHandler<{ id?: string }, { timeProjectId:
         tenantId: project.tenantId,
       },
       events: staffTimeProjectCrudEvents,
-      indexer: timeProjectCrudIndexer,
+      indexer: staffTimeProjectCrudIndexer,
     })
     return { timeProjectId: project.id }
   },
@@ -820,7 +819,7 @@ const deleteTimeProjectCommand: CommandHandler<{ id?: string }, { timeProjectId:
         tenantId: project.tenantId,
       },
       events: staffTimeProjectCrudEvents,
-      indexer: timeProjectCrudIndexer,
+      indexer: staffTimeProjectCrudIndexer,
     })
   },
 }
@@ -993,7 +992,7 @@ const changeTimeProjectCurrencyCommand: CommandHandler<
         tenantId: project.tenantId,
       },
       events: timeProjectCurrencyChangeEvents(previousCurrencyCode, parsed.currencyCode),
-      indexer: timeProjectCrudIndexer,
+      indexer: staffTimeProjectCrudIndexer,
     })
 
     return {
@@ -1063,7 +1062,7 @@ const changeTimeProjectCurrencyCommand: CommandHandler<
         tenantId: project.tenantId,
       },
       events: staffTimeProjectCrudEvents,
-      indexer: timeProjectCrudIndexer,
+      indexer: staffTimeProjectCrudIndexer,
     })
   },
 }
