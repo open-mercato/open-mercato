@@ -2596,3 +2596,7 @@ implementation branches; nothing here is a decision, only findings.
   `decimal/toNumber` helper that a shared decimal toolkit would replace; (5)
   whether the rounding mode and FX-difference rounding follow any rule in Polish
   accounting practice is a question for the domain expert and is unverified.
+  (6) `posting_rules` checks that an amount is non-zero with a small local
+  helper (`isNonZeroAmount`, string-based, valid only for the ledger's plain
+  non-negative decimal strings); if a shared decimal helper for money lands,
+  it should replace this.
