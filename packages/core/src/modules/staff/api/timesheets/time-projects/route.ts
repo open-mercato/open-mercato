@@ -10,6 +10,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { isIdsParamProvided, parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
@@ -508,7 +509,7 @@ async function resolveProjectAccessDenial(req: Request): Promise<Response | null
     if (!auth) return null
     const orgScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
     const tenantId = orgScope?.tenantId ?? auth.tenantId ?? null
-    const organizationId = orgScope?.selectedId ?? auth.orgId ?? null
+    const organizationId = resolveSingleOrganizationIdOrDeny(orgScope, auth) ?? null
     if (!tenantId || !organizationId) return null
 
     const access = await resolveRequestProjectAccess(req, () =>

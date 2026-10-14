@@ -16,17 +16,20 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { WorkflowDefinition } from '../../../../data/entities'
 import type { WorkflowIoContract } from '../../../../data/validators'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { serializeWorkflowDefinition } from '../../serialize'
 import { findSubWorkflowCallers } from '../../../../lib/caller-graph'
+import { invalidateTriggerCache } from '../../../../lib/event-trigger-service'
 import {
   authorizeWorkflowGrantChange,
   normalizeGrantedFeatures,
   syncWorkflowDefinitionPrincipal,
 } from '../../../../lib/definition-grant'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows').child({ component: 'definition-publish-api' })
 
@@ -56,7 +59,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
     const tenantId = auth.tenantId
-    const organizationId = scope?.selectedId ?? auth.orgId
+    const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth)
 
     if (!tenantId || !organizationId) {
       return NextResponse.json({ error: 'Missing tenant or organization context' }, { status: 400 })
@@ -165,6 +168,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
     em.persist(published)
     await em.flush()
 
+    // The minted version is now the one unpinned starts and event triggers
+    // resolve to, so the cached trigger set still pointing at the previous
+    // version must be dropped.
+    invalidateTriggerCache(tenantId, organizationId)
+
     if (guardResult?.shouldRunAfterSuccess) {
       await runCrudMutationGuardAfterSuccess(container, {
         tenantId,
@@ -209,6 +217,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       message: 'Workflow definition published successfully',
     })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('error publishing workflow definition', {
       error: error instanceof Error ? error.message : String(error),
     })
