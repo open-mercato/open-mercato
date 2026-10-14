@@ -29,10 +29,10 @@ import { decimalToNumber, resolveExactDecimal, toDecimal } from '@open-mercato/s
 import { resolveCurrencyDecimalPlaces, type CurrencyPrecisionResolver } from '@open-mercato/shared/lib/currencyPrecision'
 import {
   alignCapturedAmountWithStatus,
-  assertCaptureWithinRemaining,
-  releaseCaptureAmount,
-  reserveCaptureAmount,
-  settleCapturedAmount,
+  assertCaptureWithinRemainingExact,
+  releaseCaptureAmountExact,
+  reserveCaptureAmountExact,
+  settleCapturedAmountExact,
 } from './capture-ledger'
 import {
   completePaymentOperation,
@@ -581,10 +581,10 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         operationId,
         payload: { amount: amount ?? null },
         scope,
-        assertInitialAllowed: (transaction) => { assertCaptureWithinRemaining(transaction, amount) },
+        assertInitialAllowed: (transaction) => { assertCaptureWithinRemainingExact(transaction, amount) },
         beforeInvoke: async ({ transaction, operation }) => {
           const alreadyCaptured = toDecimal(resolveExactDecimal(transaction.capturedAmount, null) ?? 0)
-          reservedAmount = await reserveCaptureAmount(em, { transaction, operation, amount, scope })
+          reservedAmount = await reserveCaptureAmountExact(em, { transaction, operation, amount, scope })
           // "Capture the rest" has to name the remaining amount once part of the authorization is
           // already captured, otherwise the provider would capture the full amount a second time.
           if (amount === undefined && alreadyCaptured.gt(0)) {
@@ -610,7 +610,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
             )
             return
           }
-          const released = await releaseCaptureAmount(em, { transactionId, operation, reservedAmount, scope })
+          const released = await releaseCaptureAmountExact(em, { transactionId, operation, reservedAmount, scope })
           if (released) return
           await writeTransactionLog(
             transaction.providerKey,
@@ -638,7 +638,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
             captureResult: result.providerData,
           }
           if (reservedAmount !== null) {
-            settleCapturedAmount(
+            settleCapturedAmountExact(
               transaction,
               reservedAmount,
               resolveExactDecimal(result.capturedAmountExact, result.capturedAmount) ?? undefined,

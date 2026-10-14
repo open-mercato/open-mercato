@@ -4269,6 +4269,8 @@ function NumberInput({
   autoFocus,
   onSubmit,
   exact = false,
+  disabled,
+  readOnly,
 }: {
   value: number | string | null | undefined
   onChange: (v: number | string | undefined) => void
@@ -4276,6 +4278,8 @@ function NumberInput({
   autoFocus?: boolean
   onSubmit?: () => void
   exact?: boolean
+  disabled?: boolean
+  readOnly?: boolean
 }) {
   const locale = useOptionalLocale()
   const serializedValue = value !== undefined && value !== null ? String(value) : ''
@@ -4360,6 +4364,8 @@ function NumberInput({
       onFocus={handleFocus}
       onBlur={handleBlur}
       autoFocus={autoFocus}
+      disabled={disabled}
+      readOnly={readOnly}
       data-crud-focus-target=""
     />
   )
@@ -4752,6 +4758,8 @@ const FieldControl = React.memo(function FieldControlImpl({
           autoFocus={autoFocusField}
           onSubmit={onSubmitRequest}
           exact={field.type === 'decimal'}
+          disabled={disabled}
+          readOnly={readOnly}
         />
       )}
       {field.type === 'date' && (
@@ -4851,6 +4859,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           suppressInitialSuggestionsOnFocus={autoFocusField}
           suggestions={options.map((opt) => ({ value: opt.value, label: opt.label }))}
           loadSuggestions={loadFieldSuggestions}
+          disabled={disabled}
         />
       )}
       {field.type === 'combobox' && (

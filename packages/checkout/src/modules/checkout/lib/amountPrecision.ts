@@ -5,11 +5,10 @@ import {
   resolveExactDecimal,
   roundDecimal,
 } from '@open-mercato/shared/lib/decimal'
-import { resolveCurrencyDecimalPlaces } from '@open-mercato/shared/lib/currencyPrecision'
-import {
-  findAmountPrecisionError,
-  type AmountPrecisionErrorBody,
-} from '@open-mercato/core/modules/payment_gateways/lib/amount-precision'
+import { findCurrencyAmountPrecisionError, resolveCurrencyDecimalPlaces } from '@open-mercato/shared/lib/currencyPrecision'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translate'
+import enDictionary from '@open-mercato/checkout/modules/checkout/i18n/en.json'
 
 export const DEFAULT_CHECKOUT_DECIMAL_PLACES = 2
 
@@ -123,7 +122,7 @@ export async function findCheckoutChargePrecisionError(
   container: CurrencyContainer,
   scope: CheckoutAmountScope,
   input: { amount: string | number | null | undefined; currencyCode: string | null | undefined },
-): Promise<AmountPrecisionErrorBody | null> {
+): Promise<{ error: string } | null> {
   const resolved = parseDecimal(input.amount)
   if (!resolved || !input.currencyCode) return null
   const decimalPlaces = (await resolveCurrencyDecimalPlaces(container, {
@@ -131,9 +130,23 @@ export async function findCheckoutChargePrecisionError(
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
   })) ?? DEFAULT_CHECKOUT_DECIMAL_PLACES
-  return findAmountPrecisionError(container, {
+  const precisionError = findCurrencyAmountPrecisionError({
     amount: decimalToString(roundDecimal(resolved, decimalPlaces)),
     currencyCode: input.currencyCode,
-    scope,
+    decimalPlaces,
   })
+  if (!precisionError) return null
+  let translate = createFallbackTranslator(enDictionary)
+  try {
+    translate = (await resolveTranslations()).translate
+  } catch {
+    translate = createFallbackTranslator(enDictionary)
+  }
+  return {
+    error: translate(
+      'checkout.errors.amountPrecisionExceeded',
+      enDictionary['checkout.errors.amountPrecisionExceeded'],
+      precisionError,
+    ),
+  }
 }

@@ -1,4 +1,26 @@
-import { resolveAmountDecimalPlaces, resolveIsoCurrencyDecimalPlaces } from './decimal'
+import {
+  countDecimalPlaces,
+  decimalToString,
+  parseDecimal,
+  resolveAmountDecimalPlaces,
+  resolveIsoCurrencyDecimalPlaces,
+} from './decimal'
+
+export function findCurrencyAmountPrecisionError(input: {
+  amount: number | string | null | undefined
+  currencyCode: string | null | undefined
+  decimalPlaces: number | null
+}): { amount: string; currencyCode: string; decimalPlaces: number } | null {
+  const amount = parseDecimal(input.amount)
+  const currencyCode = input.currencyCode?.trim().toUpperCase()
+  if (amount === null || !currencyCode) return null
+  const isoDecimalPlaces = resolveIsoCurrencyDecimalPlaces(currencyCode)
+  const decimalPlaces = input.decimalPlaces !== null && isoDecimalPlaces !== null
+    ? Math.min(input.decimalPlaces, isoDecimalPlaces)
+    : input.decimalPlaces
+  if (decimalPlaces === null || countDecimalPlaces(amount) <= decimalPlaces) return null
+  return { amount: decimalToString(amount), currencyCode, decimalPlaces }
+}
 
 export type CurrencyPrecisionLookup = {
   code: string

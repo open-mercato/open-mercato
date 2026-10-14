@@ -1,4 +1,13 @@
-import { roundCheckoutConfiguredAmounts, toStoredCheckoutAmounts } from '../amountPrecision'
+import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translate'
+import enDictionary from '../../i18n/en.json'
+import plDictionary from '../../i18n/pl.json'
+import { findCheckoutChargePrecisionError, roundCheckoutConfiguredAmounts, toStoredCheckoutAmounts } from '../amountPrecision'
+
+const mockResolveTranslations = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: () => mockResolveTranslations(),
+}))
 
 const SCOPE = { tenantId: 'tenant-1', organizationId: 'org-1' }
 
@@ -120,5 +129,41 @@ describe('roundCheckoutConfiguredAmounts', () => {
 
     expect(getDecimalPlaces).toHaveBeenCalledTimes(1)
     expect(getDecimalPlaces).toHaveBeenCalledWith({ code: 'USD', tenantId: 'tenant-1', organizationId: 'org-1' })
+  })
+})
+
+describe('findCheckoutChargePrecisionError', () => {
+  beforeEach(() => {
+    mockResolveTranslations.mockResolvedValue({ translate: createFallbackTranslator(enDictionary) })
+  })
+
+  it('rejects charges exceeding ISO minor units when tenant precision is higher', async () => {
+    const container = { resolve: <T,>(): T => ({ getDecimalPlaces: async () => 4 }) as T }
+
+    await expect(findCheckoutChargePrecisionError(container, SCOPE, { amount: '10.0051', currencyCode: 'USD' }))
+      .resolves.toEqual({ error: 'Amount 10.0051 has more decimal places than USD supports (2)' })
+  })
+
+  it('checks the rounded checkout amount at the configured currency precision', async () => {
+    const { container } = makeContainer()
+
+    await expect(findCheckoutChargePrecisionError(container, SCOPE, { amount: '10.005', currencyCode: 'USD' })).resolves.toBeNull()
+    await expect(findCheckoutChargePrecisionError(container, SCOPE, { amount: '0.000000000000000001', currencyCode: 'ETH' })).resolves.toBeNull()
+  })
+
+  it('uses checkout translations without depending on the gateway dictionary', async () => {
+    mockResolveTranslations.mockResolvedValue({ translate: createFallbackTranslator(plDictionary) })
+    const container = { resolve: <T,>(): T => ({ getDecimalPlaces: async () => 4 }) as T }
+
+    await expect(findCheckoutChargePrecisionError(container, SCOPE, { amount: '10.0051', currencyCode: 'USD' }))
+      .resolves.toEqual({ error: 'Kwota 10.0051 ma więcej miejsc po przecinku, niż obsługuje waluta USD (2)' })
+  })
+
+  it('falls back to checkout English translations outside a request', async () => {
+    mockResolveTranslations.mockRejectedValue(new Error('[internal] no request locale'))
+    const container = { resolve: <T,>(): T => ({ getDecimalPlaces: async () => 4 }) as T }
+
+    await expect(findCheckoutChargePrecisionError(container, SCOPE, { amount: '10.0051', currencyCode: 'USD' }))
+      .resolves.toEqual({ error: 'Amount 10.0051 has more decimal places than USD supports (2)' })
   })
 })

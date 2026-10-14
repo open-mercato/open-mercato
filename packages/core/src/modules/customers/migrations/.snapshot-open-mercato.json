@@ -982,7 +982,7 @@
       "columns": {
         "annual_revenue": {
           "name": "annual_revenue",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -2450,7 +2450,7 @@
         },
         "value_amount": {
           "name": "value_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,

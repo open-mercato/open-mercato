@@ -129,7 +129,7 @@
         },
         "custom_amount_max": {
           "name": "custom_amount_max",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -146,7 +146,7 @@
         },
         "custom_amount_min": {
           "name": "custom_amount_min",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -316,7 +316,7 @@
         },
         "fixed_price_amount": {
           "name": "fixed_price_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -367,7 +367,7 @@
         },
         "fixed_price_original_amount": {
           "name": "fixed_price_original_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -1064,7 +1064,7 @@
         },
         "custom_amount_max": {
           "name": "custom_amount_max",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -1081,7 +1081,7 @@
         },
         "custom_amount_min": {
           "name": "custom_amount_min",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -1251,7 +1251,7 @@
         },
         "fixed_price_amount": {
           "name": "fixed_price_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -1302,7 +1302,7 @@
         },
         "fixed_price_original_amount": {
           "name": "fixed_price_original_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -1937,7 +1937,7 @@
         },
         "amount": {
           "name": "amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,

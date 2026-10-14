@@ -2504,7 +2504,7 @@
         },
         "rate_override_amount": {
           "name": "rate_override_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -3483,7 +3483,7 @@
         },
         "budget_value": {
           "name": "budget_value",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -3670,7 +3670,7 @@
         },
         "hourly_rate": {
           "name": "hourly_rate",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -3919,7 +3919,7 @@
         },
         "frozen_amount": {
           "name": "frozen_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -3970,7 +3970,7 @@
         },
         "frozen_rate_amount": {
           "name": "frozen_rate_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -4929,7 +4929,7 @@
         },
         "total_amount": {
           "name": "total_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,

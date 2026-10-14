@@ -706,7 +706,7 @@
         },
         "rate": {
           "name": "rate",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,

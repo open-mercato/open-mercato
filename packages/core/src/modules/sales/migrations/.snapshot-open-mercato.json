@@ -713,7 +713,7 @@
         },
         "tax_amount": {
           "name": "tax_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -764,7 +764,7 @@
         },
         "total_gross_amount": {
           "name": "total_gross_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -781,7 +781,7 @@
         },
         "total_net_amount": {
           "name": "total_net_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -798,7 +798,7 @@
         },
         "unit_price_gross": {
           "name": "unit_price_gross",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -815,7 +815,7 @@
         },
         "unit_price_net": {
           "name": "unit_price_net",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -1005,7 +1005,7 @@
         },
         "grand_total_gross_amount": {
           "name": "grand_total_gross_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -1022,7 +1022,7 @@
         },
         "grand_total_net_amount": {
           "name": "grand_total_net_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -1192,7 +1192,7 @@
         },
         "subtotal_gross_amount": {
           "name": "subtotal_gross_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -1209,7 +1209,7 @@
         },
         "subtotal_net_amount": {
           "name": "subtotal_net_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -1226,7 +1226,7 @@
         },
         "tax_total_amount": {
           "name": "tax_total_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -2802,7 +2802,7 @@
         },
         "discount_amount": {
           "name": "discount_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -3057,7 +3057,7 @@
         },
         "tax_amount": {
           "name": "tax_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -3108,7 +3108,7 @@
         },
         "total_gross_amount": {
           "name": "total_gross_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -3125,7 +3125,7 @@
         },
         "total_net_amount": {
           "name": "total_net_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -3142,7 +3142,7 @@
         },
         "unit_price_gross": {
           "name": "unit_price_gross",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -3159,7 +3159,7 @@
         },
         "unit_price_net": {
           "name": "unit_price_net",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -3332,7 +3332,7 @@
         },
         "discount_total_amount": {
           "name": "discount_total_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -3366,7 +3366,7 @@
         },
         "grand_total_gross_amount": {
           "name": "grand_total_gross_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -3383,7 +3383,7 @@
         },
         "grand_total_net_amount": {
           "name": "grand_total_net_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -3502,7 +3502,7 @@
         },
         "outstanding_amount": {
           "name": "outstanding_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -3519,7 +3519,7 @@
         },
         "paid_total_amount": {
           "name": "paid_total_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -3570,7 +3570,7 @@
         },
         "subtotal_gross_amount": {
           "name": "subtotal_gross_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -3587,7 +3587,7 @@
         },
         "subtotal_net_amount": {
           "name": "subtotal_net_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -3604,7 +3604,7 @@
         },
         "tax_total_amount": {
           "name": "tax_total_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -4052,7 +4052,7 @@
       "columns": {
         "amount_gross": {
           "name": "amount_gross",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -4069,7 +4069,7 @@
         },
         "amount_net": {
           "name": "amount_net",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -4586,7 +4586,7 @@
         },
         "discount_amount": {
           "name": "discount_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -4977,7 +4977,7 @@
         },
         "tax_amount": {
           "name": "tax_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -5028,7 +5028,7 @@
         },
         "total_gross_amount": {
           "name": "total_gross_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -5045,7 +5045,7 @@
         },
         "total_net_amount": {
           "name": "total_net_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -5062,7 +5062,7 @@
         },
         "unit_price_gross": {
           "name": "unit_price_gross",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -5079,7 +5079,7 @@
         },
         "unit_price_net": {
           "name": "unit_price_net",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -5507,7 +5507,7 @@
         },
         "discount_total_amount": {
           "name": "discount_total_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -5541,7 +5541,7 @@
         },
         "exchange_rate": {
           "name": "exchange_rate",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -5626,7 +5626,7 @@
         },
         "grand_total_gross_amount": {
           "name": "grand_total_gross_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -5643,7 +5643,7 @@
         },
         "grand_total_net_amount": {
           "name": "grand_total_net_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -5762,7 +5762,7 @@
         },
         "outstanding_amount": {
           "name": "outstanding_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -5779,7 +5779,7 @@
         },
         "paid_total_amount": {
           "name": "paid_total_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -5915,7 +5915,7 @@
         },
         "refunded_total_amount": {
           "name": "refunded_total_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -5966,7 +5966,7 @@
         },
         "shipping_gross_amount": {
           "name": "shipping_gross_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -6051,7 +6051,7 @@
         },
         "shipping_net_amount": {
           "name": "shipping_net_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -6102,7 +6102,7 @@
         },
         "subtotal_gross_amount": {
           "name": "subtotal_gross_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -6119,7 +6119,7 @@
         },
         "subtotal_net_amount": {
           "name": "subtotal_net_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -6136,7 +6136,7 @@
         },
         "surcharge_total_amount": {
           "name": "surcharge_total_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -6187,7 +6187,7 @@
         },
         "tax_total_amount": {
           "name": "tax_total_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -6397,7 +6397,7 @@
       "columns": {
         "amount": {
           "name": "amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -6906,7 +6906,7 @@
       "columns": {
         "amount": {
           "name": "amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -6923,7 +6923,7 @@
         },
         "captured_amount": {
           "name": "captured_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -7144,7 +7144,7 @@
         },
         "refunded_amount": {
           "name": "refunded_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -7300,7 +7300,7 @@
       "columns": {
         "amount_gross": {
           "name": "amount_gross",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -7317,7 +7317,7 @@
         },
         "amount_net": {
           "name": "amount_net",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -7834,7 +7834,7 @@
         },
         "discount_amount": {
           "name": "discount_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -8157,7 +8157,7 @@
         },
         "tax_amount": {
           "name": "tax_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -8208,7 +8208,7 @@
         },
         "total_gross_amount": {
           "name": "total_gross_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -8225,7 +8225,7 @@
         },
         "total_net_amount": {
           "name": "total_net_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -8242,7 +8242,7 @@
         },
         "unit_price_gross": {
           "name": "unit_price_gross",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -8259,7 +8259,7 @@
         },
         "unit_price_net": {
           "name": "unit_price_net",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -8704,7 +8704,7 @@
         },
         "discount_total_amount": {
           "name": "discount_total_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -8738,7 +8738,7 @@
         },
         "grand_total_gross_amount": {
           "name": "grand_total_gross_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -8755,7 +8755,7 @@
         },
         "grand_total_net_amount": {
           "name": "grand_total_net_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -9095,7 +9095,7 @@
         },
         "subtotal_gross_amount": {
           "name": "subtotal_gross_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -9112,7 +9112,7 @@
         },
         "subtotal_net_amount": {
           "name": "subtotal_net_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -9146,7 +9146,7 @@
         },
         "tax_total_amount": {
           "name": "tax_total_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -9500,7 +9500,7 @@
         },
         "total_gross_amount": {
           "name": "total_gross_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -9517,7 +9517,7 @@
         },
         "total_net_amount": {
           "name": "total_net_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -9534,7 +9534,7 @@
         },
         "unit_price_gross": {
           "name": "unit_price_gross",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -9551,7 +9551,7 @@
         },
         "unit_price_net": {
           "name": "unit_price_net",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -10375,7 +10375,7 @@
         },
         "declared_value_gross": {
           "name": "declared_value_gross",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -10392,7 +10392,7 @@
         },
         "declared_value_net": {
           "name": "declared_value_net",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -10773,7 +10773,7 @@
       "columns": {
         "base_rate_gross": {
           "name": "base_rate_gross",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -10790,7 +10790,7 @@
         },
         "base_rate_net": {
           "name": "base_rate_net",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,

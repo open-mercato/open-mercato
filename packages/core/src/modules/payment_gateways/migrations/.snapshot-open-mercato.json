@@ -197,7 +197,7 @@
         },
         "reserved_amount": {
           "name": "reserved_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -571,7 +571,7 @@
       "columns": {
         "amount": {
           "name": "amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -588,7 +588,7 @@
         },
         "captured_amount": {
           "name": "captured_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,

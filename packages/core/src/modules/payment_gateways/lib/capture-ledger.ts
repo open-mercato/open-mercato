@@ -14,7 +14,7 @@ const DECIMAL_PATTERN = /^(-?)(\d*)(?:\.(\d*))?$/
 /**
  * Integer minor units at a fixed 4-decimal scale.
  * @deprecated The ledger now uses exact decimals (`@open-mercato/shared/lib/decimal`); amounts
- * are no longer limited to 4 decimals.
+ * are no longer limited to 4 decimals. Removal no earlier than 0.11.0.
  */
 export function parseAmountUnits(value: string | number | null | undefined): bigint {
   if (value === null || value === undefined) return 0n
@@ -32,12 +32,16 @@ export function parseAmountUnits(value: string | number | null | undefined): big
   return match[1] === '-' ? -units : units
 }
 
-/** @deprecated See {@link parseAmountUnits}. */
+/** @deprecated Use decimalToString for exact amounts. Removal no earlier than 0.11.0. */
 export function formatAmountUnits(units: bigint): string {
   const negative = units < 0n
   const absolute = negative ? -units : units
   const fraction = (absolute % AMOUNT_UNITS_PER_WHOLE).toString().padStart(AMOUNT_SCALE, '0')
   return `${negative ? '-' : ''}${absolute / AMOUNT_UNITS_PER_WHOLE}.${fraction}`
+}
+
+function formatAmountUnitsLabel(units: bigint): string {
+  return formatAmountUnits(units).replace(/\.?0+$/, '')
 }
 
 function formatAmountLabel(amount: DecimalValue): string {
@@ -59,8 +63,100 @@ function captureConflict(code: string, message: string): CrudHttpError {
   return new CrudHttpError(409, { error: message, code })
 }
 
-/** Exact decimal amounts of a capture request against its authorization. */
+/** @deprecated Use ExactCaptureAmounts. Removal no earlier than 0.11.0. */
 export type CaptureAmounts = {
+  authorizedUnits: bigint
+  capturedUnits: bigint
+  remainingUnits: bigint
+  requestedUnits: bigint
+}
+
+/** @deprecated Use resolveCaptureAmountsExact. Removal no earlier than 0.11.0. */
+export function resolveCaptureAmounts(transaction: GatewayTransaction, amount: number | undefined): CaptureAmounts {
+  const authorizedUnits = parseAmountUnits(transaction.amount)
+  const capturedUnits = parseAmountUnits(transaction.capturedAmount)
+  const remainingUnits = authorizedUnits - capturedUnits
+  return {
+    authorizedUnits,
+    capturedUnits,
+    remainingUnits,
+    requestedUnits: amount === undefined ? remainingUnits : parseAmountUnits(amount),
+  }
+}
+
+/** @deprecated Use assertCaptureWithinRemainingExact. Removal no earlier than 0.11.0. */
+export function assertCaptureWithinRemaining(
+  transaction: GatewayTransaction,
+  amount: number | undefined,
+): CaptureAmounts {
+  const amounts = resolveCaptureAmounts(transaction, amount)
+  if (amounts.remainingUnits <= 0n) {
+    throw captureConflict(
+      'payment_capture_ceiling_exceeded',
+      `Transaction is already fully captured (${formatAmountUnitsLabel(amounts.capturedUnits)} of ${formatAmountUnitsLabel(amounts.authorizedUnits)})`,
+    )
+  }
+  if (amounts.requestedUnits <= 0n) {
+    throw captureConflict('payment_capture_amount_invalid', 'Capture amount must be greater than zero')
+  }
+  if (amounts.requestedUnits > amounts.remainingUnits) {
+    throw captureConflict(
+      'payment_capture_ceiling_exceeded',
+      `Capture amount ${formatAmountUnitsLabel(amounts.requestedUnits)} exceeds the ${formatAmountUnitsLabel(amounts.remainingUnits)} still capturable on authorized amount ${formatAmountUnitsLabel(amounts.authorizedUnits)} (already captured ${formatAmountUnitsLabel(amounts.capturedUnits)})`,
+    )
+  }
+  return amounts
+}
+
+/** @deprecated Use reserveCaptureAmountExact. Removal no earlier than 0.11.0. */
+export async function reserveCaptureAmount(em: EntityManager, input: {
+  transaction: GatewayTransaction
+  operation: GatewayPaymentOperation
+  amount: number | undefined
+  scope: Scope
+}): Promise<bigint> {
+  if (input.operation.reservedAmount !== null && input.operation.reservedAmount !== undefined) {
+    return parseAmountUnits(input.operation.reservedAmount)
+  }
+  const amounts = assertCaptureWithinRemaining(input.transaction, input.amount)
+  const reservedAmount = await reserveCaptureAmountExact(em, {
+    ...input,
+    amount: formatAmountUnits(amounts.requestedUnits),
+  })
+  return parseAmountUnits(reservedAmount)
+}
+
+/** @deprecated Use settleCapturedAmountExact. Removal no earlier than 0.11.0. */
+export function settleCapturedAmount(
+  transaction: GatewayTransaction,
+  reservedUnits: bigint,
+  capturedAmount: number | undefined,
+): void {
+  const actualUnits = typeof capturedAmount === 'number' && Number.isFinite(capturedAmount) && capturedAmount >= 0
+    ? parseAmountUnits(capturedAmount)
+    : reservedUnits
+  if (actualUnits === reservedUnits) return
+  const settledUnits = parseAmountUnits(transaction.capturedAmount) - reservedUnits + actualUnits
+  transaction.capturedAmount = formatAmountUnits(settledUnits < 0n ? 0n : settledUnits)
+}
+
+/** @deprecated Use releaseCaptureAmountExact. Removal no earlier than 0.11.0. */
+export async function releaseCaptureAmount(em: EntityManager, input: {
+  transactionId: string
+  operation: GatewayPaymentOperation
+  reservedUnits: bigint
+  scope: Scope
+}): Promise<boolean> {
+  return releaseCaptureAmountExact(em, {
+    transactionId: input.transactionId,
+    operation: input.operation,
+    reservedAmount: formatAmountUnits(input.reservedUnits),
+    scope: input.scope,
+  })
+}
+
+/** Exact decimal amounts of a capture request against its authorization. */
+export type ExactCaptureAmounts = {
   authorizedAmount: DecimalValue
   capturedAmount: DecimalValue
   remainingAmount: DecimalValue
@@ -71,10 +167,10 @@ export type CaptureAmounts = {
  * Resolves what a capture request means for the transaction's running total. An omitted
  * amount captures everything that is still authorized, not the original full amount.
  */
-export function resolveCaptureAmounts(
+export function resolveCaptureAmountsExact(
   transaction: GatewayTransaction,
   amount: number | string | undefined,
-): CaptureAmounts {
+): ExactCaptureAmounts {
   const authorizedAmount = toLedgerAmount(transaction.amount)
   const capturedAmount = toLedgerAmount(transaction.capturedAmount)
   const remainingAmount = authorizedAmount.minus(capturedAmount)
@@ -91,11 +187,11 @@ export function resolveCaptureAmounts(
  * amount. This is the cumulative ceiling: each individual request may look small, but the
  * sum of all captures against one authorization can never exceed it (#4487).
  */
-export function assertCaptureWithinRemaining(
+export function assertCaptureWithinRemainingExact(
   transaction: GatewayTransaction,
   amount: number | string | undefined,
-): CaptureAmounts {
-  const amounts = resolveCaptureAmounts(transaction, amount)
+): ExactCaptureAmounts {
+  const amounts = resolveCaptureAmountsExact(transaction, amount)
   if (amounts.remainingAmount.lte(0)) {
     throw captureConflict(
       'payment_capture_ceiling_exceeded',
@@ -122,7 +218,7 @@ export function assertCaptureWithinRemaining(
  * operation id reuses its reservation instead of reserving twice. Returns the reserved amount
  * as an exact decimal string.
  */
-export async function reserveCaptureAmount(em: EntityManager, input: {
+export async function reserveCaptureAmountExact(em: EntityManager, input: {
   transaction: GatewayTransaction
   operation: GatewayPaymentOperation
   amount: number | string | undefined
@@ -131,7 +227,7 @@ export async function reserveCaptureAmount(em: EntityManager, input: {
   if (input.operation.reservedAmount !== null && input.operation.reservedAmount !== undefined) {
     return decimalToString(toLedgerAmount(input.operation.reservedAmount))
   }
-  const amounts = assertCaptureWithinRemaining(input.transaction, input.amount)
+  const amounts = assertCaptureWithinRemainingExact(input.transaction, input.amount)
   const previousCapturedAmount = input.transaction.capturedAmount
   const reservedAmount = decimalToString(amounts.requestedAmount)
   const nextCapturedAmount = decimalToString(amounts.capturedAmount.plus(amounts.requestedAmount))
@@ -181,7 +277,7 @@ export async function reserveCaptureAmount(em: EntityManager, input: {
  * instance loaded inside the completion transaction, so the adjustment commits together with
  * the operation result.
  */
-export function settleCapturedAmount(
+export function settleCapturedAmountExact(
   transaction: GatewayTransaction,
   reservedAmount: string,
   capturedAmount: number | string | undefined,
@@ -219,7 +315,7 @@ export function alignCapturedAmountWithStatus(
  * means the reservation is still held — the conservative outcome when it is unknown whether
  * the provider took the money.
  */
-export async function releaseCaptureAmount(em: EntityManager, input: {
+export async function releaseCaptureAmountExact(em: EntityManager, input: {
   transactionId: string
   operation: GatewayPaymentOperation
   reservedAmount: string

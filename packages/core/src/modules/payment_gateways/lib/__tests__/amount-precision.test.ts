@@ -97,6 +97,15 @@ describe('payment amount precision', () => {
     }
   })
 
+  it('rejects session, capture and refund amounts whose positive float copy is zero', () => {
+    const amount = '1e-400'
+    const transactionId = '11111111-1111-4111-8111-111111111111'
+
+    expect(createSessionSchema.safeParse({ providerKey: 'mock', amount, currencyCode: 'USD' }).success).toBe(false)
+    expect(captureSchema.safeParse({ transactionId, amount }).success).toBe(false)
+    expect(refundSchema.safeParse({ transactionId, amount }).success).toBe(false)
+  })
+
   it('translates validator message keys in the invalid-payload body', async () => {
     mockResolveTranslations.mockResolvedValue({ translate: createFallbackTranslator(plDictionary) })
     const parsed = createSessionSchema.safeParse({ providerKey: 'mock', amount: '0', currencyCode: 'USD' })

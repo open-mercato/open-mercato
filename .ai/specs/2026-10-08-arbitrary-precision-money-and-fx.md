@@ -120,7 +120,7 @@ The currencies module registers a `currencyPrecisionService` DI service with `ge
 | sales | orders, quotes, invoices, credit memos (subtotal/discount/tax/shipping/surcharge/grand totals, paid, refunded, outstanding) | 18,4 |
 | sales | order/quote/invoice/credit-memo/return lines (unit prices, discount, tax, totals); adjustments (`amount_net/gross`); shipments (`declared_value_*`); payments (`amount`, `captured_amount`, `refunded_amount`); payment allocations (`amount`) | 18,4 |
 | sales | shipping methods (`base_rate_net/gross`) | 16,4 |
-| catalog | product variant prices (`unit_price_net/gross`, `tax_amount`) | 16,4 |
+| catalog | product variant prices and price history entries (`unit_price_net/gross`, `tax_amount`) | 16,4 |
 | payment_gateways | gateway transactions (`amount`, `captured_amount`), payment operations (`reserved_amount`) | 18,4 |
 | warranty_claims | claims (`total_claimed/approved/recovered_amount`), settings (`auto_approve_max_amount`), claim lines (`credit_amount`, `restocking_fee`, `core_charge_amount`, `core_credit_amount`) | 18,4 |
 | staff | time entries (`rate_override_amount`), projects (`hourly_rate`, `budget_value`), reports (`total_amount`), report entries (`frozen_rate_amount`, `frozen_amount`) | 14,4 / 14,2 |
@@ -146,9 +146,9 @@ Every module whose API gains `<field>Exact` fields or wider money columns gets a
 | `currencies/__integration__/TC-CUR-016` | Exchange rate with 30 decimals and `metadata`: create, read back exactly, update metadata |
 | `sales/__integration__/TC-SALES-PRECISION-001` | 18-dp currency order (currency, order, line, tax, payment, 25-digit exchange rate); totals read back as exact strings |
 | `sales/__integration__/TC-SALES-PRECISION-002` | Shipping method base rates and invoice totals and lines beyond float precision |
-| `catalog/__integration__/TC-CAT-PRECISION-001` | Variant price with 18 decimals through the prices API: create and update |
+| `catalog/__integration__/TC-CAT-PRECISION-001` | Variant price with 18 decimals through the prices API: create and update, including an edit beyond float precision and exact history snapshots through `GET /api/catalog/prices/history` |
 | `checkout/__integration__/TC-CHKT-PRECISION-001` | Link template and link fixed/custom amounts read back with `*Exact`; template amount changes reach linked links; transaction amount rounded to the currency decimals |
-| `payment_gateways/__integration__/TC-PGWY-PRECISION-001` | 18-dp order: session, status (`amountExact`, `amountReceivedExact`), partial capture, capture ceiling and refund keep exact amounts |
+| `payment_gateways/__integration__/TC-PGWY-PRECISION-001` | 18-dp order: session, status (`amountExact`, `amountReceivedExact`), partial capture, capture ceiling and refund keep exact amounts; positive session input whose number copy underflows is rejected with 422 |
 | `customers/__integration__/TC-CRM-PRECISION-001` | Deal `valueAmount` and company `annualRevenue` beyond 2 decimals; deal stats `dealValueExact`; summary exact fields |
 | `customer_groups/__integration__/TC-CGRP-PRECISION-001` | Group terms (`defaultCreditLimit`, `approvalRequiredAbove`, `minOrderValue`) beyond 2 decimals |
 | `staff/__integration__/TC-STAFF-PRECISION-001` | Project hourly rate and time entry rate override beyond 4 decimals; preview and report totals `*Exact` |
@@ -165,7 +165,7 @@ Every module whose API gains `<field>Exact` fields or wider money columns gets a
 | Calculation hooks | Number-only hooks keep working through the hook bridge; their float results are rounded to the amount precision; exact-only changes are kept | ✓ Behavior-preserving, except that negative halves now round away from zero (D6) |
 | Zod validators | Parsed output unchanged (`number`), except the built-in provider settings schemas in `sales/lib/providers/defaultProviders.ts`, which now parse amounts to decimal strings. Inputs that only accepted JSON numbers (gateway amounts, staff rate override) also accept decimal strings; bounds that mirrored the old column precision are removed; oversized decimals are rejected | ✓ ADDITIVE (inputs widened); provider settings output ⚠ |
 | API responses | `<field>Exact` siblings added; string amounts no longer scale-padded for new rows | ✓ ADDITIVE; padding change is value-preserving |
-| Helpers | `toNumericString` accepts strings. Capture ledger `parseAmountUnits` / `formatAmountUnits` are `@deprecated`; `reserveCaptureAmount`, `settleCapturedAmount`, `releaseCaptureAmount` work on decimal strings | ⚠ Module-internal ledger signatures changed without a bridge (no known external consumers); rest ✓ ADDITIVE |
+| Helpers | `toNumericString` accepts strings. Existing capture-ledger bigint fields and signatures remain as deprecated bridges until no earlier than 0.11.0. `ExactCaptureAmounts` and separate `*Exact` helpers support exact decimals | ✓ ADDITIVE |
 | Migrations `down()` | Narrows the columns back to their old precision | ⚠ Lossy: extra decimals are rounded away, and values beyond the old integer digits fail with "numeric field overflow" |
 | Dependencies | `big.js` (and `@types/big.js`) become production dependencies of `@open-mercato/shared` | Approved by the maintainer during planning |
 
@@ -192,7 +192,9 @@ Every module whose API gains `<field>Exact` fields or wider money columns gets a
 - MikroORM maps a bare `type: 'numeric'` to `numeric(10,0)`; entities declare `columnType: 'numeric'` to get an unconstrained column.
 - MikroORM's `DecimalType` detects changes by comparing `+value`, so an edit beyond float precision was never flushed. Money and FX columns use `ExactDecimalType` (`@open-mercato/shared/lib/db/exactDecimalType`), which compares exact decimal values. The schema is unchanged.
 - Hook bridge lives in `calculations.ts` (`syncLineResultExactAmounts`, `syncDocumentResultExactAmounts`) and runs after every calculator and event hook.
-- Payment capture ledger works on exact decimal strings; `parseAmountUnits`/`formatAmountUnits` are deprecated.
+- The gateway service uses exact capture-ledger helpers. Existing bigint exports retain fixed four-decimal behavior as deprecated bridges until no earlier than 0.11.0.
+- Positive gateway amounts must retain a positive numeric copy; underflow inputs such as `1e-400` fail payload validation before a provider call. Core and checkout share the pure precision validator, with each module owning its scoped currency lookup and translations.
+- `ExactDecimalType.getColumnType` returns unconstrained `numeric`; migration generation preserves that bare type when MikroORM serializes snapshots instead of applying the PostgreSQL platform defaults of `(10,0)`. Generated snapshots match entity metadata and SQL. All affected migrations and snapshots are regenerated from upstream baselines; repeated generation must report no changes for those modules.
 - CrudForm builtin field type `'decimal'` keeps exact decimal strings (used by the exchange rate form).
 - Money redaction paths (staff reports without `rates.view`) null the `*Exact` fields together with the floats.
 
@@ -206,3 +208,5 @@ Every module whose API gains `<field>Exact` fields or wider money columns gets a
 - 2026-10-08: PR review fixes. Exact values cannot bypass validation on `null`; oversized decimals rejected; unknown currency codes no longer default to 2 decimals; hook bridge pairs by id and rounds legacy floats; catalog prices keep the entered side exact; checkout configured amounts round to the currency decimals and the pay page submits exact strings; gateway routes reject sub-minor amounts; frozen staff totals sum as stored; BC table corrected.
 - 2026-10-09: Second re-review fixes. Oversized money input is a 400 on every number-coercing schema (`withDecimalCaps`); `formatCurrency` rounds to known currency precision; frozen staff exports keep stored values; hook bridge pairs id-less items by position; Stripe sub-minor check uses the ISO minor unit; staff cost gains exact siblings.
 - 2026-10-12: Third re-review fixes. Exact siblings on the exported staff report types are optional again (D7), with `Exact*` result types for internal use; checkout submit enforces payment precision before reserving and the pay page displays exact amounts; staff project and time-entry editors preserve exact rates; the sales line dialog derives prices at the configured currency precision; command snapshots keep line ids, id-less hook results pair by identity, then by position; tax hooks keep exact-only edits.
+- 2026-10-14: Upstream merge includes catalog price history. History money columns use unconstrained numeric, change detection compares exact decimals, and history responses preserve all digits while retaining the legacy minimum of four decimal places. The catalog migration is regenerated from the upstream snapshot; precision integration coverage now checks history snapshots.
+- 2026-10-14: Address haxiorz's review: restore deprecated bigint capture-ledger bridges, reject positive gateway amount underflow, move the pure currency precision check into shared, and regenerate money snapshots with unconstrained numeric metadata. The gateway precision integration test includes the underflow rejection; metadata/schema regression coverage verifies repeated migration generation is a no-op.

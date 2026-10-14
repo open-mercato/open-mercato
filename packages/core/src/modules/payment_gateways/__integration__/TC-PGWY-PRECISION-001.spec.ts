@@ -125,6 +125,13 @@ test.describe('TC-PGWY-PRECISION-001: 18-decimal gateway amounts', () => {
       expect(order.grandTotalGrossAmountExact).toBe(ORDER_TOTAL)
       expect(order.outstandingAmountExact).toBe(ORDER_TOTAL)
 
+      const underflowResponse = await postSession(request, token, {
+        orderId,
+        amount: '1e-400',
+        currencyCode: currency.code,
+      })
+      expect(underflowResponse.status(), 'a positive amount whose numeric copy underflows should be rejected').toBe(422)
+
       expect(Number(FLOAT_EQUAL_MISMATCH), 'the mismatch must be invisible to float comparison').toBe(Number(ORDER_TOTAL))
       const mismatch = await postSession(request, token, {
         orderId,

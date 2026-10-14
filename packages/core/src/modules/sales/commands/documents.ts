@@ -124,6 +124,7 @@ import {
   restorePaymentSnapshot,
   type PaymentSnapshot,
 } from "./payments";
+import { resolveConvertedOrderFeeTotals } from "../lib/convertedOrderTotals";
 import type { SalesCalculationService } from "../services/salesCalculationService";
 import {
   DEFAULT_AMOUNT_DECIMAL_PLACES,
@@ -7020,9 +7021,11 @@ const convertQuoteToOrderCommand: CommandHandler<
         subtotalGrossAmount: snapshot.quote.subtotalGrossAmount,
         discountTotalAmount: snapshot.quote.discountTotalAmount,
         taxTotalAmount: snapshot.quote.taxTotalAmount,
-        shippingNetAmount: "0",
-        shippingGrossAmount: "0",
-        surchargeTotalAmount: "0",
+        ...resolveConvertedOrderFeeTotals({
+          totalsSnapshot: snapshot.quote.totalsSnapshot,
+          currencyCode: snapshot.quote.currencyCode,
+          adjustments: snapshot.adjustments,
+        }),
         grandTotalNetAmount: snapshot.quote.grandTotalNetAmount,
         grandTotalGrossAmount: snapshot.quote.grandTotalGrossAmount,
         paidTotalAmount: "0",

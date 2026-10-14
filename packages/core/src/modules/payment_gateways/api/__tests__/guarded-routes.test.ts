@@ -256,6 +256,18 @@ describe('payment gateway write routes reject sub-minor amounts', () => {
     expect(service.createPaymentSession).not.toHaveBeenCalled()
   })
 
+  it('rejects a positive session amount whose numeric copy underflows to zero', async () => {
+    const response = await createSession(buildRequest({ providerKey: 'stripe', amount: '1e-400', currencyCode: 'USD' }))
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toMatchObject({
+      error: 'Invalid payload',
+      details: { fieldErrors: { amount: [expect.any(String)] } },
+    })
+    expect(service.createPaymentSession).not.toHaveBeenCalled()
+    expect(runPaymentGatewayMutationGuards).not.toHaveBeenCalled()
+  })
+
   it('passes a session amount within the currency decimals through exactly', async () => {
     const response = await createSession(buildRequest({ providerKey: 'stripe', amount: '10.05', currencyCode: 'USD' }))
     expect(response.status).toBe(201)

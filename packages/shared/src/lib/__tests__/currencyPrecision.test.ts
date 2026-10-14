@@ -1,4 +1,4 @@
-import { resolveCurrencyAmountDecimalPlaces, resolveCurrencyDecimalPlaces } from '../currencyPrecision'
+import { findCurrencyAmountPrecisionError, resolveCurrencyAmountDecimalPlaces, resolveCurrencyDecimalPlaces } from '../currencyPrecision'
 
 function containerWith(service: unknown) {
   return {
@@ -39,5 +39,33 @@ describe('resolveCurrencyAmountDecimalPlaces', () => {
     await expect(resolveCurrencyDecimalPlaces(containerWith(service), { ...lookup, code: 'ETH' })).resolves.toBeNull()
     await expect(resolveCurrencyDecimalPlaces(containerWith(null), { ...lookup, code: 'XYZ' })).resolves.toBeNull()
     await expect(resolveCurrencyDecimalPlaces(containerWith(null), { ...lookup, code: 'KWD' })).resolves.toBe(3)
+  })
+})
+
+describe('findCurrencyAmountPrecisionError', () => {
+  it('returns precision details with canonical amounts and currency codes', () => {
+    expect(findCurrencyAmountPrecisionError({ amount: '10.0050', currencyCode: ' usd ', decimalPlaces: 2 })).toEqual({
+      amount: '10.005', currencyCode: 'USD', decimalPlaces: 2,
+    })
+  })
+
+  it('caps configured precision at ISO minor units', () => {
+    expect(findCurrencyAmountPrecisionError({ amount: '10.005', currencyCode: 'USD', decimalPlaces: 4 }))
+      .toEqual({ amount: '10.005', currencyCode: 'USD', decimalPlaces: 2 })
+    expect(findCurrencyAmountPrecisionError({ amount: '10.5', currencyCode: 'USD', decimalPlaces: 0 }))
+      .toEqual({ amount: '10.5', currencyCode: 'USD', decimalPlaces: 0 })
+  })
+
+  it('preserves configured precision for non-ISO currencies', () => {
+    expect(findCurrencyAmountPrecisionError({ amount: '0.000000000000000001', currencyCode: 'ETH', decimalPlaces: 18 })).toBeNull()
+    expect(findCurrencyAmountPrecisionError({ amount: '0.0000000000000000001', currencyCode: 'ETH', decimalPlaces: 18 }))
+      .toEqual({ amount: '0.0000000000000000001', currencyCode: 'ETH', decimalPlaces: 18 })
+  })
+
+  it('accepts trailing zeros and skips unknown precision or invalid inputs', () => {
+    expect(findCurrencyAmountPrecisionError({ amount: '10.0500', currencyCode: 'USD', decimalPlaces: 2 })).toBeNull()
+    expect(findCurrencyAmountPrecisionError({ amount: '1.123456', currencyCode: 'XYZ', decimalPlaces: null })).toBeNull()
+    expect(findCurrencyAmountPrecisionError({ amount: 'invalid', currencyCode: 'USD', decimalPlaces: 2 })).toBeNull()
+    expect(findCurrencyAmountPrecisionError({ amount: '10.005', currencyCode: null, decimalPlaces: 2 })).toBeNull()
   })
 })

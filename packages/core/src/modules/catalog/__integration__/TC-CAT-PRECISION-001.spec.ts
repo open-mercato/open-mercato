@@ -19,6 +19,7 @@ import {
 const PRICE_KINDS_PATH = '/api/catalog/price-kinds'
 const PRICES_PATH = '/api/catalog/prices'
 const CREATED_AMOUNT = '12345678901234.123456789012345678'
+const PRECISELY_UPDATED_AMOUNT = '12345678901234.123456789012345679'
 const UPDATED_AMOUNT = '98765432109876.987654321098765432'
 
 type JsonRecord = Record<string, unknown>
@@ -49,6 +50,24 @@ async function readPrice(
   const body = await readJson(response)
   const items = Array.isArray(body.items) ? (body.items as JsonRecord[]) : []
   return items.find((item) => item.id === priceId) ?? {}
+}
+
+async function readPriceHistory(
+  request: APIRequestContext,
+  token: string,
+  productId: string,
+  priceId: string,
+): Promise<JsonRecord[]> {
+  const response = await apiRequest(
+    request,
+    'GET',
+    `${PRICES_PATH}/history?productId=${encodeURIComponent(productId)}&pageSize=100`,
+    { token },
+  )
+  expect(response.status(), 'GET /api/catalog/prices/history should be 200').toBe(200)
+  const body = await readJson(response)
+  const items = Array.isArray(body.items) ? (body.items as JsonRecord[]) : []
+  return items.filter((item) => item.priceId === priceId)
 }
 
 test.describe('TC-CAT-PRECISION-001: 18-decimal variant price', () => {
@@ -111,6 +130,22 @@ test.describe('TC-CAT-PRECISION-001: 18-decimal variant price', () => {
       expect(created.unit_price_net).toBe(CREATED_AMOUNT)
       expect(created.unit_price_gross).toBe(CREATED_AMOUNT)
 
+      const createdHistory = await readPriceHistory(request, token, productId, priceId)
+      expect(createdHistory).toEqual([
+        expect.objectContaining({ changeType: 'create', unitPriceNet: CREATED_AMOUNT, unitPriceGross: CREATED_AMOUNT }),
+      ])
+
+      const preciseUpdateResponse = await apiRequest(request, 'PUT', PRICES_PATH, {
+        token,
+        data: { id: priceId, unitPriceNet: PRECISELY_UPDATED_AMOUNT, taxRate: 0 },
+      })
+      expect(preciseUpdateResponse.status(), 'a price edit beyond float precision should succeed').toBe(200)
+      const preciseHistory = await readPriceHistory(request, token, productId, priceId)
+      expect(preciseHistory).toHaveLength(2)
+      expect(preciseHistory).toEqual(expect.arrayContaining([
+        expect.objectContaining({ changeType: 'update', unitPriceNet: PRECISELY_UPDATED_AMOUNT, unitPriceGross: PRECISELY_UPDATED_AMOUNT }),
+      ]))
+
       const updateResponse = await apiRequest(request, 'PUT', PRICES_PATH, {
         token,
         data: { id: priceId, unitPriceNet: UPDATED_AMOUNT, taxRate: 0 },
@@ -120,6 +155,11 @@ test.describe('TC-CAT-PRECISION-001: 18-decimal variant price', () => {
       const updated = await readPrice(request, token, productId, priceId)
       expect(updated.unit_price_net).toBe(UPDATED_AMOUNT)
       expect(updated.unit_price_gross).toBe(UPDATED_AMOUNT)
+      const updatedHistory = await readPriceHistory(request, token, productId, priceId)
+      expect(updatedHistory).toHaveLength(3)
+      expect(updatedHistory).toEqual(expect.arrayContaining([
+        expect.objectContaining({ changeType: 'update', unitPriceNet: UPDATED_AMOUNT, unitPriceGross: UPDATED_AMOUNT }),
+      ]))
     } finally {
       await deleteGeneralEntityIfExists(request, token, PRICES_PATH, priceId)
       await deleteCatalogProductIfExists(request, token, productId)

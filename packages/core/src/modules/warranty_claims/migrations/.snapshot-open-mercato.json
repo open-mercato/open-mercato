@@ -310,7 +310,7 @@
         },
         "core_charge_amount": {
           "name": "core_charge_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -327,7 +327,7 @@
         },
         "core_credit_amount": {
           "name": "core_credit_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -361,7 +361,7 @@
         },
         "credit_amount": {
           "name": "credit_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -684,7 +684,7 @@
         },
         "restocking_fee": {
           "name": "restocking_fee",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -1543,7 +1543,7 @@
         },
         "auto_approve_max_amount": {
           "name": "auto_approve_max_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -3326,7 +3326,7 @@
         },
         "total_approved_amount": {
           "name": "total_approved_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -3343,7 +3343,7 @@
         },
         "total_claimed_amount": {
           "name": "total_claimed_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -3360,7 +3360,7 @@
         },
         "total_recovered_amount": {
           "name": "total_recovered_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,

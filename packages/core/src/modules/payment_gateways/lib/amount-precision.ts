@@ -1,12 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { z } from 'zod'
-import { resolveCurrencyDecimalPlaces } from '@open-mercato/shared/lib/currencyPrecision'
-import {
-  countDecimalPlaces,
-  decimalToString,
-  parseDecimal,
-  resolveIsoCurrencyDecimalPlaces,
-} from '@open-mercato/shared/lib/decimal'
+import { findCurrencyAmountPrecisionError, resolveCurrencyDecimalPlaces } from '@open-mercato/shared/lib/currencyPrecision'
+import { parseDecimal } from '@open-mercato/shared/lib/decimal'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { PaymentGatewayScope } from '@open-mercato/shared/modules/payment_gateways/types'
 import { GatewayTransaction } from '../data/entities'
@@ -43,17 +38,18 @@ export async function findAmountPrecisionError(
     tenantId: input.scope.tenantId,
     organizationId: input.scope.organizationId,
   })
-  const isoDecimalPlaces = resolveIsoCurrencyDecimalPlaces(currencyCode)
-  const decimalPlaces = currencyDecimalPlaces !== null && isoDecimalPlaces !== null
-    ? Math.min(currencyDecimalPlaces, isoDecimalPlaces)
-    : currencyDecimalPlaces
-  if (decimalPlaces === null || countDecimalPlaces(amount) <= decimalPlaces) return null
+  const precisionError = findCurrencyAmountPrecisionError({
+    amount: input.amount,
+    currencyCode,
+    decimalPlaces: currencyDecimalPlaces,
+  })
+  if (!precisionError) return null
   const translate = await resolvePaymentGatewayTranslator()
   return {
     error: translate(
       'payment_gateways.errors.amountPrecisionExceeded',
       'Amount {amount} has more decimal places than {currencyCode} supports ({decimalPlaces})',
-      { amount: decimalToString(amount), currencyCode, decimalPlaces },
+      precisionError,
     ),
   }
 }

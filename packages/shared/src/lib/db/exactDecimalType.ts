@@ -1,4 +1,4 @@
-import { DecimalType } from '@mikro-orm/core'
+import { DecimalType, type EntityProperty, type Platform } from '@mikro-orm/core'
 import { parseDecimal } from '../decimal'
 
 /**
@@ -10,6 +10,10 @@ import { parseDecimal } from '../decimal'
 export class ExactDecimalType extends DecimalType {
   constructor() {
     super('string')
+  }
+
+  getColumnType(_property: EntityProperty, _platform: Platform): string {
+    return 'numeric'
   }
 
   compareValues(left: unknown, right: unknown): boolean {

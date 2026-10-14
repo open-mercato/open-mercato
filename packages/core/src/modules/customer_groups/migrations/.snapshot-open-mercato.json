@@ -302,7 +302,7 @@
         },
         "approval_required_above": {
           "name": "approval_required_above",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -316,6 +316,23 @@
           "collation": null,
           "enumItems": [],
           "mappedType": "decimal"
+        },
+        "assortment_scope": {
+          "name": "assortment_scope",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "json"
         },
         "created_at": {
           "name": "created_at",
@@ -353,7 +370,7 @@
         },
         "default_credit_limit": {
           "name": "default_credit_limit",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -438,7 +455,7 @@
         },
         "min_order_value": {
           "name": "min_order_value",
-          "type": "numeric(10,0)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
