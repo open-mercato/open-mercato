@@ -1,7 +1,7 @@
 export const metadata = {
   requireAuth: true,
   requireFeatures: ['staff.timesheets.tasks.view'],
-  pageTitle: 'Support tickets',
+  pageTitle: 'Support Inbox',
   pageTitleKey: 'staff.support.tickets.title',
   pageGroup: 'Time tracking',
   pageGroupKey: 'staff.time_tracking.nav.group',
@@ -9,6 +9,6 @@ export const metadata = {
   icon: 'life-buoy',
   breadcrumb: [
     { label: 'Time tracking', labelKey: 'staff.time_tracking.nav.group', href: '/backend/staff/time-tracking' },
-    { label: 'Support tickets', labelKey: 'staff.support.tickets.title' },
+    { label: 'Support Inbox', labelKey: 'staff.support.tickets.title' },
   ],
 }

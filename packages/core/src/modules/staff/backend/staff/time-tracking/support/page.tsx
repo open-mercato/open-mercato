@@ -305,7 +305,7 @@ export default function SupportTicketsPage() {
           <ErrorMessage label={t('staff.support.tickets.loadError', 'Could not load the support tickets.')} />
         ) : null}
         <DataTable<SupportRow>
-          title={t('staff.support.tickets.title', 'Support tickets')}
+          title={t('staff.support.tickets.title', 'Support Inbox')}
           titleHeadingLevel={1}
           data={rows}
           columns={columns}
