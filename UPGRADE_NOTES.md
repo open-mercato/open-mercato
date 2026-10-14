@@ -44,10 +44,10 @@ URLs, request bodies and success responses are unchanged. The policy is describe
 [`apps/docs/docs/framework/security/cross-site-login.mdx`](apps/docs/docs/framework/security/cross-site-login.mdx).
 
 **Action for operators:** only browsers that send no Fetch Metadata, and requests from a sibling
-subdomain (`Sec-Fetch-Site: same-site`), reach the `Origin` check. If they report a `403` on sign-in, set `APP_URL` to the public origin, list the extra origin in
-`APP_ALLOWED_ORIGINS`, or make the reverse proxy forward `X-Forwarded-Host`. An `Origin` that
-matches none of these is logged as a `Cross-site request rejected` warning with the `origin`,
-`host` and `forwardedHost` values.
+subdomain (`Sec-Fetch-Site: same-site`), reach the `Origin` check. If they report a `403` on
+sign-in, set `APP_URL` to the public origin, list the extra origin in `APP_ALLOWED_ORIGINS`, or make
+the reverse proxy forward `X-Forwarded-Host`. An `Origin` that matches none of these is logged as a
+`Cross-site request rejected` warning with the `origin`, `host` and `forwardedHost` values.
 
 **Action for integrators:** an HTML form or browser app on a different site can no longer sign in
 through these routes, and `APP_ALLOWED_ORIGINS` does not re-enable it. A browser marks such a
