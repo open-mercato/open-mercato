@@ -433,3 +433,9 @@ Notes: `tsconfig.json` sets `types: ["node"]` — this pure-lib package pulls no
   domain/health/not_configured rows are covered by the unit suites. Full-flow HTTP+OpenCode E2E
   deferred to Playwright per the TC-AGENT-TRACE-002 precedent (web tools have no HTTP endpoint to
   drive). Full agent_orchestrator suite 753/753; typecheck + lint green. **Spec fully implemented.**
+- 2026-10-13 — `web_search` no longer returns a provider-synthesized `answer` when the tenant has
+  any domain policy (`allowDomains` or `denyDomains`): the answer carries no source attribution and
+  the engine fuses and truncates hits before the domain filter, so its sources cannot be checked.
+  `answer` is `null` and `diagnostics.answerWithheld: 'domain_policy'` says why; the settings
+  preview's top-level `answer` follows the same rule (per-adapter answers stay raw for comparison).
+  (#7234)

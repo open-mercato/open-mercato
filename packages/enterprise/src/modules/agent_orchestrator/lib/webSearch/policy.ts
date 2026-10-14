@@ -269,6 +269,21 @@ export function hostnameOf(rawUrl: string): string | null {
   }
 }
 
+export const ANSWER_WITHHELD_BY_DOMAIN_POLICY = 'domain_policy' as const
+
+export function hasDomainPolicy(guardrails: Pick<WebSearchGuardrails, 'allowDomains' | 'denyDomains'>): boolean {
+  return guardrails.allowDomains.length > 0 || guardrails.denyDomains.length > 0
+}
+
+export function withholdAnswerUnderDomainPolicy(
+  answer: string | null | undefined,
+  guardrails: Pick<WebSearchGuardrails, 'allowDomains' | 'denyDomains'>,
+): { answer: string | null; answerWithheld?: typeof ANSWER_WITHHELD_BY_DOMAIN_POLICY } {
+  if (!hasDomainPolicy(guardrails)) return { answer: answer ?? null }
+  if (typeof answer !== 'string' || answer.length === 0) return { answer: null }
+  return { answer: null, answerWithheld: ANSWER_WITHHELD_BY_DOMAIN_POLICY }
+}
+
 /**
  * Deny wins over allow; a non-empty allowlist is exclusive. Matching is exact
  * host or a dot-boundary suffix, so `example.com` covers `news.example.com` but
