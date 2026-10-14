@@ -123,6 +123,16 @@ test.describe('TC-MA-040 score rules screen', () => {
 
       // Either this click wrote the entry or the queued pass got there first; both end in the same state.
       await expect(page.getByText(/Score rules applied: \+25 points\.|Score rules already up to date\./)).toBeVisible({ timeout: 20_000 })
+
+      // The screen refreshes once, with whatever the ledger held at that moment. When the queued pass wrote the
+      // entry a beat after the response — which is what happens when the suite runs in parallel — the refresh
+      // ran too early and the row never arrived. Wait for the entry to exist, then assert the screen shows it.
+      await expect.poll(async () => {
+        const response = await apiRequest(request, 'GET', `/api/marketing_automation/customers/${personId}/profile`, { token })
+        const body = await readJsonSafe<{ recentScoreEntries?: Array<{ points: number; source: string }> }>(response)
+        return (body?.recentScoreEntries ?? []).filter((entry) => entry.source === 'rule').reduce((sum, entry) => sum + entry.points, 0)
+      }, { timeout: 20_000 }).toBe(25)
+      await page.reload({ waitUntil: 'domcontentloaded' })
       await expect(page.getByText(`+25 — Score rules — ${ruleName}`)).toBeVisible({ timeout: 20_000 })
     } finally {
       await removeRuleByName(request, token, ruleName)
