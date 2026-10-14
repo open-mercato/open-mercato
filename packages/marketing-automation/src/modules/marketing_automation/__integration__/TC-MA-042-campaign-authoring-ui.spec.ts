@@ -364,7 +364,12 @@ test.describe('TC-MA-042 campaign authoring on the canvas', () => {
     let campaignId: string | null = null
     try {
       await login(page, 'admin')
+      // The list fetches its own rows on mount, so its response is the first moment the page is hydrated and
+      // the buttons carry their handlers. Clicking before it lands only focuses the button.
+      const listedBeforePick = page.waitForResponse((response) =>
+        response.url().includes(CAMPAIGNS_PATH) && response.request().method() === 'GET')
       await page.goto('/backend/marketing/campaigns', { waitUntil: 'domcontentloaded' })
+      await listedBeforePick
 
       // The gallery replaced the Select this test was written against, and it fetches on open rather than on
       // page load — waiting for the templates before the dialog exists waits forever.
