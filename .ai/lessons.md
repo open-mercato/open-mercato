@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 152 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 151 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -201,4 +201,3 @@ This catalog indexes 152 focused lessons. Route the task first, then read only r
 ### spec-pr
 
 - [Credit the author, not the merger, when generating a changelog](lessons/credit-the-author-not-the-merger-in-a-changelog.md) — area:spec-pr,ai-workflow; module:platform; topic:data-integrity,generated-files
-- [Verify the PR head before including local commits](lessons/verify-pr-head-before-including-local-commits.md) — area:spec-pr,ai-workflow; module:platform; topic:git,change-ownership,review
