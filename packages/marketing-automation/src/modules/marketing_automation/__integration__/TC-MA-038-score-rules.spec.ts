@@ -84,8 +84,13 @@ test.describe('TC-MA-038 score rules', () => {
 
       const after = await rescore(request, token, personId)
       expect(after.points).toBe(0)
-      const cleared = await profile(request, token, personId)
-      expect(cleared.recentScoreEntries.filter((entry) => entry.source === 'rule').reduce((sum, entry) => sum + entry.points, 0)).toBe(0)
+      // The endpoint answers with the score it computed; the compensating ledger entry is written behind it,
+      // and on a loaded machine that write lands after the response. Polled rather than read once, so the
+      // assertion is still "the ledger ends up balanced" and still fails if it never does.
+      await expect.poll(async () => {
+        const cleared = await profile(request, token, personId!)
+        return cleared.recentScoreEntries.filter((entry) => entry.source === 'rule').reduce((sum, entry) => sum + entry.points, 0)
+      }, { timeout: 20_000 }).toBe(0)
     } finally {
       await removeRule(request, token, rule)
       await deleteEntityIfExists(request, token, '/api/customers/people', personId)
