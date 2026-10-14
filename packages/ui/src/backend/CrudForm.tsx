@@ -1008,7 +1008,16 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const navigationConfirmPendingRef = React.useRef(false)
   const submitNavigationBypassRef = React.useRef(false)
   const submitNavigationBypassTimeoutRef = React.useRef<number | null>(null)
-  const [hasUnsavedChanges, setHasUnsavedChanges] = React.useState(false)
+  const [hasUnsavedChanges, setHasUnsavedChangesState] = React.useState(false)
+  const hasUnsavedChangesRef = React.useRef(false)
+  // Writing a state hook the value it already holds still re-runs this whole
+  // component once before React bails out. The dirty check runs on every edit,
+  // so the flag is only written when it actually flips.
+  const setHasUnsavedChanges = React.useCallback((next: boolean) => {
+    if (hasUnsavedChangesRef.current === next) return
+    hasUnsavedChangesRef.current = next
+    setHasUnsavedChangesState(next)
+  }, [])
   const popStateRollbackRef = React.useRef(false)
   const shouldBypassUnsavedChangesGuardRef = React.useRef(shouldBypassUnsavedChangesGuard)
   React.useEffect(() => {
@@ -1033,7 +1042,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     const dirty = currentSnapshot !== snapshot
     isDirtyRef.current = dirty
     setHasUnsavedChanges(dirty)
-  }, [embedded, trackDirtyWhenEmbedded, values])
+  }, [embedded, trackDirtyWhenEmbedded, values, setHasUnsavedChanges])
 
   React.useEffect(() => {
     onDirtyChange?.(hasUnsavedChanges)
@@ -1083,7 +1092,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     everEditedFieldIdsRef.current.clear()
     isDirtyRef.current = false
     setHasUnsavedChanges(false)
-  }, [])
+  }, [setHasUnsavedChanges])
 
   const confirmUnsavedChanges = React.useCallback(async (): Promise<boolean> => {
     if (!isDirtyRef.current || typeof window === 'undefined') return true
@@ -1201,7 +1210,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       window.history.pushState = originalPushState
       window.history.replaceState = originalReplaceState
     }
-  }, [allowNextNavigation, clearDirtyState, confirmUnsavedChanges, embedded, hasUnsavedChanges, router, trackDirtyWhenEmbedded])
+  }, [allowNextNavigation, clearDirtyState, confirmUnsavedChanges, embedded, hasUnsavedChanges, router, trackDirtyWhenEmbedded, setHasUnsavedChanges])
 
   const { widgets: primaryInjectionWidgets } = useInjectionWidgets(resolvedInjectionSpotId, {
     context: injectionContext,
@@ -1629,6 +1638,15 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       {extraActions}
     </>
   ) : undefined
+  const renderFooterActions = !hideFooterActions && !formReadOnly
+  const embeddedExtraActions = renderFooterActions ? undefined : extraActions
+  const embeddedHeaderActions = versionHistoryEnabled || headerInjectionAction || embeddedExtraActions ? (
+    <>
+      {versionHistoryEnabled ? versionHistoryAction : null}
+      {headerInjectionAction}
+      {embeddedExtraActions}
+    </>
+  ) : undefined
 
   // Auto-append custom fields for this entityId
   React.useEffect(() => {
@@ -1991,6 +2009,27 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     () => new Set(injectedFieldDefinitions.map((definition) => definition.id)),
     [injectedFieldDefinitions],
   )
+  // An injected field may reuse a host-declared field id to replace the host's built-in
+  // input for that field (the later, injected entry wins in `fieldById`) — e.g.
+  // `customer_groups`' `GroupPickerField` replacing catalog's plain-text `customerGroupId`.
+  // Such a field is still a host schema field, so its value must reach `coreValues` and the
+  // host `onSubmit` payload. Only an injected field with NO host-declared counterpart is an
+  // "extra" field that is stripped before schema validation/submission (widgets still see
+  // it via `onBeforeSave`/`onSave`). See UPGRADE_NOTES.md (0.8.1). Host fields declared
+  // inline in `groups[].fields` count as host-declared too.
+  const hostFieldIdSet = React.useMemo(() => {
+    const ids = new Set(fields.map((field) => field.id))
+    for (const group of groups ?? []) {
+      for (const entry of group.fields ?? []) {
+        if (typeof entry !== 'string') ids.add(entry.id)
+      }
+    }
+    return ids
+  }, [fields, groups])
+  const injectedOnlyFieldIdSet = React.useMemo(
+    () => new Set(Array.from(injectedFieldIdSet).filter((id) => !hostFieldIdSet.has(id))),
+    [injectedFieldIdSet, hostFieldIdSet],
+  )
 
   const injectedCrudFields = React.useMemo<CrudField[]>(() => {
     return injectedFieldDefinitions.map((definition) => {
@@ -2043,8 +2082,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   }, [allFields])
 
   // Declared base fields whose id is a dot-path (e.g. `metadata.category`).
-  // Injected and custom (cf) fields already get dot-path/cf-path hydration and
-  // are excluded here so their dedicated handling is preserved. CrudForm hydrates
+  // Injected-only and custom (cf) fields already get dot-path/cf-path hydration and
+  // are excluded here so their dedicated handling is preserved; an injected field
+  // that reuses a host field id stays a host field and is collapsed. CrudForm hydrates
   // these flat keys from nested initial values on load and projects them back into
   // nested objects before schema.safeParse on submit. See issue #2503.
   const dotPathBaseFieldIds = React.useMemo(() => {
@@ -2053,13 +2093,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     for (const field of allFields) {
       const fieldId = field.id
       if (!fieldId.includes('.')) continue
-      if (injectedFieldIdSet.has(fieldId)) continue
+      if (injectedOnlyFieldIdSet.has(fieldId)) continue
       if (fieldId.startsWith('cf_') || fieldId.startsWith('cf:')) continue
       if (cfFieldIds.has(fieldId)) continue
       ids.add(fieldId)
     }
     return ids
-  }, [allFields, injectedFieldIdSet, cfFields])
+  }, [allFields, injectedOnlyFieldIdSet, cfFields])
 
   const validateFieldOnBlur = React.useCallback(async (
     fieldId: string,
@@ -2132,7 +2172,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         delete widgetValues[hiddenId]
       }
       const coreValues = { ...widgetValues }
-      for (const injectedId of injectedFieldIdSet) {
+      for (const injectedId of injectedOnlyFieldIdSet) {
         delete coreValues[injectedId]
       }
       const result = schema.safeParse(collapseDotPathFields(coreValues, dotPathBaseFieldIds))
@@ -2181,7 +2221,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     hiddenBaseFieldIds,
     hiddenGroupFieldIds,
     hiddenInjectedFieldIds,
-    injectedFieldIdSet,
+    injectedOnlyFieldIdSet,
     mapDefsForValidation,
     schema,
     t,
@@ -2677,18 +2717,29 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       ) {
         activeFieldChangeDispatchRef.current = null
       }
+      // Re-run the dispatcher only when an edit queued behind this dispatch is
+      // still waiting. Bumping unconditionally re-rendered the whole form a
+      // second time for every keystroke, even with no widget listening.
       if (
         fieldChangeDispatcherMountedRef.current &&
-        fieldChangeFormGenerationRef.current === dispatchToken.formGeneration
+        fieldChangeFormGenerationRef.current === dispatchToken.formGeneration &&
+        pendingFieldChangeEventsRef.current.length > 0
       ) {
         setFieldChangeDispatchVersion((version) => version + 1)
       }
     })
   }, [extendedInjectionEventsEnabled, fieldChangeDispatchVersion, triggerInjectionEvent, values])
 
-  const onBlurRequest = React.useCallback((fieldId: string) => {
-    void validateFieldOnBlur(fieldId)
+  // `validateFieldOnBlur` is rebuilt whenever the form values change. Passing
+  // that identity down would invalidate every memoized field control on each
+  // keystroke, so the fields get a stable callback that reads the latest one.
+  const validateFieldOnBlurRef = React.useRef(validateFieldOnBlur)
+  React.useLayoutEffect(() => {
+    validateFieldOnBlurRef.current = validateFieldOnBlur
   }, [validateFieldOnBlur])
+  const onBlurRequest = React.useCallback((fieldId: string) => {
+    void validateFieldOnBlurRef.current(fieldId)
+  }, [])
 
   const handleFieldsetSelectionChange = React.useCallback(
     (entityId: string, nextCode: string | null) => {
@@ -3050,7 +3101,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       delete widgetValues[hiddenId]
     }
     const coreValues = { ...widgetValues }
-    for (const injectedId of injectedFieldIdSet) {
+    for (const injectedId of injectedOnlyFieldIdSet) {
       delete coreValues[injectedId]
     }
     if (customEntity) {
@@ -3089,7 +3140,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         if (result.data) {
           submitValues = result.data as TValues
           const projectedCoreValues = { ...(result.data as Record<string, unknown>) }
-          for (const injectedId of injectedFieldIdSet) {
+          for (const injectedId of injectedOnlyFieldIdSet) {
             delete projectedCoreValues[injectedId]
           }
           if (customEntity) {
@@ -3877,8 +3928,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               submit: formReadOnly ? undefined : { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
             }}
           />
-        ) : headerExtraActions ? (
-          <div className="flex justify-end gap-2 mb-2">{headerExtraActions}</div>
+        ) : embeddedHeaderActions ? (
+          <div className="flex justify-end gap-2 mb-2">{embeddedHeaderActions}</div>
         ) : null}
         {contentHeader}
         <DataLoader
@@ -3916,7 +3967,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               {hasSecondaryColumn ? <div className={densityStackMd} data-crud-injection-region>{col2Content}</div> : null}
             </div>
             {formError && !Object.keys(errors).length ? <div className="text-sm text-status-error-text">{formError}</div> : null}
-            {hideFooterActions || formReadOnly ? null : (
+            {renderFooterActions ? (
               <FormFooter
                 embedded={embedded}
                 className={dialogFooterClass}
@@ -3930,7 +3981,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                   submit: { pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon }
                 }}
               />
-            )}
+            ) : null}
             </form>,
           )}
         </DataLoader>
@@ -3960,8 +4011,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             submit: formReadOnly ? undefined : { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
           }}
         />
-      ) : headerExtraActions ? (
-        <div className="flex justify-end gap-2 mb-2">{headerExtraActions}</div>
+      ) : embeddedHeaderActions ? (
+        <div className="flex justify-end gap-2 mb-2">{embeddedHeaderActions}</div>
       ) : null}
       {contentHeader}
       <DataLoader
@@ -4014,7 +4065,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               })}
             </div>
             {formError && !Object.keys(errors).length ? <div className="text-sm text-status-error-text">{formError}</div> : null}
-            {hideFooterActions || formReadOnly ? null : (
+            {renderFooterActions ? (
               <FormFooter
                 embedded={embedded}
                 className={dialogFooterClass}
@@ -4028,7 +4079,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                   submit: { pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
                 }}
               />
-            )}
+            ) : null}
           </form>
           </div>,
         )}
@@ -4215,12 +4266,16 @@ function NumberInput({
   placeholder,
   autoFocus,
   onSubmit,
+  disabled,
+  readOnly,
 }: {
   value: number | string | null | undefined
   onChange: (v: number | undefined) => void
   placeholder?: string
   autoFocus?: boolean
   onSubmit?: () => void
+  disabled?: boolean
+  readOnly?: boolean
 }) {
   const locale = useOptionalLocale()
   const serializedValue = value !== undefined && value !== null ? String(value) : ''
@@ -4302,6 +4357,8 @@ function NumberInput({
       onFocus={handleFocus}
       onBlur={handleBlur}
       autoFocus={autoFocus}
+      disabled={disabled}
+      readOnly={readOnly}
       data-crud-focus-target=""
     />
   )
@@ -4692,6 +4749,8 @@ const FieldControl = React.memo(function FieldControlImpl({
           onChange={fieldSetValue}
           autoFocus={autoFocusField}
           onSubmit={onSubmitRequest}
+          disabled={disabled}
+          readOnly={readOnly}
         />
       )}
       {field.type === 'date' && (
@@ -4791,6 +4850,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           suppressInitialSuggestionsOnFocus={autoFocusField}
           suggestions={options.map((opt) => ({ value: opt.value, label: opt.label }))}
           loadSuggestions={loadFieldSuggestions}
+          disabled={disabled}
         />
       )}
       {field.type === 'combobox' && (

@@ -98,7 +98,7 @@ describe('dictionary PATCH optimistic locking', () => {
 
   it('rejects a changed key that violates the strict format with 400, not 500', async () => {
     const res = await PATCH(
-      request(CURRENT_VERSION, { key: 'not.a.valid.new.key', name: 'Renamed' }),
+      request(CURRENT_VERSION, { key: 'Not A Valid New Key', name: 'Renamed' }),
       { params: { dictionaryId: DICTIONARY_ID } },
     )
     expect(res.status).toBe(400)

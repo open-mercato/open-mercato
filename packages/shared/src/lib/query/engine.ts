@@ -51,6 +51,13 @@ import {
 } from '../encryption/decryptScope'
 import { parseNumberWithDefault } from '../number'
 import { createLogger } from '../logger'
+import {
+  buildArrayColumnNoOverlapPredicate,
+  buildArrayColumnOverlapPredicate,
+  buildJsonbNoOverlapPredicate,
+  buildJsonbOverlapPredicate,
+  buildScalarOverlapPredicate,
+} from './overlap'
 
 const logger = createLogger('shared').child({ component: 'query' })
 
@@ -1267,7 +1274,11 @@ export class BasicQueryEngine implements QueryEngine {
           })
           continue
         }
-        q = this.applyColumnOp(q, expr, f.op, f.value)
+        q = f.op === 'overlap'
+          ? q.where(buildScalarOverlapPredicate(expr, f.value))
+          : f.op === 'noverlap'
+            ? q.where(sql<boolean>`false`)
+            : this.applyColumnOp(q, expr, f.op, f.value)
       }
 
       // OR groups are applied here, after the cf:* value expressions exist, so a
@@ -1314,7 +1325,10 @@ export class BasicQueryEngine implements QueryEngine {
                     value: rf.value,
                   })
                 }
-                return this.buildColumnOpExpression(eb, cfValueExprByKey[rf.key], rf.op, rf.value)
+                if (rf.op === 'noverlap') return sql<boolean>`false`
+                return rf.op === 'overlap'
+                  ? buildScalarOverlapPredicate(cfValueExprByKey[rf.key], rf.value)
+                  : this.buildColumnOpExpression(eb, cfValueExprByKey[rf.key], rf.op, rf.value)
               }
               return this.buildIndexDocOpExpression(eb, {
                 entity: String(entity),
@@ -1673,6 +1687,10 @@ export class BasicQueryEngine implements QueryEngine {
         return value
           ? builder.where(column as any, 'is not', null)
           : builder.where(column as any, 'is', null)
+      case 'overlap':
+        return builder.where(buildArrayColumnOverlapPredicate(column, value))
+      case 'noverlap':
+        return builder.where(buildArrayColumnNoOverlapPredicate(column, value))
       default:
         return builder
     }
@@ -1806,6 +1824,11 @@ export class BasicQueryEngine implements QueryEngine {
       case 'exists':
         predicate = sql<boolean>`${caseExpr} is not null`
         break
+      case 'overlap':
+        predicate = buildScalarOverlapPredicate(caseExpr, value)
+        break
+      case 'noverlap':
+        return sql<boolean>`false`
       default:
         // Mirrors buildColumnOpExpression's unknown-op fallback: a neutral
         // predicate, so full and count shapes drop the same leaves.
@@ -1828,6 +1851,8 @@ export class BasicQueryEngine implements QueryEngine {
       case 'like': return eb(column, 'like', value)
       case 'ilike': return eb(column, 'ilike', value)
       case 'exists': return value ? eb(column, 'is not', null) : eb(column, 'is', null)
+      case 'overlap': return buildArrayColumnOverlapPredicate(column, value)
+      case 'noverlap': return buildArrayColumnNoOverlapPredicate(column, value)
       default: return eb.val(true)
     }
   }
@@ -2044,6 +2069,12 @@ export class BasicQueryEngine implements QueryEngine {
           sub = opts.value
             ? sub.where(sql<boolean>`${textExpr} is not null`)
             : sub.where(sql<boolean>`${textExpr} is null`)
+          break
+        case 'overlap':
+          sub = sub.where(buildJsonbOverlapPredicate(`${alias}.doc`, opts.field, opts.value))
+          break
+        case 'noverlap':
+          sub = sub.where(buildJsonbNoOverlapPredicate(`${alias}.doc`, opts.field, opts.value))
           break
         default:
           break
