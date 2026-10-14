@@ -1728,6 +1728,7 @@
   "customers.errors.kind_settings_load_failed": "유형 설정을 불러오지 못했습니다",
   "customers.errors.label_duplicate": "이 슬러그를 가진 라벨이 이미 존재합니다",
   "customers.errors.label_not_found": "라벨을 찾을 수 없습니다",
+  "customers.errors.label_slug_invalid": "라벨에는 문자나 숫자가 하나 이상 포함되어야 합니다",
   "customers.errors.labels_load_failed": "라벨을 불러오지 못했습니다",
   "customers.errors.lookup_failed": "사전 항목을 불러오지 못했습니다",
   "customers.errors.organization_forbidden": "조직에 접근할 수 없습니다",

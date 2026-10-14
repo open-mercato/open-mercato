@@ -1728,6 +1728,7 @@
   "customers.errors.kind_settings_load_failed": "Nie udało się załadować ustawień kategorii",
   "customers.errors.label_duplicate": "Etykieta o tym identyfikatorze już istnieje",
   "customers.errors.label_not_found": "Nie znaleziono etykiety",
+  "customers.errors.label_slug_invalid": "Etykieta musi zawierać co najmniej jedną literę lub cyfrę",
   "customers.errors.labels_load_failed": "Nie udało się załadować etykiet",
   "customers.errors.lookup_failed": "Nie udało się załadować słownika",
   "customers.errors.organization_forbidden": "Organizacja jest niedostępna",
