@@ -1,13 +1,16 @@
 # Handoff — 2026-10-14-ecommerce-release-4-write-side
 
-**Last updated:** 2026-10-14T23:45:00Z (Phase 1 CLOSED; Phase 2 CLOSED — all 8 steps done)
+**Last updated:** 2026-10-15T00:30:00Z (Phase 1, 2 CLOSED; Phase 3 functionally closed — one open item for the owner)
 **Branch:** feat/release-4-write-side
 **PR:** https://github.com/adeptofvoltron/open-mercato/pull/15 (draft, base `develop` on the fork)
-**Current phase/step:** Phase 1 (Steps 1.1-1.10) and Phase 2 (Steps 2.1-2.8) fully done. Resume at Phase 3.
-**Last commit:** see `git log` on `feat/release-4-write-side` — the Step 2.8 test commit is the most recent
+**Current phase/step:** Phases 1-2 fully done. Phase 3 (Steps 3.1-3.4) done except Step 3.4's Part A, a real open item for the PR owner (see below — does not block Phase 4). Resume at Phase 4, Step 4.1.
+**Last commit:** see `git log` on `feat/release-4-write-side` — the Step 3.4 Parts B+C commit is the most recent
 
-## What just happened
-Phase 2 (the promotions evaluation engine, SPEC-055 Phase 2) is now fully closed. Built bottom-up across 8 steps, each independently verified against the dispatched agent's actual diff (never just its self-report) via a personal re-run of build/typecheck/the full `src/modules/promotions` jest suite after every step, plus the repo-wide `yarn typecheck --force`/`yarn lint --force` gate:
+## OPEN ITEM for the PR owner (read this before Phase 7)
+Step 3.4's Part A (repointing `ecommerce/lib/storefrontPricing.ts` onto the new `catalogBuyerPricingService.resolveLinePrice`, Step 3.1) was attempted and reverted — it regressed the Storefront Public API's own documented O(1)-query-budget invariant (measured: listing query-budget tests 15→21 queries, detail 7-11→16-34, the explicit "does not grow with variant count" test 9→28). `catalogBuyerPricingService.resolveLinePrice` is built per-line with no shared-cache/batch mode across multiple products/variants, so calling it once per target (the natural integration point) turns a page's dedup'd tax-rate/tier lookups into N independent ones. Needs a decision: (a) extend `catalogBuyerPricingService` with a page-batch/shared-cache mode (a Step 3.1 follow-up), or (b) treat `storefrontPricing.ts` as intentionally exempt from this repoint. Not a blocker for Phase 4 (cart's core entities) — only relevant once Phase 7 wires cart to `promotions`/`catalogBuyerPricingService` directly. Full detail in NOTIFY.md's `2026-10-15T00:30:00Z` entry and PLAN.md's Step 3.4 row.
+
+## What happened before (Phases 1-2, unchanged from the prior entry)
+Phase 2 (the promotions evaluation engine, SPEC-055 Phase 2) is fully closed. Built bottom-up across 8 steps, each independently verified against the dispatched agent's actual diff (never just its self-report) via a personal re-run of build/typecheck/the full `src/modules/promotions` jest suite after every step, plus the repo-wide `yarn typecheck --force`/`yarn lint --force` gate:
 
 - **2.1** `lib/types.ts` (public contract + internal shapes) + `lib/evaluation-engine.ts` (orchestration loop). Pass 1/3 shipped as throwing stubs.
 - **2.2** `lib/rule-evaluators.ts` — all eleven Release-4 rule types + AND/OR composition. Added `EnrichedEvaluateItem`/`EvaluationInput` (category/attribute enrichment) and `excludeFlags` to the internal type surface.
@@ -23,9 +26,9 @@ Current count: 125 promotions-module jest tests + 21 Playwright `__integration__
 **Judgment calls made across Phase 2** (all flagged inline in code comments): plain `Number()` comparisons everywhere (no bignum library); net price as the default basis wherever the spec doesn't specify one; `basis` always `'net'`; a `fixed` discount is the full configured amount for `cart_discount` but per-unit for line-targeted benefits; `max_discount` across multiple `LINE_DISCOUNT` effects scales every line down by the identical ratio; `free_product`'s `categoryId`-only config emits no effect (no catalog lookup available); `product-page`/`dynamic-labels` resolve against an anonymous/default-group assortment scope since their wire contracts carry no buyer identity; all three visibility-filtered routes fail closed to empty results if scope resolution genuinely fails.
 
 ## Next concrete action
-Phase 3 — shared seams in catalog/availability/ecommerce (D-R4-3 pre-approves multi-module changes here). Read PLAN.md's Phase 3 section fresh before dispatching Step 3.1; this phase touches modules OUTSIDE `promotions` for the first time this run (catalog, ecommerce, buyer-scoped visibility), so re-read those modules' own `AGENTS.md` files too.
+Phase 4 — Cart Phase 1 (core cart with visibility built in), Step 4.1. Read PLAN.md's Phase 4 section fresh and `.ai/specs/2026-08-14-cart-module.md` (rev 9, rewritten in Step 0.1) before dispatching — this is the first step of the `cart` module itself, a module that does not exist yet in this worktree. Do NOT wait on Step 3.4 Part A's open item before starting — it does not block Phase 4 (see "OPEN ITEM" note above).
 
-**A PR checkpoint comment covering Steps 2.5-2.8 is due** before or at the start of Phase 3 — the last one posted covered through Step 2.4.
+**A PR checkpoint comment covering Steps 3.1-3.4 is due** before or at the start of Phase 4 — the last one posted covered through Step 2.8 (Phase 2's close).
 
 ## Blockers / open questions
 None blocking. Phases 1 and 2 are both complete and green.
