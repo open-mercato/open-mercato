@@ -1,0 +1,444 @@
+import { randomUUID } from 'node:crypto'
+import { raw, UniqueConstraintViolationException } from '@mikro-orm/core'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { MarketingCampaignRun, MarketingMessageSend } from '../data/entities.js'
+import { splitRunContext } from './run-context.js'
+import type { RunTransition } from './engine/executor.js'
+import {
+  computeClaimLeaseCutoff,
+  computeNextRetryAt,
+  hasExhaustedAttempts,
+} from './engine/scheduling.js'
+import type { AutomationContext, StepOutcome } from './engine/types.js'
+import { SWEEP_CLAIM_PREFIX } from './occurrence.js'
+import { redactForStorage } from './redact.js'
+
+export type RunScope = { tenantId: string; organizationId: string }
+
+/**
+ * Starts a run, or returns null when this event occurrence already started one.
+ *
+ * The insert goes through a FORK so a rejected insert cannot leave the caller's entity manager
+ * holding a failed entity — the next flush would retry it. Callers use `run.id`, which a detached
+ * entity carries.
+ *
+ * Null is not an error: it is the guard working. It means the same delivery arrived twice, which
+ * queues and provider webhooks do routinely.
+ */
+export async function createRun(
+  em: EntityManager,
+  input: {
+    campaignId: string
+    scope: RunScope
+    subjectEntityId: string | null
+    triggerEventId: string
+    context: AutomationContext
+    occurrenceKey?: string | null
+    /** Which lane each split assigned, so an A/B result survives a later edit of the split. */
+    variantChoices?: Record<string, string> | null
+  },
+): Promise<MarketingCampaignRun | null> {
+  const fork = em.fork()
+  const run = fork.create(MarketingCampaignRun, {
+    campaignId: input.campaignId,
+    tenantId: input.scope.tenantId,
+    organizationId: input.scope.organizationId,
+    subjectEntityId: input.subjectEntityId,
+    triggerEventId: input.triggerEventId,
+    occurrenceKey: input.occurrenceKey ?? null,
+    variantChoices: input.variantChoices ?? null,
+    ...splitRunContext(input.context),
+    currentStepIndex: 0,
+    stepLog: [],
+    status: 'running',
+    attempts: 0,
+    startedAt: new Date(),
+  })
+  try {
+    fork.persist(run)
+    await fork.flush()
+  } catch (error) {
+    if (error instanceof UniqueConstraintViolationException) return null
+    throw error
+  }
+  return run
+}
+
+/**
+ * Releases EVENT occurrence keys older than the dedup window.
+ *
+ * This is what keeps the unique index a DUPLICATE guard rather than a permanent one-run-ever rule:
+ * after the window, the key is gone and an author's `unlimited` re-entry policy means what it says.
+ * Driven by the periodic resume scan, which already runs on a schedule.
+ *
+ * Sweep CLAIMS are excluded by their prefix. They exist precisely to be permanent — "we already asked
+ * this customer to review order X" is not a duplicate to forget — and releasing one would send the
+ * message a second time.
+ */
+export async function expireOccurrenceKeys(
+  em: EntityManager,
+  scope: RunScope,
+  now: Date,
+  windowHours: number,
+): Promise<number> {
+  const cutoff = new Date(now.getTime() - windowHours * 3_600_000)
+  /**
+   * `$not` sits at the TOP of the where clause, not inside the field condition.
+   *
+   * Written as `occurrenceKey: { $ne: null, $not: { $like: … } }` this produced `syntax error at or near
+   * "not"` on every execution — and it executes on the periodic due-run scan, which is the first thing that
+   * pass does. So the statement threw, the whole scan aborted before it ever looked for a due run, and the
+   * job was recorded as failed once a minute, forever. Two things silently stopped: occurrence keys were
+   * never released, so `unlimited` re-entry stayed blocked for anything a sweep had claimed, and the safety
+   * net that resumes a wait whose delayed job was lost never resumed one.
+   *
+   * It was invisible because nothing depends on it in the happy path: a wait normally resumes from its own
+   * delayed job, and this pass exists only for when that job is gone.
+   */
+  return em.nativeUpdate(
+    MarketingCampaignRun,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      occurrenceKey: { $ne: null },
+      $not: { occurrenceKey: { $like: `${SWEEP_CLAIM_PREFIX}%` } },
+      startedAt: { $lt: cutoff },
+    },
+    { occurrenceKey: null },
+  )
+}
+
+/**
+ * Takes exclusive ownership of a run, or returns null.
+ *
+ * One conditional UPDATE is the whole concurrency story: two workers racing for the same run
+ * both issue this statement, and only the one whose WHERE clause still matched gets a token.
+ * Nothing downstream needs a lock because nothing downstream proceeds without the token.
+ *
+ * The `claimed` branch is lease recovery: a worker that died mid-step left the row claimed, and
+ * without this it would sit there forever.
+ *
+ * Deliberately does NOT touch `attempts`. That counter is the retry budget, and a legitimate wait
+ * resume is a claim too — counting claims would exhaust the budget of a five-step drip campaign
+ * purely by progressing, so the first real failure afterwards would be fatal. Only `failRun`
+ * increments it, and it is reset whenever the run makes progress.
+ */
+export async function claimRun(
+  em: EntityManager,
+  runId: string,
+  scope: RunScope,
+  now: Date,
+): Promise<string | null> {
+  const claimToken = randomUUID()
+  const affected = await em.nativeUpdate(
+    MarketingCampaignRun,
+    {
+      id: runId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      $or: [
+        { status: 'running' },
+        { status: 'waiting', resumeAt: { $lte: now } },
+        { status: 'claimed', claimedAt: { $lt: computeClaimLeaseCutoff(now) } },
+      ],
+    },
+    {
+      status: 'claimed',
+      claimedAt: now,
+      claimToken,
+    },
+  )
+  return affected === 1 ? claimToken : null
+}
+
+/**
+ * Writes the executor's verdict.
+ *
+ * Every write re-asserts `claimToken`, so a zombie worker whose lease expired mid-step cannot
+ * overwrite the result of the worker that took the run from it.
+ */
+export async function applyTransition(
+  em: EntityManager,
+  runId: string,
+  scope: RunScope,
+  claimToken: string,
+  // Progress transitions only. A failure goes through `failRun`, which owns the retry budget
+  // and the resume index, so accepting it here would give two code paths for one outcome.
+  transition: Exclude<RunTransition, { kind: 'failed' }>,
+  now: Date,
+): Promise<boolean> {
+  const common = {
+    stepLog: transition.stepLog as unknown as Record<string, unknown>[],
+    // Split for storage: the queryable half stays jsonb, the partner's text goes to the encrypted column.
+    ...splitRunContext(transition.context),
+    lastError: null,
+  }
+
+  // Progress resets the retry budget and clears any stale retry stamp: the attempts that were
+  // spent recovering from an earlier failure are spent, and reporting a `nextRetryAt` on a run
+  // that is simply waiting would be misleading.
+  const progressed = { ...common, attempts: 0, nextRetryAt: null }
+
+  const data = transition.kind === 'completed'
+    ? { ...progressed, status: 'completed' as const, completedAt: now, resumeAt: null, claimToken: null, claimedAt: null }
+    : {
+        ...progressed,
+        status: 'waiting' as const,
+        resumeAt: transition.resumeAt,
+        currentStepIndex: transition.nextStepIndex,
+        currentStepId: transition.nextStepId,
+        claimToken: null,
+        claimedAt: null,
+      }
+
+  const affected = await em.nativeUpdate(
+    MarketingCampaignRun,
+    { id: runId, tenantId: scope.tenantId, organizationId: scope.organizationId, claimToken },
+    data,
+  )
+  return affected === 1
+}
+
+/**
+ * Records a failed attempt, retrying with backoff until the attempt budget runs out.
+ *
+ * A run that runs out of attempts becomes `dead` rather than being deleted: a customer stuck
+ * halfway through a campaign is something an operator needs to be able to see.
+ */
+/** What a failure did, and when the retry is due — see the note at the return statement. */
+export type FailureOutcome = { status: 'retrying' | 'dead'; resumeAt: Date | null }
+
+export async function failRun(
+  em: EntityManager,
+  runId: string,
+  scope: RunScope,
+  claimToken: string,
+  input: {
+    /** Attempts already recorded BEFORE this failure. */
+    attempts: number
+    error: unknown
+    stepLog: StepOutcome[]
+    /**
+     * Step to resume at. The step that failed, so the retry repeats only that step — never the
+     * ones that already succeeded, which for a chain containing a send would mean mailing the
+     * customer again.
+     */
+    resumeStepIndex: number
+    /** Resolved by id on the retry, for the same reason the wait path records one. */
+    resumeStepId?: string | null
+    context: AutomationContext
+  },
+  now: Date,
+): Promise<FailureOutcome> {
+  const message = input.error instanceof Error ? input.error.message : String(input.error)
+  const attempts = input.attempts + 1
+  const dead = hasExhaustedAttempts(attempts)
+  const nextRetryAt = dead ? null : computeNextRetryAt(attempts, now)
+
+  await em.nativeUpdate(
+    MarketingCampaignRun,
+    { id: runId, tenantId: scope.tenantId, organizationId: scope.organizationId, claimToken },
+    {
+      status: dead ? 'dead' : 'waiting',
+      lastError: redactForStorage(message, 2000),
+      attempts,
+      nextRetryAt,
+      resumeAt: nextRetryAt,
+      claimToken: null,
+      claimedAt: null,
+      currentStepIndex: input.resumeStepIndex,
+      currentStepId: input.resumeStepId ?? null,
+      stepLog: input.stepLog as unknown as Record<string, unknown>[],
+      ...splitRunContext(input.context),
+    },
+  )
+  /**
+   * The retry instant is RETURNED rather than left to be read back.
+   *
+   * The caller used to re-read it with `em.findOne(run, { id })`, which MikroORM serves from the identity map for
+   * a primary-key lookup — and this function writes with `nativeUpdate`, which never updates that map. So the
+   * caller got the OLD instant, computed a delay of zero, enqueued an immediate retry that `claimRun` then
+   * refused, and the exponential backoff was silently discarded: retries only ever happened at the sweep's
+   * cadence. Handing the value back removes both the stale read and the query.
+   */
+  return { status: dead ? 'dead' : 'retrying', resumeAt: nextRetryAt }
+}
+
+export async function findDueRunIds(
+  em: EntityManager,
+  scope: RunScope,
+  now: Date,
+  limit: number,
+): Promise<string[]> {
+  const rows = await em.find(
+    MarketingCampaignRun,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      $or: [
+        { status: 'waiting', resumeAt: { $lte: now } },
+        // Lease recovery: picked up here too, so a crashed worker's run is not lost even if the
+        // delayed queue job died with it.
+        { status: 'claimed', claimedAt: { $lt: computeClaimLeaseCutoff(now) } },
+      ],
+    },
+    { fields: ['id'], orderBy: { resumeAt: 'ASC', id: 'ASC' }, limit },
+  )
+  return rows.map((row) => row.id)
+}
+
+/**
+ * The re-entry guard.
+ *
+ * A scheduled sweep re-evaluates the same audience every tick, so without this a customer who
+ * matches "has not ordered in 90 days" would be enrolled on every single tick. `since = null`
+ * means enrol at most once ever.
+ */
+export async function hasRecentRun(
+  em: EntityManager,
+  campaignId: string,
+  subjectEntityId: string,
+  scope: RunScope,
+  since: Date | null,
+): Promise<boolean> {
+  const count = await em.count(MarketingCampaignRun, {
+    campaignId,
+    subjectEntityId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    ...(since ? { startedAt: { $gte: since } } : {}),
+  })
+  return count > 0
+}
+
+/** Also counts an in-flight run, so a customer cannot be enrolled twice concurrently. */
+export async function hasActiveRun(
+  em: EntityManager,
+  campaignId: string,
+  subjectEntityId: string,
+  scope: RunScope,
+): Promise<boolean> {
+  const count = await em.count(MarketingCampaignRun, {
+    campaignId,
+    subjectEntityId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    status: { $in: ['running', 'waiting', 'claimed'] },
+  })
+  return count > 0
+}
+
+/**
+ * Runs started for this subject across ALL campaigns in a window.
+ *
+ * This is the cascade guard. A campaign whose step assigns a tag causes
+ * `customers.tag.assigned`, which is itself a trigger, so campaigns can drive each other in a
+ * cycle. An in-payload depth counter cannot see that: the events are emitted by the modules that
+ * own them and carry nothing of ours. A budget the database can answer does see it, and it bounds
+ * any cycle regardless of how many campaigns are in the loop.
+ */
+export async function countRunsStartedSince(
+  em: EntityManager,
+  subjectEntityId: string,
+  scope: RunScope,
+  since: Date,
+): Promise<number> {
+  return em.count(MarketingCampaignRun, {
+    subjectEntityId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    startedAt: { $gte: since },
+  })
+}
+
+/** Counts across ALL campaigns — a per-campaign cap would not protect anybody. */
+/** What counts against a frequency cap: a message that went out, and one whose slot is taken. */
+export const CAP_CONSUMING_SEND_STATUSES = ['sent', 'reserved'] as const
+
+export async function countSendsSince(
+  em: EntityManager,
+  subjectEntityId: string,
+  scope: RunScope,
+  since: Date,
+): Promise<number> {
+  return em.count(MarketingMessageSend, {
+    subjectEntityId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    // A reservation counts: it is a slot another worker has already taken for a message about to go out.
+    status: { $in: [...CAP_CONSUMING_SEND_STATUSES] },
+    sentAt: { $gte: since },
+  })
+}
+
+export async function recordSend(
+  em: EntityManager,
+  entry: {
+    scope: RunScope
+    campaignId: string
+    runId: string
+    stepId: string
+    subjectEntityId: string | null
+    channel: 'email' | 'sms' | 'push'
+    status: 'sent' | 'suppressed' | 'failed'
+    suppressionReason?: string | null
+    sentAt: Date
+  },
+): Promise<void> {
+  const record = em.create(MarketingMessageSend, {
+    tenantId: entry.scope.tenantId,
+    organizationId: entry.scope.organizationId,
+    campaignId: entry.campaignId,
+    runId: entry.runId,
+    stepId: entry.stepId,
+    subjectEntityId: entry.subjectEntityId,
+    channel: entry.channel,
+    status: entry.status,
+    suppressionReason: entry.suppressionReason ?? null,
+    sentAt: entry.sentAt,
+  })
+  em.persist(record)
+    await em.flush()
+}
+
+/**
+ * Puts a dead run back in the queue, because a person asked.
+ *
+ * A run that exhausted its attempts keeps everything needed to carry on — the step it stopped at, its log, its
+ * trigger context — and `failRun` deliberately does not delete it, so "a customer stuck mid-journey" stays
+ * visible. Until now nothing could unstick them: the row was a gravestone.
+ *
+ * The attempt budget is RESET rather than continued. The point of requiring a person is that they have looked at
+ * `lastError` and dealt with the cause; handing the retry one attempt before it dies again would make the button
+ * a formality. `lastError` is kept, because it is the only record of what went wrong and the operator may want
+ * it after the retry as much as before.
+ *
+ * Conditional on `status = 'dead'`, so two operators pressing it at once produce one revival rather than two —
+ * the same shape every other concurrent write in this module uses. The returned boolean says whether THIS call
+ * was the one that changed it.
+ *
+ * `status` becomes `waiting` with `resumeAt` now, which is what the resume scan looks for. Nothing else revives
+ * a run, deliberately: a timer retrying a dispatch nobody has read is the thing `lib/dead-letter.ts` argues
+ * against, and it applies here too.
+ */
+export async function retryDeadRun(
+  em: EntityManager,
+  scope: RunScope,
+  runId: string,
+  now: Date,
+): Promise<boolean> {
+  const changed = await em.nativeUpdate(
+    MarketingCampaignRun,
+    { id: runId, tenantId: scope.tenantId, organizationId: scope.organizationId, status: 'dead' },
+    {
+      status: 'waiting',
+      attempts: 0,
+      resumeAt: now,
+      nextRetryAt: now,
+      // Cleared so the scan can claim it: a dead run has no claim, and leaving a stale one would strand it again.
+      claimToken: null,
+      claimedAt: null,
+    },
+  )
+  return changed > 0
+}
