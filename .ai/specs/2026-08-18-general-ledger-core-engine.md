@@ -546,7 +546,8 @@ currency — is captured from day one regardless. (Art. 23 ust. 3 UoR requires a
 operation in a foreign currency to be recorded so that both the amount in Polish
 currency and the amount in the foreign currency can be determined; the base-
 currency `debit`/`credit` together with `amountCurrency` and `exchangeRate` do
-that.) FX revaluation and
+that.) The `exchangeRate` is stored as given: a rate with more than 8
+decimal places is rejected on posting, not rounded. FX revaluation and
 multi-currency reporting are out of scope here, but when that work
 starts it reads from data that already exists rather than requiring a
 backfill.
@@ -821,11 +822,13 @@ suite asserts against, not a workflow it walks through.
   ust. 4, see Design decisions), `description`, `type`
   (`NORMAL`/`OPENING`/`CLOSING`/`REVERSAL`), `currencyId`
   (FK-id, `uuid`, references `currencies.Currency.id` — no ORM
-  relation), `exchangeRate`, `referenceType`, `referenceId`,
-  tenant/org scoped. No `updatedAt` — append-only, immutable once
+  relation), `exchangeRate` (`numeric(18,8)`, nullable — at most 8
+  decimal places, enforced by validation), `referenceType`,
+  `referenceId`, tenant/org scoped. No `updatedAt` — append-only, immutable once
   posted (exempt from optimistic locking, see Design decisions).
 - `JournalEntryLine` — `journalEntryId`, `accountId`, `debit`,
-  `credit` (`numeric(19,4)`), `amountCurrency`,
+  `credit` (`numeric(19,4)`), `amountCurrency` (`numeric(19,4)`, an
+  unsigned magnitude in the entry's original currency),
   `contractorSnapshot` (nullable `json` — see Design decisions),
   `organizationId`, `tenantId` (own scope columns, not just inherited
   via `journalEntryId` — see Design decisions). Same exemption as
@@ -2719,3 +2722,18 @@ code. Not yet reviewed by a maintainer.
   leaving it unnamed. Phase 2 is the author's decision (2026-10-13), not
   an autonomous default; Phase 1 would need the `postJournalEntry` route
   and `ledger.entries.post` enforcement as well.
+
+### 2026-10-14 (monetary types stated explicitly — cross-check of #7332)
+
+- **Column types for `exchangeRate` and `amountCurrency`.** The Data
+  Models section gave a type only for `debit`/`credit`. It now states
+  `JournalEntry.exchangeRate` as `numeric(18,8)` (nullable, at most 8
+  decimal places) and `JournalEntryLine.amountCurrency` as
+  `numeric(19,4)`, which is what the implementation already has. No
+  behaviour change; this closes a drift between the spec and the code
+  found while checking issue #7332 (monetary values) against the
+  financial-module specs.
+- **Rate precision is a stated rule, not a rounding rule.** The
+  multi-currency paragraph now says a rate with more than 8 decimal
+  places is rejected on posting. Where a rate gets rounded before it
+  reaches the ledger is still open and is not decided here.

@@ -129,6 +129,8 @@ anything else compiles or is reachable. High-level shape:
   precision bug the column type exists to prevent. Keep them as
   strings (or a `Decimal` type) end to end — in the command handler,
   in `SUM(debit)`/`SUM(credit)` aggregations, and in API responses.
+  (`BigInt` minor units are used only inside the balance check in
+  `data/validators.ts`, never for storage or in API payloads.)
   The worked example above (`debit: 500`) is illustrative only; treat
   it as `"500.0000"`, not `500`.
 
