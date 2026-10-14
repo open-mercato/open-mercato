@@ -41,7 +41,7 @@
 | 3 | 3.4 | Ecommerce: repoint onto the shared seams and add the fresh buyer-context option | dispatch:capable | partial — Parts B+C done, Part A open (owner decision needed) | see `git log` |
 | 4 | 4.1 | Cart: scaffold module, ACL, setup, events, DI, encryption, i18n | dispatch | done | see `git log` |
 | 4 | 4.2 | Cart: entities, validators and migration (incl. Phase 4 seam columns) | dispatch:capable | done | see `git log` |
-| 4 | 4.3 | Cart: token hashing, route-edge store and scope resolution, strict bodies | dispatch:capable | todo | — |
+| 4 | 4.3 | Cart: token hashing, route-edge store and scope resolution, strict bodies | dispatch:capable | done | see `git log` |
 | 4 | 4.4 | Cart: evaluateCartVisibility with variant-derives-product and branded scope | dispatch:capable | todo | — |
 | 4 | 4.5 | Cart: create and get commands (forced storefront channel, store binding) | dispatch | todo | — |
 | 4 | 4.6 | Cart: line add, update, remove and bulkAdd commands with snapshots | dispatch:capable | todo | — |
@@ -147,7 +147,7 @@ Each Step below matches the Tasks table. Spec section numbers refer to the specs
 
 - **4.1** Scaffold `packages/core/src/modules/cart/` (`requires: catalog, sales, customer_groups`; ecommerce soft; promotions from 7.1), ACL, `setup.ts`, events (`cart.line.visibility_rejected` once per request, D-R4-23), DI, `encryption.ts` (`email`, `note`), `i18n/{de,en,es,ko,pl}.json`.
 - **4.2** Entities and migration with every column from D-R4-5, 7, 9, 18, 19 (flag state, `promotion_id`/`origin`, `discount_total_net`, `token_hash`, seam columns, lock columns, `resolved_at`, no persisted availability), `CartIdempotencyKey`, `CartMergeLog`; unique index with `NULLS NOT DISTINCT` (or COALESCE expression) including `promotion_id`; zod validators.
-- **4.3** Token lib, route-edge helper resolving store/scope through `storeContextService` (soft DI), store binding, `.strict()` request schemas (D-R4-1, 6).
+- **4.3** Token lib, route-edge helper resolving store/scope through `storeContextService` (soft DI), store binding, `.strict()` request schemas (D-R4-1, 6). **Important for every later cart step**: the spec's §6a.1a pseudocode shows `assortmentScope`/`customerId`/`customerIds`/`customerGroupIds` sitting directly on the resolved route context, but `ecommerce`'s real `StoreContext` (`ecommerce/lib/types.ts`) nests all of them one level deeper, under `.buyer` — `storeContext.buyer.assortmentScope`, not `storeContext.assortmentScope`. `cart/lib/routeContext.ts`'s `resolveCartRouteContext` already maps this correctly; any later step reading `StoreContext` directly (rather than through that helper) must use the real nested shape, not the spec's flattened pseudocode.
 - **4.4** `lib/visibility.ts` `evaluateCartVisibility` — the only caller of `matchesScope` in cart; variant-derives-product; branded `ResolvedAssortmentScope` and named predicates; uniform `product_unavailable` for restricted and nonexistent.
 - **4.5** Create and get commands: forced storefront channel, store from host (D-R4-2), non-storefront creation only via authenticated command with a feature.
 - **4.6** `cart.lines.add/.update/.bulkAdd/.remove` using `catalogBuyerPricingService`, snapshots, visibility check on every write, `remove` never blocked, batch loading for `bulkAdd(100)`.
