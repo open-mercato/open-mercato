@@ -709,6 +709,10 @@ and 007's guard cases need no fixture and run unconditionally.
 
 ## Backward compatibility
 
+### Migration & Backward Compatibility — proposal approval refusals (#7310)
+
+Approval of a proposal whose source message is unavailable returns a localized 404; an operator who cannot read the source receives a localized 403. Both use the existing `{ error: string }` response shape. The action wrapper preserves these typed refusals after releasing its terminal claim, so dismissal or a later retry remains available. Unexpected errors retain the generic 500 response. Routes, command IDs, database schema, permission rules, and successful approval behavior are unchanged; no migration is required. English and Polish command tests cover both refusals, and all five shipped locales include the messages.
+
 - **Additive only.** New package `@open-mercato/channel-discord`; new provider key `discord`; new
   ACL features `channel_discord.*`; new env vars `OM_CHANNEL_DISCORD_*`. No existing event ids,
   API routes, DI names, ACL ids, widget spot ids, or DB schema change.
@@ -1131,6 +1135,10 @@ rule 3), and no variant should be considered done without it.
 ---
 
 ## Changelog
+
+### 2026-10-13 — Proposal approval refusals (#7310)
+
+- Localized Discord proposal approval refusals use typed 403/404 errors preserved by the message action wrapper, on top of the source-read authorization introduced in #7151. TC-CHANNEL-DISCORD-013 exercises both locales over HTTP, repeated refusals, dismissal, and the absence of replies.
 
 ### 2026-09-16 — Reconnecting Discord heals the existing channel (#4977)
 
