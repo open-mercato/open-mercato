@@ -12,6 +12,7 @@ import {
   composeApiRouteOverrides,
   composePageRouteOverrides,
 } from './overrides'
+import { bindMatchedApiRoutePath } from '../lib/modules/api-route-identity'
 
 const logger = createLogger('shared').child({ component: 'cli-registry' })
 
@@ -414,12 +415,14 @@ export function findRouteManifestMatch<T extends { pattern?: string; path?: stri
 export function findApiRouteManifestMatch<T extends { path: string; methods: HttpMethod[] }>(
   routes: T[],
   method: HttpMethod,
-  pathname: string
+  pathname: string,
+  request?: Request,
 ): { route: T; params: RouteMatchParams } | undefined {
   for (const route of ensureSortedRoutes(routes)) {
     if (!route.methods.includes(method)) continue
     const params = matchRoutePattern(route.path, pathname)
     if (params) {
+      if (request && !bindMatchedApiRoutePath(request, route.path, params)) return undefined
       return { route, params }
     }
   }

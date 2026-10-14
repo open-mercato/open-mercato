@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { executeCallApi } from '../activity-executor'
 import type { WorkflowInstance } from '../../data/entities'
+import { createTransactionalEntityManagerDouble } from '../../../../test-utils/transactionalEntityManagerDouble'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(async (em: any, Entity: any, query: any) => em.findOne(Entity, query)),
@@ -34,7 +35,7 @@ describe('executeCallApi', () => {
     createdApiKeys = []
 
     // Mock EntityManager
-    mockEm = {
+    const entityManagerDouble = createTransactionalEntityManagerDouble({
       create: jest.fn((Entity: any, data: any) => {
         const record = { ...data, id: `key-${createdApiKeys.length}` }
         createdApiKeys.push(record)
@@ -43,10 +44,6 @@ describe('executeCallApi', () => {
       persist: jest.fn(function persist(this: any) { return this }),
       flush: jest.fn(),
       remove: jest.fn(function remove(this: any) { return this }),
-      // The one-time API key is created on a forked, context-detached EM so it
-      // commits outside the workflow-execution transaction (issue #4202). The
-      // fork shares the same mock surface so persist/flush/find tracking works.
-      fork: jest.fn(function fork(this: any) { return this }),
       findOne: jest.fn((Entity: any, query: any) => {
         const entityName = Entity?.name ?? ''
         if (entityName === 'WorkflowDefinition') {
@@ -63,6 +60,9 @@ describe('executeCallApi', () => {
             deletedAt: null,
           })
         }
+        if (entityName === 'ApiKey') {
+          return Promise.resolve(createdApiKeys.find((record) => record.id === query.id) ?? null)
+        }
         return Promise.resolve(null)
       }),
       find: jest.fn((Entity: any, query: any) => {
@@ -77,9 +77,15 @@ describe('executeCallApi', () => {
             { id: 'role-author-uuid', name: 'author-role', tenantId: query.tenantId || 'tenant-456' },
           ])
         }
+        if (entityName === 'ApiKey' && Array.isArray(query?.id?.$in)) {
+          return Promise.resolve(createdApiKeys.filter((record) => query.id.$in.includes(record.id)))
+        }
         return Promise.resolve([])
       }),
-    } as any
+    })
+    const createIsolatedFork = entityManagerDouble.fork
+    entityManagerDouble.fork = jest.fn(() => createIsolatedFork())
+    mockEm = entityManagerDouble as any
 
     // Mock Container
     mockContainer = {

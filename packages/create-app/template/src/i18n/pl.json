@@ -994,6 +994,8 @@
   "ui.inputs.eventSelect.empty": "Brak dostępnych zdarzeń",
   "ui.inputs.eventSelect.loading": "Ładowanie...",
   "ui.inputs.eventSelect.placeholder": "Wybierz zdarzenie...",
+  "ui.inputs.lookupPicker.forbidden": "Nie masz uprawnień do wczytania tych opcji.",
+  "ui.inputs.lookupPicker.loadFailed": "Nie udało się wczytać opcji. Spróbuj ponownie.",
   "ui.inputs.passwordInput.hide": "Ukryj hasło",
   "ui.inputs.passwordInput.show": "Pokaż hasło",
   "ui.inputs.phoneNumberField.checking": "Sprawdzanie duplikatów…",
