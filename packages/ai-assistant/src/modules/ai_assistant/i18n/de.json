@@ -311,6 +311,8 @@
   "ai_assistant.dock.right": "Rechts andocken",
   "ai_assistant.errors.moderationBlocked": "Ihre Nachricht wurde vom Inhaltssicherheitsfilter blockiert. Bitte formulieren Sie sie um und versuchen Sie es erneut.",
   "ai_assistant.errors.moderationUnavailable": "Die Inhaltssicherheitsprüfung ist vorübergehend nicht verfügbar. Bitte versuchen Sie es in einem Moment erneut.",
+  "ai_assistant.errors.pendingBatchNotApplicable": "Dieser Stapel entspricht nicht mehr der genehmigten Vorschau und kann daher nicht angewendet werden. Bitte den Assistenten, die Änderung erneut vorzuschlagen.",
+  "ai_assistant.errors.pendingRecordNotPreviewed": "Dieser Datensatz war nicht Teil der genehmigten Vorschau und wurde daher nicht geändert.",
   "ai_assistant.launcher.composerPlaceholder": "Fragen Sie mich etwas…",
   "ai_assistant.launcher.dialogDescription": "Wähle einen Assistenten. Mit ↑/↓ navigieren, Enter startet, Esc schließt.",
   "ai_assistant.launcher.dialogTitle": "AI assistants",

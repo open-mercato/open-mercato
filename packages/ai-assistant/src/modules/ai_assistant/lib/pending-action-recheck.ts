@@ -29,6 +29,7 @@ import type {
 import { resolveEffectiveMutationPolicy } from './agent-policy'
 import { hasRequiredFeatures } from './auth'
 import type { AiAgentMutationPolicy } from './ai-agent-definition'
+import { planPendingActionExecution, resolvePendingActionBatchMessages } from './pending-action-batch'
 
 export type PendingActionRecheckCode =
   | 'invalid_status'
@@ -251,12 +252,25 @@ export async function checkAttachmentScope(
   return { ok: true }
 }
 
+async function refusePlan(staleRecordIds: string[]): Promise<PendingActionRecheckResult> {
+  const { batchNotApplicable } = await resolvePendingActionBatchMessages()
+  return {
+    ok: false,
+    status: 412,
+    code: 'stale_version',
+    message: batchNotApplicable,
+    extra: { staleRecords: staleRecordIds },
+  }
+}
+
 /**
  * Guard 8: record version matches the row's captured `recordVersion`. For
  * single-record actions a mismatch is a hard 412. For batch actions we
  * compute per-record and return a `failedRecords[]` entry for each stale
  * record; the caller proceeds with the remaining records. If the batch
- * has NO remaining records (every one is stale) the function returns 412.
+ * has NO remaining records (every one is stale), or its input cannot be
+ * narrowed to the previewed, fresh rows (see `planPendingActionExecution`),
+ * the function returns 412.
  *
  * Also acts as the schema-drift guard: re-parses `action.normalizedInput`
  * through the tool's current zod schema. A shape change between propose
@@ -283,6 +297,8 @@ export async function checkRecordVersion(
   const records = Array.isArray(action.records) ? action.records : null
   if (records && records.length > 0) {
     if (!tool.loadBeforeRecords) {
+      const plan = planPendingActionExecution(action, tool, null)
+      if (plan.kind === 'refuse') return refusePlan(plan.staleRecordIds)
       return { ok: true }
     }
     const currentRows = await tool.loadBeforeRecords(parseResult.data as never, handlerContext)
@@ -317,11 +333,16 @@ export async function checkRecordVersion(
         extra: { staleRecords: stale.map((entry) => entry.recordId) },
       }
     }
+    const plan = planPendingActionExecution(action, tool, stale)
+    if (plan.kind === 'refuse') return refusePlan(plan.staleRecordIds)
     if (stale.length > 0) {
       return { ok: true, failedRecords: stale }
     }
     return { ok: true }
   }
+
+  const plan = planPendingActionExecution(action, tool, null)
+  if (plan.kind === 'refuse') return refusePlan(plan.staleRecordIds)
 
   if (!tool.loadBeforeRecord) {
     return { ok: true }
