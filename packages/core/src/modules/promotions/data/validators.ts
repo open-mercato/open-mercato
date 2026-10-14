@@ -812,3 +812,67 @@ export const promotionUsageRevertSchema = z.object({
 })
 
 export type PromotionUsageRevertInput = z.infer<typeof promotionUsageRevertSchema>
+
+// ---------------------------------------------------------------------------
+// Cart-facing endpoints (§Cart-Facing Endpoints, Phase 2 Step 2.7) — the frozen public
+// `EvaluateInput`/`BuyerContext` contract from `lib/types.ts`, re-expressed as zod so
+// `POST /api/promotions/evaluate` (and `POST /api/promotions/free-products`, which
+// reuses the identical body shape per Step 2.7's own instructions — "use the same
+// EvaluateItem-shaped items array for consistency... rather than inventing a new one")
+// can validate the wire body before handing it to `promotionsService`. Mirrors
+// `lib/types.ts` field-for-field; keep both in sync by hand (the public contract is
+// frozen per SPEC-055 §Release 4 Contract Freeze, so this schema should rarely need to
+// change independently of it).
+// ---------------------------------------------------------------------------
+
+export const buyerContextSchema = z
+  .object({
+    customerId: z.string().nullable(),
+    customerIds: z.array(z.string()),
+    customerGroupIds: z.array(z.string()),
+  })
+  .strict()
+
+export const codeRefSchema = z
+  .object({
+    id: uuid(),
+    type: promotionCodeTypeSchema,
+  })
+  .strict()
+
+export const evaluateItemSchema = z
+  .object({
+    lineId: z.string().trim().min(1),
+    productId: uuid(),
+    variantId: uuid().nullable(),
+    quantity: decimalStringSchema,
+    unitPriceNet: decimalStringSchema,
+    unitPriceGross: decimalStringSchema,
+    priceIsPromotional: z.boolean(),
+  })
+  .strict()
+
+export const evaluateInputSchema = z
+  .object({
+    items: z.array(evaluateItemSchema),
+    currency: currencyCodeSchema,
+    evaluatedAt: z.string().datetime({ offset: true }),
+    buyer: buyerContextSchema,
+    customerOrderCount: z.number().int().nullable(),
+    cartWeight: decimalStringSchema.nullable(),
+    codes: z.array(codeRefSchema),
+  })
+  .strict()
+
+export type EvaluateInputPayload = z.infer<typeof evaluateInputSchema>
+
+// `POST /api/promotions/product-page` (§Cart-Facing Endpoints, rev V2): the one route in
+// this module that still addresses by SKU — "a listing/PDP context has no cart line
+// identity to carry".
+export const productPageRequestSchema = z
+  .object({
+    skus: z.array(z.string().trim().min(1)).min(1),
+  })
+  .strict()
+
+export type ProductPageRequestInput = z.infer<typeof productPageRequestSchema>
