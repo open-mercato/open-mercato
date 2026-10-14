@@ -1,1 +1,9 @@
-export { dbGenerate, dbMigrate, dbGreenfield, type DbOptions, type GreenfieldOptions } from './commands'
+export {
+  dbGenerate,
+  dbMigrate,
+  dbMigrateUnlocked,
+  dbGreenfield,
+  type DbOptions,
+  type MigrateOptions,
+  type GreenfieldOptions,
+} from './commands'

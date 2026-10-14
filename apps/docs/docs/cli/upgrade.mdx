@@ -1,0 +1,126 @@
+---
+title: mercato upgrade
+sidebar_label: upgrade
+description: Runs one lock-guarded reconcile phase against an existing deployment — migrations, custom entity definitions, role ACLs, and feature toggles.
+---
+
+`yarn mercato upgrade` is the command a deploy runs against an **existing** database. It applies pending migrations and then reconciles the definitions and grants the running image declares — custom fields and entities, ACL features, feature toggles — all under a single Postgres advisory lock so concurrent deploys serialize instead of racing.
+
+It is not a bootstrap. [`yarn initialize`](./init) remains the greenfield path: it creates the tenant, organization, and user accounts. `upgrade` never creates any of those, and it refuses to run on an uninitialized database — an empty `users` table makes it exit non-zero pointing at `mercato init`.
+
+## Usage
+
+```bash
+# Reconcile every tenant (the deploy form)
+yarn mercato upgrade
+
+# Scope the tenant-aware steps to one tenant
+yarn mercato upgrade --tenant 81c3b8b0-6f06-44f6-9c22-12c0d9ec3c63
+
+# Local run against a database nothing else is touching
+yarn mercato upgrade --no-lock
+```
+
+The command relies on `DATABASE_URL` for database connectivity. See [Advisory Locking](#advisory-locking) for the constraints that URL must satisfy.
+
+## Options
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `--tenant <id>` | Scope `entities install` and `auth sync-role-acls` to a single tenant. The value is validated before any step runs, and a flag passed without one (a bare `--tenant`, or a `--tenant=` left by an empty variable expansion) is refused rather than read as "all tenants". `--tenant=<id>` and the `--tenantId` alias behave identically. | none — all tenants |
+| `--lock-timeout=<seconds>` | How long to retry lock acquisition before exiting non-zero. Acquisition is retried every 5 seconds. | `600` |
+| `--no-lock` | Skip lock acquisition entirely. For local use only — never a deploy. | off |
+| `--with-seed-defaults` | Additionally run the `seed:defaults` pass. **Destructive on re-run** — read [Seed defaults](#seed-defaults-with-seed-defaults) before using it. | off |
+
+## What the Command Does
+
+Everything below runs inside a single `pg_try_advisory_lock(0x4F4D, 0x5547)`, in this order:
+
+1. **Database migrations** — the same work as [`yarn db:migrate`](./db-migrate). Schema first.
+2. **[`entities install`](./entities-install)** — installs the custom field and custom entity definitions the running image declares.
+3. **[`auth sync-role-acls`](./auth-sync-role-acls)** — grants the ACL features the enabled modules declare. Additive only; it never revokes.
+4. **[`feature_toggles seed-defaults`](./feature-toggles-seed-defaults)** — creates missing toggles. Skipped when the module is not enabled; a missing `defaults.json` warns rather than failing.
+
+The lock is released on every exit path, including a thrown error.
+
+## What the Command Does Not Do
+
+`upgrade` prints this list on each run, so the exclusions are visible in deploy logs rather than only in these docs:
+
+- **`seed:defaults`** — module seed hooks are not idempotent. See [below](#seed-defaults-with-seed-defaults).
+- **`configs restore-defaults`** — it resets configuration with `force: true` on every run.
+- **`seedExamples`** — demo data.
+- **Reindexing** — `mercato reindex` is minutes-scale and belongs to a separate operator decision.
+- **Creating a tenant, organization, or user** — this invariant is what makes `upgrade` safe to run unattended.
+
+### Upgrade notes for your own code
+
+A reconcile only covers what the platform can converge on its own. A release may also require changes to *your* source — renamed exports, moved import paths, changed contracts — which no command can apply for you. On every successful run `upgrade` therefore prints a reminder to read `UPGRADE_NOTES.md` for the release you moved to, and to apply the auto-upgrade skill listed there with your coding agent when one is provided.
+
+### Seed defaults (`--with-seed-defaults`) {#seed-defaults-with-seed-defaults}
+
+:::danger Never wire this flag into a deploy script
+Module `seedDefaults` hooks are not idempotent. Running them again against a populated database can:
+
+- wipe integration credentials — `sync_excel` saves `{}` over the tenant's configured credentials;
+- revert admin-customised dictionary colours and icons;
+- overwrite tenant-edited workflow definitions;
+- resurrect dashboard widgets an admin deliberately removed;
+- duplicate soft-deleted rows.
+
+The flag exists for an operator who has read these hazards and chosen to accept them on a specific database at a specific moment. It is off by default and must stay off in automation.
+:::
+
+## Advisory Locking
+
+`upgrade` acquires `pg_try_advisory_lock(0x4F4D, 0x5547)` on a dedicated `pg.Client`, retrying every 5 seconds until `--lock-timeout` is exhausted. Bounded retry is deliberate: a blocked deploy Job exits non-zero with a message naming the lock instead of hanging indistinguishably from a slow migration.
+
+**`yarn db:migrate` takes the same lock**, so the two serialize against each other. A second run started while a first is in flight now waits and then fails loudly rather than racing it. Setting `MIGRATE_COMMAND='yarn db:migrate'` opts a deploy out of reconciliation — it never opts out of serialization.
+
+Two hard constraints apply to the lock connection:
+
+- **Use a direct database URL, never a transaction-mode pooler.** PgBouncer in transaction mode hands successive statements to different backend sessions, which silently drops a session-level advisory lock while the caller still believes it holds it. Two deploys would then migrate concurrently with no error anywhere.
+- **Keep the lock connection separate from the connection running DDL.** A session advisory lock held on the same connection as the schema work interferes with patterns such as `CREATE INDEX CONCURRENTLY`. The lock lives on its own client; migrations run on the ORM pool.
+
+## Running It in a Deploy
+
+Run `upgrade` **pre-rollout, as a job on the new image, before the serving Deployment is updated**. The job needs the new `modules.ts`, migrations, `ce.ts`, and `acl.ts`; only the pods still taking traffic are on the old image during that window.
+
+Pre-rollout is the correct placement, not a compromise. Every step is additive, and old pods ignore definitions and grants they do not reference, so reconciling ahead of the rollout is invisible to them. Running it post-rollout would instead leave new pods serving without their definitions and ACLs for the duration of the reconcile — the exact failure the command exists to prevent.
+
+## Exit Codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Every step completed. |
+| non-zero | Lock acquisition timed out, the database is uninitialized (empty `users` table), or a step failed. |
+
+## Troubleshooting
+
+- **Exits pointing at `mercato init`** — the `users` table is empty. The database has never been bootstrapped; run [`yarn initialize`](./init) first.
+- **Exits on lock timeout** — another `upgrade` or `db:migrate` run holds the lock. See the runbook below.
+- **A step fails** — the lock is released and the command exits non-zero. Fix the cause and re-run; all four steps are safe to repeat.
+
+### Stuck Lock Runbook
+
+The lock dies with its connection, so a "stuck" lock is almost always a live, slow holder rather than stranded state. Identify it:
+
+```sql
+SELECT a.pid, a.state, a.query_start, a.query
+FROM pg_locks l
+JOIN pg_stat_activity a USING (pid)
+WHERE l.locktype = 'advisory' AND l.classid = x'4F4D'::int;
+```
+
+- **The holder is a live migrate or upgrade run** — do nothing. A failed Job's retry is the designed behaviour; the next attempt succeeds once the holder finishes.
+- **The holder is a genuinely orphaned connection** (a zombie from a killed pod) — `SELECT pg_terminate_backend(pid);` as a last resort.
+
+There is no lock table to clean up afterwards and no unlock command.
+
+## Related
+
+- [`yarn initialize`](./init) — greenfield bootstrap; creates the tenant, organization, and users.
+- [`yarn db:migrate`](./db-migrate) — migrations only, under the same lock.
+- [`mercato entities install`](./entities-install) — step 2, run standalone.
+- [`mercato auth sync-role-acls`](./auth-sync-role-acls) — step 3, run standalone.
+- [`mercato feature_toggles seed-defaults`](./feature-toggles-seed-defaults) — step 4, run standalone.

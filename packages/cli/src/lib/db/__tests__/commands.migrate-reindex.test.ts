@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { MikroORM } from '@mikro-orm/core'
-import { dbMigrate } from '../commands'
+import { dbMigrateUnlocked } from '../commands'
 import type { ModuleEntry, PackageResolver } from '../../resolver'
 
 const collectQueryIndexReindexEntityTypes = jest.fn<Promise<string[]>, [any, any]>()
@@ -58,7 +58,7 @@ function createMockResolver(modules: { id: string; dir: string }[]): PackageReso
 }
 
 /**
- * `dbMigrate` calls `MikroORM.init` once per module, in `sortModules` order. Each fake ORM serves
+ * `dbMigrateUnlocked` calls `MikroORM.init` once per module, in `sortModules` order. Each fake ORM serves
  * that module's plan and records its own `close()`, so a test can assert both the discharge wiring
  * and that no connection pool leaks when a migration throws.
  */
@@ -81,7 +81,10 @@ function stubOrmsFor(plans: Record<string, PendingPlan>): void {
   })
 }
 
-describe('dbMigrate discharges query-index reindex declarations', () => {
+// Exercises the lock-free primitive on purpose: the public `dbMigrate` opens a dedicated pg
+// connection to take the upgrade advisory lock, which this suite neither has nor is testing. Lock
+// adoption is covered in `commands.migrate-lock.test.ts`.
+describe('dbMigrateUnlocked discharges query-index reindex declarations', () => {
   let logSpy: jest.SpyInstance
   let warnSpy: jest.SpyInstance
   let initSpy: jest.SpyInstance
@@ -124,7 +127,7 @@ describe('dbMigrate discharges query-index reindex declarations', () => {
       beta: { pending: [] },
     })
 
-    await dbMigrate(createMockResolver([moduleA, moduleB]))
+    await dbMigrateUnlocked(createMockResolver([moduleA, moduleB]))
 
     expect(ormCloses).toEqual(['alpha', 'beta'])
     const [applied] = collectQueryIndexReindexEntityTypes.mock.calls[0]
@@ -147,7 +150,7 @@ describe('dbMigrate discharges query-index reindex declarations', () => {
       beta: { pending: ['Migration20260901130000_broken'], failOn: 'Migration20260901130000_broken' },
     })
 
-    await expect(dbMigrate(createMockResolver([moduleA, moduleB]))).rejects.toThrow(
+    await expect(dbMigrateUnlocked(createMockResolver([moduleA, moduleB]))).rejects.toThrow(
       'migration Migration20260901130000_broken failed',
     )
 
@@ -170,7 +173,7 @@ describe('dbMigrate discharges query-index reindex declarations', () => {
     })
     collectQueryIndexReindexEntityTypes.mockRejectedValue(new Error('container refused to build'))
 
-    await expect(dbMigrate(createMockResolver([moduleA]))).rejects.toThrow(
+    await expect(dbMigrateUnlocked(createMockResolver([moduleA]))).rejects.toThrow(
       'migration Migration20260901130000_broken failed',
     )
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('container refused to build'))
@@ -181,7 +184,7 @@ describe('dbMigrate discharges query-index reindex declarations', () => {
     stubOrmsFor({ alpha: { pending: ['Migration20260901120000_reindex_alpha'] } })
     isMigrationReindexEnabled.mockReturnValue(false)
 
-    await dbMigrate(createMockResolver([moduleA]))
+    await dbMigrateUnlocked(createMockResolver([moduleA]))
 
     expect(collectQueryIndexReindexEntityTypes).not.toHaveBeenCalled()
     expect(requestQueryIndexReindex).not.toHaveBeenCalled()

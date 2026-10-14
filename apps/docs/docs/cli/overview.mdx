@@ -17,6 +17,7 @@ Run `yarn mercato --help` to list modules and `yarn mercato <module> --help` to 
 
 - **Bootstrap & Database**
   - [`yarn initialize`](./init) – full app bootstrap with optional reinstall mode (wraps `mercato init`).
+  - [`yarn mercato upgrade`](./upgrade) – one lock-guarded reconcile phase for an existing deployment: migrations, custom entity definitions, role ACLs, and feature toggles.
   - [`yarn db:generate`](./db-generate) – per-module migration diffing (alias for `mercato db generate`).
   - [`yarn db:migrate`](./db-migrate) – apply migrations and refresh generated metadata.
   - [`yarn db:greenfield`](./db-greenfield) – destructive reset that regenerates a clean schema.
