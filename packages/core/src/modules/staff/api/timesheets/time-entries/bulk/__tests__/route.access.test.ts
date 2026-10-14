@@ -171,6 +171,26 @@ describe('POST /api/staff/timesheets/time-entries/bulk project access (#6988)', 
     expect(mockTrxCreate).not.toHaveBeenCalled()
   })
 
+  it('names the payload row and day of each refused row, so the grid can mark the cell (#7393)', async () => {
+    useWorld({ memberships: [assignedSince2020] })
+    const { POST } = await loadRoute()
+
+    const response = await POST(
+      buildRequest([
+        { date: '2026-08-03', timeProjectId: assignedProjectId, durationMinutes: 60 },
+        { date: '2019-12-31', timeProjectId: assignedProjectId, durationMinutes: 60 },
+        { date: '2019-12-30', timeProjectId: assignedProjectId, durationMinutes: 60 },
+      ]),
+    )
+
+    expect(response.status).toBe(403)
+    const body = await response.json()
+    expect(body.errors).toEqual([
+      expect.objectContaining({ index: 1, date: '2019-12-31', value: assignedProjectId }),
+      expect.objectContaining({ index: 2, date: '2019-12-30', value: assignedProjectId }),
+    ])
+  })
+
   it('refuses moving an existing entry off a project the member can no longer write', async () => {
     useWorld({
       memberships: [assignedSince2020],

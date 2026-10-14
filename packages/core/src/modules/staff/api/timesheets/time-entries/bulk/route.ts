@@ -57,7 +57,7 @@ function cellDateKey(value: Date | string | null | undefined): string {
   return Number.isNaN(date.getTime()) ? String(value) : date.toISOString().slice(0, 10)
 }
 
-type BulkRowError = { path: string; message: string; value?: unknown }
+type BulkRowError = { path: string; message: string; value?: unknown; index?: number; date?: string }
 
 /**
  * The batch answers with a per-row error list rather than a thrown 422: one grid
@@ -78,6 +78,7 @@ function bulkValidationError(errors: BulkRowError[]): NextResponse {
 type BulkEntryInput = StaffTimeEntryBulkSaveInput['entries'][number]
 
 type ResolvedBulkRow = {
+  index: number
   entry: BulkEntryInput
   task: { id: string; timeProjectId: string } | null
   timeProjectId: string
@@ -194,7 +195,7 @@ export async function POST(req: Request) {
     const resolvedRows: ResolvedBulkRow[] = []
     const missingProjectErrors: BulkRowError[] = []
     const taskProjectMismatchErrors: BulkRowError[] = []
-    for (const entry of entries) {
+    for (const [index, entry] of entries.entries()) {
       const task = entry.taskId ? tasksById.get(entry.taskId) ?? null : null
       const timeProjectId = resolveTimeEntryProjectId(entry.timeProjectId, task)
       if (!timeProjectId) {
@@ -212,7 +213,7 @@ export async function POST(req: Request) {
         })
         continue
       }
-      resolvedRows.push({ entry, task, timeProjectId })
+      resolvedRows.push({ index, entry, task, timeProjectId })
     }
     if (missingProjectErrors.length > 0 || taskProjectMismatchErrors.length > 0) {
       return bulkValidationError([...missingProjectErrors, ...taskProjectMismatchErrors])
@@ -310,7 +311,9 @@ export async function POST(req: Request) {
     // the member must be assigned to the project today (D-12) and the assignment
     // must cover the entry's date. An existing row is checked where it is AND
     // where it is going, so a grid save cannot move or clear time the entry
-    // dialog would refuse. Like the other row checks, the batch fails wholesale.
+    // dialog would refuse. Like the other row checks, the batch fails wholesale,
+    // and each error names the payload row and day it refers to so the grid can
+    // mark the cell to fix.
     const settings = await resolveTimeEntrySettings(container, tenantId)
     const writeAccess = await resolveTimeEntryWriteAccess(
       container.resolve('em') as EntityManager,
@@ -320,7 +323,7 @@ export async function POST(req: Request) {
       settings,
     )
     const accessErrors: BulkRowError[] = []
-    for (const { entry, timeProjectId } of resolvedRows) {
+    for (const { index, entry, timeProjectId } of resolvedRows) {
       const stored = entry.id ? storedById.get(entry.id) : undefined
       const targets: TimeEntryWriteTarget[] = [
         ...(stored
@@ -335,6 +338,8 @@ export async function POST(req: Request) {
           path: 'entries[].timeProjectId',
           message: translateTimeEntryWriteDenial(denial, translate),
           value: target.projectId,
+          index,
+          date: cellDateKey(target.date),
         })
         break
       }
@@ -651,12 +656,20 @@ export const openApi: OpenApiRouteDoc = {
         {
           status: 403,
           description:
-            'Forbidden. Also returned for the whole batch when a row targets, or moves an entry off, a project the caller is not assigned to today or whose assignment does not cover the row date',
+            'Forbidden. Also returned for the whole batch when a row targets, or moves an entry off, a project the caller is not assigned to today or whose assignment does not cover the row date. Each errors[] item names the payload row (index) and the day (date) it refers to',
           schema: z.object({
             error: z.string(),
             ok: z.literal(false).optional(),
             errors: z
-              .array(z.object({ path: z.string(), message: z.string(), value: z.unknown().optional() }))
+              .array(
+                z.object({
+                  path: z.string(),
+                  message: z.string(),
+                  value: z.unknown().optional(),
+                  index: z.number().int().optional(),
+                  date: z.string().optional(),
+                }),
+              )
               .optional(),
           }),
         },
