@@ -401,7 +401,8 @@ Pinned by `lib/time-tracking-ui/__tests__/TimeEntryDialog.test.tsx` →
 | `staff.time_task.board:column-header` | `lib/time-tracking-ui/KanbanColumn.tsx` | `{ statusId, statusName, isDone, total, loggedMinutes }` |
 | `staff.time_task.board:{card-badges,card-footer}` | `lib/time-tracking-ui/KanbanCard.tsx` | `{ entityId, recordId, taskId, timeProjectId, taskStatusId, timerRunning }` |
 | `staff.my_work:{before-sections,after-sections}` | `backend/staff/time-tracking/page.tsx` | `{ staffMemberId, today, projectIds, retryLastMutation }` |
-| `staff.time_tracking.settings:sections` | `backend/staff/time-tracking/settings/page.tsx` | `{ moduleId, canManage }` |
+| `staff.time_tracking.settings:sections` | `backend/staff/time-tracking/settings/page.tsx` | `{ moduleId, canManage, keys, values, setValue }` |
+| `staff.time_tracking.settings:tabs` | `backend/staff/time-tracking/settings/page.tsx` | `{ moduleId, canManage, settings, onSettingsSaved }` — `placement: { kind: 'tab' }`; a tab owns its saves (writes built from `context.settings`, reported via `onSettingsSaved`) |
 | `staff.timesheets.timer-bar:actions` | `lib/timesheets-ui/TimerBar.tsx` | `{ staffMemberId, retryLastMutation }` |
 
 No context carries a rate, cost or amount; contributions that need money must ask for it

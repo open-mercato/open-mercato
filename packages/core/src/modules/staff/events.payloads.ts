@@ -1,5 +1,5 @@
 /**
- * Payload contracts for the `staff.timesheets.*` event family.
+ * Payload contracts for the `staff.timesheets.*` and `staff.support_ticket.*` event families.
  *
  * **Why this file exists.** Outbound webhooks in this platform are not registered
  * per event: `packages/webhooks` subscribes once with `event: '*'`
@@ -278,4 +278,73 @@ export type StaffTimeTrackingEventId = keyof typeof staffTimeTrackingEventPayloa
 
 export type StaffTimeTrackingEventPayload<TEventId extends StaffTimeTrackingEventId> = z.infer<
   typeof staffTimeTrackingEventPayloadSchemas[TEventId]
+>
+
+/**
+ * Names the customer and the ticket reference, so the event stays server-side
+ * (no `clientBroadcast`); webhooks and the notification subscriber read it.
+ */
+const supportTicketCreated = scope
+  .extend({
+    id: z.string(),
+    taskId: z.string(),
+    projectId: z.string(),
+    customerId: z.string(),
+    supportReference: z.string(),
+    categoryValue: z.string(),
+  })
+  .passthrough()
+
+const supportTicketCustomerReplied = scope
+  .extend({
+    id: z.string(),
+    taskId: z.string(),
+    projectId: z.string(),
+    commentId: z.string(),
+    supportReference: z.string(),
+  })
+  .passthrough()
+
+/** Ids only: the event is `clientBroadcast: true`, so no customer, no reference and no text. */
+const supportTicketActivityRecorded = scope
+  .extend({
+    id: z.string(),
+    taskId: z.string(),
+    projectId: z.string(),
+    kind: z.enum(['created', 'customer_replied', 'portal_status']),
+  })
+  .passthrough()
+
+const supportTicketPortalUpdated = scope
+  .extend({
+    id: z.string(),
+    ticketId: z.string(),
+    supportReference: z.string(),
+    portalStatus: z.enum(['received', 'in_progress', 'resolved']),
+    kind: z.enum(['status', 'reply']),
+    /**
+     * The portal SSE stream narrows a broadcast to these customer-user ids. The
+     * emitter never publishes this event with an empty list, so a ticket update can
+     * only ever reach the portal users of the ticket's own customer.
+     */
+    recipientUserIds: z.array(z.string()).min(1),
+  })
+  .passthrough()
+
+/**
+ * Every declared `staff.support_ticket.*` event id and the payload a webhook endpoint
+ * subscribed to it receives. Same rules as the time-tracking map above: `tenantId` is
+ * required and every schema is `passthrough()`.
+ */
+export const staffSupportTicketEventPayloadSchemas = {
+  'staff.support_ticket.created': supportTicketCreated,
+  'staff.support_ticket.customer_replied': supportTicketCustomerReplied,
+  'staff.support_ticket.activity_recorded': supportTicketActivityRecorded,
+  'staff.support_ticket.portal_updated': supportTicketPortalUpdated,
+} as const
+
+export type StaffSupportTicketEventId = keyof typeof staffSupportTicketEventPayloadSchemas
+
+export type StaffSupportTicketEventPayload<TEventId extends StaffSupportTicketEventId> = z.infer<
+  typeof staffSupportTicketEventPayloadSchemas[TEventId]
 >

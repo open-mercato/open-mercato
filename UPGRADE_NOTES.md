@@ -22,6 +22,29 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
+## 0.9.0 → 0.10.0 (unreleased)
+
+### Staff: customer support tickets (helpdesk) need a per-organization seed and a portal ACL sync
+
+New tenants get everything from `setup.ts`. **Existing** tenants must run, once per organization:
+
+```bash
+yarn mercato staff seed-support-defaults --tenant <tenantId> --org <organizationId>
+yarn mercato customer_accounts sync-customer-role-acls
+```
+
+- `seed-support-defaults` is idempotent. It seeds the support ticket categories, the "Customer support" fallback project and the fallback routing rule. Without them, a portal customer cannot file a ticket because there is no project to route it to.
+- `sync-customer-role-acls` grants the new portal features to the default customer roles: `portal.support_tickets.view` (buyer, viewer) and `portal.support_tickets.manage` (buyer). It is additive and never creates roles. Add `--tenant <tenantId>` to limit it to one tenant.
+- No staff (`acl.ts`) features were added, so `yarn mercato auth sync-role-acls` is not required for this change.
+
+Additive surfaces that third-party code can use. Existing code needs no changes:
+
+- New injection spot `staff.time_tracking.settings:tabs` on the Time Tracking Settings page, with `placement: { kind: 'tab' }` and context `{ moduleId, canManage, settings, onSettingsSaved }`. A tab saves its own changes. It builds each write from `context.settings` and reports the stored result through `onSettingsSaved`.
+- Task comments have an optional `visibility` field (`'internal' | 'customer'`, default `'internal'`). It was added to `staffTimeTaskCommentCreateSchema` and `staffTimeTaskCommentUpdateSchema` as an optional field. `staffTimeTaskCommentUpdateSchema` still requires `body`. The task comment `PUT` route validates against the new `staffTimeTaskCommentUpdateRequestSchema`, which also accepts a visibility-only change.
+- `TimeTrackingBuiltInSettings` has an optional `support: { referencePrefix }` group, stored as the `support.referencePrefix` setting key (default `SUP`). If a settings `PUT` omits it, the stored prefix is kept.
+
+---
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### Payment gateway webhooks: opt-in transport, locator and response options; ambiguous matches are rejected

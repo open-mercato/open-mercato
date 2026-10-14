@@ -125,8 +125,9 @@ const events = [
   // Customer support tickets. `created` and `customer_replied` name the customer, so
   // they stay server-side; `activity_recorded` carries ids only and is what open
   // backoffice screens refetch on. `portal_updated` is emitted only by
-  // `subscribers/support-ticket-portal-broadcast.ts`, always with the ticket's own
-  // customer users pinned in `recipientUserIds`, and never when that list is empty.
+  // `lib/support/portalBroadcast.ts` (driven by the `subscribers/support-portal-*.ts`
+  // subscribers), always with the ticket's own customer users pinned in
+  // `recipientUserIds`, and never when that list is empty.
   { id: 'staff.support_ticket.created', label: 'Support Ticket Created', entity: 'support_ticket', category: 'lifecycle' },
   { id: 'staff.support_ticket.customer_replied', label: 'Support Ticket Customer Replied', entity: 'support_ticket', category: 'lifecycle' },
   {
