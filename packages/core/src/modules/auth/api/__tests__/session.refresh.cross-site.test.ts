@@ -20,7 +20,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 
 jest.mock('@open-mercato/shared/lib/auth/jwt', () => ({
   ...jest.requireActual('@open-mercato/shared/lib/auth/jwt'),
-  signJwt: () => 'attacker-jwt',
+  signJwt: () => 'fresh-jwt',
 }))
 
 jest.mock('@open-mercato/core/modules/auth/lib/rateLimitCheck', () => ({
@@ -90,7 +90,8 @@ describe('POST /api/auth/session/refresh — cross-site browser submissions (#72
   test('keeps serving API and mobile clients that send no browser headers', async () => {
     const res = await POST(buildRefreshRequest({ 'content-type': 'application/json' }, JSON.stringify({ refreshToken: 'session-token' })))
 
-    expect(res.status).not.toBe(403)
+    expect(res.status).toBe(200)
+    expect(res.headers.get('set-cookie') ?? '').toContain('auth_token=fresh-jwt')
     expect(refreshFromSessionToken).toHaveBeenCalledWith('session-token')
   })
 
@@ -100,7 +101,8 @@ describe('POST /api/auth/session/refresh — cross-site browser submissions (#72
       JSON.stringify({ refreshToken: 'session-token' }),
     ))
 
-    expect(res.status).not.toBe(403)
+    expect(res.status).toBe(200)
+    expect(res.headers.get('set-cookie') ?? '').toContain('auth_token=fresh-jwt')
     expect(refreshFromSessionToken).toHaveBeenCalledWith('session-token')
   })
 })

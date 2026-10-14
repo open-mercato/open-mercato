@@ -45,7 +45,7 @@ The decision is made by `isCrossSiteBrowserRequest(req)` from `@open-mercato/sha
      `origin`, `host` and `forwardedHost` values.
 
 The first-party sign-in pages call these routes with same-origin `fetch`, so they pass at step 1
-(over plain HTTP on a host other than localhost, browsers send no Fetch Metadata and the pages pass
+(over plain HTTP on a non-loopback host, browsers send no Fetch Metadata and the pages pass
 through the `Host` match in step 3).
 Portal custom domains pass because the browser's `Origin` equals the custom domain's `Host`.
 
