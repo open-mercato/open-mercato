@@ -6,8 +6,8 @@
  * `forms.submission.submitted`. A submission the caller started themselves
  * must carry their own subject (`lib/portal-subject-policy.ts`), so a draft
  * started for someone else before that check existed cannot be finalized.
- * Idempotency hardening lands in 1d once the
- * client renderer is in place; phase 1c rejects double-submits with 422.
+ * Idempotency hardening lands in 1d once the client renderer is in place;
+ * phase 1c rejects double-submits with 422.
  */
 
 import { NextResponse, type NextRequest } from 'next/server'
@@ -99,7 +99,7 @@ const postMethodDoc: OpenApiMethodDoc = {
   responses: [{ status: 200, description: 'Submission submitted', schema: responseSchema }],
   errors: [
     { status: 401, description: 'Not authenticated', schema: errorSchema },
-    { status: 403, description: 'Caller-started submission is not on the caller\'s own customer subject', schema: errorSchema },
+    { status: 403, description: 'SUBJECT_FORBIDDEN: caller-started submission is not on the caller\'s own customer subject', schema: errorSchema },
     { status: 404, description: 'Submission not found', schema: errorSchema },
     { status: 409, description: 'Stale base_revision_id', schema: errorSchema },
     { status: 422, description: 'Submission already in terminal state', schema: errorSchema },

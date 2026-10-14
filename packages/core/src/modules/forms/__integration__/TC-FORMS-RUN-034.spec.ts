@@ -18,25 +18,26 @@ import {
 } from '@open-mercato/core/helpers/integration/formsFixtures'
 
 /**
- * TC-FORMS-RUN-034: a portal customer can start, submit and sign consent only for
+ * TC-FORMS-RUN-034: a portal customer can start and submit a signature form only for
  * their own subject (#7224).
  *
  * Two customers in one organization share a published form with a signature field.
  * Customer A is refused with 403 when starting on customer B's `customer` subject or
- * on a subject type the portal does not support, and nothing is persisted. A draft
- * whose subject was rewritten to B in the database (the shape of a draft forged
- * before the fix) is refused on both submit routes, so B's signed consent stays the
- * only active record for B. A's own start, signature and submit still work, and so
- * does a submit by A on B's subject once staff assign A as an actor there.
+ * on a subject type the portal does not support, and nothing is persisted. A signed
+ * draft whose subject was rewritten to B in the database (the shape of a draft forged
+ * before the fix) is refused on both submit routes and stays a draft, so it can never
+ * reach the `submitted` state the consent projector acts on. B's and A's own signed
+ * submissions still submit, and so does A on B's subject once staff assign A as an
+ * actor there.
  *
- * ENVIRONMENT: the forged-draft step writes to Postgres directly, so the app and the
- * fixtures must share one database (the standard integration harness).
+ * ENVIRONMENT: the forged-draft step and the persistence checks use Postgres directly,
+ * so the app and the fixtures must share one database (the standard integration harness).
  *
- * Cleanup: the form's submissions, revisions, actors and consent records have no
- * delete API, so `finally` removes them in SQL before deleting the form and customers.
+ * Cleanup: submissions, revisions, actors, attachments and consent records have no
+ * delete API, so `finally` removes the form's rows in SQL before deleting the form and
+ * the customers.
  */
 
-type ConsentItem = { submissionId?: string; status?: string }
 type StartedSubmission = { submissionId: string; revisionId: string }
 
 function buildSignatureFormSchema(): Record<string, unknown> {
@@ -101,36 +102,16 @@ async function sign(
   return String(body?.revision?.id)
 }
 
-async function submitOwn(
+async function submitPortal(
   request: APIRequestContext,
   cookies: Record<string, string>,
   submissionId: string,
   revisionId: string,
-): Promise<void> {
-  const response = await portalCall(request, 'POST', `/api/forms/form-submissions/${submissionId}/submit`, {
+) {
+  return portalCall(request, 'POST', `/api/forms/form-submissions/${submissionId}/submit`, {
     cookies,
     data: { base_revision_id: revisionId },
   })
-  expect(response.status(), `own-subject submit should be 200 (got ${response.status()})`).toBe(200)
-}
-
-async function readActiveConsentSubmissions(
-  request: APIRequestContext,
-  adminToken: string,
-  subjectId: string,
-  formId: string,
-): Promise<string[]> {
-  const response = await apiRequest(
-    request,
-    'GET',
-    `/api/forms/subjects/customer/${subjectId}/consents?formId=${formId}`,
-    { token: adminToken },
-  )
-  expect(response.status(), 'consent read should be 200').toBe(200)
-  const body = await readJsonSafe<{ items?: ConsentItem[] }>(response)
-  return (body?.items ?? [])
-    .filter((item) => item.status === 'active')
-    .map((item) => String(item.submissionId))
 }
 
 async function countSubmissions(formId: string, subjectId: string, startedBy: string): Promise<number> {
@@ -146,13 +127,13 @@ async function countSubmissions(formId: string, subjectId: string, startedBy: st
   })
 }
 
-async function readSubmissionStatus(submissionId: string): Promise<string | null> {
+async function readSubmission(submissionId: string): Promise<{ status: string; subject_id: string } | null> {
   return withClient(async (client) => {
-    const result = await client.query<{ status: string }>(
-      'select status from forms_form_submission where id = $1',
+    const result = await client.query<{ status: string; subject_id: string }>(
+      'select status, subject_id from forms_form_submission where id = $1',
       [submissionId],
     )
-    return result.rows[0]?.status ?? null
+    return result.rows[0] ?? null
   })
 }
 
@@ -162,6 +143,7 @@ async function deleteFormRuntimeRows(formId: string | null): Promise<void> {
     const submissionIds = `select s.id from forms_form_submission s
       join forms_form_version v on v.id = s.form_version_id where v.form_id = $1`
     await client.query('delete from forms_consent_record where form_id = $1', [formId])
+    await client.query(`delete from forms_form_attachment where submission_id in (${submissionIds})`, [formId])
     await client.query(`delete from forms_form_submission_actor where submission_id in (${submissionIds})`, [formId])
     await client.query(`delete from forms_form_submission_revision where submission_id in (${submissionIds})`, [formId])
     await client.query(`delete from forms_form_submission where id in (${submissionIds})`, [formId])
@@ -169,7 +151,7 @@ async function deleteFormRuntimeRows(formId: string | null): Promise<void> {
 }
 
 test.describe('TC-FORMS-RUN-034: portal start and submit are limited to the caller\'s own subject', () => {
-  test('customer A cannot start or submit for customer B, and B\'s consent survives', async ({ request }) => {
+  test('customer A cannot start or submit a signature form for customer B', async ({ request }) => {
     test.setTimeout(240_000)
 
     const stamp = `${Date.now()}-${randomUUID().slice(0, 8)}`
@@ -211,12 +193,13 @@ test.describe('TC-FORMS-RUN-034: portal start and submit are limited to the call
         cookies: cookiesA,
         data: { form_key: published.formKey, subject_type: 'customer', subject_id: customerB.id },
       })
-      const forgedStartBody = await readJsonSafe<{ error?: string }>(forgedStart)
+      const forgedStartBody = await readJsonSafe<{ error?: string; message?: string }>(forgedStart)
       expect.soft(
         forgedStart.status(),
         `A starting on B's subject must be 403 (got ${forgedStart.status()}: ${JSON.stringify(forgedStartBody)})`,
       ).toBe(403)
       expect.soft(forgedStartBody?.error).toBe('SUBJECT_FORBIDDEN')
+      expect.soft(typeof forgedStartBody?.message, 'the refusal carries a translated message').toBe('string')
       expect.soft(
         await countSubmissions(published.formId, customerB.id, customerA.id),
         'no submission on B\'s subject is persisted for A',
@@ -230,13 +213,8 @@ test.describe('TC-FORMS-RUN-034: portal start and submit are limited to the call
 
       const startedB = await startOwn(request, cookiesB, published.formKey, customerB.id)
       const revisionB = await sign(request, cookiesB, startedB, 'Customer B')
-      await submitOwn(request, cookiesB, startedB.submissionId, revisionB)
-      await expect
-        .poll(() => readActiveConsentSubmissions(request, adminToken!, customerB.id, published.formId), {
-          timeout: 30_000,
-          message: 'B\'s signed consent is projected as active',
-        })
-        .toEqual([startedB.submissionId])
+      const submitB = await submitPortal(request, cookiesB, startedB.submissionId, revisionB)
+      expect(submitB.status(), 'B submits its own signed submission').toBe(200)
 
       const forgedDraft = await startOwn(request, cookiesA, published.formKey, customerA.id)
       const forgedRevision = await sign(request, cookiesA, forgedDraft, 'Customer A')
@@ -247,13 +225,10 @@ test.describe('TC-FORMS-RUN-034: portal start and submit are limited to the call
         ]),
       )
 
-      const portalForgedSubmit = await portalCall(
-        request,
-        'POST',
-        `/api/forms/form-submissions/${forgedDraft.submissionId}/submit`,
-        { cookies: cookiesA, data: { base_revision_id: forgedRevision } },
-      )
+      const portalForgedSubmit = await submitPortal(request, cookiesA, forgedDraft.submissionId, forgedRevision)
+      const portalForgedBody = await readJsonSafe<{ error?: string }>(portalForgedSubmit)
       expect.soft(portalForgedSubmit.status(), 'portal submit of a forged draft must be 403').toBe(403)
+      expect.soft(portalForgedBody?.error).toBe('SUBJECT_FORBIDDEN')
       const publicForgedSubmit = await portalCall(
         request,
         'POST',
@@ -261,22 +236,15 @@ test.describe('TC-FORMS-RUN-034: portal start and submit are limited to the call
         { cookies: cookiesA, data: { base_revision_id: forgedRevision } },
       )
       expect.soft(publicForgedSubmit.status(), 'public submit of a forged draft must be 403').toBe(403)
-      expect.soft(await readSubmissionStatus(forgedDraft.submissionId), 'the forged draft stays a draft').toBe('draft')
+      expect.soft(
+        (await readSubmission(forgedDraft.submissionId))?.status,
+        'the forged draft never reaches the submitted state the consent projector acts on',
+      ).toBe('draft')
 
       const startedA = await startOwn(request, cookiesA, published.formKey, customerA.id)
       const revisionA = await sign(request, cookiesA, startedA, 'Customer A')
-      await submitOwn(request, cookiesA, startedA.submissionId, revisionA)
-      await expect
-        .poll(() => readActiveConsentSubmissions(request, adminToken!, customerA.id, published.formId), {
-          timeout: 30_000,
-          message: 'A\'s own signed consent is projected under A',
-        })
-        .toEqual([startedA.submissionId])
-
-      expect(
-        await readActiveConsentSubmissions(request, adminToken, customerB.id, published.formId),
-        'B keeps exactly its own active consent',
-      ).toEqual([startedB.submissionId])
+      const submitA = await submitPortal(request, cookiesA, startedA.submissionId, revisionA)
+      expect(submitA.status(), 'A submits its own signed submission').toBe(200)
 
       const staffAssigned = await startOwn(request, cookiesB, published.formKey, customerB.id)
       const assignResponse = await apiRequest(
@@ -287,19 +255,12 @@ test.describe('TC-FORMS-RUN-034: portal start and submit are limited to the call
       )
       expect(assignResponse.status(), 'staff assign A as an actor on B\'s submission').toBe(201)
       const coActorRevision = await sign(request, cookiesA, staffAssigned, 'Customer A for B')
-      const coActorSubmit = await portalCall(
-        request,
-        'POST',
-        `/api/forms/form-submissions/${staffAssigned.submissionId}/submit`,
-        { cookies: cookiesA, data: { base_revision_id: coActorRevision } },
-      )
+      const coActorSubmit = await submitPortal(request, cookiesA, staffAssigned.submissionId, coActorRevision)
       expect(coActorSubmit.status(), 'a staff-assigned co-actor still submits on another subject').toBe(200)
-      await expect
-        .poll(() => readActiveConsentSubmissions(request, adminToken!, customerB.id, published.formId), {
-          timeout: 30_000,
-          message: 'the staff-vouched co-actor signature is projected under B',
-        })
-        .toEqual([staffAssigned.submissionId])
+
+      expect(await readSubmission(startedB.submissionId)).toEqual({ status: 'submitted', subject_id: customerB.id })
+      expect(await readSubmission(startedA.submissionId)).toEqual({ status: 'submitted', subject_id: customerA.id })
+      expect(await readSubmission(staffAssigned.submissionId)).toEqual({ status: 'submitted', subject_id: customerB.id })
     } finally {
       await deleteFormRuntimeRows(formId).catch(() => undefined)
       await deleteCustomerUserFixture(request, adminToken, customerAId)

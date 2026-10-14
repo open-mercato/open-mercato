@@ -140,7 +140,7 @@ const postMethodDoc: OpenApiMethodDoc = {
   responses: [{ status: 201, description: 'Submission started', schema: submissionResponseSchema }],
   errors: [
     { status: 401, description: 'Not authenticated', schema: errorSchema },
-    { status: 403, description: 'Subject is not the caller\'s own customer subject', schema: errorSchema },
+    { status: 403, description: 'SUBJECT_FORBIDDEN: subject is not the caller\'s own customer subject', schema: errorSchema },
     { status: 404, description: 'Form not found', schema: errorSchema },
     { status: 422, description: 'Validation or form-state error', schema: errorSchema },
   ],

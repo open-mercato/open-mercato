@@ -40,21 +40,23 @@ to `EmbeddedForm` / `FormRunner`, or through the `subjectType` query parameter o
 continue page, now get 403 when a submission starts. Start on the caller's own `customer` subject,
 or have staff create the actor assignment for other subjects.
 
-**Operator check:** consent records signed before the upgrade under a subject the signer did not own
-can be listed with:
+**Operator check:** submissions that a portal customer started before the upgrade on a subject that
+was not their own, together with any consent records projected from them, can be listed with:
 
 ```sql
-select c.id, c.subject_type, c.subject_id, s.started_by, c.status
-from forms_consent_record c
-join forms_form_submission s on s.id = c.submission_id
+select s.id as submission_id, s.subject_type, s.subject_id, s.started_by, s.status,
+       c.id as consent_record_id, c.status as consent_status
+from forms_form_submission s
+left join forms_consent_record c on c.submission_id = s.id
 where s.started_by in (select id from customer_users)
   and (
-    (c.subject_type = 'customer' and c.subject_id <> s.started_by)
-    or c.subject_type not in ('customer', 'forms_invitation')
+    (s.subject_type = 'customer' and s.subject_id <> s.started_by)
+    or s.subject_type <> 'customer'
   );
 ```
 
-Nothing is rewritten automatically. Portal pages that legitimately started submissions on another subject type (for example `patient`) also match, so review the rows before revoking anything.
+Nothing is rewritten automatically. Portal pages that legitimately started submissions on another
+subject type (for example `patient`) also match, so review the rows before revoking anything.
 
 ### Payment gateway webhooks: opt-in transport, locator and response options; ambiguous matches are rejected
 

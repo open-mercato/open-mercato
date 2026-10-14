@@ -158,7 +158,7 @@ const postMethodDoc: OpenApiMethodDoc = {
   responses: [{ status: 200, description: 'Submission submitted', schema: responseSchema }],
   errors: [
     { status: 401, description: 'Missing or invalid access token / session', schema: errorSchema },
-    { status: 403, description: 'Customer-started submission is not on the caller\'s own customer subject', schema: errorSchema },
+    { status: 403, description: 'SUBJECT_FORBIDDEN: customer-started submission is not on the caller\'s own customer subject', schema: errorSchema },
     { status: 404, description: 'Submission or invitation not found', schema: errorSchema },
     { status: 409, description: 'Stale base_revision_id', schema: errorSchema },
     { status: 410, description: 'Distribution response cap reached or unavailable', schema: errorSchema },
