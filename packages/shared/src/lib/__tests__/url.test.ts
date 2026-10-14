@@ -5,6 +5,7 @@ import {
   getAppBaseUrl,
   getSecurityEmailBaseUrl,
   isEquivalentLoopbackOrigin,
+  readConfiguredAppOrigins,
   resolveRequestOrigin,
   toAbsoluteUrl,
   toSecurityEmailUrl,
@@ -286,5 +287,22 @@ describe('isEquivalentLoopbackOrigin', () => {
     expect(
       isEquivalentLoopbackOrigin('http://127.0.0.1:3000', 'http://localhost:3000', { requireSameProtocol: true }),
     ).toBe(true)
+  })
+})
+
+describe('readConfiguredAppOrigins', () => {
+  it('collects APP_URL, NEXT_PUBLIC_APP_URL and APP_ALLOWED_ORIGINS as de-duplicated origins', () => {
+    expect(
+      readConfiguredAppOrigins({
+        APP_URL: 'https://quotes.example.com/base/',
+        NEXT_PUBLIC_APP_URL: 'https://app.example.com',
+        APP_ALLOWED_ORIGINS: 'https://shop.example.com, https://app.example.com',
+      }),
+    ).toEqual(['https://quotes.example.com', 'https://app.example.com', 'https://shop.example.com'])
+  })
+
+  it('skips malformed values and returns an empty list when nothing is configured', () => {
+    expect(readConfiguredAppOrigins({ APP_URL: 'not a url' })).toEqual([])
+    expect(readConfiguredAppOrigins({})).toEqual([])
   })
 })

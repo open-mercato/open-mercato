@@ -70,6 +70,10 @@ function readAllowedOrigins(env: EnvLike): Set<string> {
   return origins
 }
 
+export function readConfiguredAppOrigins(env: EnvLike = process.env): string[] {
+  return Array.from(readAllowedOrigins(env))
+}
+
 function readFirstHeaderValue(value: string | null): string | null {
   const first = value?.split(',')[0]?.trim()
   return first && first.length > 0 ? first : null
@@ -190,12 +194,6 @@ export function isEquivalentLoopbackOrigin(
     if (!isLoopbackHostname(candidateUrl.hostname) || !isLoopbackHostname(allowedUrl.hostname)) {
       return false
     }
-    // Callers reconstructing an origin from a TLS-terminating proxy's forwarded
-    // headers (see shouldAllowLoopbackOrigin below) legitimately see a different
-    // scheme than the app's own configured origin, so scheme is ignored by default.
-    // A same-origin browser check (Origin header comparison) MUST NOT ignore it —
-    // http and https are different origins per browser security model — so pass
-    // requireSameProtocol there.
     if (options.requireSameProtocol && candidateUrl.protocol !== allowedUrl.protocol) {
       return false
     }

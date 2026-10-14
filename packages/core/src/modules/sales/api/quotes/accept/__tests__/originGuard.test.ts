@@ -7,12 +7,19 @@ function makeRequest(url: string, headers: Record<string, string> = {}) {
 describe('validateSameOriginMutationRequest', () => {
   const originalAppUrl = process.env.APP_URL
   const originalPublicAppUrl = process.env.NEXT_PUBLIC_APP_URL
+  const originalAllowedOrigins = process.env.APP_ALLOWED_ORIGINS
+
+  beforeEach(() => {
+    delete process.env.APP_ALLOWED_ORIGINS
+  })
 
   afterEach(() => {
     if (originalAppUrl === undefined) delete process.env.APP_URL
     else process.env.APP_URL = originalAppUrl
     if (originalPublicAppUrl === undefined) delete process.env.NEXT_PUBLIC_APP_URL
     else process.env.NEXT_PUBLIC_APP_URL = originalPublicAppUrl
+    if (originalAllowedOrigins === undefined) delete process.env.APP_ALLOWED_ORIGINS
+    else process.env.APP_ALLOWED_ORIGINS = originalAllowedOrigins
   })
 
   it('allows a request whose Origin matches APP_URL, even when req.url is the proxy-local listening address', () => {
@@ -117,6 +124,71 @@ describe('validateSameOriginMutationRequest', () => {
       reason: 'cross-origin',
       requestOrigin: 'http://localhost:5037',
       expectedOrigin: 'https://127.0.0.1:5037',
+    })
+  })
+
+  it('allows the APP_URL origin the quote link is sent on when NEXT_PUBLIC_APP_URL differs', () => {
+    process.env.APP_URL = 'https://quotes.example.com'
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com'
+
+    const req = makeRequest('https://localhost:3000/api/sales/quotes/accept', {
+      origin: 'https://quotes.example.com',
+    })
+
+    expect(validateSameOriginMutationRequest(req)).toBeNull()
+  })
+
+  it('allows the NEXT_PUBLIC_APP_URL origin when it differs from APP_URL', () => {
+    process.env.APP_URL = 'https://quotes.example.com'
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com'
+
+    const req = makeRequest('https://localhost:3000/api/sales/quotes/accept', {
+      origin: 'https://app.example.com',
+    })
+
+    expect(validateSameOriginMutationRequest(req)).toBeNull()
+  })
+
+  it('allows an origin listed in APP_ALLOWED_ORIGINS', () => {
+    process.env.APP_URL = 'https://demo.example.com'
+    delete process.env.NEXT_PUBLIC_APP_URL
+    process.env.APP_ALLOWED_ORIGINS = 'https://shop.example.com, https://portal.example.com'
+
+    const req = makeRequest('https://localhost:3000/api/sales/quotes/accept', {
+      origin: 'https://portal.example.com',
+    })
+
+    expect(validateSameOriginMutationRequest(req)).toBeNull()
+  })
+
+  it('rejects an origin outside APP_URL, NEXT_PUBLIC_APP_URL and APP_ALLOWED_ORIGINS', () => {
+    process.env.APP_URL = 'https://quotes.example.com'
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com'
+    process.env.APP_ALLOWED_ORIGINS = 'https://shop.example.com'
+
+    const req = makeRequest('https://localhost:3000/api/sales/quotes/accept', {
+      origin: 'https://attacker.example.com',
+    })
+
+    expect(validateSameOriginMutationRequest(req)).toEqual({
+      reason: 'cross-origin',
+      requestOrigin: 'https://attacker.example.com',
+      expectedOrigin: 'https://quotes.example.com',
+    })
+  })
+
+  it('falls back to req.url instead of disabling the guard when the configured app URL is malformed', () => {
+    process.env.APP_URL = 'not a url'
+    delete process.env.NEXT_PUBLIC_APP_URL
+
+    const req = makeRequest('https://app.example.com/api/sales/quotes/accept', {
+      origin: 'https://attacker.example.com',
+    })
+
+    expect(validateSameOriginMutationRequest(req)).toEqual({
+      reason: 'cross-origin',
+      requestOrigin: 'https://attacker.example.com',
+      expectedOrigin: 'https://app.example.com',
     })
   })
 })
