@@ -1,6 +1,6 @@
 import type { EffectiveAssortmentScope } from '@open-mercato/shared/lib/catalog-visibility'
 import type { StoreContextService } from '@open-mercato/core/modules/ecommerce/lib/storeContextService'
-import type { CartChannel } from '../data/entities'
+import type { CartChannel, CartTaxMode } from '../data/entities'
 
 // §6a.1a: scope, store and channel are resolved at the route edge, never caller-supplied.
 // `ecommerce` is a soft dependency of `cart` (see index.ts's `requires`, which deliberately
@@ -61,6 +61,17 @@ export function isCartStoreContextUnavailableError(error: unknown): error is Car
  * through the public `.strict()` request-body schema).
  */
 export type ResolvedCartRouteContext = {
+  /**
+   * (Step 4.5) The resolved store's own tenant/org — `cart.create`'s storefront path has no
+   * `ctx.auth` to derive scope from (the caller is an anonymous buyer, or a buyer logged into
+   * the storefront, never a staff `AuthContext`), so these are the ONLY source of the new
+   * `Cart` row's `tenantId`/`organizationId`. `StoreContext.tenantId`/`organizationId` already
+   * carry this (`ecommerce/lib/types.ts`); the route edge trusts them because
+   * `storeContextService.resolve` itself only ever resolves a store the request's host/slug
+   * legitimately maps to.
+   */
+  tenantId: string
+  organizationId: string
   storeId: string
   channel: 'storefront'
   assortmentScope: EffectiveAssortmentScope
@@ -68,6 +79,30 @@ export type ResolvedCartRouteContext = {
   customerId: string | null
   customerIds: string[]
   customerGroupIds: string[]
+  /** `BuyerContext.customerUserId` — `customer_accounts.CustomerUser.id` for a buyer logged
+   * into the storefront, null for a guest. */
+  customerUserId: string | null
+  /**
+   * (Step 4.5) `cart.create` needs a pricing context to stamp on a brand-new `Cart` —
+   * currency, locale and tax mode are NOT caller-supplied (§6a.1a's public `.strict()` body
+   * convention) and are not optional on the entity (`Cart.currencyCode`/`locale`/`taxMode`
+   * are all non-nullable, `data/entities.ts`), so they are resolved here, at the same route
+   * edge that resolves everything else `ResolvedCartRouteContext` carries — never re-resolved
+   * inside the command itself, which would risk a second, possibly inconsistent, read of
+   * `storeContextService`.
+   */
+  currencyCode: string
+  /** `StoreContext.effectiveLocale` — the resolved locale, not the raw request header. */
+  locale: string
+  /** `BuyerContext.taxMode`, derived from the resolved price kind's display mode
+   * (`ecommerce/lib/types.ts`) — shares its `'gross' | 'net'` vocabulary with `CartTaxMode`
+   * verbatim, so no mapping step exists to get wrong. */
+  taxMode: CartTaxMode
+  /** `StoreContext.channel?.salesChannelId ?? null` — null when no channel binding resolved. */
+  salesChannelId: string | null
+  /** `BuyerContext.priceKindId` — group terms override the channel default (D2); null when
+   * no price kind resolved. */
+  priceKindId: string | null
 }
 
 export type ResolveCartRouteContextOptions = {
@@ -85,12 +120,20 @@ export type ResolveCartRouteContextOptions = {
  * `BuyerContext` shapes (NOT the spec's own §6a.1a pseudocode, which showed a flat
  * `{ storeId, channel, assortmentScope, buyerDigest }` as if `assortmentScope` sat directly
  * on `StoreContext`). The real shape nests buyer-identity fields one level deeper:
+ *   - `tenantId`         <- `storeContext.tenantId`
+ *   - `organizationId`   <- `storeContext.organizationId`
  *   - `storeId`          <- `storeContext.store.id`               (StoreContext.store.id)
  *   - `assortmentScope`  <- `storeContext.buyer.assortmentScope`  (nested under `buyer`, not top-level)
  *   - `buyerDigest`      <- `storeContext.digest`                 (StoreContext.digest — matches Cart.buyer_digest's own doc comment, "StoreContext.digest at last pricing")
  *   - `customerId`       <- `storeContext.buyer.customerId`
  *   - `customerIds`      <- `storeContext.buyer.customerIds`
  *   - `customerGroupIds` <- `storeContext.buyer.customerGroupIds`
+ *   - `customerUserId`   <- `storeContext.buyer.customerUserId`
+ *   - `currencyCode`     <- `storeContext.currencyCode`
+ *   - `locale`           <- `storeContext.effectiveLocale`
+ *   - `taxMode`          <- `storeContext.buyer.taxMode`
+ *   - `salesChannelId`   <- `storeContext.channel?.salesChannelId ?? null`
+ *   - `priceKindId`      <- `storeContext.buyer.priceKindId`
  *
  * Soft DI: throws `CartStoreContextUnavailableError` when `storeContextService` is not
  * registered, rather than returning a context.
@@ -106,6 +149,8 @@ export async function resolveCartRouteContext(
   const storeContext = await storeContextService.resolve(request, { fresh: opts?.fresh })
 
   return {
+    tenantId: storeContext.tenantId,
+    organizationId: storeContext.organizationId,
     storeId: storeContext.store.id,
     channel: 'storefront',
     assortmentScope: storeContext.buyer.assortmentScope,
@@ -113,6 +158,12 @@ export async function resolveCartRouteContext(
     customerId: storeContext.buyer.customerId,
     customerIds: storeContext.buyer.customerIds,
     customerGroupIds: storeContext.buyer.customerGroupIds,
+    customerUserId: storeContext.buyer.customerUserId,
+    currencyCode: storeContext.currencyCode,
+    locale: storeContext.effectiveLocale,
+    taxMode: storeContext.buyer.taxMode,
+    salesChannelId: storeContext.channel?.salesChannelId ?? null,
+    priceKindId: storeContext.buyer.priceKindId,
   }
 }
 
