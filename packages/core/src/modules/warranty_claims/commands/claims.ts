@@ -63,6 +63,7 @@ import type { WarrantyEntitlementInput, WarrantyEntitlementResolver } from '../s
 import {
   WARRANTY_CLAIM_RESOURCE_KIND,
   appendClaimEvent,
+  assertUniqueClaimLineNumbers,
   enforceWarrantyClaimOptimisticLock,
   ensureOrganizationScope,
   ensureTenantScope,
@@ -673,9 +674,24 @@ async function assertUndoSnapshotCurrent(ctx: CommandRuntimeContext, after: Clai
 
 async function restoreSnapshot(em: EntityManager, before: ClaimSnapshot, after: ClaimSnapshot): Promise<WarrantyClaim> {
   const { claim, lines } = await requireCurrentUndoSnapshot(em, after)
-  restoreClaimDelta(claim, before, after)
   const beforeLinesById = new Map((Array.isArray(before.lines) ? before.lines : []).map((line) => [line.id, line]))
   const afterLinesById = new Map((Array.isArray(after.lines) ? after.lines : []).map((line) => [line.id, line]))
+  const projectedLines = lines.map((line) => {
+    const beforeLine = beforeLinesById.get(line.id)
+    const afterLine = afterLinesById.get(line.id)
+    if (!beforeLine || !afterLine) throwClaimUndoConflict()
+    const deletedAt = beforeLine.deletedAt !== afterLine.deletedAt ? beforeLine.deletedAt : line.deletedAt
+    const lineNo = beforeLine.lineNo !== afterLine.lineNo ? beforeLine.lineNo : line.lineNo
+    return { id: line.id, lineNo, deletedAt, changesNumber: Boolean(line.deletedAt) || lineNo !== line.lineNo }
+  })
+  for (const projected of projectedLines) {
+    if (projected.deletedAt || !projected.changesNumber) continue
+    await assertUniqueClaimLineNumbers([
+      projected.lineNo,
+      ...projectedLines.filter((line) => !line.deletedAt && line.id !== projected.id && line.lineNo === projected.lineNo).map((line) => line.lineNo),
+    ])
+  }
+  restoreClaimDelta(claim, before, after)
   for (const line of lines) {
     const beforeLine = beforeLinesById.get(line.id)
     const afterLine = afterLinesById.get(line.id)
@@ -1506,6 +1522,7 @@ const createClaimCommand: CommandHandler<ClaimCreateInput, { claimId: string }> 
   isUndoable: true,
   async execute(rawInput, ctx) {
     const input = parseCommandInput(claimCreateSchema, rawInput)
+    await assertUniqueClaimLineNumbers((input.lines ?? []).map((line, index) => line.lineNo ?? index + 1))
     const scope = resolveScope(ctx, input)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     await validateClaimReferences(ctx, scope, {

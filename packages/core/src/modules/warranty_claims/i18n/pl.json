@@ -287,6 +287,7 @@
   "warranty_claims.errors.deleteNotAllowed": "Można usuwać tylko reklamacje w statusie roboczym lub anulowane.",
   "warranty_claims.errors.dispositionGradeConflict": "Przyjęcie na stan jest dozwolone tylko dla pozycji z oceną A lub B.",
   "warranty_claims.errors.dispositionTypeConflict": "Ta dyspozycja nie jest dostępna dla tego typu reklamacji.",
+  "warranty_claims.errors.duplicateLineNo": "Inna pozycja tego zgłoszenia używa już tego numeru. Wybierz inny numer przed ponowną próbą.",
   "warranty_claims.errors.duplicateSerial": "Rejestracja z tym numerem seryjnym już istnieje.",
   "warranty_claims.errors.fieldLocked": "Tego pola nie można edytować w bieżącym statusie reklamacji.",
   "warranty_claims.errors.invalidAssignee": "Nie znaleziono wybranej osoby przypisanej.",
