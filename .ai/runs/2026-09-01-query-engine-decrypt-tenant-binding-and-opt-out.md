@@ -66,40 +66,56 @@ Make query-engine field decryption fail closed: bind the DEK to the tenant the c
 5.5 Warn once when a declined query sorts on an encrypted field, and document the degradation on both option surfaces.
 5.6 Qualify the shipped documentation where the binding cannot engage, and align the opt-in/opt-out wording.
 
+### Phase 6 — Re-review findings (2026-10-13)
+
+6.1 Merge `develop` and keep #6932's `{ em }` policy-cache option on the hybrid decrypt call.
+6.2 Bind ORM hydration (`onLoad`/`afterFind`) to the caller's scope so `find*WithDecryption` cannot decrypt a foreign-tenant entity before the scoped pass runs.
+6.3 Stop refusing relations of a tenant-less parent against the inherited caller tenant.
+6.4 Add the operator `CHANGELOG.md` note quoting `DECRYPT_REFUSAL_LOG_MESSAGE`.
+6.5 Drop the inline comments on the decrypt-binding code paths.
+
 ## Progress
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Fail-closed tenant binding in the query engines
 
-- [x] 1.1 Add the decrypt-scope helper and its unit tests — 53746d6b4
-- [x] 1.2 Apply the guard in BasicQueryEngine — 53746d6b4
-- [x] 1.3 Apply the guard in HybridQueryEngine including custom fields — be0a7f745
-- [x] 1.4 Emit one aggregated refusal warning per query — 53746d6b4
+- [x] 1.1 Add the decrypt-scope helper and its unit tests — 3b55abe63
+- [x] 1.2 Apply the guard in BasicQueryEngine — 3b55abe63
+- [x] 1.3 Apply the guard in HybridQueryEngine including custom fields — cdcd7bd33
+- [x] 1.4 Emit one aggregated refusal warning per query — 3b55abe63
 
 ### Phase 2: Extend the guard to the ORM read path
 
-- [x] 2.1 Guard EncryptionSubscriber.decrypt — b16024790
+- [x] 2.1 Guard EncryptionSubscriber.decrypt — 7a990e1ce
 
 ### Phase 3: decryptEncryptedFields opt-out
 
-- [x] 3.1 Add the QueryOptions option and the default rule — 4292a46e3
-- [x] 3.2 Honour the option in both engines — 4292a46e3
-- [x] 3.3 Expose the option through makeCrudRoute — 4292a46e3
-- [x] 3.4 Add the TC-ENC-001 integration spec — 4292a46e3
+- [x] 3.1 Add the QueryOptions option and the default rule — e92976d17
+- [x] 3.2 Honour the option in both engines — e92976d17
+- [x] 3.3 Expose the option through makeCrudRoute — e92976d17
+- [x] 3.4 Add the TC-ENC-001 integration spec — e92976d17
 
 ### Phase 4: Documentation correction
 
-- [x] 4.1 Document the at-rest contract and the new option — 37d2110b6
+- [x] 4.1 Document the at-rest contract and the new option — 28ab4a0c7
 
 ### Phase 5: Review findings
 
-- [ ] 5.1 Carry tenant_id into the decrypt decision regardless of projection
-- [ ] 5.2 Deduplicate the refusal tally by row id
-- [ ] 5.3 Skip the refusal path in the hybrid engine when decryption is declined
-- [ ] 5.4 Aggregate ORM-path refusals across a batch read
-- [ ] 5.5 Warn when a declined query sorts on an encrypted field
-- [ ] 5.6 Qualify the docs where the binding cannot engage
+- [x] 5.1 Carry tenant_id into the decrypt decision regardless of projection — d0bdc6bee
+- [x] 5.2 Deduplicate the refusal tally by row id — d0bdc6bee
+- [x] 5.3 Skip the refusal path in the hybrid engine when decryption is declined — d0bdc6bee
+- [x] 5.4 Aggregate ORM-path refusals across a batch read — d0bdc6bee
+- [x] 5.5 Warn when a declined query sorts on an encrypted field — 4a27ea6d0, d0bdc6bee
+- [x] 5.6 Qualify the docs where the binding cannot engage — d0bdc6bee, fddf855d9
+
+### Phase 6: Re-review findings
+
+- [x] 6.1 Merge develop, keeping the em policy-cache option — 6dd88a7b1
+- [x] 6.2 Bind ORM hydration to the caller's scope — 1889b7f76
+- [x] 6.3 Relations of a tenant-less parent are not refused — 1889b7f76
+- [x] 6.4 Operator CHANGELOG note — b4ee875ff
+- [x] 6.5 Drop inline comments — 4682b0a7a
 
 Not fixed in this PR, tracked instead: `decryptEncryptedFields` still ships without a production
 consumer (review finding 5) — wiring the intended list surfaces is #5845, and the PR body says so
