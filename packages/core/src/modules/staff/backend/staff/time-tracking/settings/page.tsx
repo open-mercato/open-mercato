@@ -419,6 +419,346 @@ export default function TimeTrackingSettingsPage() {
     )
   }
 
+  const generalSettings = (
+    <>
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <div className="flex flex-col gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('staff.time_tracking.settings.rounding.title', 'Time rounding')}</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                {t(
+                  'staff.time_tracking.settings.rounding.description',
+                  'Applies to all projects. The rounded value is the one cost is calculated from.',
+                )}
+              </p>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="flex flex-col gap-2">
+                  <Label>{t('staff.time_tracking.settings.rounding.unit', 'Unit')}</Label>
+                  <SegmentedControl
+                    value={String(draft.roundingUnitMinutes)}
+                    onValueChange={(value) => {
+                      const parsed = Number(value)
+                      if (!ROUNDING_UNIT_OPTIONS.includes(parsed as RoundingUnitMinutes)) return
+                      patchDraft({ roundingUnitMinutes: parsed as RoundingUnitMinutes })
+                    }}
+                    disabled={!canManage}
+                    aria-label={t('staff.time_tracking.settings.rounding.unit', 'Unit')}
+                  >
+                    {ROUNDING_UNIT_OPTIONS.map((unit) => (
+                      <SegmentedControlItem key={unit} value={String(unit)}>
+                        {unit === 0
+                          ? t('staff.time_tracking.settings.rounding.unit.none', 'None')
+                          : t('staff.time_tracking.settings.rounding.unit.minutes', '{count} min', {
+                              count: unit,
+                            })}
+                      </SegmentedControlItem>
+                    ))}
+                  </SegmentedControl>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label>{t('staff.time_tracking.settings.rounding.direction', 'Direction')}</Label>
+                  <SegmentedControl
+                    value={draft.roundingDirection}
+                    onValueChange={(value) => {
+                      if (value !== 'up' && value !== 'nearest') return
+                      patchDraft({ roundingDirection: value })
+                    }}
+                    disabled={!canManage || draft.roundingUnitMinutes === 0}
+                    aria-label={t('staff.time_tracking.settings.rounding.direction', 'Direction')}
+                  >
+                    <SegmentedControlItem value="up">
+                      {t('staff.time_tracking.settings.rounding.direction.up', 'Up')}
+                    </SegmentedControlItem>
+                    <SegmentedControlItem value="nearest">
+                      {t('staff.time_tracking.settings.rounding.direction.nearest', 'To nearest')}
+                    </SegmentedControlItem>
+                  </SegmentedControl>
+                </div>
+              </div>
+
+              <Alert status="information" icon={<Info aria-hidden="true" />}>
+                <AlertTitle>
+                  {t('staff.time_tracking.settings.rounding.examples.title', 'Examples at the current setting')}
+                </AlertTitle>
+                <AlertDescription>
+                  <span className="font-mono text-sm" data-testid="rounding-examples">
+                    {examples
+                      .map((example) => `${example.rawLabel} → ${example.roundedLabel}`)
+                      .join(' · ')}
+                  </span>
+                </AlertDescription>
+              </Alert>
+
+              <div className="flex flex-col gap-2 rounded-md border border-border p-4">
+                <span className="text-sm font-medium">
+                  {t(
+                    'staff.time_tracking.settings.retro.title',
+                    'Apply retroactively to existing entries',
+                  )}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {t(
+                    'staff.time_tracking.settings.retro.hint',
+                    'Saving changes new entries only. Recalculating existing ones is a separate, explicit action — and it never changes entries locked in closed reports.',
+                  )}
+                </span>
+                <div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void handleReapply()}
+                    disabled={!canManage || isReapplying || isDirty}
+                    data-testid="reapply-rounding"
+                  >
+                    {isReapplying ? <Spinner className="size-4" /> : <History className="size-4" aria-hidden="true" />}
+                    {t('staff.time_tracking.settings.retro.cta', 'Reapply to existing entries')}
+                  </Button>
+                </div>
+                {isDirty ? (
+                  <span className="text-xs text-muted-foreground">
+                    {t(
+                      'staff.time_tracking.settings.retro.saveFirst',
+                      'Save the rule first — the recalculation uses the saved rule, not the one on screen.',
+                    )}
+                  </span>
+                ) : null}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('staff.time_tracking.settings.defaults.title', 'Entry defaults')}</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              <SwitchField
+                label={t('staff.time_tracking.settings.defaults.billable', 'New entries are billable')}
+                description={t(
+                  'staff.time_tracking.settings.defaults.billableHint',
+                  'A project can override this.',
+                )}
+                checked={draft.defaultsBillable}
+                onCheckedChange={(value) => patchDraft({ defaultsBillable: value === true })}
+                disabled={!canManage}
+              />
+              <SwitchField
+                label={t(
+                  'staff.time_tracking.settings.defaults.chainStart',
+                  'Start = end of the previous entry',
+                )}
+                description={t(
+                  'staff.time_tracking.settings.defaults.chainStartHint',
+                  'A suggestion when adding another entry on the same day.',
+                )}
+                checked={draft.defaultsChainStartFromPreviousEnd}
+                onCheckedChange={(value) =>
+                  patchDraft({ defaultsChainStartFromPreviousEnd: value === true })
+                }
+                disabled={!canManage}
+              />
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="time-tracking-daily-hours">
+                  {t('staff.time_tracking.settings.targets.dailyHours', 'Daily hours target')}
+                </Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="time-tracking-daily-hours"
+                    className="max-w-28"
+                    inputMode="decimal"
+                    value={draft.dailyHoursText}
+                    onChange={(event) => patchDraft({ dailyHoursText: event.target.value })}
+                    disabled={!canManage}
+                    aria-invalid={fieldErrors.includes('dailyHours')}
+                  />
+                  <span className="text-sm text-muted-foreground">
+                    {t('staff.time_tracking.settings.targets.hoursUnit', 'h')}
+                  </span>
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  {t(
+                    'staff.time_tracking.settings.targets.dailyHoursHint',
+                    'Scales the load bars in the timesheet. Leave empty to turn targets off.',
+                  )}
+                </span>
+                {fieldErrors.includes('dailyHours') ? (
+                  <span className="text-xs text-status-error-text">
+                    {t(
+                      'staff.time_tracking.settings.targets.dailyHoursError',
+                      'Enter a number of hours between 0 and 24, or leave the field empty.',
+                    )}
+                  </span>
+                ) : null}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('staff.time_tracking.settings.warnings.title', 'Warnings')}</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              <SwitchField
+                label={t('staff.time_tracking.settings.warnings.overlap', 'Warn about overlapping entries')}
+                description={t('staff.time_tracking.settings.warnings.overlapHint', 'A warning, not a block.')}
+                checked={draft.warningsOverlap}
+                onCheckedChange={(value) => patchDraft({ warningsOverlap: value === true })}
+                disabled={!canManage}
+              />
+              <SwitchField
+                label={t('staff.time_tracking.settings.warnings.runningTimer', 'Remind about a running timer')}
+                description={t(
+                  'staff.time_tracking.settings.warnings.runningTimerHint',
+                  'An unobtrusive reminder when leaving the module and after 8 h of continuous running.',
+                )}
+                checked={draft.warningsRunningTimer}
+                onCheckedChange={(value) => patchDraft({ warningsRunningTimer: value === true })}
+                disabled={!canManage}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('staff.time_tracking.settings.access.title', 'Project access')}</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-2">
+              <Label htmlFor="time-tracking-grace-days">
+                {t(
+                  'staff.time_tracking.settings.access.graceDays',
+                  'Access grace period after an assignment ends',
+                )}
+              </Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="time-tracking-grace-days"
+                  className="max-w-28"
+                  inputMode="numeric"
+                  value={draft.assignmentGraceDaysText}
+                  onChange={(event) => patchDraft({ assignmentGraceDaysText: event.target.value })}
+                  disabled={!canManage}
+                  aria-invalid={fieldErrors.includes('assignmentGraceDays')}
+                />
+                <span className="text-sm text-muted-foreground">
+                  {t('staff.time_tracking.settings.access.daysUnit', 'days')}
+                </span>
+              </div>
+              <span className="text-xs text-muted-foreground">
+                {t(
+                  'staff.time_tracking.settings.access.graceDaysHint',
+                  'A member keeps access to a project for this many days after their assignment end date, so the last week of work can still be logged and corrected. 0 ends access on the end date itself.',
+                )}
+              </span>
+              {fieldErrors.includes('assignmentGraceDays') ? (
+                <span className="text-xs text-status-error-text">
+                  {t(
+                    'staff.time_tracking.settings.access.graceDaysError',
+                    'Enter a whole number of days between 0 and 365.',
+                  )}
+                </span>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          <InjectionSpot
+            spotId={extensionPoints.hosts.timeTrackingSettingsSections.spotId}
+            context={settingsInjectionContext}
+            data={draft}
+          />
+        </div>
+
+        <div className="flex flex-col gap-6">
+          <Alert status="warning" icon={<AlertTriangle aria-hidden="true" />}>
+            <AlertTitle>
+              {t('staff.time_tracking.settings.impact.title', 'Changing rounding affects amounts')}
+            </AlertTitle>
+            <AlertDescription>
+              {impactState === 'loading' && !impact ? (
+                <span className="text-sm">
+                  {t('staff.time_tracking.settings.impact.loading', 'Calculating the impact…')}
+                </span>
+              ) : impactState === 'error' ? (
+                <span className="text-sm">
+                  {t('staff.time_tracking.settings.impact.error', 'The impact preview is unavailable.')}
+                </span>
+              ) : impact && impact.projected.entryCount > 0 ? (
+                <div className="flex flex-col gap-1" data-testid="rounding-impact">
+                  <span className="text-sm">
+                    {t(
+                      'staff.time_tracking.settings.impact.body',
+                      'With the current {count} entries from the last {days} days, {rule} gives {rounded} ({delta} against raw time). Closed reports stay unchanged.',
+                      {
+                        count: impact.projected.entryCount,
+                        days: impact.windowDays,
+                        rule: ruleLabel,
+                        rounded: formatDuration(impact.projected.roundedMinutes, 'clock'),
+                        delta: formatSignedMinutes(impact.projected.deltaMinutes),
+                      },
+                    )}
+                  </span>
+                  {impact.lockedEntryCount > 0 ? (
+                    <span className="text-xs">
+                      {t(
+                        'staff.time_tracking.settings.impact.locked',
+                        '{count} entries in the window are locked in closed reports and are excluded.',
+                        { count: impact.lockedEntryCount },
+                      )}
+                    </span>
+                  ) : null}
+                </div>
+              ) : (
+                <span className="text-sm">
+                  {t(
+                    'staff.time_tracking.settings.impact.empty',
+                    'There are no unlocked entries in the last {days} days to project against.',
+                    { days: impact?.windowDays ?? 90 },
+                  )}
+                </span>
+              )}
+            </AlertDescription>
+          </Alert>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('staff.time_tracking.settings.scope.title', 'Settings scope')}</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-2">
+              <span className="text-sm">
+                {t(
+                  'staff.time_tracking.settings.scope.body',
+                  'These rules are global — they cannot be set per customer or per project.',
+                )}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {t(
+                  'staff.time_tracking.settings.scope.hint',
+                  'The rate and currency stay at project level, and a rate override stays at entry level.',
+                )}
+              </span>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      <div className="mt-6 flex items-center justify-end gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={() => setDraft(baseline)}
+          disabled={!isDirty || isSaving}
+        >
+          {t('staff.time_tracking.settings.actions.cancel', 'Cancel')}
+        </Button>
+        <Button type="button" onClick={() => void handleSave()} disabled={!canSave} data-testid="save-settings">
+          {isSaving ? <Spinner className="size-4" /> : <Save className="size-4" aria-hidden="true" />}
+          {t('staff.time_tracking.settings.actions.save', 'Save')}
+        </Button>
+      </div>
+    </>
+  )
+
   return (
     <Page>
       <PageHeader
@@ -429,8 +769,8 @@ export default function TimeTrackingSettingsPage() {
         )}
       />
       <PageBody>
-        <Tabs value={selectedTab} onValueChange={selectTab} variant="underline">
-          {injectedTabs.length > 0 ? (
+        {injectedTabs.length > 0 ? (
+          <Tabs value={selectedTab} onValueChange={selectTab} variant="underline">
             <TabsList aria-label={t('staff.time_tracking.settings.tabs.label', 'Settings sections')} className="mb-4">
               <TabsTrigger value={TIME_TRACKING_SETTINGS_GENERAL_TAB}>
                 {t('staff.time_tracking.settings.tabs.general', 'Time tracking')}
@@ -441,350 +781,16 @@ export default function TimeTrackingSettingsPage() {
                 </TabsTrigger>
               ))}
             </TabsList>
-          ) : null}
-          <TabsContent value={TIME_TRACKING_SETTINGS_GENERAL_TAB}>
-            <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-              <div className="flex flex-col gap-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>{t('staff.time_tracking.settings.rounding.title', 'Time rounding')}</CardTitle>
-                    <p className="text-sm text-muted-foreground">
-                      {t(
-                        'staff.time_tracking.settings.rounding.description',
-                        'Applies to all projects. The rounded value is the one cost is calculated from.',
-                      )}
-                    </p>
-                  </CardHeader>
-                  <CardContent className="flex flex-col gap-4">
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div className="flex flex-col gap-2">
-                        <Label>{t('staff.time_tracking.settings.rounding.unit', 'Unit')}</Label>
-                        <SegmentedControl
-                          value={String(draft.roundingUnitMinutes)}
-                          onValueChange={(value) => {
-                            const parsed = Number(value)
-                            if (!ROUNDING_UNIT_OPTIONS.includes(parsed as RoundingUnitMinutes)) return
-                            patchDraft({ roundingUnitMinutes: parsed as RoundingUnitMinutes })
-                          }}
-                          disabled={!canManage}
-                          aria-label={t('staff.time_tracking.settings.rounding.unit', 'Unit')}
-                        >
-                          {ROUNDING_UNIT_OPTIONS.map((unit) => (
-                            <SegmentedControlItem key={unit} value={String(unit)}>
-                              {unit === 0
-                                ? t('staff.time_tracking.settings.rounding.unit.none', 'None')
-                                : t('staff.time_tracking.settings.rounding.unit.minutes', '{count} min', {
-                                    count: unit,
-                                  })}
-                            </SegmentedControlItem>
-                          ))}
-                        </SegmentedControl>
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <Label>{t('staff.time_tracking.settings.rounding.direction', 'Direction')}</Label>
-                        <SegmentedControl
-                          value={draft.roundingDirection}
-                          onValueChange={(value) => {
-                            if (value !== 'up' && value !== 'nearest') return
-                            patchDraft({ roundingDirection: value })
-                          }}
-                          disabled={!canManage || draft.roundingUnitMinutes === 0}
-                          aria-label={t('staff.time_tracking.settings.rounding.direction', 'Direction')}
-                        >
-                          <SegmentedControlItem value="up">
-                            {t('staff.time_tracking.settings.rounding.direction.up', 'Up')}
-                          </SegmentedControlItem>
-                          <SegmentedControlItem value="nearest">
-                            {t('staff.time_tracking.settings.rounding.direction.nearest', 'To nearest')}
-                          </SegmentedControlItem>
-                        </SegmentedControl>
-                      </div>
-                    </div>
-
-                    <Alert status="information" icon={<Info aria-hidden="true" />}>
-                      <AlertTitle>
-                        {t('staff.time_tracking.settings.rounding.examples.title', 'Examples at the current setting')}
-                      </AlertTitle>
-                      <AlertDescription>
-                        <span className="font-mono text-sm" data-testid="rounding-examples">
-                          {examples
-                            .map((example) => `${example.rawLabel} → ${example.roundedLabel}`)
-                            .join(' · ')}
-                        </span>
-                      </AlertDescription>
-                    </Alert>
-
-                    <div className="flex flex-col gap-2 rounded-md border border-border p-4">
-                      <span className="text-sm font-medium">
-                        {t(
-                          'staff.time_tracking.settings.retro.title',
-                          'Apply retroactively to existing entries',
-                        )}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {t(
-                          'staff.time_tracking.settings.retro.hint',
-                          'Saving changes new entries only. Recalculating existing ones is a separate, explicit action — and it never changes entries locked in closed reports.',
-                        )}
-                      </span>
-                      <div>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => void handleReapply()}
-                          disabled={!canManage || isReapplying || isDirty}
-                          data-testid="reapply-rounding"
-                        >
-                          {isReapplying ? <Spinner className="size-4" /> : <History className="size-4" aria-hidden="true" />}
-                          {t('staff.time_tracking.settings.retro.cta', 'Reapply to existing entries')}
-                        </Button>
-                      </div>
-                      {isDirty ? (
-                        <span className="text-xs text-muted-foreground">
-                          {t(
-                            'staff.time_tracking.settings.retro.saveFirst',
-                            'Save the rule first — the recalculation uses the saved rule, not the one on screen.',
-                          )}
-                        </span>
-                      ) : null}
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle>{t('staff.time_tracking.settings.defaults.title', 'Entry defaults')}</CardTitle>
-                  </CardHeader>
-                  <CardContent className="flex flex-col gap-4">
-                    <SwitchField
-                      label={t('staff.time_tracking.settings.defaults.billable', 'New entries are billable')}
-                      description={t(
-                        'staff.time_tracking.settings.defaults.billableHint',
-                        'A project can override this.',
-                      )}
-                      checked={draft.defaultsBillable}
-                      onCheckedChange={(value) => patchDraft({ defaultsBillable: value === true })}
-                      disabled={!canManage}
-                    />
-                    <SwitchField
-                      label={t(
-                        'staff.time_tracking.settings.defaults.chainStart',
-                        'Start = end of the previous entry',
-                      )}
-                      description={t(
-                        'staff.time_tracking.settings.defaults.chainStartHint',
-                        'A suggestion when adding another entry on the same day.',
-                      )}
-                      checked={draft.defaultsChainStartFromPreviousEnd}
-                      onCheckedChange={(value) =>
-                        patchDraft({ defaultsChainStartFromPreviousEnd: value === true })
-                      }
-                      disabled={!canManage}
-                    />
-                    <div className="flex flex-col gap-2">
-                      <Label htmlFor="time-tracking-daily-hours">
-                        {t('staff.time_tracking.settings.targets.dailyHours', 'Daily hours target')}
-                      </Label>
-                      <div className="flex items-center gap-2">
-                        <Input
-                          id="time-tracking-daily-hours"
-                          className="max-w-28"
-                          inputMode="decimal"
-                          value={draft.dailyHoursText}
-                          onChange={(event) => patchDraft({ dailyHoursText: event.target.value })}
-                          disabled={!canManage}
-                          aria-invalid={fieldErrors.includes('dailyHours')}
-                        />
-                        <span className="text-sm text-muted-foreground">
-                          {t('staff.time_tracking.settings.targets.hoursUnit', 'h')}
-                        </span>
-                      </div>
-                      <span className="text-xs text-muted-foreground">
-                        {t(
-                          'staff.time_tracking.settings.targets.dailyHoursHint',
-                          'Scales the load bars in the timesheet. Leave empty to turn targets off.',
-                        )}
-                      </span>
-                      {fieldErrors.includes('dailyHours') ? (
-                        <span className="text-xs text-status-error-text">
-                          {t(
-                            'staff.time_tracking.settings.targets.dailyHoursError',
-                            'Enter a number of hours between 0 and 24, or leave the field empty.',
-                          )}
-                        </span>
-                      ) : null}
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle>{t('staff.time_tracking.settings.warnings.title', 'Warnings')}</CardTitle>
-                  </CardHeader>
-                  <CardContent className="flex flex-col gap-4">
-                    <SwitchField
-                      label={t('staff.time_tracking.settings.warnings.overlap', 'Warn about overlapping entries')}
-                      description={t('staff.time_tracking.settings.warnings.overlapHint', 'A warning, not a block.')}
-                      checked={draft.warningsOverlap}
-                      onCheckedChange={(value) => patchDraft({ warningsOverlap: value === true })}
-                      disabled={!canManage}
-                    />
-                    <SwitchField
-                      label={t('staff.time_tracking.settings.warnings.runningTimer', 'Remind about a running timer')}
-                      description={t(
-                        'staff.time_tracking.settings.warnings.runningTimerHint',
-                        'An unobtrusive reminder when leaving the module and after 8 h of continuous running.',
-                      )}
-                      checked={draft.warningsRunningTimer}
-                      onCheckedChange={(value) => patchDraft({ warningsRunningTimer: value === true })}
-                      disabled={!canManage}
-                    />
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle>{t('staff.time_tracking.settings.access.title', 'Project access')}</CardTitle>
-                  </CardHeader>
-                  <CardContent className="flex flex-col gap-2">
-                    <Label htmlFor="time-tracking-grace-days">
-                      {t(
-                        'staff.time_tracking.settings.access.graceDays',
-                        'Access grace period after an assignment ends',
-                      )}
-                    </Label>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        id="time-tracking-grace-days"
-                        className="max-w-28"
-                        inputMode="numeric"
-                        value={draft.assignmentGraceDaysText}
-                        onChange={(event) => patchDraft({ assignmentGraceDaysText: event.target.value })}
-                        disabled={!canManage}
-                        aria-invalid={fieldErrors.includes('assignmentGraceDays')}
-                      />
-                      <span className="text-sm text-muted-foreground">
-                        {t('staff.time_tracking.settings.access.daysUnit', 'days')}
-                      </span>
-                    </div>
-                    <span className="text-xs text-muted-foreground">
-                      {t(
-                        'staff.time_tracking.settings.access.graceDaysHint',
-                        'A member keeps access to a project for this many days after their assignment end date, so the last week of work can still be logged and corrected. 0 ends access on the end date itself.',
-                      )}
-                    </span>
-                    {fieldErrors.includes('assignmentGraceDays') ? (
-                      <span className="text-xs text-status-error-text">
-                        {t(
-                          'staff.time_tracking.settings.access.graceDaysError',
-                          'Enter a whole number of days between 0 and 365.',
-                        )}
-                      </span>
-                    ) : null}
-                  </CardContent>
-                </Card>
-
-                <InjectionSpot
-                  spotId={extensionPoints.hosts.timeTrackingSettingsSections.spotId}
-                  context={settingsInjectionContext}
-                  data={draft}
-                />
-              </div>
-
-              <div className="flex flex-col gap-6">
-                <Alert status="warning" icon={<AlertTriangle aria-hidden="true" />}>
-                  <AlertTitle>
-                    {t('staff.time_tracking.settings.impact.title', 'Changing rounding affects amounts')}
-                  </AlertTitle>
-                  <AlertDescription>
-                    {impactState === 'loading' && !impact ? (
-                      <span className="text-sm">
-                        {t('staff.time_tracking.settings.impact.loading', 'Calculating the impact…')}
-                      </span>
-                    ) : impactState === 'error' ? (
-                      <span className="text-sm">
-                        {t('staff.time_tracking.settings.impact.error', 'The impact preview is unavailable.')}
-                      </span>
-                    ) : impact && impact.projected.entryCount > 0 ? (
-                      <div className="flex flex-col gap-1" data-testid="rounding-impact">
-                        <span className="text-sm">
-                          {t(
-                            'staff.time_tracking.settings.impact.body',
-                            'With the current {count} entries from the last {days} days, {rule} gives {rounded} ({delta} against raw time). Closed reports stay unchanged.',
-                            {
-                              count: impact.projected.entryCount,
-                              days: impact.windowDays,
-                              rule: ruleLabel,
-                              rounded: formatDuration(impact.projected.roundedMinutes, 'clock'),
-                              delta: formatSignedMinutes(impact.projected.deltaMinutes),
-                            },
-                          )}
-                        </span>
-                        {impact.lockedEntryCount > 0 ? (
-                          <span className="text-xs">
-                            {t(
-                              'staff.time_tracking.settings.impact.locked',
-                              '{count} entries in the window are locked in closed reports and are excluded.',
-                              { count: impact.lockedEntryCount },
-                            )}
-                          </span>
-                        ) : null}
-                      </div>
-                    ) : (
-                      <span className="text-sm">
-                        {t(
-                          'staff.time_tracking.settings.impact.empty',
-                          'There are no unlocked entries in the last {days} days to project against.',
-                          { days: impact?.windowDays ?? 90 },
-                        )}
-                      </span>
-                    )}
-                  </AlertDescription>
-                </Alert>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle>{t('staff.time_tracking.settings.scope.title', 'Settings scope')}</CardTitle>
-                  </CardHeader>
-                  <CardContent className="flex flex-col gap-2">
-                    <span className="text-sm">
-                      {t(
-                        'staff.time_tracking.settings.scope.body',
-                        'These rules are global — they cannot be set per customer or per project.',
-                      )}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {t(
-                        'staff.time_tracking.settings.scope.hint',
-                        'The rate and currency stay at project level, and a rate override stays at entry level.',
-                      )}
-                    </span>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-
-            <div className="mt-6 flex items-center justify-end gap-2">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => setDraft(baseline)}
-                disabled={!isDirty || isSaving}
-              >
-                {t('staff.time_tracking.settings.actions.cancel', 'Cancel')}
-              </Button>
-              <Button type="button" onClick={() => void handleSave()} disabled={!canSave} data-testid="save-settings">
-                {isSaving ? <Spinner className="size-4" /> : <Save className="size-4" aria-hidden="true" />}
-                {t('staff.time_tracking.settings.actions.save', 'Save')}
-              </Button>
-            </div>
-          </TabsContent>
-          {injectedTabs.map((tab) => (
-            <TabsContent key={tab.tabId} value={tab.tabId}>
-              {tabInjectionContext ? <tab.Widget context={tabInjectionContext} /> : null}
-            </TabsContent>
-          ))}
-        </Tabs>
+            <TabsContent value={TIME_TRACKING_SETTINGS_GENERAL_TAB}>{generalSettings}</TabsContent>
+            {injectedTabs.map((tab) => (
+              <TabsContent key={tab.tabId} value={tab.tabId}>
+                {tabInjectionContext ? <tab.Widget context={tabInjectionContext} /> : null}
+              </TabsContent>
+            ))}
+          </Tabs>
+        ) : (
+          generalSettings
+        )}
       </PageBody>
       {ConfirmDialogElement}
     </Page>

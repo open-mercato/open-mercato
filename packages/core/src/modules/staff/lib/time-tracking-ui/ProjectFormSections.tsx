@@ -8,9 +8,11 @@ import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
 import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { resolveAssignmentState, resolveGraceDays } from './projectTeamAssignment'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 
@@ -127,6 +129,22 @@ type ProjectMemberRow = {
   staffMemberId?: unknown
   staff_member_id?: unknown
   status?: unknown
+  assigned_start_date?: unknown
+  assignedStartDate?: unknown
+  assigned_end_date?: unknown
+  assignedEndDate?: unknown
+}
+
+/**
+ * Whether a membership can still receive a portal ticket as the default assignee —
+ * the browser twin of `resolveUsableDefaultAssignee`: an `active` membership inside
+ * its assignment window plus the tenant's grace days.
+ */
+export function isUsableDefaultAssigneeMembership(row: ProjectMemberRow, graceDays: number, now: Date = new Date()): boolean {
+  if (readString(row.status) !== 'active') return false
+  const startDate = readString(row.assignedStartDate) ?? readString(row.assigned_start_date)
+  const endDate = readString(row.assignedEndDate) ?? readString(row.assigned_end_date)
+  return resolveAssignmentState({ startDate, endDate }, graceDays, now) === 'active'
 }
 
 type TeamMemberRow = {
@@ -353,14 +371,18 @@ export function ProjectDefaultAssigneeField({ projectId, value, onChange, disabl
     let cancelled = false
     async function load() {
       try {
-        const membersRes = await apiCall<{ items?: ProjectMemberRow[] }>(
-          `/api/staff/timesheets/time-projects/${projectId}/employees?pageSize=100`,
-        )
+        const [membersRes, settingsRes] = await Promise.all([
+          apiCall<{ items?: ProjectMemberRow[] }>(
+            `/api/staff/timesheets/time-projects/${projectId}/employees?pageSize=100`,
+          ),
+          apiCall<{ access?: { assignmentGraceDays?: unknown } | null }>('/api/staff/timesheets/settings'),
+        ])
+        const graceDays = resolveGraceDays(settingsRes.ok ? settingsRes.result?.access?.assignmentGraceDays : null)
         const memberRows = Array.isArray(membersRes.result?.items) ? membersRes.result.items : []
         const memberships = memberRows
           .map((row) => ({
             staffMemberId: readString(row.staffMemberId) ?? readString(row.staff_member_id),
-            active: readString(row.status) !== 'inactive',
+            active: isUsableDefaultAssigneeMembership(row, graceDays),
           }))
           .filter((row): row is { staffMemberId: string; active: boolean } => row.staffMemberId !== null)
         if (memberships.length === 0) {
@@ -404,28 +426,28 @@ export function ProjectDefaultAssigneeField({ projectId, value, onChange, disabl
       <Label htmlFor="project-default-assignee-select">
         {t('staff.time_tracking.assigners.defaultAssignee', 'Default assignee for portal tickets')}
       </Label>
-      <select
-        id="project-default-assignee-select"
-        className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground"
+      <Select
         value={value ?? NO_DEFAULT_ASSIGNEE}
         disabled={disabled || !projectId}
-        onChange={(event) => {
-          const next = event.target.value
-          onChange(next === NO_DEFAULT_ASSIGNEE ? null : next)
-        }}
+        onValueChange={(next) => onChange(next === NO_DEFAULT_ASSIGNEE ? null : next)}
       >
-        <option value={NO_DEFAULT_ASSIGNEE}>
-          {t('staff.time_tracking.assigners.defaultAssigneeNone', 'No default assignee')}
-        </option>
-        {activeOptions.map((option) => (
-          <option key={option.id} value={option.id}>
-            {option.label}
-          </option>
-        ))}
-        {value && (!selected || !selected.active) ? (
-          <option value={value}>{selected?.label ?? value}</option>
-        ) : null}
-      </select>
+        <SelectTrigger id="project-default-assignee-select" data-testid="project-default-assignee-select">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NO_DEFAULT_ASSIGNEE}>
+            {t('staff.time_tracking.assigners.defaultAssigneeNone', 'No default assignee')}
+          </SelectItem>
+          {activeOptions.map((option) => (
+            <SelectItem key={option.id} value={option.id}>
+              {option.label}
+            </SelectItem>
+          ))}
+          {value && (!selected || !selected.active) ? (
+            <SelectItem value={value}>{selected?.label ?? value}</SelectItem>
+          ) : null}
+        </SelectContent>
+      </Select>
       <p className="text-xs text-muted-foreground">
         {t(
           'staff.time_tracking.assigners.defaultAssigneeHelp',
@@ -433,7 +455,7 @@ export function ProjectDefaultAssigneeField({ projectId, value, onChange, disabl
         )}
       </p>
       {showWarning ? (
-        <Alert variant="warning">
+        <Alert status="warning">
           <AlertDescription>
             {t(
               'staff.time_tracking.assigners.defaultAssigneeInactive',

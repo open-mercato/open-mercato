@@ -367,6 +367,14 @@ describe('time tracking settings page', () => {
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
   })
 
+  it('renders the general form outside any tab panel while no module contributes a tab', async () => {
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('rounding-examples')).toBeInTheDocument())
+
+    expect(screen.queryByRole('tabpanel')).not.toBeInTheDocument()
+    expect(screen.getByTestId('save-settings')).toBeInTheDocument()
+  })
+
   it('opens a contributed tab from the tab param and keeps the Save bar on the Time tracking tab', async () => {
     installTabWidgets([supportTabWidget])
     mockSearch = 'tab=support'

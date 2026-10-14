@@ -27,6 +27,7 @@ import { searchCustomers } from '../../../../lib/time-tracking-ui/CustomerPicker
 
 const PAGE_SIZE = 25
 const DIRECTORY_PAGE_SIZE = 100
+const OPTIONS_URL = '/api/staff/timesheets/support-tickets/options'
 const UNASSIGNED_VALUE = '__unassigned__'
 const ASSIGNEE_CHANGED_EVENT = 'staff.timesheets.time_task.assignee_changed'
 
@@ -39,6 +40,31 @@ type SupportRow = {
 }
 
 type Option = { value: string; label: string }
+
+type InboxOptionsResponse = {
+  categories?: Array<{ value?: unknown; label?: unknown }>
+  assignees?: Array<{ id?: unknown; displayName?: unknown }>
+}
+
+function toCategoryOptions(response: InboxOptionsResponse | null | undefined): Option[] {
+  return (response?.categories ?? [])
+    .map((category) =>
+      typeof category.value === 'string'
+        ? { value: category.value, label: typeof category.label === 'string' ? category.label : category.value }
+        : null,
+    )
+    .filter((option): option is Option => option !== null)
+}
+
+function toAssigneeOptions(response: InboxOptionsResponse | null | undefined): Option[] {
+  return (response?.assignees ?? [])
+    .map((assignee) =>
+      typeof assignee.id === 'string'
+        ? { value: assignee.id, label: typeof assignee.displayName === 'string' ? assignee.displayName : assignee.id }
+        : null,
+    )
+    .filter((option): option is Option => option !== null)
+}
 
 function readContext(row: BoardApiRow): Record<string, unknown> | null {
   const context = (row as Record<string, unknown>)._staff
@@ -89,6 +115,7 @@ export default function SupportTicketsPage() {
   const [assigneeOptions, setAssigneeOptions] = React.useState<Option[]>([])
   const [categoryOptions, setCategoryOptions] = React.useState<Option[]>([])
   const [customerLabels, setCustomerLabels] = React.useState<Record<string, string>>({})
+  const [optionsError, setOptionsError] = React.useState(false)
 
   const drawerTaskId = searchParams?.get('task') ?? null
 
@@ -97,45 +124,30 @@ export default function SupportTicketsPage() {
   React.useEffect(() => {
     let cancelled = false
     void (async () => {
-      const [projects, members, preview] = await Promise.all([
-        loadOptions(`/api/staff/timesheets/time-projects?page=1&pageSize=${DIRECTORY_PAGE_SIZE}`, (row) =>
-          readString(row, 'name'),
-        ),
-        loadOptions(`/api/staff/team-members?page=1&pageSize=${DIRECTORY_PAGE_SIZE}&isActive=true`, (row) =>
-          readString(row, 'displayName', 'display_name'),
-        ),
-        apiCall<{ categories?: Array<{ value?: unknown; label?: unknown }> }>(
-          '/api/staff/timesheets/support-routing-rules/preview',
-        ),
-      ])
-      if (cancelled) return
-      setProjectOptions(projects)
-      setAssigneeOptions(members)
-      if (preview.ok && Array.isArray(preview.result?.categories)) {
-        setCategoryOptions(
-          preview.result.categories
-            .map((category) =>
-              typeof category.value === 'string'
-                ? { value: category.value, label: typeof category.label === 'string' ? category.label : category.value }
-                : null,
-            )
-            .filter((option): option is Option => option !== null),
-        )
+      try {
+        const [projects, options] = await Promise.all([
+          loadOptions(`/api/staff/timesheets/time-projects?page=1&pageSize=${DIRECTORY_PAGE_SIZE}`, (row) =>
+            readString(row, 'name'),
+          ),
+          apiCall<InboxOptionsResponse>(OPTIONS_URL),
+        ])
+        if (cancelled) return
+        setProjectOptions(projects)
+        if (!options.ok) {
+          setOptionsError(true)
+          return
+        }
+        setOptionsError(false)
+        setCategoryOptions(toCategoryOptions(options.result))
+        setAssigneeOptions(toAssigneeOptions(options.result))
+      } catch {
+        if (!cancelled) setOptionsError(true)
       }
     })()
     return () => {
       cancelled = true
     }
   }, [scopeVersion])
-
-  React.useEffect(() => {
-    if (categoryOptions.length > 0 || rows.length === 0) return
-    const seen = new Map<string, string>()
-    for (const row of rows) {
-      if (row.ticket.categoryValue) seen.set(row.ticket.categoryValue, row.ticket.categoryLabel)
-    }
-    setCategoryOptions([...seen.entries()].map(([value, label]) => ({ value, label })))
-  }, [categoryOptions.length, rows])
 
   React.useEffect(() => {
     let cancelled = false
@@ -163,17 +175,21 @@ export default function SupportTicketsPage() {
     }
     if (search.trim()) params.set('supportReference', search.trim())
     void (async () => {
-      const call = await apiCall<Record<string, unknown>>(`/api/staff/timesheets/tasks?${params.toString()}`)
-      if (cancelled) return
-      if (!call.ok) {
-        setLoadError(true)
-        setIsLoading(false)
-        return
+      try {
+        const call = await apiCall<Record<string, unknown>>(`/api/staff/timesheets/tasks?${params.toString()}`)
+        if (cancelled) return
+        if (!call.ok) {
+          setLoadError(true)
+          return
+        }
+        setLoadError(false)
+        setRows(readItems(call.result).map(toSupportRow).filter((row): row is SupportRow => row !== null))
+        setTotal(readTotal(call.result, 0))
+      } catch {
+        if (!cancelled) setLoadError(true)
+      } finally {
+        if (!cancelled) setIsLoading(false)
       }
-      setLoadError(false)
-      setRows(readItems(call.result).map(toSupportRow).filter((row): row is SupportRow => row !== null))
-      setTotal(readTotal(call.result, 0))
-      setIsLoading(false)
     })()
     return () => {
       cancelled = true
@@ -334,6 +350,11 @@ export default function SupportTicketsPage() {
       <PageBody>
         {loadError ? (
           <ErrorMessage label={t('staff.support.tickets.loadError', 'Could not load the support tickets.')} />
+        ) : null}
+        {optionsError ? (
+          <ErrorMessage
+            label={t('staff.support.tickets.optionsLoadError', 'Could not load the filter options.')}
+          />
         ) : null}
         <DataTable<SupportRow>
           title={t('staff.support.tickets.title', 'Support Inbox')}

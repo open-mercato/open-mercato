@@ -7,6 +7,9 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -14,7 +17,8 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 const ENTITY_ID = 'staff:staff_time_task'
 const CUSTOMER_VISIBLE_TAG = 'customer-visible'
 const CUSTOMER_UPLOAD_PREFIX = 'customer-upload:'
-const MUTATION_CONTEXT_ID = 'staff-task-drawer-support-attachments'
+const MUTATION_CONTEXT_ID = 'staff.task_drawer.support_attachments'
+const ATTACHMENTS_MANAGE_FEATURE = 'attachments.manage'
 
 type StaffAttachment = {
   id: string
@@ -46,8 +50,11 @@ export function SupportAttachmentsSection({ taskId }: SupportAttachmentsSectionP
     contextId: MUTATION_CONTEXT_ID,
     blockedMessage: t('staff.support.attachments.uploadFailed', 'Could not upload the file.'),
   })
+  const { payload } = useBackendChrome()
+  const canUpload = hasFeature(payload?.grantedFeatures, ATTACHMENTS_MANAGE_FEATURE)
   const [items, setItems] = React.useState<StaffAttachment[]>([])
   const [loading, setLoading] = React.useState(true)
+  const [loadFailed, setLoadFailed] = React.useState(false)
   const [uploading, setUploading] = React.useState(false)
   const [share, setShare] = React.useState(false)
   const inputRef = React.useRef<HTMLInputElement | null>(null)
@@ -57,7 +64,14 @@ export function SupportAttachmentsSection({ taskId }: SupportAttachmentsSectionP
       const response = await apiCall<{ items?: StaffAttachment[] }>(
         `/api/attachments?entityId=${encodeURIComponent(ENTITY_ID)}&recordId=${encodeURIComponent(taskId)}`,
       )
-      setItems(response.ok ? response.result?.items ?? [] : [])
+      if (!response.ok) {
+        setLoadFailed(true)
+        return
+      }
+      setLoadFailed(false)
+      setItems(response.result?.items ?? [])
+    } catch {
+      setLoadFailed(true)
     } finally {
       setLoading(false)
     }
@@ -68,7 +82,7 @@ export function SupportAttachmentsSection({ taskId }: SupportAttachmentsSectionP
   }, [load])
 
   const upload = React.useCallback(async (list: FileList | null) => {
-    if (!list || !list.length) return
+    if (!list || !list.length || !canUpload) return
     setUploading(true)
     try {
       for (const file of Array.from(list)) {
@@ -90,41 +104,54 @@ export function SupportAttachmentsSection({ taskId }: SupportAttachmentsSectionP
         if (!result.ok) flash(t('staff.support.attachments.uploadFailed', 'Could not upload the file.'), 'error')
       }
       await load()
+    } catch {
+      flash(t('staff.support.attachments.uploadFailed', 'Could not upload the file.'), 'error')
     } finally {
       setUploading(false)
       if (inputRef.current) inputRef.current.value = ''
     }
-  }, [load, retryLastMutation, runMutation, share, t, taskId])
+  }, [canUpload, load, retryLastMutation, runMutation, share, t, taskId])
 
   return (
     <section className="space-y-2" data-testid="support-attachments-section">
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-sm font-semibold text-foreground">{t('staff.support.attachments.title', 'Ticket files')}</h3>
-        <div className="flex items-center gap-3">
-          <label className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Checkbox
-              checked={share}
-              onCheckedChange={(value) => setShare(value === true)}
-              aria-label={t('staff.support.attachments.shareWithCustomer', 'Share with customer')}
+        {canUpload ? (
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Checkbox
+                checked={share}
+                onCheckedChange={(value) => setShare(value === true)}
+                aria-label={t('staff.support.attachments.shareWithCustomer', 'Share with customer')}
+              />
+              {t('staff.support.attachments.shareWithCustomer', 'Share with customer')}
+            </label>
+            <input
+              ref={inputRef}
+              type="file"
+              multiple
+              className="sr-only"
+              data-testid="support-attachments-input"
+              onChange={(event) => void upload(event.target.files)}
             />
-            {t('staff.support.attachments.shareWithCustomer', 'Share with customer')}
-          </label>
-          <input
-            ref={inputRef}
-            type="file"
-            multiple
-            className="sr-only"
-            data-testid="support-attachments-input"
-            onChange={(event) => void upload(event.target.files)}
-          />
-          <Button type="button" variant="outline" size="sm" disabled={uploading} onClick={() => inputRef.current?.click()}>
-            {uploading ? <Spinner className="mr-2 h-4 w-4" /> : <Paperclip className="mr-2 h-4 w-4" />}
-            {t('staff.support.attachments.upload', 'Upload')}
-          </Button>
-        </div>
+            <Button type="button" variant="outline" size="sm" disabled={uploading} onClick={() => inputRef.current?.click()}>
+              {uploading ? <Spinner className="mr-2 h-4 w-4" /> : <Paperclip className="mr-2 h-4 w-4" />}
+              {t('staff.support.attachments.upload', 'Upload')}
+            </Button>
+          </div>
+        ) : null}
       </div>
       {loading ? (
-        <Spinner />
+        <LoadingMessage label={t('staff.support.attachments.loading', 'Loading files…')} />
+      ) : loadFailed ? (
+        <ErrorMessage
+          label={t('staff.support.attachments.loadFailed', 'Could not load the ticket files.')}
+          action={(
+            <Button type="button" variant="outline" size="sm" onClick={() => { void load() }}>
+              {t('staff.support.attachments.retry', 'Try again')}
+            </Button>
+          )}
+        />
       ) : items.length === 0 ? (
         <p className="text-sm text-muted-foreground">{t('staff.support.attachments.empty', 'No files on this ticket.')}</p>
       ) : (

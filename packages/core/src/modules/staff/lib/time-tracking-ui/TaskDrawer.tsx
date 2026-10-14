@@ -117,7 +117,21 @@ export type TaskDrawerProps = {
   onChanged?: () => void
 }
 
-type LoadedTask = { task: BoardTask; createdAt: string | null; support: SupportTicketView | null }
+type TaskAssignmentAbility = { canClaim: boolean; canRelease: boolean }
+
+type LoadedTask = {
+  task: BoardTask
+  createdAt: string | null
+  support: SupportTicketView | null
+  assignment: TaskAssignmentAbility
+}
+
+function readTaskAssignmentAbility(row: BoardApiRow): TaskAssignmentAbility {
+  const block = (row as Record<string, unknown>)._staffAssignment
+  if (!block || typeof block !== 'object') return { canClaim: false, canRelease: false }
+  const ability = block as Record<string, unknown>
+  return { canClaim: ability.canClaim === true, canRelease: ability.canRelease === true }
+}
 
 type RunningTimer = { entryId: string | null; taskId: string | null; startedAt: string | null }
 
@@ -225,7 +239,12 @@ export function TaskDrawer({
       if (!row) return null
       const parsed = toBoardTask(row)
       return parsed
-        ? { task: parsed, createdAt: readString(row, 'created_at', 'createdAt'), support: readSupportTicket(row) }
+        ? {
+            task: parsed,
+            createdAt: readString(row, 'created_at', 'createdAt'),
+            support: readSupportTicket(row),
+            assignment: readTaskAssignmentAbility(row),
+          }
         : null
     },
   })
@@ -769,26 +788,8 @@ export function TaskDrawer({
     [saveTaskField],
   )
 
-  const projectMembershipQuery = useQuery<{ isAssigner: boolean }>({
-    queryKey: [...DRAWER_QUERY_ROOT, 'project-membership', `scope:${scopeVersion}`, projectId ?? 'none', selfStaffMemberId ?? 'none'],
-    enabled: open && !!projectId && !!selfStaffMemberId,
-    staleTime: 60_000,
-    queryFn: async () => {
-      if (!projectId || !selfStaffMemberId) return { isAssigner: false }
-      const call = await apiCall<Record<string, unknown>>(
-        `/api/staff/timesheets/time-projects/${encodeURIComponent(projectId)}/employees?page=1&pageSize=${DIRECTORY_PAGE_SIZE}`,
-      )
-      if (!call.ok) return { isAssigner: false }
-      const isAssigner = readItems(call.result).some(
-        (row) =>
-          readString(row, 'staff_member_id', 'staffMemberId') === selfStaffMemberId &&
-          (row.is_assigner === true || row.isAssigner === true) &&
-          readString(row, 'status') !== 'inactive',
-      )
-      return { isAssigner }
-    },
-  })
-  const isProjectAssigner = projectMembershipQuery.data?.isAssigner === true
+  const canClaim = taskQuery.data?.assignment.canClaim === true
+  const canRelease = taskQuery.data?.assignment.canRelease === true
 
   const runAssignmentAction = React.useCallback(
     (action: 'claim' | 'release') => {
@@ -1405,7 +1406,7 @@ export function TaskDrawer({
                   ))}
                 </SelectContent>
               </Select>
-              {!task.assigneeStaffMemberId && isProjectAssigner && !status?.isDone ? (
+              {canClaim ? (
                 <Button
                   type="button"
                   size="sm"
@@ -1417,7 +1418,7 @@ export function TaskDrawer({
                   {t('staff.time_tracking.taskDrawer.assignment.claim', 'Claim')}
                 </Button>
               ) : null}
-              {task.assigneeStaffMemberId && selfStaffMemberId && task.assigneeStaffMemberId === selfStaffMemberId ? (
+              {canRelease ? (
                 <Button
                   type="button"
                   size="sm"

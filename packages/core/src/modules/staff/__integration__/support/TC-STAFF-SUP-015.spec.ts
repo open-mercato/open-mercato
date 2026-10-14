@@ -1,8 +1,10 @@
 /**
- * TC-STAFF-SUP-015: Support Inbox — customer filter and live refresh.
+ * TC-STAFF-SUP-015: Support Inbox — customer and category filters, live refresh.
  *
  * The Support Inbox (`/backend/staff/time-tracking/support`) narrows tickets to one
- * customer through the Customer filter, and an open inbox picks up a newly filed
+ * customer through the Customer filter, offers an `employee` assigner every category
+ * of the organization in the Category filter (served by
+ * `/api/staff/timesheets/support-tickets/options`), and an open inbox picks up a newly filed
  * ticket (`staff.support_ticket.activity_recorded`) and an assignee change
  * (`staff.timesheets.time_task.assignee_changed`) without a reload.
  */
@@ -75,6 +77,66 @@ test.describe('TC-STAFF-SUP-015: Support Inbox customer filter and live refresh'
 
       await expect(staff.getByRole('row').filter({ hasText: firstSubject })).toBeVisible({ timeout: 30_000 })
       await expect(staff.getByRole('row').filter({ hasText: secondSubject })).toHaveCount(0)
+    } finally {
+      await cleanup.run()
+    }
+  })
+
+  test('an employee assigner filters by any organization category, not only those on the page', async ({ browser, request }) => {
+    test.setTimeout(180_000)
+    const cleanup = new Cleanup()
+    try {
+      const admin = await adminToken(request)
+      const project = await createProject(request, admin, cleanup, 'inbox-category')
+      const filed = await createCategory(request, admin, cleanup, 'inbox-cat-filed')
+      const other = await createCategory(request, admin, cleanup, 'inbox-cat-other')
+      const untouched = await createCategory(request, admin, cleanup, 'inbox-cat-empty')
+      await createRoutingRule(request, admin, cleanup, { categoryValue: filed.value, timeProjectId: project.id })
+      await createRoutingRule(request, admin, cleanup, { categoryValue: other.value, timeProjectId: project.id })
+      const assigner = await createStaffPerson(request, admin, cleanup, 'inbox-category')
+      await addProjectMember(request, admin, project.id, assigner.staffMemberId, { isAssigner: true })
+      const customer = await createPortalCustomer(request, admin, cleanup, { features: [PORTAL_VIEW, PORTAL_MANAGE], label: 'category' })
+
+      const filedSubject = `Category filed ${Date.now()}`
+      const otherSubject = `Category other ${Date.now()}`
+      const filedTicket = await fileTicket(request, customer, { categoryValue: filed.value, subject: filedSubject })
+      cleanup.add(() => deleteTask(request, admin, filedTicket.id))
+      const otherTicket = await fileTicket(request, customer, { categoryValue: other.value, subject: otherSubject })
+      cleanup.add(() => deleteTask(request, admin, otherTicket.id))
+
+      const optionsResponse = await apiRequest(request, 'GET', '/api/staff/timesheets/support-tickets/options', {
+        token: assigner.token,
+      })
+      expect(optionsResponse.status(), 'an employee must be able to read the inbox filter options').toBe(200)
+      const options = (await optionsResponse.json()) as {
+        categories?: Array<{ value: string }>
+        assignees?: Array<{ id: string }>
+      }
+      const optionValues = options.categories?.map((category) => category.value) ?? []
+      expect(optionValues).toEqual(expect.arrayContaining([filed.value, other.value, untouched.value]))
+      expect(options.assignees?.map((assignee) => assignee.id) ?? []).toContain(assigner.staffMemberId)
+
+      const context = await browser.newContext()
+      cleanup.add(() => context.close())
+      const staff = await context.newPage()
+      await loginStaffInBrowser(staff, assigner)
+      await staff.goto(INBOX_PATH, { waitUntil: 'domcontentloaded' })
+      await dismissNotices(staff)
+      await expect(staff.getByRole('row').filter({ hasText: filedSubject })).toBeVisible({ timeout: 60_000 })
+      await expect(staff.getByRole('row').filter({ hasText: otherSubject })).toBeVisible()
+
+      await staff.getByRole('button', { name: 'Filters' }).click()
+      const categoryField = staff
+        .locator('div.space-y-2')
+        .filter({ has: staff.locator('div.text-sm.font-medium', { hasText: /^Category$/ }) })
+        .last()
+      await categoryField.getByRole('combobox').click()
+      await expect(staff.getByRole('option', { name: untouched.label, exact: true }).first()).toBeVisible()
+      await staff.getByRole('option', { name: filed.label, exact: true }).first().click()
+      await staff.getByRole('button', { name: 'Apply' }).first().click()
+
+      await expect(staff.getByRole('row').filter({ hasText: filedSubject })).toBeVisible({ timeout: 30_000 })
+      await expect(staff.getByRole('row').filter({ hasText: otherSubject })).toHaveCount(0)
     } finally {
       await cleanup.run()
     }

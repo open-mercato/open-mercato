@@ -18,6 +18,9 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
+import { ComboboxInput, type ComboboxOption } from '@open-mercato/ui/backend/inputs/ComboboxInput'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@open-mercato/ui/primitives/table'
@@ -40,9 +43,13 @@ const CATEGORY_DICTIONARY_KEY = 'staff.support_ticket_category'
 const ROUTING_API = 'staff/timesheets/support-routing-rules'
 const PREVIEW_URL = '/api/staff/timesheets/support-routing-rules/preview'
 const FALLBACK_PROJECT_URL = '/api/staff/timesheets/support-routing-rules/fallback-project'
-const PROJECTS_URL = '/api/staff/timesheets/time-projects?pageSize=100'
+const PROJECTS_URL = '/api/staff/timesheets/time-projects'
 const SETTINGS_URL = '/api/staff/timesheets/settings'
-const SAVE_CONTEXT_ID = 'staff-support-settings'
+const SAVE_CONTEXT_ID = 'staff.support.settings'
+const DICTIONARIES_VIEW_FEATURE = 'dictionaries.view'
+const DICTIONARIES_MANAGE_FEATURE = 'dictionaries.manage'
+const PROJECT_SEARCH_PAGE_SIZE = 20
+const RULE_VERSION_BATCH_SIZE = 100
 const PREFIX_PATTERN = /^[A-Z][A-Z0-9]{1,9}$/
 
 type RuleProblem = 'paused' | 'project_unusable' | 'category_missing'
@@ -138,10 +145,74 @@ function projectLabel(project: { name: string | null; code: string | null; id: s
   return project.code ? `${name} (${project.code})` : name
 }
 
+function chunk<T>(items: T[], size: number): T[][] {
+  const batches: T[][] = []
+  for (let index = 0; index < items.length; index += size) batches.push(items.slice(index, index + size))
+  return batches
+}
+
+async function searchProjects(query?: string): Promise<ComboboxOption[]> {
+  const params = new URLSearchParams({
+    page: '1',
+    pageSize: String(PROJECT_SEARCH_PAGE_SIZE),
+    sortField: 'name',
+    sortDir: 'asc',
+  })
+  const term = query?.trim() ?? ''
+  if (term) params.set('q', term)
+  try {
+    const call = await apiCall<{ items?: unknown[] }>(`${PROJECTS_URL}?${params.toString()}`)
+    if (!call.ok) return []
+    return (call.result?.items ?? [])
+      .map(normalizeProject)
+      .filter((project): project is ProjectOption => project !== null)
+      .map((project) => ({ value: project.id, label: projectLabel(project) }))
+  } catch {
+    return []
+  }
+}
+
+type SupportProjectPickerProps = {
+  labelId: string
+  value: string
+  knownProjects: ProjectOption[]
+  placeholder: string
+  disabled?: boolean
+  testId: string
+  onChange: (projectId: string) => void
+}
+
+function SupportProjectPicker({ labelId, value, knownProjects, placeholder, disabled, testId, onChange }: SupportProjectPickerProps) {
+  const seedOptions = React.useMemo<ComboboxOption[]>(
+    () => knownProjects.map((project) => ({ value: project.id, label: projectLabel(project) })),
+    [knownProjects],
+  )
+  return (
+    <div role="group" aria-labelledby={labelId} data-testid={testId}>
+      <ComboboxInput
+        value={value}
+        onChange={(next) => {
+          if (next && next !== value) onChange(next)
+        }}
+        seedOptions={seedOptions}
+        loadSuggestions={searchProjects}
+        allowCustomValues={false}
+        placeholder={placeholder}
+        disabled={disabled}
+      />
+    </div>
+  )
+}
+
 export default function SupportSettingsTab({ context }: InjectionWidgetComponentProps<TimeTrackingSettingsTabContext>) {
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const { payload: chromePayload, isReady: chromeReady } = useBackendChrome()
+  const grantedFeatures = chromePayload?.grantedFeatures
+  const canManageSettings = context.canManage
+  const canViewCategories = hasFeature(grantedFeatures, DICTIONARIES_VIEW_FEATURE)
+  const canManageCategories = canManageSettings && hasFeature(grantedFeatures, DICTIONARIES_MANAGE_FEATURE)
   const { runMutation, retryLastMutation } = useGuardedMutation<{
     formId: string
     resourceKind: string
@@ -169,12 +240,12 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
   const [categoryEntries, setCategoryEntries] = React.useState<DictionaryTableEntry[]>([])
   const [dictionaryId, setDictionaryId] = React.useState<string | null>(null)
   const [categoriesLoading, setCategoriesLoading] = React.useState(true)
+  const [categoriesError, setCategoriesError] = React.useState<string | null>(null)
   const [categoryDialog, setCategoryDialog] = React.useState<CategoryDialogState | null>(null)
   const [categorySubmitting, setCategorySubmitting] = React.useState(false)
 
   const [preview, setPreview] = React.useState<RoutingPreview>(EMPTY_PREVIEW)
   const [ruleVersions, setRuleVersions] = React.useState<Record<string, string | null>>({})
-  const [projects, setProjects] = React.useState<ProjectOption[]>([])
   const [routingLoading, setRoutingLoading] = React.useState(true)
   const [routingError, setRoutingError] = React.useState<string | null>(null)
   const [ruleDialog, setRuleDialog] = React.useState<RuleDialogState | null>(null)
@@ -188,7 +259,16 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
   const [prefixSaving, setPrefixSaving] = React.useState(false)
 
   const loadCategories = React.useCallback(async () => {
+    if (!chromeReady) return
+    if (!canViewCategories) {
+      setCategoryEntries([])
+      setDictionaryId(null)
+      setCategoriesError(null)
+      setCategoriesLoading(false)
+      return
+    }
     setCategoriesLoading(true)
+    setCategoriesError(null)
     try {
       const dictionaries = await readApiResultOrThrow<{ items?: Array<{ id?: string; key?: string }> }>(
         '/api/dictionaries',
@@ -211,33 +291,39 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
         (entries.items ?? []).map(normalizeEntry).filter((entry): entry is DictionaryTableEntry => entry !== null),
       )
     } catch (err) {
-      flash(err instanceof Error ? err.message : t('staff.support.settings.errors.load', 'Failed to load support settings.'), 'error')
+      setCategoriesError(err instanceof Error ? err.message : t('staff.support.settings.errors.load', 'Failed to load support settings.'))
     } finally {
       setCategoriesLoading(false)
     }
-  }, [t])
+  }, [canViewCategories, chromeReady, t])
 
   const loadRouting = React.useCallback(async () => {
     setRoutingLoading(true)
     setRoutingError(null)
     try {
       const errorMessage = t('staff.support.settings.errors.load', 'Failed to load support settings.')
-      const [previewResult, rulesResult, projectsResult] = await Promise.all([
-        readApiResultOrThrow<RoutingPreview>(PREVIEW_URL, undefined, { fallback: EMPTY_PREVIEW, errorMessage }),
-        readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(`/api/${ROUTING_API}?pageSize=100`, undefined, {
-          fallback: { items: [] },
-          errorMessage,
-        }),
-        readApiResultOrThrow<{ items?: unknown[] }>(PROJECTS_URL, undefined, { fallback: { items: [] }, errorMessage }),
-      ])
-      setPreview(previewResult ?? EMPTY_PREVIEW)
+      const previewResult =
+        (await readApiResultOrThrow<RoutingPreview>(PREVIEW_URL, undefined, { fallback: EMPTY_PREVIEW, errorMessage })) ??
+        EMPTY_PREVIEW
+      const ruleIds = previewResult.rules.map((rule) => rule.id)
+      const batches = await Promise.all(
+        chunk(ruleIds, RULE_VERSION_BATCH_SIZE).map((ids) =>
+          readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
+            `/api/${ROUTING_API}?ids=${ids.map(encodeURIComponent).join(',')}&pageSize=${RULE_VERSION_BATCH_SIZE}`,
+            undefined,
+            { fallback: { items: [] }, errorMessage },
+          ),
+        ),
+      )
       const versions: Record<string, string | null> = {}
-      for (const item of rulesResult.items ?? []) {
-        const id = toStringOrNull(item.id)
-        if (id) versions[id] = toStringOrNull(item.updated_at) ?? toStringOrNull(item.updatedAt)
+      for (const batch of batches) {
+        for (const item of batch.items ?? []) {
+          const id = toStringOrNull(item.id)
+          if (id) versions[id] = toStringOrNull(item.updated_at) ?? toStringOrNull(item.updatedAt)
+        }
       }
+      setPreview(previewResult)
       setRuleVersions(versions)
-      setProjects((projectsResult.items ?? []).map(normalizeProject).filter((item): item is ProjectOption => item !== null))
     } catch (err) {
       setRoutingError(err instanceof Error ? err.message : t('staff.support.settings.errors.load', 'Failed to load support settings.'))
     } finally {
@@ -251,20 +337,23 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
 
   React.useEffect(() => {
     void loadCategories()
+  }, [loadCategories, scopeVersion])
+
+  React.useEffect(() => {
     void loadRouting()
-  }, [loadCategories, loadRouting, scopeVersion])
+  }, [loadRouting, scopeVersion])
 
   const reloadAll = React.useCallback(async () => {
     await Promise.all([loadCategories(), loadRouting()])
   }, [loadCategories, loadRouting])
 
-  const reportError = React.useCallback((err: unknown, fallbackKey: string, fallback: string, onRefresh?: () => void) => {
+  const surfaceMutationError = React.useCallback((err: unknown, fallbackKey: string, fallback: string, onRefresh?: () => void) => {
     if (surfaceRecordConflict(err, t, onRefresh ? { onRefresh } : undefined)) return
     flash(err instanceof Error ? err.message : t(fallbackKey, fallback), 'error')
   }, [t])
 
   const submitCategory = React.useCallback(async (values: DictionaryFormValues) => {
-    if (!categoryDialog || !dictionaryId) return
+    if (!categoryDialog || !dictionaryId || categorySubmitting) return
     setCategorySubmitting(true)
     try {
       if (categoryDialog.mode === 'create') {
@@ -309,11 +398,11 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
       setCategoryDialog(null)
       await reloadAll()
     } catch (err) {
-      reportError(err, 'staff.support.settings.errors.save', 'Failed to save.', () => { void loadCategories() })
+      surfaceMutationError(err, 'staff.support.settings.errors.save', 'Failed to save.', () => { void loadCategories() })
     } finally {
       setCategorySubmitting(false)
     }
-  }, [categoryContext, categoryDialog, dictionaryId, loadCategories, reloadAll, reportError, runMutation, t])
+  }, [categoryContext, categoryDialog, categorySubmitting, dictionaryId, loadCategories, reloadAll, surfaceMutationError, runMutation, t])
 
   const deleteCategory = React.useCallback(async (entry: DictionaryTableEntry) => {
     if (!dictionaryId) return
@@ -340,9 +429,9 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
       flash(t('staff.support.settings.categories.deleted', 'Category deleted.'), 'success')
       await reloadAll()
     } catch (err) {
-      reportError(err, 'staff.support.settings.errors.delete', 'Failed to delete.', () => { void loadCategories() })
+      surfaceMutationError(err, 'staff.support.settings.errors.delete', 'Failed to delete.', () => { void loadCategories() })
     }
-  }, [categoryContext, confirm, dictionaryId, loadCategories, reloadAll, reportError, runMutation, t])
+  }, [categoryContext, confirm, dictionaryId, loadCategories, reloadAll, surfaceMutationError, runMutation, t])
 
   const createFallbackProject = React.useCallback(async () => {
     setCreatingFallback(true)
@@ -359,11 +448,11 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
       flash(t('staff.support.settings.routing.fallbackCreated', 'Fallback project created.'), 'success')
       await loadRouting()
     } catch (err) {
-      reportError(err, 'staff.support.settings.errors.save', 'Failed to save.')
+      surfaceMutationError(err, 'staff.support.settings.errors.save', 'Failed to save.')
     } finally {
       setCreatingFallback(false)
     }
-  }, [loadRouting, reportError, routingContext, runMutation, t])
+  }, [loadRouting, surfaceMutationError, routingContext, runMutation, t])
 
   const updateRule = React.useCallback(async (ruleId: string, patch: { timeProjectId?: string; isActive?: boolean }) => {
     try {
@@ -379,10 +468,10 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
       await loadRouting()
       return true
     } catch (err) {
-      reportError(err, 'staff.support.settings.errors.save', 'Failed to save.', () => { void loadRouting() })
+      surfaceMutationError(err, 'staff.support.settings.errors.save', 'Failed to save.', () => { void loadRouting() })
       return false
     }
-  }, [loadRouting, reportError, routingContext, ruleVersions, runMutation, t])
+  }, [loadRouting, surfaceMutationError, routingContext, ruleVersions, runMutation, t])
 
   const deleteRule = React.useCallback(async (rule: PreviewRule) => {
     const confirmed = await confirm({
@@ -402,12 +491,12 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
       flash(t('staff.support.settings.routing.deleted', 'Rule deleted.'), 'success')
       await loadRouting()
     } catch (err) {
-      reportError(err, 'staff.support.settings.errors.delete', 'Failed to delete.', () => { void loadRouting() })
+      surfaceMutationError(err, 'staff.support.settings.errors.delete', 'Failed to delete.', () => { void loadRouting() })
     }
-  }, [confirm, loadRouting, reportError, routingContext, ruleVersions, runMutation, t])
+  }, [confirm, loadRouting, surfaceMutationError, routingContext, ruleVersions, runMutation, t])
 
   const submitRuleDialog = React.useCallback(async () => {
-    if (!ruleDialog || !ruleDialog.timeProjectId) return
+    if (!ruleDialog || !ruleDialog.timeProjectId || ruleSubmitting) return
     if (ruleDialog.mode === 'create' && !ruleDialog.categoryValue) return
     setRuleSubmitting(true)
     try {
@@ -428,11 +517,11 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
         if (ok) setRuleDialog(null)
       }
     } catch (err) {
-      reportError(err, 'staff.support.settings.errors.save', 'Failed to save.', () => { void loadRouting() })
+      surfaceMutationError(err, 'staff.support.settings.errors.save', 'Failed to save.', () => { void loadRouting() })
     } finally {
       setRuleSubmitting(false)
     }
-  }, [loadRouting, reportError, routingContext, ruleDialog, runMutation, t, updateRule])
+  }, [loadRouting, surfaceMutationError, routingContext, ruleDialog, ruleSubmitting, runMutation, t, updateRule])
 
   const savePrefix = React.useCallback(async () => {
     const value = prefix.trim().toUpperCase()
@@ -460,11 +549,11 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
       if (call.result) onSettingsSaved(call.result)
       flash(t('staff.support.settings.prefix.saved', 'Reference prefix saved.'), 'success')
     } catch (err) {
-      reportError(err, 'staff.support.settings.errors.save', 'Failed to save.')
+      surfaceMutationError(err, 'staff.support.settings.errors.save', 'Failed to save.')
     } finally {
       setPrefixSaving(false)
     }
-  }, [onSettingsSaved, prefix, reportError, runMutation, settings, settingsContext, t])
+  }, [onSettingsSaved, prefix, surfaceMutationError, runMutation, settings, settingsContext, t])
 
   const categoryLabels = React.useMemo(() => {
     const map = new Map<string, string>()
@@ -480,6 +569,17 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
   }, [overrides, preview.categories])
 
   const fallbackName = preview.fallback ? projectLabel(preview.fallback.project) : ''
+
+  const knownProjects = React.useMemo<ProjectOption[]>(() => {
+    const byId = new Map<string, ProjectOption>()
+    const remember = (project: PreviewProject) => {
+      if (!byId.has(project.id)) byId.set(project.id, { id: project.id, name: project.name ?? project.id, code: project.code })
+    }
+    if (preview.fallback) remember(preview.fallback.project)
+    for (const rule of preview.rules) remember(rule.project)
+    for (const category of preview.categories) if (category.route) remember(category.route.project)
+    return [...byId.values()]
+  }, [preview])
 
   const problemText = (problem: RuleProblem): string => {
     if (problem === 'paused') return t('staff.support.settings.routing.problem.paused', 'The rule is paused.')
@@ -533,7 +633,22 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
             </p>
           </div>
           <div className="px-2 py-4 sm:px-4">
-            {!categoriesLoading && !dictionaryId ? (
+            {chromeReady && !canViewCategories ? (
+              <Alert status="information">
+                <AlertDescription>
+                  {t('staff.support.settings.categories.noAccess', 'You do not have permission to view the support categories.')}
+                </AlertDescription>
+              </Alert>
+            ) : categoriesError ? (
+              <ErrorMessage
+                label={categoriesError}
+                action={(
+                  <Button type="button" variant="outline" onClick={() => { void loadCategories() }}>
+                    {t('staff.support.settings.actions.retry', 'Try again')}
+                  </Button>
+                )}
+              />
+            ) : !categoriesLoading && !dictionaryId ? (
               <Alert status="warning">
                 <AlertDescription>
                   {t('staff.support.settings.categories.missingDictionary', 'The support categories dictionary has not been seeded for this organization yet.')}
@@ -543,7 +658,7 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
               <DictionaryTable
                 entries={categoryEntries}
                 loading={categoriesLoading}
-                canManage
+                canManage={canManageCategories}
                 onCreate={() => setCategoryDialog({ mode: 'create' })}
                 onEdit={(entry) => setCategoryDialog({ mode: 'edit', entry: categoryEntries.find((row) => row.id === entry.id) ?? entry })}
                 onDelete={(entry) => { void deleteCategory(categoryEntries.find((row) => row.id === entry.id) ?? entry) }}
@@ -565,14 +680,21 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
             {routingLoading ? (
               <LoadingMessage label={t('staff.support.settings.routing.loading', 'Loading routing…')} />
             ) : routingError ? (
-              <ErrorMessage label={routingError} />
+              <ErrorMessage
+                label={routingError}
+                action={(
+                  <Button type="button" variant="outline" onClick={() => { void loadRouting() }}>
+                    {t('staff.support.settings.actions.retry', 'Try again')}
+                  </Button>
+                )}
+              />
             ) : (
               <>
                 {!preview.fallback ? (
                   <Alert
                     status="warning"
                     footer={(
-                      <Button type="button" onClick={() => { void createFallbackProject() }} disabled={creatingFallback}>
+                      <Button type="button" onClick={() => { void createFallbackProject() }} disabled={creatingFallback || !canManageSettings}>
                         <Plus className="mr-2 h-4 w-4" />
                         {t('staff.support.settings.routing.createFallback', 'Create fallback project')}
                       </Button>
@@ -594,26 +716,20 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
                       </Alert>
                     ) : null}
                     <div className="max-w-md space-y-2">
-                      <Label htmlFor="support-fallback-project">
+                      <Label id="support-fallback-project-label">
                         {t('staff.support.settings.routing.fallbackProject', 'Fallback project')}
                       </Label>
-                      <Select
+                      <SupportProjectPicker
+                        labelId="support-fallback-project-label"
+                        testId="support-fallback-project"
                         value={preview.fallback.project.id}
-                        onValueChange={(value) => {
-                          if (preview.fallback && value && value !== preview.fallback.project.id) {
-                            void updateRule(preview.fallback.ruleId, { timeProjectId: value })
-                          }
+                        knownProjects={knownProjects}
+                        placeholder={t('staff.support.settings.routing.searchProject', 'Search projects')}
+                        disabled={!canManageSettings}
+                        onChange={(projectId) => {
+                          if (preview.fallback) void updateRule(preview.fallback.ruleId, { timeProjectId: projectId })
                         }}
-                      >
-                        <SelectTrigger id="support-fallback-project">
-                          <SelectValue placeholder={fallbackName} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {projects.map((project) => (
-                            <SelectItem key={project.id} value={project.id}>{projectLabel(project)}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      />
                     </div>
                   </div>
                 )}
@@ -624,7 +740,7 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
                     <Button
                       type="button"
                       variant="outline"
-                      disabled={categoriesWithoutRule.length === 0}
+                      disabled={categoriesWithoutRule.length === 0 || !canManageSettings}
                       onClick={() => setRuleDialog({
                         mode: 'create',
                         categoryValue: categoriesWithoutRule[0]?.value ?? '',
@@ -658,6 +774,7 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
                             <TableCell>
                               <Switch
                                 checked={rule.isActive}
+                                disabled={!canManageSettings}
                                 aria-label={t('staff.support.settings.routing.active', 'Active')}
                                 onCheckedChange={(checked) => { void updateRule(rule.id, { isActive: checked }) }}
                               />
@@ -682,6 +799,7 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
                                   type="button"
                                   variant="ghost"
                                   aria-label={t('staff.support.settings.actions.edit', 'Edit')}
+                                  disabled={!canManageSettings}
                                   onClick={() => setRuleDialog({
                                     mode: 'edit',
                                     ruleId: rule.id,
@@ -695,6 +813,7 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
                                   type="button"
                                   variant="ghost"
                                   aria-label={t('staff.support.settings.actions.delete', 'Delete')}
+                                  disabled={!canManageSettings}
                                   onClick={() => { void deleteRule(rule) }}
                                 >
                                   <Trash2 className="h-4 w-4" />
@@ -767,12 +886,13 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
                   id="support-reference-prefix"
                   value={prefix}
                   maxLength={10}
+                  disabled={!canManageSettings}
                   onChange={(event) => setPrefix(event.target.value.toUpperCase())}
                   aria-invalid={prefixError ? true : undefined}
                 />
                 {prefixError ? <p className="text-sm text-status-error-text">{prefixError}</p> : null}
               </div>
-              <Button type="button" onClick={() => { void savePrefix() }} disabled={prefixSaving}>
+              <Button type="button" onClick={() => { void savePrefix() }} disabled={prefixSaving || !canManageSettings}>
                 <Save className="mr-2 h-4 w-4" />
                 {t('staff.support.settings.actions.save', 'Save')}
               </Button>
@@ -787,6 +907,7 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
           onKeyDown={(event) => {
             if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
               event.preventDefault()
+              if (categorySubmitting) return
               event.currentTarget.querySelector('form')?.requestSubmit()
             }
           }}
@@ -831,6 +952,7 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
           onKeyDown={(event) => {
             if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
               event.preventDefault()
+              if (ruleSubmitting) return
               void submitRuleDialog()
             }
           }}
@@ -873,20 +995,15 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="support-rule-project">{t('staff.support.settings.routing.project', 'Project')}</Label>
-                <Select
+                <Label id="support-rule-project-label">{t('staff.support.settings.routing.project', 'Project')}</Label>
+                <SupportProjectPicker
+                  labelId="support-rule-project-label"
+                  testId="support-rule-project"
                   value={ruleDialog.timeProjectId}
-                  onValueChange={(value) => setRuleDialog({ ...ruleDialog, timeProjectId: value })}
-                >
-                  <SelectTrigger id="support-rule-project">
-                    <SelectValue placeholder={t('staff.support.settings.routing.selectProject', 'Select a project')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {projects.map((project) => (
-                      <SelectItem key={project.id} value={project.id}>{projectLabel(project)}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  knownProjects={knownProjects}
+                  placeholder={t('staff.support.settings.routing.selectProject', 'Select a project')}
+                  onChange={(projectId) => setRuleDialog({ ...ruleDialog, timeProjectId: projectId })}
+                />
               </div>
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => setRuleDialog(null)}>

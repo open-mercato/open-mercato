@@ -11,6 +11,7 @@ import {
   StaffTimeReport,
   StaffTimeReportEntry,
   StaffTimeReportEvent,
+  StaffTimeProjectMember,
   StaffTimeTask,
   StaffTimeTaskStatus,
 } from './entities'
@@ -24,8 +25,14 @@ import {
 } from '../lib/timesheets-projects/listProjectMembersPreview'
 import { computeTaskRollups, EMPTY_TASK_ROLLUP } from '../lib/timesheets-tasks/computeTaskRollups'
 import { derivePortalStatus } from '../lib/support/portalStatus'
+import {
+  isActiveAssignment,
+  normalizeAssignmentGraceDays,
+  resolveAssignmentGraceDaysFromContainer,
+} from '../lib/time-tracking/projectAssignment'
 
 const MANAGE_FEATURE = 'staff.timesheets.projects.manage'
+const TASKS_VIEW_FEATURE = 'staff.timesheets.tasks.view'
 const RATES_FEATURE = 'staff.timesheets.rates.view'
 
 /**
@@ -739,6 +746,97 @@ const supportTicketEnricher: ResponseEnricher<EntityRecord, SupportTicketEnrichm
 }
 
 /**
+ * Whether the CALLER may claim or release each task right now, decided by the same
+ * rule the claim and release commands enforce: claiming needs an active assigner
+ * membership of the task's project inside its assignment window (plus the tenant's
+ * grace days), an unassigned task and a column that is not done; releasing needs the
+ * caller to be the current assignee. The drawer reads these instead of guessing from
+ * a page of project members, so it never offers an action the server refuses.
+ */
+export type TaskAssignmentEnrichment = {
+  _staffAssignment: {
+    canClaim: boolean
+    canRelease: boolean
+  }
+}
+
+const NO_TASK_ASSIGNMENT: TaskAssignmentEnrichment = { _staffAssignment: { canClaim: false, canRelease: false } }
+
+const taskAssignmentEnricher: ResponseEnricher<EntityRecord, TaskAssignmentEnrichment> = {
+  id: 'staff.timesheets-tasks-assignment',
+  targetEntity: 'staff:staff_time_task',
+  features: [TASKS_VIEW_FEATURE],
+  priority: 3,
+  timeout: 3000,
+  critical: false,
+  fallback: { ...NO_TASK_ASSIGNMENT },
+  cacheableOnListHit: false,
+
+  async enrichOne(record, context) {
+    const enriched = await this.enrichMany!([record], context)
+    return enriched[0]
+  },
+
+  async enrichMany(records, context) {
+    if (records.length === 0) return records as (EntityRecord & TaskAssignmentEnrichment)[]
+    const ctx = context as InternalContext
+    if (!ctx.tenantId || !ctx.organizationId || !ctx.userId) {
+      return records.map((record) => ({ ...record, ...NO_TASK_ASSIGNMENT }))
+    }
+    const scope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
+    const callerStaffMemberId = await resolveCallerStaffMemberId(ctx)
+    if (!callerStaffMemberId) return records.map((record) => ({ ...record, ...NO_TASK_ASSIGNMENT }))
+
+    const taskIds = records.map((record) => record.id).filter((id): id is string => typeof id === 'string')
+    const tasks = await ctx.em.fork().find(
+      StaffTimeTask,
+      { id: { $in: taskIds }, ...scope, deletedAt: null },
+      { fields: ['id', 'timeProjectId', 'taskStatusId', 'assigneeStaffMemberId'] },
+    )
+    const taskById = new Map(tasks.map((task) => [task.id, task]))
+    const projectIds = [...new Set(tasks.map((task) => task.timeProjectId).filter(Boolean))]
+    const statusIds = [...new Set(tasks.map((task) => task.taskStatusId).filter(Boolean))]
+
+    const [statuses, memberships, graceDays] = await Promise.all([
+      statusIds.length
+        ? ctx.em.fork().find(StaffTimeTaskStatus, { id: { $in: statusIds }, ...scope }, { fields: ['id', 'isDone'] })
+        : Promise.resolve([]),
+      projectIds.length
+        ? ctx.em.fork().find(StaffTimeProjectMember, {
+            timeProjectId: { $in: projectIds },
+            staffMemberId: callerStaffMemberId,
+            isAssigner: true,
+            status: 'active',
+            deletedAt: null,
+            ...scope,
+          })
+        : Promise.resolve([]),
+      resolveAssignmentGraceDaysFromContainer(ctx.container, ctx.tenantId),
+    ])
+    const doneStatusIds = new Set(statuses.filter((status) => status.isDone).map((status) => status.id))
+    const now = new Date()
+    const assignerProjectIds = new Set(
+      memberships
+        .filter((membership) => isActiveAssignment(membership, now, normalizeAssignmentGraceDays(graceDays)))
+        .map((membership) => membership.timeProjectId),
+    )
+
+    return records.map((record) => {
+      const task = taskById.get(record.id)
+      if (!task) return { ...record, ...NO_TASK_ASSIGNMENT }
+      const assignee = task.assigneeStaffMemberId ?? null
+      return {
+        ...record,
+        _staffAssignment: {
+          canClaim: !assignee && assignerProjectIds.has(task.timeProjectId) && !doneStatusIds.has(task.taskStatusId),
+          canRelease: assignee === callerStaffMemberId,
+        },
+      }
+    })
+  },
+}
+
+/**
  * What a report row cannot say about itself: whether it is frozen, how many entries
  * the freeze holds, and whether anyone has taken a file out of it.
  *
@@ -891,6 +989,7 @@ const apiEnrichers: ResponseEnricher[] = [
   taskTagEnricher,
   taskContextEnricher,
   supportTicketEnricher,
+  taskAssignmentEnricher,
   timeEntryEnricher,
   reportEnricher,
 ]

@@ -5,9 +5,9 @@ import Link from 'next/link'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { usePortalAppEvent } from '@open-mercato/ui/portal/hooks/usePortalAppEvent'
 import {
   PORTAL_SUPPORT_STATUS_VARIANTS,
@@ -38,6 +38,7 @@ export default function PortalSupportTicketsWidget({ context }: InjectionWidgetC
   const [openCount, setOpenCount] = React.useState(0)
   const [canCreate, setCanCreate] = React.useState(false)
   const [loading, setLoading] = React.useState(true)
+  const [loadFailed, setLoadFailed] = React.useState(false)
 
   const load = React.useCallback(async () => {
     try {
@@ -46,12 +47,19 @@ export default function PortalSupportTicketsWidget({ context }: InjectionWidgetC
         apiCall<PortalSupportTicketList>(`/api/staff/portal/support-tickets?status=in_progress&pageSize=${MAX_ITEMS}`, { credentials: 'include' }),
         apiCall<PortalSupportOptions>('/api/staff/portal/support-tickets/options', { credentials: 'include' }),
       ])
+      if (!received.ok || !inProgress.ok) {
+        setLoadFailed(true)
+        return
+      }
+      setLoadFailed(false)
       const merged = [...(received.result?.items ?? []), ...(inProgress.result?.items ?? [])]
         .sort((left, right) => activityTime(right) - activityTime(left))
         .slice(0, MAX_ITEMS)
       setItems(merged)
       setOpenCount((received.result?.total ?? 0) + (inProgress.result?.total ?? 0))
       setCanCreate(options.ok && options.result?.canCreate === true)
+    } catch {
+      setLoadFailed(true)
     } finally {
       setLoading(false)
     }
@@ -66,9 +74,20 @@ export default function PortalSupportTicketsWidget({ context }: InjectionWidgetC
   }, [load])
 
   if (loading) {
+    return <LoadingMessage label={t('staff.portal.support.widget.loading', 'Loading your tickets…')} />
+  }
+
+  if (loadFailed) {
     return (
-      <div className="flex justify-center py-6">
-        <Spinner />
+      <div data-testid="portal-support-widget">
+        <ErrorMessage
+          label={t('staff.portal.support.loadFailed', 'Could not load your support tickets.')}
+          action={(
+            <Button size="sm" variant="outline" onClick={() => { void load() }}>
+              {t('staff.portal.support.widget.retry', 'Try again')}
+            </Button>
+          )}
+        />
       </div>
     )
   }

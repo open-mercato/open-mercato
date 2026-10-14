@@ -185,6 +185,7 @@ describe('query-engine surface', () => {
     'staff.timesheets-tasks-tags',
     'staff.timesheets-tasks-context',
     'staff.timesheets-tasks-support-ticket',
+    'staff.timesheets-tasks-assignment',
     'staff.timesheets-time-entries',
     'staff.timesheets-reports',
   ]
