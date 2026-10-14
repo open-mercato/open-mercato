@@ -63,7 +63,7 @@ test.describe('TC-STAFF-SUP-010: Support ticket lifecycle through the portal and
       await portalStreamOpened
       await dismissNotices(portal)
       await portal.locator('#support-category').click()
-      await portal.getByRole('option', { name: category.label }).click()
+      await portal.getByRole('option', { name: category.label, exact: true }).click()
       await portal.locator('#support-subject').fill(subject)
       await portal.locator('#support-description').fill('The CSV export stops at 50 rows since yesterday.')
       await portal.getByRole('button', { name: 'File ticket' }).click()

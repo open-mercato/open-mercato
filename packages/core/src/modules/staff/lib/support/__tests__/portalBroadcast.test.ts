@@ -101,6 +101,21 @@ describe('publishTaskPortalStatus', () => {
     expect(mockEmitStaffEvent).not.toHaveBeenCalled()
   })
 
+  it('still publishes an unchanged status for a status-change trigger, without rewriting the record', async () => {
+    const world: World = {
+      tasks: [task('t1', 'done')],
+      tickets: [ticket('t1', 'resolved')],
+      statuses: [{ id: 'done', isDefault: false, isDone: true }],
+    }
+    const { em, flush } = makeEm(world)
+
+    await expect(publishTaskPortalStatus(em, 't1', SCOPE, { always: true })).resolves.toBe(true)
+
+    expect(flush).not.toHaveBeenCalled()
+    expect(portalUpdates()).toHaveLength(1)
+    expect(portalUpdates()[0][1]).toEqual(expect.objectContaining({ portalStatus: 'resolved', kind: 'status' }))
+  })
+
   it('ignores internal tasks and tasks without a ticket row', async () => {
     const internal = { ...task('t1', 'progress'), source: 'internal' }
     const { em } = makeEm({ tasks: [internal, task('t2', 'progress')], tickets: [], statuses: [] })

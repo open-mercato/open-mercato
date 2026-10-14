@@ -224,17 +224,19 @@ export async function createCategory(
   label: string,
 ): Promise<CategoryFixture> {
   const dictionaryId = await supportDictionaryId(request, admin)
-  const value = `qa-${label}-${uniqueSuffix()}`.toLowerCase().replace(/[^a-z0-9-]/g, '-')
+  const suffix = uniqueSuffix()
+  const value = `qa-${label}-${suffix}`.toLowerCase().replace(/[^a-z0-9-]/g, '-')
+  const displayLabel = `QA ${label} ${suffix}`
   const body = await okJson<{ id?: string; item?: { id?: string } }>(
     await apiRequest(request, 'POST', `/api/dictionaries/${dictionaryId}/entries`, {
       token: admin,
-      data: { value, label: `QA ${label}` },
+      data: { value, label: displayLabel },
     }),
     'create support category',
   )
   const entryId = body.id ?? body.item?.id ?? ''
   cleanup.add(() => apiRequest(request, 'DELETE', `/api/dictionaries/${dictionaryId}/entries/${entryId}`, { token: admin }))
-  return { value, label: `QA ${label}`, entryId }
+  return { value, label: displayLabel, entryId }
 }
 
 export async function deleteCategory(request: APIRequestContext, admin: string, category: CategoryFixture) {

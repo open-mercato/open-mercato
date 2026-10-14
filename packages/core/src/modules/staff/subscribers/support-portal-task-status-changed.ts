@@ -26,7 +26,7 @@ export default async function handle(payload: Payload, ctx: ResolverContext): Pr
     const scope = readEventScope(payload)
     const taskId = typeof payload.id === 'string' ? payload.id : null
     if (!scope || !taskId) return
-    await publishTaskPortalStatus((ctx.resolve('em') as EntityManager).fork(), taskId, scope)
+    await publishTaskPortalStatus((ctx.resolve('em') as EntityManager).fork(), taskId, scope, { always: true })
   } catch (err) {
     logger.error('staff:support-portal-task-status-changed failed', { err, id: payload?.id ?? null })
     getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.support_portal_task_status_changed_failed' })

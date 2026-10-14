@@ -167,7 +167,7 @@ test.describe('TC-STAFF-SUP-013: Support ticket attachments', () => {
       await page.goto(`/${slug}/portal/support/new`, { waitUntil: 'domcontentloaded' })
       await dismissNotices(page)
       await page.locator('#support-category').click()
-      await page.getByRole('option', { name: category.label }).click()
+      await page.getByRole('option', { name: category.label, exact: true }).click()
       await page.locator('#support-subject').fill('Screenshot of the broken report')
       await page.locator('#support-description').fill('See the attached screenshot.')
       await page.getByTestId('support-new-file-input').setInputFiles({

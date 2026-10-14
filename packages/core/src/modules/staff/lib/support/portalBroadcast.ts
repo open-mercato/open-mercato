@@ -68,18 +68,31 @@ function emitActivity(task: StaffTimeTask, ticket: StaffSupportTicket, kind: 'po
  * Compare-and-publish: re-derive the customer-facing status of a portal ticket and
  * broadcast only when it differs from what the portal was last told. Safe to call
  * on any task event; internal tasks and tasks without a ticket row are ignored.
+ *
+ * `always` skips the comparison for triggers that are a status change by definition.
+ * Concurrent publishers (a reopen followed quickly by a resolve) each run on their own
+ * fork, so both can read a stale `portalStatusPublished` and skip; the portal refetches
+ * the ticket on every event, so publishing after each status change keeps it correct.
  */
-export async function publishTaskPortalStatus(em: EntityManager, taskId: string, scope: Scope): Promise<boolean> {
+export async function publishTaskPortalStatus(
+  em: EntityManager,
+  taskId: string,
+  scope: Scope,
+  options: { always?: boolean } = {},
+): Promise<boolean> {
   const task = await em.findOne(StaffTimeTask, { id: taskId, ...scope, source: 'portal', deletedAt: null })
   if (!task) return false
   const ticket = await findOneWithDecryption(em, StaffSupportTicket, { taskId: task.id, ...scope, deletedAt: null }, undefined, scope)
   if (!ticket) return false
   const status = await em.findOne(StaffTimeTaskStatus, { id: task.taskStatusId, ...scope }, { fields: ['id', 'isDefault', 'isDone'] })
   const portalStatus = derivePortalStatus(status)
-  if (ticket.portalStatusPublished === portalStatus) return false
-  ticket.portalStatusPublished = portalStatus
-  ticket.updatedAt = new Date()
-  await em.flush()
+  const unchanged = ticket.portalStatusPublished === portalStatus
+  if (unchanged && !options.always) return false
+  if (!unchanged) {
+    ticket.portalStatusPublished = portalStatus
+    ticket.updatedAt = new Date()
+    await em.flush()
+  }
   await emitPortalUpdate(em, task, ticket, portalStatus, 'status')
   emitActivity(task, ticket, 'portal_status')
   return true
