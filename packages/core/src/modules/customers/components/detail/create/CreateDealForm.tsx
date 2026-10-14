@@ -193,7 +193,8 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
         return
       }
       injectionRequestHeaders = beforeSave.requestHeaders
-    } catch {
+    } catch (err) {
+      logger.error('Error in onBeforeSave', { spotId: DEAL_FORM_SPOT_ID, err })
       flash(tr('ui.forms.flash.saveBlocked', 'Save blocked by validation'), 'error')
       return
     }
