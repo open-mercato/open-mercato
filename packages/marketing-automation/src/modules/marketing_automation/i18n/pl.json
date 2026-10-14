@@ -456,7 +456,6 @@
   "marketing_automation.routing.loadFailed": "Nie udało się wczytać przydziału leadów.",
   "marketing_automation.routing.loading": "Wczytywanie przydziału leadów…",
   "marketing_automation.routing.noNew": "Nic nowego w tym tygodniu.",
-  "marketing_automation.routing.owned": "Prowadzi łącznie {total} leadów",
   "marketing_automation.routing.retry": "Spróbuj ponownie",
   "marketing_automation.routing.title": "Przydział leadów",
   "marketing_automation.runs.action.retry": "Wróć do kolejki",

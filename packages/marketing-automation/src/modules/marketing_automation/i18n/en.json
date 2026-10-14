@@ -456,7 +456,6 @@
   "marketing_automation.routing.loadFailed": "Could not load lead routing.",
   "marketing_automation.routing.loading": "Loading lead routing…",
   "marketing_automation.routing.noNew": "Nothing new this week.",
-  "marketing_automation.routing.owned": "Carrying {total} leads in total",
   "marketing_automation.routing.retry": "Try again",
   "marketing_automation.routing.title": "Lead routing",
   "marketing_automation.runs.action.retry": "Put back in the queue",

@@ -456,7 +456,6 @@
   "marketing_automation.routing.loadFailed": "No se pudo cargar la asignación de leads.",
   "marketing_automation.routing.loading": "Cargando la asignación de leads…",
   "marketing_automation.routing.noNew": "Nada nuevo esta semana.",
-  "marketing_automation.routing.owned": "Lleva {total} leads en total",
   "marketing_automation.routing.retry": "Intentar de nuevo",
   "marketing_automation.routing.title": "Asignación de leads",
   "marketing_automation.runs.action.retry": "Volver a la cola",

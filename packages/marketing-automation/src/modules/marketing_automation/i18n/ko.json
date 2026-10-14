@@ -456,7 +456,6 @@
   "marketing_automation.routing.loadFailed": "리드 배정을 불러올 수 없습니다.",
   "marketing_automation.routing.loading": "리드 배정을 불러오는 중…",
   "marketing_automation.routing.noNew": "이번 주에는 새 리드가 없습니다.",
-  "marketing_automation.routing.owned": "총 {total}건을 담당",
   "marketing_automation.routing.retry": "다시 시도",
   "marketing_automation.routing.title": "리드 배정",
   "marketing_automation.runs.action.retry": "큐에 다시 넣기",
