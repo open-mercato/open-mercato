@@ -1,6 +1,7 @@
 import { BigIntType, OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 import { resolveDefaultAttachmentOcrEnabled } from '../lib/ocrConfig'
+import type { AttachmentAccessRequirement } from '../lib/access-types'
 
 @Entity({ tableName: 'attachment_partitions' })
 @Unique({ name: 'attachment_partitions_code_unique', properties: ['code'] })
@@ -24,6 +25,9 @@ export class AttachmentPartition {
 
   @Property({ name: 'config_json', type: 'json', nullable: true })
   configJson?: Record<string, unknown> | null
+
+  @Property({ name: 'access_resolver_requirements', type: 'jsonb', nullable: true })
+  accessResolverRequirements?: AttachmentAccessRequirement[] | null
 
   @Property({ name: 'is_public', type: 'boolean', default: false })
   isPublic: boolean = false

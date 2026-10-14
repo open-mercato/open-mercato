@@ -1,3 +1,5 @@
+import { evaluateAttachmentAccess, type AttachmentAccessContext } from './access-runner'
+import { throwAttachmentAccessError } from './access-errors'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -233,6 +235,7 @@ export class DefaultAttachmentService implements AttachmentService {
     private readonly em: EntityManager,
     private readonly storageDriverFactory: StorageDriverFactory,
     private readonly resolveScopedUploadService?: (() => ScopedAttachmentUploadService | null) | null,
+    private readonly resolveAccessContext?: (() => AttachmentAccessContext) | null,
   ) {}
 
   validateUpload(input: {
@@ -352,10 +355,11 @@ export class DefaultAttachmentService implements AttachmentService {
     )
     if (!partition) throw new CrudHttpError(500, { error: 'Attachment partition is not configured' })
 
-    const access = checkAttachmentAccess(input.auth, attachment, partition, { requireAuthForPublic: true })
-    if (!access.ok) {
-      throw new CrudHttpError(access.status, { error: access.status === 401 ? 'Unauthorized' : 'Forbidden' })
-    }
+    const access = await evaluateAttachmentAccess({
+      auth: input.auth, attachment, partition, action: 'read',
+      context: this.resolveAccessContext?.(), requireAuthForPublic: true,
+    })
+    if (!access.ok) await throwAttachmentAccessError(access.status)
     if (!partitionMatchesScope(partition, input.auth.tenantId, input.auth.orgId)) {
       throw new CrudHttpError(403, { error: 'Attachment partition is not accessible for this scope' })
     }

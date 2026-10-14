@@ -8,6 +8,7 @@ import { Attachment, AttachmentPartition } from '../data/entities'
 import { attachmentCrudEvents, attachmentCrudIndexer } from './crud'
 import type { StorageDriverFactory } from './drivers'
 import { buildAttachmentFileUrl } from './imageUrls'
+import { ensureAttachmentPartitionProtection } from './access-protection'
 import { ensureDefaultPartitions, resolveDefaultPartitionCode } from './partitions'
 import { extractAttachmentContent } from './textExtraction'
 import { requestOcrProcessing } from './ocrQueue'
@@ -142,6 +143,7 @@ export class ScopedAttachmentUploadService {
       throw new ScopedAttachmentUploadError('partition_unavailable', 403)
     }
 
+    await ensureAttachmentPartitionProtection(em, partition)
     const driver = await storageDriverFactory.resolveForPartition(partition.code, {
       tenantId: input.tenantId,
       organizationId: input.organizationId,

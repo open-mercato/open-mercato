@@ -1,3 +1,4 @@
+import { createAttachmentAccessContext } from './lib/access-runner'
 import { asFunction, asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -9,6 +10,7 @@ import { AttachmentTargetAccessService } from './lib/target-access-service'
 import { ScopedAttachmentUploadService } from './lib/scoped-upload-service'
 
 export function register(container: AppContainer) {
+  const accessContext = () => createAttachmentAccessContext(container)
   container.register({
     attachmentQuotaRecoveryScheduler: asValue(scheduleAttachmentQuotaRecovery),
     attachmentQuotaService: asFunction(({ em }: { em: ConstructorParameters<typeof StorageDriverFactory>[0] }) =>
@@ -17,7 +19,7 @@ export function register(container: AppContainer) {
       .scoped()
       .proxy(),
     attachmentTargetAccessService: asFunction(({ em }: { em: ConstructorParameters<typeof StorageDriverFactory>[0] }) =>
-      new AttachmentTargetAccessService(em),
+      new AttachmentTargetAccessService(em, accessContext),
     )
       .scoped()
       .proxy(),
@@ -59,6 +61,7 @@ export function register(container: AppContainer) {
       cradle.em,
       cradle.storageDriverFactory,
       () => cradle.attachmentScopedUploadService ?? null,
+      accessContext,
     ))
       .scoped()
       .proxy(),
