@@ -287,6 +287,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
 
   // Bumped per request and on effect cleanup so only the latest response lands.
   const loadRequestRef = React.useRef(0)
+  // The company whose overview is on screen; null while an error or not-found state replaces it.
   const loadedCompanyIdRef = React.useRef<string | null>(null)
   const loadData = React.useCallback(async () => {
     if (!id) {
@@ -302,6 +303,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     if (isInitialLoad) {
       setIsLoading(true)
       setError(null)
+      setIsNotFound(false)
     }
     try {
       const search = new URLSearchParams()
@@ -318,10 +320,12 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     } catch (err) {
       if (requestId !== loadRequestRef.current) return
       if (isDetailNotFoundStatus((err as { status?: number }).status)) {
+        loadedCompanyIdRef.current = null
         setIsNotFound(true)
         setData(null)
       } else if (isInitialLoad) {
         const message = err instanceof Error ? err.message : t('customers.companies.detail.error.load', 'Failed to load company.')
+        loadedCompanyIdRef.current = null
         setError(message)
         setData(null)
       }

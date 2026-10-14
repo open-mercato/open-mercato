@@ -185,4 +185,26 @@ describe('CustomerCompanyDetailPage — refresh after activity changes (#7205)',
     expect(screen.getByTestId('next-interaction')).toHaveTextContent('Call A')
     expect(screen.queryByTestId('error-message')).not.toBeInTheDocument()
   })
+
+  it.each([
+    ['fails', Object.assign(new Error('Server exploded'), { status: 500 }), 'error-message'],
+    ['is not found', Object.assign(new Error('Not found'), { status: 404 }), 'record-not-found'],
+  ])('shows the original company again after another company %s', async (_label, failure, failureTestId) => {
+    const otherCompanyId = '2408107d-0000-4000-8000-000000000002'
+    readApiResultOrThrowMock
+      .mockResolvedValueOnce(overview('Call A'))
+      .mockRejectedValueOnce(failure)
+      .mockResolvedValueOnce(overview('Call A again'))
+    const { rerender } = renderWithProviders(<CompanyDetailPage params={{ id: companyId }} />)
+    expect(await screen.findByTestId('next-interaction')).toHaveTextContent('Call A')
+
+    rerender(<CompanyDetailPage params={{ id: otherCompanyId }} />)
+    expect(await screen.findByTestId(failureTestId)).toBeInTheDocument()
+
+    rerender(<CompanyDetailPage params={{ id: companyId }} />)
+    await waitFor(() => {
+      expect(screen.getByTestId('next-interaction')).toHaveTextContent('Call A again')
+    })
+    expect(screen.queryByTestId(failureTestId)).not.toBeInTheDocument()
+  })
 })
