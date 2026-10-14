@@ -210,3 +210,27 @@ export interface EvaluationInput {
   cartWeight: string | null
   codes: CodeRef[]
 }
+
+// ---------------------------------------------------------------------------
+// UnitSelection (SPEC-055 §Extension Registry (Server-Side), ~line 1084) — the
+// ordered, already-budgeted set of units/lines a capped benefit may discount.
+// Produced by `selectUnits(benefit, context)` in `lib/unit-selection.ts` (Step 2.3a);
+// consumed by `lib/effect-resolvers.ts` (Step 2.3b) and, in a later phase, by
+// `BenefitExtension.resolve()`.
+// ---------------------------------------------------------------------------
+
+export type UnitSelection = {
+  /** One entry per covered line, in selection order. */
+  lines: Array<{
+    lineId: string                  // rev — never sku/cartLineId; the caller's own line identity (D-R4-21)
+    productId: string
+    variantId: string | null
+    lineQuantity: number
+    /** How many of this line's units the budget covered; ≤ lineQuantity. */
+    appliedQuantity: number
+    unitPriceNet: string
+    unitPriceGross: string
+  }>
+  /** Total units covered across every line — the spent budget. */
+  totalQuantity: number
+}
