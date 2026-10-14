@@ -55,13 +55,7 @@ export async function loadAuditLogDisplayMaps(
     return acc
   }, {})
 
-  // Action/access log actors written by an API key store the bare `api_keys.id`
-  // (the `api_key:` prefix is stripped at write time — see ActionLogService.sanitizeActor).
-  // Resolve any actor id the User lookup missed against api_keys so callers never
-  // fall back to rendering the raw UUID, including for keys that were later revoked.
-  // The api_keys module is optional (see module-decoupling.test.ts) — its entity
-  // metadata is only registered with the ORM when the module is enabled, so this
-  // lookup must be skipped rather than attempted when the module is disabled.
+  // api_keys is optional; its ORM metadata exists only when the module is enabled.
   const unresolvedUserIds = userIds.filter((id) => !usersMap[id])
   const entityIds = getEntityIds(false)
   if (unresolvedUserIds.length && entityIds.api_keys?.api_key) {
