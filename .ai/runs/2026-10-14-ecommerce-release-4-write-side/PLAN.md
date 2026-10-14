@@ -13,7 +13,7 @@
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 0 | 0.1 | Revise cart-module spec to rev 9 | inline | todo | — |
+| 0 | 0.1 | Revise cart-module spec to rev 9 | inline | done | see `git log` |
 | 0 | 0.2 | Amend SPEC-055 (promotions) for the release decisions | inline | todo | — |
 | 0 | 0.3 | Revise buyer-scoped visibility spec (Phase 3 folded into cart) | inline | todo | — |
 | 0 | 0.4 | Cross-spec consistency pass, roadmap and ADR touch-ups | inline | todo | — |
