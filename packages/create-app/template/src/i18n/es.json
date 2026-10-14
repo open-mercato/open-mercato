@@ -949,7 +949,6 @@
   "ui.forms.conflict.dismiss": "Descartar",
   "ui.forms.conflict.refresh": "Actualizar",
   "ui.forms.conflict.title": "Registro modificado",
-  "ui.forms.errors.fieldAnnouncement": "{label}: {message}",
   "ui.forms.errors.highlighted": "Corrige los errores resaltados.",
   "ui.forms.errors.required": "Este campo es obligatorio",
   "ui.forms.errors.unexpected": "Error inesperado",

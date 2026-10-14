@@ -5180,21 +5180,21 @@ const FieldControl = React.memo(function FieldControlImpl({
           <div>{field.description}</div>
         </div>
       ) : null}
-      {wrapperError ? (
-        <div id={errorId} className="text-xs text-status-error-text">{wrapperError}</div>
-      ) : null}
-      {/* Announces the message when it appears. The region is always mounted,
-          because a live region inserted together with its text is often not
-          read, and it names the field, since several can fail at once. It is
-          polite so a failed submit does not talk over the form-level alert.
-          Fields that render their own error own their announcement too. */}
+      {/* The message is its own live region, so it is rendered once: a hidden
+          second copy made every text lookup of the message ambiguous. The node
+          is always mounted, because a live region inserted together with its
+          text is often not read, and it leaves the flow while empty so the
+          wrapper spacing does not reserve a line for it. It is polite so a
+          failed submit does not talk over the form-level alert. Fields that
+          render their own error own their announcement too. */}
       {ownsErrorPresentation ? (
-        <div className="sr-only" aria-live="polite" aria-atomic="true">
-          {wrapperError
-            ? hasVisibleLabel
-              ? t('ui.forms.errors.fieldAnnouncement', '{label}: {message}', { label: field.label, message: wrapperError })
-              : wrapperError
-            : ''}
+        <div
+          id={errorId}
+          aria-live="polite"
+          aria-atomic="true"
+          className={wrapperError ? 'text-xs text-status-error-text' : 'sr-only'}
+        >
+          {wrapperError ?? ''}
         </div>
       ) : null}
     </div>

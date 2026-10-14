@@ -19,7 +19,7 @@ jest.mock('../injection/useInjectionDataWidgets', () => ({
 }))
 
 import * as React from 'react'
-import { act, fireEvent, waitFor } from '@testing-library/react'
+import { act, fireEvent, waitFor, within } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { CrudForm, type CrudField } from '../CrudForm'
 
@@ -113,15 +113,21 @@ describe('CrudForm field error association', () => {
     expect(describedBy(input)).not.toContain(messageId)
   })
 
-  it('announces a field error politely, naming the field', async () => {
-    const { announcement, submit } = renderForm([{ id: 'name', label: 'Name', type: 'text', required: true }])
+  // The message itself is the live region. A second, hidden copy that named
+  // the field made every `getByText(message)` in a test resolve to two nodes,
+  // and the field is already identified by the label, `aria-describedby` and
+  // the focus moved to the first invalid control.
+  it('announces a field error politely from the message itself, rendered once', async () => {
+    const { field, errorNode, announcement, submit } = renderForm([{ id: 'name', label: 'Name', type: 'text', required: true }])
     expect(announcement('name')).not.toBeNull()
     expect(announcement('name')).toHaveTextContent('')
 
     await submit()
 
-    await waitFor(() => expect(announcement('name')).toHaveTextContent(`Name: ${REQUIRED}`))
+    await waitFor(() => expect(errorNode('name')).toHaveTextContent(REQUIRED))
+    expect(announcement('name')).toBe(errorNode('name'))
     expect(announcement('name')).toHaveAttribute('aria-atomic', 'true')
+    expect(within(field('name')).getAllByText(REQUIRED)).toHaveLength(1)
   })
 
   it('stops announcing once the field is corrected', async () => {
@@ -129,7 +135,7 @@ describe('CrudForm field error association', () => {
     const input = field('name').querySelector('input') as HTMLInputElement
 
     await submit()
-    await waitFor(() => expect(announcement('name')).toHaveTextContent(`Name: ${REQUIRED}`))
+    await waitFor(() => expect(announcement('name')).toHaveTextContent(REQUIRED))
 
     await act(async () => {
       fireEvent.change(input, { target: { value: 'Mia' } })
@@ -146,7 +152,7 @@ describe('CrudForm field error association', () => {
     await submit()
 
     await waitFor(() => expect(errorNode('custom')).toHaveTextContent(REQUIRED))
-    expect(announcement('custom')).toHaveTextContent(`Custom: ${REQUIRED}`)
+    expect(announcement('custom')).toBe(errorNode('custom'))
   })
 
   it('leaves a field that renders its own error alone', async () => {
