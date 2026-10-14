@@ -10,7 +10,6 @@
 // alongside a fully custom section with its own independent save.
 
 import * as React from 'react'
-import { useParams } from 'next/navigation'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -40,9 +39,15 @@ type PromotionDetailResponse = {
   updatedAt: string
 }
 
-export default function PromotionDetailPage() {
+export default function PromotionDetailPage({ params }: { params?: { id?: string } }) {
   const t = useT()
-  const params = useParams<{ id: string }>()
+  // This app routes every backend page through a single catch-all
+  // `/backend/[...slug]` route (`apps/mercato/src/app/(backend)/backend/[...slug]/page.tsx`),
+  // which resolves the dynamic segment from its own manifest and passes it down
+  // as a `params` prop — NOT as a Next.js router param. `useParams()` from
+  // `next/navigation` only ever sees `{ slug: [...] }` here, never `{ id }`,
+  // which is why using it made this page always render null (`people-v2/[id]`
+  // is the house precedent for the `params` prop pattern).
   const promotionId = params?.id
 
   const [record, setRecord] = React.useState<PromotionDetailResponse | null>(null)
@@ -56,13 +61,14 @@ export default function PromotionDetailPage() {
 
   React.useEffect(() => {
     if (!promotionId) return
+    const id = promotionId
     let cancelled = false
     async function load() {
       setIsLoading(true)
       setLoadError(null)
       setNotFound(false)
       try {
-        const call = await apiCall<PromotionDetailResponse>(`/api/promotions/${encodeURIComponent(promotionId)}`)
+        const call = await apiCall<PromotionDetailResponse>(`/api/promotions/${encodeURIComponent(id)}`)
         if (cancelled) return
         if (!call.ok) {
           if (call.status === 404) setNotFound(true)

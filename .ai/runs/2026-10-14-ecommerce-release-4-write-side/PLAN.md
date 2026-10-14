@@ -26,7 +26,7 @@
 | 1 | 1.7 | Promotions: promotion form pages and rule-tree builder | dispatch | done | see `git log` |
 | 1 | 1.8 | Promotions: benefit card (Applies to, Limits, Which pieces) and echo line | dispatch | done | see `git log` |
 | 1 | 1.9 | Promotions: Phase 1 API integration tests | dispatch | done | see `git log` |
-| 1 | 1.10 | Promotions: Phase 1 UI integration tests | dispatch | todo | — |
+| 1 | 1.10 | Promotions: Phase 1 UI integration tests | dispatch | done | see `git log` |
 | 2 | 2.1 | Promotions: public types barrel and pure three-pass evaluation engine | dispatch:capable | todo | — |
 | 2 | 2.2 | Promotions: rule evaluators for the Release 4 rule set | dispatch | todo | — |
 | 2 | 2.3 | Promotions: unit selection and effect resolvers (net and gross, caps, rounding) | dispatch:capable | todo | — |
@@ -123,7 +123,7 @@ Each Step below matches the Tasks table. Spec section numbers refer to the specs
 - **1.7 Form pages and tree builder.** `CrudForm` create/detail, `RuleGroupNode` recursive component; design-system tokens only (no hard-coded status colours, no arbitrary values); `Cmd/Ctrl+Enter` and `Escape`.
 - **1.8 Benefit card.** Applies to, Limits, Which pieces, the plain-language echo line, category-descendants echo (D-R4-15), `exclude_promotional_prices` (D-R4-16).
 - **1.9 API integration tests.** CRUD, tree, order, `applies_to` persistence, write-path rejections (`TC-PROM-062/067/071`), optimistic-lock conflicts. Self-contained fixtures via API, cleanup in `finally`.
-- **1.10 UI integration tests.** Playwright: tree builder save/reload, capped benefit cannot save without a selector, list drag-sort and save.
+- **1.10 UI integration tests.** Playwright: tree builder save/reload (`TC-PROM-074`), capped benefit auto-assigns a selector (`TC-PROM-075`), list drag-sort and save (`TC-PROM-076`). Found and fixed two real bugs surfaced by the browser-driven specs (not just the test contract already covered by `TC-PROM-002`'s API-level round trip): (1) `[id]/page.tsx` read its dynamic segment via `useParams()`, which this app's single catch-all backend route never populates with `{ id }` — switched to the `params` prop per the `people-v2/[id]` precedent. (2) `BenefitCard.tsx`'s Labels `CollapsibleSection` used `collapsed={labelsInvalid ? false : labelsCollapsed}`, so the section auto-opened while labels were invalid but collapsed itself the instant a valid label was typed (since `labelsCollapsed`'s default is `true`), unmounting the input mid-edit — fixed with a `labelsCollapsed` state that is force-opened by an effect only while `labelsInvalid`, never force-closed. Adjusted `TC-PROM-075`'s wrong assumption that the mutually-exclusive "Limit to the Nth piece/line" toggle stays visible-but-disabled once capped — `BenefitLimitsEditor` actually omits it entirely in the capped branch, so the assertion now checks `toHaveCount(0)`. Both UI specs also needed an explicit "Expand Labels section" click after a page reload, since a benefit with already-valid labels correctly defaults to collapsed.
 
 ### Phase 2 — Promotions engine (SPEC-055 Phase 2)
 

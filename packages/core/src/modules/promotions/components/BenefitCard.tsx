@@ -387,7 +387,10 @@ export function BenefitCard({
   const allowedAppliesTo = BENEFIT_APPLIES_TO[benefit.benefitType].allowed
   const echoLine = renderBenefitEcho(benefit, t)
   const labelsInvalid = isBenefitLabelsEmpty(benefit.labels)
-  const [labelsCollapsed, setLabelsCollapsed] = React.useState(true)
+  const [labelsCollapsed, setLabelsCollapsed] = React.useState(!labelsInvalid)
+  React.useEffect(() => {
+    if (labelsInvalid) setLabelsCollapsed(false)
+  }, [labelsInvalid])
 
   return (
     <div ref={setNodeRef} style={style}>
@@ -457,7 +460,7 @@ export function BenefitCard({
               <p className="text-xs text-muted-foreground">{echoLine}</p>
               <CollapsibleSection
                 title={t('promotions.benefits.labels.title', 'Labels')}
-                collapsed={labelsInvalid ? false : labelsCollapsed}
+                collapsed={labelsCollapsed}
                 onCollapsedChange={setLabelsCollapsed}
               >
                 <div className="space-y-2">
