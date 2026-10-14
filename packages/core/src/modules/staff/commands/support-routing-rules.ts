@@ -8,7 +8,7 @@ import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { StaffSupportRoutingRule, StaffTimeProject, StaffTimeTaskStatus } from '../data/entities'
-import { staffTimeProjectCrudEvents } from '../lib/crud'
+import { staffTimeProjectCrudEvents, staffTimeProjectCrudIndexer } from '../lib/crud'
 import {
   staffSupportFallbackProjectCreateSchema,
   staffSupportRoutingRuleCreateSchema,
@@ -43,11 +43,6 @@ export const SUPPORT_ROUTING_RULE_RESOURCE_KIND = 'staff.support.routing_rule'
 
 const routingRuleIndexer: CrudIndexerConfig<StaffSupportRoutingRule> = {
   entityType: 'staff:staff_support_routing_rule',
-}
-
-/** Same indexer config `commands/timesheets-projects.ts` uses for project writes (not exported there). */
-const timeProjectIndexer: CrudIndexerConfig<StaffTimeProject> = {
-  entityType: 'staff:staff_time_project',
 }
 
 type Translate = (key: string, fallback: string) => string
@@ -460,7 +455,7 @@ async function emitProjectSideEffects(
     entity: project,
     identifiers: { id: project.id, organizationId: project.organizationId, tenantId: project.tenantId },
     events: staffTimeProjectCrudEvents,
-    indexer: timeProjectIndexer,
+    indexer: staffTimeProjectCrudIndexer,
   }
   if (undo) await emitCrudUndoSideEffects(params)
   else await emitCrudSideEffects(params)

@@ -1,4 +1,4 @@
-import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
+import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type {
   StaffLeaveRequest,
   StaffTeam,
@@ -56,6 +56,7 @@ export const staffTimeEntryCommandIds = {
 
 export const staffTimeEntryCrudEvents = buildCrudEvents<StaffTimeEntry>('timesheets.time_entry')
 export const staffTimeProjectCrudEvents = buildCrudEvents<StaffTimeProject>('timesheets.time_project')
+export const staffTimeProjectCrudIndexer: CrudIndexerConfig<StaffTimeProject> = { entityType: 'staff:staff_time_project' }
 export const staffTimeProjectMemberCrudEvents = buildCrudEvents<StaffTimeProjectMember>('timesheets.time_project_member')
 export const staffTimeTaskCrudEvents = buildCrudEvents<StaffTimeTask>('timesheets.time_task')
 export const staffTimeTaskStatusCrudEvents = buildCrudEvents<StaffTimeTaskStatus>('timesheets.time_task_status')

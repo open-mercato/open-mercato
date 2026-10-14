@@ -24,9 +24,7 @@ import {
   type StaffTimeProjectMemberStatus,
 } from '../data/entities'
 
-const timeProjectCrudIndexer: CrudIndexerConfig<StaffTimeProject> = {
-  entityType: 'staff:staff_time_project',
-}
+const timeProjectCrudIndexer = staffTimeProjectCrudIndexer
 const timeProjectMemberCrudIndexer: CrudIndexerConfig<StaffTimeProjectMember> = {
   entityType: 'staff:staff_time_project_member',
 }
@@ -41,7 +39,7 @@ import {
   type StaffTimeProjectMemberAssignInput,
   type StaffTimeProjectMemberUpdateInput,
 } from '../data/validators'
-import { staffTimeProjectCrudEvents, staffTimeProjectMemberCrudEvents } from '../lib/crud'
+import { staffTimeProjectCrudEvents, staffTimeProjectCrudIndexer, staffTimeProjectMemberCrudEvents } from '../lib/crud'
 import { DEFAULT_BUDGET_WARN_AT_PERCENT } from '../lib/timesheets-projects/budgetBurn'
 import { seedProjectTaskStatuses } from '../lib/timesheets-tasks/seedProjectStatuses'
 import {
