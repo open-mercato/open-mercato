@@ -22,6 +22,18 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
+## 0.9.0 → 0.10.0 (unreleased)
+
+### Cross-process event listeners receive portal-only and truncated envelopes (#2973)
+
+`registerCrossProcessEventListener` (`@open-mercato/events/bus`) now also receives events declared only with `portalBroadcast: true`, so a portal event emitted in the queue worker reaches the web process that serves the customer portal stream. An oversize browser-facing envelope (`clientBroadcast` or `portalBroadcast`) is no longer dropped by the Postgres bridge: its payload arrives as `{ truncated: true, id, entityId, entityType }` plus the audience fields, and clients are expected to re-fetch. Private `crossProcessBroadcast` envelopes are unchanged.
+
+*Action for downstream:* a custom listener that handles every envelope should filter by the event flag it serves (`isBroadcastEvent`, `isPortalBroadcastEvent`, ...) and tolerate `payload.truncated === true`. Detect your own echo with `envelope.originInstanceId === CROSS_PROCESS_EVENT_INSTANCE_ID` rather than `originPid`: containers commonly all run as pid 1, so a pid check silently drops envelopes from a worker container.
+
+The portal stream also now treats trusted emit scope as authoritative, as the backoffice stream does: a portal event whose payload names a tenant, or an organization, outside the trusted emit options is not delivered, and one without payload organizations reaches only the trusted organizations.
+
+---
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### Payment gateway webhooks: opt-in transport, locator and response options; ambiguous matches are rejected

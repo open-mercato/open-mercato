@@ -232,7 +232,7 @@ describe('cross-process event publication', () => {
       expect(publishCrossProcessEventMock).not.toHaveBeenCalled()
     })
 
-    it('keeps a portal event that is also crossProcessBroadcast private', async () => {
+    it('treats a portal + crossProcessBroadcast event as private: no payload-scope promotion, no foreign emitter', async () => {
       const bus = createEventBus({ resolve, queueStrategy: 'local' })
 
       await bus.emit('cross_process_test.portal_private', {

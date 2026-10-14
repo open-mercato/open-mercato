@@ -209,14 +209,7 @@ function fitsMessageLimit(serialized: string): boolean {
   return Buffer.byteLength(serialized, 'utf8') <= MAX_MESSAGE_BYTES
 }
 
-/**
- * Serializes an envelope for `pg_notify`. An oversize browser-facing envelope
- * degrades to an entity ref that keeps the audience-scope fields, mirroring
- * the truncation the same-process SSE bridges apply, so the receiving audience
- * filters can still route it and clients re-fetch. Private
- * `crossProcessBroadcast` coordination is never reshaped: its consumers
- * validate the full payload, so an oversize private envelope is dropped.
- */
+/** Oversize browser-facing envelopes degrade to a scoped entity ref; private coordination is never reshaped, only dropped. */
 function serializeWithinLimit(envelope: BridgeEnvelope): string | null {
   const serialized = JSON.stringify(envelope)
   if (fitsMessageLimit(serialized)) return serialized

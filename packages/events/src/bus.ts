@@ -82,13 +82,7 @@ function isBrowserBroadcastEvent(event: string): boolean {
   return isBroadcastEvent(event) || isPortalBroadcastEvent(event)
 }
 
-/**
- * Whether an emit is relayed over the cross-process bridge: every browser
- * audience (backoffice `clientBroadcast`, customer portal `portalBroadcast`)
- * plus private `crossProcessBroadcast` coordination. Each bridge consumer
- * filters envelopes by its own flag, so publishing a portal-only event never
- * reaches the backoffice DOM Event Bridge.
- */
+/** Relayed over the bridge: both browser audiences plus private coordination; each consumer filters by its own flag. */
 function shouldPublishCrossProcess(event: string): boolean {
   return isCrossProcessBroadcastEvent(event) || isPortalBroadcastEvent(event)
 }
