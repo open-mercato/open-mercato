@@ -280,6 +280,18 @@ Run a function registered in the DI container under `workflowFunction:<functionN
 - `functionName`: Registered function name (required)
 - `args`: Object passed to the function as its first argument (default `{}`)
 
+**Function signature:**
+
+Registered functions receive three arguments: `(args, context, signal?: AbortSignal)`. Existing two-argument functions are unaffected — the third parameter is additive and may be ignored. Functions that support cooperative cancellation can use it to abort long-running work when the activity's timeout fires:
+
+```ts
+container.register('workflowFunction:myFn', asValue(
+  async (args, _context, signal?: AbortSignal) => {
+    return await longRunningTask(args, { signal })
+  }
+))
+```
+
 ### SET_VARIABLE
 
 Write values directly into workflow context. Each assignment lands at its dot path in top-level context (unlike other activities, whose output is namespaced under the activity name).

@@ -1,7 +1,9 @@
 "use client"
 
 import * as React from 'react'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
@@ -175,7 +177,13 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [isNotFound, setIsNotFound] = React.useState(false)
-  const [accessDenied, setAccessDenied] = React.useState(false)
+  // Keyed by project id so a route change to another project never shows the
+  // previous project's guard (with a live request button) while the new one loads.
+  const [accessDeniedProjectId, setAccessDeniedProjectId] = React.useState<string | null>(null)
+  const accessDenied = accessDeniedProjectId !== null && accessDeniedProjectId === projectId
+  // The id the last finished load was for. Until it matches the route, the page
+  // is still loading — never the previous project's error or empty state.
+  const [settledProjectId, setSettledProjectId] = React.useState<string | null>(null)
 
   const [employees, setEmployees] = React.useState<EmployeeAssignment[]>([])
   const [employeesLoading, setEmployeesLoading] = React.useState(false)
@@ -330,6 +338,53 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   const activeCount = employees.filter((emp) => emp.status === 'active').length
   const inactiveCount = employees.length - activeCount
 
+  const recentEntriesColumns = React.useMemo<ColumnDef<ProjectEntryRow>[]>(
+    () => [
+      {
+        accessorKey: 'date',
+        header: t('staff.timesheets.projects.detail.colDate', 'Date'),
+        cell: ({ row }) => <span className="whitespace-nowrap">{row.original.date}</span>,
+      },
+      {
+        id: 'person',
+        header: t('staff.timesheets.projects.detail.colWho', 'Person'),
+        cell: ({ row }) => (
+          <span className="whitespace-nowrap">
+            {employeeNameById.get(row.original.staffMemberId ?? '') ?? '—'}
+          </span>
+        ),
+      },
+      {
+        accessorKey: 'description',
+        header: t('staff.timesheets.projects.detail.colDescription', 'Description'),
+        cell: ({ row }) => (
+          <span className="flex items-center gap-2">
+            <span className="truncate">{row.original.description ?? '—'}</span>
+            {row.original.isBillable ? null : (
+              <Badge variant="neutral">
+                {t('staff.timesheets.projects.detail.nonBillableTag', 'non-billable')}
+              </Badge>
+            )}
+          </span>
+        ),
+      },
+      {
+        id: 'hours',
+        header: () => (
+          <span className="block text-right">
+            {t('staff.timesheets.projects.detail.colHours', 'Hours')}
+          </span>
+        ),
+        cell: ({ row }) => (
+          <span className="block whitespace-nowrap text-right font-mono tabular-nums">
+            {formatHours(row.original.durationMinutes)}
+          </span>
+        ),
+      },
+    ],
+    [employeeNameById, t],
+  )
+
   // --- Load project ---
   React.useEffect(() => {
     if (!projectId) return
@@ -338,7 +393,6 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
       setLoading(true)
       setError(null)
       setIsNotFound(false)
-      setAccessDenied(false)
       try {
         const queryParams = new URLSearchParams({ page: '1', pageSize: '1', ids: projectId! })
         const call = await apiCall<ProjectResponse>(
@@ -347,9 +401,10 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
         // Screen 17: the route answers 404 with this discriminator for a project
         // the caller is not a member of, without naming it.
         if (call.status === 404 && readDenialReason(call.result) === NO_PROJECT_ACCESS_REASON) {
-          if (!cancelled) setAccessDenied(true)
+          if (!cancelled) setAccessDeniedProjectId(projectId ?? null)
           return
         }
+        if (!cancelled) setAccessDeniedProjectId(null)
         if (!call.ok) {
           throw new Error(t('staff.timesheets.projects.errors.load', 'Failed to load project.'))
         }
@@ -365,7 +420,10 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
           setError(loadError instanceof Error ? loadError.message : t('staff.timesheets.projects.errors.load', 'Failed to load project.'))
         }
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) {
+          setLoading(false)
+          setSettledProjectId(projectId ?? null)
+        }
       }
     }
     loadProject()
@@ -600,7 +658,18 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   }, [handleAddEmployee])
 
   // --- Render ---
-  if (loading) {
+  // Screen 17 — the caller may not open this project. The guard state names
+  // neither the customer nor the project (note 1), and the surrounding shell
+  // (sidebar, topbar) is untouched because the caller still has other projects
+  // (note 3). It is checked before `loading` and only cleared by a response that
+  // grants access, so a background reload (e.g. the organization scope
+  // resolving late) keeps the guard mounted instead of resetting a request the
+  // user has just sent.
+  if (accessDenied) {
+    return <NoProjectAccess timeProjectId={projectId} />
+  }
+
+  if (loading || settledProjectId !== (projectId ?? null)) {
     return (
       <Page>
         <PageBody>
@@ -608,14 +677,6 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
         </PageBody>
       </Page>
     )
-  }
-
-  // Screen 17 — the caller may not open this project. The guard state names
-  // neither the customer nor the project (note 1), and the surrounding shell
-  // (sidebar, topbar) is untouched because the caller still has other projects
-  // (note 3).
-  if (accessDenied) {
-    return <NoProjectAccess timeProjectId={projectId} />
   }
 
   if (isNotFound) {
@@ -1131,49 +1192,12 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
                   </p>
                 </div>
               ) : (
-                <div className="overflow-x-auto rounded-lg border">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b bg-muted/40 text-left">
-                        <th className="px-3 py-2 font-medium text-muted-foreground">
-                          {t('staff.timesheets.projects.detail.colDate', 'Date')}
-                        </th>
-                        <th className="px-3 py-2 font-medium text-muted-foreground">
-                          {t('staff.timesheets.projects.detail.colWho', 'Person')}
-                        </th>
-                        <th className="px-3 py-2 font-medium text-muted-foreground">
-                          {t('staff.timesheets.projects.detail.colDescription', 'Description')}
-                        </th>
-                        <th className="px-3 py-2 text-right font-medium text-muted-foreground">
-                          {t('staff.timesheets.projects.detail.colHours', 'Hours')}
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {recentEntries.map((entry) => (
-                        <tr key={entry.id} className="border-b last:border-b-0">
-                          <td className="whitespace-nowrap px-3 py-2">{entry.date}</td>
-                          <td className="whitespace-nowrap px-3 py-2">
-                            {employeeNameById.get(entry.staffMemberId ?? '') ?? '—'}
-                          </td>
-                          <td className="px-3 py-2">
-                            <span className="flex items-center gap-2">
-                              <span className="truncate">{entry.description ?? '—'}</span>
-                              {entry.isBillable ? null : (
-                                <Badge variant="neutral">
-                                  {t('staff.timesheets.projects.detail.nonBillableTag', 'non-billable')}
-                                </Badge>
-                              )}
-                            </span>
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums">
-                            {formatHours(entry.durationMinutes)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <DataTable<ProjectEntryRow>
+                  extensionTableId={extensionPoints.hosts.projectDetailTimeEntriesTable.tableId}
+                  disableRowClick
+                  columns={recentEntriesColumns}
+                  data={recentEntries}
+                />
               )}
             </TabsContent>
 

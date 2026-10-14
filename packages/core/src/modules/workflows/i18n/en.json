@@ -1952,7 +1952,7 @@
   "workflows.triggers.fields.name": "Name",
   "workflows.triggers.fields.priority": "Priority",
   "workflows.triggers.hints.contextMapping": "Map values from the event payload to the workflow's initial context",
-  "workflows.triggers.hints.debounce": "Wait this many milliseconds after an event before starting, so a burst of similar events starts only one workflow. Leave empty to start immediately.",
+  "workflows.triggers.hints.debounce": "The first matching event starts an instance immediately; further events for the same record within this many milliseconds are skipped. Leave empty to start an instance for every event.",
   "workflows.triggers.hints.eventPattern": "Use * as wildcard: \"sales.orders.*\" matches any order event",
   "workflows.triggers.hints.filterConditions": "Only trigger when the event payload matches these conditions (all must match)",
   "workflows.triggers.hints.maxConcurrent": "Cap how many instances this trigger can have running at the same time; events past the cap are skipped. Leave empty for no limit.",

@@ -9,12 +9,34 @@ export type SearchConfig = {
   hashAlgorithm: 'sha256' | 'sha1' | 'md5'
   storeRawTokens: boolean
   /**
-   * When true, a like/ilike on a PLAINTEXT base column runs as exact SQL ILIKE instead of being
-   * rewritten into an approximate search-token match; encrypted columns always keep the token
-   * path (ILIKE against ciphertext cannot match). Off by default: token matching can be faster
-   * than an unanchored ILIKE, which may need a full scan without a trigram index — but it is
-   * approximate (fragments under minTokenLength vanish, so `ZK 1/2026` degrades to its year and
-   * an all-short term drops the predicate). Flip it on when list search must be exact.
+   * When true, a like/ilike on a PLAINTEXT base column runs as SQL ILIKE — one containment
+   * predicate per word of the term, ANDed — instead of being rewritten into an approximate
+   * search-token match; encrypted columns always keep the token path (ILIKE against ciphertext
+   * cannot match).
+   *
+   * Off by default, per #5383: the token store is expected to become faster than ILIKE once
+   * tokenization is made semantically equivalent to it, so the plan there is to keep this switch
+   * off until that follow-up lands rather than trade performance for correctness by default. #5803
+   * documents the correctness gap this switch closes when enabled: the token rewrite is lossy in a
+   * way that silently returns the WRONG record rather than merely extra ones (tokenization splits
+   * on non-alphanumerics and drops fragments under minTokenLength, so `2026-08` and `2026-01` both
+   * reduce to {202, 2026} and a picker offers the neighbouring period; a term that tokenizes to
+   * nothing (`08`) drops the predicate entirely and matches every row) — a deployment that hits
+   * that gap before #5383 lands can opt in here.
+   *
+   * Per-word ANDing (see lib/search/containment) is a trade-off, not a strict improvement, over
+   * the single-literal ILIKE #4622 originally introduced: the token subquery matched a value
+   * carrying every token in any order with anything between them, so `?search=Warehouse 1757`
+   * must keep matching `Warehouse A 1757` — a single verbatim `ILIKE '%Warehouse 1757%'` would
+   * not, and TC-RESO-009 pins that as required behavior. The same word-order independence also
+   * widens multi-word document-number searches: `?search=ZK 1/2026` now also matches
+   * `ZK 11/2026` and `1/2026 ZK`, where the old single-literal ILIKE matched neither.
+   *
+   * Set `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS=true` to opt into declared-column ILIKE
+   * ahead of #5383 — worth doing when the #5803 wrong-record symptom is hit in practice. Leaving it
+   * unset keeps the legacy rewrite-everything behavior, including the token index's prefix matching
+   * (`?search=ware` matching `Warehouse` when `enablePartials` is on, which literal containment
+   * gives only where the fragment really is a substring).
    */
   useIlikeForNonEncryptedFields?: boolean
   blocklistedFields: string[]

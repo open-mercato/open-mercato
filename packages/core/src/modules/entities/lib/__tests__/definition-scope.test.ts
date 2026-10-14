@@ -30,4 +30,24 @@ describe('definition scope resolution', () => {
       organizationId: 'selected-org',
     })
   })
+
+  it.each([
+    [{ filterIds: [], allowedIds: ['org-1'] }],
+    [{ filterIds: null, allowedIds: [] }],
+  ])('denies runtime finite empty arrays before the home-organization fallback', (finiteScope) => {
+    expect(() => resolveDefinitionScopeFromOrganizationScope(
+      { tenantId: 'tenant-1', orgId: 'org-1' },
+      { tenantId: 'tenant-1', selectedId: 'org-1', ...finiteScope },
+    )).toThrow(expect.objectContaining({ status: 403, body: { error: 'Forbidden' } }))
+  })
+
+  it.each([
+    [{ tenantId: 'tenant-1', selectedId: null, filterIds: null, allowedIds: null }],
+    [{ tenantId: 'tenant-1', selectedId: null }],
+  ])('preserves the home-organization fallback for null or absent finite scope', (scope) => {
+    expect(resolveDefinitionScopeFromOrganizationScope(
+      { tenantId: 'tenant-1', orgId: 'org-1' },
+      scope,
+    )).toEqual({ tenantId: 'tenant-1', organizationId: 'org-1' })
+  })
 })

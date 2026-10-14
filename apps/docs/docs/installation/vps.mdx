@@ -123,8 +123,10 @@ Two variables bound how long tokens signed with the *previous* scheme keep worki
 
 Once the window closes, every token must carry a session id (`sid`) bound to a live session row, which is what makes logout and password reset revoke access immediately. Set `JWT_LEGACY_GRACE_MINUTES=0` on a fresh install: it has no pre-migration tokens to protect.
 
+Inside the window, a customer-portal token without a `sid` still has to prove the customer is signed in somewhere: it is accepted only while that customer has at least one live session row, so revoking their sessions cuts the legacy token off too. Staff tokens do not get that fallback check — a sessionless staff token is accepted for the rest of the window.
+
 :::warning
-Never leave the grace window open indefinitely "just in case". The absolute cutover is mandatory because anyone holding the former raw secret can choose a fresh `iat`; while fallback is open, a legacy token is accepted without a session row and cannot be revoked before it expires.
+Never leave the grace window open indefinitely "just in case". The absolute cutover is mandatory because anyone holding the former raw secret can choose a fresh `iat`, and while fallback is open a sessionless token is bound to no individual session row — so it cannot be revoked one device at a time, only by ending every session the account has.
 :::
 
 ---

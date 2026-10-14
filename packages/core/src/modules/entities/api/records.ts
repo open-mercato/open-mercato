@@ -6,6 +6,7 @@ import type { QueryEngine, QueryOptions, Where, Sort } from '@open-mercato/share
 import { normalizeExportFormat, serializeExport, defaultExportFilename, ensureColumns } from '@open-mercato/shared/lib/crud/exporters'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { resolveOrganizationScope, getSelectedOrganizationFromRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { SYSTEM_ENTITY_RECORDS_BLOCKED_CODE } from '@open-mercato/shared/lib/data/engine'
 import { parseBooleanToken, parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { parseCommaSeparatedList } from '@open-mercato/shared/lib/string'
@@ -147,7 +148,7 @@ export async function GET(req: Request) {
     // registered in `custom_entities`, so classification checks the declared registry plus
     // active registrations. System (table-backed) ids are rejected above; for the allowed
     // set `isCustomEntity` drives mapRow's cf_ stripping so the edit form reads back values.
-    const { kind: entityKind, restricted: isRestricted } = await classifyRecordsEntity(em, entityId, { tenantId: auth.tenantId ?? null, organizationId: scope.selectedId ?? auth.orgId ?? null })
+    const { kind: entityKind, restricted: isRestricted } = await classifyRecordsEntity(em, entityId, { tenantId: auth.tenantId ?? null, organizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null })
     if (entityKind === 'system') return systemEntityRecordsRejection(entityId)
     const isCustomEntity = entityKind === 'custom'
     await assertEntityAclForRequest({ auth, entityId, action: 'view', isCustomEntity, isRestricted, rbac })
@@ -162,7 +163,7 @@ export async function GET(req: Request) {
     // boolean back over the stored option (#5791). Consult the declared kind instead.
     const needsFieldKinds = isCustomEntity || qpEntries.some(([key]) => key.startsWith('cf_'))
     const fieldKinds = needsFieldKinds
-      ? await loadCustomFieldKinds(em, { entityId, organizationId: scope.selectedId ?? auth.orgId ?? null, tenantId: auth.tenantId ?? null })
+      ? await loadCustomFieldKinds(em, { entityId, organizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null, tenantId: auth.tenantId ?? null })
       : new Map<string, string>()
     const isBooleanField = (key: string) => fieldKinds.get(key) === 'boolean'
     const parseBooleanField = (key: string, value: unknown) => {
@@ -385,9 +386,9 @@ export async function POST(req: Request) {
     const em = resolve('em') as any
     const rbac = resolve('rbacService') as RbacService
     const scope = await resolveOrganizationScope({ em, rbac, auth, selectedId: getSelectedOrganizationFromRequest(req) })
-    const targetOrgId = scope.selectedId ?? auth.orgId
+    const targetOrgId = resolveSingleOrganizationIdOrDeny(scope, auth)
     if (!targetOrgId) return NextResponse.json({ error: 'Organization context is required' }, { status: 400 })
-    const { kind: entityKind, restricted: isRestricted } = await classifyRecordsEntity(em, entityId, { tenantId: auth.tenantId ?? null, organizationId: scope.selectedId ?? auth.orgId ?? null })
+    const { kind: entityKind, restricted: isRestricted } = await classifyRecordsEntity(em, entityId, { tenantId: auth.tenantId ?? null, organizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null })
     if (entityKind === 'system') return systemEntityRecordsRejection(entityId)
     const isCustomEntity = entityKind === 'custom'
     await assertEntityAclForRequest({ auth, entityId, action: 'manage', isCustomEntity, isRestricted, rbac })
@@ -459,9 +460,9 @@ export async function PUT(req: Request) {
     const em = resolve('em') as any
     const rbac = resolve('rbacService') as RbacService
     const scope = await resolveOrganizationScope({ em, rbac, auth, selectedId: getSelectedOrganizationFromRequest(req) })
-    const targetOrgId = scope.selectedId ?? auth.orgId
+    const targetOrgId = resolveSingleOrganizationIdOrDeny(scope, auth)
     if (!targetOrgId) return NextResponse.json({ error: 'Organization context is required' }, { status: 400 })
-    const { kind: entityKind, restricted: isRestricted } = await classifyRecordsEntity(em, entityId, { tenantId: auth.tenantId ?? null, organizationId: scope.selectedId ?? auth.orgId ?? null })
+    const { kind: entityKind, restricted: isRestricted } = await classifyRecordsEntity(em, entityId, { tenantId: auth.tenantId ?? null, organizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null })
     if (entityKind === 'system') return systemEntityRecordsRejection(entityId)
     const isCustomEntity = entityKind === 'custom'
     await assertEntityAclForRequest({ auth, entityId, action: 'manage', isCustomEntity, isRestricted, rbac })
@@ -558,9 +559,9 @@ export async function DELETE(req: Request) {
     const em = resolve('em') as any
     const rbac = resolve('rbacService') as RbacService
     const scope = await resolveOrganizationScope({ em, rbac, auth, selectedId: getSelectedOrganizationFromRequest(req) })
-    const targetOrgId = scope.selectedId ?? auth.orgId
+    const targetOrgId = resolveSingleOrganizationIdOrDeny(scope, auth)
     if (!targetOrgId) return NextResponse.json({ error: 'Organization context is required' }, { status: 400 })
-    const { kind: entityKind, restricted: isRestricted } = await classifyRecordsEntity(em, entityId, { tenantId: auth.tenantId ?? null, organizationId: scope.selectedId ?? auth.orgId ?? null })
+    const { kind: entityKind, restricted: isRestricted } = await classifyRecordsEntity(em, entityId, { tenantId: auth.tenantId ?? null, organizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null })
     if (entityKind === 'system') return systemEntityRecordsRejection(entityId)
     const isCustomEntity = entityKind === 'custom'
     await assertEntityAclForRequest({ auth, entityId, action: 'manage', isCustomEntity, isRestricted, rbac })

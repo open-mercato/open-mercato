@@ -19,6 +19,12 @@ const defaultTenantId = '123e4567-e89b-12d3-a456-426614174000'
 
 let mockAuthSub = 'user-a'
 let mockAuthKeyId: string | null = null
+let mockOrganizationScope = {
+  selectedId: defaultOrganizationId,
+  filterIds: [defaultOrganizationId] as string[] | null,
+  allowedIds: [defaultOrganizationId] as string[] | null,
+  tenantId: defaultTenantId,
+}
 
 const em = {}
 
@@ -70,12 +76,7 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => {
 })
 
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
-  resolveOrganizationScopeForRequest: jest.fn(async () => ({
-    selectedId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-    filterIds: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'],
-    allowedIds: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'],
-    tenantId: '123e4567-e89b-12d3-a456-426614174000',
-  })),
+  resolveOrganizationScopeForRequest: jest.fn(async () => mockOrganizationScope),
 }))
 
 jest.mock('@open-mercato/core/modules/entities/lib/helpers', () => ({
@@ -105,6 +106,20 @@ const route = makeCrudRoute({
   },
 })
 
+const scopeIdentityRoute = makeCrudRoute({
+  metadata: { GET: { requireAuth: true } },
+  orm: { entity: Todo, idField: 'id', orgField: null, tenantField: null, softDeleteField: null },
+  indexer: { entityType: 'example.cache_identity' },
+  list: {
+    schema: querySchema,
+    entityId: 'example.cache_identity',
+    fields: ['id', 'title'],
+    sortFieldMap: { id: 'id', title: 'title' },
+    buildFilters: () => ({} as any),
+    transformItem: (item: any) => ({ id: item.id, title: item.title }),
+  },
+})
+
 const url = 'http://x/api/example/todos?page=1&pageSize=10&sortField=id&sortDir=asc'
 
 describe('CRUD Factory — list cache is partitioned per caller identity', () => {
@@ -124,6 +139,12 @@ describe('CRUD Factory — list cache is partitioned per caller identity', () =>
     store.clear()
     mockAuthSub = 'user-a'
     mockAuthKeyId = null
+    mockOrganizationScope = {
+      selectedId: defaultOrganizationId,
+      filterIds: [defaultOrganizationId],
+      allowedIds: [defaultOrganizationId],
+      tenantId: defaultTenantId,
+    }
     registerApiInterceptors([])
   })
 
@@ -167,5 +188,26 @@ describe('CRUD Factory — list cache is partitioned per caller identity', () =>
     await route.GET(new Request(url))
     const apiKeyKey = Array.from(store.keys())[0] as string
     expect(apiKeyKey).toContain('user:api-key-9')
+  })
+
+  it('encodes explicit empty and finite scopes as different cache keys', async () => {
+    await scopeIdentityRoute.GET(new Request(url))
+    const finiteKey = Array.from(store.keys())[0] as string
+
+    mockOrganizationScope = {
+      selectedId: defaultOrganizationId,
+      filterIds: [],
+      allowedIds: [defaultOrganizationId],
+      tenantId: defaultTenantId,
+    }
+    const emptyResponse = await scopeIdentityRoute.GET(new Request(url))
+    const keys = Array.from(store.keys())
+
+    expect(emptyResponse.headers.get('x-om-cache')).toBe('miss')
+    expect(keys).toHaveLength(2)
+    expect(finiteKey).toContain(`scope:${defaultOrganizationId}`)
+    expect(keys[1]).toContain('scope:empty')
+    expect(keys[1]).not.toBe(finiteKey)
+    expect(queryEngine.query).toHaveBeenCalledTimes(2)
   })
 })

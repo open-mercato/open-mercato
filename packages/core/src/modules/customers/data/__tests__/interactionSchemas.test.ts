@@ -12,6 +12,18 @@ const userA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const userB = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 
 describe('interaction validators — extended scheduling fields', () => {
+  it.each(['meeting', 'call', 'email', 'note', 'event', 'task', 'visit'])('accepts a timezone independently of event type %s', (interactionType) => {
+    expect(interactionCreateSchema.parse({ tenantId, organizationId: orgId, entityId, interactionType, timezone: 'America/New_York' }).timezone).toBe('America/New_York')
+    expect(interactionUpdateSchema.parse({ id: interactionId, timezone: 'Europe/Warsaw' }).timezone).toBe('Europe/Warsaw')
+  })
+
+  it('rejects invalid timezones and supports legacy omission and explicit reset', () => {
+    expect(interactionUpdateSchema.safeParse({ id: interactionId, timezone: 'Invalid/Zone' }).success).toBe(false)
+    expect(interactionUpdateSchema.safeParse({ id: interactionId, timezone: '' }).success).toBe(false)
+    expect(interactionUpdateSchema.parse({ id: interactionId, timezone: null }).timezone).toBeNull()
+    expect(interactionUpdateSchema.parse({ id: interactionId }).timezone).toBeUndefined()
+  })
+
   const basePayload = {
     tenantId,
     organizationId: orgId,
@@ -112,6 +124,48 @@ describe('interaction validators — extended scheduling fields', () => {
     expect(parsed.visibility).toBeNull()
     expect(parsed.linkedEntities).toBeNull()
     expect(parsed.guestPermissions).toBeNull()
+  })
+
+  test('interactionUpdateSchema accepts entityId so an interaction can be re-linked', () => {
+    const parsed = interactionUpdateSchema.parse({
+      id: interactionId,
+      tenantId,
+      organizationId: orgId,
+      entityId,
+    })
+    expect(parsed.entityId).toBe(entityId)
+  })
+
+  test('interactionUpdateSchema leaves entityId undefined when it is not sent', () => {
+    const parsed = interactionUpdateSchema.parse({
+      id: interactionId,
+      tenantId,
+      organizationId: orgId,
+      title: 'Just title',
+    })
+    expect(parsed.entityId).toBeUndefined()
+  })
+
+  test('interactionUpdateSchema rejects a non-uuid entityId', () => {
+    expect(() =>
+      interactionUpdateSchema.parse({
+        id: interactionId,
+        tenantId,
+        organizationId: orgId,
+        entityId: 'not-a-uuid',
+      }),
+    ).toThrow()
+  })
+
+  test('interactionUpdateSchema rejects a null entityId because the relation is required', () => {
+    expect(() =>
+      interactionUpdateSchema.parse({
+        id: interactionId,
+        tenantId,
+        organizationId: orgId,
+        entityId: null,
+      }),
+    ).toThrow()
   })
 
   test('interactionUpdateSchema rejects invalid linked entity type', () => {

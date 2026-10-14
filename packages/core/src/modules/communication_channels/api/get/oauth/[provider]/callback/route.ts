@@ -8,11 +8,14 @@ import { getChannelAdapter } from '../../../../../lib/adapter-registry-singleton
 import { resolveOAuthClientCredentials } from '../../../../../lib/oauth-client-config'
 import {
   COMMUNICATION_CHANNELS_OAUTH_STATE_COOKIE_NAME,
+  consumeOAuthStateOnce,
   DEFAULT_OAUTH_RETURN_URL,
   normalizeOAuthReturnUrl,
   OAuthStateError,
   verifyOAuthState,
+  type OAuthStateConsumeStore,
 } from '../../../../../lib/oauth-state'
+import { OAUTH_RESULT_QUERY_PARAM } from '../../../../../lib/oauth-result'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('communication_channels').child({ component: 'oauth-callback' })
@@ -49,7 +52,7 @@ function redirectWithFlash(
     normalizeOAuthReturnUrl(returnUrl, DEFAULT_OAUTH_RETURN_URL),
     getAppBaseUrl(req),
   )
-  base.searchParams.set('flash', flash.type)
+  base.searchParams.set(OAUTH_RESULT_QUERY_PARAM, flash.type)
   if (flash.code) base.searchParams.set('code', flash.code)
   if (flash.provider) base.searchParams.set('provider', flash.provider)
   if (flash.channelId) base.searchParams.set('channelId', flash.channelId)
@@ -138,6 +141,27 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
 
   // Exchange the code via the adapter.
   const container = await createRequestContainer()
+
+  // Single-use consume: reject a captured valid cookie replayed within the TTL.
+  const resolved = (() => { try { return container.resolve('cache') } catch { return null } })()
+  if (
+    !resolved ||
+    typeof (resolved as OAuthStateConsumeStore).has !== 'function' ||
+    typeof (resolved as OAuthStateConsumeStore).set !== 'function'
+  ) {
+    return redirectWithFlash(req, returnUrl, { type: 'error', code: 'state_store_unavailable', provider })
+  }
+  const oauthStateStore = resolved as OAuthStateConsumeStore
+  try {
+    await consumeOAuthStateOnce(oauthStateStore, statePayload)
+  } catch (err) {
+    const errCode = err instanceof OAuthStateError ? err.code : 'invalid_state'
+    return redirectWithFlash(req, returnUrl, {
+      type: 'error',
+      code: errCode,
+      provider,
+    })
+  }
   const credentialsService = (() => {
     try {
       return container.resolve('integrationCredentialsService') as CredentialsServiceLike

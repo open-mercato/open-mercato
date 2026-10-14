@@ -89,6 +89,9 @@ export const STARTER_PRESETS: Record<string, StarterPreset> = {
         { id: 'dictionaries', from: CORE },
         { id: 'feature_toggles', from: CORE },
         { id: 'currencies', from: CORE },
+        // `communication_channels` declares `requires: ['progress']` (issue #6094);
+        // without this entry `yarn generate` hard-fails on every `crm` scaffold.
+        { id: 'progress', from: CORE },
         // `communication_channels` powers the profile "My communication channels" page,
         // but the hub only persists credentials through `integrations`
         // (`integrationCredentialsService`) and only shows connect buttons for modules
@@ -114,6 +117,9 @@ export const STARTER_PRESETS: Record<string, StarterPreset> = {
       mode: 'patch',
       add: [
         { id: 'customers', from: CORE },
+        // `customers` declares `requires: ['progress']` (issue #6094/#6302);
+        // without this entry `yarn generate` hard-fails on every `wms` scaffold.
+        { id: 'progress', from: CORE },
         { id: 'dictionaries', from: CORE },
         { id: 'feature_toggles', from: CORE },
         { id: 'catalog', from: CORE },

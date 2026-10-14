@@ -36,6 +36,7 @@ import {
   ensureOrganizationScope,
   ensureTenantScope,
   extractUndoPayload,
+  CUSTOMER_ENTITY_UNDO_DATE_OPTIONS,
   assertFound,
   syncEntityTags,
   loadEntityTagIds,
@@ -55,6 +56,7 @@ import { CUSTOMER_ENTITY_ID, resolveCompanyCustomFieldRouting } from '../lib/cus
 import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
+import { reviveSnapshotDates } from '@open-mercato/shared/lib/commands/undo'
 
 const COMPANY_ENTITY_ID = 'customers:customer_company_profile'
 const INTERACTION_ENTITY_ID = 'customers:customer_interaction'
@@ -604,9 +606,13 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
     await emitQueryIndexDeleteEvents(ctx, [companyEntityIndexEntry(entity)])
   },
   redo: async ({ logEntry, ctx }) => {
-    const after = resolveRedoSnapshot<CompanySnapshot>(logEntry)
-    if (!after) {
+    const redoSnapshot = resolveRedoSnapshot<CompanySnapshot>(logEntry)
+    if (!redoSnapshot) {
       throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for company create' })
+    }
+    const after: CompanySnapshot = {
+      ...redoSnapshot,
+      entity: reviveSnapshotDates(redoSnapshot.entity, ['nextInteractionAt']),
     }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let entity = await findOneWithDecryption(
@@ -726,7 +732,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
   id: 'customers.companies.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(companyUpdateSchema, rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadCompanySnapshot(em, parsed.id)
     return snapshot ? { before: snapshot } : {}
   },
@@ -776,6 +782,18 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
         if (parsed.sizeBucket !== undefined) profile.sizeBucket = parsed.sizeBucket ?? null
         if (parsed.annualRevenue !== undefined) {
           profile.annualRevenue = parsed.annualRevenue !== null && parsed.annualRevenue !== undefined ? String(parsed.annualRevenue) : null
+        }
+
+        // Profile columns and custom fields live outside CustomerEntity, so a save
+        // that only touches them never dirties the entity and its `updated_at` (the
+        // optimistic-lock version) would stay put — letting a stale second tab
+        // overwrite the change without a 409 (#7033). Bump it explicitly.
+        const profileFieldsUpdated = [
+          parsed.legalName, parsed.brandName, parsed.domain, parsed.websiteUrl,
+          parsed.industry, parsed.sizeBucket, parsed.annualRevenue,
+        ].some((value) => value !== undefined)
+        if (profileFieldsUpdated || Object.keys(custom).length > 0) {
+          record.updatedAt = new Date()
         }
       },
       () => syncEntityTags(em, record, parsed.tags),
@@ -831,7 +849,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<CompanyUndoPayload>(logEntry)
+    const payload = extractUndoPayload<CompanyUndoPayload>(logEntry, CUSTOMER_ENTITY_UNDO_DATE_OPTIONS)
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -877,6 +895,9 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
       entity.nextInteractionIcon = before.entity.nextInteractionIcon
       entity.nextInteractionColor = before.entity.nextInteractionColor
       entity.isActive = before.entity.isActive
+      // Undo may only restore profile/custom fields, which never dirty the entity;
+      // advance the optimistic-lock version so a stale tab cannot overwrite it (#7033).
+      entity.updatedAt = new Date()
     }
     await em.flush()
 
@@ -1035,6 +1056,14 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
         }
 
         await em.nativeUpdate(CustomerPersonProfile, { company: record }, { company: null })
+        // Soft-deleted person links keep their `company_entity_id` foreign key, so the hard
+        // delete below would violate it. The guard above already proved no active link
+        // remains, and restricting the filter to `deletedAt != null` keeps that guarantee.
+        await em.nativeDelete(CustomerPersonCompanyLink, {
+          company: record,
+          deletedAt: { $ne: null },
+          ...dependentScope,
+        })
         await em.nativeDelete(CustomerDealCompanyLink, { company: record })
         await em.nativeDelete(CustomerActivity, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
         await em.nativeDelete(CustomerInteraction, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
@@ -1162,7 +1191,7 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
       }
     },
     undo: async ({ logEntry, ctx }) => {
-      const payload = extractUndoPayload<CompanyUndoPayload>(logEntry)
+      const payload = extractUndoPayload<CompanyUndoPayload>(logEntry, CUSTOMER_ENTITY_UNDO_DATE_OPTIONS)
       const before = payload?.before
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()

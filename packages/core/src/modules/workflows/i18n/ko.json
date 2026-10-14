@@ -1952,7 +1952,7 @@
   "workflows.triggers.fields.name": "이름",
   "workflows.triggers.fields.priority": "우선순위",
   "workflows.triggers.hints.contextMapping": "이벤트 페이로드의 값을 워크플로우의 초기 컨텍스트에 매핑합니다",
-  "workflows.triggers.hints.debounce": "잦은 재트리거를 방지하기 위한 지연 시간",
+  "workflows.triggers.hints.debounce": "일치하는 첫 이벤트가 즉시 인스턴스를 시작합니다. 이 시간(밀리초) 이내에 동일한 레코드에 대한 후속 이벤트는 건너뜁니다. 비워두면 모든 이벤트마다 인스턴스가 시작됩니다.",
   "workflows.triggers.hints.eventPattern": "와일드카드로 *를 사용하세요: \"sales.orders.*\"는 모든 주문 이벤트와 일치합니다",
   "workflows.triggers.hints.filterConditions": "이벤트 페이로드가 이 조건들과 모두 일치할 때만 트리거됩니다",
   "workflows.triggers.hints.maxConcurrent": "동시에 실행되는 워크플로우 인스턴스 수를 제한합니다",

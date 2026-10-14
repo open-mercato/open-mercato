@@ -3,7 +3,7 @@ import type { CommandRuntimeContext, CommandUndoLogEntry } from './types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { CrudHttpError, conflict, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
-import { extractUndoPayload, type UndoPayload } from './undo'
+import { extractUndoPayload, reviveSnapshotDates, type UndoPayload } from './undo'
 import { emitCrudSideEffects } from './helpers'
 import { withAtomicFlush } from './flush'
 
@@ -22,7 +22,8 @@ const DEFAULT_SNAPSHOT_DATE_FIELDS = ['createdAt', 'updatedAt', 'deletedAt'] as 
 
 /**
  * Turn an after-snapshot into a create seed by shallow-cloning it and reviving the
- * declared date fields from ISO strings back to `Date`. Single-row snapshots are a
+ * declared date fields from ISO strings back to `Date` (via `reviveSnapshotDates`,
+ * which throws on an unparsable value). Single-row snapshots are a
  * faithful serialized row whose keys already equal entity property names, so the
  * snapshot doubles as the seed once dates are revived — no per-command mapping needed.
  */
@@ -30,12 +31,7 @@ export function reviveSnapshotSeed(
   snapshot: Record<string, unknown>,
   dateFields: readonly string[] = DEFAULT_SNAPSHOT_DATE_FIELDS,
 ): Record<string, unknown> {
-  const seed: Record<string, unknown> = { ...snapshot }
-  for (const field of dateFields) {
-    const value = seed[field]
-    if (typeof value === 'string') seed[field] = new Date(value)
-  }
-  return seed
+  return reviveSnapshotDates(snapshot, dateFields)
 }
 
 /**

@@ -62,15 +62,16 @@ const updateCrudMock = updateCrud as jest.Mock
 describe('EditCatalogProductPage — sequential saves keep the optimistic-lock token fresh (#5985)', () => {
   const productUpdatedAtByCall = ['2026-01-01T00:00:00.000Z', '2026-01-01T00:01:00.000Z', '2026-01-01T00:02:00.000Z']
   let productFetchCount = 0
+  let productSaveCount = 0
 
   beforeEach(() => {
     jest.clearAllMocks()
     latestCrudFormProps = null
     productFetchCount = 0
+    productSaveCount = 0
 
     apiCallMock.mockImplementation((url: string) => {
       if (url.includes('/api/catalog/products?id=')) {
-        const updatedAt = productUpdatedAtByCall[Math.min(productFetchCount, productUpdatedAtByCall.length - 1)]
         productFetchCount += 1
         return Promise.resolve({
           ok: true,
@@ -79,7 +80,7 @@ describe('EditCatalogProductPage — sequential saves keep the optimistic-lock t
               {
                 id: 'prod-1',
                 title: 'Mock product',
-                updated_at: updatedAt,
+                updated_at: productUpdatedAtByCall[0],
               },
             ],
           },
@@ -87,15 +88,21 @@ describe('EditCatalogProductPage — sequential saves keep the optimistic-lock t
       }
       return Promise.resolve({ ok: true, result: { items: [] } })
     })
+    updateCrudMock.mockImplementation(() => {
+      productSaveCount += 1
+      const updatedAt = productUpdatedAtByCall[Math.min(productSaveCount, productUpdatedAtByCall.length - 1)]
+      return Promise.resolve({ ok: true, result: { ok: true, updatedAt } })
+    })
   })
 
-  it('refreshes initialValues.updatedAt after each save so a second consecutive save does not send a stale lock token', async () => {
+  it('refreshes initialValues.updatedAt from each save response so a second consecutive save does not send a stale lock token', async () => {
     render(<EditCatalogProductPage params={{ id: 'prod-1' }} />)
 
     await waitFor(() => expect(latestCrudFormProps?.isLoading).toBe(false))
     expect((latestCrudFormProps?.initialValues as { updatedAt?: string })?.updatedAt).toBe(
       productUpdatedAtByCall[0],
     )
+    const fetchesBeforeSave = productFetchCount
 
     const onSubmit = latestCrudFormProps?.onSubmit as (values: unknown) => Promise<void>
 
@@ -118,6 +125,7 @@ describe('EditCatalogProductPage — sequential saves keep the optimistic-lock t
         productUpdatedAtByCall[2],
       ),
     )
+    expect(productFetchCount).toBe(fetchesBeforeSave)
   })
 })
 
