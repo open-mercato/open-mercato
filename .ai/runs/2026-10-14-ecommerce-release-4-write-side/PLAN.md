@@ -68,7 +68,7 @@
 | 7 | 7.5 | Cart: lock, unlock and markConverted service and commands | dispatch:capable | todo | — |
 | 7 | 7.6 | Cart: Phase 3 gates (R1/R7/R13, equivalence with promotions via sales order, P95) | dispatch:capable | todo | — |
 | 7 | 7.7 | Docs: module AGENTS.md files, API docs, UPGRADE_NOTES, spec changelogs and statuses | dispatch | todo | — |
-| 7 | 7.8 | Enable cart and promotions in apps/mercato and sync the create-app template | dispatch | todo | — |
+| 7 | 7.8 | Create-app template sync for cart/promotions (app registration already done per-module, see 1.1 note) | dispatch | todo | — |
 
 ## Goal
 
@@ -112,7 +112,9 @@ Each Step below matches the Tasks table. Spec section numbers refer to the specs
 
 ### Phase 1 — Promotions foundation (SPEC-055 Phase 1)
 
-- **1.1 Scaffold.** `packages/core/src/modules/promotions/`: `index.ts` (metadata), `acl.ts` (incl. D-R4-11 features), `events.ts` (underscore ids), `setup.ts` (`defaultRoleFeatures`), `di.ts`. No `ce.ts`/`translations.ts`/`search.ts`/`notifications.ts`/widgets. Register in `apps/mercato/src/modules.ts` only in Step 7.8.
+- **1.1 Scaffold.** `packages/core/src/modules/promotions/`: `index.ts` (metadata), `acl.ts` (incl. D-R4-11 features), `events.ts` (underscore ids), `setup.ts` (`defaultRoleFeatures`), `di.ts`. No `ce.ts`/`translations.ts`/`search.ts`/`notifications.ts`/widgets.
+
+> **Plan correction (found during Step 1.2, 2026-10-14).** This note originally said "register in `apps/mercato/src/modules.ts` only in Step 7.8." That is not achievable: `yarn db:generate`'s module list comes exclusively from `apps/mercato/src/modules.ts`'s `enabledModules` (`packages/cli/src/lib/resolver.ts` `loadEnabledModulesFromConfig`; no `--module` scoping flag exists for `db generate`), so a module's entities cannot be migrated before the module is registered. Step 1.2 registered `promotions` in `apps/mercato/src/modules.ts` for exactly this reason, and `cart`'s own Step 4.2 (migration) will do the same. **Step 7.8 narrows to:** keep both modules commented out in the `create-app` template (D22 precedent) and run `yarn template:sync:fix` + a final `yarn generate` — the app-registration half of 7.8 already happened earlier, per module, at its first migration-needing step.
 - **1.2 Entities, validators, migration.** `Promotion`, `RuleGroup`, `Rule`, `Benefit`, `PromotionUsage` (RESTRICT, no cascade), zod validators including the shared quantity-cap block, per-type `applies_to` allow-list, write-path rejections (`TC-PROM-062`), single-currency validation (D-R4-27), rule set restricted per D-R4-14. `yarn db:generate`; keep only the promotions migration and snapshot.
 - **1.3 CRUD commands.** Create/update/delete with undo, events, cache invalidation after commit; command undo table in the module AGENTS notes.
 - **1.4 Rule-tree command and order endpoint.** `commands/rule-tree.ts` with `withAtomicFlush`; `PUT /tree` carrying the promotion's `updatedAt` (409 on stale); `PATCH /order` with per-item `updatedAt`.
@@ -181,7 +183,7 @@ Each Step below matches the Tasks table. Spec section numbers refer to the specs
 - **7.5** `cartService.lock/unlock/markConverted` and commands; lock re-prices, runs the visibility pass and refuses with `409 cart_has_unavailable_lines`; optimistic-lock and `withAtomicFlush` so a concurrent add yields 409.
 - **7.6** Release gates: R1/R7/R13 regression suite end to end, totals equivalence with promotions by creating an order through the existing `sales` command from the cart's lines, P95 ≤ 150 ms (50 lines × 200 promotions), restricted line merged from an exempt-channel cart rejected-and-disclosed.
 - **7.7** Docs: `cart/AGENTS.md` and `promotions/AGENTS.md`, `apps/docs` API pages, `UPGRADE_NOTES.md`, spec changelogs and statuses (move nothing to `implemented/` — phases remain), Task Router rows if warranted (budget check `yarn agents:check-budget`).
-- **7.8** Add `cart` and `promotions` to `apps/mercato/src/modules.ts`; keep them commented out in the create-app template (D22 precedent); `yarn template:sync:fix`; `yarn generate`.
+- **7.8** `apps/mercato/src/modules.ts` registration already happened per-module (promotions at Step 1.2, cart at Step 4.2 — see the 1.1 plan-correction note above). This step is now just: keep both commented out in the create-app template (D22 precedent); `yarn template:sync:fix`; final `yarn generate`.
 
 ## External References
 
