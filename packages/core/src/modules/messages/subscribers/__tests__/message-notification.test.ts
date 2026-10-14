@@ -43,6 +43,7 @@ describe('messages sent subscriber', () => {
     })
     delete process.env.QUEUE_STRATEGY
     findOneWithDecryptionMock
+      .mockReset()
       .mockResolvedValueOnce({ subject: 'Subject line' })
       .mockResolvedValueOnce({ name: 'Sender User', email: 'sender@example.com' })
   })
@@ -315,6 +316,30 @@ describe('messages sent subscriber', () => {
     expect(createBatchMock).not.toHaveBeenCalled()
     expect(enqueueMock).toHaveBeenCalledTimes(1)
     expect(enqueueMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'external', email: 'customer@example.com' }))
+  })
+
+  it('leaves a channel-routed reply to the outbound bridge without failing on the system user (#6391)', async () => {
+    const systemUserId = '00000000-0000-0000-0000-000000000000'
+    findOneWithDecryptionMock.mockResolvedValueOnce({ sourceEntityType: 'communication_channels.external_conversation' })
+
+    await expect(handle({
+      messageId: 'message-1',
+      senderUserId: 'operator-1',
+      recipientUserIds: [systemUserId, 'u1'],
+      sendViaEmail: true,
+      externalEmail: 'customer@example.com',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    }, ctx)).resolves.toBeUndefined()
+
+    expect(buildBatchNotificationFromTypeMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ recipientUserIds: ['u1'] }),
+    )
+    expect(enqueueMock).toHaveBeenCalledTimes(1)
+    expect(enqueueMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'recipient', recipientUserId: 'u1' }))
+    expect(enqueueMock).not.toHaveBeenCalledWith(expect.objectContaining({ recipientUserId: systemUserId }))
+    expect(enqueueMock).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'external' }))
   })
 
   it('uses local strategy by default', async () => {

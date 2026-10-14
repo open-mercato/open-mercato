@@ -779,10 +779,6 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
     const messageType = getMessageTypeOrDefault(original.type)
     if (messageType.allowReply === false) throw new Error('Reply is not allowed for this message type')
 
-    // The system sender is not a person: replying to it would address nobody
-    // and fail the `messages.message.sent` notification for the whole event
-    // (#6391). A channel reply reaches its correspondent through the thread's
-    // external address and channel, not through a platform recipient.
     const isReplyRecipient = (userId: string) => userId !== input.userId && userId !== SYSTEM_SENDER_USER_ID
     const recipientIds = new Set(
       (input.recipients ?? [])
