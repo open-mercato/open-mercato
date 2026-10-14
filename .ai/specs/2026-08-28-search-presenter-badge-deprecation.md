@@ -105,7 +105,7 @@ This change does **not** add a `SearchResultPresenter` / `VectorResultPresenter`
 
 ## Removal plan (0.11.0, separate change)
 
-1. **Every producer must have a `search.entityType.*` key before `badge` is deleted.** For `wms`, `eudr` and `documents` this precondition is satisfied — #6006 added their keys. `ecommerce` (#7142) is the one producer still without a key at the time of writing; add `search.entityType.ecommerce.ecommerce_store` first, or the removal silently downgrades its label to a humanized id. Re-check for any producer added after this note.
+1. **Every producer must have a `search.entityType.*` key before `badge` is deleted.** For `wms`, `eudr` and `documents` this precondition is satisfied — #6006 added their keys. `ecommerce` (#7142) is the one producer still without a key at the time of writing ([#7408](https://github.com/open-mercato/open-mercato/issues/7408)); add `search.entityType.ecommerce.ecommerce_store` first, or the removal silently downgrades its label to a humanized id. Re-check for any producer added after this note.
 2. Confirm no in-repo producer still sets `badge` (12 remain at the time of writing).
 3. Delete the field from **both** `SearchResultPresenter` and `VectorResultPresenter`, and the `<module>.search.badge.*` keys left unused. If a `BACKWARD_COMPATIBILITY.md` *Types* row for these presenters exists by then, drop its `badge?` clause at the same time.
 4. Retire the `result_badge` column, the Meilisearch document field and the pgvector round-trip — this step *does* need a migration and should be assessed on its own.
