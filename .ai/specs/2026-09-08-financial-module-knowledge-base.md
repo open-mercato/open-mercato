@@ -2560,3 +2560,39 @@ Only the provisions below were read.
   ledger line read in a cross-module command must go through
   `findOneWithDecryption`, since `ledger:journal_entry_line` has an
   encrypted `contractor_snapshot` column.
+
+### 2026-10-14 (cont. — issue #7332 monetary findings cross-checked against our specs and code)
+
+Issue #7332 (monetary values in Open Mercato) reviewed the first four specs of
+#6061 and the current codebase. Checked against the real specs and the
+implementation branches; nothing here is a decision, only findings.
+
+- **Confirmed:** the ledger stores `debit`/`credit` as `numeric(19,4)` and
+  handles them as decimal strings end to end; `sales` still computes on JS
+  numbers. The implementation guide's string-only rule is kept by the ledger
+  (`Number()` appears only for sequence numbers) and by JELD (no amounts).
+- **Corrected in the specs:** `JournalEntry.exchangeRate` (`numeric(18,8)`,
+  nullable, at most 8 decimal places) and `JournalEntryLine.amountCurrency`
+  (`numeric(19,4)`) had no stated type in #5663 although the code had one
+  (spec and guide updated). The #7332 text says the balance sum runs in
+  Postgres; in the application it is a `BigInt` minor-unit comparison in
+  `data/validators.ts` (the deferred trigger is the SQL side). `BigInt` is used
+  nowhere else, in particular not for storage.
+- **Corrected in code (#6711):** `posting_rules` read the debit/credit side with
+  `Number(line.debit) > 0` (and the dev CLI with `Number(amount) <= 0`). Both
+  now inspect the string; behaviour is unchanged.
+- **Not in #7332's scope but relevant:** the Fixed Assets spec (#6014) already
+  has a rounding rule for splitting an amount (the final schedule row absorbs
+  the remainder). #7332 says no spec defines how to split amounts; that holds
+  only for the four specs it read.
+- **Open, not decided:** (1) no spec names a rounding mode (half-up or
+  half-even); (2) the Multi-Currency spec computes `unrealizedGainLoss` as
+  `outstanding × (valuation − booked) × sign` without stating a precision or
+  rounding for the result, and types its FX report fields `numeric(18,4)`
+  against the ledger's `19,4`; (3) PR #7324 makes `exchange_rates.rate` and
+  `sales_orders.exchange_rate` unconstrained `numeric`, while the ledger
+  rejects a rate with more than 8 decimal places, so where a rate is rounded
+  before posting is undecided; (4) the AR spec refers to a local
+  `decimal/toNumber` helper that a shared decimal toolkit would replace; (5)
+  whether the rounding mode and FX-difference rounding follow any rule in Polish
+  accounting practice is a question for the domain expert and is unverified.
