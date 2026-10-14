@@ -31,6 +31,6 @@ Visibility Phase 3 ships in this release, not later: without it a product hidden
 | Pre-implement analysis: cart | done (2026-10-14) |
 | Pre-implement analysis: promotions | done (2026-10-14) |
 | Pre-implement analysis: visibility Phase 3 | done (2026-10-14) |
-| Cross-spec consistency pass and decisions | pending |
-| Spec revision pass | pending |
-| Implementation via `om-auto-continue-pr-loop` | pending |
+| Cross-spec consistency pass and decisions | done — see `ANALYSIS-2026-10-14-ecommerce-release-4-decisions.md` (D-R4-1…29) |
+| Spec revision pass | pending — PLAN.md Phase 0 (`.ai/runs/2026-10-14-ecommerce-release-4-write-side/`) |
+| Implementation via `om-auto-continue-pr-loop` | pending — PLAN.md Phases 1–7 |
