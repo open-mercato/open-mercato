@@ -27,7 +27,7 @@
 | 1 | 1.8 | Promotions: benefit card (Applies to, Limits, Which pieces) and echo line | dispatch | done | see `git log` |
 | 1 | 1.9 | Promotions: Phase 1 API integration tests | dispatch | done | see `git log` |
 | 1 | 1.10 | Promotions: Phase 1 UI integration tests | dispatch | done | see `git log` |
-| 2 | 2.1 | Promotions: public types barrel and pure three-pass evaluation engine | dispatch:capable | todo | — |
+| 2 | 2.1 | Promotions: public types barrel and pure three-pass evaluation engine | dispatch:capable | done | see `git log` |
 | 2 | 2.2 | Promotions: rule evaluators for the Release 4 rule set | dispatch | todo | — |
 | 2 | 2.3 | Promotions: unit selection and effect resolvers (net and gross, caps, rounding) | dispatch:capable | todo | — |
 | 2 | 2.4 | Promotions: tag exclusion and cumulativity | dispatch | todo | — |
@@ -127,7 +127,7 @@ Each Step below matches the Tasks table. Spec section numbers refer to the specs
 
 ### Phase 2 — Promotions engine (SPEC-055 Phase 2)
 
-- **2.1** `lib/types.ts` public barrel (all A.2 types) and `lib/evaluation-engine.ts`: pure three-pass evaluator over `NormalizedPromotion[]`, no DB access, `evaluatedAt` from the context (D-R4-13), currency eligibility and optimistic budget pre-check before Pass 1.
+- **2.1** `lib/types.ts` public barrel (all A.2 types) and `lib/evaluation-engine.ts`: pure three-pass evaluator over `NormalizedPromotion[]`, no DB access, `evaluatedAt` from the context (D-R4-13), currency eligibility and optimistic budget pre-check before Pass 1. Pass 1 (`evaluateGroup`) and Pass 3 (`resolveEffects`) ship as one-line throwing stubs in new `lib/rule-evaluators.ts`/`lib/effect-resolvers.ts`, intentionally reserved for Steps 2.2/2.3; this step's own tests cover only the orchestration skip-checks (date window, excluded tags, currency, budget pre-check) that don't require those passes.
 - **2.2** `lib/rule-evaluators.ts` for the D-R4-14 rule set (`customer_group`, category with descendants, `priceIsPromotional` handling).
 - **2.3** `lib/unit-selection.ts` and `lib/effect-resolvers.ts`: caps, `max_discount`, `amountNet` + `amountGross`, half-up rounding at the currency's fraction digits (D-R4-10), gift reward with `promotionId` marker, no delivery discount.
 - **2.4** `lib/tag-exclusion.ts`: ordering, cumulativity, tag exclusion.
