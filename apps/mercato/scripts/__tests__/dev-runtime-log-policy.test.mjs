@@ -270,14 +270,26 @@ test('createRuntimeNoiseFilter ignores the err stack printed below a WARN entry 
     ignoreLine('12:16:22.204 WARN  [shared:crud] Enricher failed enricherId=wms.catalog-product-inventory'),
     false,
   )
-  assert.equal(ignoreLine('Error: Enricher timed out after 2000ms'), true)
-  assert.equal(ignoreLine('    at Timeout._onTimeout (/app/node_modules/@open-mercato/shared/dist/lib/crud/enricher-runner.js:120:16)'), true)
-  assert.equal(ignoreLine('    at listOnTimeout (node:internal/timers:588:17)'), true)
+  assert.equal(ignoreLine('    Error: Enricher timed out after 2000ms'), true)
+  assert.equal(ignoreLine('        at Timeout._onTimeout (/app/node_modules/@open-mercato/shared/dist/lib/crud/enricher-runner.js:120:16)'), true)
+  assert.equal(ignoreLine('        at listOnTimeout (node:internal/timers:588:17)'), true)
   // The stack ends at the next non-frame line; later failures surface again
   assert.equal(ignoreLine('Error: database unavailable'), false)
 
   assert.equal(ignoreLine('12:16:23.000 INFO  [shared:queue] Job failed, will retry'), false)
-  assert.equal(ignoreLine('TypeError [ERR_INVALID_ARG_TYPE]: The "path" argument must be of type string'), true)
+  assert.equal(ignoreLine('    TypeError [ERR_INVALID_ARG_TYPE]: The "path" argument must be of type string'), true)
+})
+
+test('createRuntimeNoiseFilter keeps an unrelated Error printed right after an entry without err', () => {
+  const ignoreLine = createRuntimeNoiseFilter()
+
+  // e.g. console.error(err) from another module, in the same or the next output chunk
+  assert.equal(ignoreLine('12:16:22.204 INFO  [shared:queue] Job started'), false)
+  assert.equal(ignoreLine('Error: connect ECONNREFUSED 127.0.0.1:5432'), false)
+  assert.equal(ignoreLine('    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1555:16)'), false)
+
+  assert.equal(ignoreLine('12:16:23.000 WARN  [shared:crud] Slow query'), false)
+  assert.equal(ignoreLine('TypeError [ERR_INVALID_ARG_TYPE]: The "path" argument must be of type string'), false)
 })
 
 test('createRuntimeNoiseFilter keeps the err stack printed below an ERROR entry', () => {
