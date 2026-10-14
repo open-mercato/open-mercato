@@ -18,6 +18,12 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   readApiResultOrThrow: (...args: unknown[]) => readApiResultOrThrowMock(...args),
 }))
 
+const flashMock = jest.fn()
+
+jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
+  flash: (...args: unknown[]) => flashMock(...args),
+}))
+
 const embeddingSettings: NonNullable<VectorSearchSectionProps['embeddingSettings']> = {
   openaiConfigured: true,
   autoIndexingEnabled: true,
@@ -125,6 +131,7 @@ describe('VectorSearchSection Ollama base URL', () => {
   beforeEach(() => {
     readApiResultOrThrowMock.mockReset()
     readApiResultOrThrowMock.mockResolvedValue(null)
+    flashMock.mockReset()
     Object.defineProperty(globalThis, 'fetch', {
       configurable: true,
       value: jest.fn(() => new Promise(() => undefined)),
@@ -204,6 +211,29 @@ describe('VectorSearchSection Ollama base URL', () => {
 
     await waitFor(() => expect(savedEmbeddingConfigs()).toHaveLength(1))
     expect(savedEmbeddingConfigs()[0]).not.toHaveProperty('baseUrl')
+  })
+
+  it('shows the server message when the base URL is rejected', async () => {
+    readApiResultOrThrowMock.mockRejectedValue(new Error('Ollama base URL is not allowed.'))
+    renderSection({ ...embeddingSettings, embeddingConfig: null })
+
+    fireEvent.click(screen.getByRole('button', { name: /Ollama \(Local\)/ }))
+    fireEvent.change(screen.getByLabelText('Base URL'), { target: { value: 'http://10.0.0.5:11434' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+
+    await waitFor(() => expect(flashMock).toHaveBeenCalledWith('Ollama base URL is not allowed.', 'error'))
+    expect(flashMock).not.toHaveBeenCalledWith('Embedding provider saved', 'success')
+    expect(screen.getByLabelText('Base URL')).toHaveProperty('value', 'http://10.0.0.5:11434')
+  })
+
+  it('falls back to a generic message when the rejection carries none', async () => {
+    readApiResultOrThrowMock.mockRejectedValue(new Error(''))
+    renderSection({ ...embeddingSettings, embeddingConfig: null })
+
+    fireEvent.click(screen.getByRole('button', { name: /Ollama \(Local\)/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+
+    await waitFor(() => expect(flashMock).toHaveBeenCalledWith('Failed to save settings', 'error'))
   })
 })
 

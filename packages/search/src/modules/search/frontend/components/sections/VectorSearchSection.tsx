@@ -182,6 +182,11 @@ export type VectorSearchSectionProps = {
   onRefreshEmbeddings: () => Promise<void>
 }
 
+function flashRequestError(err: unknown, fallbackMessage: string) {
+  const message = err instanceof Error && err.message.trim() ? err.message : fallbackMessage
+  flash(message, 'error')
+}
+
 export function VectorSearchSection({
   embeddingSettings,
   embeddingLoading,
@@ -283,7 +288,8 @@ export function VectorSearchSection({
         autoIndexingPreviousRef.current = body.settings.autoIndexingEnabled
       }
       flash(t('search.settings.messages.saved', 'Settings saved'), 'success')
-    } catch {
+    } catch (err) {
+      flashRequestError(err, t('search.settings.errors.saveFailed', 'Failed to save settings'))
       if (embeddingSettings) {
         onEmbeddingSettingsUpdate({ ...embeddingSettings, autoIndexingEnabled: autoIndexingPreviousRef.current })
       }
@@ -377,8 +383,8 @@ export function VectorSearchSection({
       setOllamaBaseUrlDraft(null)
       flash(t('search.settings.messages.providerSaved', 'Embedding provider saved'), 'success')
       await onRefreshEmbeddings()
-    } catch {
-      // Error handled by readApiResultOrThrow
+    } catch (err) {
+      flashRequestError(err, t('search.settings.errors.saveFailed', 'Failed to save settings'))
     } finally {
       setEmbeddingSaving(false)
     }
@@ -415,8 +421,8 @@ export function VectorSearchSection({
       )
       flash(t('search.settings.messages.reindexStarted', 'Reindex started'), 'success')
       await fetchActivityLogs()
-    } catch {
-      // Error handled by readApiResultOrThrow
+    } catch (err) {
+      flashRequestError(err, t('search.settings.errors.reindexFailed', 'Reindex failed'))
     } finally {
       setVectorReindexing(false)
     }
