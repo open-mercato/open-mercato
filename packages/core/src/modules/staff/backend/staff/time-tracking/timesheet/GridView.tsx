@@ -547,6 +547,8 @@ function DefaultGridView({
     // header), so a refusal can arrive after some cells are already stored. Those
     // cells leave the pending set and the period is reloaded, so the stored rows
     // pick up their ids — otherwise the next Save would create them a second time.
+    // The bulk request opts out of the shared 403 handling, which keeps only the
+    // message: the access refusal's `errors[].index` is what marks the cell.
     const savedKeys = new Set<string>()
     let bulkCommitted = bulkEntries.length === 0
     setIsSaving(true)
@@ -559,7 +561,7 @@ function DefaultGridView({
               BULK_ENDPOINT,
               {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'x-om-forbidden-redirect': '0' },
                 body: JSON.stringify(payload),
               },
               { errorMessage: t('staff.timesheets.my.errors.save', 'Failed to save timesheets.') },

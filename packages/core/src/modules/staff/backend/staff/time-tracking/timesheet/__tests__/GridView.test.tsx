@@ -349,6 +349,11 @@ describe('refused saves (#7393, #7394)', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
     })
 
+    // The shared fetch wrapper turns a plain 403 into a ForbiddenError without
+    // the body, so the request must opt out for errors[].index to arrive.
+    expect(mockApiCallOrThrow.mock.calls[0][1]?.headers).toEqual(
+      expect.objectContaining({ 'x-om-forbidden-redirect': '0' }),
+    )
     expect(flash).toHaveBeenCalledWith(OUTSIDE_WINDOW, 'error')
     expect(monday).toHaveAttribute('aria-invalid', 'true')
     expect(monday).toHaveAttribute('title', OUTSIDE_WINDOW)
