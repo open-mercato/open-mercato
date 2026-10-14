@@ -276,9 +276,10 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
       } else {
         msg = await res.clone().text().catch(() => 'Forbidden')
       }
-      // Attach ACL hints so callers (e.g. flashMutationError) can name the
-      // missing permission instead of surfacing a bare "Forbidden" toast.
-      throw new ForbiddenError(msg, { requiredFeatures: features, requiredRoles: roles })
+      const errorMessage = hasAclHints
+        ? formatForbiddenAccessMessage({ requiredRoles: roles, requiredFeatures: features })
+        : msg
+      throw new ForbiddenError(errorMessage, { requiredFeatures: features, requiredRoles: roles })
     }
     // If already on login, just return the response for the caller to handle
   }

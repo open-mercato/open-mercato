@@ -110,6 +110,22 @@ describe('apiFetch', () => {
     expect((rejection as ForbiddenError).status).toBe(403)
   })
 
+  it('uses the missing feature in ForbiddenError.message for callers that surface the error', async () => {
+    ;(window as unknown as Record<string, unknown>).__omOriginalFetch = jest.fn(async () =>
+      createMockResponse(403, {
+        error: 'Forbidden',
+        requiredFeatures: ['customers.settings.manage'],
+      }),
+    )
+
+    const rejection = await apiFetch('/api/customers/settings/address-format').catch((error: unknown) => error)
+
+    expect(rejection).toBeInstanceOf(ForbiddenError)
+    expect((rejection as ForbiddenError).message).toBe(
+      'Access denied: you are missing the required permission "customers.settings.manage". Contact your administrator.',
+    )
+  })
+
   it('throws ForbiddenError when ACL hints are missing', async () => {
     const response = createMockResponse(403, {
       error: 'Forbidden',
