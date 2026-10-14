@@ -208,7 +208,7 @@ export default function SegmentsPage() {
       }
       if (selected) {
         await runLockedMutation(
-          selected.updatedAt,
+          { optimisticLockUpdatedAt: selected.updatedAt },
           () => apiCallOrThrow(`${SEGMENTS_PATH}/${selected.id}`, {
             method: 'PUT',
             headers: { 'content-type': 'application/json' },
@@ -250,7 +250,7 @@ export default function SegmentsPage() {
     if (!confirmed) return
     try {
       await runLockedMutation(
-        row.updatedAt,
+        { optimisticLockUpdatedAt: row.updatedAt },
         () => apiCallOrThrow(`${SEGMENTS_PATH}/${row.id}`, { method: 'DELETE' }),
       )
       if (selected?.id === row.id) resetDraft()

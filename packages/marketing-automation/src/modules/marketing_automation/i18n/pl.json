@@ -641,7 +641,6 @@
   "marketing_automation.routing.newLeads": "Nowe w tym tygodniu",
   "marketing_automation.routing.nextUp": "Następny lead tutaj",
   "marketing_automation.routing.noNew": "Nic nowego w tym tygodniu.",
-  "marketing_automation.routing.owned": "Prowadzi łącznie {total} leadów",
   "marketing_automation.routing.ownedShort": "leadów łącznie",
   "marketing_automation.routing.retry": "Spróbuj ponownie",
   "marketing_automation.routing.title": "Przydział leadów",

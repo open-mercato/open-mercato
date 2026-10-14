@@ -167,7 +167,7 @@ export default function ScoreRulesPage() {
       }
       if (selected) {
         await runLockedMutation(
-          selected.updatedAt,
+          { optimisticLockUpdatedAt: selected.updatedAt },
           () => apiCallOrThrow(`${RULES_PATH}/${selected.id}`, {
             method: 'PUT',
             headers: { 'content-type': 'application/json' },
@@ -209,7 +209,7 @@ export default function ScoreRulesPage() {
     if (!confirmed) return
     try {
       await runLockedMutation(
-        row.updatedAt,
+        { optimisticLockUpdatedAt: row.updatedAt },
         () => apiCallOrThrow(`${RULES_PATH}/${row.id}`, { method: 'DELETE' }),
       )
       if (selected?.id === row.id) resetDraft()

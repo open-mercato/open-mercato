@@ -641,7 +641,6 @@
   "marketing_automation.routing.newLeads": "Nuevos esta semana",
   "marketing_automation.routing.nextUp": "El siguiente lead va aquí",
   "marketing_automation.routing.noNew": "Nada nuevo esta semana.",
-  "marketing_automation.routing.owned": "Lleva {total} leads en total",
   "marketing_automation.routing.ownedShort": "leads en total",
   "marketing_automation.routing.retry": "Intentar de nuevo",
   "marketing_automation.routing.title": "Asignación de leads",
