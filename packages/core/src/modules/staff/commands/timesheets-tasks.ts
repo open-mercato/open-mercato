@@ -37,6 +37,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -163,6 +164,8 @@ type TaskUndoPayload = {
   after?: TaskSnapshot | null
   /** Children the delete took with it, so undo can put the whole set back. */
   cascadedChildren?: TaskSnapshot[] | null
+  /** Support tickets this delete soft-deleted; undo restores exactly these and no others. */
+  cascadedSupportTicketIds?: string[] | null
 }
 
 const DIFFED_FIELDS = [
@@ -796,7 +799,13 @@ const updateTaskCommand: CommandHandler<StaffTimeTaskUpdateInput, { taskId: stri
   },
 }
 
-const deleteTaskCommand: CommandHandler<{ id?: string }, { taskId: string; childIds: string[] }> = {
+export type StaffTimeTaskDeleteResult = {
+  taskId: string
+  childIds: string[]
+  supportTicketIds: string[]
+}
+
+const deleteTaskCommand: CommandHandler<{ id?: string }, StaffTimeTaskDeleteResult> = {
   id: staffTimeTaskCommandIds.delete,
   async prepare(input, ctx) {
     const id = input?.id
@@ -829,6 +838,7 @@ const deleteTaskCommand: CommandHandler<{ id?: string }, { taskId: string; child
     let children: StaffTimeTask[] = []
     let childIds: string[] = []
     let supportTickets: StaffSupportTicket[] = []
+    const supportTicketIds: string[] = []
 
     await withAtomicFlush(
       em,
@@ -842,12 +852,18 @@ const deleteTaskCommand: CommandHandler<{ id?: string }, { taskId: string; child
                 StaffTimeTask,
                 applyScopeToWhere<StaffTimeTask>({ parentTaskId: task.id, deletedAt: null }, scope),
               )
-          supportTickets = await em.find(StaffSupportTicket, {
-            taskId: { $in: [task.id, ...children.map((child) => child.id)] },
-            tenantId: task.tenantId,
-            organizationId: task.organizationId,
-            deletedAt: null,
-          })
+          supportTickets = await findWithDecryption(
+            em,
+            StaffSupportTicket,
+            {
+              taskId: { $in: [task.id, ...children.map((child) => child.id)] },
+              tenantId: task.tenantId,
+              organizationId: task.organizationId,
+              deletedAt: null,
+            },
+            undefined,
+            { tenantId: task.tenantId, organizationId: task.organizationId },
+          )
         },
         () => {
           const plan = planTaskSoftDelete(task, children)
@@ -867,6 +883,7 @@ const deleteTaskCommand: CommandHandler<{ id?: string }, { taskId: string; child
             if (!removedTaskIds.has(ticket.taskId)) continue
             ticket.deletedAt = now
             ticket.updatedAt = now
+            supportTicketIds.push(ticket.id)
           }
           // Time entries are untouched on purpose: a closed report still has to
           // resolve this task's label months after it was removed from the board.
@@ -887,9 +904,9 @@ const deleteTaskCommand: CommandHandler<{ id?: string }, { taskId: string; child
       })
     }
 
-    return { taskId: task.id, childIds }
+    return { taskId: task.id, childIds, supportTicketIds }
   },
-  buildLog: async ({ snapshots }) => {
+  buildLog: async ({ snapshots, result }) => {
     const prepared = snapshots.before as
       | { snapshot?: TaskSnapshot; cascadedChildren?: TaskSnapshot[] }
       | undefined
@@ -907,6 +924,7 @@ const deleteTaskCommand: CommandHandler<{ id?: string }, { taskId: string; child
         undo: {
           before,
           cascadedChildren: prepared?.cascadedChildren ?? null,
+          cascadedSupportTicketIds: result?.supportTicketIds ?? [],
         } satisfies TaskUndoPayload,
       },
     }
@@ -920,6 +938,7 @@ const deleteTaskCommand: CommandHandler<{ id?: string }, { taskId: string; child
     const ids = [before.id, ...(payload?.cascadedChildren ?? []).map((child) => child.id)]
     const restored: StaffTimeTask[] = []
     const restoredTickets: StaffSupportTicket[] = []
+    const ticketIds = payload?.cascadedSupportTicketIds ?? []
 
     await withAtomicFlush(
       em,
@@ -930,11 +949,19 @@ const deleteTaskCommand: CommandHandler<{ id?: string }, { taskId: string; child
             ...snapshotScopeWhere(snapshotScope),
           })
           restored.push(...tasks)
-          const tickets = await em.find(StaffSupportTicket, {
-            taskId: { $in: ids },
-            ...snapshotScopeWhere(snapshotScope),
-            deletedAt: { $ne: null },
-          })
+          if (ticketIds.length === 0) return
+          const tickets = await findWithDecryption(
+            em,
+            StaffSupportTicket,
+            {
+              id: { $in: ticketIds },
+              taskId: { $in: ids },
+              ...snapshotScopeWhere(snapshotScope),
+              deletedAt: { $ne: null },
+            },
+            undefined,
+            { tenantId: before.tenantId, organizationId: before.organizationId },
+          )
           restoredTickets.push(...tickets)
         },
         () => {

@@ -600,7 +600,7 @@ describe('staff.timesheets.tasks.delete', () => {
 
     const result = await command.execute({ id: PARENT_TASK_ID }, ctxFor(em))
 
-    expect(result).toEqual({ taskId: PARENT_TASK_ID, childIds: [CHILD_TASK_ID, SECOND_CHILD_TASK_ID] })
+    expect(result).toEqual({ taskId: PARENT_TASK_ID, childIds: [CHILD_TASK_ID, SECOND_CHILD_TASK_ID], supportTicketIds: [] })
     expect(tasks.find((task) => task.id === PARENT_TASK_ID)?.deletedAt).toBeInstanceOf(Date)
     expect(tasks.find((task) => task.id === CHILD_TASK_ID)?.deletedAt).toBeInstanceOf(Date)
     expect(tasks.find((task) => task.id === SECOND_CHILD_TASK_ID)?.deletedAt).toBeInstanceOf(Date)
@@ -640,7 +640,7 @@ describe('staff.timesheets.tasks.delete', () => {
 
     const result = await command.execute({ id: CHILD_TASK_ID }, ctxFor(em))
 
-    expect(result).toEqual({ taskId: CHILD_TASK_ID, childIds: [] })
+    expect(result).toEqual({ taskId: CHILD_TASK_ID, childIds: [], supportTicketIds: [] })
     expect(tasks.find((task) => task.id === PARENT_TASK_ID)?.deletedAt).toBeNull()
   })
 

@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { publishTaskPortalStatus, readEventScope } from '../lib/support/portalBroadcast'
 
 const logger = createLogger('staff').child({ component: 'subscribers/support-portal-task-updated' })
@@ -28,5 +29,6 @@ export default async function handle(payload: Payload, ctx: ResolverContext): Pr
     await publishTaskPortalStatus((ctx.resolve('em') as EntityManager).fork(), taskId, scope)
   } catch (err) {
     logger.error('staff:support-portal-task-updated failed', { err, id: payload?.id ?? null })
+    getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.support_portal_task_updated_failed' })
   }
 }

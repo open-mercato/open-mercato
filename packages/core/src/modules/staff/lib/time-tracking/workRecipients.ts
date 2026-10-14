@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/notifications/types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { resolveNotificationService } from '../../../notifications/lib/notificationService'
 import {
   buildBatchNotificationFromType,
@@ -149,6 +150,7 @@ export async function notifyProjectWork(
     return { step: recipients.step, notifiedCount: created.length }
   } catch (err) {
     logger.error('staff project-work notification failed', { err, type: typeDef.type, step: recipients.step })
+    getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.project_work_notification_failed' })
     return { step: recipients.step, notifiedCount: 0 }
   }
 }

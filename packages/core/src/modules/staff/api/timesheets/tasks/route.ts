@@ -30,13 +30,12 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCrudRecordId, parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { StaffSupportTicket, StaffTimeTask, StaffTimeTaskStatus, StaffTimeTaskTag } from '../../../data/entities'
 import { staffTimeTaskCreateSchema, staffTimeTaskUpdateSchema } from '../../../data/validators'
 import { staffTimeTaskCommandIds } from '../../../commands/timesheets-tasks'
-import { resolveFeatureAccess } from '../../../lib/time-tracking/featureAccess'
-import { MANAGE_PROJECTS_FEATURE, resolveProjectAccess, type ProjectAccess } from '../../../lib/time-tracking/access'
-import { readTimeTrackingSettings } from '../../../lib/time-tracking/settings'
+import { resolveListProjectAccess } from '../../../lib/time-tracking/listProjectAccess'
 import { sanitizeSearchTerm, parseBooleanFlag } from '../../helpers'
 import { createStaffCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../../openapi'
 
@@ -109,72 +108,7 @@ type TaskListQuery = z.infer<typeof listSchema>
  */
 const IMPOSSIBLE_ID = '00000000-0000-0000-0000-000000000000'
 
-const DENIED_ACCESS: ProjectAccess = { canManageAll: false, projectIds: [], staffMemberId: null }
-
-type RbacServiceLike = {
-  getGrantedFeatures?: (
-    userId: string,
-    options: { tenantId: string | null; organizationId: string | null },
-  ) => Promise<string[]>
-}
-
-type ContainerLike = { resolve: (name: string) => unknown }
-
-/** One access decision per request, shared by every filter that needs it. */
-const accessByRequest = new WeakMap<Request, Promise<ProjectAccess>>()
-
-async function resolveAssignmentGraceDays(container: ContainerLike, tenantId: string): Promise<number | null> {
-  try {
-    const configService = container.resolve('moduleConfigService') as ModuleConfigService
-    const settings = await readTimeTrackingSettings(configService, { tenantId })
-    return settings.access.assignmentGraceDays
-  } catch {
-    // Fail safe to the documented default rather than widening the window.
-    return null
-  }
-}
-
-async function loadProjectAccess(
-  container: ContainerLike,
-  userId: string | null,
-  tenantId: string | null,
-  organizationId: string | null,
-): Promise<ProjectAccess> {
-  if (!tenantId || !organizationId) return { ...DENIED_ACCESS }
-  const scope = { tenantId, organizationId }
-  try {
-    // One lookup, one authority, and a failure that says so. The previous
-    // `catch → []` could not tell "denied" from "could not ask", so an RBAC
-    // hiccup silently demoted a manager to their own memberships.
-    const access = await resolveFeatureAccess(container, userId, [MANAGE_PROJECTS_FEATURE], scope)
-    const em = container.resolve('em') as EntityManager
-    return await resolveProjectAccess({
-      em: em.fork(),
-      userId,
-      tenantId,
-      organizationId,
-      canManageAll: access.allowed,
-      userFeatures: access.grantedFeatures,
-      assignmentGraceDays: await resolveAssignmentGraceDays(container, tenantId),
-    })
-  } catch (err) {
-    logger.error('staff.timesheets.tasks access resolution failed', { err })
-    return { ...DENIED_ACCESS }
-  }
-}
-
-export async function resolveListProjectAccess(ctx: CrudCtx): Promise<ProjectAccess> {
-  const tenantId = ctx.auth?.tenantId ?? null
-  const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
-  const load = () => loadProjectAccess(ctx.container, ctx.auth?.sub ?? null, tenantId, organizationId)
-  const request = ctx.request
-  if (!request) return load()
-  const cached = accessByRequest.get(request)
-  if (cached) return cached
-  const pending = load()
-  accessByRequest.set(request, pending)
-  return pending
-}
+export { resolveListProjectAccess }
 
 function splitIdList(value: unknown): string[] | null {
   if (typeof value !== 'string' || value.trim().length === 0) return null
@@ -219,6 +153,7 @@ async function resolveTaskIdsForTags(ctx: CrudCtx, tagIds: string[]): Promise<st
     return [...seen.entries()].filter(([, tags]) => tags.size >= required).map(([taskId]) => taskId)
   } catch (err) {
     logger.error('staff.timesheets.tasks tag filter resolution failed', { err })
+    getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.task_tag_filter_failed' })
     return []
   }
 }
@@ -243,10 +178,11 @@ async function resolveTaskIdsForSupport(ctx: CrudCtx, criteria: SupportFilterCri
     if (criteria.supportCategory) where.categoryValue = criteria.supportCategory
     if (criteria.supportReference) where.supportReference = { $ilike: `${escapeLikePattern(criteria.supportReference)}%` }
     if (criteria.supportUnnotified) where.unnotifiedAt = { $ne: null }
-    const rows = await em.find(StaffSupportTicket, where, { fields: ['taskId'] })
+    const rows = await findWithDecryption(em, StaffSupportTicket, where, { fields: ['taskId'] }, { tenantId, organizationId })
     return rows.map((row) => row.taskId)
   } catch (err) {
     logger.error('staff.timesheets.tasks support filter resolution failed', { err })
+    getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.task_support_filter_failed' })
     return []
   }
 }
@@ -268,6 +204,7 @@ async function resolveStatusIdsForPortalStatus(
     return rows.map((row) => row.id)
   } catch (err) {
     logger.error('staff.timesheets.tasks portal status filter resolution failed', { err })
+    getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.task_portal_status_filter_failed' })
     return []
   }
 }

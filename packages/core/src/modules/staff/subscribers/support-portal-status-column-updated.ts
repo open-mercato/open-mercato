@@ -5,14 +5,17 @@ import { fanOutStatusColumn, readEventScope } from '../lib/support/portalBroadca
 const logger = createLogger('staff').child({ component: 'subscribers/support-portal-status-column-updated' })
 
 /**
- * Ephemeral on purpose: `portal_updated` is portal-only, and the event bus does not
- * relay portal-only events across processes (open issue #2973). Run inline in the web
- * process that executed the command, where the portal SSE stream lives. Make this
- * persistent again once #2973 lands.
+ * Persistent, unlike the other support-portal subscribers: re-deriving every portal
+ * ticket in a column is the one potentially expensive fan-out, so it runs on the
+ * queue (retried on failure; `publishTaskPortalStatus` is compare-and-publish, so a
+ * retry is idempotent) instead of inside the admin's request. Column flag edits are
+ * rare, and until #2973 lands a `portal_updated` emitted from the worker may not
+ * reach an open portal page live; the portal derives status on read, so the page is
+ * correct on its next load.
  */
 export const metadata = {
   event: 'staff.timesheets.time_task_status.updated',
-  persistent: false,
+  persistent: true,
   id: 'staff:support-portal-status-column-updated',
 }
 
@@ -28,5 +31,6 @@ export default async function handle(payload: Payload, ctx: ResolverContext): Pr
     await fanOutStatusColumn((ctx.resolve('em') as EntityManager).fork(), statusId, scope)
   } catch (err) {
     logger.error('staff:support-portal-status-column-updated failed', { err, id: payload?.id ?? null })
+    throw err
   }
 }

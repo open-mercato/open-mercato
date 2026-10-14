@@ -12,6 +12,7 @@ export class Migration20261009180543_staff extends Migration {
 
     this.addSql(`create table "staff_support_tickets" ("id" uuid not null default gen_random_uuid(), "tenant_id" uuid not null, "organization_id" uuid not null, "task_id" uuid not null, "customer_snapshot" jsonb null, "reported_by_customer_user_id" uuid null, "support_reference" text not null, "support_sequence_number" int not null, "category_value" text not null, "category_snapshot" jsonb not null, "routed_via" text not null, "customer_request_snapshot" jsonb not null, "unnotified_at" timestamptz null, "portal_status_published" text null, "created_at" timestamptz not null, "updated_at" timestamptz not null, "deleted_at" timestamptz null, primary key ("id"));`);
     this.addSql(`create unique index "staff_support_tickets_reference_unique_idx" on "staff_support_tickets" ("tenant_id", "organization_id", "support_reference") where "deleted_at" is null;`);
+    this.addSql(`create index "staff_support_tickets_sequence_idx" on "staff_support_tickets" ("tenant_id", "organization_id", "support_sequence_number");`);
     this.addSql(`create unique index "staff_support_tickets_task_unique_idx" on "staff_support_tickets" ("tenant_id", "organization_id", "task_id") where "deleted_at" is null;`);
     this.addSql(`create index "staff_support_tickets_tenant_org_idx" on "staff_support_tickets" ("tenant_id", "organization_id");`);
 

@@ -6,7 +6,9 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { StaffSupportRoutingRule, StaffTimeProject, StaffTimeTaskStatus } from '../data/entities'
+import { staffTimeProjectCrudEvents } from '../lib/crud'
 import {
   staffSupportFallbackProjectCreateSchema,
   staffSupportRoutingRuleCreateSchema,
@@ -16,7 +18,7 @@ import {
   type StaffSupportRoutingRuleUpdateInput,
 } from '../data/validators'
 import { findSupportTicketCategory } from '../lib/support/dictionaries'
-import { ensureFallbackProjectAndRule } from '../lib/support/seedDefaults'
+import { ensureFallbackProjectAndRule, resolveContainerProjectCodeGenerator } from '../lib/support/seedDefaults'
 import {
   applyScopeToWhere,
   commandActorScope,
@@ -41,6 +43,11 @@ export const SUPPORT_ROUTING_RULE_RESOURCE_KIND = 'staff.support.routing_rule'
 
 const routingRuleIndexer: CrudIndexerConfig<StaffSupportRoutingRule> = {
   entityType: 'staff:staff_support_routing_rule',
+}
+
+/** Same indexer config `commands/timesheets-projects.ts` uses for project writes (not exported there). */
+const timeProjectIndexer: CrudIndexerConfig<StaffTimeProject> = {
+  entityType: 'staff:staff_time_project',
 }
 
 type Translate = (key: string, fallback: string) => string
@@ -385,11 +392,35 @@ const deleteRoutingRuleCommand: CommandHandler<{ id?: string }, { ruleId: string
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const rule = await em.findOne(StaffSupportRoutingRule, scopedStaffSnapshotWhere(before.id, staffSnapshotScopeFromSnapshot(before)))
-    if (!rule) return
-    await withAtomicFlush(em, [() => {
-      rule.deletedAt = null
-      rule.updatedAt = new Date()
-    }], { transaction: true, label: `${staffSupportRoutingRuleCommandIds.delete}.undo` })
+    if (!rule || !rule.deletedAt) return
+    const { translate } = await resolveTranslations()
+    const categoryValue = rule.categoryValue ?? null
+    const isFallback = categoryValue === null
+    try {
+      await withAtomicFlush(em, [
+        async () => {
+          const newer = await em.findOne(
+            StaffSupportRoutingRule,
+            {
+              tenantId: rule.tenantId,
+              organizationId: rule.organizationId,
+              categoryValue,
+              deletedAt: null,
+              id: { $ne: rule.id },
+            },
+            { fields: ['id'] },
+          )
+          if (newer) throw duplicateRuleError(translate, isFallback)
+        },
+        () => {
+          rule.deletedAt = null
+          rule.updatedAt = new Date()
+        },
+      ], { transaction: true, label: `${staffSupportRoutingRuleCommandIds.delete}.undo` })
+    } catch (err) {
+      if (isUniqueViolation(err)) throw duplicateRuleError(translate, isFallback)
+      throw err
+    }
     await emitCrudUndoSideEffects({
       dataEngine: ctx.container.resolve('dataEngine'),
       action: 'created',
@@ -400,46 +431,120 @@ const deleteRoutingRuleCommand: CommandHandler<{ id?: string }, { ruleId: string
   },
 }
 
-const createFallbackProjectCommand: CommandHandler<
-  StaffSupportFallbackProjectCreateInput,
-  { ruleId: string; timeProjectId: string; created: boolean }
-> = {
+export type SupportFallbackProjectResult = {
+  ruleId: string
+  timeProjectId: string
+  created: boolean
+  taskStatusIds: string[]
+  tenantId: string
+  organizationId: string
+}
+
+type FallbackProjectUndoPayload = {
+  ruleId: string
+  timeProjectId: string
+  taskStatusIds: string[]
+  tenantId: string
+  organizationId: string
+}
+
+async function emitProjectSideEffects(
+  ctx: CommandRuntimeContext,
+  action: 'created' | 'deleted',
+  project: StaffTimeProject,
+  undo: boolean,
+): Promise<void> {
+  const params = {
+    dataEngine: ctx.container.resolve('dataEngine') as DataEngine,
+    action,
+    entity: project,
+    identifiers: { id: project.id, organizationId: project.organizationId, tenantId: project.tenantId },
+    events: staffTimeProjectCrudEvents,
+    indexer: timeProjectIndexer,
+  }
+  if (undo) await emitCrudUndoSideEffects(params)
+  else await emitCrudSideEffects(params)
+}
+
+const createFallbackProjectCommand: CommandHandler<StaffSupportFallbackProjectCreateInput, SupportFallbackProjectResult> = {
   id: staffSupportRoutingRuleCommandIds.createFallbackProject,
   async execute(rawInput, ctx) {
     const parsed = staffSupportFallbackProjectCreateSchema.parse(rawInput)
     commandInputScope(ctx, parsed.tenantId, parsed.organizationId)
     const { translate } = await resolveTranslations()
+    const target = { tenantId: parsed.tenantId, organizationId: parsed.organizationId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const codeResolver = resolveProjectCodeGenerator(ctx.container)
-    const result = await ensureFallbackProjectAndRule(
-      em,
-      { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
-      {
-        translate,
-        generateCode: codeResolver ?? undefined,
-        projectName: translate('staff.support.fallbackProject.name', 'Customer support'),
-      },
-    )
+    const result = await ensureFallbackProjectAndRule(em, target, {
+      translate,
+      generateCode: resolveContainerProjectCodeGenerator(ctx.container),
+      projectName: translate('staff.support.fallbackProject.name', 'Customer support'),
+    })
     if (result.created) {
-      const rule = await em.findOne(StaffSupportRoutingRule, { id: result.ruleId })
+      const project = await em.findOne(StaffTimeProject, { id: result.timeProjectId, ...target })
+      if (project) await emitProjectSideEffects(ctx, 'created', project, false)
+      const rule = await em.findOne(StaffSupportRoutingRule, { id: result.ruleId, ...target })
       if (rule) await emitRuleSideEffects(ctx, 'created', rule)
     }
-    return result
+    return { ...result, ...target }
   },
-}
-
-type ProjectCodeResolverLike = { generate(name: string, taken: Set<string>): string }
-
-function resolveProjectCodeGenerator(
-  container: { resolve: (name: string) => unknown },
-): ((name: string, taken: Set<string>) => string) | null {
-  try {
-    const resolver = container.resolve('timeProjectCodeResolver') as ProjectCodeResolverLike | undefined
-    if (!resolver || typeof resolver.generate !== 'function') return null
-    return (name, taken) => resolver.generate(name, taken)
-  } catch {
-    return null
-  }
+  buildLog: async ({ result }) => {
+    if (!result.created) return null
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('staff.audit.support.routingRules.createFallbackProject', 'Create support fallback project'),
+      resourceKind: SUPPORT_ROUTING_RULE_RESOURCE_KIND,
+      resourceId: result.ruleId,
+      tenantId: result.tenantId,
+      organizationId: result.organizationId,
+      payload: {
+        undo: {
+          ruleId: result.ruleId,
+          timeProjectId: result.timeProjectId,
+          taskStatusIds: result.taskStatusIds,
+          tenantId: result.tenantId,
+          organizationId: result.organizationId,
+        } satisfies FallbackProjectUndoPayload,
+      },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<FallbackProjectUndoPayload>(logEntry)
+    if (!payload?.ruleId || !payload.timeProjectId) return
+    const where = { tenantId: payload.tenantId, organizationId: payload.organizationId }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const rule = await em.findOne(StaffSupportRoutingRule, { id: payload.ruleId, ...where, deletedAt: null })
+    const project = await em.findOne(StaffTimeProject, { id: payload.timeProjectId, ...where, deletedAt: null })
+    const statusIds = Array.isArray(payload.taskStatusIds) ? payload.taskStatusIds : []
+    const statuses = statusIds.length > 0
+      ? await em.find(StaffTimeTaskStatus, { id: { $in: statusIds }, timeProjectId: payload.timeProjectId, ...where, deletedAt: null })
+      : []
+    const ruleToRemove = rule && rule.timeProjectId === payload.timeProjectId ? rule : null
+    await withAtomicFlush(em, [() => {
+      const now = new Date()
+      if (ruleToRemove) {
+        ruleToRemove.deletedAt = now
+        ruleToRemove.updatedAt = now
+      }
+      if (project) {
+        project.deletedAt = now
+        project.updatedAt = now
+      }
+      for (const status of statuses) {
+        status.deletedAt = now
+        status.updatedAt = now
+      }
+    }], { transaction: true, label: `${staffSupportRoutingRuleCommandIds.createFallbackProject}.undo` })
+    if (ruleToRemove) {
+      await emitCrudUndoSideEffects({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        action: 'deleted',
+        entity: ruleToRemove,
+        identifiers: { id: ruleToRemove.id, organizationId: ruleToRemove.organizationId, tenantId: ruleToRemove.tenantId },
+        indexer: routingRuleIndexer,
+      })
+    }
+    if (project) await emitProjectSideEffects(ctx, 'deleted', project, true)
+  },
 }
 
 registerCommand(createRoutingRuleCommand)

@@ -1,5 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { StaffSupportTicket, StaffTimeTask, StaffTimeTaskComment, StaffTimeTaskStatus } from '../../data/entities'
 import { emitStaffEvent } from '../../events'
 import { resolvePortalRecipientUserIds } from '../time-tracking/portalRecipients'
@@ -56,7 +58,10 @@ function emitActivity(task: StaffTimeTask, ticket: StaffSupportTicket, kind: 'po
       kind,
     },
     { persistent: true },
-  ).catch((err) => logger.error('staff support activity emit failed', { err, taskId: task.id }))
+  ).catch((err) => {
+    logger.error('staff support activity emit failed', { err, taskId: task.id })
+    getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.support_activity_emit_failed' })
+  })
 }
 
 /**
@@ -67,7 +72,7 @@ function emitActivity(task: StaffTimeTask, ticket: StaffSupportTicket, kind: 'po
 export async function publishTaskPortalStatus(em: EntityManager, taskId: string, scope: Scope): Promise<boolean> {
   const task = await em.findOne(StaffTimeTask, { id: taskId, ...scope, source: 'portal', deletedAt: null })
   if (!task) return false
-  const ticket = await em.findOne(StaffSupportTicket, { taskId: task.id, ...scope, deletedAt: null })
+  const ticket = await findOneWithDecryption(em, StaffSupportTicket, { taskId: task.id, ...scope, deletedAt: null }, undefined, scope)
   if (!ticket) return false
   const status = await em.findOne(StaffTimeTaskStatus, { id: task.taskStatusId, ...scope }, { fields: ['id', 'isDefault', 'isDone'] })
   const portalStatus = derivePortalStatus(status)
@@ -106,7 +111,7 @@ export async function publishTicketReply(em: EntityManager, commentId: string, s
   if (!comment) return false
   const task = await em.findOne(StaffTimeTask, { id: comment.taskId, ...scope, source: 'portal', deletedAt: null })
   if (!task) return false
-  const ticket = await em.findOne(StaffSupportTicket, { taskId: task.id, ...scope, deletedAt: null })
+  const ticket = await findOneWithDecryption(em, StaffSupportTicket, { taskId: task.id, ...scope, deletedAt: null }, undefined, scope)
   if (!ticket) return false
   const status = await em.findOne(StaffTimeTaskStatus, { id: task.taskStatusId, ...scope }, { fields: ['id', 'isDefault', 'isDone'] })
   return emitPortalUpdate(em, task, ticket, derivePortalStatus(status), 'reply')

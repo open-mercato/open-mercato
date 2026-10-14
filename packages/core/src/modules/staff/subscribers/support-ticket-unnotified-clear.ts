@@ -24,5 +24,6 @@ export default async function handle(payload: Payload, ctx: ResolverContext): Pr
     await clearSupportTicketUnnotified(em, { taskId, tenantId, organizationId })
   } catch (err) {
     logger.error('staff:support-ticket-unnotified-clear failed', { err, id: payload?.id ?? null })
+    throw err
   }
 }

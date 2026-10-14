@@ -97,5 +97,6 @@ export default async function handle(payload: TaskAssigneeChangedPayload, ctx: R
     }
   } catch (err) {
     logger.error('staff task assignee notification failed', { err, taskId: payload.id ?? null })
+    throw err
   }
 }

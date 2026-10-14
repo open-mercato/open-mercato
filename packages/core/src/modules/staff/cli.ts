@@ -5,7 +5,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { seedStaffActivityTypes, seedStaffAddressTypes, seedStaffTeamExamples, type StaffSeedScope } from './lib/seeds'
 import { seedStaffTimeTrackingExamples } from './lib/timeTrackingSeeds'
 import { migrateProjectCodes } from './lib/time-tracking/migrateProjectCodes'
-import { seedSupportDefaults } from './lib/support/seedDefaults'
+import { resolveContainerProjectCodeGenerator, seedSupportDefaults } from './lib/support/seedDefaults'
 import { appendWidgetsToRoles } from '@open-mercato/core/modules/dashboards/lib/role-widgets'
 import type { ProgressService } from '@open-mercato/core/modules/progress/lib/progressService'
 import {
@@ -218,7 +218,7 @@ const seedSupportDefaultsCommand: ModuleCli = {
     try {
       const em = container.resolve<EntityManager>('em')
       const { translate } = await resolveTranslations()
-      await seedSupportDefaults(em.fork(), scope, { translate })
+      await seedSupportDefaults(em.fork(), scope, { translate, generateCode: resolveContainerProjectCodeGenerator(container) })
       console.log('🎫 Support ticket defaults seeded for organization', organizationId)
     } finally {
       const disposable = container as unknown as { dispose?: () => Promise<void> }

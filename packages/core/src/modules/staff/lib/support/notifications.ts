@@ -91,7 +91,7 @@ export async function notifySupportTicket(
     },
   })
 
-  const fresh = await em.findOne(StaffSupportTicket, { id: ticket.id, ...scope })
+  const fresh = await findOneWithDecryption(em, StaffSupportTicket, { id: ticket.id, ...scope }, undefined, scope)
   if (fresh) {
     if (result.notifiedCount === 0) {
       if (!fresh.unnotifiedAt) {
@@ -122,13 +122,14 @@ export async function clearSupportTicketUnnotified(
   em: EntityManager,
   input: { taskId: string; tenantId: string; organizationId: string },
 ): Promise<boolean> {
-  const ticket = await em.findOne(StaffSupportTicket, {
-    taskId: input.taskId,
-    tenantId: input.tenantId,
-    organizationId: input.organizationId,
-    deletedAt: null,
-    unnotifiedAt: { $ne: null },
-  })
+  const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
+  const ticket = await findOneWithDecryption(
+    em,
+    StaffSupportTicket,
+    { taskId: input.taskId, ...scope, deletedAt: null, unnotifiedAt: { $ne: null } },
+    undefined,
+    scope,
+  )
   if (!ticket) return false
   ticket.unnotifiedAt = null
   ticket.updatedAt = new Date()

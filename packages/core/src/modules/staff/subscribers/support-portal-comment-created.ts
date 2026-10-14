@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { publishTicketReply, readEventScope } from '../lib/support/portalBroadcast'
 
 const logger = createLogger('staff').child({ component: 'subscribers/support-portal-comment-created' })
@@ -29,5 +30,6 @@ export default async function handle(payload: Payload, ctx: ResolverContext): Pr
     await publishTicketReply((ctx.resolve('em') as EntityManager).fork(), commentId, scope)
   } catch (err) {
     logger.error('staff:support-portal-comment-created failed', { err, id: payload?.id ?? null })
+    getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.support_portal_comment_created_failed' })
   }
 }

@@ -6,7 +6,11 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   StaffSupportTicket,
   StaffTimeProject,
@@ -106,6 +110,14 @@ type MessageUndoPayload = {
   reopenedFromStatusId: string | null
 }
 
+const portalVisibleCommentEvents: CrudEventsConfig<StaffTimeTaskComment> = {
+  ...staffTimeTaskCommentCrudEvents,
+  buildPayload: (context) => ({
+    ...((staffTimeTaskCommentCrudEvents.buildPayload ? staffTimeTaskCommentCrudEvents.buildPayload(context) : {}) as Record<string, unknown>),
+    portalVisible: true,
+  }),
+}
+
 function categoryUnavailableError(translate: Translate): CrudHttpError {
   const message = translate(
     'staff.support.errors.categoryUnavailable',
@@ -139,15 +151,22 @@ async function readSupportReferencePrefix(ctx: CommandRuntimeContext, tenantId: 
   }
 }
 
-async function readHighestSupportSequence(em: EntityManager, tenantId: string, organizationId: string): Promise<number> {
-  const rows = await em.find(StaffSupportTicket, { tenantId, organizationId }, { fields: ['supportSequenceNumber'] })
-  return rows.reduce((highest, row) => Math.max(highest, row.supportSequenceNumber ?? 0), 0)
+export async function readHighestSupportSequence(em: EntityManager, tenantId: string, organizationId: string): Promise<number> {
+  const highest = await findOneWithDecryption(
+    em,
+    StaffSupportTicket,
+    { tenantId, organizationId },
+    { fields: ['id', 'supportSequenceNumber'], orderBy: { supportSequenceNumber: 'desc' } },
+    { tenantId, organizationId },
+  )
+  return highest?.supportSequenceNumber ?? 0
 }
 
 function emitSupportEvent(eventId: Parameters<typeof emitStaffEvent>[0], payload: Record<string, unknown>): void {
-  void emitStaffEvent(eventId, payload, { persistent: true }).catch((err) =>
-    logger.error('staff support event emit failed', { err, eventId }),
-  )
+  void emitStaffEvent(eventId, payload, { persistent: true }).catch((err) => {
+    logger.error('staff support event emit failed', { err, eventId })
+    getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.support_event_emit_failed' })
+  })
 }
 
 const createFromPortalCommand: CommandHandler<SupportTicketCreateFromPortalInput, SupportTicketCreateResult> = {
@@ -343,7 +362,7 @@ const createFromPortalCommand: CommandHandler<SupportTicketCreateFromPortalInput
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const where = { tenantId: payload.tenantId, organizationId: payload.organizationId }
     const task = await em.findOne(StaffTimeTask, { id: payload.taskId, ...where })
-    const ticket = await em.findOne(StaffSupportTicket, { id: payload.ticketId, ...where })
+    const ticket = await findOneWithDecryption(em, StaffSupportTicket, { id: payload.ticketId, ...where }, undefined, where)
     await withAtomicFlush(em, [() => {
       const now = new Date()
       if (task && !task.deletedAt) {
@@ -383,12 +402,13 @@ const portalMessageCommand: CommandHandler<SupportTicketPortalMessageInput, Supp
       deletedAt: null,
     })
     if (!task) throw ticketNotFoundError(translate)
-    const ticket = await em.findOne(StaffSupportTicket, {
-      taskId: task.id,
-      tenantId: parsed.tenantId,
-      organizationId: parsed.organizationId,
-      deletedAt: null,
-    })
+    const ticket = await findOneWithDecryption(
+      em,
+      StaffSupportTicket,
+      { taskId: task.id, tenantId: parsed.tenantId, organizationId: parsed.organizationId, deletedAt: null },
+      undefined,
+      { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
+    )
     if (!ticket) throw ticketNotFoundError(translate)
 
     let comment: StaffTimeTaskComment | null = null
@@ -444,13 +464,7 @@ const portalMessageCommand: CommandHandler<SupportTicketPortalMessageInput, Supp
       action: 'created',
       entity: record,
       identifiers: { id: record.id, organizationId: record.organizationId, tenantId: record.tenantId },
-      events: {
-        ...staffTimeTaskCommentCrudEvents,
-        buildPayload: (context) => ({
-          ...((staffTimeTaskCommentCrudEvents.buildPayload ? staffTimeTaskCommentCrudEvents.buildPayload(context) : {}) as Record<string, unknown>),
-          portalVisible: true,
-        }),
-      },
+      events: portalVisibleCommentEvents,
     })
     const basePayload = { tenantId: task.tenantId, organizationId: task.organizationId }
     if (reopenedFromStatusId) {
@@ -469,7 +483,10 @@ const portalMessageCommand: CommandHandler<SupportTicketPortalMessageInput, Supp
         timeProjectId: task.timeProjectId,
         previousTaskStatusId: reopenedFromStatusId,
         taskStatusId: task.taskStatusId,
-      }).catch((err) => logger.error('staff support reopen status event failed', { err, taskId: task.id }))
+      }).catch((err) => {
+        logger.error('staff support reopen status event failed', { err, taskId: task.id })
+        getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.support_reopen_event_failed' })
+      })
     }
     emitSupportEvent('staff.support_ticket.customer_replied', {
       ...basePayload,
@@ -538,6 +555,26 @@ const portalMessageCommand: CommandHandler<SupportTicketPortalMessageInput, Supp
         task.updatedAt = now
       }
     }], { transaction: true, label: `${staffSupportTicketCommandIds.portalMessage}.undo` })
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    if (comment) {
+      await emitCrudUndoSideEffects({
+        dataEngine,
+        action: 'deleted',
+        entity: comment,
+        identifiers: { id: comment.id, organizationId: comment.organizationId, tenantId: comment.tenantId },
+        events: portalVisibleCommentEvents,
+      })
+    }
+    if (task && previousStatus) {
+      await emitCrudUndoSideEffects({
+        dataEngine,
+        action: 'updated',
+        entity: task,
+        identifiers: { id: task.id, organizationId: task.organizationId, tenantId: task.tenantId },
+        events: taskCrudEvents,
+        indexer: taskCrudIndexer,
+      })
+    }
   },
 }
 

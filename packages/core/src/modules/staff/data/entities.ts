@@ -764,6 +764,7 @@ export class StaffTimeTask {
 @Index({ name: 'staff_support_tickets_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
 @Index({ name: 'staff_support_tickets_task_unique_idx', properties: ['tenantId', 'organizationId', 'taskId'], options: { unique: true, where: 'deleted_at IS NULL' } })
 @Index({ name: 'staff_support_tickets_reference_unique_idx', properties: ['tenantId', 'organizationId', 'supportReference'], options: { unique: true, where: 'deleted_at IS NULL' } })
+@Index({ name: 'staff_support_tickets_sequence_idx', properties: ['tenantId', 'organizationId', 'supportSequenceNumber'] })
 export class StaffSupportTicket {
   [OptionalProps]?: 'createdAt' | 'updatedAt'
 

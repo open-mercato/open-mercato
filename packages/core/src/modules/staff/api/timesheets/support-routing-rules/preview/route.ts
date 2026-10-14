@@ -7,6 +7,7 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { StaffTimeProject } from '../../../../data/entities'
 import { loadSupportTicketCategories } from '../../../../lib/support/dictionaries'
@@ -105,6 +106,7 @@ export async function GET(req: Request): Promise<Response> {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
     const { translate } = await resolveTranslations()
     logger.error('staff.support.routing preview failed', { err })
+    getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.support_routing_preview_failed' })
     return NextResponse.json({ error: translate('staff.errors.internal', 'Internal server error') }, { status: 500 })
   }
 }

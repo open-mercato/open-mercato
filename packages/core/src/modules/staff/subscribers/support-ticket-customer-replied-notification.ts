@@ -22,5 +22,6 @@ export default async function handle(payload: Payload, ctx: ResolverContext): Pr
     await notifySupportTicket(ctx, { taskId, tenantId, organizationId, kind: 'customer_replied' })
   } catch (err) {
     logger.error('staff:support-ticket-customer-replied-notification failed', { err, id: payload?.id ?? null })
+    throw err
   }
 }

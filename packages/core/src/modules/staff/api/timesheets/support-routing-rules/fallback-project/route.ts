@@ -9,11 +9,14 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { resolveFeatureAccess } from '../../../../lib/time-tracking/featureAccess'
 import {
   SUPPORT_ROUTING_RULE_RESOURCE_KIND,
   staffSupportRoutingRuleCommandIds,
+  type SupportFallbackProjectResult,
 } from '../../../../commands/support-routing-rules'
 import type { StaffSupportFallbackProjectCreateInput } from '../../../../data/validators'
 
@@ -24,8 +27,6 @@ const SETTINGS_FEATURE = 'staff.timesheets.settings.manage'
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: [SETTINGS_FEATURE] },
 }
-
-type FallbackProjectResult = { ruleId: string; timeProjectId: string; created: boolean }
 
 export async function POST(req: Request): Promise<Response> {
   try {
@@ -68,21 +69,37 @@ export async function POST(req: Request): Promise<Response> {
       request: req,
     }
     const commandBus = container.resolve('commandBus') as CommandBus
-    const { result } = await commandBus.execute<StaffSupportFallbackProjectCreateInput, FallbackProjectResult>(
+    const { result, logEntry } = await commandBus.execute<StaffSupportFallbackProjectCreateInput, SupportFallbackProjectResult>(
       staffSupportRoutingRuleCommandIds.createFallbackProject,
       { input, ctx: routeCtx },
     )
     await guardResult.runAfterSuccess()
-    return NextResponse.json(
+    const response = NextResponse.json(
       { ruleId: result?.ruleId ?? null, timeProjectId: result?.timeProjectId ?? null, created: result?.created === true },
       { status: result?.created ? 201 : 200 },
     )
+    if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
+      response.headers.set(
+        'x-om-operation',
+        serializeOperationMetadata({
+          id: logEntry.id,
+          undoToken: logEntry.undoToken,
+          commandId: logEntry.commandId,
+          actionLabel: logEntry.actionLabel ?? null,
+          resourceKind: logEntry.resourceKind ?? SUPPORT_ROUTING_RULE_RESOURCE_KIND,
+          resourceId: logEntry.resourceId ?? result?.ruleId ?? null,
+          executedAt: logEntry.createdAt instanceof Date ? logEntry.createdAt.toISOString() : undefined,
+        }),
+      )
+    }
+    return response
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
     const interceptorRejection = getCommandInterceptorHttpRejection(err)
     if (interceptorRejection) return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     const { translate } = await resolveTranslations()
     logger.error('staff.support.fallback-project POST failed', { err })
+    getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.support_fallback_project_failed' })
     return NextResponse.json({ error: translate('staff.errors.internal', 'Internal server error') }, { status: 500 })
   }
 }

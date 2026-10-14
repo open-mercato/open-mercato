@@ -2,7 +2,7 @@ import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { appendWidgetsToRoles } from '@open-mercato/core/modules/dashboards/lib/role-widgets'
 import { seedStaffAddressTypes, seedStaffTeamExamples } from './lib/seeds'
 import { seedStaffTimeTrackingExamples } from './lib/timeTrackingSeeds'
-import { seedSupportDefaults } from './lib/support/seedDefaults'
+import { resolveContainerProjectCodeGenerator, seedSupportDefaults } from './lib/support/seedDefaults'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 const TIMESHEETS_DASHBOARD_WIDGET_IDS = [
@@ -15,7 +15,7 @@ export const setup: ModuleSetupConfig = {
     const scope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
     await seedStaffAddressTypes(ctx.em, scope)
     const { translate } = await resolveTranslations()
-    await seedSupportDefaults(ctx.em, scope, { translate })
+    await seedSupportDefaults(ctx.em, scope, { translate, generateCode: resolveContainerProjectCodeGenerator(ctx.container) })
     await appendWidgetsToRoles(ctx.em, {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
