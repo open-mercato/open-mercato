@@ -22,7 +22,12 @@ const emptyAuthTokenClaims: AuthTokenClaims = Object.freeze({
 function parseCookie(req: Request, name: string): string | null {
   const cookie = req.headers.get('cookie') || ''
   const m = cookie.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]+)'))
-  return m ? decodeURIComponent(m[1]) : null
+  if (!m) return null
+  try {
+    return decodeURIComponent(m[1])
+  } catch {
+    return null
+  }
 }
 
 function readStringClaim(payload: Record<string, unknown>, key: string): string | null {
