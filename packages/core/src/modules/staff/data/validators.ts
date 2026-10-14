@@ -599,14 +599,18 @@ export const staffTimeTaskCommentCreateSchema = z.object({
   taskId: z.string().uuid(),
   body: z.string().trim().min(1).max(5000),
   authorUserId: z.string().uuid().optional().nullable(),
-  visibility: z.enum(['internal', 'customer']).optional().default('internal'),
+  visibility: z.enum(['internal', 'customer']).optional(),
 })
 
-export const staffTimeTaskCommentUpdateSchema = z
-  .object({
-    ...scopedUpdateFields,
+export const staffTimeTaskCommentUpdateSchema = z.object({
+  ...scopedUpdateFields,
+  body: z.string().trim().min(1).max(5000),
+  visibility: z.enum(['internal', 'customer']).optional(),
+})
+
+export const staffTimeTaskCommentUpdateRequestSchema = staffTimeTaskCommentUpdateSchema
+  .extend({
     body: z.string().trim().min(1).max(5000).optional(),
-    visibility: z.enum(['internal', 'customer']).optional(),
   })
   .refine((value) => value.body !== undefined || value.visibility !== undefined, {
     message: 'body or visibility is required',
@@ -731,6 +735,7 @@ export type StaffTimeTaskUpdateInput = z.infer<typeof staffTimeTaskUpdateSchema>
 export type StaffTimeTaskStatusChangeInput = z.infer<typeof staffTimeTaskStatusChangeSchema>
 export type StaffTimeTaskCommentCreateInput = z.infer<typeof staffTimeTaskCommentCreateSchema>
 export type StaffTimeTaskCommentUpdateInput = z.infer<typeof staffTimeTaskCommentUpdateSchema>
+export type StaffTimeTaskCommentUpdateRequestInput = z.infer<typeof staffTimeTaskCommentUpdateRequestSchema>
 export type StaffTimeTagCreateInput = z.infer<typeof staffTimeTagCreateSchema>
 export type StaffTimeTaskTagAssignmentInput = z.infer<typeof staffTimeTaskTagAssignmentSchema>
 export type StaffTimeEntryTagAssignmentInput = z.infer<typeof staffTimeEntryTagAssignmentSchema>

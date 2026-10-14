@@ -43,9 +43,9 @@ import { StaffTimeTask, StaffTimeTaskComment, type StaffTimeTaskCommentVisibilit
 import { staffTimeTaskCommentCrudEvents } from '../lib/crud'
 import {
   staffTimeTaskCommentCreateSchema,
-  staffTimeTaskCommentUpdateSchema,
+  staffTimeTaskCommentUpdateRequestSchema,
   type StaffTimeTaskCommentCreateInput,
-  type StaffTimeTaskCommentUpdateInput,
+  type StaffTimeTaskCommentUpdateRequestInput,
 } from '../data/validators'
 import {
   applyScopeToWhere,
@@ -394,12 +394,12 @@ const createTaskCommentCommand: CommandHandler<
 }
 
 const updateTaskCommentCommand: CommandHandler<
-  StaffTimeTaskCommentUpdateInput,
+  StaffTimeTaskCommentUpdateRequestInput,
   { commentId: string; taskId: string }
 > = {
   id: staffTimeTaskCommentCommandIds.update,
   async prepare(rawInput, ctx) {
-    const parsed = staffTimeTaskCommentUpdateSchema.safeParse(rawInput)
+    const parsed = staffTimeTaskCommentUpdateRequestSchema.safeParse(rawInput)
     if (!parsed.success) return {}
     const em = ctx.container.resolve('em') as EntityManager
     const before = await loadCommentSnapshot(em, parsed.data.id, staffSnapshotScopeFromContext(ctx))
@@ -407,7 +407,7 @@ const updateTaskCommentCommand: CommandHandler<
     return { before: { snapshot: before } }
   },
   async execute(rawInput, ctx) {
-    const parsed = staffTimeTaskCommentUpdateSchema.parse(rawInput)
+    const parsed = staffTimeTaskCommentUpdateRequestSchema.parse(rawInput)
     const { translate } = await resolveTranslations()
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const scope = commandActorScope(ctx)

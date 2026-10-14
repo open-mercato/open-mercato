@@ -8,10 +8,12 @@ import {
 import {
   DEFAULT_ASSIGNMENT_GRACE_DAYS,
   MAX_ASSIGNMENT_GRACE_DAYS,
+  TIME_TRACKING_SUPPORT_GROUP,
   buildDefaultTimeTrackingSettings,
   listTimeTrackingSettingKeys,
   normalizeTimeTrackingSettingsRecord,
   registerTimeTrackingSettingKey,
+  supportReferencePrefixSchema,
   timeTrackingSettingKeyIds,
   type TimeTrackingSettingKeyDefinition,
   type TimeTrackingSettingKeyInput,
@@ -81,7 +83,11 @@ export type TimeTrackingBuiltInSettings = {
   targets: TimeTrackingTargets
   warnings: TimeTrackingWarnings
   access: TimeTrackingAccess
-  support: TimeTrackingSupport
+  /**
+   * Optional in the type so code that builds a settings object without the support
+   * group keeps compiling; a normalized read always carries it.
+   */
+  support?: TimeTrackingSupport
 }
 
 /**
@@ -172,4 +178,36 @@ export async function writeTimeTrackingSettings(
   }
 
   return settings
+}
+
+function readSettingsGroup(input: Record<string, unknown>, group: string): Record<string, unknown> | null {
+  const value = input[group]
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  return value as Record<string, unknown>
+}
+
+/**
+ * A settings payload from a client that predates the support group omits it. That
+ * omission keeps the tenant's stored reference prefix instead of resetting it to the
+ * default, so an older settings screen cannot silently rename future ticket references.
+ */
+export async function preserveOmittedSupportSettings(
+  configService: ModuleConfigService,
+  scope: TimeTrackingSettingsScope,
+  input: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const supportGroup = readSettingsGroup(input, TIME_TRACKING_SUPPORT_GROUP)
+  if (supportGroup && supportGroup.referencePrefix !== undefined) return input
+  const record = await configService.getRecord(
+    STAFF_TIME_TRACKING_MODULE_ID,
+    TIME_TRACKING_SUPPORT_REFERENCE_PREFIX_KEY,
+    { tenantId: scope.tenantId },
+  )
+  if (!record) return input
+  const storedPrefix = supportReferencePrefixSchema.safeParse(record.value)
+  if (!storedPrefix.success) return input
+  return {
+    ...input,
+    [TIME_TRACKING_SUPPORT_GROUP]: { ...(supportGroup ?? {}), referencePrefix: storedPrefix.data },
+  }
 }

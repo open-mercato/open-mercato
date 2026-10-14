@@ -50,7 +50,7 @@ import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { StaffTimeTaskComment } from '../../../../../data/entities'
 import {
   staffTimeTaskCommentCreateSchema,
-  staffTimeTaskCommentUpdateSchema,
+  staffTimeTaskCommentUpdateRequestSchema,
 } from '../../../../../data/validators'
 import { staffTimeTaskCommentCommandIds } from '../../../../../commands/timesheets-task-comments'
 import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../../../../guards'
@@ -430,7 +430,7 @@ export async function PUT(req: Request) {
     const parsedBody = updateBodySchema.parse(raw ?? {})
     await requireCommentOnTask(route, parsedBody.id)
 
-    const input = staffTimeTaskCommentUpdateSchema.parse({
+    const input = staffTimeTaskCommentUpdateRequestSchema.parse({
       id: parsedBody.id,
       body: parsedBody.body,
       visibility: parsedBody.visibility,
