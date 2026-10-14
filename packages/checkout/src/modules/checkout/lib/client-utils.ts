@@ -9,6 +9,16 @@ export function normalizeOptionalString(value: unknown): string | null {
   return trimmed.length ? trimmed : null
 }
 
+/**
+ * The pay page's logo URL. It is served by the checkout module itself, so an
+ * anonymous visitor can load it: the attachments routes require a signed-in
+ * user for tenant-scoped files.
+ */
+export function buildCheckoutPublicLogoUrl(slug: string, options?: { preview?: boolean }): string {
+  const query = options?.preview ? '?preview=true' : ''
+  return `/api/checkout/pay/${encodeURIComponent(slug)}/logo${query}`
+}
+
 export function buildCheckoutAttachmentPreviewUrl(attachmentId: string | null | undefined): string | null {
   const normalized = normalizeOptionalString(attachmentId)
   if (!normalized) return null
