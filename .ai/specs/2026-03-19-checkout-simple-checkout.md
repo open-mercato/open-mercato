@@ -105,7 +105,7 @@ Phase A pay links keep their existing path end to end. They create a `CheckoutTr
 | Direction | Mechanism |
 |---|---|
 | → `cart` | DI `cartService`: read, lock, reprice, unlock, mark converted |
-| → `availability` | DI `availabilityService`: `reserve`, `release`, `commit` |
+| → `availability` | `commandBus`: `availability.reserve`, `availability.release`, `availability.commit` |
 | → `customer_groups` | DI `customerGroupsService`: `resolveTerms`, `checkCredit`, `reserveCredit`, `releaseCredit` |
 | → `shipping_carriers` | DI rate quoting; selected method snapshotted onto the session |
 | → `payment_gateways` | Phase A provider descriptor surface, unchanged |
@@ -149,7 +149,7 @@ Standard scoped columns.
 | `approval_id` | uuid, nullable | `customer_groups.CustomerPurchaseApproval.id` |
 | `workflow_instance_id` | uuid, nullable | `workflows.WorkflowInstance.id` for the approval sub-flow (§5.1 touch point 3). FK id only, no ORM relation; null for every session that never requested approval |
 | `credit_reservation_key` | text, nullable | Idempotency key used with `reserveCredit` |
-| `stock_reservation_key` | text, nullable | Idempotency key used with `availabilityService.reserve` |
+| `stock_reservation_key` | text, nullable | Idempotency key used with `availability.reserve` |
 | `submit_idempotency_key` | text, nullable | Unique per session; the duplicate-submit guard |
 | `outcome_kind` | text, nullable | `order \| quote` |
 | `sales_order_id` / `sales_quote_id` | uuid, nullable | |
@@ -332,7 +332,9 @@ Checked before any side effect; all failures are cheap and leave nothing to undo
  1. cart.lock()                          → forced re-price
     ├─ totals changed → ABORT 409 price_changed (nothing to undo)
     └─ unchanged → continue
- 2. availabilityService.reserve(items, key = stock_reservation_key, ttl 900s)
+ 2. commandBus.execute('availability.reserve', {
+      items, tenantId, organizationId, sourceType: 'checkout',
+      sourceId: <CheckoutSession.id>, idempotencyKey: stock_reservation_key, ttlSeconds: 900 })
     └─ shortfall → unlock cart, ABORT 409 stock_shortfall (line detail)
  3. IF payment_method = on_account:
        customerGroupsService.reserveCredit(amount, key = credit_reservation_key)
@@ -354,7 +356,7 @@ Checked before any side effect; all failures are cheap and leave nothing to undo
        status = awaiting_payment; create payment intent; hand off to the provider
        └─ intent creation fails → compensate 4,3,2; ABORT 502
  7. Payment result (callback or polling — Phase A path):
-       success → availabilityService.commit(key, orderId)
+       success → commandBus.execute('availability.commit', { idempotencyKey: stock_reservation_key, orderId })
                  promotionsService.registerUsage(...)
                  cart.markConverted()
                  status = completed
@@ -362,9 +364,11 @@ Checked before any side effect; all failures are cheap and leave nothing to undo
        failure → compensate: cancel order, release credit, release stock,
                  unlock cart, status = failed with failure_code
  8. IF on_account (no gateway):
-       availabilityService.commit(key, orderId); credit reservation stands
+       commandBus.execute('availability.commit', { idempotencyKey: stock_reservation_key, orderId }); credit reservation stands
        until settled by invoicing; status = completed
 ```
+
+`availability.commit` (step 7 / step 8) must run before the sales order reaches a status that emits `sales.order.confirmed` — the `wms` auto-reservation on that event tops up only reservations already carrying `source_type = 'order'` and `source_id` = the order id, so a hold still on `'checkout'` is invisible to it (Availability Contract §4.4). Where the deployment cannot guarantee that ordering — the sales document is created at step 4, before payment confirmation reaches commit at step 7 or 8 — the conflict rule in that section applies: commit matches the order's active reservations for the variant (summed across warehouses, not by idempotency key, since the subscriber splits a variant across warehouse buckets), converts only the shortfall the order does not already hold and releases the part of the checkout hold the order already covers — a partial `wms.inventory.release` carrying the optional `quantity` input the Availability Contract adds (§4.4) — in the same transaction, so the order is never reserved twice.
 
 ### 7.3 Compensation
 
@@ -737,6 +741,10 @@ Named here so a later reader does not look for them: **R1** (payment captured wi
 ## 21) Changelog
 
 - **§20 user story map added.** The spec described a step machine, a submit sequence and a risk register but never stated who wanted what, so a prototype had to infer the flow from a numbered procedure. Five epics derived from §5.2, §6, §7, §8 and §15; no new scope. The four risks with no screen of their own are named as such rather than left to look missing. The changelog moves from §20 to §21.
+
+### 2026-10-11 — availability entry points
+
+- **§3.3, §4.1 and §7.2 call the real availability commands.** The `availabilityService` DI contract does not exist: the availability spec replaced it with the `availability.reserve` / `.release` / `.commit` commands (§4.1 and §15 of [Availability Contract](./2026-08-14-availability-contract.md)). The integration table, the `stock_reservation_key` note and the submit sequence now name those commands and pass the input object `reserve`/`commit` define. §7.2 also states that `availability.commit` runs before the order reaches a status emitting `sales.order.confirmed`, and that the Availability Contract §4.4 conflict rule applies otherwise — commit then matches the order's active reservations for the variant (summed across warehouses, not by idempotency key), converts only the shortfall the order does not already hold and releases the part of the checkout hold the order already covers via the partial `wms.inventory.release` the Availability Contract adds. Recorded from the post-merge review of #5384.
 
 ### 2026-09-16 — v2.2 (workflow boundary restated)
 
