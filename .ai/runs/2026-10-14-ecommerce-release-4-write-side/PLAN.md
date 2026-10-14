@@ -53,7 +53,7 @@
 | 5 | 5.3 | Cart: quantity rules and computed availability advisory | dispatch | todo | — |
 | 5 | 5.4 | Cart: line-total discount mapping and totals-equivalence property test | dispatch:capable | todo | — |
 | 5 | 5.5 | Cart: Phase 2 tests, each trigger in isolation | dispatch | todo | — |
-| 6 | 6.1 | Promotions: code entities with per-cart reservations and migration | dispatch | todo | — |
+| 6 | 6.1 | Promotions: code entities with per-cart reservations and migration | dispatch | done (built early in Step 1.2) | see `git log` |
 | 6 | 6.2 | Promotions: code commands and code service (validate, reserve, release, use) | dispatch:capable | todo | — |
 | 6 | 6.3 | Promotions: usage service with row-lock budget cap | dispatch:capable | todo | — |
 | 6 | 6.4 | Promotions: code generation worker, service and routes | dispatch | todo | — |
@@ -165,7 +165,7 @@ Each Step below matches the Tasks table. Spec section numbers refer to the specs
 
 ### Phase 6 — Promotions Phase 3 (codes and usage)
 
-- **6.1** `PromotionCode`, `GeneratedCode`, `CodeReservation` (with `cart_id`, unique `(code_id, cart_id)`), `CodeUsage`; one normalised code namespace per tenant/organization; migration.
+- **6.1** ~~`PromotionCode`, `GeneratedCode`, `CodeReservation`..., `CodeUsage`; migration.~~ **Already built, in Step 1.2** (dispatch over-scoped: the Step 1.2 brief handed the whole §Data Models section to the executor instead of Phase-1-only rows, so `Code`, `GeneratedCode`, `CodeReservation` — with `cart_id` in its unique key `(code_id, cart_id)`, D-R4-8 — and `CodeUsage` landed with `Promotion`/`RuleGroup`/`Rule`/`Benefit`/`PromotionUsage` in that one migration. Verified present: `packages/core/src/modules/promotions/data/entities.ts` classes `Code`, `GeneratedCode`, `CodeReservation`, `CodeUsage`; migration `Migration20261014132951_promotions.ts`. Nothing left to do here — proceed to 6.2. The one-normalised-namespace invariant (W5d: a code-string lookup checks both `Code.code` and `GeneratedCode.code`) is an application-level rule for `code-service.ts` to honor, not a schema change; it is not yet enforced by any DB constraint spanning both tables, and does not need to be — note it in 6.2's own verification instead of adding one here.
 - **6.2** Code commands and code service: validate, reserve (idempotent per cart), `extendReservation`, release by `cartId`, use; capacity-holding rules (D-R4-8); rate limit; uniform errors.
 - **6.3** `promotionUsageService.registerUsage/revertUsage`: row lock then re-read sum, idempotent upsert, 207 Multi-Status, `budget_exhausted` event on first hit, counters-key update.
 - **6.4** Code generation worker (`promotions-code-generate`), generation service, `codes`, `codes/[id]/generate`, `codes/[id]/generated` routes.
