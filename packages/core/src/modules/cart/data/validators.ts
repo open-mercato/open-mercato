@@ -4,6 +4,21 @@ import { z } from 'zod'
 // entities actually need validated at the data layer. A full command-input surface
 // (cart.create, cart.lines.add, etc., §3.1a) lands in Steps 4.5/4.6; these schemas are
 // deliberately thinner than that.
+//
+// Public request-body schema convention (§6a.1a, D-R4-1/D-R4-2 — binding for Step 4.7,
+// which is where the first real public route/schema for this module lands):
+//   - Every public cart request body schema MUST be `.strict()` (zod) so an unrecognized
+//     key 400s instead of being silently dropped or, worse, silently honored.
+//   - No public request body schema may declare `assortmentScope`, `channel`, `storeId`
+//     or `salesChannelId` as a field. Those are resolved server-side at the route edge via
+//     `resolveCartRouteContext` (`cart/lib/routeContext.ts`) into the internal, branded
+//     `ResolvedCartRouteContext` and passed to commands out-of-band — never through a
+//     request-body field a caller could set.
+//   - The cart token (§8.3, D-R4-6) travels as the `X-Cart-Token` HEADER on
+//     `/api/cart/current/*`, never as a path segment, query string or body field, so there
+//     is no "token schema" to add here — nothing concrete exists yet to validate for it.
+//     This step (4.3) adds no new schema for that reason; the first real public body
+//     schemas land in Step 4.7 and must follow the two rules above from the start.
 
 const uuid = () => z.string().uuid()
 
