@@ -46,10 +46,6 @@ import {
 
 type Props = { params: { orgSlug: string; id: string } }
 
-type TicketDetail = PortalSupportTicketDetail & { attachments?: PortalSupportAttachment[] }
-
-type UploadOptions = PortalSupportOptions & { maxUploadBytes?: number | null }
-
 type UploadOutcome = { status: 'uploaded' } | { status: 'rejected' } | { status: 'failed'; reason: string | null }
 
 type UploadErrorBody = { error?: unknown }
@@ -69,7 +65,7 @@ export default function PortalSupportTicketDetailPage({ params }: Props) {
   })
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
-  const [ticket, setTicket] = React.useState<TicketDetail | null>(null)
+  const [ticket, setTicket] = React.useState<PortalSupportTicketDetail | null>(null)
   const [attachments, setAttachments] = React.useState<PortalSupportAttachment[]>([])
   const [failedUploads, setFailedUploads] = React.useState<string[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
@@ -94,7 +90,7 @@ export default function PortalSupportTicketDetailPage({ params }: Props) {
     let cancelled = false
     void (async () => {
       try {
-        const response = await apiCall<UploadOptions>('/api/staff/portal/support-tickets/options', { credentials: 'include' })
+        const response = await apiCall<PortalSupportOptions>('/api/staff/portal/support-tickets/options', { credentials: 'include' })
         if (!cancelled && response.ok) setMaxUploadBytes(resolvePortalMaxUploadBytes(response.result?.maxUploadBytes))
       } catch (err) {
         getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.portal_support_options_failed' })
@@ -109,7 +105,7 @@ export default function PortalSupportTicketDetailPage({ params }: Props) {
     if (!user) return
     setError(null)
     try {
-      const detail = await apiCall<TicketDetail>(`/api/staff/portal/support-tickets/${encodeURIComponent(params.id)}`, {
+      const detail = await apiCall<PortalSupportTicketDetail>(`/api/staff/portal/support-tickets/${encodeURIComponent(params.id)}`, {
         credentials: 'include',
       })
       if (detail.status === 404) {

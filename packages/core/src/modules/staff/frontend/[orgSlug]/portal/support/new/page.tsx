@@ -37,7 +37,6 @@ type Props = { params: { orgSlug: string } }
 
 type CreateResponse = { ok?: boolean; id?: string; supportReference?: string; error?: string }
 
-type SupportFormOptions = PortalSupportOptions & { maxUploadBytes?: number | null }
 
 const MUTATION_CONTEXT_ID = 'staff-portal-support-new'
 
@@ -51,7 +50,7 @@ export default function PortalSupportNewTicketPage({ params }: Props) {
     blockedMessage: t('staff.portal.support.blocked', 'This action is not available right now.'),
   })
 
-  const [options, setOptions] = React.useState<SupportFormOptions | null>(null)
+  const [options, setOptions] = React.useState<PortalSupportOptions | null>(null)
   const [optionsLoading, setOptionsLoading] = React.useState(true)
   const [optionsError, setOptionsError] = React.useState<string | null>(null)
   const [optionsAttempt, setOptionsAttempt] = React.useState(0)
@@ -74,7 +73,7 @@ export default function PortalSupportNewTicketPage({ params }: Props) {
       setOptionsLoading(true)
       setOptionsError(null)
       try {
-        const response = await apiCall<SupportFormOptions>('/api/staff/portal/support-tickets/options', { credentials: 'include' })
+        const response = await apiCall<PortalSupportOptions>('/api/staff/portal/support-tickets/options', { credentials: 'include' })
         if (cancelled) return
         if (response.ok && response.result) {
           setOptions(response.result)

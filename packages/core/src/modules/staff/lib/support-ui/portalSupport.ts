@@ -25,6 +25,7 @@ export type PortalSupportTicketList = {
 export type PortalSupportOptions = {
   categories?: Array<{ value: string; label: string }>
   canCreate?: boolean
+  maxUploadBytes?: number | null
 }
 
 export type PortalSupportMessage = {
@@ -46,6 +47,7 @@ export type PortalSupportTicketDetail = {
   updatedAt: string | null
   canReply: boolean
   messages: PortalSupportMessage[]
+  attachments?: PortalSupportAttachment[]
 }
 
 export type PortalSupportAttachment = {
