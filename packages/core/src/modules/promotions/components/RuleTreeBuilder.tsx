@@ -38,7 +38,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { RuleGroupNode } from './RuleGroupNode'
 import { ruleTreeReducer, type TreeAction } from './ruleTreeReducer'
-import { fromServerTree, toServerTree, type LocalRuleGroupNode, type ServerRuleGroupTree } from './ruleTreeTypes'
+import { fromServerTree, isBenefitLabelsEmpty, toServerTree, type LocalRuleGroupNode, type ServerRuleGroupTree } from './ruleTreeTypes'
 
 const RESOURCE_KIND = 'promotions.promotion'
 
@@ -49,6 +49,15 @@ type PromotionTreeResponse = {
 
 function serialize(root: LocalRuleGroupNode | null): string {
   return root ? JSON.stringify(toServerTree(root)) : ''
+}
+
+// §Data Models "At least one label is required" (`nonEmptyLabelsSchema` in
+// `data/validators.ts`) 422s a benefit with no non-blank label in any locale. Checked
+// here, before the request, so the operator sees a field-level reason instead of the
+// generic save-error flash Step 1.7 left (its own report flagged this gap) — matching
+// `BenefitCard.tsx`'s own inline indicator (`isBenefitLabelsEmpty`).
+function hasBenefitWithEmptyLabels(group: LocalRuleGroupNode): boolean {
+  return group.benefits.some((benefit) => isBenefitLabelsEmpty(benefit.labels)) || group.children.some(hasBenefitWithEmptyLabels)
 }
 
 function locateContainer(
@@ -146,6 +155,10 @@ export function RuleTreeBuilder({ promotionId }: RuleTreeBuilderProps) {
 
   const handleSave = React.useCallback(async () => {
     if (!root || !updatedAt) return
+    if (hasBenefitWithEmptyLabels(root)) {
+      flash(t('promotions.tree.errors.missingLabels', 'Every benefit needs at least one label before saving'), 'error')
+      return
+    }
     setIsSaving(true)
     try {
       const call = await withScopedApiRequestHeaders(buildOptimisticLockHeader(updatedAt), () =>

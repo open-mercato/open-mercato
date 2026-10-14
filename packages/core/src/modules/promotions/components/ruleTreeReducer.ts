@@ -6,6 +6,7 @@
 // are three distinct entity kinds here (§Data Models), not one polymorphic node type.
 
 import {
+  BENEFIT_APPLIES_TO,
   buildDefaultBenefitConfig,
   buildDefaultRuleConfig,
   createEmptyBenefit,
@@ -32,6 +33,9 @@ export type TreeAction =
   | { type: 'setRuleType'; ruleId: string; ruleType: RuleTypeId }
   | { type: 'setRuleConfig'; ruleId: string; config: Record<string, unknown> }
   | { type: 'setBenefitType'; benefitId: string; benefitType: BenefitTypeId }
+  // `config` is supplied by the caller already cleared of fields the new `appliesTo`
+  // makes unreachable (see `components/benefitLimits.ts` `applyAppliesToChange`).
+  | { type: 'setBenefitAppliesTo'; benefitId: string; appliesTo: LocalBenefitNode['appliesTo']; config: Record<string, unknown> }
   | { type: 'setBenefitConfig'; benefitId: string; config: Record<string, unknown> }
   | { type: 'setBenefitLabels'; benefitId: string; labels: Record<string, string> }
   | { type: 'reorderRules'; groupId: string; fromIndex: number; toIndex: number }
@@ -140,6 +144,7 @@ function cloneGroupAsNew(group: LocalRuleGroupNode): LocalRuleGroupNode {
   next.rules = group.rules.map((rule) => ({ ...createEmptyRule(rule.sortOrder, rule.ruleType), config: { ...rule.config } }))
   next.benefits = group.benefits.map((benefit) => ({
     ...createEmptyBenefit(benefit.sortOrder, benefit.benefitType),
+    appliesTo: benefit.appliesTo,
     config: { ...benefit.config },
     labels: { ...benefit.labels },
   }))
@@ -222,7 +227,19 @@ export function ruleTreeReducer(root: LocalRuleGroupNode, action: TreeAction): L
       const benefit = findBenefit(next, action.benefitId)
       if (!benefit) return root
       benefit.benefitType = action.benefitType
+      // The allowed "Applies to" set changes per benefit type (§Data Models "Allowed
+      // values per applies_to per benefit_type") — reset to the new type's default
+      // alongside `config` so a stale value from the previous type can never persist
+      // outside its own allow-list.
+      benefit.appliesTo = BENEFIT_APPLIES_TO[action.benefitType].default
       benefit.config = buildDefaultBenefitConfig(action.benefitType)
+      return next
+    }
+    case 'setBenefitAppliesTo': {
+      const benefit = findBenefit(next, action.benefitId)
+      if (!benefit) return root
+      benefit.appliesTo = action.appliesTo
+      benefit.config = action.config
       return next
     }
     case 'setBenefitConfig': {

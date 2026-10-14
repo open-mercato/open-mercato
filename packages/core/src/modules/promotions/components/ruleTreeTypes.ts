@@ -14,11 +14,37 @@
 // the write-path allow-list (the hidden types, including `delivery_discount`, are never
 // referenced here).
 
-import { RELEASE_4_SHIPPED_RULE_TYPES, RELEASE_4_SHIPPED_BENEFIT_TYPES, comparisonOperatorValues } from '../data/validators'
+import {
+  RELEASE_4_SHIPPED_RULE_TYPES,
+  RELEASE_4_SHIPPED_BENEFIT_TYPES,
+  comparisonOperatorValues,
+  promotionBenefitAppliesToValues,
+} from '../data/validators'
 
 export type RuleTypeId = (typeof RELEASE_4_SHIPPED_RULE_TYPES)[number]
 export type BenefitTypeId = (typeof RELEASE_4_SHIPPED_BENEFIT_TYPES)[number]
 export type ComparisonOperator = (typeof comparisonOperatorValues)[number]
+
+// `promotionBenefitAppliesToValues` IS exported from `data/validators.ts` (unlike the
+// per-type allow-lists below, which live only inline inside `shippedBenefitVariants` and
+// are mirrored here), so it is imported directly rather than duplicated.
+export const appliesToOptions = promotionBenefitAppliesToValues
+export type AppliesToId = (typeof appliesToOptions)[number]
+
+// Mirrors `data/validators.ts`'s `shippedBenefitVariants` table (Step 1.2,
+// §Data Models "Allowed values per applies_to per benefit_type") — the per-type
+// `allowedAppliesTo` set and `defaultAppliesTo` passed to each `benefitEnvelope(...)`
+// call are not exported from that file (only the resulting schemas are), so this table
+// is mirrored by hand. A drift between the two would surface immediately as a 422 on
+// save (an "Applies to" value this UI lets the operator pick that the write path then
+// rejects), the same contract `discountTypeOptions` above already relies on.
+export const BENEFIT_APPLIES_TO: Record<BenefitTypeId, { allowed: AppliesToId[]; default: AppliesToId }> = {
+  product_discount: { allowed: ['line', 'unit'], default: 'line' },
+  cart_discount: { allowed: ['order'], default: 'order' },
+  free_product: { allowed: ['order'], default: 'order' },
+  buy_x_get_y: { allowed: ['line', 'unit'], default: 'unit' },
+  tiered_discount: { allowed: ['order', 'line', 'unit'], default: 'order' },
+}
 
 // `data/validators.ts` keeps its own `discountTypeValues` module-local (not exported) —
 // mirrored here rather than exported from Step 1.2's file to keep this step's change
@@ -46,11 +72,23 @@ export type LocalBenefitNode = {
   id?: string
   sortOrder: number
   benefitType: BenefitTypeId
-  // `applies_to` is Step 1.8's "Applies to" segmented control — the write-path schema
-  // defaults it per benefit type when omitted (`benefitEnvelope`'s `.optional().default(...)`
-  // in `data/validators.ts`), so Step 1.7 never sets it and lets the server default apply.
+  // Step 1.8's "Applies to" segmented control. A sibling of `config` on the wire (the
+  // `benefitEnvelope` in `data/validators.ts` puts `appliesTo` next to `config`, not
+  // inside it) — Step 1.7 left this unset and let the server's per-type default apply;
+  // Step 1.8 makes it explicit so the UI can restrict the control and compute the echo
+  // line without re-fetching the server default.
+  appliesTo: AppliesToId
   config: Record<string, unknown>
   labels: Record<string, string>
+}
+
+// §Data Models "Quantity caps (shared config block)": "At least one label is required"
+// (`nonEmptyLabelsSchema` in `data/validators.ts`) — a benefit with no non-blank label
+// in any locale 422s on save. Used by `BenefitCard.tsx` (inline indicator) and
+// `RuleTreeBuilder.tsx` (pre-save guard) so the operator sees this before the request,
+// not as the generic save-error flash Step 1.7 left (its own report flagged this gap).
+export function isBenefitLabelsEmpty(labels: Record<string, string>): boolean {
+  return !Object.values(labels).some((value) => typeof value === 'string' && value.trim() !== '')
 }
 
 export type LocalRuleGroupNode = {
@@ -137,7 +175,14 @@ export function createEmptyRule(sortOrder: number, ruleType: RuleTypeId = RULE_T
 }
 
 export function createEmptyBenefit(sortOrder: number, benefitType: BenefitTypeId = BENEFIT_TYPE_OPTIONS[0]): LocalBenefitNode {
-  return { clientId: clientId(), sortOrder, benefitType, config: buildDefaultBenefitConfig(benefitType), labels: {} }
+  return {
+    clientId: clientId(),
+    sortOrder,
+    benefitType,
+    appliesTo: BENEFIT_APPLIES_TO[benefitType].default,
+    config: buildDefaultBenefitConfig(benefitType),
+    labels: {},
+  }
 }
 
 export function createEmptyGroup(sortOrder: number, operator: 'and' | 'or' = 'and'): LocalRuleGroupNode {
@@ -191,11 +236,16 @@ export function fromServerTree(node: ServerRuleGroupTree): LocalRuleGroupNode {
     })),
     benefits: node.benefits.map((benefit) => {
       const { config, labels } = splitLabels(benefit.config)
+      const benefitType = benefit.benefitType as BenefitTypeId
+      const appliesTo = (appliesToOptions as readonly string[]).includes(benefit.appliesTo)
+        ? (benefit.appliesTo as AppliesToId)
+        : BENEFIT_APPLIES_TO[benefitType].default
       return {
         clientId: clientId(),
         id: benefit.id,
         sortOrder: benefit.sortOrder,
-        benefitType: benefit.benefitType as BenefitTypeId,
+        benefitType,
+        appliesTo,
         config,
         labels,
       }
@@ -205,7 +255,13 @@ export function fromServerTree(node: ServerRuleGroupTree): LocalRuleGroupNode {
 }
 
 type SerializedRule = { id?: string; sortOrder: number; ruleType: string; config: Record<string, unknown> }
-type SerializedBenefit = { id?: string; sortOrder: number; benefitType: string; config: Record<string, unknown> }
+type SerializedBenefit = {
+  id?: string
+  sortOrder: number
+  benefitType: string
+  appliesTo: string
+  config: Record<string, unknown>
+}
 export type SerializedGroup = {
   id?: string
   sortOrder: number
@@ -234,6 +290,7 @@ export function toServerTree(node: LocalRuleGroupNode): SerializedGroup {
       ...(benefit.id ? { id: benefit.id } : {}),
       sortOrder: index,
       benefitType: benefit.benefitType,
+      appliesTo: benefit.appliesTo,
       config: { ...benefit.config, labels: benefit.labels },
     })),
     children: node.children.map((child, index) => ({ ...toServerTree(child), sortOrder: index })),

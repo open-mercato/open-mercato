@@ -24,7 +24,7 @@
 | 1 | 1.5 | Promotions: CRUD API routes, OpenAPI, mutation guards | dispatch | done | see `git log` |
 | 1 | 1.6 | Promotions: i18n (5 locales) and backend list page | dispatch | done | see `git log` |
 | 1 | 1.7 | Promotions: promotion form pages and rule-tree builder | dispatch | done | see `git log` |
-| 1 | 1.8 | Promotions: benefit card (Applies to, Limits, Which pieces) and echo line | dispatch | todo | — |
+| 1 | 1.8 | Promotions: benefit card (Applies to, Limits, Which pieces) and echo line | dispatch | done | see `git log` |
 | 1 | 1.9 | Promotions: Phase 1 API integration tests | dispatch | todo | — |
 | 1 | 1.10 | Promotions: Phase 1 UI integration tests | dispatch | todo | — |
 | 2 | 2.1 | Promotions: public types barrel and pure three-pass evaluation engine | dispatch:capable | todo | — |

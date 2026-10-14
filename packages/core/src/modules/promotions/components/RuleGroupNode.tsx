@@ -198,6 +198,9 @@ export function RuleGroupNode({ group, depth, disabled, dispatch }: RuleGroupNod
                     benefit={benefit}
                     disabled={disabled}
                     onTypeChange={(benefitType) => dispatch({ type: 'setBenefitType', benefitId: benefit.clientId, benefitType })}
+                    onAppliesToChange={(appliesTo, config) =>
+                      dispatch({ type: 'setBenefitAppliesTo', benefitId: benefit.clientId, appliesTo, config })
+                    }
                     onConfigChange={(config) => dispatch({ type: 'setBenefitConfig', benefitId: benefit.clientId, config })}
                     onLabelsChange={(labels) => dispatch({ type: 'setBenefitLabels', benefitId: benefit.clientId, labels })}
                     onDelete={() => dispatch({ type: 'removeBenefit', benefitId: benefit.clientId })}
