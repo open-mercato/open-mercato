@@ -1,0 +1,113 @@
+{
+  "id": "webhook-integration",
+  "nameKey": "workflows.templates.webhook-integration.name",
+  "descriptionKey": "workflows.templates.webhook-integration.description",
+  "category": "Integrations",
+  "icon": "webhook",
+  "definition": {
+    "steps": [
+      {
+        "stepId": "start",
+        "stepName": "Start",
+        "stepType": "START",
+        "description": "A domain event that should reach an external system"
+      },
+      {
+        "stepId": "notify_external",
+        "stepName": "Notify External System",
+        "stepType": "AUTOMATED",
+        "description": "Deliver the payload to the external endpoint"
+      },
+      {
+        "stepId": "record_delivery",
+        "stepName": "Record Delivery",
+        "stepType": "AUTOMATED",
+        "description": "Track that the delivery went out"
+      },
+      {
+        "stepId": "end",
+        "stepName": "Delivered",
+        "stepType": "END",
+        "description": "External system notified"
+      }
+    ],
+    "transitions": [
+      {
+        "transitionId": "start_to_notify",
+        "transitionName": "Call Webhook",
+        "fromStepId": "start",
+        "toStepId": "notify_external",
+        "trigger": "auto",
+        "priority": 100,
+        "activities": [
+          {
+            "activityId": "call_external_webhook",
+            "activityName": "Call External Webhook",
+            "activityType": "CALL_WEBHOOK",
+            "async": true,
+            "config": {
+              "url": "https://example.com/webhooks/orders",
+              "method": "POST",
+              "headers": { "Content-Type": "application/json" },
+              "body": {
+                "orderId": "{{context.id}}",
+                "workflowInstanceId": "{{workflow.instanceId}}",
+                "sentAt": "{{now}}"
+              }
+            },
+            "retryPolicy": {
+              "maxAttempts": 3,
+              "initialIntervalMs": 1000,
+              "backoffCoefficient": 2,
+              "maxIntervalMs": 10000
+            }
+          }
+        ]
+      },
+      {
+        "transitionId": "notify_to_record",
+        "transitionName": "Record Delivery",
+        "fromStepId": "notify_external",
+        "toStepId": "record_delivery",
+        "trigger": "auto",
+        "priority": 100,
+        "activities": [
+          {
+            "activityId": "record_delivery_state",
+            "activityName": "Record Delivery State",
+            "activityType": "SET_VARIABLE",
+            "config": {
+              "assignments": [
+                { "path": "webhookDelivered", "value": true },
+                { "path": "webhookDeliveredAt", "value": "{{now}}" }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "transitionId": "record_to_end",
+        "transitionName": "Finish",
+        "fromStepId": "record_delivery",
+        "toStepId": "end",
+        "trigger": "auto",
+        "priority": 100
+      }
+    ],
+    "triggers": [
+      {
+        "triggerId": "order_created_trigger",
+        "name": "Order Created Trigger",
+        "description": "Notifies the external system when a new sales order is created",
+        "eventPattern": "sales.order.created",
+        "config": {
+          "contextMapping": [
+            { "targetKey": "id", "sourceExpression": "payload.id" }
+          ]
+        },
+        "enabled": true,
+        "priority": 0
+      }
+    ]
+  }
+}

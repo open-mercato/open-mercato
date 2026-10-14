@@ -76,6 +76,11 @@ export type DeliverOutboundMessageResult =
 export const COMMUNICATION_CHANNELS_DELIVER_OUTBOUND_COMMAND_ID =
   'communication_channels.message.deliver_outbound'
 
+function omitRawMessage(metadata: Record<string, unknown> | undefined): Record<string, unknown> {
+  if (!metadata) return {}
+  return Object.fromEntries(Object.entries(metadata).filter(([key]) => key !== 'rawMessage'))
+}
+
 type CredentialsServiceLike = {
   resolve: (
     integrationId: string,
@@ -500,7 +505,7 @@ const deliverOutboundMessageCommand: CommandHandler<
       link.externalMessageId = externalMessageRowId
       link.channelMetadata = {
         ...((link.channelMetadata as Record<string, unknown> | undefined) ?? {}),
-        ...(converted.metadata ?? {}),
+        ...omitRawMessage(converted.metadata),
         externalMessageId: sendResult.externalMessageId,
         // Always persist the RFC2822 Message-ID so inbound reply matching (JWZ
         // strategy in lib/thread-matcher) and sent-folder dedup can resolve this
@@ -530,6 +535,14 @@ const deliverOutboundMessageCommand: CommandHandler<
           providerKey: channel.providerKey,
           channelType: channel.channelType,
           direction: 'outbound',
+          // #6095: same contract as the inbound path — the send time travels on
+          // the event so consumers (the customers timeline) date their rows
+          // from it instead of reading the ExternalMessage row across the
+          // module boundary. ISO string because this event is persistent.
+          providerTimestamp:
+            externalMessage.providerTimestamp instanceof Date
+              ? externalMessage.providerTimestamp.toISOString()
+              : null,
           tenantId: input.scope.tenantId,
           organizationId: input.scope.organizationId ?? null,
         },

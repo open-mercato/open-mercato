@@ -331,7 +331,7 @@ interface SearchResultPresenter {
   icon?: string
 
   /**
-   * @deprecated Never rendered by any search UI; slated for removal in 0.9.0.
+   * @deprecated Never rendered by any search UI; slated for removal in 0.11.0.
    * Do not populate it. For an entity-type label add a
    * `search.entityType.<module>.<entity>` key in your own module's `i18n/*.json`
    * (dictionaries merge flat, so a `search.*` key resolves from any module), which

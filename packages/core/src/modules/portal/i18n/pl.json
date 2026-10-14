@@ -27,6 +27,7 @@
   "portal.invite.confirmPassword.placeholder": "••••••••",
   "portal.invite.description": "Utwórz konto w portalu, aby przyjąć to zaproszenie.",
   "portal.invite.displayName": "Nazwa wyświetlana",
+  "portal.invite.error.accountExists": "Ten adres e-mail ma już konto w portalu. Zaloguj się poniżej zamiast przyjmować zaproszenie.",
   "portal.invite.error.displayNameRequired": "Nazwa wyświetlana jest wymagana.",
   "portal.invite.error.generic": "Nie udało się przyjąć zaproszenia. Spróbuj ponownie.",
   "portal.invite.error.invalidToken": "Nieprawidłowe lub wygasłe zaproszenie.",

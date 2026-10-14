@@ -1,5 +1,5 @@
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
-import { locales } from '@open-mercato/shared/lib/i18n/config'
+import { getSupportedLocales } from '@open-mercato/shared/lib/i18n/locale-set'
 import { matchCountryCodes } from '@open-mercato/shared/lib/location/countries'
 
 /**
@@ -15,7 +15,11 @@ export function buildWarehouseListSearchOr(term: string): Array<Record<string, u
     { city: { $ilike: like } },
     { country: { $ilike: like } },
   ]
-  const matchedCountryCodes = matchCountryCodes(term, { locales })
+  // The served set, not the shipped baseline: an operator searching in a locale
+  // their app registered should match country names in that locale too.
+  // `resolveCountryName` goes through `Intl.DisplayNames`, so any code the
+  // runtime has region data for resolves without shipping a table.
+  const matchedCountryCodes = matchCountryCodes(term, { locales: [...getSupportedLocales()] })
   if (matchedCountryCodes.length > 0) {
     orFilters.push({ country: { $in: matchedCountryCodes } })
   }

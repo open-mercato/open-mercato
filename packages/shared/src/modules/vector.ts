@@ -18,7 +18,7 @@ export type VectorResultPresenter = {
   /**
    * @deprecated Never rendered by any search UI, exactly like
    * `SearchResultPresenter.badge` — see that field for the full rationale and the
-   * two replacements. Slated for removal in 0.9.0 alongside it.
+   * two replacements. Slated for removal in 0.11.0 alongside it.
    */
   badge?: string
 }

@@ -359,6 +359,7 @@ describe('init command failure output', () => {
       generateModuleEntities: jest.fn().mockResolvedValue(undefined),
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
       generateOpenApi: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
@@ -405,6 +406,7 @@ describe('init command failure output', () => {
       generateModuleEntities: jest.fn().mockResolvedValue(undefined),
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
       generateOpenApi: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
@@ -454,6 +456,7 @@ describe('init command failure output', () => {
       generateModuleEntities: jest.fn().mockResolvedValue(undefined),
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
       generateOpenApi: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/db', () => ({
@@ -528,6 +531,85 @@ describe('init command failure output', () => {
   })
 })
 
+describe('seed:defaults command', () => {
+  const originalDatabaseUrl = process.env.DATABASE_URL
+
+  beforeEach(() => {
+    jest.restoreAllMocks()
+    jest.resetModules()
+    process.env.DATABASE_URL = 'postgres://postgres:secret@127.0.0.1:5432/open_mercato'
+  })
+
+  afterEach(() => {
+    jest.dontMock('../lib/resolver')
+    jest.dontMock('@open-mercato/shared/lib/bootstrap/dynamicLoader')
+    jest.dontMock('@open-mercato/shared/lib/di/container')
+    jest.dontMock('@open-mercato/core/modules/directory/data/entities')
+    jest.dontMock('@open-mercato/core/modules/auth/lib/setup-app')
+    jest.resetModules()
+  })
+
+  afterAll(() => {
+    process.env.DATABASE_URL = originalDatabaseUrl
+  })
+
+  it('honors an overrides.setup.seedDefaults: false entry instead of seeding from the raw bootstrap array', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+
+    const { applyModuleOverridesFromEnabledModules } = await import('@open-mercato/shared/modules/overrides')
+    applyModuleOverridesFromEnabledModules([
+      { id: 'workflows', overrides: { setup: { seedDefaults: false } } },
+    ])
+
+    const workflowsSeedDefaults = jest.fn().mockResolvedValue(undefined)
+    const catalogSeedDefaults = jest.fn().mockResolvedValue(undefined)
+
+    jest.doMock('../lib/resolver', () => ({
+      createResolver: () => ({
+        getAppDir: () => '/tmp/test-app',
+      }),
+    }))
+    jest.doMock('@open-mercato/shared/lib/bootstrap/dynamicLoader', () => ({
+      bootstrapFromAppRoot: jest.fn().mockResolvedValue({
+        modules: [
+          { id: 'workflows', setup: { seedDefaults: workflowsSeedDefaults } },
+          { id: 'catalog', setup: { seedDefaults: catalogSeedDefaults } },
+        ],
+      }),
+    }))
+    jest.doMock('@open-mercato/shared/lib/di/container', () => ({
+      createRequestContainer: jest.fn().mockResolvedValue({
+        resolve: jest.fn().mockReturnValue({
+          find: jest.fn().mockResolvedValue([{ id: 'org-1', tenant: { id: 'tenant-1' } }]),
+        }),
+      }),
+    }))
+    jest.doMock(
+      '@open-mercato/core/modules/directory/data/entities',
+      () => ({ Organization: class Organization {} }),
+      { virtual: true },
+    )
+    jest.doMock(
+      '@open-mercato/core/modules/auth/lib/setup-app',
+      () => ({ ensureCustomRoleAcls: jest.fn().mockResolvedValue(undefined) }),
+      { virtual: true },
+    )
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'seed:defaults'])
+
+    expect(exitCode).toBe(0)
+    expect(workflowsSeedDefaults).not.toHaveBeenCalled()
+    expect(catalogSeedDefaults).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: 'tenant-1', organizationId: 'org-1' }),
+    )
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+})
+
 describe('generate post-step structural invalidation', () => {
   beforeEach(() => {
     jest.restoreAllMocks()
@@ -554,6 +636,7 @@ describe('generate post-step structural invalidation', () => {
     const generateModuleEntities = jest.fn().mockResolvedValue(undefined)
     const generateModuleDi = jest.fn().mockResolvedValue(undefined)
     const generateModulePackageSources = jest.fn().mockResolvedValue(undefined)
+    const generateWebResearchAdapters = jest.fn().mockResolvedValue(undefined)
     const generateOpenApi = jest.fn().mockResolvedValue(undefined)
     const invalidate = jest.fn().mockResolvedValue({
       cacheEntriesDeleted: 2,
@@ -568,6 +651,7 @@ describe('generate post-step structural invalidation', () => {
       generateModuleEntities,
       generateModuleDi,
       generateModulePackageSources,
+      generateWebResearchAdapters,
       generateOpenApi,
     }))
     jest.doMock('../lib/resolver', () => ({
@@ -610,6 +694,7 @@ describe('generate post-step structural invalidation', () => {
       generateModuleDi: jest.fn().mockResolvedValue(unchangedResult),
       generateModulePackageSources: jest.fn().mockResolvedValue(unchangedResult),
       generateOpenApi: jest.fn().mockResolvedValue(unchangedResult),
+      generateWebResearchAdapters: jest.fn().mockResolvedValue(unchangedResult),
     }
     const invalidate = jest.fn()
 
@@ -649,6 +734,7 @@ describe('generate post-step structural invalidation', () => {
     const generateModuleEntities = jest.fn().mockResolvedValue(undefined)
     const generateModuleDi = jest.fn().mockResolvedValue(undefined)
     const generateModulePackageSources = jest.fn().mockResolvedValue(undefined)
+    const generateWebResearchAdapters = jest.fn().mockResolvedValue(undefined)
     const generateOpenApi = jest.fn().mockResolvedValue(undefined)
     const invalidate = jest.fn().mockRejectedValue(new Error('cache maintenance unavailable'))
 
@@ -658,6 +744,7 @@ describe('generate post-step structural invalidation', () => {
       generateModuleEntities,
       generateModuleDi,
       generateModulePackageSources,
+      generateWebResearchAdapters,
       generateOpenApi,
     }))
     jest.doMock('../lib/resolver', () => ({
@@ -695,6 +782,7 @@ describe('generate post-step structural invalidation', () => {
       generateModuleDi: generate,
       generateModulePackageSources: generate,
       generateOpenApi: generate,
+      generateWebResearchAdapters: generate,
     }))
     jest.doMock('../lib/resolver', () => ({
       createResolver: () => ({
@@ -800,6 +888,7 @@ describe('server dev managed process exits', () => {
     })
     jest.doMock('../lib/generators', () => ({
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
       resolveEnvironment: () => ({
@@ -841,6 +930,7 @@ describe('server dev managed process exits', () => {
     })
     jest.doMock('../lib/generators', () => ({
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
       resolveEnvironment: () => ({
@@ -1209,6 +1299,7 @@ describe('server dev managed process exits', () => {
     })
     jest.doMock('../lib/generators', () => ({
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
       resolveEnvironment: () => ({
@@ -1363,6 +1454,7 @@ describe('server dev managed process exits', () => {
     })
     jest.doMock('../lib/generators', () => ({
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
       resolveEnvironment: () => ({
@@ -1643,6 +1735,7 @@ describe('server start managed process exits', () => {
     }))
     jest.doMock('../lib/generators', () => ({
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
       resolveEnvironment: () => ({

@@ -9,6 +9,8 @@ export type BaseValues = {
   valueCurrency: string
   probability: string
   expectedCloseAt: string
+  /** Optional so out-of-tree code constructing a BaseValues literal keeps compiling. */
+  ownerUserId?: string
   description: string
   personIds: string[]
   companyIds: string[]
@@ -23,6 +25,7 @@ export const EMPTY_VALUES: BaseValues = {
   valueCurrency: '',
   probability: '',
   expectedCloseAt: '',
+  ownerUserId: '',
   description: '',
   personIds: [],
   companyIds: [],

@@ -9,7 +9,7 @@
 > [`.ai/specs/2026-08-28-search-presenter-badge-deprecation.md`](2026-08-28-search-presenter-badge-deprecation.md) (#5716).**
 > The flow descriptions below say the search surfaces render `presenter.badge` verbatim; that was
 > aspirational and never true — no search UI has ever rendered the field. `badge` is now deprecated
-> and slated for removal in 0.9.0, so treat every `badge` mention in this document as historical.
+> and slated for removal in 0.11.0, so treat every `badge` mention in this document as historical.
 > The `title`, `subtitle` and `link.label` parts of this spec are unaffected and remain in force.
 
 ## TLDR
