@@ -1,35 +1,33 @@
 # Handoff — 2026-10-14-ecommerce-release-4-write-side
 
-**Last updated:** 2026-10-14T14:30:00Z (Phase 0 checkpoint)
+**Last updated:** 2026-10-14T17:35:00Z (checkpoint 2, closed)
 **Branch:** feat/release-4-write-side
 **PR:** https://github.com/adeptofvoltron/open-mercato/pull/15 (draft, base `develop` on the fork)
-**Current phase/step:** Phase 0 done; resume at Step 1.1
-**Last commit:** see `git log` on `feat/release-4-write-side` (Step 0.4 commit, "docs(specs): cross-spec consistency pass...")
+**Current phase/step:** Phase 1 Steps 1.1–1.6 done; resume at Step 1.7
+**Last commit:** see `git log` on `feat/release-4-write-side` (`108fdf96da`, the auth i18n fix, is the most recent at checkpoint-2 close)
 
 ## What just happened
-- Phase 0 (spec revision, docs-only) is complete: Steps 0.1–0.4 all `done` in PLAN.md's Tasks table.
-  - 0.1: `.ai/specs/2026-08-14-cart-module.md` rev 9 — server-derived scope (closes F1/F2), discount mapping fixed (F3/C10), gift lines (F4), lock/convert surface (F7/C6), `token_hash` (C13), `/api/cart/current/*` routes (Q5), re-cut Phase 1–3 gates (W13), `TC-CART-*` ids, new Migration & BC / error-code sections.
-  - 0.2: `.ai/specs/SPEC-055-2026-02-23-promotions-module.md` v2.2.0 — the `discountAmountBasis: 'line'` mapping corrected a second time (B.6), `ResolvedEffect.amountNet/amountGross`, standard API-key auth, id-based item addressing, `CodeReservation.cart_id`, row-lock budget enforcement, Release-4 rule set (eleven types), new Public TypeScript Contract / Release 4 Contract Freeze sections, phases re-threaded.
-  - 0.3: `.ai/specs/2026-08-21-buyer-scoped-catalog-visibility.md` — header corrected (Phases 1–2 shipped), Phase 3 folded into cart's own Phases 1–3 (new §6.0a ownership table), `evaluateCartVisibility` named with variant-derives-product fix (new risk R11), channel-creation constraint, flagged-line/lock mechanism updated.
-  - 0.4: cross-spec consistency pass — no stale `X-Module-Key`/`/carts/:token`/hyphenated-event claims found in `ecommerce-suite-roadmap.md`/`pricing-engine.md`/`storefront-public-api.md`/SPEC-029 beyond what 0.1–0.3 already fixed; added an ADR-7 consequence note (cart's write-path application of "resolved once, at the edge") and fixed ADR-2's stale `catalogPricingService` reference; updated the scope-status file's Status table.
-- A concurrent push landed on the branch mid-Step-0.1 (merge of `origin/develop` bringing in #7298, a tax-providers roadmap pointer touching cart §5.2 trigger 5). Merged cleanly. **Re-check `git fetch fork feat/release-4-write-side` before every push** — the branch owner appears to sync `develop` into it concurrently with this run.
-- All D-R4-1…29 decisions are now reflected in spec text; per the decisions record's own rule, the record is an audit trail from here on, not the authority — read the specs themselves for Phase 1+.
+- Phase 0 (spec revision) complete — see the PR's checkpoint-1 comment.
+- Phase 1 Steps 1.1–1.6 done, each its own commit, each executed by a dispatched sub-agent and then verified directly (file diffs read, not just agent self-reports trusted): 1.1 module scaffold; 1.2 entities/validators/migration (over-scoped into Code-related entities, see below); 1.3 promotion CRUD commands with undo; 1.4 rule-tree reconcile + tree PUT / order PATCH routes with per-item optimistic locking; 1.5 `makeCrudRoute`-based CRUD routes + OpenAPI factory; 1.6 i18n (5 locales) + the card-layout list page.
+- Three corrections made along the way (all committed, all explained in NOTIFY.md): (a) `apps/mercato/src/modules.ts` registration happens per-module at its first migration-needing step, not Step 7.8 — a real `yarn db:generate` tooling constraint; (b) Step 6.1 (code entities) is already satisfied by Step 1.2's over-scope, marked done early; (c) **checkpoint-2's full `@open-mercato/core` test run caught a real regression** — Step 1.1's new ACL features had no `auth.acl.features.promotions.*` i18n catalog entries; fixed in `108fdf96da`.
+- Checkpoint 2 is CLOSED: `yarn generate`/`yarn build:packages --force`/`yarn typecheck` (full monorepo)/`yarn i18n:check-sync` all clean; the full core test suite ran once (2341 suites) and its one finding is fixed and re-verified. Comment posted to PR #15.
+- One tracked-but-unfixed gap from Step 1.6: the promotion list response has no rule-tree-non-empty flag, so delete-confirmation is unconditional rather than conditional per the spec's literal text. Low priority; revisit opportunistically.
 
 ## Next concrete action
-- Step 1.1 (Phase 1 of the overall PLAN, which is SPEC-055's own Phase 1): scaffold the `promotions` module — `index.ts`, `acl.ts` (incl. `promotions.evaluate`/`.codes.redeem`/`.usage.manage`), `events.ts` (underscore ids), `setup.ts`, `di.ts`. No `ce.ts`/`translations.ts`/`search.ts`/`notifications.ts`/`widgets/*`. `Exec: dispatch` per PLAN.md's Tasks table — this is the first candidate for the executor-dispatch pattern (`references/executor-dispatch.md`), since Steps 1.1–1.10 are a coherent sequence inside one module.
-- Re-read `SPEC-055-2026-02-23-promotions-module.md`'s revised §Architecture (file tree), §Data Models and new §Public TypeScript Contract before writing code — they are now the ground truth, not the analysis document.
+- Step 1.7: promotion form pages (create + detail, 3 panels not 4 — the "promotional-price-visibility" toggle was dropped in rev 9) and the `RuleGroupNode` recursive tree builder component. Read `SPEC-055-2026-02-23-promotions-module.md`'s `## UI/UX` → `### Promotion Form` and `### Rule Group Tree Builder` sections fresh (the DS-token rev note there matters — no hardcoded colors, the depth indicator is a left-border/elevation token, not a `color-mix` ramp).
+- Step 1.8 (benefit card) naturally follows 1.7 in the same UI area — reasonable to dispatch both before the next checkpoint, landing it at or before Step 1.9/1.10 (don't let the gap grow past ~5 steps without one).
+- Steps 1.9–1.10 (API and UI integration tests) need a runnable dev environment and possibly a database — check `.ai/qa/AGENTS.md` and this repo's test-env descriptor before attempting them. This worktree has never started the dev server or touched a database this run.
 
 ## Blockers / open questions
-- None recorded. If a Step needs a decision the D-R4 record doesn't cover, make the smallest conservative choice, write it here and in NOTIFY.md, and continue.
+- None blocking. The corrections above are resolved decisions, not open questions.
 
 ## Environment caveats
-- Dev runtime runnable: unknown — not yet needed (no code written).
-- Node 24 via `export PATH="/home/bernard/.nvm/versions/node/v24.16.0/bin:$PATH"` (adjust to the local nvm path); fresh-worktree gate order `yarn build:packages` → `yarn generate` → `yarn build:packages`.
-- Browser / UI checks: Playwright provider; skip with a logged reason if the dev env cannot start. Not yet relevant (Phase 1 of promotions is domain model + admin, Steps 1.6–1.10 include UI).
-- Database/migration state: clean; never run `yarn db:migrate` — `yarn db:generate`, review SQL, keep only the intended migration + that module's `.snapshot-open-mercato.json`.
-- Fork repository: `adeptofvoltron/open-mercato`. Pass `-R adeptofvoltron/open-mercato` on every `gh` call (default repo is set, but a fresh shell may not inherit it). Issues are disabled on the fork.
-- Gate tasks need `--force` (turbo cache is shared across worktrees).
+- Dependencies installed (`yarn install` ran this session — the worktree didn't have `node_modules` when the run resumed). Built once via the fresh-worktree order (`build:packages` → `generate` → `build:packages`), then re-verified clean at this checkpoint.
+- Node 24 via `export PATH="/opt/homebrew/bin:$PATH"` worked in this environment (not the `/home/bernard/.nvm/...` path the original HANDOFF named — adjust per the actual shell this resumes in).
+- Dev runtime (storefront/backend dev server) not yet started — not needed for Steps 1.1–1.5 (no UI yet). Will be needed from Step 1.7 onward.
+- Database/migration state: clean; the one promotions migration is committed but never applied (`yarn db:migrate` never run, per root AGENTS.md).
+- Fork repository: `adeptofvoltron/open-mercato`. Pass `-R adeptofvoltron/open-mercato` on every `gh` call.
+- **Re-check `git fetch fork feat/release-4-write-side` before every push** — the branch owner synced `develop` into it once already during Step 0.1 (unrelated tax-providers roadmap pointer, merged cleanly).
 
 ## Worktree
-- Path: this cezar run's own worktree (`.ai/cezar/worktrees/e12a1916-0f76-40d7-a20f-3395d9ab0856`), already checked out at `feat/release-4-write-side`, tracking `fork/feat/release-4-write-side`.
-- Created this run: n/a (reused the cezar task's existing worktree).
+- Path: this cezar run's own worktree (`.ai/cezar/worktrees/e12a1916-0f76-40d7-a20f-3395d9ab0856`), checked out at `feat/release-4-write-side`, tracking `fork/feat/release-4-write-side`.

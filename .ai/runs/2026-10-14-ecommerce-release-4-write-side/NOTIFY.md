@@ -26,3 +26,9 @@
 ## 2026-10-14T16:30:00Z — Plan correction: Step 6.1 duplicated Step 1.2's work
 - My own Step 1.2 dispatch over-scoped: I handed the executor the whole §Data Models section instead of just the Phase-1 rows (Promotion/RuleGroup/Rule/Benefit/PromotionUsage), so it also built Code/GeneratedCode/CodeReservation/CodeUsage — which PLAN.md's Phase 6 Step 6.1 had separately scheduled. The Step 1.2 agent itself flagged this in its report; I'm resolving it now rather than letting it surface again at Phase 6.
 - Fix: Step 6.1 marked done (built in Step 1.2), with a note pointing at the actual entity classes and migration file. Step 6.2 onward (code commands/service) proceeds normally against the existing schema.
+
+## 2026-10-14T17:35:00Z — Checkpoint 2 (Phase 1 Steps 1.1-1.6)
+- Steps 1.1-1.6 done: module scaffold, data model + migration (over-scoped into code entities, resolved against Step 6.1), promotion CRUD commands, rule-tree/order routes, CRUD API routes, i18n + list page.
+- The full `@open-mercato/core` test suite (2341 suites, run once at this checkpoint) caught one real regression Step 1.1 introduced: the `auth` module's ACL-feature i18n catalog test failed because the new `promotions.*` features had no `auth.acl.features.promotions.*` translation entries. Fixed (commit 108fdf96da) and re-verified with a targeted re-run.
+- Step 1.6 flagged a real gap in Step 1.5: the promotion list response has no rule-tree-non-empty flag, so delete-confirmation can't be conditional on tree emptiness per the spec; it confirms unconditionally (safe default) instead. Tracked, not yet fixed — low priority, revisit if a later step touches the list projection anyway.
+- Posting checkpoint-2 comment to PR #15 next, then continuing to Step 1.7.
