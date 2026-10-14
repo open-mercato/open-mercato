@@ -27,6 +27,7 @@ import { JournalEntryLineDimension } from '../../journal_entry_line_dimensions/d
 import type { SetJournalEntryLineDimensionInput } from '../../journal_entry_line_dimensions/data/validators'
 import { CostCenter, DefaultAccountPostingRule, PostingRulesSettings } from '../data/entities'
 import { UNALLOCATED_COST_CENTER_CODE } from './seedDefaults'
+import { isNonZeroAmount } from './amount'
 
 /** The marker this engine's own output carries — see Design Decisions,
  * "The engine's own postings carry a distinct `referenceType`". Checked
@@ -106,8 +107,9 @@ export const formatOperationDate = (value: Date | string): string =>
   value instanceof Date ? value.toISOString().slice(0, 10) : String(value).slice(0, 10)
 
 function amountOf(line: { debit: string; credit: string }): { amount: string; side: 'debit' | 'credit' } {
-  const debit = Number(line.debit)
-  return debit > 0 ? { amount: line.debit, side: 'debit' } : { amount: line.credit, side: 'credit' }
+  return isNonZeroAmount(line.debit)
+    ? { amount: line.debit, side: 'debit' }
+    : { amount: line.credit, side: 'credit' }
 }
 
 /**

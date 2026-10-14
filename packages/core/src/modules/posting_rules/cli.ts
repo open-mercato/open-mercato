@@ -6,6 +6,7 @@ import { FiscalPeriod } from '../ledger/data/entities'
 import type { PostJournalEntryResult } from '../ledger/commands/postJournalEntry'
 import { Currency } from '../currencies/data/entities'
 import { seedPostingRulesDefaults } from './lib/seedDefaults'
+import { isNonZeroAmount } from './lib/amount'
 import handlePostedEvent from './subscribers/postingRulesEngineSubscriber'
 
 /**
@@ -79,7 +80,7 @@ const devPostCostEntry: ModuleCli = {
       return
     }
     const amount = String(args.amount ?? '100.00')
-    if (!/^\d+(\.\d{1,4})?$/.test(amount) || Number(amount) <= 0) {
+    if (!/^\d+(\.\d{1,4})?$/.test(amount) || !isNonZeroAmount(amount)) {
       console.error(`--amount must be a positive decimal with at most 4 decimal places, got "${amount}".`)
       return
     }
