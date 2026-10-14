@@ -18,7 +18,7 @@
 | 0 | 0.3 | Revise buyer-scoped visibility spec (Phase 3 folded into cart) | inline | done | see `git log` |
 | 0 | 0.4 | Cross-spec consistency pass, roadmap and ADR touch-ups | inline | done | see `git log` |
 | 1 | 1.1 | Promotions: scaffold module, ACL, events, setup, DI | dispatch | done | see `git log` |
-| 1 | 1.2 | Promotions: entities, validators and migration (incl. PromotionUsage) | dispatch | todo | — |
+| 1 | 1.2 | Promotions: entities, validators and migration (incl. PromotionUsage) | dispatch | done | see `git log` |
 | 1 | 1.3 | Promotions: promotion CRUD commands with undo, events, cache invalidation | dispatch | todo | — |
 | 1 | 1.4 | Promotions: rule-tree reconcile command, tree PUT, order PATCH, optimistic locking | dispatch | todo | — |
 | 1 | 1.5 | Promotions: CRUD API routes, OpenAPI, mutation guards | dispatch | todo | — |
