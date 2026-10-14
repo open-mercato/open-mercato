@@ -14,7 +14,7 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
-import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { Attachment as AttachmentEntity } from '@open-mercato/core/modules/attachments/data/entities'
@@ -26,13 +26,27 @@ import {
   resolveSupportPortalScope,
   type SupportPortalScope,
 } from '../../../../../lib/support/portalTickets'
-import { SUPPORT_TICKET_RESOURCE_KIND, portalErrorResponse, readPathId } from '../../../../../lib/support/portalRoute'
 import {
-  CUSTOMER_UPLOAD_TAG_PREFIX,
+  SUPPORT_TICKET_RESOURCE_KIND,
+  checkPortalRateLimit,
+  portalErrorResponse,
+  readPathId,
+} from '../../../../../lib/support/portalRoute'
+import {
   CUSTOMER_VISIBLE_ATTACHMENT_TAG,
   SUPPORT_TICKET_ATTACHMENT_ENTITY_ID,
   customerUploadTag,
+  translateSupportUploadError,
 } from '../../../../../lib/support/attachments'
+import {
+  listCustomerVisibleAttachments,
+  loadPortalAttachmentsApi,
+  portalAttachmentAuth,
+  readAttachmentTags,
+  serializePortalAttachment,
+  portalSupportAttachmentItemSchema,
+  type PortalAttachmentsApi,
+} from '../../../../../lib/support/portalAttachments'
 
 const logger = createLogger('staff').child({ component: 'api/portal/support-tickets/attachments' })
 
@@ -40,52 +54,6 @@ export const metadata = {
   GET: { requireAuth: false },
   POST: { requireAuth: false },
   DELETE: { requireAuth: false },
-}
-
-type AttachmentsApi = {
-  Attachment: typeof import('@open-mercato/core/modules/attachments/data/entities').Attachment
-  AttachmentPartition: typeof import('@open-mercato/core/modules/attachments/data/entities').AttachmentPartition
-  StorageDriverFactory: typeof import('@open-mercato/core/modules/attachments/lib/drivers').StorageDriverFactory
-  checkAttachmentAccess: typeof import('@open-mercato/core/modules/attachments/lib/access').checkAttachmentAccess
-  attachmentCrudEvents: typeof import('@open-mercato/core/modules/attachments/lib/crud').attachmentCrudEvents
-  attachmentCrudIndexer: typeof import('@open-mercato/core/modules/attachments/lib/crud').attachmentCrudIndexer
-  readAttachmentMetadata: typeof import('@open-mercato/core/modules/attachments/lib/metadata').readAttachmentMetadata
-  slugifyAttachmentFileName: typeof import('@open-mercato/core/modules/attachments/lib/imageUrls').slugifyAttachmentFileName
-  clearAttachmentThumbnailCache: typeof import('@open-mercato/core/modules/attachments/lib/thumbnailCache').clearAttachmentThumbnailCache
-  isMultipartRequestWithinUploadLimit: typeof import('@open-mercato/core/modules/attachments/lib/upload-limits').isMultipartRequestWithinUploadLimit
-  isScopedAttachmentUploadError: typeof import('@open-mercato/core/modules/attachments/lib/scoped-upload-service').isScopedAttachmentUploadError
-}
-
-async function loadAttachmentsApi(): Promise<AttachmentsApi | null> {
-  try {
-    const [entities, drivers, access, crud, metadataLib, imageUrls, thumbnails, limits, uploadService] = await Promise.all([
-      import('@open-mercato/core/modules/attachments/data/entities'),
-      import('@open-mercato/core/modules/attachments/lib/drivers'),
-      import('@open-mercato/core/modules/attachments/lib/access'),
-      import('@open-mercato/core/modules/attachments/lib/crud'),
-      import('@open-mercato/core/modules/attachments/lib/metadata'),
-      import('@open-mercato/core/modules/attachments/lib/imageUrls'),
-      import('@open-mercato/core/modules/attachments/lib/thumbnailCache'),
-      import('@open-mercato/core/modules/attachments/lib/upload-limits'),
-      import('@open-mercato/core/modules/attachments/lib/scoped-upload-service'),
-    ])
-    return {
-      Attachment: entities.Attachment,
-      AttachmentPartition: entities.AttachmentPartition,
-      StorageDriverFactory: drivers.StorageDriverFactory,
-      checkAttachmentAccess: access.checkAttachmentAccess,
-      attachmentCrudEvents: crud.attachmentCrudEvents,
-      attachmentCrudIndexer: crud.attachmentCrudIndexer,
-      readAttachmentMetadata: metadataLib.readAttachmentMetadata,
-      slugifyAttachmentFileName: imageUrls.slugifyAttachmentFileName,
-      clearAttachmentThumbnailCache: thumbnails.clearAttachmentThumbnailCache,
-      isMultipartRequestWithinUploadLimit: limits.isMultipartRequestWithinUploadLimit,
-      isScopedAttachmentUploadError: uploadService.isScopedAttachmentUploadError,
-    }
-  } catch (err) {
-    logger.warn('staff portal support attachments module unavailable', { err })
-    return null
-  }
 }
 
 function unavailable(): Response {
@@ -96,31 +64,9 @@ function notFound(): Response {
   return NextResponse.json({ ok: false, error: 'staff.errors.notFound' }, { status: 404 })
 }
 
-function readTags(api: AttachmentsApi, attachment: AttachmentEntity): string[] {
-  return api.readAttachmentMetadata(attachment.storageMetadata).tags ?? []
-}
-
-function serialize(api: AttachmentsApi, attachment: AttachmentEntity, taskId: string, customerUserId: string) {
-  const tags = readTags(api, attachment)
-  return {
-    id: attachment.id,
-    fileName: attachment.fileName,
-    fileSize: attachment.fileSize,
-    mimeType: attachment.mimeType ?? null,
-    downloadUrl: `/api/staff/portal/support-tickets/${encodeURIComponent(taskId)}/attachments?attachmentId=${encodeURIComponent(attachment.id)}`,
-    uploadedByCustomer: tags.some((tag) => tag.startsWith(CUSTOMER_UPLOAD_TAG_PREFIX)),
-    canDelete: tags.includes(customerUploadTag(customerUserId)),
-    createdAt: attachment.createdAt ? attachment.createdAt.toISOString() : null,
-  }
-}
-
-function attachmentAuth(scope: SupportPortalScope) {
-  return { sub: scope.auth.sub, tenantId: scope.tenantId, orgId: scope.organizationId, email: scope.auth.email }
-}
-
-async function resolveDriverFactory(api: AttachmentsApi, scope: SupportPortalScope) {
+async function resolveDriverFactory(api: PortalAttachmentsApi, scope: SupportPortalScope) {
   try {
-    const resolved = scope.container.resolve('storageDriverFactory') as InstanceType<AttachmentsApi['StorageDriverFactory']> | null
+    const resolved = scope.container.resolve('storageDriverFactory') as InstanceType<PortalAttachmentsApi['StorageDriverFactory']> | null
     return resolved ?? new api.StorageDriverFactory(scope.em)
   } catch {
     return new api.StorageDriverFactory(scope.em)
@@ -128,7 +74,7 @@ async function resolveDriverFactory(api: AttachmentsApi, scope: SupportPortalSco
 }
 
 async function loadVisibleAttachment(
-  api: AttachmentsApi,
+  api: PortalAttachmentsApi,
   scope: SupportPortalScope,
   taskId: string,
   attachmentId: string,
@@ -147,7 +93,7 @@ async function loadVisibleAttachment(
     { tenantId: scope.tenantId, organizationId: scope.organizationId },
   )
   if (!attachment) return null
-  return readTags(api, attachment).includes(CUSTOMER_VISIBLE_ATTACHMENT_TAG) ? attachment : null
+  return readAttachmentTags(api, attachment).includes(CUSTOMER_VISIBLE_ATTACHMENT_TAG) ? attachment : null
 }
 
 export async function GET(req: Request) {
@@ -157,7 +103,7 @@ export async function GET(req: Request) {
     const taskId = readPathId(req, /\/support-tickets\/([^/]+)\/attachments/)
     const owned = taskId ? await loadPortalOwnedTicket(scope, taskId) : null
     if (!owned) return notFound()
-    const api = await loadAttachmentsApi()
+    const api = await loadPortalAttachmentsApi()
     if (!api) return unavailable()
     const attachmentId = new URL(req.url).searchParams.get('attachmentId')
     if (attachmentId) {
@@ -166,7 +112,7 @@ export async function GET(req: Request) {
       if (!attachment) return notFound()
       const partition = await scope.em.findOne(api.AttachmentPartition, { code: attachment.partitionCode })
       if (!partition) return notFound()
-      if (!api.checkAttachmentAccess(attachmentAuth(scope), attachment, partition, { requireAuthForPublic: true }).ok) return notFound()
+      if (!api.checkAttachmentAccess(portalAttachmentAuth(scope), attachment, partition, { requireAuthForPublic: true }).ok) return notFound()
       const driver = await (await resolveDriverFactory(api, scope)).resolveForPartition(attachment.partitionCode, {
         tenantId: attachment.tenantId ?? scope.tenantId,
         organizationId: attachment.organizationId ?? scope.organizationId,
@@ -187,29 +133,7 @@ export async function GET(req: Request) {
       if (attachment.fileSize > 0) headers['Content-Length'] = String(attachment.fileSize)
       return new NextResponse(new Uint8Array(buffer), { status: 200, headers })
     }
-    const attachments = await findWithDecryption(
-      scope.em,
-      api.Attachment,
-      {
-        entityId: SUPPORT_TICKET_ATTACHMENT_ENTITY_ID,
-        recordId: owned.task.id,
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-      },
-      { orderBy: { createdAt: 'ASC' } },
-      { tenantId: scope.tenantId, organizationId: scope.organizationId },
-    )
-    const codes = Array.from(new Set(attachments.map((attachment) => attachment.partitionCode)))
-    const partitions = codes.length ? await scope.em.find(api.AttachmentPartition, { code: { $in: codes } }) : []
-    const partitionByCode = new Map(partitions.map((partition) => [partition.code, partition]))
-    const auth = attachmentAuth(scope)
-    const visible = attachments.filter((attachment) => {
-      const partition = partitionByCode.get(attachment.partitionCode)
-      if (!partition) return false
-      if (!readTags(api, attachment).includes(CUSTOMER_VISIBLE_ATTACHMENT_TAG)) return false
-      return api.checkAttachmentAccess(auth, attachment, partition, { requireAuthForPublic: true }).ok
-    })
-    return NextResponse.json({ items: visible.map((attachment) => serialize(api, attachment, owned.task.id, scope.auth.sub)) })
+    return NextResponse.json({ items: await listCustomerVisibleAttachments(api, scope, owned.task.id) })
   } catch (err) {
     return portalErrorResponse(err, 'staff portal support attachments GET failed')
   }
@@ -222,11 +146,13 @@ export async function POST(req: Request) {
     const taskId = readPathId(req, /\/support-tickets\/([^/]+)\/attachments/)
     const owned = taskId ? await loadPortalOwnedTicket(scope, taskId) : null
     if (!owned) return notFound()
-    const api = await loadAttachmentsApi()
+    const limited = await checkPortalRateLimit(scope, 'upload')
+    if (limited) return limited
+    const api = await loadPortalAttachmentsApi()
     if (!api) return unavailable()
     const { t } = await resolveTranslations()
     if (!(req.headers.get('content-type') || '').toLowerCase().includes('multipart/form-data')) {
-      return NextResponse.json({ ok: false, error: 'staff.errors.invalid_request' }, { status: 400 })
+      return NextResponse.json({ ok: false, error: t('staff.errors.invalid_request', 'Invalid request') }, { status: 400 })
     }
     if (!api.isMultipartRequestWithinUploadLimit(req.headers.get('content-length'))) {
       return NextResponse.json({ ok: false, error: t('attachments.errors.maxUploadSize', 'Attachment exceeds the maximum upload size.') }, { status: 413 })
@@ -234,7 +160,7 @@ export async function POST(req: Request) {
     const form = await req.formData()
     const file = form.get('file')
     if (!(file instanceof File)) {
-      return NextResponse.json({ ok: false, error: 'staff.support.errors.fileRequired' }, { status: 400 })
+      return NextResponse.json({ ok: false, error: t('staff.support.errors.fileRequired', 'Choose a file before uploading.') }, { status: 400 })
     }
     const guarded = await runRouteMutationGuards({
       container: scope.container,
@@ -269,12 +195,15 @@ export async function POST(req: Request) {
       })
     } catch (error) {
       if (api.isScopedAttachmentUploadError(error)) {
-        return NextResponse.json({ ok: false, error: error.message, code: error.code }, { status: error.status })
+        return NextResponse.json(
+          { ok: false, error: translateSupportUploadError(error.code, t), code: error.code },
+          { status: error.status },
+        )
       }
       throw error
     }
     await guarded.runAfterSuccess()
-    return NextResponse.json({ ok: true, item: serialize(api, attachment, owned.task.id, scope.auth.sub) }, { status: 201 })
+    return NextResponse.json({ ok: true, item: serializePortalAttachment(api, attachment, owned.task.id, scope.auth.sub) }, { status: 201 })
   } catch (err) {
     return portalErrorResponse(err, 'staff portal support attachments POST failed')
   }
@@ -287,13 +216,13 @@ export async function DELETE(req: Request) {
     const taskId = readPathId(req, /\/support-tickets\/([^/]+)\/attachments/)
     const owned = taskId ? await loadPortalOwnedTicket(scope, taskId) : null
     if (!owned) return notFound()
-    const api = await loadAttachmentsApi()
+    const api = await loadPortalAttachmentsApi()
     if (!api) return unavailable()
     const attachmentId = new URL(req.url).searchParams.get('attachmentId')
     if (!attachmentId || !z.string().uuid().safeParse(attachmentId).success) return notFound()
     const attachment = await loadVisibleAttachment(api, scope, owned.task.id, attachmentId)
     if (!attachment) return notFound()
-    if (!readTags(api, attachment).includes(customerUploadTag(scope.auth.sub))) {
+    if (!readAttachmentTags(api, attachment).includes(customerUploadTag(scope.auth.sub))) {
       return NextResponse.json({ ok: false, error: 'staff.support.errors.attachmentNotYours' }, { status: 403 })
     }
     const guarded = await runRouteMutationGuards({
@@ -339,16 +268,7 @@ export async function DELETE(req: Request) {
   }
 }
 
-const attachmentItemSchema = z.object({
-  id: z.string().uuid(),
-  fileName: z.string(),
-  fileSize: z.number(),
-  mimeType: z.string().nullable(),
-  downloadUrl: z.string(),
-  uploadedByCustomer: z.boolean(),
-  canDelete: z.boolean(),
-  createdAt: z.string().nullable(),
-})
+const attachmentItemSchema = portalSupportAttachmentItemSchema
 
 export const openApi: OpenApiRouteDoc = {
   tag: 'Staff Portal',
@@ -367,12 +287,13 @@ export const openApi: OpenApiRouteDoc = {
     },
     POST: {
       summary: 'Upload a file to a support ticket',
-      description: 'Multipart upload (`file`). The file is tagged customer-visible and as uploaded by the caller.',
+      description: 'Multipart upload (`file`). The file is tagged customer-visible and as uploaded by the caller. Rate limited per customer user; rejected files answer with a translated `error` and the machine `code`.',
       responses: [{ status: 201, description: 'Uploaded', schema: z.object({ ok: z.literal(true), item: attachmentItemSchema }) }],
       errors: [
         { status: 403, description: 'Missing portal.support_tickets.manage' },
         { status: 404, description: 'Ticket not found' },
         { status: 413, description: 'File too large' },
+        { status: 429, description: 'Upload rate limit exceeded (per customer user)' },
       ],
     },
     DELETE: {

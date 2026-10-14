@@ -9,12 +9,14 @@ import {
   resolveSupportPortalScope,
 } from '../../../../lib/support/portalTickets'
 import { portalErrorResponse } from '../../../../lib/support/portalRoute'
+import { loadPortalAttachmentsApi } from '../../../../lib/support/portalAttachments'
 
 export const metadata: { requireAuth?: boolean } = { requireAuth: false }
 
 const optionsResponseSchema = z.object({
   categories: z.array(z.object({ value: z.string(), label: z.string() })),
   canCreate: z.boolean(),
+  maxUploadBytes: z.number().int().positive().nullable(),
 })
 
 export async function GET(req: Request) {
@@ -26,8 +28,14 @@ export async function GET(req: Request) {
     const routes = await resolveRoutableCategoryValues(scope.em, supportScope, categories.map((category) => category.value))
     const routable = categories.filter((category) => routes.has(category.value))
     const canManage = await scope.hasFeature(PORTAL_SUPPORT_TICKETS_MANAGE_FEATURE)
+    const attachmentsApi = await loadPortalAttachmentsApi()
+    const maxUploadBytes = attachmentsApi ? attachmentsApi.resolveAttachmentMaxBytes() : null
     return NextResponse.json(
-      optionsResponseSchema.parse({ categories: routable, canCreate: canManage && routable.length > 0 }),
+      optionsResponseSchema.parse({
+        categories: routable,
+        canCreate: canManage && routable.length > 0,
+        maxUploadBytes: maxUploadBytes && maxUploadBytes > 0 ? maxUploadBytes : null,
+      }),
     )
   } catch (err) {
     return portalErrorResponse(err, 'staff portal support options GET failed')
@@ -41,7 +49,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Support ticket form options',
       description:
-        'Categories the signed-in customer can file a ticket in — only those that currently route to a usable project — and whether the caller may create tickets (`portal.support_tickets.manage`).',
+        'Categories the signed-in customer can file a ticket in — only those that currently route to a usable project — whether the caller may create tickets (`portal.support_tickets.manage`), and the server upload size limit in bytes (`maxUploadBytes`, `null` when the attachments module is unavailable).',
       responses: [{ status: 200, description: 'Options', schema: optionsResponseSchema }],
       errors: [
         { status: 401, description: 'No portal session' },

@@ -20,23 +20,39 @@ import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { PortalCard } from '@open-mercato/ui/portal/components/PortalCard'
 import { PortalEmptyState } from '@open-mercato/ui/portal/components/PortalEmptyState'
 import { usePortalAppEvent } from '@open-mercato/ui/portal/hooks/usePortalAppEvent'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import {
   ATTACHMENT_ACCEPT_TYPES,
+  resolvePortalMaxUploadBytes,
   validateAttachmentFile,
 } from '@open-mercato/core/modules/staff/lib/support/portalAttachmentValidation'
 import {
+  forgetFailedUpload,
+  getRetryableUpload,
+  readFailedUploadNames,
+  rememberFailedUploads,
+} from '@open-mercato/core/modules/staff/lib/support/portalPendingUploads'
+import {
   PORTAL_SUPPORT_STATUS_VARIANTS,
   PORTAL_SUPPORT_UPDATED_EVENT,
-  failedUploadsStorageKey,
   formatFileSize,
   formatPortalDate,
   portalSupportStatusLabel,
   readPortalTicketIdFromEvent,
   type PortalSupportAttachment,
+  type PortalSupportOptions,
   type PortalSupportTicketDetail,
 } from '@open-mercato/core/modules/staff/lib/support-ui/portalSupport'
 
 type Props = { params: { orgSlug: string; id: string } }
+
+type TicketDetail = PortalSupportTicketDetail & { attachments?: PortalSupportAttachment[] }
+
+type UploadOptions = PortalSupportOptions & { maxUploadBytes?: number | null }
+
+type UploadOutcome = { status: 'uploaded' } | { status: 'rejected' } | { status: 'failed'; reason: string | null }
+
+type UploadErrorBody = { error?: unknown }
 
 const MUTATION_CONTEXT_ID = 'staff-portal-support-detail'
 const SPOT_BEFORE = 'portal:staff.support_ticket:before'
@@ -53,7 +69,7 @@ export default function PortalSupportTicketDetailPage({ params }: Props) {
   })
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
-  const [ticket, setTicket] = React.useState<PortalSupportTicketDetail | null>(null)
+  const [ticket, setTicket] = React.useState<TicketDetail | null>(null)
   const [attachments, setAttachments] = React.useState<PortalSupportAttachment[]>([])
   const [failedUploads, setFailedUploads] = React.useState<string[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
@@ -62,6 +78,7 @@ export default function PortalSupportTicketDetailPage({ params }: Props) {
   const [reply, setReply] = React.useState('')
   const [replying, setReplying] = React.useState(false)
   const [uploading, setUploading] = React.useState(false)
+  const [maxUploadBytes, setMaxUploadBytes] = React.useState(() => resolvePortalMaxUploadBytes(null))
   const fileInputRef = React.useRef<HTMLInputElement | null>(null)
 
   React.useEffect(() => {
@@ -69,30 +86,32 @@ export default function PortalSupportTicketDetailPage({ params }: Props) {
   }, [loading, user, params.orgSlug])
 
   React.useEffect(() => {
-    try {
-      const raw = window.sessionStorage.getItem(failedUploadsStorageKey(params.id))
-      if (raw) {
-        const parsed = JSON.parse(raw)
-        if (Array.isArray(parsed)) setFailedUploads(parsed.filter((entry): entry is string => typeof entry === 'string'))
-      }
-    } catch {
-      setFailedUploads([])
-    }
+    setFailedUploads(readFailedUploadNames(params.id))
   }, [params.id])
+
+  React.useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const response = await apiCall<UploadOptions>('/api/staff/portal/support-tickets/options', { credentials: 'include' })
+        if (!cancelled && response.ok) setMaxUploadBytes(resolvePortalMaxUploadBytes(response.result?.maxUploadBytes))
+      } catch (err) {
+        getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.portal_support_options_failed' })
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [user])
 
   const load = React.useCallback(async () => {
     if (!user) return
     setError(null)
     try {
-      const [detail, files] = await Promise.all([
-        apiCall<PortalSupportTicketDetail>(`/api/staff/portal/support-tickets/${encodeURIComponent(params.id)}`, {
-          credentials: 'include',
-        }),
-        apiCall<{ items?: PortalSupportAttachment[] }>(
-          `/api/staff/portal/support-tickets/${encodeURIComponent(params.id)}/attachments`,
-          { credentials: 'include' },
-        ),
-      ])
+      const detail = await apiCall<TicketDetail>(`/api/staff/portal/support-tickets/${encodeURIComponent(params.id)}`, {
+        credentials: 'include',
+      })
       if (detail.status === 404) {
         setNotFound(true)
         setTicket(null)
@@ -102,9 +121,11 @@ export default function PortalSupportTicketDetailPage({ params }: Props) {
         setError(t('staff.portal.support.detail.loadFailed', 'Could not load this ticket.'))
         return
       }
+      setNotFound(false)
       setTicket(detail.result)
-      setAttachments(files.ok ? files.result?.items ?? [] : [])
-    } catch {
+      setAttachments(detail.result.attachments ?? [])
+    } catch (err) {
+      getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.portal_support_detail_failed' })
       setError(t('staff.portal.support.detail.loadFailed', 'Could not load this ticket.'))
     } finally {
       setIsLoading(false)
@@ -120,16 +141,13 @@ export default function PortalSupportTicketDetailPage({ params }: Props) {
   }, [load, params.id])
 
   const clearFailed = React.useCallback((fileName: string) => {
-    setFailedUploads((current) => {
-      const next = current.filter((entry) => entry !== fileName)
-      try {
-        if (next.length) window.sessionStorage.setItem(failedUploadsStorageKey(params.id), JSON.stringify(next))
-        else window.sessionStorage.removeItem(failedUploadsStorageKey(params.id))
-      } catch {
-        // sessionStorage unavailable: the in-memory list is still correct.
-      }
-      return next
-    })
+    forgetFailedUpload(params.id, fileName)
+    setFailedUploads((current) => current.filter((entry) => entry !== fileName))
+  }, [params.id])
+
+  const markFailed = React.useCallback((file: File) => {
+    rememberFailedUploads(params.id, [file])
+    setFailedUploads((current) => (current.includes(file.name) ? current : [...current, file.name]))
   }, [params.id])
 
   const sendReply = React.useCallback(async () => {
@@ -180,18 +198,18 @@ export default function PortalSupportTicketDetailPage({ params }: Props) {
     }
   }, [ticket, reply, replying, guardedMutation, load, t])
 
-  const uploadFile = React.useCallback(async (file: File): Promise<boolean> => {
-    if (!ticket) return false
-    const validationError = await validateAttachmentFile(file, t)
+  const uploadFile = React.useCallback(async (file: File): Promise<UploadOutcome> => {
+    if (!ticket) return { status: 'failed', reason: null }
+    const validationError = await validateAttachmentFile(file, t, maxUploadBytes)
     if (validationError) {
       flash(`${file.name}: ${validationError}`, 'error')
-      return false
+      return { status: 'rejected' }
     }
     const form = new FormData()
     form.set('file', file)
     const result = await guardedMutation.runMutation({
       operation: () =>
-        apiCall(`/api/staff/portal/support-tickets/${encodeURIComponent(ticket.id)}/attachments`, {
+        apiCall<UploadErrorBody>(`/api/staff/portal/support-tickets/${encodeURIComponent(ticket.id)}/attachments`, {
           method: 'POST',
           credentials: 'include',
           body: form,
@@ -207,24 +225,55 @@ export default function PortalSupportTicketDetailPage({ params }: Props) {
       },
       mutationPayload: { ticketId: ticket.id, fileName: file.name },
     })
-    return result.ok
-  }, [ticket, guardedMutation, t])
+    if (result.ok) return { status: 'uploaded' }
+    const reason = result.result?.error
+    return { status: 'failed', reason: typeof reason === 'string' && reason.trim() ? reason.trim() : null }
+  }, [ticket, guardedMutation, maxUploadBytes, t])
 
-  const onFilesPicked = React.useCallback(async (list: FileList | null) => {
-    if (!list || !list.length) return
+  const uploadFiles = React.useCallback(async (files: File[]) => {
+    if (!files.length) return
     setUploading(true)
     try {
-      for (const file of Array.from(list)) {
-        const ok = await uploadFile(file)
-        if (ok) clearFailed(file.name)
-        else flash(t('staff.portal.support.attachments.uploadFailed', 'Could not upload {name}.', { name: file.name }), 'error')
+      for (const file of files) {
+        let outcome: UploadOutcome
+        try {
+          outcome = await uploadFile(file)
+        } catch (err) {
+          getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.portal_support_upload_failed' })
+          outcome = { status: 'failed', reason: null }
+        }
+        if (outcome.status === 'uploaded') {
+          clearFailed(file.name)
+        } else if (outcome.status === 'failed') {
+          markFailed(file)
+          flash(
+            outcome.reason
+              ? t('staff.portal.support.attachments.uploadFailedReason', 'Could not upload {name}: {reason}', {
+                  name: file.name,
+                  reason: outcome.reason,
+                })
+              : t('staff.portal.support.attachments.uploadFailed', 'Could not upload {name}.', { name: file.name }),
+            'error',
+          )
+        }
       }
       await load()
     } finally {
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
     }
-  }, [uploadFile, clearFailed, load, t])
+  }, [uploadFile, clearFailed, markFailed, load, t])
+
+  const onFilesPicked = React.useCallback(async (list: FileList | null) => {
+    if (!list || !list.length) return
+    await uploadFiles(Array.from(list))
+  }, [uploadFiles])
+
+  const retryUpload = React.useCallback(async (fileName: string) => {
+    const file = getRetryableUpload(params.id, fileName)
+    if (!file) return
+    await uploadFiles([file])
+  }, [params.id, uploadFiles])
 
   const deleteAttachment = React.useCallback(async (attachment: PortalSupportAttachment) => {
     if (!ticket) return
@@ -290,14 +339,23 @@ export default function PortalSupportTicketDetailPage({ params }: Props) {
 
       <InjectionSpot spotId={SPOT_BEFORE} context={injectionContext} />
 
-      {error ? <ErrorMessage label={error} /> : null}
+      {error ? (
+        <ErrorMessage
+          label={error}
+          action={
+            <Button type="button" variant="outline" size="sm" onClick={() => void load()}>
+              {t('staff.portal.support.retry', 'Try again')}
+            </Button>
+          }
+        />
+      ) : null}
 
-      {notFound || !ticket ? (
+      {notFound || (!ticket && !error) ? (
         <PortalEmptyState
           title={t('staff.portal.support.detail.notFoundTitle', 'Ticket not found')}
           description={t('staff.portal.support.detail.notFoundDescription', 'This ticket does not exist or is not yours.')}
         />
-      ) : (
+      ) : !ticket ? null : (
         <>
           <PortalCard>
             <div className="flex flex-wrap items-start justify-between gap-4">
@@ -336,7 +394,7 @@ export default function PortalSupportTicketDetailPage({ params }: Props) {
                 >
                   <p className="text-xs text-muted-foreground">
                     {message.authorKind === 'customer'
-                      ? message.authorName ?? t('staff.portal.support.detail.you', 'You')
+                      ? message.authorName || t('staff.portal.support.detail.you', 'You')
                       : message.authorName
                         ? t('staff.portal.support.detail.supportTeamNamed', 'Support team · {name}', { name: message.authorName })
                         : t('staff.portal.support.detail.supportTeam', 'Support team')}
@@ -407,14 +465,37 @@ export default function PortalSupportTicketDetailPage({ params }: Props) {
               ) : null}
             </div>
             {failedUploads.length ? (
-              <div className="mb-3 space-y-1 rounded-md border border-status-error-border bg-status-error-bg p-3">
+              <div
+                className="mb-3 space-y-2 rounded-md border border-status-error-border bg-status-error-bg p-3"
+                data-testid="support-failed-uploads"
+              >
                 <p className="text-sm text-status-error-text">
-                  {t('staff.portal.support.attachments.failedTitle', 'These files could not be uploaded. Choose them again to retry:')}
+                  {t('staff.portal.support.attachments.failedHeading', 'These files could not be uploaded.')}
                 </p>
-                <ul className="list-inside list-disc text-sm text-status-error-text">
-                  {failedUploads.map((name) => (
-                    <li key={name}>{name}</li>
-                  ))}
+                <ul className="space-y-1 text-sm text-status-error-text">
+                  {failedUploads.map((name) => {
+                    const retryable = ticket.canReply && getRetryableUpload(params.id, name) !== null
+                    return (
+                      <li key={name} className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="truncate">{name}</span>
+                        {retryable ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={uploading}
+                            onClick={() => void retryUpload(name)}
+                          >
+                            {t('staff.portal.support.attachments.retry', 'Retry')}
+                          </Button>
+                        ) : (
+                          <span className="text-xs">
+                            {t('staff.portal.support.attachments.reattach', 'Please attach this file again.')}
+                          </span>
+                        )}
+                      </li>
+                    )
+                  })}
                 </ul>
               </div>
             ) : null}

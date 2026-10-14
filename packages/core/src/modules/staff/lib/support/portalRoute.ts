@@ -25,7 +25,14 @@ const RATE_LIMITS = {
     duration: 3600,
     keyPrefix: 'staff_support_ticket_message',
   }),
+  upload: readEndpointRateLimitConfig('STAFF_SUPPORT_TICKET_UPLOAD', {
+    points: 30,
+    duration: 3600,
+    keyPrefix: 'staff_support_ticket_upload',
+  }),
 } as const
+
+export type PortalRateLimitKind = keyof typeof RATE_LIMITS
 
 export function buildPortalCommandContext(scope: SupportPortalScope, req: Request): CommandRuntimeContext {
   const auth = {
@@ -50,7 +57,7 @@ export function buildPortalCommandContext(scope: SupportPortalScope, req: Reques
 /** Per customer user, so one noisy account cannot exhaust its colleagues' budget. */
 export async function checkPortalRateLimit(
   scope: SupportPortalScope,
-  kind: keyof typeof RATE_LIMITS,
+  kind: PortalRateLimitKind,
 ): Promise<Response | null> {
   let service: RateLimiterService | null = null
   try {

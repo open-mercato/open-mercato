@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { Plus } from 'lucide-react'
 import { replaceWithPageReload } from '@open-mercato/shared/lib/navigation/pageReload'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
@@ -50,9 +51,9 @@ export default function PortalSupportTicketsPage({ params }: Props) {
     if (!loading && !user) replaceWithPageReload(`/${params.orgSlug}/portal/login`)
   }, [loading, user, params.orgSlug])
 
-  const load = React.useCallback(async () => {
+  const load = React.useCallback(async (options: { silent?: boolean } = {}) => {
     if (!user) return
-    setIsLoading(true)
+    if (!options.silent) setIsLoading(true)
     setError(null)
     try {
       const statusQuery = status === ALL_STATUSES ? '' : `&status=${encodeURIComponent(status)}`
@@ -64,15 +65,16 @@ export default function PortalSupportTicketsPage({ params }: Props) {
       ])
       if (!list.ok) {
         setError(t('staff.portal.support.loadFailed', 'Could not load your support tickets.'))
-        setTickets([])
+        if (!options.silent) setTickets([])
         return
       }
       setTickets(list.result?.items ?? [])
       setTotalPages(Math.max(1, list.result?.totalPages ?? 1))
       setOptions(opts.ok ? opts.result : null)
-    } catch {
+    } catch (err) {
+      getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.portal_support_list_failed' })
       setError(t('staff.portal.support.loadFailed', 'Could not load your support tickets.'))
-      setTickets([])
+      if (!options.silent) setTickets([])
     } finally {
       setIsLoading(false)
     }
@@ -83,7 +85,7 @@ export default function PortalSupportTicketsPage({ params }: Props) {
   }, [load])
 
   usePortalAppEvent(PORTAL_SUPPORT_UPDATED_EVENT, () => {
-    void load()
+    void load({ silent: true })
   }, [load])
 
   if (loading) {
@@ -139,7 +141,16 @@ export default function PortalSupportTicketsPage({ params }: Props) {
         </Select>
       </div>
 
-      {error ? <ErrorMessage label={error} /> : null}
+      {error ? (
+        <ErrorMessage
+          label={error}
+          action={
+            <Button type="button" variant="outline" size="sm" onClick={() => void load()}>
+              {t('staff.portal.support.retry', 'Try again')}
+            </Button>
+          }
+        />
+      ) : null}
 
       {isLoading ? (
         <div className="flex items-center justify-center py-16">
@@ -188,7 +199,9 @@ export default function PortalSupportTicketsPage({ params }: Props) {
                     {portalSupportStatusLabel(t, ticket.portalStatus)}
                   </StatusBadge>
                   <span className="text-xs text-muted-foreground">
-                    {t('staff.portal.support.lastActivity', 'Last activity')}: {formatPortalDate(ticket.lastActivityAt, locale)}
+                    {t('staff.portal.support.lastActivityAt', 'Last activity: {date}', {
+                      date: formatPortalDate(ticket.lastActivityAt, locale),
+                    })}
                   </span>
                 </div>
               </div>
@@ -203,7 +216,7 @@ export default function PortalSupportTicketsPage({ params }: Props) {
             {t('staff.portal.support.previous', 'Previous')}
           </Button>
           <span className="text-sm text-muted-foreground">
-            {t('staff.portal.support.pageLabel', 'Page')} {page} / {totalPages}
+            {t('staff.portal.support.pageIndicator', 'Page {page} / {total}', { page, total: totalPages })}
           </span>
           <Button
             variant="outline"

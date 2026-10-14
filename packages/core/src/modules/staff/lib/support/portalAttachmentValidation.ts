@@ -95,8 +95,18 @@ async function fileLooksLikeActiveContent(file: File): Promise<boolean> {
   }
 }
 
-export async function validateAttachmentFile(file: File, t: TranslateFn): Promise<string | null> {
-  if (file.size > DEFAULT_ATTACHMENT_MAX_UPLOAD_BYTES) {
+export function resolvePortalMaxUploadBytes(serverMaxBytes: number | null | undefined): number {
+  return typeof serverMaxBytes === 'number' && Number.isFinite(serverMaxBytes) && serverMaxBytes > 0
+    ? serverMaxBytes
+    : DEFAULT_ATTACHMENT_MAX_UPLOAD_BYTES
+}
+
+export async function validateAttachmentFile(
+  file: File,
+  t: TranslateFn,
+  maxBytes: number = DEFAULT_ATTACHMENT_MAX_UPLOAD_BYTES,
+): Promise<string | null> {
+  if (file.size > maxBytes) {
     return t('attachments.errors.maxUploadSize')
   }
   const extensionSegments = getFileExtensionSegments(file.name)

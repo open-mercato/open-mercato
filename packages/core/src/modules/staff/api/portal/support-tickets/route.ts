@@ -19,12 +19,12 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import {
   StaffSupportTicket,
   StaffTimeTask,
-  StaffTimeTaskComment,
   StaffTimeTaskStatus,
 } from '../../../data/entities'
 import {
   PORTAL_SUPPORT_TICKETS_MANAGE_FEATURE,
   PORTAL_SUPPORT_TICKETS_VIEW_FEATURE,
+  listPortalTicketPage,
   portalOwnedTaskWhere,
   resolveCustomerDisplay,
   resolveSupportPortalScope,
@@ -105,15 +105,22 @@ export async function GET(req: Request) {
     if (scope instanceof Response) return scope
     const url = new URL(req.url)
     const query = listQuerySchema.parse(Object.fromEntries(url.searchParams.entries()))
-    const where: Record<string, unknown> = portalOwnedTaskWhere(scope)
-    if (query.status) {
-      const ids = await statusIdsFor(scope, query.status)
-      where.taskStatusId = { $in: ids.length ? ids : ['00000000-0000-0000-0000-000000000000'] }
-    }
-    const [tasks, total] = await scope.em.findAndCount(StaffTimeTask, where, {
-      orderBy: { updatedAt: 'desc', id: 'desc' },
+    const statusIds = query.status ? await statusIdsFor(scope, query.status) : null
+    const page = await listPortalTicketPage(scope, {
+      statusIds,
       limit: query.pageSize,
       offset: (query.page - 1) * query.pageSize,
+    })
+    const total = page.total
+    const pageIds = page.rows.map((row) => row.id)
+    const lastActivityByTask = new Map(page.rows.map((row) => [row.id, row.lastActivityAt]))
+    const loadedTasks = pageIds.length
+      ? await scope.em.find(StaffTimeTask, { id: { $in: pageIds }, ...portalOwnedTaskWhere(scope) })
+      : []
+    const taskById = new Map(loadedTasks.map((task) => [task.id, task]))
+    const tasks = pageIds.flatMap((id) => {
+      const task = taskById.get(id)
+      return task ? [task] : []
     })
     const decryptionScope = { tenantId: scope.tenantId, organizationId: scope.organizationId }
     const taskIds = tasks.map((task) => task.id)
@@ -127,29 +134,16 @@ export async function GET(req: Request) {
         )
       : []
     const ticketByTask = new Map(tickets.map((ticket) => [ticket.taskId, ticket]))
-    const statusIds = [...new Set(tasks.map((task) => task.taskStatusId))]
-    const statuses = statusIds.length
-      ? await scope.em.find(StaffTimeTaskStatus, { id: { $in: statusIds }, ...decryptionScope }, { fields: ['id', 'isDefault', 'isDone'] })
+    const taskStatusIds = [...new Set(tasks.map((task) => task.taskStatusId))]
+    const statuses = taskStatusIds.length
+      ? await scope.em.find(StaffTimeTaskStatus, { id: { $in: taskStatusIds }, ...decryptionScope }, { fields: ['id', 'isDefault', 'isDone'] })
       : []
     const statusById = new Map(statuses.map((status) => [status.id, status]))
-    const comments = taskIds.length
-      ? await scope.em.find(
-          StaffTimeTaskComment,
-          { taskId: { $in: taskIds }, ...decryptionScope, visibility: 'customer', deletedAt: null },
-          { fields: ['taskId', 'createdAt'] },
-        )
-      : []
-    const lastCommentByTask = new Map<string, Date>()
-    for (const comment of comments) {
-      const previous = lastCommentByTask.get(comment.taskId)
-      if (!previous || comment.createdAt > previous) lastCommentByTask.set(comment.taskId, comment.createdAt)
-    }
     const items = tasks.flatMap((task) => {
       const ticket = ticketByTask.get(task.id)
       if (!ticket) return []
       const request = ticket.customerRequestSnapshot
-      const lastComment = lastCommentByTask.get(task.id) ?? null
-      const lastActivity = lastComment && lastComment > task.createdAt ? lastComment : task.createdAt
+      const lastActivity = lastActivityByTask.get(task.id) ?? task.createdAt
       return [
         {
           id: task.id,
@@ -230,7 +224,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List my support tickets',
       description:
-        "Support tickets filed by the signed-in portal user's customer, newest activity first. Status is the customer-facing status derived from the board column (received, in_progress, resolved).",
+        "Support tickets filed by the signed-in portal user's customer, newest activity first: `lastActivityAt` is the later of the filing time and the newest customer-visible message (from either side), and the list is ordered by it. Internal edits do not reorder the list. Status is the customer-facing status derived from the board column (received, in_progress, resolved).",
       query: listQuerySchema,
       responses: [{ status: 200, description: 'Tickets', schema: listResponseSchema }],
       errors: [

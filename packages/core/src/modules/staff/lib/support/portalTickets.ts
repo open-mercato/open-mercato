@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { sql } from 'kysely'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CustomerAuthContext } from '@open-mercato/shared/modules/customer-auth'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -140,5 +141,89 @@ export async function resolveCustomerDisplay(
     return { displayName, kind }
   } catch {
     return { displayName: null, kind: null }
+  }
+}
+
+type PortalTicketActivityDb = {
+  staff_time_tasks: {
+    id: string
+    tenant_id: string
+    organization_id: string
+    customer_id: string | null
+    source: string
+    task_status_id: string
+    created_at: Date
+    deleted_at: Date | null
+  }
+  staff_time_task_comments: {
+    task_id: string
+    tenant_id: string
+    organization_id: string
+    visibility: string
+    created_at: Date
+    deleted_at: Date | null
+  }
+}
+
+export type PortalTicketPageRow = { id: string; lastActivityAt: Date }
+
+function toDate(value: unknown, fallback: Date): Date {
+  if (value instanceof Date) return value
+  if (typeof value === 'string' || typeof value === 'number') {
+    const parsed = new Date(value)
+    if (!Number.isNaN(parsed.getTime())) return parsed
+  }
+  return fallback
+}
+
+/**
+ * One page of the caller's tickets, newest customer-visible activity first. Activity
+ * is the latest of the ticket's filing time and its newest customer-visible comment
+ * (either side), so internal staff edits — which bump `updated_at` — never reorder the
+ * customer's list while a reply the customer can read always does. The ownership
+ * clause is the same as `portalOwnedTaskWhere`; the activity is computed per row by a
+ * correlated `max()` served by the comments `(organization_id, task_id, created_at)` index.
+ */
+export async function listPortalTicketPage(
+  scope: Pick<SupportPortalScope, 'tenantId' | 'organizationId' | 'customerId' | 'em'>,
+  options: { statusIds: readonly string[] | null; limit: number; offset: number },
+): Promise<{ rows: PortalTicketPageRow[]; total: number }> {
+  if (options.statusIds && options.statusIds.length === 0) return { rows: [], total: 0 }
+  const db = scope.em.getKysely<PortalTicketActivityDb>()
+  let owned = db
+    .selectFrom('staff_time_tasks as task')
+    .where('task.tenant_id', '=', scope.tenantId)
+    .where('task.organization_id', '=', scope.organizationId)
+    .where('task.customer_id', '=', scope.customerId)
+    .where('task.source', '=', 'portal')
+    .where('task.deleted_at', 'is', null)
+  if (options.statusIds) owned = owned.where('task.task_status_id', 'in', [...options.statusIds])
+  const lastActivity = sql<Date>`greatest(task.created_at, coalesce((
+    select max(visible_comment.created_at)
+    from staff_time_task_comments as visible_comment
+    where visible_comment.organization_id = task.organization_id
+      and visible_comment.task_id = task.id
+      and visible_comment.tenant_id = task.tenant_id
+      and visible_comment.visibility = 'customer'
+      and visible_comment.deleted_at is null
+  ), task.created_at))`
+  const [countRow, pageRows] = await Promise.all([
+    owned.select((builder) => builder.fn.countAll<string | number>().as('total')).executeTakeFirst(),
+    owned
+      .select(['task.id as id', 'task.created_at as created_at'])
+      .select(lastActivity.as('last_activity_at'))
+      .orderBy('last_activity_at', 'desc')
+      .orderBy('task.id', 'desc')
+      .limit(options.limit)
+      .offset(options.offset)
+      .execute(),
+  ])
+  const total = Number(countRow?.total ?? 0)
+  return {
+    total: Number.isFinite(total) ? total : 0,
+    rows: pageRows.map((row) => ({
+      id: row.id,
+      lastActivityAt: toDate(row.last_activity_at, toDate(row.created_at, new Date(0))),
+    })),
   }
 }

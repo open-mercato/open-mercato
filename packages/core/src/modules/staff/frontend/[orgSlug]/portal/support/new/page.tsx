@@ -21,12 +21,14 @@ import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { PortalPageHeader } from '@open-mercato/ui/portal/components/PortalPageHeader'
 import { PortalCard } from '@open-mercato/ui/portal/components/PortalCard'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import {
   ATTACHMENT_ACCEPT_TYPES,
+  resolvePortalMaxUploadBytes,
   validateAttachmentFile,
 } from '@open-mercato/core/modules/staff/lib/support/portalAttachmentValidation'
+import { rememberFailedUploads } from '@open-mercato/core/modules/staff/lib/support/portalPendingUploads'
 import {
-  failedUploadsStorageKey,
   formatFileSize,
   type PortalSupportOptions,
 } from '@open-mercato/core/modules/staff/lib/support-ui/portalSupport'
@@ -34,6 +36,8 @@ import {
 type Props = { params: { orgSlug: string } }
 
 type CreateResponse = { ok?: boolean; id?: string; supportReference?: string; error?: string }
+
+type SupportFormOptions = PortalSupportOptions & { maxUploadBytes?: number | null }
 
 const MUTATION_CONTEXT_ID = 'staff-portal-support-new'
 
@@ -47,8 +51,10 @@ export default function PortalSupportNewTicketPage({ params }: Props) {
     blockedMessage: t('staff.portal.support.blocked', 'This action is not available right now.'),
   })
 
-  const [options, setOptions] = React.useState<PortalSupportOptions | null>(null)
+  const [options, setOptions] = React.useState<SupportFormOptions | null>(null)
   const [optionsLoading, setOptionsLoading] = React.useState(true)
+  const [optionsError, setOptionsError] = React.useState<string | null>(null)
+  const [optionsAttempt, setOptionsAttempt] = React.useState(0)
   const [categoryValue, setCategoryValue] = React.useState('')
   const [subject, setSubject] = React.useState('')
   const [description, setDescription] = React.useState('')
@@ -66,21 +72,37 @@ export default function PortalSupportNewTicketPage({ params }: Props) {
     let cancelled = false
     void (async () => {
       setOptionsLoading(true)
-      const response = await apiCall<PortalSupportOptions>('/api/staff/portal/support-tickets/options', { credentials: 'include' })
-      if (cancelled) return
-      setOptions(response.ok ? response.result : { categories: [], canCreate: false })
-      setOptionsLoading(false)
+      setOptionsError(null)
+      try {
+        const response = await apiCall<SupportFormOptions>('/api/staff/portal/support-tickets/options', { credentials: 'include' })
+        if (cancelled) return
+        if (response.ok && response.result) {
+          setOptions(response.result)
+        } else {
+          setOptions(null)
+          setOptionsError(t('staff.portal.support.new.optionsLoadFailed', 'Could not load the support form.'))
+        }
+      } catch (err) {
+        if (cancelled) return
+        getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.portal_support_options_failed' })
+        setOptions(null)
+        setOptionsError(t('staff.portal.support.new.optionsLoadFailed', 'Could not load the support form.'))
+      } finally {
+        if (!cancelled) setOptionsLoading(false)
+      }
     })()
     return () => {
       cancelled = true
     }
-  }, [user])
+  }, [user, optionsAttempt, t])
+
+  const maxUploadBytes = resolvePortalMaxUploadBytes(options?.maxUploadBytes)
 
   const addFiles = React.useCallback(async (list: FileList | null) => {
     if (!list) return
     const accepted: File[] = []
     for (const file of Array.from(list)) {
-      const validationError = await validateAttachmentFile(file, t)
+      const validationError = await validateAttachmentFile(file, t, maxUploadBytes)
       if (validationError) {
         flash(`${file.name}: ${validationError}`, 'error')
         continue
@@ -89,7 +111,7 @@ export default function PortalSupportNewTicketPage({ params }: Props) {
     }
     if (accepted.length) setFiles((current) => [...current, ...accepted])
     if (fileInputRef.current) fileInputRef.current.value = ''
-  }, [t])
+  }, [t, maxUploadBytes])
 
   const subjectValid = subject.trim().length >= 3
   const descriptionValid = description.trim().length >= 1
@@ -130,7 +152,7 @@ export default function PortalSupportNewTicketPage({ params }: Props) {
         }
         return
       }
-      const failed: string[] = []
+      const failed: File[] = []
       for (const file of files) {
         const form = new FormData()
         form.set('file', file)
@@ -153,24 +175,20 @@ export default function PortalSupportNewTicketPage({ params }: Props) {
             },
             mutationPayload: { ticketId, fileName: file.name },
           })
-          if (!uploaded.ok) failed.push(file.name)
-        } catch {
-          failed.push(file.name)
+          if (!uploaded.ok) failed.push(file)
+        } catch (err) {
+          getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.portal_support_upload_failed' })
+          failed.push(file)
         }
       }
-      if (failed.length) {
-        try {
-          window.sessionStorage.setItem(failedUploadsStorageKey(ticketId), JSON.stringify(failed))
-        } catch {
-          // sessionStorage may be unavailable; the detail page simply shows no retry list.
-        }
-      }
+      rememberFailedUploads(ticketId, failed)
       flash(
         t('staff.portal.support.new.created', 'Ticket {reference} filed.', { reference: created.result?.supportReference ?? '' }),
         'success',
       )
       router.push(`/${params.orgSlug}/portal/support/${ticketId}`)
-    } catch {
+    } catch (err) {
+      getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.portal_support_create_failed' })
       setError(t('staff.portal.support.new.createFailed', 'Could not file the ticket. Please try again.'))
     } finally {
       setSubmitting(false)
@@ -203,7 +221,16 @@ export default function PortalSupportNewTicketPage({ params }: Props) {
         description={t('staff.portal.support.new.description', 'Tell us what you need. Please do not include passwords or other secrets.')}
       />
       {error ? <ErrorMessage label={error} /> : null}
-      {!options?.canCreate || categories.length === 0 ? (
+      {optionsError ? (
+        <ErrorMessage
+          label={optionsError}
+          action={
+            <Button type="button" variant="outline" size="sm" onClick={() => setOptionsAttempt((attempt) => attempt + 1)}>
+              {t('staff.portal.support.retry', 'Try again')}
+            </Button>
+          }
+        />
+      ) : !options?.canCreate || categories.length === 0 ? (
         <EmptyState
           variant="subtle"
           size="lg"
