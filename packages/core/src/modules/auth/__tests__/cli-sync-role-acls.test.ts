@@ -3,6 +3,7 @@ import { registerModules } from '@open-mercato/shared/lib/modules/registry'
 import { registerCliModules } from '@open-mercato/shared/modules/registry'
 import type { Module } from '@open-mercato/shared/modules/registry'
 import cli from '@open-mercato/core/modules/auth/cli'
+import { createTransactionalEntityManagerDouble } from '../../../test-utils/transactionalEntityManagerDouble'
 
 const testModules: Module[] = [
   { id: 'auth', setup: { defaultRoleFeatures: { superadmin: ['auth.admin'], admin: ['auth.*'], employee: ['auth.view'] } } },
@@ -84,15 +85,13 @@ const persistAndFlush = jest.fn(async (entity: any) => {
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
-    resolve: (_: string) => ({
+    resolve: (_: string) => createTransactionalEntityManagerDouble({
       findOne,
       find,
       create,
       persist,
       persistAndFlush,
       flush,
-      transactional: async (cb: (tem: any) => any) =>
-        cb({ findOne, find, create, persist, persistAndFlush, flush }),
     }),
   }),
 }))

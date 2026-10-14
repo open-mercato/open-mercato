@@ -6,7 +6,7 @@
  */
 import { isTelemetryBackendEnabled } from '@open-mercato/shared/lib/telemetry/runtime'
 import { resolveCliBootstrapMode, type CliBootstrapMode } from './lib/cli-bootstrap-mode.js'
-import { flushTelemetry } from './lib/flush-telemetry.js'
+import { flushBeforeExit } from './lib/flush-before-exit.js'
 // `run` is imported dynamically inside `main()` so telemetry can initialize
 // before the mercato entry (and its Postgres driver) loads — see main().
 
@@ -114,9 +114,9 @@ async function main(): Promise<void> {
   // Postgres driver it pulls in — loads only after initTelemetry() above.
   const { run } = await import('./mercato.js')
   const code = await run(process.argv)
-  // Flush spans/logs for commands that return (workers block forever and flush via
-  // their own shutdown handler instead).
-  await flushTelemetry()
+  // Flush the coalesced browser broadcasts, then spans/logs, for commands that
+  // return (workers block forever and flush via their own shutdown handler instead).
+  await flushBeforeExit()
   process.exit(code ?? 0)
 }
 

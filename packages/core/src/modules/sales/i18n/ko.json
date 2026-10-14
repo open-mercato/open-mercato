@@ -845,6 +845,8 @@
   "sales.documents.errors.number_generate_failed": "문서 번호를 생성하지 못했습니다.",
   "sales.documents.errors.organization_required": "조직 컨텍스트가 필요합니다.",
   "sales.documents.errors.unauthorized": "권한이 없습니다",
+  "sales.documents.errors.undoStaleOrder": "이후에 주문이 변경되어 이 변경 사항을 더 이상 실행 취소할 수 없습니다.",
+  "sales.documents.errors.undoStaleQuote": "이후에 견적이 변경되어 이 변경 사항을 더 이상 실행 취소할 수 없습니다.",
   "sales.documents.form.address.city": "도시",
   "sales.documents.form.address.company": "회사명 (선택)",
   "sales.documents.form.address.country": "국가",
