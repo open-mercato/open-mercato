@@ -86,6 +86,9 @@ export async function GET(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: translate('customers.errors.validationFailed', 'Validation failed'), details: err.issues }, { status: 400 })
+    }
     logger.error('customers/dictionaries/kind-settings.GET', { err })
     return NextResponse.json({ error: translate('customers.errors.kind_settings_load_failed', 'Failed to load kind settings') }, { status: 500 })
   }
@@ -186,6 +189,9 @@ export async function PATCH(req: Request) {
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
+    }
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: translate('customers.errors.validationFailed', 'Validation failed'), details: err.issues }, { status: 400 })
     }
     const interceptorRejection = getCommandInterceptorHttpRejection(err)
     if (interceptorRejection) {
