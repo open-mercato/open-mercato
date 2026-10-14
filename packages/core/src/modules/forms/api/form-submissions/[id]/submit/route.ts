@@ -3,18 +3,29 @@
  *
  * Final submit. Body: `{ base_revision_id, submit_metadata? }`. Sets
  * status = submitted, captures `submit_metadata` (locale, IP, UA), emits
- * `forms.submission.submitted`. Idempotency hardening lands in 1d once the
+ * `forms.submission.submitted`. A submission the caller started themselves
+ * must carry their own subject (`lib/portal-subject-policy.ts`), so a draft
+ * started for someone else before that check existed cannot be finalized.
+ * Idempotency hardening lands in 1d once the
  * client renderer is in place; phase 1c rejects double-submits with 422.
  */
 
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getCustomerAuthFromRequest } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import { SubmissionService } from '../../../../services/submission-service'
 import { submissionSubmitInputSchema } from '../../../../data/validators'
-import { buildSubmitMetadata, mapSubmissionError, readJsonBody, serializeSubmission } from '../../../runtime-helpers'
+import { isPortalSubmitForbidden } from '../../../../lib/portal-subject-policy'
+import {
+  buildSubmitMetadata,
+  mapSubmissionError,
+  portalSubjectForbiddenResponse,
+  readJsonBody,
+  serializeSubmission,
+} from '../../../runtime-helpers'
 
 export const metadata = {
   POST: { requireAuth: false },
@@ -47,8 +58,17 @@ export async function POST(
 
   const container = await createRequestContainer()
   const service = container.resolve('formsSubmissionService') as SubmissionService
+  const em = container.resolve('em') as EntityManager
 
   try {
+    const forbidden = await isPortalSubmitForbidden(em, {
+      submissionId,
+      organizationId: auth.orgId,
+      tenantId: auth.tenantId,
+      customerUserId: auth.sub,
+    })
+    if (forbidden) return portalSubjectForbiddenResponse()
+
     const submission = await service.submit({
       submissionId,
       organizationId: auth.orgId,
@@ -79,6 +99,7 @@ const postMethodDoc: OpenApiMethodDoc = {
   responses: [{ status: 200, description: 'Submission submitted', schema: responseSchema }],
   errors: [
     { status: 401, description: 'Not authenticated', schema: errorSchema },
+    { status: 403, description: 'Caller-started submission is not on the caller\'s own customer subject', schema: errorSchema },
     { status: 404, description: 'Submission not found', schema: errorSchema },
     { status: 409, description: 'Stale base_revision_id', schema: errorSchema },
     { status: 422, description: 'Submission already in terminal state', schema: errorSchema },

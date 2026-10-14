@@ -9,6 +9,8 @@
  * then mark the invitation submitted. A capped distribution returns 410 BEFORE
  * any submission state changes. Customer-session submits skip the
  * reserve/mark-invitation steps — those are anonymous-distribution concerns.
+ * A customer-session submit of a submission the caller started themselves
+ * must carry their own subject (`lib/portal-subject-policy.ts`).
  */
 
 import { NextResponse, type NextRequest } from 'next/server'
@@ -21,9 +23,11 @@ import type { DistributionService } from '../../../../../services/distribution-s
 import { FormDistribution, FormInvitation } from '../../../../../data/entities'
 import { submissionSubmitInputSchema } from '../../../../../data/validators'
 import { resolveRuntimePrincipal } from '../../../../../lib/runtime-principal'
+import { isPortalSubmitForbidden } from '../../../../../lib/portal-subject-policy'
 import {
   buildSubmitMetadata,
   mapDistributionError,
+  portalSubjectForbiddenResponse,
   readJsonBody,
   serializeSubmission,
 } from '../../../../runtime-helpers'
@@ -68,6 +72,16 @@ export async function POST(
   if (!principal) return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 })
 
   try {
+    if (principal.source === 'customer') {
+      const forbidden = await isPortalSubmitForbidden(em, {
+        submissionId,
+        organizationId: principal.organizationId,
+        tenantId: principal.tenantId,
+        customerUserId: principal.principal,
+      })
+      if (forbidden) return portalSubjectForbiddenResponse()
+    }
+
     let distribution: FormDistribution | null = null
 
     if (principal.source === 'token') {
@@ -144,6 +158,7 @@ const postMethodDoc: OpenApiMethodDoc = {
   responses: [{ status: 200, description: 'Submission submitted', schema: responseSchema }],
   errors: [
     { status: 401, description: 'Missing or invalid access token / session', schema: errorSchema },
+    { status: 403, description: 'Customer-started submission is not on the caller\'s own customer subject', schema: errorSchema },
     { status: 404, description: 'Submission or invitation not found', schema: errorSchema },
     { status: 409, description: 'Stale base_revision_id', schema: errorSchema },
     { status: 410, description: 'Distribution response cap reached or unavailable', schema: errorSchema },
