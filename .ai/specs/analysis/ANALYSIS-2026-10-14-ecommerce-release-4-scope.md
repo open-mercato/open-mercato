@@ -14,7 +14,7 @@ Visibility Phase 3 ships in this release, not later: without it a product hidden
 
 | Spec | Phases | Pre-implementation analysis |
 |---|---|---|
-| `2026-08-14-cart-module.md` (rev 8) | 1 Core cart · 2 Pricing behaviour · 3 Promotions and merge (incl. §6a.5 merge-time re-visibility). Phase 4 (B2B, admin, proposal seam) is out of scope. | `ANALYSIS-2026-10-14-cart-module-release-4.md` |
+| `2026-08-14-cart-module.md` (rev 9, D-R4 decisions applied 2026-10-14) | 1 Core cart · 2 Pricing behaviour · 3 Promotions and merge (incl. §6a.5 merge-time re-visibility, lock/convert surface). Phase 4 (B2B, admin, proposal seam) is out of scope. | `ANALYSIS-2026-10-14-cart-module-release-4.md` |
 | `SPEC-055-2026-02-23-promotions-module.md` | 1 Domain model and core admin · 2 Evaluation engine and cart API · 3 Codes system. Phases 4–5 are out of scope. | `ANALYSIS-2026-10-14-spec-055-promotions-release-4.md` |
 | `2026-08-21-buyer-scoped-catalog-visibility.md` | 3 Cart write-path enforcement. Phases 1–2 shipped in #6709/#7142; Phase 4 is out of scope. | `ANALYSIS-2026-10-14-buyer-scoped-catalog-visibility-phase-3.md` |
 
@@ -32,5 +32,5 @@ Visibility Phase 3 ships in this release, not later: without it a product hidden
 | Pre-implement analysis: promotions | done (2026-10-14) |
 | Pre-implement analysis: visibility Phase 3 | done (2026-10-14) |
 | Cross-spec consistency pass and decisions | done — see `ANALYSIS-2026-10-14-ecommerce-release-4-decisions.md` (D-R4-1…29) |
-| Spec revision pass | pending — PLAN.md Phase 0 (`.ai/runs/2026-10-14-ecommerce-release-4-write-side/`) |
+| Spec revision pass | done (2026-10-14) — cart-module.md rev 9, SPEC-055 v2.2.0, buyer-scoped-catalog-visibility Phase 3 folded into cart, roadmap ADR-2/ADR-7 updated. PLAN.md Phase 0 (`.ai/runs/2026-10-14-ecommerce-release-4-write-side/`) |
 | Implementation via `om-auto-continue-pr-loop` | pending — PLAN.md Phases 1–7 |
