@@ -20,6 +20,10 @@ export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth:
 const HEARTBEAT_INTERVAL_MS = 30_000
 const MAX_PAYLOAD_BYTES = 4096
 
+type TrustedEmitScope = {
+  tenantId?: string | null
+}
+
 type PortalSseConnection = {
   tenantId: string
   organizationId: string
@@ -65,6 +69,17 @@ function normalizeAudience(data: Record<string, unknown>): {
   }
 }
 
+/**
+ * A trusted tenant in the emit options (set by the trusted module boundary,
+ * a tenant-managed workflow adapter, or the cross-process bus) is
+ * authoritative: a payload naming a different tenant is never delivered.
+ */
+function conflictsWithTrustedTenant(payloadTenantId: string | null, options?: TrustedEmitScope): boolean {
+  const trustedTenantId = typeof options?.tenantId === 'string' ? options.tenantId.trim() : ''
+  if (!trustedTenantId) return false
+  return payloadTenantId?.trim() !== trustedTenantId
+}
+
 function matchesAudience(conn: PortalSseConnection, audience: ReturnType<typeof normalizeAudience>): boolean {
   if (!audience.tenantId) return false
   if (conn.tenantId !== audience.tenantId) return false
@@ -81,12 +96,17 @@ const portalConnections = new Set<PortalSseConnection>()
 
 let portalTapRegistered = false
 
-async function broadcastPortalEvent(eventName: string, payload: Record<string, unknown>): Promise<void> {
+async function broadcastPortalEvent(
+  eventName: string,
+  payload: Record<string, unknown>,
+  options?: TrustedEmitScope,
+): Promise<void> {
   if (!eventName || portalConnections.size === 0) return
   if (!isPortalBroadcastEvent(eventName)) return
 
   const data = payload ?? {}
   const audience = normalizeAudience(data)
+  if (conflictsWithTrustedTenant(audience.tenantId, options)) return
   const organizationId = audience.organizationScopes[0] ?? ''
 
   let ssePayload = JSON.stringify({
@@ -127,16 +147,24 @@ function ensurePortalTap(): void {
 
   // Dynamically import to avoid circular dependency — the events bus
   // registers a global tap that fires for every emitted event.
-  import('@open-mercato/events/bus').then(({ registerGlobalEventTap, registerCrossProcessEventListener }) => {
-    registerGlobalEventTap(async (eventName, payload) => {
-      await broadcastPortalEvent(eventName, (payload ?? {}) as Record<string, unknown>)
+  import('@open-mercato/events/bus').then(({
+    registerGlobalEventTap,
+    registerCrossProcessEventListener,
+    CROSS_PROCESS_EVENT_INSTANCE_ID,
+  }) => {
+    registerGlobalEventTap(async (eventName, payload, options) => {
+      await broadcastPortalEvent(eventName, (payload ?? {}) as Record<string, unknown>, options)
     })
 
+    // Self-echo is detected by the per-process instance id, never by pid:
+    // containers commonly share pid 1, so a pid check would discard every
+    // envelope a worker container publishes for this web container.
     registerCrossProcessEventListener(async (envelope) => {
-      if (envelope.originPid === process.pid) return
+      if (envelope.originInstanceId === CROSS_PROCESS_EVENT_INSTANCE_ID) return
       await broadcastPortalEvent(
         envelope.event,
         (envelope.payload ?? {}) as Record<string, unknown>,
+        envelope.options,
       )
     })
   }).catch(() => {
