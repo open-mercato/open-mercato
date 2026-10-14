@@ -54,6 +54,7 @@ export type StaffPerson = {
   password: string
   token: string
   staffMemberId: string
+  displayName: string
 }
 
 /** A backoffice user with the `employee` role and a linked staff team member. */
@@ -68,18 +69,19 @@ export async function createStaffPerson(
   const email = `qa-support-${label}-${suffix}@acme.test`
   const password = 'Valid1!Pass'
   const { organizationId } = getTokenContext(admin)
-  const userId = await createUserFixture(request, admin, { email, password, organizationId, roles, name: `QA ${label} ${suffix}` })
+  const displayName = `QA ${label} ${suffix}`
+  const userId = await createUserFixture(request, admin, { email, password, organizationId, roles, name: displayName })
   cleanup.add(() => deleteUserIfExists(request, admin, userId))
   const member = await okJson<{ id: string }>(
     await apiRequest(request, 'POST', '/api/staff/team-members', {
       token: admin,
-      data: { displayName: `QA ${label} ${suffix}`, userId, isActive: true },
+      data: { displayName, userId, isActive: true },
     }),
     'create team member',
   )
   cleanup.add(() => apiRequest(request, 'DELETE', `/api/staff/team-members?id=${member.id}`, { token: admin }))
   const token = await getAuthToken(request, email, password)
-  return { userId, email, password, token, staffMemberId: member.id }
+  return { userId, email, password, token, staffMemberId: member.id, displayName }
 }
 
 /** A staff team member without any user account. */
@@ -303,6 +305,7 @@ export async function createRoutingRule(
 
 export type PortalCustomer = {
   companyId: string
+  companyName: string | null
   roleId: string
   userId: string
   email: string
@@ -318,7 +321,8 @@ export async function createPortalCustomer(
   options: { features: string[]; companyId?: string; label?: string },
 ): Promise<PortalCustomer> {
   const { tenantId } = getTokenContext(admin)
-  const companyId = options.companyId ?? (await createCustomerCompanyFixture(request, admin, `QA Support Co ${options.label ?? ''} ${uniqueSuffix()}`))
+  const companyName = options.companyId ? null : `QA Support Co ${options.label ?? ''} ${uniqueSuffix()}`
+  const companyId = options.companyId ?? (await createCustomerCompanyFixture(request, admin, companyName as string))
   if (!options.companyId) cleanup.add(() => deleteCustomerCompanyFixture(request, admin, companyId))
   const role = await createCustomerRoleFixture(request, admin, { features: options.features })
   cleanup.add(() => deleteCustomerRoleFixture(request, admin, role.id))
@@ -331,6 +335,7 @@ export async function createPortalCustomer(
   const session = await portalLogin(request, { email: user.email, password: user.password, tenantId })
   return {
     companyId,
+    companyName,
     roleId: role.id,
     userId: user.id,
     email: user.email,

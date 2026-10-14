@@ -729,3 +729,6 @@ Each phase ends with the validation gate from `.ai/agentic.config.json`.
   - The standalone `/backend/staff/time-tracking/settings/support` page had no navigation entry. It is removed (never released) and its content is now the "Support" tab of `/backend/staff/time-tracking/settings`, deep-linked as `?tab=support`.
   - New additive injection spot `staff.time_tracking.settings:tabs` (sibling of EP-26 `:sections`). Its context is `{ moduleId, canManage, settings, onSettingsSaved }`. A tab owns its saves; when it writes the settings record it builds the body from `settings` (the last saved record) and passes the response to `onSettingsSaved`.
   - `onSettingsSaved` rebases the page's unsaved draft onto the new record (`rebaseSettingsDraft`): untouched fields take the saved value, edited fields keep the edit. Without it, saving the Time tracking tab after changing the reference prefix on the Support tab would write the old prefix back.
+- **2026-10-14** — Support Inbox customer filter:
+  - The Support Inbox gains the spec's missing **Customer** filter: a searchable combobox over people and companies (`searchCustomers`), sent to the tasks API as `customerId`.
+  - `TC-STAFF-SUP-015` covers the customer filter (API and UI) and the inbox's live refresh: a newly filed ticket (`activity_recorded`) and a claim (`assignee_changed`) appear without a reload.

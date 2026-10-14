@@ -23,6 +23,7 @@ import {
   type SupportTicketView,
 } from '../../../../lib/time-tracking-ui/supportTicketData'
 import { supportPortalStatusLabel } from '../../../../lib/time-tracking-ui/SupportRequestPanel'
+import { searchCustomers } from '../../../../lib/time-tracking-ui/CustomerPicker'
 
 const PAGE_SIZE = 25
 const DIRECTORY_PAGE_SIZE = 100
@@ -87,6 +88,7 @@ export default function SupportTicketsPage() {
   const [projectOptions, setProjectOptions] = React.useState<Option[]>([])
   const [assigneeOptions, setAssigneeOptions] = React.useState<Option[]>([])
   const [categoryOptions, setCategoryOptions] = React.useState<Option[]>([])
+  const [customerLabels, setCustomerLabels] = React.useState<Record<string, string>>({})
 
   const drawerTaskId = searchParams?.get('task') ?? null
 
@@ -151,6 +153,8 @@ export default function SupportTicketsPage() {
     if (category) params.set('supportCategory', category)
     const projectId = typeof filterValues.timeProjectId === 'string' ? filterValues.timeProjectId : ''
     if (projectId) params.set('timeProjectId', projectId)
+    const customerId = typeof filterValues.customerId === 'string' ? filterValues.customerId : ''
+    if (customerId) params.set('customerId', customerId)
     const assignee = typeof filterValues.assignee === 'string' ? filterValues.assignee : ''
     if (assignee === UNASSIGNED_VALUE) params.set('unassigned', 'true')
     else if (assignee) params.set('assigneeStaffMemberId', assignee)
@@ -195,6 +199,25 @@ export default function SupportTicketsPage() {
     router.push(query.length > 0 ? `?${query}` : '?', { scroll: false })
   }, [router, searchParams])
 
+  const loadCustomerOptions = React.useCallback(
+    async (query?: string) => {
+      const customers = await searchCustomers(query ?? '')
+      setCustomerLabels((current) => ({
+        ...current,
+        ...Object.fromEntries(customers.map((customer) => [customer.id, customer.name])),
+      }))
+      return customers.map((customer) => ({
+        value: customer.id,
+        label: customer.name,
+        description:
+          customer.kind === 'company'
+            ? t('staff.support.tickets.customerKind.company', 'Company')
+            : t('staff.support.tickets.customerKind.person', 'Person'),
+      }))
+    },
+    [t],
+  )
+
   const filters = React.useMemo<FilterDef[]>(
     () => [
       {
@@ -220,6 +243,14 @@ export default function SupportTicketsPage() {
         options: projectOptions,
       },
       {
+        id: 'customerId',
+        label: t('staff.support.tickets.filters.customer', 'Customer'),
+        type: 'combobox',
+        placeholder: t('staff.support.tickets.filters.customerPlaceholder', 'Search customers'),
+        loadOptions: loadCustomerOptions,
+        formatValue: (value: string) => customerLabels[value] ?? value,
+      },
+      {
         id: 'assignee',
         label: t('staff.support.tickets.filters.assignee', 'Assignee'),
         type: 'select',
@@ -231,7 +262,7 @@ export default function SupportTicketsPage() {
         type: 'checkbox',
       },
     ],
-    [assigneeOptions, categoryOptions, projectOptions, t],
+    [assigneeOptions, categoryOptions, customerLabels, loadCustomerOptions, projectOptions, t],
   )
 
   const columns = React.useMemo<ColumnDef<SupportRow>[]>(
