@@ -2,7 +2,6 @@
 
 import * as React from 'react'
 import { Pencil, Plus, Save, Trash2 } from 'lucide-react'
-import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -24,6 +23,7 @@ import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@open-mercato/ui/primitives/table'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { ICON_SUGGESTIONS } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import {
   DictionaryForm,
@@ -33,6 +33,8 @@ import {
   DictionaryTable,
   type DictionaryTableEntry,
 } from '@open-mercato/core/modules/dictionaries/components/DictionaryTable'
+import type { TimeTrackingSettings } from '../../../lib/time-tracking/settings'
+import type { TimeTrackingSettingsTabContext } from '../../../lib/time-tracking-ui/settingsTabs'
 
 const CATEGORY_DICTIONARY_KEY = 'staff.support_ticket_category'
 const ROUTING_API = 'staff/timesheets/support-routing-rules'
@@ -88,8 +90,6 @@ type CategoryDialogState =
   | { mode: 'create' }
   | { mode: 'edit'; entry: DictionaryTableEntry }
 
-type SettingsRecord = Record<string, Record<string, unknown>>
-
 const EMPTY_PREVIEW: RoutingPreview = { fallback: null, rules: [], categories: [] }
 
 const DEFAULT_CATEGORY_VALUES: DictionaryFormValues = {
@@ -138,7 +138,7 @@ function projectLabel(project: { name: string | null; code: string | null; id: s
   return project.code ? `${name} (${project.code})` : name
 }
 
-export default function StaffSupportSettingsPage() {
+export default function SupportSettingsTab({ context }: InjectionWidgetComponentProps<TimeTrackingSettingsTabContext>) {
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -181,11 +181,11 @@ export default function StaffSupportSettingsPage() {
   const [ruleSubmitting, setRuleSubmitting] = React.useState(false)
   const [creatingFallback, setCreatingFallback] = React.useState(false)
 
-  const [settings, setSettings] = React.useState<SettingsRecord | null>(null)
-  const [prefix, setPrefix] = React.useState('')
+  const { settings, onSettingsSaved } = context
+  const savedPrefix = settings.support?.referencePrefix ?? 'SUP'
+  const [prefix, setPrefix] = React.useState(savedPrefix)
   const [prefixError, setPrefixError] = React.useState<string | null>(null)
   const [prefixSaving, setPrefixSaving] = React.useState(false)
-  const [settingsError, setSettingsError] = React.useState<string | null>(null)
 
   const loadCategories = React.useCallback(async () => {
     setCategoriesLoading(true)
@@ -245,25 +245,14 @@ export default function StaffSupportSettingsPage() {
     }
   }, [t])
 
-  const loadSettings = React.useCallback(async () => {
-    setSettingsError(null)
-    try {
-      const record = await readApiResultOrThrow<SettingsRecord>(SETTINGS_URL, undefined, {
-        errorMessage: t('staff.support.settings.errors.load', 'Failed to load support settings.'),
-      })
-      setSettings(record)
-      const current = record?.support?.referencePrefix
-      setPrefix(typeof current === 'string' ? current : 'SUP')
-    } catch (err) {
-      setSettingsError(err instanceof Error ? err.message : t('staff.support.settings.errors.load', 'Failed to load support settings.'))
-    }
-  }, [t])
+  React.useEffect(() => {
+    setPrefix(savedPrefix)
+  }, [savedPrefix])
 
   React.useEffect(() => {
     void loadCategories()
     void loadRouting()
-    void loadSettings()
-  }, [loadCategories, loadRouting, loadSettings, scopeVersion])
+  }, [loadCategories, loadRouting, scopeVersion])
 
   const reloadAll = React.useCallback(async () => {
     await Promise.all([loadCategories(), loadRouting()])
@@ -452,13 +441,12 @@ export default function StaffSupportSettingsPage() {
       return
     }
     setPrefixError(null)
-    if (!settings) return
     setPrefixSaving(true)
     try {
-      const next: SettingsRecord = { ...settings, support: { ...(settings.support ?? {}), referencePrefix: value } }
-      await runMutation({
+      const next: TimeTrackingSettings = { ...settings, support: { ...(settings.support ?? {}), referencePrefix: value } }
+      const call = await runMutation({
         operation: async () => {
-          const call = await apiCall<SettingsRecord>(SETTINGS_URL, {
+          const call = await apiCall<TimeTrackingSettings>(SETTINGS_URL, {
             method: 'PUT',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify(next),
@@ -469,14 +457,14 @@ export default function StaffSupportSettingsPage() {
         context: settingsContext,
         mutationPayload: { support: { referencePrefix: value } },
       })
+      if (call.result) onSettingsSaved(call.result)
       flash(t('staff.support.settings.prefix.saved', 'Reference prefix saved.'), 'success')
-      await loadSettings()
     } catch (err) {
       reportError(err, 'staff.support.settings.errors.save', 'Failed to save.')
     } finally {
       setPrefixSaving(false)
     }
-  }, [loadSettings, prefix, reportError, runMutation, settings, settingsContext, t])
+  }, [onSettingsSaved, prefix, reportError, runMutation, settings, settingsContext, t])
 
   const categoryLabels = React.useMemo(() => {
     const map = new Map<string, string>()
@@ -531,278 +519,267 @@ export default function StaffSupportSettingsPage() {
     : t('staff.support.settings.categories.createTitle', 'Add category')
 
   return (
-    <Page>
-      <PageBody>
-        <div className="space-y-6">
-          <div className="space-y-1">
-            <h1 className="text-xl font-semibold">{t('staff.support.settings.title', 'Support')}</h1>
+    <>
+      <div className="space-y-6">
+        <p className="text-sm text-muted-foreground">
+          {t('staff.support.settings.description', 'Configure support ticket categories, where each category is routed, and the ticket reference prefix.')}
+        </p>
+
+        <section className="rounded-xl border border-border bg-card text-card-foreground">
+          <div className="space-y-1 border-b border-border px-6 py-4">
+            <h2 className="text-lg font-medium">{t('staff.support.settings.categories.title', 'Categories')}</h2>
             <p className="text-sm text-muted-foreground">
-              {t('staff.support.settings.description', 'Configure support ticket categories, where each category is routed, and the ticket reference prefix.')}
+              {t('staff.support.settings.categories.description', 'Categories customers pick when they file a ticket in the portal.')}
             </p>
           </div>
+          <div className="px-2 py-4 sm:px-4">
+            {!categoriesLoading && !dictionaryId ? (
+              <Alert status="warning">
+                <AlertDescription>
+                  {t('staff.support.settings.categories.missingDictionary', 'The support categories dictionary has not been seeded for this organization yet.')}
+                </AlertDescription>
+              </Alert>
+            ) : (
+              <DictionaryTable
+                entries={categoryEntries}
+                loading={categoriesLoading}
+                canManage
+                onCreate={() => setCategoryDialog({ mode: 'create' })}
+                onEdit={(entry) => setCategoryDialog({ mode: 'edit', entry: categoryEntries.find((row) => row.id === entry.id) ?? entry })}
+                onDelete={(entry) => { void deleteCategory(categoryEntries.find((row) => row.id === entry.id) ?? entry) }}
+                onRefresh={() => { void loadCategories() }}
+                translations={tableTranslations}
+              />
+            )}
+          </div>
+        </section>
 
-          <section className="rounded-xl border border-border bg-card text-card-foreground">
-            <div className="space-y-1 border-b border-border px-6 py-4">
-              <h2 className="text-lg font-medium">{t('staff.support.settings.categories.title', 'Categories')}</h2>
-              <p className="text-sm text-muted-foreground">
-                {t('staff.support.settings.categories.description', 'Categories customers pick when they file a ticket in the portal.')}
-              </p>
-            </div>
-            <div className="px-2 py-4 sm:px-4">
-              {!categoriesLoading && !dictionaryId ? (
-                <Alert status="warning">
-                  <AlertDescription>
-                    {t('staff.support.settings.categories.missingDictionary', 'The support categories dictionary has not been seeded for this organization yet.')}
-                  </AlertDescription>
-                </Alert>
-              ) : (
-                <DictionaryTable
-                  entries={categoryEntries}
-                  loading={categoriesLoading}
-                  canManage
-                  onCreate={() => setCategoryDialog({ mode: 'create' })}
-                  onEdit={(entry) => setCategoryDialog({ mode: 'edit', entry: categoryEntries.find((row) => row.id === entry.id) ?? entry })}
-                  onDelete={(entry) => { void deleteCategory(categoryEntries.find((row) => row.id === entry.id) ?? entry) }}
-                  onRefresh={() => { void loadCategories() }}
-                  translations={tableTranslations}
-                />
-              )}
-            </div>
-          </section>
-
-          <section className="rounded-xl border border-border bg-card text-card-foreground">
-            <div className="space-y-1 border-b border-border px-6 py-4">
-              <h2 className="text-lg font-medium">{t('staff.support.settings.routing.title', 'Routing')}</h2>
-              <p className="text-sm text-muted-foreground">
-                {t('staff.support.settings.routing.description', 'Every category without a working rule goes to the fallback project. Add a rule to send a category to its own project.')}
-              </p>
-            </div>
-            <div className="space-y-6 px-6 py-4">
-              {routingLoading ? (
-                <LoadingMessage label={t('staff.support.settings.routing.loading', 'Loading routing…')} />
-              ) : routingError ? (
-                <ErrorMessage label={routingError} />
-              ) : (
-                <>
-                  {!preview.fallback ? (
-                    <Alert
-                      status="warning"
-                      footer={(
-                        <Button type="button" onClick={() => { void createFallbackProject() }} disabled={creatingFallback}>
-                          <Plus className="mr-2 h-4 w-4" />
-                          {t('staff.support.settings.routing.createFallback', 'Create fallback project')}
-                        </Button>
-                      )}
-                    >
-                      <AlertTitle>{t('staff.support.settings.routing.noFallbackTitle', 'No fallback project')}</AlertTitle>
-                      <AlertDescription>
-                        {t('staff.support.settings.routing.noFallbackDescription', 'Customers cannot file tickets for categories without their own rule until a fallback project exists.')}
-                      </AlertDescription>
-                    </Alert>
-                  ) : (
-                    <div className="space-y-3">
-                      {!preview.fallback.project.usable ? (
-                        <Alert status="error">
-                          <AlertTitle>{t('staff.support.settings.routing.fallbackUnusableTitle', 'The fallback project cannot receive tickets')}</AlertTitle>
-                          <AlertDescription>
-                            {t('staff.support.settings.routing.fallbackUnusableDescription', 'It is completed, deleted, or has no default status. Point the fallback rule at another project.')}
-                          </AlertDescription>
-                        </Alert>
-                      ) : null}
-                      <div className="max-w-md space-y-2">
-                        <Label htmlFor="support-fallback-project">
-                          {t('staff.support.settings.routing.fallbackProject', 'Fallback project')}
-                        </Label>
-                        <Select
-                          value={preview.fallback.project.id}
-                          onValueChange={(value) => {
-                            if (preview.fallback && value && value !== preview.fallback.project.id) {
-                              void updateRule(preview.fallback.ruleId, { timeProjectId: value })
-                            }
-                          }}
-                        >
-                          <SelectTrigger id="support-fallback-project">
-                            <SelectValue placeholder={fallbackName} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {projects.map((project) => (
-                              <SelectItem key={project.id} value={project.id}>{projectLabel(project)}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <h3 className="text-base font-medium">{t('staff.support.settings.routing.overrides', 'Category rules')}</h3>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={categoriesWithoutRule.length === 0}
-                        onClick={() => setRuleDialog({
-                          mode: 'create',
-                          categoryValue: categoriesWithoutRule[0]?.value ?? '',
-                          timeProjectId: '',
-                        })}
-                      >
+        <section className="rounded-xl border border-border bg-card text-card-foreground">
+          <div className="space-y-1 border-b border-border px-6 py-4">
+            <h2 className="text-lg font-medium">{t('staff.support.settings.routing.title', 'Routing')}</h2>
+            <p className="text-sm text-muted-foreground">
+              {t('staff.support.settings.routing.description', 'Every category without a working rule goes to the fallback project. Add a rule to send a category to its own project.')}
+            </p>
+          </div>
+          <div className="space-y-6 px-6 py-4">
+            {routingLoading ? (
+              <LoadingMessage label={t('staff.support.settings.routing.loading', 'Loading routing…')} />
+            ) : routingError ? (
+              <ErrorMessage label={routingError} />
+            ) : (
+              <>
+                {!preview.fallback ? (
+                  <Alert
+                    status="warning"
+                    footer={(
+                      <Button type="button" onClick={() => { void createFallbackProject() }} disabled={creatingFallback}>
                         <Plus className="mr-2 h-4 w-4" />
-                        {t('staff.support.settings.routing.addRule', 'Add rule')}
+                        {t('staff.support.settings.routing.createFallback', 'Create fallback project')}
                       </Button>
-                    </div>
-                    {overrides.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">
-                        {t('staff.support.settings.routing.noOverrides', 'No category rules. Every category goes to the fallback project.')}
-                      </p>
-                    ) : (
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>{t('staff.support.settings.routing.category', 'Category')}</TableHead>
-                            <TableHead>{t('staff.support.settings.routing.project', 'Project')}</TableHead>
-                            <TableHead>{t('staff.support.settings.routing.active', 'Active')}</TableHead>
-                            <TableHead>{t('staff.support.settings.routing.state', 'State')}</TableHead>
-                            <TableHead className="w-24" />
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {overrides.map((rule) => (
-                            <TableRow key={rule.id}>
-                              <TableCell>{categoryLabels.get(rule.categoryValue ?? '') ?? rule.categoryValue}</TableCell>
-                              <TableCell>{projectLabel(rule.project)}</TableCell>
-                              <TableCell>
-                                <Switch
-                                  checked={rule.isActive}
-                                  aria-label={t('staff.support.settings.routing.active', 'Active')}
-                                  onCheckedChange={(checked) => { void updateRule(rule.id, { isActive: checked }) }}
-                                />
-                              </TableCell>
-                              <TableCell>
-                                {rule.problem ? (
-                                  <div className="space-y-1">
-                                    <StatusBadge variant="warning" dot>
-                                      {t('staff.support.settings.routing.fallingBack', 'Falling back to {project}', { project: fallbackName })}
-                                    </StatusBadge>
-                                    <p className="text-xs text-muted-foreground">{problemText(rule.problem)}</p>
-                                  </div>
-                                ) : (
-                                  <StatusBadge variant="success" dot>
-                                    {t('staff.support.settings.routing.routing', 'Routing')}
-                                  </StatusBadge>
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex justify-end gap-1">
-                                  <IconButton
-                                    type="button"
-                                    variant="ghost"
-                                    aria-label={t('staff.support.settings.actions.edit', 'Edit')}
-                                    onClick={() => setRuleDialog({
-                                      mode: 'edit',
-                                      ruleId: rule.id,
-                                      categoryValue: rule.categoryValue ?? '',
-                                      timeProjectId: rule.project.id,
-                                    })}
-                                  >
-                                    <Pencil className="h-4 w-4" />
-                                  </IconButton>
-                                  <IconButton
-                                    type="button"
-                                    variant="ghost"
-                                    aria-label={t('staff.support.settings.actions.delete', 'Delete')}
-                                    onClick={() => { void deleteRule(rule) }}
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </IconButton>
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
                     )}
-                  </div>
-
+                  >
+                    <AlertTitle>{t('staff.support.settings.routing.noFallbackTitle', 'No fallback project')}</AlertTitle>
+                    <AlertDescription>
+                      {t('staff.support.settings.routing.noFallbackDescription', 'Customers cannot file tickets for categories without their own rule until a fallback project exists.')}
+                    </AlertDescription>
+                  </Alert>
+                ) : (
                   <div className="space-y-3">
-                    <h3 className="text-base font-medium">{t('staff.support.settings.preview.title', 'Where tickets go now')}</h3>
-                    {preview.categories.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">
-                        {t('staff.support.settings.preview.empty', 'No categories to route.')}
-                      </p>
-                    ) : (
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>{t('staff.support.settings.routing.category', 'Category')}</TableHead>
-                            <TableHead>{t('staff.support.settings.routing.project', 'Project')}</TableHead>
-                            <TableHead>{t('staff.support.settings.preview.via', 'Routed by')}</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {preview.categories.map((category) => (
-                            <TableRow key={category.value}>
-                              <TableCell>{category.label}</TableCell>
-                              <TableCell>
-                                {category.route ? projectLabel(category.route.project) : (
-                                  <StatusBadge variant="error" dot>
-                                    {t('staff.support.settings.preview.unavailable', 'Not available on portal')}
-                                  </StatusBadge>
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                {category.route
-                                  ? category.route.via === 'category'
-                                    ? t('staff.support.settings.preview.viaCategory', 'Category rule')
-                                    : t('staff.support.settings.preview.viaFallback', 'Fallback rule')
-                                  : '—'}
-                              </TableCell>
-                            </TableRow>
+                    {!preview.fallback.project.usable ? (
+                      <Alert status="error">
+                        <AlertTitle>{t('staff.support.settings.routing.fallbackUnusableTitle', 'The fallback project cannot receive tickets')}</AlertTitle>
+                        <AlertDescription>
+                          {t('staff.support.settings.routing.fallbackUnusableDescription', 'It is completed, deleted, or has no default status. Point the fallback rule at another project.')}
+                        </AlertDescription>
+                      </Alert>
+                    ) : null}
+                    <div className="max-w-md space-y-2">
+                      <Label htmlFor="support-fallback-project">
+                        {t('staff.support.settings.routing.fallbackProject', 'Fallback project')}
+                      </Label>
+                      <Select
+                        value={preview.fallback.project.id}
+                        onValueChange={(value) => {
+                          if (preview.fallback && value && value !== preview.fallback.project.id) {
+                            void updateRule(preview.fallback.ruleId, { timeProjectId: value })
+                          }
+                        }}
+                      >
+                        <SelectTrigger id="support-fallback-project">
+                          <SelectValue placeholder={fallbackName} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {projects.map((project) => (
+                            <SelectItem key={project.id} value={project.id}>{projectLabel(project)}</SelectItem>
                           ))}
-                        </TableBody>
-                      </Table>
-                    )}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
-                </>
-              )}
-            </div>
-          </section>
+                )}
 
-          <section className="rounded-xl border border-border bg-card text-card-foreground">
-            <div className="space-y-1 border-b border-border px-6 py-4">
-              <h2 className="text-lg font-medium">{t('staff.support.settings.prefix.title', 'Reference prefix')}</h2>
-              <p className="text-sm text-muted-foreground">
-                {t('staff.support.settings.prefix.description', 'Customers see ticket references such as SUP-1042. The prefix applies to the whole tenant.')}
-              </p>
-            </div>
-            <div className="px-6 py-4">
-              {settingsError ? (
-                <ErrorMessage label={settingsError} />
-              ) : !settings ? (
-                <LoadingMessage label={t('staff.support.settings.prefix.loading', 'Loading…')} />
-              ) : (
-                <div className="flex max-w-md items-end gap-2">
-                  <div className="flex-1 space-y-2">
-                    <Label htmlFor="support-reference-prefix">{t('staff.support.settings.referencePrefix', 'Reference prefix')}</Label>
-                    <Input
-                      id="support-reference-prefix"
-                      value={prefix}
-                      maxLength={10}
-                      onChange={(event) => setPrefix(event.target.value.toUpperCase())}
-                      aria-invalid={prefixError ? true : undefined}
-                    />
-                    {prefixError ? <p className="text-sm text-status-error-text">{prefixError}</p> : null}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-base font-medium">{t('staff.support.settings.routing.overrides', 'Category rules')}</h3>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={categoriesWithoutRule.length === 0}
+                      onClick={() => setRuleDialog({
+                        mode: 'create',
+                        categoryValue: categoriesWithoutRule[0]?.value ?? '',
+                        timeProjectId: '',
+                      })}
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      {t('staff.support.settings.routing.addRule', 'Add rule')}
+                    </Button>
                   </div>
-                  <Button type="button" onClick={() => { void savePrefix() }} disabled={prefixSaving}>
-                    <Save className="mr-2 h-4 w-4" />
-                    {t('staff.support.settings.actions.save', 'Save')}
-                  </Button>
+                  {overrides.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      {t('staff.support.settings.routing.noOverrides', 'No category rules. Every category goes to the fallback project.')}
+                    </p>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>{t('staff.support.settings.routing.category', 'Category')}</TableHead>
+                          <TableHead>{t('staff.support.settings.routing.project', 'Project')}</TableHead>
+                          <TableHead>{t('staff.support.settings.routing.active', 'Active')}</TableHead>
+                          <TableHead>{t('staff.support.settings.routing.state', 'State')}</TableHead>
+                          <TableHead className="w-24" />
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {overrides.map((rule) => (
+                          <TableRow key={rule.id}>
+                            <TableCell>{categoryLabels.get(rule.categoryValue ?? '') ?? rule.categoryValue}</TableCell>
+                            <TableCell>{projectLabel(rule.project)}</TableCell>
+                            <TableCell>
+                              <Switch
+                                checked={rule.isActive}
+                                aria-label={t('staff.support.settings.routing.active', 'Active')}
+                                onCheckedChange={(checked) => { void updateRule(rule.id, { isActive: checked }) }}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              {rule.problem ? (
+                                <div className="space-y-1">
+                                  <StatusBadge variant="warning" dot>
+                                    {t('staff.support.settings.routing.fallingBack', 'Falling back to {project}', { project: fallbackName })}
+                                  </StatusBadge>
+                                  <p className="text-xs text-muted-foreground">{problemText(rule.problem)}</p>
+                                </div>
+                              ) : (
+                                <StatusBadge variant="success" dot>
+                                  {t('staff.support.settings.routing.routing', 'Routing')}
+                                </StatusBadge>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex justify-end gap-1">
+                                <IconButton
+                                  type="button"
+                                  variant="ghost"
+                                  aria-label={t('staff.support.settings.actions.edit', 'Edit')}
+                                  onClick={() => setRuleDialog({
+                                    mode: 'edit',
+                                    ruleId: rule.id,
+                                    categoryValue: rule.categoryValue ?? '',
+                                    timeProjectId: rule.project.id,
+                                  })}
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </IconButton>
+                                <IconButton
+                                  type="button"
+                                  variant="ghost"
+                                  aria-label={t('staff.support.settings.actions.delete', 'Delete')}
+                                  onClick={() => { void deleteRule(rule) }}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </IconButton>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
                 </div>
-              )}
+
+                <div className="space-y-3">
+                  <h3 className="text-base font-medium">{t('staff.support.settings.preview.title', 'Where tickets go now')}</h3>
+                  {preview.categories.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      {t('staff.support.settings.preview.empty', 'No categories to route.')}
+                    </p>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>{t('staff.support.settings.routing.category', 'Category')}</TableHead>
+                          <TableHead>{t('staff.support.settings.routing.project', 'Project')}</TableHead>
+                          <TableHead>{t('staff.support.settings.preview.via', 'Routed by')}</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {preview.categories.map((category) => (
+                          <TableRow key={category.value}>
+                            <TableCell>{category.label}</TableCell>
+                            <TableCell>
+                              {category.route ? projectLabel(category.route.project) : (
+                                <StatusBadge variant="error" dot>
+                                  {t('staff.support.settings.preview.unavailable', 'Not available on portal')}
+                                </StatusBadge>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              {category.route
+                                ? category.route.via === 'category'
+                                  ? t('staff.support.settings.preview.viaCategory', 'Category rule')
+                                  : t('staff.support.settings.preview.viaFallback', 'Fallback rule')
+                                : '—'}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-border bg-card text-card-foreground">
+          <div className="space-y-1 border-b border-border px-6 py-4">
+            <h2 className="text-lg font-medium">{t('staff.support.settings.prefix.title', 'Reference prefix')}</h2>
+            <p className="text-sm text-muted-foreground">
+              {t('staff.support.settings.prefix.description', 'Customers see ticket references such as SUP-1042. The prefix applies to the whole tenant.')}
+            </p>
+          </div>
+          <div className="px-6 py-4">
+            <div className="flex max-w-md items-end gap-2">
+              <div className="flex-1 space-y-2">
+                <Label htmlFor="support-reference-prefix">{t('staff.support.settings.referencePrefix', 'Reference prefix')}</Label>
+                <Input
+                  id="support-reference-prefix"
+                  value={prefix}
+                  maxLength={10}
+                  onChange={(event) => setPrefix(event.target.value.toUpperCase())}
+                  aria-invalid={prefixError ? true : undefined}
+                />
+                {prefixError ? <p className="text-sm text-status-error-text">{prefixError}</p> : null}
+              </div>
+              <Button type="button" onClick={() => { void savePrefix() }} disabled={prefixSaving}>
+                <Save className="mr-2 h-4 w-4" />
+                {t('staff.support.settings.actions.save', 'Save')}
+              </Button>
             </div>
-          </section>
-        </div>
-      </PageBody>
+          </div>
+        </section>
+      </div>
 
       <Dialog open={categoryDialog !== null} onOpenChange={(open) => { if (!open) setCategoryDialog(null) }}>
         <DialogContent
@@ -927,6 +904,6 @@ export default function StaffSupportSettingsPage() {
         </DialogContent>
       </Dialog>
       {ConfirmDialogElement}
-    </Page>
+    </>
   )
 }

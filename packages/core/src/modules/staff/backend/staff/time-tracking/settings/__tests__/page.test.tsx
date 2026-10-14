@@ -8,11 +8,13 @@
  * fired from a rule that has not been saved.
  */
 import * as React from 'react'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import type { TimeTrackingSettingsTabContext } from '../../../../../lib/time-tracking-ui/settingsTabs'
 import TimeTrackingSettingsPage from '../page'
 
 function interpolate(template: string, params?: Record<string, string | number>): string {
@@ -50,6 +52,19 @@ jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
 
 jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({ useConfirmDialog: jest.fn() }))
 
+const mockRouterReplace = jest.fn()
+let mockSearch = ''
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ replace: mockRouterReplace }),
+  usePathname: () => '/backend/staff/time-tracking/settings',
+  useSearchParams: () => new URLSearchParams(mockSearch),
+}))
+
+jest.mock('@open-mercato/ui/backend/injection/InjectionSpot', () => {
+  const actual = jest.requireActual('@open-mercato/ui/backend/injection/InjectionSpot')
+  return { ...actual, useInjectionWidgets: jest.fn() }
+})
+
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => {
   const actual = jest.requireActual('@open-mercato/ui/backend/utils/apiCall')
   return { ...actual, apiCall: jest.fn() }
@@ -60,7 +75,32 @@ const mockUseBackendChrome = useBackendChrome as jest.MockedFunction<typeof useB
 const mockUseConfirmDialog = useConfirmDialog as jest.MockedFunction<typeof useConfirmDialog>
 const mockFlash = flash as jest.MockedFunction<typeof flash>
 
+const mockUseInjectionWidgets = useInjectionWidgets as jest.MockedFunction<typeof useInjectionWidgets>
+
 const confirmMock = jest.fn(async () => true)
+
+function SupportTabStub({ context }: { context: TimeTrackingSettingsTabContext }) {
+  return <div data-testid="support-tab">{context.settings.support?.referencePrefix}</div>
+}
+
+const supportTabWidget = {
+  widgetId: 'staff.injection.time-tracking-settings-support',
+  placement: { kind: 'tab', groupId: 'support', groupLabel: 'staff.support.settings.title', priority: 50 },
+  module: { metadata: { id: 'staff.injection.time-tracking-settings-support', title: 'Support' }, Widget: SupportTabStub },
+}
+
+function installTabWidgets(widgets: unknown[]) {
+  mockUseInjectionWidgets.mockReturnValue({ widgets, loading: false, error: null } as never)
+}
+
+function lastTabContext(): TimeTrackingSettingsTabContext {
+  const calls = mockUseInjectionWidgets.mock.calls.filter(
+    ([spotId]) => spotId === 'staff.time_tracking.settings:tabs',
+  )
+  const options = calls[calls.length - 1]?.[1] as { context: TimeTrackingSettingsTabContext | null } | undefined
+  if (!options?.context) throw new Error('[internal] the tabs spot has no context yet')
+  return options.context
+}
 
 let settings = {
   rounding: { unitMinutes: 15 as 0 | 5 | 10 | 15, direction: 'up' as 'up' | 'nearest' },
@@ -128,6 +168,8 @@ beforeEach(() => {
     payload: { grantedFeatures: ['staff.timesheets.settings.manage'] },
   } as never)
   installRouter()
+  mockSearch = ''
+  installTabWidgets([])
 })
 
 afterEach(() => {
@@ -316,5 +358,54 @@ describe('time tracking settings page', () => {
     expect(screen.getByTestId('reapply-rounding')).toBeDisabled()
     expect(screen.getByLabelText('Daily hours target')).toBeDisabled()
     expect(screen.getByTestId('save-settings')).toBeDisabled()
+  })
+
+  it('shows no tab strip while no module contributes a tab', async () => {
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('rounding-examples')).toBeInTheDocument())
+
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+  })
+
+  it('opens a contributed tab from the tab param and keeps the Save bar on the Time tracking tab', async () => {
+    installTabWidgets([supportTabWidget])
+    mockSearch = 'tab=support'
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('support-tab')).toHaveTextContent('SUP'))
+    expect(screen.getByRole('tab', { name: 'Support' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByTestId('save-settings')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Time tracking' }))
+    expect(mockRouterReplace).toHaveBeenCalledWith('/backend/staff/time-tracking/settings')
+  })
+
+  it('falls back to the Time tracking tab for an unknown tab param', async () => {
+    installTabWidgets([supportTabWidget])
+    mockSearch = 'tab=nope'
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('rounding-examples')).toBeInTheDocument())
+    expect(screen.getByRole('tab', { name: 'Time tracking' })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('does not write back a prefix the Support tab changed while other edits are pending', async () => {
+    installTabWidgets([supportTabWidget])
+
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('rounding-examples')).toBeInTheDocument())
+
+    fireEvent.change(screen.getByLabelText('Daily hours target'), { target: { value: '7' } })
+    act(() => {
+      lastTabContext().onSettingsSaved({ ...settings, support: { referencePrefix: 'HELP' } })
+    })
+    expect(lastTabContext().settings.support?.referencePrefix).toBe('HELP')
+
+    fireEvent.click(screen.getByTestId('save-settings'))
+
+    await waitFor(() => expect(putBodies).toHaveLength(1))
+    expect(putBodies[0]).toMatchObject({ targets: { dailyHours: 7 }, support: { referencePrefix: 'HELP' } })
   })
 })

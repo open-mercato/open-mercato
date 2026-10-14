@@ -432,7 +432,7 @@ All notifications are rendered with i18n keys and link to the board drawer, whic
   - **a new "Unassigned" chip in `BoardFilterChips`**, which today offers only "Assigned to me", assignee, status and tag. It shows the count of unassigned tasks, so assigners can find work to claim;
   - board create flows (quick-add, "New task") are **unchanged** and still assign the creator (D2).
 - **Board cards** for portal tasks show a small "Customer request" badge and the support reference.
-- **Settings → Support** (`/backend/staff/time-tracking/settings/support`, feature `staff.timesheets.settings.manage`):
+- **Settings → Support tab** (`/backend/staff/time-tracking/settings?tab=support`, feature `staff.timesheets.settings.manage`). It is a widget on the new `staff.time_tracking.settings:tabs` spot of the Time Tracking Settings page, next to the existing "Time tracking" tab. The tab saves each change immediately, so the page's Save bar sits inside the "Time tracking" tab only:
   1. **Categories:** `DictionaryTable`/`DictionaryForm` for `staff.support_ticket_category`. The page loads the organization's dictionary and wires the entry CRUD calls itself, as the `warranty_claims` settings page does, because the components are presentational.
   2. **Routing:**
      - A required **"Fallback project"** select, pre-filled with the seeded "Customer support" project. It can be repointed but not cleared.
@@ -543,7 +543,7 @@ Staff-side handling ships **before** portal intake, so customers never get a cha
    - a cross-org project is rejected;
    - a project with no default status is rejected;
    - a stale `updatedAt` returns 409.
-5. **1.5** The Settings → Support page:
+5. **1.5** The Settings → Support tab (a `staff.time_tracking.settings:tabs` widget):
    - categories, with the caller-side fetch and CRUD wiring around the presentational `DictionaryTable`/`DictionaryForm`, modeled on the `warranty_claims` settings page;
    - the routing editor with warnings and a preview;
    - the prefix field.
@@ -725,4 +725,7 @@ Each phase ends with the validation gate from `.ai/agentic.config.json`.
   - The comment update API now accepts `visibility` alone, so `body` became optional on update (at least one of the two is required).
   - Out-of-spec fix needed for the dashboard widget: `usePortalDashboardWidgets` (packages/ui) loaded widgets once on mount, before the portal client registry finished registering, so every `portal:dashboard:sections` widget (including the example module's) stayed hidden. It now reloads on `subscribeToInjectionRegistryChanges`, with a regression test.
   - Integration coverage: `staff/__integration__/support/TC-STAFF-SUP-010` (full UI lifecycle), `-011` (routing variants and fallback-rule guards), `-012` (roles: default assignee, assigners, claim race, owner fallback, validation, D2 regression, portal viewer, company isolation), `-013` (attachments API and UI), `-014` (comment visibility, response hygiene, rate limit).
-
+- **2026-10-14** — Support settings become a tab of Time Tracking Settings:
+  - The standalone `/backend/staff/time-tracking/settings/support` page had no navigation entry. It is removed (never released) and its content is now the "Support" tab of `/backend/staff/time-tracking/settings`, deep-linked as `?tab=support`.
+  - New additive injection spot `staff.time_tracking.settings:tabs` (sibling of EP-26 `:sections`). Its context is `{ moduleId, canManage, settings, onSettingsSaved }`. A tab owns its saves; when it writes the settings record it builds the body from `settings` (the last saved record) and passes the response to `onSettingsSaved`.
+  - `onSettingsSaved` rebases the page's unsaved draft onto the new record (`rebaseSettingsDraft`): untouched fields take the saved value, edited fields keep the edit. Without it, saving the Time tracking tab after changing the reference prefix on the Support tab would write the old prefix back.
