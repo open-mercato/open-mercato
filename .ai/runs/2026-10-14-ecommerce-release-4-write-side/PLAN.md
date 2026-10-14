@@ -39,7 +39,7 @@
 | 3 | 3.2 | Catalog: catalogScopedProductService with equivalence property test | dispatch:capable | done | see `git log` |
 | 3 | 3.3 | Availability: shared quantity-rule derivation | dispatch | done | see `git log` |
 | 3 | 3.4 | Ecommerce: repoint onto the shared seams and add the fresh buyer-context option | dispatch:capable | partial — Parts B+C done, Part A open (owner decision needed) | see `git log` |
-| 4 | 4.1 | Cart: scaffold module, ACL, setup, events, DI, encryption, i18n | dispatch | todo | — |
+| 4 | 4.1 | Cart: scaffold module, ACL, setup, events, DI, encryption, i18n | dispatch | done | see `git log` |
 | 4 | 4.2 | Cart: entities, validators and migration (incl. Phase 4 seam columns) | dispatch:capable | todo | — |
 | 4 | 4.3 | Cart: token hashing, route-edge store and scope resolution, strict bodies | dispatch:capable | todo | — |
 | 4 | 4.4 | Cart: evaluateCartVisibility with variant-derives-product and branded scope | dispatch:capable | todo | — |
