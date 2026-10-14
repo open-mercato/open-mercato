@@ -122,6 +122,18 @@ verified one:
   be attempted with the caller's DEK. A narrow `fields` projection does *not* land here: both query
   engines force `tenant_id` into the projection when the entity has an encryption map, then strip it
   back out of the response, so the decision is always made against the real row tenant.
+- **Relations of a tenant-less parent.** The ORM path walks loaded relations with the caller's
+  scope, but a relation reached through a parent that has no `tenant_id` of its own (a join row
+  such as `UserRole`) is not refused against it — such a row may legitimately link entities of
+  several tenants. Entities hydrated by the same `find*WithDecryption` read are still bound
+  individually, because the subscriber's `onLoad` runs under the caller's scope.
+- **Entities already in the identity map.** An entity loaded and decrypted earlier in the same
+  `EntityManager` by a read that asserted no tenant is returned as it is; the binding applies to the
+  read that loads an entity, not to every later read that touches it.
+
+On the ORM path the binding engages during hydration: `find*WithDecryption` runs `em.find` under
+the caller's scope, so the subscriber's `onLoad` refuses a foreign-tenant entity before anything
+else can decrypt it, and the refusals of one read are reported in a single warning.
 
 A caller that does not want plaintext at all sets `QueryOptions.decryptEncryptedFields: false`,
 which skips the DEK lookup entirely. It defaults to `true`, preserving existing behaviour.
