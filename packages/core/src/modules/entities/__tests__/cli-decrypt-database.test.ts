@@ -15,6 +15,7 @@ registerEntityIds({
 
 const execute = jest.fn()
 const find = jest.fn()
+const getAllMetadata = jest.fn()
 
 jest.mock('@open-mercato/core/modules/entities/lib/install-from-ce', () => ({
   installCustomEntitiesFromModules: jest.fn(async () => ({ processed: 0, synchronized: 0, fieldChanges: 0, skipped: 0 })),
@@ -47,37 +48,39 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
     resolve: () => ({
       getConnection: () => ({ execute }),
       getMetadata: () => ({
-        getAll: () => ([{
-          className: 'AccessLog',
-          name: 'AccessLog',
-          tableName: 'access_logs',
-          primaryKeys: ['id'],
-          properties: {
-            id: {
-              name: 'id',
-              fieldNames: ['id'],
-              columnTypes: ['uuid'],
-              type: 'uuid',
-            },
-            resourceId: {
-              name: 'resourceId',
-              fieldNames: ['resource_id'],
-              columnTypes: ['text'],
-              type: 'text',
-            },
-            emailHash: {
-              name: 'emailHash',
-              fieldNames: ['email_hash'],
-              columnTypes: ['text'],
-              type: 'text',
-            },
-          },
-        }]),
+        getAll: () => getAllMetadata(),
       }),
       find: (...args: any[]) => find(...args),
     }),
   }),
 }))
+
+const accessLogMetadata = {
+  className: 'AccessLog',
+  name: 'AccessLog',
+  tableName: 'access_logs',
+  primaryKeys: ['id'],
+  properties: {
+    id: {
+      name: 'id',
+      fieldNames: ['id'],
+      columnTypes: ['uuid'],
+      type: 'uuid',
+    },
+    resourceId: {
+      name: 'resourceId',
+      fieldNames: ['resource_id'],
+      columnTypes: ['text'],
+      type: 'text',
+    },
+    emailHash: {
+      name: 'emailHash',
+      fieldNames: ['email_hash'],
+      columnTypes: ['text'],
+      type: 'text',
+    },
+  },
+}
 
 describe('entities decrypt-database CLI', () => {
   let cli: Array<{ command: string; run: (args: string[]) => Promise<void> }>
@@ -85,6 +88,7 @@ describe('entities decrypt-database CLI', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    getAllMetadata.mockReturnValue([accessLogMetadata])
     process.env.TENANT_DATA_ENCRYPTION = 'yes'
     execute.mockResolvedValue([])
     // Reset isTenantDataEncryptionEnabled to true so tests that mock it false don't pollute subsequent tests
@@ -128,36 +132,84 @@ describe('entities decrypt-database CLI', () => {
   }
 
   it('aborts when --tenant is missing', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
-    await getCmd().run(['--confirm', 'tenant-1'])
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('--tenant'))
+    await expect(getCmd().run(['--confirm', 'tenant-1'])).rejects.toThrow('--tenant')
     expect(find).not.toHaveBeenCalled()
-    consoleSpy.mockRestore()
   })
 
   it('aborts when --confirm is missing', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
-    await getCmd().run(['--tenant', 'tenant-1'])
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('--confirm'))
+    await expect(getCmd().run(['--tenant', 'tenant-1'])).rejects.toThrow('--confirm')
     expect(find).not.toHaveBeenCalled()
-    consoleSpy.mockRestore()
   })
 
   it('aborts when --confirm does not match --tenant', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
-    await getCmd().run(['--tenant', 'tenant-1', '--confirm', 'wrong-tenant'])
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('does not match'))
+    await expect(
+      getCmd().run(['--tenant', 'tenant-1', '--confirm', 'wrong-tenant']),
+    ).rejects.toThrow('does not match')
     expect(find).not.toHaveBeenCalled()
-    consoleSpy.mockRestore()
   })
 
   it('aborts when TENANT_DATA_ENCRYPTION is disabled', async () => {
     const { isTenantDataEncryptionEnabled } = require('@open-mercato/shared/lib/encryption/toggles')
     isTenantDataEncryptionEnabled.mockReturnValue(false)
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
+    await expect(
+      getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1']),
+    ).rejects.toThrow('disabled')
+  })
+
+  it('fails before querying mapped rows when entity metadata is missing', async () => {
+    setupDefaultMapFind()
+    getAllMetadata.mockReturnValue(new Map())
+
+    await expect(
+      getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1']),
+    ).rejects.toThrow('audit_logs:access_log')
+
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  // The operator has to clean up every offending map before the command can run at all, so
+  // naming only the first one would turn that into an N-run guessing game. Each line also
+  // carries the row id, because the remediation is a statement against that row.
+  it('names every unresolvable map, with its row id, in one failure', async () => {
+    setupDefaultMapFind([
+      makeMap({ id: 'map-1' }),
+      makeMap({ id: 'map-2', entityId: 'audit_logs:other_log' }),
+    ])
+    getAllMetadata.mockReturnValue(new Map())
+
+    const error = await getCmd()
+      .run(['--tenant', 'tenant-1', '--confirm', 'tenant-1'])
+      .then(() => null, (e: Error) => e)
+
+    expect(error).toBeInstanceOf(Error)
+    expect(error!.message).toContain('2 encryption map(s)')
+    expect(error!.message).toContain('audit_logs:access_log (encryption_maps.id=map-1)')
+    expect(error!.message).toContain('audit_logs:other_log (encryption_maps.id=map-2)')
+    expect(error!.message).toContain('No rows were changed')
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  // `fields_json` is nullable, and a map that declares no encrypted fields cannot leave
+  // ciphertext behind — so it is a no-op to report, not a reason to refuse the whole run and
+  // strand the operator on the command that exists to get their data back.
+  it('skips a map that declares no encrypted fields instead of failing the run', async () => {
+    setupDefaultMapFind([
+      makeMap({ id: 'map-empty', entityId: 'audit_logs:other_log', fieldsJson: [] }),
+      makeMap({ id: 'map-1' }),
+    ])
+    setupScopesAndRows([{ id: 'row-1', resource_id: 'iv:cipher:tag:v1', email_hash: 'old-hash' }])
+    mockDecrypt.mockReturnValue('decrypted-value')
+
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation()
+    jest.spyOn(console, 'log').mockImplementation()
+
     await getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1'])
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('disabled'))
-    consoleSpy.mockRestore()
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('declares no encrypted fields'))
+    // The resolvable map was still processed rather than taken down with it.
+    const updateCalls = execute.mock.calls.filter(([sql]) => String(sql).match(/^update/i))
+    expect(updateCalls.length).toBeGreaterThan(0)
+    warnSpy.mockRestore()
   })
 
   it('--check mode: prints env value, map count, and sampling estimate without writes', async () => {
@@ -201,6 +253,38 @@ describe('entities decrypt-database CLI', () => {
     await getCmd().run(['--tenant', 'tenant-1', '--check'])
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('malformed payloads (sampled): 1'))
     warnSpy.mockRestore()
+  })
+
+  // --check writes nothing, so an unreachable DEK is the diagnosis the operator is asking for.
+  // Aborting mid-inspection removes the diagnostic and buys no safety; finish the sweep, then
+  // make the incomplete run exit non-zero so automation cannot read it as a clean bill.
+  it('--check mode: finishes the sweep when a DEK is unavailable, then fails as incomplete', async () => {
+    setupDefaultMapFind()
+    const kmsModule = require('@open-mercato/shared/lib/encryption/kms')
+    ;(kmsModule.createKmsService as jest.Mock).mockReturnValueOnce({
+      isHealthy: () => true,
+      getTenantDek: jest.fn(async () => null),
+      createTenantDek: jest.fn(async () => null),
+    })
+
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation()
+    const logSpy = jest.spyOn(console, 'log').mockImplementation()
+
+    const error = await getCmd()
+      .run(['--tenant', 'tenant-1', '--check'])
+      .then(() => null, (e: Error) => e)
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('No DEK available for tenant tenant-1'))
+    // It reached the closing summary rather than throwing out of the loop.
+    const output = logSpy.mock.calls.map((c) => String(c[0])).join('\n')
+    expect(output).toContain('estimated encrypted candidates')
+    expect(output).toContain('not a proof of absence')
+    expect(error).toBeInstanceOf(Error)
+    expect(error!.message).toContain('could not be inspected')
+    expect(error!.message).toContain('audit_logs:access_log')
+    expect(execute).not.toHaveBeenCalledWith('BEGIN')
+    warnSpy.mockRestore()
+    logSpy.mockRestore()
   })
 
   it('--dry-run: scans rows but does not execute UPDATE', async () => {
@@ -286,7 +370,7 @@ describe('entities decrypt-database CLI', () => {
     expect(updateCalls).toHaveLength(0)
   })
 
-  it('MALFORMED_PAYLOAD: warns, increments counter, skips field without aborting run', async () => {
+  it('MALFORMED_PAYLOAD: reports the incomplete run and leaves encryption maps active', async () => {
     setupDefaultMapFind()
     setupScopesAndRows([{ id: 'row-1', resource_id: 'bad:b64:!!:v1', email_hash: null }])
     mockDecrypt.mockImplementationOnce(() => {
@@ -295,13 +379,19 @@ describe('entities decrypt-database CLI', () => {
 
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation()
     const logSpy = jest.spyOn(console, 'log').mockImplementation()
-    await getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1'])
+    await expect(
+      getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1', '--deactivate-maps']),
+    ).rejects.toThrow('ciphertext was malformed')
 
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('MALFORMED_PAYLOAD'))
     const summaryText = warnSpy.mock.calls.map((c) => String(c[0])).join('\n')
     expect(summaryText).toContain('1 field value(s) returned MALFORMED_PAYLOAD')
     const updateCalls = execute.mock.calls.filter((c) => String(c[0]).startsWith('UPDATE'))
     expect(updateCalls).toHaveLength(0)
+    const deactivateCalls = execute.mock.calls.filter((c) =>
+      String(c[0]).includes('UPDATE encryption_maps'),
+    )
+    expect(deactivateCalls).toHaveLength(0)
     warnSpy.mockRestore()
     logSpy.mockRestore()
   })
@@ -336,20 +426,14 @@ describe('entities decrypt-database CLI', () => {
     expect(execute).toHaveBeenCalledWith('ROLLBACK')
   })
 
-  it('missing hashField column: warns and skips, lists in summary', async () => {
+  it('missing hashField column: fails before reading or updating rows', async () => {
     setupDefaultMapFind([makeMap({ fieldsJson: [{ field: 'resource_id', hashField: 'nonexistent_hash' }] })])
-    setupScopesAndRows([{ id: 'row-1', resource_id: 'iv:cipher:tag:v1' }])
-    mockDecrypt.mockReturnValueOnce('decrypted-value')
 
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation()
-    const logSpy = jest.spyOn(console, 'log').mockImplementation()
-    await getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1'])
+    await expect(
+      getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1']),
+    ).rejects.toThrow('hash field "nonexistent_hash" was not found')
 
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('nonexistent_hash'))
-    const logText = logSpy.mock.calls.map((c) => String(c[0])).join('\n')
-    expect(logText).toMatch(/skipped.*missing columns/)
-    warnSpy.mockRestore()
-    logSpy.mockRestore()
+    expect(execute).not.toHaveBeenCalled()
   })
 
   it('--deactivate-maps: deactivates maps after decryption', async () => {
