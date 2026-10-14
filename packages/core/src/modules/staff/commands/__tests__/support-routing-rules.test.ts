@@ -1,0 +1,221 @@
+/** @jest-environment node */
+import type { AwilixContainer } from 'awilix'
+
+const mockEmitCrudSideEffects = jest.fn()
+const mockEmitCrudUndoSideEffects = jest.fn()
+const mockEnsureFallback = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/commands/helpers', () => {
+  const actual = jest.requireActual('@open-mercato/shared/lib/commands/helpers')
+  return {
+    ...actual,
+    emitCrudSideEffects: (...args: unknown[]) => mockEmitCrudSideEffects(...args),
+    emitCrudUndoSideEffects: (...args: unknown[]) => mockEmitCrudUndoSideEffects(...args),
+  }
+})
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn().mockResolvedValue({ translate: (key: string, fallback?: string) => fallback ?? key }),
+}))
+
+jest.mock('@open-mercato/shared/lib/commands/flush', () => ({
+  withAtomicFlush: async (em: { flush: () => Promise<void> }, phases: (() => unknown)[]) => {
+    for (const phase of phases) await phase()
+    await em.flush()
+  },
+}))
+
+jest.mock('../../lib/support/seedDefaults', () => ({
+  ensureFallbackProjectAndRule: (...args: unknown[]) => mockEnsureFallback(...args),
+  resolveContainerProjectCodeGenerator: () => undefined,
+}))
+
+const TENANT_ID = '11111111-1111-4111-8111-111111111111'
+const ORG_ID = '22222222-2222-4222-8222-222222222222'
+const USER_ID = '33333333-3333-4333-8333-333333333333'
+const PROJECT_ID = '44444444-4444-4444-8444-444444444444'
+const RULE_ID = '55555555-5555-4555-8555-555555555555'
+
+type Row = Record<string, unknown> & { id: string; deletedAt: Date | null }
+
+function matches(row: Row, where: Record<string, unknown>): boolean {
+  return Object.entries(where).every(([key, expected]) => {
+    const actual = row[key] ?? null
+    if (expected && typeof expected === 'object' && !(expected instanceof Date)) {
+      const operator = expected as { $in?: unknown[]; $ne?: unknown }
+      if (operator.$in) return operator.$in.includes(actual)
+      if ('$ne' in operator) return actual !== (operator.$ne ?? null)
+    }
+    if (expected === null) return actual === null
+    return actual === expected
+  })
+}
+
+function scoped(row: Record<string, unknown> & { id: string }): Row {
+  return { tenantId: TENANT_ID, organizationId: ORG_ID, deletedAt: null, updatedAt: new Date(0), ...row } as Row
+}
+
+function makeWorld(seed: { rules?: Row[]; projects?: Row[]; statuses?: Row[] } = {}) {
+  const tables: Record<string, Row[]> = {
+    StaffSupportRoutingRule: seed.rules ?? [],
+    StaffTimeProject: seed.projects ?? [],
+    StaffTimeTaskStatus: seed.statuses ?? [],
+  }
+  const em: Record<string, unknown> = {
+    flush: jest.fn(async () => undefined),
+    find: jest.fn(async (cls: { name: string }, where: Record<string, unknown>) => (tables[cls.name] ?? []).filter((row) => matches(row, where))),
+    findOne: jest.fn(async (cls: { name: string }, where: Record<string, unknown>) => (tables[cls.name] ?? []).find((row) => matches(row, where)) ?? null),
+  }
+  em.fork = () => em
+  const ctx = {
+    auth: { sub: USER_ID, tenantId: TENANT_ID, orgId: ORG_ID, roles: [], isSuperAdmin: false },
+    selectedOrganizationId: ORG_ID,
+    container: {
+      resolve: (name: string) => {
+        if (name === 'em') return em
+        if (name === 'dataEngine') return {}
+        throw new Error(`[internal] unexpected resolve ${name}`)
+      },
+    } as unknown as AwilixContainer,
+  }
+  return { tables, ctx }
+}
+
+type Command = {
+  prepare?: (input: unknown, ctx: unknown) => Promise<Record<string, unknown>>
+  execute: (input: unknown, ctx: unknown) => Promise<Record<string, unknown>>
+  buildLog: (args: { result?: unknown; snapshots?: unknown; ctx?: unknown }) => Promise<{ payload: unknown } | null>
+  undo: (args: { logEntry: unknown; ctx: unknown }) => Promise<void>
+}
+
+async function loadCommand(id: string): Promise<Command> {
+  jest.resetModules()
+  const { commandRegistry } = await import('@open-mercato/shared/lib/commands')
+  commandRegistry.clear()
+  await import('../support-routing-rules')
+  return commandRegistry.get(id) as unknown as Command
+}
+
+function emittedEntityTypes(mock: jest.Mock): string[] {
+  return mock.mock.calls.map(([params]) => (params as { indexer: { entityType: string } }).indexer.entityType)
+}
+
+beforeEach(() => {
+  jest.clearAllMocks()
+})
+
+describe('staff.support.routing_rules.create_fallback_project', () => {
+  const input = { tenantId: TENANT_ID, organizationId: ORG_ID }
+
+  it('emits project and rule side effects and logs an undoable entry when it creates', async () => {
+    const { ctx } = makeWorld({
+      rules: [scoped({ id: RULE_ID, categoryValue: null, timeProjectId: PROJECT_ID })],
+      projects: [scoped({ id: PROJECT_ID })],
+    })
+    mockEnsureFallback.mockResolvedValue({ ruleId: RULE_ID, timeProjectId: PROJECT_ID, created: true, taskStatusIds: ['s1', 's2'] })
+    const command = await loadCommand('staff.support.routing_rules.create_fallback_project')
+
+    const result = await command.execute(input, ctx)
+
+    expect(result).toEqual(expect.objectContaining({ created: true, ruleId: RULE_ID, timeProjectId: PROJECT_ID }))
+    expect(emittedEntityTypes(mockEmitCrudSideEffects)).toEqual(['staff:staff_time_project', 'staff:staff_support_routing_rule'])
+    const projectEmit = mockEmitCrudSideEffects.mock.calls[0][0] as { action: string; events: { module: string; entity: string } }
+    expect(projectEmit.action).toBe('created')
+    expect(projectEmit.events).toEqual(expect.objectContaining({ module: 'staff', entity: 'timesheets.time_project' }))
+
+    const log = await command.buildLog({ result })
+    expect(log?.payload).toEqual({
+      undo: { ruleId: RULE_ID, timeProjectId: PROJECT_ID, taskStatusIds: ['s1', 's2'], tenantId: TENANT_ID, organizationId: ORG_ID },
+    })
+  })
+
+  it('reports the existing fallback without side effects or an audit entry when it did not create', async () => {
+    const { ctx } = makeWorld()
+    mockEnsureFallback.mockResolvedValue({ ruleId: RULE_ID, timeProjectId: PROJECT_ID, created: false, taskStatusIds: [] })
+    const command = await loadCommand('staff.support.routing_rules.create_fallback_project')
+
+    const result = await command.execute(input, ctx)
+
+    expect(result).toEqual(expect.objectContaining({ created: false, ruleId: RULE_ID }))
+    expect(mockEmitCrudSideEffects).not.toHaveBeenCalled()
+    await expect(command.buildLog({ result })).resolves.toBeNull()
+  })
+
+  it('undo soft-deletes only what the call created', async () => {
+    const { tables, ctx } = makeWorld({
+      rules: [scoped({ id: RULE_ID, categoryValue: null, timeProjectId: PROJECT_ID })],
+      projects: [scoped({ id: PROJECT_ID })],
+      statuses: [
+        scoped({ id: 's1', timeProjectId: PROJECT_ID }),
+        scoped({ id: 's2', timeProjectId: PROJECT_ID }),
+        scoped({ id: 's-added-later', timeProjectId: PROJECT_ID }),
+      ],
+    })
+    const command = await loadCommand('staff.support.routing_rules.create_fallback_project')
+    const payload = { undo: { ruleId: RULE_ID, timeProjectId: PROJECT_ID, taskStatusIds: ['s1', 's2'], tenantId: TENANT_ID, organizationId: ORG_ID } }
+
+    await command.undo({ logEntry: { commandPayload: payload }, ctx })
+
+    expect(tables.StaffSupportRoutingRule[0].deletedAt).toBeInstanceOf(Date)
+    expect(tables.StaffTimeProject[0].deletedAt).toBeInstanceOf(Date)
+    expect(tables.StaffTimeTaskStatus.map((status) => status.deletedAt instanceof Date)).toEqual([true, true, false])
+    expect(emittedEntityTypes(mockEmitCrudUndoSideEffects)).toEqual(['staff:staff_support_routing_rule', 'staff:staff_time_project'])
+  })
+
+  it('undo keeps a fallback rule that was re-pointed to another project since', async () => {
+    const { tables, ctx } = makeWorld({
+      rules: [scoped({ id: RULE_ID, categoryValue: null, timeProjectId: 'another-project' })],
+      projects: [scoped({ id: PROJECT_ID })],
+    })
+    const command = await loadCommand('staff.support.routing_rules.create_fallback_project')
+    const payload = { undo: { ruleId: RULE_ID, timeProjectId: PROJECT_ID, taskStatusIds: [], tenantId: TENANT_ID, organizationId: ORG_ID } }
+
+    await command.undo({ logEntry: { commandPayload: payload }, ctx })
+
+    expect(tables.StaffSupportRoutingRule[0].deletedAt).toBeNull()
+    expect(tables.StaffTimeProject[0].deletedAt).toBeInstanceOf(Date)
+  })
+})
+
+describe('staff.support.routing_rules.delete undo', () => {
+  const before = {
+    id: RULE_ID,
+    tenantId: TENANT_ID,
+    organizationId: ORG_ID,
+    categoryValue: 'billing',
+    timeProjectId: PROJECT_ID,
+    isActive: true,
+    deletedAt: null,
+  }
+
+  it('restores the rule when its category is free', async () => {
+    const { tables, ctx } = makeWorld({
+      rules: [scoped({ id: RULE_ID, categoryValue: 'billing', timeProjectId: PROJECT_ID, deletedAt: new Date() })],
+    })
+    const command = await loadCommand('staff.support.routing_rules.delete')
+
+    await command.undo({ logEntry: { commandPayload: { undo: { before } } }, ctx })
+
+    expect(tables.StaffSupportRoutingRule[0].deletedAt).toBeNull()
+    expect(mockEmitCrudUndoSideEffects).toHaveBeenCalledTimes(1)
+  })
+
+  it('fails with a mapped 409 when a newer rule now owns the category', async () => {
+    const { tables, ctx } = makeWorld({
+      rules: [
+        scoped({ id: RULE_ID, categoryValue: 'billing', timeProjectId: PROJECT_ID, deletedAt: new Date() }),
+        scoped({ id: 'newer-rule', categoryValue: 'billing', timeProjectId: 'other-project' }),
+      ],
+    })
+    const command = await loadCommand('staff.support.routing_rules.delete')
+
+    const error = (await command
+      .undo({ logEntry: { commandPayload: { undo: { before } } }, ctx })
+      .then(() => null, (err: unknown) => err)) as { status?: number; body?: { code?: string } } | null
+
+    expect(error?.status).toBe(409)
+    expect(error?.body?.code).toBe('support_routing_rule_duplicate')
+    expect(tables.StaffSupportRoutingRule[0].deletedAt).toBeInstanceOf(Date)
+    expect(mockEmitCrudUndoSideEffects).not.toHaveBeenCalled()
+  })
+})
