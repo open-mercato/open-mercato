@@ -1,3 +1,8 @@
+# Unreleased
+
+## 🔒 Security
+- 🔒 Bind decryption to the tenant the caller asserted: the query engines and `find*WithDecryption` now refuse to decrypt a row whose `tenant_id` contradicts the read's `tenantId`, and return it as ciphertext instead of another tenant's plaintext. A field that used to come back as plaintext and now comes back as ciphertext means a pre-existing scoping bug is returning rows the caller was never entitled to — not a decryption regression. Each refused read logs one aggregated warning, `DECRYPT_REFUSAL_LOG_MESSAGE`: `Skipped decryption for rows whose tenant does not match the query tenant`; alert on that string. Queries that need no plaintext can now decline it with `decryptEncryptedFields: false` on `QueryOptions` or a CRUD `list` config. (#5430) (#5822) *(@adeptofvoltron)*
+
 # 0.9.0 (2026-10-09)
 
 ## Highlights
