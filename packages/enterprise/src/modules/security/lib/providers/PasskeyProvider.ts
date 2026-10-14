@@ -33,19 +33,10 @@ const setupPayloadSchema = z.object({
   authenticatorAttachment: z.enum(['platform', 'cross-platform']).optional(),
 })
 
-const setupConfirmationPayloadSchema = z.union([
-  z.object({
-    response: z.record(z.string(), z.unknown()),
-    label: z.string().min(1).max(100).optional(),
-  }),
-  z.object({
-    credentialId: z.string().min(1),
-    publicKey: z.string().min(1),
-    challenge: z.string().min(1),
-    transports: z.array(z.string().min(1)).optional(),
-    label: z.string().min(1).max(100).optional(),
-  }),
-])
+const setupConfirmationPayloadSchema = z.object({
+  response: z.record(z.string(), z.unknown()),
+  label: z.string().min(1).max(100).optional(),
+})
 
 const verifyPayloadSchema = z.object({
   response: z.record(z.string(), z.unknown()),
@@ -166,61 +157,45 @@ export class PasskeyProvider implements MfaProviderInterface {
       throw new Error('Passkey setup session expired')
     }
 
-    if ('response' in parsed) {
-      const verification = await verifyRegistrationResponse({
-        response: parsed.response as never,
-        expectedChallenge: pending.challenge,
-        expectedOrigin: this.getExpectedOrigins(securityConfig),
-        expectedRPID: this.getRpId(securityConfig),
-        requireUserVerification: false,
-      })
+    const verification = await verifyRegistrationResponse({
+      response: parsed.response as never,
+      expectedChallenge: pending.challenge,
+      expectedOrigin: this.getExpectedOrigins(securityConfig),
+      expectedRPID: this.getRpId(securityConfig),
+      requireUserVerification: false,
+    })
 
-      if (!verification.verified || !verification.registrationInfo) {
-        throw new Error('Passkey registration verification failed')
-      }
-
-      const registrationInfo = verification.registrationInfo as {
-        credential?: {
-          id: string
-          publicKey: Uint8Array
-          counter: number
-          transports?: string[]
-        }
-        credentialID?: string
-        credentialPublicKey?: Uint8Array
-        counter?: number
-      }
-
-      const credentialId = registrationInfo.credential?.id ?? registrationInfo.credentialID
-      const publicKeyBytes = registrationInfo.credential?.publicKey ?? registrationInfo.credentialPublicKey
-      const counter = registrationInfo.credential?.counter ?? registrationInfo.counter ?? 0
-      const transports = this.normalizeTransports(registrationInfo.credential?.transports)
-
-      if (!credentialId || !publicKeyBytes) {
-        throw new Error('Passkey registration did not return credential data')
-      }
-
-      return {
-        metadata: {
-          credentialId,
-          credentialPublicKey: this.bytesToBase64Url(publicKeyBytes),
-          counter,
-          transports,
-          label: parsed.label ?? pending.label ?? 'Passkey',
-        },
-      }
+    if (!verification.verified || !verification.registrationInfo) {
+      throw new Error('Passkey registration verification failed')
     }
 
-    if (parsed.challenge !== pending.challenge) {
-      throw new Error('Invalid passkey setup challenge')
+    const registrationInfo = verification.registrationInfo as {
+      credential?: {
+        id: string
+        publicKey: Uint8Array
+        counter: number
+        transports?: string[]
+      }
+      credentialID?: string
+      credentialPublicKey?: Uint8Array
+      counter?: number
+    }
+
+    const credentialId = registrationInfo.credential?.id ?? registrationInfo.credentialID
+    const publicKeyBytes = registrationInfo.credential?.publicKey ?? registrationInfo.credentialPublicKey
+    const counter = registrationInfo.credential?.counter ?? registrationInfo.counter ?? 0
+    const transports = this.normalizeTransports(registrationInfo.credential?.transports)
+
+    if (!credentialId || !publicKeyBytes) {
+      throw new Error('Passkey registration did not return credential data')
     }
 
     return {
       metadata: {
-        credentialId: parsed.credentialId,
-        credentialPublicKey: parsed.publicKey,
-        counter: 0,
-        transports: parsed.transports ?? [],
+        credentialId,
+        credentialPublicKey: this.bytesToBase64Url(publicKeyBytes),
+        counter,
+        transports,
         label: parsed.label ?? pending.label ?? 'Passkey',
       },
     }
