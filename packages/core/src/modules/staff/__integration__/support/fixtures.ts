@@ -1,5 +1,6 @@
 import { expect, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { acknowledgeGlobalNotices } from '@open-mercato/core/helpers/integration/auth'
 import { createUserFixture, deleteUserIfExists } from '@open-mercato/core/helpers/integration/authFixtures'
 import { deleteAttachmentIfExists } from '@open-mercato/core/helpers/integration/attachmentsFixtures'
 import {
@@ -485,6 +486,7 @@ export async function loginStaffInBrowser(page: BrowserPage, person: { email: st
     data: form.toString(),
   })
   expect(response.ok(), `staff login failed: ${response.status()}`).toBeTruthy()
+  await acknowledgeGlobalNotices(page)
   await page.goto('/backend', { waitUntil: 'domcontentloaded' })
   await page.waitForURL(/\/backend/, { timeout: 60_000 })
 }
@@ -499,6 +501,7 @@ export async function usePortalSessionInBrowser(page: BrowserPage, customer: Por
     { name: 'customer_auth_token', value: customer.session.authToken, url: baseUrl(), sameSite: 'Lax' },
     { name: 'customer_session_token', value: customer.session.sessionToken, url: baseUrl(), sameSite: 'Lax' },
   ])
+  await acknowledgeGlobalNotices(page)
 }
 
 export async function dismissNotices(page: BrowserPage): Promise<void> {

@@ -51,8 +51,13 @@ export default function PortalSupportTicketsPage({ params }: Props) {
     if (!loading && !user) replaceWithPageReload(`/${params.orgSlug}/portal/login`)
   }, [loading, user, params.orgSlug])
 
+  const loadSeqRef = React.useRef(0)
+
   const load = React.useCallback(async (options: { silent?: boolean } = {}) => {
     if (!user) return
+    const requestSeq = loadSeqRef.current + 1
+    loadSeqRef.current = requestSeq
+    const isStale = () => requestSeq !== loadSeqRef.current
     if (!options.silent) setIsLoading(true)
     setError(null)
     try {
@@ -63,6 +68,7 @@ export default function PortalSupportTicketsPage({ params }: Props) {
         }),
         apiCall<PortalSupportOptions>('/api/staff/portal/support-tickets/options', { credentials: 'include' }),
       ])
+      if (isStale()) return
       if (!list.ok) {
         setError(t('staff.portal.support.loadFailed', 'Could not load your support tickets.'))
         if (!options.silent) setTickets([])
@@ -72,11 +78,12 @@ export default function PortalSupportTicketsPage({ params }: Props) {
       setTotalPages(Math.max(1, list.result?.totalPages ?? 1))
       setOptions(opts.ok ? opts.result : null)
     } catch (err) {
+      if (isStale()) return
       getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.portal_support_list_failed' })
       setError(t('staff.portal.support.loadFailed', 'Could not load your support tickets.'))
       if (!options.silent) setTickets([])
     } finally {
-      setIsLoading(false)
+      if (!isStale()) setIsLoading(false)
     }
   }, [user, page, status, t])
 

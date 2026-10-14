@@ -15,12 +15,19 @@ type Scope = { tenantId: string; organizationId: string }
 
 export type PortalUpdateKind = 'status' | 'reply'
 
+/**
+ * `version` names the change being announced (the task version for a status change,
+ * the comment for a reply). The portal event bridge drops an event whose payload
+ * repeats one seen in the last 500 ms, so two different changes must never produce
+ * identical payloads, while two publishers of the same change still collapse.
+ */
 async function emitPortalUpdate(
   em: EntityManager,
   task: StaffTimeTask,
   ticket: StaffSupportTicket,
   portalStatus: string,
   kind: PortalUpdateKind,
+  version: string,
 ): Promise<boolean> {
   if (!task.customerId) return false
   const recipientUserIds = await resolvePortalRecipientUserIds(em, {
@@ -39,6 +46,7 @@ async function emitPortalUpdate(
       supportReference: ticket.supportReference,
       portalStatus,
       kind,
+      version,
       recipientUserIds,
     },
     { persistent: true },
@@ -93,7 +101,7 @@ export async function publishTaskPortalStatus(
     ticket.updatedAt = new Date()
     await em.flush()
   }
-  await emitPortalUpdate(em, task, ticket, portalStatus, 'status')
+  await emitPortalUpdate(em, task, ticket, portalStatus, 'status', task.updatedAt ? task.updatedAt.toISOString() : task.id)
   emitActivity(task, ticket, 'portal_status')
   return true
 }
@@ -120,14 +128,14 @@ export async function fanOutStatusColumn(em: EntityManager, taskStatusId: string
 
 /** A customer-visible comment was published, retracted or deleted: tell the ticket's own customer users to refetch. */
 export async function publishTicketReply(em: EntityManager, commentId: string, scope: Scope): Promise<boolean> {
-  const comment = await em.findOne(StaffTimeTaskComment, { id: commentId, ...scope }, { fields: ['id', 'taskId'] })
+  const comment = await em.findOne(StaffTimeTaskComment, { id: commentId, ...scope }, { fields: ['id', 'taskId', 'updatedAt'] })
   if (!comment) return false
   const task = await em.findOne(StaffTimeTask, { id: comment.taskId, ...scope, source: 'portal', deletedAt: null })
   if (!task) return false
   const ticket = await findOneWithDecryption(em, StaffSupportTicket, { taskId: task.id, ...scope, deletedAt: null }, undefined, scope)
   if (!ticket) return false
   const status = await em.findOne(StaffTimeTaskStatus, { id: task.taskStatusId, ...scope }, { fields: ['id', 'isDefault', 'isDone'] })
-  return emitPortalUpdate(em, task, ticket, derivePortalStatus(status), 'reply')
+  return emitPortalUpdate(em, task, ticket, derivePortalStatus(status), 'reply', `${comment.id}:${comment.updatedAt ? comment.updatedAt.toISOString() : ''}`)
 }
 
 export function readEventScope(payload: { tenantId?: unknown; organizationId?: unknown }): Scope | null {

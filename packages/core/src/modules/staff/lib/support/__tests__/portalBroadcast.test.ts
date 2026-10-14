@@ -20,7 +20,7 @@ import { PORTAL_FANOUT_BATCH_SIZE, fanOutStatusColumn, publishTaskPortalStatus }
 
 const SCOPE = { tenantId: 'tenant-1', organizationId: 'org-1' }
 
-type TaskRow = { id: string; taskStatusId: string; customerId: string | null; source: string; timeProjectId: string; tenantId: string; organizationId: string; deletedAt: Date | null }
+type TaskRow = { id: string; taskStatusId: string; customerId: string | null; source: string; timeProjectId: string; tenantId: string; organizationId: string; deletedAt: Date | null; updatedAt?: Date }
 type TicketRow = { id: string; taskId: string; supportReference: string; portalStatusPublished: string | null; updatedAt: Date; deletedAt: Date | null }
 type StatusRow = { id: string; isDefault: boolean; isDone: boolean }
 
@@ -114,6 +114,23 @@ describe('publishTaskPortalStatus', () => {
     expect(flush).not.toHaveBeenCalled()
     expect(portalUpdates()).toHaveLength(1)
     expect(portalUpdates()[0][1]).toEqual(expect.objectContaining({ portalStatus: 'resolved', kind: 'status' }))
+  })
+
+  it('tags each status announcement with the task version, so the portal bridge never collapses two different changes', async () => {
+    const first = { ...task('t1', 'done'), updatedAt: new Date('2026-10-14T10:00:00.000Z') }
+    const world: World = {
+      tasks: [first],
+      tickets: [ticket('t1', 'resolved')],
+      statuses: [{ id: 'done', isDefault: false, isDone: true }],
+    }
+    const { em } = makeEm(world)
+
+    await publishTaskPortalStatus(em, 't1', SCOPE, { always: true })
+    first.updatedAt = new Date('2026-10-14T10:00:00.400Z')
+    await publishTaskPortalStatus(em, 't1', SCOPE, { always: true })
+
+    const versions = portalUpdates().map((call) => (call[1] as { version?: string }).version)
+    expect(versions).toEqual(['2026-10-14T10:00:00.000Z', '2026-10-14T10:00:00.400Z'])
   })
 
   it('ignores internal tasks and tasks without a ticket row', async () => {

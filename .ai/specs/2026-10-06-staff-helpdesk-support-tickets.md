@@ -765,3 +765,7 @@ The step-level test IDs above were planned before implementation. The suite ship
   - Event payload schemas for `staff.support_ticket.*` are in `events.payloads.ts`; `UPGRADE_NOTES.md` lists the steps for existing tenants.
   - Deferred: the portal attachment validator and upload error map duplicate `warranty_claims`' copies (a shared attachments lib would touch other modules); the TaskDrawer assignee select and the board's assignee directory still call `/api/staff/team-members` (`staff.view`), as before this feature.
 
+- **2026-10-14** — Portal live-update hardening (found by repeated `TC-STAFF-SUP-010` runs):
+  - `portal_updated` carries a `version` (the task's `updatedAt` for a status change, the comment id and `updatedAt` for a reply). The portal event bridge drops a payload repeated within 500 ms, so a resolve → reply → resolve sequence inside half a second used to lose the final update.
+  - A `status_changed` trigger always announces the current derived status; generic task updates keep compare-and-publish.
+  - The portal ticket page, the ticket list and the dashboard widget ignore responses from superseded fetches, so an older response can no longer overwrite a newer one.

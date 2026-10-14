@@ -322,6 +322,8 @@ const supportTicketPortalUpdated = scope
     supportReference: z.string(),
     portalStatus: z.enum(['received', 'in_progress', 'resolved']),
     kind: z.enum(['status', 'reply']),
+    /** The change announced: the task version for `status`, the comment id for `reply`. Keeps distinct changes distinct for the portal bridge's 500 ms duplicate filter. */
+    version: z.string().optional(),
     /**
      * The portal SSE stream narrows a broadcast to these customer-user ids. The
      * emitter never publishes this event with an empty list, so a ticket update can

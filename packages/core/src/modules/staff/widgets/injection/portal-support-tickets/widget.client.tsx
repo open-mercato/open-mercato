@@ -40,13 +40,19 @@ export default function PortalSupportTicketsWidget({ context }: InjectionWidgetC
   const [loading, setLoading] = React.useState(true)
   const [loadFailed, setLoadFailed] = React.useState(false)
 
+  const loadSeqRef = React.useRef(0)
+
   const load = React.useCallback(async () => {
+    const requestSeq = loadSeqRef.current + 1
+    loadSeqRef.current = requestSeq
+    const isStale = () => requestSeq !== loadSeqRef.current
     try {
       const [received, inProgress, options] = await Promise.all([
         apiCall<PortalSupportTicketList>(`/api/staff/portal/support-tickets?status=received&pageSize=${MAX_ITEMS}`, { credentials: 'include' }),
         apiCall<PortalSupportTicketList>(`/api/staff/portal/support-tickets?status=in_progress&pageSize=${MAX_ITEMS}`, { credentials: 'include' }),
         apiCall<PortalSupportOptions>('/api/staff/portal/support-tickets/options', { credentials: 'include' }),
       ])
+      if (isStale()) return
       if (!received.ok || !inProgress.ok) {
         setLoadFailed(true)
         return
@@ -59,9 +65,9 @@ export default function PortalSupportTicketsWidget({ context }: InjectionWidgetC
       setOpenCount((received.result?.total ?? 0) + (inProgress.result?.total ?? 0))
       setCanCreate(options.ok && options.result?.canCreate === true)
     } catch {
-      setLoadFailed(true)
+      if (!isStale()) setLoadFailed(true)
     } finally {
-      setLoading(false)
+      if (!isStale()) setLoading(false)
     }
   }, [])
 

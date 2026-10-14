@@ -101,13 +101,19 @@ export default function PortalSupportTicketDetailPage({ params }: Props) {
     }
   }, [user])
 
+  const loadSeqRef = React.useRef(0)
+
   const load = React.useCallback(async () => {
     if (!user) return
+    const requestSeq = loadSeqRef.current + 1
+    loadSeqRef.current = requestSeq
+    const isStale = () => requestSeq !== loadSeqRef.current
     setError(null)
     try {
       const detail = await apiCall<PortalSupportTicketDetail>(`/api/staff/portal/support-tickets/${encodeURIComponent(params.id)}`, {
         credentials: 'include',
       })
+      if (isStale()) return
       if (detail.status === 404) {
         setNotFound(true)
         setTicket(null)
@@ -121,10 +127,11 @@ export default function PortalSupportTicketDetailPage({ params }: Props) {
       setTicket(detail.result)
       setAttachments(detail.result.attachments ?? [])
     } catch (err) {
+      if (isStale()) return
       getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.portal_support_detail_failed' })
       setError(t('staff.portal.support.detail.loadFailed', 'Could not load this ticket.'))
     } finally {
-      setIsLoading(false)
+      if (!isStale()) setIsLoading(false)
     }
   }, [user, params.id, t])
 
