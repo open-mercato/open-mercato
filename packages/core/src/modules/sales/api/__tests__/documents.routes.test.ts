@@ -172,6 +172,78 @@ describe('sales document update routes', () => {
   })
 })
 
+describe('sales order due date on the documents API', () => {
+  beforeEach(async () => {
+    jest.clearAllMocks()
+    setupEntityMocks()
+    await setupRequestScopeMocks()
+  })
+
+  it('passes dueAt to the update command and returns it as an ISO string', async () => {
+    const orderId = '22222222-2222-4222-8222-222222222222'
+    mockCommandBus.execute.mockResolvedValue({
+      result: { order: { id: orderId, dueAt: new Date('2026-11-30T00:00:00.000Z') } },
+      logEntry: null,
+    })
+
+    const res = await updateOrder(makeRequest({ id: orderId, dueAt: '2026-11-30' }))
+
+    expect(res.status).toBe(200)
+    expect(mockCommandBus.execute).toHaveBeenCalledWith(
+      'sales.orders.update',
+      expect.objectContaining({ input: expect.objectContaining({ id: orderId, dueAt: '2026-11-30' }) }),
+    )
+    await expect(res.json()).resolves.toMatchObject({ dueAt: '2026-11-30T00:00:00.000Z' })
+  })
+
+  it('returns dueAt as null once it is cleared', async () => {
+    const orderId = '22222222-2222-4222-8222-222222222222'
+    mockCommandBus.execute.mockResolvedValue({
+      result: { order: { id: orderId, dueAt: null } },
+      logEntry: null,
+    })
+
+    const res = await updateOrder(makeRequest({ id: orderId, dueAt: null }))
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({ dueAt: null })
+  })
+
+  it('documents dueAt on list items and dueFrom/dueTo on the list query', () => {
+    const get = orderOpenApi.methods?.GET
+    const query = get?.query?.safeParse({ dueFrom: '2026-11-01', dueTo: '2026-11-30' })
+    expect(query?.data).toMatchObject({ dueFrom: '2026-11-01', dueTo: '2026-11-30' })
+
+    const listSchema = get?.responses?.find((response) => response.status === 200)?.schema
+    const parsed = listSchema?.safeParse({
+      items: [
+        {
+          id: '22222222-2222-4222-8222-222222222222',
+          orderNumber: 'O-1',
+          status: null,
+          customerEntityId: null,
+          customerContactId: null,
+          billingAddressId: null,
+          shippingAddressId: null,
+          currencyCode: 'USD',
+          channelId: null,
+          organizationId: null,
+          tenantId: null,
+          dueAt: '2026-11-30T00:00:00.000Z',
+          createdAt: '2026-10-01T00:00:00.000Z',
+          updatedAt: '2026-10-01T00:00:00.000Z',
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 50,
+      totalPages: 1,
+    })
+    expect(parsed?.success).toBe(true)
+    expect((parsed?.data as { items: Array<{ dueAt?: string }> }).items[0].dueAt).toBe('2026-11-30T00:00:00.000Z')
+  })
+})
+
 describe('sales order create route payment-ledger compatibility', () => {
   beforeEach(async () => {
     jest.clearAllMocks()
