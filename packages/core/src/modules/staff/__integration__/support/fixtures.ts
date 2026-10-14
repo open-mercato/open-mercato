@@ -1,6 +1,7 @@
 import { expect, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { createUserFixture, deleteUserIfExists } from '@open-mercato/core/helpers/integration/authFixtures'
+import { deleteAttachmentIfExists } from '@open-mercato/core/helpers/integration/attachmentsFixtures'
 import {
   createCustomerCompanyFixture,
   createCustomerRoleFixture,
@@ -254,13 +255,22 @@ export async function routingPreview(request: APIRequestContext, admin: string):
   )
 }
 
-/** Makes sure a fallback rule exists and returns it. Never deletes it (it cannot be deleted). */
-export async function ensureFallback(request: APIRequestContext, admin: string): Promise<{ ruleId: string; timeProjectId: string }> {
-  const body = await okJson<{ ruleId: string; timeProjectId: string }>(
+/**
+ * Makes sure a fallback rule exists and returns it. Tenant setup (`seedDefaults`) already
+ * creates this rule and its "Customer support" project, so `created` is normally false.
+ * When a spec does create it, it is kept on purpose: the fallback rule cannot be deleted
+ * or paused through the API, and deleting its project would leave the organization with
+ * an unusable fallback, which is worse than the seeded state the rule now matches.
+ */
+export async function ensureFallback(
+  request: APIRequestContext,
+  admin: string,
+): Promise<{ ruleId: string; timeProjectId: string; created: boolean }> {
+  const body = await okJson<{ ruleId: string; timeProjectId: string; created?: boolean }>(
     await apiRequest(request, 'POST', '/api/staff/timesheets/support-routing-rules/fallback-project', { token: admin }),
     'ensure fallback project',
   )
-  return body
+  return { ruleId: body.ruleId, timeProjectId: body.timeProjectId, created: body.created === true }
 }
 
 /**
@@ -376,6 +386,23 @@ export async function fileTicket(
 
 export async function deleteTask(request: APIRequestContext, admin: string, taskId: string) {
   return apiRequest(request, 'DELETE', `/api/staff/timesheets/tasks?id=${taskId}`, { token: admin })
+}
+
+/**
+ * Registers a cleanup step that deletes every file attached to the ticket, including
+ * customer uploads and files uploaded through the browser, before the task is deleted.
+ */
+export function cleanupTicketAttachments(request: APIRequestContext, admin: string, cleanup: Cleanup, taskId: string): void {
+  cleanup.add(async () => {
+    const response = await apiRequest(
+      request,
+      'GET',
+      `/api/attachments?entityId=${encodeURIComponent('staff:staff_time_task')}&recordId=${encodeURIComponent(taskId)}`,
+      { token: admin },
+    )
+    const items = (await readJsonSafe<{ items?: Array<{ id: string }> }>(response))?.items ?? []
+    for (const item of items) await deleteAttachmentIfExists(request, admin, item.id)
+  })
 }
 
 export type PortalTicketDetail = {

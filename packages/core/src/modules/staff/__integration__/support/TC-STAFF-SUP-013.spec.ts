@@ -15,6 +15,7 @@ import {
   PORTAL_MANAGE,
   PORTAL_VIEW,
   adminToken,
+  cleanupTicketAttachments,
   createCategory,
   createPortalCustomer,
   createProject,
@@ -71,6 +72,7 @@ test.describe('TC-STAFF-SUP-013: Support ticket attachments', () => {
       const stranger = await createPortalCustomer(request, admin, cleanup, { features: [PORTAL_VIEW, PORTAL_MANAGE], label: 'files-stranger' })
       const ticket = await fileTicket(request, buyer, { categoryValue: category.value })
       cleanup.add(() => deleteTask(request, admin, ticket.id))
+      cleanupTicketAttachments(request, admin, cleanup, ticket.id)
 
       const upload = await uploadAsCustomer(request, buyer, ticket.id, 'error-log.txt')
       expect(upload.status()).toBe(201)
@@ -178,6 +180,7 @@ test.describe('TC-STAFF-SUP-013: Support ticket attachments', () => {
       await page.waitForURL(new RegExp(`/${slug}/portal/support/[0-9a-f-]{36}$`), { timeout: 60_000 })
       const taskId = page.url().split('/').pop() as string
       cleanup.add(() => deleteTask(request, admin, taskId))
+      cleanupTicketAttachments(request, admin, cleanup, taskId)
       await expect(page.getByTestId('support-attachments').getByText('broken-report.txt')).toBeVisible({ timeout: 60_000 })
       const listed = await listPortalAttachments(request, buyer, taskId)
       expect(listed.items.map((item) => item.fileName)).toContain('broken-report.txt')

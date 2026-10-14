@@ -4,16 +4,19 @@
  * Comments default to internal; only portal tickets can carry customer-visible
  * replies; customer messages are immutable for staff, managers included; a retracted
  * reply disappears from the portal; the portal never sees staff-edited task text,
- * the project or the internal task reference; ticket creation is rate limited.
+ * the project or the internal task reference; ticket creation and file uploads are
+ * rate limited per customer user.
  */
 import { expect, test } from '@playwright/test'
 import { apiRequest } from '@open-mercato/core/helpers/integration/api'
+import { portalCookieHeaders } from '@open-mercato/core/helpers/integration/customerAccountsFixtures'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
   Cleanup,
   PORTAL_MANAGE,
   PORTAL_VIEW,
   adminToken,
+  cleanupTicketAttachments,
   createCategory,
   createPortalCustomer,
   createProject,
@@ -138,6 +141,35 @@ test.describe('TC-STAFF-SUP-014: Conversation visibility and portal hygiene', ()
       }
       expect(statuses.slice(0, 10).every((status) => status === 201)).toBe(true)
       expect(statuses[10]).toBe(429)
+    } finally {
+      await cleanup.run()
+    }
+  })
+
+  test('file uploads are rate limited per customer user', async ({ request }) => {
+    test.setTimeout(240_000)
+    const cleanup = new Cleanup()
+    try {
+      const admin = await adminToken(request)
+      const project = await createProject(request, admin, cleanup, 'upload-limit')
+      await pointFallbackAt(request, admin, cleanup, project.id)
+      const category = await createCategory(request, admin, cleanup, 'upload-limit')
+      const customer = await createPortalCustomer(request, admin, cleanup, { features: [PORTAL_VIEW, PORTAL_MANAGE], label: 'upload-limit' })
+      const ticket = await fileTicket(request, customer, { categoryValue: category.value })
+      cleanup.add(() => deleteTask(request, admin, ticket.id))
+      cleanupTicketAttachments(request, admin, cleanup, ticket.id)
+      const uploadLimit = Number(process.env.RATE_LIMIT_STAFF_SUPPORT_TICKET_UPLOAD_POINTS || 30)
+      const statuses: number[] = []
+      for (let attempt = 0; attempt <= uploadLimit; attempt += 1) {
+        const response = await request.fetch(`/api/staff/portal/support-tickets/${ticket.id}/attachments`, {
+          method: 'POST',
+          headers: portalCookieHeaders(customer.session),
+          multipart: { file: { name: `probe-${attempt}.txt`, mimeType: 'text/plain', buffer: Buffer.from(`probe ${attempt}`) } },
+        })
+        statuses.push(response.status())
+      }
+      expect(statuses.slice(0, uploadLimit).every((status) => status === 201), `upload statuses: ${statuses.join(',')}`).toBe(true)
+      expect(statuses[uploadLimit]).toBe(429)
     } finally {
       await cleanup.run()
     }
