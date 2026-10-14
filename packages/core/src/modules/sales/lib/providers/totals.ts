@@ -1,3 +1,10 @@
+import {
+  decimalToNumber,
+  decimalToString,
+  resolveExactDecimal,
+  toDecimal,
+  type DecimalValue,
+} from '@open-mercato/shared/lib/decimal'
 import { registerSalesTotalsCalculator, rebuildDocumentResult } from '../calculations'
 import type { SalesAdjustmentDraft, SalesDocumentCalculationResult } from '../types'
 import {
@@ -24,6 +31,10 @@ function toNumber(value: unknown, fallback = 0): number {
     return Number(value)
   }
   return fallback
+}
+
+function exactOrZero(exact: unknown, legacy: unknown): DecimalValue {
+  return toDecimal(resolveExactDecimal(exact, legacy) ?? 0)
 }
 
 function isProviderAdjustment(adjustment: SalesAdjustmentDraft): boolean {
@@ -67,15 +78,15 @@ function computeMetrics(lines: SalesDocumentCalculationResult['lines']): Shippin
   let itemCount = 0
   let totalWeight = 0
   let totalVolume = 0
-  let subtotalNet = 0
-  let subtotalGross = 0
+  let subtotalNet = toDecimal(0)
+  let subtotalGross = toDecimal(0)
 
   for (const entry of lines) {
     const { line } = entry
     const qty = toNumber(line.quantity, 0)
     itemCount += qty
-    subtotalNet += toNumber(entry.netAmount, 0)
-    subtotalGross += toNumber(entry.grossAmount, 0)
+    subtotalNet = subtotalNet.plus(exactOrZero(entry.netAmountExact, entry.netAmount))
+    subtotalGross = subtotalGross.plus(exactOrZero(entry.grossAmountExact, entry.grossAmount))
 
     const meta = (line.metadata ?? {}) as Record<string, unknown>
     const configuration = (line.configuration ?? {}) as Record<string, unknown>
@@ -97,8 +108,10 @@ function computeMetrics(lines: SalesDocumentCalculationResult['lines']): Shippin
     itemCount,
     totalWeight,
     totalVolume,
-    subtotalNet,
-    subtotalGross,
+    subtotalNet: decimalToNumber(subtotalNet),
+    subtotalNetExact: decimalToString(subtotalNet),
+    subtotalGross: decimalToNumber(subtotalGross),
+    subtotalGrossExact: decimalToString(subtotalGross),
   }
 }
 
@@ -109,23 +122,29 @@ function normalizeAdjustments(params: {
   currencyCode: string
   defaultKind: SalesAdjustmentDraft['kind']
 }) {
-  return params.adjustments.map<SalesAdjustmentDraft>((adj, index) => ({
-    scope: 'order',
-    kind: adj.kind ?? params.defaultKind,
-    code: adj.code ?? params.providerKey,
-    label: adj.label ?? params.providerKey,
-    calculatorKey: params.calculatorKey,
-    promotionId: null,
-    rate: null,
-    amountNet: toNumber(adj.amountNet, 0),
-    amountGross:
-      adj.amountGross === undefined || adj.amountGross === null
-        ? toNumber(adj.amountNet, 0)
-        : toNumber(adj.amountGross, 0),
-    currencyCode: (adj.currencyCode || params.currencyCode || '').toUpperCase() || params.currencyCode,
-    metadata: adj.metadata ?? null,
-    position: 10_000 + index,
-  }))
+  return params.adjustments.map<SalesAdjustmentDraft>((adj, index) => {
+    const amountNet = exactOrZero(adj.amountNetExact, adj.amountNet)
+    const hasGross =
+      (adj.amountGross !== undefined && adj.amountGross !== null) ||
+      (adj.amountGrossExact !== undefined && adj.amountGrossExact !== null)
+    const amountGross = hasGross ? exactOrZero(adj.amountGrossExact, adj.amountGross) : amountNet
+    return {
+      scope: 'order',
+      kind: adj.kind ?? params.defaultKind,
+      code: adj.code ?? params.providerKey,
+      label: adj.label ?? params.providerKey,
+      calculatorKey: params.calculatorKey,
+      promotionId: null,
+      rate: null,
+      amountNet: decimalToNumber(amountNet),
+      amountNetExact: decimalToString(amountNet),
+      amountGross: decimalToNumber(amountGross),
+      amountGrossExact: decimalToString(amountGross),
+      currencyCode: (adj.currencyCode || params.currencyCode || '').toUpperCase() || params.currencyCode,
+      metadata: adj.metadata ?? null,
+      position: 10_000 + index,
+    }
+  })
 }
 
 function mergeMetadata(
@@ -144,7 +163,8 @@ function applyProviderResult(
   providerKey: string,
   calculatorKey: string,
   result: ProviderAdjustmentResult | null | undefined,
-  defaultKind: SalesAdjustmentDraft['kind']
+  defaultKind: SalesAdjustmentDraft['kind'],
+  amountDecimalPlaces?: number
 ): SalesDocumentCalculationResult {
   if (!result?.adjustments?.length) {
     return rebuildDocumentResult({
@@ -153,6 +173,7 @@ function applyProviderResult(
       lines: current.lines,
       adjustments,
       metadata: current.metadata,
+      amountDecimalPlaces,
     })
   }
   const normalized = normalizeAdjustments({
@@ -169,6 +190,7 @@ function applyProviderResult(
     lines: current.lines,
     adjustments: nextAdjustments,
     metadata: current.metadata,
+    amountDecimalPlaces,
   })
   if (result.metadata) {
     next.metadata = mergeMetadata(next.metadata, calculatorKey, result.metadata)
@@ -194,6 +216,7 @@ export function ensureProviderTotalsCalculator() {
       lines,
       adjustments: runningAdjustments,
       metadata: current.metadata,
+      amountDecimalPlaces: context.amountDecimalPlaces,
     })
 
     if (shippingMethod?.providerKey) {
@@ -211,6 +234,7 @@ export function ensureProviderTotalsCalculator() {
             lines: working.lines,
             adjustments: runningAdjustments,
             metadata: working.metadata,
+            amountDecimalPlaces: context.amountDecimalPlaces,
           })
         } else {
           const rawSettings = extractProviderSettings(shippingMethod)
@@ -239,7 +263,7 @@ export function ensureProviderTotalsCalculator() {
               },
             })
           }
-          working = applyProviderResult(working, runningAdjustments, provider.key, calculatorKey, result, 'shipping')
+          working = applyProviderResult(working, runningAdjustments, provider.key, calculatorKey, result, 'shipping', context.amountDecimalPlaces)
           runningAdjustments = working.adjustments
           if (eventBus) {
             let nextDocument = working
@@ -269,6 +293,7 @@ export function ensureProviderTotalsCalculator() {
                   lines: nextDocument.lines,
                   adjustments: [...preserved, ...next],
                   metadata: nextDocument.metadata,
+                  amountDecimalPlaces: context.amountDecimalPlaces,
                 })
               },
             })
@@ -293,6 +318,7 @@ export function ensureProviderTotalsCalculator() {
             lines: working.lines,
             adjustments: runningAdjustments,
             metadata: working.metadata,
+            amountDecimalPlaces: context.amountDecimalPlaces,
           })
         } else {
           runningAdjustments = withoutPrefix(runningAdjustments, PAYMENT_PREFIX)
@@ -326,7 +352,8 @@ export function ensureProviderTotalsCalculator() {
             provider.key,
             calculatorKey,
             result,
-            'surcharge'
+            'surcharge',
+            context.amountDecimalPlaces
           )
           runningAdjustments = working.adjustments
           if (eventBus) {
@@ -357,6 +384,7 @@ export function ensureProviderTotalsCalculator() {
                   lines: nextDocument.lines,
                   adjustments: [...preserved, ...next],
                   metadata: nextDocument.metadata,
+                  amountDecimalPlaces: context.amountDecimalPlaces,
                 })
               },
             })

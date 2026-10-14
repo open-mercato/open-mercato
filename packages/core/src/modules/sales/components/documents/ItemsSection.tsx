@@ -25,9 +25,13 @@ import { handleSectionMutationError } from "./optimisticLock";
 import type { SalesLineRecord } from "./lineItemTypes";
 import {
   formatMoney,
+  grossFromNet,
+  netFromGross,
   normalizeNumber,
   resolveLineDiscountDisplay,
+  toExactAmount,
 } from "./lineItemUtils";
+import { decimalToNumber, decimalToString, multiplyDecimals } from "@open-mercato/shared/lib/decimal";
 import type { SectionAction } from "@open-mercato/ui/backend/detail";
 import { extractCustomFieldValues } from "./customFieldHelpers";
 import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
@@ -40,7 +44,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 const logger = createLogger('sales')
 
 type ResolvedUnitPriceReference = {
-  grossPerReference: number;
+  grossPerReference: string;
   referenceUnitCode: string;
 };
 
@@ -86,11 +90,10 @@ function resolveUnitPriceReference(
   if (!ref || !isPlainObject(ref)) return null;
 
   const refRecord = ref as Record<string, unknown>;
-  const grossPerReference = normalizeNumber(
+  const grossPerReference = toExactAmount(
     refRecord.grossPerReference ?? refRecord.gross_per_reference,
-    Number.NaN,
   );
-  if (!Number.isFinite(grossPerReference)) return null;
+  if (grossPerReference === null) return null;
 
   const referenceUnitCode =
     typeof refRecord.referenceUnitCode === "string"
@@ -312,38 +315,30 @@ export function SalesDocumentItemsSection({
             const normalizedUnit =
               canonicalizeUnitCode(uomFields.normalizedUnit) ?? quantityUnit;
             const uomSnapshot = uomFields.uomSnapshot;
-            const unitPriceNetRaw = normalizeNumber(
+            const unitPriceNetRaw = toExactAmount(
               item.unit_price_net ?? item.unitPriceNet,
-              Number.NaN,
             );
-            const unitPriceGrossRaw = normalizeNumber(
+            const unitPriceGrossRaw = toExactAmount(
               item.unit_price_gross ?? item.unitPriceGross,
-              Number.NaN,
             );
-            const unitPriceNet = Number.isFinite(unitPriceNetRaw)
-              ? unitPriceNetRaw
-              : Number.isFinite(unitPriceGrossRaw)
-                ? unitPriceGrossRaw / (1 + taxRate / 100)
-                : 0;
-            const unitPriceGross = Number.isFinite(unitPriceGrossRaw)
-              ? unitPriceGrossRaw
-              : Number.isFinite(unitPriceNetRaw)
-                ? unitPriceNetRaw * (1 + taxRate / 100)
-                : 0;
-            const totalNetRaw = normalizeNumber(
-              item.total_net_amount ?? item.totalNetAmount,
-              Number.NaN,
-            );
-            const totalGrossRaw = normalizeNumber(
-              item.total_gross_amount ?? item.totalGrossAmount,
-              Number.NaN,
-            );
-            const totalNet = Number.isFinite(totalNetRaw)
-              ? totalNetRaw
-              : unitPriceNet * quantity;
-            const totalGross = Number.isFinite(totalGrossRaw)
-              ? totalGrossRaw
-              : unitPriceGross * quantity;
+            const unitPriceNetExact =
+              unitPriceNetRaw ??
+              (unitPriceGrossRaw !== null
+                ? netFromGross(unitPriceGrossRaw, taxRate)
+                : "0");
+            const unitPriceGrossExact =
+              unitPriceGrossRaw ??
+              (unitPriceNetRaw !== null
+                ? grossFromNet(unitPriceNetRaw, taxRate)
+                : "0");
+            const totalNetExact =
+              toExactAmount(item.total_net_amount ?? item.totalNetAmount) ??
+              decimalToString(multiplyDecimals(unitPriceNetExact, quantity));
+            const totalGrossExact =
+              toExactAmount(item.total_gross_amount ?? item.totalGrossAmount) ??
+              decimalToString(multiplyDecimals(unitPriceGrossExact, quantity));
+            const discountAmountExact =
+              toExactAmount(item.discount_amount ?? item.discountAmount) ?? "0";
             const priceModeRaw =
               item.metadata &&
               typeof item.metadata === "object"
@@ -383,19 +378,21 @@ export function SalesDocumentItemsSection({
                   : typeof currencyCode === "string"
                     ? currencyCode
                     : null,
-              unitPriceNet,
-              unitPriceGross,
-              discountAmount: normalizeNumber(
-                item.discount_amount ?? item.discountAmount,
-                0,
-              ),
+              unitPriceNet: decimalToNumber(unitPriceNetExact),
+              unitPriceGross: decimalToNumber(unitPriceGrossExact),
+              unitPriceNetExact,
+              unitPriceGrossExact,
+              discountAmount: decimalToNumber(discountAmountExact),
+              discountAmountExact,
               discountPercent: normalizeNumber(
                 item.discount_percent ?? item.discountPercent,
                 0,
               ),
               taxRate,
-              totalNet,
-              totalGross,
+              totalNet: decimalToNumber(totalNetExact),
+              totalGross: decimalToNumber(totalGrossExact),
+              totalNetExact,
+              totalGrossExact,
               priceMode,
               uomSnapshot,
               metadata:
@@ -871,7 +868,7 @@ export function SalesDocumentItemsSection({
                       <div className="flex flex-col gap-0.5">
                         <span className="font-mono text-sm">
                           {formatMoney(
-                            item.unitPriceGross,
+                            item.unitPriceGrossExact ?? item.unitPriceGross,
                             item.currencyCode ?? currencyCode ?? undefined,
                             locale,
                           )}{" "}
@@ -881,7 +878,7 @@ export function SalesDocumentItemsSection({
                         </span>
                         <span className="font-mono text-xs text-muted-foreground">
                           {formatMoney(
-                            item.unitPriceNet,
+                            item.unitPriceNetExact ?? item.unitPriceNet,
                             item.currencyCode ?? currencyCode ?? undefined,
                             locale,
                           )}{" "}
@@ -918,7 +915,7 @@ export function SalesDocumentItemsSection({
                                   "−{{value}}",
                                   {
                                     value: formatMoney(
-                                      discount.amount,
+                                      item.discountAmountExact ?? discount.amount,
                                       item.currencyCode ??
                                         currencyCode ??
                                         undefined,
@@ -951,7 +948,7 @@ export function SalesDocumentItemsSection({
                       <div className="flex flex-col gap-0.5">
                         <span>
                           {formatMoney(
-                            item.totalGross,
+                            item.totalGrossExact ?? item.totalGross,
                             item.currencyCode ?? currencyCode ?? undefined,
                             locale,
                           )}{" "}
@@ -961,7 +958,7 @@ export function SalesDocumentItemsSection({
                         </span>
                         <span className="text-xs font-medium text-muted-foreground">
                           {formatMoney(
-                            item.totalNet,
+                            item.totalNetExact ?? item.totalNet,
                             item.currencyCode ?? currencyCode ?? undefined,
                             locale,
                           )}{" "}

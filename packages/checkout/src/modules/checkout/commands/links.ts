@@ -27,10 +27,10 @@ import {
   pickExplicitParsedOverrides,
   resolveLoadedCheckoutCustomFields,
   serializeTemplateOrLink,
-  toMoneyString,
   toTemplateOrLinkMutationInput,
   validateDescriptorCurrencies,
 } from '../lib/utils'
+import { roundCheckoutConfiguredAmounts, toStoredCheckoutAmounts } from '../lib/amountPrecision'
 import {
   captureLinkSnapshot,
   createLinkFromSnapshot,
@@ -110,17 +110,15 @@ const createLinkCommand: CommandHandler<Record<string, unknown>, { id: string; s
       sourceValues.slug ?? null,
       sourceValues.title ?? sourceValues.name,
     )
+    const roundedValues = await roundCheckoutConfiguredAmounts(ctx.container, scope, sourceValues)
     const link = em.create(CheckoutLink, {
-      ...sourceValues,
+      ...roundedValues,
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
       completionCount: 0,
       activeReservationCount: 0,
       isLocked: false,
-      fixedPriceAmount: toMoneyString(sourceValues.fixedPriceAmount),
-      fixedPriceOriginalAmount: toMoneyString(sourceValues.fixedPriceOriginalAmount),
-      customAmountMin: toMoneyString(sourceValues.customAmountMin),
-      customAmountMax: toMoneyString(sourceValues.customAmountMax),
+      ...toStoredCheckoutAmounts(roundedValues),
       slug,
       passwordHash: await hashCheckoutPassword(sourceValues.password),
     } as any)
@@ -310,12 +308,11 @@ const updateLinkCommand: CommandHandler<Record<string, unknown>, { ok: true; slu
       : link.slug
     const passwordHash = parsed.password !== undefined ? await hashCheckoutPassword(parsed.password) : link.passwordHash
     const previousStatus = link.status
+    const roundedValues = await roundCheckoutConfiguredAmounts(ctx.container, scope, nextValues)
     Object.assign(link, {
       ...parsed,
-      fixedPriceAmount: parsed.fixedPriceAmount !== undefined ? toMoneyString(parsed.fixedPriceAmount) : link.fixedPriceAmount,
-      fixedPriceOriginalAmount: parsed.fixedPriceOriginalAmount !== undefined ? toMoneyString(parsed.fixedPriceOriginalAmount) : link.fixedPriceOriginalAmount,
-      customAmountMin: parsed.customAmountMin !== undefined ? toMoneyString(parsed.customAmountMin) : link.customAmountMin,
-      customAmountMax: parsed.customAmountMax !== undefined ? toMoneyString(parsed.customAmountMax) : link.customAmountMax,
+      ...toStoredCheckoutAmounts(roundedValues),
+      priceListItems: roundedValues.priceListItems,
       slug,
       passwordHash,
     })

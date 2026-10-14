@@ -1,5 +1,6 @@
 import { OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import { ExactDecimalType } from '@open-mercato/shared/lib/db/exactDecimalType'
 
 @Entity({ tableName: 'gateway_transactions' })
 @Index({ properties: ['paymentId', 'organizationId', 'tenantId'] })
@@ -38,10 +39,10 @@ export class GatewayTransaction {
   @Property({ name: 'client_secret', type: 'text', nullable: true })
   clientSecret?: string | null
 
-  @Property({ name: 'amount', type: 'numeric', precision: 18, scale: 4 })
+  @Property({ name: 'amount', type: ExactDecimalType, columnType: 'numeric' })
   amount!: string
 
-  @Property({ name: 'captured_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'captured_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   capturedAmount: string = '0'
 
   @Property({ name: 'currency_code', type: 'text' })
@@ -121,7 +122,7 @@ export class GatewayPaymentOperation {
   @Property({ name: 'result', type: 'jsonb', nullable: true })
   result?: Record<string, unknown> | null
 
-  @Property({ name: 'reserved_amount', type: 'numeric', precision: 18, scale: 4, nullable: true })
+  @Property({ name: 'reserved_amount', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   reservedAmount?: string | null
 
   @Property({ name: 'lease_expires_at', type: Date, nullable: true })

@@ -1,3 +1,12 @@
+import {
+  DEFAULT_AMOUNT_DECIMAL_PLACES,
+  decimalToString,
+  multiplyDecimals,
+  parseDecimal,
+  resolveExactDecimal,
+  roundDecimal,
+  toDecimal,
+} from '@open-mercato/shared/lib/decimal'
 import type { SalesOrderLine, SalesQuoteLine } from '../data/entities'
 import { cloneJson } from './json'
 import type { SalesLineDiscountBasis, SalesLineSnapshot } from './types'
@@ -9,6 +18,19 @@ function toNumeric(value: unknown): number {
     if (Number.isFinite(parsed)) return parsed
   }
   return 0
+}
+
+function sameAmount(leftExact: unknown, left: unknown, rightExact: unknown, right: unknown): boolean {
+  return toDecimalOrZero(resolveExactDecimal(leftExact, left)).eq(toDecimalOrZero(resolveExactDecimal(rightExact, right)))
+}
+
+function toDecimalOrZero(value: string | null) {
+  return toDecimal(value ?? '0')
+}
+
+function toExactColumn(value: unknown): string {
+  const parsed = parseDecimal(value)
+  return parsed ? decimalToString(parsed) : '0'
 }
 
 /**
@@ -47,8 +69,11 @@ function mapPersistedLine(line: SalesOrderLine | SalesQuoteLine): SalesPersisted
     uomSnapshot: line.uomSnapshot ? cloneJson(line.uomSnapshot) : null,
     currencyCode: line.currencyCode,
     unitPriceNet: toNumeric(line.unitPriceNet),
+    unitPriceNetExact: toExactColumn(line.unitPriceNet),
     unitPriceGross: toNumeric(line.unitPriceGross),
+    unitPriceGrossExact: toExactColumn(line.unitPriceGross),
     discountAmount: toNumeric(line.discountAmount),
+    discountAmountExact: toExactColumn(line.discountAmount),
     // The persisted column holds the discount for the whole line, so the
     // calculation engine must not multiply it out by quantity again. This flag
     // is the only thing standing between a round trip and a compounding
@@ -58,13 +83,16 @@ function mapPersistedLine(line: SalesOrderLine | SalesQuoteLine): SalesPersisted
     discountPercent: toNumeric(line.discountPercent),
     taxRate: toNumeric(line.taxRate),
     taxAmount: toNumeric(line.taxAmount),
+    taxAmountExact: toExactColumn(line.taxAmount),
     // The totals below are the engine's own previous output read back off the
     // row, not something a caller asserted, so they are not reconciled against
     // the recomputed net (#5644) — on a legacy row that divergence is the
     // discount contract healing itself, not a caller mistake.
     totalsFromStoredRow: true,
     totalNetAmount: toNumeric(line.totalNetAmount),
+    totalNetAmountExact: toExactColumn(line.totalNetAmount),
     totalGrossAmount: toNumeric(line.totalGrossAmount),
+    totalGrossAmountExact: toExactColumn(line.totalGrossAmount),
     configuration: line.configuration ? cloneJson(line.configuration) : null,
     promotionCode: line.promotionCode ?? null,
     metadata: line.metadata ? cloneJson(line.metadata) : null,
@@ -89,7 +117,7 @@ export function mapQuoteLineEntityToSnapshot(line: SalesQuoteLine): SalesPersist
 
 type UpsertDiscountFields = Pick<
   SalesLineSnapshot,
-  'discountAmount' | 'discountAmountBasis' | 'discountAmountFromStoredRow'
+  'discountAmount' | 'discountAmountExact' | 'discountAmountBasis' | 'discountAmountFromStoredRow'
 >
 
 /**
@@ -110,13 +138,19 @@ type UpsertDiscountFields = Pick<
 export function resolveUpsertDiscountFields(
   callerAmount: number | null | undefined,
   callerBasis: SalesLineDiscountBasis | null | undefined,
-  existingSnapshot: Pick<SalesLineSnapshot, 'discountAmount'> | null | undefined,
+  existingSnapshot: Pick<SalesLineSnapshot, 'discountAmount' | 'discountAmountExact'> | null | undefined,
+  callerAmountExact?: string | null,
 ): UpsertDiscountFields {
   if (callerAmount !== null && callerAmount !== undefined) {
-    return { discountAmount: callerAmount, discountAmountBasis: callerBasis ?? 'unit' }
+    return {
+      discountAmount: callerAmount,
+      discountAmountExact: resolveExactDecimal(callerAmountExact, callerAmount),
+      discountAmountBasis: callerBasis ?? 'unit',
+    }
   }
   return {
     discountAmount: existingSnapshot?.discountAmount ?? null,
+    discountAmountExact: resolveExactDecimal(existingSnapshot?.discountAmountExact, existingSnapshot?.discountAmount),
     discountAmountFromStoredRow: existingSnapshot != null,
   }
 }
@@ -141,36 +175,53 @@ export function resolveUpsertTotalsOrigin(
 
 /** Reuse stored tax/gross only while the edited line's pricing inputs are unchanged. */
 export function resolveUpsertCalculatedAmounts(
-  caller: Pick<SalesLineSnapshot, 'taxAmount' | 'totalGrossAmount'>,
+  caller: Pick<SalesLineSnapshot, 'taxAmount' | 'taxAmountExact' | 'totalGrossAmount' | 'totalGrossAmountExact'>,
   nextSnapshot: SalesLineSnapshot,
   existingSnapshot: SalesLineSnapshot | null,
-): Pick<SalesLineSnapshot, 'taxAmount' | 'totalGrossAmount'> {
-  const pricingFields = [
-    'quantity',
-    'unitPriceNet',
-    'unitPriceGross',
-    'taxRate',
-  ] as const
-  const nextDiscountAmount = nextSnapshot.discountAmount ?? 0
+  amountDecimalPlaces: number = DEFAULT_AMOUNT_DECIMAL_PLACES,
+): Pick<SalesLineSnapshot, 'taxAmount' | 'taxAmountExact' | 'totalGrossAmount' | 'totalGrossAmountExact'> {
+  const numberPricingFields = ['quantity', 'taxRate'] as const
+  const amountPricingFields = ['unitPriceNet', 'unitPriceGross'] as const
+  const nextDiscountAmount =
+    resolveExactDecimal(nextSnapshot.discountAmountExact, nextSnapshot.discountAmount) ?? '0'
   const nextDiscountLineAmount = nextSnapshot.discountAmountFromStoredRow === true ||
     nextSnapshot.discountAmountBasis === 'line'
     ? nextDiscountAmount
-    : nextDiscountAmount * nextSnapshot.quantity
+    : multiplyDecimals(nextDiscountAmount, nextSnapshot.quantity)
+  const existingDiscountAmount =
+    resolveExactDecimal(existingSnapshot?.discountAmountExact, existingSnapshot?.discountAmount) ?? '0'
+  const discountScale = Math.max(DEFAULT_AMOUNT_DECIMAL_PLACES, amountDecimalPlaces)
   const discountChanged =
     (nextSnapshot.discountPercent ?? 0) !== (existingSnapshot?.discountPercent ?? 0) ||
     ((nextSnapshot.discountPercent ?? 0) === 0 &&
-      Math.round((nextDiscountLineAmount + Number.EPSILON) * 1e4) / 1e4 !==
-        (existingSnapshot?.discountAmount ?? 0))
+      !roundDecimal(nextDiscountLineAmount, discountScale).eq(existingDiscountAmount))
   const pricingChanged = existingSnapshot === null || discountChanged ||
-    pricingFields.some((field) => (nextSnapshot[field] ?? 0) !== (existingSnapshot[field] ?? 0))
+    numberPricingFields.some((field) => (nextSnapshot[field] ?? 0) !== (existingSnapshot[field] ?? 0)) ||
+    amountPricingFields.some((field) => !sameAmount(
+      nextSnapshot[`${field}Exact`], nextSnapshot[field],
+      existingSnapshot[`${field}Exact`], existingSnapshot[field],
+    ))
   const grossChanged = caller.totalGrossAmount !== undefined && caller.totalGrossAmount !== null &&
-    caller.totalGrossAmount !== existingSnapshot?.totalGrossAmount
+    !sameAmount(
+      caller.totalGrossAmountExact, caller.totalGrossAmount,
+      existingSnapshot?.totalGrossAmountExact, existingSnapshot?.totalGrossAmount,
+    )
   const taxChanged = caller.taxAmount !== undefined && caller.taxAmount !== null &&
-    caller.taxAmount !== existingSnapshot?.taxAmount
+    !sameAmount(caller.taxAmountExact, caller.taxAmount, existingSnapshot?.taxAmountExact, existingSnapshot?.taxAmount)
+  const keepTax = caller.taxAmount === undefined || caller.taxAmount === null
+  const keepGross = caller.totalGrossAmount === undefined || caller.totalGrossAmount === null
+  const reuseTax = keepTax && !(pricingChanged || grossChanged)
+  const reuseGross = keepGross && !(pricingChanged || taxChanged)
   return {
     taxAmount: caller.taxAmount ??
-      (pricingChanged || grossChanged ? null : existingSnapshot?.taxAmount ?? null),
+      (reuseTax ? existingSnapshot?.taxAmount ?? null : null),
+    taxAmountExact: keepTax
+      ? (reuseTax ? existingSnapshot?.taxAmountExact ?? null : null)
+      : resolveExactDecimal(caller.taxAmountExact, caller.taxAmount),
     totalGrossAmount: caller.totalGrossAmount ??
-      (pricingChanged || taxChanged ? null : existingSnapshot?.totalGrossAmount ?? null),
+      (reuseGross ? existingSnapshot?.totalGrossAmount ?? null : null),
+    totalGrossAmountExact: keepGross
+      ? (reuseGross ? existingSnapshot?.totalGrossAmountExact ?? null : null)
+      : resolveExactDecimal(caller.totalGrossAmountExact, caller.totalGrossAmount),
   }
 }

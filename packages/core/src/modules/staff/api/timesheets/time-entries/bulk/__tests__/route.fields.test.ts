@@ -316,6 +316,15 @@ describe('POST /api/staff/timesheets/time-entries/bulk honours every field its s
       expect(createdRow()).toMatchObject({ rateOverrideAmount: '123.5' })
     })
 
+    it('keeps every digit of a decimal-string override beyond float precision', async () => {
+      const response = await post([
+        { date: DAY, timeProjectId: PROJECT_ID, durationMinutes: 60, rateOverrideAmount: '98.765432109876543212' },
+      ])
+
+      expect(response.status).toBe(200)
+      expect(createdRow()).toMatchObject({ rateOverrideAmount: '98.765432109876543212' })
+    })
+
     it("snapshots the project's currency rather than leaving it to be joined later (D-3)", async () => {
       const response = await post([{ date: DAY, timeProjectId: OTHER_PROJECT_ID, durationMinutes: 60 }])
 

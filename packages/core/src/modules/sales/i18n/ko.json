@@ -1240,6 +1240,7 @@
   "sales.documents.status.documentPlaceholder": "새 주문/견적 상태 선택",
   "sales.documents.status.linePlaceholder": "항목 상태 선택",
   "sales.documents.status.sectionTitle": "상태 변경",
+  "sales.errors.amount_invalid": "올바른 금액을 입력하세요.",
   "sales.errors.invalid_query": "잘못된 조회 파라미터입니다",
   "sales.errors.organization_required": "조직 컨텍스트가 필요합니다",
   "sales.errors.tag_invalid": "잘못된 태그 형식입니다.",

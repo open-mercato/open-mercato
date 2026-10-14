@@ -69,7 +69,31 @@ import {
   extractUndoPayload,
   requireScopedClaim,
   type WarrantyClaimScope,
+  exactMoneyInput,
+  withWarrantyExactAmounts,
+  withoutWarrantyExactKeys,
 } from './shared'
+import {
+  DEFAULT_AMOUNT_DECIMAL_PLACES,
+  FX_DECIMAL_PLACES,
+  addDecimals,
+  compareDecimals,
+  countDecimalPlaces,
+  decimalToString,
+  decimalsEqual,
+  divideDecimals,
+  isZeroDecimal,
+  minDecimal,
+  multiplyDecimals,
+  parseDecimal,
+  roundDecimal,
+  subtractDecimals,
+  sumDecimals,
+  toDecimal,
+  type DecimalInput,
+  type DecimalValue,
+} from '@open-mercato/shared/lib/decimal'
+import { resolveCurrencyAmountDecimalPlaces } from '@open-mercato/shared/lib/currencyPrecision'
 
 const claimCrudEvents: CrudEventsConfig = {
   module: 'warranty_claims',
@@ -256,11 +280,11 @@ const preReceivedStatuses = new Set<WarrantyClaimStatus>([
 ])
 
 function parseCommandInput<T>(schema: z.ZodType<T>, rawInput: unknown): T {
-  const result = schema.safeParse(rawInput ?? {})
+  const result = schema.safeParse(withoutWarrantyExactKeys(rawInput) ?? {})
   if (!result.success) {
     throw new CrudHttpError(400, { error: 'warranty_claims.errors.invalidInput' })
   }
-  return result.data
+  return withWarrantyExactAmounts(result.data, rawInput)
 }
 
 function hasOwn(input: object, key: string): boolean {
@@ -303,9 +327,8 @@ function toDateOnly(value: string | null): Date | null {
 function amountString(value: number | string | null | undefined, fallback = '0'): string | null {
   if (value === null) return null
   if (value === undefined) return fallback
-  const parsed = typeof value === 'number' ? value : Number(value)
-  if (!Number.isFinite(parsed)) return fallback
-  return String(parsed)
+  const parsed = parseDecimal(value)
+  return parsed ? decimalToString(parsed) : fallback
 }
 
 function nullableAmountString(value: number | string | null | undefined): string | null {
@@ -423,10 +446,10 @@ function buildInitialLineData(
     disposition: input.disposition ?? null,
     vendorName: input.vendorName ?? null,
     lineStatus: 'pending',
-    creditAmount: nullableAmountString(input.creditAmount),
-    restockingFee: nullableAmountString(input.restockingFee),
-    coreChargeAmount: nullableAmountString(input.coreChargeAmount),
-    coreCreditAmount: nullableAmountString(input.coreCreditAmount),
+    creditAmount: nullableAmountString(exactMoneyInput(input, 'creditAmount')),
+    restockingFee: nullableAmountString(exactMoneyInput(input, 'restockingFee')),
+    coreChargeAmount: nullableAmountString(exactMoneyInput(input, 'coreChargeAmount')),
+    coreCreditAmount: nullableAmountString(exactMoneyInput(input, 'coreCreditAmount')),
     createdAt: new Date(),
     updatedAt: new Date(),
   }
@@ -953,7 +976,6 @@ async function querySalesOrderLineReferences(
 }
 
 const CLAIMED_QUANTITY_SCALE = 10_000n
-const TAX_RATE_FORMULA_SCALE = 1_000_000n
 
 function claimedQuantityUnits(value: string | number | null | undefined): bigint | null {
   if (value === null || value === undefined) return null
@@ -972,12 +994,6 @@ function claimedQuantityUnits(value: string | number | null | undefined): bigint
   return sign === '-' ? -units : units
 }
 
-function roundHalfUpDivision(numerator: bigint, denominator: bigint): bigint {
-  if (denominator <= 0n) throw new Error('[internal] Positive denominator required')
-  if (numerator < 0n) return -roundHalfUpDivision(-numerator, denominator)
-  return (numerator + denominator / 2n) / denominator
-}
-
 function formatScaledUnits(units: bigint): string {
   const sign = units < 0n ? '-' : ''
   const absolute = units < 0n ? -units : units
@@ -986,9 +1002,19 @@ function formatScaledUnits(units: bigint): string {
   return `${sign}${whole}.${fraction}`
 }
 
-function netUnitsFromGross(grossUnits: bigint, taxRateUnits: bigint): bigint {
-  const denominator = TAX_RATE_FORMULA_SCALE + taxRateUnits
-  return roundHalfUpDivision(grossUnits * TAX_RATE_FORMULA_SCALE, denominator)
+function divideAmount(dividend: DecimalInput, divisor: DecimalInput, amountDecimalPlaces: number): DecimalValue {
+  if (compareDecimals(divisor, 0) <= 0) throw new Error('[internal] Positive denominator required')
+  return roundDecimal(divideDecimals(dividend, divisor, FX_DECIMAL_PLACES), amountDecimalPlaces)
+}
+
+function netAmountFromGross(grossAmount: DecimalValue, taxRate: DecimalValue, amountDecimalPlaces: number): DecimalValue {
+  if (isZeroDecimal(taxRate)) return grossAmount
+  const netAmount = divideAmount(multiplyDecimals(grossAmount, 100), addDecimals(100, taxRate), amountDecimalPlaces)
+  return compareDecimals(grossAmount, 0) > 0 ? minDecimal(netAmount, grossAmount) : netAmount
+}
+
+function formatCreditMemoAmount(value: DecimalInput): string {
+  return toDecimal(value).toFixed(Math.max(DEFAULT_AMOUNT_DECIMAL_PLACES, countDecimalPlaces(value)))
 }
 
 export async function assertClaimedQtyWithinSold(
@@ -1452,8 +1478,8 @@ async function recomputeClaimRollups(em: EntityManager, claim: WarrantyClaim): P
     { tenantId: claim.tenantId, organizationId: claim.organizationId },
   )
   const totals = computeHeaderRollups(lines, { claimType: claim.claimType })
-  claim.totalClaimedAmount = String(totals.totalClaimedAmount)
-  claim.totalApprovedAmount = String(totals.totalApprovedAmount)
+  claim.totalClaimedAmount = totals.totalClaimedAmountExact
+  claim.totalApprovedAmount = totals.totalApprovedAmountExact
 }
 
 function assertCanResolve(lines: readonly WarrantyClaimLine[]): void {
@@ -1591,8 +1617,8 @@ const createClaimCommand: CommandHandler<ClaimCreateInput, { claimId: string }> 
           return line
         })
         const totals = computeHeaderRollups(createdLines, { claimType: claim.claimType })
-        claim.totalClaimedAmount = String(totals.totalClaimedAmount)
-        claim.totalApprovedAmount = String(totals.totalApprovedAmount)
+        claim.totalClaimedAmount = totals.totalClaimedAmountExact
+        claim.totalApprovedAmount = totals.totalApprovedAmountExact
         appendClaimEvent(em, claim, 'system', {
           visibility: 'internal',
           payload: { action: 'created' },
@@ -2283,8 +2309,8 @@ const createVendorRecoveryCommand: CommandHandler<VendorRecoveryInput, { claimId
           return copiedLine
         })
       const totals = computeHeaderRollups(copiedLines)
-      recoveryClaim.totalClaimedAmount = String(totals.totalClaimedAmount)
-      recoveryClaim.totalApprovedAmount = String(totals.totalApprovedAmount)
+      recoveryClaim.totalClaimedAmount = totals.totalClaimedAmountExact
+      recoveryClaim.totalApprovedAmount = totals.totalApprovedAmountExact
       appendClaimEvent(tx, lockedSource, 'system', {
         visibility: 'internal',
         payload: { action: 'vendor_recovery_created', recoveryClaimId: recoveryClaim.id },
@@ -2591,9 +2617,9 @@ type CreditMemoCreateInput = {
 
 type PreparedCreditMemoLine = {
   input: CreditMemoLineInput
-  netUnits: bigint
-  grossUnits: bigint
-  taxUnits: bigint
+  netAmount: DecimalValue
+  grossAmount: DecimalValue
+  taxAmount: DecimalValue
 }
 
 type ClaimCreditMemoUndoPayload = ClaimUndoPayload & {
@@ -2618,56 +2644,60 @@ function prepareCreditMemoLine(
   sourceLine: Record<string, unknown>,
   creditedQuantityUnits: bigint,
   currencyCode: string,
+  amountDecimalPlaces: number,
 ): PreparedCreditMemoLine | null {
   const orderQuantityUnits = claimedQuantityUnits(sourceLine.quantity as string | number | null | undefined)
-  const sourceGrossUnits = claimedQuantityUnits(sourceLine.total_gross_amount as string | number | null | undefined)
-  const sourceNetUnits = claimedQuantityUnits(sourceLine.total_net_amount as string | number | null | undefined)
-  const taxRateUnits = claimedQuantityUnits(sourceLine.tax_rate as string | number | null | undefined)
+  const sourceGrossAmount = parseDecimal(sourceLine.total_gross_amount)
+  const sourceNetAmount = parseDecimal(sourceLine.total_net_amount)
+  const taxRate = parseDecimal(sourceLine.tax_rate)
   if (
     orderQuantityUnits === null
     || orderQuantityUnits <= 0n
     || creditedQuantityUnits > orderQuantityUnits
-    || sourceGrossUnits === null
-    || sourceNetUnits === null
-    || taxRateUnits === null
+    || sourceGrossAmount === null
+    || sourceNetAmount === null
+    || taxRate === null
   ) {
     return null
   }
 
-  let netBasisUnits = sourceNetUnits
-  if (sourceGrossUnits > 0n && netBasisUnits <= 0n) {
-    netBasisUnits = netUnitsFromGross(sourceGrossUnits, taxRateUnits)
+  const creditedQuantity = formatScaledUnits(creditedQuantityUnits)
+  const orderQuantity = formatScaledUnits(orderQuantityUnits)
+  let netBasisAmount = sourceNetAmount
+  if (compareDecimals(sourceGrossAmount, 0) > 0 && compareDecimals(netBasisAmount, 0) <= 0) {
+    netBasisAmount = netAmountFromGross(sourceGrossAmount, taxRate, amountDecimalPlaces)
   }
-  const proratedGrossUnits = roundHalfUpDivision(sourceGrossUnits * creditedQuantityUnits, orderQuantityUnits)
-  const proratedNetUnits = roundHalfUpDivision(netBasisUnits * creditedQuantityUnits, orderQuantityUnits)
-  const creditAmountUnits = claimedQuantityUnits(claimLine.creditAmount)
-  const restockingFeeUnits = claimedQuantityUnits(claimLine.restockingFee) ?? 0n
-  const coreCreditUnits = claimedQuantityUnits(claimLine.coreCreditAmount) ?? 0n
-  const baseGrossUnits = creditAmountUnits ?? proratedGrossUnits
-  const adjustedGrossUnits = baseGrossUnits - restockingFeeUnits + coreCreditUnits
-  const grossUnits = adjustedGrossUnits > 0n ? adjustedGrossUnits : 0n
-  let netUnits = grossUnits === proratedGrossUnits
-    ? proratedNetUnits
-    : netUnitsFromGross(grossUnits, taxRateUnits)
-  if (grossUnits > 0n && netUnits <= 0n) {
-    netUnits = netUnitsFromGross(grossUnits, taxRateUnits)
+  const proratedGrossAmount = divideAmount(multiplyDecimals(sourceGrossAmount, creditedQuantity), orderQuantity, amountDecimalPlaces)
+  const proratedNetAmount = divideAmount(multiplyDecimals(netBasisAmount, creditedQuantity), orderQuantity, amountDecimalPlaces)
+  const parsedCreditAmount = parseDecimal(claimLine.creditAmount)
+  const creditAmount = parsedCreditAmount === null ? null : roundDecimal(parsedCreditAmount, amountDecimalPlaces)
+  const restockingFee = roundDecimal(parseDecimal(claimLine.restockingFee) ?? 0, amountDecimalPlaces)
+  const coreCreditAmount = roundDecimal(parseDecimal(claimLine.coreCreditAmount) ?? 0, amountDecimalPlaces)
+  const baseGrossAmount = creditAmount ?? proratedGrossAmount
+  const adjustedGrossAmount = addDecimals(subtractDecimals(baseGrossAmount, restockingFee), coreCreditAmount)
+  const grossAmount = compareDecimals(adjustedGrossAmount, 0) > 0 ? adjustedGrossAmount : toDecimal(0)
+  let netAmount = decimalsEqual(grossAmount, proratedGrossAmount)
+    ? proratedNetAmount
+    : netAmountFromGross(grossAmount, taxRate, amountDecimalPlaces)
+  if (compareDecimals(grossAmount, 0) > 0 && compareDecimals(netAmount, 0) <= 0) {
+    netAmount = netAmountFromGross(grossAmount, taxRate, amountDecimalPlaces)
   }
-  const taxUnits = grossUnits - netUnits
+  const taxAmount = subtractDecimals(grossAmount, netAmount)
   const input: CreditMemoLineInput = {
     orderLineId: claimLine.orderLineId as string,
-    quantity: formatScaledUnits(creditedQuantityUnits),
+    quantity: creditedQuantity,
     currencyCode,
-    unitPriceNet: formatScaledUnits(roundHalfUpDivision(netUnits * CLAIMED_QUANTITY_SCALE, creditedQuantityUnits)),
-    unitPriceGross: formatScaledUnits(roundHalfUpDivision(grossUnits * CLAIMED_QUANTITY_SCALE, creditedQuantityUnits)),
-    taxRate: formatScaledUnits(taxRateUnits),
-    taxAmount: formatScaledUnits(taxUnits),
-    totalNetAmount: formatScaledUnits(netUnits),
-    totalGrossAmount: formatScaledUnits(grossUnits),
+    unitPriceNet: formatCreditMemoAmount(divideAmount(netAmount, creditedQuantity, amountDecimalPlaces)),
+    unitPriceGross: formatCreditMemoAmount(divideAmount(grossAmount, creditedQuantity, amountDecimalPlaces)),
+    taxRate: formatCreditMemoAmount(taxRate),
+    taxAmount: formatCreditMemoAmount(taxAmount),
+    totalNetAmount: formatCreditMemoAmount(netAmount),
+    totalGrossAmount: formatCreditMemoAmount(grossAmount),
     metadata: { warrantyClaimLineId: claimLine.id },
   }
   const name = readString(sourceLine, 'name')
   if (name) input.name = name
-  return { input, netUnits, grossUnits, taxUnits }
+  return { input, netAmount, grossAmount, taxAmount }
 }
 
 async function dispatchCreditMemoDelete(
@@ -2739,6 +2769,11 @@ const createCreditMemoCommand: CommandHandler<ClaimCreateCreditMemoInput, ClaimC
       ['id', 'order_id', 'name', 'currency_code', 'quantity', 'total_net_amount', 'total_gross_amount', 'tax_rate'],
     )
     const sourceLinesById = new Map((sourceLineRows ?? []).map((row) => [readString(row, 'id'), row]))
+    const amountDecimalPlaces = await resolveCurrencyAmountDecimalPlaces(ctx.container, {
+      code: orderCurrencyCode,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    })
     const preparedLines: PreparedCreditMemoLine[] = []
     const skippedLineIds: string[] = []
     for (const claimLine of claimLines) {
@@ -2769,6 +2804,7 @@ const createCreditMemoCommand: CommandHandler<ClaimCreateCreditMemoInput, ClaimC
         sourceLine,
         creditedQuantityUnits,
         orderCurrencyCode,
+        amountDecimalPlaces,
       )
       if (!preparedLine) {
         skippedLineIds.push(claimLine.id)
@@ -2780,16 +2816,8 @@ const createCreditMemoCommand: CommandHandler<ClaimCreateCreditMemoInput, ClaimC
       throw new CrudHttpError(400, { error: 'warranty_claims.errors.creditMemoNoEligibleLines' })
     }
 
-    const totals = preparedLines.reduce(
-      (result, line) => ({
-        netUnits: result.netUnits + line.netUnits,
-        grossUnits: result.grossUnits + line.grossUnits,
-        taxUnits: result.taxUnits + line.taxUnits,
-      }),
-      { netUnits: 0n, grossUnits: 0n, taxUnits: 0n },
-    )
-    const grandTotalNetAmount = formatScaledUnits(totals.netUnits)
-    const grandTotalGrossAmount = formatScaledUnits(totals.grossUnits)
+    const grandTotalNetAmount = formatCreditMemoAmount(sumDecimals(preparedLines.map((line) => line.netAmount)))
+    const grandTotalGrossAmount = formatCreditMemoAmount(sumDecimals(preparedLines.map((line) => line.grossAmount)))
     const creditMemoInput: CreditMemoCreateInput = {
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
@@ -2800,7 +2828,7 @@ const createCreditMemoCommand: CommandHandler<ClaimCreateCreditMemoInput, ClaimC
       lines: preparedLines.map((line) => line.input),
       subtotalNetAmount: grandTotalNetAmount,
       subtotalGrossAmount: grandTotalGrossAmount,
-      taxTotalAmount: formatScaledUnits(totals.taxUnits),
+      taxTotalAmount: formatCreditMemoAmount(sumDecimals(preparedLines.map((line) => line.taxAmount))),
       grandTotalNetAmount,
       grandTotalGrossAmount,
     }

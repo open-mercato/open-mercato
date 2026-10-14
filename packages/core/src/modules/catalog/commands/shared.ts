@@ -7,6 +7,7 @@ import {
 } from '../data/entities'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { decimalToString, parseDecimal } from '@open-mercato/shared/lib/decimal'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 export { ensureOrganizationScope, ensureSameScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
@@ -68,9 +69,10 @@ export function resolveOptionSchemaCode(opts: {
   return resolved || `schema-${randomSuffix()}`
 }
 
-export function toNumericString(value: number | null | undefined): string | null {
-  if (value === undefined || value === null) return null
-  return value.toString()
+/** Plain decimal string (no exponent notation) for a numeric column, or `null`. */
+export function toNumericString(value: number | string | null | undefined): string | null {
+  const parsed = parseDecimal(value)
+  return parsed ? decimalToString(parsed) : null
 }
 
 export type RequireScope = {

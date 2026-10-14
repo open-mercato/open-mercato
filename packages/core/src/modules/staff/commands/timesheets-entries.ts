@@ -59,6 +59,7 @@ import {
 } from './shared'
 import { getStaffMemberByUserId } from '../lib/staffMemberResolver'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveExactDecimal, withExactAmounts } from '@open-mercato/shared/lib/decimal'
 
 const logger = createLogger('staff')
 
@@ -386,8 +387,11 @@ export function resolveTimeEntryNotesInput(parsed: {
  * the validator accepts a JSON number. One conversion point keeps the two apart,
  * for the grid bulk save as much as for this file.
  */
-export function toStoredTimeEntryRateOverride(amount: number | null | undefined): string | null {
-  return amount === null || amount === undefined ? null : String(amount)
+export function toStoredTimeEntryRateOverride(
+  amount: number | null | undefined,
+  amountExact?: string | null,
+): string | null {
+  return amount === null || amount === undefined ? null : resolveExactDecimal(amountExact, amount)
 }
 
 /**
@@ -778,7 +782,7 @@ function timeEntrySeedFromSnapshot(snapshot: TimeEntrySnapshot): Record<string, 
 const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEntryId: string }> = {
   id: 'staff.timesheets.time_entries.create',
   async execute(rawInput, ctx) {
-    const parsed = staffTimeEntryCreateSchema.parse(rawInput)
+    const parsed = withExactAmounts(staffTimeEntryCreateSchema.parse(rawInput), rawInput, ['rateOverrideAmount'] as const)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     commandInputScope(ctx, parsed.tenantId, parsed.organizationId)
@@ -841,7 +845,7 @@ const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEn
         settings,
         scope: { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
       }),
-      rateOverrideAmount: toStoredTimeEntryRateOverride(parsed.rateOverrideAmount),
+      rateOverrideAmount: toStoredTimeEntryRateOverride(parsed.rateOverrideAmount, parsed.rateOverrideAmountExact),
       // Snapshotted rather than joined at read time so a later project currency
       // change cannot re-denominate money that has already been reported (D-3).
       rateCurrencyCode: project?.currencyCode ?? null,
@@ -1115,14 +1119,14 @@ const startTimerCommand: CommandHandler<StaffTimeEntryStartTimerInput, { timeEnt
 const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEntryId: string }> = {
   id: 'staff.timesheets.time_entries.update',
   async prepare(rawInput, ctx) {
-    const parsed = staffTimeEntryUpdateSchema.parse(rawInput)
+    const parsed = withExactAmounts(staffTimeEntryUpdateSchema.parse(rawInput), rawInput, ['rateOverrideAmount'] as const)
     const em = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadTimeEntrySnapshot(em, parsed.id, staffSnapshotScopeFromContext(ctx))
     if (!snapshot) return {}
     return { before: snapshot }
   },
   async execute(rawInput, ctx) {
-    const parsed = staffTimeEntryUpdateSchema.parse(rawInput)
+    const parsed = withExactAmounts(staffTimeEntryUpdateSchema.parse(rawInput), rawInput, ['rateOverrideAmount'] as const)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const scope = commandActorScope(ctx)
     const entry = await findOneWithDecryption(
@@ -1242,7 +1246,7 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
     if (parsed.orderId !== undefined) entry.orderId = parsed.orderId ?? null
     if (parsed.isBillable !== undefined) entry.isBillable = parsed.isBillable
     if (parsed.rateOverrideAmount !== undefined) {
-      entry.rateOverrideAmount = toStoredTimeEntryRateOverride(parsed.rateOverrideAmount)
+      entry.rateOverrideAmount = toStoredTimeEntryRateOverride(parsed.rateOverrideAmount, parsed.rateOverrideAmountExact)
     }
     if (notes !== undefined) entry.notes = notes
     entry.updatedAt = new Date()
@@ -1562,10 +1566,7 @@ const duplicateTimeEntryCommand: CommandHandler<StaffTimeEntryDuplicateInput, { 
         dealId: source.dealId ?? null,
         orderId: source.orderId ?? null,
         isBillable: source.isBillable,
-        rateOverrideAmount:
-          source.rateOverrideAmount === null || source.rateOverrideAmount === undefined
-            ? null
-            : Number(source.rateOverrideAmount),
+        rateOverrideAmount: source.rateOverrideAmount ?? null,
         description: source.notes ?? null,
         // A copy is typed, not timed: carrying `started_at`/`ended_at` over would
         // manufacture an overlap with the entry it was copied from (US-D7).

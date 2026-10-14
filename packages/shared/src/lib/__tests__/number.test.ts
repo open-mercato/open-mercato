@@ -1,4 +1,4 @@
-import { parseLocaleNumber, parseNumberWithDefault, resolveLocaleNumberSeparators } from '../number'
+import { parseLocaleDecimal, parseLocaleNumber, parseNumberWithDefault, resolveLocaleNumberSeparators } from '../number'
 
 describe('parseNumberWithDefault', () => {
   it('returns the fallback when raw is missing or blank', () => {
@@ -119,5 +119,20 @@ describe('parseLocaleNumber', () => {
   it('falls back to comma-group/dot-decimal when the locale tag is unusable', () => {
     expect(parseLocaleNumber('1,234.5', 'not a locale')).toBe(1234.5)
     expect(parseLocaleNumber('110.70', undefined)).toBe(110.7)
+  })
+})
+
+describe('parseLocaleDecimal', () => {
+  it('keeps every digit a user typed', () => {
+    expect(parseLocaleDecimal('0,000000000000000000000001', 'pl-PL')).toBe('0.000000000000000000000001')
+    expect(parseLocaleDecimal('1 234,567891234567891234', 'pl-PL')).toBe('1234.567891234567891234')
+    expect(parseLocaleDecimal('12345678901234567890.5', 'en-US')).toBe('12345678901234567890.5')
+  })
+
+  it('normalizes padding and rejects garbage', () => {
+    expect(parseLocaleDecimal('40.0000', 'en-US')).toBe('40')
+    expect(parseLocaleDecimal('', 'en-US')).toBeNull()
+    expect(parseLocaleDecimal('abc', 'en-US')).toBeNull()
+    expect(parseLocaleDecimal('1 2', 'en-US')).toBeNull()
   })
 })

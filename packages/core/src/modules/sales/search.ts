@@ -1,6 +1,7 @@
 import type { SearchBuildContext, SearchIndexSource, SearchModuleConfig, SearchResultPresenter } from '@open-mercato/shared/modules/search'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { decimalToString, parseDecimal } from '@open-mercato/shared/lib/decimal'
 
 type SalesDocumentKind = 'order' | 'quote' | 'invoice' | 'credit_memo'
 
@@ -153,7 +154,8 @@ function resolveCustomerName(record: Record<string, unknown>): string | null {
 }
 
 function formatAmount(amount: unknown, currency: unknown): string | null {
-  const amountText = normalizeText(amount)
+  const parsedAmount = parseDecimal(amount)
+  const amountText = parsedAmount ? decimalToString(parsedAmount) : normalizeText(amount)
   if (!amountText) return null
   const currencyText = normalizeText(currency)
   return currencyText ? `${amountText} ${currencyText}` : amountText

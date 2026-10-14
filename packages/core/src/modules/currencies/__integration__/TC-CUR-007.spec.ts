@@ -13,8 +13,8 @@ import { getTokenContext, readJsonSafe } from '@open-mercato/core/modules/core/_
  *
  * The create command parses `exchangeRateCreateSchema`, which enforces:
  *   - from/to currency codes must differ (`.refine`)
- *   - rate matches /^\d+(\.\d{1,8})?$/ (rejects negatives, non-numeric, > 8 decimals)
- *   - parseFloat(rate) > 0 (rejects zero)
+ *   - rate matches /^\d+(\.\d+)?$/ (rejects negatives and non-numeric; any number of decimals)
+ *   - rate > 0, compared exactly (rejects zero)
  * A Zod failure surfaces through `makeCrudRoute` as HTTP 400.
  */
 test.describe('TC-CUR-007: exchange-rate validation boundaries', () => {
@@ -54,9 +54,6 @@ test.describe('TC-CUR-007: exchange-rate validation boundaries', () => {
 
       const nonNumeric = await postRate({ ...baseRatePayload, fromCurrencyCode: fromCurrency.code, toCurrencyCode: toCurrency.code, rate: 'abc' });
       expect(nonNumeric.status(), 'non-numeric rate must be 400').toBe(400);
-
-      const tooPrecise = await postRate({ ...baseRatePayload, fromCurrencyCode: fromCurrency.code, toCurrencyCode: toCurrency.code, rate: '1.123456789' });
-      expect(tooPrecise.status(), 'rate exceeding 8 decimal places must be 400').toBe(400);
 
       const valid = await postRate({ ...baseRatePayload, fromCurrencyCode: fromCurrency.code, toCurrencyCode: toCurrency.code, rate: '1.5' });
       expect(valid.status(), 'valid distinct-currency positive rate must be 201').toBe(201);

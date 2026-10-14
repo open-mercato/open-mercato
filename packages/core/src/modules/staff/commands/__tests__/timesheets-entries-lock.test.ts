@@ -415,7 +415,7 @@ describe('staff timesheets lock gate (T4.2 / TC-TT-018)', () => {
         taskId: TASK_ID,
         durationMinutes: 60,
         isBillable: false,
-        rateOverrideAmount: 260,
+        rateOverrideAmount: '260.0000',
         description: 'Discovery workshop',
         source: 'manual',
       })

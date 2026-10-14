@@ -50,6 +50,7 @@ describe('sales payment order total resolver (#4488)', () => {
       orderId: ORDER_ID,
       currencyCode: 'EUR',
       amountDue: 150,
+      amountDueExact: '150',
     })
     expect(findOne).toHaveBeenCalledWith(
       em,

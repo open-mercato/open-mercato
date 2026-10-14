@@ -1240,6 +1240,7 @@
   "sales.documents.status.documentPlaceholder": "Seleccionar nuevo estado de pedido/cotización",
   "sales.documents.status.linePlaceholder": "Seleccionar estado del artículo",
   "sales.documents.status.sectionTitle": "Cambios de estado",
+  "sales.errors.amount_invalid": "Introduce un importe válido.",
   "sales.errors.invalid_query": "Parámetros de consulta inválidos",
   "sales.errors.organization_required": "Se requiere el contexto de la organización",
   "sales.errors.tag_invalid": "Formato de etiqueta no válido.",

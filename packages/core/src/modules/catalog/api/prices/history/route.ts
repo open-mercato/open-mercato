@@ -124,7 +124,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List recorded price history entries',
       description:
-        'Returns immutable price history snapshots for one product and/or variant, ordered by recordedAt DESC, id DESC with keyset pagination. At least one of productId or variantId is required (400 otherwise) so every read stays on a scoped index. Monetary values are fixed 4-decimal strings. An invalid cursor returns the first page.',
+        'Returns immutable price history snapshots for one product and/or variant, ordered by recordedAt DESC, id DESC with keyset pagination. At least one of productId or variantId is required (400 otherwise) so every read stays on a scoped index. Monetary values are exact decimal strings. An invalid cursor returns the first page.',
       query: priceHistoryQuerySchema,
       responses: [
         { status: 200, description: 'Price history page', schema: priceHistoryResponseSchema },

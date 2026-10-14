@@ -38,19 +38,23 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { resolveCurrencyDecimalPlaces } from '@open-mercato/shared/lib/currencyPrecision'
+import { decimalToNumber } from '@open-mercato/shared/lib/decimal'
 import { staffTimeReportPreviewSchema } from '../../../../data/validators'
 import { runTimesheetInterceptors } from '../../_shared/withTimesheetInterceptors'
 import { MANAGE_PROJECTS_FEATURE, resolveProjectAccess } from '../../../../lib/time-tracking/access'
 import { resolveFeatureAccess } from '../../../../lib/time-tracking/featureAccess'
 import { readTimeTrackingSettings } from '../../../../lib/time-tracking/settings'
 import { loadReportData } from '../../../../lib/timesheets-reports/loadReportData'
+import { DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES } from '../../../../lib/time-tracking/cost'
 import {
   computeReportTotals,
   resolveEntryValues,
+  sumResolvedAmounts,
   resolveReportCurrency,
-  sumAmounts,
   type ReportGroup,
   type ReportInputEntry,
+  type ResolvedEntryValues,
 } from '../../../../lib/timesheets-reports/reportTotals'
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/reports/preview' })
@@ -84,7 +88,12 @@ export type PreviewProjectTotals = {
 export function summarizeProjectsForPreview(
   projects: readonly { id: string; name: string; hourlyRate: number | null; currencyCode: string | null }[],
   entries: readonly ReportInputEntry[],
-  options: { includeAlreadyReported: boolean; excludeNonBillable: boolean; canSeeMoney: boolean },
+  options: {
+    includeAlreadyReported: boolean
+    excludeNonBillable: boolean
+    canSeeMoney: boolean
+    amountDecimalPlaces?: number
+  },
 ): PreviewProjectTotals[] {
   const byProject = new Map<string, ReportInputEntry[]>()
   for (const entry of entries) {
@@ -97,12 +106,12 @@ export function summarizeProjectsForPreview(
     const projectEntries = byProject.get(project.id) ?? []
     let billableMinutes = 0
     let nonbillableMinutes = 0
-    const amounts: Array<number | null> = []
+    const billableValues: ResolvedEntryValues[] = []
     let entryCount = 0
 
     for (const entry of projectEntries) {
       if (entry.frozen && !options.includeAlreadyReported) continue
-      const values = resolveEntryValues(entry, project)
+      const values = resolveEntryValues(entry, project, options.amountDecimalPlaces)
       if (!values.isBillable) {
         if (options.excludeNonBillable) continue
         nonbillableMinutes += values.minutes
@@ -110,7 +119,7 @@ export function summarizeProjectsForPreview(
         continue
       }
       billableMinutes += values.minutes
-      amounts.push(values.amount)
+      billableValues.push(values)
       entryCount += 1
     }
 
@@ -122,7 +131,11 @@ export function summarizeProjectsForPreview(
       entryCount,
       billableMinutes,
       nonbillableMinutes,
-      amount: options.canSeeMoney ? sumAmounts(amounts) : null,
+      amount: options.canSeeMoney
+        ? decimalToNumber(
+            sumResolvedAmounts(billableValues, options.amountDecimalPlaces ?? DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES),
+          )
+        : null,
     }
   })
 }
@@ -132,9 +145,11 @@ function stripMoney(groups: ReportGroup[]): ReportGroup[] {
   return groups.map((group) => ({
     ...group,
     rate: null,
+    rateExact: null,
     amount: 0,
+    amountExact: '0',
     lines: group.lines.map(function strip(line): ReportGroup['lines'][number] {
-      return { ...line, rate: null, amount: 0, children: line.children.map(strip) }
+      return { ...line, rate: null, rateExact: null, amount: 0, amountExact: '0', children: line.children.map(strip) }
     }),
   }))
 }
@@ -259,6 +274,12 @@ export async function POST(req: Request) {
       })
     }
 
+    const amountDecimalPlaces =
+      (await resolveCurrencyDecimalPlaces(container, {
+        code: currency.currencyCode ?? '',
+        tenantId,
+        organizationId,
+      })) ?? undefined
     const totals = computeReportTotals({
       entries: data.entries,
       projects: data.projects,
@@ -267,6 +288,7 @@ export async function POST(req: Request) {
         grouping: parsed.grouping,
         nonbillableMode: parsed.nonbillableMode,
         includeAlreadyReported: parsed.includeAlreadyReported,
+        amountDecimalPlaces,
       },
       labels: reportLabels(translate),
     })
@@ -286,6 +308,7 @@ export async function POST(req: Request) {
         includeAlreadyReported: parsed.includeAlreadyReported,
         excludeNonBillable: parsed.nonbillableMode === 'exclude',
         canSeeMoney,
+        amountDecimalPlaces,
       }),
       groups: canSeeMoney ? totals.groups : stripMoney(totals.groups),
       totals: {
@@ -293,6 +316,7 @@ export async function POST(req: Request) {
         billableMinutes: totals.billableMinutes,
         nonbillableMinutes: totals.nonbillableMinutes,
         totalAmount: canSeeMoney ? totals.totalAmount : null,
+        totalAmountExact: canSeeMoney ? totals.totalAmountExact : null,
       },
       alreadyReportedCount: totals.alreadyReportedCount,
       alreadyReportedMinutes: totals.alreadyReportedMinutes,
@@ -398,6 +422,7 @@ const previewResponseSchema = z.object({
     billableMinutes: z.number().int(),
     nonbillableMinutes: z.number().int(),
     totalAmount: z.number().nullable(),
+    totalAmountExact: z.string().nullable().optional(),
   }),
   alreadyReportedCount: z.number().int(),
   alreadyReportedMinutes: z.number().int(),

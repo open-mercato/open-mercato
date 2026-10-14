@@ -107,6 +107,7 @@ export type WarrantyClaimSettingsResult = {
   slaAtRiskThresholdPct: number
   autoApproveEnabled: boolean
   autoApproveMaxAmount: number | null
+  autoApproveMaxAmountExact?: string | null
   autoApproveCurrencyCode: string | null
   autoApproveRequireInWarranty: boolean
   defaultWarrantyMonths: number | null
@@ -117,6 +118,12 @@ export type WarrantyClaimSettingsResult = {
   returnLabelProvider: string | null
   returnWindowDays: number | null
   updatedAt: string | null
+}
+
+export type WarrantyClaimSettingsInput = Partial<
+  Omit<WarrantyClaimSettingsResult, 'updatedAt' | 'autoApproveMaxAmount' | 'autoApproveMaxAmountExact'>
+> & {
+  autoApproveMaxAmount?: number | string | null
 }
 
 export type WarrantyClaimStatsResult = {
@@ -472,7 +479,7 @@ export async function readWarrantyClaimSettings(
 export async function putWarrantyClaimSettings(
   request: APIRequestContext,
   token: string,
-  data: Partial<Omit<WarrantyClaimSettingsResult, 'updatedAt'>>,
+  data: WarrantyClaimSettingsInput,
   updatedAt?: string | null,
 ): Promise<APIResponse> {
   return requestJson(request, 'PUT', '/api/warranty_claims/settings-general', token, data, updatedAt)
@@ -481,7 +488,7 @@ export async function putWarrantyClaimSettings(
 export async function saveWarrantyClaimSettings(
   request: APIRequestContext,
   token: string,
-  data: Partial<Omit<WarrantyClaimSettingsResult, 'updatedAt'>>,
+  data: WarrantyClaimSettingsInput,
   updatedAt?: string | null,
 ): Promise<WarrantyClaimSettingsResult> {
   const response = await putWarrantyClaimSettings(request, token, data, updatedAt)
@@ -506,7 +513,7 @@ export async function restoreWarrantyClaimSettings(
       slaPauseOnInfoRequested: snapshot.slaPauseOnInfoRequested,
       slaAtRiskThresholdPct: snapshot.slaAtRiskThresholdPct,
       autoApproveEnabled: snapshot.autoApproveEnabled,
-      autoApproveMaxAmount: snapshot.autoApproveMaxAmount,
+      autoApproveMaxAmount: snapshot.autoApproveMaxAmountExact ?? snapshot.autoApproveMaxAmount,
       autoApproveCurrencyCode: snapshot.autoApproveCurrencyCode,
       autoApproveRequireInWarranty: snapshot.autoApproveRequireInWarranty,
       defaultWarrantyMonths: snapshot.defaultWarrantyMonths,

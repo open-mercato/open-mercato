@@ -36,6 +36,7 @@ import { sanitizeSearchTerm } from '../../helpers'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { StaffTimeEntry, StaffTimeEntryTag, StaffTimeProject } from '../../../data/entities'
 import { staffTimeEntryCreateSchema, staffTimeEntryUpdateSchema } from '../../../data/validators'
+import { withExactAmounts } from '@open-mercato/shared/lib/decimal'
 import { buildTimeEntryListFilters, isParseableDateFilter } from '../../../lib/timesheets/timeEntryListFilters'
 import { staffTimeEntryCommandIds, staffTimeEntryCrudEvents } from '../../../lib/crud'
 import { resolveFeatureAccess } from '../../../lib/time-tracking/featureAccess'
@@ -394,9 +395,12 @@ export async function decorateTimeEntryList(payload: unknown, ctx: CrudCtx): Pro
     tenantId,
     organizationId,
     canSeeRates: await callerHasRatesView(ctx),
+    container: ctx.container,
     onError: (err) => logger.error('staff.timesheets.time-entries response decoration failed', { err }),
   })
 }
+
+const TIME_ENTRY_MONEY_FIELDS = ['rateOverrideAmount'] as const
 
 const crud = makeCrudRoute({
   metadata: routeMetadata,
@@ -429,7 +433,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(staffTimeEntryCreateSchema, raw ?? {}, ctx, translate)
+        return withExactAmounts(parseScopedCommandInput(staffTimeEntryCreateSchema, raw ?? {}, ctx, translate), raw, TIME_ENTRY_MONEY_FIELDS)
       },
       response: ({ result }) => ({ id: result?.timeEntryId ?? null }),
       status: 201,
@@ -439,7 +443,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(staffTimeEntryUpdateSchema, raw ?? {}, ctx, translate)
+        return withExactAmounts(parseScopedCommandInput(staffTimeEntryUpdateSchema, raw ?? {}, ctx, translate), raw, TIME_ENTRY_MONEY_FIELDS)
       },
       response: () => ({ ok: true }),
     },
@@ -503,6 +507,8 @@ const timeEntryListItemSchema = z.object({
   tags: z.array(timeEntryTagSchema).optional(),
   /** Present only for a caller holding `staff.timesheets.rates.view`; `null` when non-billable. */
   cost: z.number().nullable().optional(),
+  /** Exact decimal string of `cost` (no float rounding); same presence rule as `cost`. */
+  costExact: z.string().nullable().optional(),
   /** Present only for a caller holding `staff.timesheets.rates.view`. */
   currencyCode: z.string().nullable().optional(),
 })

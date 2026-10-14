@@ -1240,6 +1240,7 @@
   "sales.documents.status.documentPlaceholder": "Wybierz nowy status zamówienia/oferty",
   "sales.documents.status.linePlaceholder": "Wybierz status pozycji",
   "sales.documents.status.sectionTitle": "Zmiany statusu",
+  "sales.errors.amount_invalid": "Podaj prawidłową kwotę.",
   "sales.errors.invalid_query": "Nieprawidłowe parametry zapytania",
   "sales.errors.organization_required": "Wymagany jest kontekst organizacji",
   "sales.errors.tag_invalid": "Nieprawidłowy format tagu.",

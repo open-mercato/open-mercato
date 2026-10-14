@@ -8,6 +8,7 @@ import { DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/en
 import { SalesOrderLine, SalesShipment, SalesShipmentItem, SalesShippingMethod } from '../../data/entities'
 import { shipmentCreateSchema, shipmentUpdateSchema } from '../../data/validators'
 import { withScopedPayload } from '../utils'
+import { withExactShipmentInput } from '../../lib/exactAmountFields'
 import { readShipmentItemsSnapshot } from '../../lib/shipments/snapshots'
 import {
   createPagedListResponseSchema,
@@ -265,10 +266,11 @@ const crud = makeCrudRoute({
         const { translate } = await resolveTranslations()
         const scoped = withScopedPayload(raw ?? {}, ctx, translate)
         const { base, custom } = splitCustomFieldPayload(scoped)
-        return shipmentCreateSchema.parse({
+        const payload = {
           ...base,
           ...(Object.keys(custom).length ? { customFields: custom } : {}),
-        })
+        }
+        return withExactShipmentInput(shipmentCreateSchema.parse(payload), payload)
       },
       response: ({ result }) => ({ id: result?.shipmentId ?? null }),
       status: 201,
@@ -280,10 +282,11 @@ const crud = makeCrudRoute({
         const { translate } = await resolveTranslations()
         const scoped = withScopedPayload(raw ?? {}, ctx, translate)
         const { base, custom } = splitCustomFieldPayload(scoped)
-        return shipmentUpdateSchema.parse({
+        const payload = {
           ...base,
           ...(Object.keys(custom).length ? { customFields: custom } : {}),
-        })
+        }
+        return withExactShipmentInput(shipmentUpdateSchema.parse(payload), payload)
       },
       response: () => ({ ok: true }),
     },
@@ -343,8 +346,8 @@ const shipmentSchema = z
     delivered_at: z.string().nullable().optional(),
     weight_value: z.number().nullable().optional(),
     weight_unit: z.string().nullable().optional(),
-    declared_value_net: z.number().nullable().optional(),
-    declared_value_gross: z.number().nullable().optional(),
+    declared_value_net: z.string().nullable().optional(),
+    declared_value_gross: z.string().nullable().optional(),
     currency_code: z.string().nullable().optional(),
     notes: z.string().nullable().optional(),
     metadata: z.record(z.string(), z.unknown()).nullable().optional(),

@@ -1,10 +1,16 @@
 import { NextResponse } from 'next/server'
+import { resolveExactDecimal } from '@open-mercato/shared/lib/decimal'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { refundSchema } from '../../data/validators'
 import type { PaymentGatewayService } from '../../lib/gateway-service'
+import {
+  buildInvalidPayloadBody,
+  findAmountPrecisionError,
+  resolveTransactionCurrencyCode,
+} from '../../lib/amount-precision'
 import { paymentGatewaysTag } from '../openapi'
 import {
   resolveUserFeatures,
@@ -28,10 +34,24 @@ export async function POST(req: Request) {
   const payload = await readJsonSafe<unknown>(req)
   const parsed = refundSchema.safeParse(payload)
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid payload', details: parsed.error.flatten() }, { status: 422 })
+    return NextResponse.json(await buildInvalidPayloadBody(parsed.error), { status: 422 })
   }
 
   const container = await createRequestContainer()
+  const scope = { organizationId: auth.orgId, tenantId: auth.tenantId }
+  const amount = parsed.data.amount === undefined
+    ? undefined
+    : (resolveExactDecimal((payload as Record<string, unknown> | null)?.amount, parsed.data.amount) ?? parsed.data.amount)
+  if (amount !== undefined) {
+    const precisionError = await findAmountPrecisionError(container, {
+      amount,
+      currencyCode: await resolveTransactionCurrencyCode(container, parsed.data.transactionId, scope),
+      scope,
+    })
+    if (precisionError) {
+      return NextResponse.json(precisionError, { status: 400 })
+    }
+  }
   const guardResult = await runPaymentGatewayMutationGuards(
     container,
     {
@@ -59,7 +79,7 @@ export async function POST(req: Request) {
   try {
     const result = await service.refundPayment(
       parsed.data.transactionId,
-      parsed.data.amount,
+      amount,
       parsed.data.reason,
       { organizationId: auth.orgId as string, tenantId: auth.tenantId },
       parsed.data.operationId,
@@ -93,6 +113,7 @@ export const openApi = {
       tags: [paymentGatewaysTag],
       responses: [
         { status: 200, description: 'Payment refunded' },
+        { status: 400, description: 'Amount has more decimal places than the transaction currency supports' },
         { status: 409, description: 'Invalid payment status transition' },
         { status: 422, description: 'Invalid payload' },
         { status: 502, description: 'Gateway provider error' },

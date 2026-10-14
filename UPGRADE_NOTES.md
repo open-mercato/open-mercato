@@ -22,6 +22,43 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
+## 0.9.0 → 0.9.1 (unreleased)
+
+### Money and exchange-rate amounts are arbitrary precision (exact decimals)
+
+Money columns and `exchange_rates.rate` are now unconstrained `numeric`, and all built-in money math
+uses exact decimals. Public contracts keep their `number` fields (a float copy) and gain
+`<field>Exact` decimal strings, e.g. `SalesDocumentAmounts.grandTotalGrossAmountExact`,
+`SalesLineCalculationResult.netAmountExact`, `CaptureResult.capturedAmountExact`.
+
+**Action for module authors:**
+- Calculation hooks / shipping or payment providers that only change `number` fields keep working; to
+  keep full precision set the matching `<field>Exact` string too and do the math with
+  `@open-mercato/shared/lib/decimal` instead of JS numbers.
+- Payment gateway adapters should prefer `input.amountExact` and may return `capturedAmountExact` /
+  `refundedAmountExact` / `amountExact`.
+- Code that compared stored amount strings literally (`'40.0000'`) must compare numerically: new rows
+  are stored without scale padding. Catalog history responses retain at least four decimal places
+  without truncating additional digits.
+- The existing capture-ledger exports keep their fixed four-decimal bigint fields and signatures,
+  including `CaptureAmounts`, `resolveCaptureAmounts`, `assertCaptureWithinRemaining`, and the
+  reserve/settle/release helpers. They are deprecated and remain available until no earlier than
+  0.11.0. Migrate to `ExactCaptureAmounts` and the corresponding `*Exact` helpers for exact decimals;
+  exact reserve/release use decimal strings instead of bigint units.
+- Staff rate resolvers keep receiving numbers in `ctx.entry.rateOverrideAmount` / `ctx.project.hourlyRate`
+  and returning `number | null` from `resolve`. A resolver that needs digits beyond float precision can
+  read `rateOverrideAmountExact` / `hourlyRateExact` and implement the optional `resolveExact(ctx)`.
+- Payment gateway session, capture and refund requests with more decimals than the currency allows
+  (e.g. `10.005` USD) now get a 400. Money inputs with more than 1000 significant digits or 300
+  integer digits get a 400 on CRUD money endpoints (`withDecimalCaps` guards the number-coercing schemas); invalid payment gateway payloads get a 422.
+- Positive gateway amounts whose required numeric copy underflows to zero, such as `1e-400`,
+  are rejected with 422 as invalid payloads before a provider is called.
+- The money migrations' `down()` narrows the columns back to their old precision: extra decimals are
+  rounded away, and values beyond the old integer digits make the rollback fail with
+  "numeric field overflow". Back up before rolling back.
+
+---
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### Payment gateway webhooks: opt-in transport, locator and response options; ambiguous matches are rejected

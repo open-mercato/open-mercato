@@ -15,6 +15,7 @@ import {
   exchangeRateGroups,
   validateExchangeRateForm,
   buildExchangeRatePayload,
+  metadataToFormValue,
 } from '../../../lib/exchangeRateFormConfig'
 
 /**
@@ -38,6 +39,7 @@ type ExchangeRateData = {
   date: string
   source: string | null
   type: string | null
+  metadata?: Record<string, unknown> | null
   isActive: boolean
   organizationId: string
   tenantId: string
@@ -148,10 +150,11 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
           initialValues={{
             fromCurrencyCode: exchangeRate.fromCurrencyCode,
             toCurrencyCode: exchangeRate.toCurrencyCode,
-            rate: parseFloat(exchangeRate.rate),
+            rate: exchangeRate.rate,
             date: formatDateTimeLocal(new Date(exchangeRate.date)),
             source: exchangeRate.source || '',
             type: exchangeRate.type || '',
+            metadata: metadataToFormValue(exchangeRate.metadata),
             isActive: exchangeRate.isActive,
           }}
           submitLabel={t('exchangeRates.form.action.save')}

@@ -140,17 +140,21 @@ describe('LinkTemplateForm locale decimal separator (issue #5828)', () => {
     expect(amountInput.value).toBe('25,99')
   })
 
-  describe('toSubmittedAmount (converts the raw typed text to a number at submit time)', () => {
+  describe('toSubmittedAmount (converts the raw typed text to an exact decimal string at submit time)', () => {
     it('parses a comma-decimal value', () => {
-      expect(toSubmittedAmount('110,70', 'pl-PL')).toBe(110.7)
+      expect(toSubmittedAmount('110,70', 'pl-PL')).toBe('110.7')
     })
 
     it('still parses a dot-decimal value', () => {
-      expect(toSubmittedAmount('110.70', 'pl-PL')).toBe(110.7)
+      expect(toSubmittedAmount('110.70', 'pl-PL')).toBe('110.7')
     })
 
     it('passes an already-numeric value through unchanged', () => {
-      expect(toSubmittedAmount(150, 'pl-PL')).toBe(150)
+      expect(toSubmittedAmount(150, 'pl-PL')).toBe('150')
+    })
+
+    it('keeps every digit of an amount beyond float precision', () => {
+      expect(toSubmittedAmount('0,123456789012345678', 'pl-PL')).toBe('0.123456789012345678')
     })
 
     it('returns null for unparseable or blank input, never a silent 0 or NaN', () => {

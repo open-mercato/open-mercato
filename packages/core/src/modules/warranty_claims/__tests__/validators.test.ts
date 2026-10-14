@@ -5,6 +5,7 @@ import {
   registrationCreateSchema,
   registrationUpdateSchema,
   vendorPolicyCreateSchema,
+  warrantyClaimSettingsUpdateSchema,
 } from '../data/validators'
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
@@ -81,6 +82,34 @@ describe('claim line nullable decimal fields', () => {
 
     expect(result.success).toBe(true)
     if (result.success) expect(result.data[field]).toBeNull()
+  })
+})
+
+describe('warranty money fields beyond the decimal size caps', () => {
+  const oversizedValues = [1e305, '1e305', `0.${'1'.repeat(1001)}`]
+
+  it.each(['creditAmount', 'restockingFee', 'coreChargeAmount', 'coreCreditAmount'] as const)(
+    'rejects an oversized %s instead of clearing it',
+    (field) => {
+      for (const value of oversizedValues) {
+        const result = claimLineCreateSchema.safeParse({ ...scope, claimId: CLAIM_ID, qtyClaimed: 1, [field]: value })
+        expect(result.success).toBe(false)
+        if (!result.success) {
+          expect(result.error.issues.map((issue) => issue.message)).toContain('warranty_claims.errors.invalidInput')
+        }
+      }
+      expect(
+        claimLineCreateSchema.safeParse({ ...scope, claimId: CLAIM_ID, qtyClaimed: 1, [field]: '12.3456' }).success,
+      ).toBe(true)
+    },
+  )
+
+  it('rejects an oversized autoApproveMaxAmount and keeps blank clearing it', () => {
+    for (const value of oversizedValues) {
+      expect(warrantyClaimSettingsUpdateSchema.safeParse({ autoApproveMaxAmount: value }).success).toBe(false)
+    }
+    expect(warrantyClaimSettingsUpdateSchema.parse({ autoApproveMaxAmount: '' }).autoApproveMaxAmount).toBeNull()
+    expect(warrantyClaimSettingsUpdateSchema.parse({ autoApproveMaxAmount: '250.5' }).autoApproveMaxAmount).toBe(250.5)
   })
 })
 

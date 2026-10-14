@@ -9,7 +9,7 @@ import {
   serializeReportExport,
   type ReportExportInput,
 } from '../reportExport'
-import { buildReportRows, sumReportRowAmounts, sumReportRowMinutes } from '../reportRows'
+import { buildReportRows, sumReportRowAmounts, sumReportRowAmountsExact, sumReportRowMinutes } from '../reportRows'
 import { computeReportTotals, type ReportInputEntry, type ReportInputProject } from '../reportTotals'
 
 const projects: ReportInputProject[] = [
@@ -121,6 +121,35 @@ function makeExportInput(overrides: Partial<ReportExportInput> = {}): ReportExpo
     ...overrides,
   }
 }
+
+describe('legacy report export integrations', () => {
+  it('accepts groups and lines without exact siblings and prints their numeric values', () => {
+    const input = makeExportInput({
+      groups: [{
+        key: 'legacy-project',
+        kind: 'project',
+        label: 'Legacy project',
+        rate: 12.5,
+        minutes: 60,
+        amount: 12.5,
+        entryCount: 1,
+        lines: [{
+          key: 'legacy-task',
+          label: 'Legacy task',
+          rate: 12.5,
+          minutes: 60,
+          amount: 12.5,
+          entryCount: 1,
+          hasOverride: false,
+          children: [],
+        }],
+      }],
+      totals: { billableMinutes: 60, nonbillableMinutes: 0, totalAmount: 12.5 },
+    })
+    const texts = buildReportPdfLines(input).flatMap((line) => 'cells' in line ? line.cells.map((cell) => cell.text) : [])
+    expect(texts).toEqual(expect.arrayContaining(['Legacy project', 'Legacy task', '12.50 PLN', '12.50']))
+  })
+})
 
 describe('report rows', () => {
   it('flattens one row per entry and reconciles with the grouped total', () => {
@@ -328,5 +357,143 @@ describe('normalizeReportExportFormat', () => {
     expect(normalizeReportExportFormat('xlsx')).toBe('xlsx')
     expect(normalizeReportExportFormat('json')).toBeNull()
     expect(normalizeReportExportFormat(null)).toBeNull()
+  })
+})
+
+describe('exports print amounts with the currency decimals', () => {
+  const preciseEntries: ReportInputEntry[] = [
+    { ...entries[0], durationMinutes: 7, roundedMinutes: 7, rateOverrideAmount: null, rateOverrideAmountExact: '123.4567' },
+  ]
+
+  function currencyInput(currencyCode: string, amountDecimalPlaces: number): ReportExportInput {
+    const totals = computeReportTotals({
+      entries: preciseEntries,
+      projects,
+      directory,
+      options: { grouping: 'project_task', nonbillableMode: 'separate', includeAlreadyReported: false, amountDecimalPlaces },
+      labels,
+    })
+    return makeExportInput({
+      currencyCode,
+      amountDecimalPlaces,
+      groups: totals.groups,
+      rows: buildReportRows({ entries: preciseEntries, projects, directory, labels, amountDecimalPlaces }),
+      totals: {
+        billableMinutes: totals.billableMinutes,
+        nonbillableMinutes: totals.nonbillableMinutes,
+        totalAmount: totals.totalAmount,
+        totalAmountExact: totals.totalAmountExact,
+      },
+    })
+  }
+
+  function pdfTexts(input: ReportExportInput): string[] {
+    return buildReportPdfLines(input).flatMap((line) =>
+      line.kind === 'cells' ? line.cells.map((cell) => cell.text.trim()) : [],
+    )
+  }
+
+  it('prints 0 decimals for JPY in the CSV table and the PDF total', () => {
+    const input = currencyInput('JPY', 0)
+    const table = buildReportTable(input)
+    expect(table.rows[0].amount).toBe('14')
+    expect(table.rows[0].rate).toBe('123')
+    expect(pdfTexts(input)).toContain('14 JPY')
+  })
+
+  it('prints 3 decimals for KWD in the CSV table and the PDF total', () => {
+    const input = currencyInput('KWD', 3)
+    const table = buildReportTable(input)
+    expect(table.rows[0].amount).toBe('14.403')
+    expect(table.rows[0].rate).toBe('123.457')
+    expect(pdfTexts(input)).toContain('14.403 KWD')
+    const csv = serializeReportExport('csv', input).body.toString('utf8')
+    expect(csv).toContain('14.403')
+  })
+
+  it('pads to 2 decimals when no precision is given', () => {
+    const input = currencyInput('USD', 2)
+    const table = buildReportTable({ ...input, amountDecimalPlaces: undefined })
+    expect(table.rows[0].amount).toBe('14.40')
+  })
+})
+
+describe('exports never cut a frozen amount (legacy 2-decimal rows in a 0-decimal report)', () => {
+  const frozenReportId = 'report-jpy'
+
+  function frozenEntry(id: string, taskId: string): ReportInputEntry {
+    return {
+      ...entries[0],
+      id,
+      taskId,
+      rootTaskId: taskId,
+      durationMinutes: 60,
+      roundedMinutes: 60,
+      frozen: {
+        reportId: frozenReportId,
+        reference: 'RAP-JPY-1',
+        title: null,
+        rawMinutes: 60,
+        roundedMinutes: 60,
+        rateAmount: 1234.57,
+        rateAmountExact: '1234.57',
+        currencyCode: 'JPY',
+        amount: 1234.57,
+        amountExact: '1234.57',
+        isBillable: true,
+      },
+    }
+  }
+
+  const frozenEntries = [frozenEntry('f1', 't1'), frozenEntry('f2', 't2')]
+
+  function frozenInput(): ReportExportInput {
+    const totals = computeReportTotals({
+      entries: frozenEntries,
+      projects,
+      directory,
+      currentReportId: frozenReportId,
+      options: { grouping: 'project_task', nonbillableMode: 'separate', includeAlreadyReported: false, amountDecimalPlaces: 0 },
+      labels,
+    })
+    return makeExportInput({
+      currencyCode: 'JPY',
+      amountDecimalPlaces: 0,
+      groups: totals.groups,
+      rows: buildReportRows({ entries: frozenEntries, projects, directory, labels, amountDecimalPlaces: 0 }),
+      totals: {
+        billableMinutes: totals.billableMinutes,
+        nonbillableMinutes: totals.nonbillableMinutes,
+        totalAmount: totals.totalAmount,
+        totalAmountExact: totals.totalAmountExact,
+      },
+    })
+  }
+
+  it('keeps the frozen rows, lines, group and total in the PDF as stored', () => {
+    const input = frozenInput()
+    expect(input.totals.totalAmountExact).toBe('2469.14')
+    const texts = buildReportPdfLines(input).flatMap((line) =>
+      line.kind === 'cells' ? line.cells.map((cell) => cell.text.trim()) : [],
+    )
+    expect(texts.filter((text) => text === '1234.57')).toHaveLength(2)
+    expect(texts.filter((text) => text === '2469.14 JPY')).toHaveLength(2)
+    expect(texts).not.toContain('2469 JPY')
+  })
+
+  it('keeps the frozen amounts and rates in the CSV table as stored', () => {
+    const input = frozenInput()
+    const table = buildReportTable(input)
+    expect(table.rows.map((row) => row.amount)).toEqual(['1234.57', '1234.57'])
+    expect(table.rows.map((row) => row.rate)).toEqual(['1234.57', '1234.57'])
+    const csv = serializeReportExport('csv', input).body.toString('utf8')
+    expect(csv).toContain('1234.57')
+    expect(csv).not.toContain('1235')
+  })
+
+  it('sums the rows to the stored grand total', () => {
+    const input = frozenInput()
+    expect(sumReportRowAmountsExact(input.rows, 0)).toBe('2469.14')
+    expect(sumReportRowAmounts(input.rows, 0)).toBe(2469.14)
   })
 })

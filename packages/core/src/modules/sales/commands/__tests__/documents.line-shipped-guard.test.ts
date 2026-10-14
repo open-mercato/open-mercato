@@ -46,13 +46,16 @@ function setWorld(options: {
   shipments: Array<{ id: string }>
   shipmentItems: ShipmentItem[]
   quantityUnit?: string | null
+  currencyCode?: string
+  line?: Record<string, string>
 }) {
+  const currencyCode = options.currencyCode ?? 'USD'
   const order = {
     id: ORDER_ID,
     organizationId: ORG_ID,
     tenantId: TENANT_ID,
     deletedAt: null,
-    currencyCode: 'USD',
+    currencyCode,
     updatedAt: new Date('2026-07-08T09:21:29.000Z'),
   }
   const orderLine = {
@@ -67,7 +70,7 @@ function setWorld(options: {
     normalizedQuantity: String(ORDERED_QUANTITY),
     normalizedUnit: options.quantityUnit ?? null,
     uomSnapshot: null,
-    currencyCode: 'USD',
+    currencyCode,
     unitPriceNet: String(UNIT_PRICE_NET),
     unitPriceGross: String(UNIT_PRICE_GROSS),
     discountAmount: '0',
@@ -77,6 +80,7 @@ function setWorld(options: {
     totalNetAmount: '400',
     totalGrossAmount: '492',
     updatedAt: new Date(),
+    ...options.line,
   }
   ;(globalThis as any).__lineGuardWorld = {
     order,
@@ -133,6 +137,9 @@ function makeCtx(em: unknown) {
     salesCalculationService: asValue({
       calculateDocumentTotals: jest.fn(async () => ({ totals: {}, lines: [{}] })),
     }),
+    currencyPrecisionService: asValue({
+      getDecimalPlaces: async ({ code }: { code: string }) => (code === 'ETH' ? 18 : null),
+    }),
   })
   return {
     container,
@@ -172,6 +179,30 @@ async function runUpsert(input: ReturnType<typeof editInput>) {
     caught = err
   }
   return { caught, em }
+}
+
+function partiallyShippedWorld(currencyCode: string, line: Record<string, string>) {
+  return setWorld({
+    shipments: [{ id: SHIPMENT_ID }],
+    shipmentItems: [{ shipment: { id: SHIPMENT_ID }, orderLine: { id: LINE_ID }, quantity: '1' }],
+    currencyCode,
+    line: { normalizedQuantity: line.quantity, ...line },
+  })
+}
+
+function rescaleInput(currencyCode: string, quantity: number, totals: Record<string, string | number>) {
+  return {
+    body: {
+      id: LINE_ID,
+      orderId: ORDER_ID,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      currencyCode,
+      kind: 'product',
+      quantity,
+      ...totals,
+    },
+  }
 }
 
 const shippedWorld = () =>
@@ -338,6 +369,56 @@ describe('sales.orders.lines.upsert shipment guard (issue #3993)', () => {
     } catch (err) {
       caught = err
     }
+    expect(isCrudHttpError(caught)).toBe(true)
+    expect((caught as CrudHttpError).status).toBe(409)
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['the rounded total the line dialog sends', '16.6667'],
+    ['the float product an older client sends', 16.666666666666668],
+  ])('accepts a 3 to 2 quantity change of a 25.00 line carrying %s', async (_label, totalNetAmount) => {
+    partiallyShippedWorld('USD', { quantity: '3', totalNetAmount: '25.00', totalGrossAmount: '30.75' })
+    const { caught } = await runUpsert(
+      rescaleInput('USD', 2, { totalNetAmount, totalGrossAmount: '20.5' }),
+    )
+    expect(isCrudHttpError(caught) && (caught as CrudHttpError).status === 409).toBe(false)
+  })
+
+  it('rejects a 3 to 2 quantity change of a 25.00 line that moves the total to 17', async () => {
+    partiallyShippedWorld('USD', { quantity: '3', totalNetAmount: '25.00', totalGrossAmount: '30.75' })
+    const { caught, em } = await runUpsert(
+      rescaleInput('USD', 2, { totalNetAmount: 17, totalGrossAmount: '20.5' }),
+    )
+    expect(isCrudHttpError(caught)).toBe(true)
+    expect((caught as CrudHttpError).status).toBe(409)
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('accepts a total rescaled from a line total that was itself stored rounded', async () => {
+    partiallyShippedWorld('USD', { quantity: '3', totalNetAmount: '24.9999', totalGrossAmount: '30.7499' })
+    const { caught } = await runUpsert(
+      rescaleInput('USD', 1, { totalNetAmount: '8.3333', totalGrossAmount: '10.25' }),
+    )
+    expect(isCrudHttpError(caught) && (caught as CrudHttpError).status === 409).toBe(false)
+  })
+
+  it.each([
+    ['rounded to the 18 ETH decimals', '0.166666666666666667'],
+    ['as a float product', 0.16666666666666666],
+  ])('accepts a 3 to 2 quantity change of an ETH line with the total %s', async (_label, totalNetAmount) => {
+    partiallyShippedWorld('ETH', { quantity: '3', totalNetAmount: '0.25', totalGrossAmount: '0.3075' })
+    const { caught } = await runUpsert(
+      rescaleInput('ETH', 2, { totalNetAmount, totalGrossAmount: '0.205' }),
+    )
+    expect(isCrudHttpError(caught) && (caught as CrudHttpError).status === 409).toBe(false)
+  })
+
+  it('rejects a 3 to 2 quantity change of an ETH line rounded far coarser than its precision', async () => {
+    partiallyShippedWorld('ETH', { quantity: '3', totalNetAmount: '0.25', totalGrossAmount: '0.3075' })
+    const { caught, em } = await runUpsert(
+      rescaleInput('ETH', 2, { totalNetAmount: '0.1667', totalGrossAmount: '0.205' }),
+    )
     expect(isCrudHttpError(caught)).toBe(true)
     expect((caught as CrudHttpError).status).toBe(409)
     expect(em.flush).not.toHaveBeenCalled()

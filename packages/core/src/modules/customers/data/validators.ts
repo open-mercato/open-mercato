@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
+import { withDecimalCaps } from '@open-mercato/shared/lib/decimal'
 import { COORDINATE_RANGES } from '@open-mercato/shared/lib/location/coordinates'
 import { dictionaryEntrySortModeSchema } from '@open-mercato/core/modules/dictionaries/lib/entrySort'
 import { calendarEventTypeBehaviorSchema } from '../calendar-event-types'
@@ -60,6 +61,8 @@ const clearableDomainSchema = z.preprocess(
 const clearableStringSchema = (max: number) =>
   z.preprocess(emptyStringToNull, z.string().trim().max(max).nullable().optional())
 
+const moneyInputSchema = <T extends z.ZodType>(schema: T) => withDecimalCaps(schema)
+
 // Annual revenue maps to a nullable numeric column. `''`/whitespace/null all clear it;
 // `.nullable()` short-circuits before coercion so null does not coerce to 0. See #3050.
 const clearableRevenueSchema = z.preprocess(
@@ -67,7 +70,7 @@ const clearableRevenueSchema = z.preprocess(
     if (typeof value === 'string' && value.trim().length === 0) return null
     return value
   },
-  z.coerce.number().min(0).nullable().optional(),
+  moneyInputSchema(z.coerce.number().min(0)).nullable().optional(),
 )
 
 const interactionPhoneNumberSchema = z.string().trim().max(50).optional().nullable()
@@ -176,7 +179,7 @@ export const dealCreateSchema = scopedSchema.extend({
   pipelineStage: z.string().max(100).optional(),
   pipelineId: uuid().optional(),
   pipelineStageId: uuid().optional(),
-  valueAmount: z.coerce.number().min(0).optional(),
+  valueAmount: moneyInputSchema(z.coerce.number().min(0)).optional(),
   valueCurrency: z.string().min(3).max(3).optional(),
   probability: z.number().min(0).max(100).optional(),
   expectedCloseAt: z.coerce.date().optional(),

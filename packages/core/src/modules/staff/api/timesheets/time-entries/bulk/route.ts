@@ -8,6 +8,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { withExactAmounts, type WithExactAmounts } from '@open-mercato/shared/lib/decimal'
 import { emitCrudSideEffects, flushCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -71,7 +72,7 @@ function bulkValidationError(errors: BulkRowError[]): NextResponse {
  * in scope) and the project the entry actually lands on, which a task-only row
  * inherits from its task exactly as the single-entry path does.
  */
-type BulkEntryInput = StaffTimeEntryBulkSaveInput['entries'][number]
+type BulkEntryInput = WithExactAmounts<StaffTimeEntryBulkSaveInput['entries'][number], 'rateOverrideAmount'>
 
 type ResolvedBulkRow = {
   entry: BulkEntryInput
@@ -115,7 +116,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, errors }, { status: 422 })
     }
 
-    const { entries } = parsed.data
+    const rawEntries = Array.isArray(session.body?.entries) ? (session.body.entries as unknown[]) : []
+    const entries: BulkEntryInput[] = parsed.data.entries.map((entry, index) =>
+      withExactAmounts(entry, rawEntries[index], ['rateOverrideAmount'] as const),
+    )
 
     // Tags are REFUSED here rather than accepted and dropped.
     //
@@ -445,7 +449,7 @@ export async function POST(req: Request) {
             if (entry.taskId !== undefined) existing.taskId = task?.id ?? null
             if (entry.isBillable !== undefined) existing.isBillable = entry.isBillable
             if (entry.rateOverrideAmount !== undefined) {
-              existing.rateOverrideAmount = toStoredTimeEntryRateOverride(entry.rateOverrideAmount)
+              existing.rateOverrideAmount = toStoredTimeEntryRateOverride(entry.rateOverrideAmount, entry.rateOverrideAmountExact)
             }
             if (notes !== undefined) existing.notes = notes
             existing.updatedAt = new Date()
@@ -473,7 +477,7 @@ export async function POST(req: Request) {
               settings,
               scope: { tenantId, organizationId },
             }),
-            rateOverrideAmount: toStoredTimeEntryRateOverride(entry.rateOverrideAmount),
+            rateOverrideAmount: toStoredTimeEntryRateOverride(entry.rateOverrideAmount, entry.rateOverrideAmountExact),
             rateCurrencyCode: project?.currencyCode ?? null,
             source: 'manual',
             createdAt: now,

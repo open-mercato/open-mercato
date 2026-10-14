@@ -21,6 +21,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import { formatRateForDisplay } from '../../lib/exchangeRateFormConfig'
 
 type ExchangeRateRow = {
   id: string
@@ -180,7 +181,7 @@ export default function ExchangeRatesPage() {
         header: t('exchangeRates.list.columns.rate'),
         cell: ({ row }) => (
           <span className="font-mono">
-            {parseFloat(row.original.rate).toFixed(8)}
+            {formatRateForDisplay(row.original.rate)}
           </span>
         ),
       },

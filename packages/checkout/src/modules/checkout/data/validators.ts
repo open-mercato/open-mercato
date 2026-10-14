@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { fieldsetCodeRegex } from '@open-mercato/shared/modules/entities/validators'
+import { compareDecimals, withDecimalCaps, parseDecimal } from '@open-mercato/shared/lib/decimal'
 import { DEFAULT_CHECKOUT_CUSTOMER_FIELDS } from '../lib/defaults'
 import { CHECKOUT_LINK_STATUSES } from '../lib/constants'
 
@@ -43,7 +44,11 @@ const optionalFieldsetCodeSchema = z.preprocess(
     message: 'checkout.validation.common.invalidFieldsetCode',
   }).optional().nullable(),
 )
-const positiveMoneySchema = z.coerce.number().finite('checkout.validation.common.invalidNumber').nonnegative('checkout.validation.common.nonNegativeNumber')
+const moneyInputSchema = <T extends z.ZodType>(schema: T) => withDecimalCaps(schema, 'checkout.validation.common.invalidNumber')
+
+const positiveMoneySchema = moneyInputSchema(
+  z.coerce.number().finite('checkout.validation.common.invalidNumber').nonnegative('checkout.validation.common.nonNegativeNumber'),
+)
 const linkStatusSchema = z.enum(CHECKOUT_LINK_STATUSES)
 const themeModeSchema = z.enum(['light', 'dark', 'auto'])
 const checkoutTypeSchema = z.enum(['pay_link', 'simple_checkout'])
@@ -189,6 +194,25 @@ function validatePricingConsistency<T extends z.infer<typeof checkoutContentSche
   }
 }
 
+export type ExactCustomAmountRangeInput = {
+  pricingMode?: unknown
+  customAmountMinExact?: string | null
+  customAmountMaxExact?: string | null
+}
+
+export function assertExactCustomAmountRange(value: ExactCustomAmountRangeInput): void {
+  if (value.pricingMode !== 'custom_amount') return
+  const minimum = parseDecimal(value.customAmountMinExact)
+  const maximum = parseDecimal(value.customAmountMaxExact)
+  if (!minimum || !maximum || compareDecimals(minimum, maximum) <= 0) return
+  throw new z.ZodError([{
+    code: 'custom',
+    message: 'checkout.validation.customAmount.range',
+    path: ['customAmountMax'],
+    input: value.customAmountMaxExact,
+  }])
+}
+
 export const createTemplateSchema = checkoutContentSchema.superRefine((value, ctx) => {
   validatePricingConsistency(value, ctx)
   if (!value.gatewayProviderKey) {
@@ -280,7 +304,7 @@ export const publicSubmitSchema = z.object({
     terms: z.boolean().optional(),
     privacyPolicy: z.boolean().optional(),
   }).default({}),
-  amount: z.coerce.number().finite().nonnegative().optional(),
+  amount: moneyInputSchema(z.coerce.number().finite().nonnegative()).optional(),
   selectedPriceItemId: optionalTrimmedString,
 })
 

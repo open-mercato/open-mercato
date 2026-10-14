@@ -1,3 +1,5 @@
+import { decimalToString, isDecimalInput } from './decimal'
+
 type LocaleNumberSeparators = { group: string; decimal: string }
 
 const DEFAULT_SEPARATORS: LocaleNumberSeparators = { group: ',', decimal: '.' }
@@ -60,6 +62,24 @@ function isValidGrouping(integerPart: string, separator: string): boolean {
  * numbers and MUST NOT go through it.
  */
 export function parseLocaleNumber(input: string | null | undefined, locale?: string): number | null {
+  const normalized = normalizeLocaleNumber(input, locale)
+  if (normalized === null) return null
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+/**
+ * Same parsing rules as `parseLocaleNumber`, but returns the exact decimal string
+ * (`1 234,567891234567891` → `1234.567891234567891`) instead of a lossy JS `number`.
+ * Use it for money and FX values a user typed.
+ */
+export function parseLocaleDecimal(input: string | null | undefined, locale?: string): string | null {
+  const normalized = normalizeLocaleNumber(input, locale)
+  if (normalized === null || !isDecimalInput(normalized)) return null
+  return decimalToString(normalized)
+}
+
+function normalizeLocaleNumber(input: string | null | undefined, locale?: string): string | null {
   if (input == null) return null
   const trimmed = input.trim()
   if (!trimmed) return null
@@ -97,8 +117,7 @@ export function parseLocaleNumber(input: string | null | undefined, locale?: str
 
   const normalized = `${integerPart.split(groupSeparator).join('')}${fractionParts.length ? `.${fractionParts[0]}` : ''}`
   if (!NORMALIZED_NUMBER.test(normalized)) return null
-  const parsed = Number(normalized)
-  return Number.isFinite(parsed) ? parsed : null
+  return normalized
 }
 
 export function parseNumberWithDefault(

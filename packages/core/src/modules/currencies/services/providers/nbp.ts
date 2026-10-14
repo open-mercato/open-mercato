@@ -1,4 +1,4 @@
-import { RateProvider, RateProviderResult } from './base'
+import { RateProvider, RateProviderResult, invertProviderRate, toProviderRate } from './base'
 import { fromZonedTime } from 'date-fns-tz'
 import { fetchWithTimeout, resolveTimeoutMs } from '@open-mercato/shared/lib/http/fetchWithTimeout'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -78,6 +78,7 @@ export class NBPProvider implements RateProvider {
         `${table.effectiveDate} 00:00:00`,
         'Europe/Warsaw'
       )
+      const metadata = { table: table.table, tableNo: table.no, tradingDate: table.tradingDate }
 
       for (const rate of table.rates) {
         // NBP rates are from bank's perspective:
@@ -86,13 +87,20 @@ export class NBPProvider implements RateProvider {
         
         // Rate 1: PLN → XXX (inverse of ASK) - this is when bank SELLS foreign currency
         // If ask = 4.5 (1 EUR costs 4.5 PLN), then 1 PLN = 1/4.5 EUR
+        const askRate = invertProviderRate(rate.ask)
+        const bidRate = toProviderRate(rate.bid)
+        if (askRate === null || bidRate === null) {
+          logger.warn('Skipping unusable rate', { code: rate.code, ask: rate.ask, bid: rate.bid })
+          continue
+        }
         results.push({
           fromCurrencyCode: this.providerBaseCurrency,
           toCurrencyCode: rate.code,
-          rate: (1 / rate.ask).toString(),
+          rate: askRate,
           source: this.source,
           date: effectiveDate,
           type: 'sell', // Bank sells foreign currency (from their perspective)
+          metadata,
         })
 
         // Rate 2: XXX → PLN (using BID) - this is when bank BUYS foreign currency
@@ -100,10 +108,11 @@ export class NBPProvider implements RateProvider {
         results.push({
           fromCurrencyCode: rate.code,
           toCurrencyCode: this.providerBaseCurrency,
-          rate: rate.bid.toString(),
+          rate: bidRate,
           source: this.source,
           date: effectiveDate,
           type: 'buy', // Bank buys foreign currency (from their perspective)
+          metadata,
         })
       }
 

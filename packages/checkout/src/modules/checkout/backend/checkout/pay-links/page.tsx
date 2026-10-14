@@ -16,6 +16,7 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
+import { countDecimalPlaces, resolveExactDecimal, toDecimal } from '@open-mercato/shared/lib/decimal'
 
 type LinkRow = {
   id: string
@@ -23,14 +24,23 @@ type LinkRow = {
   slug: string
   pricingMode: 'fixed' | 'custom_amount' | 'price_list'
   fixedPriceAmount?: number | null
+  fixedPriceAmountExact?: string | null
   fixedPriceCurrencyCode?: string | null
   customAmountMin?: number | null
+  customAmountMinExact?: string | null
   customAmountMax?: number | null
+  customAmountMaxExact?: string | null
   customAmountCurrencyCode?: string | null
   status: 'draft' | 'active' | 'inactive'
   completionCount: number
   maxCompletions?: number | null
   createdAt?: string | null
+}
+
+function formatLinkAmount(exact: string | null | undefined, legacy: number | null | undefined): string {
+  const amount = resolveExactDecimal(exact, legacy)
+  if (amount === null) return '0.00'
+  return toDecimal(amount).toFixed(Math.max(2, countDecimalPlaces(amount)))
 }
 
 type ListResponse = {
@@ -150,14 +160,14 @@ export default function CheckoutPayLinksPage() {
       cell: ({ row }) => {
         if (row.original.pricingMode === 'fixed') {
           return t('checkout.admin.payLinks.pricing.fixed', {
-            amount: row.original.fixedPriceAmount?.toFixed(2) ?? '0.00',
+            amount: formatLinkAmount(row.original.fixedPriceAmountExact, row.original.fixedPriceAmount),
             currency: row.original.fixedPriceCurrencyCode ?? '',
           }).trim()
         }
         if (row.original.pricingMode === 'custom_amount') {
           return t('checkout.admin.payLinks.pricing.customAmount', {
-            min: row.original.customAmountMin?.toFixed(2) ?? '0.00',
-            max: row.original.customAmountMax?.toFixed(2) ?? '0.00',
+            min: formatLinkAmount(row.original.customAmountMinExact, row.original.customAmountMin),
+            max: formatLinkAmount(row.original.customAmountMaxExact, row.original.customAmountMax),
             currency: row.original.customAmountCurrencyCode ?? '',
           }).trim()
         }

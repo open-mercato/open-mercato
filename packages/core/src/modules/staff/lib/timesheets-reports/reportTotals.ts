@@ -29,7 +29,15 @@
  * rounding rule and today's project rate would produce.
  */
 
-import { applicableRate, entryAmount, round2, sumAmounts } from '../time-tracking/cost'
+import {
+  applicableRateExact,
+  entryAmountExact,
+  round2,
+  sumAmounts,
+  sumAmountsExact,
+  DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES,
+} from '../time-tracking/cost'
+import { decimalToNumber, decimalToString, parseDecimal, sumDecimals } from '@open-mercato/shared/lib/decimal'
 import {
   getReportGrouping,
   isBuiltInReportGrouping,
@@ -53,8 +61,10 @@ export type FrozenEntryValues = {
   rawMinutes: number
   roundedMinutes: number
   rateAmount: number | null
+  rateAmountExact?: string | null
   currencyCode: string | null
   amount: number | null
+  amountExact?: string | null
   isBillable: boolean
 }
 
@@ -72,6 +82,7 @@ export type ReportInputEntry = {
   roundedMinutes: number | null
   isBillable: boolean
   rateOverrideAmount: number | null
+  rateOverrideAmountExact?: string | null
   description: string | null
   /** Present when this entry is already frozen in a closed report (D-5). */
   frozen: FrozenEntryValues | null
@@ -81,6 +92,7 @@ export type ReportInputProject = {
   id: string
   name: string
   hourlyRate: number | null
+  hourlyRateExact?: string | null
   currencyCode: string | null
 }
 
@@ -93,6 +105,8 @@ export type ReportTotalsOptions = {
   grouping: ReportGrouping
   nonbillableMode: ReportNonBillableMode
   includeAlreadyReported: boolean
+  /** Decimals amounts round to (the report currency's); defaults to 2. */
+  amountDecimalPlaces?: number
 }
 
 /** What one entry actually contributes, after D-5 and D-7 have been applied. */
@@ -101,10 +115,18 @@ export type ResolvedEntryValues = {
   minutes: number
   rawMinutes: number
   rate: number | null
+  rateExact?: string | null
   amount: number | null
+  amountExact?: string | null
   isBillable: boolean
   hasOverride: boolean
   isFrozen: boolean
+}
+
+/** `ResolvedEntryValues` as `resolveEntryValues` produces it: the exact siblings are always set. */
+export type ExactResolvedEntryValues = ResolvedEntryValues & {
+  rateExact: string | null
+  amountExact: string | null
 }
 
 export type ReportLine = {
@@ -113,11 +135,20 @@ export type ReportLine = {
   minutes: number
   /** The rate every entry on this line agreed on, or null when they disagree. */
   rate: number | null
+  rateExact?: string | null
   amount: number
+  amountExact?: string
   entryCount: number
   hasOverride: boolean
   /** Child-task rollup detail (D-2); empty for person and day groupings. */
   children: ReportLine[]
+}
+
+/** `ReportLine` as `computeReportTotals` produces it: the exact siblings are always set. */
+export type ExactReportLine = Omit<ReportLine, 'rateExact' | 'amountExact' | 'children'> & {
+  rateExact: string | null
+  amountExact: string
+  children: ExactReportLine[]
 }
 
 export type ReportGroup = {
@@ -125,10 +156,19 @@ export type ReportGroup = {
   kind: 'project' | 'nonbillable'
   label: string
   rate: number | null
+  rateExact?: string | null
   minutes: number
   amount: number
+  amountExact?: string
   entryCount: number
   lines: ReportLine[]
+}
+
+/** `ReportGroup` as `computeReportTotals` produces it: the exact siblings are always set. */
+export type ExactReportGroup = Omit<ReportGroup, 'rateExact' | 'amountExact' | 'lines'> & {
+  rateExact: string | null
+  amountExact: string
+  lines: ExactReportLine[]
 }
 
 export type AlreadyReportedSource = {
@@ -145,10 +185,17 @@ export type ReportTotals = {
   nonbillableMinutes: number
   entryCount: number
   totalAmount: number
+  totalAmountExact?: string
   /** Entries skipped because they are frozen elsewhere (D-5). Zero when opted in. */
   alreadyReportedCount: number
   alreadyReportedMinutes: number
   alreadyReportedIn: AlreadyReportedSource[]
+}
+
+/** `ReportTotals` as `computeReportTotals` produces it: the exact siblings are always set. */
+export type ExactReportTotals = Omit<ReportTotals, 'groups' | 'totalAmountExact'> & {
+  groups: ExactReportGroup[]
+  totalAmountExact: string
 }
 
 
@@ -173,38 +220,58 @@ export function effectiveMinutes(entry: Pick<ReportInputEntry, 'durationMinutes'
  * A frozen entry restates what it was billed at; a live entry is costed from
  * its rounded minutes and its applicable rate.
  */
+function exactOrNull(exact: string | null | undefined, legacy: number | null | undefined): string | null {
+  const parsed = parseDecimal(exact) ?? parseDecimal(finiteOrNull(legacy))
+  return parsed ? decimalToString(parsed) : null
+}
+
+function numberOrNull(exact: string | null): number | null {
+  return exact === null ? null : decimalToNumber(exact)
+}
+
 export function resolveEntryValues(
   entry: ReportInputEntry,
   project: ReportInputProject | null | undefined,
-): ResolvedEntryValues {
+  amountDecimalPlaces: number = DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES,
+): ExactResolvedEntryValues {
   const frozen = entry.frozen
+  const override = exactOrNull(entry.rateOverrideAmountExact, entry.rateOverrideAmount)
   if (frozen) {
+    const rateExact = exactOrNull(frozen.rateAmountExact, frozen.rateAmount)
+    const amountExact = frozen.isBillable ? exactOrNull(frozen.amountExact, frozen.amount) : null
     return {
       entryId: entry.id,
       minutes: finiteOrNull(frozen.roundedMinutes) ?? 0,
       rawMinutes: finiteOrNull(frozen.rawMinutes) ?? 0,
-      rate: finiteOrNull(frozen.rateAmount),
-      amount: frozen.isBillable ? finiteOrNull(frozen.amount) : null,
+      rate: numberOrNull(rateExact),
+      rateExact,
+      amount: numberOrNull(amountExact),
+      amountExact,
       isBillable: frozen.isBillable,
-      hasOverride: finiteOrNull(entry.rateOverrideAmount) !== null,
+      hasOverride: override !== null,
       isFrozen: true,
     }
   }
 
   const minutes = effectiveMinutes(entry)
-  const override = finiteOrNull(entry.rateOverrideAmount)
+  const projectRate = project ? { hourlyRate: exactOrNull(project.hourlyRateExact, project.hourlyRate) } : null
   // EP-33: the override → project-rate chain is the rate registry's built-in, so
   // the report path asks it rather than restating the chain here.
-  const rate = applicableRate({ rateOverrideAmount: override }, project ?? null)
+  const rateExact = entry.isBillable ? applicableRateExact({ rateOverrideAmount: override }, projectRate) : null
+  const amountExact = entryAmountExact(
+    { isBillable: entry.isBillable, roundedMinutes: minutes, rateOverrideAmount: override },
+    projectRate,
+    null,
+    amountDecimalPlaces,
+  )
   return {
     entryId: entry.id,
     minutes,
     rawMinutes: finiteOrNull(entry.durationMinutes) ?? 0,
-    rate: entry.isBillable ? rate : null,
-    amount: entryAmount(
-      { isBillable: entry.isBillable, roundedMinutes: minutes, rateOverrideAmount: override },
-      project ?? null,
-    ),
+    rate: numberOrNull(rateExact),
+    rateExact,
+    amount: numberOrNull(amountExact),
+    amountExact,
     isBillable: entry.isBillable,
     hasOverride: override !== null,
     isFrozen: false,
@@ -222,25 +289,45 @@ export function isAlreadyReported(entry: ReportInputEntry, currentReportId: stri
   return true
 }
 
-function distinctRate(values: readonly ResolvedEntryValues[]): number | null {
-  let rate: number | null = null
+function distinctRate(values: readonly ExactResolvedEntryValues[]): string | null {
+  let rate: string | null = null
   let seen = false
   for (const value of values) {
     if (!value.isBillable) continue
     if (!seen) {
-      rate = value.rate
+      rate = value.rateExact
       seen = true
       continue
     }
-    if (value.rate !== rate) return null
+    const same = rate === null || value.rateExact === null
+      ? rate === value.rateExact
+      : parseDecimal(rate)!.eq(value.rateExact)
+    if (!same) return null
   }
   return rate
+}
+
+/**
+ * Live amounts round to the currency's decimals (D10); a frozen amount is summed
+ * exactly as it was billed, so a closed report keeps totalling to what it froze.
+ */
+export function sumResolvedAmounts(
+  values: readonly (Pick<ResolvedEntryValues, 'isFrozen' | 'amountExact'> & { amount?: number | null })[],
+  amountDecimalPlaces: number,
+): string {
+  const amountOf = (value: (typeof values)[number]) => exactOrNull(value.amountExact, value.amount)
+  const live = values.filter((value) => !value.isFrozen).map(amountOf)
+  const frozen = values.flatMap((value) => {
+    const parsed = value.isFrozen ? parseDecimal(amountOf(value)) : null
+    return parsed ? [parsed] : []
+  })
+  return decimalToString(sumDecimals([sumAmountsExact(live, amountDecimalPlaces), ...frozen]))
 }
 
 type LineBucket = {
   key: string
   label: string
-  values: ResolvedEntryValues[]
+  values: ExactResolvedEntryValues[]
   children: Map<string, LineBucket>
 }
 
@@ -248,26 +335,30 @@ function makeBucket(key: string, label: string): LineBucket {
   return { key, label, values: [], children: new Map() }
 }
 
-function bucketToLine(bucket: LineBucket): ReportLine {
-  const childLines = Array.from(bucket.children.values()).map(bucketToLine)
+function bucketToLine(bucket: LineBucket, amountDecimalPlaces: number): ExactReportLine {
+  const childLines = Array.from(bucket.children.values()).map((child) => bucketToLine(child, amountDecimalPlaces))
   // The parent line aggregates its own ENTRIES plus every child's entries — never
   // the child lines' amounts (risk R10). Because `sumAmounts` works in integer
   // cents, aggregating entries and aggregating already-summed children agree
   // exactly; entries are used so the rule is visible in the code.
   const allValues = collectValues(bucket)
+  const rateExact = distinctRate(allValues)
+  const amountExact = sumResolvedAmounts(allValues, amountDecimalPlaces)
   return {
     key: bucket.key,
     label: bucket.label,
     minutes: allValues.reduce((total, value) => total + value.minutes, 0),
-    rate: distinctRate(allValues),
-    amount: sumAmounts(allValues.map((value) => value.amount)),
+    rate: numberOrNull(rateExact),
+    rateExact,
+    amount: decimalToNumber(amountExact),
+    amountExact,
     entryCount: allValues.length,
     hasOverride: allValues.some((value) => value.hasOverride),
     children: childLines,
   }
 }
 
-function collectValues(bucket: LineBucket): ResolvedEntryValues[] {
+function collectValues(bucket: LineBucket): ExactResolvedEntryValues[] {
   const values = [...bucket.values]
   for (const child of bucket.children.values()) values.push(...collectValues(child))
   return values
@@ -319,9 +410,11 @@ export type ComputeReportTotalsInput = {
   }
 }
 
-export function computeReportTotals(input: ComputeReportTotalsInput): ReportTotals {
+export function computeReportTotals(input: ComputeReportTotalsInput): ExactReportTotals {
   const { entries, projects, directory, options, labels } = input
   const grouping = guardGrouping(resolveGroupingStrategy(options.grouping))
+  const amountDecimalPlaces = options.amountDecimalPlaces ?? DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES
+  const toLine = (bucket: LineBucket) => bucketToLine(bucket, amountDecimalPlaces)
   const labelContext: ReportGroupingLabelContext = { directory, fallbacks: labels }
   const lineKeyFor = (entry: ReportInputEntry) => grouping.groupOf(entry)
   const labelFor = (key: string) => grouping.labelOf(key, labelContext)
@@ -334,9 +427,9 @@ export function computeReportTotals(input: ComputeReportTotalsInput): ReportTota
   let alreadyReportedMinutes = 0
 
   const billableBuckets = new Map<string, Map<string, LineBucket>>()
-  const nonbillableValues: ResolvedEntryValues[] = []
+  const nonbillableValues: ExactResolvedEntryValues[] = []
   const nonbillableBuckets = new Map<string, LineBucket>()
-  const projectValues = new Map<string, ResolvedEntryValues[]>()
+  const projectValues = new Map<string, ExactResolvedEntryValues[]>()
 
   for (const entry of entries) {
     const skipped = isAlreadyReported(entry, currentReportId) && !options.includeAlreadyReported
@@ -364,7 +457,7 @@ export function computeReportTotals(input: ComputeReportTotalsInput): ReportTota
     }
 
     const project = projectById.get(entry.timeProjectId) ?? null
-    const values = resolveEntryValues(entry, project)
+    const values = resolveEntryValues(entry, project, amountDecimalPlaces)
 
     if (!values.isBillable) {
       // `exclude` drops non-billable time entirely; `separate` shows it in its own
@@ -416,46 +509,51 @@ export function computeReportTotals(input: ComputeReportTotalsInput): ReportTota
     bucket.values.push(values)
   }
 
-  const groups: ReportGroup[] = []
+  const groups: ExactReportGroup[] = []
   for (const projectId of projectOrder) {
     const values = projectValues.get(projectId)
     if (!values || values.length === 0) continue
     const project = projectById.get(projectId)
-    const lines = Array.from((billableBuckets.get(projectId) ?? new Map<string, LineBucket>()).values()).map(
-      bucketToLine,
-    )
+    const lines = Array.from((billableBuckets.get(projectId) ?? new Map<string, LineBucket>()).values()).map(toLine)
     lines.sort(grouping.sort)
+    const groupRateExact = exactOrNull(project?.hourlyRateExact, project?.hourlyRate)
+    // Exact sum of already-rounded entry amounts — never a re-derivation from
+    // the group's minutes and rate, which would disagree the moment a line
+    // carries an override.
+    const groupAmountExact = sumResolvedAmounts(values, amountDecimalPlaces)
     groups.push({
       key: projectId,
       kind: 'project',
       label: project?.name ?? projectId,
-      rate: finiteOrNull(project?.hourlyRate ?? null),
+      rate: numberOrNull(groupRateExact),
+      rateExact: groupRateExact,
       minutes: values.reduce((total, value) => total + value.minutes, 0),
-      // Exact sum of already-rounded entry amounts — never a re-derivation from
-      // the group's minutes and rate, which would disagree the moment a line
-      // carries an override.
-      amount: sumAmounts(values.map((value) => value.amount)),
+      amount: decimalToNumber(groupAmountExact),
+      amountExact: groupAmountExact,
       entryCount: values.length,
       lines,
     })
   }
 
   if (nonbillableValues.length > 0) {
-    const lines = Array.from(nonbillableBuckets.values()).map(bucketToLine)
+    const lines = Array.from(nonbillableBuckets.values()).map(toLine)
     lines.sort(grouping.sort)
     groups.push({
       key: '__nonbillable__',
       kind: 'nonbillable',
       label: labels.nonbillableGroup,
       rate: null,
+      rateExact: null,
       minutes: nonbillableValues.reduce((total, value) => total + value.minutes, 0),
       amount: 0,
+      amountExact: '0',
       entryCount: nonbillableValues.length,
       lines,
     })
   }
 
   const billableValues = Array.from(projectValues.values()).flat()
+  const totalAmountExact = sumResolvedAmounts(billableValues, amountDecimalPlaces)
 
   return {
     groups,
@@ -463,7 +561,8 @@ export function computeReportTotals(input: ComputeReportTotalsInput): ReportTota
     nonbillableMinutes: nonbillableValues.reduce((total, value) => total + value.minutes, 0),
     entryCount: billableValues.length + nonbillableValues.length,
     // The grand total is a sum over ENTRIES, so regrouping cannot move it.
-    totalAmount: sumAmounts(billableValues.map((value) => value.amount)),
+    totalAmount: decimalToNumber(totalAmountExact),
+    totalAmountExact,
     alreadyReportedCount,
     alreadyReportedMinutes,
     alreadyReportedIn: Array.from(alreadyReportedBySource.values()),

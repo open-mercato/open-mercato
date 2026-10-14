@@ -3,6 +3,7 @@ import type { AwilixContainer } from 'awilix'
 import type { ResponseEnricher, EnricherContext } from '@open-mercato/shared/lib/crud/response-enricher'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { decimalToString, parseDecimal } from '@open-mercato/shared/lib/decimal'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import {
   StaffTeamMember,
@@ -15,7 +16,10 @@ import {
 } from './entities'
 import { decorateTimeEntryRows } from '../lib/timesheets/timeEntryDecoration'
 import { computeProjectHoursTrend } from '../lib/timesheets-projects/computeProjectHoursTrend'
-import { computeProjectFinancials } from '../lib/timesheets-projects/computeProjectFinancials'
+import {
+  computeProjectFinancials,
+  resolveProjectAmountDecimalPlaces,
+} from '../lib/timesheets-projects/computeProjectFinancials'
 import type { ProjectBudgetKind } from '../lib/timesheets-projects/budgetBurn'
 import {
   listProjectMembersPreview,
@@ -70,7 +74,9 @@ type StaffEnrichment = {
     billableMinutes?: number
     budget?: ProjectBudget
     hourlyRate?: number | null
+    hourlyRateExact?: string | null
     cost?: number | null
+    costExact?: string | null
   }
 }
 
@@ -103,6 +109,11 @@ function toNullableNumber(value: string | number | null | undefined): number | n
   if (value === null || value === undefined) return null
   const parsed = typeof value === 'number' ? value : Number(value)
   return Number.isFinite(parsed) ? parsed : null
+}
+
+function toNullableExact(value: string | number | null | undefined): string | null {
+  const parsed = parseDecimal(value)
+  return parsed ? decimalToString(parsed) : null
 }
 
 function resolveCustomerName(snapshot: Record<string, unknown> | null | undefined): string | null {
@@ -199,9 +210,13 @@ const portfolioEnricher: ResponseEnricher<EntityRecord, StaffEnrichment> = {
       deletedAt: null,
     })
     const projectById = new Map(projects.map((project) => [project.id, project]))
-    const hourlyRateByProjectId = new Map(
-      projects.map((project) => [project.id, toNullableNumber(project.hourlyRate)]),
-    )
+    const hourlyRateByProjectId = new Map(projects.map((project) => [project.id, project.hourlyRate ?? null]))
+    const amountDecimalPlacesByProjectId = hasRates
+      ? await resolveProjectAmountDecimalPlaces(ctx.container, projects, {
+          tenantId: ctx.tenantId,
+          organizationId: ctx.organizationId,
+        })
+      : {}
 
     const customerIdsMissingSnapshot = projects
       .filter((project) => !resolveCustomerName(project.customerSnapshot))
@@ -229,6 +244,7 @@ const portfolioEnricher: ResponseEnricher<EntityRecord, StaffEnrichment> = {
         organizationId: ctx.organizationId,
         projectIds,
         hourlyRateByProjectId,
+        amountDecimalPlacesByProjectId,
         staffMemberId: ownEntriesOnly,
       }),
       loadCustomerNames(ctx.em.fork(), ctx.tenantId, ctx.organizationId, customerIdsMissingSnapshot),
@@ -263,7 +279,9 @@ const portfolioEnricher: ResponseEnricher<EntityRecord, StaffEnrichment> = {
       }
       if (hasRates) {
         enrichment.hourlyRate = toNullableNumber(project?.hourlyRate)
+        enrichment.hourlyRateExact = toNullableExact(project?.hourlyRate)
         enrichment.cost = financials?.cost ?? null
+        enrichment.costExact = financials?.costExact ?? null
       }
       return { ...record, _staff: enrichment }
     })
@@ -511,6 +529,7 @@ const timeEntryEnricher: ResponseEnricher<EntityRecord, TimeEntryEnrichment> = {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
       canSeeRates: await callerHasFeature(ctx, RATES_FEATURE),
+      container: ctx.container,
     })
     return rows as (EntityRecord & TimeEntryEnrichment)[]
   },
@@ -533,6 +552,7 @@ type TaskContextEnrichment = {
     statusIsDone: boolean | null
     assigneeName: string | null
     hourlyRate?: number | null
+    hourlyRateExact?: string | null
     currencyCode?: string | null
   }
 }
@@ -628,6 +648,7 @@ const taskContextEnricher: ResponseEnricher<EntityRecord, TaskContextEnrichment>
       }
       if (hasRates) {
         enrichment.hourlyRate = toNullableNumber(project?.hourlyRate)
+        enrichment.hourlyRateExact = toNullableExact(project?.hourlyRate)
         enrichment.currencyCode = project?.currencyCode ?? null
       }
       return { ...record, _staff: enrichment }

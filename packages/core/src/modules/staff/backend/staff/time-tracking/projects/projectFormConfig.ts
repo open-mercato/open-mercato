@@ -2,6 +2,7 @@ import * as React from 'react'
 import { z } from 'zod'
 import type { CrudField, CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { isDecimalInput } from '@open-mercato/shared/lib/decimal'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { ColorPicker } from '../../../../lib/timesheets-ui/ColorPicker'
@@ -62,7 +63,12 @@ export function pickCustomFieldValues(values: Record<string, unknown>): Record<s
   return picked
 }
 
-const decimalPattern = /^\d+([.,]\d{1,4})?$/
+const nonNegativeDecimalPattern = /^\d+(?:\.\d+)?$/
+
+function isProjectAmountInput(value: string): boolean {
+  const normalized = value.trim().replace(',', '.')
+  return nonNegativeDecimalPattern.test(normalized) && isDecimalInput(normalized)
+}
 
 export function createProjectFormSchema() {
   return z.object({
@@ -83,7 +89,7 @@ export function createProjectFormSchema() {
     description: z.string().max(2000).optional().nullable(),
     hourlyRate: z
       .string()
-      .regex(decimalPattern, 'staff.time_tracking.projects.validation.rateFormat')
+      .refine(isProjectAmountInput, 'staff.time_tracking.projects.validation.rateFormat')
       .optional()
       .nullable()
       .or(z.literal('')),
@@ -95,7 +101,7 @@ export function createProjectFormSchema() {
     budgetKind: z.enum(['none', 'hours', 'amount']).optional(),
     budgetValue: z
       .string()
-      .regex(decimalPattern, 'staff.time_tracking.projects.validation.budgetFormat')
+      .refine(isProjectAmountInput, 'staff.time_tracking.projects.validation.budgetFormat')
       .optional()
       .nullable()
       .or(z.literal('')),

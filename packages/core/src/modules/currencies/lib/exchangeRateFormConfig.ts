@@ -2,6 +2,8 @@ import type { CrudFormGroup, CrudFieldOption } from '@open-mercato/ui/backend/Cr
 import type { ApiCallResult } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isExchangeRateMetadataWithinLimit } from '../data/validators'
+import { MIN_SIGNIFICANT_DIGITS, decimalToString, isDecimalInput, parseDecimal, toDecimal } from '@open-mercato/shared/lib/decimal'
 
 const logger = createLogger('currencies').child({ component: 'exchange-rate-form' })
 
@@ -73,9 +75,9 @@ export function exchangeRateGroups(
         },
         {
           id: 'rate',
-          type: 'number',
+          type: 'decimal',
           label: t('exchangeRates.form.field.rate'),
-          placeholder: '1.00000000',
+          placeholder: '1.0',
           required: true,
           description: t('exchangeRates.form.field.rateHelp'),
         },
@@ -118,15 +120,58 @@ export function exchangeRateGroups(
           type: 'checkbox',
           label: t('exchangeRates.form.field.isActive'),
         },
+        {
+          id: 'metadata',
+          type: 'textarea',
+          label: t('exchangeRates.form.field.metadata'),
+          placeholder: '{ "key": "value" }',
+          required: false,
+          description: t('exchangeRates.form.field.metadataHelp'),
+        },
       ],
     },
   ]
 }
 
+export type ValidatedExchangeRateForm = {
+  fromCode: string
+  toCode: string
+  rate: string
+  date: Date
+  source: string
+  metadata: Record<string, unknown> | null
+}
+
+export function metadataToFormValue(metadata: Record<string, unknown> | null | undefined): string {
+  return metadata ? JSON.stringify(metadata, null, 2) : ''
+}
+
+function parseMetadataFormValue(value: unknown, t: (key: string) => string): Record<string, unknown> | null {
+  const text = typeof value === 'string' ? value.trim() : ''
+  if (!text) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    parsed = undefined
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw createCrudFormError(t('exchangeRates.form.errors.invalidMetadata'), {
+      metadata: t('exchangeRates.form.errors.invalidMetadata'),
+    })
+  }
+  if (!isExchangeRateMetadataWithinLimit(parsed)) {
+    throw createCrudFormError(t('exchangeRates.form.errors.metadataTooLarge'), {
+      metadata: t('exchangeRates.form.errors.metadataTooLarge'),
+    })
+  }
+  return parsed as Record<string, unknown>
+}
+
 export function validateExchangeRateForm(
   values: Record<string, unknown>,
   t: (key: string) => string,
-): { fromCode: string; toCode: string; rate: number; date: Date; source: string } {
+): ValidatedExchangeRateForm {
   const fromCode = String(values.fromCurrencyCode || '').trim().toUpperCase()
   const toCode = String(values.toCurrencyCode || '').trim().toUpperCase()
 
@@ -148,8 +193,8 @@ export function validateExchangeRateForm(
     })
   }
 
-  const rate = parseFloat(String(values.rate || '0'))
-  if (isNaN(rate) || rate <= 0) {
+  const rawRate = typeof values.rate === 'number' || typeof values.rate === 'string' ? values.rate : ''
+  if (!isDecimalInput(rawRate) || !toDecimal(rawRate).gt(0)) {
     throw createCrudFormError(t('exchangeRates.form.errors.invalidRate'), {
       rate: t('exchangeRates.form.errors.invalidRate'),
     })
@@ -180,23 +225,26 @@ export function validateExchangeRateForm(
     })
   }
 
-  return { fromCode, toCode, rate, date, source }
+  const metadata = parseMetadataFormValue(values.metadata, t)
+
+  return { fromCode, toCode, rate: decimalToString(rawRate), date, source, metadata }
 }
 
-export function buildExchangeRatePayload(values: Record<string, unknown>, validated: {
-  fromCode: string
-  toCode: string
-  rate: number
-  date: Date
-  source: string
-}) {
+export function buildExchangeRatePayload(values: Record<string, unknown>, validated: ValidatedExchangeRateForm) {
   return {
     fromCurrencyCode: validated.fromCode,
     toCurrencyCode: validated.toCode,
-    rate: validated.rate.toFixed(8),
+    rate: validated.rate,
     date: validated.date.toISOString(),
     source: validated.source,
     type: values.type && values.type !== '' ? values.type : null,
+    metadata: validated.metadata,
     isActive: values.isActive !== false,
   }
+}
+
+/** Rate for list display: at most 17 significant digits; the raw value when it is not a decimal. */
+export function formatRateForDisplay(rate: string): string {
+  const parsed = parseDecimal(rate)
+  return parsed ? decimalToString(parsed.prec(MIN_SIGNIFICANT_DIGITS)) : rate
 }

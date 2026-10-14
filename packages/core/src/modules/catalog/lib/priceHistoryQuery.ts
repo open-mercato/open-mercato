@@ -98,6 +98,15 @@ export function formatFixedDecimal4(value: string | number | null | undefined): 
   return `${sign}${whole}.${normalizedFraction}`
 }
 
+function formatHistoryAmount(value: string | number | null | undefined): string | null {
+  if (value === null || value === undefined) return null
+  const raw = typeof value === 'number' ? String(value) : value.trim()
+  const match = /^(-?)(\d+)(?:\.(\d*))?$/.exec(raw)
+  if (!match) return raw
+  const [, sign, whole, fraction = ''] = match
+  return `${sign}${whole}.${fraction.padEnd(4, '0')}`
+}
+
 function toIsoOrNull(value: Date | string | null | undefined): string | null {
   if (!value) return null
   const date = value instanceof Date ? value : new Date(value)
@@ -139,10 +148,10 @@ export function serializePriceHistoryEntry(entry: CatalogPriceHistoryEntry): Pri
     priceKindId: entry.priceKindId,
     priceKindCode: entry.priceKindCode,
     currencyCode: entry.currencyCode,
-    unitPriceNet: formatFixedDecimal4(entry.unitPriceNet),
-    unitPriceGross: formatFixedDecimal4(entry.unitPriceGross),
+    unitPriceNet: formatHistoryAmount(entry.unitPriceNet),
+    unitPriceGross: formatHistoryAmount(entry.unitPriceGross),
     taxRate: formatFixedDecimal4(entry.taxRate),
-    taxAmount: formatFixedDecimal4(entry.taxAmount),
+    taxAmount: formatHistoryAmount(entry.taxAmount),
     minQuantity: entry.minQuantity ?? null,
     maxQuantity: entry.maxQuantity ?? null,
     startsAt: toIsoOrNull(entry.startsAt),

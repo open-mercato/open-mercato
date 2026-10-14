@@ -54,9 +54,15 @@ export type SalesLineSnapshot = {
   normalizedUnit?: string | null
   uomSnapshot?: SalesLineUomSnapshot | null
   currencyCode: string
+  /** Float copy of `unitPriceNetExact`; prefer the exact field. */
   unitPriceNet?: number | null
+  unitPriceNetExact?: string | null
+  /** Float copy of `unitPriceGrossExact`; prefer the exact field. */
   unitPriceGross?: number | null
+  unitPriceGrossExact?: string | null
+  /** Float copy of `discountAmountExact`; prefer the exact field. */
   discountAmount?: number | null
+  discountAmountExact?: string | null
   /**
    * Caller-supplied ONLY. How to interpret a supplied `discountAmount`.
    * Omitted means 'unit', which is the meaning the API has always documented.
@@ -72,7 +78,9 @@ export type SalesLineSnapshot = {
   discountAmountFromStoredRow?: boolean
   discountPercent?: number | null
   taxRate?: number | null
+  /** Float copy of `taxAmountExact`; prefer the exact field. */
   taxAmount?: number | null
+  taxAmountExact?: string | null
   /**
    * Set by entity-to-snapshot mappers ONLY. Marks `totalNetAmount` /
    * `totalGrossAmount` as reconstructed from a persisted row, so they are the
@@ -82,8 +90,12 @@ export type SalesLineSnapshot = {
    * persisted; never accepted from a request.
    */
   totalsFromStoredRow?: boolean
+  /** Float copy of `totalNetAmountExact`; prefer the exact field. */
   totalNetAmount?: number | null
+  totalNetAmountExact?: string | null
+  /** Float copy of `totalGrossAmountExact`; prefer the exact field. */
   totalGrossAmount?: number | null
+  totalGrossAmountExact?: string | null
   configuration?: Record<string, unknown> | null
   promotionCode?: string | null
   metadata?: Record<string, unknown> | null
@@ -100,14 +112,39 @@ export type SalesAdjustmentDraft = {
   calculatorKey?: string | null
   promotionId?: string | null
   rate?: number | null
+  /** Float copy of `amountNetExact`; prefer the exact field. */
   amountNet?: number | null
+  amountNetExact?: string | null
+  /** Float copy of `amountGrossExact`; prefer the exact field. */
   amountGross?: number | null
+  amountGrossExact?: string | null
   currencyCode?: string | null
   metadata?: Record<string, unknown> | null
   customFields?: Record<string, unknown> | null
   position?: number | null
 }
 
+export const SALES_DOCUMENT_AMOUNT_FIELDS = [
+  'subtotalNetAmount',
+  'subtotalGrossAmount',
+  'discountTotalAmount',
+  'taxTotalAmount',
+  'shippingNetAmount',
+  'shippingGrossAmount',
+  'surchargeTotalAmount',
+  'grandTotalNetAmount',
+  'grandTotalGrossAmount',
+  'paidTotalAmount',
+  'refundedTotalAmount',
+  'outstandingAmount',
+] as const
+
+export type SalesDocumentAmountField = (typeof SALES_DOCUMENT_AMOUNT_FIELDS)[number]
+
+/**
+ * Document totals. Every `number` field is a float copy of its `<field>Exact`
+ * decimal string, which carries the exact value - prefer the exact fields.
+ */
 export type SalesDocumentAmounts = {
   subtotalNetAmount: number
   subtotalGrossAmount: number
@@ -121,14 +158,26 @@ export type SalesDocumentAmounts = {
   paidTotalAmount?: number
   refundedTotalAmount?: number
   outstandingAmount?: number
-}
+} & { [K in SalesDocumentAmountField as `${K}Exact`]?: string }
 
+export const SALES_LINE_RESULT_AMOUNT_FIELDS = ['netAmount', 'grossAmount', 'taxAmount', 'discountAmount'] as const
+
+/**
+ * Line result. Every amount `number` is a float copy of its `<field>Exact`
+ * decimal string, which carries the exact value - prefer the exact fields.
+ */
 export type SalesLineCalculationResult = {
   line: SalesLineSnapshot
   netAmount: number
+  netAmountExact?: string
   grossAmount: number
+  grossAmountExact?: string
   taxAmount: number
+  taxAmountExact?: string
   discountAmount: number
+  discountAmountExact?: string
+  /** Decimal places the line's amounts were rounded to (the currency precision). */
+  amountDecimalPlaces?: number
   adjustments: SalesAdjustmentDraft[]
 }
 
@@ -161,6 +210,11 @@ export type SalesCalculationContext = {
   tenantId: string
   organizationId: string
   currencyCode: string
+  /**
+   * Decimal places amounts are rounded to after a division. Resolve it with
+   * `resolveCurrencyAmountDecimalPlaces`; defaults to 4 when omitted.
+   */
+  amountDecimalPlaces?: number
   metadata?: Record<string, unknown>
   resolve?: <T>(name: string) => T
 }
@@ -179,7 +233,9 @@ export type CalculateDocumentOptions = {
   context: SalesCalculationContext
   existingTotals?: {
     paidTotalAmount?: number | null
+    paidTotalAmountExact?: string | null
     refundedTotalAmount?: number | null
+    refundedTotalAmountExact?: string | null
   }
   eventBus?: EventBus | null
 }

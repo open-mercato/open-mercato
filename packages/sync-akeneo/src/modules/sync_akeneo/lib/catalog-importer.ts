@@ -55,6 +55,7 @@ import {
 import type { AkeneoClient } from './client'
 import { inferAkeneoProductMapping } from './inference'
 import { normalizeMarkdownText } from './markdown'
+import { decimalToString, parseDecimal } from '@open-mercato/shared/lib/decimal'
 
 type ImportScope = {
   organizationId: string
@@ -101,7 +102,7 @@ type DesiredPrice = {
   priceKindId: string
   channelId: string
   currencyCode: string
-  amount: number
+  amount: string
   variantId: string
 }
 
@@ -475,17 +476,17 @@ function resolvePriceVariantId(price: Pick<CatalogProductPrice, 'variant'>): str
   return price.variant?.id ?? null
 }
 
-function parsePriceCollection(value: unknown): Array<{ currencyCode: string; amount: number }> {
+function parsePriceCollection(value: unknown): Array<{ currencyCode: string; amount: string }> {
   if (!Array.isArray(value)) return []
   return value
     .map((entry) => {
       const record = safeRecord(entry)
       const currencyCode = typeof record?.currency === 'string' ? record.currency.trim().toUpperCase() : ''
-      const amount = coerceNumber(record?.amount)
+      const amount = parseDecimal(record?.amount)
       if (!currencyCode || amount === null) return null
-      return { currencyCode, amount }
+      return { currencyCode, amount: decimalToString(amount) }
     })
-    .filter((entry): entry is { currencyCode: string; amount: number } => Boolean(entry))
+    .filter((entry): entry is { currencyCode: string; amount: string } => Boolean(entry))
 }
 
 function collectMediaReferences(value: unknown): MediaReference[] {

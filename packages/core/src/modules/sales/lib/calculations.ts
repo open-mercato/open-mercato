@@ -1,9 +1,24 @@
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
+  DEFAULT_AMOUNT_DECIMAL_PLACES,
+  FX_DECIMAL_PLACES,
+  amountComparisonTolerance,
+  decimalToNumber,
+  decimalToString,
+  divideDecimals,
+  resolveExactDecimal,
+  roundDecimal,
+  toDecimal,
+  type DecimalValue,
+} from '@open-mercato/shared/lib/decimal'
+import {
+  SALES_DOCUMENT_AMOUNT_FIELDS,
+  SALES_LINE_RESULT_AMOUNT_FIELDS,
   type SalesAdjustmentDraft,
   type SalesCalculationContext,
   type CalculateDocumentOptions,
   type CalculateLineOptions,
+  type SalesDocumentAmounts,
   type SalesDocumentCalculationResult,
   type SalesDocumentKind,
   type SalesLineCalculationHook,
@@ -14,6 +29,10 @@ import {
 
 const logger = createLogger('sales')
 
+const ZERO = toDecimal(0)
+const ONE = toDecimal(1)
+const HUNDRED = toDecimal(100)
+
 function toNumber(value: unknown, fallback = 0): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value
   if (typeof value === 'string' && value.trim() !== '' && !Number.isNaN(Number(value))) {
@@ -22,15 +41,42 @@ function toNumber(value: unknown, fallback = 0): number {
   return fallback
 }
 
-function round(value: number): number {
-  return Math.round((value + Number.EPSILON) * 1e4) / 1e4
+function exactAmount(exact: unknown, legacy: unknown): DecimalValue | null {
+  const resolved = resolveExactDecimal(exact, legacy)
+  return resolved === null ? null : toDecimal(resolved)
+}
+
+function hasValue(...values: unknown[]): boolean {
+  return values.some((value) => value !== null && value !== undefined)
+}
+
+function maxOf(left: DecimalValue, right: DecimalValue): DecimalValue {
+  return left.gt(right) ? left : right
+}
+
+function minOf(left: DecimalValue, right: DecimalValue): DecimalValue {
+  return left.lt(right) ? left : right
+}
+
+function percentToFraction(percent: number): DecimalValue {
+  return divideDecimals(percent, HUNDRED, FX_DECIMAL_PLACES)
+}
+
+function createRounder(decimalPlaces: number) {
+  return (value: DecimalValue): DecimalValue => roundDecimal(value, decimalPlaces)
+}
+
+function resolveDecimalPlaces(decimalPlaces?: number | null): number {
+  return typeof decimalPlaces === 'number' && Number.isInteger(decimalPlaces) && decimalPlaces >= 0
+    ? decimalPlaces
+    : DEFAULT_AMOUNT_DECIMAL_PLACES
 }
 
 // The engine rounds to the 4 decimals the numeric columns carry, but callers
 // work in money at 2, so an exact comparison would report half a cent of
 // honest rounding as a mismatch. Half a minor unit is the widest divergence
 // that cannot be a real discrepancy and the narrowest that silences that noise.
-const NET_RECONCILIATION_TOLERANCE = 0.005
+const netReconciliationTolerance = amountComparisonTolerance
 
 function extractAdjustmentTaxRate(adjustment: SalesAdjustmentDraft): number | null {
   const metadata = (adjustment.metadata ?? {}) as Record<string, unknown>
@@ -44,45 +90,53 @@ function extractAdjustmentTaxRate(adjustment: SalesAdjustmentDraft): number | nu
   return Number.isFinite(parsed) ? parsed : null
 }
 
+function withExactAmount<T extends object>(
+  target: T,
+  field: string,
+  value: DecimalValue,
+): T {
+  return { ...target, [field]: decimalToNumber(value), [`${field}Exact`]: decimalToString(value) }
+}
+
 function resolveAdjustmentAmounts(
   adjustments: SalesAdjustmentDraft[],
-  baseNet: number,
-  baseGross: number
+  baseNet: DecimalValue,
+  baseGross: DecimalValue,
+  decimalPlaces: number,
 ): SalesAdjustmentDraft[] {
+  const round = createRounder(decimalPlaces)
   return adjustments.map((adj) => {
     const rate = toNumber(adj.rate, NaN)
     const taxRate = extractAdjustmentTaxRate(adj)
-    const hasAmountNet = Number.isFinite(toNumber(adj.amountNet, NaN))
-    const hasAmountGross = Number.isFinite(toNumber(adj.amountGross, NaN))
-    const hasRate = Number.isFinite(rate) && !hasAmountNet && !hasAmountGross
+    let amountNet = exactAmount(adj.amountNetExact, adj.amountNet)
+    let amountGross = exactAmount(adj.amountGrossExact, adj.amountGross)
+    const hasRate = Number.isFinite(rate) && amountNet === null && amountGross === null
     const hasTaxRate = taxRate !== null
-    let amountNet = toNumber(adj.amountNet, NaN)
-    let amountGross = toNumber(adj.amountGross, NaN)
+    const taxMultiplier = hasTaxRate ? ONE.plus(percentToFraction(taxRate as number)) : ONE
 
     if (hasRate) {
-      const multiplier = (rate as number) / 100
-      amountNet = round(Math.max(baseNet, 0) * multiplier)
+      const multiplier = percentToFraction(rate)
+      amountNet = round(maxOf(baseNet, ZERO).times(multiplier))
       if (adj.kind === 'tax') {
         amountGross = amountNet
       } else if (hasTaxRate) {
-        amountGross = round(amountNet * (1 + (taxRate as number) / 100))
+        amountGross = round(amountNet.times(taxMultiplier))
       } else {
-        amountGross = round(Math.max(baseGross, 0) * multiplier)
+        amountGross = round(maxOf(baseGross, ZERO).times(multiplier))
       }
     } else {
-      if (!Number.isFinite(amountNet) && Number.isFinite(amountGross) && hasTaxRate) {
-        amountNet = round((amountGross as number) / (1 + (taxRate as number) / 100))
+      if (amountNet === null && amountGross !== null && hasTaxRate) {
+        amountNet = round(divideDecimals(amountGross, taxMultiplier, FX_DECIMAL_PLACES))
       }
-      if (!Number.isFinite(amountGross) && Number.isFinite(amountNet) && hasTaxRate) {
-        amountGross = round((amountNet as number) * (1 + (taxRate as number) / 100))
+      if (amountGross === null && amountNet !== null && hasTaxRate) {
+        amountGross = round(amountNet.times(taxMultiplier))
       }
     }
 
-    return {
-      ...adj,
-      amountNet: Number.isFinite(amountNet) ? amountNet : adj.amountNet,
-      amountGross: Number.isFinite(amountGross) ? amountGross : adj.amountGross,
-    }
+    let resolved: SalesAdjustmentDraft = { ...adj }
+    if (amountNet !== null) resolved = withExactAmount(resolved, 'amountNet', amountNet)
+    if (amountGross !== null) resolved = withExactAmount(resolved, 'amountGross', amountGross)
+    return resolved
   })
 }
 
@@ -96,39 +150,39 @@ function resolveAdjustmentAmounts(
 // next pass. Spec: .ai/specs/2026-08-07-sales-line-discount-amount-contract.md.
 function resolveLineDiscountTotal(
   line: SalesLineSnapshot,
-  netSubtotalBeforeDiscount: number,
-  quantity: number,
-): number {
+  netSubtotalBeforeDiscount: DecimalValue,
+  quantity: DecimalValue,
+): DecimalValue {
   const percent = toNumber(line.discountPercent, 0)
   if (line.discountPercent !== null && line.discountPercent !== undefined && percent !== 0) {
-    return (percent / 100) * netSubtotalBeforeDiscount
+    return percentToFraction(percent).times(netSubtotalBeforeDiscount)
   }
 
-  const amount = toNumber(line.discountAmount, 0)
-  if (line.discountAmount === null || line.discountAmount === undefined || amount === 0) return 0
+  const amount = exactAmount(line.discountAmountExact, line.discountAmount)
+  if (amount === null || amount.eq(0)) return ZERO
 
   // A snapshot rebuilt from a persisted row already holds a line total, so it
   // is never multiplied out again. Anything else came from a caller and keeps
   // the per-unit meaning the API has always documented unless the caller says
   // otherwise.
   if (line.discountAmountFromStoredRow === true) return amount
-  return line.discountAmountBasis === 'line' ? amount : amount * quantity
+  return line.discountAmountBasis === 'line' ? amount : amount.times(quantity)
 }
 
-function buildBaseLineResult(line: SalesLineSnapshot): SalesLineCalculationResult {
-  const quantity = Math.max(toNumber(line.quantity, 0), 0)
-  const taxRate = toNumber(line.taxRate, 0) / 100
+function buildBaseLineResult(line: SalesLineSnapshot, decimalPlaces: number): SalesLineCalculationResult {
+  const round = createRounder(decimalPlaces)
+  const quantity = maxOf(toDecimal(toNumber(line.quantity, 0)), ZERO)
+  const taxRate = percentToFraction(toNumber(line.taxRate, 0))
+  const unitGross = exactAmount(line.unitPriceGrossExact, line.unitPriceGross)
   const unitNet =
-    line.unitPriceNet ??
-    (line.unitPriceGross !== null && line.unitPriceGross !== undefined
-      ? toNumber(line.unitPriceGross) / (1 + taxRate)
-      : 0)
-  const netSubtotalBeforeDiscount = toNumber(unitNet, 0) * quantity
-  const discountTotal = Math.min(
-    Math.max(resolveLineDiscountTotal(line, netSubtotalBeforeDiscount, quantity), 0),
+    exactAmount(line.unitPriceNetExact, line.unitPriceNet) ??
+    (unitGross !== null ? divideDecimals(unitGross, ONE.plus(taxRate), FX_DECIMAL_PLACES) : ZERO)
+  const netSubtotalBeforeDiscount = unitNet.times(quantity)
+  const discountTotal = minOf(
+    maxOf(resolveLineDiscountTotal(line, netSubtotalBeforeDiscount, quantity), ZERO),
     netSubtotalBeforeDiscount,
   )
-  const netSubtotal = Math.max(netSubtotalBeforeDiscount - discountTotal, 0)
+  const netSubtotal = maxOf(netSubtotalBeforeDiscount.minus(discountTotal), ZERO)
   // Unlike totalGrossAmount below, a supplied totalNetAmount is never honoured
   // verbatim — net always comes from unitPriceNet/discount so it stays
   // internally consistent with them. A caller-supplied value is still
@@ -140,53 +194,70 @@ function buildBaseLineResult(line: SalesLineSnapshot): SalesLineCalculationResul
   // on a row the discount contract still has to heal that value is *supposed*
   // to differ from the recomputed net. Warning about it would drown the caller
   // signal this exists for in one line per line per recalculation.
-  if (line.totalsFromStoredRow !== true && line.totalNetAmount !== null && line.totalNetAmount !== undefined) {
+  if (line.totalsFromStoredRow !== true && hasValue(line.totalNetAmount, line.totalNetAmountExact)) {
     const computedNetAmount = round(netSubtotal)
-    const suppliedNetAmount = toNumber(line.totalNetAmount, NaN)
-    if (!Number.isFinite(suppliedNetAmount)) {
+    const suppliedNetAmount = exactAmount(line.totalNetAmountExact, line.totalNetAmount)
+    if (suppliedNetAmount === null) {
       // Falling back to the computed value here would compare equal and log
       // nothing — the same silent discard #5644 exists to end.
       logger.warn('Sales line totalNetAmount is not a finite number; the computed value is used', {
         lineId: line.id ?? null,
         productId: line.productId ?? null,
         suppliedTotalNetAmount: line.totalNetAmount,
-        computedNetAmount,
+        computedNetAmount: decimalToNumber(computedNetAmount),
       })
-    } else if (Math.abs(round(suppliedNetAmount) - computedNetAmount) > NET_RECONCILIATION_TOLERANCE) {
+    } else if (round(suppliedNetAmount).minus(computedNetAmount).abs().gt(netReconciliationTolerance(decimalPlaces))) {
       logger.warn('Sales line totalNetAmount does not match the computed net amount; the computed value is used', {
         lineId: line.id ?? null,
         productId: line.productId ?? null,
-        suppliedTotalNetAmount: round(suppliedNetAmount),
-        computedNetAmount,
+        suppliedTotalNetAmount: decimalToNumber(round(suppliedNetAmount)),
+        computedNetAmount: decimalToNumber(computedNetAmount),
       })
     }
   }
-  const explicitTaxAmount = line.taxAmount !== null && line.taxAmount !== undefined
+  const explicitTaxAmount = hasValue(line.taxAmount, line.taxAmountExact)
   let taxAmount = explicitTaxAmount
-    ? toNumber(line.taxAmount, 0)
-    : round(netSubtotal * Math.max(taxRate, 0))
-  const grossSubtotal =
-    line.totalGrossAmount !== null && line.totalGrossAmount !== undefined
-      ? toNumber(line.totalGrossAmount, 0)
-      : round(netSubtotal + taxAmount)
+    ? (exactAmount(line.taxAmountExact, line.taxAmount) ?? ZERO)
+    : round(netSubtotal.times(maxOf(taxRate, ZERO)))
+  const grossSubtotal = hasValue(line.totalGrossAmount, line.totalGrossAmountExact)
+    ? (exactAmount(line.totalGrossAmountExact, line.totalGrossAmount) ?? ZERO)
+    : round(netSubtotal.plus(taxAmount))
   // When tax was not supplied explicitly and the rate-derived tax is zero but
   // the gross total already embeds tax (gross > net) — e.g. a tax-class-priced
   // line whose resolved rate was not persisted — derive the tax from the
   // net/gross delta so the document-level tax total is not silently zeroed
   // while per-line net/gross stay correct (#2457).
-  if (!explicitTaxAmount && taxAmount <= 0) {
-    const grossNetDelta = round(grossSubtotal - netSubtotal)
-    if (grossNetDelta > 0) taxAmount = grossNetDelta
+  if (!explicitTaxAmount && taxAmount.lte(0)) {
+    const grossNetDelta = round(grossSubtotal.minus(netSubtotal))
+    if (grossNetDelta.gt(0)) taxAmount = grossNetDelta
   }
 
-  return {
+  let result: SalesLineCalculationResult = {
     line,
-    netAmount: round(netSubtotal),
-    grossAmount: round(grossSubtotal),
-    taxAmount: round(taxAmount),
-    discountAmount: round(discountTotal),
+    netAmount: 0,
+    grossAmount: 0,
+    taxAmount: 0,
+    discountAmount: 0,
+    amountDecimalPlaces: decimalPlaces,
     adjustments: [],
   }
+  result = withExactAmount(result, 'netAmount', round(netSubtotal))
+  result = withExactAmount(result, 'grossAmount', round(grossSubtotal))
+  result = withExactAmount(result, 'taxAmount', round(taxAmount))
+  result = withExactAmount(result, 'discountAmount', round(discountTotal))
+  return result
+}
+
+function lineAmount(line: SalesLineCalculationResult, field: (typeof SALES_LINE_RESULT_AMOUNT_FIELDS)[number]): DecimalValue {
+  return exactAmount(line[`${field}Exact`], line[field]) ?? ZERO
+}
+
+function adjustmentNet(adj: SalesAdjustmentDraft): DecimalValue {
+  return exactAmount(adj.amountNetExact, adj.amountNet) ?? exactAmount(adj.amountGrossExact, adj.amountGross) ?? ZERO
+}
+
+function adjustmentGross(adj: SalesAdjustmentDraft, fallback: DecimalValue): DecimalValue {
+  return exactAmount(adj.amountGrossExact, adj.amountGross) ?? fallback
 }
 
 function buildBaseDocumentResult(params: {
@@ -194,41 +265,44 @@ function buildBaseDocumentResult(params: {
   lines: SalesLineCalculationResult[]
   adjustments: SalesAdjustmentDraft[]
   currencyCode: string
-  existingTotals?: { paidTotalAmount?: number | null; refundedTotalAmount?: number | null }
+  existingTotals?: CalculateDocumentOptions['existingTotals']
+  amountDecimalPlaces?: number
 }): SalesDocumentCalculationResult {
   const { documentKind, lines, adjustments, currencyCode } = params
+  const decimalPlaces = resolveDecimalPlaces(params.amountDecimalPlaces)
+  const round = createRounder(decimalPlaces)
   const orderedAdjustments = [...(adjustments ?? [])].sort(
     (a, b) => (a.position ?? 0) - (b.position ?? 0)
   )
-  let baseSubtotalNet = 0
-  let baseSubtotalGross = 0
-  let subtotalNet = 0
-  let subtotalGross = 0
-  let discountTotal = 0
-  let taxTotal = 0
-  let shippingNet = 0
-  let shippingGross = 0
-  let surchargeTotal = 0
+  let baseSubtotalNet = ZERO
+  let baseSubtotalGross = ZERO
+  let subtotalNet = ZERO
+  let subtotalGross = ZERO
+  let discountTotal = ZERO
+  let taxTotal = ZERO
+  let shippingNet = ZERO
+  let shippingGross = ZERO
+  let surchargeTotal = ZERO
 
   for (const line of lines) {
-    const net = toNumber(line.netAmount, 0)
-    const gross = toNumber(line.grossAmount, 0)
-    subtotalNet += net
-    subtotalGross += gross
-    baseSubtotalNet += net
-    baseSubtotalGross += gross
-    discountTotal += toNumber(line.discountAmount, 0)
-    taxTotal += toNumber(line.taxAmount, 0)
+    const net = lineAmount(line, 'netAmount')
+    const gross = lineAmount(line, 'grossAmount')
+    subtotalNet = subtotalNet.plus(net)
+    subtotalGross = subtotalGross.plus(gross)
+    baseSubtotalNet = baseSubtotalNet.plus(net)
+    baseSubtotalGross = baseSubtotalGross.plus(gross)
+    discountTotal = discountTotal.plus(lineAmount(line, 'discountAmount'))
+    taxTotal = taxTotal.plus(lineAmount(line, 'taxAmount'))
   }
 
-  const resolvedAdjustments = resolveAdjustmentAmounts(orderedAdjustments, baseSubtotalNet, baseSubtotalGross)
+  const resolvedAdjustments = resolveAdjustmentAmounts(orderedAdjustments, baseSubtotalNet, baseSubtotalGross, decimalPlaces)
   const scopedAdjustments = resolvedAdjustments.filter(
     (adj) => !adj.scope || adj.scope === 'order'
   )
 
   for (const adj of scopedAdjustments) {
-    const rawNet = toNumber(adj.amountNet, toNumber(adj.amountGross))
-    const rawGross = toNumber(adj.amountGross, rawNet)
+    const rawNet = adjustmentNet(adj)
+    const rawGross = adjustmentGross(adj, rawNet)
     // Each adjustment kind has an intrinsic sign convention. The API edge
     // (enforceAdjustmentSign) rejects values that would invert the kind's
     // semantic effect, but the calculation engine normalizes defensively so
@@ -240,38 +314,40 @@ function buildBaseDocumentResult(params: {
       adj.kind === 'surcharge' ||
       adj.kind === 'shipping' ||
       adj.kind === 'tax'
-    const net = isNonNegativeKind ? Math.abs(rawNet) : rawNet
-    const gross = isNonNegativeKind ? Math.abs(rawGross) : rawGross
+    const net = isNonNegativeKind ? rawNet.abs() : rawNet
+    const gross = isNonNegativeKind ? rawGross.abs() : rawGross
     const taxRate = extractAdjustmentTaxRate(adj)
-    const taxPortion = taxRate !== null ? round(gross - net) : 0
+    const taxPortion = taxRate !== null ? round(gross.minus(net)) : ZERO
     switch (adj.kind) {
       case 'discount':
-        discountTotal += net
-        subtotalNet = Math.max(subtotalNet - net, 0)
-        subtotalGross = Math.max(subtotalGross - gross, 0)
-        if (taxPortion) {
-          taxTotal = round(taxTotal - taxPortion)
+        discountTotal = discountTotal.plus(net)
+        subtotalNet = maxOf(subtotalNet.minus(net), ZERO)
+        subtotalGross = maxOf(subtotalGross.minus(gross), ZERO)
+        if (!taxPortion.eq(0)) {
+          taxTotal = round(taxTotal.minus(taxPortion))
         }
         break
-      case 'tax':
-        taxTotal += gross || net
-        subtotalGross += gross || net
+      case 'tax': {
+        const taxValue = gross.eq(0) ? net : gross
+        taxTotal = taxTotal.plus(taxValue)
+        subtotalGross = subtotalGross.plus(taxValue)
         break
+      }
       case 'shipping':
-        shippingNet += net
-        shippingGross += gross
-        subtotalNet += net
-        subtotalGross += gross
-        if (taxPortion) {
-          taxTotal += taxPortion
+        shippingNet = shippingNet.plus(net)
+        shippingGross = shippingGross.plus(gross)
+        subtotalNet = subtotalNet.plus(net)
+        subtotalGross = subtotalGross.plus(gross)
+        if (!taxPortion.eq(0)) {
+          taxTotal = taxTotal.plus(taxPortion)
         }
         break
       case 'surcharge':
-        surchargeTotal += net || gross
-        subtotalNet += net || gross
-        subtotalGross += gross || net
-        if (taxPortion) {
-          taxTotal += taxPortion
+        surchargeTotal = surchargeTotal.plus(net.eq(0) ? gross : net)
+        subtotalNet = subtotalNet.plus(net.eq(0) ? gross : net)
+        subtotalGross = subtotalGross.plus(gross.eq(0) ? net : gross)
+        if (!taxPortion.eq(0)) {
+          taxTotal = taxTotal.plus(taxPortion)
         }
         break
       default:
@@ -285,10 +361,10 @@ function buildBaseDocumentResult(params: {
         // breakdown (#4052). No abs()/clamp here: unlike the sign-constrained
         // kinds above, custom kinds are intentionally unconstrained
         // (see enforceAdjustmentSign).
-        subtotalNet += net
-        subtotalGross += gross
-        if (taxPortion) {
-          taxTotal += taxPortion
+        subtotalNet = subtotalNet.plus(net)
+        subtotalGross = subtotalGross.plus(gross)
+        if (!taxPortion.eq(0)) {
+          taxTotal = taxTotal.plus(taxPortion)
         }
         break
     }
@@ -299,19 +375,23 @@ function buildBaseDocumentResult(params: {
   // amountNet / amountGross can never inflate totals (issue #1705).
   for (const adj of resolvedAdjustments) {
     if (adj.kind !== 'return') continue
-    const net = toNumber(adj.amountNet, toNumber(adj.amountGross))
-    const gross = toNumber(adj.amountGross, net)
-    const netDelta = -Math.abs(net)
-    const grossDelta = -Math.abs(gross)
-    subtotalNet = Math.max(subtotalNet + netDelta, 0)
-    subtotalGross = Math.max(subtotalGross + grossDelta, 0)
+    const net = adjustmentNet(adj)
+    const gross = adjustmentGross(adj, net)
+    subtotalNet = maxOf(subtotalNet.minus(net.abs()), ZERO)
+    subtotalGross = maxOf(subtotalGross.minus(gross.abs()), ZERO)
   }
 
   const grandTotalNet = round(subtotalNet)
   const grandTotalGross = round(subtotalGross)
-  const paidTotalAmount = Math.max(toNumber(params.existingTotals?.paidTotalAmount, 0), 0)
-  const refundedTotalAmount = Math.max(toNumber(params.existingTotals?.refundedTotalAmount, 0), 0)
-  const outstandingAmount = Math.max(grandTotalGross - paidTotalAmount + refundedTotalAmount, 0)
+  const paidTotalAmount = maxOf(
+    exactAmount(params.existingTotals?.paidTotalAmountExact, params.existingTotals?.paidTotalAmount) ?? ZERO,
+    ZERO,
+  )
+  const refundedTotalAmount = maxOf(
+    exactAmount(params.existingTotals?.refundedTotalAmountExact, params.existingTotals?.refundedTotalAmount) ?? ZERO,
+    ZERO,
+  )
+  const outstandingAmount = maxOf(grandTotalGross.minus(paidTotalAmount).plus(refundedTotalAmount), ZERO)
 
   return {
     kind: documentKind,
@@ -319,7 +399,7 @@ function buildBaseDocumentResult(params: {
     lines,
     adjustments: resolvedAdjustments,
     metadata: {},
-    totals: {
+    totals: buildDocumentAmounts({
       subtotalNetAmount: round(subtotalNet),
       subtotalGrossAmount: round(subtotalGross),
       discountTotalAmount: round(discountTotal),
@@ -332,7 +412,195 @@ function buildBaseDocumentResult(params: {
       paidTotalAmount,
       refundedTotalAmount,
       outstandingAmount,
-    },
+    }),
+  }
+}
+
+function buildDocumentAmounts(
+  values: Record<(typeof SALES_DOCUMENT_AMOUNT_FIELDS)[number], DecimalValue>,
+): SalesDocumentAmounts {
+  let totals = {} as SalesDocumentAmounts
+  for (const field of SALES_DOCUMENT_AMOUNT_FIELDS) {
+    totals = withExactAmount(totals, field, values[field])
+  }
+  return totals
+}
+
+/** An amount's `<field>Exact` string and float as they were before a hook ran. */
+export type AmountPair = { exact: unknown; value: unknown }
+type AmountPairs = Record<string, AmountPair>
+type AmountPairsById = Record<string, AmountPairs>
+
+type ItemAmountPairs = {
+  byId: AmountPairsById
+  byIndex: AmountPairs[]
+  identities: object[]
+  hasIds: boolean
+}
+
+type DocumentAmountPairs = {
+  totals: AmountPairs
+  lines: ItemAmountPairs
+  adjustments: ItemAmountPairs
+}
+
+const ADJUSTMENT_AMOUNT_FIELDS = ['amountNet', 'amountGross'] as const
+
+function captureAmountPairs(record: object, fields: readonly string[]): AmountPairs {
+  const values = record as Record<string, unknown>
+  const pairs: AmountPairs = {}
+  for (const field of fields) pairs[field] = { exact: values[`${field}Exact`], value: values[field] }
+  return pairs
+}
+
+function itemId(id: unknown): string | null {
+  return typeof id === 'string' && id.length > 0 ? id : null
+}
+
+function captureItemAmountPairs<T extends object>(
+  items: readonly T[],
+  resolveId: (item: T) => unknown,
+  resolveIdentity: (item: T) => object,
+  fields: readonly string[],
+): ItemAmountPairs {
+  const byId: AmountPairsById = {}
+  const byIndex: AmountPairs[] = []
+  const identities: object[] = []
+  let hasIds = false
+  for (const item of items) {
+    const pairs = captureAmountPairs(item, fields)
+    byIndex.push(pairs)
+    identities.push(resolveIdentity(item))
+    const id = itemId(resolveId(item))
+    if (id === null) continue
+    hasIds = true
+    if (!Object.prototype.hasOwnProperty.call(byId, id)) byId[id] = pairs
+  }
+  return { byId, byIndex, identities, hasIds }
+}
+
+function pairedByIdentity(before: ItemAmountPairs, identity: object): AmountPairs | undefined {
+  const index = before.identities.indexOf(identity)
+  return index === -1 ? undefined : before.byIndex[index]
+}
+
+function pairedAmounts(pairs: AmountPairsById, id: unknown): AmountPairs | undefined {
+  const key = itemId(id)
+  if (key === null || !Object.prototype.hasOwnProperty.call(pairs, key)) return undefined
+  return pairs[key]
+}
+
+function pairItemAmounts<T>(
+  before: ItemAmountPairs | undefined,
+  items: readonly T[],
+  resolveId: (item: T) => unknown,
+  resolveIdentity: (item: T) => object,
+): Array<AmountPairs | undefined> {
+  if (!before) return items.map(() => undefined)
+  const pairByIndex =
+    !before.hasIds &&
+    before.byIndex.length === items.length &&
+    items.every((item) => itemId(resolveId(item)) === null)
+  return items.map((item, index) =>
+    pairedAmounts(before.byId, resolveId(item)) ??
+      pairedByIdentity(before, resolveIdentity(item)) ??
+      (pairByIndex ? before.byIndex[index] : undefined),
+  )
+}
+
+function lineResultId(line: SalesLineCalculationResult): unknown {
+  return line.line?.id
+}
+
+function lineResultIdentity(line: SalesLineCalculationResult): object {
+  return line.line
+}
+
+function adjustmentIdentity(adjustment: SalesAdjustmentDraft): object {
+  return adjustment
+}
+
+function adjustmentId(adjustment: SalesAdjustmentDraft): unknown {
+  return adjustment.id
+}
+
+function captureDocumentAmounts(result: SalesDocumentCalculationResult): DocumentAmountPairs {
+  return {
+    totals: captureAmountPairs(result.totals, SALES_DOCUMENT_AMOUNT_FIELDS),
+    lines: captureItemAmountPairs(result.lines, lineResultId, lineResultIdentity, SALES_LINE_RESULT_AMOUNT_FIELDS),
+    adjustments: captureItemAmountPairs(result.adjustments, adjustmentId, adjustmentIdentity, ADJUSTMENT_AMOUNT_FIELDS),
+  }
+}
+
+/**
+ * Picks the value a hook meant: when it changed the `<field>Exact` string, that
+ * string wins; otherwise the float decides as in `resolveExactDecimal` (a hook
+ * that only changed the float overrides a stale exact value). A value taken from
+ * the float is rounded to `decimalPlaces`, as the fixed-scale columns did on write.
+ */
+export function reconcileHookAmount(
+  before: AmountPair | undefined,
+  exact: unknown,
+  value: unknown,
+  decimalPlaces: number,
+): DecimalValue | null {
+  const nextExact = typeof exact === 'string' ? exactAmount(exact, undefined) : null
+  if (nextExact !== null && before !== undefined) {
+    const previousExact = typeof before.exact === 'string' ? exactAmount(before.exact, undefined) : null
+    if (previousExact === null || !previousExact.eq(nextExact)) return nextExact
+  }
+  const resolved = exactAmount(exact, value)
+  if (resolved === null) return null
+  if (nextExact !== null && nextExact.eq(resolved)) return nextExact
+  return roundDecimal(resolved, decimalPlaces)
+}
+
+function reconcileAmounts<T extends object>(
+  record: T,
+  fields: readonly string[],
+  decimalPlaces: number,
+  before?: AmountPairs,
+): T {
+  const values = record as Record<string, unknown>
+  let synced = record
+  for (const field of fields) {
+    const value = reconcileHookAmount(before?.[field], values[`${field}Exact`], values[field], decimalPlaces)
+    if (value !== null) synced = withExactAmount(synced, field, value)
+  }
+  return synced
+}
+
+/** Keeps every `<field>Exact` consistent with its float after a hook ran. */
+function syncLineResultExactAmounts(
+  result: SalesLineCalculationResult,
+  decimalPlaces: number,
+  before?: AmountPairs,
+): SalesLineCalculationResult {
+  return reconcileAmounts(result, SALES_LINE_RESULT_AMOUNT_FIELDS, decimalPlaces, before)
+}
+
+/**
+ * Lines and adjustments are matched to their pre-hook amounts by `id`, so a hook
+ * that reorders, filters or prepends items cannot pair one item with another's
+ * stale exact value. Idless lines keep their source line identity across result
+ * copies; adjustments are matched by object identity. When identities are also
+ * replaced and no item carries an id, an unchanged count allows position matching.
+ * Items without a match fall back to the float/exact consistency rule.
+ */
+function syncDocumentResultExactAmounts(
+  result: SalesDocumentCalculationResult,
+  decimalPlaces: number,
+  before?: DocumentAmountPairs,
+): SalesDocumentCalculationResult {
+  const linePairs = pairItemAmounts(before?.lines, result.lines, lineResultId, lineResultIdentity)
+  const adjustmentPairs = pairItemAmounts(before?.adjustments, result.adjustments, adjustmentId, adjustmentIdentity)
+  return {
+    ...result,
+    lines: result.lines.map((line, index) => syncLineResultExactAmounts(line, decimalPlaces, linePairs[index])),
+    adjustments: result.adjustments.map((adjustment, index) =>
+      reconcileAmounts(adjustment, ADJUSTMENT_AMOUNT_FIELDS, decimalPlaces, adjustmentPairs[index]),
+    ),
+    totals: reconcileAmounts(result.totals, SALES_DOCUMENT_AMOUNT_FIELDS, decimalPlaces, before?.totals),
   }
 }
 
@@ -358,35 +626,47 @@ class SalesCalculationRegistry {
 
   async calculateLine(opts: CalculateLineOptions): Promise<SalesLineCalculationResult> {
     const { documentKind, line, context, eventBus } = opts
-    let current = buildBaseLineResult(line)
+    const decimalPlaces = resolveDecimalPlaces(context.amountDecimalPlaces)
+    let current = buildBaseLineResult(line, decimalPlaces)
+    const applyHook = async (run: () => Promise<void>) => {
+      const before = captureAmountPairs(current, SALES_LINE_RESULT_AMOUNT_FIELDS)
+      await run()
+      current = syncLineResultExactAmounts(current, decimalPlaces, before)
+    }
 
     if (eventBus) {
-      await eventBus.emitEvent('sales.line.calculate.before', {
-        documentKind,
-        line,
-        context,
-        result: current,
-        setResult(next: SalesLineCalculationResult) {
-          current = next
-        },
-      })
+      await applyHook(() =>
+        eventBus.emitEvent('sales.line.calculate.before', {
+          documentKind,
+          line,
+          context,
+          result: current,
+          setResult(next: SalesLineCalculationResult) {
+            current = next
+          },
+        }),
+      )
     }
 
     for (const hook of this.lineCalculators) {
-      const next = await hook({ documentKind, line, context, current })
-      if (next) current = next
+      await applyHook(async () => {
+        const next = await hook({ documentKind, line, context, current })
+        if (next) current = next
+      })
     }
 
     if (eventBus) {
-      await eventBus.emitEvent('sales.line.calculate.after', {
-        documentKind,
-        line,
-        context,
-        result: current,
-        setResult(next: SalesLineCalculationResult) {
-          current = next
-        },
-      })
+      await applyHook(() =>
+        eventBus.emitEvent('sales.line.calculate.after', {
+          documentKind,
+          line,
+          context,
+          result: current,
+          setResult(next: SalesLineCalculationResult) {
+            current = next
+          },
+        }),
+      )
     }
 
     return current
@@ -407,44 +687,58 @@ class SalesCalculationRegistry {
       adjustments,
       currencyCode: context.currencyCode,
       existingTotals,
+      amountDecimalPlaces: context.amountDecimalPlaces,
     })
 
+    const decimalPlaces = resolveDecimalPlaces(context.amountDecimalPlaces)
+    const applyHook = async (run: () => Promise<void>) => {
+      const before = captureDocumentAmounts(current)
+      await run()
+      current = syncDocumentResultExactAmounts(current, decimalPlaces, before)
+    }
+
     if (eventBus) {
-      await eventBus.emitEvent('sales.document.calculate.before', {
-        documentKind,
-        lines: resolvedLines,
-        context,
-        adjustments,
-        result: current,
-        setResult(next: SalesDocumentCalculationResult) {
-          current = next
-        },
-      })
+      await applyHook(() =>
+        eventBus.emitEvent('sales.document.calculate.before', {
+          documentKind,
+          lines: resolvedLines,
+          context,
+          adjustments,
+          result: current,
+          setResult(next: SalesDocumentCalculationResult) {
+            current = next
+          },
+        }),
+      )
     }
 
     for (const hook of this.totalsCalculators) {
-      const next = await hook({
-        documentKind,
-        lines: resolvedLines,
-        existingAdjustments: adjustments,
-        context,
-        current,
-        eventBus,
+      await applyHook(async () => {
+        const next = await hook({
+          documentKind,
+          lines: resolvedLines,
+          existingAdjustments: adjustments,
+          context,
+          current,
+          eventBus,
+        })
+        if (next) current = next
       })
-      if (next) current = next
     }
 
     if (eventBus) {
-      await eventBus.emitEvent('sales.document.calculate.after', {
-        documentKind,
-        lines: resolvedLines,
-        context,
-        adjustments,
-        result: current,
-        setResult(next: SalesDocumentCalculationResult) {
-          current = next
-        },
-      })
+      await applyHook(() =>
+        eventBus.emitEvent('sales.document.calculate.after', {
+          documentKind,
+          lines: resolvedLines,
+          context,
+          adjustments,
+          result: current,
+          setResult(next: SalesDocumentCalculationResult) {
+            current = next
+          },
+        }),
+      )
     }
 
     // Payment totals (paid/refunded) are authoritative inputs, not derived from
@@ -454,16 +748,25 @@ class SalesCalculationRegistry {
     // outstanding display after a payment. Re-apply the input totals last and
     // recompute outstanding against the post-calculation grand total.
     if (existingTotals) {
-      const paidTotalAmount = Math.max(toNumber(existingTotals.paidTotalAmount, 0), 0)
-      const refundedTotalAmount = Math.max(toNumber(existingTotals.refundedTotalAmount, 0), 0)
-      current.totals = {
-        ...current.totals,
-        paidTotalAmount,
-        refundedTotalAmount,
-        outstandingAmount: round(
-          Math.max(current.totals.grandTotalGrossAmount - paidTotalAmount + refundedTotalAmount, 0)
-        ),
-      }
+      const round = createRounder(decimalPlaces)
+      const paidTotalAmount = maxOf(
+        exactAmount(existingTotals.paidTotalAmountExact, existingTotals.paidTotalAmount) ?? ZERO,
+        ZERO,
+      )
+      const refundedTotalAmount = maxOf(
+        exactAmount(existingTotals.refundedTotalAmountExact, existingTotals.refundedTotalAmount) ?? ZERO,
+        ZERO,
+      )
+      const grandTotalGross =
+        exactAmount(current.totals.grandTotalGrossAmountExact, current.totals.grandTotalGrossAmount) ?? ZERO
+      let totals = withExactAmount(current.totals, 'paidTotalAmount', paidTotalAmount)
+      totals = withExactAmount(totals, 'refundedTotalAmount', refundedTotalAmount)
+      totals = withExactAmount(
+        totals,
+        'outstandingAmount',
+        round(maxOf(grandTotalGross.minus(paidTotalAmount).plus(refundedTotalAmount), ZERO)),
+      )
+      current.totals = totals
     }
 
     return current
@@ -508,12 +811,14 @@ export function rebuildDocumentResult(params: {
   lines: SalesLineCalculationResult[]
   adjustments: SalesAdjustmentDraft[]
   metadata?: Record<string, unknown>
+  amountDecimalPlaces?: number
 }): SalesDocumentCalculationResult {
   const result = buildBaseDocumentResult({
     documentKind: params.documentKind,
     lines: params.lines,
     adjustments: params.adjustments,
     currencyCode: params.currencyCode,
+    amountDecimalPlaces: params.amountDecimalPlaces,
   })
   result.metadata = params.metadata ?? {}
   return result

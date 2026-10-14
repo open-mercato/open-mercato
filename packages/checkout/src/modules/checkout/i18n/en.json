@@ -152,6 +152,7 @@
   "checkout.defaultCustomerFields.lastName.placeholder": "Doe",
   "checkout.defaultCustomerFields.phone.label": "Phone",
   "checkout.defaultCustomerFields.phone.placeholder": "+1 555 123 4567",
+  "checkout.errors.amountPrecisionExceeded": "Amount {amount} has more decimal places than {currencyCode} supports ({decimalPlaces})",
   "checkout.gatewaySettings.notices.chooseProvider": "Choose a gateway provider to configure checkout session settings.",
   "checkout.gatewaySettings.notices.noSettings": "This provider does not expose additional session settings.",
   "checkout.gatewaySettings.selectPlaceholder": "Select…",

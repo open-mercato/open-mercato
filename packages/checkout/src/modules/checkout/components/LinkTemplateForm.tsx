@@ -3,7 +3,8 @@
 import * as React from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useT, useLocale, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
-import { parseLocaleNumber } from '@open-mercato/shared/lib/number'
+import { parseLocaleDecimal } from '@open-mercato/shared/lib/number'
+import { decimalToString, resolveExactDecimal } from '@open-mercato/shared/lib/decimal'
 import {
   AlertTriangle,
   BadgeCheck,
@@ -85,7 +86,7 @@ type LegalDocumentsValue = {
 
 type PriceListItem = PriceListItemInput
 // `amount` stays a raw locale-typed string while a row is being edited (issue #5828) —
-// converted to a number only at submit time.
+// converted to an exact decimal string only at submit time.
 type PriceListEditorItem = Omit<PriceListItem, 'amount'> & { amount: number | string }
 
 const DEFAULT_COLORS = {
@@ -113,12 +114,13 @@ function readNumberInputValue(value: unknown): string {
 
 // Money fields stay a raw locale-typed string while being edited (issue #5828) so an
 // in-progress decimal separator is never dropped mid-keystroke; this converts to the
-// canonical number the API expects right before submission.
-export function toSubmittedAmount(value: unknown, locale?: string): number | null {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+// canonical exact decimal string the API accepts right before submission, so no digit is
+// lost to a float.
+export function toSubmittedAmount(value: unknown, locale?: string): string | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? decimalToString(value) : null
   if (typeof value !== 'string') return null
   if (!value.trim()) return null
-  return parseLocaleNumber(value, locale)
+  return parseLocaleDecimal(value, locale)
 }
 
 function isUnparseableAmount(value: unknown, locale?: string): boolean {
@@ -307,6 +309,10 @@ function normalizeFormValues(value: FormValues | null | undefined, t?: Translate
     customerFieldsSchema: normalizeCustomerFields(source.customerFieldsSchema, t),
     legalDocuments: normalizeLegalDocuments(source.legalDocuments),
     priceListItems: normalizePriceListItems(source.priceListItems),
+    fixedPriceAmount: resolveExactDecimal(source.fixedPriceAmountExact, source.fixedPriceAmount),
+    fixedPriceOriginalAmount: resolveExactDecimal(source.fixedPriceOriginalAmountExact, source.fixedPriceOriginalAmount),
+    customAmountMin: resolveExactDecimal(source.customAmountMinExact, source.customAmountMin),
+    customAmountMax: resolveExactDecimal(source.customAmountMaxExact, source.customAmountMax),
     fixedPriceCurrencyCode: readString(source.fixedPriceCurrencyCode).trim().toUpperCase() || 'USD',
     customAmountCurrencyCode: readString(source.customAmountCurrencyCode).trim().toUpperCase() || 'USD',
     sendStartEmail: readBoolean(source.sendStartEmail, true),

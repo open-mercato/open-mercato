@@ -36,6 +36,7 @@ import {
   type ShippingProvider,
 } from '../lib/providers'
 import { isRecord } from '@open-mercato/shared/lib/utils'
+import { decimalToString, isDecimalInput, isNegativeDecimal, toDecimal } from '@open-mercato/shared/lib/decimal'
 import { renderProviderFieldInput } from './ProviderFieldInput'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -51,8 +52,8 @@ type ShippingMethodRow = {
   description: string | null
   serviceLevel: string | null
   estimatedTransitDays: number | null
-  baseRateNet: number
-  baseRateGross: number
+  baseRateNet: string
+  baseRateGross: string
   currencyCode: string | null
   isActive: boolean
   updatedAt: string | null
@@ -63,6 +64,14 @@ type DialogState =
   | { mode: 'create' }
   | { mode: 'edit'; entry: ShippingMethodRow }
 
+const baseRateSchema = z
+  .union([z.string(), z.number()])
+  .refine((value) => isDecimalInput(value) && !isNegativeDecimal(value))
+
+function readDecimalString(value: unknown): string {
+  return isDecimalInput(value) ? decimalToString(value) : '0'
+}
+
 const shippingFormSchema = z.object({
   name: z.string().trim().min(1),
   code: z.string().trim().min(1),
@@ -71,8 +80,8 @@ const shippingFormSchema = z.object({
   carrierCode: z.string().optional(),
   serviceLevel: z.string().optional(),
   estimatedTransitDays: z.coerce.number().min(0).optional(),
-  baseRateNet: z.coerce.number().min(0),
-  baseRateGross: z.coerce.number().min(0).optional(),
+  baseRateNet: baseRateSchema,
+  baseRateGross: baseRateSchema.optional(),
   currencyCode: z.string().trim().optional(),
   isActive: z.boolean().optional(),
   providerSettings: z.record(z.string(), z.unknown()).optional(),
@@ -458,12 +467,8 @@ export function ShippingMethodsSettings() {
               ? (item as any).provider_key
               : null
           const provider = providers.find((entry) => entry.key === providerKey)
-          const baseRateGross = typeof item.baseRateGross === 'number'
-            ? item.baseRateGross
-            : Number((item as any)?.base_rate_gross ?? item.baseRateGross ?? 0) || 0
-          const baseRateNet = typeof item.baseRateNet === 'number'
-            ? item.baseRateNet
-            : Number((item as any)?.base_rate_net ?? item.baseRateNet ?? 0) || 0
+          const baseRateGross = readDecimalString(item.baseRateGross ?? item.base_rate_gross)
+          const baseRateNet = readDecimalString(item.baseRateNet ?? item.base_rate_net)
           const currency =
             typeof item.currencyCode === 'string'
               ? item.currencyCode
@@ -598,7 +603,7 @@ export function ShippingMethodsSettings() {
       header: translations.table.rate,
       cell: ({ row }) => (
         <span className="text-sm">
-          {row.original.baseRateGross.toFixed(2)} {row.original.currencyCode ?? ''}
+          {toDecimal(row.original.baseRateGross).toFixed(2)} {row.original.currencyCode ?? ''}
         </span>
       ),
     },
@@ -636,11 +641,8 @@ export function ShippingMethodsSettings() {
         values.estimatedTransitDays === undefined || values.estimatedTransitDays === null
           ? undefined
           : Number(values.estimatedTransitDays),
-      baseRateNet: Number(values.baseRateNet ?? 0),
-      baseRateGross:
-        values.baseRateGross === undefined || values.baseRateGross === null
-          ? Number(values.baseRateNet ?? 0)
-          : Number(values.baseRateGross),
+      baseRateNet: readDecimalString(values.baseRateNet),
+      baseRateGross: readDecimalString(values.baseRateGross ?? values.baseRateNet),
       currencyCode: values.currencyCode?.trim().toUpperCase() || undefined,
       isActive: values.isActive ?? true,
       providerSettings: isRecord(values.providerSettings) ? values.providerSettings : undefined,
@@ -693,14 +695,14 @@ export function ShippingMethodsSettings() {
     {
       id: 'baseRateNet',
       label: translations.form.baseRateNet,
-      type: 'number',
+      type: 'decimal',
       required: true,
       layout: 'half',
     },
     {
       id: 'baseRateGross',
       label: translations.form.baseRateGross,
-      type: 'number',
+      type: 'decimal',
       required: false,
       layout: 'half',
     },

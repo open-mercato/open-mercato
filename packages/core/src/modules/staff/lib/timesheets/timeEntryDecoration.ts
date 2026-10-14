@@ -25,7 +25,9 @@
 
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { StaffTimeEntry, StaffTimeEntryTag, StaffTimeProject, StaffTimeTag } from '../../data/entities'
-import { entryAmount } from '../time-tracking/cost'
+import { DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES, entryAmountExact } from '../time-tracking/cost'
+import { decimalToNumber } from '@open-mercato/shared/lib/decimal'
+import { resolveCurrencyDecimalPlaces } from '@open-mercato/shared/lib/currencyPrecision'
 
 export type TimeEntryTagSummary = {
   id: string
@@ -39,6 +41,8 @@ export type TimeEntryDecorationScope = {
   tenantId: string | null
   organizationId: string | null
   canSeeRates: boolean
+  /** Resolves each currency's decimals for `cost`; without it amounts round to 2. */
+  container?: Parameters<typeof resolveCurrencyDecimalPlaces>[0]
   /** Called with a decoration failure; the rows themselves are already correct and scoped. */
   onError?: (err: unknown) => void
 }
@@ -140,7 +144,7 @@ async function loadEntryMoney(
   return byId
 }
 
-type ProjectMoney = { hourlyRate: number | null; currencyCode: string | null }
+type ProjectMoney = { hourlyRate: string | null; currencyCode: string | null }
 
 async function loadProjectMoney(
   em: EntityManager,
@@ -158,11 +162,28 @@ async function loadProjectMoney(
   })
   for (const project of projects) {
     byId.set(project.id, {
-      hourlyRate: toNullableNumber(project.hourlyRate),
+      hourlyRate: project.hourlyRate ?? null,
       currencyCode: toNullableString(project.currencyCode),
     })
   }
   return byId
+}
+
+async function loadCurrencyDecimalPlaces(
+  container: TimeEntryDecorationScope['container'],
+  currencyCodes: readonly (string | null)[],
+  tenantId: string,
+  organizationId: string,
+): Promise<Record<string, number>> {
+  if (!container) return {}
+  const codes = Array.from(new Set(currencyCodes.filter((code): code is string => Boolean(code))))
+  const resolved = await Promise.all(
+    codes.map(async (code) => {
+      const decimalPlaces = await resolveCurrencyDecimalPlaces(container, { code, tenantId, organizationId })
+      return [code, decimalPlaces ?? DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES] as const
+    }),
+  )
+  return Object.fromEntries(resolved)
 }
 
 /**
@@ -179,6 +200,7 @@ export async function decorateTimeEntryRows(
   let tagsByEntryId = new Map<string, TimeEntryTagSummary[]>()
   let moneyByEntryId = new Map<string, EntryMoney>()
   let moneyByProjectId = new Map<string, ProjectMoney>()
+  let decimalPlacesByCurrency: Record<string, number> = {}
 
   if (tenantId && organizationId) {
     try {
@@ -197,6 +219,15 @@ export async function decorateTimeEntryRows(
           ),
         )
         moneyByProjectId = await loadProjectMoney(em, projectIds, tenantId, organizationId)
+        decimalPlacesByCurrency = await loadCurrencyDecimalPlaces(
+          scope.container,
+          [
+            ...Array.from(moneyByEntryId.values(), (money) => money.rateCurrencyCode),
+            ...Array.from(moneyByProjectId.values(), (money) => money.currencyCode),
+          ],
+          tenantId,
+          organizationId,
+        )
       }
     } catch (err) {
       // A decoration failure must not fail the list; the entry rows themselves are
@@ -241,16 +272,21 @@ export async function decorateTimeEntryRows(
 
     row[FIELD.rateOverrideAmount[0]] = rateOverrideAmount
     row[FIELD.rateCurrencyCode[0]] = rateCurrencyCode
-    row.currencyCode = toNullableString(rateCurrencyCode) ?? money?.currencyCode ?? null
+    const currencyCode = toNullableString(rateCurrencyCode) ?? money?.currencyCode ?? null
+    row.currencyCode = currencyCode
     // A non-billable entry has no price at all — `null`, never `0`, which would
     // read as free work rather than work that is out of scope.
-    row.cost = entryAmount(
+    const cost = entryAmountExact(
       {
         isBillable,
         roundedMinutes: roundedMinutes ?? 0,
-        rateOverrideAmount: toNullableNumber(rateOverrideAmount),
+        rateOverrideAmount,
       },
       { hourlyRate: money?.hourlyRate ?? null },
+      null,
+      (currencyCode ? decimalPlacesByCurrency[currencyCode] : undefined) ?? DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES,
     )
+    row.cost = cost === null ? null : decimalToNumber(cost)
+    row.costExact = cost
   }
 }

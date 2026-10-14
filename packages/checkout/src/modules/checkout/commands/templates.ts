@@ -22,9 +22,10 @@ import {
   hashCheckoutPassword,
   parseCheckoutInput,
   serializeTemplateOrLink,
-  toMoneyString,
+  toTemplateOrLinkMutationInput,
   validateDescriptorCurrencies,
 } from '../lib/utils'
+import { roundCheckoutConfiguredAmounts, toStoredCheckoutAmounts } from '../lib/amountPrecision'
 import {
   buildSelectiveLinkedCustomFieldUpdates,
   buildSelectiveLinkedLinkSnapshot,
@@ -113,14 +114,12 @@ const createTemplateCommand: CommandHandler<Record<string, unknown>, { id: strin
     await ensureGatewayProviderConfigured(parsed.gatewayProviderKey, descriptorService, scope)
     const em = ctx.container.resolve('em') as EntityManager
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    const roundedInput = await roundCheckoutConfiguredAmounts(ctx.container, scope, parsed)
     const template = em.create(CheckoutLinkTemplate, {
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
-      ...parsed,
-      fixedPriceAmount: toMoneyString(parsed.fixedPriceAmount),
-      fixedPriceOriginalAmount: toMoneyString(parsed.fixedPriceOriginalAmount),
-      customAmountMin: toMoneyString(parsed.customAmountMin),
-      customAmountMax: toMoneyString(parsed.customAmountMax),
+      ...roundedInput,
+      ...toStoredCheckoutAmounts(roundedInput),
       passwordHash: await hashCheckoutPassword(parsed.password),
     } as any)
     em.persist(template)
@@ -290,12 +289,15 @@ const updateTemplateCommand: CommandHandler<Record<string, unknown>, { ok: true 
     const passwordHash = parsed.password !== undefined
       ? await hashCheckoutPassword(parsed.password)
       : template.passwordHash
+    const roundedValues = await roundCheckoutConfiguredAmounts(
+      ctx.container,
+      scope,
+      toTemplateOrLinkMutationInput(template, parsed),
+    )
     Object.assign(template, {
       ...parsed,
-      fixedPriceAmount: parsed.fixedPriceAmount !== undefined ? toMoneyString(parsed.fixedPriceAmount) : template.fixedPriceAmount,
-      fixedPriceOriginalAmount: parsed.fixedPriceOriginalAmount !== undefined ? toMoneyString(parsed.fixedPriceOriginalAmount) : template.fixedPriceOriginalAmount,
-      customAmountMin: parsed.customAmountMin !== undefined ? toMoneyString(parsed.customAmountMin) : template.customAmountMin,
-      customAmountMax: parsed.customAmountMax !== undefined ? toMoneyString(parsed.customAmountMax) : template.customAmountMax,
+      ...toStoredCheckoutAmounts(roundedValues),
+      priceListItems: roundedValues.priceListItems,
       passwordHash,
     })
     await em.flush()

@@ -554,7 +554,7 @@ describe('staff.timesheets.reports.close (US-G3)', () => {
     const freeze = persisted.map((item) => item.row).find((row) => row.timeEntryId === 'e-billed')
     // Frozen at 660 min × 300, not recomputed as 665 × 320.
     expect(freeze?.frozenRoundedMinutes).toBe(660)
-    expect(freeze?.frozenAmount).toBe('3300.00')
+    expect(freeze?.frozenAmount).toBe('3300')
     expect(result.totalAmount).toBe(3300)
     // Ownership of the lock stays with the report that froze it first.
     expect(alreadyBilled.lockedReportId).toBe(EARLIER_REPORT_ID)

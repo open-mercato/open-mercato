@@ -19,6 +19,7 @@ import {
   createVariantInitialValues,
   normalizeOptionSchema,
   findInvalidVariantPriceKinds,
+  resolveVariantPriceAmount,
 } from '@open-mercato/core/modules/catalog/components/products/variantForm'
 import {
   type PriceKindSummary,
@@ -26,7 +27,6 @@ import {
   type TaxRateSummary,
   normalizePriceKindSummary,
 } from '@open-mercato/core/modules/catalog/components/products/productForm'
-import { parseNumericInput } from '@open-mercato/core/modules/catalog/components/products/productFormUtils'
 import {
   VariantBasicsSection,
   VariantOptionValuesSection,
@@ -476,10 +476,8 @@ async function syncVariantPrices({
   const resolvedTaxRateId = (selectedTaxRate ?? fallbackProductTaxRate)?.id ?? null
   for (const kind of priceKinds) {
     const draft = priceDrafts?.[kind.id]
-    const amount = typeof draft?.amount === 'string' ? draft.amount.trim() : ''
-    if (!amount) continue
-    const numeric = parseNumericInput(amount)
-    if (!Number.isFinite(numeric) || numeric < 0) continue
+    const amount = resolveVariantPriceAmount(draft)
+    if (amount === null) continue
     const payload: Record<string, unknown> = {
       productId,
       variantId,
@@ -491,8 +489,8 @@ async function syncVariantPrices({
     } else if (typeof resolvedTaxRateValue === 'number' && Number.isFinite(resolvedTaxRateValue)) {
       payload.taxRate = resolvedTaxRateValue
     }
-    if (kind.displayMode === 'including-tax') payload.unitPriceGross = numeric
-    else payload.unitPriceNet = numeric
+    if (kind.displayMode === 'including-tax') payload.unitPriceGross = amount
+    else payload.unitPriceNet = amount
     await createCrud('catalog/prices', payload)
   }
 }

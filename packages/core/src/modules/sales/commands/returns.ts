@@ -13,7 +13,9 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { SalesDocumentNumberGenerator } from '../services/salesDocumentNumberGenerator'
 import type { SalesCalculationService } from '../services/salesCalculationService'
 import type { SalesAdjustmentDraft, SalesLineSnapshot, SalesDocumentCalculationResult } from '../lib/types'
-import { cloneJson, deriveLineNetFromGross, ensureOrganizationScope, ensureSameScope, ensureTenantScope, extractUndoPayload, toNumericString, enforceSalesDocumentOptimisticLock, SALES_RESOURCE_KIND_ORDER, SALES_RESOURCE_KIND_RETURN } from './shared'
+import { cloneJson, deriveExactLineNetFromGross, ensureOrganizationScope, ensureSameScope, ensureTenantScope, exactAmountString, extractUndoPayload, resolveOrderPaymentTotals, toNumericString, enforceSalesDocumentOptimisticLock, SALES_RESOURCE_KIND_ORDER, SALES_RESOURCE_KIND_RETURN } from './shared'
+import { FX_DECIMAL_PLACES, decimalToString, divideDecimals, roundDecimal, toDecimal } from '@open-mercato/shared/lib/decimal'
+import { resolveCurrencyAmountDecimalPlaces } from '@open-mercato/shared/lib/currencyPrecision'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { SalesOrder, SalesOrderAdjustment, SalesOrderLine, SalesReturn, SalesReturnLine } from '../data/entities'
 import { mapOrderLineEntityToSnapshot } from '../lib/lineSnapshots'
@@ -45,9 +47,13 @@ type ReturnSnapshot = {
     orderLineId: string
     quantityReturned: number
     unitPriceNet: number
+    unitPriceNetExact?: string
     unitPriceGross: number
+    unitPriceGrossExact?: string
     totalNetAmount: number
+    totalNetAmountExact?: string
     totalGrossAmount: number
+    totalGrossAmountExact?: string
   }>
   adjustmentIds: string[]
 }
@@ -89,6 +95,10 @@ async function invalidateOrderCache(
   )
 }
 
+function nonNegative(value: ReturnType<typeof toDecimal>): ReturnType<typeof toDecimal> {
+  return value.lt(0) ? toDecimal(0) : value
+}
+
 function toNumeric(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value
   if (typeof value === 'string' && value.trim().length) {
@@ -96,10 +106,6 @@ function toNumeric(value: unknown): number {
     if (Number.isFinite(parsed)) return parsed
   }
   return 0
-}
-
-function round(value: number): number {
-  return Math.round((value + Number.EPSILON) * 1e4) / 1e4
 }
 
 /**
@@ -111,26 +117,23 @@ function round(value: number): number {
  * amount and the order's outstanding balance goes wrong on any paid order
  * (#3756). Mirrors `resolveExistingPaymentTotals` in `commands/documents.ts`.
  */
-function resolveExistingPaymentTotals(order: SalesOrder): { paidTotalAmount: number; refundedTotalAmount: number } {
-  return {
-    paidTotalAmount: toNumeric(order.paidTotalAmount),
-    refundedTotalAmount: toNumeric(order.refundedTotalAmount),
-  }
+function resolveExistingPaymentTotals(order: SalesOrder) {
+  return resolveOrderPaymentTotals(order)
 }
 
 function applyOrderTotals(order: SalesOrder, totals: SalesDocumentCalculationResult['totals'], lineCount: number): void {
-  order.subtotalNetAmount = toNumericString(totals.subtotalNetAmount) ?? '0'
-  order.subtotalGrossAmount = toNumericString(totals.subtotalGrossAmount) ?? '0'
-  order.discountTotalAmount = toNumericString(totals.discountTotalAmount) ?? '0'
-  order.taxTotalAmount = toNumericString(totals.taxTotalAmount) ?? '0'
-  order.shippingNetAmount = toNumericString(totals.shippingNetAmount) ?? '0'
-  order.shippingGrossAmount = toNumericString(totals.shippingGrossAmount) ?? '0'
-  order.surchargeTotalAmount = toNumericString(totals.surchargeTotalAmount) ?? '0'
-  order.grandTotalNetAmount = toNumericString(totals.grandTotalNetAmount) ?? '0'
-  order.grandTotalGrossAmount = toNumericString(totals.grandTotalGrossAmount) ?? '0'
-  order.paidTotalAmount = toNumericString(totals.paidTotalAmount) ?? '0'
-  order.refundedTotalAmount = toNumericString(totals.refundedTotalAmount) ?? '0'
-  order.outstandingAmount = toNumericString(totals.outstandingAmount) ?? '0'
+  order.subtotalNetAmount = exactAmountString(totals.subtotalNetAmountExact, totals.subtotalNetAmount) ?? '0'
+  order.subtotalGrossAmount = exactAmountString(totals.subtotalGrossAmountExact, totals.subtotalGrossAmount) ?? '0'
+  order.discountTotalAmount = exactAmountString(totals.discountTotalAmountExact, totals.discountTotalAmount) ?? '0'
+  order.taxTotalAmount = exactAmountString(totals.taxTotalAmountExact, totals.taxTotalAmount) ?? '0'
+  order.shippingNetAmount = exactAmountString(totals.shippingNetAmountExact, totals.shippingNetAmount) ?? '0'
+  order.shippingGrossAmount = exactAmountString(totals.shippingGrossAmountExact, totals.shippingGrossAmount) ?? '0'
+  order.surchargeTotalAmount = exactAmountString(totals.surchargeTotalAmountExact, totals.surchargeTotalAmount) ?? '0'
+  order.grandTotalNetAmount = exactAmountString(totals.grandTotalNetAmountExact, totals.grandTotalNetAmount) ?? '0'
+  order.grandTotalGrossAmount = exactAmountString(totals.grandTotalGrossAmountExact, totals.grandTotalGrossAmount) ?? '0'
+  order.paidTotalAmount = exactAmountString(totals.paidTotalAmountExact, totals.paidTotalAmount) ?? '0'
+  order.refundedTotalAmount = exactAmountString(totals.refundedTotalAmountExact, totals.refundedTotalAmount) ?? '0'
+  order.outstandingAmount = exactAmountString(totals.outstandingAmountExact, totals.outstandingAmount) ?? '0'
   order.totalsSnapshot = cloneJson(totals)
   order.lineItemCount = lineCount
 }
@@ -146,7 +149,9 @@ function mapOrderAdjustmentToDraft(adjustment: SalesOrderAdjustment): SalesAdjus
     promotionId: adjustment.promotionId ?? null,
     rate: toNumeric(adjustment.rate),
     amountNet: toNumeric(adjustment.amountNet),
+    amountNetExact: toNumericString(adjustment.amountNet) ?? '0',
     amountGross: toNumeric(adjustment.amountGross),
+    amountGrossExact: toNumericString(adjustment.amountGross) ?? '0',
     currencyCode: adjustment.currencyCode ?? null,
     metadata: adjustment.metadata ? cloneJson(adjustment.metadata) : null,
     position: adjustment.position ?? 0,
@@ -254,9 +259,13 @@ export async function loadReturnSnapshot(em: EntityManager, id: string): Promise
       orderLineId: typeof line.orderLine === 'string' ? line.orderLine : line.orderLine?.id ?? null,
       quantityReturned: toNumeric(line.quantityReturned),
       unitPriceNet: toNumeric(line.unitPriceNet),
+      unitPriceNetExact: toNumericString(line.unitPriceNet) ?? '0',
       unitPriceGross: toNumeric(line.unitPriceGross),
+      unitPriceGrossExact: toNumericString(line.unitPriceGross) ?? '0',
       totalNetAmount: toNumeric(line.totalNetAmount),
+      totalNetAmountExact: toNumericString(line.totalNetAmount) ?? '0',
       totalGrossAmount: toNumeric(line.totalGrossAmount),
+      totalGrossAmountExact: toNumericString(line.totalGrossAmount) ?? '0',
     })),
     adjustmentIds,
   }
@@ -485,8 +494,8 @@ async function restoreReturnEffects(
         snapshot.lines.forEach((lineSnapshot, index) => {
           const line = lineMap.get(lineSnapshot.orderLineId)
           if (!line) return
-          const totalNet = lineSnapshot.totalNetAmount
-          const totalGross = lineSnapshot.totalGrossAmount
+          const totalNet = exactAmountString(lineSnapshot.totalNetAmountExact, lineSnapshot.totalNetAmount) ?? '0'
+          const totalGross = exactAmountString(lineSnapshot.totalGrossAmountExact, lineSnapshot.totalGrossAmount) ?? '0'
           const adjustmentId = snapshot.adjustmentIds[index] ?? randomUUID()
 
           const returnLine = em.create(SalesReturnLine, {
@@ -496,10 +505,10 @@ async function restoreReturnEffects(
             organizationId: snapshot.organizationId,
             tenantId: snapshot.tenantId,
             quantityReturned: lineSnapshot.quantityReturned.toString(),
-            unitPriceNet: lineSnapshot.unitPriceNet.toString(),
-            unitPriceGross: lineSnapshot.unitPriceGross.toString(),
-            totalNetAmount: totalNet.toString(),
-            totalGrossAmount: totalGross.toString(),
+            unitPriceNet: exactAmountString(lineSnapshot.unitPriceNetExact, lineSnapshot.unitPriceNet) ?? '0',
+            unitPriceGross: exactAmountString(lineSnapshot.unitPriceGrossExact, lineSnapshot.unitPriceGross) ?? '0',
+            totalNetAmount: totalNet,
+            totalGrossAmount: totalGross,
             createdAt: new Date(),
             updatedAt: new Date(),
           })
@@ -515,8 +524,8 @@ async function restoreReturnEffects(
             scope: 'line',
             kind: 'return',
             rate: '0',
-            amountNet: totalNet.toString(),
-            amountGross: totalGross.toString(),
+            amountNet: totalNet,
+            amountGross: totalGross,
             currencyCode: order.currencyCode,
             metadata: { returnId, returnLineId: lineSnapshot.id },
             position: positionStart + index,
@@ -658,6 +667,11 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
 
       const createdAdjustments: SalesOrderAdjustment[] = []
       const createdReturnLines: SalesReturnLine[] = []
+      const amountDecimalPlaces = await resolveCurrencyAmountDecimalPlaces(ctx.container, {
+        code: order.currencyCode,
+        tenantId: order.tenantId,
+        organizationId: order.organizationId,
+      })
       requested.forEach((lineInput, index) => {
         const line = lineMap.get(lineInput.orderLineId)
         if (!line) return
@@ -670,11 +684,15 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
         // grand total moves in lockstep with gross (#3036). A genuinely free line
         // (gross = 0, e.g. a 100% discount / comp) keeps net 0, so the return is not
         // over-credited at the discount-ignoring unit price (#3521).
-        const lineTotalNet = deriveLineNetFromGross(line.totalNetAmount, line.totalGrossAmount, line.taxRate)
-        const unitNet = lineQuantity > 0 ? lineTotalNet / lineQuantity : toNumeric(line.unitPriceNet)
-        const unitGross = lineQuantity > 0 ? toNumeric(line.totalGrossAmount) / lineQuantity : toNumeric(line.unitPriceGross)
-        const totalNet = -round(Math.max(unitNet, 0) * quantity)
-        const totalGross = -round(Math.max(unitGross, 0) * quantity)
+        const lineTotalNet = deriveExactLineNetFromGross(line.totalNetAmount, line.totalGrossAmount, line.taxRate)
+        const unitNet = lineQuantity > 0
+          ? divideDecimals(lineTotalNet, lineQuantity, FX_DECIMAL_PLACES)
+          : toDecimal(toNumericString(line.unitPriceNet) ?? '0')
+        const unitGross = lineQuantity > 0
+          ? divideDecimals(toNumericString(line.totalGrossAmount) ?? '0', lineQuantity, FX_DECIMAL_PLACES)
+          : toDecimal(toNumericString(line.unitPriceGross) ?? '0')
+        const totalNet = roundDecimal(nonNegative(unitNet).times(quantity), amountDecimalPlaces).neg()
+        const totalGross = roundDecimal(nonNegative(unitGross).times(quantity), amountDecimalPlaces).neg()
 
         const returnLineId = randomUUID()
         const returnLine = tx.create(SalesReturnLine, {
@@ -684,10 +702,10 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
           organizationId: input.organizationId,
           tenantId: input.tenantId,
           quantityReturned: quantity.toString(),
-          unitPriceNet: round(unitNet).toString(),
-          unitPriceGross: round(unitGross).toString(),
-          totalNetAmount: totalNet.toString(),
-          totalGrossAmount: totalGross.toString(),
+          unitPriceNet: decimalToString(roundDecimal(unitNet, amountDecimalPlaces)),
+          unitPriceGross: decimalToString(roundDecimal(unitGross, amountDecimalPlaces)),
+          totalNetAmount: decimalToString(totalNet),
+          totalGrossAmount: decimalToString(totalGross),
           createdAt: new Date(),
           updatedAt: new Date(),
         })
@@ -703,8 +721,8 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
           scope: 'line',
           kind: 'return',
           rate: '0',
-          amountNet: totalNet.toString(),
-          amountGross: totalGross.toString(),
+          amountNet: decimalToString(totalNet),
+          amountGross: decimalToString(totalGross),
           currencyCode: order.currencyCode,
           metadata: { returnId, returnLineId },
           position: positionStart + index,

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { amountComparisonTolerance, withDecimalCaps, resolveExactDecimal, toDecimal } from '@open-mercato/shared/lib/decimal'
 import {
   createDictionaryEntrySchema,
   updateDictionaryEntrySchema,
@@ -8,6 +9,8 @@ import { REFERENCE_UNIT_CODES } from '@open-mercato/shared/lib/units/unitCodes'
 import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
 
 export const SALES_PHONE_INVALID_MESSAGE_KEY = 'customers.people.form.primaryPhone.invalid'
+
+export const SALES_AMOUNT_INVALID_MESSAGE_KEY = 'sales.errors.amount_invalid'
 
 const optionalPhoneField = (max = 50) =>
   z
@@ -55,11 +58,12 @@ const currencyCode = z
   .trim()
   .regex(/^[A-Z]{3}$/, 'currency code must be a three-letter ISO code')
 
-const decimal = (opts?: { min?: number; max?: number; message?: string }) => {
+const decimal = (opts?: { min?: number; max?: number; message?: string; intMessage?: string }) => {
   let schema = z.coerce.number()
   if (typeof opts?.min === 'number') schema = schema.min(opts.min)
   if (typeof opts?.max === 'number') schema = schema.max(opts.max, opts.message)
-  return schema
+  if (opts?.intMessage) schema = schema.int(opts.intMessage)
+  return withDecimalCaps(schema, SALES_AMOUNT_INVALID_MESSAGE_KEY)
 }
 
 const MAX_QUANTITY = 999_999_999
@@ -549,9 +553,14 @@ export const RETURN_ADJUSTMENT_EXCEEDS_REMAINING_GROSS_MESSAGE =
 export type ReturnAdjustmentRemainingCheck = {
   kind?: string | null
   amountNet?: number | null
+  amountNetExact?: string | null
   amountGross?: number | null
+  amountGrossExact?: string | null
   remainingNet: number
+  remainingNetExact?: string | null
   remainingGross: number
+  remainingGrossExact?: string | null
+  amountDecimalPlaces?: number
 }
 
 export type ReturnAdjustmentRemainingIssue = {
@@ -561,19 +570,24 @@ export type ReturnAdjustmentRemainingIssue = {
 
 // Inclusive: abs(amount) === remaining is allowed. Tiny epsilon absorbs
 // floating-point rounding from upstream tax/rate adjustments.
-const RETURN_REMAINING_EPSILON = 0.005
+function exactOrZero(exact: unknown, legacy: unknown) {
+  return toDecimal(resolveExactDecimal(exact, typeof legacy === 'number' ? legacy : null) ?? '0')
+}
 
 export const validateReturnAdjustmentWithinRemaining = (
   value: ReturnAdjustmentRemainingCheck
 ): ReturnAdjustmentRemainingIssue[] => {
   if (value.kind !== 'return') return []
-  const absNet = typeof value.amountNet === 'number' ? Math.abs(value.amountNet) : 0
-  const absGross = typeof value.amountGross === 'number' ? Math.abs(value.amountGross) : 0
+  const tolerance = amountComparisonTolerance(value.amountDecimalPlaces)
+  const absNet = exactOrZero(value.amountNetExact, value.amountNet).abs()
+  const absGross = exactOrZero(value.amountGrossExact, value.amountGross).abs()
+  const remainingNet = exactOrZero(value.remainingNetExact, value.remainingNet)
+  const remainingGross = exactOrZero(value.remainingGrossExact, value.remainingGross)
   const issues: ReturnAdjustmentRemainingIssue[] = []
-  if (absGross > value.remainingGross + RETURN_REMAINING_EPSILON) {
+  if (absGross.gt(remainingGross.plus(tolerance))) {
     issues.push({ path: 'amountGross', message: RETURN_ADJUSTMENT_EXCEEDS_REMAINING_GROSS_MESSAGE })
   }
-  if (absNet > value.remainingNet + RETURN_REMAINING_EPSILON) {
+  if (absNet.gt(remainingNet.plus(tolerance))) {
     issues.push({ path: 'amountNet', message: RETURN_ADJUSTMENT_EXCEEDS_REMAINING_NET_MESSAGE })
   }
   return issues
@@ -840,7 +854,12 @@ export const shipmentCreateSchema = scoped.extend({
     .array(
       z.object({
         orderLineId: uuid(),
-        quantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }).int('Quantity must be a whole number.'),
+        quantity: decimal({
+          min: 0,
+          max: MAX_QUANTITY,
+          message: 'Quantity is too large.',
+          intMessage: 'Quantity must be a whole number.',
+        }),
         metadata,
       })
     )

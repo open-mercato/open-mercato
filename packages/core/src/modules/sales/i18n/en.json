@@ -1240,6 +1240,7 @@
   "sales.documents.status.documentPlaceholder": "Select new order/quote status",
   "sales.documents.status.linePlaceholder": "Select item status",
   "sales.documents.status.sectionTitle": "Status changes",
+  "sales.errors.amount_invalid": "Enter a valid amount.",
   "sales.errors.invalid_query": "Invalid query parameters",
   "sales.errors.organization_required": "Organization context is required",
   "sales.errors.tag_invalid": "Invalid tag format.",

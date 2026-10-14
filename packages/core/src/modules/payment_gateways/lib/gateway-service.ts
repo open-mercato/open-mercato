@@ -25,14 +25,14 @@ import { canApplyManualAction, isValidTransition, type ManualGatewayAction } fro
 import { emitPaymentGatewayEvent } from '../events'
 import { readGatewayMetadata, readWebhookLog } from './transaction-fields'
 import { reconcileSessionAmountWithOrder } from './order-amount-reconciliation'
+import { decimalToNumber, resolveExactDecimal, toDecimal } from '@open-mercato/shared/lib/decimal'
+import { resolveCurrencyDecimalPlaces, type CurrencyPrecisionResolver } from '@open-mercato/shared/lib/currencyPrecision'
 import {
   alignCapturedAmountWithStatus,
-  assertCaptureWithinRemaining,
-  formatAmountUnits,
-  parseAmountUnits,
-  releaseCaptureAmount,
-  reserveCaptureAmount,
-  settleCapturedAmount,
+  assertCaptureWithinRemainingExact,
+  releaseCaptureAmountExact,
+  reserveCaptureAmountExact,
+  settleCapturedAmountExact,
 } from './capture-ledger'
 import {
   completePaymentOperation,
@@ -86,6 +86,11 @@ export interface PaymentGatewayServiceDeps {
    * When absent, session amounts cannot be reconciled and are accepted as-is.
    */
   paymentOrderTotalResolver?: PaymentOrderTotalResolver | null
+  /**
+   * Optional tenant currency precision lookup (`currencyPrecisionService`). When absent,
+   * the ISO 4217 digits are used to compare session amounts with the order total.
+   */
+  currencyPrecisionResolver?: CurrencyPrecisionResolver | null
   sessionClaimOptions?: {
     staleAfterMs?: number
     heartbeatIntervalMs?: number
@@ -98,7 +103,9 @@ export interface CreatePaymentSessionInput {
   paymentId: string
   idempotencyKey?: string
   orderId?: string
+  /** Float copy of `amountExact`; prefer the exact field. */
   amount: number
+  amountExact?: string
   currencyCode: string
   captureMethod?: 'automatic' | 'manual'
   paymentTypes?: string[]
@@ -119,6 +126,11 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     deps.sessionClaimOptions?.heartbeatIntervalMs ?? Math.floor(claimStaleAfterMs / 3),
   )
   const claimPollIntervalMs = Math.max(1, deps.sessionClaimOptions?.pollIntervalMs ?? PAYMENT_SESSION_WAIT_INTERVAL_MS)
+  const currencyPrecisionContainer = {
+    resolve<T = unknown>(): T {
+      return (deps.currencyPrecisionResolver ?? null) as T
+    },
+  }
 
   async function findTransactionOrThrow(
     transactionId: string,
@@ -327,10 +339,10 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       redirectUrl: session.redirectUrl
         ?? (session.clientSession?.type === 'redirect' ? session.clientSession.redirectUrl : null),
       clientSecret: session.clientSecret ?? null,
-      amount: String(input.amount),
+      amount: resolveExactDecimal(input.amountExact, input.amount) ?? '0',
       // An automatic-capture session comes back already captured, so the ledger has to start
       // at the full amount — otherwise a later manual capture would look like the first one.
-      capturedAmount: session.status === 'captured' ? String(input.amount) : '0',
+      capturedAmount: session.status === 'captured' ? (resolveExactDecimal(input.amountExact, input.amount) ?? '0') : '0',
       currencyCode: input.currencyCode,
       gatewayMetadata: {
         ...(session.providerData ?? {}),
@@ -425,7 +437,15 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       await reconcileSessionAmountWithOrder({
         orderId: input.orderId,
         amount: input.amount,
+        amountExact: input.amountExact,
         currencyCode: input.currencyCode,
+        currencyDecimalPlaces: input.orderId && deps.paymentOrderTotalResolver
+          ? await resolveCurrencyDecimalPlaces(currencyPrecisionContainer, {
+            code: input.currencyCode.trim().toUpperCase(),
+            tenantId: input.tenantId,
+            organizationId: input.organizationId,
+          })
+          : null,
         scope,
         resolver: deps.paymentOrderTotalResolver,
       })
@@ -438,6 +458,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         tenantId: input.tenantId,
         organizationId: input.organizationId,
         amount: input.amount,
+        amountExact: resolveExactDecimal(input.amountExact, input.amount) ?? undefined,
         currencyCode: input.currencyCode,
         captureMethod: input.captureMethod,
         paymentTypes: input.paymentTypes,
@@ -548,26 +569,26 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
 
     async capturePayment(
       transactionId: string,
-      amount: number | undefined,
+      amount: number | string | undefined,
       scope: { organizationId: string; tenantId: string },
       operationId?: string,
     ): Promise<CaptureResult> {
-      let reservedUnits: bigint | null = null
-      let providerAmount = amount
+      let reservedAmount: string | null = null
+      let providerAmountExact = amount === undefined ? undefined : (resolveExactDecimal(amount, null) ?? undefined)
       return executeManualOperation({
         action: 'capture',
         transactionId,
         operationId,
         payload: { amount: amount ?? null },
         scope,
-        assertInitialAllowed: (transaction) => { assertCaptureWithinRemaining(transaction, amount) },
+        assertInitialAllowed: (transaction) => { assertCaptureWithinRemainingExact(transaction, amount) },
         beforeInvoke: async ({ transaction, operation }) => {
-          const alreadyCapturedUnits = parseAmountUnits(transaction.capturedAmount)
-          reservedUnits = await reserveCaptureAmount(em, { transaction, operation, amount, scope })
+          const alreadyCaptured = toDecimal(resolveExactDecimal(transaction.capturedAmount, null) ?? 0)
+          reservedAmount = await reserveCaptureAmountExact(em, { transaction, operation, amount, scope })
           // "Capture the rest" has to name the remaining amount once part of the authorization is
           // already captured, otherwise the provider would capture the full amount a second time.
-          if (amount === undefined && alreadyCapturedUnits > 0n) {
-            providerAmount = Number(formatAmountUnits(reservedUnits))
+          if (amount === undefined && alreadyCaptured.gt(0)) {
+            providerAmountExact = reservedAmount
           }
         },
         // The slice goes back only while the provider has not been called yet. Once the capture
@@ -577,7 +598,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         // operation id reuses both the reservation and the provider idempotency key, so the provider
         // itself collapses the duplicate.
         releaseOnFailure: async ({ transaction, operation, providerInvoked }) => {
-          if (reservedUnits === null) return
+          if (reservedAmount === null) return
           if (providerInvoked) {
             await writeTransactionLog(
               transaction.providerKey,
@@ -585,11 +606,11 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
               transaction.id,
               'warn',
               'Capture reservation stays outstanding because the provider call already returned',
-              { operationId: operation.operationId, reservedAmount: formatAmountUnits(reservedUnits) },
+              { operationId: operation.operationId, reservedAmount },
             )
             return
           }
-          const released = await releaseCaptureAmount(em, { transactionId, operation, reservedUnits, scope })
+          const released = await releaseCaptureAmountExact(em, { transactionId, operation, reservedAmount, scope })
           if (released) return
           await writeTransactionLog(
             transaction.providerKey,
@@ -597,21 +618,32 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
             transaction.id,
             'warn',
             'Capture reservation stays outstanding after a failed capture',
-            { operationId: operation.operationId, reservedAmount: formatAmountUnits(reservedUnits) },
+            { operationId: operation.operationId, reservedAmount },
           )
         },
-        invoke: ({ adapter, credentials, transaction, idempotencyKey }) => adapter.capture({
-          sessionId: readProviderSessionId(transaction),
-          amount: providerAmount,
-          credentials,
-          idempotencyKey,
-        }),
+        invoke: async ({ adapter, credentials, transaction, idempotencyKey }) => {
+          const result = await adapter.capture({
+            sessionId: readProviderSessionId(transaction),
+            amount: providerAmountExact === undefined ? undefined : decimalToNumber(providerAmountExact),
+            amountExact: providerAmountExact,
+            credentials,
+            idempotencyKey,
+          })
+          const capturedAmountExact = resolveExactDecimal(result.capturedAmountExact ?? reservedAmount, result.capturedAmount)
+          return capturedAmountExact === null ? result : { ...result, capturedAmountExact }
+        },
         applyResult: (transaction, result) => {
           transaction.gatewayMetadata = {
             ...readGatewayMetadata(transaction.gatewayMetadata),
             captureResult: result.providerData,
           }
-          if (reservedUnits !== null) settleCapturedAmount(transaction, reservedUnits, result.capturedAmount)
+          if (reservedAmount !== null) {
+            settleCapturedAmountExact(
+              transaction,
+              reservedAmount,
+              resolveExactDecimal(result.capturedAmountExact, result.capturedAmount) ?? undefined,
+            )
+          }
         },
         afterCommit: (transaction, result) => writeTransactionLog(
           transaction.providerKey,
@@ -626,7 +658,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
 
     async refundPayment(
       transactionId: string,
-      amount: number | undefined,
+      amount: number | string | undefined,
       reason: string | undefined,
       scope: { organizationId: string; tenantId: string },
       operationId?: string,
@@ -637,13 +669,19 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         operationId,
         payload: { amount: amount ?? null, reason: reason ?? null },
         scope,
-        invoke: ({ adapter, credentials, transaction, idempotencyKey }) => adapter.refund({
-          sessionId: readProviderSessionId(transaction),
-          amount,
-          reason,
-          credentials,
-          idempotencyKey,
-        }),
+        invoke: async ({ adapter, credentials, transaction, idempotencyKey }) => {
+          const requestedAmountExact = amount === undefined ? undefined : (resolveExactDecimal(amount, null) ?? undefined)
+          const result = await adapter.refund({
+            sessionId: readProviderSessionId(transaction),
+            amount: amount === undefined ? undefined : Number(amount),
+            amountExact: requestedAmountExact,
+            reason,
+            credentials,
+            idempotencyKey,
+          })
+          const refundedAmountExact = resolveExactDecimal(result.refundedAmountExact ?? requestedAmountExact, result.refundedAmount)
+          return refundedAmountExact === null ? result : { ...result, refundedAmountExact }
+        },
         applyResult: (transaction, result) => {
           transaction.gatewayRefundId = result.refundId
           transaction.gatewayMetadata = {

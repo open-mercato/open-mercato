@@ -38,7 +38,16 @@ import {
   getCheckoutCustomerFieldSemanticType,
   validateCheckoutCustomerData,
 } from '../lib/customerDataValidation'
+import {
+  applyPayPageAmountValue,
+  buildPayPageSubmitBody,
+  formatPayPageAmount,
+  parsePayPageAmountInput,
+  toPayPageAmount,
+  validatePayPageCustomAmount,
+} from '../lib/payPageAmount'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveExactDecimal } from '@open-mercato/shared/lib/decimal'
 
 const logger = createLogger('checkout').child({ component: 'PayPage' })
 
@@ -60,6 +69,7 @@ type PriceListItem = {
   id: string
   description: string
   amount: number
+  amountExact?: string | null
   currencyCode: string
 }
 
@@ -81,10 +91,14 @@ export type PayLinkPayload = {
   status?: 'draft' | 'active' | 'inactive'
   pricingMode: 'fixed' | 'custom_amount' | 'price_list'
   fixedPriceAmount?: number | null
+  fixedPriceAmountExact?: string | null
   fixedPriceCurrencyCode?: string | null
   fixedPriceOriginalAmount?: number | null
+  fixedPriceOriginalAmountExact?: string | null
   customAmountMin?: number | null
+  customAmountMinExact?: string | null
   customAmountMax?: number | null
+  customAmountMaxExact?: string | null
   customAmountCurrencyCode?: string | null
   priceListItems?: PriceListItem[]
   collectCustomerDetails?: boolean
@@ -122,6 +136,7 @@ type PayPageSubmitData = {
   customerData: Record<string, unknown>
   acceptedLegalConsents: Record<string, boolean>
   amount: number | null
+  amountExact: string | null
   selectedPriceItemId: string | null
 }
 
@@ -207,10 +222,11 @@ export type PayPageCustomerFormProps = {
 export type PayPagePricingProps = {
   payload: PayLinkPayload
   amount: number | null
+  amountExact?: string | null
   selectedPriceItemId: string | null
   fieldErrors: FieldErrors
   inputsLocked: boolean
-  formatAmount: (value: number | null | undefined, currencyCode?: string | null) => string
+  formatAmount: (value: number | string | null | undefined, currencyCode?: string | null, exact?: string | null) => string
   onAmountChange: (value: string) => void
   onPriceItemSelect: (item: PriceListItem) => void
   translateValidationMessage: (message: string | null | undefined, fieldPath?: string) => string
@@ -220,8 +236,9 @@ export type PayPagePricingProps = {
 export type PayPageSummaryProps = {
   payload: PayLinkPayload
   selectedAmount: number | null
+  selectedAmountExact?: string | null
   currencyCode: string | null
-  formatAmount: (value: number | null | undefined, currencyCode?: string | null) => string
+  formatAmount: (value: number | string | null | undefined, currencyCode?: string | null, exact?: string | null) => string
   preview: boolean
   themeTokens: PayPageThemeTokens
 }
@@ -320,13 +337,6 @@ function readTranslatedErrorMessage(
   return translate(readErrorMessage(error, fallback), fallback)
 }
 
-function parseNumericInput(value: string): number | null {
-  const trimmed = value.trim()
-  if (!trimmed) return null
-  const parsed = Number(trimmed)
-  return Number.isFinite(parsed) ? parsed : null
-}
-
 function setSubmitDataFieldValue(
   data: PayPageSubmitData,
   fieldPath: string,
@@ -358,7 +368,7 @@ function setSubmitDataFieldValue(
   if (fieldPath === 'amount') {
     return {
       ...data,
-      amount: typeof value === 'number' && Number.isFinite(value) ? value : null,
+      ...applyPayPageAmountValue(data, value),
     }
   }
   if (fieldPath === 'selectedPriceItemId') {
@@ -920,6 +930,7 @@ export function PayPageCustomerForm({
 export function PayPagePricing({
   payload,
   amount,
+  amountExact,
   selectedPriceItemId,
   fieldErrors,
   inputsLocked,
@@ -944,11 +955,17 @@ export function PayPagePricing({
         <div className="rounded-xl border p-5" style={buildPanelStyle(themeTokens, 'default')}>
           {typeof payload.fixedPriceOriginalAmount === 'number' ? (
             <div className="text-sm line-through" style={{ color: themeTokens.mutedText }}>
-              {formatAmount(payload.fixedPriceOriginalAmount, payload.fixedPriceCurrencyCode)}
+              {formatAmount(
+                resolveExactDecimal(payload.fixedPriceOriginalAmountExact, payload.fixedPriceOriginalAmount),
+                payload.fixedPriceCurrencyCode,
+              )}
             </div>
           ) : null}
           <div className="mt-1 text-4xl font-semibold">
-            {formatAmount(payload.fixedPriceAmount, payload.fixedPriceCurrencyCode)}
+            {formatAmount(
+              resolveExactDecimal(payload.fixedPriceAmountExact, payload.fixedPriceAmount),
+              payload.fixedPriceCurrencyCode,
+            )}
           </div>
         </div>
       ) : null}
@@ -959,12 +976,16 @@ export function PayPagePricing({
           <Input
             className={READABLE_INPUT_CLASSNAME}
             type="number"
-            value={amount ?? ''}
+            value={amountExact ?? amount ?? ''}
             disabled={inputsLocked}
             onChange={(event) => onAmountChange(event.target.value)}
             placeholder={[
-              payload.customAmountMin != null ? formatAmount(payload.customAmountMin, payload.customAmountCurrencyCode) : null,
-              payload.customAmountMax != null ? formatAmount(payload.customAmountMax, payload.customAmountCurrencyCode) : null,
+              payload.customAmountMin != null
+                ? formatAmount(resolveExactDecimal(payload.customAmountMinExact, payload.customAmountMin), payload.customAmountCurrencyCode)
+                : null,
+              payload.customAmountMax != null
+                ? formatAmount(resolveExactDecimal(payload.customAmountMaxExact, payload.customAmountMax), payload.customAmountCurrencyCode)
+                : null,
             ].filter(Boolean).join(' - ')}
             style={buildReadableInputStyle(themeTokens, Boolean(fieldErrors.amount), inputsLocked)}
           />
@@ -1007,7 +1028,7 @@ export function PayPagePricing({
                   />
                   <span className="font-medium">{item.description}</span>
                 </span>
-                <span className="whitespace-nowrap font-semibold">{formatAmount(item.amount, item.currencyCode)}</span>
+                <span className="whitespace-nowrap font-semibold">{formatAmount(resolveExactDecimal(item.amountExact, item.amount), item.currencyCode)}</span>
               </label>
             ))}
           </RadioGroup>
@@ -1025,6 +1046,7 @@ export function PayPagePricing({
 export function PayPageSummary({
   payload,
   selectedAmount,
+  selectedAmountExact,
   currencyCode,
   formatAmount,
   preview,
@@ -1032,7 +1054,7 @@ export function PayPageSummary({
 }: PayPageSummaryProps) {
   const t = useT()
   const amountLabel = selectedAmount != null && currencyCode
-    ? formatAmount(selectedAmount, currencyCode)
+    ? formatAmount(resolveExactDecimal(selectedAmountExact, selectedAmount), currencyCode)
     : t('checkout.payPage.summary.awaitingSelection', 'Select an amount')
 
   return (
@@ -1485,6 +1507,7 @@ export function PayPage({
   const [customerData, setCustomerData] = React.useState<Record<string, unknown>>({})
   const [acceptedLegalConsents, setAcceptedLegalConsents] = React.useState<Record<string, boolean>>({})
   const [amount, setAmount] = React.useState<number | null>(null)
+  const [amountExact, setAmountExact] = React.useState<string | null>(null)
   const [selectedPriceItemId, setSelectedPriceItemId] = React.useState<string | null>(null)
   const [submissionError, setSubmissionError] = React.useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = React.useState<FieldErrors>({})
@@ -1511,7 +1534,9 @@ export function PayPage({
       setPaymentSession(null)
       setActiveTransactionId(null)
       if (result.pricingMode === 'fixed' && typeof result.fixedPriceAmount === 'number') {
-        setAmount(result.fixedPriceAmount)
+        const fixedAmount = toPayPageAmount(result.fixedPriceAmount, result.fixedPriceAmountExact)
+        setAmount(fixedAmount.amount)
+        setAmountExact(fixedAmount.amountExact)
       }
     } catch (error) {
       setPayload(null)
@@ -1530,7 +1555,9 @@ export function PayPage({
   React.useEffect(() => {
     if (!payload) return
     if (payload.pricingMode === 'fixed' && typeof payload.fixedPriceAmount === 'number') {
-      setAmount(payload.fixedPriceAmount)
+      const fixedAmount = toPayPageAmount(payload.fixedPriceAmount, payload.fixedPriceAmountExact)
+      setAmount(fixedAmount.amount)
+      setAmountExact(fixedAmount.amountExact)
       return
     }
     if (payload.pricingMode !== 'price_list') {
@@ -1538,23 +1565,11 @@ export function PayPage({
     }
   }, [payload])
 
-  const formatAmount = React.useCallback((value: number | null | undefined, currencyCode?: string | null) => {
-    const normalizedValue = typeof value === 'number' && Number.isFinite(value) ? value : 0
-    if (currencyCode) {
-      try {
-        return new Intl.NumberFormat(locale, {
-          style: 'currency',
-          currency: currencyCode,
-        }).format(normalizedValue)
-      } catch {
-        return `${normalizedValue.toFixed(2)} ${currencyCode}`
-      }
-    }
-    return new Intl.NumberFormat(locale, {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(normalizedValue)
-  }, [locale])
+  const formatAmount = React.useCallback(
+    (value: number | string | null | undefined, currencyCode?: string | null, exact?: string | null) =>
+      formatPayPageAmount(value, currencyCode, locale, exact),
+    [locale],
+  )
 
   const isPreview = payload?.preview === true || previewRequested
   const selectedPriceItem = payload?.priceListItems?.find((item) => item.id === selectedPriceItemId) ?? null
@@ -1562,6 +1577,9 @@ export function PayPage({
     && payload.collectCustomerDetails !== false
     && (payload.customerFieldsSchema?.length ?? 0) > 0
   const effectiveAmount = selectedPriceItem?.amount ?? amount
+  const effectiveAmountExact = selectedPriceItem
+    ? toPayPageAmount(selectedPriceItem.amount, selectedPriceItem.amountExact).amountExact
+    : amountExact
   const effectiveCurrencyCode = selectedPriceItem?.currencyCode
     ?? payload?.fixedPriceCurrencyCode
     ?? payload?.customAmountCurrencyCode
@@ -1572,8 +1590,9 @@ export function PayPage({
     customerData,
     acceptedLegalConsents,
     amount: effectiveAmount ?? null,
+    amountExact: effectiveAmountExact ?? null,
     selectedPriceItemId,
-  }), [acceptedLegalConsents, customerData, effectiveAmount, selectedPriceItemId])
+  }), [acceptedLegalConsents, customerData, effectiveAmount, effectiveAmountExact, selectedPriceItemId])
 
   const resolveFieldLabel = React.useCallback((fieldPath: string): string => {
     if (!payload) return t('checkout.payPage.validation.thisField', 'this field')
@@ -1627,6 +1646,7 @@ export function PayPage({
     setCustomerData(nextData.customerData)
     setAcceptedLegalConsents(nextData.acceptedLegalConsents)
     setAmount(nextData.amount)
+    setAmountExact(nextData.amountExact ?? null)
     setSelectedPriceItemId(nextData.selectedPriceItemId)
   }, [])
 
@@ -1642,23 +1662,24 @@ export function PayPage({
     }
 
     if (payload.pricingMode === 'custom_amount') {
-      if (effectiveAmount == null || !Number.isFinite(effectiveAmount)) {
+      const amountIssue = validatePayPageCustomAmount(payload, {
+        amount: effectiveAmount ?? null,
+        amountExact: effectiveAmountExact ?? null,
+      })
+      if (amountIssue === 'required') {
         nextErrors.amount = 'checkout.payPage.validation.amountRequired'
-      } else {
-        if (payload.customAmountMin != null && effectiveAmount < payload.customAmountMin) {
-          nextErrors.amount = t(
-            'checkout.payPage.validation.amountMin',
-            'Enter at least {amount}.',
-            { amount: formatAmount(payload.customAmountMin, payload.customAmountCurrencyCode) },
-          )
-        }
-        if (payload.customAmountMax != null && effectiveAmount > payload.customAmountMax) {
-          nextErrors.amount = t(
-            'checkout.payPage.validation.amountMax',
-            'Enter no more than {amount}.',
-            { amount: formatAmount(payload.customAmountMax, payload.customAmountCurrencyCode) },
-          )
-        }
+      } else if (amountIssue === 'min') {
+        nextErrors.amount = t(
+          'checkout.payPage.validation.amountMin',
+          'Enter at least {amount}.',
+          { amount: formatAmount(resolveExactDecimal(payload.customAmountMinExact, payload.customAmountMin), payload.customAmountCurrencyCode) },
+        )
+      } else if (amountIssue === 'max') {
+        nextErrors.amount = t(
+          'checkout.payPage.validation.amountMax',
+          'Enter no more than {amount}.',
+          { amount: formatAmount(resolveExactDecimal(payload.customAmountMaxExact, payload.customAmountMax), payload.customAmountCurrencyCode) },
+        )
       }
     }
 
@@ -1678,6 +1699,7 @@ export function PayPage({
     acceptedLegalConsents,
     customerData,
     effectiveAmount,
+    effectiveAmountExact,
     formatAmount,
     payload,
     selectedPriceItemId,
@@ -1934,7 +1956,7 @@ export function PayPage({
             'Idempotency-Key': crypto.randomUUID(),
             'x-om-unauthorized-redirect': '0',
           },
-          body: JSON.stringify(nextSubmitData),
+          body: JSON.stringify(buildPayPageSubmitBody(nextSubmitData)),
         },
       )
 
@@ -2183,22 +2205,23 @@ export function PayPage({
         <PricingComponent
           payload={payload}
           amount={amount}
+          amountExact={amountExact}
           selectedPriceItemId={selectedPriceItemId}
           fieldErrors={fieldErrors}
           inputsLocked={inputsLocked}
           formatAmount={formatAmount}
           onAmountChange={(value) => {
-            const nextAmount = parseNumericInput(value)
-            const nextData = setSubmitDataFieldValue(submitDataRef.current, 'amount', nextAmount)
+            const nextAmount = parsePayPageAmountInput(value)
+            const nextData = { ...submitDataRef.current, ...nextAmount }
             applySubmitDataToState(nextData)
             clearFieldError('amount')
             setSubmissionError(null)
-            dispatchFieldChange('amount', nextAmount, nextData)
+            dispatchFieldChange('amount', nextAmount.amount, nextData)
           }}
           onPriceItemSelect={(item) => {
             const nextData = {
               ...submitDataRef.current,
-              amount: item.amount,
+              ...toPayPageAmount(item.amount, item.amountExact),
               selectedPriceItemId: item.id,
             }
             applySubmitDataToState(nextData)
@@ -2217,6 +2240,7 @@ export function PayPage({
         <SummaryComponent
           payload={payload}
           selectedAmount={effectiveAmount}
+          selectedAmountExact={effectiveAmountExact}
           currencyCode={effectiveCurrencyCode}
           formatAmount={formatAmount}
           preview={isPreview}

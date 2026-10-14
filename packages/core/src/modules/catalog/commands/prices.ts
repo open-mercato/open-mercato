@@ -32,6 +32,8 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { resolveExactDecimal, withExactAmounts } from '@open-mercato/shared/lib/decimal'
+import { resolveCurrencyAmountDecimalPlaces } from '@open-mercato/shared/lib/currencyPrecision'
 import {
   capturePriceHistoryEntry,
   hasPriceHistoryRelevantChange,
@@ -267,27 +269,45 @@ function priceSeedFromSnapshot(snapshot: PriceSnapshot): Record<string, unknown>
 
 type PriceAmountInput = {
   amount: number
+  amountExact: string | null
   mode: 'net' | 'gross'
 }
 
-function resolveAmountInputFromParsed(
-  parsed: Partial<Pick<PriceCreateInput, 'unitPriceNet' | 'unitPriceGross'>>
-): PriceAmountInput | null {
+const PRICE_EXACT_AMOUNT_FIELDS = ['unitPriceNet', 'unitPriceGross'] as const
+
+type ExactPriceInput = Partial<Pick<PriceCreateInput, 'unitPriceNet' | 'unitPriceGross'>> & {
+  unitPriceNetExact?: string | null
+  unitPriceGrossExact?: string | null
+}
+
+function resolveAmountInputFromParsed(parsed: ExactPriceInput): PriceAmountInput | null {
   if (typeof parsed.unitPriceNet === 'number' && Number.isFinite(parsed.unitPriceNet)) {
-    return { amount: parsed.unitPriceNet, mode: 'net' }
+    return {
+      amount: parsed.unitPriceNet,
+      amountExact: resolveExactDecimal(parsed.unitPriceNetExact, parsed.unitPriceNet),
+      mode: 'net',
+    }
   }
   if (typeof parsed.unitPriceGross === 'number' && Number.isFinite(parsed.unitPriceGross)) {
-    return { amount: parsed.unitPriceGross, mode: 'gross' }
+    return {
+      amount: parsed.unitPriceGross,
+      amountExact: resolveExactDecimal(parsed.unitPriceGrossExact, parsed.unitPriceGross),
+      mode: 'gross',
+    }
   }
   return null
 }
 
 function resolveAmountInputFromRecord(record: CatalogProductPrice): PriceAmountInput | null {
   const net = numericStringToNumber(record.unitPriceNet)
-  if (net !== null) return { amount: net, mode: 'net' }
+  if (net !== null) return { amount: net, amountExact: toNumericString(record.unitPriceNet), mode: 'net' }
   const gross = numericStringToNumber(record.unitPriceGross)
-  if (gross !== null) return { amount: gross, mode: 'gross' }
+  if (gross !== null) return { amount: gross, amountExact: toNumericString(record.unitPriceGross), mode: 'gross' }
   return null
+}
+
+function exactTaxAmount(exact: string | undefined, legacy: number | null): string | null {
+  return resolveExactDecimal(exact, legacy)
 }
 
 function numericStringToNumber(value: string | null | undefined): number | null {
@@ -299,7 +319,8 @@ function numericStringToNumber(value: string | null | undefined): number | null 
 const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> = {
   id: 'catalog.prices.create',
   async execute(rawInput, ctx) {
-    const { parsed, custom } = parseWithCustomFields(priceCreateSchema, rawInput)
+    const { parsed: parsedInput, custom } = parseWithCustomFields(priceCreateSchema, rawInput)
+    const parsed = withExactAmounts(parsedInput, rawInput, PRICE_EXACT_AMOUNT_FIELDS)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const actorScope = commandActorScope(ctx)
     let variant: CatalogProductVariant | null = null
@@ -355,22 +376,28 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
     const channelId = parsed.channelId ?? (offer ? offer.channelId : null)
     const taxCalculationService = ctx.container.resolve<TaxCalculationService>('taxCalculationService')
     const amountInput = resolveAmountInputFromParsed(parsed)
-    let unitPriceNetValue = toNumericString(parsed.unitPriceNet)
-    let unitPriceGrossValue = toNumericString(parsed.unitPriceGross)
+    let unitPriceNetValue = resolveExactDecimal(parsed.unitPriceNetExact, parsed.unitPriceNet)
+    let unitPriceGrossValue = resolveExactDecimal(parsed.unitPriceGrossExact, parsed.unitPriceGross)
     let taxRateValue = toNumericString(parsed.taxRate)
     let taxAmountValue: string | null = null
     if (amountInput) {
       const calculation = await taxCalculationService.calculateUnitAmounts({
         amount: amountInput.amount,
+        amountExact: amountInput.amountExact,
+        amountDecimalPlaces: await resolveCurrencyAmountDecimalPlaces(ctx.container, {
+          code: parsed.currencyCode,
+          tenantId: scopeSource.tenantId,
+          organizationId: scopeSource.organizationId,
+        }),
         mode: amountInput.mode,
         organizationId: scopeSource.organizationId,
         tenantId: scopeSource.tenantId,
         taxRateId: parsed.taxRateId ?? null,
         taxRate: parsed.taxRate ?? null,
       })
-      unitPriceNetValue = toNumericString(calculation.netAmount)
-      unitPriceGrossValue = toNumericString(calculation.grossAmount)
-      taxAmountValue = toNumericString(calculation.taxAmount)
+      unitPriceNetValue = exactTaxAmount(calculation.netAmountExact, calculation.netAmount)
+      unitPriceGrossValue = exactTaxAmount(calculation.grossAmountExact, calculation.grossAmount)
+      taxAmountValue = exactTaxAmount(calculation.taxAmountExact, calculation.taxAmount)
       taxRateValue = toNumericString(calculation.taxRate)
     }
 
@@ -515,7 +542,8 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
-    const { parsed, custom } = parseWithCustomFields(priceUpdateSchema, rawInput)
+    const { parsed: parsedInput, custom } = parseWithCustomFields(priceUpdateSchema, rawInput)
+    const parsed = withExactAmounts(parsedInput, rawInput, PRICE_EXACT_AMOUNT_FIELDS)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await findOneWithDecryption(
       em,
@@ -658,6 +686,12 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
           : record.taxRate ?? null
       taxCalculationResult = await taxCalculationService.calculateUnitAmounts({
         amount: calculationBase.amount,
+        amountExact: calculationBase.amountExact,
+        amountDecimalPlaces: await resolveCurrencyAmountDecimalPlaces(ctx.container, {
+          code: parsed.currencyCode ?? record.currencyCode,
+          tenantId: targetProduct.tenantId,
+          organizationId: targetProduct.organizationId,
+        }),
         mode: calculationBase.mode,
         organizationId: targetProduct.organizationId,
         tenantId: targetProduct.tenantId,
@@ -678,16 +712,16 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     if (parsed.minQuantity !== undefined) record.minQuantity = parsed.minQuantity ?? 1
     if (parsed.maxQuantity !== undefined) record.maxQuantity = parsed.maxQuantity ?? null
     if (taxCalculationResult) {
-      record.unitPriceNet = toNumericString(taxCalculationResult.netAmount)
-      record.unitPriceGross = toNumericString(taxCalculationResult.grossAmount)
+      record.unitPriceNet = exactTaxAmount(taxCalculationResult.netAmountExact, taxCalculationResult.netAmount)
+      record.unitPriceGross = exactTaxAmount(taxCalculationResult.grossAmountExact, taxCalculationResult.grossAmount)
       record.taxRate = toNumericString(taxCalculationResult.taxRate)
-      record.taxAmount = toNumericString(taxCalculationResult.taxAmount)
+      record.taxAmount = exactTaxAmount(taxCalculationResult.taxAmountExact, taxCalculationResult.taxAmount)
     } else {
       if (hasNetInput) {
-        record.unitPriceNet = toNumericString(parsed.unitPriceNet)
+        record.unitPriceNet = resolveExactDecimal(parsed.unitPriceNetExact, parsed.unitPriceNet)
       }
       if (hasGrossInput) {
-        record.unitPriceGross = toNumericString(parsed.unitPriceGross)
+        record.unitPriceGross = resolveExactDecimal(parsed.unitPriceGrossExact, parsed.unitPriceGross)
       }
       if (hasTaxRateInput) {
         record.taxRate = toNumericString(parsed.taxRate)

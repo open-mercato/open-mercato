@@ -4,6 +4,8 @@ import {
   interactionUpdateSchema,
   personUpdateSchema,
   companyUpdateSchema,
+  dealCreateSchema,
+  dealUpdateSchema,
 } from '../data/validators'
 
 const ORG_ID = '11111111-1111-4111-8111-111111111111'
@@ -442,6 +444,12 @@ describe('company clearable plain-text & revenue update fields (#3050)', () => {
     expect(companyUpdateSchema.safeParse({ ...companyBase, annualRevenue: -5 }).success).toBe(false)
   })
 
+  it('rejects annual revenue beyond the decimal size caps instead of clearing it', () => {
+    expect(companyUpdateSchema.safeParse({ ...companyBase, annualRevenue: 1e305 }).success).toBe(false)
+    expect(companyUpdateSchema.safeParse({ ...companyBase, annualRevenue: '1e305' }).success).toBe(false)
+    expect(companyUpdateSchema.safeParse({ ...companyBase, annualRevenue: `0.${'1'.repeat(1001)}` }).success).toBe(false)
+  })
+
   it('omitting a plain-text field leaves it undefined (no-op update)', () => {
     const result = companyUpdateSchema.safeParse({ ...companyBase })
     expect(result.success).toBe(true)
@@ -453,6 +461,23 @@ describe('company clearable plain-text & revenue update fields (#3050)', () => {
   })
 })
 
+describe('deal value amount size caps', () => {
+  const dealBase = { organizationId: ORG_ID, tenantId: TENANT_ID, title: 'Deal' }
+
+  it('accepts amounts within the decimal size caps', () => {
+    const parsed = dealCreateSchema.parse({ ...dealBase, valueAmount: '1234.5678' })
+    expect(parsed.valueAmount).toBe(1234.5678)
+    expect(dealCreateSchema.parse({ ...dealBase, valueAmount: 1e15 }).valueAmount).toBe(1e15)
+    expect('valueAmount' in dealCreateSchema.parse(dealBase)).toBe(false)
+  })
+
+  it('rejects amounts beyond the decimal size caps instead of storing 0', () => {
+    expect(dealCreateSchema.safeParse({ ...dealBase, valueAmount: 1e305 }).success).toBe(false)
+    expect(dealCreateSchema.safeParse({ ...dealBase, valueAmount: `0.${'1'.repeat(1001)}` }).success).toBe(false)
+    expect(dealUpdateSchema.safeParse({ id: ENTITY_ID, valueAmount: 1e305 }).success).toBe(false)
+    expect(dealUpdateSchema.safeParse({ id: ENTITY_ID, valueAmount: `0.${'1'.repeat(1001)}` }).success).toBe(false)
+  })
+})
 
 describe('timezone-aware interaction scheduling', () => {
   it.each([interactionCreateSchema, interactionUpdateSchema])('uses the first representable all-day instant across midnight DST and ignores the time', (schema) => {

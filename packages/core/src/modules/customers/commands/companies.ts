@@ -57,6 +57,7 @@ import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entit
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { reviveSnapshotDates } from '@open-mercato/shared/lib/commands/undo'
+import { resolveExactDecimal, withExactAmounts } from '@open-mercato/shared/lib/decimal'
 
 const COMPANY_ENTITY_ID = 'customers:customer_company_profile'
 const INTERACTION_ENTITY_ID = 'customers:customer_interaction'
@@ -478,7 +479,8 @@ function normalizeHexColor(value: string | null | undefined): string | null {
 const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: string; companyId: string }> = {
   id: 'customers.companies.create',
   async execute(rawInput, ctx) {
-    const { parsed, custom } = parseWithCustomFields(companyCreateSchema, rawInput)
+    const { parsed: parsedInput, custom } = parseWithCustomFields(companyCreateSchema, rawInput)
+    const parsed = withExactAmounts(parsedInput, rawInput, ['annualRevenue'] as const)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
@@ -522,7 +524,7 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
       sizeBucket: parsed.sizeBucket ?? null,
       annualRevenue:
         parsed.annualRevenue !== undefined && parsed.annualRevenue !== null
-          ? String(parsed.annualRevenue)
+          ? resolveExactDecimal(parsed.annualRevenueExact, parsed.annualRevenue)
           : null,
     })
 
@@ -737,7 +739,8 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
-    const { parsed, custom } = parseWithCustomFields(companyUpdateSchema, rawInput)
+    const { parsed: parsedInput, custom } = parseWithCustomFields(companyUpdateSchema, rawInput)
+    const parsed = withExactAmounts(parsedInput, rawInput, ['annualRevenue'] as const)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entity = await em.findOne(CustomerEntity, { id: parsed.id, deletedAt: null })
     const record = assertFound(entity, 'Company not found')
@@ -781,7 +784,9 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
         if (parsed.industry !== undefined) profile.industry = parsed.industry ?? null
         if (parsed.sizeBucket !== undefined) profile.sizeBucket = parsed.sizeBucket ?? null
         if (parsed.annualRevenue !== undefined) {
-          profile.annualRevenue = parsed.annualRevenue !== null && parsed.annualRevenue !== undefined ? String(parsed.annualRevenue) : null
+          profile.annualRevenue = parsed.annualRevenue !== null && parsed.annualRevenue !== undefined
+            ? resolveExactDecimal(parsed.annualRevenueExact, parsed.annualRevenue)
+            : null
         }
 
         // Profile columns and custom fields live outside CustomerEntity, so a save

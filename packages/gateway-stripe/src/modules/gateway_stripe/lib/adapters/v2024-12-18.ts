@@ -19,6 +19,7 @@ import { mapRefundReason, mapStripeStatus, mapWebhookEventToStatus } from '../st
 import {
   toCents,
   fromCents,
+  fromCentsExact,
   buildStripeMetadata,
   normalizeStripePaymentElementSettings,
   resolveStripeRendererKey,
@@ -38,7 +39,7 @@ export const stripeAdapterV20241218: GatewayAdapter = {
     const rendererSettings = normalizeStripePaymentElementSettings(input.presentation?.rendererSettings)
 
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: toCents(input.amount, input.currencyCode),
+      amount: toCents(input.amountExact ?? input.amount, input.currencyCode),
       currency: input.currencyCode.toLowerCase(),
       capture_method: input.captureMethod ?? 'automatic',
       metadata: buildStripeMetadata({
@@ -85,7 +86,7 @@ export const stripeAdapterV20241218: GatewayAdapter = {
       input.sessionId,
       {
         amount_to_capture: input.amount && paymentIntent
-          ? toCents(input.amount, paymentIntent.currency)
+          ? toCents(input.amountExact ?? input.amount, paymentIntent.currency)
           : undefined,
       },
       stripeIdempotencyOptions(input.idempotencyKey),
@@ -96,6 +97,7 @@ export const stripeAdapterV20241218: GatewayAdapter = {
     return {
       status: mapStripeStatus(captured.status),
       capturedAmount: fromCents(captured.amount_received, capturedCurrencyCode),
+      capturedAmountExact: fromCentsExact(captured.amount_received, capturedCurrencyCode),
       providerData: { chargeId: captured.latest_charge },
     }
   },
@@ -110,7 +112,7 @@ export const stripeAdapterV20241218: GatewayAdapter = {
       {
         payment_intent: input.sessionId,
         amount: input.amount && paymentIntent
-          ? toCents(input.amount, paymentIntent.currency)
+          ? toCents(input.amountExact ?? input.amount, paymentIntent.currency)
           : undefined,
         reason: mapRefundReason(input.reason),
         metadata: input.metadata as Record<string, string> | undefined,
@@ -124,6 +126,7 @@ export const stripeAdapterV20241218: GatewayAdapter = {
       refundId: refund.id,
       status: await resolveStripeRefundStatus(stripe, refund, paymentIntent?.amount_received),
       refundedAmount: fromCents(refund.amount, refundCurrencyCode),
+      refundedAmountExact: fromCentsExact(refund.amount, refundCurrencyCode),
     }
   },
 
@@ -148,7 +151,9 @@ export const stripeAdapterV20241218: GatewayAdapter = {
     return {
       status: mapStripeStatus(pi.status),
       amount: fromCents(pi.amount, pi.currency),
+      amountExact: fromCentsExact(pi.amount, pi.currency),
       amountReceived: fromCents(pi.amount_received, pi.currency),
+      amountReceivedExact: fromCentsExact(pi.amount_received, pi.currency),
       currencyCode: pi.currency.toUpperCase(),
     }
   },

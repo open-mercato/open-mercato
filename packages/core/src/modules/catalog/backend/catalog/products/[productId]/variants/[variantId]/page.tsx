@@ -25,6 +25,7 @@ import {
   normalizeOptionSchema,
   mapPriceItemToDraft,
   findInvalidVariantPriceKinds,
+  resolveVariantPriceAmount,
 } from '@open-mercato/core/modules/catalog/components/products/variantForm'
 import {
   type PriceKindSummary,
@@ -34,7 +35,6 @@ import {
   normalizeTaxRateSummary,
   mergeTaxRateSummaries,
 } from '@open-mercato/core/modules/catalog/components/products/productForm'
-import { parseNumericInput } from '@open-mercato/core/modules/catalog/components/products/productFormUtils'
 import {
   VariantBasicsSection,
   VariantOptionValuesSection,
@@ -828,8 +828,8 @@ async function syncVariantPricesUpdate({
       }
       continue
     }
-    const numeric = parseNumericInput(amount)
-    if (!Number.isFinite(numeric) || numeric < 0) continue
+    const exactAmount = resolveVariantPriceAmount(draft)
+    if (exactAmount === null) continue
     const payload: Record<string, unknown> = {
       productId,
       variantId,
@@ -838,8 +838,8 @@ async function syncVariantPricesUpdate({
     }
     if (resolvedTaxRateId) payload.taxRateId = resolvedTaxRateId
     else if (typeof resolvedTaxRateValue === 'number' && Number.isFinite(resolvedTaxRateValue)) payload.taxRate = resolvedTaxRateValue
-    if (kind.displayMode === 'including-tax') payload.unitPriceGross = numeric
-    else payload.unitPriceNet = numeric
+    if (kind.displayMode === 'including-tax') payload.unitPriceGross = exactAmount
+    else payload.unitPriceNet = exactAmount
     if (existingId) {
       await withScopedApiRequestHeaders(
         buildOptimisticLockHeader(lockVersion),

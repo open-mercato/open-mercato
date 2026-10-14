@@ -152,6 +152,7 @@
   "checkout.defaultCustomerFields.lastName.placeholder": "Kowalski",
   "checkout.defaultCustomerFields.phone.label": "Telefon",
   "checkout.defaultCustomerFields.phone.placeholder": "+48 500 123 456",
+  "checkout.errors.amountPrecisionExceeded": "Kwota {amount} ma więcej miejsc po przecinku, niż obsługuje waluta {currencyCode} ({decimalPlaces})",
   "checkout.gatewaySettings.notices.chooseProvider": "Wybierz dostawcę bramki, aby skonfigurować ustawienia sesji checkout.",
   "checkout.gatewaySettings.notices.noSettings": "Ten dostawca nie udostępnia dodatkowych ustawień sesji.",
   "checkout.gatewaySettings.selectPlaceholder": "Wybierz…",

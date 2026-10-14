@@ -1240,6 +1240,7 @@
   "sales.documents.status.documentPlaceholder": "Neuen Bestell-/Angebotsstatus auswählen",
   "sales.documents.status.linePlaceholder": "Positionsstatus auswählen",
   "sales.documents.status.sectionTitle": "Statusänderungen",
+  "sales.errors.amount_invalid": "Geben Sie einen gültigen Betrag ein.",
   "sales.errors.invalid_query": "Ungültige Abfrageparameter",
   "sales.errors.organization_required": "Organisationskontext ist erforderlich",
   "sales.errors.tag_invalid": "Ungültiges Tag-Format.",

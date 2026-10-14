@@ -333,6 +333,7 @@
   "catalog.prices.select.customer.placeholder": "고객 검색…",
   "catalog.prices.select.priceKind.placeholder": "가격 종류 선택…",
   "catalog.prices.select.product.placeholder": "제품 검색…",
+  "catalog.prices.validation.amountInvalid": "가격은 0 이상의 유효한 금액이어야 합니다.",
   "catalog.prices.validation.quantityRange": "최대 수량은 최소 수량보다 크거나 같아야 합니다.",
   "catalog.prices.validation.validityWindow": "종료일은 시작일보다 이후여야 합니다.",
   "catalog.pricing.list.title": "가격표",
