@@ -28,9 +28,9 @@ Visibility Phase 3 ships in this release, not later: without it a product hidden
 | Step | State |
 |---|---|
 | Branch and fork PR | done |
-| Pre-implement analysis: cart | pending |
-| Pre-implement analysis: promotions | pending |
-| Pre-implement analysis: visibility Phase 3 | pending |
+| Pre-implement analysis: cart | done (2026-10-14) |
+| Pre-implement analysis: promotions | done (2026-10-14) |
+| Pre-implement analysis: visibility Phase 3 | done (2026-10-14) |
 | Cross-spec consistency pass and decisions | pending |
 | Spec revision pass | pending |
 | Implementation via `om-auto-continue-pr-loop` | pending |
