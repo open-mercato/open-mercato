@@ -20,7 +20,7 @@
 | 1 | 1.1 | Promotions: scaffold module, ACL, events, setup, DI | dispatch | done | see `git log` |
 | 1 | 1.2 | Promotions: entities, validators and migration (incl. PromotionUsage) | dispatch | done | see `git log` |
 | 1 | 1.3 | Promotions: promotion CRUD commands with undo, events, cache invalidation | dispatch | done | see `git log` |
-| 1 | 1.4 | Promotions: rule-tree reconcile command, tree PUT, order PATCH, optimistic locking | dispatch | todo | — |
+| 1 | 1.4 | Promotions: rule-tree reconcile command, tree PUT, order PATCH, optimistic locking | dispatch | done | see `git log` |
 | 1 | 1.5 | Promotions: CRUD API routes, OpenAPI, mutation guards | dispatch | todo | — |
 | 1 | 1.6 | Promotions: i18n (5 locales) and backend list page | dispatch | todo | — |
 | 1 | 1.7 | Promotions: promotion form pages and rule-tree builder | dispatch | todo | — |
