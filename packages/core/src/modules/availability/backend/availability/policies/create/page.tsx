@@ -71,6 +71,9 @@ export default function AvailabilityPolicyCreatePage() {
         </div>
       )}
       onSubmit={async (values) => {
+        if (!organizationId) {
+          throw createCrudFormError(t('availability.policies.errors.organizationRequired'))
+        }
         if (scope.variantId && !scope.productId) {
           throw createCrudFormError(
             t('availability.policies.errors.variantRequiresProduct'),
