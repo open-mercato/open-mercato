@@ -4,7 +4,6 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
-import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import {
   enforceCommandOptimisticLockWithGuards,
   enforceRecordGoneIsConflict,
@@ -24,6 +23,7 @@ import {
   type PromotionBenefitAppliesTo,
   type PromotionRuleGroupOperator,
 } from '../data/entities'
+import { assertPromotionScopeOrNotFound } from './shared'
 import {
   assertPromotionCurrencyRequirements,
   promotionOrderBatchSchema,
@@ -286,8 +286,7 @@ const reconcileRuleTreeCommand: CommandHandler<RuleTreeReconcileInput, { promoti
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const promotion = await loadScopedPromotion(em, parsed.promotionId)
     if (!promotion) throw notFound('Promotion not found')
-    ensureTenantScope(ctx, promotion.tenantId)
-    ensureOrganizationScope(ctx, promotion.organizationId)
+    assertPromotionScopeOrNotFound(ctx, promotion)
 
     // §API Contracts: the tree PUT's `updatedAt` is a separate surface from the row-level
     // header `CrudForm` sends for plain metadata edits — the client supplies it as a typed
@@ -554,8 +553,7 @@ const reorderPromotionsCommand: CommandHandler<PromotionOrderBatchInput, Promoti
         // caller naming a since-deleted id simply sees that id missing from both arrays.
         continue
       }
-      ensureTenantScope(ctx, promotion.tenantId)
-      ensureOrganizationScope(ctx, promotion.organizationId)
+      assertPromotionScopeOrNotFound(ctx, promotion)
 
       try {
         await enforceCommandOptimisticLockWithGuards(ctx.container, {

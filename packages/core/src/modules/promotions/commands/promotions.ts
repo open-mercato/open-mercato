@@ -13,6 +13,7 @@ import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/l
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '#generated/entities.ids.generated'
 import { Promotion, RuleGroup } from '../data/entities'
+import { assertPromotionScopeOrNotFound } from './shared'
 import {
   promotionCreateSchema,
   promotionUpdateSchema,
@@ -259,8 +260,7 @@ const updatePromotionCommand: CommandHandler<PromotionUpdateInput, { promotionId
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const promotion = await loadPromotion(em, parsed.id)
     if (!promotion) throw notFound('Promotion not found')
-    ensureTenantScope(ctx, promotion.tenantId)
-    ensureOrganizationScope(ctx, promotion.organizationId)
+    assertPromotionScopeOrNotFound(ctx, promotion)
 
     await runCrudCommandWrite({
       ctx,
@@ -378,8 +378,7 @@ const deletePromotionCommand: CommandHandler<PromotionDeleteInput, { promotionId
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const promotion = await loadPromotion(em, parsed.id)
     if (!promotion) throw notFound('Promotion not found')
-    ensureTenantScope(ctx, promotion.tenantId)
-    ensureOrganizationScope(ctx, promotion.organizationId)
+    assertPromotionScopeOrNotFound(ctx, promotion)
 
     // Soft delete (§Data Models: `promotions.deleted_at`) — the root rule group and its
     // tree are left in place; only the promotion row stops being considered active.
