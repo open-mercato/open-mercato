@@ -132,6 +132,31 @@ describe('find*WithDecryption tenant binding through the ORM onLoad hook (#5430)
     expect(refusalWarnings()).toHaveLength(0)
   })
 
+  it('does not hand an outer read scope to a nested read that asserts none', async () => {
+    const calls: Call[] = []
+    const service = makeService(calls)
+    const subscriber = new TenantEncryptionSubscriber(service)
+    const foreign = { id: 'f1', secret: 'enc:beta', tenantId: 'tenant-b', __meta: CHILD_META }
+    const outerEm = makeHydratingEm(subscriber, [])
+    outerEm.find = async () => {
+      await findWithDecryption(makeHydratingEm(subscriber, [foreign]) as any, 'Child' as any, {}, undefined, {
+        encryptionService: service,
+      })
+      return []
+    }
+
+    await findWithDecryption(outerEm as any, 'Child' as any, {}, undefined, {
+      tenantId: 'tenant-a',
+      encryptionService: service,
+    })
+
+    expect(calls).toEqual([
+      { entityId: 'test:child', tenantId: 'tenant-b' },
+      { entityId: 'test:child', tenantId: 'tenant-b' },
+    ])
+    expect(foreign.secret).toBe('beta')
+  })
+
   it('does not bind the caller scope outside the read that asserted it', async () => {
     const calls: Call[] = []
     const subscriber = new TenantEncryptionSubscriber(makeService(calls))

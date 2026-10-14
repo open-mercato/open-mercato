@@ -46,7 +46,7 @@ export async function runWithCallerDecryptScope<T>(
   read: () => Promise<T>,
 ): Promise<T> {
   const callerScope = toCallerScope(scope.tenantId, scope.organizationId)
-  if (!callerScope) return read()
+  if (!callerScope) return callerDecryptContext.exit(read)
   return callerDecryptContext.run({ scope: callerScope, refusalTallies }, read)
 }
 
