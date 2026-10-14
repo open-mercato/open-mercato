@@ -174,7 +174,7 @@ export interface NormalizedBenefit {
 // ---------------------------------------------------------------------------
 
 export interface EvaluationContext {
-  items: EvaluateItem[]
+  items: EnrichedEvaluateItem[]
   currency: string
   evaluatedAt: string
   buyer: BuyerContext
@@ -182,4 +182,31 @@ export interface EvaluationContext {
   cartWeight: string | null
   codes: CodeRef[]
   appliedTags: string[]
+  excludeFlags: Record<string, boolean>
+}
+
+// Enrichment output (SPEC-055 §Data Models "category" row / §API Contracts line ~722):
+// built by Step 2.6's batch promotions-side lookup from productId/variantId, BEFORE the
+// pure evaluation engine runs. categoryIds is already ancestor-expanded (same convention
+// as catalog's scope_keys — packages/core/src/modules/catalog/lib/productScopeKeys.ts —
+// every assigned category id plus every one of its ancestorIds), so a rule evaluator only
+// ever needs a plain membership check, never its own tree walk. A field with no resolvable
+// source for a given product is an empty array/object, never undefined.
+export interface EnrichedEvaluateItem extends EvaluateItem {
+  categoryIds: string[]
+  attributes: Record<string, string>
+}
+
+// Internal mirror of the public EvaluateInput (§Public TypeScript Contract) with items
+// replaced by their enriched form. The public PromotionsService.evaluate(input:
+// EvaluateInput) facade (Step 2.6) builds this from the caller's raw EvaluateInput via
+// batch enrichment; evaluatePromotions() below only ever sees the enriched form.
+export interface EvaluationInput {
+  items: EnrichedEvaluateItem[]
+  currency: string
+  evaluatedAt: string
+  buyer: BuyerContext
+  customerOrderCount: number | null
+  cartWeight: string | null
+  codes: CodeRef[]
 }

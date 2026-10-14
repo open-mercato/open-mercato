@@ -12,7 +12,7 @@
 // predicate with a manually constructed tag list, never through a real match.
 
 import { evaluatePromotions, isPromotionEligible } from '../evaluation-engine'
-import type { EvaluateInput, NormalizedPromotion } from '../types'
+import type { EvaluationInput, NormalizedPromotion } from '../types'
 
 function promotion(overrides: Partial<NormalizedPromotion> = {}): NormalizedPromotion {
   return {
@@ -34,7 +34,7 @@ function promotion(overrides: Partial<NormalizedPromotion> = {}): NormalizedProm
   }
 }
 
-function input(overrides: Partial<EvaluateInput> = {}): EvaluateInput {
+function input(overrides: Partial<EvaluationInput> = {}): EvaluationInput {
   return {
     items: [],
     currency: 'USD',

@@ -2,9 +2,9 @@ import { evaluateGroup } from './rule-evaluators'
 import { resolveEffects } from './effect-resolvers'
 import type {
   AppliedPromotion,
-  EvaluateInput,
   EvaluateResult,
   EvaluationContext,
+  EvaluationInput,
   NormalizedBenefit,
   NormalizedPromotion,
   NormalizedRuleGroup,
@@ -17,7 +17,7 @@ import type {
 // `ORDER BY order ASC, id ASC` before calling this function; it is not re-sorted here.
 export function evaluatePromotions(
   promotions: NormalizedPromotion[],
-  input: EvaluateInput,
+  input: EvaluationInput,
 ): EvaluateResult {
   const appliedTags: string[] = []
   const appliedPromotions: AppliedPromotion[] = []
@@ -34,6 +34,7 @@ export function evaluatePromotions(
       cartWeight: input.cartWeight,
       codes: input.codes,
       appliedTags,
+      excludeFlags: promotion.excludeFlags,
     }
 
     const matched = evaluateGroup(promotion.rootGroup, context)
@@ -66,7 +67,7 @@ export function evaluatePromotions(
 // that already passed Pass 1, which this step's `evaluateGroup` stub cannot do.
 export function isPromotionEligible(
   promotion: NormalizedPromotion,
-  input: Pick<EvaluateInput, 'evaluatedAt' | 'currency'>,
+  input: Pick<EvaluationInput, 'evaluatedAt' | 'currency'>,
   appliedTagsSoFar: string[],
 ): boolean {
   const evaluatedAtMs = new Date(input.evaluatedAt).getTime()
