@@ -739,8 +739,6 @@ export class BasicQueryEngine implements QueryEngine {
     const fallbackOrgId =
       opts.organizationId
       ?? (Array.isArray(opts.organizationIds) && opts.organizationIds.length === 1 ? opts.organizationIds[0] : null)
-    // A query that declined decryption gets no decrypt service at all: no DEK lookup, and no
-    // plaintext-sort path either — there is no plaintext to sort by.
     const decryptEnabled = resolveDecryptEnabled(opts)
     const encryptionService = decryptEnabled ? this.getEncryptionService() : null
     const resolvedSorts: Sort[] = []
@@ -763,8 +761,6 @@ export class BasicQueryEngine implements QueryEngine {
     )
     const encryptedSortFields = matchEncryptedSortFields(encryptedFieldNames, plainSortFields)
     const requiresPlaintextSort = encryptedSortFields.size > 0
-    // Declining decryption also drops the plaintext-sort path, so an encrypted sort column silently
-    // becomes an ORDER BY over ciphertext. Say so once rather than returning a meaningless order.
     if (!decryptEnabled && plainSortFields.length > 0) {
       const declinedSortFields = await resolveEncryptedSortFields(
         this.getEncryptionService(),
@@ -781,17 +777,12 @@ export class BasicQueryEngine implements QueryEngine {
       }
     }
 
-    // The decrypt decision keys off the row's own tenant_id. A caller-supplied `fields` list would
-    // otherwise omit it, leaving `rowTenantId` null and making the tenant binding inert on exactly
-    // the routes that project narrowly. Force it into the projection and strip it back out of the
-    // response when the caller did not ask for it, so the guard engages without changing the shape.
     const requestedFields = opts.fields && opts.fields.length ? opts.fields.map(String) : null
     const injectsTenantIdForDecrypt =
       encryptionService != null
       && requestedFields != null
       && !requestedFields.includes('tenant_id')
       && !requestedFields.includes('tenantId')
-      // A `null` map is unknown, not empty: a decrypt attempt may still follow, so widen anyway.
       && (encryptedFieldNames === null || encryptedFieldNames.length > 0)
       && await this.columnExists(table, 'tenant_id')
 
@@ -1504,8 +1495,6 @@ export class BasicQueryEngine implements QueryEngine {
         callerTenantId: opts.tenantId ?? null,
         callerOrganizationId: fallbackOrgId ?? null,
       })
-      // Fail closed: the caller asserted a tenant and this row contradicts it, so decrypting
-      // would hand back a foreign tenant's plaintext under a foreign tenant's DEK.
       if (!decision.decrypt) {
         refusalTally.record(decision, item?.id == null ? null : String(item.id))
         return item
@@ -1623,7 +1612,6 @@ export class BasicQueryEngine implements QueryEngine {
 
     reportDecryptRefusals()
 
-    // The decrypt decision has been made, so the column the caller never asked for goes back out.
     if (injectsTenantIdForDecrypt) {
       for (const row of pagedItems) delete row.tenant_id
     }

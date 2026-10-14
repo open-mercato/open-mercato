@@ -789,8 +789,6 @@ export class HybridQueryEngine implements QueryEngine {
       const fallbackOrgId =
         opts.organizationId
         ?? (Array.isArray(opts.organizationIds) && opts.organizationIds.length === 1 ? opts.organizationIds[0] : null)
-      // A query that declined decryption gets no decrypt service at all: no DEK lookup, and no
-      // plaintext-sort path either — there is no plaintext to sort by.
       const decryptEnabled = resolveDecryptEnabled(opts)
       const encSvc = decryptEnabled ? this.getEncryptionService() : null
       const resolvedSorts: Sort[] = []
@@ -814,9 +812,6 @@ export class HybridQueryEngine implements QueryEngine {
       )
       const encryptedSortFields = matchEncryptedSortFields(encryptedFieldNames, plainSortFields)
       const requiresPlaintextSort = encryptedSortFields.size > 0
-      // Declining decryption also drops the plaintext-sort path, so an encrypted sort column
-      // silently becomes an ORDER BY over ciphertext. Say so once rather than returning a
-      // meaningless order.
       if (!decryptEnabled && plainSortFields.length > 0) {
         const declinedSortFields = await resolveEncryptedSortFields(
           this.getEncryptionService(),
@@ -832,9 +827,6 @@ export class HybridQueryEngine implements QueryEngine {
           })
         }
       }
-      // The decrypt decision keys off the row's own tenant_id, which a caller-supplied `fields`
-      // list would otherwise omit — leaving the tenant binding inert on narrowly projecting
-      // routes. Force it into the projection and strip it back out of the response.
       const requestedFields = opts.fields && opts.fields.length ? opts.fields.map(String) : null
       const injectsTenantIdForDecrypt =
         encSvc != null
@@ -842,7 +834,6 @@ export class HybridQueryEngine implements QueryEngine {
         && requestedFields != null
         && !requestedFields.includes('tenant_id')
         && !requestedFields.includes('tenantId')
-        // A `null` map is unknown, not empty: a decrypt attempt may still follow, so widen anyway.
         && (encryptedFieldNames === null || encryptedFieldNames.length > 0)
 
       const cfSortKeys = Array.from(new Set(
@@ -1358,9 +1349,6 @@ export class HybridQueryEngine implements QueryEngine {
 
       const decryptRow = async (item: Record<string, unknown>): Promise<Record<string, unknown>> => {
         let next = item
-        // A query that declined decryption never refuses anything: nothing would be decrypted
-        // either way, so warning about a scope mismatch here would be noise. Mirrors the basic
-        // engine, which returns before resolving the scope when it has no decrypt payload.
         if (!encSvc) return next
         const decision = resolveDecryptScope({
           rowTenantId: (next?.tenant_id ?? next?.tenantId ?? null) as string | null,
@@ -1368,8 +1356,6 @@ export class HybridQueryEngine implements QueryEngine {
           callerTenantId: opts.tenantId ?? null,
           callerOrganizationId: fallbackOrgId ?? null,
         })
-        // Fail closed: the caller asserted a tenant and this row contradicts it. Both the base
-        // payload and the `cf:` values are keyed by the same scope, so neither may be decrypted.
         if (!decision.decrypt) {
           refusalTally.record(decision, next?.id == null ? null : String(next.id))
           return next
@@ -1500,7 +1486,6 @@ export class HybridQueryEngine implements QueryEngine {
         items = await mapWithConcurrency(itemsRaw, DECRYPT_CONCURRENCY, decryptRow)
       }
       reportDecryptRefusals()
-      // The decrypt decision has been made, so the column the caller never asked for goes back out.
       if (injectsTenantIdForDecrypt) {
         for (const row of items) delete row.tenant_id
       }
