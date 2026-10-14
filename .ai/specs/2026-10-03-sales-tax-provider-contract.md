@@ -614,7 +614,7 @@ States read on 2026-10-14 with read-only tracker queries; none is a base or a de
 - **Residual risk**: unbounded in this specification.
 
 #### Fail-closed outage radius
-- **Scenario**: the provider is down; every recalculating write of that organization fails, including inbox actions (the dispatches at `inbox-actions.ts:125`, `:136`, `:178`, `:205`), the workflow safe command `sales.orders.update` (`workflows.ts:10-23`), warranty replacement orders (`warranty_claims/commands/claims.ts:3175-3178`) and redo; the workflow and warranty callers cannot choose `product-rate` per call, so the radius is the organization's whole back-office automation.
+- **Scenario**: the provider is down; every recalculating write of that organization fails, including inbox actions (the dispatches at `inbox-actions.ts:125`, `:136`, `:178`, `:205`), the workflow safe command `sales.orders.update` (`workflows.ts:10-23`), warranty replacement orders (`packages/core/src/modules/warranty_claims/commands/claims.ts:3175-3178`) and redo; the workflow and warranty callers cannot choose `product-rate` per call, so the radius is the organization's whole back-office automation.
 - **Severity**: High
 - **Affected area**: back-office automation of the organization
 - **Mitigation**: fail closed is the rule of § 4.13 and Spec 3 adds per-provider policies; the error carries `code` so automations can defer; `product-rate` organizations are unaffected.
@@ -878,4 +878,4 @@ Four implementation phases, each shippable alone and each leaving the applicatio
 - **Verdict**: Approved — no contract type change; findings (1) and (2) resolved in § 4.3 and § 4.10, (4) in § 4.7 and § 4.9, (5) routed to Spec 4b and stated in § 4.5 and § 12, (6) in § 4.10 and § 17, (7) in § 6, (8) in § 1 and § 19, (9) in § 4.5 and § 4.9; implementable as written after this revision
 
 ### 2026-10-14
-- Re-pinned to `develop` @ `3346415f9`: every line citation follows that commit (the `catalog` pricing registry citations moved with #7142; the `api/documents/factory.ts` citations moved with #7278). § 11 re-read on 2026-10-14: the integration ids of § 17 overlap `TC-SALES-043` of #6743 and `TC-SALES-044` of #7051 (merged at this head), 042 is taken twice at this head, and #7280 numbers around them; the implementation PR re-runs the id check (§ 11). No other content change.
+- Re-pinned to `develop` @ `3346415f9`: every line citation follows that commit (the `catalog` pricing registry citations moved with #7142; the `api/documents/factory.ts` citations moved with #7278). § 11 re-read on 2026-10-14: the integration ids of § 17 overlap `TC-SALES-043` of #6743 and `TC-SALES-044` of #7051 (merged at this head), 042 is taken twice at this head, and #7280 numbers around them; the implementation PR re-runs the id check (§ 11); the § 12 citation of the warranty replacement order carries its full path. No other content change.
