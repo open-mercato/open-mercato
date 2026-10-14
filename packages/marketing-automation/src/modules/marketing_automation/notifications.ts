@@ -1,14 +1,14 @@
 import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/notifications/types'
 
 /**
- * The three things this module tells a colleague about.
+ * The four things this module tells a colleague about.
  *
  * Declared here rather than only passed to `notificationService`, which matters for two reasons the code was
  * previously getting away with: an undeclared type is missing from the per-user notification preferences, so
  * nobody can turn it off except by turning off everything; and the delivery gate logs an unknown type and falls
  * through to preferences, so a type's own channel list is never honoured.
  *
- * All three ship as `in_app` only. Email is deliberately not a default: these go to colleagues, and a module
+ * All four ship as `in_app` only. Email is deliberately not a default: these go to colleagues, and a module
  * that starts emailing staff the moment it is installed is a module people disable. An operator re-enables
  * email per type from the Notification Delivery settings.
  */
