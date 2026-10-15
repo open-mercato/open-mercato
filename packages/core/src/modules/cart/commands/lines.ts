@@ -55,6 +55,7 @@ import type { CartVisibilityLineRef, ResolvedAssortmentScope } from '../lib/visi
 import { shouldEnforceAssortmentScope } from '../lib/routeContext'
 import type { ResolvedCartRouteContext } from '../lib/routeContext'
 import type { CartPriceChange } from '../lib/reprice'
+import { assertCartNotLocked } from '../lib/lockGuard'
 import { emitCartEvent } from '../events'
 
 // Step 4.6 — `cart.lines.add`, `.update`, `.remove`, `.bulkAdd`. Builds directly on Step
@@ -85,7 +86,11 @@ function getCartLineIdentifiers(line: CartLine) {
  * this file's own) plus the two whole-cart/merge passes added at Step 7.4:
  * `'reprice'` — §6a.2's whole-cart re-visibility pass, trigger 2 (`commands/cart.ts`'s
  * `cart.reprice`); `'merge'` — §6a.5's merge-time pass (`commands/merge.ts`'s `cart.merge`).
- * Trigger 5 (checkout lock) has no `triggeredBy` value yet — `cart.lock` is a later step.
+ * Trigger 5 (checkout lock, `commands/lock.ts`'s `cart.lock`) gets NO dedicated value of its
+ * own (Step 7.5): `cart.lock` dispatches `cart.reprice` with `trigger: 'lock'`, which runs
+ * the SAME §6a.2 whole-cart re-visibility pass as trigger 2/merge and reports through this
+ * SAME `'reprice'` value — a lock-triggered rejection is indistinguishable, at this event's
+ * granularity, from any other re-price-triggered one.
  */
 export type CartVisibilityRejectionTrigger = 'lines.add' | 'lines.update' | 'lines.bulkAdd' | 'reprice' | 'merge'
 
@@ -470,6 +475,16 @@ function resolveLineActor(
  * tenant/org, a nonexistent id and (when `requireActive` is set) a non-`active` status all
  * collapse to the identical message, so a mutation attempt never discloses which of those
  * is actually true.
+ *
+ * Step 7.5 — ONE exception to that collapse, applied unconditionally regardless of
+ * `requireActive`: a `locked` cart gets the distinguishable `423 cart_locked`
+ * (`assertCartNotLocked`, `lib/lockGuard.ts`) BEFORE falling through to the generic
+ * `requireActive` check below. §9's own text states the mutation-while-locked rejection as a
+ * blanket rule with no stated carve-out for any particular caller, which is why this runs
+ * for EVERY caller of this function, including `cart.lines.remove`'s own `requireActive:
+ * false` call — see that command's own comment for the documented judgment call this makes
+ * (locked specifically is now always enforced; every OTHER non-active status stays exempt
+ * for `.remove`, as it already was before this step).
  */
 async function loadMutableCart(
   em: EntityManager,
@@ -484,7 +499,9 @@ async function loadMutableCart(
     {},
     scope,
   )
-  if (!cart || (options.requireActive && cart.status !== 'active')) {
+  if (!cart) throw notFound('[internal] cart not found')
+  assertCartNotLocked(cart)
+  if (options.requireActive && cart.status !== 'active') {
     throw notFound('[internal] cart not found')
   }
   return cart
@@ -986,10 +1003,22 @@ const removeLineCommand: CommandHandler<CartLinesRemoveInput, CartLinesRemoveRes
     // `flag_state` or cart-`status` concern — mirroring §6a.2's own contrast, "a flagged
     // line CAN be removed, unlike a promotion line which cannot" — not as a blanket
     // override of the promotion-line-immutability rule below, which §4.2 states applies to
-    // `.remove` by the identical wording it uses for `.update`. No cart-status gate exists
-    // here at all (neither `cart.lock`/`.unlock`/`.markConverted` nor any enforcement tied
-    // to them is built yet in this step), so `requireActive: false` is not a deliberate
-    // relaxation of an existing rule — there is no rule yet to relax.
+    // `.remove` by the identical wording it uses for `.update`. `requireActive: false`
+    // keeps `.remove` permissive for every non-active status EXCEPT `locked` — converted/
+    // merged/expired/abandoned carts all stay reachable here exactly as before this step.
+    //
+    // Step 7.5 — documented judgment call: `.remove` NOW also respects a LOCK specifically,
+    // via `loadMutableCart`'s own unconditional `assertCartNotLocked` call (immune to this
+    // `requireActive: false`). §9 states the mutation-while-locked rejection as a blanket
+    // rule ("A locked cart that a client tries to mutate returns 423 Locked... not a generic
+    // error") with no stated exception for removal, which is a stronger signal than reading
+    // the OLD "no cart-status gate exists here at all... [lock] not built yet in this step"
+    // comment (now stale, and replaced by this one) as an intentional safety valve letting a
+    // buyer clear a flagged/locked cart's lines no matter what. A buyer mid-checkout losing
+    // a line out from under the order checkout is actively assembling is a worse outcome
+    // than the narrower, more buyer-friendly reading would have avoided — so `.remove` is
+    // now uniform with `.add`/`.update`/`.bulkAdd` on locked-ness specifically, while staying
+    // deliberately more permissive than them on every OTHER non-active status.
     const cart = await loadMutableCart(em, scope, input.cartId, { requireActive: false })
 
     const line = await findOneWithDecryption(em, CartLine, { id: input.lineId, cartId: cart.id, tenantId, organizationId, deletedAt: null }, {}, scope)

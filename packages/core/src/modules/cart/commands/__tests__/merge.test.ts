@@ -548,6 +548,53 @@ describe('cart.merge — §7.1 policy rows', () => {
     expect(isCrudHttpError(captured)).toBe(true)
     expect((captured as { status: number }).status).toBe(404)
   })
+
+  // Step 7.5 — §9: a locked TARGET cart gets the distinguishable 423, not the generic 404
+  // collapse a plain non-active target (e.g. `merged`/`expired`) would fall into.
+  it('rejects a merge into a locked TARGET cart with 423 cart_locked, carrying its checkoutSessionId', async () => {
+    seededCarts = [
+      makeCartFixture({ id: 'cart-target', tokenHash: 'target-token-hash', status: 'locked', checkoutSessionId: 'checkout-session-1' }),
+      makeCartFixture({ id: 'cart-guest', tokenHash: hashCartToken('guest-token') }),
+    ]
+    const handler = getMergeHandler()
+    const em = makeEm()
+    const ctx = makeCtx({ em })
+
+    let captured: unknown
+    try {
+      await handler.execute({ targetCartId: 'cart-target', tenantId: TENANT_ID, organizationId: ORG_ID, sourceToken: 'guest-token', routeContext: makeRouteContext() }, ctx)
+    } catch (err) {
+      captured = err
+    }
+    expect(isCrudHttpError(captured)).toBe(true)
+    expect((captured as { status: number }).status).toBe(423)
+    expect((captured as { body?: Record<string, unknown> }).body).toMatchObject({
+      code: 'cart_locked',
+      checkoutSessionId: 'checkout-session-1',
+    })
+  })
+
+  // Contrast case: a locked GUEST/source cart is a documented judgment call left OUT of the
+  // 423 distinction — it still folds into the generic 404 collapse, same as any other
+  // non-active source status, rather than getting its own signal.
+  it('folds a locked GUEST/source cart into the generic 404 collapse, not a 423', async () => {
+    seededCarts = [
+      makeCartFixture({ id: 'cart-target', tokenHash: 'target-token-hash' }),
+      makeCartFixture({ id: 'cart-guest', tokenHash: hashCartToken('guest-token'), status: 'locked', checkoutSessionId: 'checkout-session-2' }),
+    ]
+    const handler = getMergeHandler()
+    const em = makeEm()
+    const ctx = makeCtx({ em })
+
+    let captured: unknown
+    try {
+      await handler.execute({ targetCartId: 'cart-target', tenantId: TENANT_ID, organizationId: ORG_ID, sourceToken: 'guest-token', routeContext: makeRouteContext() }, ctx)
+    } catch (err) {
+      captured = err
+    }
+    expect(isCrudHttpError(captured)).toBe(true)
+    expect((captured as { status: number }).status).toBe(404)
+  })
 })
 
 // Step 7.4 — §6a.5's merge-time re-visibility pass (R13 regression suite). Only the rows

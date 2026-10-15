@@ -802,3 +802,147 @@ describe('cart.lines.bulkAdd', () => {
     expect(emitCartEventMock.mock.calls.some(([eventId]) => eventId === 'cart.line.visibility_rejected')).toBe(false)
   })
 })
+
+// Step 7.5 — §9: "A locked cart that a client tries to mutate returns 423 Locked with the
+// checkout session id, not a generic error." `loadMutableCart`'s own `assertCartNotLocked`
+// call now runs for EVERY caller (`requireActive: true` or `false`), so `.add`/`.update`/
+// `.bulkAdd` get this automatically and `.remove` gets it too per this step's own documented
+// judgment call (see `loadMutableCart`'s and `.remove`'s own comments in `commands/lines.ts`).
+describe('cart lock-awareness (Step 7.5)', () => {
+  beforeEach(resetFixtures)
+
+  function lockCart(): void {
+    seededCarts[0] = { ...seededCarts[0], status: 'locked', checkoutSessionId: 'checkout-session-1' }
+  }
+
+  it('cart.lines.add returns 423 cart_locked with the checkoutSessionId, not the generic 404', async () => {
+    lockCart()
+    const handler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')
+    const em = makeEm()
+    const ctx = makeCtx({ em })
+
+    let captured: unknown
+    try {
+      await handler.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, productId: 'product-1', quantity: 1, addedByActorType: 'rep' }, ctx)
+    } catch (err) {
+      captured = err
+    }
+
+    expect(isCrudHttpError(captured)).toBe(true)
+    expect((captured as { status: number }).status).toBe(423)
+    expect((captured as { body: Record<string, unknown> }).body).toMatchObject({
+      code: 'cart_locked',
+      checkoutSessionId: 'checkout-session-1',
+    })
+  })
+
+  it('cart.lines.update returns 423 cart_locked with the checkoutSessionId, not the generic 404', async () => {
+    lockCart()
+    seededCartLines = [{
+      id: 'line-1', tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineNumber: 1,
+      productId: 'product-1', variantId: null, sku: null, name: 'Widget', optionValues: null,
+      quantity: '5', unitPriceNet: '10', unitPriceGross: '12', taxRate: '20', priceKindId: null,
+      priceRowId: 'price-row-1', priceTierMinQuantity: 1, pricedAt: new Date(),
+      lineTotals: makeLineTotalsFixture(5), discountTotalNet: null, promotionId: null,
+      origin: 'customer', configuration: null, addedByActorType: 'buyer', addedByActorId: null,
+      metadata: null, createdAt: new Date(), updatedAt: new Date(), deletedAt: null,
+    }]
+    const handler = getHandler<CartLinesUpdateInput, CartLinesUpdateOutcome>('cart.lines.update')
+    const em = makeEm()
+    const ctx = makeCtx({ em })
+
+    let captured: unknown
+    try {
+      await handler.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineId: 'line-1', quantity: 8 }, ctx)
+    } catch (err) {
+      captured = err
+    }
+
+    expect(isCrudHttpError(captured)).toBe(true)
+    expect((captured as { status: number }).status).toBe(423)
+    expect((captured as { body: Record<string, unknown> }).body).toMatchObject({
+      code: 'cart_locked',
+      checkoutSessionId: 'checkout-session-1',
+    })
+  })
+
+  it('cart.lines.bulkAdd returns 423 cart_locked with the checkoutSessionId, not the generic 404', async () => {
+    lockCart()
+    const handler = getHandler<CartLinesBulkAddInput, CartLinesBulkAddResult>('cart.lines.bulkAdd')
+    const em = makeEm()
+    const ctx = makeCtx({ em })
+
+    let captured: unknown
+    try {
+      await handler.execute(
+        { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, addedByActorType: 'rep', lines: [{ productId: 'product-1', quantity: 1 }] },
+        ctx,
+      )
+    } catch (err) {
+      captured = err
+    }
+
+    expect(isCrudHttpError(captured)).toBe(true)
+    expect((captured as { status: number }).status).toBe(423)
+    expect((captured as { body: Record<string, unknown> }).body).toMatchObject({
+      code: 'cart_locked',
+      checkoutSessionId: 'checkout-session-1',
+    })
+  })
+
+  // Step 7.5's own judgment call: `.remove` now ALSO respects a lock specifically, even
+  // though it stays permissive (`requireActive: false`) for every OTHER non-active status.
+  it('cart.lines.remove ALSO returns 423 cart_locked (the lock-specific carve-out this step adds), not a silent success', async () => {
+    lockCart()
+    seededCartLines = [{
+      id: 'line-1', tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineNumber: 1,
+      productId: 'product-1', variantId: null, sku: null, name: 'Widget', optionValues: null,
+      quantity: '1', unitPriceNet: '10', unitPriceGross: '12', taxRate: '20', priceKindId: null,
+      priceRowId: 'price-row-1', priceTierMinQuantity: 1, pricedAt: new Date(),
+      lineTotals: makeLineTotalsFixture(1), discountTotalNet: null, promotionId: null,
+      origin: 'customer', configuration: null, addedByActorType: 'buyer', addedByActorId: null,
+      metadata: null, createdAt: new Date(), updatedAt: new Date(), deletedAt: null,
+    }]
+    const handler = getHandler<CartLinesRemoveInput, CartLinesRemoveResult>('cart.lines.remove')
+    const em = makeEm()
+    const ctx = makeCtx({ em })
+
+    let captured: unknown
+    try {
+      await handler.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineId: 'line-1' }, ctx)
+    } catch (err) {
+      captured = err
+    }
+
+    expect(isCrudHttpError(captured)).toBe(true)
+    expect((captured as { status: number }).status).toBe(423)
+    expect((captured as { body: Record<string, unknown> }).body).toMatchObject({
+      code: 'cart_locked',
+      checkoutSessionId: 'checkout-session-1',
+    })
+    expect(seededCartLines[0].deletedAt).toBeNull()
+  })
+
+  // Contrast case: `.remove` stays permissive for a non-active, non-locked status (e.g.
+  // `abandoned`) — only `locked` gets the new carve-out, nothing else changed.
+  it('cart.lines.remove still succeeds (no gate) against an abandoned, non-locked cart', async () => {
+    seededCarts[0] = { ...seededCarts[0], status: 'abandoned' }
+    seededCartLines = [{
+      id: 'line-1', tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineNumber: 1,
+      productId: 'product-1', variantId: null, sku: null, name: 'Widget', optionValues: null,
+      quantity: '1', unitPriceNet: '10', unitPriceGross: '12', taxRate: '20', priceKindId: null,
+      priceRowId: 'price-row-1', priceTierMinQuantity: 1, pricedAt: new Date(),
+      lineTotals: makeLineTotalsFixture(1), discountTotalNet: null, promotionId: null,
+      origin: 'customer', configuration: null, addedByActorType: 'buyer', addedByActorId: null,
+      metadata: null, createdAt: new Date(), updatedAt: new Date(), deletedAt: null,
+    }]
+    const handler = getHandler<CartLinesRemoveInput, CartLinesRemoveResult>('cart.lines.remove')
+    const em = makeEm()
+    const ctx = makeCtx({ em })
+
+    const result = await handler.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineId: 'line-1' }, ctx)
+
+    expect(result.removed).toBe(true)
+    expect(seededCartLines[0].deletedAt).not.toBeNull()
+  })
+})

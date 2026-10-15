@@ -23,6 +23,7 @@ import { shouldEnforceAssortmentScope } from '../lib/routeContext'
 import type { ResolvedCartRouteContext } from '../lib/routeContext'
 import { cartVisibilityKey, evaluateCartVisibility, isVisible } from '../lib/visibility'
 import type { CartVisibilityResult } from '../lib/visibility'
+import { assertCartNotLocked } from '../lib/lockGuard'
 import { emitCartEvent } from '../events'
 import { repriceCartCommand } from './cart'
 import type { CartRepriceInput, CartRepriceResult } from './cart'
@@ -446,6 +447,16 @@ const mergeCartCommand: CommandHandler<CartMergeInput, CartMergeResult> = {
     if (guestCart.storeId !== sessionCart.storeId || guestCart.currencyCode !== sessionCart.currencyCode) {
       throw new CrudHttpError(400, { error: '[internal] cart_merge_scope_mismatch', code: 'cart_merge_scope_mismatch' })
     }
+    // Step 7.5 — §9: a locked TARGET (session) cart gets the distinguishable `423
+    // cart_locked`, not the generic collapse below — a buyer mid-checkout should not be
+    // able to merge a second cart into the one cart `checkout` is currently holding.
+    // Documented judgment call: a locked GUEST/source cart is deliberately left OUT of this
+    // distinction and falls through into the generic 404 collapse just below, same as any
+    // other non-active source status — merging FROM a cart that happens to be stuck in
+    // someone else's checkout is a far stranger case than locking the survivor out from
+    // under an in-progress checkout, and the buyer has no real stake in being told which
+    // specific non-active reason the source cart is unavailable for.
+    assertCartNotLocked(sessionCart)
     // A non-active cart on either side (already merged/expired/converted/locked/abandoned)
     // is treated as unavailable for merge purposes, same no-oracle collapse as above —
     // neither §7.1 nor §7.2 names a merge-of-an-inactive-cart case, and admitting one would

@@ -9,6 +9,7 @@ import { CodeReservation, Promotion, Rule } from '@open-mercato/core/modules/pro
 import type { CodeReservationResult, PromotionsService } from '@open-mercato/core/modules/promotions/lib/types'
 import { Cart, CartLine, CartPromotionApplication } from '../data/entities'
 import type { ResolvedCartRouteContext } from '../lib/routeContext'
+import { assertCartNotLocked } from '../lib/lockGuard'
 import { emitCartEvent } from '../events'
 import type { CartPriceChange } from '../lib/reprice'
 import type { CartPromotionWarning } from '../lib/promotionContext'
@@ -40,6 +41,14 @@ function codeReservationUnavailableError(): CrudHttpError {
   return new CrudHttpError(409, { error: '[internal] code_reservation_unavailable', code: 'code_reservation_unavailable' })
 }
 
+// Step 7.5 — adds the SAME 423-for-locked distinction every other command file in this
+// module now applies (`commands/lines.ts`'s `loadMutableCart`, `commands/merge.ts`'s inline
+// target-cart check), via the shared `assertCartNotLocked` helper. Documented judgment
+// call, left deliberately narrow: this function still has NO `requireActive`-shaped generic
+// check for any OTHER non-active status (converted/merged/expired/abandoned) — that gap
+// predates this step (`cart.promotions.apply`/`.remove` have never rejected a non-active,
+// non-locked cart) and is left as-is rather than folded into this change, since widening it
+// is a separate, non-lock-related behavior change this step's own scope does not ask for.
 async function loadMutableCart(em: EntityManager, scope: CartPromotionsScope, cartId: string): Promise<Cart> {
   const cart = await findOneWithDecryption(
     em,
@@ -49,6 +58,7 @@ async function loadMutableCart(em: EntityManager, scope: CartPromotionsScope, ca
     scope,
   )
   if (!cart) throw notFound('[internal] cart not found')
+  assertCartNotLocked(cart)
   return cart
 }
 

@@ -21,10 +21,8 @@ export function resolveCartInactivityWindowMs(): number {
 /**
  * §9 `locked → active`: "a lock timeout (default 30 min)". `release-stale-locks` itself
  * compares against the already-stored `Cart.lockExpiresAt` column, so it does not call this
- * directly — it exists for Step 7.5's `cartService.lock` / command `cart.lock` (not yet built
- * in this worktree), which is what actually computes `lockExpiresAt = lockedAt + this value`
- * when a lock is acquired. Defined now so that step has one source of truth to reach for
- * instead of inventing its own constant.
+ * directly — it is `commands/lock.ts`'s `cart.lock` (Step 7.5) that calls this, computing
+ * `lockExpiresAt = lockedAt + this value` when a lock is acquired.
  */
 export const DEFAULT_LOCK_TIMEOUT_MINUTES = 30
 const MIN_LOCK_TIMEOUT_MINUTES = 1

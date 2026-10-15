@@ -49,6 +49,11 @@ export type CartPriceChangeReason =
   // identically whichever direction caused it, and nothing downstream branches on this
   // string beyond attaching it to `priceChanges`/`cart.price.changed`.
   | 'merge'
+  // Step 7.5 — §9 `active -> locked`: `cart.lock` "forces a whole-cart re-price" before it
+  // ever checks for a still-flagged line. Manually supplied by `commands/lock.ts`'s
+  // `cart.lock`, same as `'merge'`/`'promotion_applied'`/`'promotion_removed'` above —
+  // never detected by `detectCartRepriceTrigger` (§5.2 triggers 2-4 only).
+  | 'lock'
 
 export type CartPriceChange = {
   lineId: string

@@ -423,7 +423,11 @@ function isCartGetByIdInput(input: CartGetInput): input is CartGetByIdInput {
   return 'cartId' in input
 }
 
-function toCartSummary(cart: Cart): CartSummary {
+// Exported (Step 7.5) so `commands/lock.ts`'s `cart.lock`/`.unlock`/`.markConverted` can
+// build the same `CartSummary` shape after their own writes, instead of duplicating this
+// ~20-field mapping a third time — mirrors `commands/lines.ts`'s `toCartLineSnapshot`,
+// exported for the identical reason at Step 5.2.
+export function toCartSummary(cart: Cart): CartSummary {
   return {
     id: cart.id,
     tenantId: cart.tenantId,
@@ -703,12 +707,13 @@ const repriceCartCommand: CommandHandler<CartRepriceInput, CartRepriceResult> = 
     // to double-process), rows 1/2's survivor lines ARE now re-checked, and §6a.2's own
     // "whole-cart" framing is honored literally (every line, not just the ones a particular
     // merge happened to add this cycle) as a bonus defense-in-depth property.
-    // §6a.2 also names trigger 5 (checkout requests a lock) as a third call site, but
-    // `cart.lock` does not exist in this worktree yet — Step 7.5 extends this SAME condition
-    // with `|| input.trigger === 'lock'` once that command exists and needs this pass too;
-    // no premature trigger-reason value or phantom call site is added here for it.
+    // §6a.2 also names trigger 5 (checkout requests a lock) as a third call site — Step 7.5
+    // closes it: `commands/lock.ts`'s `cart.lock` dispatches this command with
+    // `trigger: 'lock'` specifically so this SAME pass runs with a freshly-resolved buyer
+    // context (§9, D-R4-22) before `cart.lock` ever checks for a still-flagged line.
     const runWholeCartRevisibilityPass =
-      (input.trigger === 'buyer_context_changed' || input.trigger === 'merge') && assortmentScope !== undefined
+      (input.trigger === 'buyer_context_changed' || input.trigger === 'merge' || input.trigger === 'lock') &&
+      assortmentScope !== undefined
     const wholeCartRevisibilityPhases: Array<() => Promise<void>> = runWholeCartRevisibilityPass
       ? [
           buildWholeCartRevisibilityPhase({
