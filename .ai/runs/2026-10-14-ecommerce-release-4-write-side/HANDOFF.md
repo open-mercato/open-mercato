@@ -1,10 +1,13 @@
 # Handoff — 2026-10-14-ecommerce-release-4-write-side
 
-**Last updated:** 2026-10-15T06:35:00Z (Phases 1-2 CLOSED; Phase 3 functionally closed — one open item for the owner; Phase 4 functionally closed — one open item for the owner)
+**Last updated:** 2026-10-15T08:15:00Z (Phases 1-2 CLOSED; Phase 3 functionally closed — one open item; Phase 4 functionally closed — one open item; Phase 5 in progress, Step 5.1 done)
 **Branch:** feat/release-4-write-side
 **PR:** https://github.com/adeptofvoltron/open-mercato/pull/15 (draft, base `develop` on the fork)
-**Current phase/step:** Phases 1-2 fully done. Phase 3 done except Step 3.4's Part A (open item). Phase 4 (cart module, Cart Phase 1) done through Step 4.9 except one CONC-05 concurrency bug (open item, same tier as 3.4 Part A — does NOT block Phase 5/6/7). Resume at Phase 5 (Cart Phase 2), Phase 6 (Promotions Phase 3), or Phase 7 (Cart Phase 3) per PLAN.md's own ordering.
-**Last commit:** see `git log` on `feat/release-4-write-side` for the exact tip — Step 4.9's commits (test suite + the `visibility_rejected` emission fix + docs) land immediately after this HANDOFF.md update.
+**Current phase/step:** Phases 1-2 fully done. Phase 3 done except Step 3.4's Part A (open item). Phase 4 done except Step 4.9's CONC-05 concurrency bug (open item, neither blocks downstream work). Phase 5 (Cart Phase 2, pricing behavior): Step 5.1 done. Resume at Step 5.2 (quantity tiers/`nextTier`) or 5.3 (quantity rules/availability advisory).
+**Last commit:** see `git log` on `feat/release-4-write-side` for the exact tip — Step 5.1's commits (the `cart.reprice` command + trigger 2-4 detection + docs) are the most recent.
+
+## OPEN ITEM 3 — not a bug, a design note for whoever reads `Cart.totals` next (Step 5.1)
+Per spec §5.2's own "it does not re-price on every read" line, `Cart.totals` is intentionally stale between re-pricing triggers — an ordinary `cart.lines.add`/`.update`/`.remove`/`.bulkAdd` call does NOT itself recompute the whole-cart aggregate (only `cart.reprice`, via triggers 1-4, does). A buyer who adds a line and GETs immediately (no buyer-context/currency/locale drift, inside the 30-min staleness budget) sees whatever `Cart.totals` was before that add — by design, not a regression. The release invariant's real guarantee lands at trigger 5 (checkout lock, Phase 7, mandatory, never skipped). Not an open item needing a fix — just a nuance worth knowing before assuming every `GET /current` shows a live total.
 
 ## OPEN ITEM 2 for the PR owner (Step 4.9, read this before Phase 5/7)
 `cart.lines.add`'s merge-by-quantity path (`commands/lines.ts`'s `loadMutableCart` read → insert-or-update `CartLine`) has no row lock and no unique-violation retry. Reproduced twice against real Postgres: 20 concurrent adds of the same product either 500 (the real `cart_lines_unique_line_key` unique index firing on a race) or silently settle at quantity 2 instead of 20 (a lost-update race). The regression test exists as `test.skip()` in `cart/__integration__/TC-CART-CONC-01-05-concurrency-idempotency.spec.ts` with the root cause documented inline. Not patched here deliberately — the fix needs a pessimistic lock (or a Cart-aggregate lock) spanning the read and the command's `withAtomicFlush` phases, a transaction-boundary change to already-shipped code that this test-writing step should not rush. Full detail: NOTIFY.md's `2026-10-15T06:30:00Z` entry, PLAN.md's Step 4.9 row (marked `partial`).
@@ -37,10 +40,12 @@ Built the `cart` module from zero: scaffold/ACL/setup/events/encryption (4.1), e
 
 **Step 4.9** closed the Phase 1 gate: 4 new Playwright spec files under `cart/__integration__/` (19 pass, 1 skipped) plus 5 new Jest tests. Found and fixed a real dead-event bug (`cart.line.visibility_rejected` declared since Step 4.1, never emitted — now wired into `lines.add/.update/.bulkAdd`). Found, reproduced, and deliberately left open the CONC-05 concurrency bug above. R1-07/R1-08/CONC-04 correctly skipped (need unbuilt machinery: `cart.lock`, the §6a.2 whole-cart pass, `cart.reprice`).
 
-## Next concrete action
-Phase 4 (Cart Phase 1) is functionally closed. Next per PLAN.md's own ordering: Phase 5 (Cart Phase 2 — pricing behavior; triggers 1-4/7, quantity tiers, totals-equivalence without promotions — this is almost certainly also where Step 4.7's flagged whole-cart-totals gap gets closed), Phase 6 (Promotions Phase 3 — codes/usage), or Phase 7 (Cart Phase 3 — triggers 5/6, merge, lock/convert, promotions integration, the release gate). Read PLAN.md's Phase 5/6/7 sections fresh before dispatching the next step.
+**Step 5.1** (Phase 5 begins) built `cart.reprice` (triggers 2-4) and wired its detection into `cart.get`, reached by every `/current/*` route via `resolveCurrentCart`. Trigger 1 (Step 4.6) now shares the same `priceChanges`/`versionBumpReason` disclosure. Closed the "nothing ever computes a real `Cart.totals`" gap from Step 4.7/4.9 — see OPEN ITEM 3 above for the nuance (totals stay stable between triggers, by design). Trigger 7 investigated and deliberately deferred (no admin cart view exists). `TC-CART-CONC-04` (`test.skip()`'d since Step 4.9 for lack of `cart.reprice`) is now unblockable — Step 5.5 should un-skip it. 27 new tests (90 total in `cart`).
 
-**PR checkpoint status**: the last comment posted covers through Step 4.8 (`https://github.com/adeptofvoltron/open-mercato/pull/15#issuecomment-6182835780`). Post one more now covering Step 4.9 and Phase 4's close (both open items, 3.4 Part A and the new CONC-05 one, belong in it).
+## Next concrete action
+Step 5.2 (quantity tiers and `nextTier`) or Step 5.3 (quantity rules + computed availability advisory) — PLAN.md leaves their order flexible within Phase 5; either is fine to dispatch next. Step 5.4 (line-total discount mapping + totals-equivalence property test without promotions) and Step 5.5 (the Phase 2 gate tests, including the Playwright trigger-2/3/4 coverage Step 5.1 deferred — needs a new `backdateCartTotalsComputedAt` helper in `__integration__/helpers.ts`, same pattern as the existing backdate helpers) close out the phase.
+
+**PR checkpoint status**: the last comment posted covers through Step 4.9/Phase 4's close (`https://github.com/adeptofvoltron/open-mercato/pull/15#issuecomment-6183765290`). Post one more once a few more Phase 5 steps land, per this run's ~5-step checkpoint cadence.
 
 ## Blockers / open questions
 None blocking. Step 3.4 Part A is open but does not block anything downstream yet (see "OPEN ITEM" above).
