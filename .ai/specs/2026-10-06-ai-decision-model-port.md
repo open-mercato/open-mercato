@@ -1,6 +1,6 @@
 # AI Decision Model Port
 
-> Status: **Draft — design-only spec PR.** First consumer: [`2026-10-06-workflows-ai-decision-step.md`](2026-10-06-workflows-ai-decision-step.md).
+> Status: **Draft — design-only spec PR.** First consumer: the workflows `AI_DECISION` step, specified in `2026-10-06-workflows-ai-decision-step.md` (pending its own spec PR; not yet on `develop`).
 
 ## 📝 TLDR
 
@@ -11,7 +11,7 @@
 
 **Scope:**
 - **Types only** (no zod, no imports) in `@open-mercato/shared/lib/ai/decision-model.ts`, mirroring `llm-provider.ts`.
-- Zod schemas, registry, adapters, bootstrap and the DI service in `@open-mercato/ai-assistant`.
+- Zod schemas, registry (with built-in adapter registration), adapters and the DI service in `@open-mercato/ai-assistant`.
 - Env configuration, availability, timeout and abort, response validation, error taxonomy, and usage/cost reporting.
 
 **Out of scope:**
@@ -59,12 +59,12 @@
 
 | # | Decision | Rationale |
 |---|----------|-----------|
-| D1 | **Plain TS types only** in `packages/shared/src/lib/ai/decision-model.ts`. Zod schemas, registry, adapters, bootstrap and the service live in `packages/ai-assistant`. | Mirrors `llm-provider.ts`, which is types only. Consumers in `core` import types (erased at runtime) and get the service through DI. Limits stay in `ai-assistant`, so tightening them does not touch a `shared` contract. The registry has no consumer outside `ai-assistant`. |
+| D1 | **Plain TS types only** in `packages/shared/src/lib/ai/decision-model.ts`. Zod schemas, registry, adapters and the service live in `packages/ai-assistant`. | Mirrors `llm-provider.ts`, which is types only. Consumers in `core` import types (erased at runtime) and get the service through DI. Limits stay in `ai-assistant`, so tightening them does not touch a `shared` contract. The registry has no consumer outside `ai-assistant`. |
 | D2 | Neutral question types `choice` / `score` / `binary`. Options, levels **and returned probabilities are ordered arrays**, never key-indexed objects. | Vendor-neutral names. Order matters to current models, and JS objects reorder integer-like keys (`"10"`, `"2"`). |
 | D3 | **No LLM-emulation fallback.** No decision model configured means unavailable. | Explicit product decision. Keeps one meaning for `probabilities`, which must be model-native, not invented. |
-| D4 | Selection from env: `OM_DECISION_PROVIDER`, `OM_DECISION_MODEL`, and a per-module override `OM_DECISION_<MODULE>_MODEL`, where `<MODULE>` is `moduleId.toUpperCase()` with non-alphanumerics turned into `_` (e.g. `workflows` → `OM_DECISION_WORKFLOWS_MODEL`). The API key reuses `OPENROUTER_API_KEY`. The base URL is a **separate** `OM_DECISION_OPENROUTER_BASE_URL` (default `https://openrouter.ai/api`). | Same convention as `OM_AI_*`. `OPENROUTER_BASE_URL` already carries the LLM preset's `/api/v1` base (`openai-compatible-presets.ts:242`), so sharing it would misroute decision calls to `/api/v1/alpha/decisions`. |
+| D4 | Selection from env: `OM_DECISION_PROVIDER`, `OM_DECISION_MODEL`, and a per-module override `OM_DECISION_<MODULE>_MODEL`, where `<MODULE>` is `moduleId.toUpperCase()` with non-alphanumerics turned into `_` (e.g. `workflows` → `OM_DECISION_WORKFLOWS_MODEL`). The API key reuses `OPENROUTER_API_KEY`. The base URL is a **separate** `OM_DECISION_OPENROUTER_BASE_URL` (default `https://openrouter.ai/api`). | Same convention as `OM_AI_*`. `OPENROUTER_BASE_URL` already carries the LLM preset's `/api/v1` base (`OPENROUTER_PRESET.baseURLEnvKeys` in `openai-compatible-presets.ts`), so sharing it would misroute decision calls to `/api/v1/alpha/decisions`. |
 | D5 | **The service never throws to callers.** It returns a discriminated `{ ok: true, result } \| { ok: false, error }`. The entire body (serialization, adapter, validation, logging, `reportError`) sits in one catch. State that cannot be serialized (circular, BigInt) → `invalid_request`. Anything else unexpected → `provider_error`. | Consumers (workflow fallback routes) need a closed set of outcomes. |
-| D6 | **Mandatory timeout**: default 5 s, max 30 s, plus an optional caller `AbortSignal`, combined with `AbortSignal.any`. `timeout` vs `aborted` is decided by `signal.reason`. | The models are sub-second. A hard bound protects inline callers. |
+| D6 | **Mandatory timeout**: default 5 s, max 30 s (a `timeoutMs` above 30 000 is clamped to 30 000; a missing or non-positive one uses the default), plus an optional caller `AbortSignal`, combined with `AbortSignal.any`. `timeout` vs `aborted` is decided by `signal.reason`. | The models are sub-second. A hard bound protects inline callers. |
 | D7 | Strict zod validation of the response. Every option key must be present in `probabilities`, and the selected key must be one of them. | Never trust the vendor shape. A mismatch is `invalid_response`, not a guess. |
 | D8 | Privacy: `state` is never logged or persisted by the port. The vendor `user` field is never sent. `session_id` is caller-supplied and must be an opaque id (e.g. a workflow instance id). | State may carry tenant data. Identifiers stay pseudonymous. |
 | D9 | `fixture` adapter, **registered only when `OM_DECISION_FIXTURE_ENABLED=1` and `NODE_ENV !== 'production'`**. Deterministic rules:<br>- `choice`: the first option (in order) whose key appears as a whole word (case-insensitive) in the serialized state gets p = 1, the others 0. With no match, the distribution is uniform.<br>- `score`: a uniform distribution.<br>- `binary`: probability 0.5.<br>`confidence` equals the top probability. | Lets consumer integration tests exercise the success and low-confidence paths without a vendor. A double opt-in means a misconfigured staging host cannot silently serve fake answers. |
@@ -85,7 +85,7 @@
 ```mermaid
 flowchart LR
   C[Consumer module\n(e.g. workflows AI_DECISION)] -->|container.resolve('decisionModelService')\nsoft-optional| S[decisionModelService\nai-assistant NEW]
-  S --> R[decisionModelRegistry\nshared NEW]
+  S --> R[decisionModelRegistry\nai-assistant NEW]
   R --> A1[openrouter adapter\nai-assistant NEW]
   R --> A2[fixture adapter\nnon-prod NEW]
   A1 -->|POST /api/alpha/decisions| OR[(OpenRouter → Jev)]
@@ -95,7 +95,9 @@ A consumer resolves the service through DI inside a try/catch. When `ai-assistan
 
 ### Port types
 
-`@open-mercato/shared/lib/ai/decision-model.ts` holds **types only**. The matching zod schemas live in `ai-assistant/lib/decision-model-schemas.ts`:
+`@open-mercato/shared/lib/ai/decision-model.ts` holds **types only** (`DecisionQuestion`, `DecisionRequest`, `DecisionAnswer`, `DecisionResult`, `DecisionErrorCode`, `DecisionModelAdapter`; `EnvLookup` is imported as a type from `./llm-provider`). The matching zod schemas live in `ai-assistant/lib/decision-model-schemas.ts`. Because the types are hand-written rather than `z.infer`-derived (same precedent as `llm-provider.ts`), a type-level test asserts that `z.infer<typeof decisionRequestSchema>` and `DecisionRequest` are mutually assignable, so they cannot drift.
+
+Schemas (`ai-assistant`):
 
 ```ts
 export const decisionChoiceQuestionSchema = z.object({
@@ -123,6 +125,21 @@ export const decisionRequestSchema = z.object({
     .refine((questions) => Object.keys(questions).length >= 1 && Object.keys(questions).length <= 8),
   sessionId: z.string().max(256).optional(),
 })
+```
+
+Types (`shared`):
+
+```ts
+export type DecisionQuestion =
+  | { type: 'choice'; instructions: string; options: Array<{ key: string; criteria: string }> }
+  | { type: 'score'; instructions: string; levels: string[] }
+  | { type: 'binary'; instructions: string; criteria: { true: string; false: string } }
+
+export interface DecisionRequest {
+  state: unknown
+  questions: Record<string, DecisionQuestion>
+  sessionId?: string
+}
 
 export type DecisionAnswer =
   | { type: 'choice'; value: string; probabilities: Array<{ key: string; probability: number }>; confidence: number | null }
@@ -149,9 +166,11 @@ export interface DecisionModelAdapter {
 ```
 
 In `score` answers:
-- `value` is the probability-weighted position in `[0, levels.length - 1]`;
+- `value` is computed by the port from the validated (normalized) `probabilities` as the probability-weighted position in `[0, levels.length - 1]`; the vendor `score` field is not passed through;
 - `level` is the argmax index into the request's `levels`;
 - the vendor `legend` is dropped, because the caller already holds the level texts.
+
+In `binary` answers, `probability` is **P(true)**: the probability that the `criteria.true` description holds (the vendor `noul` value). There is no separate `confidence`; consumers threshold on `probability` directly.
 
 `probabilities` arrays follow the request's option and level order exactly.
 
@@ -159,15 +178,17 @@ Response validation (`invalid_response` on failure):
 - every probability lies in `[0, 1]`;
 - the set of keys or levels equals the request's;
 - the chosen value is a member of that set;
-- the sum is within 1 ± 0.02, in which case the distribution is normalized; a sum outside `[0.5, 1.5]` is rejected.
+- for `choice` and `score`, the sum of probabilities is within 1 ± 0.02, and the distribution is then normalized to sum to exactly 1; any other sum is rejected.
 
 ### Registry (`ai-assistant/lib/decision-model-registry.ts`)
 
-`decisionModelRegistry` provides `register(adapter)` (idempotent by id), `get(id)`, `list()`, and `resolve({ moduleId?, env? })`, using the D4 precedence `OM_DECISION_<MODULE>_MODEL` → `OM_DECISION_MODEL`. `resolve` returns either:
+`createDecisionModelRegistry({ env? })` builds a registry that registers its built-in adapters itself: `openrouter` always, and `fixture` only under the D9 double opt-in. It provides `register(adapter)` (idempotent by id), `get(id)`, `list()`, and `resolve({ moduleId?, env? })`, using the D4 precedence `OM_DECISION_<MODULE>_MODEL` → `OM_DECISION_MODEL`. `resolve` returns either:
 - `{ ok: true, adapter, modelId }`, or
 - `{ ok: false, reason: 'not_configured' | 'unknown_provider' | 'credentials_missing' | 'model_missing' | 'fixture_disabled' }`.
 
-The registry is pure, with no I/O.
+`OM_DECISION_PROVIDER=fixture` with no registered `fixture` adapter resolves to `fixture_disabled`, not `unknown_provider`.
+
+The registry is pure, with no I/O. Unlike the LLM registry, it is not a `shared` module-level singleton, so it needs no separate bootstrap file or import-graph guard: the DI singleton `decisionModelService` owns the only instance.
 
 ### Service (`ai-assistant`, DI key `decisionModelService`)
 
@@ -186,7 +207,7 @@ What `decide` does:
 4. Calls the adapter, maps errors, and validates the response.
 5. Logs `{ provider, model, durationMs, usage, questionCount, outcomeCodes }` through `createLogger('ai_assistant')`, never the state or the instructions. It calls `reportError` on `provider_error` / `invalid_response`.
 
-It is registered in `ai-assistant/di.ts` as a singleton next to `moderationService`.
+It is registered in `ai-assistant/di.ts` as a singleton next to `moderationService`, and creates its registry with `createDecisionModelRegistry()`.
 
 ### OpenRouter adapter (`ai-assistant/lib/decision-adapters/openrouter.ts`)
 
@@ -208,10 +229,6 @@ It is registered in `ai-assistant/di.ts` as a singleton next to `moderationServi
   - 524 → `timeout`
   - other 5xx / 529, or an unparseable body → `provider_error`
 - Uses server-side `fetch` with the abort signal. No new dependency.
-
-### Bootstrap
-
-`ai-assistant/lib/decision-bootstrap.ts` registers `openrouter`, and registers `fixture` only under the D9 double opt-in. It is imported by a `lib/decision-registry.ts` re-export, the same pattern `llm-registry.ts` uses to guarantee bootstrap through the import graph, enforced by an import test.
 
 ## Data Models
 
@@ -255,7 +272,8 @@ Both are `@experimental` for one minor release (D11), then **STABLE** under `BAC
 | 402 credits exhausted / 429 | `insufficient_credits` / `rate_limited` (no retry inside the port; consumers decide) |
 | Response missing an option key, or selecting an unknown key | `invalid_response` + `reportError` |
 | Probabilities sum within 1 ± 0.02 | Normalized; logged at debug |
-| Sum outside [0.5, 1.5], a value outside [0, 1], or a key set mismatch | `invalid_response` |
+| Sum outside 1 ± 0.02, a value outside [0, 1], or a key set mismatch | `invalid_response` |
+| `timeoutMs` above 30 000, or missing / non-positive | Clamped to 30 000 ms, or the 5 s default |
 | State contains secrets or PII | Sent as given (the caller's responsibility to minimize); never logged |
 
 ## Risks & Impact Review
@@ -298,11 +316,11 @@ Single phase. The port is useful only as a whole.
 
 ## 📋 Implementation Plan
 
-1. **Types** in `shared` (`decision-model.ts`, types only), plus **schemas** in `ai-assistant` (`decision-model-schemas.ts`). *Test:* schema unit tests for limits, order preservation (including integer-like keys) and the discriminated union.
-2. **Registry** in `ai-assistant` (`decision-model-registry.ts`): register, list and resolve with env precedence and reasons. *Test:* env-matrix unit tests (unset, unknown, credentials missing, model missing, per-module override, module-id → env-name rule).
+1. **Types** in `shared` (`decision-model.ts`, types only), plus **schemas** in `ai-assistant` (`decision-model-schemas.ts`). *Test:* schema unit tests for limits, order preservation (including integer-like keys) and the discriminated union, plus a type-level test that `z.infer<typeof decisionRequestSchema>` and `DecisionRequest` are mutually assignable.
+2. **Registry** in `ai-assistant` (`decision-model-registry.ts`, `createDecisionModelRegistry`): built-in registration, register, list and resolve with env precedence and reasons. *Test:* env-matrix unit tests (unset, unknown, credentials missing, model missing, `fixture` without opt-in → `fixture_disabled`, per-module override, module-id → env-name rule).
 3. **Fixture adapter + double opt-in.** *Test:* deterministic choice (whole-word match, no-match uniform), score and binary results; not registered without the flag or under `NODE_ENV=production`.
 4. **OpenRouter adapter**: wire mapping, separate base URL env, HTTP error mapping (including 404/422), response validation and normalization. *Test:* contract tests against request/response fixtures copied from the published schema, one per status code, plus an assertion that `OPENROUTER_BASE_URL` is ignored.
-5. **Service + DI + bootstrap**: `decisionModelService` with combined signals (timeout vs abort by reason), the token-based payload cap, the whole-body never-throw catch and the logging rules; a `decision-registry.ts` bootstrap import plus an import-graph test. *Test:* service unit tests per error code, circular-state serialization, an adapter that throws and a logger that throws, a hanging adapter, and a logging test asserting that no state or instructions are logged.
+5. **Service + DI**: `decisionModelService` with combined signals (timeout vs abort by reason, `timeoutMs` clamping), the token-based payload cap, the whole-body never-throw catch and the logging rules. *Test:* service unit tests per error code, circular-state serialization, timeout clamping, an adapter that throws and a logger that throws, a hanging adapter, and a logging test asserting that no state or instructions are logged.
 6. **Env + docs**: `.env.example` block + template sync, the `apps/docs` page "Decision models" (configuration, port usage example, caveats, data flow), and an `ai-assistant/AGENTS.md` task entry "How to use a decision model".
 
 Integration tests: N/A for this spec (no HTTP surface). The consumer specs cover end-to-end paths using the `fixture` adapter.
@@ -324,6 +342,7 @@ Integration tests: N/A for this spec (no HTTP surface). The consumer specs cover
 | root | Use DI (Awilix) for services | Compliant | `decisionModelService` |
 | root | Validate inputs with zod | Compliant | Request and response schemas |
 | root | No `any` | Compliant | `state: unknown` |
+| root | Derive TS types from zod via `z.infer` | **Deviation (precedent)** | Types are hand-written in `shared` (which must not depend on the `ai-assistant` schemas), as in `llm-provider.ts`; a type-level equality test prevents drift |
 | root | Put every external integration provider in a dedicated package | **Deviation (author decision)** | Adapter in `ai-assistant`, following the LLM-adapter precedent; recorded in Alternatives |
 | shared | Shared stays dependency-light, contracts minimal | Compliant | Types only in `shared` |
 | root | Ask before adding production dependencies | Compliant | None added (`fetch`) |
@@ -334,7 +353,7 @@ Integration tests: N/A for this spec (no HTTP surface). The consumer specs cover
 | BACKWARD_COMPATIBILITY.md | New contract surfaces documented | Compliant | Types, import paths, DI key are STABLE once released |
 
 ### Verdict
-Compliant, with one recorded, author-approved deviation.
+Compliant, with one recorded, author-approved deviation and one precedent-backed deviation (hand-written types).
 
 ## Changelog
 
@@ -355,3 +374,15 @@ Compliant, with one recorded, author-approved deviation.
   - Registry and schemas moved out of `shared` (types only remain).
   - `@experimental` plus open unions.
 - **Verdict:** Approved for core-team design review.
+
+### Review — 2026-10-15
+- **Reviewer:** `om-auto-review-pr` (specification review of open-mercato/open-mercato#7464)
+- **Fixed:**
+  - The consumer-spec link now says the spec is pending its own PR.
+  - The architecture diagram places the registry in `ai-assistant`, matching D1.
+  - One probability-sum rule: normalize within 1 ± 0.02, reject anything else.
+  - `binary.probability` is defined as P(true), with no `confidence`.
+  - The shared `DecisionQuestion`/`DecisionRequest` types are spelled out, the hand-written-types deviation is recorded, and a type-level equality test is added.
+  - The registry registers its built-ins itself (`createDecisionModelRegistry`). The bootstrap file, re-export and import-graph test are removed.
+  - `fixture_disabled` resolution, `timeoutMs` clamping and `score.value` derivation are specified.
+  - The preset reference is stable (constant name instead of a line number).
