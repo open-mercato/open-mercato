@@ -1,10 +1,10 @@
 # Handoff — 2026-10-14-ecommerce-release-4-write-side
 
-**Last updated:** 2026-10-15T13:55:00Z (Phases 1-2 CLOSED; Phase 3/4 functionally closed — one open item each; Phase 5 CLOSED; Phase 6 — Promotions Phase 3 — in progress, Steps 6.2-6.4 done)
+**Last updated:** 2026-10-15T14:15:00Z (Phases 1-2 CLOSED; Phase 3/4 functionally closed — one open item each; Phase 5 CLOSED; Phase 6 — Promotions Phase 3 — in progress, Steps 6.2-6.5 done)
 **Branch:** feat/release-4-write-side
 **PR:** https://github.com/adeptofvoltron/open-mercato/pull/15 (draft, base `develop` on the fork)
-**Current phase/step:** Phases 1-2 fully done. Phase 3 done except Step 3.4's Part A (open item). Phase 4 done except Step 4.9's CONC-05 concurrency bug (open item). Phase 5 (Cart Phase 2) fully done, two findings carried forward (currency/locale digest coupling). Phase 6 (Promotions Phase 3): Steps 6.2-6.4 done — service layer (codes+usage) real, `Code` CRUD commands built, code generation worker/routes shipped. Resume at Step 6.5 (reservation sweeper).
-**Last commit:** see `git log` on `feat/release-4-write-side` for the exact tip — Step 6.4's commits (generation worker/service/routes + docs) are the most recent.
+**Current phase/step:** Phases 1-2 fully done. Phase 3 done except Step 3.4's Part A (open item). Phase 4 done except Step 4.9's CONC-05 concurrency bug (open item). Phase 5 (Cart Phase 2) fully done, two findings carried forward (currency/locale digest coupling). Phase 6 (Promotions Phase 3): Steps 6.2-6.5 done — service layer (codes+usage) real, `Code` CRUD commands built, code generation worker/routes shipped, reservation sweeper shipped. Resume at Step 6.6 (backend pages).
+**Last commit:** see `git log` on `feat/release-4-write-side` for the exact tip — Step 6.5's commits (reservation sweeper + docs) are the most recent.
 
 ## OPEN ITEM 4 — RESOLVED at Step 5.5
 Step 5.5 stood up a fresh dev server against the still-current `om_cart49` disposable DB and ran the full `cart/__integration__/` suite live: 24 passed, 1 skipped (pre-existing CONC-05), 0 failed. The 4 existing Playwright spec files' Step 5.2/5.3 envelope-shape edits needed no fixes — they were correct by inspection AND are now confirmed correct by a real run.
@@ -64,10 +64,12 @@ Built the `cart` module from zero: scaffold/ACL/setup/events/encryption (4.1), e
 
 **Step 6.4** built the first worker in `promotions` (`code-generation.worker.ts`, queue `promotions-code-generate`) + its triggering service + the admin `codes`/`codes/[id]/generate`/`codes/[id]/generated` routes. Also closed a gap: `promotions.code.{create,update,delete}` CRUD commands never existed (Step 6.2 only built reserve/release/use) — the new `codes` route needed them, added mirroring `commands/promotions.ts`. 21 new tests (199 total in `promotions`).
 
-## Next concrete action
-Step 6.5 — reservation sweeper (queue worker + scheduler registration owned by `promotions`, releasing lapsed `CodeReservation` rows independently of `cart`'s own expiry sweeper — per the spec's own "either sweeper is sufficient on its own; both exist because a reservation must not depend on the other module's sweeper running"). Follow `cart`'s Step 4.8 sweeper-worker/scheduling pattern (`lib/sweepConfig.ts`-style env-var window, `lib/scheduling.ts`-style idempotent-uuid registration) as the precedent, adapted for this module's own queue/DI naming.
+**Step 6.5** built the `promotions`-side reservation sweeper (`services/code-reservation-sweeper.ts` + its worker), independent of `cart`'s own expiry/abandonment sweepers which already call `releaseCode`. 30-minute cadence, reasoned against the 24h TTL. 10 new tests (209 total in `promotions`).
 
-**PR checkpoint status**: the last comment posted covers through Steps 6.2-6.3 (`https://github.com/adeptofvoltron/open-mercato/pull/15#issuecomment-6188558451`). Step 6.4 is unreported; post the next checkpoint once a few more Phase 6 steps land.
+## Next concrete action
+Step 6.6 — Promotions codes backend pages (list, create, detail with generated-codes panel), i18n, DS tokens. This is a UI step (`om-backend-ui-design` skill territory) — read `.ai/ui-backend-components.md` and `packages/ui/AGENTS.md` before dispatching, and reuse `promotions`' own existing admin pages (built in earlier phases for `Promotion`/rule-tree) as the layout precedent.
+
+**PR checkpoint status**: the last comment posted covers through Steps 6.2-6.3 (`https://github.com/adeptofvoltron/open-mercato/pull/15#issuecomment-6188558451`). Steps 6.4-6.5 are unreported; post the next checkpoint once a few more Phase 6 steps land — Step 6.6 (UI) is a good natural point for one, since it's visually verifiable.
 
 ## Blockers / open questions
 None blocking. Step 3.4 Part A is open but does not block anything downstream yet (see "OPEN ITEM" above).
