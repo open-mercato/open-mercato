@@ -2692,6 +2692,7 @@ keyed on a link that does not exist. Checked against `sales`' entities on
   the implementation PR, rows `XXX → PLN` only, `date` at UTC midnight (details: spec DD9c). Reasons: AP/AR need the same rate (dependency direction), the provider registry is
   process-wide (hidden side effect on `autoFetch`), `currencies` already owns the other sources. Fallback only
   if OM Core objects: register it from `fx_revaluation`.
-- **Open:** payments spec needs `PaymentBatch.sentOn` and a "Read contract for other modules"
-  section (AP #5962); `markPaymentBatchSent` does not state its posting date today.
+- **Closed 2026-10-15:** `accounts-payable-payments.md` now has `PaymentBatch.sentOn` (the `operationDate`
+  of the payment entry; optional input on `markPaymentBatchSent`, default today, not later than today) and a
+  "Read contract for other modules" section (AP #5962). Before, the spec did not state the posting date.
 
