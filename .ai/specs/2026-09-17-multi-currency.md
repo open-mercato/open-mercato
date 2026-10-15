@@ -639,8 +639,8 @@ opposite of the adjusting entry made in the previous period."*
     module now exposes the command on its own pipeline: `sales` — `POST
     /api/sales/invoices/:id/exchange-rate/backfill`; `accounts_payable`
     — `POST
-    /api/accounts_payable/vendor-invoices/:id/exchange-rate/backfill`
-    (path to be aligned with the owning spec). Contract, the same for
+    /api/accounts_payable/invoices/:id/exchange-rate/backfill`
+    (path as defined in `accounts-payable.md`, 2026-10-15). Contract, the same for
     both: body `{}`; requires the owning module's own invoice-manage
     feature, not an `fx_revaluation` one; resolves `exchangeRate` with
     the same rule as a new document (Design decision 2:
@@ -1259,10 +1259,10 @@ sibling spec PRs.
 | `packages/core/src/modules/currencies/services/providers/nbpTableA.ts` | New (Implementation Plan Step 0) — Table A provider, `source: 'NBP_A'`, `type = null`; lives in `currencies`, not in this module (Design decision 9c) |
 | `packages/core/src/modules/currencies/di.ts` | Patch (Step 0) — register the Table A provider next to `NBPProvider` and `RaiffeisenPolandProvider` |
 | `packages/core/src/modules/currencies/services/README.md` | Patch (Step 0) — document `NBP_A` (source, `type = null`, fetched by `autoFetch` with the other providers) |
-| `.ai/specs/2026-09-06-accounts-payable.md` | Patch — `VendorInvoice.exchangeRate`, `backfill` command/route, immutability guard |
+| `.ai/specs/2026-09-06-accounts-payable.md` | Patch — `VendorInvoice.exchangeRate`, `backfill` command/route, immutability guard (done 2026-10-15) |
 | `.ai/specs/2026-09-06-accounts-payable-payments.md` | Patch — read contract incl. `PaymentBatch.sentOn` (done 2026-10-15) |
-| sales-invoice-GL-posting spec | Patch — `SalesInvoice.currencyId`/`exchangeRate`, `backfill` command/route, post-posting immutability guard (Design decision 15) |
-| `.ai/specs/2026-09-10-cash-bank-management.md` | Patch — default `bookedExchangeRate` from invoice only when bank currency = base (Design decision 14), read contract (Design decision 17). No settlement precondition. |
+| sales-invoice-GL-posting spec | Patch — `SalesInvoice.currencyId`/`exchangeRate`, `backfill` command/route, post-posting immutability guard (Design decision 15) (done 2026-10-15: the spec lists what `sales` must do; the code belongs to `sales`) |
+| `.ai/specs/2026-09-10-cash-bank-management.md` | Patch — default `bookedExchangeRate` from invoice only when bank currency = base (Design decision 14), read contract (Design decision 17). No settlement precondition. (done 2026-10-15: the withdrawn `PRIOR_VALUATION_NOT_REVERSED` paragraph removed) |
 
 ## Migration & Backward Compatibility
 
@@ -1518,8 +1518,8 @@ and why.
   prerequisite is not built.
 - **Open, owned by other specs:** ledger #5663/#6340 and the
   sales/AP/payments/cash-bank specs this one depends on are still open PRs.
-  (The payments read contract was added on 2026-10-12 and `PaymentBatch.sentOn`
-  on 2026-10-15, Design decisions 17/18.)
+  The sibling-spec patches are written (AP invoices, AP payments incl.
+  `sentOn`, sales GL posting, cash-bank), pending their own review.
 
 ### Verdict
 
@@ -1800,3 +1800,16 @@ reviewed by a maintainer.
 and the read-contract paragraph of 2026-10-12 lists `sentOn` too. The ⚠ on Design decision 18
 is removed and the "Blocked on" entry for the payments spec now refers to open
 PRs only. Not yet reviewed by a maintainer.
+
+### 2026-10-15 (cont. — sibling-spec patches written)
+
+- `accounts-payable.md`: `backfillVendorInvoiceExchangeRate` (route
+  `POST /api/accounts_payable/invoices/:id/exchange-rate/backfill`), draft
+  re-resolution, freeze after posting.
+- Sales GL posting spec: lists what `sales` must do (backfill command,
+  re-resolution in `sales.invoices.update`, freeze after posting).
+- `cash-bank-management.md`: the withdrawn `PRIOR_VALUATION_NOT_REVERSED`
+  paragraph is removed (it contradicted Design decision 12) and the read
+  contract for `fx_revaluation` is added.
+- The AP route path in Design decision 15 is now the one defined in the AP spec.
+Not yet reviewed by a maintainer.
