@@ -1063,3 +1063,16 @@
 .check-field { display: flex; align-items: flex-start; gap: 0.625rem; cursor: pointer; }
 .check-field input[type="checkbox"] { width: 1rem; height: 1rem; margin: 0.1875rem 0 0; accent-color: var(--primary); flex: none; }
 .check-field .t-label { display: block; }
+/* Phone width: the backoffice sidebar collapses (as the real shell does) so the page keeps the
+   full width; to-scale drawings scroll inside their card. The portal tab bar scrolls instead of
+   clipping, and the review toolbar wraps instead of overflowing. */
+@media (max-width: 48rem) {
+  .app { grid-template-columns: 1fr; }
+  .app > .sidebar { display: none; }
+  .portal-nav { overflow-x: auto; scrollbar-width: none; }
+  .portal-nav-item { flex: none; white-space: nowrap; }
+}
+@media (max-width: 40rem) {
+  .doc-toolbar { flex-wrap: wrap; justify-content: center; max-width: calc(100vw - 1.5rem); }
+  .proto-toolbar { flex-wrap: wrap; justify-content: center; max-width: calc(100vw - 1.5rem); }
+}

@@ -254,7 +254,7 @@ and the booking and lease notifications in the portal's bell.
   module's scope.
 - **Sales documents** = this module creates sales documents but does not own them. Activating a
   lease creates a sales order directly (the quote step is optional in sales and skipped): one line
-  for the lease's product, quantity = months, unit price = monthly rate; on the invoice issue day this module issues that month's invoice
+  for the lease's product, quantity = months, unit price = monthly rate; rent is billed in advance — the first month as soon as the lease gets its order, then each month's invoice on the invoice issue day at the start of that month; ending a lease early credits the part of a month already invoiced. This module issues those invoices
   against the order, so every invoice carries the lease version's product and rate. Each confirmed
   booking creates its own sales order (product and price as booked, no quote); cancelling the
   booking moves that order to the configured cancelled status. Order and invoice numbers are shown
@@ -586,12 +586,12 @@ Acceptance criteria:
 
 ### US-E3 — Correct a lease
 **As a** building manager
-**I want to** fix an office, a date or a rate on an existing lease
+**I want to** fix a date or a rate on an existing lease
 **So that** the records the rest of the product reads from stay right.
 
 Acceptance criteria:
-- Office, dates and rate are editable; the tenant is not — moving a lease to a different company is
-  a new lease.
+- Dates and rate are editable; the unit and the tenant are not — moving a tenant to another unit,
+  or a lease to another company, is a new lease (the lease was signed for that unit's product).
 - There is a direct path from the lease to its office on the floor plan.
 - Delete is separated from save and confirmed separately.
 
@@ -621,6 +621,8 @@ Acceptance criteria:
 **So that** I don't use it to end a tenancy and leave the floor plan lying.
 
 Acceptance criteria:
+- A lease that has had an invoice issued under it cannot be deleted — the dialog says so and points
+  to ending it instead; deleting is only for a record entered in error before anything was billed.
 - The confirmation states that deleting the record does not end the tenancy, and names the action
   that does.
 - It names the visible consequence — the office reading as vacant while the tenant is still in it —

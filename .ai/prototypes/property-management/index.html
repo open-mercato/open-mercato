@@ -131,7 +131,7 @@
         <a href="#s16" data-screen="s16">16 Leases · Detail</a>
         <a href="#s17" data-screen="s17">17 Leases · Extend</a>
         <a href="#s18" data-screen="s18">18 Leases · Proposal sent</a>
-        <a href="#s19" data-screen="s19">19 Leases · Delete</a>
+        <a href="#s19" data-screen="s19">19 Leases · Delete (refused)</a>
       </div>
     </div>
     <div class="screen-menu-group" data-surface="backoffice">
@@ -2711,7 +2711,7 @@
     <span class="surface-tag" data-surface="backoffice"><svg><use href="#ic-layout-dashboard"/></svg> Backoffice</span>
     <h2>12. Buildings — edit a building and its floors</h2>
     <p>The manager renames a building, corrects its address, renames its floors, and adds or removes floors at the top or bottom by changing the floor counts.</p>
-    <div class="screen-refs"><span class="ref">§Epic D</span><span class="ref">US-D2</span><span class="ref">US-D3</span></div>
+    <div class="screen-refs"><span class="ref">§Epic D</span><span class="ref">US-D2</span><span class="ref">US-D3</span><span class="ref">US-D5</span><span class="ref">US-D6</span></div>
   </div>
 
 <div class="frame">
@@ -3646,7 +3646,7 @@
     <span class="surface-tag" data-surface="backoffice"><svg><use href="#ic-layout-dashboard"/></svg> Backoffice</span>
     <h2>16. Leases — lease detail, no extension proposed yet</h2>
     <p>The manager opens a lease that is nearly up, sees that nothing has been offered to the tenant yet, and starts the extension from here.</p>
-    <div class="screen-refs"><span class="ref">§Epic E</span><span class="ref">US-E3</span><span class="ref">US-E4</span></div>
+    <div class="screen-refs"><span class="ref">§Epic E</span><span class="ref">US-E3</span><span class="ref">US-E4</span><span class="ref">US-E6</span></div>
   </div>
 
 <div class="frame">
@@ -3713,12 +3713,12 @@
             <div class="col stack-4">
               <div class="row-4 wrap">
                 <div class="field">
-                  <label for="pm-field-13">Building <span class="req">*</span></label>
-                  <select id="pm-field-13" class="select" style="max-width:14rem"><option selected>Harbor Point</option><option>Linden House</option><option>Foundry Yard</option></select>
+                  <label>Building</label>
+                  <span class="t-body">Harbor Point</span>
                 </div>
                 <div class="field">
-                  <label for="pm-field-14">Unit <span class="req">*</span></label>
-                  <select id="pm-field-14" class="select" style="max-width:18rem"><option selected>202 · 2nd Floor — West Wing</option></select>
+                  <label>Unit</label>
+                  <span class="t-body">202 · 2nd Floor — West Wing</span>
                 </div>
               </div>
               <div class="field">
@@ -3810,7 +3810,7 @@
     <div class="note"><b>2</b><span>"Extend lease" is the primary action on a lease that is ending, sitting next to Save rather than buried in a menu — it is the thing a manager opened this lease to do.</span></div>
     <div class="note"><b>3</b><span>The expiry banner leads with the days left and states plainly that nothing has been proposed. "Ending soon" without "and nobody has acted on it" is only half the information.</span></div>
     <div class="note"><b>4</b><span>"Show on floor plan" goes to the same office's panel (screen 5c) — the two views of this lease, one spatial and one contractual.</span></div>
-    <div class="note"><b>5</b><span>The tenant is read-only text rather than an editable picker: moving a lease to a different company is not an edit, it is a new lease. Office, dates and rate are editable because those are ordinary corrections.</span></div>
+    <div class="note"><b>5</b><span>The tenant and the unit are read-only: moving a lease to another company or another unit is not an edit, it is a new lease — the lease was signed for this unit's product. Dates and rate are editable because those are ordinary corrections; each correction becomes a new version in History.</span></div>
     <div class="note"><b>6</b><span>Terminating a lease early is not modeled. Shortening the end date is an edit; ending a lease with notice, handover and a final invoice is its own flow (§Lease lifecycle).</span></div>
     <div class="note"><b>7</b><span>The lease records the product it was signed for — "Private office — up to 10 people" — and keeps it even if Office 202's product changes later. History lists every version of the lease's product, term and rate, each with the invoices billed under it. This lease began as a proposal: Nordic Design Studio approved quote SQ-2024-0388 in their portal, which converted it to sales order SO-2024-0412 (one line for that product at the monthly rate) and issued the first invoice; on the 1st of each month since, this module has issued that month's invoice against the order. The order and invoices are sales records outside this prototype, so their links toast.</span></div>
   </div>
@@ -3991,7 +3991,7 @@
     <span class="surface-tag" data-surface="backoffice"><svg><use href="#ic-layout-dashboard"/></svg> Backoffice</span>
     <h2>18. Leases — extension proposal sent</h2>
     <p>The proposal is out, and the lease now shows what was offered and that the tenant has not answered yet.</p>
-    <div class="screen-refs"><span class="ref">§Epic E</span><span class="ref">US-E4</span></div>
+    <div class="screen-refs"><span class="ref">§Epic E</span><span class="ref">US-E4</span><span class="ref">US-E6</span></div>
   </div>
 
 <div class="frame">
@@ -4090,12 +4090,12 @@
             <div class="col stack-4">
               <div class="row-4 wrap">
                 <div class="field">
-                  <label for="pm-field-23">Building <span class="req">*</span></label>
-                  <select id="pm-field-23" class="select" style="max-width:14rem"><option selected>Harbor Point</option><option>Linden House</option><option>Foundry Yard</option></select>
+                  <label>Building</label>
+                  <span class="t-body">Harbor Point</span>
                 </div>
                 <div class="field">
-                  <label for="pm-field-24">Unit <span class="req">*</span></label>
-                  <select id="pm-field-24" class="select" style="max-width:18rem"><option selected>202 · 2nd Floor — West Wing</option></select>
+                  <label>Unit</label>
+                  <span class="t-body">202 · 2nd Floor — West Wing</span>
                 </div>
               </div>
               <div class="field">
@@ -4202,7 +4202,7 @@
 <section class="screen" id="s19">
   <div class="screen-meta">
     <span class="surface-tag" data-surface="backoffice"><svg><use href="#ic-layout-dashboard"/></svg> Backoffice</span>
-    <h2>19. Leases — delete confirmation</h2>
+    <h2>19. Leases — delete refused for an invoiced lease</h2>
     <p>The manager is told what deleting a lease record actually does — and what it does not — before it happens.</p>
     <div class="screen-refs"><span class="ref">§Epic E</span><span class="ref">US-E5</span></div>
   </div>
@@ -4271,12 +4271,12 @@
             <div class="col stack-4">
               <div class="row-4 wrap">
                 <div class="field">
-                  <label for="pm-field-28">Building <span class="req">*</span></label>
-                  <select id="pm-field-28" class="select" style="max-width:14rem"><option selected>Harbor Point</option><option>Linden House</option><option>Foundry Yard</option></select>
+                  <label>Building</label>
+                  <span class="t-body">Harbor Point</span>
                 </div>
                 <div class="field">
-                  <label for="pm-field-29">Unit <span class="req">*</span></label>
-                  <select id="pm-field-29" class="select" style="max-width:18rem"><option selected>202 · 2nd Floor — West Wing</option></select>
+                  <label>Unit</label>
+                  <span class="t-body">202 · 2nd Floor — West Wing</span>
                 </div>
               </div>
               <div class="field">
@@ -4365,43 +4365,34 @@
       <div class="modal">
         <div class="modal-head">
           <div class="row-3">
-            <span class="empty-icon" style="color:var(--status-error-icon);background:var(--status-error-bg)"><svg><use href="#ic-warn"/></svg></span>
+            <span class="empty-icon" style="color:var(--status-warning-icon);background:var(--status-warning-bg)"><svg><use href="#ic-warn"/></svg></span>
             <div class="col" style="gap:0.25rem">
-              <h3 class="t-section">Delete lease L-2024-018?</h3>
-              <span class="t-hint">This cannot be undone.</span>
+              <h3 class="t-section">Lease L-2024-018 can't be deleted</h3>
+              <span class="t-hint">24 invoices were issued under it.</span>
             </div>
           </div>
         </div>
         <div class="modal-body">
-          <div class="alert alert-error">
+          <div class="alert alert-warning">
             <svg><use href="#ic-warn"/></svg>
-            <div><span class="alert-title">This deletes the record, it does not end the tenancy</span><div class="t-hint">Office 202 would immediately read as vacant on the floor plan while Nordic Design Studio is still in it, and the outstanding extension proposal would go with it. Delete is for a record entered in error — to end a real tenancy, change its end date instead.</div></div>
-          </div>
-          <div class="alert alert-info">
-            <svg><use href="#ic-info"/></svg>
-            <div><span class="alert-title">24 invoices stay</span><div class="t-hint">Invoices already issued against this lease are not deleted and would be left without one.</div></div>
-          </div>
-          <div class="field">
-            <label for="pm-field-33">Type the lease reference to confirm</label>
-            <input id="pm-field-33" class="input" type="text" value="" placeholder="L-2024-018" style="max-width:20rem" />
+            <div><span class="alert-title">Delete is only for a lease entered by mistake</span><div class="t-hint">Once anything has been invoiced, the lease stays on record with its sales order and invoices. To finish a tenancy, end the lease: set its end date, and anything already invoiced after that date is credited.</div></div>
           </div>
         </div>
         <div class="modal-foot">
-          <span class="t-hint">Esc to cancel · ⌘↵ to confirm</span>
+          <span class="t-hint">Esc to close</span>
           <div class="row">
-            <button class="btn btn-outline" type="button" data-goto="s16">Cancel</button>
-            <button class="btn btn-destructive" type="button" data-goto="s14"><svg><use href="#ic-trash"/></svg> Delete lease</button>
+            <button class="btn btn-outline" type="button" data-goto="s16">Close</button>
+            <button class="btn btn-primary" type="button" data-goto="/backend/facilities/leases/L-2024-018/end">End lease instead</button>
           </div>
         </div>
       </div>
     </div>
   </div>
   <div class="notes">
-    <div class="note"><b>1</b><span>The dialog leads with the distinction that actually matters: deleting the record is not ending the tenancy. A manager reaching for Delete because a tenant is leaving would be doing the wrong thing, and the dialog says so and names the right one.</span></div>
-    <div class="note"><b>2</b><span>It states the visible consequence — office 202 flipping to vacant on the floor plan while the tenant is still in it — rather than a generic "are you sure".</span></div>
-    <div class="note"><b>3</b><span>It also names what survives: 24 issued invoices would be left without a lease. Same honesty rule as the building deletion (screen 13).</span></div>
-    <div class="note"><b>4</b><span>Typing the lease reference is required, the same bar as deleting a building — both remove a record other screens depend on.</span></div>
-    <div class="note"><b>5</b><span>Every dialog here takes ⌘/Ctrl+Enter to submit and Escape to cancel.</span></div>
+    <div class="note"><b>1</b><span>Delete is refused for any lease that has been invoiced: its sales order and invoices must keep pointing at a lease. The dialog says why and offers the action the manager most likely wants — ending the lease — instead of a confirmation that cannot succeed.</span></div>
+    <div class="note"><b>2</b><span>Ending early credits the part of any month already invoiced after the end date (billing is in advance), so ending is the safe way out of a tenancy. Ending has no screen in this prototype, so the button toasts.</span></div>
+    <div class="note"><b>3</b><span>A lease with nothing invoiced yet — for example one created before billing is switched on — can still be deleted; that version of this dialog asks for the reference to be typed, the same bar as deleting a building (screen 13). An open proposal is withdrawn rather than deleted.</span></div>
+    <div class="note"><b>4</b><span>Every dialog here takes ⌘/Ctrl+Enter to submit and Escape to cancel.</span></div>
   </div>
 </section>
 <!-- ============================================================= -->
@@ -8259,7 +8250,7 @@
       <header class="portal-header">
         <div class="portal-brand"><span class="brand-mark" aria-hidden="true">AC</span> Acme Corp</div>
         <div class="portal-account">
-          <div class="portal-bell-wrap">
+          <div class="portal-bell-wrap" data-notifications="anna">
             <button class="btn btn-ghost btn-icon portal-bell" type="button" aria-label="Notifications" aria-haspopup="true" aria-expanded="false"><svg><use href="#ic-bell"/></svg></button>
           </div>
           <span class="avatar avatar-sm">AZ</span>
@@ -8334,6 +8325,7 @@
     <div class="note"><b>2</b><span>Approve and Decline need the <code class="t-mono">portal.property_leases.manage</code> feature, which only the company's portal admin has by default; other users of the company see the proposal without the buttons.</span></div>
     <div class="note"><b>3</b><span>Approving accepts sales quote SQ-2026-0514: it becomes the lease's sales order, the lease becomes active, Office 206 turns Occupied on the floor plan from 1 Oct, and the first month is invoiced. Declining marks the quote rejected and releases the office; the customer can still approve until 15 Sep. Neither result has its own screen here, so both buttons toast.</span></div>
     <div class="note"><b>4</b><span>Office 210 is shown briefly because this screen is about the proposal; its full card looks like those on screen 31.</span></div>
+    <div class="note"><b>5</b><span>Open the bell: sending the proposal created a portal notification for the company's users who can see leases ("New lease proposal: Office 206"), and it links straight to this page. A reminder follows three days before the deadline.</span></div>
   </div>
 </section>
 
@@ -8391,8 +8383,30 @@
       <li><button type="button" class="notif-item is-unread" data-goto="s33">
         <span class="notif-icon notif-icon-error"><svg><use href="#ic-clock"/></svg></span>
         <span class="notif-body">
-          <span class="notif-title">Your lease extension offer is waiting</span>
+          <span class="notif-title">Your lease extension proposal is waiting</span>
           <span class="notif-meta">Office 202 · lease ends 30 Sep · respond by 20 Sep</span>
+          <span class="notif-time">2 days ago</span>
+        </span>
+      </button></li>
+    </ul>
+    <div class="notif-foot">
+      <button class="btn btn-ghost btn-sm" type="button">Mark all as read</button>
+    </div>
+  </div>
+</template>
+
+<template id="tpl-portal-notifications-anna">
+  <div class="notif-panel" hidden>
+    <div class="notif-head">
+      <span class="t-label">Notifications</span>
+      <span class="notif-unread-count">1 unread</span>
+    </div>
+    <ul class="notif-list">
+      <li><button type="button" class="notif-item is-unread" data-goto="s43">
+        <span class="notif-icon notif-icon-info"><svg><use href="#ic-send"/></svg></span>
+        <span class="notif-body">
+          <span class="notif-title">New lease proposal: Office 206</span>
+          <span class="notif-meta">Harbor Point · from 1 Oct 2026 · respond by 15 Sep</span>
           <span class="notif-time">2 days ago</span>
         </span>
       </button></li>

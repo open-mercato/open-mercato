@@ -3,7 +3,7 @@
 This directory contains a static, pre-implementation prototype for the `property_management` core
 module (office-space management), derived from `.ai/prototypes/property-management.requirements.md`: the floor plan and
 its unit panels, floors with their spaces and units, Buildings, Leases, Bookings and Settings, plus
-the customer-portal Bookings, My lease and notifications screens (screens 27-37).
+the customer-portal Bookings, My leases and notifications screens (screens 27-37 and 43).
 
 ## Review
 
@@ -29,11 +29,11 @@ The toolbar supports click-through, presentation, and comment modes. Comments ar
 |---|---------|
 | 1–9, 5b, 5c | Floor plan, leasable and bookable unit panels |
 | 10–13 | Buildings — list, new, edit, delete |
-| 14–19 | Leases — list, new lease or proposal (one checkbox), detail, extend (directly or as a proposal), proposal sent, delete |
+| 14–19 | Leases — list, new lease or proposal (one checkbox), detail, extend (directly or as a proposal), proposal sent, delete refused for an invoiced lease |
 | 20 | Bookings — all bookings of bookable units |
 | 21–26 | Floor — spaces & units, new unit, new space, resize space, edit a leased unit, new common area |
 | 27–30 | Customer portal — my bookings, book, review & confirm, booked |
-| 31–35 | Customer portal — my lease, no lease, lease ending, extension accepted / declined |
+| 31–35 | Customer portal — my leases, no lease, lease ending, extension approved / declined |
 | 36–37 | Customer portal — notifications, nothing new |
 | 38 | Unit — edit a bookable unit with upcoming bookings |
 | 39 | Floor — make a floor unavailable |
@@ -56,9 +56,9 @@ The toolbar supports click-through, presentation, and comment modes. Comments ar
   A building can also be archived for good (screen 40): it leaves every list and switcher but
   keeps its records read-only, and archiving is blocked while leases or bookings are still running.
 
-- **Customer portal** (screens 27-37) carries this module's portal pages only: Bookings, My lease
+- **Customer portal** (screens 27-37 and 43) carries this module's portal pages only: Bookings, My leases
   (with the extension offer) and the bell's booking/lease notifications. The portal nav lists
-  Bookings and My Lease; Access, Events, Invoices, Support and Extras belong to other modules and
+  Bookings and My leases; Access, Events, Invoices, Support and Extras belong to other modules and
   are left out, and links into them (e.g. "Ask about other terms") toast. Bookings list every
   bookable unit at a location grouped by floor, each naming its product and space, priced in złoty;
   the review step shows the unit on its
@@ -74,7 +74,7 @@ The toolbar supports click-through, presentation, and comment modes. Comments ar
 - The backend sidebar shows only this module's Facilities group (Floor Plan, Buildings, Leases,
   Bookings, Settings); other modules' groups, including CRM, are left out for clarity.
 - The operator is the standard mock company **Acme Corp**. The backend sidebar and the customer-portal
-  header (screens 27-37) show a text "AC" mark (`.brand-mark`, DS tokens) beside the name — no
+  header (screens 27-37 and 43) show a text "AC" mark (`.brand-mark`, DS tokens) beside the name — no
   third-party logos are used.
 - The building switcher's 7 locations (Harbor Point, Linden House, Foundry Yard, Millstone Court,
   Northgate, Riverside Tower, Elm Works) are Acme Corp's locations; names and addresses are made up. Only
