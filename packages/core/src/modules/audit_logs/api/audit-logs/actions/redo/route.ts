@@ -14,6 +14,7 @@ import type { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entit
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { authorizeAuditReplayWithEntityManager } from '@open-mercato/core/modules/audit_logs/lib/replayAuthorization'
 import {
@@ -208,7 +209,8 @@ export async function POST(req: Request) {
       return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     logger.error('Redo failed', { err })
-    return NextResponse.json({ error: 'Redo failed' }, { status: 400 })
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({ error: translate('audit_logs.error.redo_failed', 'Redo failed') }, { status: 400 })
   }
 }
 
