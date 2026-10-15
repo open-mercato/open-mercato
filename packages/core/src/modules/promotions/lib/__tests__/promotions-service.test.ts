@@ -137,18 +137,45 @@ function fakeEm(overrides: Partial<FakeEm> = {}): FakeEm {
 
 type FakeAuth = { tenantId?: string | null; orgId?: string | null } | null
 
+type FakeCommandBus = { execute: (commandId: string, options: { input: unknown; ctx: unknown }) => Promise<{ result: unknown }> }
+type FakePromotionCodeService = {
+  extendReservation?: (...args: unknown[]) => Promise<void>
+  validateCode?: (...args: unknown[]) => Promise<unknown>
+}
+
 function fakeContainer(options: {
   promotionCacheService: FakePromotionCacheService
   auth?: FakeAuth
   em?: FakeEm
+  commandBus?: FakeCommandBus
+  promotionCodeService?: FakePromotionCodeService
 }): PromotionsServiceContainer {
-  const { promotionCacheService, auth = { tenantId: TENANT, orgId: ORG }, em = fakeEm() } = options
+  const { promotionCacheService, auth = { tenantId: TENANT, orgId: ORG }, em = fakeEm(), commandBus, promotionCodeService } = options
   return {
     resolve: <T>(name: string): T => {
       if (name === 'promotionCacheService') return promotionCacheService as unknown as T
       if (name === 'auth') return auth as unknown as T
       if (name === 'em') return em as unknown as T
+      if (name === 'commandBus') {
+        if (!commandBus) throw new Error(`[internal] unexpected DI resolve in test: ${name}`)
+        return commandBus as unknown as T
+      }
+      if (name === 'promotionCodeService') {
+        if (!promotionCodeService) throw new Error(`[internal] unexpected DI resolve in test: ${name}`)
+        return promotionCodeService as unknown as T
+      }
       throw new Error(`[internal] unexpected DI resolve in test: ${name}`)
+    },
+  }
+}
+
+function fakeCommandBus(resultByCommandId: Record<string, unknown>): FakeCommandBus & { calls: Array<{ commandId: string; input: unknown }> } {
+  const calls: Array<{ commandId: string; input: unknown }> = []
+  return {
+    calls,
+    execute: async (commandId, options) => {
+      calls.push({ commandId, input: options.input })
+      return { result: resultByCommandId[commandId] }
     },
   }
 }
@@ -311,20 +338,123 @@ describe('PromotionsServiceImpl.evaluateForProduct', () => {
   })
 })
 
-describe('PromotionsServiceImpl — Phase 3+ stubs', () => {
+// Step 6.3's own job (`promotionUsageService.registerUsage`/`.revertUsage`) — these two
+// stay untouched one-line throwing placeholders; only the five code-service methods
+// below are this step's (6.2) scope.
+describe('PromotionsServiceImpl — Step 6.3 usage-service stubs', () => {
   it('throws a clear [internal] placeholder for every not-yet-implemented method', async () => {
     const service = new PromotionsServiceImpl(fakeContainer({ promotionCacheService: fakeCacheService([]) }))
 
-    await expect(service.reserveCode({ codeString: 'X', cartId: 'c', customerId: null })).rejects.toThrow(/\[internal\].*Phase 3/)
-    await expect(service.extendReservation('code', 'cart')).rejects.toThrow(/\[internal\].*Phase 3/)
-    await expect(service.validateCode({ codeString: 'X', cartId: 'c', customerId: null })).rejects.toThrow(/\[internal\].*Phase 3/)
-    await expect(
-      service.useCode({ codeId: 'id', codeString: 'X', cartId: 'c', customerId: null, type: 'static' }),
-    ).rejects.toThrow(/\[internal\].*Phase 3/)
-    await expect(service.releaseCode('code', 'cart')).rejects.toThrow(/\[internal\].*Phase 3/)
     await expect(
       service.registerUsage({ orderId: 'o', orderType: 'order', customerId: null, currency: 'USD', appliedPromotions: [] }),
     ).rejects.toThrow(/\[internal\].*Phase 3/)
     await expect(service.revertUsage({ orderId: 'o' })).rejects.toThrow(/\[internal\].*Phase 3/)
+  })
+})
+
+// Step 6.2 — orchestration coverage for the five code-service methods: proves wiring
+// (command dispatch for the three commanded methods, direct `promotionCodeService`
+// delegation for the two plain-read/housekeeping methods, scope resolution from `auth`),
+// not the code-resolution/eligibility/locking logic itself (covered by
+// `code-service.test.ts`).
+describe('PromotionsServiceImpl.reserveCode', () => {
+  it('dispatches through commandBus as `promotions.code.reserve` with the raw input', async () => {
+    const commandBus = fakeCommandBus({ 'promotions.code.reserve': { ok: true, codeId: 'code-1', type: 'static' } })
+    const service = new PromotionsServiceImpl(fakeContainer({ promotionCacheService: fakeCacheService([]), commandBus }))
+
+    const result = await service.reserveCode({ codeString: 'SAVE10', cartId: 'cart-1', customerId: 'cust-1' })
+
+    expect(result).toEqual({ ok: true, codeId: 'code-1', type: 'static' })
+    expect(commandBus.calls).toEqual([
+      { commandId: 'promotions.code.reserve', input: { codeString: 'SAVE10', cartId: 'cart-1', customerId: 'cust-1' } },
+    ])
+  })
+
+  it('fails closed with a 400 CrudHttpError when no `auth` is registered in the container', async () => {
+    const container: PromotionsServiceContainer = {
+      resolve: <T>(name: string): T => {
+        if (name === 'promotionCacheService') return fakeCacheService([]) as unknown as T
+        throw new Error(`[internal] not registered: ${name}`)
+      },
+    }
+    const service = new PromotionsServiceImpl(container)
+
+    expect.assertions(2)
+    try {
+      await service.reserveCode({ codeString: 'SAVE10', cartId: 'cart-1', customerId: null })
+    } catch (err) {
+      expect(isCrudHttpError(err)).toBe(true)
+      expect(isCrudHttpError(err) && err.status).toBe(400)
+    }
+  })
+})
+
+describe('PromotionsServiceImpl.useCode', () => {
+  it('dispatches through commandBus as `promotions.code.use` with the raw input', async () => {
+    const commandBus = fakeCommandBus({ 'promotions.code.use': { ok: true } })
+    const service = new PromotionsServiceImpl(fakeContainer({ promotionCacheService: fakeCacheService([]), commandBus }))
+
+    const result = await service.useCode({ codeId: 'code-1', codeString: 'SAVE10', cartId: 'cart-1', customerId: 'cust-1', type: 'static' })
+
+    expect(result).toEqual({ ok: true })
+    expect(commandBus.calls).toEqual([
+      {
+        commandId: 'promotions.code.use',
+        input: { codeId: 'code-1', codeString: 'SAVE10', cartId: 'cart-1', customerId: 'cust-1', type: 'static' },
+      },
+    ])
+  })
+})
+
+describe('PromotionsServiceImpl.releaseCode', () => {
+  it('dispatches through commandBus as `promotions.code.release` and discards its result', async () => {
+    const commandBus = fakeCommandBus({ 'promotions.code.release': { ok: true } })
+    const service = new PromotionsServiceImpl(fakeContainer({ promotionCacheService: fakeCacheService([]), commandBus }))
+
+    const result = await service.releaseCode('code-1', 'cart-1')
+
+    expect(result).toBeUndefined()
+    expect(commandBus.calls).toEqual([
+      { commandId: 'promotions.code.release', input: { codeId: 'code-1', cartId: 'cart-1' } },
+    ])
+  })
+})
+
+describe('PromotionsServiceImpl.validateCode', () => {
+  it('delegates directly to promotionCodeService (never a command)', async () => {
+    const calls: unknown[] = []
+    const promotionCodeService: FakePromotionCodeService = {
+      validateCode: async (...args) => {
+        calls.push(args)
+        return { valid: false, reason: 'code_invalid' }
+      },
+    }
+    const service = new PromotionsServiceImpl(
+      fakeContainer({ promotionCacheService: fakeCacheService([]), promotionCodeService }),
+    )
+
+    const result = await service.validateCode({ codeString: 'SAVE10', cartId: 'cart-1', customerId: null })
+
+    expect(result).toEqual({ valid: false, reason: 'code_invalid' })
+    expect(calls).toHaveLength(1)
+  })
+})
+
+describe('PromotionsServiceImpl.extendReservation', () => {
+  it('delegates directly to promotionCodeService (never a command)', async () => {
+    const calls: unknown[] = []
+    const promotionCodeService: FakePromotionCodeService = {
+      extendReservation: async (...args) => {
+        calls.push(args)
+      },
+    }
+    const service = new PromotionsServiceImpl(
+      fakeContainer({ promotionCacheService: fakeCacheService([]), promotionCodeService }),
+    )
+
+    const result = await service.extendReservation('code-1', 'cart-1')
+
+    expect(result).toBeUndefined()
+    expect(calls).toHaveLength(1)
   })
 })

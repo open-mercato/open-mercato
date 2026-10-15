@@ -1,8 +1,10 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { computeProductScopeKeys, PRODUCT_SCOPE_CATEGORY_PREFIX } from '@open-mercato/core/modules/catalog/lib/productScopeKeys'
 import { Currency } from '@open-mercato/core/modules/currencies/data/entities'
+import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { evaluatePromotions } from './evaluation-engine'
+import { PromotionCodeService } from './code-service'
 import type { PromotionCacheService } from '../services/promotion-cache'
 import type {
   BuyerContext,
@@ -34,7 +36,11 @@ export type PromotionsServiceContainer = {
 // Minimal shape this file actually reads off whatever is registered under the `auth` DI
 // token. NOT an existing contract: see the long comment on `resolvePromotionsServiceScope`
 // below for why this is a documented gap, not a precedent this file is following.
+// `sub` is additive (Step 6.2): the five code-service methods below build a
+// `CommandRuntimeContext` to dispatch through `commandBus`, which needs a full-shaped
+// `auth` (actor id included) — `evaluate`/`evaluateForProduct` above never read it.
 type PromotionsServiceAuthContext = {
+  sub?: string
   tenantId?: string | null
   orgId?: string | null
 } | null | undefined
@@ -88,6 +94,60 @@ function resolvePromotionsEm(container: PromotionsServiceContainer): EntityManag
   // Same fork-on-resolve precedent as `services/promotion-cache.ts`'s
   // `resolvePromotionEm` / `commands/promotions.ts`'s command handlers.
   return container.resolve<EntityManager>('em').fork()
+}
+
+// Step 6.2's five code-service methods need the full `auth` (not just tenant/org scope)
+// to build the `CommandRuntimeContext` `commandBus.execute()` requires for
+// `reserveCode`/`releaseCode`/`useCode` (§A.2a: registered commands). Deliberately
+// separate from `resolvePromotionsServiceScope` above (untouched — `evaluate`/
+// `evaluateForProduct` only ever need the two scope ids, never a command context).
+function resolvePromotionsServiceAuthAndScope(container: PromotionsServiceContainer): {
+  auth: NonNullable<PromotionsServiceAuthContext>
+  scope: PromotionsServiceScope
+} {
+  let auth: PromotionsServiceAuthContext = null
+  try {
+    auth = container.resolve<PromotionsServiceAuthContext>('auth')
+  } catch {
+    auth = null
+  }
+  const tenantId = auth?.tenantId ?? null
+  const organizationId = auth?.orgId ?? null
+  if (!auth || !tenantId || !organizationId) {
+    throw new CrudHttpError(400, {
+      error: '[internal] Tenant and organization scope are required for a promotion code operation',
+    })
+  }
+  return { auth, scope: { tenantId, organizationId } }
+}
+
+// Minimal `CommandRuntimeContext` for an in-process, non-HTTP caller of this facade —
+// same shape `translations/api/context.ts`'s route-edge builder produces, minus the
+// request-specific fields no module/worker caller has. `organizationScope: null` makes
+// `ensureOrganizationScope`/`ensureTenantScope` (called inside `commands/codes.ts`) fall
+// back to comparing against `selectedOrganizationId`/`auth.orgId` directly — exactly the
+// scope this function already resolved, so the command's own scope assertion always
+// passes for a legitimately-scoped caller.
+function buildPromotionsCommandContext(
+  container: PromotionsServiceContainer,
+  auth: NonNullable<PromotionsServiceAuthContext>,
+  scope: PromotionsServiceScope,
+): CommandRuntimeContext {
+  return {
+    container: container as unknown as CommandRuntimeContext['container'],
+    auth: auth as unknown as CommandRuntimeContext['auth'],
+    organizationScope: null,
+    selectedOrganizationId: scope.organizationId,
+    organizationIds: [scope.organizationId],
+  }
+}
+
+function resolvePromotionsCommandBus(container: PromotionsServiceContainer): CommandBus {
+  return container.resolve<CommandBus>('commandBus')
+}
+
+function resolvePromotionCodeService(container: PromotionsServiceContainer): PromotionCodeService {
+  return container.resolve<PromotionCodeService>('promotionCodeService')
 }
 
 // D-R4-21/C11 batch category resolution — reuses `catalog`'s own `computeProductScopeKeys`
@@ -272,24 +332,57 @@ export class PromotionsServiceImpl implements PromotionsService {
     }
   }
 
-  async reserveCode(_input: ReserveCodeInput): Promise<CodeReservationResult> {
-    throw new Error('[internal] reserveCode not implemented until Phase 3')
+  // §A.2a: a registered command (`promotions.code.reserve`) — "financially or budget
+  // consequential" per root AGENTS.md's command-pattern rule.
+  async reserveCode(input: ReserveCodeInput): Promise<CodeReservationResult> {
+    const { auth, scope } = resolvePromotionsServiceAuthAndScope(this.container)
+    const commandBus = resolvePromotionsCommandBus(this.container)
+    const ctx = buildPromotionsCommandContext(this.container, auth, scope)
+    const { result } = await commandBus.execute<ReserveCodeInput, CodeReservationResult>(
+      'promotions.code.reserve',
+      { input, ctx },
+    )
+    return result
   }
 
-  async extendReservation(_codeId: string, _cartId: string): Promise<void> {
-    throw new Error('[internal] extendReservation not implemented until Phase 3')
+  // §A.2a: plain housekeeping, never command-wrapped — bumps `CodeReservation.expiresAt`
+  // directly through `PromotionCodeService`.
+  async extendReservation(codeId: string, cartId: string): Promise<void> {
+    const { scope } = resolvePromotionsServiceAuthAndScope(this.container)
+    const em = resolvePromotionsEm(this.container)
+    await resolvePromotionCodeService(this.container).extendReservation(em, codeId, cartId, scope)
   }
 
-  async validateCode(_input: ReserveCodeInput): Promise<CodeValidationResult> {
-    throw new Error('[internal] validateCode not implemented until Phase 3')
+  // §A.2a: a plain read (no mutation) — never command-wrapped.
+  async validateCode(input: ReserveCodeInput): Promise<CodeValidationResult> {
+    const { scope } = resolvePromotionsServiceAuthAndScope(this.container)
+    const em = resolvePromotionsEm(this.container)
+    return resolvePromotionCodeService(this.container).validateCode(em, input, scope)
   }
 
-  async useCode(_input: UseCodeInput): Promise<CodeUseResult> {
-    throw new Error('[internal] useCode not implemented until Phase 3')
+  // §A.2a: a registered command (`promotions.code.use`).
+  async useCode(input: UseCodeInput): Promise<CodeUseResult> {
+    const { auth, scope } = resolvePromotionsServiceAuthAndScope(this.container)
+    const commandBus = resolvePromotionsCommandBus(this.container)
+    const ctx = buildPromotionsCommandContext(this.container, auth, scope)
+    const { result } = await commandBus.execute<UseCodeInput, CodeUseResult>(
+      'promotions.code.use',
+      { input, ctx },
+    )
+    return result
   }
 
-  async releaseCode(_codeId: string, _cartId: string): Promise<void> {
-    throw new Error('[internal] releaseCode not implemented until Phase 3')
+  // §A.2a: a registered command (`promotions.code.release`). The public signature
+  // returns `void` (§Public TypeScript Contract) — the command's own `{ ok: true }`
+  // result is intentionally discarded here, not re-shaped into the return type.
+  async releaseCode(codeId: string, cartId: string): Promise<void> {
+    const { auth, scope } = resolvePromotionsServiceAuthAndScope(this.container)
+    const commandBus = resolvePromotionsCommandBus(this.container)
+    const ctx = buildPromotionsCommandContext(this.container, auth, scope)
+    await commandBus.execute<{ codeId: string; cartId: string }, { ok: true }>(
+      'promotions.code.release',
+      { input: { codeId, cartId }, ctx },
+    )
   }
 
   async registerUsage(_input: RegisterUsageInput): Promise<{ ok: true; budgetExceeded: string[] }> {

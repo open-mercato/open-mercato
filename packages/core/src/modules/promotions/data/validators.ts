@@ -789,6 +789,40 @@ export const codeUsageCreateSchema = z.object({
 export type CodeUsageCreateInput = z.infer<typeof codeUsageCreateSchema>
 
 // ---------------------------------------------------------------------------
+// Code service inputs (§Public TypeScript Contract `ReserveCodeInput`/`UseCodeInput`,
+// Release 4 Phase 3 Step 6.2) — the top-level `PromotionsService` method payloads, as
+// opposed to `codeReservationCreateSchema`/`codeUsageCreateSchema` above, which validate
+// the already-resolved row shape persisted after a `codeString` lookup.
+// ---------------------------------------------------------------------------
+
+// `customerId` is required-but-nullable (`string | null`, never omitted) — distinct from
+// `clearableStringSchema`'s optional-and-nullable shape used by entity CRUD payloads.
+const requiredNullableCustomerIdSchema = z.string().trim().min(1).max(200).nullable()
+
+export const codeReserveInputSchema = z.object({
+  codeString: z.string().trim().min(1).max(100),
+  cartId: uuid(),
+  customerId: requiredNullableCustomerIdSchema,
+})
+
+export type CodeReserveInput = z.infer<typeof codeReserveInputSchema>
+
+// `codes/validate` (§Code Lifecycle) carries the identical body shape as `codes/reserve`.
+export const codeValidateInputSchema = codeReserveInputSchema
+
+export type CodeValidateInput = z.infer<typeof codeValidateInputSchema>
+
+export const codeUseInputSchema = z.object({
+  codeId: uuid(),
+  codeString: z.string().trim().min(1).max(100),
+  cartId: uuid(),
+  customerId: requiredNullableCustomerIdSchema,
+  type: promotionCodeTypeSchema,
+})
+
+export type CodeUseInput = z.infer<typeof codeUseInputSchema>
+
+// ---------------------------------------------------------------------------
 // PromotionUsage
 // ---------------------------------------------------------------------------
 
