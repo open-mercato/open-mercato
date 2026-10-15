@@ -10,7 +10,7 @@ Docker Command Parity
 Medium
 
 ## Description
-Verify that `yarn docker:up` starts the production-like stack (`docker-compose.fullapp.yml`) in detached mode and `yarn docker:down` tears it down. Confirm that monorepo-only exec commands are unavailable in this profile.
+Verify that `yarn docker:up` starts the production-like stack (`starters/docker/compose.fullapp.yml`) in detached mode and `yarn docker:down` tears it down. Confirm that monorepo-only exec commands are unavailable in this profile.
 
 ## Prerequisites
 - Docker Desktop is running
@@ -39,4 +39,4 @@ Verify that `yarn docker:up` starts the production-like stack (`docker-compose.f
 - With `JWT_SECRET` absent or empty in the root `.env`, `yarn docker:up` must fail before starting any service, naming the variable and the `openssl rand -hex 32` hint. A stack that comes up anyway means the signing-secret fallback has been reintroduced (see #5174) — anyone reading this repository could then forge tokens for the deployment
 - Setting `JWT_SECRET` to a placeholder (`JWT`) or to fewer than 32 characters must let Compose start the containers but stop the app itself, which exits non-zero with `Refusing to run in production with an unsafe signing secret`. Note that `apps/mercato/.env` is **not** the file to fix this in: Compose interpolates from the `.env` beside the compose file, and the app cannot override a variable already set in its container environment
 - Running both dev and production stacks simultaneously may cause port conflicts on 3000 — only one should be active at a time
-- `DOCKER_COMPOSE_FILE=docker-compose.fullapp.yml yarn docker:generate` should target the production profile explicitly and fail with the same wrapper-level unsupported-tooling message
+- `DOCKER_COMPOSE_FILE=starters/docker/compose.fullapp.yml yarn docker:generate` should target the production profile explicitly and fail with the same wrapper-level unsupported-tooling message

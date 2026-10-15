@@ -6,6 +6,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
+import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
 import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
 import { E } from '#generated/entities.ids.generated'
 import {
@@ -218,7 +219,7 @@ export async function restorePaymentSnapshot(em: EntityManager, snapshot: Paymen
       tenantId: entity.tenantId,
       values:
         snapshot.customFields && typeof snapshot.customFields === 'object'
-          ? (snapshot.customFields as Record<string, unknown>)
+          ? normalizeCustomFieldResponse(snapshot.customFields as Record<string, unknown>) ?? {}
           : {},
     })
   }
@@ -249,7 +250,14 @@ export async function restorePaymentSnapshot(em: EntityManager, snapshot: Paymen
   em.persist(entity)
 }
 
-async function recomputeOrderPaymentTotals(
+const NON_SETTLING_PAYMENT_STATUSES = new Set(['failed', 'canceled', 'cancelled'])
+
+export function paymentCountsTowardOrderBalance(payment: Pick<SalesPayment, 'status'>): boolean {
+  const status = typeof payment.status === 'string' ? payment.status.trim().toLowerCase() : ''
+  return !NON_SETTLING_PAYMENT_STATUSES.has(status)
+}
+
+export async function recomputeOrderPaymentTotals(
   em: EntityManager,
   order: SalesOrder,
   options?: { lock?: boolean }
@@ -281,10 +289,11 @@ async function recomputeOrderPaymentTotals(
     if (paymentId) paymentIds.add(paymentId)
   })
 
-  const payments =
+  const loadedPayments =
     paymentIds.size > 0
       ? await findWithDecryption(em, SalesPayment, { id: { $in: Array.from(paymentIds) }, deletedAt: null, ...scope }, {}, scope)
       : await findWithDecryption(em, SalesPayment, { order: orderId, deletedAt: null, ...scope }, {}, scope)
+  const payments = loadedPayments.filter(paymentCountsTowardOrderBalance)
 
   const resolvePaidAmount = (payment: SalesPayment) => {
     const captured = toNumber(payment.capturedAmount)

@@ -10,6 +10,8 @@ Use `@open-mercato/cache` for all caching needs. MUST NOT use raw Redis, SQLite,
 | SQLite | Use for single-server production deployments; local persistent convenience cache, tuned with WAL/`synchronous=NORMAL` | `CACHE_STRATEGY=sqlite` |
 | Redis | Use for multi-server production or latency-sensitive request paths with frequent cache writes | `CACHE_STRATEGY=redis` |
 
+The `memory` strategy is per process: a write on one instance never invalidates another instance's copy inline. A module relying on tag-based invalidation for correctness across multiple instances (e.g. the webhooks package's subscription cache, `OM_WEBHOOKS_SUBSCRIPTION_CACHE_TTL_MS`) needs `CACHE_STRATEGY=redis`, or a short TTL as a fallback, to converge promptly.
+
 ## Memory Strategy Bounds
 
 The memory strategy is bounded so a process-shared instance (`OM_BOOTSTRAP_CACHE`, long-lived workers, memory-backed CRUD list cache) cannot grow without limit on user-controllable key cardinality.

@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import {
@@ -20,6 +21,7 @@ import {
   CustomerDealStageTransition,
   CustomerPipelineStage,
 } from '../data/entities'
+import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
 import {
   dealCreateSchema,
   dealUpdateSchema,
@@ -55,6 +57,8 @@ import { canonicalDealStatus, isClosedDealStatus } from '../lib/dealStatus'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
+
+const dealCommandOutputSchema = z.object({ dealId: z.string().uuid() })
 
 const DEAL_ENTITY_ID = 'customers:customer_deal'
 const dealCrudIndexer: CrudIndexerConfig<CustomerDeal> = {
@@ -537,6 +541,7 @@ async function syncDealCompanies(
 
 const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
   id: 'customers.deals.create',
+  outputSchema: dealCommandOutputSchema,
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(dealCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -740,6 +745,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
 
 const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
   id: 'customers.deals.update',
+  outputSchema: dealCommandOutputSchema,
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(dealUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -1114,6 +1120,7 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       await deleteDealStageTransitions(em, record)
       await em.nativeDelete(CustomerDealPersonLink, { deal: record })
       await em.nativeDelete(CustomerDealCompanyLink, { deal: record })
+      await em.nativeDelete(CustomFieldValue, { entityId: DEAL_ENTITY_ID, recordId: record.id })
       em.remove(record)
       await em.flush()
 

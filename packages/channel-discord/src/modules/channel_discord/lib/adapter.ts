@@ -22,7 +22,11 @@ import type {
   VerifyWebhookInput,
 } from '@open-mercato/core/modules/communication_channels/lib/adapter'
 import { discordCapabilities } from './capabilities'
-import { DISCORD_CHANNEL_TYPE, DISCORD_PROVIDER_KEY } from './channel-identity'
+import {
+  DISCORD_CHANNEL_TYPE,
+  DISCORD_PROVIDER_KEY,
+  discordChannelExternalIdentifier,
+} from './channel-identity'
 import { parseDiscordCredentialsOrThrow, discordCredentialsSchema } from './credentials'
 import {
   DiscordApiError,
@@ -285,7 +289,7 @@ class DiscordChannelAdapter implements ChannelAdapter {
     }
     try {
       await getDiscordRestClient().getCurrentUser({ botToken: parsed.data.botToken })
-      return { ok: true }
+      return { ok: true, externalIdentifier: discordChannelExternalIdentifier(parsed.data.applicationId) }
     } catch (error) {
       const status = error instanceof DiscordApiError ? error.status : 0
       return {

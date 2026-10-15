@@ -422,9 +422,10 @@ function normalizeOrganizations(organizations: unknown): string[] | null {
 
 // Whether the caller expressed an intentional narrowing. `null` and `__all__`
 // are the two documented ways to say "every organization"; an empty list is the
-// editor's "no organization picked" state ("Empty = all organizations"), which
-// is not a restriction an administrator chose. Only a concrete list narrows, so
-// only a concrete list has to justify itself against the feature grant below.
+// editor's "no organization picked" state, which this route treats as
+// unrestricted rather than a deliberate restriction. Only a concrete list
+// narrows, so only a concrete list has to justify itself against the feature
+// grant below.
 function hasOrganizationRestriction(organizations: string[] | null): boolean {
   if (!organizations || organizations.length === 0) return false
   return !organizations.includes('__all__')

@@ -8,6 +8,9 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findApiKeyByOpencodeSessionId } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
+import { normalizeOpenCodeToolPart } from '@open-mercato/shared/lib/ai/opencode-tool-parts'
+import { fetchWithTimeout, resolveTimeoutMs } from '@open-mercato/shared/lib/http/fetchWithTimeout'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import {
   createOpenCodeClient,
   type OpenCodeClient,
@@ -120,6 +123,13 @@ export type OpenCodeHealthResponse = {
     version: string
   }
   mcp?: Record<string, { status: string; error?: string }>
+  // Pure MCP server health (GET {mcpUrl}/health), independent of OpenCode's
+  // own MCP binding status reported in `mcp` above.
+  mcpHealth?: {
+    healthy: boolean
+    status?: string
+    tools?: number
+  }
   search?: {
     available: boolean
     driver: string | null // 'meilisearch' or null
@@ -171,6 +181,35 @@ export async function handleOpenCodeMessage(
 }
 
 /**
+ * Probe the MCP HTTP server's own health endpoint (GET {mcpUrl}/health).
+ * This is a pure MCP liveness check — independent of whether OpenCode has
+ * successfully bound to the MCP server (that lives in `client.mcpStatus()`).
+ */
+async function checkMcpHealth(
+  mcpUrl: string
+): Promise<{ healthy: boolean; status?: string; tools?: number }> {
+  const base = mcpUrl.replace(/\/+$/, '')
+  try {
+    const res = await fetchWithTimeout(`${base}/health`, {
+      timeoutMs: resolveTimeoutMs(
+        process.env.MCP_HEALTH_TIMEOUT_MS ? Number.parseInt(process.env.MCP_HEALTH_TIMEOUT_MS, 10) : undefined,
+        5_000
+      ),
+    })
+    if (!res.ok) return { healthy: false }
+    const data = await readJsonSafe<{ status?: string; tools?: number }>(res, null)
+    if (!data) return { healthy: false }
+    return {
+      healthy: data.status === 'ok',
+      status: typeof data.status === 'string' ? data.status : undefined,
+      tools: typeof data.tools === 'number' ? data.tools : undefined,
+    }
+  } catch {
+    return { healthy: false }
+  }
+}
+
+/**
  * Handle GET request to check OpenCode health.
  */
 export async function handleOpenCodeHealth(): Promise<OpenCodeHealthResponse> {
@@ -202,6 +241,10 @@ export async function handleOpenCodeHealth(): Promise<OpenCodeHealthResponse> {
     // Search service not available
   }
 
+  // Pure MCP server health runs independently — it must report even when
+  // OpenCode itself is unreachable.
+  const mcpHealth = await checkMcpHealth(mcpUrl)
+
   try {
     const [health, mcp] = await Promise.all([client.health(), client.mcpStatus()])
 
@@ -209,6 +252,7 @@ export async function handleOpenCodeHealth(): Promise<OpenCodeHealthResponse> {
       status: 'ok',
       opencode: health,
       mcp,
+      mcpHealth,
       search: searchStatus,
       url,
       mcpUrl,
@@ -216,6 +260,7 @@ export async function handleOpenCodeHealth(): Promise<OpenCodeHealthResponse> {
   } catch (error) {
     return {
       status: 'error',
+      mcpHealth,
       search: searchStatus,
       message: error instanceof Error ? error.message : 'OpenCode not reachable',
       url,
@@ -348,6 +393,9 @@ export async function handleOpenCodeMessageStreaming(
     totalOutputTokens: 0,
     messageCount: 0,
   }
+  // OpenCode re-emits the same tool part on every state transition; track which
+  // call ids already streamed a `tool-call` so each tool surfaces once.
+  const seenToolCallIds = new Set<string>()
 
   if (!message) {
     await onEvent({ type: 'error', error: 'Message is required' })
@@ -686,6 +734,38 @@ export async function handleOpenCodeMessageStreaming(
                 }
                 const delta = properties.delta as string | undefined
 
+                // Tool invocations (native `type: 'tool'` state machine or the
+                // legacy `tool_use` / `tool_result` shape) are normalized to a
+                // single lifecycle update. OpenCode re-emits the same part on
+                // each transition, so a `tool-call` event is streamed once per
+                // call id and `tool-result` once it reaches a terminal status.
+                const toolUpdate = normalizeOpenCodeToolPart(part)
+                if (toolUpdate) {
+                  if (!seenToolCallIds.has(toolUpdate.callId) && toolUpdate.toolName) {
+                    seenToolCallIds.add(toolUpdate.callId)
+                    usageStats.toolCalls++
+                    usageStats.toolNames.push(toolUpdate.toolName)
+                    logger.debug('tool call observed', {
+                      toolCallIndex: usageStats.toolCalls,
+                      toolName: toolUpdate.toolName,
+                    })
+                    await onEvent({
+                      type: 'tool-call',
+                      id: toolUpdate.callId,
+                      toolName: toolUpdate.toolName,
+                      args: toolUpdate.input,
+                    })
+                  }
+                  if (toolUpdate.phase === 'finish') {
+                    await onEvent({
+                      type: 'tool-result',
+                      id: toolUpdate.callId,
+                      result: toolUpdate.output,
+                    })
+                  }
+                  break
+                }
+
                 switch (part.type) {
                   case 'text':
                     // Use delta for streaming text if available
@@ -697,26 +777,6 @@ export async function handleOpenCodeMessageStreaming(
                     // Extended thinking blocks — route to debug panel only, never to chat
                     logger.debug('Thinking block received', { chars: (delta || part.text || '').length })
                     await onEvent({ type: 'debug', partType: 'thinking', data: { text: delta || part.text } })
-                    break
-                  case 'tool_use':
-                    if (part.name) {
-                      usageStats.toolCalls++
-                      usageStats.toolNames.push(part.name)
-                      logger.debug('Tool call observed', { toolCallNumber: usageStats.toolCalls, toolName: part.name })
-                      await onEvent({
-                        type: 'tool-call',
-                        id: part.id,
-                        toolName: part.name,
-                        args: part.input,
-                      })
-                    }
-                    break
-                  case 'tool_result':
-                    await onEvent({
-                      type: 'tool-result',
-                      id: part.tool_use_id || part.id,
-                      result: part.content,
-                    })
                     break
                   case 'step-start':
                   case 'step-finish':

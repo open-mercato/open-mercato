@@ -182,20 +182,37 @@ describe('module-facts BC resolve guard (T2)', () => {
     // facts, plus query-lifecycle, portal-page and strategy-registry hosts that
     // exist only in the v2 surface. Same linear, one-module growth the block
     // above describes -- the caps below are re-measured on the merged tree.
-    expect(Buffer.byteLength(completeJson)).toBeLessThan(4_700_000)
+    //
+    // Re-measured once more on the agent_orchestrator union (#5718). The caps
+    // above were measured on `develop`'s tree, and `develop`'s tree does not
+    // contain `agent_orchestrator`, the expanded `workflows` surface or the
+    // `web-research*` packages — so three of the four sat below the union, which
+    // is the "neither side's cap covers the union" case the note above names.
+    //
+    // The growth is linear and it is checkable: all four measures grew by very
+    // nearly the same proportion (+17.1% / +17.6% / +16.8% / +16.2%), which is
+    // what a union of two additive module sets produces. A real blow-up is
+    // multiplicative and would move one measure far out of step with the others,
+    // so uniform growth across all four is the evidence that this is repo size,
+    // not a duplicated payload. The headroom ratio is kept at the ~1.15 the
+    // previous raise used, so the guard keeps the same detection power it had.
+    expect(Buffer.byteLength(completeJson)).toBeLessThan(5_550_000)
     // Measured on the merged tree (`yarn jest module-facts.bc-guard`):
-    //   completeJson 4,120,374 · legacy delta 1,795,214 · markdown 1,558,590 ·
-    //   directory markdown 1,709,511.
-    // The delta cap is raised alongside the JSON one for the same reason: at
-    // 1,800,000 it sat 0.27% above the measurement, which is not a guard.
-    expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(2_050_000)
+    //   completeJson 4,823,226 · legacy delta 2,111,784 · markdown 1,820,787 ·
+    //   directory markdown 1,985,779.
+    // (Previous, on develop's tree: 4,120,374 · 1,795,214 · 1,558,590 · 1,709,511.)
+    expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(2_430_000)
     // Markdown cap raised with the source-link contract: entities, events, ACL
     // features, DI tokens, search entities, notifications, UMES hosts and UMES
     // contributions all render a resolved Source cell, and contribution
     // resolutions render as their own source-linked section — plus the additive
     // `channel_discord` module's own render, per the growth note above.
-    expect(markdownBytes).toBeLessThan(1_800_000)
-    expect(directoryMarkdownBytes).toBeLessThan(2_050_000)
+    expect(markdownBytes).toBeLessThan(2_100_000)
+    // Raised even though it was still passing: at 2,050,000 it sat 3.2% above
+    // the union measurement, and a cap that close has stopped detecting blow-ups
+    // and started rejecting the next additive module — the failure mode the note
+    // above warns about, one merge away.
+    expect(directoryMarkdownBytes).toBeLessThan(2_290_000)
   })
 
   it('keeps every shipped directory section resumable and every advertised subsection anchor exact', () => {

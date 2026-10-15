@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { PortalUserDetailPageClient } from '../PortalUserDetailPageClient'
 
 type ApiResult = { ok: boolean; status: number; result: unknown }
@@ -127,7 +127,7 @@ describe('PortalUserDetailPageClient CRM name lookups', () => {
 
     apiCallMock.mockImplementation((url: string) => {
       if (url.startsWith('/api/customers/people/')) return personDeferred.promise
-      if (url.startsWith('/api/customers/') && !url.startsWith('/api/customers/people')) return companyDeferred.promise
+      if (url.startsWith('/api/customers/companies/')) return companyDeferred.promise
       // roles request and any other lookups
       return Promise.resolve({ ok: true, status: 200, result: { items: [] } })
     })
@@ -138,27 +138,28 @@ describe('PortalUserDetailPageClient CRM name lookups', () => {
     await waitFor(() => {
       const calledUrls = apiCallMock.mock.calls.map((call) => call[0])
       expect(calledUrls).toContain('/api/customers/people/person-1')
-      expect(calledUrls).toContain('/api/customers/company-1')
+      expect(calledUrls).toContain('/api/customers/companies/company-1')
     })
 
     const personCalls = apiCallMock.mock.calls.filter((call) => call[0] === '/api/customers/people/person-1')
-    const companyCalls = apiCallMock.mock.calls.filter((call) => call[0] === '/api/customers/company-1')
+    const companyCalls = apiCallMock.mock.calls.filter((call) => call[0] === '/api/customers/companies/company-1')
     expect(personCalls).toHaveLength(1)
     expect(companyCalls).toHaveLength(1)
 
-    personDeferred.resolve({ ok: true, status: 200, result: { id: 'person-1', firstName: 'Jane', lastName: 'Doe' } })
-    companyDeferred.resolve({ ok: true, status: 200, result: { id: 'company-1', name: 'Acme Inc' } })
+    personDeferred.resolve({ ok: true, status: 200, result: { person: { id: 'person-1', displayName: 'Jane Doe' } } })
+    companyDeferred.resolve({ ok: true, status: 200, result: { company: { id: 'company-1', displayName: 'Acme Inc' } } })
 
-    await waitFor(() => {
-      expect(apiCallMock.mock.calls.some((call) => call[0] === '/api/customers/people/person-1')).toBe(true)
-    })
+    // Regression for #5954: names must render from the nested person/company
+    // payload, not the raw entity id.
+    expect(await screen.findByText('Jane Doe')).toBeInTheDocument()
+    expect(await screen.findByText('Acme Inc')).toBeInTheDocument()
   })
 
   it('still resolves the company name when the person lookup rejects (best-effort failure)', async () => {
     apiCallMock.mockImplementation((url: string) => {
       if (url.startsWith('/api/customers/people/')) return Promise.reject(new Error('person lookup failed'))
-      if (url.startsWith('/api/customers/') && !url.startsWith('/api/customers/people')) {
-        return Promise.resolve({ ok: true, status: 200, result: { id: 'company-1', name: 'Acme Inc' } })
+      if (url.startsWith('/api/customers/companies/')) {
+        return Promise.resolve({ ok: true, status: 200, result: { company: { id: 'company-1', displayName: 'Acme Inc' } } })
       }
       return Promise.resolve({ ok: true, status: 200, result: { items: [] } })
     })
@@ -168,7 +169,9 @@ describe('PortalUserDetailPageClient CRM name lookups', () => {
     await waitFor(() => {
       const calledUrls = apiCallMock.mock.calls.map((call) => call[0])
       expect(calledUrls).toContain('/api/customers/people/person-1')
-      expect(calledUrls).toContain('/api/customers/company-1')
+      expect(calledUrls).toContain('/api/customers/companies/company-1')
     })
+
+    expect(await screen.findByText('Acme Inc')).toBeInTheDocument()
   })
 })

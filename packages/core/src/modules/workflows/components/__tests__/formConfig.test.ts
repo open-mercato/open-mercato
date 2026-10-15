@@ -243,5 +243,38 @@ describe('workflow definition formConfig', () => {
         icon: 'shopping-cart',
       })
     })
+
+    it('preserves contextSchema and metadata.editor through a legacy-page round trip', () => {
+      const contextSchema = { input: { fields: [{ name: 'dealId', type: 'text', required: true }] } }
+      const samples = { step_1: { pinnedAt: '2026-07-28T00:00:00Z', source: 'test', data: { ok: true } } }
+      const hydrated = parseWorkflowToFormValues({
+        workflowId: 'wf-roundtrip',
+        workflowName: 'Round trip',
+        version: 1,
+        enabled: true,
+        metadata: { category: 'Sales', tags: ['sales'], icon: 'shopping-cart', editor: { samples } },
+        definition: { steps: [], transitions: [], contextSchema },
+      })
+
+      const payload = buildWorkflowPayload(hydrated)
+
+      expect(payload.definition.contextSchema).toEqual(contextSchema)
+      expect((payload.metadata as Record<string, unknown>).editor).toEqual({ samples })
+    })
+
+    it('removes a cleared category even when the loaded metadata carried one', () => {
+      const hydrated = parseWorkflowToFormValues({
+        workflowId: 'wf-clear',
+        workflowName: 'Clear category',
+        version: 1,
+        enabled: true,
+        metadata: { category: 'Sales', tags: [] },
+        definition: { steps: [], transitions: [] },
+      })
+
+      const payload = buildWorkflowPayload({ ...hydrated, 'metadata.category': '' })
+
+      expect(payload.metadata).not.toHaveProperty('category')
+    })
   })
 })
