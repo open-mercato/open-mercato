@@ -24,9 +24,11 @@ The app-specific `finance_previews` module, its activation, source coverage map,
 
 ## Progress
 
+PR: #7483
+
 ### Phase 1: Prepare contribution
 
-- [ ] 1.1 Transfer and register the prototype on current develop.
+- [x] 1.1 Transfer and register the prototype on current develop. — 25de7eb30
 
 ### Phase 2: Verify
 
