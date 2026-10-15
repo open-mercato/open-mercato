@@ -1,0 +1,112 @@
+{
+  "title": "Płatność dla dostawcy",
+  "description": "Wybierz faktury jednego dostawcy. Zatwierdzenie wymaga poprawnego wyniku sprawdzenia rachunku.",
+  "invoices": "Faktury do zapłaty",
+  "number": "Faktura",
+  "supplier": "Dostawca",
+  "amount": "Do zapłaty (PLN)",
+  "status": "Status",
+  "select": "Wybierz fakturę",
+  "posted": "Zaksięgowana",
+  "reviewed": "Sprawdzona — wymaga księgowania",
+  "post": "Zatwierdź i zaksięguj fakturę",
+  "postHint": "Przed płatnością utwórz zobowiązanie. Prototyp zachowa numer dokumentu i pełną kwotę brutto.",
+  "oneVendor": "Paczka może zawierać faktury tylko jednego dostawcy i w jednej walucie. Utwórz osobną paczkę dla innego dostawcy.",
+  "notPosted": "Najpierw zatwierdź i zaksięguj fakturę. Do paczki mogą trafić tylko zaksięgowane faktury.",
+  "configuration": "Termin i rachunek płatności",
+  "scheduledDate": "Planowana data płatności",
+  "sentOn": "Faktyczna data wysłania",
+  "verification": "Wariant sprawdzenia rachunku",
+  "pass": "Rachunek na białej liście",
+  "notListed": "Rachunek poza białą listą",
+  "unavailable": "Usługa weryfikacji niedostępna",
+  "save": "Zapisz dane płatności",
+  "verify": "Sprawdź rachunek",
+  "verified": "Rachunek zweryfikowany",
+  "pending": "Brak aktualnej weryfikacji",
+  "blocked": "Płatność zablokowana. Zmień rachunek lub ponów sprawdzenie, gdy usługa będzie dostępna.",
+  "empty": "Wybierz co najmniej jedną fakturę.",
+  "verificationRequired": "Wykonaj poprawne sprawdzenie rachunku na planowaną datę płatności.",
+  "dateError": "Podaj poprawne daty. Faktyczna data wysłania nie może być przyszła.",
+  "saved": "Dane płatności zapisane. Sprawdź rachunek dla wybranego terminu.",
+  "prepare": "Przygotuj paczkę",
+  "approve": "Zatwierdź paczkę",
+  "send": "Zarejestruj wysłanie",
+  "edit": "Wróć do edycji",
+  "draft": "Szkic",
+  "prepared": "Przygotowana",
+  "approved": "Zatwierdzona",
+  "sent": "Wysłanie zarejestrowane",
+  "total": "Suma paczki",
+  "account": "Rachunek odbiorcy",
+  "checkDate": "Data sprawdzenia",
+  "reference": "Numer sprawdzenia",
+  "noCheck": "Nie sprawdzono",
+  "journal": "Zapis płatności",
+  "accountColumn": "Konto",
+  "debit": "Winien (PLN)",
+  "credit": "Ma (PLN)",
+  "liability": "202 — Rozrachunki z dostawcami",
+  "bank": "130 — Rachunek bankowy",
+  "sentHint": "W prototypie powstał jeden zapis płatności. Dopasowanie wyciągu ma jedynie powiązać transakcję z tą paczką.",
+  "match": "Dopasuj płatność na wyciągu",
+  "back": "Faktury dostawców",
+  "importStatement": "Przejdź do importu wyciągu",
+  "next": "Dalsze kroki",
+  "readOnly": "Wysłana paczka jest tylko do odczytu.",
+  "invoiceJournal": "Zapis księgowy faktury",
+  "expense": "Koszt / rozliczenie zakupu",
+  "vat": "VAT naliczony",
+  "invoiceReference": "Dokument źródłowy",
+  "invoicePosted": "Faktura zatwierdzona i zaksięgowana w prototypie.",
+  "simulation": "Wynik weryfikacji jest przykładowy; prototyp nie łączy się z białą listą ani bankiem.",
+  "noInvoices": "Brak faktur spełniających kryteria.",
+  "batchNumber": "Paczka PP/2026/009",
+  "immutableTitle": "Dokument jest już zaksięgowany",
+  "immutableHint": "Zaksięgowane dane pozostają do odczytu. Sprawdź paczkę płatności i jej zapis w księdze. Nowy przebieg możesz rozpocząć przyciskiem resetowania scenariusza.",
+  "openBatch": "Otwórz paczkę płatności",
+  "expenseAccount": "Konto kosztu netto",
+  "vatAccount": "Konto VAT naliczonego",
+  "payableAccount": "Konto zobowiązań",
+  "postingPeriod": "Okres księgowania",
+  "expenseAccounts": [
+    {
+      "value": "402",
+      "label": "402 — Usługi obce"
+    },
+    {
+      "value": "401",
+      "label": "401 — Zużycie materiałów"
+    },
+    {
+      "value": "409",
+      "label": "409 — Pozostałe koszty"
+    }
+  ],
+  "vatAccounts": [
+    {
+      "value": "223",
+      "label": "223 — VAT naliczony"
+    }
+  ],
+  "payableAccounts": [
+    {
+      "value": "202",
+      "label": "202 — Zobowiązania wobec dostawców"
+    }
+  ],
+  "postingPeriods": [
+    {
+      "value": "2026-09",
+      "label": "Wrzesień 2026 — otwarty"
+    },
+    {
+      "value": "2026-08",
+      "label": "Sierpień 2026 — zamknięty"
+    }
+  ],
+  "periodClosed": "Okres jest zamknięty. Wybierz otwarty okres; zatwierdzona faktura pozostaje niezaksięgowana.",
+  "accountRequired": "Wybierz konto kosztu, VAT i zobowiązań.",
+  "amountMismatch": "Suma netto i VAT nie zgadza się z kwotą brutto faktury.",
+  "scrollTable": "Przewiń tabelę w bok, aby zobaczyć pozostałe kolumny."
+}
