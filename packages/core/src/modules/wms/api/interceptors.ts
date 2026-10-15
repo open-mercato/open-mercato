@@ -1,4 +1,5 @@
 import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'
+import { E } from '#generated/entities.ids.generated'
 import {
   decodeCatalogInventoryProfileIntent,
   WMS_CATALOG_PROFILE_HEADER,
@@ -35,6 +36,12 @@ export const interceptors: ApiInterceptor[] = [
       if (!rawHeader) return { ok: true }
 
       const intent = decodeCatalogInventoryProfileIntent(rawHeader)
+      // CrudForm scopes `onBeforeSave` request headers around the whole
+      // `onSubmit` callback, so a page whose submit handler also creates
+      // other records (e.g. the product-create wizard implicitly creating
+      // its default variant) can leak this header onto those unrelated
+      // requests. Only honor an intent the product form itself computed.
+      if (intent?.sourceEntityId !== E.catalog.catalog_product) return { ok: true }
       return {
         ok: true,
         metadata: { intent, target: 'product' },
@@ -74,6 +81,8 @@ export const interceptors: ApiInterceptor[] = [
       if (!rawHeader) return { ok: true }
 
       const intent = decodeCatalogInventoryProfileIntent(rawHeader)
+      // See the product interceptor's `before` for why this check exists.
+      if (intent?.sourceEntityId !== E.catalog.catalog_product_variant) return { ok: true }
       return {
         ok: true,
         metadata: { intent, target: 'variant' },

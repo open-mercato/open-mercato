@@ -12,7 +12,7 @@ import {
   resolveCrudCache,
 } from '@open-mercato/shared/lib/crud/cache'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
-import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import { User } from '../../auth/data/entities'
 import { Message, MessageObject } from '../data/entities'
@@ -36,6 +36,7 @@ import { attachOperationMetadataHeader } from '../lib/operationMetadata'
 import {
   canPostToChannelThread,
   canUseChannelThreadFallback,
+  resolveReplyParentMessage,
   canUseMessageEmailFeature,
   resolveMessageContext,
 } from '../lib/routeHelpers'
@@ -46,6 +47,7 @@ import { MessageCommandExecuteResult } from '../commands/shared'
 import {
   composeMessageRequestSchema as composeSchema,
   composeResponseSchema,
+  errorResponseSchema,
   listMessagesSchema as listSchema,
   messageListItemSchema,
 } from './openapi'
@@ -510,6 +512,35 @@ export async function POST(req: Request) {
     }
   }
 
+  // A parent decides which conversation the new message joins, so it is held to
+  // the same rule as reading it: knowing a message id is not enough to thread
+  // onto someone else's conversation. Checked on the parent the client sent, for
+  // drafts and every visibility, before any guard, delegation or write runs.
+  let replyParent: Message | null = null
+  if (input.parentMessageId) {
+    const resolution = await resolveReplyParentMessage(
+      ctx,
+      { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null, userId: scope.userId },
+      input.parentMessageId,
+    )
+    if (resolution.status === 'not_found') {
+      const { translate } = await resolveTranslations()
+      return Response.json(
+        {
+          error: translate(
+            'messages.errors.parentMessageNotFound',
+            'The message you are replying to was not found',
+          ),
+        },
+        { status: 404 },
+      )
+    }
+    if (resolution.status === 'forbidden') {
+      return Response.json({ error: 'Access denied' }, { status: 403 })
+    }
+    replyParent = resolution.message
+  }
+
   // #5535: composing on a channel conversation without naming a parent message
   // used to open a brand-new thread. A fresh thread has no `ChannelThreadMapping`,
   // so the outbound bridge had nothing to route on and the operator got a 201 for
@@ -555,27 +586,14 @@ export async function POST(req: Request) {
   // derives the thread from that parent alone — so a public, non-draft message
   // could be threaded onto a channel-linked conversation and delivered to the
   // external correspondent without any channel-access check. A tenant-wide
-  // channel accepts delivery from any sender, so `messages.compose` plus a known
-  // message id was enough. Apply the same check to the thread the command will
-  // actually derive. An internal thread, a thread outside the caller's scope,
-  // and an absent hub all resolve to `null` and keep the pre-existing rule.
+  // channel accepts delivery from any sender, so reading a message is not
+  // enough to post onto its thread. Apply the same check to the thread the
+  // command will actually derive. An internal thread and an absent hub resolve
+  // to `null` and keep the pre-existing rule.
   // Both channel branches also require `messages.view`, like reply and forward:
   // the hub grants every shared channel regardless of features (#6432).
-  if (isPublicVisibility && !input.isDraft && input.parentMessageId) {
-    const em = ctx.container.resolve('em') as EntityManager
-    const parentMessage = await findOneWithDecryption(
-      em,
-      Message,
-      {
-        id: input.parentMessageId,
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-        deletedAt: null,
-      },
-      undefined,
-      { tenantId: scope.tenantId, organizationId: scope.organizationId },
-    )
-    const parentThreadId = parentMessage?.threadId ?? input.parentMessageId
+  if (isPublicVisibility && !input.isDraft && replyParent) {
+    const parentThreadId = replyParent.threadId ?? replyParent.id
     if (!(await canPostToChannelThread(ctx, scope, parentThreadId))) {
       return Response.json({ error: 'Access denied' }, { status: 403 })
     }
@@ -710,6 +728,10 @@ export const openApi: OpenApiRouteDoc = {
           description: 'Message created',
           schema: composeResponseSchema,
         },
+      ],
+      errors: [
+        { status: 403, description: 'Access denied, including a parentMessageId the caller cannot read', schema: errorResponseSchema },
+        { status: 404, description: 'parentMessageId is unknown, deleted, or outside the caller organization', schema: errorResponseSchema },
       ],
     },
   },
