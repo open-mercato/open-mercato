@@ -412,6 +412,17 @@ opposite of the adjusting entry made in the previous period."*
           unit for currencies the printed table quotes per 100 (JPY, HUF)
           has not been checked against a real response here. The provider's
           contract test must assert it before the provider is relied on.
+        - *Existing consumers (checked on `develop`).* The only consumer of
+          `ExchangeRateService` outside `currencies` is the customers deals
+          aggregate (`api/deals/aggregate/route.ts`), which reads
+          `autoFetch: false` and takes `rates[0]` ("sources are equivalent
+          for display purposes"). `findExactRates` has no ordering, and an
+          `XXX → PLN` pair will now have an `NBP` (Table C bid) row and an
+          `NBP_A` (mid) row, so that display total may use either; the
+          difference is small and display-only, the same situation Raiffeisen
+          rows already create. The implementation PR notes it in
+          `services/README.md` ("Choosing Between Multiple Providers") and
+          does not change the consumer.
    d. **Empty/error results.** `RateResult.rates.length === 0` after
       the service's own `maxDaysBack`/`autoFetch` fallback, or a
       populated `RateResult.error` from a batched `getRates()` call,
