@@ -198,4 +198,3 @@ describe('error identity across module copies', () => {
     expect(JSON.stringify(error)).not.toContain('open-mercato')
   })
 })
-

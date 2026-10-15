@@ -1,6 +1,6 @@
 # OAuth2 Grant Lifecycle — Phase 1 Core (feature spec)
 
-> **Parent:** [App Spec: OAuth2 Grant Lifecycle for Integrations](2026-09-27-app-spec-oauth2-grant-lifecycle.md). **Status:** Draft, ready for implementation; the implementation PR's merge waits for App Spec Q3 and Q7. **Baseline:** `develop` @ `85ee5f16b`; every `file:line` below refers to it.
+> **Parent:** [App Spec: OAuth2 Grant Lifecycle for Integrations](2026-09-27-app-spec-oauth2-grant-lifecycle.md). **Status:** Implemented in the Phase 1 PR (#7057); App Spec Q3 and Q7 were decided by the maintainers on 2026-10-15, so the merge waits only for the agreed consumer gate. **Baseline:** `develop` @ `85ee5f16b`; every `file:line` below refers to it.
 
 ## TLDR
 
@@ -632,7 +632,7 @@ export function startFakeAuthorizationServer(options: FakeAuthorizationServerOpt
 
 - Precedent: runtime fakes live in module `lib/` and helpers drive them (`push_notifications/lib/fake-provider-recorder.ts` with `helpers/integration/pushFake.ts`).
 - Jest suites, a provider package's included, import the fake server from `@open-mercato/core/modules/integrations/lib/oauth/testing/fakeAuthorizationServer`; `helpers/integration` has no re-export of it. A guard test (P2b) asserts that the fake server reaches no `@playwright/test` import, directly or through another module, and runtime-imports only `node:http` and `node:crypto`.
-- `packages/core/src/helpers/integration/oauthGrantTestRoute.ts` (P4a): Playwright wrappers over the route built on `apiRequest` from `helpers/integration/api`: `isOAuthGrantTestRouteAvailable`, `connectTestGrant`, `refreshTestGrant`, `corruptTestGrant`, `resetTestGrants`. Not a contract: it drives the test-only route for core's own Playwright specs, like the route itself. A 404 probe lets a spec `test.skip` in lanes without the flag (standalone lanes); when the Playwright process's own env has `OM_ENABLE_TEST_OAUTH_GRANTS` on, a 404 throws instead, so a broken route can't turn the suite into silent skips.
+- `packages/core/src/helpers/integration/oauthGrantTestRoute.ts` (P4a): Playwright wrappers over the route built on `apiRequest` from `helpers/integration/api`: `isOAuthGrantTestRouteAvailable`, `connectTestGrant`, `refreshTestGrant`, `corruptTestGrant`, `resetTestGrants`. Not a contract: it drives the test-only route for core's own Playwright specs, like the route itself. A 404 probe lets a spec `test.skip` in lanes that don't set the flag (e.g. the snapshot preview); when the Playwright process's own env has `OM_ENABLE_TEST_OAUTH_GRANTS` on, a 404 throws instead, so a broken route can't turn the suite into silent skips.
 - Flag wiring: `OM_ENABLE_TEST_OAUTH_GRANTS: 'true'` beside `OM_ENABLE_TEST_CHANNEL_SEEDING` in both env blocks of the CLI harness (`cli/src/lib/testing/integration.ts:2213,3614`) and in the integration job's runner env (`.github/workflows/ci.yml:903`); never in `.env.example`.
 - The flag is dedicated because the broad switches are unsafe as a route gate: `OM_TEST_MODE` already returns OTP codes in responses (`enterprise/src/modules/security/lib/providers/OtpEmailProvider.ts:162`), and `OM_INTEGRATION_TEST` disables rate limiting and is meant for long-lived dev servers (`create-app/template/.env.example:237-241`). Gating the route on either would enable it wherever those are set for unrelated reasons.
 
@@ -762,7 +762,7 @@ Labels: **[Jest]** in-process unit tests (the fake server is a real HTTP server,
 
 ## Implementation Plan
 
-Each commit builds, passes its own tests and leaves the app working. Delivery under the recommended gate (App Spec Q7, §4.5.6), run on the stacked `sync-xero` PR (#7337): its tests pass against these workspace packages, the publish-shape check passes on the built `dist`, and a Verdaccio smoke passes (this branch's packages published to a local registry with `yarn registry:publish`, a scaffolded standalone app with `sync_xero` enabled through install, generate, typecheck, build and its Playwright tests). Package Previews are not required: they publish only same-repository branches (`.github/workflows/package-previews.yml:48-57`). Run `yarn generate` after route, `di.ts` or `integration.ts` changes, `yarn agents:check-budget` after `AGENTS.md` edits, and the smallest relevant validation set from the root `AGENTS.md`.
+Each commit builds, passes its own tests and leaves the app working. Delivery under the agreed gate (App Spec Q7, §4.5.6), run on the stacked `sync-xero` PR (#7337): its tests pass against these workspace packages, the publish-shape check passes on the built `dist`, and a Verdaccio smoke passes (this branch's packages published to a local registry with `yarn registry:publish`, a scaffolded standalone app with `sync_xero` enabled through install, generate, typecheck, build and its Playwright tests). Package Previews are not required: they publish only same-repository branches (`.github/workflows/package-previews.yml:48-57`). Run `yarn generate` after route, `di.ts` or `integration.ts` changes, `yarn agents:check-budget` after `AGENTS.md` edits, and the smallest relevant validation set from the root `AGENTS.md`.
 
 ### P1a — `withAdvisoryXactLock` (shared)
 - **Files:** `packages/shared/src/lib/db/advisoryLock.ts`, `packages/shared/src/lib/db/pg-errors.ts` (`isTransientLockDbError` on the existing chain walker; `isTransientDbError` unchanged), their unit tests, `packages/shared/package.json` (explicit `exports` entry), `packages/shared/AGENTS.md` (`db/` row).
@@ -862,7 +862,7 @@ Product-level risks (persist window, KMS fallback, field-level layer, stalled ho
 - **Scenario:** an operator copies `OM_ENABLE_TEST_OAUTH_GRANTS` into a production environment.
 - **Severity:** Medium. **Affected area:** integrations API surface.
 - **Mitigation:** guards before the handler, writes limited to `test_oauth_grant`, loopback fake only, a visible marketplace entry, never in `.env.example`, docs warning.
-- **Residual risk:** a credentials manager can create junk rows for the test integration in their own organization; no real integration's secrets are reachable.
+- **Residual risk:** a credentials manager can create junk rows for the test integration in their own organization; the core route reaches no real integration's secrets. A provider test seam that rides the same flag (as `sync-xero`'s does) writes that provider's own rows in the caller's organization and documents its containment in the provider's spec.
 
 #### One hanging token endpoint holds every holder slot of a process
 - **Scenario:** holder slots are counted per key namespace (Lock section, Slots) and every Grant Lock key is in the namespace `oauth_grant` (Data Models), so all integrations share the grant service's 4 slots in a process. When one provider's token endpoint hangs until the 10 s exchange bound (App Spec I6), four refreshes of its Grant Owners hold every slot. Refreshes of other integrations in that process wait for a slot, holding no connection, and fail `transient` at their 15 s deadline while the hanging provider's refreshes keep every slot taken: before expiry with a `degraded` token (none for a `rejectedAccessToken` call), after expiry with none. Their Connect, External Account save and Disconnect wait the same way and fail at their own deadlines.
@@ -943,7 +943,7 @@ No migration or deprecation; the only narrowings are the `__oauth_grant` reserva
 | root AGENTS.md | No direct ORM relationships between modules | Compliant | no new entities |
 | root AGENTS.md | Ask before production dependencies | Compliant | none; `testcontainers` and `cross-env` are dev only |
 | root AGENTS.md | Ask before migrations | Compliant | none |
-| root AGENTS.md | "Ask before changing branch/PR automation, pipeline labels, QA flow…" (CI steps treated as covered, App Spec §10.1) | Non-compliant (awaiting Q3 sign-off) | steps in `documents-multi-instance` and the integration runner env |
+| root AGENTS.md | "Ask before changing branch/PR automation, pipeline labels, QA flow…" (CI steps treated as covered, App Spec §10.1) | Accepted (Q3, approved on 2026-10-15) | steps in `documents-multi-instance` and the integration runner env |
 | root AGENTS.md | Optimistic locking on user-editable writes | Compliant | `revisedAt` with `assertOptimisticLock` on External Account save and Disconnect; Connect is last-writer-wins by App Spec decision |
 | root AGENTS.md | No hard-coded user-facing strings or status colors | Compliant | banner via i18n and `Alert` status; log messages are operator text |
 | root AGENTS.md | A catch that records an error also calls `reportError` | Compliant | every site in the Reported errors table; the two DI resolution catches (`kmsService`, `tenantEncryptionService`) are the documented exceptions |
@@ -954,16 +954,16 @@ No migration or deprecation; the only narrowings are the `__oauth_grant` reserva
 | root AGENTS.md | Never bypass encryption helpers | Compliant | rows written under the lock keep the request subscriber (cloned event manager, A1, A22) |
 | integrations AGENTS.md | Never log credential values | Compliant | A34 |
 | integrations AGENTS.md | API routes export `openApi` | Compliant | detail route schema, test-only route |
-| integrations AGENTS.md | Never special-case providers in core | Non-compliant (awaiting Q3 sign-off) | the test integration is flag-gated test infrastructure (precedent `test-seed`) |
+| integrations AGENTS.md | Never special-case providers in core | Accepted (Q3, approved on 2026-10-15) | the test integration is flag-gated test infrastructure (precedent `test-seed`) |
 | core AGENTS.md | Custom write routes run mutation guards | Compliant | the test-only route calls `runRouteMutationGuards`; provider routes follow App Spec §1.4.3 rule 1 |
 | shared AGENTS.md:8 | Check for existing utilities before adding helpers | Compliant | the matcher builds on `pgErrorCandidates`, the back-off on `calculateBackoffDelayMs` |
-| shared AGENTS.md:14 | Ask before adding a domain-specific helper, new override domain, or shared public type that becomes a cross-package contract | Non-compliant (awaiting Q3 sign-off) | `IntegrationDetailPageConfig.connectTabId`, the lock-helper types |
+| shared AGENTS.md:14 | Ask before adding a domain-specific helper, new override domain, or shared public type that becomes a cross-package contract | Accepted (Q3, approved on 2026-10-15) | `IntegrationDetailPageConfig.connectTabId`, the lock-helper types |
 | lesson "New shared deep import paths should get explicit export-map entries" (not an AGENTS.md rule) | Explicit `exports` entry | Compliant | `./lib/db/advisoryLock`, like `packages/shared/package.json:63-66`; `./*` also resolves it (`:91-97`) |
 | `.ai/qa/AGENTS.md` | Self-contained, module-local integration tests | Compliant | `reset` in setup and teardown; Viewer created by the spec |
 | ui AGENTS.md / DS rules | `Alert` primitive, tokens, no `dark:` overrides | Compliant | banner |
-| BACKWARD_COMPATIBILITY.md | Additive only; sign-off for new surfaces | Non-compliant (awaiting Q3 sign-off) | every surface is additive except the `__oauth_grant` reservation (credentials-route 404, bundle-fallthrough skip), listed in the BC section; DI types unchanged |
+| BACKWARD_COMPATIBILITY.md | Additive only; sign-off for new surfaces | Accepted (Q3, approved on 2026-10-15) | every surface is additive except the `__oauth_grant` reservation (credentials-route 404, bundle-fallthrough skip), listed in the BC section; DI types unchanged |
 | core AGENTS.md | No hand-rolled AES/KMS; use `TenantDataEncryptionService` | Non-compliant (accepted deviation) | `readCredentialRowLayered` and the DEK pin reuse the credentials blob envelope that already exists (`credentials-service.ts:154-204`; App Spec §1.4.2 grant row, I6 DEK pin); no new cipher; the field-level layer stays `TenantDataEncryptionService` |
-| integrations AGENTS.md | Ask First: credential resolution order, registry type contracts, canonical API routes, compatibility surfaces | Non-compliant (awaiting Q3 sign-off) | credentials-route 404 and bundle-fallthrough skip, detail GET field, `createCredentialsService` third parameter, `CredentialsWriteOptions.ensureEncryptionMap`, `IntegrationDetailPageConfig.connectTabId`, the `integrations/integration.ts` registration |
+| integrations AGENTS.md | Ask First: credential resolution order, registry type contracts, canonical API routes, compatibility surfaces | Accepted (Q3, approved on 2026-10-15) | credentials-route 404 and bundle-fallthrough skip, detail GET field, `createCredentialsService` third parameter, `CredentialsWriteOptions.ensureEncryptionMap`, `IntegrationDetailPageConfig.connectTabId`, the `integrations/integration.ts` registration |
 | integrations AGENTS.md | Ask First: health-check timeouts, log retention semantics, credential redaction | Compliant | health timeout unchanged (`inspectGrant` stays inside `HEALTH_CHECK_TIMEOUT_MS`); retention unchanged (`lastDisconnect` is `null` once a pruner removes the history; nothing enqueues one with `retentionDays` today); redaction unchanged |
 | root AGENTS.md | Use DI (Awilix) to inject services; avoid `new`-ing directly | Non-compliant (accepted deviation) | lock-bound credentials and log services come from the core factories and the pin falls back to `createKmsService()` (App Spec §1.4.2, transaction-bound services) |
 | core AGENTS.md | Never compare raw feature arrays when wildcard grants apply | Compliant | step 4 and the callback check use `rbacService.userHasAllFeatures`; the banner uses `useIntegrationCredentialsFeatureAccess` |
@@ -980,9 +980,12 @@ No migration or deprecation; the only narrowings are the `__oauth_grant` reserva
 | Every commit lists files, tests and dependencies | Pass |
 
 ### Verdict
-Ready for implementation; the implementation PR's merge waits for App Spec Q3 (surfaces, CI steps) and Q7 (consumer gate).
+Implemented; App Spec Q3 (surfaces, CI steps) and Q7 (consumer gate) were approved on 2026-10-15, and the merge waits for the agreed gate.
 
 ## Changelog
+
+### 2026-10-15
+- App Spec Q3 and Q7 decided by the maintainers (surface and CI steps approved as proposed; Option B with the consumer gate on #7337); the compliance rows that waited for Q3 are accepted.
 
 ### 2026-10-13
 - Disconnect revokes the stored refresh token (or the access token when none) after release and runs no provider code: the descriptor has no disconnect hook, its schema rejects `onAfterDisconnect`, and `failureReason` names only revoke and cleanup outcomes (Proposed Solution, API Contracts, `disconnect`, A5, A31).
