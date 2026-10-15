@@ -434,7 +434,43 @@ describe('executePendingActionConfirm — stale rows never reach the handler', (
     expect(result.ok).toBe(true)
     expect(calls[0].input).toEqual({ records: [{ recordId: P1, title: 'previewed' }] })
     expect(calls[0].ctx.expectedRecordVersions).toEqual({ [P1]: V1 })
-    expect(repo.current.failedRecords ?? null).toBeNull()
+    expect(repo.current.failedRecords).toEqual([
+      { recordId: P1, error: { code: 'record_duplicate_dropped', message: expect.any(String) } },
+    ])
+  })
+
+  it('11b. a stale or handler-failed record keeps that error over the dropped-duplicate notice', async () => {
+    const action = makeBatchAction({
+      normalizedInput: {
+        records: [
+          { recordId: P1, title: 'previewed 1' },
+          { recordId: P2, title: 'previewed 2' },
+          { recordId: P1, title: 'repeat 1' },
+          { recordId: P2, title: 'repeat 2' },
+        ],
+      },
+    } as Partial<AiPendingAction>)
+    const repo = makeRepoStub(action)
+    const lockConflict = { code: 'optimistic_lock_conflict', message: 'record_modified' }
+    const { tool, calls } = makeRecordingTool('catalog.bulk_update_products', () => ({
+      commandName: 'catalog.products.update',
+      records: [{ recordId: P1, status: 'failed', before: {}, after: null, error: lockConflict }],
+      failedRecordIds: [P1],
+    }))
+
+    const result = await executePendingActionConfirm({
+      action,
+      agent: makeAgent(),
+      tool,
+      ctx: makeCtx(),
+      repo: repo as unknown as never,
+      emitEvent: jest.fn().mockResolvedValue(undefined),
+      failedRecords: staleP2,
+    })
+
+    expect(result.ok).toBe(true)
+    expect(calls[0].input).toEqual({ records: [{ recordId: P1, title: 'previewed 1' }] })
+    expect(repo.current.failedRecords).toEqual([...staleP2, { recordId: P1, error: lockConflict }])
   })
 
   it('12. refuses a bulk action whose preview loaded no rows', async () => {

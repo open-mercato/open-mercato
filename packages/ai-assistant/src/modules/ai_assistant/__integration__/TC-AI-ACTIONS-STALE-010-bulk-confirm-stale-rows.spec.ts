@@ -126,7 +126,7 @@ test.describe('TC-AI-ACTIONS-STALE-010: bulk confirm never writes rows the reche
     }
   });
 
-  test('a repeated record runs only its previewed entry; the unseen second entry is never written', async ({ request }) => {
+  test('a repeated record runs only its previewed entry and reports the dropped repeat; the unseen entry is never written', async ({ request }) => {
     test.slow();
     const adminToken = await getAuthToken(request, 'admin');
     const { tenantId, organizationId, userId: adminId } = getTokenScope(adminToken);
@@ -159,7 +159,8 @@ test.describe('TC-AI-ACTIONS-STALE-010: bulk confirm never writes rows the reche
       expect(confirm.status()).toBe(200);
       const body = await readJsonSafe<ConfirmBody>(confirm);
       expect(body?.pendingAction?.status).toBe('confirmed');
-      expect(body?.pendingAction?.failedRecords ?? []).toEqual([]);
+      const failed = body?.pendingAction?.failedRecords ?? [];
+      expect(failed.map((entry) => [entry.recordId, entry.error.code])).toEqual([[productC, 'record_duplicate_dropped']]);
       expect((await readProductState(productC)).title, 'only the previewed entry is applied').toBe(approvedTitle);
     } finally {
       for (const cleanup of cleanups.reverse()) {

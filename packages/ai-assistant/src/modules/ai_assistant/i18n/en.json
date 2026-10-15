@@ -312,6 +312,7 @@
   "ai_assistant.errors.moderationBlocked": "Your message was blocked by the content safety filter. Please rephrase and try again.",
   "ai_assistant.errors.moderationUnavailable": "The content safety check is temporarily unavailable. Please try again in a moment.",
   "ai_assistant.errors.pendingBatchNotApplicable": "This batch no longer matches the approved preview, so it cannot be applied. Ask the assistant to re-propose the change.",
+  "ai_assistant.errors.pendingRecordDuplicateDropped": "This record was listed more than once. Only its first, previewed change was applied; the repeated entries were ignored.",
   "ai_assistant.errors.pendingRecordNotPreviewed": "This record was not part of the approved preview, so it was not changed.",
   "ai_assistant.launcher.composerPlaceholder": "Ask anything…",
   "ai_assistant.launcher.dialogDescription": "Pick an assistant. Use ↑/↓ to navigate, Enter to launch, Esc to close.",

@@ -32,6 +32,7 @@ import type {
 import {
   planPendingActionExecution,
   resolvePendingActionBatchMessages,
+  toDuplicateDroppedFailedRecords,
   toNotPreviewedFailedRecords,
 } from './pending-action-batch'
 
@@ -378,11 +379,18 @@ export async function executePendingActionConfirm(
       recordIds: plan.droppedDuplicateRecordIds,
     })
   }
-  const notPreviewedFailedRecords =
-    plan.notPreviewedRecordIds.length > 0
-      ? toNotPreviewedFailedRecords(plan.notPreviewedRecordIds, await resolvePendingActionBatchMessages())
+  const batchMessages =
+    plan.notPreviewedRecordIds.length > 0 || plan.droppedDuplicateRecordIds.length > 0
+      ? await resolvePendingActionBatchMessages()
       : null
-  const preExecutionFailedRecords = mergeFailedRecords(partialFailedRecords, notPreviewedFailedRecords)
+  const notPreviewedFailedRecords = batchMessages
+    ? toNotPreviewedFailedRecords(plan.notPreviewedRecordIds, batchMessages)
+    : null
+  const droppedDuplicateFailedRecords = batchMessages
+    ? toDuplicateDroppedFailedRecords(plan.droppedDuplicateRecordIds, batchMessages)
+    : null
+  const blockedFailedRecords = mergeFailedRecords(partialFailedRecords, notPreviewedFailedRecords)
+  const preExecutionFailedRecords = mergeFailedRecords(blockedFailedRecords, droppedDuplicateFailedRecords)
 
   const confirmedRow = await repo.setStatus(action.id, 'confirmed', scope, {
     resolvedByUserId: ctx.userId,
@@ -427,7 +435,10 @@ export async function executePendingActionConfirm(
 
   const successResult = normalizeExecutionResult(handlerOutput)
   const handlerFailedRecords = extractHandlerFailedRecords(handlerOutput)
-  const mergedFailedRecords = mergeFailedRecords(preExecutionFailedRecords, handlerFailedRecords)
+  const mergedFailedRecords = mergeFailedRecords(
+    mergeFailedRecords(blockedFailedRecords, handlerFailedRecords),
+    droppedDuplicateFailedRecords,
+  )
   const confirmedExtra: Record<string, unknown> = {
     executionResult: successResult,
     now: clock,

@@ -312,6 +312,7 @@
   "ai_assistant.errors.moderationBlocked": "귀하의 메시지가 콘텐츠 안전 필터에 의해 차단되었습니다. 문구를 바꾸고 다시 시도해 주세요.",
   "ai_assistant.errors.moderationUnavailable": "콘텐츠 안전 확인을 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.",
   "ai_assistant.errors.pendingBatchNotApplicable": "이 일괄 작업이 승인된 미리보기와 더 이상 일치하지 않아 적용할 수 없습니다. 어시스턴트에게 변경 사항을 다시 제안하도록 요청하세요.",
+  "ai_assistant.errors.pendingRecordDuplicateDropped": "이 레코드가 두 번 이상 포함되었습니다. 미리보기에 표시된 첫 번째 변경 사항만 적용되었고 반복된 항목은 무시되었습니다.",
   "ai_assistant.errors.pendingRecordNotPreviewed": "이 레코드는 승인된 미리보기에 포함되지 않아 변경되지 않았습니다.",
   "ai_assistant.launcher.composerPlaceholder": "무엇이든 물어보세요…",
   "ai_assistant.launcher.dialogDescription": "어시스턴트를 선택하세요. 탐색하려면 ↑/↓를 사용하고, 실행하려면 Enter를, 닫으려면 Esc를 사용하세요.",

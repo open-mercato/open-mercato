@@ -19,6 +19,7 @@ import type { AiPendingActionFailedRecord } from './pending-action-types'
 import type { AiToolDefinition } from './types'
 
 export const PENDING_RECORD_NOT_PREVIEWED_CODE = 'record_not_previewed'
+export const PENDING_RECORD_DUPLICATE_DROPPED_CODE = 'record_duplicate_dropped'
 
 export type PendingActionExecutionPlan =
   | {
@@ -40,6 +41,7 @@ type PlannableTool = Pick<AiToolDefinition, 'isBulk' | 'loadBeforeRecords'>
 
 export type PendingActionBatchMessages = {
   recordNotPreviewed: string
+  recordDuplicateDropped: string
   batchNotApplicable: string
 }
 
@@ -49,6 +51,10 @@ export async function resolvePendingActionBatchMessages(): Promise<PendingAction
     recordNotPreviewed: translate(
       'ai_assistant.errors.pendingRecordNotPreviewed',
       'This record was not part of the approved preview, so it was not changed.',
+    ),
+    recordDuplicateDropped: translate(
+      'ai_assistant.errors.pendingRecordDuplicateDropped',
+      'This record was listed more than once. Only its first, previewed change was applied; the repeated entries were ignored.',
     ),
     batchNotApplicable: translate(
       'ai_assistant.errors.pendingBatchNotApplicable',
@@ -64,6 +70,16 @@ export function toNotPreviewedFailedRecords(
   return recordIds.map((recordId) => ({
     recordId,
     error: { code: PENDING_RECORD_NOT_PREVIEWED_CODE, message: messages.recordNotPreviewed },
+  }))
+}
+
+export function toDuplicateDroppedFailedRecords(
+  recordIds: string[],
+  messages: PendingActionBatchMessages,
+): AiPendingActionFailedRecord[] {
+  return recordIds.map((recordId) => ({
+    recordId,
+    error: { code: PENDING_RECORD_DUPLICATE_DROPPED_CODE, message: messages.recordDuplicateDropped },
   }))
 }
 

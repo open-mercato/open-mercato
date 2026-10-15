@@ -312,6 +312,7 @@
   "ai_assistant.errors.moderationBlocked": "Twoja wiadomość została zablokowana przez filtr bezpieczeństwa treści. Przeformułuj ją i spróbuj ponownie.",
   "ai_assistant.errors.moderationUnavailable": "Sprawdzanie bezpieczeństwa treści jest chwilowo niedostępne. Spróbuj ponownie za chwilę.",
   "ai_assistant.errors.pendingBatchNotApplicable": "Ta partia nie odpowiada już zatwierdzonemu podglądowi, więc nie można jej zastosować. Poproś asystenta o ponowne zaproponowanie zmiany.",
+  "ai_assistant.errors.pendingRecordDuplicateDropped": "Ten rekord pojawił się więcej niż raz. Zastosowano tylko jego pierwszą zmianę z podglądu; powtórzone wpisy zostały pominięte.",
   "ai_assistant.errors.pendingRecordNotPreviewed": "Ten rekord nie był częścią zatwierdzonego podglądu, więc nie został zmieniony.",
   "ai_assistant.launcher.composerPlaceholder": "Zapytaj o cokolwiek…",
   "ai_assistant.launcher.dialogDescription": "Wybierz asystenta. Nawiguj klawiszami ↑/↓, Enter uruchamia, Esc zamyka.",

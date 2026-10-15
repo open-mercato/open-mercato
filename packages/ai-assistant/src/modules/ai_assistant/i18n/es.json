@@ -312,6 +312,7 @@
   "ai_assistant.errors.moderationBlocked": "Tu mensaje fue bloqueado por el filtro de seguridad de contenido. Reformúlalo e inténtalo de nuevo.",
   "ai_assistant.errors.moderationUnavailable": "La verificación de seguridad de contenido no está disponible temporalmente. Inténtalo de nuevo en un momento.",
   "ai_assistant.errors.pendingBatchNotApplicable": "Este lote ya no coincide con la vista previa aprobada, por lo que no se puede aplicar. Pide al asistente que vuelva a proponer el cambio.",
+  "ai_assistant.errors.pendingRecordDuplicateDropped": "Este registro aparecía más de una vez. Solo se aplicó su primer cambio, el de la vista previa; las entradas repetidas se ignoraron.",
   "ai_assistant.errors.pendingRecordNotPreviewed": "Este registro no formaba parte de la vista previa aprobada, por lo que no se modificó.",
   "ai_assistant.launcher.composerPlaceholder": "Pregunte lo que necesite…",
   "ai_assistant.launcher.dialogDescription": "Elige un asistente. Usa ↑/↓ para navegar, Enter para iniciar, Esc para cerrar.",
