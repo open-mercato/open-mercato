@@ -32,6 +32,7 @@ import {
 } from '../../primitives/select'
 import { Popover, PopoverContent, PopoverTrigger } from '../../primitives/popover'
 import { Checkbox } from '../../primitives/checkbox'
+import { TagsInput } from '../inputs/TagsInput'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type {
   FilterFieldDef,
@@ -639,6 +640,38 @@ function ValueInput({
           ))}
         </SelectContent>
       </Select>
+    )
+  }
+
+  // `tags` operators take a list. A fixed option list reuses the checkbox
+  // picker; otherwise values are typed as chips. A plain text input could
+  // never produce the array that validation and the compiler require.
+  if (fieldType === 'tags' && getOperatorShape(rule.operator) === 'multi') {
+    if (fieldDef?.options?.length) {
+      return (
+        <MultiValuePicker
+          rule={rule}
+          options={fieldDef.options}
+          dispatch={dispatch}
+          errorClass={errorClass}
+          t={t}
+        />
+      )
+    }
+    const loadOptions = fieldDef?.loadOptions
+    return (
+      <div
+        role="group"
+        aria-label={t('ui.advancedFilter.textValue', 'Text value')}
+        className={`min-w-40 rounded-md ${errorClass}`}
+      >
+        <TagsInput
+          value={Array.isArray(value) ? value.map((entry) => String(entry)).filter((entry) => entry.length > 0) : []}
+          onChange={(next) => dispatch({ type: 'updateRule', ruleId: rule.id, updates: { value: next } })}
+          placeholder={t('ui.advancedFilter.textPlaceholder', 'Value...')}
+          loadSuggestions={loadOptions ? async (query) => loadOptions(query) : undefined}
+        />
+      </div>
     )
   }
 
