@@ -1,10 +1,10 @@
 # Handoff — 2026-10-14-ecommerce-release-4-write-side
 
-**Last updated:** 2026-10-15T11:15:00Z (Phases 1-2 CLOSED; Phase 3/4 functionally closed — one open item each; Phase 5 CLOSED; Phase 6 — Promotions Phase 3 — in progress, Step 6.2 done)
+**Last updated:** 2026-10-15T11:40:00Z (Phases 1-2 CLOSED; Phase 3/4 functionally closed — one open item each; Phase 5 CLOSED; Phase 6 — Promotions Phase 3 — in progress, Steps 6.2-6.3 done)
 **Branch:** feat/release-4-write-side
 **PR:** https://github.com/adeptofvoltron/open-mercato/pull/15 (draft, base `develop` on the fork)
-**Current phase/step:** Phases 1-2 fully done. Phase 3 done except Step 3.4's Part A (open item). Phase 4 done except Step 4.9's CONC-05 concurrency bug (open item). Phase 5 (Cart Phase 2) fully done, two findings carried forward (currency/locale digest coupling). Phase 6 (Promotions Phase 3): Step 6.2 done (Step 6.1 already satisfied early in Step 1.2). Resume at Step 6.3 (`promotionUsageService.registerUsage`/`.revertUsage`).
-**Last commit:** see `git log` on `feat/release-4-write-side` for the exact tip — Step 6.2's commits (code commands/service + docs) are the most recent.
+**Current phase/step:** Phases 1-2 fully done. Phase 3 done except Step 3.4's Part A (open item). Phase 4 done except Step 4.9's CONC-05 concurrency bug (open item). Phase 5 (Cart Phase 2) fully done, two findings carried forward (currency/locale digest coupling). Phase 6 (Promotions Phase 3): Steps 6.2-6.3 done — the full `PromotionsService` interface is now real (Step 6.1 already satisfied early in Step 1.2). Resume at Step 6.4 (code generation worker/service/routes).
+**Last commit:** see `git log` on `feat/release-4-write-side` for the exact tip — Step 6.3's commits (usage service + docs) are the most recent.
 
 ## OPEN ITEM 4 — RESOLVED at Step 5.5
 Step 5.5 stood up a fresh dev server against the still-current `om_cart49` disposable DB and ran the full `cart/__integration__/` suite live: 24 passed, 1 skipped (pre-existing CONC-05), 0 failed. The 4 existing Playwright spec files' Step 5.2/5.3 envelope-shape edits needed no fixes — they were correct by inspection AND are now confirmed correct by a real run.
@@ -60,10 +60,12 @@ Built the `cart` module from zero: scaffold/ACL/setup/events/encryption (4.1), e
 
 **Step 6.2** built `promotions/lib/code-service.ts`'s `PromotionCodeService` + `commands/codes.ts`'s 3 registered commands (`reserve`/`release`/`use`), replacing the 5 throwing stubs in `PromotionsServiceImpl`. Row-lock correction for `useCode` (C6/D-R4-12), D-R4-8's per-customer-limit counting rule, rate-limited `reserveCode`. 35 new tests (160 total in `promotions`).
 
-## Next concrete action
-Step 6.3 — `promotionUsageService.registerUsage`/`.revertUsage`: row lock then re-read sum, idempotent upsert, `207 Multi-Status`, `budget_exhausted` event on first hit, counters-key update. This fills in the last two throwing stubs on `PromotionsServiceImpl` (`registerUsage`/`revertUsage`, left untouched by Step 6.2 on purpose).
+**Step 6.3** built `promotions/lib/promotion-usage-service.ts`'s `PromotionUsageService` + `commands/usage.ts`'s 2 registered commands, replacing the last 2 throwing stubs — the full `PromotionsService` interface (7 methods) is now real. 18 new tests (178 total in `promotions`).
 
-**PR checkpoint status**: the last comment posted covers through Steps 5.3-5.5/Phase 5's close (`https://github.com/adeptofvoltron/open-mercato/pull/15#issuecomment-6187607263`). Step 6.2 is unreported; post the next checkpoint once a few more Phase 6 steps land.
+## Next concrete action
+Step 6.4 — code generation worker (`promotions-code-generate`), generation service, `codes`, `codes/[id]/generate`, `codes/[id]/generated` routes. Note this step DOES touch HTTP routes (unlike 6.2/6.3, which were deliberately service/command-layer only) — read PLAN.md line ~171 and the spec's `GET/POST /api/promotions/codes`, `POST /codes/[id]/generate`, `GET /codes/[id]/generated` endpoint descriptions before dispatching.
+
+**PR checkpoint status**: the last comment posted covers through Steps 5.3-5.5/Phase 5's close (`https://github.com/adeptofvoltron/open-mercato/pull/15#issuecomment-6187607263`). Steps 6.2-6.3 are unreported; post the next checkpoint once a few more Phase 6 steps land.
 
 ## Blockers / open questions
 None blocking. Step 3.4 Part A is open but does not block anything downstream yet (see "OPEN ITEM" above).
