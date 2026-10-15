@@ -314,6 +314,8 @@ documented explicitly, not glossed over.
   written, may themselves be only a spec), `status`
   (`DRAFT`/`CONFIRMED`/`SENT`/`CANCELLED`), `scheduledPaymentDate`,
   `totalAmount` (`numeric(19,4)`, computed from the lines),
+  `sentOn` (nullable `date` — the `operationDate` of the entry
+  `markPaymentBatchSent` posts; added 2026-10-15, see Data Models),
   `postedJournalEntryId` (nullable FK-id, set after
   `markPaymentBatchSent` — the same idempotency guard as
   `VendorInvoice.postedJournalEntryId`, see the sibling document),
@@ -340,8 +342,12 @@ lines on batches with `status = 'SENT'`, because `VendorInvoice` has no
 `outstandingAmount` column. It reads `PaymentBatchLine.vendorInvoiceId`,
 `PaymentBatchLine.amount` and `PaymentBatch.status` (via `paymentBatchId`)
 FK-id-only, with the tenant and organization scope applied and no ORM
-relation. These three columns, and the rule that only `markPaymentBatchSent`
-moves a batch to `SENT` and posts the payment, are a contract: a change to them
+relation. **Added 2026-10-15:** for an as-of valuation it also reads
+`PaymentBatch.sentOn` (the `operationDate` of the payment entry; see Data
+Models) and counts only batches with `status = 'SENT'` and `sentOn` on or
+before the valuation date. These columns, and the rule that only
+`markPaymentBatchSent` moves a batch to `SENT` and posts the payment, are a
+contract: a change to them
 is a visible change to this spec and to the multi-currency spec. With this
 module absent no payment exists and every posted invoice is fully open.
 
@@ -490,7 +496,15 @@ async seedDefaults({ em, tenantId, organizationId }) {
   'accounts_payable_payments:payment_batch'`, `referenceId: batch.id`.
   **Does not execute a real bank transfer** — see Out of scope. Sets
   `postedJournalEntryId` (idempotency guard, mirroring
-  `postVendorInvoice`).
+  `postVendorInvoice`). **Posting date (added 2026-10-15):** the command
+  takes an optional `sentOn` (a date, default today, not later than
+  today — **422** otherwise), posts the entry with
+  `operationDate: sentOn`, and stores it on `PaymentBatch.sentOn`. If
+  the ledger has no unlocked `FiscalPeriod` covering that date, its
+  error is returned as is and the batch stays `CONFIRMED`. Until now
+  this spec did not say which date the payment entry carries; other
+  modules that value open balances as of a date (Multi-Currency,
+  #6190) need it as a stored column.
 - `cancelPaymentBatch` — `DRAFT`/`CONFIRMED` → `CANCELLED` (soft
   delete via `deletedAt`; frees the attached invoices so they can go
   into another batch — logically, by removing `PaymentBatchLine`, not
@@ -602,6 +616,10 @@ deliberately different mechanisms, not by oversight:
 - `status`: text (`DRAFT`/`CONFIRMED`/`SENT`/`CANCELLED`)
 - `scheduled_payment_date`: date
 - `total_amount`: numeric(19,4)
+- `sent_on`: date, nullable (added 2026-10-15). Set once by
+  `markPaymentBatchSent` together with `status = 'SENT'`, equal to the
+  `operationDate` of the payment entry, immutable afterward. `null`
+  while `DRAFT`/`CONFIRMED`/`CANCELLED`.
 - `posted_journal_entry_id`: uuid, nullable
 - `updated_at`: timestamptz, nullable (optimistic lock while `status` is `DRAFT`/`CONFIRMED`)
 - `deleted_at`: timestamptz, nullable
@@ -700,8 +718,11 @@ Custom write route (mapped to `update`).
 
 Custom write route (mapped to `update`).
 
-- **Response 200**: `{ id, status: 'SENT', postedJournalEntryId }`.
+- **Request body** (added 2026-10-15): `{ sentOn?: 'YYYY-MM-DD' }` —
+  optional, default today, not later than today.
+- **Response 200**: `{ id, status: 'SENT', sentOn, postedJournalEntryId }`.
 - **Response 409**: `status !== 'CONFIRMED'`.
+- **Response 422**: `sentOn` is later than today.
 - **Response 403**: caller lacks `accounts_payable_payments.payments.execute`.
 
 ### `POST /api/accounts_payable_payments/payments/:id/cancel`
@@ -808,6 +829,11 @@ through the module configuration screen.
   the second `markPaymentBatchSent` call is a no-op, doesn't duplicate
   the entry (idempotency guard, mirroring `postVendorInvoice`'s test in
   the sibling document).
+- Send a batch with `sentOn` set to a past date inside an unlocked
+  period; assert the entry's `operationDate` and `PaymentBatch.sentOn`
+  both equal it. Send with a future `sentOn`; assert 422 and the batch
+  stays `CONFIRMED`. Send with `sentOn` in a locked period; assert the
+  ledger's error is returned and the batch stays `CONFIRMED`.
 
 ## Risks & Impact Review
 
@@ -1240,3 +1266,14 @@ multi-currency spec (decision 18) relies on `PaymentBatchLine.vendorInvoiceId`,
 `PaymentBatchLine.amount` and the batch `status` to derive the open amount of a
 vendor invoice, and said these were listed here as a contract; they were not. No
 change to behaviour or schema. Not yet reviewed by a maintainer.
+
+### 2026-10-15 (`sentOn`)
+
+- Added `PaymentBatch.sentOn` and an optional `sentOn` input on
+  `markPaymentBatchSent` (default today, not later than today). The spec
+  did not say which date the payment entry carries, and the Multi-Currency
+  spec (#6190) needs the date a batch was sent to value open vendor-invoice
+  amounts as of a date.
+- Extended the "Read contract for other modules" paragraph (added
+  2026-10-12) with `PaymentBatch.sentOn`.
+- Not yet reviewed by a maintainer.
