@@ -1,10 +1,10 @@
 # Handoff — 2026-10-14-ecommerce-release-4-write-side
 
-**Last updated:** 2026-10-15T15:05:00Z (Phases 1-2 CLOSED; Phase 3/4 functionally closed — one open item each; Phase 5 CLOSED; Phase 6 — Promotions Phase 3 — in progress, Steps 6.2-6.6 done)
+**Last updated:** 2026-10-15T15:25:00Z (Phases 1-2 CLOSED; Phase 3/4 functionally closed — one open item each; Phase 5 CLOSED; Phase 6 — Promotions Phase 3 — only Step 6.8 remains)
 **Branch:** feat/release-4-write-side
 **PR:** https://github.com/adeptofvoltron/open-mercato/pull/15 (draft, base `develop` on the fork)
-**Current phase/step:** Phases 1-2 fully done. Phase 3 done except Step 3.4's Part A (open item). Phase 4 done except Step 4.9's CONC-05 concurrency bug (open item). Phase 5 (Cart Phase 2) fully done, two findings carried forward (currency/locale digest coupling). Phase 6 (Promotions Phase 3): Steps 6.2-6.6 done — service layer, `Code` CRUD, generation worker/routes, reservation sweeper, and the codes backend UI all shipped. Resume at Step 6.7 (cart-facing codes/usage HTTP routes).
-**Last commit:** see `git log` on `feat/release-4-write-side` for the exact tip — Step 6.6's commits (codes backend pages + docs) are the most recent.
+**Current phase/step:** Phases 1-2 fully done. Phase 3 done except Step 3.4's Part A (open item). Phase 4 done except Step 4.9's CONC-05 concurrency bug (open item). Phase 5 (Cart Phase 2) fully done, two findings carried forward (currency/locale digest coupling). Phase 6 (Promotions Phase 3): Steps 6.2-6.7 all done — service layer, commands, worker, sweeper, backend UI, and the cart-facing HTTP routes all shipped. Resume at Step 6.8 (Phase 3 tests), the last step in Phase 6.
+**Last commit:** see `git log` on `feat/release-4-write-side` for the exact tip — Step 6.7's commits (cart-facing HTTP routes + docs) are the most recent.
 
 ## OPEN ITEM 4 — RESOLVED at Step 5.5
 Step 5.5 stood up a fresh dev server against the still-current `om_cart49` disposable DB and ran the full `cart/__integration__/` suite live: 24 passed, 1 skipped (pre-existing CONC-05), 0 failed. The 4 existing Playwright spec files' Step 5.2/5.3 envelope-shape edits needed no fixes — they were correct by inspection AND are now confirmed correct by a real run.
@@ -68,10 +68,12 @@ Built the `cart` module from zero: scaffold/ACL/setup/events/encryption (4.1), e
 
 **Step 6.6** built the `/backend/codes` list, create, and detail (+ generated-codes modal) pages — real browser-verified (created static/dynamic codes, triggered generation both ways, confirmed the optimistic-lock conflict bar). Zero DS/i18n findings attributable to this step. One honest caveat (noted in NOTIFY.md): the orchestrating session verified this step via code review + the full automated gate, but did NOT independently re-run the agent's own browser session a second time — a lighter-touch verification than every other step in this run, given the specificity of the reported evidence.
 
-## Next concrete action
-Step 6.7 — `codes/reserve|validate|use|release` and `usage/register|revert` HTTP routes with API-key auth and features (`promotions.evaluate`/`.codes.redeem`/`.usage.manage`). These are thin HTTP adapters over Step 6.2/6.3's already-built `PromotionsService` methods (`reserveCode`/`validateCode`/`useCode`/`releaseCode`/`registerUsage`/`revertUsage`) — no new business logic, just the route layer + API-key auth wiring. Read the spec's "Cart-Facing Endpoints" section for the exact request/response bodies (no `organizationId`/`tenantId` in any body — always derived from the authenticated principal).
+**Step 6.7** built the 6 cart-facing HTTP routes (`codes/{reserve,validate,use,release}`, `usage/{register,revert}`) as thin adapters over Step 6.2/6.3's service methods. Resolved `release`'s codeString→codeId mismatch, confirmed `usage/register` is where `budgetExceeded` becomes a real 207, and found that `commandBus.execute()` does NOT run mutation guards internally (wired `runRouteMutationGuards` explicitly into all 5 mutating routes). 10 new tests (219 total in `promotions`).
 
-**PR checkpoint status**: the last comment posted covers through Steps 6.4-6.5 (`https://github.com/adeptofvoltron/open-mercato/pull/15#issuecomment-6191391972`). Step 6.6 is unreported; post the next checkpoint once Step 6.7 lands too.
+## Next concrete action
+Step 6.8 — Phase 3 tests, closing Phase 6: `TC-PROM-023`–`026` (usage registration/revert/budget-cap/currency-eligibility), `TC-PROM-050`–`057` (concurrent reserve of the last code; concurrent `registerUsage` inside one ambient transaction never exceeding budget; a cross-tenant test per Phase 3 route; a UI test for the codes backend pages). Per this release's established pattern, a genuine concurrency race (one succeeds under real Postgres locking) needs a LIVE stack — the fake-`EntityManager` unit tests built in Steps 6.2/6.3 already proved the sequential decision logic but explicitly could not prove the real lock-contention case. Standing up a fresh dev server + disposable DB is very likely unavoidable for this step, same as Steps 4.9/5.5/6.6.
+
+**PR checkpoint status**: the last comment posted covers through Steps 6.4-6.5 (`https://github.com/adeptofvoltron/open-mercato/pull/15#issuecomment-6191391972`). Steps 6.6-6.7 are unreported; post the Phase-6-close checkpoint once Step 6.8 lands.
 
 ## Blockers / open questions
 None blocking. Step 3.4 Part A is open but does not block anything downstream yet (see "OPEN ITEM" above).
