@@ -11,7 +11,7 @@ import { getCartCommand } from '../commands/cart'
 import type { CartGetByTokenInput, CartSummary } from '../commands/cart'
 import type { CartPriceChange } from './reprice'
 import { isCartStoreContextUnavailableError, resolveCartRouteContext } from './routeContext'
-import type { ResolvedCartRouteContext } from './routeContext'
+import type { ResolveCartRouteContextOptions, ResolvedCartRouteContext } from './routeContext'
 
 // Step 4.7 — shared plumbing for the four `/api/cart/current/*` route files
 // (`current/route.ts`, `current/lines/route.ts`, `current/lines/[lineId]/route.ts`,
@@ -49,13 +49,19 @@ export type ResolvedContextResult =
  * Wraps `resolveCartRouteContext` (Step 4.3) and maps
  * `CartStoreContextUnavailableError` to a `503` — per that error's own doc comment
  * ("the route layer must map this to a 503") and this step's explicit brief.
+ *
+ * (Step 7.3) Accepts an optional `opts`, forwarded verbatim to
+ * `resolveCartRouteContext` — D-R4-22's "lock and merge routes resolve the buyer context
+ * fresh (`{ fresh: true }`)". Every pre-existing caller omits it and is unaffected
+ * (`undefined` forwards to the same default `resolveCartRouteContext` already had).
  */
 export async function resolveRouteContextOrError(
   request: Request,
   container: AppContainer,
+  opts?: ResolveCartRouteContextOptions,
 ): Promise<ResolvedContextResult> {
   try {
-    const routeContext = await resolveCartRouteContext(request, container)
+    const routeContext = await resolveCartRouteContext(request, container, opts)
     return { ok: true, routeContext }
   } catch (error) {
     if (isCartStoreContextUnavailableError(error)) {

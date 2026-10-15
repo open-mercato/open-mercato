@@ -39,6 +39,16 @@ export type CartPriceChangeReason =
   // never detected by `detectCartRepriceTrigger` (§5.2 triggers 2-4 only).
   | 'promotion_applied'
   | 'promotion_removed'
+  // Step 7.3 — §7.3 "mandatory and whole-cart... exactly the case trigger 2 exists for":
+  // `cart.merge`/`cart.mergeUndo` (`commands/merge.ts`) dispatch `cart.reprice` with this
+  // single reason for every one of §7.1's five policy rows AND for a successful undo —
+  // never detected by `detectCartRepriceTrigger` (manually supplied, same as
+  // 'promotion_applied'/'promotion_removed' above). Reused for both directions (merge and
+  // its undo) rather than adding a second 'merge_undo' value: the disclosure label a
+  // client renders for "your identity/cart just changed because of a merge" reads
+  // identically whichever direction caused it, and nothing downstream branches on this
+  // string beyond attaching it to `priceChanges`/`cart.price.changed`.
+  | 'merge'
 
 export type CartPriceChange = {
   lineId: string

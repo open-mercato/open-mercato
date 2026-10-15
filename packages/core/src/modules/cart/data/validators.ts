@@ -192,3 +192,21 @@ export const cartPromotionApplyRequestSchema = z
   })
   .strict()
 export type CartPromotionApplyRequest = z.infer<typeof cartPromotionApplyRequestSchema>
+
+/** `POST /current/merge` (Step 7.3, §10 "Merge a guest cart into the session's cart"). The
+ * spec never states this body's exact shape (checked — only the route table's one-line
+ * purpose exists) — `sourceToken` is the only thing that can possibly identify the guest
+ * cart, since it has no session of its own to carry the identification implicitly the way
+ * the TARGET cart does via `X-Cart-Token`. Documented judgment call (Step 7.3). */
+export const cartMergeRequestSchema = z
+  .object({
+    sourceToken: z.string().trim().min(1),
+  })
+  .strict()
+export type CartMergeRequest = z.infer<typeof cartMergeRequestSchema>
+
+/** `POST /current/undo-merge` — no body fields at all (mirrors `cartCurrentCreateRequestSchema`'s
+ * empty-but-`.strict()` convention); the merge to undo is found by querying `CartMergeLog`
+ * for the current (resolved) cart, not named by the caller. */
+export const cartMergeUndoRequestSchema = z.object({}).strict()
+export type CartMergeUndoRequest = z.infer<typeof cartMergeUndoRequestSchema>

@@ -24,6 +24,7 @@ import { Cart, CartLine } from '../data/entities'
 import type { CartStatus, CartTaxMode } from '../data/entities'
 import { toCartLineSnapshot } from '../commands/lines'
 import type { CartLineSnapshot } from '../commands/lines'
+import type { CartMergeSummary } from '../commands/merge'
 import type { CartPriceChange } from './reprice'
 
 // Step 5.2 — PLAN.md's own plan-correction note: Step 4.5's `commands/cart.ts` deferred
@@ -289,11 +290,17 @@ export type CartView = {
 
 export type CartViewWarning = { code: string; lineId?: string; message: string }
 
+/** §10.1's `mergeSummary?: MergeSummary` — an alias of `commands/merge.ts`'s own
+ * `CartMergeSummary` (lines added, quantities combined, anything capped), present only on
+ * a `POST /current/merge` response (§7.2's disclosure requirement). */
+export type MergeSummary = CartMergeSummary
+
 export type CartResponseEnvelope = {
   cart: CartView
   priceChanges?: CartPriceChange[]
   versionBumpReason?: 'mutation' | 'repricing' | 'merge'
   warnings?: CartViewWarning[]
+  mergeSummary?: MergeSummary
 }
 
 /**
@@ -326,6 +333,10 @@ export type BuildCartResponseEnvelopeParams = {
    * outcome, which (unlike `flag_state`) is not persisted anywhere a later read could
    * reconstruct it from. Merged with `buildFlaggedLineWarnings`'s own derived entries. */
   warnings?: CartViewWarning[]
+  /** (Step 7.3) Present only on the `POST /current/merge` response — `cart.merge`'s own
+   * result already carries the derived summary, so this is passed through verbatim rather
+   * than re-derived from anything this function would otherwise fetch. */
+  mergeSummary?: MergeSummary
 }
 
 /**
@@ -475,5 +486,6 @@ export async function buildCartResponseEnvelope(params: BuildCartResponseEnvelop
   if (params.priceChanges && params.priceChanges.length > 0) envelope.priceChanges = params.priceChanges
   if (params.versionBumpReason) envelope.versionBumpReason = params.versionBumpReason
   if (warnings.length > 0) envelope.warnings = warnings
+  if (params.mergeSummary) envelope.mergeSummary = params.mergeSummary
   return envelope
 }
