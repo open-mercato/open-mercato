@@ -24,6 +24,8 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
+<a id="webhook-update-omitted-settings"></a>
+
 ### Webhook updates keep omitted delivery settings
 
 `PUT /api/webhooks/:id` (and the equivalent `PUT /api/webhooks/webhooks/:id`) used to reset an omitted
@@ -37,6 +39,11 @@ schema keeps its defaults.
 - Webhooks already changed by a partial update are not repaired. Re-check the delivery settings of
   webhooks that were activated or deactivated from the list or detail page, and set them again where
   needed.
+
+**Backward compatibility** (recorded here because `BACKWARD_COMPATIBILITY.md` is at its agent-context
+byte budget): behaviour change on a previously-corrupting path of the webhook update API routes.
+URLs, field names, types, bounds and response shapes are unchanged. Regression-tested in
+`validators.test.ts`, `partial-update.test.ts` and `TC-WEBHOOK-011`.
 
 ### Warranty claim undo refusals return a localized `error` plus a `code`; claim-line undos refuse stale state
 
