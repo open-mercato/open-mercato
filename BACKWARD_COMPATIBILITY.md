@@ -574,3 +574,7 @@ Completing a user task whose workflow run had already ended wrote the form data 
 | Database schema, API route URLs, bus event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
 
 **Migration path for existing modules**: no action required. A client that completes tasks should treat `409` with `code: 'WORKFLOW_NOT_ACTIVE'` as final — the run has ended and the task cannot be completed.
+
+## Discord AI Proposals (2026-10-13)
+
+[Waiver](UPGRADE_NOTES.md#discord-proposals)
