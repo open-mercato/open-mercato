@@ -2642,8 +2642,17 @@ keyed on a link that does not exist. Checked against `sales`' entities on
   the correction is left to the accountant. Odoo reclassifies on the invoice
   date. Neither settles whether the schedule should be frozen, so this is not
   decisive for Design decision 14.
-- **Literature: Unverified.** Kieso's revenue-recognition chapter is not
-  available in the session (needs the PDF); nothing is cited from memory.
+- **Literature: Confirmed in part (Kieso 17th ed., Ch. 18, US GAAP/ASC 606;
+  full text of the uploaded PDF searched, 2026-10-15).** Sales returns and
+  allowances are contra-revenue booked when they occur, recognized revenue is
+  not rewritten (pp. 18-19–18-20); unearned revenue is a contract liability
+  released as the obligation is satisfied (p. 18-31); a contract modification
+  is generally prospective, previously reported results unchanged (pp.
+  18-32–18-33, footnote 15 names cumulative catch-up as the alternative).
+  Supports "do not keep recognizing on the original amount after a
+  correction"; says nothing on freezing a schedule or a release command, nor
+  on how a credit note against an invoiced deferred amount changes the
+  remaining schedule. Fowler/Hay not checked for this question.
 - **Open, not decided:** Design decision 14 (freeze vs warn vs release
   command after a detected correction) pending the literature check and the
   domain expert; who owns the business decision behind "recognize
