@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/gus-regon",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "license": "MIT",
   "description": "GUS REGON (BIR1) company lookup for Open Mercato — autofill Polish company name and registered address by NIP.",
   "type": "module",

@@ -161,7 +161,7 @@ None — no entities and no migrations. `GusCompany` is a transient DTO (see API
 
 ## Migration & Compatibility
 - Additive per `BACKWARD_COMPATIBILITY.md`: a new package, new module id `gus_regon`, new ACL feature `gus_regon.lookup`, new API routes `/api/gus_regon/*`, new i18n keys, new CLI command and new injection-table entries on existing spots. No existing contract surface is renamed, removed or narrowed; no migrations.
-- Versioned with the monorepo (`0.8.0`, `workspace:*` dependencies, published by `scripts/publish-packages.sh`); no changeset (core has none).
+- Versioned with the monorepo (`0.9.0`, `workspace:*` dependencies, published by `scripts/publish-packages.sh`); no changeset (core has none).
 - Users of the official-modules preview (`@open-mercato/gus-regon` was never published to npm from official-modules) have nothing to migrate.
 
 ## Implementation Plan
@@ -185,7 +185,7 @@ None — no entities and no migrations. `GusCompany` is a transient DTO (see API
 2. `createGusLookupWidget` + `GusFieldMap`; built-in widget moved onto the factory; unit tests.
 
 ### Phase 5: Port into core (2026-10-12)
-1. Package moved to `packages/gus-regon` with core conventions (`gateway-tpay` layout, `0.8.0`, `workspace:*`, `ko` locale).
+1. Package moved to `packages/gus-regon` with core conventions (`gateway-tpay` layout, `0.9.0`, `workspace:*`, `ko` locale).
 2. Spot mapping reduced to the `companyForm` host; write-only secrets handled in integration-test fixtures.
 3. Logging via `createLogger` + `reportError`; provider env preset, CLI and `onTenantCreated` hook.
 4. Wiring: `apps/mercato` module list and dependency, Dockerfile, create-app template (commented), `scripts/template-sync.ts`, `.env.example` (app + template), auth ACL labels, user guide page.
@@ -348,7 +348,7 @@ None.
 
 ## Changelog
 ### 2026-10-12
-- Ported from official-modules (SPEC-010, PR #56) into core as `packages/gus-regon` after official-modules was deprecated (#58): core package conventions (`0.8.0`, `workspace:*`, `ko` locale), spot mapping reduced to the customers `companyForm` host, write-only secrets in integration-test fixtures, `createLogger` + `reportError`, provider env preset + `configure-from-env` CLI + `onTenantCreated`, app/Docker/template/env wiring, auth ACL labels, user guide page.
+- Ported from official-modules (SPEC-010, PR #56) into core as `packages/gus-regon` after official-modules was deprecated (#58): core package conventions (`0.9.0`, `workspace:*`, `ko` locale), spot mapping reduced to the customers `companyForm` host, write-only secrets in integration-test fixtures, `createLogger` + `reportError`, provider env preset + `configure-from-env` CLI + `onTenantCreated`, app/Docker/template/env wiring, auth ACL labels, user guide page.
 
 ### 2026-09-30 (official-modules SPEC-010)
 - Skeleton spec (TLDR + Open Questions Q1–Q5) per `spec-writing`. Open Questions resolved by the requester: Q1 standalone provider package; Q2 `@open-mercato/gus-regon` / `gus_regon`, category `other`, no hub; Q3 customers company form + host mappings; Q4 `DaneSzukajPodmioty` only; Q5 `fast-xml-parser`.

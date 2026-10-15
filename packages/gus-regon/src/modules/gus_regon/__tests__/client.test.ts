@@ -67,25 +67,41 @@ describe('createGusClient', () => {
     expect(String(calls[0].init.body)).toContain('<pIdentyfikatorSesji>SID123</pIdentyfikatorSesji>')
   })
 
-  it('times out when headers arrive but the body stalls', async () => {
+  it('times out and cancels the body stream when headers arrive but the body stalls', async () => {
     jest.useFakeTimers()
     try {
-      // Mirrors `fetchWithTimeout` after headers arrive: the body read no longer
-      // observes the caller's signal and never settles on its own.
-      const request: GusRequest = async () =>
-        ({
-          ok: true,
-          status: 200,
-          body: null,
-          text: () => new Promise<string>(() => undefined),
-        }) as unknown as Response
+      const cancel = jest.fn()
+      const stalledBody = new ReadableStream<Uint8Array>({
+        start(streamController) {
+          streamController.enqueue(new TextEncoder().encode('<soap:Envelope>'))
+        },
+        cancel,
+      })
+      const request: GusRequest = async () => new Response(stalledBody, { status: 200 })
       const pending = createGusClient(config, request).login()
       const assertion = expect(pending).rejects.toThrow(/timed out/)
       await jest.advanceTimersByTimeAsync(10_000)
       await assertion
+      expect(cancel).toHaveBeenCalledTimes(1)
     } finally {
       jest.useRealTimers()
     }
+  })
+
+  it('decodes a body split across chunks', async () => {
+    const encoded = new TextEncoder().encode(searchResponse(SEARCH_FOUND_INNER))
+    const middle = Math.floor(encoded.length / 2)
+    const chunkedBody = new ReadableStream<Uint8Array>({
+      start(streamController) {
+        streamController.enqueue(encoded.slice(0, middle))
+        streamController.enqueue(encoded.slice(middle))
+        streamController.close()
+      },
+    })
+    const request: GusRequest = async () => new Response(chunkedBody, { status: 200 })
+    const whole = mockRequest([{ body: searchResponse(SEARCH_FOUND_INNER) }])
+    const expected = await createGusClient(config, whole.request).searchByNip('SID123', '5252344078')
+    await expect(createGusClient(config, request).searchByNip('SID123', '5252344078')).resolves.toBe(expected)
   })
 
   it('times out when the request itself never settles', async () => {

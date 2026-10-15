@@ -55,10 +55,38 @@ export type GusClient = {
 }
 
 /**
+ * Reads the response body through a reader owned by this call, so the deadline can
+ * cancel it: cancelling the reader closes the stream and releases the connection,
+ * which `response.body.cancel()` cannot do while `response.text()` holds the lock.
+ */
+async function readBodyUntil(response: Response, signal: AbortSignal, deadline: Promise<never>): Promise<string> {
+  if (!response.body) return ''
+  const reader = response.body.getReader()
+  const onDeadline = () => {
+    reader.cancel().catch(() => undefined)
+  }
+  signal.addEventListener('abort', onDeadline, { once: true })
+  try {
+    const decoder = new TextDecoder()
+    let text = ''
+    for (;;) {
+      const chunk = await Promise.race([reader.read(), deadline])
+      if (chunk.done) break
+      text += decoder.decode(chunk.value, { stream: true })
+    }
+    return text + decoder.decode()
+  } finally {
+    signal.removeEventListener('abort', onDeadline)
+    if (!signal.aborted) reader.releaseLock()
+  }
+}
+
+/**
  * BIR1.1 SOAP client. Every call has one deadline for the whole exchange —
  * headers and body: `fetchWithTimeout` detaches the caller's signal once headers
- * arrive, so the body read is raced against the deadline explicitly and a server
- * that stalls mid-body cannot hang the call.
+ * arrive, so the body is read through an owned reader that the deadline cancels,
+ * and a server that stalls mid-body can neither hang the call nor keep the
+ * connection open.
  */
 export function createGusClient(config: GusConfig, request: GusRequest = fetchWithTimeout): GusClient {
   async function call(action: string, bodyXml: string, sid?: string): Promise<string> {
@@ -82,12 +110,7 @@ export function createGusClient(config: GusConfig, request: GusRequest = fetchWi
         }),
         deadline,
       ])
-      const onDeadline = () => {
-        response.body?.cancel().catch(() => undefined)
-      }
-      controller.signal.addEventListener('abort', onDeadline, { once: true })
-      const raw = await Promise.race([response.text(), deadline])
-      controller.signal.removeEventListener('abort', onDeadline)
+      const raw = await readBodyUntil(response, controller.signal, deadline)
       if (!response.ok) throw new GusTransportError(`[internal] GUS ${action} returned HTTP ${response.status}`)
       return raw
     } catch (error) {
