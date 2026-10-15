@@ -1,10 +1,21 @@
 # Handoff — 2026-10-14-ecommerce-release-4-write-side
 
-**Last updated:** 2026-10-15T22:05:00Z — **ALL 56 STEPS OF THIS RUN'S PLAN.MD ARE NOW `done`.**
+**Last updated:** 2026-10-15T22:40:00Z — **ALL 56 STEPS DONE, FULL REPO-WIDE GATE PASSED, PR MARKED READY FOR REVIEW. THIS RUN IS CLOSED.**
 **Branch:** feat/release-4-write-side
-**PR:** https://github.com/adeptofvoltron/open-mercato/pull/15 (draft, base `develop` on the fork)
-**Current phase/step:** Every phase (0 through 7) is closed. Phase 7's own completion gate (Step 7.6, "the Release 4 completion gate for `cart`") passed live. Step 7.8 (create-app template sync) was the final step and is done. **Nothing left in PLAN.md's Tasks table is `todo`.**
-**Last commit:** see `git log` on `feat/release-4-write-side` for the exact tip — Step 7.8's commits (template sync + docs) are the most recent.
+**PR:** https://github.com/adeptofvoltron/open-mercato/pull/15 (**ready for review**, no longer draft; `feature`/`priority-medium`/`risk-high`/`needs-qa`/`review` labels applied)
+**Current phase/step:** Every phase (0 through 7) is closed. Nothing left in PLAN.md's Tasks table is `todo`. The final full-repo validation gate (run once more end-to-end, not scoped to any single package) found and fixed one real i18n gap and three real repo-wide structural-guard violations — all in `cart`/`promotions`'s own new code, none caught by any individual step's own narrower per-step validation. `@open-mercato/core` (where both modules live) is now 100% clean. **There is no more work to resume — this run is finished.** If a future session reopens this run, it is to act on a REVIEW or QA finding against the now-ready PR, not to continue PLAN.md.
+**Last commit:** see `git log` on `feat/release-4-write-side` for the exact tip — the final-gate fix commits (i18n keys, three structural-guard fixes) are the most recent, after Step 7.8's own commits.
+
+## This run is closed — read this before doing anything else
+
+Every one of PLAN.md's 56 steps is `done`. The PR (`https://github.com/adeptofvoltron/open-mercato/pull/15`) is marked ready for review with labels applied and a final summary comment posted. **Do not resume PLAN.md "Next concrete action" sections below this point — they are the step-by-step history of HOW this got built, kept for reference, not a queue of remaining work.**
+
+If you were just handed this task again, the only legitimate reasons are:
+1. **A human reviewer or QA reviewer left feedback on the PR** — read the PR's own comments/reviews for what changed since this note was written, and address that feedback as its own, freshly-scoped task (not by re-reading PLAN.md's 56 steps).
+2. **One of the three carried-forward open items** (CONC-05, the currency/locale digest coupling, the `storefrontPricing.ts` exemption — all documented in `cart/AGENTS.md`'s own "Gotchas" section and both specs' changelogs) needs an owner decision or a real fix — that is new, separately-scoped work, not a continuation of this run.
+3. **The branch needs a rebase/merge-conflict resolution** against `develop` before it can merge — routine PR hygiene, not a PLAN.md step.
+
+For any of those, treat it as its own task with its own scope — read the PR's current state and the relevant NOTIFY.md entries for context, but do not re-walk the 56-step plan.
 
 ## OPEN ITEM 4 — RESOLVED at Step 5.5
 Step 5.5 stood up a fresh dev server against the still-current `om_cart49` disposable DB and ran the full `cart/__integration__/` suite live: 24 passed, 1 skipped (pre-existing CONC-05), 0 failed. The 4 existing Playwright spec files' Step 5.2/5.3 envelope-shape edits needed no fixes — they were correct by inspection AND are now confirmed correct by a real run.
