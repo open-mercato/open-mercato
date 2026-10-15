@@ -1216,7 +1216,9 @@ sibling spec PRs.
 | `packages/core/src/modules/fx_revaluation/backend/` | New — Ledger → Period-End page (preview, run, history) |
 | `packages/core/src/modules/fx_revaluation/i18n/` | New — locale keys (Internationalization section) |
 | `packages/core/src/modules/fx_revaluation/**/__tests__/` | New — the Testing Strategy matrix |
-| `packages/core/src/modules/currencies/services/providers/` | Patch (Implementation Plan Step 0) — Table A provider, `source: 'NBP_A'`; not part of this module |
+| `packages/core/src/modules/currencies/services/providers/nbpTableA.ts` | New (Implementation Plan Step 0) — Table A provider, `source: 'NBP_A'`, `type = null`; lives in `currencies`, not in this module (Design decision 9c) |
+| `packages/core/src/modules/currencies/di.ts` | Patch (Step 0) — register the Table A provider next to `NBPProvider` and `RaiffeisenPolandProvider` |
+| `packages/core/src/modules/currencies/services/README.md` | Patch (Step 0) — document `NBP_A` (source, `type = null`, fetched by `autoFetch` with the other providers) |
 | `.ai/specs/2026-09-06-accounts-payable.md` | Patch — `VendorInvoice.exchangeRate`, `backfill` command/route, immutability guard |
 | `.ai/specs/2026-09-06-accounts-payable-payments.md` | Patch — read contract incl. `PaymentBatch.sentOn` |
 | sales-invoice-GL-posting spec | Patch — `SalesInvoice.currencyId`/`exchangeRate`, `backfill` command/route, post-posting immutability guard (Design decision 15) |
