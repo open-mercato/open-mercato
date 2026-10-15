@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import {
   CART_LINES_PATH,
+  backdateCartTotalsComputedAt,
   cartStorefrontRequest,
   cleanupCartProductFixture,
   cleanupCartStorefrontFixture,
@@ -18,16 +19,16 @@ import {
 const OPTIMISTIC_LOCK_HEADER = 'x-om-ext-optimistic-lock-expected-updated-at';
 
 /**
- * TC-CART-CONC-01/02/03/05 — concurrency and idempotency (§8, Phase 1 gate).
+ * TC-CART-CONC-01/02/03/04/05 — concurrency, idempotency and the re-pricing version bump
+ * (§8, Phase 1 gate; §5.2 for CONC-04).
  * Source: .ai/specs/2026-08-14-cart-module.md §8, §14 "Concurrency & idempotency".
  *
- * TC-CART-CONC-04 (re-pricing bump carries `versionBumpReason: 'repricing'`) is NOT built in
- * this phase — `cart.reprice` and the §5.2 triggers do not exist yet in this worktree (no
- * `lib/reprice.ts`/`lib/triggers.ts`, confirmed by `find packages/core/src/modules/cart`),
- * so there is no re-pricing path to fire at all. Skipped rather than fabricated; see the step
- * report.
+ * CONC-04 was un-skipped in Step 5.5: `cart.reprice` (Step 5.1) now exists, so the
+ * `versionBumpReason: 'repricing'` bump this test asserts has a real path to fire from — it
+ * was written as a plain description of the gap, not an actual `test.skip()` placeholder,
+ * from Step 4.9 through Step 5.4.
  */
-test.describe('TC-CART-CONC-01/02/03/05: concurrency and idempotency', () => {
+test.describe('TC-CART-CONC-01/02/03/04/05: concurrency, idempotency and the re-pricing version bump', () => {
   test.describe.configure({ timeout: 120_000 });
 
   let store: CartStorefrontFixture;
@@ -136,6 +137,31 @@ test.describe('TC-CART-CONC-01/02/03/05: concurrency and idempotency', () => {
     });
     expect(mismatched.status, mismatched.text).toBe(422);
     expect(mismatched.body).toMatchObject({ code: 'idempotency_key_mismatch' });
+  });
+
+  // TC-CART-CONC-04: a GET that triggers §5.2 re-pricing (here, trigger 4's staleness budget
+  // — the easiest to construct over HTTP, same mechanism `backdateCartTotalsComputedAt`
+  // drives in TC-CART-PRICE-01) carries `versionBumpReason: 'repricing'` in its response.
+  test('TC-CART-CONC-04: a re-pricing GET carries versionBumpReason "repricing"', async () => {
+    const cart = await createStorefrontCart(store.hostname);
+    await cartStorefrontRequest(store.hostname, CART_LINES_PATH, {
+      method: 'POST',
+      cartToken: cart.token,
+      body: { productId: product.productId, quantity: '1' },
+    });
+
+    const thirtyOneMinutesAgo = new Date(Date.now() - 31 * 60 * 1000).toISOString();
+    await backdateCartTotalsComputedAt(cart.cartId, thirtyOneMinutesAgo);
+
+    const response = await cartStorefrontRequest(store.hostname, '/api/cart/current', {
+      method: 'GET',
+      cartToken: cart.token,
+    });
+
+    expect(response.status, response.text).toBe(200);
+    const body = response.body as { versionBumpReason?: string; priceChanges?: Array<{ reason: string }> };
+    expect(body.versionBumpReason).toBe('repricing');
+    expect(body.priceChanges).toEqual([expect.objectContaining({ reason: 'stale_snapshot' })]);
   });
 
   // TC-CART-CONC-05: 20 parallel add-line calls yield a consistent final quantity.

@@ -178,6 +178,30 @@ export async function updateChannelBindingAssortmentScope(
   expect(response.status(), `channel binding scope update should be 200 (${await response.text()})`).toBe(200);
 }
 
+/**
+ * Updates a store's `defaultCurrencyCode`/`supportedLocales` — the two fields
+ * `resolveCartRouteContext` → `storeContextService.resolve` derives `currencyCode`/
+ * `effectiveLocale` from (`lib/storeContext.ts`: `currencyCode: store.defaultCurrencyCode`,
+ * `locale: resolveStoreLocale(...)` matched against `store.supportedLocales`). Used by the
+ * §5.2 trigger-3 Playwright coverage (`TC-CART-PRICE-02`) to drive `currency_changed`/
+ * `locale_changed` between two requests against the SAME storefront cart token — a store
+ * "updated" event invalidates the resolution cache's `ecommerceStoreTag` (`lib/
+ * cacheInvalidation.ts`), so the very next request resolves the new value, same as
+ * {@link updateChannelBindingAssortmentScope}'s already-proven revalidation.
+ */
+export async function updateStoreLocaleAndCurrency(
+  request: APIRequestContext,
+  token: string,
+  storeId: string,
+  input: { defaultCurrencyCode?: string; supportedLocales?: string[] },
+): Promise<void> {
+  const response = await apiRequest(request, 'PUT', STORES_PATH, {
+    token,
+    data: { id: storeId, ...input },
+  });
+  expect(response.status(), `store currency/locale update should be 200 (${await response.text()})`).toBe(200);
+}
+
 export type CartProductFixture = {
   productId: string;
   categoryId: string;
@@ -420,6 +444,22 @@ export async function backdateCartLastActivity(cartId: string, isoTimestamp: str
 export async function backdateCartExpiresAt(cartId: string, isoTimestamp: string): Promise<void> {
   await withClient(async (client) => {
     await client.query(`update carts set expires_at = $2, updated_at = now() where id = $1`, [cartId, isoTimestamp]);
+  });
+}
+
+/**
+ * Backdates `carts.totals_computed_at` directly — drives §5.2 trigger 4 (the staleness
+ * budget) over real HTTP without waiting out `CART_PRICE_STALENESS_MINUTES` in wall-clock
+ * time. Same pattern as `backdateCartLastActivity`/`backdateCartExpiresAt`: a direct SQL
+ * write to the ONE column `detectCartRepriceTrigger` actually compares
+ * (`lib/triggers.ts`'s own doc comment on `totalsComputedAt`), deliberately NOT touching
+ * `updated_at` here — unlike the other two `backdateCart*` helpers, this one is used
+ * specifically to prove that `updated_at` stays unchanged across repeated in-budget GETs
+ * (TC-CART-PRICE-01), so stamping it here would defeat that assertion's own premise.
+ */
+export async function backdateCartTotalsComputedAt(cartId: string, isoTimestamp: string): Promise<void> {
+  await withClient(async (client) => {
+    await client.query(`update carts set totals_computed_at = $2 where id = $1`, [cartId, isoTimestamp]);
   });
 }
 

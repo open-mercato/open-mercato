@@ -250,6 +250,24 @@ describe('cart.lines.add', () => {
     expect(resolveLinePrice).toHaveBeenCalledTimes(1)
   })
 
+  // Step 5.5 — trigger-isolation gate (§14/§15): `cart.lines.add` is NOT one of the §5.2
+  // re-price triggers (only `.update`'s tier-crossing path, trigger 1, and `cart.get`'s
+  // trigger 2-4 detection are) — confirmed by reading `execute` above, which never emits
+  // `cart.price.changed` on either the fresh-insert or the merge-by-quantity branch.
+  it('never fires cart.price.changed — adding a line is not one of the §5.2 re-price triggers', async () => {
+    const handler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')
+    const em = makeEm()
+    const ctx = makeCtx({ em })
+
+    const result = await handler.execute(
+      { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, productId: 'product-1', quantity: 2, addedByActorType: 'rep' },
+      ctx,
+    )
+
+    expect(result.status).toBe('added')
+    expect(emitCartEventMock.mock.calls.some(([eventId]) => eventId === 'cart.price.changed')).toBe(false)
+  })
+
   it('sums a second add of the identical product/variant/configuration into the existing line and re-prices at the new total quantity', async () => {
     const handler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')
     const resolveLinePrice = jest.fn(async () => makeResolvedLinePrice())
@@ -623,6 +641,50 @@ describe('cart.lines.remove', () => {
       logEntry: { ...(logEntry as any), commandPayload: (logEntry as any).payload } as unknown as CommandUndoLogEntry,
     })
     expect(seededCartLines[0].deletedAt).toBeNull()
+  })
+
+  // Step 5.5 — trigger-isolation gate (§14/§15): removing a line is not one of the §5.2
+  // re-price triggers either — `removeLineCommand.execute` never emits `cart.price.changed`.
+  it('never fires cart.price.changed — removing a line is not one of the §5.2 re-price triggers', async () => {
+    seededCartLines = [{
+      id: 'line-1',
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      cartId: CART_ID,
+      lineNumber: 1,
+      productId: 'product-1',
+      variantId: null,
+      sku: null,
+      name: 'Widget',
+      optionValues: null,
+      quantity: '1',
+      unitPriceNet: '10',
+      unitPriceGross: '12',
+      taxRate: '20',
+      priceKindId: null,
+      priceRowId: 'price-row-1',
+      priceTierMinQuantity: 1,
+      pricedAt: new Date(),
+      lineTotals: makeLineTotalsFixture(1),
+      discountTotalNet: null,
+      promotionId: null,
+      origin: 'customer',
+      configuration: null,
+      addedByActorType: 'buyer',
+      addedByActorId: null,
+      metadata: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+    }]
+    const handler = getHandler<CartLinesRemoveInput, CartLinesRemoveResult>('cart.lines.remove')
+    const em = makeEm()
+    const ctx = makeCtx({ em })
+
+    const result = await handler.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineId: 'line-1' }, ctx)
+
+    expect(result.removed).toBe(true)
+    expect(emitCartEventMock.mock.calls.some(([eventId]) => eventId === 'cart.price.changed')).toBe(false)
   })
 })
 

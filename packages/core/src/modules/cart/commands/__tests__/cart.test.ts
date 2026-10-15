@@ -456,6 +456,31 @@ describe('cart.get', () => {
 
 // Step 5.1 — §5.2 triggers 2-4, evaluated inside `cart.get` whenever a `freshContext` is
 // supplied (every `/current/*` route's own `resolveCurrentCart` always supplies one).
+//
+// Step 5.5 — this `describe` block is also where the trigger-isolation gate (§14/§15:
+// "triggers 1-4 and 7 each verified in isolation (no other action re-prices)") lives for
+// triggers 2-4 at the command level: each of the four tests below changes EXACTLY ONE of
+// digest/currency/locale/staleness and asserts the `priceChanges` reason matches that one
+// field, never a different reason. The full isolation picture, assembled across this
+// worktree's existing suites rather than duplicated here:
+//   - Trigger 1 (tier-crossing quantity change on `.update`): isolated in
+//     `commands/__tests__/lines.test.ts` ("re-prices when the new quantity crosses..." fires
+//     alone; "does not call the pricing service for a same-tier quantity change..." proves a
+//     same-tier `.update` — an action in the SAME command, just not crossing a tier — never
+//     re-prices).
+//   - Triggers 2/3/4 pure-function isolation (no command/DB involved) already lives in
+//     `lib/__tests__/triggers.test.ts`, including the explicit "returns null when nothing
+//     differs" control and the "triggers 2/3 never fire for a non-storefront cart" guard.
+//   - Trigger 7 (an operator forcing a re-price from the admin cart view, §15 Phase 4):
+//     investigated at Step 5.1 and deliberately deferred, not stubbed — no admin cart
+//     list/detail route exists anywhere in this worktree yet (confirmed again at this step),
+//     so there is no HTTP or command surface to drive it from, isolated or otherwise. See
+//     NOTIFY.md's 2026-10-15T08:00:00Z entry for the full investigation. The underlying
+//     `cart.reprice` primitive this file tests is already the right one for that future
+//     route to call.
+//   - "No other action re-prices": `cart.lines.add`/`.remove` never call `cart.reprice` or
+//     emit `cart.price.changed` at all (confirmed by reading `commands/lines.ts` — neither
+//     command references either), and `lines.test.ts` now asserts this explicitly for both.
 describe('cart.get — §5.2 triggers 2-4 (Step 5.1)', () => {
   afterEach(() => {
     jest.clearAllMocks()
@@ -521,6 +546,85 @@ describe('cart.get — §5.2 triggers 2-4 (Step 5.1)', () => {
       grandTotalNetAmount: 16,
       grandTotalGrossAmount: 19.2,
     })
+  })
+
+  // Step 5.5 — trigger isolation (§14/§15): the companion to the trigger-2 test above,
+  // proving trigger 3's TWO sub-reasons (currency, locale) each fire ALONE — a currency-only
+  // drift never reports `locale_changed` and vice versa — at this same `cart.get` command
+  // level `detectCartRepriceTrigger` (`lib/__tests__/triggers.test.ts`) already proved in
+  // isolation at the pure-function level.
+  it('trigger 3 (currency): reprices and discloses a currency_changed priceChange + versionBumpReason when only the currency differs', async () => {
+    const cart = seedCartWithLine()
+    const handler = commandRegistry.get<CartGetInput, CartGetResult>('cart.get')
+    const { em } = makeEm()
+    const dataEngine = makeDataEngine()
+    const ctx = makeCtx({ em, dataEngine })
+
+    // Digest and locale both match the stored cart — ONLY currencyCode differs.
+    const freshContext = makeRouteContext({ buyerDigest: 'digest-1', currencyCode: 'EUR', locale: 'en-US' })
+    const result = await handler!.execute(
+      { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: cart.id as string, freshContext },
+      ctx,
+    )
+
+    expect(result.found).toBe(true)
+    if (!result.found) throw new Error('expected found')
+    expect(result.versionBumpReason).toBe('repricing')
+    expect(result.priceChanges).toEqual([
+      expect.objectContaining({ lineId: 'line-1', reason: 'currency_changed' }),
+    ])
+    expect(result.cart.currencyCode).toBe('EUR')
+    expect(result.cart.buyerDigest).toBe('digest-1')
+    expect(result.cart.locale).toBe('en-US')
+  })
+
+  it('trigger 3 (locale): reprices and discloses a locale_changed priceChange + versionBumpReason when only the locale differs', async () => {
+    const cart = seedCartWithLine()
+    const handler = commandRegistry.get<CartGetInput, CartGetResult>('cart.get')
+    const { em } = makeEm()
+    const dataEngine = makeDataEngine()
+    const ctx = makeCtx({ em, dataEngine })
+
+    // Digest and currency both match the stored cart — ONLY locale differs.
+    const freshContext = makeRouteContext({ buyerDigest: 'digest-1', currencyCode: 'USD', locale: 'de-DE' })
+    const result = await handler!.execute(
+      { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: cart.id as string, freshContext },
+      ctx,
+    )
+
+    expect(result.found).toBe(true)
+    if (!result.found) throw new Error('expected found')
+    expect(result.versionBumpReason).toBe('repricing')
+    expect(result.priceChanges).toEqual([
+      expect.objectContaining({ lineId: 'line-1', reason: 'locale_changed' }),
+    ])
+    expect(result.cart.locale).toBe('de-DE')
+    expect(result.cart.buyerDigest).toBe('digest-1')
+    expect(result.cart.currencyCode).toBe('USD')
+  })
+
+  it('trigger 4 (staleness): reprices and discloses a stale_snapshot priceChange + versionBumpReason when nothing but the staleness budget differs', async () => {
+    // `totalsComputedAt` is 31 minutes in the past — past `DEFAULT_CART_PRICE_STALENESS_MINUTES`
+    // (30) — while digest/currency/locale all match the stored cart exactly, isolating trigger
+    // 4 from triggers 2/3.
+    const cart = seedCartWithLine({ totalsComputedAt: new Date(Date.now() - 31 * 60 * 1000) })
+    const handler = commandRegistry.get<CartGetInput, CartGetResult>('cart.get')
+    const { em } = makeEm()
+    const dataEngine = makeDataEngine()
+    const ctx = makeCtx({ em, dataEngine })
+
+    const freshContext = makeRouteContext({ buyerDigest: 'digest-1', currencyCode: 'USD', locale: 'en-US' })
+    const result = await handler!.execute(
+      { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: cart.id as string, freshContext },
+      ctx,
+    )
+
+    expect(result.found).toBe(true)
+    if (!result.found) throw new Error('expected found')
+    expect(result.versionBumpReason).toBe('repricing')
+    expect(result.priceChanges).toEqual([
+      expect.objectContaining({ lineId: 'line-1', reason: 'stale_snapshot' }),
+    ])
   })
 
   it('does not reprice (no write) when nothing differs and the cart is fresh — TC-CART-PRICE-01', async () => {
