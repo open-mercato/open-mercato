@@ -76,6 +76,40 @@ function getCartLineIdentifiers(line: CartLine) {
 }
 
 // ---------------------------------------------------------------------------
+// Shared: `cart.line.visibility_rejected` (§11, D-R4-23, TC-CART-R1-10)
+// ---------------------------------------------------------------------------
+
+/**
+ * The only §6a.1c enforcement points this phase builds — the whole-cart pass at §6a.2's
+ * triggers 2/5 does not exist yet (no `cart.reprice`/`cart.lock` commands in this worktree),
+ * so its own `triggeredBy` values land with the step that implements it, not here.
+ */
+export type CartVisibilityRejectionTrigger = 'lines.add' | 'lines.update' | 'lines.bulkAdd'
+
+/**
+ * Emitted once per REQUEST with the count of lines this call rejected for a VISIBILITY
+ * reason specifically — never once per rejected line, and never for a rejection the request
+ * incurred for an unrelated reason (quantity rule, unpriceable product, a missing
+ * product/variant row). §6a.3's no-enumeration-oracle collapse applies to the BUYER-facing
+ * `product_unavailable` warning only; this event is the operator-facing signal D-R4-23 names,
+ * so it is free to be precise about which rejections were actually a scope mismatch.
+ */
+async function emitVisibilityRejectedEvent(
+  cart: Pick<Cart, 'id' | 'tenantId' | 'organizationId'>,
+  rejectedCount: number,
+  triggeredBy: CartVisibilityRejectionTrigger,
+): Promise<void> {
+  if (rejectedCount <= 0) return
+  await emitCartEvent('cart.line.visibility_rejected', {
+    cartId: cart.id,
+    organizationId: cart.organizationId,
+    tenantId: cart.tenantId,
+    rejectedCount,
+    triggeredBy,
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Shared: quantity-rule validation (§5.5)
 // ---------------------------------------------------------------------------
 
@@ -653,7 +687,10 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
     const acceptedQuantity = check.quantity
 
     const visible = await checkSingleLineVisibility(em, ctx.container, scope, { productId: input.productId, variantId }, assortmentScope)
-    if (!visible) return { status: 'rejected', reason: 'product_unavailable' }
+    if (!visible) {
+      await emitVisibilityRejectedEvent(cart, 1, 'lines.add')
+      return { status: 'rejected', reason: 'product_unavailable' }
+    }
 
     const actor = resolveLineActor(input, { addedByActorType: input.addedByActorType, addedByActorId: input.addedByActorId })
     const now = new Date()
@@ -846,7 +883,10 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
     const finalQuantity = check.quantity
 
     const visible = await checkSingleLineVisibility(em, ctx.container, scope, { productId: line.productId, variantId: line.variantId ?? null }, assortmentScope)
-    if (!visible) return { status: 'rejected', reason: 'product_unavailable' }
+    if (!visible) {
+      await emitVisibilityRejectedEvent(cart, 1, 'lines.update')
+      return { status: 'rejected', reason: 'product_unavailable' }
+    }
 
     const now = new Date()
     const sameTier = await isWithinStoredPriceTier(em, scope, line, finalQuantity)
@@ -1060,6 +1100,10 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
     const outcomes: CartLinesBulkAddEntryOutcome[] = new Array(input.lines.length)
     const changedLines: CartLine[] = []
     const changedActions: Array<'created' | 'updated'> = []
+    // TC-CART-R1-10: counts ONLY entries this call rejected for a visibility reason, never a
+    // quantity-rule/not-priceable/missing-product rejection — see `emitVisibilityRejectedEvent`.
+    // Phases run sequentially (SPEC-018, the comment above), so a shared closure counter is safe.
+    let visibilityRejectedCount = 0
 
     // ---- per-entry decide + mutate, one `withAtomicFlush` phase per entry so an
     // earlier entry's mutation is flushed before a later entry's (in-memory-only) reads
@@ -1102,6 +1146,7 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
       const visible = isVisible(visibility.get(cartVisibilityKey({ productId: entry.productId, variantId })) ?? 'unavailable')
       if (!visible) {
         outcomes[index] = { index, status: 'rejected', reason: 'product_unavailable' }
+        visibilityRejectedCount += 1
         return
       }
 
@@ -1193,6 +1238,7 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
     })
 
     await withAtomicFlush(em, phases, { label: 'cart.lines.bulkAdd' })
+    await emitVisibilityRejectedEvent(cart, visibilityRejectedCount, 'lines.bulkAdd')
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     for (let i = 0; i < changedLines.length; i += 1) {

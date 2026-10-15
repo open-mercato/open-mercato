@@ -10,6 +10,9 @@ jest.mock('../../events', () => ({
 
 import { CatalogProduct, CatalogProductPrice, CatalogProductVariant } from '@open-mercato/core/modules/catalog/data/entities'
 import { Cart, CartLine } from '../../data/entities'
+import { emitCartEvent as mockedEmitCartEvent } from '../../events'
+
+const emitCartEventMock = mockedEmitCartEvent as jest.Mock
 
 type Row = Record<string, any>
 
@@ -377,6 +380,54 @@ describe('cart.lines.add', () => {
     expect(result).toEqual({ status: 'rejected', reason: 'product_unavailable' })
     expect(seededCartLines).toHaveLength(0)
   })
+
+  // TC-CART-R1-10: `cart.line.visibility_rejected` fires once per request with the correct
+  // `rejectedCount`/`triggeredBy`, from the §6a.1c enforcement point this command owns.
+  it('emits cart.line.visibility_rejected once with rejectedCount 1 and triggeredBy lines.add', async () => {
+    const handler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')
+    const em = makeEm()
+    const loadScopedProducts = jest.fn(async () => new Map([['product-1', { id: 'product-1', categoryIds: [], tagIds: [], isActive: true }]]))
+    const ctx = makeCtx({ em, catalogScopedProductService: { loadScopedProducts } })
+
+    await handler.execute(
+      {
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+        cartId: CART_ID,
+        productId: 'product-1',
+        quantity: 1,
+        assortmentScope: [{ categoryIds: ['does-not-exist'] }] as any,
+      },
+      ctx,
+    )
+
+    const visibilityRejectedCalls = emitCartEventMock.mock.calls.filter(([eventId]) => eventId === 'cart.line.visibility_rejected')
+    expect(visibilityRejectedCalls).toHaveLength(1)
+    expect(visibilityRejectedCalls[0][1]).toMatchObject({ cartId: CART_ID, rejectedCount: 1, triggeredBy: 'lines.add' })
+  })
+
+  // TC-CART-R1-06: a non-storefront ("pos"/"pay_link"/"agent"/"api") cart created via the
+  // authenticated path (§6a.4) runs NO assortment check at all — not "runs the check and it
+  // happens to pass". Mocking `catalogScopedProductService` to reject the product and never
+  // passing `assortmentScope` on the call proves the check is skipped, not merely satisfied:
+  // `loadScopedProducts` is never invoked, the line is added, and no `visibility_rejected`
+  // event fires, regardless of what the storefront assortment status would have said.
+  it('skips the assortment check entirely for a non-storefront cart with no resolved scope (§6a.1b/§6a.4)', async () => {
+    seededCarts = [makeCartFixture({ channel: 'agent' })]
+    const handler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')
+    const em = makeEm()
+    const loadScopedProducts = jest.fn(async () => new Map())
+    const ctx = makeCtx({ em, catalogScopedProductService: { loadScopedProducts } })
+
+    const result = await handler.execute(
+      { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, productId: 'product-1', quantity: 1, addedByActorType: 'ai_agent' },
+      ctx,
+    )
+
+    expect(result.status).toBe('added')
+    expect(loadScopedProducts).not.toHaveBeenCalled()
+    expect(emitCartEventMock.mock.calls.some(([eventId]) => eventId === 'cart.line.visibility_rejected')).toBe(false)
+  })
 })
 
 describe('cart.lines.update', () => {
@@ -469,6 +520,37 @@ describe('cart.lines.update', () => {
     expect(result.line.priceRowId).toBe('price-row-1')
     expect(resolveLinePrice).not.toHaveBeenCalled()
     expect(mockFindWithDecryption).not.toHaveBeenCalledWith(expect.anything(), CatalogProductPrice, expect.anything())
+  })
+
+  // TC-CART-R1-05/R1-10: a line whose product has since become restricted is rejected, left
+  // untouched (not deleted, quantity unchanged), and emits `cart.line.visibility_rejected`
+  // once with `triggeredBy: 'lines.update'`.
+  it('rejects an update when the product has since become restricted, leaves the line untouched, and emits visibility_rejected', async () => {
+    await seedLine({ quantity: '5' })
+    const handler = getHandler<CartLinesUpdateInput, CartLinesUpdateOutcome>('cart.lines.update')
+    const em = makeEm()
+    const loadScopedProducts = jest.fn(async () => new Map([['product-1', { id: 'product-1', categoryIds: [], tagIds: [], isActive: true }]]))
+    const ctx = makeCtx({ em, catalogScopedProductService: { loadScopedProducts } })
+
+    const result = await handler.execute(
+      {
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+        cartId: CART_ID,
+        lineId: 'line-1',
+        quantity: 8,
+        assortmentScope: [{ categoryIds: ['does-not-exist'] }] as any,
+      },
+      ctx,
+    )
+
+    expect(result).toEqual({ status: 'rejected', reason: 'product_unavailable' })
+    expect(seededCartLines[0].deletedAt).toBeNull()
+    expect(seededCartLines[0].quantity).toBe('5')
+
+    const visibilityRejectedCalls = emitCartEventMock.mock.calls.filter(([eventId]) => eventId === 'cart.line.visibility_rejected')
+    expect(visibilityRejectedCalls).toHaveLength(1)
+    expect(visibilityRejectedCalls[0][1]).toMatchObject({ cartId: CART_ID, rejectedCount: 1, triggeredBy: 'lines.update' })
   })
 })
 
@@ -576,5 +658,67 @@ describe('cart.lines.bulkAdd', () => {
     expect((captured as { status: number }).status).toBe(400)
     expect(mockFindOneWithDecryption).not.toHaveBeenCalled()
     expect(em.fork).not.toHaveBeenCalled()
+  })
+
+  // TC-CART-R1-04/R1-10: mixing a visible and a scope-restricted product in one batch adds
+  // the visible one, reports the restricted one per-line (never a whole-batch failure), and
+  // emits `cart.line.visibility_rejected` ONCE for the request with the correct count — not
+  // once per rejected entry, and not counting the unrelated quantity-rule rejection below.
+  it('adds the visible entry, rejects the restricted one by visibility, and emits one visibility_rejected event with rejectedCount 1', async () => {
+    seededProducts = [
+      makeProductFixture({ id: 'product-1' }),
+      makeProductFixture({ id: 'product-2', sku: 'WIDGET-2', minOrderQty: 10 }),
+      makeProductFixture({ id: 'product-3' }),
+    ]
+    const handler = getHandler<CartLinesBulkAddInput, CartLinesBulkAddResult>('cart.lines.bulkAdd')
+    const em = makeEm()
+    const resolveLinePrice = jest.fn(async () => makeResolvedLinePrice())
+    const loadScopedProducts = jest.fn(async () =>
+      new Map([
+        ['product-1', { id: 'product-1', categoryIds: ['cat-a'], tagIds: [], isActive: true }],
+        ['product-3', { id: 'product-3', categoryIds: ['cat-b'], tagIds: [], isActive: true }],
+      ]),
+    )
+    const ctx = makeCtx({ em, catalogBuyerPricingService: { resolveLinePrice }, catalogScopedProductService: { loadScopedProducts } })
+
+    const result = await handler.execute(
+      {
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+        cartId: CART_ID,
+        addedByActorType: 'rep',
+        assortmentScope: [{ categoryIds: ['cat-a'] }] as any,
+        lines: [
+          { productId: 'product-1', quantity: 1 },
+          { productId: 'product-2', quantity: 1 }, // rejected by the UNRELATED quantity rule, not visibility
+          { productId: 'product-3', quantity: 1 }, // rejected by visibility (outside cat-a)
+        ],
+      },
+      ctx,
+    )
+
+    expect(result.addedCount).toBe(1)
+    expect(result.rejectedCount).toBe(2)
+    expect(result.results[0]).toMatchObject({ index: 0, status: 'added' })
+    expect(result.results[1]).toMatchObject({ index: 1, status: 'rejected', reason: 'quantity_below_minimum' })
+    expect(result.results[2]).toMatchObject({ index: 2, status: 'rejected', reason: 'product_unavailable' })
+
+    const visibilityRejectedCalls = emitCartEventMock.mock.calls.filter(([eventId]) => eventId === 'cart.line.visibility_rejected')
+    expect(visibilityRejectedCalls).toHaveLength(1)
+    expect(visibilityRejectedCalls[0][1]).toMatchObject({ cartId: CART_ID, rejectedCount: 1, triggeredBy: 'lines.bulkAdd' })
+  })
+
+  it('emits no visibility_rejected event when nothing was rejected for visibility', async () => {
+    const handler = getHandler<CartLinesBulkAddInput, CartLinesBulkAddResult>('cart.lines.bulkAdd')
+    const em = makeEm()
+    const resolveLinePrice = jest.fn(async () => makeResolvedLinePrice())
+    const ctx = makeCtx({ em, catalogBuyerPricingService: { resolveLinePrice } })
+
+    await handler.execute(
+      { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, addedByActorType: 'rep', lines: [{ productId: 'product-1', quantity: 1 }] },
+      ctx,
+    )
+
+    expect(emitCartEventMock.mock.calls.some(([eventId]) => eventId === 'cart.line.visibility_rejected')).toBe(false)
   })
 })
