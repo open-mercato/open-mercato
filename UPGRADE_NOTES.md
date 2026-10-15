@@ -58,6 +58,34 @@ where s.started_by in (select id from customer_users)
 Nothing is rewritten automatically. Portal pages that legitimately started submissions on another
 subject type (for example `patient`) also match, so review the rows before revoking anything.
 
+<a id="discord-proposals"></a>
+
+### Discord AI reply proposals require system origin (issue #7312)
+
+Approving or dismissing an unmarked `channel_discord.ai_reply_proposal` message now fails.
+Previously, a user with `messages.compose` could forge an approval card that caused a colleague
+to post attacker-written text as a public reply. Proposal creation now records a server-only
+origin marker, and both actions verify it against the stored content and tenant/organization.
+
+**Emergency security waiver:** the surface is approval/dismissal through the existing provider
+actions and commands; the classification is security behavior narrowing. Route URLs,
+action/command IDs, schemas, signatures, and database fields remain unchanged. Continued
+acceptance of unmarked cards is itself the exploit: they cannot be distinguished from forgeries.
+A legacy fallback, including checking the mutable bot email, would retain the exploitable branch,
+so no legacy bridge or toggle exists. The PR must carry `security` and a named human maintainer
+approval acknowledging this waiver before merge. The Discord spec contains the corresponding
+"Migration & Backward Compatibility — proposal origin" section.
+Public compose and draft-update requests cannot supply this marker.
+
+**Module authors:** use the Discord provider's `fileDiscordReplyProposal` helper for new cards.
+Posting the message type through `/api/messages` or an unstamped internal compose no longer
+produces an actionable proposal. No new dependency, configuration, or database migration is needed.
+
+**Operators:** upgrade all app/worker processes, remove pending unmarked cards, and generate
+fresh proposals. Old cards cannot be distinguished from forgeries; do not backfill markers using
+their text or sender email. Inspect prior approved replies if forgery is suspected. Normal
+messages and fresh system-filed proposals retain their existing behavior.
+
 ### Payment gateway webhooks: opt-in transport, locator and response options; ambiguous matches are rejected
 
 `registerWebhookHandler(...)` accepts new optional options for providers that sign form-encoded bodies or expect a specific acknowledgement:
@@ -158,6 +186,19 @@ indistinguishable from a missing one).
 scope instead of returning `null` — returning `null` there would drop the organization predicate
 entirely and read across the tenant. Migrate to `resolveAttachmentRequestScope` so the deny becomes
 a response your route chooses.
+
+### Business rule and rule set PUTs keep `enabled` / `priority` / `version` when they are omitted (#6940)
+
+`PUT /api/business_rules/rules` used to reset an omitted `enabled` to `true`, `priority` to `100` and
+`version` to `1`, and `PUT /api/business_rules/sets` reset an omitted `enabled` to `true`. The update
+schemas (`updateBusinessRuleSchema`, `createLocalizedUpdateBusinessRuleSchema`, `updateRuleSetSchema`)
+inherited the create-time defaults, so disabling a rule also reset its priority and renaming a
+disabled rule set re-enabled it. Omitted fields are now left untouched; the create schemas keep their
+defaults.
+
+- A caller that relied on omission to reset these fields must send the values explicitly.
+- Rules and rule sets already changed by a partial update are not repaired. Check `enabled` and
+  `priority` on the business rules pages and set them again where needed.
 
 ### `directory.organizations.update` keeps `parentId` / `childIds` when they are omitted
 
@@ -624,6 +665,31 @@ company creation — including the `customer_accounts` portal-users group, which
 in create mode and renders its empty state. The bridge also keeps the shipped `example` module's
 `example.injection.customer-priority-field` field widget rendering on this page exactly as before,
 via the dual-published `:fields` child.
+
+### The CLI dispatcher answers `--help`/`-h` for module commands (#5581)
+
+Asking the `mercato` CLI what a command's flags are used to run the command. `mercato db generate --help` performed a full migration generation, `mercato db migrate --help` applied every pending migration, and in a checkout without `.env` any invocation — help included — silently materialized `.env` from `.env.example` against that file's placeholder `DATABASE_URL`. Help is now a no-op that prints usage: the dispatcher intercepts `--help`/`-h` before calling a command's `run()`, and the `.env` bootstrap is skipped for any help invocation.
+
+For a first-party command this is invisible, and no command or flag was renamed or removed. The actionable change is for **out-of-tree modules**: a `ModuleCli` whose `run()` parses `-h` or `--help` itself — a `-h` host shorthand is the obvious case — no longer receives that flag, because the dispatcher answers it first. `-h` meaning help is the overwhelming CLI convention, so it is the new default, but a command that means something else by it needs to say so.
+
+**Action for module authors:** if one of your CLI descriptors parses `-h`/`--help` in its own `run()`, set `handlesHelp: true` on that descriptor and the dispatcher will forward the flag through unchanged:
+
+```typescript
+import type { ModuleCli } from '@open-mercato/shared/modules/registry'
+
+const cli: ModuleCli[] = [
+  {
+    command: 'sync',
+    // The dispatcher forwards --help/-h to run() instead of intercepting it.
+    handlesHelp: true,
+    run: async (argv) => { /* parses -h itself */ },
+  },
+]
+```
+
+Setting `handlesHelp: true` moves the no-op guarantee onto your command: the dispatcher stops standing between the flag and your `run()`, so your handler must answer it before doing any work — including when it follows a subcommand (`mercato mymod cache purge --help`). Check the whole argument list, not just the first position, or a help request executes the very path it was asking about.
+
+Every other descriptor needs no change. Two optional fields were added to `ModuleCli` (`packages/shared/src/modules/registry.ts`), so existing descriptors still typecheck untouched — an ADDITIVE-ONLY change under [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md) § 13. The companion field `help?: string` is purely opt-in: set it to the usage text the dispatcher should print under `Usage: mercato <module> <command> [args]`, and omit it to get the generic usage line plus the module's command list.
 
 ### An explicit OTLP telemetry backend now fails startup when OpenTelemetry is not installed (#5799)
 
