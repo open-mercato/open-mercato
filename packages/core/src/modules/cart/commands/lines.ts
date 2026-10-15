@@ -4,6 +4,7 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
+import { ensureSameScope } from '@open-mercato/shared/lib/commands/scope'
 import { badRequest, conflict, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -723,92 +724,128 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
     const actor = resolveLineActor(input, { addedByActorType: input.addedByActorType, addedByActorId: input.addedByActorId })
     const now = new Date()
 
-    const existing = await findExistingCustomerLine(em, scope, cart.id, input.productId, variantId, input.configuration ?? null)
-    const pricingContext = buildCartPricingRowFilterContext(cart)
-    const variantIds = variantId ? [variantId] : []
-    const rows = filterRowsForVariant(await fetchPriceRowsBatch(em, scope, pricingContext, [input.productId], variantIds), variantId)
+    let outcome: CartLinesAddOutcome | null = null
+    let changedLine: CartLine | null = null
+    let changedAction: 'created' | 'updated' | null = null
 
-    if (existing) {
-      const before = toCartLineSnapshot(existing)
-      const summedQuantity = Number(existing.quantity) + acceptedQuantity
-      const sumCheck = checkQuantityRule(rules, summedQuantity)
-      if (sumCheck.status === 'rejected') return { status: 'rejected', reason: sumCheck.reason, nearestValid: sumCheck.nearestValid }
-      if (sumCheck.status === 'accepted_clamped') warnings.push('quantity_capped')
+    // The merge-by-quantity decision below (`findExistingCustomerLine`) and its write are a
+    // read-decide-write sequence on a row that may not exist yet, so a row-level lock can't
+    // protect it. A per-cart Postgres advisory lock — held for the whole transaction, the
+    // same primitive `attachments`/`notifications`/`sso` already use — serializes every
+    // `cart.lines.add`/`.bulkAdd` call against this cart instead, closing the race
+    // `TC-CART-CONC-05` reproduced (a silently lost update, and a raw 500 off
+    // `cart_lines_unique_line_key`).
+    await withAtomicFlush(em, [
+      async () => {
+        await em.execute('select pg_advisory_xact_lock(hashtextextended(?::text, 0))', [`cart:lines:${cart.id}`])
+      },
+      async () => {
+        const existing = await findExistingCustomerLine(em, scope, cart.id, input.productId, variantId, input.configuration ?? null)
+        const pricingContext = buildCartPricingRowFilterContext(cart)
+        const variantIds = variantId ? [variantId] : []
+        const rows = filterRowsForVariant(await fetchPriceRowsBatch(em, scope, pricingContext, [input.productId], variantIds), variantId)
 
-      const resolved = await resolveLinePricing(em, ctx.container, cart, rows, sumCheck.quantity, now)
-      if (!resolved.priceRow) return { status: 'rejected', reason: 'product_not_priceable' }
+        if (existing) {
+          const before = toCartLineSnapshot(existing)
+          const summedQuantity = Number(existing.quantity) + acceptedQuantity
+          const sumCheck = checkQuantityRule(rules, summedQuantity)
+          if (sumCheck.status === 'rejected') {
+            outcome = { status: 'rejected', reason: sumCheck.reason, nearestValid: sumCheck.nearestValid }
+            return
+          }
+          if (sumCheck.status === 'accepted_clamped') warnings.push('quantity_capped')
 
-      existing.quantity = String(sumCheck.quantity)
-      applyPriceSnapshot(existing, resolved, now)
-      existing.lineTotals = await computeLineTotals(ctx.container, cart, {
-        productId: existing.productId,
-        variantId: existing.variantId ?? null,
-        name: existing.name,
-        quantity: sumCheck.quantity,
-        unitPriceNet: resolved.amountNet,
-        unitPriceGross: resolved.amountGross,
-        taxRate: resolved.taxRatePercent,
-        configuration: existing.configuration ?? null,
-      })
-      await em.flush()
+          const resolved = await resolveLinePricing(em, ctx.container, cart, rows, sumCheck.quantity, now)
+          if (!resolved.priceRow) {
+            outcome = { status: 'rejected', reason: 'product_not_priceable' }
+            return
+          }
 
+          existing.quantity = String(sumCheck.quantity)
+          applyPriceSnapshot(existing, resolved, now)
+          existing.lineTotals = await computeLineTotals(ctx.container, cart, {
+            productId: existing.productId,
+            variantId: existing.variantId ?? null,
+            name: existing.name,
+            quantity: sumCheck.quantity,
+            unitPriceNet: resolved.amountNet,
+            unitPriceGross: resolved.amountGross,
+            taxRate: resolved.taxRatePercent,
+            configuration: existing.configuration ?? null,
+          })
+
+          changedLine = existing
+          changedAction = 'updated'
+          outcome = { status: 'merged', line: toCartLineSnapshot(existing), before, warnings }
+          return
+        }
+
+        const resolved = await resolveLinePricing(em, ctx.container, cart, rows, acceptedQuantity, now)
+        if (!resolved.priceRow) {
+          outcome = { status: 'rejected', reason: 'product_not_priceable' }
+          return
+        }
+
+        const lineNumber = await computeStartingLineNumber(em, scope, cart.id)
+        const fields = resolveSnapshotFields(product, variant, input.configuration ?? null, input.metadata ?? null)
+
+        const newLine = em.create(CartLine, {
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          cartId: cart.id,
+          lineNumber,
+          productId: fields.productId,
+          variantId: fields.variantId,
+          sku: fields.sku,
+          name: fields.name,
+          optionValues: fields.optionValues,
+          quantity: String(acceptedQuantity),
+          origin: 'customer' as const,
+          promotionId: null,
+          discountTotalNet: null,
+          flagState: null,
+          configuration: fields.configuration,
+          addedByActorType: actor.addedByActorType,
+          addedByActorId: actor.addedByActorId,
+          metadata: fields.metadata,
+          // Placeholders — both overwritten immediately below (`pricedAt`/`lineTotals` carry
+          // no MikroORM default, so `em.create`'s required-data type needs a concrete value).
+          pricedAt: now,
+          lineTotals: {},
+        })
+        applyPriceSnapshot(newLine, resolved, now)
+        newLine.lineTotals = await computeLineTotals(ctx.container, cart, {
+          productId: fields.productId,
+          variantId: fields.variantId,
+          name: fields.name,
+          quantity: acceptedQuantity,
+          unitPriceNet: resolved.amountNet,
+          unitPriceGross: resolved.amountGross,
+          taxRate: resolved.taxRatePercent,
+          configuration: fields.configuration,
+        })
+        em.persist(newLine)
+
+        changedLine = newLine
+        changedAction = 'created'
+        outcome = { status: 'added', line: toCartLineSnapshot(newLine), before: null, warnings }
+      },
+    ], { transaction: true, label: 'cart.lines.add' })
+
+    if (!outcome) throw new Error('[internal] cart.lines.add produced no outcome')
+
+    if (changedLine && changedAction) {
       const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-      await emitCrudSideEffects({ dataEngine, action: 'updated', entity: existing, identifiers: getCartLineIdentifiers(existing), indexer: cartLineCrudIndexer })
-      await emitCartEvent('cart.line.updated', { id: existing.id, cartId: existing.cartId, organizationId: existing.organizationId, tenantId: existing.tenantId })
-
-      const after = toCartLineSnapshot(existing)
-      return { status: 'merged', line: after, before, warnings }
+      await emitCrudSideEffects({ dataEngine, action: changedAction, entity: changedLine, identifiers: getCartLineIdentifiers(changedLine), indexer: cartLineCrudIndexer })
+      await emitCartEvent(changedAction === 'created' ? 'cart.line.added' : 'cart.line.updated', {
+        id: changedLine.id,
+        cartId: changedLine.cartId,
+        organizationId: changedLine.organizationId,
+        tenantId: changedLine.tenantId,
+      })
     }
 
-    const resolved = await resolveLinePricing(em, ctx.container, cart, rows, acceptedQuantity, now)
-    if (!resolved.priceRow) return { status: 'rejected', reason: 'product_not_priceable' }
-
-    const lineNumber = await computeStartingLineNumber(em, scope, cart.id)
-    const fields = resolveSnapshotFields(product, variant, input.configuration ?? null, input.metadata ?? null)
-
-    const newLine = em.create(CartLine, {
-      organizationId: scope.organizationId,
-      tenantId: scope.tenantId,
-      cartId: cart.id,
-      lineNumber,
-      productId: fields.productId,
-      variantId: fields.variantId,
-      sku: fields.sku,
-      name: fields.name,
-      optionValues: fields.optionValues,
-      quantity: String(acceptedQuantity),
-      origin: 'customer' as const,
-      promotionId: null,
-      discountTotalNet: null,
-      flagState: null,
-      configuration: fields.configuration,
-      addedByActorType: actor.addedByActorType,
-      addedByActorId: actor.addedByActorId,
-      metadata: fields.metadata,
-      // Placeholders — both overwritten immediately below (`pricedAt`/`lineTotals` carry
-      // no MikroORM default, so `em.create`'s required-data type needs a concrete value).
-      pricedAt: now,
-      lineTotals: {},
-    })
-    applyPriceSnapshot(newLine, resolved, now)
-    newLine.lineTotals = await computeLineTotals(ctx.container, cart, {
-      productId: fields.productId,
-      variantId: fields.variantId,
-      name: fields.name,
-      quantity: acceptedQuantity,
-      unitPriceNet: resolved.amountNet,
-      unitPriceGross: resolved.amountGross,
-      taxRate: resolved.taxRatePercent,
-      configuration: fields.configuration,
-    })
-    em.persist(newLine)
-    await em.flush()
-
-    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    await emitCrudSideEffects({ dataEngine, action: 'created', entity: newLine, identifiers: getCartLineIdentifiers(newLine), indexer: cartLineCrudIndexer })
-    await emitCartEvent('cart.line.added', { id: newLine.id, cartId: newLine.cartId, organizationId: newLine.organizationId, tenantId: newLine.tenantId })
-
-    return { status: 'added', line: toCartLineSnapshot(newLine), before: null, warnings }
+    return outcome
   },
   buildLog: async ({ result }) => {
     if (result.status === 'rejected') return null
@@ -835,6 +872,9 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const line = await em.findOne(CartLine, { id: lineId })
     if (!line) return
+    if (logEntry?.tenantId && logEntry?.organizationId) {
+      ensureSameScope(line, logEntry.organizationId, logEntry.tenantId)
+    }
 
     if (payload?.before) {
       restoreLineFromSnapshot(line, payload.before)
@@ -1059,6 +1099,9 @@ const removeLineCommand: CommandHandler<CartLinesRemoveInput, CartLinesRemoveRes
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const line = await em.findOne(CartLine, { id: lineId })
     if (!line) return
+    if (logEntry?.tenantId && logEntry?.organizationId) {
+      ensureSameScope(line, logEntry.organizationId, logEntry.tenantId)
+    }
     line.deletedAt = null
     await em.flush()
 
@@ -1307,7 +1350,16 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
       changedActions.push('created')
     })
 
-    await withAtomicFlush(em, phases, { label: 'cart.lines.bulkAdd' })
+    // Same per-cart advisory lock as `cart.lines.add` (above) — `lineByKey`'s merge-by-quantity
+    // decision is read-decide-write against rows that may not exist yet, so two concurrent
+    // `bulkAdd`/`add` calls on this cart must serialize, not just this call's own entries
+    // against each other.
+    await withAtomicFlush(em, [
+      async () => {
+        await em.execute('select pg_advisory_xact_lock(hashtextextended(?::text, 0))', [`cart:lines:${cart.id}`])
+      },
+      ...phases,
+    ], { transaction: true, label: 'cart.lines.bulkAdd' })
     await emitVisibilityRejectedEvent(cart, visibilityRejectedCount, 'lines.bulkAdd')
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
@@ -1354,6 +1406,7 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
     for (const entry of payload.entries) {
       const line = await em.findOne(CartLine, { id: entry.after.id })
       if (!line) continue
+      ensureSameScope(line, entry.after.organizationId, entry.after.tenantId)
       if (entry.before) {
         restoreLineFromSnapshot(line, entry.before)
       } else {

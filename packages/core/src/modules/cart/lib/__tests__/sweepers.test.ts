@@ -212,6 +212,37 @@ describe('sweepAbandonedCarts', () => {
     expect(result).toEqual({ transitioned: 1 })
     expect(justOverOneHour.status).toBe('abandoned')
   })
+
+  it('does not emit a duplicate event for a cart a racing tick already transitioned before this call\'s nativeUpdate runs', async () => {
+    const raceLost = makeCart({ id: 'race-lost', lastActivityAt: new Date(NOW.getTime() - 25 * 60 * 60 * 1000) })
+    const raceWon = makeCart({ id: 'race-won', lastActivityAt: new Date(NOW.getTime() - 25 * 60 * 60 * 1000) })
+    const em = makeEm([raceLost, raceWon])
+
+    // Simulates a second tick's `nativeUpdate` landing between this call's candidate read
+    // and its own `nativeUpdate`: by the time THIS call's `nativeUpdate` runs, `raceLost` no
+    // longer matches `status: 'active'`, so this call never transitions it — but a
+    // pre-fix implementation still looped over every pre-fetched candidate and would have
+    // emitted `cart.cart.abandoned` for it anyway (the bug this test guards against).
+    const originalFind = em.find.getMockImplementation()!
+    em.find.mockImplementationOnce(async (...args: Parameters<typeof originalFind>) => {
+      const result = await originalFind(...args)
+      raceLost.status = 'abandoned'
+      raceLost.resolvedAt = new Date(NOW.getTime() - 1000)
+      return result
+    })
+
+    const result = await sweepAbandonedCarts(em as never, { tenantId: TENANT }, NOW)
+
+    expect(result).toEqual({ transitioned: 1 })
+    expect(raceWon.status).toBe('abandoned')
+    expect(raceWon.resolvedAt).toEqual(NOW)
+    expect(emitMock).toHaveBeenCalledTimes(1)
+    expect(emitMock).toHaveBeenCalledWith(
+      'cart.cart.abandoned',
+      { cartId: 'race-won' },
+      { persistent: true, tenantId: TENANT, organizationId: ORG },
+    )
+  })
 })
 
 describe('sweepExpiredCarts', () => {

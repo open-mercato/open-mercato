@@ -139,8 +139,20 @@ function applyMaxDiscountCap(entries: RawAmountPair[], maxDiscount: number | nul
   return entries.map((entry) => ({ rawNet: entry.rawNet * ratio, rawGross: entry.rawGross * ratio }))
 }
 
-function sumQuantityPrice(items: EnrichedEvaluateItem[], field: 'unitPriceNet' | 'unitPriceGross'): number {
-  return items.reduce((sum, item) => sum + Number(item.quantity) * Number(item[field]), 0)
+// Integer-minor-units sum, same money-math discipline as this module's own
+// `roundHalfUpToMinorUnits`/`lib/promotion-usage-service.ts`'s `toMinorUnits`: each item's
+// `quantity * unitPrice` is rounded to one integer minor-units value, then every item is
+// SUMMED as an integer. A cart with many lines previously summed raw float products first
+// and rounded once at the very end — the accumulated float drift across terms could land a
+// cart total a cent off its true value, which `resolveTieredDiscount`'s `<=` threshold
+// comparison (below) could then miss at an exact boundary (review finding).
+function sumQuantityPriceMinorUnits(items: EnrichedEvaluateItem[], field: 'unitPriceNet' | 'unitPriceGross', fractionDigits: number): number {
+  const factor = 10 ** fractionDigits
+  return items.reduce((sum, item) => sum + Math.round(Number(item.quantity) * Number(item[field]) * factor), 0)
+}
+
+function sumQuantityPrice(items: EnrichedEvaluateItem[], field: 'unitPriceNet' | 'unitPriceGross', fractionDigits: number): number {
+  return sumQuantityPriceMinorUnits(items, field, fractionDigits) / 10 ** fractionDigits
 }
 
 // Shared by `product_discount`, the partial-discount branch of `buy_x_get_y`, and
@@ -198,8 +210,8 @@ function resolveCartDiscount(benefit: NormalizedBenefit, context: EvaluationCont
   const labels = readLabels(config.labels)
   const fractionDigits = getCurrencyFractionDigits(context)
 
-  const baseNet = sumQuantityPrice(context.items, 'unitPriceNet')
-  const baseGross = sumQuantityPrice(context.items, 'unitPriceGross')
+  const baseNet = sumQuantityPrice(context.items, 'unitPriceNet', fractionDigits)
+  const baseGross = sumQuantityPrice(context.items, 'unitPriceGross', fractionDigits)
   const raw = computeRawAmountPair(discountType, value, baseNet, baseGross, 1)
   const [capped] = applyMaxDiscountCap([raw], maxDiscount)
 
@@ -347,16 +359,22 @@ function resolveTieredDiscount(benefit: NormalizedBenefit, context: EvaluationCo
 
   const qualifyingItems =
     limitToCategoryId === null ? context.items : context.items.filter((item) => item.categoryIds.includes(limitToCategoryId))
-  const baseForThreshold = sumQuantityPrice(qualifyingItems, 'unitPriceNet')
+  const baseForThresholdMinorUnits = sumQuantityPriceMinorUnits(qualifyingItems, 'unitPriceNet', fractionDigits)
+  const baseForThreshold = baseForThresholdMinorUnits / 10 ** fractionDigits
 
+  // Compared in integer minor units, not as floats: `tier.threshold` is itself a decimal
+  // string over the same `numeric(16,2)`-style column family, so converting both sides to
+  // the same integer unit before comparing removes any float boundary-miss risk at an exact
+  // threshold (review finding).
   let winningTier: TierElement | null = null
   for (const tier of tiers) {
-    if (Number(tier.threshold) <= baseForThreshold) winningTier = tier
+    const thresholdMinorUnits = Math.round(Number(tier.threshold) * 10 ** fractionDigits)
+    if (thresholdMinorUnits <= baseForThresholdMinorUnits) winningTier = tier
   }
   if (winningTier === null) return []
 
   if (benefit.appliesTo === 'order') {
-    const baseGross = sumQuantityPrice(qualifyingItems, 'unitPriceGross')
+    const baseGross = sumQuantityPrice(qualifyingItems, 'unitPriceGross', fractionDigits)
     const raw = computeRawAmountPair(winningTier.discountType, winningTier.value, baseForThreshold, baseGross, 1)
     const [capped] = applyMaxDiscountCap([raw], maxDiscount)
     const effect: CartDiscountEffect = {

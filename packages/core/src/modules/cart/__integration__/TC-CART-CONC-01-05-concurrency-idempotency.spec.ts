@@ -27,6 +27,11 @@ const OPTIMISTIC_LOCK_HEADER = 'x-om-ext-optimistic-lock-expected-updated-at';
  * `versionBumpReason: 'repricing'` bump this test asserts has a real path to fire from — it
  * was written as a plain description of the gap, not an actual `test.skip()` placeholder,
  * from Step 4.9 through Step 5.4.
+ *
+ * CONC-05 was un-skipped during code review: `cart.lines.add`/`.bulkAdd` now hold a per-cart
+ * Postgres advisory lock for the whole merge-decide-write sequence, so the two races this test
+ * previously caught (a raw 500 off the unique constraint, and a lost-update settling at the
+ * wrong quantity) are closed.
  */
 test.describe('TC-CART-CONC-01/02/03/04/05: concurrency, idempotency and the re-pricing version bump', () => {
   test.describe.configure({ timeout: 120_000 });
@@ -166,18 +171,13 @@ test.describe('TC-CART-CONC-01/02/03/04/05: concurrency, idempotency and the re-
 
   // TC-CART-CONC-05: 20 parallel add-line calls yield a consistent final quantity.
   //
-  // FINDING (not fixed in this step — see the step report): `cart.lines.add`'s merge-by-
-  // quantity path (`commands/lines.ts`: `findExistingCustomerLine` read, then mutate-or-insert)
-  // has no row-level lock and no unique-violation retry. Run twice against a real Postgres:
-  // the first run had one of the 20 concurrent calls come back `500` (an unhandled unique
-  // constraint violation from two requests both inserting a first line for the same product
-  // at once); the second run had all 20 calls return 200/201, but a lost-update race on the
-  // existing-line merge path left the single surviving line at quantity 2, not 20. Both are
-  // genuine, reproducible data-integrity bugs in already-shipped Step 4.6 code, not test flake
-  // — fixing them (a `SELECT ... FOR UPDATE` on the existing-line lookup, or a unique-violation
-  // retry loop around the insert branch) is a command-layer concurrency-control change, not a
-  // Step 4.9 test-writing change, so it is left as a flagged follow-up rather than patched here.
-  test.skip('TC-CART-CONC-05: 20 parallel lines.add calls for the same product settle on one line with a consistent total quantity', async () => {
+  // `cart.lines.add`'s merge-by-quantity path (`commands/lines.ts`: `findExistingCustomerLine`
+  // read, then mutate-or-insert) used to have no row-level lock and no unique-violation retry,
+  // so 20 concurrent calls against a real Postgres either raced the unique constraint into a
+  // raw 500 or silently lost updates on the existing-line merge. `addLineCommand`/
+  // `bulkAddLinesCommand` now serialize per-cart via a `pg_advisory_xact_lock` held for the
+  // whole `withAtomicFlush({ transaction: true })` block, closing both races.
+  test('TC-CART-CONC-05: 20 parallel lines.add calls for the same product settle on one line with a consistent total quantity', async () => {
     const cart = await createStorefrontCart(store.hostname);
 
     const calls = Array.from({ length: 20 }, () =>

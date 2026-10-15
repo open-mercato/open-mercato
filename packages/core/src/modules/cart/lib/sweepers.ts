@@ -80,7 +80,21 @@ export async function sweepAbandonedCarts(
     )
     if (affected === 0) break
 
-    for (const cart of candidates) {
+    // Emit events for the rows THIS update actually transitioned, not every pre-fetched
+    // candidate: a racing tick on the same tenant can flip some of these ids away from
+    // `'active'` between the `find` above and this `nativeUpdate`, and looping over
+    // `candidates` would still fire `cart.cart.abandoned` for ids this call never touched —
+    // a duplicate-event bug a concurrent-tick test caught in review. `resolvedAt: now` is
+    // this call's own transition marker, so re-selecting on it identifies exactly the rows
+    // this `nativeUpdate` matched.
+    const transitionedCarts = await findWithDecryption(
+      em,
+      Cart,
+      { id: { $in: ids }, tenantId: scope.tenantId, kind: 'basket', status: 'abandoned', resolvedAt: now },
+      {},
+      { tenantId: scope.tenantId },
+    )
+    for (const cart of transitionedCarts) {
       await emitCartLifecycleEvent(
         'cart.cart.abandoned',
         { cartId: cart.id },
@@ -138,7 +152,17 @@ export async function sweepExpiredCarts(
     )
     if (affected === 0) break
 
-    for (const cart of candidates) {
+    // Same reasoning as `sweepAbandonedCarts` above — re-select on this call's own
+    // `resolvedAt: now` marker so a racing tick's already-transitioned rows don't get a
+    // duplicate `cart.cart.expired` event.
+    const transitionedCarts = await findWithDecryption(
+      em,
+      Cart,
+      { id: { $in: ids }, tenantId: scope.tenantId, kind: 'basket', status: 'expired', resolvedAt: now },
+      {},
+      { tenantId: scope.tenantId },
+    )
+    for (const cart of transitionedCarts) {
       await emitCartLifecycleEvent(
         'cart.cart.expired',
         { cartId: cart.id },
@@ -275,18 +299,22 @@ export async function purgeExpiredCarts(
 
     const purgeable = candidates.filter((cart) => !excludedIds.has(cart.id))
     if (purgeable.length) {
-      const purgeableIds = purgeable.map((cart) => cart.id)
-      const affected = await em.nativeDelete(Cart, { id: { $in: purgeableIds }, tenantId: scope.tenantId })
-      if (affected > 0) {
-        for (const cart of purgeable) {
-          await emitCartLifecycleEvent(
-            'cart.cart.purged',
-            { cartId: cart.id, kind: cart.kind, proposedToCartId: cart.proposedToCartId ?? null },
-            { tenantId: cart.tenantId, organizationId: cart.organizationId },
-            'cart:purge-expired',
-          )
-        }
-        purged += affected
+      // One `nativeDelete` per row rather than one batched call over the whole page: a
+      // batched delete's `affected` count can't tell us WHICH of `purgeable`'s ids a racing
+      // tick already deleted, and emitting `cart.cart.purged` for every pre-fetched candidate
+      // regardless would fire a duplicate event for a cart the race partner already removed
+      // (review finding — mirrors the abandon/expire sweeps' same race). A page tops out at
+      // `SWEEP_PAGE_SIZE`, so the extra round trips stay bounded.
+      for (const cart of purgeable) {
+        const affected = await em.nativeDelete(Cart, { id: cart.id, tenantId: scope.tenantId })
+        if (affected === 0) continue
+        await emitCartLifecycleEvent(
+          'cart.cart.purged',
+          { cartId: cart.id, kind: cart.kind, proposedToCartId: cart.proposedToCartId ?? null },
+          { tenantId: cart.tenantId, organizationId: cart.organizationId },
+          'cart:purge-expired',
+        )
+        purged += 1
       }
     }
 

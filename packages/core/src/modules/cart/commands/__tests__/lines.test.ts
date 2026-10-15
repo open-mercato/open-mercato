@@ -161,6 +161,15 @@ function makeEm() {
       if (entity === CartLine) return filterRows(seededCartLines, where)[0] ?? null
       return null
     }),
+    // `cart.lines.add`/`.bulkAdd` wrap their merge-decide-write in
+    // `withAtomicFlush({ transaction: true })` plus a `pg_advisory_xact_lock` via
+    // `em.execute` (concurrency fix, review finding) — stub the transaction/raw-SQL surface
+    // `withAtomicFlush` drives so this fake EM still satisfies it.
+    execute: jest.fn(async () => undefined),
+    begin: jest.fn(async () => undefined),
+    commit: jest.fn(async () => undefined),
+    rollback: jest.fn(async () => undefined),
+    isInTransaction: jest.fn(() => false),
   }
   em.fork.mockReturnValue(em)
   return em

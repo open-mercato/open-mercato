@@ -48,8 +48,39 @@ async function resolveRouteContext(req: Request): Promise<RouteContext> {
 
 type DynamicLabelSummary = { promotionId: string; promotionName: string; tags: string[]; conditions: NormalizedRule[] }
 
+// Per-type public-field allowlist for this endpoint's "simplified form" (spec: "active
+// rules in simplified form, applicable products/categories"). Deliberately duplicated from
+// `components/ruleFieldSpecs.ts`'s `RULE_FIELD_SPECS` rather than imported: that file is a
+// merchant-facing UI concern, while this one is a public-exposure security boundary, and
+// the two must not silently drift together. Buyer-targeting/eligibility rule types
+// (`customer_group`, `customer_order_history`, `code`) are omitted entirely — "requires
+// customer group X" / "requires code Y" is internal segmentation, never a storefront label.
+const DYNAMIC_LABEL_RULE_FIELDS: Partial<Record<string, readonly string[]>> = {
+  order_value: ['value', 'operator', 'taxInclusive', 'limitToCategory'],
+  order_date: ['date', 'operator'],
+  product_count: ['value', 'operator'],
+  cart_weight: ['value', 'operator'],
+  row_total: ['value', 'operator', 'productId', 'categoryId'],
+  product: ['productId', 'variantId', 'quantity', 'operator'],
+  category: ['categoryId', 'quantity', 'operator'],
+  product_attribute: ['attributeCode', 'operator', 'value'],
+}
+
+function sanitizeRuleForLabel(rule: NormalizedRule): NormalizedRule | null {
+  const allowedKeys = DYNAMIC_LABEL_RULE_FIELDS[rule.type]
+  if (!allowedKeys) return null
+  const config: Record<string, unknown> = {}
+  for (const key of allowedKeys) {
+    if (key in rule.config) config[key] = rule.config[key]
+  }
+  return { type: rule.type, config }
+}
+
 function flattenRules(group: NormalizedRuleGroup, into: NormalizedRule[]): void {
-  into.push(...group.rules)
+  for (const rule of group.rules) {
+    const sanitized = sanitizeRuleForLabel(rule)
+    if (sanitized) into.push(sanitized)
+  }
   for (const child of group.children) flattenRules(child, into)
 }
 

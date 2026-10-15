@@ -4,6 +4,7 @@ import type { CommandBus, CommandHandler, CommandRuntimeContext } from '@open-me
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
+import { ensureSameScope } from '@open-mercato/shared/lib/commands/scope'
 import { CrudHttpError, badRequest, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -700,6 +701,9 @@ const mergeCartCommand: CommandHandler<CartMergeInput, CartMergeResult> = {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const mergeLog = await em.findOne(CartMergeLog, { id: mergeLogId })
     if (!mergeLog) return
+    if (logEntry?.tenantId && logEntry?.organizationId) {
+      ensureSameScope(mergeLog, logEntry.organizationId, logEntry.tenantId)
+    }
     // The generic command-undo-log mechanism has no HTTP response to surface a 409 to —
     // mirrors `cart.lines.add`'s own `undo` handler, which silently no-ops rather than
     // throwing when its target data is gone. `cart.mergeUndo` (below) is the path that

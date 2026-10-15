@@ -319,14 +319,6 @@ const removePromotionCommand: CommandHandler<CartPromotionsRemoveInput, CartProm
     const codeIds = Array.from(
       new Set(applications.map((application) => application.codeId).filter((id): id is string => !!id)),
     )
-    if (codeIds.length > 0) {
-      ctx.container.register({ auth: asValue({ tenantId: cart.tenantId, orgId: cart.organizationId }) })
-      const promotionsService = ctx.container.resolve<PromotionsService>('promotionsService')
-      // §6: "release happens by cartId on cart expiry, abandonment or code removal."
-      for (const codeId of codeIds) {
-        await promotionsService.releaseCode(codeId, cart.id)
-      }
-    }
 
     // §6a's own gift-line convention: a removed promotion's gift line cannot survive the
     // removal. The forthcoming `cart.reprice` dispatch would also drop it (its promotion is
@@ -352,6 +344,19 @@ const removePromotionCommand: CommandHandler<CartPromotionsRemoveInput, CartProm
       ],
       { transaction: true, label: 'cart.promotions.remove' },
     )
+
+    // Cross-module side effect — run AFTER the local commit above, matching this file's
+    // "side effects after commit" discipline: releasing a reservation on `promotions`' own
+    // state before the local transaction commits would leave the two modules inconsistent
+    // if the flush failed (code released, but the cart still showed the promotion applied).
+    if (codeIds.length > 0) {
+      ctx.container.register({ auth: asValue({ tenantId: cart.tenantId, orgId: cart.organizationId }) })
+      const promotionsService = ctx.container.resolve<PromotionsService>('promotionsService')
+      // §6: "release happens by cartId on cart expiry, abandonment or code removal."
+      for (const codeId of codeIds) {
+        await promotionsService.releaseCode(codeId, cart.id)
+      }
+    }
 
     for (const giftLine of giftLines) {
       await emitCartEvent('cart.line.removed', {
