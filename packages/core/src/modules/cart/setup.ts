@@ -1,4 +1,8 @@
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { registerCartSweeperSchedules } from './lib/scheduling'
+
+const logger = createLogger('cart')
 
 // All nine cart.* ACL features (§10.3, §6a.4) gate staff/admin surfaces only — admin cart
 // inspection, settings, proposal authoring, and non-storefront channel creation. A buyer's
@@ -19,6 +23,19 @@ export const setup: ModuleSetupConfig = {
     superadmin: ['cart.*'],
     admin: ['cart.*'],
     employee: ['cart.carts.view'],
+  },
+
+  // Step 4.8 — §12's four sweeper schedules (mark-abandoned, expire, release-stale-locks,
+  // purge-expired). Best-effort: a scheduler failure must not abort tenant initialization for
+  // every other module (mirrors push_notifications/communication_channels/payment_gateways).
+  // The same registration also runs for existing tenants via the
+  // `cart.register-sweeper-schedules` upgrade action (`configs/lib/upgrade-actions.ts`).
+  async seedDefaults({ container, tenantId }) {
+    try {
+      await registerCartSweeperSchedules(container, { tenantId })
+    } catch (error) {
+      logger.warn('Failed to register cart sweeper schedules', { err: error })
+    }
   },
 }
 

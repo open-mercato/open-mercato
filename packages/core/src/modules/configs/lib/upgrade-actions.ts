@@ -211,6 +211,19 @@ export const upgradeActions: UpgradeActionDefinition[] = [
       logger.info('ecommerce draft store seed completed', { tenantId, organizationId, status: result.status })
     },
   },
+  {
+    id: 'cart.register-sweeper-schedules',
+    version: '0.9.2',
+    messageKey: 'configs.upgrades.cartSweeperSchedules.message',
+    ctaKey: 'configs.upgrades.cartSweeperSchedules.cta',
+    successKey: 'configs.upgrades.cartSweeperSchedules.success',
+    loadingKey: 'configs.upgrades.cartSweeperSchedules.loading',
+    requiredModules: ['cart'],
+    run: async ({ container, tenantId, organizationId }) => {
+      const { registerCartSweeperSchedules } = await import('@open-mercato/core/modules/cart/lib/scheduling')
+      await registerCartSweeperSchedules(container, { tenantId, organizationId })
+    },
+  },
 ]
 
 export function actionsUpToVersion(version: string): UpgradeActionDefinition[] {
