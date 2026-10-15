@@ -1150,6 +1150,8 @@ export default function EditCatalogProductPage({
         orderQtyIncrement: parsed.data.orderQtyIncrement?.toString() ?? "",
         requiresShipping: parsed.data.requiresShipping ?? true,
         isQuoteOnly: parsed.data.isQuoteOnly ?? false,
+        omnibusExempt: parsed.data.omnibusExempt ?? false,
+        firstListedAt: parsed.data.firstListedAt ?? "",
         seoTitle: parsed.data.seoTitle ?? "",
         seoDescription: parsed.data.seoDescription ?? "",
         canonicalUrl: parsed.data.canonicalUrl ?? "",
