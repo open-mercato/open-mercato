@@ -22,10 +22,13 @@ const loadedProfile = {
   },
 }
 
-async function beforeSave(data: Record<string, unknown>): Promise<BeforeSaveResult> {
+async function beforeSave(
+  data: Record<string, unknown>,
+  entityId = 'catalog.product',
+): Promise<BeforeSaveResult> {
   const handler = widget.eventHandlers?.onBeforeSave
   if (!handler) throw new Error('onBeforeSave is not defined')
-  return (await handler(data, {} as never)) as BeforeSaveResult
+  return (await handler(data, { entityId } as never)) as BeforeSaveResult
 }
 
 function decodedIntent(result: BeforeSaveResult) {
@@ -72,6 +75,20 @@ describe('wms catalog inventory profile widget onBeforeSave (#6142)', () => {
       trackExpiration: true,
       reorderPoint: 5,
       safetyStock: 2,
+    })
+  })
+
+  it('stamps the intent with the host form entityId so a leaked header can be rejected by the wrong interceptor', async () => {
+    const result = await beforeSave(
+      {
+        'wms.manageInventory': true,
+        'wms.defaultUom': 'pcs',
+        'wms.defaultStrategy': 'fifo',
+      },
+      'catalog.catalog_product_variant',
+    )
+    expect(decodedIntent(result)).toMatchObject({
+      sourceEntityId: 'catalog.catalog_product_variant',
     })
   })
 
