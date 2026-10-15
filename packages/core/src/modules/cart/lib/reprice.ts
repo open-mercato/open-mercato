@@ -31,6 +31,14 @@ export type CartPriceChangeReason =
   | 'currency_changed'
   | 'locale_changed'
   | 'stale_snapshot'
+  // Step 7.2 — §6 "on code entry or removal, cart calls [...] evaluate()": neither
+  // existing reason describes "a code was just applied/removed," so
+  // `cart.promotions.apply`/`.remove` (`commands/promotions.ts`) supply one of these
+  // directly as `CartRepriceInput.trigger` when they internally dispatch `cart.reprice`,
+  // the same way `cart.get`'s own trigger dispatch supplies `buyer_context_changed`/etc. —
+  // never detected by `detectCartRepriceTrigger` (§5.2 triggers 2-4 only).
+  | 'promotion_applied'
+  | 'promotion_removed'
 
 export type CartPriceChange = {
   lineId: string

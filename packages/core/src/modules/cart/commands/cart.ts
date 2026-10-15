@@ -772,6 +772,19 @@ const repriceCartCommand: CommandHandler<CartRepriceInput, CartRepriceResult> = 
         changes,
       })
     }
+    // Step 7.2 — D-R4-8: a lapsed code reservation surfaces as a `promotion_no_longer_valid`
+    // warning (already in `promotionWarnings`, merged below) AND this event, emitted after
+    // the atomic flush commits — never inside `buildPromotionsEffectsPhase` itself, same
+    // "side effects fire after commit" rule the gift-line events above already follow.
+    for (const warning of promotionWarnings) {
+      if (warning.code !== 'promotion_no_longer_valid') continue
+      await emitCartEvent('cart.promotion.no_longer_valid', {
+        cartId: cart.id,
+        tenantId: cart.tenantId,
+        organizationId: cart.organizationId,
+        promotionId: warning.promotionId,
+      })
+    }
 
     return {
       cart: toCartSummary(cart),

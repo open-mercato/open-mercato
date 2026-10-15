@@ -182,3 +182,13 @@ export const cartLineBulkAddRequestSchema = z
   })
   .strict()
 export type CartLineBulkAddRequest = z.infer<typeof cartLineBulkAddRequestSchema>
+
+/** `POST /current/promotions` (Step 7.2, §10 "Apply code") — a plain entered code string;
+ * resolution (static vs. dynamic, which promotion it unlocks) is `cart.promotions.apply`'s
+ * own concern, never this schema's. */
+export const cartPromotionApplyRequestSchema = z
+  .object({
+    codeString: z.string().trim().min(1).max(190),
+  })
+  .strict()
+export type CartPromotionApplyRequest = z.infer<typeof cartPromotionApplyRequestSchema>

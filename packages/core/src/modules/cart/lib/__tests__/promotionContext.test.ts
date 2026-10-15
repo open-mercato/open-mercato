@@ -52,12 +52,23 @@ function makeLine(overrides: Row = {}): CartLine {
   } as CartLine
 }
 
-function makeEm(opts: { allLines?: Row[] } = {}) {
+/**
+ * Step 7.2 — `findOne` backs the lapsed-reservation check (`em.findOne(CodeReservation, ...)`
+ * in `buildPromotionsEffectsPhase`'s own READ section). `opts.reservedCodeIds` is the set of
+ * codeIds this test wants to answer "still reserved" for; any other codeId resolves `null`
+ * (lapsed).
+ */
+function makeEm(opts: { allLines?: Row[]; reservedCodeIds?: string[] } = {}) {
   let createCounter = 0
   const persisted: Row[] = []
   const removed: Row[] = []
+  const reservedCodeIds = new Set(opts.reservedCodeIds ?? [])
   const em: any = {
     find: jest.fn(async () => opts.allLines ?? []),
+    findOne: jest.fn(async (_entity: unknown, where: Row) => {
+      const codeId = where?.codeId
+      return reservedCodeIds.has(codeId) ? { id: `reservation-${codeId}`, codeId } : null
+    }),
     create: jest.fn((_ctor: unknown, data: Row) => {
       createCounter += 1
       return { id: `generated-${createCounter}`, ...data }
@@ -76,6 +87,7 @@ function makeContainer(opts: {
   evaluate?: jest.Mock
   loadScopedProducts?: jest.Mock
   calculateLine?: jest.Mock
+  extendReservation?: jest.Mock
 }) {
   const evaluate = opts.evaluate ?? jest.fn(async () => ({ appliedPromotions: [] }))
   const loadScopedProducts = opts.loadScopedProducts ?? jest.fn(async () => new Map())
@@ -87,9 +99,10 @@ function makeContainer(opts: {
     discountAmount: 0,
     adjustments: [],
   }))
+  const extendReservation = opts.extendReservation ?? jest.fn(async () => undefined)
   return {
     resolve: (token: string): any => {
-      if (token === 'promotionsService') return { evaluate }
+      if (token === 'promotionsService') return { evaluate, extendReservation }
       if (token === 'catalogScopedProductService') return { loadScopedProducts }
       if (token === 'salesCalculationService') return { calculateLine }
       throw new Error(`Unexpected DI token: ${token}`)
@@ -97,6 +110,7 @@ function makeContainer(opts: {
     evaluate,
     loadScopedProducts,
     calculateLine,
+    extendReservation,
   }
 }
 
@@ -578,5 +592,259 @@ describe('buildPromotionsEffectsPhase', () => {
     // sync — nothing is persisted or removed.
     expect(persisted).toHaveLength(0)
     expect(removed).toHaveLength(0)
+  })
+
+  // ---------------------------------------------------------------------------
+  // Step 7.2 — codes:[] sourced from existing applications, reservation extension/lapse,
+  // and the key design decision (a code-bearing row survives an evaluation where its
+  // promotion produces no effect; a codeless one does not).
+  // ---------------------------------------------------------------------------
+
+  it('TC-CART-PROM-apply-01: derives evaluate()\'s codes from existing code-bearing CartPromotionApplication rows, deduped by codeId', async () => {
+    const cart = makeCart()
+    const line = makeLine({ id: 'line-1' })
+    const lines = [line]
+
+    const evaluate = jest.fn(async () => ({ appliedPromotions: [] }))
+    mockFindWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
+      if (entity === CartPromotionApplication) {
+        return [
+          { id: 'app-1', promotionId: 'promo-1', cartLineId: null, codeId: 'code-1', codeType: 'static', code: 'SAVE10', amountNet: null, amountGross: null },
+          // Same codeId, different line — a cumulative benefit's second target. Must not
+          // produce a duplicate CodeRef.
+          { id: 'app-2', promotionId: 'promo-1', cartLineId: 'line-2', codeId: 'code-1', codeType: 'static', code: 'SAVE10', amountNet: null, amountGross: null },
+        ]
+      }
+      return []
+    })
+
+    const { em } = makeEm({ reservedCodeIds: ['code-1'] })
+    const container = makeContainer({ evaluate })
+
+    const phase = buildPromotionsEffectsPhase({
+      em,
+      container,
+      cart,
+      lines,
+      assortmentScope: undefined,
+      tenantScope: { tenantId: TENANT_ID, organizationId: ORG_ID },
+      now: new Date('2026-02-01T00:00:00.000Z'),
+      adjustments: [],
+      warnings: [],
+      createdGiftLines: [],
+      removedGiftLines: [],
+    })
+    await phase()
+
+    expect(container.evaluate).toHaveBeenCalledTimes(1)
+    const input = container.evaluate.mock.calls[0][0]
+    expect(input.codes).toEqual([{ id: 'code-1', type: 'static' }])
+    expect(container.extendReservation).toHaveBeenCalledWith('code-1', 'cart-1')
+  })
+
+  it('TC-CART-PROM-apply-02: a code-bearing application survives an evaluation where its promotion produces no effect — the row is kept with its effect zeroed, not deleted', async () => {
+    const cart = makeCart()
+    const line = makeLine({ id: 'line-1' })
+    const lines = [line]
+
+    // The promotion the held code unlocks does not currently match the cart (e.g. a
+    // minimum-cart-value rule) — absent from `appliedPromotions`, same as a genuinely
+    // inapplicable automatic promotion would be.
+    const evaluate = jest.fn(async () => ({ appliedPromotions: [] }))
+    const existingApplicationRow: Row = {
+      id: 'app-code',
+      promotionId: 'promo-code',
+      cartLineId: 'line-1',
+      codeId: 'code-2',
+      codeType: 'static',
+      code: 'MINCART',
+      effect: { type: 'LINE_DISCOUNT' },
+      amountNet: '-2.0000',
+      amountGross: '-2.4000',
+    }
+    mockFindWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
+      if (entity === CartPromotionApplication) return [existingApplicationRow]
+      return []
+    })
+
+    const { em, removed } = makeEm({ reservedCodeIds: ['code-2'] })
+    const container = makeContainer({ evaluate })
+
+    const phase = buildPromotionsEffectsPhase({
+      em,
+      container,
+      cart,
+      lines,
+      assortmentScope: undefined,
+      tenantScope: { tenantId: TENANT_ID, organizationId: ORG_ID },
+      now: new Date('2026-02-01T00:00:00.000Z'),
+      adjustments: [],
+      warnings: [],
+      createdGiftLines: [],
+      removedGiftLines: [],
+    })
+    await phase()
+
+    // Never removed — the KEY DESIGN DECISION.
+    expect(removed).toHaveLength(0)
+    // The sync loop mutates the SAME row object `findWithDecryption` returned, in place.
+    expect(existingApplicationRow.effect).toEqual({})
+    expect(existingApplicationRow.amountNet).toBeNull()
+    expect(existingApplicationRow.amountGross).toBeNull()
+    expect(existingApplicationRow.cartLineId).toBeNull()
+  })
+
+  it('TC-CART-PROM-apply-03: regression — a CODELESS automatic promotion absent from the result is still pruned (Step 7.1 behavior, unaffected by the Step 7.2 code exemption)', async () => {
+    const cart = makeCart()
+    const line = makeLine({ id: 'line-1' })
+    const lines = [line]
+
+    const evaluate = jest.fn(async () => ({ appliedPromotions: [] }))
+    mockFindWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
+      if (entity === CartPromotionApplication) {
+        return [
+          { id: 'app-automatic', promotionId: 'promo-automatic', cartLineId: 'line-1', codeId: null, codeType: null, code: null, amountNet: '-1.0000', amountGross: '-1.2000' },
+        ]
+      }
+      return []
+    })
+
+    const { em, removed } = makeEm()
+    const container = makeContainer({ evaluate })
+
+    const phase = buildPromotionsEffectsPhase({
+      em,
+      container,
+      cart,
+      lines,
+      assortmentScope: undefined,
+      tenantScope: { tenantId: TENANT_ID, organizationId: ORG_ID },
+      now: new Date('2026-02-01T00:00:00.000Z'),
+      adjustments: [],
+      warnings: [],
+      createdGiftLines: [],
+      removedGiftLines: [],
+    })
+    await phase()
+
+    expect(removed).toHaveLength(1)
+    expect(removed[0].id).toBe('app-automatic')
+  })
+
+  it('TC-CART-PROM-04: a lapsed reservation (extendReservation ran, but the CodeReservation row is gone) removes the application row, excludes the code from evaluate(), and surfaces a promotion_no_longer_valid warning', async () => {
+    const cart = makeCart()
+    const line = makeLine({ id: 'line-1' })
+    const lines = [line]
+
+    const evaluate = jest.fn(async () => ({ appliedPromotions: [] }))
+    mockFindWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
+      if (entity === CartPromotionApplication) {
+        return [
+          { id: 'app-lapsed', promotionId: 'promo-lapsed', cartLineId: 'line-1', codeId: 'code-lapsed', codeType: 'static', code: 'GONE', amountNet: '-1.0000', amountGross: '-1.2000' },
+        ]
+      }
+      return []
+    })
+
+    // No `reservedCodeIds` entry for 'code-lapsed' — `em.findOne` resolves `null` for it,
+    // simulating a reservation the promotions-side sweeper already released independently.
+    const { em, removed } = makeEm()
+    const container = makeContainer({ evaluate })
+    const warnings: any[] = []
+
+    const phase = buildPromotionsEffectsPhase({
+      em,
+      container,
+      cart,
+      lines,
+      assortmentScope: undefined,
+      tenantScope: { tenantId: TENANT_ID, organizationId: ORG_ID },
+      now: new Date('2026-02-01T00:00:00.000Z'),
+      adjustments: [],
+      warnings,
+      createdGiftLines: [],
+      removedGiftLines: [],
+    })
+    await phase()
+
+    expect(container.extendReservation).toHaveBeenCalledWith('code-lapsed', 'cart-1')
+    const input = container.evaluate.mock.calls[0][0]
+    expect(input.codes).toEqual([])
+    expect(removed).toHaveLength(1)
+    expect(removed[0].id).toBe('app-lapsed')
+    expect(warnings).toEqual([{ code: 'promotion_no_longer_valid', promotionId: 'promo-lapsed' }])
+  })
+
+  it('TC-CART-PROM-apply-05: a promotion whose code-bearing effect moves to a different line carries its code linkage onto the freshly created row', async () => {
+    const cart = makeCart()
+    const line1 = makeLine({ id: 'line-1' })
+    const line2 = makeLine({ id: 'line-2', productId: 'product-2' })
+    const lines = [line1, line2]
+
+    // The SAME promotion now targets line-2 instead of line-1 (e.g. line-1's quantity
+    // dropped below the benefit's minimum).
+    const evaluate = jest.fn(async () => ({
+      appliedPromotions: [
+        {
+          promotionId: 'promo-moved',
+          promotionName: 'Moved discount',
+          effects: [
+            {
+              type: 'LINE_DISCOUNT',
+              appliesTo: 'line',
+              currency: 'USD',
+              label: { en: 'Moved discount' },
+              targetLineId: 'line-2',
+              targetProductId: 'product-2',
+              targetVariantId: null,
+              lineQuantity: 2,
+              appliedQuantity: 2,
+              amountNet: '-1.0000',
+              amountGross: '-1.2000',
+              basis: 'net',
+            },
+          ],
+        },
+      ],
+    }))
+    mockFindWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
+      if (entity === CartPromotionApplication) {
+        return [
+          { id: 'app-old', promotionId: 'promo-moved', cartLineId: 'line-1', codeId: 'code-moved', codeType: 'dynamic', code: 'MOVE', amountNet: '-1.0000', amountGross: '-1.2000' },
+        ]
+      }
+      return []
+    })
+
+    const { em, persisted, removed } = makeEm({ reservedCodeIds: ['code-moved'] })
+    const container = makeContainer({ evaluate })
+
+    const phase = buildPromotionsEffectsPhase({
+      em,
+      container,
+      cart,
+      lines,
+      assortmentScope: undefined,
+      tenantScope: { tenantId: TENANT_ID, organizationId: ORG_ID },
+      now: new Date('2026-02-01T00:00:00.000Z'),
+      adjustments: [],
+      warnings: [],
+      createdGiftLines: [],
+      removedGiftLines: [],
+    })
+    await phase()
+
+    // The OLD row (keyed to line-1) is gone; a NEW row (keyed to line-2) was created
+    // carrying the SAME code linkage forward, not nulled out.
+    expect(removed).toHaveLength(1)
+    expect(removed[0].id).toBe('app-old')
+    const newApplication = persisted.find((row) => row.cartLineId === 'line-2')
+    expect(newApplication).toMatchObject({
+      promotionId: 'promo-moved',
+      cartLineId: 'line-2',
+      codeId: 'code-moved',
+      codeType: 'dynamic',
+      code: 'MOVE',
+    })
   })
 })
