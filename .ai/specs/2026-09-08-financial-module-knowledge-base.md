@@ -2683,8 +2683,8 @@ keyed on a link that does not exist. Checked against `sales`' entities on
 - **`currencies` extension mechanics (checked on `develop`).** `RateProvider` implementations
   are registered through `registerCurrencyRateProvider` (public registry, used by the `example`
   module) or in `currencies/di.ts`. The `exchange_rates` unique key includes `source`, so a Table A
-  provider under `source: 'NBP_A'` needs no schema change. `RateProviderResult.type` is
-  `'buy' | 'sell' | null`, so `'mid'` widens a union. `ExchangeRateService` with `autoFetch` calls all
+  provider under `source: 'NBP_A'` needs no schema change. `RateProviderResult.type` and the manual-entry
+  validator accept only `buy`/`sell`/`null`, so Table A rows use `type = null` (identified by `source`). `ExchangeRateService` with `autoFetch` calls all
   registered providers; scheduled fetching uses a fixed provider enum
   (`providerSchema`) and a hard-coded UI list. `findRateWithFallback` goes back a day only when no
   source has a row for the date.
