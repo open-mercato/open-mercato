@@ -2629,12 +2629,13 @@ keyed on a link that does not exist. Checked against `sales`' entities on
 - **Reversal date rule (#5663):** a reversal's `operationDate` may not be
   earlier than the entry it reverses; `cancelRevenueDeferral` reverses on the
   cancel date.
-- **Decided by the spec author, 2026-10-15:** a locked invoice period no longer
-  rejects the reclassification: the entry is dated today as a correcting entry
-  (409 `FISCAL_PERIOD_LOCKED` only if today's period is locked too). Recovery
-  from a wrong deferral is a `cancelRevenueDeferral` command (reverses the
-  reclassification, keeps the audit trail), not a manual reversal.
-  Accountant confirmation of the correcting-entry treatment is still wanted.
+- **Decided by the spec author, 2026-10-15:** Polish law is the reference for
+  accounting questions. A locked invoice period is not redated automatically:
+  `deferRevenueRecognition` rejects with 409 `FISCAL_PERIOD_LOCKED` and the
+  accountant either unlocks the period or repeats the call with
+  `reclassificationDate: 'CURRENT_DATE'` (a correcting entry dated today; 409
+  again if today's period is locked too). Recovery from a wrong deferral is a
+  `cancelRevenueDeferral` command, not a manual reversal.
 - **Prior art for "what to do with a schedule when the invoice is credited"
   (checked 2026-10-15, documentation only, not source):** ERPNext's deferred
   revenue/credit-note pages and Odoo 17's deferred-revenues page describe no
@@ -2642,18 +2643,32 @@ keyed on a link that does not exist. Checked against `sales`' entities on
   the correction is left to the accountant. Odoo reclassifies on the invoice
   date. Neither settles whether the schedule should be frozen, so this is not
   decisive for Design decision 14.
-- **Literature: Confirmed in part (Kieso 17th ed., Ch. 18, US GAAP/ASC 606;
-  full text of the uploaded PDF searched, 2026-10-15).** Sales returns and
-  allowances are contra-revenue booked when they occur, recognized revenue is
-  not rewritten (pp. 18-19–18-20); unearned revenue is a contract liability
-  released as the obligation is satisfied (p. 18-31); a contract modification
-  is generally prospective, previously reported results unchanged (pp.
-  18-32–18-33, footnote 15 names cumulative catch-up as the alternative).
-  Supports "do not keep recognizing on the original amount after a
-  correction"; says nothing on freezing a schedule or a release command, nor
-  on how a credit note against an invoiced deferred amount changes the
-  remaining schedule. Fowler/Hay not checked for this question.
+- **Polish law (Ustawa o rachunkowości), checked 2026-10-15.** Art. 54 —
+  Confirmed (paraphrase from two legal-text sites, standardyprawa.pl and
+  lexlege.pl; not ISAP): after the statements are prepared but before approval,
+  the statements are changed and the entries go to the books of the year
+  concerned (ust. 1); after approval, to the books of the year the information
+  was received (ust. 2); an error of earlier years goes to equity as "zysk
+  (strata) z lat ubiegłych" (ust. 3). It concerns events after the balance-sheet
+  date; it is not a ban on dated entries and says nothing about a monthly close.
+  Art. 6 ust. 1 (matching of revenue to its period) — Confirmed earlier.
+  Art. 20 ust. 1 and the practice that a correction goes to the original period,
+  or to the month of the correction when that month's books are closed —
+  Unverified against the statute (secondary source, poradnikprzedsiebiorcy.pl;
+  the source notes the Act does not say so expressly for a monthly close).
+  CIT/PIT (art. 12 ust. 3j–3m CIT, art. 14 ust. 1m–1p PIT: correction in the
+  period it is issued) — Unverified, tax, out of scope. Art. 25 UoR, which an
+  earlier spec text cited for correcting a closed period, is not verified and
+  was removed.
+- **Literature, comparison only: Kieso 17th ed., Ch. 18 (US GAAP/ASC 606), full
+  text searched 2026-10-15.** Sales returns and allowances are contra-revenue
+  booked when they occur, recognized revenue is not rewritten (pp.
+  18-19–18-20); unearned revenue is a contract liability released as the
+  obligation is satisfied (p. 18-31); a contract modification is generally
+  prospective (pp. 18-32–18-33, footnote 15: cumulative catch-up as the
+  alternative). Where it differs from the Polish rule, the Polish rule governs.
+  Neither source says whether to freeze a schedule or offer a release command.
 - **Open, not decided:** Design decision 14 (freeze vs warn vs release
-  command after a detected correction) pending the literature check and the
+  command after a detected correction) pending the
   domain expert; who owns the business decision behind "recognize
   immediately, no refund" (DD6).
