@@ -2689,7 +2689,7 @@ keyed on a link that does not exist. Checked against `sales`' entities on
   (`providerSchema`) and a hard-coded UI list. `findRateWithFallback` goes back a day only when no
   source has a row for the date.
 - **Decision (team, 2026-10-15; OM Core may object):** Table A provider lives in `currencies`, built as the first commit of
-  the implementation PR. Reasons: AP/AR need the same rate (dependency direction), the provider registry is
+  the implementation PR, rows `XXX → PLN` only, `date` at UTC midnight (details: spec DD9c). Reasons: AP/AR need the same rate (dependency direction), the provider registry is
   process-wide (hidden side effect on `autoFetch`), `currencies` already owns the other sources. Fallback only
   if OM Core objects: register it from `fx_revaluation`.
 - **Open:** payments spec needs `PaymentBatch.sentOn` and a "Read contract for other modules"
