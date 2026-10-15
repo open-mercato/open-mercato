@@ -476,23 +476,40 @@ independent implementations of the same pattern, not a shared library
     decision. **Prior art checked 2026-10-15:** ERPNext and Odoo, as
     documented, neither freeze nor adjust a schedule when a credit note
     is issued and leave the reconciliation to the accountant (Literature &
-    Prior Art, Step 3). **Literature checked 2026-10-15
-    (Kieso, *Intermediate Accounting*, 17th ed., Ch. 18 — US GAAP/ASC 606,
-    not the Polish Act):** a return or allowance is booked as contra-revenue
-    in the period it happens and the revenue already recognized is not
-    rewritten (pp. 18-19–18-20); unearned revenue is a contract
-    liability released only as the performance obligation is satisfied
-    (p. 18-31, Henly example); a contract modification is generally
-    accounted for prospectively — previously reported results are not
-    changed, the effect lands in the period of change and later periods
-    (pp. 18-32–18-33, with a cumulative catch-up as the alternative in
-    footnote 15). This supports the premise of the guard: after a
-    correction, revenue must not keep being recognized on the original
-    amount. It does **not** prescribe freezing the schedule, warning only,
-    or an in-module release command, and it does not say whether a credit
-    note against an invoiced deferred amount shrinks the remaining
-    schedule. The final treatment therefore stays open and goes to the
-    accountant.
+    Prior Art, Step 3). **Reference law adopted 2026-10-15 (the spec author decided Polish law
+    is the reference; these are the sources this spec relies on).**
+    Accounting Act (UoR): art. 6 ust. 1 — revenue is booked in the
+    period it was earned, whenever it is paid (**Confirmed**, see
+    Literature & Prior Art). Art. 54 — an event learned of after the
+    balance-sheet date: before the statements are approved, the
+    statements are changed and the entries go to the books of the year
+    concerned (ust. 1); after approval, to the books of the year in
+    which the information was received (ust. 2); an error of earlier
+    years that makes the earlier statements non-compliant goes to
+    equity as "zysk (strata) z lat ubiegłych" (ust. 3). **Art. 54 —
+    Confirmed** (paraphrase from two legal-text sites,
+    standardyprawa.pl and lexlege.pl; not checked against ISAP).
+    **Art. 20 ust. 1 and the practice for a closed month — Unverified
+    against the statute**: taken from a secondary article
+    (poradnikprzedsiebiorcy.pl), which says a correction belongs to
+    the period of the original revenue and, if that month's books are
+    closed, is booked in the month the correction is issued, and which
+    notes the Act does not say so expressly for a monthly close.
+    **Consequence:** by law the correction belongs to the period the
+    revenue relates to or, once that year's statements are approved,
+    to the current year; which applies depends on the statement stage,
+    which this module does not model. The module therefore cannot book
+    the correction itself, and freezing the schedule and leaving the
+    booking to the accountant stays. Kieso (17th ed., Ch. 18, US GAAP,
+    pp. 18-19–18-20 and 18-32–18-33) is comparison only: it books a
+    return or price change in the period it occurs and does not
+    rewrite revenue already recognized; where that differs from the
+    Polish rule, the Polish rule governs. Tax treatment (CIT/PIT book
+    a correction in the period it is issued — art. 12 ust. 3j–3m CIT,
+    art. 14 ust. 1m–1p PIT, per the same secondary article,
+    **Unverified**) is separate and out of scope. Still open ⚠:
+    freeze, warn only, or a release/adjust command in Phase 1 — a
+    question for the domain expert.
 15. **Posting dates, `stop` validation and the `COMPLETED` transition —
     added, 2026-10-15 review round.** The schedule rows were fully
     defined (Design decision 11); these were not.
@@ -502,22 +519,29 @@ independent implementations of the same pattern, not a shared library
       (`operationDate: invoice.issueDate`), and the date on which Odoo
       books its own reclassification (see Literature & Prior Art, Step
       3) — so the amount moves out of income in the period that booked
-      it. **Locked or missing period — decided 2026-10-15 by the spec
-      author:** if the `FiscalPeriod` covering `issueDate` is locked, or
-      no period covers it, the reclassification is dated on the day the
-      command runs, as a correcting entry in the current period (compare
-      the Accounting Act, art. 25 on correcting a closed period — the
-      author's reading, not stated for this case). The original revenue
-      stays in the closed period and the correction lands in the current
-      one, so the current period's income shows a negative movement for
-      that amount. If the period of that date is also locked or missing,
-      the call rejects **409 `FISCAL_PERIOD_LOCKED`** and writes nothing.
-      The entry's `description` states that it reclassifies an invoice of
-      an earlier period, and the `201` response returns
-      `reclassificationDated: 'INVOICE_DATE' | 'CURRENT_DATE'` so the
-      caller and the UI can show which rule applied. Confirmation of this
-      treatment by the domain expert is still advisable, but it is no
-      longer an open default.
+      it. **Locked or missing period — revised 2026-10-15: the accountant
+      decides, not the module.** The reclassification is dated
+      `issueDate` by default. If the `FiscalPeriod` covering
+      `issueDate` is locked, or none covers it, the call rejects **409
+      `FISCAL_PERIOD_LOCKED`** and writes nothing; the error names the
+      two ways out. (a) The accountant unlocks the period
+      (`ledger.periods.manage`) and repeats the call. (b) The call is
+      repeated with `reclassificationDate: 'CURRENT_DATE'`, which
+      dates the entry on the day the command runs as a correcting
+      entry in the current period (**409 `FISCAL_PERIOD_LOCKED`**
+      again if today's period is locked or missing too). Which is
+      right is not for the module to decide: under the Accounting Act
+      (art. 6 ust. 1, art. 54; Design decision 14) a correction
+      belongs to the period it relates to, or to the current year once
+      that year's statements are approved, and the module does not
+      know the statement stage. Under (b) the original revenue stays
+      in the closed period and the current period's income shows a
+      negative movement for that amount; the entry's `description`
+      states that it reclassifies an invoice of an earlier period. The
+      `201` response returns `reclassificationDated: 'INVOICE_DATE' |
+      'CURRENT_DATE'`, and the UI shows the two choices in an `Alert`
+      with a confirm action. This replaces the first version of this
+      round, which fell back to the current date automatically.
     - **Final recognition entry (`stop`, step 3).** Its `operationDate`
       is `stopDate`; that period's lock was already checked in step 1.
     - **`stopDate` validation.** `serviceStartDate <= stopDate <
@@ -747,7 +771,7 @@ a preview-before-commit schedule with no backing read contract).
 
 ### `POST /api/deferred_revenue/deferrals`
 
-- **Body**: `{ invoiceLineId, serviceStartDate, serviceEndDate }`.
+- **Body**: `{ invoiceLineId, serviceStartDate, serviceEndDate, reclassificationDate? }`, where `reclassificationDate` is `'INVOICE_DATE'` (default) or `'CURRENT_DATE'` (Design decision 15).
 - **400**: `serviceEndDate <= serviceStartDate`; the invoice line
   already has a `RevenueDeferral` (one per line, no re-deferral).
 - **404**: no `SalesInvoiceLineRevenueAccount` row for this line (line
@@ -757,12 +781,12 @@ a preview-before-commit schedule with no backing read contract).
 - **422 `DEFERRED_REVENUE_CURRENCY_UNSUPPORTED`**: **added,
   maintainer-review round** (Design decision 10) — the invoice's
   `currencyCode` is not the tenant's base currency.
-- **409 `FISCAL_PERIOD_LOCKED`**: **added, 2026-10-15 review round**
-  (Design decision 15) — the `FiscalPeriod` covering the invoice's
-  `issueDate` (the reclassification's date) is locked or missing **and**
-  the period of today's date is too (Design decision 15: when only the
-  invoice's period is locked, the entry is dated today instead);
-  nothing is written.
+- **409 `FISCAL_PERIOD_LOCKED`**: **added, 2026-10-15 review round,
+  revised the same day** (Design decision 15) — the `FiscalPeriod` covering
+  the date the entry would carry is locked or missing: the invoice's
+  `issueDate` by default, or today's date when `reclassificationDate` is
+  `'CURRENT_DATE'`. The error names the two ways out (unlock the period, or
+  repeat with `reclassificationDate: 'CURRENT_DATE'`); nothing is written.
 - **422 `DEFERRED_REVENUE_CORRECTION_EXISTS`**: **added, 2026-10-15
   review round** (Design decision 14) — a `SalesCreditMemo` or
   credit-memo/return line already corrects this invoice or its order
@@ -933,11 +957,13 @@ is set (Design decision 14).
   (Design decision 15) — **400**, or **409
   `STOP_DATE_BEFORE_LAST_ACCRUAL`**.
 - **Deferring a line whose invoice's period is locked.** **Added,
-  2026-10-15 review round** (Design decision 15) — not rejected: the
-  reclassification is dated today as a correcting entry and the response
-  reports `reclassificationDated: 'CURRENT_DATE'`. Only when today's
-  period is also locked or missing does the call end in **409
-  `FISCAL_PERIOD_LOCKED`**.
+  2026-10-15 review round, revised the same day** (Design decision 15) —
+  rejected **409 `FISCAL_PERIOD_LOCKED`** with nothing written; the
+  accountant either unlocks the period and repeats the call, or repeats it
+  with `reclassificationDate: 'CURRENT_DATE'` (dated today as a correcting
+  entry; the response reports `reclassificationDated: 'CURRENT_DATE'`).
+  If today's period is locked or missing too, that retry ends in **409
+  `FISCAL_PERIOD_LOCKED`** as well.
 - **`cancelRevenueDeferral` after the first accrual.** **Added,
   2026-10-15 review round** (Design decision 16) — **409
   `DEFERRAL_HAS_ACCRUALS`**; no recovery is defined after that point.
@@ -991,8 +1017,8 @@ detection discussion.
   `correctionDetectedAt` set is the signal; an uncovered correction has
   none, which is why the gap is named here.
 - **Deferring an invoice from a closed period leaves schedule rows in
-  closed periods — added, 2026-10-15 review round.** With the
-  reclassification dated today (Design decision 15), a deferral can be
+  closed periods — added, 2026-10-15 review round.** When the
+  accountant chooses `CURRENT_DATE` (Design decision 15), a deferral can be
   created for a service period that began in a locked period; the
   schedule rows whose own period is locked are skipped by `accrue`
   (reported in `skipped`) and make `stop` end in **409
@@ -1197,8 +1223,8 @@ review's own framing).
 | 12 | `cancelRevenueDeferral` after the first accrual (**added 2026-10-15**) | **409 `DEFERRAL_HAS_ACCRUALS`**; nothing changes |
 | 13 | `accrue` posts the last schedule row (**added 2026-10-15**) | `status` becomes `COMPLETED` in the same transaction; a following `stop` returns 409 |
 | 14 | `stop` with `stopDate` outside the service period, or before the last accrued `periodEndDate` (**added 2026-10-15**) | **400**, or **409 `STOP_DATE_BEFORE_LAST_ACCRUAL`** |
-| 15 | `deferRevenueRecognition` where the invoice `issueDate`'s period is locked or missing, and today's period is open (**added 2026-10-15**) | Succeeds; the reclassification is dated today; `reclassificationDated` is `CURRENT_DATE`; the schedule is generated as usual |
-| 16 | `deferRevenueRecognition` where both the invoice's period and today's period are locked or missing (**added 2026-10-15**) | **409 `FISCAL_PERIOD_LOCKED`**; no `RevenueDeferral`, schedule or entry written |
+| 15 | `deferRevenueRecognition` where the invoice `issueDate`'s period is locked or missing, no `reclassificationDate` given (**added 2026-10-15, revised the same day**) | **409 `FISCAL_PERIOD_LOCKED`**; no `RevenueDeferral`, schedule or entry written; the error names the two ways out |
+| 16 | The same call repeated with `reclassificationDate: 'CURRENT_DATE'` (**added 2026-10-15**) | Today's period open: succeeds, dated today, `reclassificationDated` is `CURRENT_DATE`, schedule generated as usual. Today's period locked or missing too: **409 `FISCAL_PERIOD_LOCKED`**, nothing written |
 
 ### Integration matrix (finding 6)
 
@@ -1249,7 +1275,8 @@ Review Heuristic 6.
   situation.
 - **Design System**: the schedule preview/read views use `DataTable`
   for the row list, `StatusBadge` for `RevenueDeferral.status`, and
-  `Alert` for the `blockedByCorrection`/locked-period states — no
+  `Alert` for the `blockedByCorrection` state and for the locked-invoice-period choice
+  (unlock and retry, or date it today — Design decision 15) — no
   hardcoded status colors, no arbitrary text sizes, no inline `<svg>`.
   The "Stop" confirmation dialog follows Cmd/Ctrl+Enter submit /
   Escape cancel with `aria-label` on its icon-only close control, the
@@ -1333,6 +1360,19 @@ missing `840` account (Design decision 8).
   word for word (defer to a liability, recognize periodically, exactly
   the wall's own "Zawieszono na koncie bilansowym → Wygenerowano
   harmonogram").
+- **Ustawa o rachunkowości, Art. 54 — Confirmed (2026-10-15).**
+  Paraphrase from two legal-text sites
+  (standardyprawa.pl/akt/459/art/52559 and
+  lexlege.pl/ustawa-o-rachunkowosci/art-54/), not checked against
+  ISAP: ust. 1 — after the statements are prepared but before
+  approval, the statements are changed and the entries go to the books
+  of the year concerned; ust. 2 — after approval, to the books of the
+  year in which the information was received; ust. 3 — an error of
+  earlier years goes to equity as "zysk (strata) z lat ubiegłych". It
+  concerns events after the balance-sheet date, not a monthly close,
+  and is not a ban on dated entries. **Art. 20 ust. 1 and the
+  closed-month practice — Unverified against the statute** (secondary
+  source, poradnikprzedsiebiorcy.pl, 2026-10-15).
 - **Ustawa o rachunkowości, Art. 6 — Confirmed** (closed, 2026-09-21;
   was Unverified in the initial draft, since this session's earlier
   extracted statute text ran only Art. 9 through roughly Art. 25).
@@ -1629,14 +1669,14 @@ Addressed every finding of the review that requested changes:
   material and is left as an open ⚠ NEEDS HUMAN CONFIRMATION item.
 - **Base branch.** The PR now targets `develop`.
 
-Decided by the spec author on 2026-10-15: a locked invoice period no longer
-rejects a deferral — the reclassification is dated today as a correcting entry
-(Design decision 15); and pre-accrual recovery is a `cancelRevenueDeferral`
-command (Design decision 16). Still awaiting confirmation (⚠ NEEDS HUMAN
-CONFIRMATION): the correction freeze with no release command in Phase 1
-(Design decision 14), for which ERPNext and Odoo give no precedent (they leave
-it to the accountant) and the literature has not yet been checked.
-freeze with no release command in Phase 1 (Design decision 14); the
-reclassification dated at the invoice's `issueDate`, with a locked period
-rejected rather than redated (Design decision 15); pre-accrual cancel as a
-command rather than out of scope (Design decision 16).
+Decided by the spec author on 2026-10-15: Polish law is the reference for
+accounting questions. Applied to Design decision 15 — a locked invoice period
+is no longer redated automatically; the call rejects with **409
+`FISCAL_PERIOD_LOCKED`** and the accountant either unlocks the period or
+repeats the call with `reclassificationDate: 'CURRENT_DATE'` — and to Design
+decision 14, which now cites the Accounting Act (art. 6 ust. 1, art. 54) before
+Kieso. Pre-accrual recovery is a `cancelRevenueDeferral` command (Design
+decision 16). Still awaiting confirmation (⚠ NEEDS HUMAN CONFIRMATION): the
+correction freeze with no release command in Phase 1 (Design decision 14) —
+the question for the domain expert is whether to freeze, warn only, or give the
+accountant a release/adjust command.
