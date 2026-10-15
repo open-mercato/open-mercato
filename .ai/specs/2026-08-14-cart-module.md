@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification (rev 9 — Release 4 decisions applied; Phases 1–3 ready for implementation, Phase 4 unchanged) |
+| **Status** | Specification (rev 9 — Release 4 decisions applied; **Phases 1–3 implemented 2026-10-15, PR adeptofvoltron/open-mercato#15** — see §18 Changelog; Phase 4 unchanged, spec-only, not built) |
 | **Created** | 2026-08-14 |
 | **Suite** | [Ecommerce Suite Roadmap](./2026-08-14-ecommerce-suite-roadmap.md) — spec 5, Phase 2 |
 | **Modules** | `cart` (new) |
@@ -987,6 +987,20 @@ Via the shared `ratelimit` module (`checkRateLimit`, `readEndpointRateLimitConfi
 ---
 
 ## 18) Changelog
+
+### 2026-10-15 (Phases 1–3 implemented — PR #15)
+
+Implementation record for rev 9: `cart` Phases 1–3 shipped on `feat/release-4-write-side` (`adeptofvoltron/open-mercato#15`), tracked step-by-step in `.ai/runs/2026-10-14-ecommerce-release-4-write-side/{PLAN,HANDOFF,NOTIFY}.md`. Per PLAN.md's own Step 7.7 instruction, this spec stays in `.ai/specs/` (not moved to `implemented/`) — Phase 4 (B2B approvals, bulk lines, the admin cart list, the proposal seam §7a) remains unbuilt. Deviations and findings a future reader should know about without re-reading the run's 56 steps:
+
+- `toPromotionCartContext` (this document's own §6 rename target) shipped as `toPromotionCartLine` + a new `buildPromotionsEffectsPhase`, both in `cart/lib/promotionContext.ts` — confirms the rename this revision already called for.
+- §15a's error-code catalogue is missing two codes the implementation needed and now emits: `cart_merge_scope_mismatch` (400 — `cart.merge` rejecting a cross-store/cross-currency merge, the "same store and currency only" scope qualifier §7.1 names) and `merge_undo_window_expired` (409 — `cart.mergeUndo` past the 15-minute window). Add both to §15a in the next content revision.
+- §6a.2's whole-cart re-visibility pass (named in `lib/visibility.ts`'s own header comment since Phase 1) was never actually built until Step 7.4 of the implementation — closed then, gated on `trigger === 'buyer_context_changed'` and extended to also run on `trigger === 'merge'` (closing an ADOPT-merge gap the implementing agent itself flagged) and `trigger === 'lock'` (wired at Step 7.5). §6a.5's merge-time pass (R13, Critical) shipped the same step as the §6a.2 fix, not earlier.
+- **Open item, not fixed**: `cart.lines.add`'s merge-by-quantity path has no row lock and no unique-violation retry — 20 concurrent adds of the same product either `500` or silently lose quantity, reproduced against real Postgres. Tracked as CONC-05; regression test is `test.skip()` in `cart/__integration__/TC-CART-CONC-01-05-concurrency-idempotency.spec.ts` with the root cause documented inline. A fix needs a pessimistic lock (or a cart-aggregate lock) spanning the read and the command's `withAtomicFlush` phases.
+- **Open item, not fixed**: a real currency/locale change through the storefront route always also changes the buyer digest (`ecommerce/lib/buyerContext.ts`'s digest formula embeds both `currencyCode` and `effectiveLocale`), so `detectCartRepriceTrigger`'s precedence resolves the disclosed reason to `buyer_context_changed`, never `currency_changed`/`locale_changed` — and `applyCartRepriceTriggerFields` then never syncs `Cart.currencyCode`/`Cart.locale`, since it only writes the fields belonging to the specific winning reason. `lib/triggers.ts`'s own doc comment ("identical no matter which reason wins") is contradicted for currency/locale drift specifically. Fix: sync `currencyCode`/`locale` from the fresh context whenever trigger 2 or 3 fires, not only when one is the labeled winner.
+- **Open item, not fixed** (affects this spec's own §3.1/F8 dependency): `catalogBuyerPricingService.resolveLinePrice` (the §3.1 extraction) is built per-line with no shared-cache/batch mode, so `ecommerce/lib/storefrontPricing.ts` was NOT repointed onto it — doing so regressed the Storefront Public API's own documented O(1)-query-budget invariant. `ecommerce` keeps its own, separate pricing resolution for now. An owner decision (extend `catalogBuyerPricingService` with a page-batch mode, or treat `storefrontPricing.ts` as permanently exempt from this repoint) is still open.
+- `priceIsPromotional` is wired into `toPromotionCartLine` but hardcoded `false` — nothing upstream (`catalogBuyerPricingService`/`ResolvedLinePrice`) populates the signal yet, so D-R4-16's field exists on the wire without real data behind it.
+
+Validation evidence at completion: 178 `cart` jest tests; 26 passed / 1 skipped (CONC-05) / 0 failed across the full `cart/__integration__/` Playwright suite; P95 = 1.035ms against the 150ms budget (Step 7.6, "the Release 4 completion gate for `cart`").
 
 ### 2026-10-14 (rev 9 — eComm Release 4 decisions applied)
 
