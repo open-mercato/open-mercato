@@ -1630,7 +1630,7 @@ export async function executeCallApi(
   }
 
   // 2. Build full URL (prepend APP_URL for relative paths)
-  const fullUrl = buildApiUrl(endpoint)
+  const requestUrl = resolveCallApiUrl(endpoint)
 
   // 3. Import the one-time API key helper
   const { withOnetimeApiKey } = await import('../../api_keys/services/apiKeyService')
@@ -1711,7 +1711,7 @@ export async function executeCallApi(
       }
 
       // Make HTTP request
-      const response = await fetch(fullUrl, {
+      const { response, url: responseUrl } = await fetchCallApiWithGuardedRedirects(requestUrl, {
         method,
         headers: requestHeaders,
         body: body ? JSON.stringify(body) : undefined,
@@ -1734,7 +1734,7 @@ export async function executeCallApi(
 
       // Check for HTTP errors and classify
       if (!response.ok) {
-        classifyAndThrowError(response.status, responseBody, fullUrl)
+        classifyAndThrowError(response.status, responseBody, responseUrl.href)
       }
 
       // Validate tenant match (security check)
@@ -1898,40 +1898,107 @@ export async function resolveWorkflowPrincipalUserId(
   return definition?.createdBy ?? null
 }
 
+const CALL_API_MAX_REDIRECTS = 3
+const CALL_API_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
+
 /**
- * Build full API URL from endpoint
- * - Relative paths (/api/...) → prepend APP_URL
- * - Absolute URLs → validate domain matches APP_URL (SSRF prevention)
+ * Resolve a CALL_API endpoint to the URL the one-time API key may be sent to
+ * (SSRF prevention). Relative paths are joined to APP_URL; relative and absolute
+ * endpoints must both resolve to APP_URL's exact origin (scheme, host and port)
+ * and to a path under APP_URL's `/api/`.
  */
-function buildApiUrl(endpoint: string): string {
+function resolveCallApiUrl(endpoint: string): URL {
   const appUrl = process.env.APP_URL || 'http://localhost:3000'
 
-  // Relative path - prepend APP_URL
-  if (endpoint.startsWith('/')) {
-    // Security: Only allow /api/* paths
-    if (!endpoint.startsWith('/api/')) {
-      throw new Error(`CALL_API only supports /api/* paths, got: ${endpoint}`)
-    }
-    return `${appUrl}${endpoint}`
-  }
-
-  // Absolute URL - validate domain matches APP_URL (SSRF prevention)
+  let target: URL
+  let appUrlObj: URL
   try {
-    const endpointUrl = new URL(endpoint)
-    const appUrlObj = new URL(appUrl)
-
-    if (endpointUrl.host !== appUrlObj.host) {
-      throw new Error(
-        `SSRF Prevention: CALL_API endpoint domain (${endpointUrl.host}) does not match APP_URL (${appUrlObj.host})`
-      )
-    }
-
-    return endpoint
+    appUrlObj = new URL(appUrl)
+    target = endpoint.startsWith('/')
+      ? new URL(`${appUrl.replace(/\/+$/, '')}${endpoint}`)
+      : new URL(endpoint)
   } catch (error) {
     if (error instanceof TypeError) {
       throw new Error(`Invalid endpoint URL: ${endpoint}`)
     }
     throw error
+  }
+
+  if (appUrlObj.protocol !== 'http:' && appUrlObj.protocol !== 'https:') {
+    throw new Error(`CALL_API requires an http(s) APP_URL, got: ${appUrl}`)
+  }
+
+  if (target.username || target.password) {
+    throw new Error('SSRF Prevention: CALL_API endpoint must not contain credentials')
+  }
+
+  if (target.origin !== appUrlObj.origin) {
+    throw new Error(
+      `SSRF Prevention: CALL_API endpoint origin (${target.origin}) does not match APP_URL origin (${appUrlObj.origin})`
+    )
+  }
+
+  const apiPathPrefix = `${appUrlObj.pathname.replace(/\/+$/, '')}/api/`
+  if (!target.pathname.startsWith(apiPathPrefix)) {
+    throw new Error(`CALL_API only supports /api/* paths, got: ${endpoint}`)
+  }
+
+  return target
+}
+
+/**
+ * Send a CALL_API request without letting fetch follow redirects on its own.
+ * A redirect is followed only when its target passes `resolveCallApiUrl`, so the
+ * one-time API key never leaves APP_URL's `/api/` surface.
+ */
+async function fetchCallApiWithGuardedRedirects(
+  initialUrl: URL,
+  init: { method: string; headers: Record<string, string>; body?: string; signal?: AbortSignal },
+): Promise<{ response: Response; url: URL }> {
+  let url = initialUrl
+  let { method, headers, body } = init
+
+  for (let redirects = 0; ; redirects++) {
+    const response = await fetch(url.href, {
+      method,
+      headers,
+      body,
+      signal: init.signal,
+      redirect: 'manual',
+    })
+
+    if (!CALL_API_REDIRECT_STATUSES.has(response.status)) {
+      return { response, url }
+    }
+
+    await response.body?.cancel()
+
+    const location = response.headers.get('location')
+    const refuse = () =>
+      new Error(
+        `CALL_API refused to follow redirect ${response.status} to ${location ?? '(no Location header)'}`
+      )
+    if (!location || redirects >= CALL_API_MAX_REDIRECTS) {
+      throw refuse()
+    }
+
+    try {
+      url = resolveCallApiUrl(new URL(location, url).href)
+    } catch {
+      throw refuse()
+    }
+
+    const upperMethod = method.toUpperCase()
+    if (
+      (response.status === 303 && upperMethod !== 'HEAD') ||
+      ((response.status === 301 || response.status === 302) && upperMethod === 'POST')
+    ) {
+      method = 'GET'
+      body = undefined
+      headers = Object.fromEntries(
+        Object.entries(headers).filter(([name]) => name.toLowerCase() !== 'content-type')
+      )
+    }
   }
 }
 
