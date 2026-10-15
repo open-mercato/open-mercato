@@ -5,7 +5,7 @@ Use the sales module for orders, quotes, invoices, shipments, and payments. This
 ## Always
 
 1. **MUST use `salesCalculationService` from DI** for document math.
-2. **MUST follow document flow**: Quote → Order → Invoice — no skipping steps
+2. **MUST follow document flow**: Quote → Order → Invoice (quote optional)
 3. **MUST scope all documents to a channel** — channel selection affects pricing, numbering, and visibility
 
 ## Ask First
@@ -36,7 +36,7 @@ Quote → Order → Invoice
     Shipments + Payments
 ```
 
-- Quotes convert to orders — MUST NOT create orders without a source quote (unless configured)
+- Quotes convert via `sales.quotes.convert_to_order`; orders MAY also be created without a quote
 - Orders track shipments and payments independently
 - Each entity has its own status workflow — MUST NOT skip workflow states
 

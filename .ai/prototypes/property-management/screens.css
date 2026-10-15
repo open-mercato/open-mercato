@@ -1,0 +1,1046 @@
+/* Layout for the mockup document itself + the module-specific compositions
+   (Kanban board, timesheet grid, report preview) that have no existing
+   primitive in @open-mercato/ui and are proposed by this spec. */
+
+/* ── Mockup document chrome ─────────────────────────────────────── */
+.doc {
+  max-width: 96rem;
+  margin: 0 auto;
+  padding: 4.5rem 1.5rem 6rem;
+}
+.doc-head { margin-bottom: 2rem; }
+.doc-head h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.025em; margin: 0 0 0.5rem; }
+/* The prototype's own chrome: one floating bar holding every review control plus
+   the screen menu. It used to be a full-width sticky strip listing all 58 screens
+   inline, which cost most of the viewport before a single screen was visible. */
+.doc-toolbar {
+  position: fixed; top: 0.75rem; left: 50%; transform: translateX(-50%);
+  z-index: var(--z-index-sticky);
+  max-width: calc(100vw - 1.5rem);
+  background: color-mix(in oklab, var(--background) 92%, transparent);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--border); border-radius: 9999px;
+  box-shadow: var(--shadow-lg);
+  padding: 0.375rem 0.625rem;
+  display: flex; align-items: center; gap: 0.5rem; flex-wrap: nowrap;
+}
+/* No overflow on the bar: it is the positioning context for the screen menu,
+   and any overflow value other than visible would clip that popover. */
+@media (max-width: 72rem) {
+  .doc-toolbar { flex-wrap: wrap; justify-content: center; border-radius: var(--radius-xl); }
+}
+.doc-toolbar > * { flex: none; }
+.doc-toolbar .proto-toolbar { margin-left: 0; }
+.doc-toolbar-sep { width: 1px; height: 1.25rem; background: var(--border); flex: none; }
+.doc-toolbar-title {
+  font-size: 0.8125rem; font-weight: 600; white-space: nowrap;
+  padding: 0 0.25rem; color: var(--muted-foreground);
+}
+@media (max-width: 60rem) { .doc-toolbar-title { display: none; } }
+
+/* Screen menu — sections at the top level, their screens one level in. */
+.screen-menu-wrap { position: relative; display: inline-flex; }
+.screen-menu-total {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 1.25rem; height: 1.25rem; padding: 0 0.25rem;
+  border-radius: 9999px; background: var(--muted); color: var(--muted-foreground);
+  font-size: 0.6875rem; font-weight: 600;
+}
+.screen-menu {
+  position: absolute; top: calc(100% + 0.5rem); left: 0;
+  width: 24rem; max-width: calc(100vw - 2rem);
+  max-height: min(34rem, calc(100vh - 6rem)); overflow-y: auto;
+  z-index: var(--z-index-popover);
+  background: var(--popover); color: var(--popover-foreground);
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl); padding: 0.375rem;
+}
+.screen-menu:not([hidden]) { display: flex; flex-direction: column; gap: 0.125rem; }
+.screen-menu-head {
+  display: flex; align-items: center; gap: 0.5rem; width: 100%;
+  padding: 0.5rem 0.625rem; border: 0; border-radius: var(--radius-md);
+  background: none; color: inherit; font: inherit; cursor: pointer; text-align: left;
+}
+.screen-menu-head:hover { background: var(--accent); }
+.screen-menu-icon { width: 1rem; height: 1rem; flex: none; }
+.screen-menu-label { flex: 1; min-width: 0; font-size: 0.8125rem; font-weight: 600; }
+.screen-menu-count {
+  flex: none; font-size: 0.6875rem; font-weight: 600;
+  padding: 0.0625rem 0.375rem; border-radius: 9999px;
+  background: var(--muted); color: var(--muted-foreground);
+}
+.screen-menu-caret {
+  width: 1rem; height: 1rem; flex: none; color: var(--muted-foreground);
+  transition: transform 150ms;
+}
+.screen-menu-head[aria-expanded="true"] .screen-menu-caret { transform: rotate(180deg); }
+.screen-menu-group[data-surface="backoffice"] .screen-menu-icon { color: var(--status-info-icon); }
+.screen-menu-group[data-surface="backoffice"] .screen-menu-count {
+  background: var(--status-info-bg); color: var(--status-info-text);
+}
+.screen-menu-group[data-surface="portal"] .screen-menu-icon { color: var(--status-pink-icon); }
+.screen-menu-group[data-surface="portal"] .screen-menu-count {
+  background: var(--status-pink-bg); color: var(--status-pink-text);
+}
+.screen-menu-items { padding: 0 0 0.375rem 2rem; }
+.screen-menu-items:not([hidden]) { display: flex; flex-direction: column; }
+.screen-menu-items a {
+  display: block; padding: 0.3125rem 0.5rem; border-radius: var(--radius-sm);
+  font-size: 0.8125rem; color: var(--muted-foreground); text-decoration: none;
+}
+.screen-menu-items a:hover { background: var(--accent); color: var(--foreground); }
+.screen-menu-items a.is-current { color: var(--accent-indigo); font-weight: 600; }
+
+.surface-tag {
+  display: inline-flex; align-items: center; gap: 0.375rem;
+  font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+  padding: 0.125rem 0.5rem; border-radius: var(--radius-sm);
+  border: 1px solid transparent; margin-bottom: 0.375rem;
+}
+.surface-tag svg { width: 0.875rem; height: 0.875rem; }
+.surface-tag[data-surface="backoffice"] {
+  background: var(--status-info-bg); color: var(--status-info-text); border-color: var(--status-info-border);
+}
+.surface-tag[data-surface="portal"] {
+  background: var(--status-pink-bg); color: var(--status-pink-text); border-color: var(--status-pink-border);
+}
+
+.screen { margin-top: 3rem; scroll-margin-top: 5.5rem; }
+.screen-meta { margin-bottom: 0.75rem; }
+.screen-meta h2 { font-size: 1.25rem; font-weight: 600; margin: 0 0 0.25rem; }
+.screen-meta p { margin: 0; font-size: 0.875rem; color: var(--muted-foreground); max-width: 65ch; }
+.screen-refs { display: flex; flex-wrap: wrap; gap: 0.375rem; margin-top: 0.5rem; }
+.ref {
+  font-family: var(--font-geist-mono); font-size: 0.6875rem;
+  padding: 0.125rem 0.375rem; border-radius: var(--radius-sm);
+  background: var(--muted); color: var(--muted-foreground); border: 1px solid var(--border);
+}
+
+/* The app frame each screen is rendered inside */
+.frame {
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  overflow: hidden; background: var(--background); box-shadow: var(--shadow-md);
+}
+.frame-bar {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); background: var(--muted);
+}
+.frame-dots { display: flex; gap: 0.25rem; }
+.frame-dots i { width: 0.5rem; height: 0.5rem; border-radius: 9999px; background: var(--border); display: block; }
+.frame-url {
+  font-family: var(--font-geist-mono); font-size: 0.6875rem; color: var(--muted-foreground);
+  background: var(--background); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 0.0625rem 0.5rem;
+}
+
+/* Annotation callouts */
+.notes { margin-top: 0.75rem; display: grid; gap: 0.5rem; }
+.note {
+  display: flex; gap: 0.625rem; font-size: 0.75rem; color: var(--muted-foreground);
+  padding-left: 0.125rem;
+}
+.note b {
+  flex: none; width: 1.25rem; height: 1.25rem; border-radius: 9999px;
+  background: var(--foreground); color: var(--background);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 0.6875rem; font-weight: 600;
+}
+.marker {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.125rem; height: 1.125rem; border-radius: 9999px;
+  background: var(--foreground); color: var(--background);
+  font-size: 0.625rem; font-weight: 700; vertical-align: middle;
+}
+
+/* ── App shell ──────────────────────────────────────────────────────
+   Mirrors packages/ui/src/backend/AppShell.tsx:
+   grid lg:grid-cols-[240px_1fr] · aside border-r py-4 px-3 ·
+   header 61px sticky border-b bg-background/95 backdrop-blur ·
+   main flex-1 p-4 lg:p-6 mx-auto max-w-screen-2xl */
+.app { display: grid; grid-template-columns: 240px 1fr; min-height: 40rem; }
+.app-narrow { min-height: 32rem; }
+/* Overlay screens need a taller frame so the whole drawer/modal is visible
+   without scrolling inside the mockup */
+.app-tall { min-height: 50rem; }
+.app-taller { min-height: 60rem; }
+
+.sidebar {
+  background: var(--background); color: var(--sidebar-foreground);
+  border-right: 1px solid var(--border);
+  padding: 1rem 0.75rem;
+  display: flex; flex-direction: column; gap: 0.75rem;
+}
+.sidebar-brand {
+  display: flex; align-items: center; gap: 0.75rem;
+  padding: 0.75rem; border-radius: var(--radius-xl);
+  font-size: 0.875rem; font-weight: 500;
+}
+.sidebar-brand:hover { background: var(--muted); }
+.brand-mark {
+  width: 2.5rem; height: 2.5rem; flex: none; border-radius: 9999px; overflow: hidden;
+  background: var(--foreground); color: var(--background);
+  display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700;
+}
+.brand-mark img { width: 100%; height: 100%; object-fit: cover; }
+.sidebar-search {
+  display: inline-flex; width: 100%; align-items: center; gap: 0.5rem;
+  height: 2.25rem; padding: 0 0.75rem;
+  border: 1px solid var(--input); border-radius: var(--radius-md);
+  background: var(--background); box-shadow: var(--shadow-xs);
+  color: var(--muted-foreground); font-size: 0.875rem;
+}
+.sidebar-search svg { width: 1rem; height: 1rem; flex: none; }
+.sidebar-nav { display: flex; flex-direction: column; gap: 0.5rem; flex: 1; padding-left: 0.75rem; margin-left: -0.75rem; }
+.nav-group {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%; padding: 0.25rem;
+  font-size: 0.75rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em;
+  color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+}
+.nav-group svg { width: 1rem; height: 1rem; }
+.nav-items { display: flex; flex-direction: column; gap: 0.25rem; }
+.nav-item {
+  position: relative;
+  display: inline-flex; align-items: center; gap: 0.5rem; width: 100%;
+  padding: 0.5rem 0.75rem; border-radius: var(--radius-lg);
+  color: var(--muted-foreground); font-size: 0.875rem; font-weight: 500;
+  text-decoration: none; cursor: pointer;
+}
+.nav-item svg { width: 1rem; height: 1rem; flex: none; }
+.nav-item:hover { background: var(--muted); }
+.nav-item.active { background: var(--muted); color: var(--foreground); }
+/* Active-item indicator bleeds left past the nav padding */
+.nav-item.active::before {
+  content: ""; position: absolute; left: -0.75rem; top: 0.5rem;
+  width: 0.25rem; height: 1.25rem; border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--foreground);
+}
+.nav-item .count { margin-left: auto; font-size: 0.75rem; color: var(--muted-foreground); }
+.nav-sep { margin: 0.5rem -0.75rem 0.5rem -0.75rem; border-top: 1px solid var(--border); }
+.sidebar-foot { position: sticky; bottom: 0; background: var(--background); padding-bottom: 0.25rem; }
+
+.main { display: flex; flex-direction: column; min-width: 0; }
+.topbar {
+  min-height: 61px; flex: none; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+  padding: 0.75rem 1.5rem; border-bottom: 1px solid var(--border);
+  background: color-mix(in oklab, var(--background) 95%, transparent); backdrop-filter: blur(8px);
+}
+.topbar-left { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
+.topbar-right { display: flex; align-items: center; gap: 0.75rem; flex: none; font-size: 0.875rem; }
+.topbar-search {
+  display: flex; align-items: center; gap: 0.5rem;
+  height: 2rem; padding: 0 0.5rem; min-width: 16rem;
+  border: 1px solid var(--input); border-radius: var(--radius-md);
+  color: var(--muted-foreground); font-size: 0.75rem; background: var(--background);
+}
+.topbar-search svg { width: 0.875rem; height: 0.875rem; }
+.icon-btn {
+  width: 2rem; height: 2rem; display: inline-flex; align-items: center; justify-content: center;
+  border: 0; background: transparent; border-radius: var(--radius-md);
+  color: var(--muted-foreground); cursor: pointer; position: relative;
+}
+.icon-btn:hover { background: var(--accent); color: var(--foreground); }
+.icon-btn svg { width: 1rem; height: 1rem; }
+.icon-btn .badge-count {
+  position: absolute; top: 0.125rem; right: 0.125rem;
+  min-width: 0.875rem; height: 0.875rem; padding: 0 0.1875rem;
+  border-radius: 9999px; background: var(--destructive); color: #fff;
+  font-size: 0.5625rem; font-weight: 600; display: flex; align-items: center; justify-content: center;
+}
+.ai-dot {
+  width: 1rem; height: 1rem; border-radius: 9999px;
+  background: conic-gradient(from 0deg, var(--brand-lime), var(--status-warning-icon), var(--brand-violet), var(--brand-lime));
+}
+
+/* main flex-1 p-4 lg:p-6 · Page = space-y-6 */
+.page { flex: 1; padding: 1.5rem; min-width: 0; display: flex; flex-direction: column; gap: 1.5rem; }
+/* Breadcrumbs live in the topbar, never in the page body */
+.crumbs { display: flex; align-items: center; gap: 0.375rem; font-size: 0.875rem; color: var(--muted-foreground); min-width: 0; }
+.crumbs svg { width: 1rem; height: 1rem; flex: none; }
+.crumbs .here { color: var(--foreground); }
+.crumbs a { display: inline-flex; align-items: center; color: inherit; text-decoration: none; border-radius: var(--radius-sm); }
+.crumbs a:hover { color: var(--foreground); }
+.crumbs a:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
+/* PageHeader */
+.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.page-head p { margin: 0.25rem 0 0; font-size: 0.875rem; color: var(--muted-foreground); }
+.page-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+
+/* App footer */
+.app-foot {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 1rem;
+  padding: 0.75rem 1rem; border-top: 1px solid var(--border);
+  font-size: 0.75rem; color: var(--muted-foreground);
+}
+
+/* ── DataTable chrome ───────────────────────────────────────────────
+   containerClassName 'rounded-lg border bg-card' ·
+   header 'px-4 py-3 border-b' · toolbar 'mt-3 pt-3 border-t' */
+.dt { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); }
+.dt-head { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); }
+.dt-head-row {
+  display: flex; flex-direction: column; gap: 0.5rem;
+  min-height: 2.25rem;
+}
+@media (min-width: 640px) { .dt-head-row { flex-direction: row; align-items: center; justify-content: space-between; } }
+.dt-head-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; min-height: 2.25rem; }
+.dt-toolbar { margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 0.5rem; }
+.dt-toolbar-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; width: 100%; }
+.dt-toolbar-right { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-left: auto; }
+.dt-search { width: 100%; max-width: 20rem; }
+/* Search box with a leading icon, for a list whose search actually filters.
+   The prototype's other lists use the inert .topbar-search block instead.
+   — no existing DS primitive — proposed by this prototype */
+.dt-search-field { position: relative; width: 20rem; max-width: 100%; }
+.dt-search-field svg {
+  position: absolute; left: 0.625rem; top: 50%; transform: translateY(-50%);
+  width: 1rem; height: 1rem; color: var(--muted-foreground); pointer-events: none;
+}
+.dt-search-field .input { padding-left: 2rem; }
+.dt-filter-empty { margin: 1rem; }
+/* Active filter chips bar sits between toolbar and table */
+.dt-chips {
+  display: flex; align-items: center; gap: 0.5rem; overflow-x: auto;
+  padding: 0.5rem 1rem; border-bottom: 1px solid var(--border); background: var(--background);
+}
+.dt-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.75rem 1rem; border-top: 1px solid var(--border); }
+.pager { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; list-style: none; margin: 0; padding: 0; }
+.pager button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 2rem; height: 2rem; flex: none; border: 0; cursor: pointer;
+  border-radius: var(--radius-lg); background: var(--background); color: var(--foreground);
+  font-size: 0.875rem; font-weight: 500; font-variant-numeric: tabular-nums;
+}
+.pager button:hover { background: color-mix(in oklab, var(--muted) 40%, transparent); }
+.pager button[aria-current="page"] { background: var(--muted); }
+.pager .nav { color: var(--muted-foreground); }
+.pager .nav svg { width: 1.25rem; height: 1.25rem; }
+.pager button:disabled { opacity: 0.4; cursor: default; }
+.pager button:disabled:hover { background: var(--background); }
+
+/* Count pill on an active Filters button */
+.filter-count {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 1.25rem; min-width: 1.25rem; padding: 0 0.375rem; margin-left: 0.25rem;
+  border-radius: 9999px; font-size: 0.75rem;
+  background: color-mix(in oklab, var(--muted-foreground) 30%, transparent); color: var(--background);
+}
+
+/* Perspective / saved-view switcher — joined segmented control */
+.view-switch { display: inline-flex; height: 2.25rem; align-items: center; border: 1px solid var(--input); border-radius: var(--radius-md); font-size: 0.875rem; }
+.view-switch > button { height: 100%; border: 0; background: transparent; cursor: pointer; padding: 0 0.75rem; display: inline-flex; align-items: center; gap: 0.375rem; }
+.view-switch > button:first-child { border-radius: var(--radius-md) 0 0 var(--radius-md); font-weight: 500; }
+.view-switch > button:last-child { border-radius: 0 var(--radius-md) var(--radius-md) 0; color: var(--muted-foreground); }
+.view-switch > button svg { width: 0.875rem; height: 0.875rem; }
+.view-switch .div { width: 1px; height: 1.25rem; background: var(--border); flex: none; }
+/* Real (non-positional) selected state — a toggled view-switch must read
+   correctly regardless of which button happens to be first/last in the DOM. */
+.view-switch > button[aria-selected="true"] { color: var(--foreground); font-weight: 500; }
+.view-switch > button[aria-selected="false"] { color: var(--muted-foreground); font-weight: 400; }
+
+/* ── Running timer indicator ────────────────────────────────────── */
+.timer-pill {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  height: 2rem; padding: 0 0.25rem 0 0.625rem;
+  border-radius: 9999px;
+  background: var(--status-success-bg); border: 1px solid var(--status-success-border);
+  color: var(--status-success-text); font-size: 0.75rem;
+}
+.timer-pill .pulse {
+  width: 0.5rem; height: 0.5rem; border-radius: 9999px; background: var(--status-success-icon);
+  animation: pulse-soft 2s ease-in-out infinite;
+}
+@keyframes pulse-soft { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+@media (prefers-reduced-motion: reduce) { .timer-pill .pulse { animation: none; } }
+.timer-pill .elapsed { font-family: var(--font-geist-mono); font-weight: 600; font-variant-numeric: tabular-nums; }
+.timer-stop {
+  width: 1.5rem; height: 1.5rem; border-radius: 9999px; border: 0; cursor: pointer;
+  background: var(--status-success-icon); color: #fff;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.timer-stop svg { width: 0.75rem; height: 0.75rem; }
+
+/* ── Kanban ─────────────────────────────────────────────────────────
+   Follows the deals-pipeline lane/card anatomy:
+   lane header card `rounded-lg bg-muted/40 px-4 py-3.5` with an accent strip,
+   drop zone `rounded-lg p-1.5`, card `rounded-lg border bg-card px-4 py-3.5 shadow-xs` */
+.kanban { display: flex; gap: 1rem; overflow-x: auto; padding-bottom: 0.5rem; align-items: flex-start; }
+.kcol { flex: 0 0 18rem; width: 18rem; display: flex; flex-direction: column; gap: 0.75rem; }
+.kcol-head {
+  display: flex; flex-direction: column; gap: 0.625rem;
+  padding: 0.875rem 1rem; border-radius: var(--radius-lg);
+  background: color-mix(in oklab, var(--muted) 40%, transparent);
+}
+.kcol-accent { height: 0.375rem; width: 100%; border-radius: var(--radius-sm); }
+.kcol-title { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.kcol-title .name {
+  font-size: 0.875rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em;
+}
+.kcol-count {
+  display: inline-flex; align-items: center; padding: 0.25rem 0.5rem;
+  border-radius: 9999px; font-size: 0.75rem; font-weight: 700;
+}
+.kcol-hours { font-size: 0.875rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.kcol-body {
+  display: flex; flex-direction: column; gap: 0.75rem;
+  min-height: 12rem; max-height: 30rem; overflow-y: auto;
+  padding: 0.375rem; border-radius: var(--radius-lg);
+}
+.kcol-body.dropping { background: color-mix(in oklab, var(--accent) 60%, transparent); outline: 1px dashed var(--ring); }
+.kcard {
+  position: relative;
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs); padding: 0.875rem 1rem;
+  display: flex; flex-direction: column; gap: 0.75rem; cursor: grab;
+  transition: box-shadow 150ms;
+}
+.kcard:hover { box-shadow: var(--shadow-md); }
+.kcard-title { font-size: 1rem; font-weight: 600; line-height: 1.4; }
+.kcard-meta { display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem; color: var(--muted-foreground); }
+.kcard-meta svg { width: 0.875rem; height: 0.875rem; }
+.kcard-hours { font-size: 1.125rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--foreground); }
+.kcard-rule { height: 1px; width: 100%; background: var(--border); }
+.kcard-dragging { transform: rotate(1.5deg); box-shadow: var(--shadow-lg); border-color: var(--ring); opacity: 0.95; }
+.kdrop { border: 1px dashed var(--ring); border-radius: var(--radius-lg); height: 4.5rem; background: color-mix(in oklab, var(--accent) 60%, transparent); }
+.kquick {
+  display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+  height: 2.75rem; padding: 0 0.75rem;
+  border: 1px dashed var(--border); border-radius: var(--radius-lg);
+  color: var(--muted-foreground); font-size: 0.875rem; cursor: pointer; background: transparent;
+}
+.kquick:hover { background: var(--muted); color: var(--foreground); }
+.kquick svg { width: 0.875rem; height: 0.875rem; }
+/* Hover-revealed quick actions on a card */
+.kcard-quick {
+  display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+  opacity: 0; transition: opacity 150ms;
+}
+.kcard:hover .kcard-quick, .kcard:focus-within .kcard-quick { opacity: 1; }
+
+/* Floating bulk-action bar (pipeline style — dark pill, distinct from the
+   DataTable's inline "n selected" strip) */
+.bulk-bar {
+  position: absolute; bottom: 1.5rem; left: 50%; transform: translateX(-50%);
+  z-index: var(--z-index-toast);
+  display: flex; align-items: center; gap: 0.75rem;
+  width: min(60rem, calc(100% - 2rem));
+  padding: 0.75rem 1rem; border-radius: var(--radius-lg);
+  background: var(--foreground); color: var(--background); box-shadow: var(--shadow-xl);
+}
+.bulk-bar .n {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.75rem; height: 1.75rem; border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--background) 10%, transparent);
+  font-size: 0.75rem; font-weight: 600;
+}
+.bulk-bar button {
+  display: inline-flex; align-items: center; gap: 0.25rem;
+  padding: 0.25rem 0.75rem; border: 0; border-radius: var(--radius-md);
+  background: transparent; color: inherit; font-size: 0.875rem; cursor: pointer;
+  transition: background-color 150ms;
+}
+.bulk-bar button:hover { background: color-mix(in srgb, var(--background) 10%, transparent); }
+.bulk-bar button svg { width: 1rem; height: 1rem; }
+.bulk-bar .danger { color: var(--status-error-icon); }
+
+/* ── Drawer ─────────────────────────────────────────────────────── */
+.drawer-scrim { position: relative; }
+.drawer-scrim::after {
+  content: ""; position: absolute; inset: 0; background: rgb(0 0 0 / 0.20); z-index: var(--z-index-overlay);
+}
+.drawer {
+  position: absolute; top: 0; right: 0; bottom: 0; width: 30rem; max-width: 90%;
+  background: var(--background); border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-xl); z-index: var(--z-index-modal);
+  display: flex; flex-direction: column;
+}
+.drawer-head { padding: 1rem; border-bottom: 1px solid var(--border); display: flex; gap: 0.75rem; align-items: flex-start; }
+.drawer-body { padding: 1rem; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 1.5rem; }
+.drawer-foot { padding: 0.75rem 1rem; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 0.5rem; }
+
+/* ── Modal ──────────────────────────────────────────────────────── */
+.modal-scrim { position: relative; }
+.modal-scrim::after {
+  content: ""; position: absolute; inset: 0; background: rgb(0 0 0 / 0.50); z-index: var(--z-index-overlay);
+}
+.modal {
+  position: absolute; left: 50%; top: 3rem; transform: translateX(-50%);
+  width: 40rem; max-width: 92%; z-index: var(--z-index-modal);
+  background: var(--background); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-2xl); display: flex; flex-direction: column; max-height: calc(100% - 6rem);
+}
+.modal-head { padding: 1.5rem 1.5rem 0; }
+.modal-body { padding: 1.5rem; overflow-y: auto; display: flex; flex-direction: column; gap: 1rem; }
+.modal-foot {
+  padding: 0.75rem 1.5rem; border-top: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+}
+
+/* ── Toast ──────────────────────────────────────────────────────── */
+.toast {
+  position: absolute; right: 1rem; bottom: 1rem; z-index: var(--z-index-toast);
+  display: flex; align-items: center; gap: 0.75rem;
+  background: var(--popover); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg); padding: 0.75rem 1rem; font-size: 0.875rem;
+}
+.toast svg { width: 1rem; height: 1rem; }
+
+/* ── Timesheet ──────────────────────────────────────────────────── */
+.ts-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-top: 1px solid var(--border); border-left: 1px solid var(--border); }
+.ts-dow {
+  padding: 0.375rem 0.5rem; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  font-size: var(--font-size-overline); line-height: 1rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.1em; color: var(--muted-foreground); background: var(--muted);
+}
+.ts-day {
+  min-height: 6.5rem; padding: 0.375rem 0.5rem;
+  border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 0.375rem;
+}
+.ts-day.out { background: color-mix(in oklab, var(--muted) 30%, transparent); }
+.ts-day.today { box-shadow: inset 0 0 0 2px var(--ring); }
+.ts-day-head { display: flex; align-items: baseline; justify-content: space-between; }
+.ts-date { font-size: 0.75rem; color: var(--muted-foreground); }
+.ts-total { font-size: 0.75rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ts-load { height: 0.25rem; border-radius: 9999px; background: var(--muted); overflow: hidden; }
+.ts-load > span { display: block; height: 100%; background: var(--chart-blue); border-radius: 9999px; }
+.ts-entry {
+  font-size: 0.6875rem; line-height: 1rem; padding: 0.125rem 0.375rem;
+  border-radius: var(--radius-sm); background: var(--accent); color: var(--accent-foreground);
+  display: flex; justify-content: space-between; gap: 0.25rem;
+}
+.ts-entry .d { font-variant-numeric: tabular-nums; color: var(--muted-foreground); flex: none; }
+.ts-entry.nonbillable { border: 1px dashed var(--border); background: transparent; }
+.ts-add {
+  margin-top: auto; border: 0; background: transparent; color: var(--muted-foreground);
+  font-size: 0.6875rem; text-align: left; padding: 0.125rem 0; cursor: pointer; opacity: 0;
+}
+.ts-day:hover .ts-add { opacity: 1; }
+
+/* :not([hidden]) — a plain `.col`-style unconditional `display:flex` would
+   beat the UA `[hidden]{display:none}` rule regardless of specificity, since
+   author rules always win over UA rules. Gating on :not([hidden]) keeps the
+   toggle real. */
+.occupancy-panel:not([hidden]) { display: flex; flex-direction: column; gap: 0.75rem; }
+
+/* Day-bar summary (list view) */
+.daybar { display: grid; grid-template-columns: 5.5rem 1fr 3.5rem; align-items: center; gap: 0.75rem; }
+.daybar .track { height: 0.5rem; border-radius: 9999px; background: var(--muted); overflow: hidden; }
+.daybar .track > span { display: block; height: 100%; border-radius: 9999px; background: var(--chart-blue); }
+.daybar.weekend .track > span { background: var(--muted-foreground); }
+/* Wider label/value columns for finance category charts, whose labels
+   ("Existing long-term office leases") are far longer than a day-of-week
+   or month abbreviation. */
+.daybar-wide { grid-template-columns: 12rem 1fr 5rem; }
+
+/* ── KPI tiles ──────────────────────────────────────────────────── */
+.kpis { display: grid; gap: 1rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 768px) { .kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.kpi { padding: 1rem; display: flex; flex-direction: column; gap: 0.25rem; }
+.kpi .v { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.025em; font-variant-numeric: tabular-nums; }
+.kpi .delta { font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; }
+.kpi .delta svg { width: 0.75rem; height: 0.75rem; }
+.up { color: var(--status-success-text); }
+.down { color: var(--status-error-text); }
+
+/* ── Report preview ─────────────────────────────────────────────── */
+.report-sheet {
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  padding: 2rem; box-shadow: var(--shadow-sm);
+}
+.report-head { display: flex; justify-content: space-between; gap: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border); }
+.report-group { margin-top: 1.5rem; }
+.report-group-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 1rem;
+  padding-bottom: 0.5rem; border-bottom: 1px solid var(--border);
+}
+.report-total {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 1rem;
+  margin-top: 1.5rem; padding-top: 1rem; border-top: 2px solid var(--foreground);
+}
+.report-total .v { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* ── Two-column form (CrudForm shape) ───────────────────────────────
+   CrudForm grouped layout is `grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-4`,
+   with each group rendered as `rounded-lg border bg-card px-4 py-3 space-y-3`. */
+.form-layout { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); align-items: start; }
+@media (min-width: 1024px) { .form-layout { grid-template-columns: 7fr 3fr; } }
+.form-col { display: flex; flex-direction: column; gap: 0.75rem; }
+.form-group { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); padding: 0.75rem 1rem; display: flex; flex-direction: column; gap: 0.75rem; }
+.form-group > .title { font-size: 0.875rem; font-weight: 500; }
+.form-group > .desc { font-size: 0.75rem; color: var(--muted-foreground); margin-top: -0.5rem; }
+.form-grid { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 768px) { .form-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* — proposed by this prototype: the unit form's two rows share columns, so Type lines up under Name */
+@media (min-width: 768px) {
+  .form-grid-unit { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: start; }
+  .form-grid-unit .form-grid-span-2 { grid-column: span 2; }
+}
+/* FormHeader (edit mode) — back link + title on the left, actions on the right */
+.form-head { display: flex; flex-direction: column; gap: 0.5rem; }
+@media (min-width: 640px) { .form-head { flex-direction: row; align-items: center; justify-content: space-between; gap: 0.75rem; } }
+.form-head .title { font-size: 1rem; font-weight: 500; }
+.back-link { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.875rem; color: var(--muted-foreground); text-decoration: none; }
+.back-link:hover { color: var(--foreground); }
+/* FormFooter — order is extraActions → Delete → Cancel → Save */
+.form-foot { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.form-foot .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-left: auto; }
+.btn-destructive-outline { border: 1px solid var(--status-error-border); color: var(--status-error-text); background: var(--background); box-shadow: var(--shadow-xs); }
+.btn-destructive-outline:hover { background: var(--status-error-bg); }
+
+/* ── Split panels ───────────────────────────────────────────────── */
+.split { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 1024px) { .split-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ── Floor plan (facilities composition — no existing DS primitive;
+   proposed by this prototype) ─────────────────────────────────────
+   Status color mapping is deliberate and consistent across offices and
+   event rooms: neutral = in active use (occupied / booked), success =
+   ready for use (available / free), warning = blocked from use
+   (unavailable). This keeps the legend meaningful across both room kinds
+   without treating "in use" as good or bad. */
+.floorplan-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; }
+.floorplan-switch, .location-switch {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  height: 2.25rem; padding: 0 0.75rem;
+  border: 1px solid var(--input); border-radius: var(--radius-md);
+  background: var(--background); box-shadow: var(--shadow-xs);
+  font-size: 0.875rem; font-weight: 500; cursor: pointer;
+}
+.floorplan-switch svg, .location-switch svg { width: 1rem; height: 1rem; color: var(--muted-foreground); }
+.floorplan-switch-wrap, .location-switch-wrap { position: relative; display: inline-flex; }
+.floorplan-switch-menu, .location-switch-menu {
+  position: absolute; top: calc(100% + 0.375rem); left: 0; z-index: var(--z-index-overlay);
+  min-width: 12rem;
+}
+.floorplan-switch-menu .menu-item.is-current,
+.location-switch-menu .menu-item.is-current { color: var(--accent-indigo); font-weight: 600; }
+.floorplan-switch-menu .menu-item.is-current svg,
+.location-switch-menu .menu-item.is-current svg { color: var(--accent-indigo); }
+.floorplan-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 1.25rem; }
+.floorplan-legend-group { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.floorplan-legend-label {
+  font-size: 0.6875rem; font-weight: 600; color: var(--muted-foreground);
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+/* — no existing DS primitive — proposed by this prototype: a floor drawn to scale.
+   Every length is in metres. --floor-x/--floor-y are the floor's own size; --scale-x is the widest
+   floor in the building, so every floor of one building shares a single metres-per-pixel scale.
+   Rooms carry --x/--y (top-left corner) and --w/--h (size). */
+.floorplan-scale {
+  display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto;
+  column-gap: 0.5rem; row-gap: 0.25rem; min-width: 60rem;
+}
+.floorplan-scale-compact { min-width: 0; }
+.floorplan-scale-compact .unit-tile-name { font-size: 0.6875rem; }
+.floorplan-dim {
+  display: flex; align-items: center; gap: 0.5rem;
+  font-size: 0.6875rem; color: var(--muted-foreground); font-variant-numeric: tabular-nums;
+}
+.floorplan-dim::before, .floorplan-dim::after { content: ""; flex: 1; }
+.floorplan-dim-x {
+  grid-column: 2; grid-row: 1;
+  width: calc(var(--floor-x) / var(--scale-x) * 100%);
+}
+.floorplan-dim-x::before, .floorplan-dim-x::after { border-top: 1px solid var(--border); }
+.floorplan-dim-y {
+  grid-column: 1; grid-row: 2; writing-mode: vertical-rl; transform: rotate(180deg);
+}
+.floorplan-dim-y::before, .floorplan-dim-y::after { border-left: 1px solid var(--border); }
+.floorplan-grid {
+  grid-column: 2; grid-row: 2; position: relative;
+  width: calc(var(--floor-x) / var(--scale-x) * 100%);
+  aspect-ratio: var(--floor-x) / var(--floor-y);
+  border: 1px solid var(--border); border-radius: var(--radius-md);
+  background-image:
+    linear-gradient(to right, var(--muted) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--muted) 1px, transparent 1px);
+  background-size: calc(100% / var(--floor-x)) calc(100% / var(--floor-y));
+}
+.floorplan-grid > * {
+  position: absolute;
+  left: calc(var(--x) / var(--floor-x) * 100% + 0.1875rem);
+  top: calc(var(--y) / var(--floor-y) * 100% + 0.1875rem);
+  width: calc(var(--w) / var(--floor-x) * 100% - 0.375rem);
+  height: calc(var(--h) / var(--floor-y) * 100% - 0.375rem);
+  overflow: hidden;
+}
+.floorplan-grid > .empty { justify-content: center; padding: 1.5rem; }
+/* — no existing DS primitive — proposed by this prototype: spaces (labelled zones) and units drawn
+   in the floor setup view. Spaces sit behind units; the label rides on the zone's top edge. */
+.floorplan-grid > .floorplan-space:has(.floorplan-space-label) { z-index: auto; }
+.floorplan-grid > .floorplan-space {
+  overflow: visible;
+  border: 1px dashed var(--muted-foreground); border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--muted) 55%, transparent);
+}
+.floorplan-space-label {
+  position: absolute; top: -0.5625rem; left: 0.5rem; z-index: 4;
+  padding: 0 0.375rem; border-radius: var(--radius-sm); background: var(--card);
+  font-size: 0.6875rem; font-weight: 600; line-height: 1.125rem; color: var(--muted-foreground);
+  letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap;
+}
+.floorplan-space.is-new { border: 2px solid var(--accent-indigo); background: color-mix(in oklab, var(--accent-indigo) 12%, transparent); }
+.floorplan-space.is-new .floorplan-space-label { color: var(--accent-indigo); }
+.unit-tile {
+  display: flex; flex-direction: column; justify-content: flex-end; gap: 0.125rem;
+  padding: 0.375rem 0.5rem; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--background);
+}
+.unit-tile.is-bookable { border-style: dashed; border-color: var(--muted-foreground); }
+.unit-tile-name { font-size: 0.75rem; font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
+.unit-tile-type { font-size: 0.6875rem; color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.unit-tile.is-faded { opacity: 0.55; }
+.unit-tile.is-new { border: 2px solid var(--accent-indigo); background: color-mix(in oklab, var(--accent-indigo) 12%, var(--background)); z-index: 3; }
+.unit-tile.is-stuck { border: 2px solid var(--destructive); background: color-mix(in oklab, var(--destructive) 10%, var(--background)); z-index: 3; }
+.floorplan-grid > [data-layout-target].is-invalid { border-color: var(--destructive); background: color-mix(in oklab, var(--destructive) 10%, transparent); }
+.inline-icon { width: 0.75rem; height: 0.75rem; vertical-align: -0.125rem; }
+.floorplan-common { text-align: center; padding: 0.25rem; overflow-wrap: anywhere; }
+.floorplan-common.is-faded { opacity: 0.55; }
+.floorplan-common.is-new { border: 2px solid var(--accent-indigo); background: color-mix(in oklab, var(--accent-indigo) 12%, var(--muted)); color: var(--foreground); z-index: 3; }
+[data-layout-draggable] { cursor: grab; touch-action: none; user-select: none; }
+[data-layout-draggable]:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
+[data-layout-draggable].is-dragging { cursor: grabbing; box-shadow: var(--shadow-sm); }
+.legend-swatch-common { border: 1px solid var(--border); background: var(--muted); }
+/* — proposed by this prototype: opening hours, availability choice, unavailable areas — */
+.hours-table td { vertical-align: middle; }
+.hours-times { display: inline-flex; align-items: center; gap: 0.5rem; }
+.hours-times .input { width: 7.5rem; }
+.hours-row.is-closed .hours-times { display: none; }
+.hours-row:not(.is-closed) .hours-closed { display: none; }
+.availability-toggle { display: inline-flex; align-items: center; gap: 0.5rem; }
+.availability-toggle .availability-label { font-size: 0.875rem; }
+.availability-toggle .switch[aria-checked="false"] + .availability-label { color: var(--status-warning-text); font-weight: 500; }
+.availability-hint { display: block; margin-top: 0.125rem; }
+.availability-details[hidden], .availability-hint[hidden] { display: none; }
+.floorplan-grid > .floorplan-unavailable {
+  z-index: 2; pointer-events: none; display: flex; align-items: center; justify-content: center;
+  border: 2px solid var(--status-warning-border); border-radius: var(--radius-md);
+  background: repeating-linear-gradient(135deg, color-mix(in oklab, var(--status-warning-bg) 45%, transparent) 0 0.5rem, transparent 0.5rem 1rem);
+}
+.floorplan-unavailable span {
+  padding: 0.125rem 0.5rem; border-radius: var(--radius-sm); background: var(--status-warning-bg);
+  color: var(--status-warning-text); font-size: 0.75rem; font-weight: 600;
+}
+.affected-list { margin: 0; padding-left: 1.25rem; display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.875rem; }
+.legend-swatch { display: inline-block; width: 0.75rem; height: 0.625rem; border-radius: 0.125rem; }
+.legend-swatch-space { border: 1px dashed var(--muted-foreground); background: color-mix(in oklab, var(--muted) 55%, transparent); }
+.legend-swatch-unit { border: 1px solid var(--border); background: var(--background); }
+.legend-swatch-bookable { border: 1px dashed var(--muted-foreground); background: var(--background); }
+.floorplan-corridor {
+  border-radius: var(--radius-md); border: 1px dashed var(--border);
+  background: repeating-linear-gradient(135deg, var(--muted) 0 0.5rem, transparent 0.5rem 1rem);
+  display: flex; align-items: center; justify-content: center;
+}
+.floorplan-corridor span {
+  writing-mode: vertical-rl; font-size: 0.6875rem; color: var(--muted-foreground);
+  letter-spacing: 0.05em; text-transform: uppercase;
+}
+.floorplan-lobby, .floorplan-common {
+  border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--muted);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.75rem; color: var(--muted-foreground);
+}
+.room {
+  border-radius: var(--radius-md); border: 1px solid var(--border);
+  padding: 0.625rem 0.75rem; background: var(--background);
+  display: flex; flex-direction: column; justify-content: space-between; gap: 0.375rem;
+  text-align: left; cursor: pointer; transition: box-shadow 150ms, border-color 150ms;
+}
+.room:hover { box-shadow: var(--shadow-sm); border-color: var(--accent-indigo); }
+.room:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
+.room svg { width: 1rem; height: 1rem; flex: none; color: var(--muted-foreground); }
+.room-name { font-size: 0.8125rem; font-weight: 600; }
+/* Icons dropped directly inside a field row or avatar (drawer body facts,
+   status avatars) have no intrinsic size like .btn/.badge/.alert icons do. */
+.field svg { width: 1rem; height: 1rem; flex: none; color: var(--muted-foreground); }
+.avatar svg { width: 1rem; height: 1rem; }
+.room-sub { font-size: 0.6875rem; color: var(--muted-foreground); }
+.room-status-occupied, .room-status-booked { background: var(--status-neutral-bg); border-color: var(--status-neutral-border); }
+.room-status-available, .room-status-free { background: var(--status-success-bg); border-color: var(--status-success-border); }
+.room-status-unavailable { background: var(--status-warning-bg); border-color: var(--status-warning-border); }
+/* A lease ending soon is an annotation on an occupied office, not a fourth
+   office status — so it uses a channel the status colours don't: the tile keeps
+   its neutral "in active use" fill and gains a dashed warning-toned edge, plus a
+   clock-marked badge alongside the status badge. Unavailable, the only other
+   warning-toned state, is a solid warning FILL, so the two never read alike.
+   — no existing DS primitive — proposed by this prototype */
+.room-lease-ending { border-style: dashed; border-color: var(--status-warning-icon); }
+.room-lease-ending:hover { border-color: var(--accent-indigo); }
+.room-badges { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+
+.room-active { outline: 2px solid var(--accent-indigo); outline-offset: 2px; cursor: default; }
+.room-active:hover { box-shadow: none; }
+@media (min-width: 1024px) { .split-side { grid-template-columns: minmax(0, 1fr) 18rem; } }
+
+/* ── CRM cross-link ─────────────────────────────────────────────────
+   A named person shown anywhere in this prototype (tenant contact,
+   booking organizer) links out to their real CRM People record at
+   /backend/customers/people/[id] — a destination outside this
+   prototype. Uses data-goto with that real path as the "screen id" so
+   the engine's own "this screen doesn't exist" toast doubles as an
+   honest disclosure of the real destination, instead of a dead link. */
+.crm-link {
+  display: inline-flex; align-items: center; gap: 0.25rem;
+  color: var(--accent-indigo); text-decoration: underline; text-underline-offset: 2px;
+  cursor: pointer; font: inherit; background: none; border: 0; padding: 0;
+}
+.crm-link svg { width: 0.75rem; height: 0.75rem; flex: none; }
+.table .crm-link { white-space: nowrap; }
+.row-4 > .field { align-self: flex-start; }
+/* — no existing DS primitive — proposed by this prototype: a rectangular floor size, x × y */
+.floor-size { display: flex; align-items: center; gap: 0.375rem; }
+.floor-size .input { width: 4.5rem; }
+.floor-size .input[readonly] { background: var(--muted); color: var(--muted-foreground); box-shadow: none; }
+.crm-link:hover { color: var(--accent-indigo); filter: brightness(1.15); }
+
+/* ── Customer portal shell (packages/ui PortalShell — top nav, not a
+   sidebar, so a reviewer never confuses this for the backend) ────── */
+.portal-shell { display: flex; flex-direction: column; min-height: 40rem; background: var(--background); }
+.portal-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: 0.875rem 1.5rem; border-bottom: 1px solid var(--border);
+}
+.portal-brand { display: flex; align-items: center; gap: 0.625rem; font-weight: 600; font-size: 0.9375rem; }
+.portal-brand-logo { height: 1.75rem; width: auto; flex: none; }
+.portal-account { display: flex; align-items: center; gap: 0.75rem; font-size: 0.8125rem; }
+.portal-account .avatar { background: var(--accent-indigo); color: var(--accent-indigo-foreground); border-color: transparent; }
+/* Portal notifications — bell with unread count plus the dropdown panel it
+   opens. No existing DS primitive for a notification dropdown in this
+   prototype; built from the same popover/menu chrome as the building switcher.
+   — proposed by this prototype */
+.portal-bell-wrap { position: relative; display: inline-flex; }
+.portal-bell { position: relative; }
+.notif-dot {
+  position: absolute; top: -0.125rem; right: -0.125rem;
+  min-width: 1rem; height: 1rem; padding: 0 0.1875rem;
+  border-radius: 9999px; border: 2px solid var(--background);
+  background: var(--status-error-solid); color: var(--status-error-solid-foreground);
+  font-size: 0.625rem; font-weight: 600; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+}
+.notif-panel {
+  position: absolute; top: calc(100% + 0.5rem); right: 0; z-index: var(--z-index-popover);
+  width: 23rem; max-width: calc(100vw - 3rem);
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  background: var(--popover); color: var(--popover-foreground);
+  box-shadow: var(--shadow-lg); overflow: hidden; text-align: left;
+}
+.notif-panel:not([hidden]) { display: flex; flex-direction: column; }
+.notif-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+  padding: 0.75rem 1rem; border-bottom: 1px solid var(--border);
+}
+.notif-unread-count { font-size: 0.75rem; color: var(--muted-foreground); }
+.notif-list { list-style: none; margin: 0; padding: 0; max-height: 30rem; overflow-y: auto; }
+.notif-item {
+  display: flex; align-items: flex-start; gap: 0.75rem; width: 100%;
+  padding: 0.75rem 1rem; border: 0; border-bottom: 1px solid var(--border);
+  background: none; cursor: pointer; font: inherit; text-align: left;
+  color: var(--popover-foreground);
+}
+.notif-list li:last-child .notif-item { border-bottom: 0; }
+.notif-item:hover { background: var(--accent); }
+.notif-icon {
+  width: 2rem; height: 2rem; flex: none; border-radius: 9999px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--status-neutral-bg); color: var(--status-neutral-icon);
+}
+.notif-icon svg { width: 1rem; height: 1rem; }
+.notif-icon-info { background: var(--status-info-bg); color: var(--status-info-icon); }
+.notif-icon-success { background: var(--status-success-bg); color: var(--status-success-icon); }
+.notif-icon-error { background: var(--status-error-bg); color: var(--status-error-icon); }
+.notif-body { display: flex; flex-direction: column; gap: 0.125rem; min-width: 0; flex: 1; }
+.notif-title { font-size: 0.8125rem; }
+.notif-item.is-unread .notif-title { font-weight: 600; }
+.notif-meta { font-size: 0.75rem; color: var(--muted-foreground); }
+.notif-time { font-size: 0.6875rem; color: var(--muted-foreground); margin-top: 0.125rem; }
+.notif-item.is-unread::after {
+  content: ''; width: 0.5rem; height: 0.5rem; flex: none; margin-top: 0.5rem;
+  border-radius: 9999px; background: var(--status-info-icon);
+}
+.notif-foot {
+  padding: 0.5rem; border-top: 1px solid var(--border);
+  display: flex; justify-content: center;
+}
+.notif-empty { border: 0; background: none; padding: 2.5rem 1.5rem; }
+
+.portal-nav {
+  display: flex; gap: 1.5rem; padding: 0 1.5rem;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in oklab, var(--muted) 20%, transparent);
+}
+.portal-nav-item {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  padding: 0.75rem 0.125rem; font-size: 0.8125rem; font-weight: 500;
+  color: var(--muted-foreground); border-bottom: 2px solid transparent; text-decoration: none;
+}
+.portal-nav-item svg { width: 1rem; height: 1rem; }
+.portal-nav-item.active { color: var(--foreground); border-bottom-color: var(--primary); }
+.portal-main { flex: 1; padding: 1.5rem; max-width: 48rem; margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: 1.25rem; }
+.portal-foot {
+  border-top: 1px solid var(--border); padding: 0.75rem 1.5rem;
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 0.75rem; color: var(--muted-foreground);
+}
+
+/* Room + slot picker (portal booking) */
+.slot-room { display: flex; flex-direction: column; gap: 0.625rem; }
+.slot-room-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; }
+.slot-grid { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.chip-booked { background: color-mix(in oklab, var(--muted) 50%, transparent); color: var(--muted-foreground); cursor: not-allowed; text-decoration: line-through; }
+/* Portal access code — a one-minute QR the customer scans at the door reader.
+   No existing DS primitive for a code card, a countdown or an expiry veil.
+   — proposed by this prototype */
+.access-card {
+  display: flex; flex-direction: column; align-items: center; gap: 1rem;
+  padding: 1.5rem; border: 1px solid var(--border); border-radius: var(--radius-lg);
+  background: var(--card);
+}
+/* The QR panel is deliberately not a theme token: a scannable code needs a light
+   quiet zone and dark modules in BOTH themes, or a reader cannot resolve it. */
+.qr-panel {
+  position: relative; padding: 1rem; border-radius: var(--radius-md);
+  background: #ffffff; box-shadow: var(--shadow-sm); line-height: 0;
+}
+/* direct child only — the expiry badge lives inside the veil and must keep its own icon size */
+.qr-panel > svg { width: 11rem; height: 11rem; display: block; }
+.qr-panel > svg rect { fill: #0a0d14; }
+.qr-veil {
+  position: absolute; inset: 0; border-radius: var(--radius-md);
+  background: color-mix(in oklab, #ffffff 82%, transparent);
+  display: flex; align-items: center; justify-content: center;
+}
+.qr-veil[hidden] { display: none; }
+.access-timer { display: inline-flex; align-items: center; gap: 0.5rem; }
+.access-timer svg { width: 1rem; height: 1rem; color: var(--muted-foreground); }
+.access-timer-value {
+  font-family: var(--font-geist-mono); font-size: 1.5rem; font-weight: 600;
+  font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
+}
+.access-progress {
+  width: 100%; max-width: 13rem; height: 0.25rem; border-radius: 9999px;
+  background: var(--muted); overflow: hidden;
+}
+.access-progress span {
+  display: block; height: 100%; background: var(--status-success-icon);
+  transition: width 1000ms linear;
+}
+.access-card.is-expired .access-timer-value { color: var(--status-error-text); }
+.access-card.is-expired .access-progress span { background: var(--status-error-icon); }
+.access-card.is-expired .access-keypad { display: none; }
+.access-keycode {
+  font-family: var(--font-geist-mono); font-size: 1.125rem; font-weight: 600;
+  letter-spacing: 0.15em;
+}
+.access-opens { display: flex; flex-direction: column; gap: 0.5rem; }
+.access-opens .row svg { width: 1rem; height: 1rem; flex: none; color: var(--status-success-icon); }
+
+/* Lease extension offer in the portal — the terms a tenant is being asked to
+   accept, and the card's own action row. No existing DS primitive for either a
+   term-comparison block or a card footer — proposed by this prototype. */
+.card-foot {
+  display: flex; align-items: center; justify-content: flex-end; gap: 0.5rem;
+  padding: 0.75rem 1rem; border-top: 1px solid var(--border);
+}
+.offer-terms { display: grid; gap: 0.75rem; }
+@media (min-width: 640px) { .offer-terms { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; } }
+.offer-term { display: flex; flex-direction: column; gap: 0.125rem; }
+.offer-card { border-color: var(--status-info-border); }
+
+/* Per-unit price on the portal's booking flow. No existing DS primitive — proposed by this prototype. */
+.slot-room-price { display: flex; flex-direction: column; align-items: flex-end; gap: 0.125rem; flex: none; }
+
+.booking-summary-bar {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
+  gap: 1rem; padding: 0.875rem 1.25rem;
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  background: color-mix(in oklab, var(--muted) 30%, transparent);
+}
+
+/* ── Wizard stepper (Marketing — no existing DS primitive; proposed by
+   this prototype) ──────────────────────────────────────────────── */
+.wizard-steps { display: flex; align-items: flex-start; }
+.wizard-step { display: flex; flex-direction: column; align-items: center; gap: 0.375rem; flex: none; }
+.wizard-step-dot {
+  width: 2rem; height: 2rem; flex: none; border-radius: 9999px;
+  border: 1px solid var(--border); background: var(--background); color: var(--muted-foreground);
+  display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 600;
+}
+.wizard-step-dot svg { width: 1rem; height: 1rem; }
+.wizard-step-label { font-size: 0.75rem; color: var(--muted-foreground); white-space: nowrap; }
+.wizard-step.is-current .wizard-step-dot { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); }
+.wizard-step.is-current .wizard-step-label { color: var(--foreground); font-weight: 600; }
+.wizard-step.is-done .wizard-step-dot { background: var(--accent-indigo); border-color: var(--accent-indigo); color: var(--accent-indigo-foreground); }
+.wizard-step.is-done .wizard-step-label { color: var(--foreground); }
+.wizard-step-line { flex: 1 1 3rem; height: 1px; background: var(--border); margin: 1rem 0.5rem 0; }
+.wizard-step-line.is-done { background: var(--accent-indigo); }
+
+/* ── AI prompt/refine panel (Marketing — no existing DS primitive;
+   proposed by this prototype; reuses the .ai-dot gradient defined
+   above for the assistant avatar) ──────────────────────────────── */
+.ai-panel { display: flex; flex-direction: column; height: 100%; }
+.ai-thread { display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem; flex: 1; overflow-y: auto; }
+.ai-msg { display: flex; gap: 0.625rem; max-width: 92%; }
+.ai-msg.user { align-self: flex-end; flex-direction: row-reverse; }
+.ai-msg-avatar {
+  width: 1.5rem; height: 1.5rem; flex: none; border-radius: 9999px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.625rem; font-weight: 700; margin-top: 0.125rem;
+}
+.ai-msg.user .ai-msg-avatar { background: var(--accent-indigo); color: var(--accent-indigo-foreground); }
+.ai-msg-bubble { padding: 0.625rem 0.875rem; border-radius: var(--radius-lg); font-size: 0.8125rem; line-height: 1.45; }
+.ai-msg.assistant .ai-msg-bubble { background: var(--muted); color: var(--foreground); border-top-left-radius: var(--radius-sm); }
+.ai-msg.user .ai-msg-bubble { background: var(--accent-indigo); color: var(--accent-indigo-foreground); border-top-right-radius: var(--radius-sm); }
+.ai-composer { display: flex; align-items: center; gap: 0.5rem; padding: 0.75rem; border-top: 1px solid var(--border); }
+.ai-composer .input { flex: 1; }
+
+/* ── Asset gallery (Marketing) ───────────────────────────────────── */
+.asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: 0.75rem; }
+.asset-tile { border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; background: var(--card); }
+.asset-tile img, .asset-tile-placeholder {
+  width: 100%; height: 6rem; object-fit: cover;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--muted); color: var(--muted-foreground);
+}
+.asset-tile-placeholder svg { width: 1.5rem; height: 1.5rem; }
+.asset-tile-meta { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.375rem 0.5rem; }
+
+/* ── Extras list + quantity stepper (Portal — no existing DS primitive;
+   proposed by this prototype) ──────────────────────────────────── */
+.icon-tile {
+  width: 2.5rem; height: 2.5rem; flex: none; border-radius: 9999px;
+  background: var(--muted); color: var(--muted-foreground);
+  display: flex; align-items: center; justify-content: center;
+}
+.icon-tile svg { width: 1.25rem; height: 1.25rem; }
+.qty-stepper { display: inline-flex; align-items: center; gap: 0.75rem; }
+.qty-stepper .qty-value { min-width: 1.5rem; text-align: center; font-size: 0.9375rem; font-weight: 600; }
+
+/* ── Events calendar (Portal — no existing DS primitive; proposed by
+   this prototype) ──────────────────────────────────────────────── */
+.cal-grid {
+  display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px;
+  background: var(--border); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); overflow: hidden;
+}
+.cal-weekday {
+  background: var(--muted); padding: 0.5rem; text-align: center;
+  font-size: 0.6875rem; font-weight: 600; color: var(--muted-foreground);
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.cal-day { background: var(--background); min-height: 5.5rem; padding: 0.5rem; display: flex; flex-direction: column; gap: 0.375rem; }
+.cal-day.is-muted { background: color-mix(in oklab, var(--muted) 40%, transparent); }
+.cal-day.is-muted .cal-day-num { color: var(--muted-foreground); }
+.cal-day-num { font-size: 0.75rem; font-weight: 600; }
+.cal-day.is-today .cal-day-num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.375rem; height: 1.375rem; border-radius: 9999px;
+  background: var(--primary); color: var(--primary-foreground);
+}
+.cal-event {
+  display: block; width: 100%; text-align: left; border: none; border-radius: var(--radius-sm);
+  padding: 0.25rem 0.375rem; font-size: 0.6875rem; font-weight: 600; line-height: 1.3;
+  cursor: pointer; color: var(--accent-indigo-foreground); background: var(--accent-indigo);
+}
+.cal-event:hover { filter: brightness(1.08); }
