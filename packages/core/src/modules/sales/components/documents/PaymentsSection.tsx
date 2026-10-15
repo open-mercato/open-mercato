@@ -310,7 +310,7 @@ export function SalesDocumentPaymentsSection({
       },
       {
         id: 'actions',
-        header: '',
+        header: t('ui.dataTable.actionsColumn', 'Actions'),
         cell: ({ row }) => {
           return (
             <RowActions
