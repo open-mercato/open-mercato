@@ -641,9 +641,10 @@ columns time tracking already carried:
 the query engine only ever looks a link up by `base`. **These are strings, never
 imports.** Staff is slated for extraction into a standalone package, so
 `data/extensions.ts` may not import a `customers` or `sales` symbol and
-`requires: ['planner', 'resources']` in [`index.ts`](./index.ts) must not grow;
-`__tests__/entityExtensions.test.ts` fails if either happens, and pins every table and
-column against the migration snapshots.
+`requires` in [`index.ts`](./index.ts) (`['planner', 'resources', 'dictionaries']`;
+`dictionaries` backs the support-ticket categories) must never gain `customers`, `sales` or
+`customer_accounts`; `__tests__/entityExtensions.test.ts` fails if either happens, and pins
+every table and column against the migration snapshots.
 
 **Declaration-only, exactly as in `apps/mercato/src/modules/example/data/extensions.ts`.**
 Nothing in the platform passes `includeExtensions` to a query, the basic engine's
@@ -845,9 +846,9 @@ If you need data from staff in another core module, the correct path is:
 
 ## Dependencies
 
-Staff currently declares `requires: ['planner', 'resources']` in [`index.ts`](./index.ts). The dependency direction is intentional and asymmetric:
+Staff currently declares `requires: ['planner', 'resources', 'dictionaries']` in [`index.ts`](./index.ts). The dependency direction is intentional and asymmetric:
 
-- Staff depends on planner + resources (hard requirement at load time).
+- Staff depends on planner + resources (hard requirement at load time), and on dictionaries for the support-ticket categories.
 - Planner soft-resolves `availabilityAccessResolver` via DI with `allowUnregistered: true` (graceful degradation when staff is absent).
 
 This asymmetry will be reconciled in the Phase 2/3 follow-up when staff becomes its own npm package; for now, planner is the only consumer that must work without staff registered.

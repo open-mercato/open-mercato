@@ -83,7 +83,7 @@ describe('staff data/extensions.ts', () => {
   /**
    * The decoupling rule this module lives under: a link is strings, never an import.
    * Staff is slated for extraction into its own package, so a `customers` or `sales`
-   * import here — or a new `requires` entry — would break that extraction.
+   * import here — or a `customers`/`sales` `requires` entry — would break that extraction.
    */
   it('imports nothing from the modules it links to', () => {
     const source = fs.readFileSync(path.join(moduleRoot, 'data', 'extensions.ts'), 'utf8')
