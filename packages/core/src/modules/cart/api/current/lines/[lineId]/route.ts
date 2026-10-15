@@ -1,0 +1,210 @@
+import { NextResponse } from 'next/server'
+import { z } from 'zod'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import type { CommandBus } from '@open-mercato/shared/lib/commands'
+import { badRequest } from '@open-mercato/shared/lib/crud/errors'
+import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+
+import { removeLineCommand, updateLineCommand } from '../../../../commands/lines'
+import type {
+  CartLinesRemoveInput,
+  CartLinesRemoveResult,
+  CartLinesUpdateInput,
+  CartLinesUpdateOutcome,
+} from '../../../../commands/lines'
+import { cartLineUpdateRequestSchema } from '../../../../data/validators'
+import {
+  CART_RESOURCE_KIND,
+  buildCommandContext,
+  mapRouteErrorToResponse,
+  notFoundCartResponse,
+  readCartToken,
+  resolveCurrentCart,
+  resolveRouteContextOrError,
+} from '../../../../lib/currentCartRoute'
+import { enforceCartRateLimit } from '../../../../lib/rateLimit'
+
+// Step 4.7 — `PATCH /current/lines/[lineId]` → `cart.lines.update`; `DELETE
+// /current/lines/[lineId]` → `cart.lines.remove`. No idempotency wiring here: the
+// task names `create`/`add`/`bulkAdd` as the "plausibly retried by a flaky client"
+// set — a quantity `update` re-applies to the same end state on replay, and
+// `remove` is already idempotent in effect (removing an already-removed line
+// 404s, same as removing one that never existed).
+export const metadata = {
+  PATCH: { requireAuth: false },
+  DELETE: { requireAuth: false },
+}
+
+type RouteParams = { params: Promise<{ lineId: string }> | { lineId: string } }
+
+const lineIdParamsSchema = z.object({ lineId: z.string().uuid() })
+
+async function resolveLineId(context: RouteParams): Promise<string> {
+  const raw = await context.params
+  const parsed = lineIdParamsSchema.safeParse(raw)
+  if (!parsed.success) {
+    throw badRequest('[internal] invalid lineId path param')
+  }
+  return parsed.data.lineId
+}
+
+/** Mirrors `lines/route.ts`'s `statusForAddOutcome` mapping for the `update` outcome union (§15a). */
+function statusForUpdateOutcome(outcome: CartLinesUpdateOutcome): number {
+  if (outcome.status === 'updated') return 200
+  if (outcome.reason === 'product_unavailable') return 200
+  return 422
+}
+
+export async function PATCH(request: Request, context: RouteParams) {
+  try {
+    const lineId = await resolveLineId(context)
+    const container = await createRequestContainer()
+    const token = readCartToken(request)
+
+    const limited = await enforceCartRateLimit(container, request, 'mutate', token)
+    if (limited) return limited
+
+    const resolved = await resolveRouteContextOrError(request, container)
+    if (!resolved.ok) return resolved.response
+    if (!token) return notFoundCartResponse()
+
+    const commandBus = container.resolve('commandBus') as CommandBus
+    const ctx = buildCommandContext(container, request, resolved.routeContext)
+    const cart = await resolveCurrentCart(commandBus, ctx, resolved.routeContext, token)
+    if (!cart) return notFoundCartResponse()
+
+    const rawBody = (await readJsonSafe<Record<string, unknown>>(request, {})) ?? {}
+    let body: z.infer<typeof cartLineUpdateRequestSchema>
+    try {
+      body = cartLineUpdateRequestSchema.parse(rawBody)
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return NextResponse.json({ error: '[internal] invalid request body', issues: err.issues }, { status: 400 })
+      }
+      throw err
+    }
+
+    const guarded = await runRouteMutationGuards({
+      container,
+      req: request,
+      auth: {
+        userId: resolved.routeContext.customerUserId ?? 'anonymous',
+        tenantId: resolved.routeContext.tenantId,
+        organizationId: resolved.routeContext.organizationId,
+        userFeatures: [],
+      },
+      input: { resourceKind: CART_RESOURCE_KIND, resourceId: cart.id, operation: 'update', mutationPayload: body },
+    })
+    if (!guarded.ok) return guarded.response
+
+    enforceCommandOptimisticLock({
+      resourceKind: CART_RESOURCE_KIND,
+      resourceId: cart.id,
+      current: cart.updatedAt,
+      request,
+    })
+
+    const commandInput: CartLinesUpdateInput = {
+      routeContext: resolved.routeContext,
+      cartId: cart.id,
+      lineId,
+      quantity: body.quantity,
+    }
+    const { result } = await commandBus.execute<CartLinesUpdateInput, CartLinesUpdateOutcome>(updateLineCommand.id, {
+      input: commandInput,
+      ctx,
+    })
+
+    await guarded.runAfterSuccess()
+
+    return NextResponse.json({ outcome: result }, { status: statusForUpdateOutcome(result) })
+  } catch (error) {
+    return mapRouteErrorToResponse(error)
+  }
+}
+
+export async function DELETE(request: Request, context: RouteParams) {
+  try {
+    const lineId = await resolveLineId(context)
+    const container = await createRequestContainer()
+    const token = readCartToken(request)
+
+    const limited = await enforceCartRateLimit(container, request, 'mutate', token)
+    if (limited) return limited
+
+    const resolved = await resolveRouteContextOrError(request, container)
+    if (!resolved.ok) return resolved.response
+    if (!token) return notFoundCartResponse()
+
+    const commandBus = container.resolve('commandBus') as CommandBus
+    const ctx = buildCommandContext(container, request, resolved.routeContext)
+    const cart = await resolveCurrentCart(commandBus, ctx, resolved.routeContext, token)
+    if (!cart) return notFoundCartResponse()
+
+    const guarded = await runRouteMutationGuards({
+      container,
+      req: request,
+      auth: {
+        userId: resolved.routeContext.customerUserId ?? 'anonymous',
+        tenantId: resolved.routeContext.tenantId,
+        organizationId: resolved.routeContext.organizationId,
+        userFeatures: [],
+      },
+      input: { resourceKind: CART_RESOURCE_KIND, resourceId: cart.id, operation: 'delete' },
+    })
+    if (!guarded.ok) return guarded.response
+
+    enforceCommandOptimisticLock({
+      resourceKind: CART_RESOURCE_KIND,
+      resourceId: cart.id,
+      current: cart.updatedAt,
+      request,
+    })
+
+    const commandInput: CartLinesRemoveInput = { routeContext: resolved.routeContext, cartId: cart.id, lineId }
+    const { result } = await commandBus.execute<CartLinesRemoveInput, CartLinesRemoveResult>(removeLineCommand.id, {
+      input: commandInput,
+      ctx,
+    })
+
+    await guarded.runAfterSuccess()
+
+    return NextResponse.json({ outcome: result })
+  } catch (error) {
+    return mapRouteErrorToResponse(error)
+  }
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Cart',
+  summary: 'Update or remove a line on the current cart',
+  pathParams: z.object({ lineId: z.string().uuid() }),
+  methods: {
+    PATCH: {
+      summary: 'Change a line\'s quantity',
+      requestBody: { contentType: 'application/json', schema: cartLineUpdateRequestSchema },
+      responses: [{ status: 200, description: 'Line updated, or rejected as a non-fatal warning' }],
+      errors: [
+        { status: 400, description: 'Invalid request body' },
+        { status: 404, description: 'No `X-Cart-Token` header, the token does not resolve a cart, or the line does not exist' },
+        { status: 409, description: 'Optimistic-lock conflict, or the line is a promotion (gift) line (`promotion_line_immutable`)' },
+        { status: 422, description: 'Quantity rule violation, or an unpriceable product' },
+        { status: 429, description: 'Rate limited' },
+        { status: 503, description: 'No store context resolvable for this request (§6a.1a)' },
+      ],
+    },
+    DELETE: {
+      summary: 'Remove a line',
+      responses: [{ status: 200, description: 'Line removed' }],
+      errors: [
+        { status: 404, description: 'No `X-Cart-Token` header, the token does not resolve a cart, or the line does not exist' },
+        { status: 409, description: 'Optimistic-lock conflict, or the line is a promotion (gift) line (`promotion_line_immutable`)' },
+        { status: 429, description: 'Rate limited' },
+        { status: 503, description: 'No store context resolvable for this request (§6a.1a)' },
+      ],
+    },
+  },
+}

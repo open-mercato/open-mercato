@@ -126,3 +126,59 @@ export const cartLineAddInputSchema = z.object({
 })
 
 export type CartLineAddInput = z.infer<typeof cartLineAddInputSchema>
+
+// ---------------------------------------------------------------------------
+// Public HTTP request bodies for `/api/cart/current/*` (Step 4.7, §6a.1a/§8.1/§10).
+// `.strict()` per D-R4-1/6 so an unrecognized key 400s. None of these carry
+// `cartId` (derived from the resolved "current" cart, itself resolved from the
+// `X-Cart-Token` header — never a body field), `channel`/`storeId`/
+// `salesChannelId`/`assortmentScope` (server-resolved at the route edge, §6a.1a),
+// or `addedByActorType`/`addedByActorId` (derived from the resolved
+// `ResolvedCartRouteContext` for every storefront call — see
+// `commands/lines.ts`'s `resolveLineActor`). These are deliberately separate
+// schemas from `cartCreateInputSchema`/`cartLineAddInputSchema` above, which
+// validate the COMMAND's own trusted input shape (including fields a public
+// caller must never set), not what an HTTP body may contain.
+// ---------------------------------------------------------------------------
+
+/** `POST /current` — the body carries no fields at all today; `.strict()` still rejects an unrecognized key rather than silently ignoring it. */
+export const cartCurrentCreateRequestSchema = z.object({}).strict()
+export type CartCurrentCreateRequest = z.infer<typeof cartCurrentCreateRequestSchema>
+
+/** `POST /current/lines`. */
+export const cartLineAddRequestSchema = z
+  .object({
+    productId: uuid(),
+    variantId: clearableUuidSchema,
+    quantity: decimalStringSchema,
+    configuration: jsonRecordSchema.nullable().optional(),
+    metadata: jsonRecordSchema.nullable().optional(),
+  })
+  .strict()
+export type CartLineAddRequest = z.infer<typeof cartLineAddRequestSchema>
+
+/** `PATCH /current/lines/[lineId]` — §10's "Change quantity or configuration" is narrowed to quantity only: `cart.lines.update` (Step 4.6) has no configuration-change parameter at all yet. */
+export const cartLineUpdateRequestSchema = z
+  .object({
+    quantity: decimalStringSchema,
+  })
+  .strict()
+export type CartLineUpdateRequest = z.infer<typeof cartLineUpdateRequestSchema>
+
+const cartLineBulkAddEntryRequestSchema = z
+  .object({
+    productId: uuid(),
+    variantId: clearableUuidSchema,
+    quantity: decimalStringSchema,
+    configuration: jsonRecordSchema.nullable().optional(),
+    metadata: jsonRecordSchema.nullable().optional(),
+  })
+  .strict()
+
+/** `POST /current/lines/bulk`. The 100-entry cap is the command's own concern (`MAX_BULK_ADD_ENTRIES`, `commands/lines.ts`) — not duplicated here, so the two never drift. */
+export const cartLineBulkAddRequestSchema = z
+  .object({
+    lines: z.array(cartLineBulkAddEntryRequestSchema),
+  })
+  .strict()
+export type CartLineBulkAddRequest = z.infer<typeof cartLineBulkAddRequestSchema>
