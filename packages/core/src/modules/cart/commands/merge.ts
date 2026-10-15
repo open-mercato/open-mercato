@@ -19,31 +19,35 @@ import type { PolicyResolutionService } from '@open-mercato/core/modules/availab
 import { Cart, CartLine, CartMergeLog } from '../data/entities'
 import type { CartMergeActorType, CartMergeLineDisposition, CartMergeOutcomeEntry, CartMergeStrategy } from '../data/entities'
 import { generateCartToken, hashCartToken } from '../lib/token'
+import { shouldEnforceAssortmentScope } from '../lib/routeContext'
 import type { ResolvedCartRouteContext } from '../lib/routeContext'
+import { cartVisibilityKey, evaluateCartVisibility, isVisible } from '../lib/visibility'
+import type { CartVisibilityResult } from '../lib/visibility'
 import { emitCartEvent } from '../events'
 import { repriceCartCommand } from './cart'
 import type { CartRepriceInput, CartRepriceResult } from './cart'
-import { toCartLineSnapshot } from './lines'
+import { emitVisibilityRejectedEvent, toCartLineSnapshot } from './lines'
 import type { CartLineSnapshot } from './lines'
 
 // Step 7.3 — §7.1's merge policy (five login situations, rows 1-5; the sixth row,
 // "Proposal accepted -> manual", is §7a's seam and explicitly out of Release 4 scope per
-// PLAN.md's own Phase 4 note — see this file's own header below for why §6a.5's
-// merge-time re-visibility pass is ALSO not built here despite being genuinely in-scope
-// Phase 3 work). `CartMergeLog` (§4.4) and ONE shared restore function, reached from two
-// entry points: `cart.merge`'s own generic `undo` (the platform's command-undo-log
-// mechanism, keyed to a specific `logEntry`) and the standalone, buyer-facing
-// `cart.mergeUndo` command (keyed to "whatever this cart's most recent still-in-window
-// merge was" — a buyer calling `POST /current/undo-merge` has no `logEntry` to hand over).
-// That single shared function is `restoreCartMerge` below — the PLAN.md row's own title
-// ("merge policy, merge log and single restore function") names exactly this.
+// PLAN.md's own Phase 4 note). `CartMergeLog` (§4.4) and ONE shared restore function,
+// reached from two entry points: `cart.merge`'s own generic `undo` (the platform's
+// command-undo-log mechanism, keyed to a specific `logEntry`) and the standalone,
+// buyer-facing `cart.mergeUndo` command (keyed to "whatever this cart's most recent
+// still-in-window merge was" — a buyer calling `POST /current/undo-merge` has no
+// `logEntry` to hand over). That single shared function is `restoreCartMerge` below — the
+// PLAN.md row's own title ("merge policy, merge log and single restore function") names
+// exactly this.
 //
-// Step 7.4 seam (NOT this step's job): §6a.5's merge-time re-visibility pass belongs
-// immediately after the union/sum/conflict pass builds `survivorNewLines`/
-// `survivorUpdatedLines` below, before `withAtomicFlush` persists them — re-check every
-// INCOMING line against `routeContext.assortmentScope` and flag (never silently admit or
-// drop) one that fails. The exact insertion point is marked with a `Step 7.4:` comment in
-// `buildMergeOutcome` below so it is not awkward to add next.
+// Step 7.4 — §6a.5's merge-time re-visibility pass, built in `buildMergeOutcome` below: every
+// INCOMING source line (rows 3-5's union/sum/conflict pass only — rows 1/2, adopt/keep_target,
+// never call `buildMergeOutcome` at all, since no line is newly admitted into a DIFFERENT cart
+// by either of those rows) is re-checked against the survivor cart's freshly-resolved
+// assortment scope BEFORE it is persisted or summed into a match. A failing line is REJECTED
+// (`disposition: 'rejected'`, `targetLineId: null`, `reason: 'product_unavailable'`) — never
+// admitted, never silently dropped (§6a.5). `CartMergeLineDisposition`/`CartMergeOutcomeEntry`
+// already admitted `'rejected'` since Step 7.3 (deliberately left unreachable until this step).
 
 const CART_LINE_ENTITY_ID = E.cart.cart_line
 const CART_ENTITY_ID = E.cart.cart
@@ -291,6 +295,17 @@ type MergeLineFields = {
  * the IDENTICAL mechanical outcome (a new line, disposition `'merged'`); the spec's rows 3
  * and 5 differ only in WHY no match occurred, not in what the merge does about it, so this
  * pass does not need two code paths for them.
+ *
+ * Step 7.4 — §6a.5: `visibility` is checked FIRST, before a source line is even matched
+ * against a target line — a line can fail visibility even when it would otherwise just sum
+ * into a matching target line (the task brief's own example), so the match/sum logic below
+ * never runs for a rejected line at all. A rejected line produces NO target line and NO
+ * quantity change to any existing one; its own outcome entry carries `targetLineId: null`
+ * and `reason: 'product_unavailable'`, same shape `CartMergeOutcomeEntry.reason?` already
+ * exists for. `visibility` is precomputed by the caller via ONE batched
+ * `evaluateCartVisibility` call (never per-line) — this function stays a plain, synchronous
+ * classifier, with no `em` read of its own, so it is free to run outside `withAtomicFlush`
+ * alongside the rest of this file's existing pre-flush line-building logic.
  */
 function buildMergeOutcome(
   em: EntityManager,
@@ -299,6 +314,7 @@ function buildMergeOutcome(
   maxQuantityBySourceLineId: Map<string, number | null>,
   survivorCart: Cart,
   startingLineNumber: number,
+  visibility: CartVisibilityResult,
 ): MergeLineFields {
   const targetByKey = new Map<string, CartLine>()
   for (const line of targetLines) {
@@ -310,12 +326,19 @@ function buildMergeOutcome(
   const updatedLineIds: string[] = []
   let nextLineNumber = startingLineNumber
 
-  // Step 7.4 seam: this is where a merge-time re-visibility pass (§6a.5) belongs — re-check
-  // each INCOMING source line (both the "new line" and the "sum into an existing line"
-  // branches below) against `survivorCart`'s freshly-resolved `assortmentScope` BEFORE it is
-  // persisted, and flag (disposition `'rejected'`, §4.2 `flag_state`) rather than admit or
-  // silently drop one that fails. Not built here — see this file's own header comment.
   for (const sourceLine of sourceLines) {
+    const visibilityRef = { productId: sourceLine.productId, variantId: sourceLine.variantId ?? null }
+    const visible = isVisible(visibility.get(cartVisibilityKey(visibilityRef)) ?? 'unavailable')
+    if (!visible) {
+      outcome.push({
+        sourceLineId: sourceLine.id,
+        targetLineId: null,
+        disposition: 'rejected',
+        reason: 'product_unavailable',
+      })
+      continue
+    }
+
     const key = buildLineMatchKey(sourceLine.productId, sourceLine.variantId ?? null, sourceLine.configuration ?? null)
     const matched = targetByKey.get(key)
 
@@ -344,8 +367,11 @@ function buildMergeOutcome(
         discountTotalNet: sourceLine.discountTotalNet ?? null,
         promotionId: null,
         origin: 'customer' as const,
-        // Preserved rather than reset — honest carry-over of the line's last-known state;
-        // the mandatory post-merge re-price (§7.3)/Step 7.4's pass can override it.
+        // Preserved rather than reset — honest carry-over of the line's last-known state.
+        // This line already passed THIS merge's own §6a.5 visibility check above (the
+        // `continue` on rejection means execution never reaches here for a failing line);
+        // any pre-existing flag was set by an UNRELATED check and is left for the next
+        // §6a.2 whole-cart pass (trigger 2) to resolve, same as any other line's.
         flagState: sourceLine.flagState ?? null,
         configuration: sourceLine.configuration ?? null,
         addedByActorType: 'merge' as const,
@@ -497,7 +523,24 @@ const mergeCartCommand: CommandHandler<CartMergeInput, CartMergeResult> = {
 
       const maxQuantities = await resolveMaxOrderQuantities(em, ctx.container, scope, survivorCart.storeId ?? null, guestCustomerLines)
       const startingLineNumber = sessionLinesAll.reduce((max, line) => Math.max(max, line.lineNumber), 0) + 1
-      const built = buildMergeOutcome(em, guestCustomerLines, sessionCustomerLines, maxQuantities, survivorCart, startingLineNumber)
+
+      // Step 7.4 — §6a.5: the SAME enforcement key §6a.1b/§6a.4 already use elsewhere in
+      // this module — enforce iff the SURVIVOR's channel is storefront or a scope was
+      // resolved for this call. `routeContext.assortmentScope` is the buyer's own, freshly
+      // resolved (`{ fresh: true }`, D-R4-22) scope for THIS request — never the source
+      // cart's, and never anything the request body could supply.
+      const mergeAssortmentScope = shouldEnforceAssortmentScope(survivorCart.channel, input.routeContext.assortmentScope)
+        ? input.routeContext.assortmentScope
+        : undefined
+      const mergeVisibility: CartVisibilityResult = await evaluateCartVisibility({
+        lines: guestCustomerLines.map((line) => ({ productId: line.productId, variantId: line.variantId ?? null })),
+        scope: mergeAssortmentScope,
+        tenantScope: scope,
+        em,
+        container: ctx.container,
+      })
+
+      const built = buildMergeOutcome(em, guestCustomerLines, sessionCustomerLines, maxQuantities, survivorCart, startingLineNumber, mergeVisibility)
       outcome = built.outcome
       newLines = built.newLines
       // `built.updatedLineIds` (the SUMMED/CAPPED target lines) is not separately emitted —
@@ -560,6 +603,14 @@ const mergeCartCommand: CommandHandler<CartMergeInput, CartMergeResult> = {
     // Summed/capped lines are not NEW — the subsequent re-price dispatch's own whole-cart
     // pass re-prices and `cart.line.updated`-emits every eligible line, this one included,
     // so no separate emission is needed here for `updatedLineIds`.
+
+    // Step 7.4 — §6a.5/D-R4-23: the operator-facing signal, once per request, counting every
+    // `'rejected'` entry THIS merge call produced (zero for `keep_target`/`replace`, which
+    // never call `buildMergeOutcome` at all).
+    const rejectedCount = outcome.filter((entry) => entry.disposition === 'rejected').length
+    if (rejectedCount > 0) {
+      await emitVisibilityRejectedEvent(survivorCart, rejectedCount, 'merge')
+    }
 
     await emitCartEvent('cart.cart.merged', {
       sourceCartId: absorbedCart.id,

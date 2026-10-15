@@ -5,11 +5,15 @@ import type {
   CatalogScopedProductService,
   ScopedProductScope,
 } from '@open-mercato/core/modules/catalog/services/catalogScopedProductService'
+import type { CartLine } from '../data/entities'
 
 // Step 4.4 — the ONLY place in `cart` permitted to call `matchesScope` directly (§6a).
-// Every call site — §6a.1c's per-line check on add/update/bulkAdd, §6a.2's whole-cart
-// re-visibility pass, §6a.5's merge pass — goes through `evaluateCartVisibility`. Those
-// call sites are later steps (4.5/4.6); this step only builds the primitive they share.
+// Every call site — §6a.1c's per-line check on add/update/bulkAdd (`commands/lines.ts`),
+// §6a.2's whole-cart re-visibility pass, §6a.5's merge pass (`commands/merge.ts`) — goes
+// through `evaluateCartVisibility`. §6a.2's own phase builder,
+// `buildWholeCartRevisibilityPhase` below, was added at Step 7.4 — it lives here (rather
+// than in `commands/cart.ts`) because it is a second, batched consumer of this same
+// primitive, same reasoning the per-line check already applies in `commands/lines.ts`.
 
 /**
  * Cart-local alias of `EffectiveAssortmentScope`. Kept as a plain re-export rather than a
@@ -145,4 +149,77 @@ export async function evaluateCartVisibility(
   }
 
   return result
+}
+
+// ---------------------------------------------------------------------------
+// §6a.2 — whole-cart re-visibility pass (Step 7.4)
+// ---------------------------------------------------------------------------
+
+export type WholeCartRevisibilityPhaseParams = {
+  em: EntityManager
+  container: CartVisibilityContainer
+  /**
+   * The cart's full non-deleted `CartLine` set (same array `cart.reprice`'s other phases
+   * close over). Only `origin: 'customer'` lines are ever checked — a gift (`'promotion'`)
+   * line is evaluator OUTPUT, never something the buyer added, so it has no business being
+   * re-checked against the buyer's OWN assortment scope (mirrors `buildCartLineRepricePhases`/
+   * `buildPromotionsEffectsPhase`'s identical `origin !== 'promotion'` exclusion).
+   */
+  lines: CartLine[]
+  /** Already gated by the caller via `shouldEnforceAssortmentScope` — `undefined` here means
+   * "do not build/run this phase at all" (the caller's own job to decide, same convention
+   * `cart.reprice`'s promotions phase already uses for its gift-line check). */
+  scope: ResolvedAssortmentScope | undefined
+  tenantScope: ScopedProductScope
+  /** Lines newly flagged `product_unavailable` by this pass (previously visible or
+   * unflagged). Pushed to, never read, by this function — the caller's own accumulator,
+   * same `changes`/`touched` closure convention `lib/reprice.ts` already uses. */
+  flagged: CartLine[]
+  /** Lines previously flagged `product_unavailable` that are visible again this cycle — the
+   * flag is cleared (§6a.2 only states the failure direction; a stale flag that never
+   * clears would mislead a buyer whose access was restored, since `cartView.ts`'s warning
+   * surfacing reads `flagState` live on every response). */
+  cleared: CartLine[]
+}
+
+/**
+ * Builds the `withAtomicFlush` phase behind §6a.2's whole-cart re-visibility pass: re-checks
+ * every existing, non-deleted, non-gift line's `(productId, variantId)` against the cart's
+ * freshly-resolved assortment scope, flags a newly-failing line, and clears a previously-
+ * flagged line that now passes. A failing line is flagged, never deleted (§6a.2's own text —
+ * mirrors the out-of-stock-line precedent §10.1 already sets).
+ *
+ * READ-then-MUTATE within this one phase (SPEC-018): the single batched
+ * `evaluateCartVisibility` call is this phase's only `em` read, and it completes before any
+ * `flagState` assignment below — no interleaved query after a mutation.
+ *
+ * The caller (`commands/cart.ts`'s `cart.reprice`) is responsible for building/including this
+ * phase ONLY for §6a.2's trigger 2 (`buyer_context_changed`) — trigger 5 (checkout lock) has no
+ * call site yet (`cart.lock` is a later step) and this function does not gate on trigger
+ * itself, since it has no opinion on why it was called, only on what to do once it is.
+ */
+export function buildWholeCartRevisibilityPhase(params: WholeCartRevisibilityPhaseParams): () => Promise<void> {
+  const { em, container, lines, scope, tenantScope, flagged, cleared } = params
+  return async () => {
+    const customerLines = lines.filter((line) => line.origin === 'customer')
+    if (customerLines.length === 0) return
+
+    const refs: CartVisibilityLineRef[] = customerLines.map((line) => ({
+      productId: line.productId,
+      variantId: line.variantId ?? null,
+    }))
+    const visibility = await evaluateCartVisibility({ lines: refs, scope, tenantScope, em, container })
+
+    for (const line of customerLines) {
+      const ref: CartVisibilityLineRef = { productId: line.productId, variantId: line.variantId ?? null }
+      const visible = isVisible(visibility.get(cartVisibilityKey(ref)) ?? 'unavailable')
+      if (!visible && line.flagState !== 'product_unavailable') {
+        line.flagState = 'product_unavailable'
+        flagged.push(line)
+      } else if (visible && line.flagState === 'product_unavailable') {
+        line.flagState = null
+        cleared.push(line)
+      }
+    }
+  }
 }

@@ -195,7 +195,13 @@ describe('buildCartLineRepricePhases', () => {
       touched,
     )
 
-    expect(phases).toHaveLength(1)
+    // Step 7.4 — the gift (`origin: 'promotion'`) line is still excluded EAGERLY (one phase
+    // per non-gift line); the flagged line now gets its OWN phase too, built eagerly, but
+    // that phase checks `flagState` again at its own execution time and no-ops — see
+    // `buildCartLineRepricePhases`'s own doc comment for why (§6a.2's whole-cart
+    // re-visibility pass, run by an EARLIER phase in the same `withAtomicFlush` sequence,
+    // may flag a line AFTER this function was already called to build the phase array).
+    expect(phases).toHaveLength(2)
     for (const phase of phases) await phase()
 
     expect(touched).toEqual([pricableLine])

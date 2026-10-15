@@ -29,6 +29,8 @@ import { buildPromotionsEffectsPhase } from '../lib/promotionContext'
 import type { CartPromotionWarning } from '../lib/promotionContext'
 import { detectCartRepriceTrigger } from '../lib/triggers'
 import type { CartRepriceTriggerReason } from '../lib/triggers'
+import { buildWholeCartRevisibilityPhase } from '../lib/visibility'
+import { emitVisibilityRejectedEvent } from './lines'
 
 // Step 4.5 — the first two commands in the §3.1a list: `cart.create` and `cart.get`, the
 // route edge's two entry points. Step 5.1 adds `cart.reprice` (§5.2 triggers 2-4) to this
@@ -662,11 +664,13 @@ const repriceCartCommand: CommandHandler<CartRepriceInput, CartRepriceResult> = 
     const promotionWarnings: CartPromotionWarning[] = []
     const createdGiftLines: CartLine[] = []
     const removedGiftLines: CartLine[] = []
+    // Step 7.4 — §6a.2's whole-cart re-visibility pass accumulators.
+    const revisibilityFlagged: CartLine[] = []
+    const revisibilityCleared: CartLine[] = []
 
     const applyTriggerFieldsPhase = async () => {
       applyCartRepriceTriggerFields(cart, input)
     }
-    const linePhases = buildCartLineRepricePhases(em, ctx.container, cart, lines, input.trigger, now, changes, touched)
 
     // Step 7.1 — §6/§6a: `promotionsService.evaluate()` resolves tenant/org scope from
     // whatever is registered under the `auth` DI token on ITS OWN container
@@ -676,9 +680,64 @@ const repriceCartCommand: CommandHandler<CartRepriceInput, CartRepriceResult> = 
     // the service, inside the command rather than at a route edge, since this command runs
     // from multiple entry points (`cart.get`'s internal dispatch today, `cart.lock` in a
     // later step) and an internal caller should not have to remember to do it itself.
+    //
+    // Moved ahead of `linePhases`/`promotionsPhase` at Step 7.4: §6a.2's whole-cart
+    // re-visibility pass below needs this SAME resolved scope — reused, never re-derived.
     ctx.container.register({ auth: asValue({ tenantId: cart.tenantId, orgId: cart.organizationId }) })
     const rawAssortmentScope = input.routeContext?.assortmentScope
     const assortmentScope = shouldEnforceAssortmentScope(cart.channel, rawAssortmentScope) ? rawAssortmentScope : undefined
+
+    // Step 7.4 — §6a.2: gated to trigger 2 (`buyer_context_changed`) and the mandatory
+    // post-merge reprice (`trigger: 'merge'`, §7.3's own "this is exactly the case trigger 2
+    // exists for"). The `'merge'` half closes a real residual R13 bypass found during this
+    // step's own review: §6a.5's pass in `commands/merge.ts` only re-checks INCOMING lines
+    // during a `sum`/`union`/`conflict` merge (rows 3-5) — it is never reached at all for
+    // an ADOPT (row 1, target empty) merge, where the SURVIVOR is the source cart itself and
+    // its pre-existing lines are carried over untouched. An `agent`/`api`-channel cart's
+    // lines never passed the add-time per-line check (§6a.4's exemption) — if such a cart's
+    // token were ever presented as `cart.merge`'s `sourceToken` against an empty session
+    // cart, adoption would make it the live, scope-enforced cart with its own unchecked
+    // lines still in it, exactly R13's attack shape via a different row of the policy table.
+    // Running this phase on every `'merge'`-triggered reprice closes that gap for free: a
+    // rejected-row-3-5 incoming line was never added to `lines` in the first place (nothing
+    // to double-process), rows 1/2's survivor lines ARE now re-checked, and §6a.2's own
+    // "whole-cart" framing is honored literally (every line, not just the ones a particular
+    // merge happened to add this cycle) as a bonus defense-in-depth property.
+    // §6a.2 also names trigger 5 (checkout requests a lock) as a third call site, but
+    // `cart.lock` does not exist in this worktree yet — Step 7.5 extends this SAME condition
+    // with `|| input.trigger === 'lock'` once that command exists and needs this pass too;
+    // no premature trigger-reason value or phantom call site is added here for it.
+    const runWholeCartRevisibilityPass =
+      (input.trigger === 'buyer_context_changed' || input.trigger === 'merge') && assortmentScope !== undefined
+    const wholeCartRevisibilityPhases: Array<() => Promise<void>> = runWholeCartRevisibilityPass
+      ? [
+          buildWholeCartRevisibilityPhase({
+            em,
+            container: ctx.container,
+            lines,
+            scope: assortmentScope,
+            tenantScope: scope,
+            flagged: revisibilityFlagged,
+            cleared: revisibilityCleared,
+          }),
+        ]
+      : []
+
+    // Runs AFTER the re-visibility pass above (array order) so a line this cycle just
+    // flagged is excluded from its own re-pricing (§4.2/§6a.2) — `buildCartLineRepricePhases`
+    // checks `flagState` again at each line's own EXECUTION time (not only via its eager
+    // `origin` filter), so this composes correctly regardless of whether the re-visibility
+    // phase actually ran for this call.
+    const linePhases = buildCartLineRepricePhases(em, ctx.container, cart, lines, input.trigger, now, changes, touched)
+
+    // Step 7.4 — trigger 6 (§5.2: "a promotion is applied or removed — effects only, not
+    // unit prices"): `linePhases` re-resolves every line's CATALOG unit price via
+    // `catalogBuyerPricingService.resolveLinePrice`, which is exactly what trigger 6 says
+    // must NOT happen. The promotions phase (discount/effects) and the totals phase still
+    // run unconditionally below — only this catalog-price re-resolution phase is skipped.
+    const effectiveLinePhases: Array<() => Promise<void>> =
+      input.trigger === 'promotion_applied' || input.trigger === 'promotion_removed' ? [] : linePhases
+
     const promotionsPhase = buildPromotionsEffectsPhase({
       em,
       container: ctx.container,
@@ -701,13 +760,17 @@ const repriceCartCommand: CommandHandler<CartRepriceInput, CartRepriceResult> = 
 
     // §3.1a: "mutates Cart/CartLine/CartPromotionApplication inside
     // withAtomicFlush(em, phases, { transaction: true, label: 'cart.<op>' })" — one
-    // transaction spanning the buyer-context field update, every line's re-price, the
-    // promotions phase, and the final totals recompute, so a partial re-price (some lines
-    // priced, the totals pass never ran) can never persist.
-    await withAtomicFlush(em, [applyTriggerFieldsPhase, ...linePhases, promotionsPhase, totalsPhase], {
-      transaction: true,
-      label: 'cart.reprice',
-    })
+    // transaction spanning the buyer-context field update, the re-visibility pass, every
+    // line's re-price, the promotions phase, and the final totals recompute, so a partial
+    // re-price (some lines priced, the totals pass never ran) can never persist.
+    await withAtomicFlush(
+      em,
+      [applyTriggerFieldsPhase, ...wholeCartRevisibilityPhases, ...effectiveLinePhases, promotionsPhase, totalsPhase],
+      {
+        transaction: true,
+        label: 'cart.reprice',
+      },
+    )
 
     // Side effects fire after the atomic flush commits, never inside it.
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
@@ -733,6 +796,33 @@ const repriceCartCommand: CommandHandler<CartRepriceInput, CartRepriceResult> = 
         organizationId: line.organizationId,
         tenantId: line.tenantId,
       })
+    }
+    // Step 7.4 — §6a.2: a newly-flagged or newly-cleared line's own `flag_state` changed,
+    // independently of whether `touched` (above) also covers it (a cleared line becomes
+    // eligible for `linePhases` again THIS same cycle and may land in `touched` too — a
+    // harmless, redundant re-index/re-emit for that one line, not a correctness issue).
+    for (const line of [...revisibilityFlagged, ...revisibilityCleared]) {
+      await emitCrudSideEffects({
+        dataEngine,
+        action: 'updated',
+        entity: line,
+        identifiers: { id: line.id, organizationId: line.organizationId, tenantId: line.tenantId },
+        indexer: cartLineRepriceIndexer,
+      })
+      await emitCartEvent('cart.line.updated', {
+        id: line.id,
+        cartId: line.cartId,
+        organizationId: line.organizationId,
+        tenantId: line.tenantId,
+      })
+    }
+    if (revisibilityFlagged.length > 0) {
+      // D-R4-23 — the operator-facing signal, `triggeredBy: 'reprice'`. The buyer-facing
+      // `product_unavailable` warning itself is NOT re-emitted here on `CartRepriceResult`:
+      // `lib/cartView.ts`'s `buildFlaggedLineWarnings` already derives it LIVE from
+      // `CartLine.flagState` on every `/current/*` read, regardless of which pass set the
+      // flag — a second, duplicate warning entry from this specific pass would be redundant.
+      await emitVisibilityRejectedEvent(cart, revisibilityFlagged.length, 'reprice')
     }
     for (const line of createdGiftLines) {
       await emitCrudSideEffects({

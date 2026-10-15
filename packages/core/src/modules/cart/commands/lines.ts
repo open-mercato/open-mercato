@@ -81,11 +81,13 @@ function getCartLineIdentifiers(line: CartLine) {
 // ---------------------------------------------------------------------------
 
 /**
- * The only §6a.1c enforcement points this phase builds — the whole-cart pass at §6a.2's
- * triggers 2/5 does not exist yet (no `cart.reprice`/`cart.lock` commands in this worktree),
- * so its own `triggeredBy` values land with the step that implements it, not here.
+ * §6a.1c's per-line enforcement points (`'lines.add'`/`'lines.update'`/`'lines.bulkAdd'`,
+ * this file's own) plus the two whole-cart/merge passes added at Step 7.4:
+ * `'reprice'` — §6a.2's whole-cart re-visibility pass, trigger 2 (`commands/cart.ts`'s
+ * `cart.reprice`); `'merge'` — §6a.5's merge-time pass (`commands/merge.ts`'s `cart.merge`).
+ * Trigger 5 (checkout lock) has no `triggeredBy` value yet — `cart.lock` is a later step.
  */
-export type CartVisibilityRejectionTrigger = 'lines.add' | 'lines.update' | 'lines.bulkAdd'
+export type CartVisibilityRejectionTrigger = 'lines.add' | 'lines.update' | 'lines.bulkAdd' | 'reprice' | 'merge'
 
 /**
  * Emitted once per REQUEST with the count of lines this call rejected for a VISIBILITY
@@ -94,8 +96,11 @@ export type CartVisibilityRejectionTrigger = 'lines.add' | 'lines.update' | 'lin
  * product/variant row). §6a.3's no-enumeration-oracle collapse applies to the BUYER-facing
  * `product_unavailable` warning only; this event is the operator-facing signal D-R4-23 names,
  * so it is free to be precise about which rejections were actually a scope mismatch.
+ *
+ * Exported since Step 7.4 — `commands/cart.ts`'s §6a.2 pass and `commands/merge.ts`'s §6a.5
+ * pass both emit through this SAME helper rather than each re-deriving the event shape.
  */
-async function emitVisibilityRejectedEvent(
+export async function emitVisibilityRejectedEvent(
   cart: Pick<Cart, 'id' | 'tenantId' | 'organizationId'>,
   rejectedCount: number,
   triggeredBy: CartVisibilityRejectionTrigger,

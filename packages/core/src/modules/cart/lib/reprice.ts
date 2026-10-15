@@ -185,9 +185,21 @@ export function buildCartLineRepricePhases(
   // set by the promotions phase, never a catalog-resolved price — running it through this
   // engine would silently overwrite "free" with whatever the underlying product's real
   // catalog price happens to be on the very next re-price trigger.
-  const eligibleLines = lines.filter((line) => line.flagState == null && line.origin !== 'promotion')
+  //
+  // `origin !== 'promotion'` is filtered EAGERLY here, at this function's own call time —
+  // safe, since no phase ordered before this one in `cart.reprice`'s sequence ever creates a
+  // gift line (`buildPromotionsEffectsPhase` always runs AFTER these phases). `flagState`
+  // is NOT filtered here, eagerly — see the per-line check inside the mapped closure below.
+  const eligibleLines = lines.filter((line) => line.origin !== 'promotion')
 
   return eligibleLines.map((line) => async () => {
+    // Step 7.4 — §6a.2: checked again HERE, at this line's own EXECUTION time, rather than
+    // only by an eager filter above — a line the whole-cart re-visibility pass (an earlier
+    // phase in the SAME `withAtomicFlush` sequence) just flagged THIS cycle must be excluded
+    // from re-pricing too, and that pass's mutation only takes effect once ITS OWN phase
+    // actually runs, which is after `buildCartLineRepricePhases` itself was already called
+    // (phases are all constructed up front, before `withAtomicFlush` executes any of them).
+    if (line.flagState != null) return
     const rows = await fetchLinePriceRows(em, scope, pricingContext, line.productId, line.variantId ?? null)
     const quantity = Number(line.quantity)
     const resolved = await buyerPricingService.resolveLinePrice(em, rows, buildBuyerContext(cart, quantity, now), scope)

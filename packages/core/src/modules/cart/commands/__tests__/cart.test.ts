@@ -189,6 +189,24 @@ function makeDefaultPromotionsService() {
   return { evaluate: jest.fn(async () => ({ appliedPromotions: [] })) }
 }
 
+/**
+ * Step 7.4 — default-visible: every requested product resolves to an unrestricted catalog
+ * record, so a test that never cares about §6a.2's whole-cart re-visibility pass does not
+ * have to opt in to one. Before this step this default was dead code for `cart.test.ts`
+ * (nothing here ever called `catalogScopedProductService` — only the gift-line check did,
+ * and no test here exercises a promotion effect) — safe to change with no existing-test
+ * impact.
+ */
+function makeDefaultCatalogScopedProductService() {
+  return {
+    loadScopedProducts: jest.fn(async (_em: unknown, ids: string[]) => {
+      const result = new Map<string, { id: string; categoryIds: string[]; tagIds: string[]; isActive: boolean }>()
+      for (const id of ids) result.set(id, { id, categoryIds: [], tagIds: [], isActive: true })
+      return result
+    }),
+  }
+}
+
 function makeCtx(opts: {
   em: unknown
   dataEngine: unknown
@@ -217,7 +235,7 @@ function makeCtx(opts: {
         // this (`lib/promotions-service.ts`'s `resolvePromotionsServiceScope` convention);
         // a fake container just needs the token to resolve, never reads `auth` itself.
         if (token === 'promotionsService') return opts.promotionsService ?? makeDefaultPromotionsService()
-        if (token === 'catalogScopedProductService') return opts.catalogScopedProductService ?? { loadScopedProducts: jest.fn(async () => new Map()) }
+        if (token === 'catalogScopedProductService') return opts.catalogScopedProductService ?? makeDefaultCatalogScopedProductService()
         throw new Error(`Unexpected DI token: ${token}`)
       },
       register: jest.fn((...args: unknown[]) => {
@@ -899,5 +917,164 @@ describe('cart.reprice', () => {
 
     expect(result.priceChanges).toEqual([])
     expect(result.cart.lastPriceChangeAt).toBeNull()
+  })
+
+  // Step 7.4 — §6a.2's whole-cart re-visibility pass, gated to trigger 2
+  // (`buyer_context_changed`) only. These tests prove: a newly-restricted line gets
+  // flagged and excluded from THIS cycle's re-pricing/promotion-evaluation/totals; a
+  // previously-flagged line that is visible again gets its flag cleared and re-enters
+  // pricing; and the pass never runs for any other trigger, even with a resolved scope.
+  describe('cart.reprice — §6a.2 whole-cart re-visibility pass (Step 7.4)', () => {
+    it('flags a previously-visible line that has become restricted, excludes it from re-pricing/promotion-evaluation/totals this cycle, and emits visibility_rejected once', async () => {
+      const cart = seedCartWithLines({}, [
+        {
+          id: 'line-1', cartId: 'cart-1', tenantId: TENANT_ID, organizationId: ORG_ID, productId: 'product-1', variantId: null,
+          name: 'Widget', quantity: '2', quantityUnit: null, unitPriceNet: '10', unitPriceGross: '12', taxRate: '20',
+          priceKindId: null, priceRowId: 'price-row-1', priceTierMinQuantity: 1, pricedAt: new Date('2026-01-01T00:00:00.000Z'),
+          lineTotals: {}, discountTotalNet: null, configuration: null, origin: 'customer', flagState: null, deletedAt: null,
+        },
+      ])
+      const handler = commandRegistry.get<CartRepriceInput, CartRepriceResult>('cart.reprice')
+      const { em } = makeEm()
+      const dataEngine = makeDataEngine()
+      const resolveLinePrice = jest.fn(async () => makeResolvedLinePrice())
+      const evaluate = jest.fn(async () => ({ appliedPromotions: [] }))
+      const calculateDocumentTotals = jest.fn(async () => ({
+        kind: 'quote',
+        currencyCode: 'USD',
+        lines: [],
+        adjustments: [],
+        totals: {
+          subtotalNetAmount: 0,
+          subtotalGrossAmount: 0,
+          discountTotalAmount: 0,
+          taxTotalAmount: 0,
+          grandTotalNetAmount: 0,
+          grandTotalGrossAmount: 0,
+        },
+        metadata: {},
+      }))
+      const catalogScopedProductService = {
+        // product-1's category does not match the restrictive scope below.
+        loadScopedProducts: jest.fn(async () => new Map([['product-1', { id: 'product-1', categoryIds: ['cat-wholesale'], tagIds: [], isActive: true }]])),
+      }
+      const ctx = makeCtx({
+        em,
+        dataEngine,
+        catalogBuyerPricingService: { resolveLinePrice },
+        promotionsService: { evaluate },
+        salesCalculationService: makeSalesCalculationService({ calculateDocumentTotals }),
+        catalogScopedProductService,
+      })
+
+      const freshContext = makeRouteContext({ buyerDigest: 'digest-2', assortmentScope: [{ categoryIds: ['cat-retail'] }] })
+      const result = await handler!.execute(
+        {
+          cartId: cart.id as string,
+          tenantId: TENANT_ID,
+          organizationId: ORG_ID,
+          trigger: 'buyer_context_changed',
+          buyerDigest: freshContext.buyerDigest,
+          customerId: freshContext.customerId,
+          customerIds: freshContext.customerIds,
+          customerUserId: freshContext.customerUserId,
+          customerGroupIds: freshContext.customerGroupIds,
+          priceKindId: freshContext.priceKindId,
+          routeContext: freshContext,
+        },
+        ctx,
+      )
+
+      expect(seededCartLines[0].flagState).toBe('product_unavailable')
+      expect(resolveLinePrice).not.toHaveBeenCalled()
+      expect(evaluate.mock.calls[0][0].items).toEqual([])
+      expect(calculateDocumentTotals.mock.calls[0][0].lines).toEqual([])
+      expect(result.cart.totals).toEqual({
+        subtotalNetAmount: 0,
+        subtotalGrossAmount: 0,
+        discountTotalAmount: 0,
+        taxTotalAmount: 0,
+        grandTotalNetAmount: 0,
+        grandTotalGrossAmount: 0,
+      })
+
+      const visibilityRejectedCalls = emitCartEventMock.mock.calls.filter(([eventId]) => eventId === 'cart.line.visibility_rejected')
+      expect(visibilityRejectedCalls).toHaveLength(1)
+      expect(visibilityRejectedCalls[0][1]).toMatchObject({ cartId: cart.id, rejectedCount: 1, triggeredBy: 'reprice' })
+    })
+
+    it('clears the flag on a previously-flagged line that is visible again, and the line re-enters pricing the same cycle', async () => {
+      const cart = seedCartWithLines({}, [
+        {
+          id: 'line-1', cartId: 'cart-1', tenantId: TENANT_ID, organizationId: ORG_ID, productId: 'product-1', variantId: null,
+          name: 'Widget', quantity: '2', quantityUnit: null, unitPriceNet: '10', unitPriceGross: '12', taxRate: '20',
+          priceKindId: null, priceRowId: 'price-row-1', priceTierMinQuantity: 1, pricedAt: new Date('2026-01-01T00:00:00.000Z'),
+          lineTotals: {}, discountTotalNet: null, configuration: null, origin: 'customer', flagState: 'product_unavailable', deletedAt: null,
+        },
+      ])
+      const handler = commandRegistry.get<CartRepriceInput, CartRepriceResult>('cart.reprice')
+      const { em } = makeEm()
+      const dataEngine = makeDataEngine()
+      const resolveLinePrice = jest.fn(async () => makeResolvedLinePrice())
+      const catalogScopedProductService = {
+        // product-1 now matches the resolved scope.
+        loadScopedProducts: jest.fn(async () => new Map([['product-1', { id: 'product-1', categoryIds: ['cat-retail'], tagIds: [], isActive: true }]])),
+      }
+      const ctx = makeCtx({ em, dataEngine, catalogBuyerPricingService: { resolveLinePrice }, catalogScopedProductService })
+
+      const freshContext = makeRouteContext({ buyerDigest: 'digest-2', assortmentScope: [{ categoryIds: ['cat-retail'] }] })
+      await handler!.execute(
+        {
+          cartId: cart.id as string,
+          tenantId: TENANT_ID,
+          organizationId: ORG_ID,
+          trigger: 'buyer_context_changed',
+          buyerDigest: freshContext.buyerDigest,
+          customerId: freshContext.customerId,
+          customerIds: freshContext.customerIds,
+          customerUserId: freshContext.customerUserId,
+          customerGroupIds: freshContext.customerGroupIds,
+          priceKindId: freshContext.priceKindId,
+          routeContext: freshContext,
+        },
+        ctx,
+      )
+
+      expect(seededCartLines[0].flagState).toBeNull()
+      expect(resolveLinePrice).toHaveBeenCalledTimes(1)
+      const visibilityRejectedCalls = emitCartEventMock.mock.calls.filter(([eventId]) => eventId === 'cart.line.visibility_rejected')
+      expect(visibilityRejectedCalls).toHaveLength(0)
+    })
+
+    it('never runs the pass for a trigger other than buyer_context_changed, even with a resolved scope', async () => {
+      const cart = seedCartWithLines({}, [
+        {
+          id: 'line-1', cartId: 'cart-1', tenantId: TENANT_ID, organizationId: ORG_ID, productId: 'product-1', variantId: null,
+          name: 'Widget', quantity: '2', quantityUnit: null, unitPriceNet: '10', unitPriceGross: '12', taxRate: '20',
+          priceKindId: null, priceRowId: 'price-row-1', priceTierMinQuantity: 1, pricedAt: new Date('2026-01-01T00:00:00.000Z'),
+          lineTotals: {}, discountTotalNet: null, configuration: null, origin: 'customer', flagState: null, deletedAt: null,
+        },
+      ])
+      const handler = commandRegistry.get<CartRepriceInput, CartRepriceResult>('cart.reprice')
+      const { em } = makeEm()
+      const dataEngine = makeDataEngine()
+      const loadScopedProducts = jest.fn(async () => new Map())
+      const ctx = makeCtx({ em, dataEngine, catalogScopedProductService: { loadScopedProducts } })
+
+      const freshContext = makeRouteContext({ assortmentScope: [{ categoryIds: ['cat-retail'] }] })
+      await handler!.execute(
+        {
+          cartId: cart.id as string,
+          tenantId: TENANT_ID,
+          organizationId: ORG_ID,
+          trigger: 'stale_snapshot',
+          routeContext: freshContext,
+        },
+        ctx,
+      )
+
+      expect(loadScopedProducts).not.toHaveBeenCalled()
+      expect(seededCartLines[0].flagState).toBeNull()
+    })
   })
 })

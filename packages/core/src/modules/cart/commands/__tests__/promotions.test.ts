@@ -466,3 +466,87 @@ describe('cart.promotions.remove', () => {
     expect(seededApplications).toHaveLength(0)
   })
 })
+
+// Step 7.4 — trigger 6 fix (§5.2: "a promotion is applied or removed — effects only, not
+// unit prices"). `cart.promotions.apply`'s own internally-dispatched `cart.reprice` call
+// (`trigger: 'promotion_applied'`) must skip `linePhases`'s catalog-price re-resolution
+// entirely — proven two ways at once: `unitPriceNet`/`unitPriceGross` stay byte-for-byte
+// identical to their pre-reprice snapshot, AND `catalogBuyerPricingService.resolveLinePrice`
+// (mocked with no implementation in this file's own `makeCtx`) is never actually invoked —
+// if `linePhases` ran for this line despite the fix, that mock would throw, failing this
+// test outright rather than just asserting a wrong value.
+describe('cart.promotions.apply — trigger 6 (Step 7.4)', () => {
+  it('leaves unitPriceNet/unitPriceGross untouched while updating discountTotalNet', async () => {
+    seededCarts = [makeCartFixture()]
+    seededCartLines = [
+      {
+        id: 'line-1',
+        cartId: 'cart-1',
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+        lineNumber: 1,
+        productId: 'product-1',
+        variantId: null,
+        name: 'Widget',
+        quantity: '2',
+        quantityUnit: null,
+        unitPriceNet: '10',
+        unitPriceGross: '12',
+        taxRate: '20',
+        priceKindId: null,
+        priceRowId: 'price-row-1',
+        priceTierMinQuantity: 1,
+        pricedAt: new Date('2026-03-01T00:00:00.000Z'),
+        lineTotals: {},
+        discountTotalNet: null,
+        origin: 'customer',
+        flagState: null,
+        configuration: null,
+        deletedAt: null,
+      },
+    ]
+    seededRules = [
+      { id: 'rule-1', promotionId: 'promo-1', ruleType: 'code', config: { codeId: 'code-1' }, tenantId: TENANT_ID, organizationId: ORG_ID },
+    ]
+    seededPromotions = [{ id: 'promo-1', active: true, deletedAt: null, tenantId: TENANT_ID, organizationId: ORG_ID }]
+
+    const handler = commandRegistry.get<CartPromotionsApplyInput, CartPromotionsCommandResult>('cart.promotions.apply')
+    const em = makeEm()
+    const reserveCode = makeReserveCodeMock()
+    const releaseCode = jest.fn(async () => undefined)
+    const extendReservation = jest.fn(async () => undefined)
+    const evaluate = jest.fn(async () => ({
+      appliedPromotions: [
+        {
+          promotionId: 'promo-1',
+          promotionName: 'Promo',
+          effects: [
+            {
+              type: 'LINE_DISCOUNT',
+              appliesTo: 'line',
+              currency: 'USD',
+              label: {},
+              targetLineId: 'line-1',
+              targetProductId: 'product-1',
+              targetVariantId: null,
+              lineQuantity: 2,
+              appliedQuantity: 2,
+              amountNet: '-2.00',
+              amountGross: '-2.40',
+              basis: 'net',
+            },
+          ],
+        },
+      ],
+    }))
+    const ctx = makeCtx({ em, promotionsService: { reserveCode, releaseCode, extendReservation }, evaluate })
+
+    const input: CartPromotionsApplyInput = { cartId: 'cart-1', tenantId: TENANT_ID, organizationId: ORG_ID, codeString: 'SAVE10' }
+    await handler!.execute(input, ctx)
+
+    const line = seededCartLines.find((row) => row.id === 'line-1')!
+    expect(line.unitPriceNet).toBe('10')
+    expect(line.unitPriceGross).toBe('12')
+    expect(line.discountTotalNet).toBe('-2.00')
+  })
+})
