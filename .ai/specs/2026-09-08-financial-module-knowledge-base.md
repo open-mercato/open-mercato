@@ -2672,3 +2672,24 @@ keyed on a link that does not exist. Checked against `sales`' entities on
   command after a detected correction) pending the
   domain expert; who owns the business decision behind "recognize
   immediately, no refund" (DD6).
+
+### 2026-10-15 (cont. — Multi-Currency #6190: review round, Table A provider checked against `currencies`)
+
+- **Review round on #6190** (adeptofvoltron, head d9bf77e1e): all findings valid.
+  Design now: valuation plus a reversing `NORMAL` entry on the first day of the next
+  period in one transaction (Kieso Ch. 3 reversing entries); no settlement gate; as-of
+  open amounts; per-tenant advisory lock plus a partial unique index on POSTED runs;
+  rate backfill moved to the owning modules (`sales`, `accounts_payable`).
+- **`currencies` extension mechanics (checked on `develop`).** `RateProvider` implementations
+  are registered through `registerCurrencyRateProvider` (public registry, used by the `example`
+  module) or in `currencies/di.ts`. The `exchange_rates` unique key includes `source`, so a Table A
+  provider under `source: 'NBP_A'` needs no schema change. `RateProviderResult.type` is
+  `'buy' | 'sell' | null`, so `'mid'` widens a union. `ExchangeRateService` with `autoFetch` calls all
+  registered providers; scheduled fetching uses a fixed provider enum
+  (`providerSchema`) and a hard-coded UI list. `findRateWithFallback` goes back a day only when no
+  source has a row for the date.
+- **Decision (⚠ pending OM Core):** Table A provider lives in `currencies`, built as the first commit of
+  the implementation PR; fallback is registering it from `fx_revaluation`.
+- **Open:** payments spec needs `PaymentBatch.sentOn` and a "Read contract for other modules"
+  section (AP #5962); `markPaymentBatchSent` does not state its posting date today.
+
