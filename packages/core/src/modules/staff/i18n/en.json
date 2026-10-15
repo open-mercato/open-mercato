@@ -626,6 +626,7 @@
   "staff.support.errors.categoryNotFound": "This category does not exist in the support categories dictionary.",
   "staff.support.errors.categoryRuleExists": "This category already has a routing rule.",
   "staff.support.errors.categoryUnavailable": "Support requests in this category are not available right now.",
+  "staff.support.errors.fallbackProjectInUse": "The support project already has tasks, so creating it cannot be undone. Point the fallback rule at another project instead.",
   "staff.support.errors.fallbackRuleExists": "This organization already has a fallback rule.",
   "staff.support.errors.fallbackRuleRequired": "The fallback rule cannot be deleted or paused. Point it at another project instead.",
   "staff.support.errors.fileRequired": "Choose a file before uploading.",

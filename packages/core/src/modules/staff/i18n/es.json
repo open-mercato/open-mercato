@@ -626,6 +626,7 @@
   "staff.support.errors.categoryNotFound": "Esta categoría no existe en el diccionario de categorías de soporte.",
   "staff.support.errors.categoryRuleExists": "Esta categoría ya tiene una regla de enrutamiento.",
   "staff.support.errors.categoryUnavailable": "Las solicitudes en esta categoría no están disponibles ahora.",
+  "staff.support.errors.fallbackProjectInUse": "El proyecto de soporte ya tiene tareas, por lo que su creación no se puede deshacer. Apunta la regla de respaldo a otro proyecto.",
   "staff.support.errors.fallbackRuleExists": "Esta organización ya tiene una regla de respaldo.",
   "staff.support.errors.fallbackRuleRequired": "La regla de respaldo no se puede eliminar ni pausar. Apúntala a otro proyecto en su lugar.",
   "staff.support.errors.fileRequired": "Elige un archivo antes de subirlo.",

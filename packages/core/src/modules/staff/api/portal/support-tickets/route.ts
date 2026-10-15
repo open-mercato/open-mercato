@@ -91,7 +91,7 @@ async function statusIdsFor(
   scope: { em: import('@mikro-orm/postgresql').EntityManager; tenantId: string; organizationId: string },
   status: z.infer<typeof portalStatusSchema>,
 ): Promise<string[]> {
-  const where: Record<string, unknown> = { tenantId: scope.tenantId, organizationId: scope.organizationId }
+  const where: Record<string, unknown> = { tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null }
   if (status === 'resolved') where.isDone = true
   else if (status === 'received') Object.assign(where, { isDone: false, isDefault: true })
   else Object.assign(where, { isDone: false, isDefault: false })

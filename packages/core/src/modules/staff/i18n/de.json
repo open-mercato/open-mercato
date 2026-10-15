@@ -626,6 +626,7 @@
   "staff.support.errors.categoryNotFound": "Diese Kategorie existiert nicht im Wörterbuch der Support-Kategorien.",
   "staff.support.errors.categoryRuleExists": "Diese Kategorie hat bereits eine Routing-Regel.",
   "staff.support.errors.categoryUnavailable": "Support-Anfragen in dieser Kategorie sind derzeit nicht verfügbar.",
+  "staff.support.errors.fallbackProjectInUse": "Das Support-Projekt enthält bereits Aufgaben, daher kann seine Erstellung nicht rückgängig gemacht werden. Verweisen Sie die Fallback-Regel stattdessen auf ein anderes Projekt.",
   "staff.support.errors.fallbackRuleExists": "Diese Organisation hat bereits eine Fallback-Regel.",
   "staff.support.errors.fallbackRuleRequired": "Die Fallback-Regel kann nicht gelöscht oder pausiert werden. Verweisen Sie sie stattdessen auf ein anderes Projekt.",
   "staff.support.errors.fileRequired": "Wählen Sie vor dem Hochladen eine Datei.",

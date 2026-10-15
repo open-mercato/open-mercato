@@ -626,6 +626,7 @@
   "staff.support.errors.categoryNotFound": "이 카테고리는 지원 카테고리 사전에 없습니다.",
   "staff.support.errors.categoryRuleExists": "이 카테고리에는 이미 라우팅 규칙이 있습니다.",
   "staff.support.errors.categoryUnavailable": "이 카테고리의 지원 요청은 지금 사용할 수 없습니다.",
+  "staff.support.errors.fallbackProjectInUse": "지원 프로젝트에 이미 작업이 있어 생성을 취소할 수 없습니다. 대신 대체 규칙이 다른 프로젝트를 가리키도록 변경하세요.",
   "staff.support.errors.fallbackRuleExists": "이 조직에는 이미 대체 규칙이 있습니다.",
   "staff.support.errors.fallbackRuleRequired": "대체 규칙은 삭제하거나 일시 중지할 수 없습니다. 대신 다른 프로젝트를 지정하세요.",
   "staff.support.errors.fileRequired": "업로드하기 전에 파일을 선택하세요.",

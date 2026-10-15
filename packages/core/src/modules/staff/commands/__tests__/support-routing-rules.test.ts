@@ -55,16 +55,18 @@ function scoped(row: Record<string, unknown> & { id: string }): Row {
   return { tenantId: TENANT_ID, organizationId: ORG_ID, deletedAt: null, updatedAt: new Date(0), ...row } as Row
 }
 
-function makeWorld(seed: { rules?: Row[]; projects?: Row[]; statuses?: Row[] } = {}) {
+function makeWorld(seed: { rules?: Row[]; projects?: Row[]; statuses?: Row[]; tasks?: Row[] } = {}) {
   const tables: Record<string, Row[]> = {
     StaffSupportRoutingRule: seed.rules ?? [],
     StaffTimeProject: seed.projects ?? [],
     StaffTimeTaskStatus: seed.statuses ?? [],
+    StaffTimeTask: seed.tasks ?? [],
   }
   const em: Record<string, unknown> = {
     flush: jest.fn(async () => undefined),
     find: jest.fn(async (cls: { name: string }, where: Record<string, unknown>) => (tables[cls.name] ?? []).filter((row) => matches(row, where))),
     findOne: jest.fn(async (cls: { name: string }, where: Record<string, unknown>) => (tables[cls.name] ?? []).find((row) => matches(row, where)) ?? null),
+    count: jest.fn(async (cls: { name: string }, where: Record<string, unknown>) => (tables[cls.name] ?? []).filter((row) => matches(row, where)).length),
   }
   em.fork = () => em
   const ctx = {
@@ -173,6 +175,43 @@ describe('staff.support.routing_rules.create_fallback_project', () => {
     await command.undo({ logEntry: { commandPayload: payload }, ctx })
 
     expect(tables.StaffSupportRoutingRule[0].deletedAt).toBeNull()
+    expect(tables.StaffTimeProject[0].deletedAt).toBeInstanceOf(Date)
+  })
+
+  it('undo refuses and changes nothing once tasks were filed in the project', async () => {
+    const { tables, ctx } = makeWorld({
+      rules: [scoped({ id: RULE_ID, categoryValue: null, timeProjectId: PROJECT_ID })],
+      projects: [scoped({ id: PROJECT_ID })],
+      statuses: [scoped({ id: 's1', timeProjectId: PROJECT_ID })],
+      tasks: [scoped({ id: 'task-1', timeProjectId: PROJECT_ID })],
+    })
+    const command = await loadCommand('staff.support.routing_rules.create_fallback_project')
+    const payload = { undo: { ruleId: RULE_ID, timeProjectId: PROJECT_ID, taskStatusIds: ['s1'], tenantId: TENANT_ID, organizationId: ORG_ID } }
+
+    const error = (await command.undo({ logEntry: { commandPayload: payload }, ctx }).then(() => null, (err: unknown) => err)) as {
+      status?: number
+      body?: { code?: string }
+    } | null
+
+    expect(error?.status).toBe(409)
+    expect(error?.body?.code).toBe('support_fallback_project_in_use')
+    expect(tables.StaffSupportRoutingRule[0].deletedAt).toBeNull()
+    expect(tables.StaffTimeProject[0].deletedAt).toBeNull()
+    expect(tables.StaffTimeTaskStatus[0].deletedAt).toBeNull()
+    expect(mockEmitCrudUndoSideEffects).not.toHaveBeenCalled()
+  })
+
+  it('undo ignores tasks that were deleted since', async () => {
+    const { tables, ctx } = makeWorld({
+      rules: [scoped({ id: RULE_ID, categoryValue: null, timeProjectId: PROJECT_ID })],
+      projects: [scoped({ id: PROJECT_ID })],
+      tasks: [scoped({ id: 'task-1', timeProjectId: PROJECT_ID, deletedAt: new Date() })],
+    })
+    const command = await loadCommand('staff.support.routing_rules.create_fallback_project')
+    const payload = { undo: { ruleId: RULE_ID, timeProjectId: PROJECT_ID, taskStatusIds: [], tenantId: TENANT_ID, organizationId: ORG_ID } }
+
+    await command.undo({ logEntry: { commandPayload: payload }, ctx })
+
     expect(tables.StaffTimeProject[0].deletedAt).toBeInstanceOf(Date)
   })
 })

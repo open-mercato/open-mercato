@@ -626,6 +626,7 @@
   "staff.support.errors.categoryNotFound": "Ta kategoria nie istnieje w słowniku kategorii zgłoszeń.",
   "staff.support.errors.categoryRuleExists": "Ta kategoria ma już regułę routingu.",
   "staff.support.errors.categoryUnavailable": "Zgłoszenia w tej kategorii są teraz niedostępne.",
+  "staff.support.errors.fallbackProjectInUse": "Projekt wsparcia ma już zadania, więc jego utworzenia nie można cofnąć. Zamiast tego wskaż w regule zapasowej inny projekt.",
   "staff.support.errors.fallbackRuleExists": "Ta organizacja ma już regułę zapasową.",
   "staff.support.errors.fallbackRuleRequired": "Reguły zapasowej nie można usunąć ani wstrzymać. Zamiast tego wskaż inny projekt.",
   "staff.support.errors.fileRequired": "Wybierz plik przed przesłaniem.",

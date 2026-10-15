@@ -7,7 +7,7 @@ import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects } from '@ope
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
-import { StaffSupportRoutingRule, StaffTimeProject, StaffTimeTaskStatus } from '../data/entities'
+import { StaffSupportRoutingRule, StaffTimeProject, StaffTimeTask, StaffTimeTaskStatus } from '../data/entities'
 import { staffTimeProjectCrudEvents, staffTimeProjectCrudIndexer } from '../lib/crud'
 import {
   staffSupportFallbackProjectCreateSchema,
@@ -507,6 +507,17 @@ const createFallbackProjectCommand: CommandHandler<StaffSupportFallbackProjectCr
     if (!payload?.ruleId || !payload.timeProjectId) return
     const where = { tenantId: payload.tenantId, organizationId: payload.organizationId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const liveTaskCount = await em.count(StaffTimeTask, { timeProjectId: payload.timeProjectId, ...where, deletedAt: null })
+    if (liveTaskCount > 0) {
+      const { translate } = await resolveTranslations()
+      throw new CrudHttpError(409, {
+        code: 'support_fallback_project_in_use',
+        error: translate(
+          'staff.support.errors.fallbackProjectInUse',
+          'The support project already has tasks, so creating it cannot be undone. Point the fallback rule at another project instead.',
+        ),
+      })
+    }
     const rule = await em.findOne(StaffSupportRoutingRule, { id: payload.ruleId, ...where, deletedAt: null })
     const project = await em.findOne(StaffTimeProject, { id: payload.timeProjectId, ...where, deletedAt: null })
     const statusIds = Array.isArray(payload.taskStatusIds) ? payload.taskStatusIds : []

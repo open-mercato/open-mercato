@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -35,7 +36,7 @@ const RATE_LIMITS = {
 export type PortalRateLimitKind = keyof typeof RATE_LIMITS
 
 export function buildPortalCommandContext(scope: SupportPortalScope, req: Request): CommandRuntimeContext {
-  const auth = {
+  const auth: NonNullable<AuthContext> = {
     sub: scope.auth.sub,
     sid: scope.auth.sid,
     tenantId: scope.auth.tenantId,
@@ -46,7 +47,7 @@ export function buildPortalCommandContext(scope: SupportPortalScope, req: Reques
   }
   return {
     container: scope.container,
-    auth: auth as unknown as CommandRuntimeContext['auth'],
+    auth,
     organizationScope: null,
     selectedOrganizationId: scope.organizationId,
     organizationIds: [scope.organizationId],
