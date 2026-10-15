@@ -1,25 +1,36 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
-import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import type { CommandBus, CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
-import { badRequest, forbidden } from '@open-mercato/shared/lib/crud/errors'
+import { badRequest, forbidden, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { SalesDocumentAmounts } from '@open-mercato/core/modules/sales/lib/types'
 import { E } from '#generated/entities.ids.generated'
-import { Cart } from '../data/entities'
+import { Cart, CartLine } from '../data/entities'
 import type { CartChannel, CartKind, CartStatus, CartTaxMode } from '../data/entities'
 import { cartCreateInputSchema, type CartCreateInput as CartCreateTrustedInput } from '../data/validators'
 import { generateCartToken, hashCartToken } from '../lib/token'
 import type { ResolvedCartRouteContext } from '../lib/routeContext'
+import { emitCartEvent } from '../events'
+import {
+  buildCartLineRepricePhases,
+  buildRecomputeCartTotalsPhase,
+} from '../lib/reprice'
+import type { CartPriceChange, CartPriceChangeReason } from '../lib/reprice'
+import { detectCartRepriceTrigger } from '../lib/triggers'
+import type { CartRepriceTriggerReason } from '../lib/triggers'
 
 // Step 4.5 — the first two commands in the §3.1a list: `cart.create` and `cart.get`, the
-// route edge's two entry points. Every other command in that list (`.lines.*`,
-// `.promotions.*`, `.merge`, `.reprice`, `.lock`/`.unlock`, `.proposal.*`) is a later step.
+// route edge's two entry points. Step 5.1 adds `cart.reprice` (§5.2 triggers 2-4) to this
+// same file — the file manifest (PLAN.md §15) groups whole-cart operations in `cart.ts`,
+// distinct from `lines.ts`'s per-line commands. Every other command in the §3.1a list
+// (`.promotions.*`, `.merge`, `.lock`/`.unlock`, `.proposal.*`) is a later phase.
 
 const CART_ENTITY_ID = E.cart.cart
 
@@ -335,12 +346,23 @@ export type CartGetByIdInput = {
   tenantId: string
   organizationId: string
   cartId: string
+  /**
+   * (Step 5.1) When supplied, §5.2 triggers 2-4 are evaluated against the stored cart and,
+   * if any fired, `cart.reprice` runs internally before this command returns — "GET writes
+   * only when a trigger fires" (PLAN.md Step 5.1). Every `/current/*` route supplies this
+   * via `resolveCurrentCart` (`lib/currentCartRoute.ts`), since all four resolve a
+   * `ResolvedCartRouteContext` at the route edge before calling `cart.get`. An internal
+   * by-id caller with no fresh buyer context to compare against (e.g. a future admin
+   * inspection route, §10.2) omits this and never triggers a re-price.
+   */
+  freshContext?: ResolvedCartRouteContext
 }
 
 export type CartGetByTokenInput = {
   tenantId: string
   organizationId: string
   token: string
+  freshContext?: ResolvedCartRouteContext
 }
 
 export type CartGetInput = CartGetByIdInput | CartGetByTokenInput
@@ -387,7 +409,9 @@ export type CartSummary = {
   updatedAt: Date
 }
 
-export type CartGetResult = { found: true; cart: CartSummary } | { found: false }
+export type CartGetResult =
+  | { found: true; cart: CartSummary; priceChanges?: CartPriceChange[]; versionBumpReason?: 'repricing' }
+  | { found: false }
 
 function isCartGetByIdInput(input: CartGetInput): input is CartGetByIdInput {
   return 'cartId' in input
@@ -465,11 +489,211 @@ const getCartCommand: CommandHandler<CartGetInput, CartGetResult> = {
       { tenantId: input.tenantId, organizationId: input.organizationId },
     )
     if (!cart) return { found: false }
+
+    // §5.2 triggers 2-4 — see `lib/triggers.ts`'s own doc comment for the storefront-only
+    // caveat on triggers 2/3 and the `totalsComputedAt`-as-staleness-proxy judgment call.
+    // Only an `active` cart re-prices: a `locked`/`converted`/`abandoned`/`expired`/`merged`
+    // cart reached via this command (e.g. a stale token still presented after expiry) has
+    // no business re-pricing itself on a read.
+    if (input.freshContext && cart.status === 'active') {
+      const trigger = detectCartRepriceTrigger(
+        {
+          channel: cart.channel,
+          buyerDigest: cart.buyerDigest,
+          currencyCode: cart.currencyCode,
+          locale: cart.locale,
+          totalsComputedAt: cart.totalsComputedAt,
+        },
+        input.freshContext,
+        new Date(),
+      )
+      if (trigger) {
+        const commandBus = ctx.container.resolve('commandBus') as CommandBus
+        const repriceInput = buildCartRepriceInputForTrigger(cart, input.freshContext, trigger.reason)
+        const { result } = await commandBus.execute<CartRepriceInput, CartRepriceResult>(repriceCartCommand.id, {
+          input: repriceInput,
+          ctx,
+        })
+        return { found: true, cart: result.cart, priceChanges: result.priceChanges, versionBumpReason: 'repricing' }
+      }
+    }
+
     return { found: true, cart: toCartSummary(cart) }
+  },
+}
+
+/**
+ * Maps a detected §5.2 trigger onto `cart.reprice`'s own input shape — only the fields the
+ * specific trigger actually changed travel along (buyer identity for trigger 2, currency
+ * for trigger 3's currency half, locale for trigger 3's locale half); trigger 4 (staleness)
+ * carries no field update at all, just the re-price itself.
+ */
+function buildCartRepriceInputForTrigger(
+  cart: Cart,
+  freshContext: ResolvedCartRouteContext,
+  reason: CartRepriceTriggerReason,
+): CartRepriceInput {
+  const base: CartRepriceInput = {
+    cartId: cart.id,
+    tenantId: cart.tenantId,
+    organizationId: cart.organizationId,
+    trigger: reason,
+  }
+  if (reason === 'buyer_context_changed') {
+    return {
+      ...base,
+      buyerDigest: freshContext.buyerDigest,
+      customerId: freshContext.customerId,
+      customerIds: freshContext.customerIds,
+      customerUserId: freshContext.customerUserId,
+      customerGroupIds: freshContext.customerGroupIds,
+      priceKindId: freshContext.priceKindId,
+    }
+  }
+  if (reason === 'currency_changed') return { ...base, currencyCode: freshContext.currencyCode }
+  if (reason === 'locale_changed') return { ...base, locale: freshContext.locale }
+  return base
+}
+
+// ---------------------------------------------------------------------------
+// cart.reprice (Step 5.1, §5.2 triggers 2-4 + trigger 7's narrow admin seam — see this
+// step's own report for the trigger-7 investigation)
+// ---------------------------------------------------------------------------
+
+export type CartRepriceInput = {
+  cartId: string
+  tenantId: string
+  organizationId: string
+  trigger: CartRepriceTriggerReason
+  /** Present only when `trigger === 'buyer_context_changed'`. */
+  buyerDigest?: string
+  customerId?: string | null
+  customerIds?: string[] | null
+  customerUserId?: string | null
+  customerGroupIds?: string[]
+  priceKindId?: string | null
+  /** Present only when `trigger === 'currency_changed'`. */
+  currencyCode?: string
+  /** Present only when `trigger === 'locale_changed'`. */
+  locale?: string
+}
+
+export type CartRepriceResult = {
+  cart: CartSummary
+  priceChanges: CartPriceChange[]
+}
+
+function applyCartRepriceTriggerFields(cart: Cart, input: CartRepriceInput): void {
+  if (input.trigger === 'buyer_context_changed') {
+    if (input.buyerDigest !== undefined) cart.buyerDigest = input.buyerDigest
+    cart.customerId = input.customerId ?? null
+    cart.customerIds = input.customerIds ?? null
+    cart.customerUserId = input.customerUserId ?? null
+    cart.customerGroupIds = input.customerGroupIds ?? []
+    cart.priceKindId = input.priceKindId ?? null
+  } else if (input.trigger === 'currency_changed' && input.currencyCode) {
+    cart.currencyCode = input.currencyCode
+  } else if (input.trigger === 'locale_changed' && input.locale) {
+    cart.locale = input.locale
+  }
+}
+
+const cartLineRepriceIndexer: CrudIndexerConfig<CartLine> = { entityType: E.cart.cart_line }
+
+/**
+ * Re-snapshots every non-deleted `CartLine` and recomputes `Cart.totals` as a real
+ * whole-cart aggregate (§3.2) — closing the gap flagged in NOTIFY.md since Step 4.7/4.9.
+ *
+ * Per §3.1a's command-undo table: **not undoable**. Re-pricing to a stale price is never a
+ * state a client would want restored — no `undo` handler and, consistent with
+ * `commands/lines.ts`'s identical treatment of `cart.lines.update` (also non-undoable, also
+ * no `buildLog`), no audit log entry either.
+ */
+const repriceCartCommand: CommandHandler<CartRepriceInput, CartRepriceResult> = {
+  id: 'cart.reprice',
+  isUndoable: false,
+  async execute(input, ctx) {
+    const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+
+    const cart = await findOneWithDecryption(
+      em,
+      Cart,
+      { id: input.cartId, tenantId: scope.tenantId, organizationId: scope.organizationId, kind: 'basket' as const },
+      {},
+      scope,
+    )
+    if (!cart) throw notFound('[internal] cart not found')
+
+    const lines = (await findWithDecryption(
+      em,
+      CartLine,
+      { cartId: cart.id, deletedAt: null, tenantId: scope.tenantId, organizationId: scope.organizationId },
+      {},
+      scope,
+    )) as CartLine[]
+
+    const now = new Date()
+    const changes: CartPriceChange[] = []
+    const touched: CartLine[] = []
+
+    const applyTriggerFieldsPhase = async () => {
+      applyCartRepriceTriggerFields(cart, input)
+    }
+    const linePhases = buildCartLineRepricePhases(em, ctx.container, cart, lines, input.trigger, now, changes, touched)
+    const totalsPhase = buildRecomputeCartTotalsPhase(ctx.container, cart, lines, now, changes)
+
+    // §3.1a: "mutates Cart/CartLine/CartPromotionApplication inside
+    // withAtomicFlush(em, phases, { transaction: true, label: 'cart.<op>' })" — one
+    // transaction spanning the buyer-context field update, every line's re-price, and the
+    // final totals recompute, so a partial re-price (some lines priced, the totals pass
+    // never ran) can never persist.
+    await withAtomicFlush(em, [applyTriggerFieldsPhase, ...linePhases, totalsPhase], {
+      transaction: true,
+      label: 'cart.reprice',
+    })
+
+    // Side effects fire after the atomic flush commits, never inside it.
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'updated',
+      entity: cart,
+      identifiers: getCartIdentifiers(cart),
+      events: cartCrudEvents,
+      indexer: cartCrudIndexer,
+    })
+    for (const line of touched) {
+      await emitCrudSideEffects({
+        dataEngine,
+        action: 'updated',
+        entity: line,
+        identifiers: { id: line.id, organizationId: line.organizationId, tenantId: line.tenantId },
+        indexer: cartLineRepriceIndexer,
+      })
+      await emitCartEvent('cart.line.updated', {
+        id: line.id,
+        cartId: line.cartId,
+        organizationId: line.organizationId,
+        tenantId: line.tenantId,
+      })
+    }
+    if (changes.length > 0) {
+      await emitCartEvent('cart.price.changed', {
+        cartId: cart.id,
+        tenantId: cart.tenantId,
+        organizationId: cart.organizationId,
+        changes,
+      })
+    }
+
+    return { cart: toCartSummary(cart), priceChanges: changes }
   },
 }
 
 registerCommand(createCartCommand)
 registerCommand(getCartCommand)
+registerCommand(repriceCartCommand)
 
-export { createCartCommand, getCartCommand }
+export { createCartCommand, getCartCommand, repriceCartCommand }
+export type { CartPriceChange, CartPriceChangeReason }

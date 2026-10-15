@@ -102,10 +102,20 @@ export async function GET(request: Request) {
 
     const ctx = buildCommandContext(container, request, resolved.routeContext)
     const commandBus = container.resolve('commandBus') as CommandBus
-    const cart = await resolveCurrentCart(commandBus, ctx, resolved.routeContext, token)
-    if (!cart) return notFoundCartResponse()
+    const resolvedCart = await resolveCurrentCart(commandBus, ctx, resolved.routeContext, token)
+    if (!resolvedCart) return notFoundCartResponse()
 
-    return NextResponse.json({ cart })
+    // Step 5.1 — "GET writes only when a trigger fires" (PLAN.md): `priceChanges`/
+    // `versionBumpReason` are present only when §5.2 triggers 2-4 actually ran a re-price
+    // for this request (`resolveCurrentCart` -> `cart.get` -> `cart.reprice`); an ordinary
+    // GET inside the staleness budget with no digest drift returns the bare `{ cart }` shape
+    // it always has.
+    const { cart, priceChanges, versionBumpReason } = resolvedCart
+    const body: Record<string, unknown> = { cart }
+    if (priceChanges.length > 0) body.priceChanges = priceChanges
+    if (versionBumpReason) body.versionBumpReason = versionBumpReason
+
+    return NextResponse.json(body)
   } catch (error) {
     return mapRouteErrorToResponse(error)
   }

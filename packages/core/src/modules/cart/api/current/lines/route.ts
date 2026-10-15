@@ -64,8 +64,9 @@ export async function POST(request: Request) {
 
     const commandBus = container.resolve('commandBus') as CommandBus
     const ctx = buildCommandContext(container, request, resolved.routeContext)
-    const cart = await resolveCurrentCart(commandBus, ctx, resolved.routeContext, token)
-    if (!cart) return notFoundCartResponse()
+    const resolvedCart = await resolveCurrentCart(commandBus, ctx, resolved.routeContext, token)
+    if (!resolvedCart) return notFoundCartResponse()
+    const { cart, priceChanges: contextPriceChanges, versionBumpReason: contextVersionBumpReason } = resolvedCart
 
     const rawBody = (await readJsonSafe<Record<string, unknown>>(request, {})) ?? {}
     let body: z.infer<typeof cartLineAddRequestSchema>
@@ -130,7 +131,12 @@ export async function POST(request: Request) {
     await guarded.runAfterSuccess()
 
     const status = statusForAddOutcome(result)
-    const responseBody = { outcome: result }
+    // Step 5.1 — `cart.lines.add` never itself produces a repricing side effect (a brand
+    // new/merged line is priced, not re-priced); `priceChanges`/`versionBumpReason` here can
+    // only come from the `resolveCurrentCart`-embedded §5.2 trigger 2-4 check above.
+    const responseBody: Record<string, unknown> = { outcome: result }
+    if (contextPriceChanges.length > 0) responseBody.priceChanges = contextPriceChanges
+    if (contextVersionBumpReason) responseBody.versionBumpReason = contextVersionBumpReason
     if (idempotencyKey) {
       await recordIdempotencyResponse(em, scope, cart.id, idempotencyKey, requestDigest, status, responseBody)
     }

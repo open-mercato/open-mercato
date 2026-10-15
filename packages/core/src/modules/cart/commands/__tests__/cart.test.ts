@@ -4,34 +4,65 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   }),
 }))
 
+jest.mock('../../events', () => ({
+  emitCartEvent: jest.fn(async () => undefined),
+}))
+
 type FakeCartRow = Record<string, unknown>
 
-const mockFindOneWithDecryption = jest.fn(async (...args: unknown[]) => {
-  const where = args[2] as Record<string, unknown>
-  return seededCarts.find((row) => Object.entries(where).every(([key, value]) => row[key] === value)) ?? null
+function matchesWhere(row: FakeCartRow, where: Record<string, unknown>): boolean {
+  return Object.entries(where).every(([key, value]) => {
+    if (value && typeof value === 'object' && !(value instanceof Date) && '$in' in (value as object)) {
+      return ((value as { $in: unknown[] }).$in).includes(row[key])
+    }
+    return row[key] === value
+  })
+}
+
+const mockFindOneWithDecryption = jest.fn(async (_em: unknown, entity: unknown, where: Record<string, unknown>) => {
+  if (entity === CartLine) return seededCartLines.find((row) => matchesWhere(row, where)) ?? null
+  return seededCarts.find((row) => matchesWhere(row, where)) ?? null
+})
+
+const mockFindWithDecryption = jest.fn(async (_em: unknown, entity: unknown, where: Record<string, unknown>) => {
+  if (entity === CartLine) return seededCartLines.filter((row) => matchesWhere(row, where))
+  if (entity === Cart) return seededCarts.filter((row) => matchesWhere(row, where))
+  // `lib/reprice.ts`'s per-line `CatalogProductPrice` row fetch is irrelevant to these
+  // command-level tests — the `catalogBuyerPricingService.resolveLinePrice` mock these tests
+  // supply ignores its `rows` argument entirely, so an empty array is harmless here.
+  return []
 })
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findOneWithDecryption: (...args: unknown[]) => mockFindOneWithDecryption(...args),
+  findOneWithDecryption: (...args: unknown[]) => mockFindOneWithDecryption(...(args as [unknown, unknown, Record<string, unknown>])),
+  findWithDecryption: (...args: unknown[]) => mockFindWithDecryption(...(args as [unknown, unknown, Record<string, unknown>])),
 }))
 
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
-import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import type { CommandBus, CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { Cart, CartLine } from '../../data/entities'
 import { hashCartToken } from '../../lib/token'
 import type { ResolvedCartRouteContext } from '../../lib/routeContext'
+import { emitCartEvent as mockedEmitCartEvent } from '../../events'
 import type {
   CartCreateCommandInput,
   CartCreateResult,
   CartGetInput,
   CartGetResult,
+  CartRepriceInput,
+  CartRepriceResult,
 } from '../cart'
+import { repriceCartCommand } from '../cart'
 import '../cart'
+
+const emitCartEventMock = mockedEmitCartEvent as jest.Mock
 
 const TENANT_ID = 'tenant-cart-1'
 const ORG_ID = 'org-cart-1'
 
 let seededCarts: FakeCartRow[] = []
+let seededCartLines: FakeCartRow[] = []
 
 function makeRouteContext(overrides: Partial<ResolvedCartRouteContext> = {}): ResolvedCartRouteContext {
   return {
@@ -64,6 +95,13 @@ function makeEm() {
     }),
     persist: jest.fn(),
     flush: jest.fn(async () => undefined),
+    // `cart.reprice` wraps its phases in `withAtomicFlush(em, phases, { transaction: true })`
+    // (§3.1a) — these three are the minimal surface that code path needs on a fake
+    // EntityManager, matching the precedent other command test suites in this codebase use
+    // (e.g. `customers/commands/__tests__/deals.stage-transitions.test.ts`).
+    begin: jest.fn(async () => undefined),
+    commit: jest.fn(async () => undefined),
+    rollback: jest.fn(async () => undefined),
   }
   em.fork.mockReturnValue(em)
   return { em, getCreated: () => created }
@@ -77,10 +115,75 @@ function makeDataEngine() {
   }
 }
 
+function makeResolvedLinePrice(overrides: Record<string, unknown> = {}) {
+  return {
+    priceRow: { id: 'price-row-2' },
+    amountNet: 8,
+    amountGross: 9.6,
+    taxRatePercent: 20,
+    priceIsPromotional: false,
+    currentTier: { minQuantity: 10, maxQuantity: null, amountNet: 8, amountGross: 9.6 },
+    nextTier: null,
+    tiers: [],
+    ...overrides,
+  }
+}
+
+function makeSalesCalculationService(overrides: Record<string, unknown> = {}) {
+  return {
+    calculateLine: jest.fn(async ({ line }: any) => ({
+      line,
+      netAmount: Number(line.quantity) * (line.unitPriceNet ?? 0),
+      grossAmount: Number(line.quantity) * (line.unitPriceGross ?? 0),
+      taxAmount: 0,
+      discountAmount: 0,
+      adjustments: [],
+    })),
+    calculateDocumentTotals: jest.fn(async () => ({
+      kind: 'quote',
+      currencyCode: 'USD',
+      lines: [],
+      adjustments: [],
+      totals: {
+        subtotalNetAmount: 16,
+        subtotalGrossAmount: 19.2,
+        discountTotalAmount: 0,
+        taxTotalAmount: 3.2,
+        grandTotalNetAmount: 16,
+        grandTotalGrossAmount: 19.2,
+      },
+      metadata: {},
+    })),
+    ...overrides,
+  }
+}
+
+/**
+ * Minimal fake `CommandBus` used by `cart.get`'s trigger-driven delegation test: resolves
+ * `cart.reprice` by calling the REAL registered handler's `execute` directly, rather than
+ * standing up the full `CommandBus` machinery (interceptors, audit logging, etc.) this
+ * module's command tests have never needed — same reasoning `commands/claims.ts`-style
+ * nested command calls use in production, just inlined for the test.
+ */
+function makeFakeCommandBus(): CommandBus {
+  return {
+    execute: jest.fn(async (id: string, options: { input: unknown; ctx: CommandRuntimeContext }) => {
+      if (id === 'cart.reprice') {
+        const result = await repriceCartCommand.execute(options.input as CartRepriceInput, options.ctx)
+        return { result }
+      }
+      throw new Error(`Unexpected command id in fake CommandBus: ${id}`)
+    }),
+  } as unknown as CommandBus
+}
+
 function makeCtx(opts: {
   em: unknown
   dataEngine: unknown
   rbacService?: unknown
+  catalogBuyerPricingService?: unknown
+  salesCalculationService?: unknown
+  commandBus?: unknown
   auth?: CommandRuntimeContext['auth']
   selectedOrganizationId?: string | null
 }): CommandRuntimeContext {
@@ -90,6 +193,11 @@ function makeCtx(opts: {
         if (token === 'em') return opts.em
         if (token === 'dataEngine') return opts.dataEngine
         if (token === 'rbacService') return opts.rbacService ?? null
+        if (token === 'catalogBuyerPricingService') {
+          return opts.catalogBuyerPricingService ?? { resolveLinePrice: jest.fn(async () => makeResolvedLinePrice()) }
+        }
+        if (token === 'salesCalculationService') return opts.salesCalculationService ?? makeSalesCalculationService()
+        if (token === 'commandBus') return opts.commandBus ?? makeFakeCommandBus()
         throw new Error(`Unexpected DI token: ${token}`)
       },
     } as any,
@@ -262,6 +370,7 @@ describe('cart.get', () => {
   afterEach(() => {
     jest.clearAllMocks()
     seededCarts = []
+    seededCartLines = []
   })
 
   it('resolves a cart by id and by a re-hashed token identically', async () => {
@@ -342,5 +451,291 @@ describe('cart.get', () => {
 
     expect(byId).toEqual({ found: false })
     expect(byToken).toEqual({ found: false })
+  })
+})
+
+// Step 5.1 — §5.2 triggers 2-4, evaluated inside `cart.get` whenever a `freshContext` is
+// supplied (every `/current/*` route's own `resolveCurrentCart` always supplies one).
+describe('cart.get — §5.2 triggers 2-4 (Step 5.1)', () => {
+  afterEach(() => {
+    jest.clearAllMocks()
+    seededCarts = []
+    seededCartLines = []
+  })
+
+  function seedCartWithLine(cartOverrides: FakeCartRow = {}): FakeCartRow {
+    const cart = makeCartFixture({ totalsComputedAt: new Date('2026-01-01T00:00:00.000Z'), ...cartOverrides })
+    seededCarts = [cart]
+    seededCartLines = [
+      {
+        id: 'line-1',
+        cartId: cart.id,
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+        productId: 'product-1',
+        variantId: null,
+        name: 'Widget',
+        quantity: '2',
+        quantityUnit: null,
+        unitPriceNet: '10',
+        unitPriceGross: '12',
+        taxRate: '20',
+        priceKindId: null,
+        priceRowId: 'price-row-1',
+        priceTierMinQuantity: 1,
+        pricedAt: new Date('2026-01-01T00:00:00.000Z'),
+        lineTotals: {},
+        discountTotalNet: null,
+        configuration: null,
+        deletedAt: null,
+      },
+    ]
+    return cart
+  }
+
+  it('trigger 2: reprices and discloses a buyer_context_changed priceChange + versionBumpReason when the digest differs', async () => {
+    const cart = seedCartWithLine()
+    const handler = commandRegistry.get<CartGetInput, CartGetResult>('cart.get')
+    const { em } = makeEm()
+    const dataEngine = makeDataEngine()
+    const ctx = makeCtx({ em, dataEngine })
+
+    const freshContext = makeRouteContext({ buyerDigest: 'digest-2' })
+    const result = await handler!.execute(
+      { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: cart.id as string, freshContext },
+      ctx,
+    )
+
+    expect(result.found).toBe(true)
+    if (!result.found) throw new Error('expected found')
+    expect(result.versionBumpReason).toBe('repricing')
+    expect(result.priceChanges).toEqual([
+      expect.objectContaining({ lineId: 'line-1', reason: 'buyer_context_changed' }),
+    ])
+    expect(result.cart.buyerDigest).toBe('digest-2')
+    expect(result.cart.totals).toEqual({
+      subtotalNetAmount: 16,
+      subtotalGrossAmount: 19.2,
+      discountTotalAmount: 0,
+      taxTotalAmount: 3.2,
+      grandTotalNetAmount: 16,
+      grandTotalGrossAmount: 19.2,
+    })
+  })
+
+  it('does not reprice (no write) when nothing differs and the cart is fresh — TC-CART-PRICE-01', async () => {
+    const cart = seedCartWithLine({ totalsComputedAt: new Date() })
+    const handler = commandRegistry.get<CartGetInput, CartGetResult>('cart.get')
+    const { em } = makeEm()
+    const dataEngine = makeDataEngine()
+    const commandBus = makeFakeCommandBus()
+    const ctx = makeCtx({ em, dataEngine, commandBus })
+
+    const freshContext = makeRouteContext()
+    const result = await handler!.execute(
+      { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: cart.id as string, freshContext },
+      ctx,
+    )
+
+    expect(result.found).toBe(true)
+    if (!result.found) throw new Error('expected found')
+    expect(result.versionBumpReason).toBeUndefined()
+    expect(result.priceChanges).toBeUndefined()
+    expect(commandBus.execute as jest.Mock).not.toHaveBeenCalled()
+  })
+
+  it('does not reprice a non-active cart even when the digest differs', async () => {
+    const cart = seedCartWithLine({ status: 'abandoned' })
+    const handler = commandRegistry.get<CartGetInput, CartGetResult>('cart.get')
+    const { em } = makeEm()
+    const dataEngine = makeDataEngine()
+    const commandBus = makeFakeCommandBus()
+    const ctx = makeCtx({ em, dataEngine, commandBus })
+
+    const freshContext = makeRouteContext({ buyerDigest: 'digest-2' })
+    const result = await handler!.execute(
+      { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: cart.id as string, freshContext },
+      ctx,
+    )
+
+    expect(result.found).toBe(true)
+    if (!result.found) throw new Error('expected found')
+    expect(result.versionBumpReason).toBeUndefined()
+    expect(commandBus.execute as jest.Mock).not.toHaveBeenCalled()
+  })
+
+  it('never reprices when no freshContext is supplied (internal by-id caller)', async () => {
+    const cart = seedCartWithLine({ totalsComputedAt: new Date('2000-01-01T00:00:00.000Z') })
+    const handler = commandRegistry.get<CartGetInput, CartGetResult>('cart.get')
+    const { em } = makeEm()
+    const dataEngine = makeDataEngine()
+    const commandBus = makeFakeCommandBus()
+    const ctx = makeCtx({ em, dataEngine, commandBus })
+
+    const result = await handler!.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, cartId: cart.id as string }, ctx)
+
+    expect(result.found).toBe(true)
+    if (!result.found) throw new Error('expected found')
+    expect(result.versionBumpReason).toBeUndefined()
+    expect(commandBus.execute as jest.Mock).not.toHaveBeenCalled()
+  })
+})
+
+describe('cart.reprice', () => {
+  afterEach(() => {
+    jest.clearAllMocks()
+    seededCarts = []
+    seededCartLines = []
+  })
+
+  function seedCartWithLines(cartOverrides: FakeCartRow = {}, lines: FakeCartRow[] = []): FakeCartRow {
+    const cart = makeCartFixture({ totalsComputedAt: new Date('2026-01-01T00:00:00.000Z'), ...cartOverrides })
+    seededCarts = [cart]
+    seededCartLines = lines.length
+      ? lines
+      : [
+          {
+            id: 'line-1',
+            cartId: cart.id,
+            tenantId: TENANT_ID,
+            organizationId: ORG_ID,
+            productId: 'product-1',
+            variantId: null,
+            name: 'Widget',
+            quantity: '2',
+            quantityUnit: null,
+            unitPriceNet: '10',
+            unitPriceGross: '12',
+            taxRate: '20',
+            priceKindId: null,
+            priceRowId: 'price-row-1',
+            priceTierMinQuantity: 1,
+            pricedAt: new Date('2026-01-01T00:00:00.000Z'),
+            lineTotals: {},
+            discountTotalNet: null,
+            configuration: null,
+            deletedAt: null,
+          },
+        ]
+    return cart
+  }
+
+  it('re-snapshots every line, recomputes Cart.totals as a real non-zero aggregate, and stamps totalsComputedAt/lastPriceChangeAt', async () => {
+    const cart = seedCartWithLines({}, [
+      {
+        id: 'line-1', cartId: 'cart-1', tenantId: TENANT_ID, organizationId: ORG_ID, productId: 'product-1', variantId: null,
+        name: 'Widget', quantity: '2', quantityUnit: null, unitPriceNet: '10', unitPriceGross: '12', taxRate: '20',
+        priceKindId: null, priceRowId: 'price-row-1', priceTierMinQuantity: 1, pricedAt: new Date('2026-01-01T00:00:00.000Z'),
+        lineTotals: {}, discountTotalNet: null, configuration: null, deletedAt: null,
+      },
+      {
+        id: 'line-2', cartId: 'cart-1', tenantId: TENANT_ID, organizationId: ORG_ID, productId: 'product-2', variantId: null,
+        name: 'Gadget', quantity: '1', quantityUnit: null, unitPriceNet: '10', unitPriceGross: '12', taxRate: '20',
+        priceKindId: null, priceRowId: 'price-row-1', priceTierMinQuantity: 1, pricedAt: new Date('2026-01-01T00:00:00.000Z'),
+        lineTotals: {}, discountTotalNet: null, configuration: null, deletedAt: null,
+      },
+    ])
+    const handler = commandRegistry.get<CartRepriceInput, CartRepriceResult>('cart.reprice')
+    const { em } = makeEm()
+    const dataEngine = makeDataEngine()
+    const ctx = makeCtx({ em, dataEngine })
+
+    const result = await handler!.execute(
+      { cartId: cart.id as string, tenantId: TENANT_ID, organizationId: ORG_ID, trigger: 'stale_snapshot' },
+      ctx,
+    )
+
+    // Confirms the whole-cart totals gap flagged since Step 4.7/4.9 is closed: a real,
+    // non-zero aggregate across 2 lines, not the old EMPTY_CART_TOTALS placeholder.
+    expect(result.cart.totals).toEqual({
+      subtotalNetAmount: 16,
+      subtotalGrossAmount: 19.2,
+      discountTotalAmount: 0,
+      taxTotalAmount: 3.2,
+      grandTotalNetAmount: 16,
+      grandTotalGrossAmount: 19.2,
+    })
+    expect(result.cart.totals).not.toEqual({
+      subtotalNetAmount: 0,
+      subtotalGrossAmount: 0,
+      discountTotalAmount: 0,
+      taxTotalAmount: 0,
+      grandTotalNetAmount: 0,
+      grandTotalGrossAmount: 0,
+    })
+    expect(seededCartLines[0].unitPriceNet).toBe('8')
+    expect(seededCartLines[1].unitPriceNet).toBe('8')
+    expect(result.priceChanges).toHaveLength(2)
+    expect(result.cart.lastPriceChangeAt).toBeInstanceOf(Date)
+    expect(em.begin).toHaveBeenCalledTimes(1)
+    expect(em.commit).toHaveBeenCalledTimes(1)
+    expect(em.rollback).not.toHaveBeenCalled()
+    expect(dataEngine.markOrmEntityChange).toHaveBeenCalled()
+    const priceChangedCalls = emitCartEventMock.mock.calls.filter(([eventId]) => eventId === 'cart.price.changed')
+    expect(priceChangedCalls).toHaveLength(1)
+  })
+
+  it('applies the buyer-context field update onto Cart before re-pricing', async () => {
+    const cart = seedCartWithLines()
+    const handler = commandRegistry.get<CartRepriceInput, CartRepriceResult>('cart.reprice')
+    const { em } = makeEm()
+    const dataEngine = makeDataEngine()
+    const ctx = makeCtx({ em, dataEngine })
+
+    const result = await handler!.execute(
+      {
+        cartId: cart.id as string,
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+        trigger: 'buyer_context_changed',
+        buyerDigest: 'digest-new',
+        customerId: 'customer-1',
+        customerIds: ['customer-1'],
+        customerUserId: 'customer-user-1',
+        customerGroupIds: ['group-1'],
+        priceKindId: 'price-kind-1',
+      },
+      ctx,
+    )
+
+    expect(result.cart.buyerDigest).toBe('digest-new')
+    expect(result.cart.customerId).toBe('customer-1')
+    expect(result.cart.customerGroupIds).toEqual(['group-1'])
+    expect(result.cart.priceKindId).toBe('price-kind-1')
+  })
+
+  it('throws notFound for a cart in another tenant', async () => {
+    seedCartWithLines()
+    const handler = commandRegistry.get<CartRepriceInput, CartRepriceResult>('cart.reprice')
+    const { em } = makeEm()
+    const dataEngine = makeDataEngine()
+    const ctx = makeCtx({ em, dataEngine })
+
+    let captured: unknown
+    try {
+      await handler!.execute({ cartId: 'cart-1', tenantId: 'some-other-tenant', organizationId: ORG_ID, trigger: 'stale_snapshot' }, ctx)
+    } catch (err) {
+      captured = err
+    }
+
+    expect(isCrudHttpError(captured)).toBe(true)
+    expect((captured as { status: number }).status).toBe(404)
+  })
+
+  it('does not disclose a priceChange or stamp lastPriceChangeAt when the resolved price is unchanged', async () => {
+    const cart = seedCartWithLines()
+    const handler = commandRegistry.get<CartRepriceInput, CartRepriceResult>('cart.reprice')
+    const { em } = makeEm()
+    const dataEngine = makeDataEngine()
+    const resolveLinePrice = jest.fn(async () => makeResolvedLinePrice({ amountNet: 10, amountGross: 12 }))
+    const ctx = makeCtx({ em, dataEngine, catalogBuyerPricingService: { resolveLinePrice } })
+
+    const result = await handler!.execute(
+      { cartId: cart.id as string, tenantId: TENANT_ID, organizationId: ORG_ID, trigger: 'stale_snapshot' },
+      ctx,
+    )
+
+    expect(result.priceChanges).toEqual([])
+    expect(result.cart.lastPriceChangeAt).toBeNull()
   })
 })

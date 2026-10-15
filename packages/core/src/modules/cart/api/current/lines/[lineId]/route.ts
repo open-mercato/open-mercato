@@ -73,8 +73,9 @@ export async function PATCH(request: Request, context: RouteParams) {
 
     const commandBus = container.resolve('commandBus') as CommandBus
     const ctx = buildCommandContext(container, request, resolved.routeContext)
-    const cart = await resolveCurrentCart(commandBus, ctx, resolved.routeContext, token)
-    if (!cart) return notFoundCartResponse()
+    const resolvedCart = await resolveCurrentCart(commandBus, ctx, resolved.routeContext, token)
+    if (!resolvedCart) return notFoundCartResponse()
+    const { cart, priceChanges: contextPriceChanges, versionBumpReason: contextVersionBumpReason } = resolvedCart
 
     const rawBody = (await readJsonSafe<Record<string, unknown>>(request, {})) ?? {}
     let body: z.infer<typeof cartLineUpdateRequestSchema>
@@ -120,7 +121,18 @@ export async function PATCH(request: Request, context: RouteParams) {
 
     await guarded.runAfterSuccess()
 
-    return NextResponse.json({ outcome: result }, { status: statusForUpdateOutcome(result) })
+    // Step 5.1 — two independent repricing sources can contribute here: the
+    // `resolveCurrentCart`-embedded §5.2 trigger 2-4 check (above) and `cart.lines.update`'s
+    // own §5.2 trigger 1 (a tier-crossing re-price, only on `status: 'updated'`). Both carry
+    // the identical `versionBumpReason: 'repricing'` signal, so either one sets it.
+    const mutationPriceChanges = result.status === 'updated' ? result.priceChanges : []
+    const priceChanges = [...contextPriceChanges, ...mutationPriceChanges]
+    const versionBumpReason = contextVersionBumpReason ?? (mutationPriceChanges.length > 0 ? 'repricing' : undefined)
+    const responseBody: Record<string, unknown> = { outcome: result }
+    if (priceChanges.length > 0) responseBody.priceChanges = priceChanges
+    if (versionBumpReason) responseBody.versionBumpReason = versionBumpReason
+
+    return NextResponse.json(responseBody, { status: statusForUpdateOutcome(result) })
   } catch (error) {
     return mapRouteErrorToResponse(error)
   }
@@ -141,8 +153,9 @@ export async function DELETE(request: Request, context: RouteParams) {
 
     const commandBus = container.resolve('commandBus') as CommandBus
     const ctx = buildCommandContext(container, request, resolved.routeContext)
-    const cart = await resolveCurrentCart(commandBus, ctx, resolved.routeContext, token)
-    if (!cart) return notFoundCartResponse()
+    const resolvedCart = await resolveCurrentCart(commandBus, ctx, resolved.routeContext, token)
+    if (!resolvedCart) return notFoundCartResponse()
+    const { cart, priceChanges: contextPriceChanges, versionBumpReason: contextVersionBumpReason } = resolvedCart
 
     const guarded = await runRouteMutationGuards({
       container,
@@ -172,7 +185,14 @@ export async function DELETE(request: Request, context: RouteParams) {
 
     await guarded.runAfterSuccess()
 
-    return NextResponse.json({ outcome: result })
+    // Step 5.1 — `cart.lines.remove` never itself produces a repricing side effect;
+    // `priceChanges`/`versionBumpReason` here can only come from the `resolveCurrentCart`-
+    // embedded §5.2 trigger 2-4 check above.
+    const responseBody: Record<string, unknown> = { outcome: result }
+    if (contextPriceChanges.length > 0) responseBody.priceChanges = contextPriceChanges
+    if (contextVersionBumpReason) responseBody.versionBumpReason = contextVersionBumpReason
+
+    return NextResponse.json(responseBody)
   } catch (error) {
     return mapRouteErrorToResponse(error)
   }

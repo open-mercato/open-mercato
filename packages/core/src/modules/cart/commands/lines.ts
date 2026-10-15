@@ -54,6 +54,7 @@ import {
 import type { CartVisibilityLineRef, ResolvedAssortmentScope } from '../lib/visibility'
 import { shouldEnforceAssortmentScope } from '../lib/routeContext'
 import type { ResolvedCartRouteContext } from '../lib/routeContext'
+import type { CartPriceChange } from '../lib/reprice'
 import { emitCartEvent } from '../events'
 
 // Step 4.6 — `cart.lines.add`, `.update`, `.remove`, `.bulkAdd`. Builds directly on Step
@@ -845,7 +846,7 @@ export type CartLinesUpdateInput = CartLineAuthInput & {
 }
 
 export type CartLinesUpdateOutcome =
-  | { status: 'updated'; line: CartLineSnapshot; warnings: CartLineWarning[] }
+  | { status: 'updated'; line: CartLineSnapshot; warnings: CartLineWarning[]; priceChanges: CartPriceChange[] }
   | { status: 'rejected'; reason: CartLineRejectionReason; nearestValid?: number }
 
 const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOutcome> = {
@@ -890,12 +891,20 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
 
     const now = new Date()
     const sameTier = await isWithinStoredPriceTier(em, scope, line, finalQuantity)
+    // §5.2 trigger 1 + §5.1's `priceChanges` disclosure (Step 5.1): populated only when the
+    // tier-crossing re-price below actually moved the unit price, never for a same-tier
+    // quantity change. `Cart.lastPriceChangeAt` (§5.3: "the cart records last_price_change_at")
+    // is set on `cart` — already loaded on this same `em` by `loadMutableCart` — so the single
+    // `em.flush()` below persists both the line's new snapshot and the cart's own timestamp.
+    const priceChanges: CartPriceChange[] = []
     if (!sameTier) {
       const pricingContext = buildCartPricingRowFilterContext(cart)
       const variantIds = line.variantId ? [line.variantId] : []
       const rows = filterRowsForVariant(await fetchPriceRowsBatch(em, scope, pricingContext, [line.productId], variantIds), line.variantId ?? null)
       const resolved = await resolveLinePricing(em, ctx.container, cart, rows, finalQuantity, now)
       if (!resolved.priceRow) return { status: 'rejected', reason: 'product_not_priceable' }
+      const oldUnitPriceNet = line.unitPriceNet ?? null
+      const oldUnitPriceGross = line.unitPriceGross ?? null
       applyPriceSnapshot(line, resolved, now)
       line.lineTotals = await computeLineTotals(ctx.container, cart, {
         productId: line.productId,
@@ -907,6 +916,20 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
         taxRate: resolved.taxRatePercent,
         configuration: line.configuration ?? null,
       })
+      const newUnitPriceNet = line.unitPriceNet ?? null
+      const newUnitPriceGross = line.unitPriceGross ?? null
+      if (oldUnitPriceNet !== newUnitPriceNet || oldUnitPriceGross !== newUnitPriceGross) {
+        priceChanges.push({
+          lineId: line.id,
+          productId: line.productId,
+          oldUnitPriceNet,
+          newUnitPriceNet,
+          oldUnitPriceGross,
+          newUnitPriceGross,
+          reason: 'tier_change',
+        })
+        cart.lastPriceChangeAt = now
+      }
     }
     line.quantity = String(finalQuantity)
     await em.flush()
@@ -914,8 +937,16 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({ dataEngine, action: 'updated', entity: line, identifiers: getCartLineIdentifiers(line), indexer: cartLineCrudIndexer })
     await emitCartEvent('cart.line.updated', { id: line.id, cartId: line.cartId, organizationId: line.organizationId, tenantId: line.tenantId })
+    if (priceChanges.length > 0) {
+      await emitCartEvent('cart.price.changed', {
+        cartId: cart.id,
+        tenantId: cart.tenantId,
+        organizationId: cart.organizationId,
+        changes: priceChanges,
+      })
+    }
 
-    return { status: 'updated', line: toCartLineSnapshot(line), warnings }
+    return { status: 'updated', line: toCartLineSnapshot(line), warnings, priceChanges }
   },
 }
 

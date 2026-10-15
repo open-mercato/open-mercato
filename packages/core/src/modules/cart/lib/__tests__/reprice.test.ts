@@ -1,0 +1,244 @@
+type Row = Record<string, any>
+
+let seededPriceRows: Row[] = []
+
+const mockFindWithDecryption = jest.fn(async () => [...seededPriceRows])
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: (...args: unknown[]) => mockFindWithDecryption(...args),
+}))
+
+import { Cart, CartLine } from '../../data/entities'
+import {
+  buildCartLineRepricePhases,
+  buildRecomputeCartTotalsPhase,
+  toCartTotalsLineSnapshot,
+} from '../reprice'
+import type { CartPriceChange } from '../reprice'
+
+const TENANT_ID = 'tenant-cart-1'
+const ORG_ID = 'org-cart-1'
+
+function makeCart(overrides: Row = {}): Cart {
+  return {
+    id: 'cart-1',
+    tenantId: TENANT_ID,
+    organizationId: ORG_ID,
+    channel: 'storefront',
+    currencyCode: 'USD',
+    customerId: null,
+    customerIds: [],
+    customerGroupIds: [],
+    priceKindId: null,
+    salesChannelId: null,
+    ...overrides,
+  } as Cart
+}
+
+function makeLine(overrides: Row = {}): CartLine {
+  return {
+    id: 'line-1',
+    cartId: 'cart-1',
+    tenantId: TENANT_ID,
+    organizationId: ORG_ID,
+    productId: 'product-1',
+    variantId: null,
+    name: 'Widget',
+    quantity: '2',
+    quantityUnit: null,
+    unitPriceNet: '10',
+    unitPriceGross: '12',
+    taxRate: '20',
+    priceKindId: null,
+    priceRowId: 'price-row-1',
+    priceTierMinQuantity: 1,
+    pricedAt: new Date('2026-01-01T00:00:00.000Z'),
+    lineTotals: {},
+    discountTotalNet: null,
+    configuration: null,
+    ...overrides,
+  } as CartLine
+}
+
+function makeResolvedLinePrice(overrides: Row = {}) {
+  return {
+    priceRow: { id: 'price-row-2' },
+    amountNet: 8,
+    amountGross: 9.6,
+    taxRatePercent: 20,
+    priceIsPromotional: false,
+    currentTier: { minQuantity: 10, maxQuantity: null, amountNet: 8, amountGross: 9.6 },
+    nextTier: null,
+    tiers: [],
+    ...overrides,
+  }
+}
+
+function makeContainer(opts: { resolveLinePrice?: jest.Mock; calculateLine?: jest.Mock; calculateDocumentTotals?: jest.Mock }) {
+  const resolveLinePrice = opts.resolveLinePrice ?? jest.fn(async () => makeResolvedLinePrice())
+  const calculateLine = opts.calculateLine ?? jest.fn(async ({ line }: any) => ({
+    line,
+    netAmount: line.quantity * (line.unitPriceNet ?? 0),
+    grossAmount: line.quantity * (line.unitPriceGross ?? 0),
+    taxAmount: 0,
+    discountAmount: 0,
+    adjustments: [],
+  }))
+  const calculateDocumentTotals = opts.calculateDocumentTotals ?? jest.fn(async () => ({
+    kind: 'quote',
+    currencyCode: 'USD',
+    lines: [],
+    adjustments: [],
+    totals: {
+      subtotalNetAmount: 16,
+      subtotalGrossAmount: 19.2,
+      discountTotalAmount: 0,
+      taxTotalAmount: 3.2,
+      grandTotalNetAmount: 16,
+      grandTotalGrossAmount: 19.2,
+    },
+    metadata: {},
+  }))
+  return {
+    resolve: (token: string): any => {
+      if (token === 'catalogBuyerPricingService') return { resolveLinePrice }
+      if (token === 'salesCalculationService') return { calculateLine, calculateDocumentTotals }
+      throw new Error(`Unexpected DI token: ${token}`)
+    },
+    resolveLinePrice,
+    calculateLine,
+    calculateDocumentTotals,
+  }
+}
+
+const em = {} as any
+
+beforeEach(() => {
+  seededPriceRows = [{ id: 'price-row-2', tenantId: TENANT_ID, organizationId: ORG_ID }]
+  jest.clearAllMocks()
+})
+
+describe('buildCartLineRepricePhases', () => {
+  it('re-snapshots every line, collects a priceChange only when the amount actually moved, and tracks touched lines', async () => {
+    const cart = makeCart()
+    const changedLine = makeLine({ id: 'line-1' })
+    const unchangedLine = makeLine({ id: 'line-2', unitPriceNet: '8', unitPriceGross: '9.6' })
+    const container = makeContainer({})
+
+    const changes: CartPriceChange[] = []
+    const touched: CartLine[] = []
+    const phases = buildCartLineRepricePhases(em, container, cart, [changedLine, unchangedLine], 'stale_snapshot', new Date('2026-02-01T00:00:00.000Z'), changes, touched)
+
+    expect(phases).toHaveLength(2)
+    for (const phase of phases) await phase()
+
+    expect(touched).toHaveLength(2)
+    expect(changedLine.unitPriceNet).toBe('8')
+    expect(changedLine.unitPriceGross).toBe('9.6')
+    expect(changedLine.priceRowId).toBe('price-row-2')
+    expect(changes).toEqual([
+      {
+        lineId: 'line-1',
+        productId: 'product-1',
+        oldUnitPriceNet: '10',
+        newUnitPriceNet: '8',
+        oldUnitPriceGross: '12',
+        newUnitPriceGross: '9.6',
+        reason: 'stale_snapshot',
+      },
+    ])
+  })
+
+  it('leaves a line untouched when no price row resolves for it (product withdrawn mid-cart)', async () => {
+    const cart = makeCart()
+    const line = makeLine()
+    const container = makeContainer({ resolveLinePrice: jest.fn(async () => makeResolvedLinePrice({ priceRow: null })) })
+
+    const changes: CartPriceChange[] = []
+    const touched: CartLine[] = []
+    const phases = buildCartLineRepricePhases(em, container, cart, [line], 'stale_snapshot', new Date(), changes, touched)
+    for (const phase of phases) await phase()
+
+    expect(touched).toHaveLength(0)
+    expect(changes).toHaveLength(0)
+    expect(line.unitPriceNet).toBe('10')
+  })
+
+  it('returns an empty phase list for an empty line set', () => {
+    const cart = makeCart()
+    const container = makeContainer({})
+    const phases = buildCartLineRepricePhases(em, container, cart, [], 'stale_snapshot', new Date(), [], [])
+    expect(phases).toHaveLength(0)
+  })
+})
+
+describe('toCartTotalsLineSnapshot', () => {
+  it('maps a CartLine onto a SalesLineSnapshot, net amounts, product kind', () => {
+    const line = makeLine()
+    const snapshot = toCartTotalsLineSnapshot(line, 'USD')
+    expect(snapshot).toMatchObject({
+      kind: 'product',
+      productId: 'product-1',
+      productVariantId: null,
+      quantity: 2,
+      currencyCode: 'USD',
+      unitPriceNet: 10,
+      unitPriceGross: 12,
+      taxRate: 20,
+      discountAmount: null,
+      discountAmountBasis: null,
+    })
+  })
+
+  it('sets discountAmountBasis: line and an absolute discountAmount when discountTotalNet is set (§3.2 rule 1)', () => {
+    const line = makeLine({ discountTotalNet: '-12.00' })
+    const snapshot = toCartTotalsLineSnapshot(line, 'USD')
+    expect(snapshot.discountAmount).toBe(12)
+    expect(snapshot.discountAmountBasis).toBe('line')
+  })
+})
+
+describe('buildRecomputeCartTotalsPhase', () => {
+  it('calls calculateDocumentTotals with documentKind quote and stores the result verbatim onto Cart.totals', async () => {
+    const cart = makeCart()
+    const line = makeLine()
+    const container = makeContainer({})
+    const changes: CartPriceChange[] = []
+    const now = new Date('2026-02-01T00:00:00.000Z')
+
+    const phase = buildRecomputeCartTotalsPhase(container, cart, [line], now, changes)
+    await phase()
+
+    expect(container.calculateDocumentTotals).toHaveBeenCalledTimes(1)
+    const callArgs = container.calculateDocumentTotals.mock.calls[0][0]
+    expect(callArgs.documentKind).toBe('quote')
+    expect(callArgs.adjustments).toEqual([])
+    expect(callArgs.lines).toHaveLength(1)
+
+    expect(cart.totals).toEqual({
+      subtotalNetAmount: 16,
+      subtotalGrossAmount: 19.2,
+      discountTotalAmount: 0,
+      taxTotalAmount: 3.2,
+      grandTotalNetAmount: 16,
+      grandTotalGrossAmount: 19.2,
+    })
+    expect(cart.totalsComputedAt).toBe(now)
+  })
+
+  it('sets lastPriceChangeAt only when priceChanges is non-empty', async () => {
+    const cart = makeCart()
+    const line = makeLine()
+    const container = makeContainer({})
+    const now = new Date('2026-02-01T00:00:00.000Z')
+
+    await buildRecomputeCartTotalsPhase(container, cart, [line], now, [])()
+    expect(cart.lastPriceChangeAt).toBeUndefined()
+
+    const changedCart = makeCart()
+    await buildRecomputeCartTotalsPhase(container, changedCart, [line], now, [
+      { lineId: 'line-1', productId: 'product-1', oldUnitPriceNet: '10', newUnitPriceNet: '8', oldUnitPriceGross: '12', newUnitPriceGross: '9.6', reason: 'stale_snapshot' },
+    ])()
+    expect(changedCart.lastPriceChangeAt).toBe(now)
+  })
+})

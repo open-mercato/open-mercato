@@ -1,0 +1,249 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { CatalogProductPrice } from '@open-mercato/core/modules/catalog/data/entities'
+import { buildPriceRowFilter, resolvePriceKindId } from '@open-mercato/core/modules/catalog/lib/pricing'
+import type { PriceRow, PricingContext } from '@open-mercato/core/modules/catalog/lib/pricing'
+import type {
+  BuyerPricingContext,
+  CatalogBuyerPricingService,
+  ResolvedLinePrice,
+} from '@open-mercato/core/modules/catalog/services/catalogBuyerPricingService'
+import type { SalesCalculationService } from '@open-mercato/core/modules/sales/services/salesCalculationService'
+import type { SalesLineSnapshot } from '@open-mercato/core/modules/sales/lib/types'
+import { Cart, CartLine } from '../data/entities'
+
+// Step 5.1 — the whole-cart re-pricing engine behind the `cart.reprice` command (triggers
+// 2-4, §5.2) and the real `Cart.totals` aggregate (§3.2). Closes the gap NOTIFY.md has
+// flagged since Step 4.7/4.9: "Cart.totals is a zeroed placeholder (`EMPTY_CART_TOTALS` in
+// `commands/cart.ts`) since Step 4.5 and nothing through 4.6 recomputes it."
+//
+// Deliberately duplicates `commands/lines.ts`'s small per-line pricing helpers (build the
+// pricing context, fetch price rows, apply a snapshot, compute line totals) at this file's
+// own small scope, rather than exporting and importing lines.ts's private functions — same
+// precedent `lib/idempotency.ts` already set for its own `canonicalize` helper ("Mirrors
+// `commands/lines.ts`'s own `canonicalJson` ... not exported there, so duplicated here at
+// the same, small scope"). Keeps the dependency direction `lib -> catalog/sales services`
+// only, never `lib -> commands`.
+
+export type CartPriceChangeReason =
+  | 'tier_change'
+  | 'buyer_context_changed'
+  | 'currency_changed'
+  | 'locale_changed'
+  | 'stale_snapshot'
+
+export type CartPriceChange = {
+  lineId: string
+  productId: string
+  oldUnitPriceNet: string | null
+  newUnitPriceNet: string | null
+  oldUnitPriceGross: string | null
+  newUnitPriceGross: string | null
+  reason: CartPriceChangeReason
+}
+
+type CartRepriceScope = { tenantId: string; organizationId: string }
+
+function buildPricingContext(cart: Cart): PricingContext {
+  return {
+    channelId: cart.salesChannelId ?? null,
+    customerId: cart.customerId ?? null,
+    customerIds: cart.customerIds ?? [],
+    customerGroupIds: cart.customerGroupIds,
+    currencyCode: cart.currencyCode,
+    priceKindId: cart.priceKindId ?? null,
+    quantity: 1,
+    date: new Date(),
+  }
+}
+
+function buildBuyerContext(cart: Cart, quantity: number, date: Date): BuyerPricingContext {
+  return {
+    channelId: cart.salesChannelId ?? null,
+    customerId: cart.customerId ?? null,
+    customerIds: cart.customerIds ?? [],
+    customerGroupIds: cart.customerGroupIds,
+    currencyCode: cart.currencyCode,
+    priceKindId: cart.priceKindId ?? null,
+    quantity,
+    date,
+  }
+}
+
+/**
+ * One product/variant at a time — simpler than `commands/lines.ts`'s batched
+ * `fetchPriceRowsBatch` (which fetches rows for many products in one query), and
+ * deliberately so: every line is already re-priced through its own `withAtomicFlush` phase
+ * below (SPEC-018 — see that function's doc comment), so batching the fetch upfront would
+ * not save a flush-ordering concern, only a query count, and `cart.reprice` is not a
+ * hot path (triggered by a staleness/buyer-context/currency/locale drift, never on every
+ * click).
+ */
+async function fetchLinePriceRows(
+  em: EntityManager,
+  scope: CartRepriceScope,
+  pricingContext: PricingContext,
+  productId: string,
+  variantId: string | null,
+): Promise<PriceRow[]> {
+  const targetClause = variantId ? { $or: [{ product: productId }, { variant: variantId }] } : { product: productId }
+  const where = {
+    $and: [buildPriceRowFilter(pricingContext), targetClause],
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  }
+  const rows = await findWithDecryption(em, CatalogProductPrice, where as never, { populate: ['priceKind', 'offer'] }, scope)
+  return rows as unknown as PriceRow[]
+}
+
+function applyPriceSnapshot(line: CartLine, resolved: ResolvedLinePrice, pricedAt: Date): void {
+  line.unitPriceNet = resolved.amountNet !== null ? String(resolved.amountNet) : null
+  line.unitPriceGross = resolved.amountGross !== null ? String(resolved.amountGross) : null
+  line.taxRate = resolved.taxRatePercent !== null ? String(resolved.taxRatePercent) : null
+  line.priceKindId = resolved.priceRow ? resolvePriceKindId(resolved.priceRow) : null
+  line.priceRowId = resolved.priceRow?.id ?? null
+  line.priceTierMinQuantity = resolved.currentTier?.minQuantity ?? null
+  line.pricedAt = pricedAt
+}
+
+async function computeLineTotals(
+  salesCalculationService: SalesCalculationService,
+  cart: Cart,
+  line: CartLine,
+): Promise<Record<string, unknown>> {
+  const result = await salesCalculationService.calculateLine({
+    documentKind: 'quote',
+    line: {
+      kind: 'product',
+      productId: line.productId,
+      productVariantId: line.variantId ?? null,
+      name: line.name,
+      quantity: Number(line.quantity),
+      currencyCode: cart.currencyCode,
+      unitPriceNet: line.unitPriceNet !== null ? Number(line.unitPriceNet) : null,
+      unitPriceGross: line.unitPriceGross !== null ? Number(line.unitPriceGross) : null,
+      taxRate: line.taxRate !== null ? Number(line.taxRate) : null,
+      configuration: line.configuration ?? null,
+    },
+    context: { tenantId: cart.tenantId, organizationId: cart.organizationId, currencyCode: cart.currencyCode },
+  })
+  return result as unknown as Record<string, unknown>
+}
+
+/**
+ * One `withAtomicFlush` phase per line. `catalogBuyerPricingService.resolveLinePrice` may
+ * itself run an `EntityManager` read (e.g. a `SalesTaxRate` fallback lookup, per that
+ * service's own header comment), so an earlier line's mutation must be flushed before a
+ * later line's read runs on the same `em` — the identical hazard, and the identical
+ * per-entry-phase fix, as `commands/lines.ts`'s `bulkAddLinesCommand`.
+ *
+ * A line whose product no longer resolves a price row at all (withdrawn mid-cart) is left
+ * with its last-known snapshot untouched, rather than blanked or removed — open item, not
+ * in this step's scope: §5.2 names the four triggers that force a re-price, not what a
+ * re-price itself should do when it cannot find a price.
+ *
+ * Mutates `changes`/`touched` in place (same outer-closure-collects-across-phases
+ * convention `bulkAddLinesCommand` already uses) so the caller can emit side effects and
+ * build the `priceChanges` disclosure after the whole atomic flush commits.
+ */
+export function buildCartLineRepricePhases(
+  em: EntityManager,
+  container: { resolve: <T = unknown>(name: string) => T },
+  cart: Cart,
+  lines: CartLine[],
+  reason: CartPriceChangeReason,
+  now: Date,
+  changes: CartPriceChange[],
+  touched: CartLine[],
+): Array<() => Promise<void>> {
+  const scope: CartRepriceScope = { tenantId: cart.tenantId, organizationId: cart.organizationId }
+  const buyerPricingService = container.resolve<CatalogBuyerPricingService>('catalogBuyerPricingService')
+  const salesCalculationService = container.resolve<SalesCalculationService>('salesCalculationService')
+  const pricingContext = buildPricingContext(cart)
+
+  return lines.map((line) => async () => {
+    const rows = await fetchLinePriceRows(em, scope, pricingContext, line.productId, line.variantId ?? null)
+    const quantity = Number(line.quantity)
+    const resolved = await buyerPricingService.resolveLinePrice(em, rows, buildBuyerContext(cart, quantity, now), scope)
+    if (!resolved.priceRow) return
+
+    const oldNet = line.unitPriceNet ?? null
+    const oldGross = line.unitPriceGross ?? null
+    applyPriceSnapshot(line, resolved, now)
+    line.lineTotals = await computeLineTotals(salesCalculationService, cart, line)
+    touched.push(line)
+
+    const newNet = line.unitPriceNet ?? null
+    const newGross = line.unitPriceGross ?? null
+    if (oldNet !== newNet || oldGross !== newGross) {
+      changes.push({
+        lineId: line.id,
+        productId: line.productId,
+        oldUnitPriceNet: oldNet,
+        newUnitPriceNet: newNet,
+        oldUnitPriceGross: oldGross,
+        newUnitPriceGross: newGross,
+        reason,
+      })
+    }
+  })
+}
+
+/**
+ * §3.2 — maps a (freshly re-priced) `CartLine` onto the `SalesLineSnapshot` shape
+ * `salesCalculationService.calculateDocumentTotals` consumes. `discountAmountBasis: 'line'`
+ * is set only when `discountTotalNet` is actually populated (rule 1, §3.2) — no promotion
+ * lines exist yet in this worktree (Phase 3 integrates `promotionsService`), so this is
+ * always `null` today, but the mapping already follows the rule rather than deferring it.
+ */
+export function toCartTotalsLineSnapshot(line: CartLine, currencyCode: string): SalesLineSnapshot {
+  const discountAmount = line.discountTotalNet !== null ? Math.abs(Number(line.discountTotalNet)) : null
+  return {
+    kind: 'product',
+    productId: line.productId,
+    productVariantId: line.variantId ?? null,
+    name: line.name,
+    quantity: Number(line.quantity),
+    quantityUnit: line.quantityUnit ?? null,
+    currencyCode,
+    unitPriceNet: line.unitPriceNet !== null ? Number(line.unitPriceNet) : null,
+    unitPriceGross: line.unitPriceGross !== null ? Number(line.unitPriceGross) : null,
+    discountAmount,
+    discountAmountBasis: discountAmount !== null ? 'line' : null,
+    taxRate: line.taxRate !== null ? Number(line.taxRate) : null,
+    configuration: line.configuration ?? null,
+  }
+}
+
+/**
+ * The final `withAtomicFlush` phase: recomputes `Cart.totals` as a REAL whole-cart
+ * aggregate via `salesCalculationService.calculateDocumentTotals` (§3.2) — "the cart stores
+ * the returned totals verbatim. It does not round, re-sum or adjust them" — and sets
+ * `totalsComputedAt`/`lastPriceChangeAt`. `adjustments` is always `[]`: no promotion/order-
+ * scoped adjustment exists yet in this worktree (Phase 3).
+ */
+export function buildRecomputeCartTotalsPhase(
+  container: { resolve: <T = unknown>(name: string) => T },
+  cart: Cart,
+  lines: CartLine[],
+  now: Date,
+  changes: CartPriceChange[],
+): () => Promise<void> {
+  return async () => {
+    const salesCalculationService = container.resolve<SalesCalculationService>('salesCalculationService')
+    const result = await salesCalculationService.calculateDocumentTotals({
+      documentKind: 'quote',
+      lines: lines.map((line) => toCartTotalsLineSnapshot(line, cart.currencyCode)),
+      adjustments: [],
+      context: {
+        tenantId: cart.tenantId,
+        organizationId: cart.organizationId,
+        currencyCode: cart.currencyCode,
+        metadata: { source: 'cart', cartId: cart.id },
+      },
+    })
+    cart.totals = result.totals as unknown as Record<string, unknown>
+    cart.totalsComputedAt = now
+    if (changes.length > 0) cart.lastPriceChangeAt = now
+  }
+}

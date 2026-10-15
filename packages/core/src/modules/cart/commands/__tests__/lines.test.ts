@@ -486,7 +486,7 @@ describe('cart.lines.update', () => {
     expect((captured as { status: number }).status).toBe(409)
   })
 
-  it('re-prices when the new quantity crosses the current price row tier boundary', async () => {
+  it('re-prices when the new quantity crosses the current price row tier boundary, discloses a tier_change priceChange, and stamps cart.lastPriceChangeAt', async () => {
     await seedLine()
     seededPriceRows = [{ id: 'price-row-1', tenantId: TENANT_ID, organizationId: ORG_ID, minQuantity: 1, maxQuantity: 9 }]
     const handler = getHandler<CartLinesUpdateInput, CartLinesUpdateOutcome>('cart.lines.update')
@@ -502,9 +502,24 @@ describe('cart.lines.update', () => {
     expect(result.line.priceRowId).toBe('price-row-2')
     expect(result.line.priceTierMinQuantity).toBe(10)
     expect(resolveLinePrice).toHaveBeenCalledTimes(1)
+    expect(result.priceChanges).toEqual([
+      {
+        lineId: 'line-1',
+        productId: 'product-1',
+        oldUnitPriceNet: '10',
+        newUnitPriceNet: '8',
+        oldUnitPriceGross: '12',
+        newUnitPriceGross: '9.6',
+        reason: 'tier_change',
+      },
+    ])
+    expect(seededCarts[0].lastPriceChangeAt).toBeInstanceOf(Date)
+    const priceChangedCalls = emitCartEventMock.mock.calls.filter(([eventId]) => eventId === 'cart.price.changed')
+    expect(priceChangedCalls).toHaveLength(1)
+    expect(priceChangedCalls[0][1]).toMatchObject({ cartId: CART_ID, changes: result.priceChanges })
   })
 
-  it('does not call the pricing service for a same-tier quantity change', async () => {
+  it('does not call the pricing service for a same-tier quantity change, and does not disclose a priceChange or stamp lastPriceChangeAt', async () => {
     await seedLine()
     seededPriceRows = [{ id: 'price-row-1', tenantId: TENANT_ID, organizationId: ORG_ID, minQuantity: 1, maxQuantity: 9 }]
     const handler = getHandler<CartLinesUpdateInput, CartLinesUpdateOutcome>('cart.lines.update')
@@ -520,6 +535,9 @@ describe('cart.lines.update', () => {
     expect(result.line.priceRowId).toBe('price-row-1')
     expect(resolveLinePrice).not.toHaveBeenCalled()
     expect(mockFindWithDecryption).not.toHaveBeenCalledWith(expect.anything(), CatalogProductPrice, expect.anything())
+    expect(result.priceChanges).toEqual([])
+    expect(seededCarts[0].lastPriceChangeAt).toBeUndefined()
+    expect(emitCartEventMock.mock.calls.some(([eventId]) => eventId === 'cart.price.changed')).toBe(false)
   })
 
   // TC-CART-R1-05/R1-10: a line whose product has since become restricted is rejected, left

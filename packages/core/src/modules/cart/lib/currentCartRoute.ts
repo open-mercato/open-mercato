@@ -9,6 +9,7 @@ import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 import { getCartCommand } from '../commands/cart'
 import type { CartGetByTokenInput, CartSummary } from '../commands/cart'
+import type { CartPriceChange } from './reprice'
 import { isCartStoreContextUnavailableError, resolveCartRouteContext } from './routeContext'
 import type { ResolvedCartRouteContext } from './routeContext'
 
@@ -103,28 +104,51 @@ export function buildCommandContext(
 }
 
 /**
+ * (Step 5.1) `resolveCurrentCart`'s result. `priceChanges` is always an array (possibly
+ * empty); `versionBumpReason` is set exactly when §5.2 triggers 2-4 fired and `cart.get`
+ * ran `cart.reprice` internally for this call — see `commands/cart.ts`'s `getCartCommand`.
+ */
+export type ResolvedCurrentCart = {
+  cart: CartSummary
+  priceChanges: CartPriceChange[]
+  versionBumpReason?: 'repricing'
+}
+
+/**
  * Resolves the "current" cart addressed by the presented `X-Cart-Token`, scoped to
  * the resolved store's tenant/organization (§8.3: `kind = 'basket'` only, via
  * `cart.get`). Returns `null` when the token does not resolve — a wrong token, a
  * cross-tenant token and a real `kind = 'proposal'` cart all collapse to the same
  * `null` here, matching `cart.get`'s own no-enumeration-oracle contract.
+ *
+ * (Step 5.1) Always supplies `freshContext: routeContext` — every one of the four
+ * `/current/*` routes that calls this helper has already resolved a `StoreContext` at the
+ * route edge, so `cart.get` always has a fresh buyer context to compare against, not only
+ * on the literal `GET /current` route: "per-request BuyerContext digest comparison (also
+ * on GET)" (PLAN.md Step 5.1) is implemented once, here, for every caller.
  */
 export async function resolveCurrentCart(
   commandBus: CommandBus,
   ctx: CommandRuntimeContext,
   routeContext: ResolvedCartRouteContext,
   token: string,
-): Promise<CartSummary | null> {
+): Promise<ResolvedCurrentCart | null> {
   const input: CartGetByTokenInput = {
     tenantId: routeContext.tenantId,
     organizationId: routeContext.organizationId,
     token,
+    freshContext: routeContext,
   }
   const { result } = await commandBus.execute<CartGetByTokenInput, Awaited<ReturnType<typeof getCartCommand.execute>>>(
     getCartCommand.id,
     { input, ctx },
   )
-  return result.found ? result.cart : null
+  if (!result.found) return null
+  return {
+    cart: result.cart,
+    priceChanges: result.priceChanges ?? [],
+    versionBumpReason: result.versionBumpReason,
+  }
 }
 
 export function notFoundCartResponse(): NextResponse {
