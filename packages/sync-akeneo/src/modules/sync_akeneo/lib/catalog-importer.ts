@@ -26,7 +26,7 @@ import { normalizeEntityFieldsetConfig, type CustomFieldsetDefinition } from '@o
 import { invalidateDefinitionsCache } from '@open-mercato/core/modules/entities/api/definitions.cache'
 import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
 import { buildAttachmentFileUrl, buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
-import type { AttachmentService } from '@open-mercato/core/modules/attachments/lib/attachment-service'
+import type { AttachmentService } from '@open-mercato/core/modules/attachments'
 import {
   isScopedAttachmentUploadError,
   type ScopedAttachmentUploadErrorCode,
