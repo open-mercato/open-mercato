@@ -2,6 +2,12 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { notFound } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { availabilityItemKey, resolveAvailability } from '@open-mercato/shared/lib/availability'
+import type {
+  AvailabilityItemResult,
+  AvailabilityModuleConfigReader,
+  AvailabilityState,
+} from '@open-mercato/shared/lib/availability'
 import { formatCurrency } from '@open-mercato/ui/utils/format'
 import { CatalogProductPrice } from '@open-mercato/core/modules/catalog/data/entities'
 import { buildPriceRowFilter, resolvePriceVariantId } from '@open-mercato/core/modules/catalog/lib/pricing'
@@ -114,6 +120,90 @@ function filterRowsForVariant(rows: PriceRow[], variantId: string | null): Price
   })
 }
 
+/**
+ * `moduleConfigService` is an optional soft peer — same `tryResolve*` pattern this module
+ * already uses for `storeContextService` (`lib/routeContext.ts`) and `policyResolutionService`
+ * (`commands/lines.ts`): absent module, absent service, graceful fallback to `resolveAvailability`'s
+ * own `'auto'` provider selection (registry.ts: omitting `moduleConfig` always resolves `'auto'`).
+ */
+function tryResolveModuleConfigService(container: AppContainer): AvailabilityModuleConfigReader | null {
+  try {
+    return container.resolve('moduleConfigService') as AvailabilityModuleConfigReader
+  } catch {
+    return null
+  }
+}
+
+// ---------------------------------------------------------------------------
+// §5.3 / §4.2 `availability_state` row — the computed-per-response availability advisory
+// ---------------------------------------------------------------------------
+
+export type CartLineAvailabilityView = {
+  state: AvailabilityState
+  canFulfil: boolean
+  leadTimeDays: number | null
+  releaseAt: string | null
+}
+
+/**
+ * Mirrors `ecommerce/lib/storefrontCatalogSupport.ts`'s `toStorefrontAvailability` shape
+ * exactly (`state`/`canFulfil`/`leadTimeDays`/`releaseAt`), so a client reading availability
+ * off a cart line and off a storefront PDP/listing sees the same fields — deliberately NOT
+ * importing that function, since `cart` has no dependency edge onto `ecommerce` (this
+ * module's own soft-peer policy, `lib/routeContext.ts`'s `StoreContextService` is the one
+ * exception, gated behind a `tryResolve*`). A plain, pure 6-line mapper duplicated at this
+ * file's own small scope is cheaper than inventing a cross-module import for it.
+ */
+function toCartLineAvailability(result: AvailabilityItemResult | null): CartLineAvailabilityView {
+  if (!result) return { state: 'not_tracked', canFulfil: true, leadTimeDays: null, releaseAt: null }
+  return {
+    state: result.state,
+    canFulfil: result.canFulfil,
+    leadTimeDays: result.leadTimeDays,
+    releaseAt: result.releaseAt,
+  }
+}
+
+type AvailabilityDemand = { catalogProductId: string; catalogVariantId: string | null; quantity: number }
+
+/**
+ * One entry per distinct `(productId, variantId)` pair across the cart's lines, with
+ * `quantity` summed across every line sharing that pair (two lines of the same SKU with
+ * different `configuration` — engraving, personalization — still draw from one stock pool,
+ * so the availability check should ask about their combined demand, not just the first
+ * line's). Mirrors the batched, deduped shape `fetchPriceRowsBatch`/`groupRowsByProduct`
+ * already use for the price-row fetch in this same function.
+ */
+function buildAvailabilityDemand(lines: CartLine[]): AvailabilityDemand[] {
+  const byKey = new Map<string, AvailabilityDemand>()
+  for (const line of lines) {
+    const catalogVariantId = line.variantId ?? null
+    const key = availabilityItemKey({ catalogProductId: line.productId, catalogVariantId })
+    const existing = byKey.get(key)
+    if (existing) existing.quantity += Number(line.quantity)
+    else byKey.set(key, { catalogProductId: line.productId, catalogVariantId, quantity: Number(line.quantity) })
+  }
+  return Array.from(byKey.values())
+}
+
+/**
+ * §10.1/§4.2: a line that went out of stock "must not be silent" (§10.1 prose) and, per R7's
+ * own resolution text, `warnings` surfaces it "on any read" — not only on first discovery.
+ * Every `out_of_stock` line in the CURRENT response therefore gets a warning entry every
+ * time, same as `flag_state`'s persisted-warning treatment just above. Operates on the
+ * already-built `lineViews` (needs the computed `availabilityState`), unlike
+ * `buildFlaggedLineWarnings` which reads the persisted column off the raw `CartLine[]`.
+ */
+function buildAvailabilityWarnings(lineViews: CartLineView[]): CartViewWarning[] {
+  return lineViews
+    .filter((line) => line.availabilityState.state === 'out_of_stock')
+    .map((line) => ({
+      code: 'out_of_stock',
+      lineId: line.id,
+      message: '[internal] This line is out of stock',
+    }))
+}
+
 // ---------------------------------------------------------------------------
 // §5.4 B2B quantity tiers — `nextTier`
 // ---------------------------------------------------------------------------
@@ -125,7 +215,10 @@ export type CartLineNextTierView = {
   saving: string
 }
 
-export type CartLineView = CartLineSnapshot & { nextTier: CartLineNextTierView | null }
+export type CartLineView = CartLineSnapshot & {
+  nextTier: CartLineNextTierView | null
+  availabilityState: CartLineAvailabilityView
+}
 
 /**
  * Picks the side (`net`/`gross`) matching `Cart.taxMode`, falling back to whichever side a
@@ -259,11 +352,19 @@ export type BuildCartResponseEnvelopeParams = {
  *   number of non-deleted `CartLine` rows; `itemCount` sums their quantities (a cart with one
  *   line at quantity 5 has `lineCount: 1`, `itemCount: 5`).
  * - top-level `warnings`: FLATTENS, rather than duplicates, the per-line signals a client
- *   would otherwise have to walk every line to find — `flag_state` (persisted) plus whatever
- *   the calling route passes via `params.warnings` (the current mutation's own transient
- *   `quantity_capped` outcome, which nothing persists). Each entry carries `lineId` when it
- *   names a surviving line; a rejection that created no line (e.g. a visibility-rejected
- *   `cart.lines.add`) has no `lineId` to attach.
+ *   would otherwise have to walk every line to find — `flag_state` (persisted), the
+ *   `availabilityState` computed below (an `out_of_stock` line, per R7's own resolution text
+ *   "`warnings` surfaces a line that went out of stock on any read" — every matching read,
+ *   not only first discovery), plus whatever the calling route passes via `params.warnings`
+ *   (the current mutation's own transient `quantity_capped` outcome, which nothing
+ *   persists). Each entry carries `lineId` when it names a surviving line; a rejection that
+ *   created no line (e.g. a visibility-rejected `cart.lines.add`) has no `lineId` to attach.
+ * - `availabilityState`: §4.2's own `availability_state` row — computed live via
+ *   `resolveAvailability`, never persisted (a persisted field written on every read would
+ *   bump `updated_at` on every read, false-409ing the buyer's next write). Batched ONE call
+ *   per response across every line's `(productId, variantId)` pair (never once per line),
+ *   mirroring this function's own price-row batching. No `policyResolutionService`
+ *   hide-policy resolution — see the call site's own comment for why the cart doesn't need it.
  */
 export async function buildCartResponseEnvelope(params: BuildCartResponseEnvelopeParams): Promise<CartResponseEnvelope> {
   const scope: CartViewScope = { tenantId: params.tenantId, organizationId: params.organizationId }
@@ -298,6 +399,32 @@ export async function buildCartResponseEnvelope(params: BuildCartResponseEnvelop
   const priceRows = await fetchPriceRowsBatch(em, scope, pricingRowContext, productIds, variantIds)
   const rowsByProduct = groupRowsByProduct(priceRows, variantToProduct)
 
+  // §5.3/§4.2 `availability_state` row: ONE batched `resolveAvailability` call for every
+  // line of this response (never one per line — same batching discipline as the price-row
+  // fetch above), computed live on every read and never persisted. No `policyResolutionService`
+  // hide-policy resolution here (unlike `ecommerce`'s `resolveStorefrontAvailability`, which
+  // also resolves `hideWhenOutOfStock` for its own listing/PDP "should this even render"
+  // decision) — the cart never hides an unavailable line, it surfaces a warning on it
+  // (§10.1), so that policy field has no cart-side consumer.
+  const availabilityDemand = buildAvailabilityDemand(lines)
+  const availabilityModuleConfig = tryResolveModuleConfigService(params.container)
+  const availabilityResult = availabilityDemand.length
+    ? await resolveAvailability(
+        {
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          storeId: cart.storeId ?? null,
+          channelId: cart.salesChannelId ?? null,
+          items: availabilityDemand.map((item) => ({
+            catalogProductId: item.catalogProductId,
+            catalogVariantId: item.catalogVariantId,
+            quantity: item.quantity,
+          })),
+        },
+        availabilityModuleConfig ? { moduleConfig: availabilityModuleConfig, container: params.container } : { container: params.container },
+      )
+    : { byItem: {} }
+
   const now = new Date()
   const lineViews: CartLineView[] = []
   // Sequential, not `Promise.all` — `resolveLinePrice` may itself run an `EntityManager`
@@ -312,7 +439,9 @@ export async function buildCartResponseEnvelope(params: BuildCartResponseEnvelop
       const resolved = await buyerPricingService.resolveLinePrice(em, rows, context, scope)
       nextTier = buildNextTierView(resolved, cart)
     }
-    lineViews.push({ ...toCartLineSnapshot(line), nextTier })
+    const availabilityKey = availabilityItemKey({ catalogProductId: line.productId, catalogVariantId: line.variantId ?? null })
+    const availabilityState = toCartLineAvailability(availabilityResult.byItem[availabilityKey] ?? null)
+    lineViews.push({ ...toCartLineSnapshot(line), nextTier, availabilityState })
   }
 
   const lineCount = lineViews.length
@@ -336,7 +465,11 @@ export async function buildCartResponseEnvelope(params: BuildCartResponseEnvelop
     expiresAt: cart.expiresAt,
   }
 
-  const warnings = [...buildFlaggedLineWarnings(lines), ...(params.warnings ?? [])]
+  const warnings = [
+    ...buildFlaggedLineWarnings(lines),
+    ...buildAvailabilityWarnings(lineViews),
+    ...(params.warnings ?? []),
+  ]
 
   const envelope: CartResponseEnvelope = { cart: view }
   if (params.priceChanges && params.priceChanges.length > 0) envelope.priceChanges = params.priceChanges

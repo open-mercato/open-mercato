@@ -39,6 +39,19 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) => mockFindOneWithDecryption(...(args as [unknown, unknown, Row])),
 }))
 
+// Step 5.3 — the availability advisory. Mocked so a test can control the per-item
+// `state`/`canFulfil`/`leadTimeDays`/`releaseAt` returned for a given `(productId,
+// variantId)` key without wiring the real `catalog-only` provider's policy lookup. The real
+// `availabilityItemKey` is kept so the test's own keying matches `cartView.ts`'s.
+const mockResolveAvailability = jest.fn(async (query: Row) => ({ byItem: {} as Row }))
+jest.mock('@open-mercato/shared/lib/availability', () => {
+  const actual = jest.requireActual('@open-mercato/shared/lib/availability')
+  return {
+    ...actual,
+    resolveAvailability: (...args: unknown[]) => mockResolveAvailability(...(args as [Row])),
+  }
+})
+
 import { buildCartResponseEnvelope } from '../cartView'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
@@ -140,6 +153,7 @@ function resetFixtures() {
   seededCartLines = []
   seededPriceRows = [{ id: 'price-row-1', product: 'product-1', tenantId: TENANT_ID, organizationId: ORG_ID, minQuantity: 1, maxQuantity: null }]
   jest.clearAllMocks()
+  mockResolveAvailability.mockImplementation(async () => ({ byItem: {} }))
 }
 
 describe('buildCartResponseEnvelope', () => {
@@ -295,5 +309,101 @@ describe('buildCartResponseEnvelope', () => {
     })
     expect(envelope.priceChanges).toBeUndefined()
     expect(envelope.versionBumpReason).toBe('repricing')
+  })
+
+  describe('§5.3 availabilityState', () => {
+    it('maps a resolved in_stock result onto the StorefrontAvailability-equivalent shape', async () => {
+      seededCartLines = [makeLineFixture({ id: 'line-1', productId: 'product-1', variantId: null })]
+      mockResolveAvailability.mockImplementation(async () => ({
+        byItem: {
+          'product-1:': { state: 'in_stock', availableQuantity: 10, canFulfil: true, leadTimeDays: null, releaseAt: null, isAuthoritative: true, policySourceId: null },
+        },
+      }))
+      const container = makeContainer()
+      const envelope = await buildCartResponseEnvelope({ container, cartId: CART_ID, tenantId: TENANT_ID, organizationId: ORG_ID })
+
+      expect(envelope.cart.lines[0].availabilityState).toEqual({
+        state: 'in_stock',
+        canFulfil: true,
+        leadTimeDays: null,
+        releaseAt: null,
+      })
+    })
+
+    it('falls back to not_tracked/canFulfil true when the provider returns no entry for the line', async () => {
+      seededCartLines = [makeLineFixture({ id: 'line-1', productId: 'product-1', variantId: null })]
+      mockResolveAvailability.mockImplementation(async () => ({ byItem: {} }))
+      const container = makeContainer()
+      const envelope = await buildCartResponseEnvelope({ container, cartId: CART_ID, tenantId: TENANT_ID, organizationId: ORG_ID })
+
+      expect(envelope.cart.lines[0].availabilityState).toEqual({
+        state: 'not_tracked',
+        canFulfil: true,
+        leadTimeDays: null,
+        releaseAt: null,
+      })
+    })
+
+    it('does not call resolveAvailability for a lineless cart', async () => {
+      const container = makeContainer()
+      await buildCartResponseEnvelope({ container, cartId: CART_ID, tenantId: TENANT_ID, organizationId: ORG_ID })
+      expect(mockResolveAvailability).not.toHaveBeenCalled()
+    })
+
+    it('batches ONE resolveAvailability call per response, deduping by (productId, variantId) and summing quantity across lines sharing a pair', async () => {
+      seededCartLines = [
+        makeLineFixture({ id: 'line-1', productId: 'product-1', variantId: null, quantity: '2' }),
+        makeLineFixture({ id: 'line-2', productId: 'product-1', variantId: null, quantity: '3', configuration: { engraving: 'A' } }),
+        makeLineFixture({ id: 'line-3', productId: 'product-2', variantId: 'variant-9', quantity: '1' }),
+      ]
+      const container = makeContainer()
+      await buildCartResponseEnvelope({ container, cartId: CART_ID, tenantId: TENANT_ID, organizationId: ORG_ID })
+
+      expect(mockResolveAvailability).toHaveBeenCalledTimes(1)
+      const query = mockResolveAvailability.mock.calls[0][0] as { items: Row[] }
+      expect(query.items).toEqual([
+        { catalogProductId: 'product-1', catalogVariantId: null, quantity: 5 },
+        { catalogProductId: 'product-2', catalogVariantId: 'variant-9', quantity: 1 },
+      ])
+    })
+
+    it('passes the cart\'s storeId and salesChannelId through to the availability query', async () => {
+      seededCarts = [makeCartFixture({ storeId: 'store-1', salesChannelId: 'channel-1' })]
+      seededCartLines = [makeLineFixture()]
+      const container = makeContainer()
+      await buildCartResponseEnvelope({ container, cartId: CART_ID, tenantId: TENANT_ID, organizationId: ORG_ID })
+
+      const query = mockResolveAvailability.mock.calls[0][0] as Row
+      expect(query.storeId).toBe('store-1')
+      expect(query.channelId).toBe('channel-1')
+      expect(query.tenantId).toBe(TENANT_ID)
+      expect(query.organizationId).toBe(ORG_ID)
+    })
+
+    it('surfaces a top-level out_of_stock warning for every out-of-stock line on every read, merged with other warnings', async () => {
+      seededCartLines = [
+        makeLineFixture({ id: 'line-1', productId: 'product-1', variantId: null }),
+        makeLineFixture({ id: 'line-2', productId: 'product-2', variantId: null }),
+      ]
+      mockResolveAvailability.mockImplementation(async () => ({
+        byItem: {
+          'product-1:': { state: 'out_of_stock', availableQuantity: 0, canFulfil: false, leadTimeDays: null, releaseAt: null, isAuthoritative: true, policySourceId: null },
+          'product-2:': { state: 'in_stock', availableQuantity: 5, canFulfil: true, leadTimeDays: null, releaseAt: null, isAuthoritative: true, policySourceId: null },
+        },
+      }))
+      const container = makeContainer()
+      const envelope = await buildCartResponseEnvelope({
+        container,
+        cartId: CART_ID,
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+        warnings: [{ code: 'quantity_capped', lineId: 'line-2', message: '[internal] capped' }],
+      })
+
+      expect(envelope.warnings).toEqual([
+        { code: 'out_of_stock', lineId: 'line-1', message: expect.any(String) },
+        { code: 'quantity_capped', lineId: 'line-2', message: '[internal] capped' },
+      ])
+    })
   })
 })
