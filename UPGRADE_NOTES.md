@@ -24,6 +24,46 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
+<a id="workflow-user-task-closed-run"></a>
+
+### Workflow user tasks cannot be completed on a closed run; cancelling a run closes its open tasks
+
+Completing a user task whose workflow run had already ended wrote the form data into the closed run's
+context and drove the run onward: a cancelled run came back `PAUSED` on its next step, or the request
+failed with a `500`. The completion is now refused before anything is written, and cancelling a run
+closes its open tasks.
+
+- `POST /api/workflows/tasks/{id}/complete` on a task whose run is `COMPLETED`, `FAILED`,
+  `CANCELLED`, `COMPENSATING` or `COMPENSATED` answers `409 { error, code: 'WORKFLOW_NOT_ACTIVE' }`.
+  It previously answered `200` (after mutating the closed run) or `500`. A run cancelled after this
+  change has no open task left, so its task answers the existing `404`; the `409` is what a task left
+  open by an earlier cancel (nothing is backfilled) or by a failed, completed or compensated run
+  answers. Every other answer is unchanged.
+- `POST /api/workflows/portal/tasks/{id}/complete` answers the same refusal with the portal's
+  standard `404` body.
+- `completeUserTask`: signature unchanged. `UserTaskError.code` gains `WORKFLOW_NOT_ACTIVE`. The
+  instance is loaded before the task is mutated, so `INSTANCE_NOT_FOUND` no longer leaves the task
+  flushed `COMPLETED`.
+- `completeWorkflow(..., 'CANCELLED')` moves the run's `PENDING` / `IN_PROGRESS` user tasks to
+  `CANCELLED` and logs one `USER_TASK_CANCELLED` workflow event per task, so they leave the open-task
+  lists. `COMPLETED` and `FAILED` leave tasks untouched.
+- Task SLA breach (`task_sla` job): on a closed run the breach is still recorded, but the `route` and
+  `attention` actions are skipped and logged as `onBreach: 'route_skipped_closed_run'` /
+  `'attention_skipped_closed_run'` in the `USER_TASK_DEADLINE_BREACHED` event data. Reminders,
+  `notify` and `reassign` are unchanged.
+
+**Backward compatibility** (recorded here because `BACKWARD_COMPATIBILITY.md` is at its agent-context
+byte budget): behaviour change for one error class of the task-complete route (no retained response
+loses a field), an additive `UserTaskError` code, and closed-run-only changes to cancellation and SLA
+breach handling. `CANCELLED` and `USER_TASK_CANCELLED` are existing values. Database schema, API
+route URLs, bus event IDs, ACL features, DI names and CLI commands are unchanged. Regression-tested in
+`task-handler-closed-run.test.ts`, `taskActions.route.test.ts` and `TC-WF-064`.
+
+**Action for API clients:** none required. A client that completes tasks should treat `409` with
+`code: 'WORKFLOW_NOT_ACTIVE'` as final: the run has ended and the task cannot be completed.
+
+
+
 ### Warranty claim undo refusals return a localized `error` plus a `code`; claim-line undos refuse stale state
 
 Undoing a `warranty_claims` claim command through `POST /api/audit_logs/audit-logs/actions/undo` used to
