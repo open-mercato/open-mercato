@@ -34,6 +34,7 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
@@ -646,7 +647,10 @@ export function emitTaskAssigneeChanged(
       actorUserId,
     },
     { persistent: true },
-  ).catch((err) => logger.error('staff.timesheets.time_task.assignee_changed emit failed', { err, taskId: task.id }))
+  ).catch((err) => {
+    logger.error('staff.timesheets.time_task.assignee_changed emit failed', { err, taskId: task.id })
+    getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.task_assignee_changed_emit_failed' })
+  })
 }
 
 const updateTaskCommand: CommandHandler<StaffTimeTaskUpdateInput, { taskId: string }> = {

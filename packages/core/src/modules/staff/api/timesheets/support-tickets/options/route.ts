@@ -27,6 +27,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { StaffTeamMember, StaffTimeProjectMember } from '../../../../data/entities'
 import { loadSupportTicketCategories } from '../../../../lib/support/dictionaries'
@@ -155,6 +156,7 @@ export async function GET(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     logger.error('staff.support.inbox options failed', { err })
+    getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.support_inbox_options_failed' })
     const { translate } = await resolveTranslations()
     return NextResponse.json({ error: translate('staff.errors.internal', 'Internal server error') }, { status: 500 })
   }

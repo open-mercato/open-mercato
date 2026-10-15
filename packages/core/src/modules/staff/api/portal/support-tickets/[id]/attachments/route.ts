@@ -16,6 +16,7 @@ import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-muta
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { Attachment as AttachmentEntity } from '@open-mercato/core/modules/attachments/data/entities'
 import type { ScopedAttachmentUploadService } from '@open-mercato/core/modules/attachments/lib/scoped-upload-service'
@@ -229,13 +230,14 @@ export async function DELETE(req: Request) {
       container: scope.container,
       req,
       auth: { userId: scope.auth.sub, tenantId: scope.tenantId, organizationId: scope.organizationId, userFeatures: [] },
-      input: { resourceKind: SUPPORT_TICKET_RESOURCE_KIND, resourceId: owned.task.id, operation: 'update', mutationPayload: { attachmentId } },
+      input: { resourceKind: SUPPORT_TICKET_RESOURCE_KIND, resourceId: owned.task.id, operation: 'delete', mutationPayload: { attachmentId } },
     })
     if (!guarded.ok) return guarded.response
     await scope.em.remove(attachment).flush()
-    await api.clearAttachmentThumbnailCache(attachment.partitionCode, attachment.id).catch((err) =>
-      logger.error('staff portal support attachment thumbnail cleanup failed', { err, attachmentId }),
-    )
+    await api.clearAttachmentThumbnailCache(attachment.partitionCode, attachment.id).catch((err) => {
+      logger.error('staff portal support attachment thumbnail cleanup failed', { err, attachmentId })
+      getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.portal_attachment_thumbnail_cleanup_failed' })
+    })
     if (attachment.storagePath) {
       try {
         const driver = await (await resolveDriverFactory(api, scope)).resolveForPartition(attachment.partitionCode, {
@@ -245,6 +247,7 @@ export async function DELETE(req: Request) {
         await driver.delete(attachment.partitionCode, attachment.storagePath)
       } catch (err) {
         logger.error('staff portal support attachment storage cleanup failed', { err, attachmentId })
+        getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.portal_attachment_storage_cleanup_failed' })
       }
     }
     try {
@@ -260,6 +263,7 @@ export async function DELETE(req: Request) {
       await dataEngine.flushOrmEntityChanges()
     } catch (err) {
       logger.error('staff portal support attachment side effects failed', { err, attachmentId })
+      getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.portal_attachment_side_effects_failed' })
     }
     await guarded.runAfterSuccess()
     return NextResponse.json({ ok: true })
