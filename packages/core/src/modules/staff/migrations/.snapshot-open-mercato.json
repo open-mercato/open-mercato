@@ -548,6 +548,15 @@
       },
       "indexes": [
         {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "staff_support_routing_rules_category_unique_idx",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"staff_support_routing_rules_category_unique_idx\" on \"staff_support_routing_rules\" (\"tenant_id\", \"organization_id\", coalesce(\"category_value\", '')) where \"deleted_at\" is null"
+        },
+        {
           "columnNames": [
             "id"
           ],

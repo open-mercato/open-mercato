@@ -822,6 +822,11 @@ export class StaffSupportTicket {
 
 @Entity({ tableName: 'staff_support_routing_rules' })
 @Index({ name: 'staff_support_routing_rules_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({
+  name: 'staff_support_routing_rules_category_unique_idx',
+  expression:
+    'create unique index "staff_support_routing_rules_category_unique_idx" on "staff_support_routing_rules" ("tenant_id", "organization_id", coalesce("category_value", \'\')) where "deleted_at" is null',
+})
 export class StaffSupportRoutingRule {
   [OptionalProps]?: 'isActive' | 'createdAt' | 'updatedAt'
 
