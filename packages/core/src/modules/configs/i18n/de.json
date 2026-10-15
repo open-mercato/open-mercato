@@ -209,5 +209,9 @@
   "configs.upgrades.ecommerceDraftStore.cta": "Standard-Shop erstellen",
   "configs.upgrades.ecommerceDraftStore.loading": "Standard-Shop wird erstellt…",
   "configs.upgrades.ecommerceDraftStore.message": "Version {{version}} fügt das Shop-Modul hinzu. Arbeitsbereiche, die schon vorher existierten, haben noch keinen Shop. Führen Sie dies aus, um aus dem Namen Ihrer Organisation einen Entwurfs-Shop zu erstellen, den Sie dann konfigurieren können. Existiert bereits ein Shop, passiert nichts.",
-  "configs.upgrades.ecommerceDraftStore.success": "Standard-Shop erstellt."
+  "configs.upgrades.ecommerceDraftStore.success": "Standard-Shop erstellt.",
+  "configs.upgrades.promotionsCodeReservationSweepSchedule.cta": "Schedule the code-reservation sweep",
+  "configs.upgrades.promotionsCodeReservationSweepSchedule.loading": "Scheduling the code-reservation sweep…",
+  "configs.upgrades.promotionsCodeReservationSweepSchedule.message": "Version {{version}} adds the Promotions module's code-reservation sweep. Workspaces that existed before it have no schedule for it yet. Run this to register it.",
+  "configs.upgrades.promotionsCodeReservationSweepSchedule.success": "Code-reservation sweep schedule is registered."
 }

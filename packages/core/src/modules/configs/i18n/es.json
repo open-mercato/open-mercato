@@ -209,5 +209,9 @@
   "configs.upgrades.ecommerceDraftStore.cta": "Crear la tienda predeterminada",
   "configs.upgrades.ecommerceDraftStore.loading": "Creando la tienda predeterminada…",
   "configs.upgrades.ecommerceDraftStore.message": "La versión {{version}} añade el módulo de tiendas. Los espacios de trabajo anteriores aún no tienen ninguna tienda. Ejecuta esto para crear una tienda en borrador a partir del nombre de tu organización y tener algo que configurar. No hace nada si ya existe una tienda.",
-  "configs.upgrades.ecommerceDraftStore.success": "Tienda predeterminada creada."
+  "configs.upgrades.ecommerceDraftStore.success": "Tienda predeterminada creada.",
+  "configs.upgrades.promotionsCodeReservationSweepSchedule.cta": "Schedule the code-reservation sweep",
+  "configs.upgrades.promotionsCodeReservationSweepSchedule.loading": "Scheduling the code-reservation sweep…",
+  "configs.upgrades.promotionsCodeReservationSweepSchedule.message": "Version {{version}} adds the Promotions module's code-reservation sweep. Workspaces that existed before it have no schedule for it yet. Run this to register it.",
+  "configs.upgrades.promotionsCodeReservationSweepSchedule.success": "Code-reservation sweep schedule is registered."
 }

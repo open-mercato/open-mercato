@@ -209,5 +209,9 @@
   "configs.upgrades.ecommerceDraftStore.cta": "Utwórz domyślny sklep",
   "configs.upgrades.ecommerceDraftStore.loading": "Tworzenie domyślnego sklepu…",
   "configs.upgrades.ecommerceDraftStore.message": "Wersja {{version}} dodaje moduł sklepów. Przestrzenie robocze istniejące wcześniej nie mają jeszcze żadnego sklepu. Uruchom to, aby utworzyć jeden sklep w wersji szkicu na podstawie nazwy organizacji, który możesz skonfigurować. Jeśli sklep już istnieje, nic się nie dzieje.",
-  "configs.upgrades.ecommerceDraftStore.success": "Utworzono domyślny sklep."
+  "configs.upgrades.ecommerceDraftStore.success": "Utworzono domyślny sklep.",
+  "configs.upgrades.promotionsCodeReservationSweepSchedule.cta": "Zaplanuj mechanizm porządkujący rezerwacje kodów",
+  "configs.upgrades.promotionsCodeReservationSweepSchedule.loading": "Planowanie mechanizmu porządkującego rezerwacje kodów…",
+  "configs.upgrades.promotionsCodeReservationSweepSchedule.message": "Wersja {{version}} dodaje mechanizm porządkujący rezerwacje kodów modułu promocji. Przestrzenie robocze istniejące wcześniej nie mają jeszcze żadnego harmonogramu dla niego. Uruchom to, aby go zarejestrować.",
+  "configs.upgrades.promotionsCodeReservationSweepSchedule.success": "Harmonogram mechanizmu porządkującego rezerwacje kodów został zarejestrowany."
 }

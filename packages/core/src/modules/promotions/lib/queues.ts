@@ -8,6 +8,10 @@ import { createModuleQueue, type Queue } from '@open-mercato/queue'
 
 export const PROMOTIONS_CODE_GENERATE_QUEUE = 'promotions-code-generate'
 
+// Step 6.5 — the reservation sweeper's own queue (SPEC-055 "X7" / §Implementation Plan
+// Phase 3 Step 7). Same hyphenated-name convention as the generate queue above.
+export const PROMOTIONS_CODE_RESERVATION_SWEEP_QUEUE = 'promotions-code-reservation-sweep'
+
 const queues = new Map<string, Queue<any>>()
 
 export function getPromotionsQueue<T = Record<string, unknown>>(queueName: string): Queue<T> {

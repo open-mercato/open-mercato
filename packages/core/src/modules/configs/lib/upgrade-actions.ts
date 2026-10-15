@@ -224,6 +224,21 @@ export const upgradeActions: UpgradeActionDefinition[] = [
       await registerCartSweeperSchedules(container, { tenantId, organizationId })
     },
   },
+  {
+    id: 'promotions.register-code-reservation-sweep-schedule',
+    version: '0.9.3',
+    messageKey: 'configs.upgrades.promotionsCodeReservationSweepSchedule.message',
+    ctaKey: 'configs.upgrades.promotionsCodeReservationSweepSchedule.cta',
+    successKey: 'configs.upgrades.promotionsCodeReservationSweepSchedule.success',
+    loadingKey: 'configs.upgrades.promotionsCodeReservationSweepSchedule.loading',
+    requiredModules: ['promotions'],
+    run: async ({ container, tenantId, organizationId }) => {
+      const { registerCodeReservationSweepSchedule } = await import(
+        '@open-mercato/core/modules/promotions/lib/scheduling'
+      )
+      await registerCodeReservationSweepSchedule(container, { tenantId, organizationId })
+    },
+  },
 ]
 
 export function actionsUpToVersion(version: string): UpgradeActionDefinition[] {

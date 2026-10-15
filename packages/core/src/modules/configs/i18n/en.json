@@ -209,5 +209,9 @@
   "configs.upgrades.ecommerceDraftStore.cta": "Create the default store",
   "configs.upgrades.ecommerceDraftStore.loading": "Creating the default store…",
   "configs.upgrades.ecommerceDraftStore.message": "Version {{version}} adds the Stores module. Workspaces that existed before it have no store yet. Run this to create one draft store from your organization's name so you have something to configure. It does nothing if a store already exists.",
-  "configs.upgrades.ecommerceDraftStore.success": "Default store created."
+  "configs.upgrades.ecommerceDraftStore.success": "Default store created.",
+  "configs.upgrades.promotionsCodeReservationSweepSchedule.cta": "Schedule the code-reservation sweep",
+  "configs.upgrades.promotionsCodeReservationSweepSchedule.loading": "Scheduling the code-reservation sweep…",
+  "configs.upgrades.promotionsCodeReservationSweepSchedule.message": "Version {{version}} adds the Promotions module's code-reservation sweep. Workspaces that existed before it have no schedule for it yet. Run this to register it.",
+  "configs.upgrades.promotionsCodeReservationSweepSchedule.success": "Code-reservation sweep schedule is registered."
 }

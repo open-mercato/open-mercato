@@ -209,5 +209,9 @@
   "configs.upgrades.ecommerceDraftStore.cta": "기본 스토어 만들기",
   "configs.upgrades.ecommerceDraftStore.loading": "기본 스토어를 만드는 중…",
   "configs.upgrades.ecommerceDraftStore.message": "{{version}} 버전에서 스토어 모듈이 추가됩니다. 이전부터 있던 워크스페이스에는 아직 스토어가 없습니다. 이 작업을 실행하면 조직 이름으로 초안 스토어가 하나 생성되어 바로 설정을 시작할 수 있습니다. 이미 스토어가 있으면 아무 작업도 하지 않습니다.",
-  "configs.upgrades.ecommerceDraftStore.success": "기본 스토어가 생성되었습니다."
+  "configs.upgrades.ecommerceDraftStore.success": "기본 스토어가 생성되었습니다.",
+  "configs.upgrades.promotionsCodeReservationSweepSchedule.cta": "Schedule the code-reservation sweep",
+  "configs.upgrades.promotionsCodeReservationSweepSchedule.loading": "Scheduling the code-reservation sweep…",
+  "configs.upgrades.promotionsCodeReservationSweepSchedule.message": "Version {{version}} adds the Promotions module's code-reservation sweep. Workspaces that existed before it have no schedule for it yet. Run this to register it.",
+  "configs.upgrades.promotionsCodeReservationSweepSchedule.success": "Code-reservation sweep schedule is registered."
 }
