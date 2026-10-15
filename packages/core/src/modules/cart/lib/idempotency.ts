@@ -32,7 +32,7 @@ function canonicalize(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalize).join(',')}]`
   if (typeof value === 'object') {
     const obj = value as Record<string, unknown>
-    const keys = Object.keys(obj).sort()
+    const keys = Object.keys(obj).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
     return `{${keys.map((key) => `${JSON.stringify(key)}:${canonicalize(obj[key])}`).join(',')}}`
   }
   return JSON.stringify(value)

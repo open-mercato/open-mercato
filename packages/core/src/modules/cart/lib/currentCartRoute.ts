@@ -23,9 +23,9 @@ import type { ResolveCartRouteContextOptions, ResolvedCartRouteContext } from '.
 
 /**
  * §8.1's literal resourceKind for every cart mutation's optimistic-lock AND
- * mutation-guard call: `enforceCommandOptimisticLock({ resourceKind: 'cart.cart',
- * resourceId: cart.id, current: cart.updatedAt, request: ctx.request })`. Used for
- * line-level mutations too — a `CartLine` has its own `updated_at`, but the lock
+ * mutation-guard call — the lock helper's own `resourceKind` input, paired with
+ * `resourceId: cart.id`, `current: cart.updatedAt` and `request: ctx.request`. Used
+ * for line-level mutations too — a `CartLine` has its own `updated_at`, but the lock
  * token this module's concurrency contract tracks is the CART aggregate's, per
  * §8.1's own text (which names `cart.cart` for every mutating command, not a
  * per-sub-resource kind).
