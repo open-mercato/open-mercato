@@ -380,8 +380,38 @@ opposite of the adjusting entry made in the previous period."*
         process-wide map, so a provider registered by `fx_revaluation`
         would change `autoFetch` behaviour for every consumer as a hidden
         side effect; (3) `currencies` already owns the other rate sources
-        (`NBP`, Raiffeisen). OM Core is asked once on #6190 and may
-        object; only then does the `fx_revaluation` registration apply.
+        (`NBP`, Raiffeisen). This is presented to OM Core on #6190 as the
+        proposed final design, not as a question.
+
+        **Provider contract (the format being proposed).**
+        - *Class and wiring:* `NBPTableAProvider implements RateProvider` in
+          `currencies/services/providers/nbpTableA.ts`; `name = 'NBP Table A
+          (average rates)'`, `source = 'NBP_A'`, `providerBaseCurrency =
+          'PLN'`; registered in `currencies/di.ts` next to the two bundled
+          providers. `isAvailable()` is `true` (public API), like `NBPProvider`.
+        - *Fetch:* NBP API `exchangerates/tables/a/{date}`. HTTP 404 (weekend,
+          holiday) returns `[]`; other non-2xx responses throw, as in
+          `NBPProvider`. Skips when `PLN` is not among the available
+          currencies.
+        - *Rows written:* one row per currency, **`XXX → PLN` only**, `rate =
+          mid` (PLN for one unit of `XXX`), `source = 'NBP_A'`, `type = null`.
+          No `PLN → XXX` inverse: `ExchangeRateService` looks up the exact
+          pair and Design decision 9b fixes the query direction, so an
+          inverse row would only add a rounding-lossy duplicate.
+        - *Date:* the table's `effectiveDate` as `00:00:00Z` (UTC midnight),
+          the form `ExchangeRateService.normalizeDate` and the manual-entry
+          validator use. ⚠ The existing `NBPProvider` stores Warsaw
+          midnight (`fromZonedTime`), which is not UTC midnight; whether its
+          rows are found by the exact-date lookup is not shown by any test
+          on `develop`. The implementation PR proves the `NBP_A` round trip
+          (store, then `getRate`) with a test, and reports the `NBP` result
+          to OM Core without changing `NBPProvider` in that PR.
+        - *Precision:* NBP publishes four decimals; stored in
+          `numeric(18,8)` as given, no recomputation.
+        - *Unit check (Unverified):* that NBP's JSON returns `mid` per one
+          unit for currencies the printed table quotes per 100 (JPY, HUF)
+          has not been checked against a real response here. The provider's
+          contract test must assert it before the provider is relied on.
    d. **Empty/error results.** `RateResult.rates.length === 0` after
       the service's own `maxDaysBack`/`autoFetch` fallback, or a
       populated `RateResult.error` from a batched `getRates()` call,
