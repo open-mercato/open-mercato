@@ -128,8 +128,25 @@ test.describe('TC-CART-R1-01/04/05/09: assortment-visibility enforcement on line
       expect(updateResponse.status, updateResponse.text).toBe(200);
       // Step 5.2 — the rejected line still exists, so its rejection is a lineId-attached
       // top-level warning rather than the old bare `{ outcome }` shape.
+      //
+      // Step 7.4 (§6a.2) changed this response from one warning to two, legitimately: the
+      // `PATCH` handler's own `resolveCurrentCart` call resolves a FRESH `StoreContext`
+      // whose `digest` embeds the channel's assortment-scope hash
+      // (`ecommerce/lib/buyerContext.ts`'s `computeStoreContextDigest`) — narrowing the
+      // scope just above changes that digest, so `cart.get` detects `buyer_context_changed`
+      // and dispatches `cart.reprice`, which now (since Step 7.4) runs the §6a.2 whole-cart
+      // revisibility pass and PERSISTS `flag_state = 'product_unavailable'` on this exact
+      // line before the `update` command's own, separate per-field rejection check even
+      // runs. `buildCartResponseEnvelope`'s `buildFlaggedLineWarnings` then surfaces that
+      // persisted flag on top of the route's own explicit rejection warning (`route.ts`'s
+      // own literal message, byte-identical to `buildFlaggedLineWarnings`'s) — two entries,
+      // not a duplicate bug, and exactly the whole-cart pass R1-08 requires ("a membership
+      // change mid-session... runs the same whole-cart pass without waiting for checkout").
       const rejectedBody = updateResponse.body as { warnings?: Array<{ code: string; lineId?: string }> };
-      expect(rejectedBody.warnings).toEqual([{ code: 'product_unavailable', lineId, message: expect.any(String) }]);
+      expect(rejectedBody.warnings).toEqual([
+        { code: 'product_unavailable', lineId, message: expect.any(String) },
+        { code: 'product_unavailable', lineId, message: expect.any(String) },
+      ]);
 
       const row = await readCartLineRow(lineId);
       expect(row, 'line should still exist').toBeTruthy();

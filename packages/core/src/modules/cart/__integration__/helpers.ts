@@ -22,6 +22,9 @@ import { hashCartToken } from '../lib/token';
 export const CART_CURRENT_PATH = '/api/cart/current';
 export const CART_LINES_PATH = '/api/cart/current/lines';
 export const CART_LINES_BULK_PATH = '/api/cart/current/lines/bulk';
+export const CART_MERGE_PATH = '/api/cart/current/merge';
+export const CART_UNDO_MERGE_PATH = '/api/cart/current/undo-merge';
+export const CART_PROMOTIONS_PATH = '/api/cart/current/promotions';
 export const cartLinePath = (lineId: string): string => `/api/cart/current/lines/${encodeURIComponent(lineId)}`;
 
 const DOMAIN_MAPPINGS_PATH = '/api/customer_accounts/admin/domain-mappings';
@@ -514,5 +517,65 @@ export async function countCartsForTenant(tenantId: string): Promise<number> {
 export async function deleteCartRowIfExists(cartId: string): Promise<void> {
   await withClient(async (client) => {
     await client.query(`delete from carts where id = $1`, [cartId]).catch(() => undefined);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Step 7.6 — Phase 3 release-gate reads: merge-log outcome/source-snapshot (TC-CART-R13-01)
+// and order-scope promotion applications (TC-CART-TOT-01's Phase 3 cut).
+// ---------------------------------------------------------------------------
+
+export type CartMergeLogRow = {
+  id: string;
+  sourceCartId: string;
+  targetCartId: string;
+  strategy: string;
+  sourceSnapshot: { lines?: Array<{ id?: string; productId?: string }> } & Record<string, unknown>;
+  outcome: Array<{ sourceLineId: string; targetLineId: string | null; disposition: string; reason?: string }>;
+  createdAt: string;
+};
+
+/** The most recently created `CartMergeLog` row for a given target cart — used to inspect
+ * `outcome`/`source_snapshot` directly (§6a.5's disclosure contract names both). */
+export async function readLatestCartMergeLog(targetCartId: string): Promise<CartMergeLogRow | null> {
+  return withClient(async (client) => {
+    const result = await client.query<CartMergeLogRow>(
+      `select id, source_cart_id as "sourceCartId", target_cart_id as "targetCartId", strategy,
+              source_snapshot as "sourceSnapshot", outcome, created_at as "createdAt"
+         from cart_merge_logs
+        where target_cart_id = $1
+        order by created_at desc
+        limit 1`,
+      [targetCartId],
+    );
+    return (result as unknown as { rows: CartMergeLogRow[] }).rows[0] ?? null;
+  });
+}
+
+export type CartPromotionApplicationRow = {
+  id: string;
+  promotionId: string;
+  scope: 'order' | 'line';
+  cartLineId: string | null;
+  amountNet: string | null;
+  amountGross: string | null;
+};
+
+/** Order-scope (`CART_DISCOUNT`) `CartPromotionApplication` rows for a cart — the §3.2
+ * `SalesAdjustmentDraft[]` source the cartView envelope's own `promotions: []` placeholder
+ * does not expose. */
+export async function readCartPromotionApplications(cartId: string, scope?: 'order' | 'line'): Promise<CartPromotionApplicationRow[]> {
+  return withClient(async (client) => {
+    const result = await client.query<CartPromotionApplicationRow>(
+      scope
+        ? `select id, promotion_id as "promotionId", scope, cart_line_id as "cartLineId",
+                  amount_net as "amountNet", amount_gross as "amountGross"
+             from cart_promotion_applications where cart_id = $1 and scope = $2`
+        : `select id, promotion_id as "promotionId", scope, cart_line_id as "cartLineId",
+                  amount_net as "amountNet", amount_gross as "amountGross"
+             from cart_promotion_applications where cart_id = $1`,
+      scope ? [cartId, scope] : [cartId],
+    );
+    return (result as unknown as { rows: CartPromotionApplicationRow[] }).rows;
   });
 }
