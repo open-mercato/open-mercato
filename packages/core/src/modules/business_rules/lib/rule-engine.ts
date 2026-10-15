@@ -149,6 +149,15 @@ export function resolveBusinessRuleDiscoveryCache(resolve: (token: string) => un
   }
 }
 
+export function resolveBusinessRuleRbacService(resolve: (token: string) => unknown): RbacService | undefined {
+  try {
+    const rbacService = resolve('rbacService')
+    return rbacService ? rbacService as RbacService : undefined
+  } catch {
+    return undefined
+  }
+}
+
 function getRuleDiscoveryCacheTags(options: Pick<RuleDiscoveryOptions, 'organizationId'>): string[] {
   return [
     'business_rules:discovery',
@@ -691,7 +700,8 @@ export async function findApplicableRules(
  */
 export async function executeRuleById(
   em: EntityManager,
-  context: DirectRuleExecutionContext
+  context: DirectRuleExecutionContext,
+  options: RuleEngineExecutionOptions = {}
 ): Promise<DirectRuleExecutionResult> {
   const startTime = Date.now()
 
@@ -782,7 +792,7 @@ export async function executeRuleById(
   }
 
   // Execute via existing executeSingleRule
-  const result = await executeSingleRule(em, rule, engineContext)
+  const result = await executeSingleRule(em, rule, engineContext, options)
 
   return {
     success: !result.error,
@@ -803,7 +813,8 @@ export async function executeRuleById(
  */
 export async function executeRuleByRuleId(
   em: EntityManager,
-  context: RuleIdExecutionContext
+  context: RuleIdExecutionContext,
+  options: RuleEngineExecutionOptions = {}
 ): Promise<DirectRuleExecutionResult> {
   const startTime = Date.now()
 
@@ -894,7 +905,7 @@ export async function executeRuleByRuleId(
   }
 
   // Execute via existing executeSingleRule
-  const result = await executeSingleRule(em, rule, engineContext)
+  const result = await executeSingleRule(em, rule, engineContext, options)
 
   return {
     success: !result.error,

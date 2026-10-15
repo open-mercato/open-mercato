@@ -107,6 +107,8 @@
   "business_rules.errors.openMercatoCall.apiKeyUnavailable": "Action {{index}}: selected API key profile is not available",
   "business_rules.errors.openMercatoCall.apiKeyWithoutRoles": "Action {{index}}: selected API key profile has no roles",
   "business_rules.errors.openMercatoCall.endpointUnavailable": "Action {{index}}: selected OpenMercato endpoint is not available",
+  "business_rules.errors.openMercatoCall.executionAuthorCannotGrant": "CALL_OPEN_MERCATO action refused: the rule author cannot grant every role of the API key profile",
+  "business_rules.errors.openMercatoCall.executionAuthorInactive": "CALL_OPEN_MERCATO action refused: the rule has no active author",
   "business_rules.errors.unauthorized": "You don't have permission to perform this action",
   "business_rules.errors.updateFailed": "Failed to update business rule",
   "business_rules.errors.validationFailedWithDetails": "Validation failed: {{details}}",

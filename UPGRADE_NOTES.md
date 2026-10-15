@@ -898,7 +898,7 @@ The rule's author must now be able to grant all of those roles, using the same
 - `POST` / `PUT /api/business_rules/rules` answer `400` when the saving user cannot grant every role
   of a selected profile. On `PUT` the grant check also covers stored `CALL_OPEN_MERCATO` actions that
   the payload does not replace (their endpoint and key availability are not re-validated); a request
-  that only sets `enabled: false` is not checked.
+  that sets `enabled: false` and leaves every other submitted field unchanged is not checked.
 - `PUT` now stores the saving user in `updatedBy` (it was always left empty before), so the last
   saver becomes the rule's author.
 - `GET /api/business_rules/openmercato-call-options` lists only profiles whose roles the caller can

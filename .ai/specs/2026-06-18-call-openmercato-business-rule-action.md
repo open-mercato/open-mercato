@@ -132,7 +132,7 @@ Create/update validation remains backward-compatible for existing action types. 
 - The selected endpoint and method are currently available.
 - The selected API key profile exists in the current tenant/organization scope and is not a session or one-time key.
 - The selected API key profile has at least one role.
-- The caller can grant every role of the selected profile (`assertActorCanGrantRoles`). On update, stored `CALL_OPEN_MERCATO` actions that the payload does not replace get this grant check only (a stored profile that no longer resolves, or is a session or one-time key, is not reported at save time and fails at execution); a request that sets nothing but `enabled: false` skips it.
+- The caller can grant every role of the selected profile (`assertActorCanGrantRoles`). On update, stored `CALL_OPEN_MERCATO` actions that the payload does not replace get this grant check only (a stored profile that no longer resolves, or is a session or one-time key, is not reported at save time and fails at execution); a request that sets `enabled: false` and leaves every other submitted field unchanged skips it.
 - On update, the caller is recorded in `updatedBy`.
 
 `CALL_WEBHOOK` validation remains unchanged and continues to require `config.url`.
@@ -216,7 +216,7 @@ Rejected for the initial implementation. Parameterized routes need dedicated UI 
 - Severity: High
 - Scenario: A rule author selects a profile with broader roles than intended.
 - Mitigation: Configuring this action requires `business_rules.manage` and `api_keys.create`. That permission alone is not a ceiling: `POST /api/api_keys/keys` also runs `assertActorCanGrantRoles`, so a holder of `api_keys.create` can only mint keys with roles they could grant themselves, while the one-time execution key inherits every role of the selected profile. The action therefore enforces the same grant ceiling on the rule's author:
-  - Saving a rule (`POST`/`PUT /api/business_rules/rules`) checks the saver against every role of each selected profile. On `PUT`, the grant check covers the stored `CALL_OPEN_MERCATO` actions too when the payload does not replace them (without re-validating their endpoint or key availability); only a request that sets nothing but `enabled: false` skips it.
+  - Saving a rule (`POST`/`PUT /api/business_rules/rules`) checks the saver against every role of each selected profile. On `PUT`, the grant check covers the stored `CALL_OPEN_MERCATO` actions too when the payload does not replace them (without re-validating their endpoint or key availability); only a request that sets `enabled: false` and leaves every other submitted field unchanged skips it.
   - The options route lists only profiles whose roles the caller can grant. AI-chat session keys and one-time keys (`__onetime__`, `__business_rule_…`, `__workflow_…`, `__session_…`) are never offered or accepted as profiles.
   - At execution the rule's author (`updatedBy`, else `createdBy`) must still exist (a live user of the rule's tenant, a super administrator, or a live API key of that tenant) and must still be able to grant every role of the profile; otherwise the action fails before a key is minted. A profile role that no longer resolves also fails the check.
 - Residual risk: Administrators must manage API key profiles carefully. A rule keeps working only while its last saver keeps the required grants.
@@ -245,6 +245,10 @@ Rejected for the initial implementation. Parameterized routes need dedicated UI 
 - Spec, spec directory, changelog, unit tests, and integration coverage are included.
 
 ## Changelog
+
+### 2026-10-16
+
+- Review follow-ups for the grant ceiling: the execute routes and the CRUD trigger subscriber pass their container's `rbacService` to the engine; the two execution refusals are translated instead of `[internal]`; an edit-form save that only switches the rule off counts as a disable; the rules list shows the server's refusal reason; `TC-BR-016` covers the picker, edit form and list toggle in a browser (#7362).
 
 ### 2026-10-13
 

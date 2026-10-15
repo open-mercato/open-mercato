@@ -629,6 +629,7 @@ describe('Action Executor', () => {
 
         expect(result.success).toBe(false)
         expect(result.error).toContain('cannot grant every role')
+        expect(result.error).not.toContain('[internal]')
         expect(createdApiKeys).toHaveLength(0)
         expect(mockFetch).not.toHaveBeenCalled()
         expect(mockAssertActorCanGrantRoles).toHaveBeenCalledWith(expect.objectContaining({
@@ -647,7 +648,7 @@ describe('Action Executor', () => {
         const result = await executeAction(getAction, context)
 
         expect(result.success).toBe(false)
-        expect(result.error).toContain('requires an active rule author')
+        expect(result.error).toContain('the rule has no active author')
         expect(createdApiKeys).toHaveLength(0)
         expect(mockFetch).not.toHaveBeenCalled()
       })
@@ -659,7 +660,7 @@ describe('Action Executor', () => {
         const result = await executeAction(getAction, context)
 
         expect(result.success).toBe(false)
-        expect(result.error).toContain('requires an active rule author')
+        expect(result.error).toContain('the rule has no active author')
         expect(createdApiKeys).toHaveLength(0)
         expect(mockAssertActorCanGrantRoles).not.toHaveBeenCalled()
       })

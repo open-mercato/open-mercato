@@ -126,9 +126,30 @@ function openMercatoCallValidationError(errors: string[], t: RouteTranslator): R
   )
 }
 
-function isDisableOnlyUpdate(body: Record<string, unknown>): boolean {
-  const changedKeys = Object.keys(body).filter((key) => key !== 'id' && key !== 'updatedAt')
-  return changedKeys.length === 1 && changedKeys[0] === 'enabled' && body.enabled === false
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(value ?? null, (_key, entry: unknown) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return entry
+    return Object.fromEntries(
+      Object.entries(entry as Record<string, unknown>)
+        .filter(([, nested]) => nested !== undefined)
+        .sort(([left], [right]) => left.localeCompare(right)),
+    )
+  })
+}
+
+function matchesStoredValue(next: unknown, stored: unknown): boolean {
+  if (stored instanceof Date) {
+    const nextTime = next instanceof Date ? next.getTime() : typeof next === 'string' ? Date.parse(next) : Number.NaN
+    return nextTime === stored.getTime()
+  }
+  return canonicalJson(next) === canonicalJson(stored)
+}
+
+function isDisableOnlyUpdate(data: Record<string, unknown>, rule: BusinessRule): boolean {
+  if (data.enabled !== false) return false
+  const stored = rule as unknown as Record<string, unknown>
+  return Object.entries(data).every(([key, value]) =>
+    key === 'id' || key === 'enabled' || value === undefined || matchesStoredValue(value, stored[key]))
 }
 
 async function requireOpenMercatoCallConfiguratorAccess(
@@ -401,21 +422,16 @@ export async function PUT(req: Request) {
     if (accessError) return accessError
   }
 
-  const checksStoredActions = !isDisableOnlyUpdate(body)
   const validationOptions = buildOpenMercatoCallValidationOptions(container, auth, t)
   const storedActionOptions = { ...validationOptions, grantCeilingOnly: true }
   const validationScope = { tenantId, organizationId }
-  const actionErrors = [
+  const actionErrors = isDisableOnlyUpdate(parsed.data, rule) ? [] : [
     ...(parsed.data.successActions !== undefined
       ? await validateOpenMercatoCallActions(em as EntityManager, parsed.data.successActions, validationScope, undefined, validationOptions)
-      : checksStoredActions
-        ? await validateOpenMercatoCallActions(em as EntityManager, rule.successActions, validationScope, undefined, storedActionOptions)
-        : []),
+      : await validateOpenMercatoCallActions(em as EntityManager, rule.successActions, validationScope, undefined, storedActionOptions)),
     ...(parsed.data.failureActions !== undefined
       ? await validateOpenMercatoCallActions(em as EntityManager, parsed.data.failureActions, validationScope, undefined, validationOptions)
-      : checksStoredActions
-        ? await validateOpenMercatoCallActions(em as EntityManager, rule.failureActions, validationScope, undefined, storedActionOptions)
-        : []),
+      : await validateOpenMercatoCallActions(em as EntityManager, rule.failureActions, validationScope, undefined, storedActionOptions)),
   ]
   if (actionErrors.length > 0) {
     return openMercatoCallValidationError(actionErrors, t)

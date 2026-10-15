@@ -438,6 +438,12 @@ async function resolveRbacService(): Promise<RbacService> {
   return container.resolve('rbacService') as RbacService
 }
 
+async function translatedOpenMercatoCallError(key: string, fallback: string): Promise<Error> {
+  const { resolveTranslations } = await import('@open-mercato/shared/lib/i18n/server')
+  const { t } = await resolveTranslations()
+  return new Error(t(key, fallback))
+}
+
 async function resolveActiveRuleAuthorId(
   em: PostgreSqlEntityManager,
   authorId: string | null | undefined,
@@ -522,7 +528,10 @@ async function handleCallOpenMercato(
 
   const ruleAuthorId = await resolveActiveRuleAuthorId(em, context.ruleAuthorId, tenantId)
   if (!ruleAuthorId) {
-    throw new Error('[internal] CALL_OPEN_MERCATO action requires an active rule author')
+    throw await translatedOpenMercatoCallError(
+      'business_rules.errors.openMercatoCall.executionAuthorInactive',
+      'CALL_OPEN_MERCATO action refused: the rule has no active author',
+    )
   }
   const rbacService = context.rbacService ?? await resolveRbacService()
   const authorCanUseProfile = await canActorUseOpenMercatoApiKeyProfile({
@@ -534,7 +543,10 @@ async function handleCallOpenMercato(
     apiKey: apiKeyProfile,
   })
   if (!authorCanUseProfile) {
-    throw new Error('[internal] CALL_OPEN_MERCATO action refused: the rule author cannot grant every role of the API key profile')
+    throw await translatedOpenMercatoCallError(
+      'business_rules.errors.openMercatoCall.executionAuthorCannotGrant',
+      'CALL_OPEN_MERCATO action refused: the rule author cannot grant every role of the API key profile',
+    )
   }
 
   const { withOnetimeApiKey } = await import('../../api_keys/services/apiKeyService')

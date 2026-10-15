@@ -107,6 +107,8 @@
   "business_rules.errors.openMercatoCall.apiKeyUnavailable": "작업 {{index}}: 선택한 API 키 프로필을 사용할 수 없습니다",
   "business_rules.errors.openMercatoCall.apiKeyWithoutRoles": "작업 {{index}}: 선택한 API 키 프로필에 역할이 없습니다",
   "business_rules.errors.openMercatoCall.endpointUnavailable": "작업 {{index}}: 선택한 OpenMercato 엔드포인트를 사용할 수 없습니다",
+  "business_rules.errors.openMercatoCall.executionAuthorCannotGrant": "CALL_OPEN_MERCATO 작업이 거부되었습니다: 규칙 작성자가 API 키 프로필의 모든 역할을 부여할 수 없습니다",
+  "business_rules.errors.openMercatoCall.executionAuthorInactive": "CALL_OPEN_MERCATO 작업이 거부되었습니다: 규칙에 활성 작성자가 없습니다",
   "business_rules.errors.unauthorized": "이 작업을 수행할 권한이 없습니다",
   "business_rules.errors.updateFailed": "비즈니스 규칙 업데이트에 실패했습니다",
   "business_rules.errors.validationFailedWithDetails": "유효성 검사 실패: {{details}}",

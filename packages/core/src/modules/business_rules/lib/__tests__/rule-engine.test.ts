@@ -386,6 +386,49 @@ describe('Rule Engine (Unit Tests)', () => {
       }
     })
 
+    test('forwards the caller rbacService to the actions from executeRules and executeRuleById', async () => {
+      const rbacService = { loadAcl: jest.fn() } as any
+      const rule = { ...mockRule, id: testEntityId } as BusinessRule
+      jest.mocked(ruleEvaluator.evaluateSingleRule).mockResolvedValue({
+        rule,
+        conditionsPassed: true,
+        evaluationCompleted: true,
+        evaluationTime: 1,
+      })
+      jest.mocked(actionExecutor.executeActions).mockResolvedValue(allowOutcome)
+      mockEm.find.mockResolvedValue([rule])
+      mockEm.findOne.mockResolvedValue(rule)
+
+      await ruleEngine.executeRules(mockEm, {
+        entityType: 'WorkOrder',
+        data: { status: 'RELEASED' },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        dryRun: true,
+      }, { rbacService })
+      await ruleEngine.executeRuleById(mockEm, {
+        ruleId: testEntityId,
+        data: { status: 'RELEASED' },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        dryRun: true,
+      }, { rbacService })
+
+      expect(actionExecutor.executeActions).toHaveBeenCalledTimes(2)
+      for (const [, actionContext] of jest.mocked(actionExecutor.executeActions).mock.calls) {
+        expect(actionContext.rbacService).toBe(rbacService)
+      }
+    })
+
+    test('resolveBusinessRuleRbacService returns undefined when the container cannot resolve it', () => {
+      const rbacService = { loadAcl: jest.fn() }
+      expect(ruleEngine.resolveBusinessRuleRbacService(() => rbacService)).toBe(rbacService)
+      expect(ruleEngine.resolveBusinessRuleRbacService(() => null)).toBeUndefined()
+      expect(ruleEngine.resolveBusinessRuleRbacService(() => {
+        throw new Error('not registered')
+      })).toBeUndefined()
+    })
+
     // `dryRun` only suppresses the execution LOG — the test above proves it,
     // because it passes `dryRun: true` and still expects actions to have run.
     // A caller that must produce no side effects (the workflows dry-run path,

@@ -1473,6 +1473,45 @@ describe('Business Rules API - /api/business_rules/rules', () => {
       expect(mockAssertActorCanGrantRoles).not.toHaveBeenCalled()
     })
 
+    test('PUT treats a full edit-form payload that only switches the rule off as a disable', async () => {
+      denyGrant()
+      const effectiveFrom = new Date('2026-01-01T00:00:00.000Z')
+      const rule = storedRule({
+        ruleName: 'Privileged lookup',
+        enabled: true,
+        priority: 100,
+        conditionExpression: { operator: 'AND', rules: [{ value: 'ACTIVE', operator: '=', field: 'status' }] },
+        effectiveFrom,
+      })
+      mockEm.findOne.mockImplementation(async (Entity: any) => (Entity?.name === 'ApiKey' ? privilegedKey : rule))
+      mockEm.flush.mockResolvedValue(undefined)
+      const formPayload = {
+        id: ruleId,
+        ruleId: 'RULE-OM-PRIVILEGED',
+        ruleName: 'Privileged lookup',
+        conditionExpression: { operator: 'AND', rules: [{ field: 'status', operator: '=', value: 'ACTIVE' }] },
+        successActions: [{ config: { apiKeyId: privilegedKeyId, method: 'GET', endpoint: '/api/business_rules/rules' }, type: 'CALL_OPEN_MERCATO' }],
+        failureActions: null,
+        priority: 100,
+        effectiveFrom: effectiveFrom.toISOString(),
+        enabled: false,
+      }
+
+      const disableResponse = await PUT(new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'PUT',
+        body: JSON.stringify(formPayload),
+      }))
+      expect(disableResponse.status).toBe(200)
+      expect(mockAssertActorCanGrantRoles).not.toHaveBeenCalled()
+
+      const renameResponse = await PUT(new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'PUT',
+        body: JSON.stringify({ ...formPayload, ruleName: 'Renamed while disabling' }),
+      }))
+      expect(renameResponse.status).toBe(400)
+      expect((await renameResponse.json()).error).toContain('roles you cannot grant')
+    })
+
     test('PUT only re-checks the grant ceiling of stored actions, so an unrelated edit is not blocked by a stale endpoint', async () => {
       const rule = storedRule({
         successActions: [{ ...privilegedAction, config: { ...privilegedAction.config, endpoint: '/api/removed/endpoint' } }],
