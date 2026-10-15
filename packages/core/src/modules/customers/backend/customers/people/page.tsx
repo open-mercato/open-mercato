@@ -334,7 +334,7 @@ export default function CustomersPeoplePage() {
     }
   }, [fetchDictionaryEntries, scopeVersion, reloadToken])
 
-  const { data: customFieldDefs = [] } = useCustomFieldDefs(
+  const { data: customFieldDefs = [], isLoading: customFieldDefsLoading } = useCustomFieldDefs(
     [E.customers.customer_entity, E.customers.customer_person_profile],
     { keyExtras: [scopeVersion, reloadToken] },
   )
@@ -997,7 +997,7 @@ export default function CustomersPeoplePage() {
           )}
           virtualized
           pagination={{ page, pageSize, total, totalPages, totalIsCapped, onPageChange: setPage, cacheStatus, pageSizeOptions: [10, 25, 50, 100], onPageSizeChange: handlePageSizeChange }}
-          isLoading={isLoading}
+          isLoading={isLoading || customFieldDefsLoading}
         />
         <AdvancedFilterPanel
           fields={advancedFilterFields}

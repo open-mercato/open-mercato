@@ -727,7 +727,7 @@ export default function CustomersDealsPage() {
     return succeeded.length > 0
   }, [bulkMutationContextId, confirm, retryBulkMutation, runBulkMutation, t])
 
-  const { data: customFieldDefs = [] } = useCustomFieldDefs([E.customers.customer_deal], {
+  const { data: customFieldDefs = [], isLoading: customFieldDefsLoading } = useCustomFieldDefs([E.customers.customer_deal], {
     keyExtras: [scopeVersion, reloadToken],
   })
   const currentUserId = useCurrentUserId()
@@ -1275,7 +1275,7 @@ export default function CustomersDealsPage() {
             onPageSizeChange: handlePageSizeChange,
             cacheStatus,
           }}
-          isLoading={isLoading}
+          isLoading={isLoading || customFieldDefsLoading}
           refreshButton={{
             label: t('customers.deals.list.refresh'),
             onRefresh: handleRefresh,

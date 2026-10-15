@@ -6,6 +6,8 @@ import { waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import CustomersPeoplePage from '../people/page'
 import CustomersCompaniesPage from '../companies/page'
+import CustomersDealsPage from '../deals/page'
+import type { CustomFieldDefDto } from '@open-mercato/ui/backend/utils/customFieldDefs'
 
 const apiCallMock = jest.fn()
 const replaceMock = jest.fn()
@@ -20,6 +22,8 @@ const mockT = (_key: string, fallback?: string, params?: Record<string, unknown>
 }
 let activePathname = '/backend/customers/people'
 let activeQuery = 'search=Harborview'
+let mockCustomFieldDefs: CustomFieldDefDto[] = []
+let mockCustomFieldDefsLoading = false
 
 jest.mock('next/link', () => ({
   __esModule: true,
@@ -39,6 +43,7 @@ jest.mock('@open-mercato/core/modules/customers/extension-points', () => ({
     hosts: {
       peopleTable: { tableId: 'customers.people.list' },
       companiesTable: { tableId: 'customers.companies.list' },
+      dealsTable: { tableId: 'customers.deals.list' },
     },
   },
 }))
@@ -99,6 +104,7 @@ jest.mock('#generated/entities.ids.generated', () => ({
       customer_entity: 'customers.customer_entity',
       customer_person_profile: 'customers.customer_person_profile',
       customer_company_profile: 'customers.customer_company_profile',
+      customer_deal: 'customers.customer_deal',
     },
   },
 }), { virtual: true })
@@ -110,6 +116,7 @@ jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   I18nProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   useT: () => mockT,
+  useLocale: () => 'en',
 }))
 
 jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
@@ -117,13 +124,13 @@ jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/customFieldDefs', () => ({
-  useCustomFieldDefs: () => ({ data: [] }),
+  useCustomFieldDefs: () => ({ data: mockCustomFieldDefs, isLoading: mockCustomFieldDefsLoading }),
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/customFieldColumns', () => ({
   mapCustomFieldKindToFilterType: jest.fn(() => 'text'),
   normalizeCustomFieldFilterOptions: jest.fn(() => []),
-  supportsCustomFieldColumn: jest.fn(() => false),
+  supportsCustomFieldColumn: jest.fn(() => true),
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/useAutoDiscoveredFields', () => ({
@@ -180,6 +187,30 @@ jest.mock('../../../components/detail/assignableStaff', () => ({
   mapAssignableStaffToFilterOptions: jest.fn(() => []),
 }))
 
+jest.mock('../../../lib/assignableStaff', () => ({
+  ensureCurrentUserFilterOption: (options: unknown[]) => options,
+  fetchCurrentUserName: jest.fn(async () => null),
+  fetchAssignableStaffMembers: jest.fn(async () => []),
+  mapAssignableStaffToFilterOptions: jest.fn(() => []),
+}))
+
+jest.mock('@open-mercato/ui/backend/injection/useRegisteredComponent', () => ({
+  useRegisteredComponent: (_componentId: string, fallback: React.ComponentType) => fallback,
+}))
+
+jest.mock('../deals/pipeline/components/ViewTabsRow', () => ({
+  ViewTabsRow: () => null,
+  VIEW_TABS_ROW_COMPONENT_ID: 'customers.deals.view-tabs',
+}))
+
+jest.mock('../../../components/DealsKpiStrip', () => ({
+  DealsKpiStrip: () => null,
+}))
+
+jest.mock('../deals/components/ReassignOwnerDialog', () => ({
+  ReassignOwnerDialog: () => null,
+}))
+
 jest.mock('../../../components/list/CollectionPreviewCell', () => ({
   CollectionPreviewCell: () => null,
   normalizeCollectionLabels: (values: string[]) => values.filter(Boolean),
@@ -194,6 +225,8 @@ describe('customer list URL search state', () => {
     activePathname = '/backend/customers/people'
     activeQuery = 'search=Harborview'
     dataTablePropsCapture.current = null
+    mockCustomFieldDefs = []
+    mockCustomFieldDefsLoading = false
     apiCallMock.mockReset()
     replaceMock.mockReset()
     pushMock.mockReset()
@@ -229,5 +262,39 @@ describe('customer list URL search state', () => {
     expect(new URL(requestedUrl, 'http://test').searchParams.get('search')).toBe('Harborview')
     expect(dataTablePropsCapture.current?.searchValue).toBe('Harborview')
     expect(replaceMock).not.toHaveBeenCalledWith('/backend/customers/companies', expect.anything())
+  })
+
+  it.each([
+    ['people', CustomersPeoplePage],
+    ['companies', CustomersCompaniesPage],
+    ['deals', CustomersDealsPage],
+  ] as const)('keeps the %s list loading until custom-field columns resolve', async (listName, CustomersListPage) => {
+    activePathname = `/backend/customers/${listName}`
+    activeQuery = ''
+    mockCustomFieldDefsLoading = true
+    apiCallMock.mockResolvedValue({
+      ok: true,
+      result: {
+        items: [{ id: 'customer-1', display_name: 'Customer one', title: 'Customer one' }],
+        total: 1,
+        totalPages: 1,
+      },
+      cacheStatus: null,
+    })
+    const { rerender } = renderWithProviders(<CustomersListPage />)
+
+    await waitFor(() => expect(dataTablePropsCapture.current?.data).toEqual([
+      expect.objectContaining({ id: 'customer-1' }),
+    ]))
+    expect(dataTablePropsCapture.current?.isLoading).toBe(true)
+
+    mockCustomFieldDefs = [{ key: 'priority', kind: 'text', label: 'Priority' }]
+    mockCustomFieldDefsLoading = false
+    rerender(<CustomersListPage />)
+
+    await waitFor(() => expect(dataTablePropsCapture.current?.isLoading).toBe(false))
+    expect(dataTablePropsCapture.current?.columns).toEqual(expect.arrayContaining([
+      expect.objectContaining({ accessorKey: 'cf_priority' }),
+    ]))
   })
 })
