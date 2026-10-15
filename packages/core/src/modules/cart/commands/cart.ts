@@ -1,3 +1,4 @@
+import { asValue } from 'awilix'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandBus, CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
@@ -10,12 +11,13 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import type { SalesDocumentAmounts } from '@open-mercato/core/modules/sales/lib/types'
+import type { SalesAdjustmentDraft, SalesDocumentAmounts } from '@open-mercato/core/modules/sales/lib/types'
 import { E } from '#generated/entities.ids.generated'
 import { Cart, CartLine } from '../data/entities'
 import type { CartChannel, CartKind, CartStatus, CartTaxMode } from '../data/entities'
 import { cartCreateInputSchema, type CartCreateInput as CartCreateTrustedInput } from '../data/validators'
 import { generateCartToken, hashCartToken } from '../lib/token'
+import { shouldEnforceAssortmentScope } from '../lib/routeContext'
 import type { ResolvedCartRouteContext } from '../lib/routeContext'
 import { emitCartEvent } from '../events'
 import {
@@ -23,6 +25,8 @@ import {
   buildRecomputeCartTotalsPhase,
 } from '../lib/reprice'
 import type { CartPriceChange, CartPriceChangeReason } from '../lib/reprice'
+import { buildPromotionsEffectsPhase } from '../lib/promotionContext'
+import type { CartPromotionWarning } from '../lib/promotionContext'
 import { detectCartRepriceTrigger } from '../lib/triggers'
 import type { CartRepriceTriggerReason } from '../lib/triggers'
 
@@ -538,6 +542,7 @@ function buildCartRepriceInputForTrigger(
     tenantId: cart.tenantId,
     organizationId: cart.organizationId,
     trigger: reason,
+    routeContext: freshContext,
   }
   if (reason === 'buyer_context_changed') {
     return {
@@ -576,11 +581,28 @@ export type CartRepriceInput = {
   currencyCode?: string
   /** Present only when `trigger === 'locale_changed'`. */
   locale?: string
+  /**
+   * (Step 7.1) The route-edge-resolved context, when the caller has one on hand —
+   * `cart.get`'s own trigger dispatch always supplies it (`buildCartRepriceInputForTrigger`
+   * below). Used ONLY to resolve `routeContext.assortmentScope` for the promotions phase's
+   * `ADD_FREE_ITEM` gift-line visibility check (§6a.1b/§6a.1c, mirroring `cart.lines.add`'s
+   * own per-line check) — never re-derives channel/store/buyer fields onto `cart` itself
+   * (that is `applyCartRepriceTriggerFields`'s job for trigger 2 specifically). A direct,
+   * non-trigger caller that omits this gets no assortment enforcement on a NEW gift line for
+   * this call (scope `undefined` reads as "nothing to check against", same as every other
+   * exempt-by-construction path in this module) — the whole-cart re-visibility PASS (§6a.2)
+   * is Step 7.4's job, not this one's.
+   */
+  routeContext?: ResolvedCartRouteContext
 }
 
 export type CartRepriceResult = {
   cart: CartSummary
   priceChanges: CartPriceChange[]
+  /** (Step 7.1) A gift effect this reprice could not materialize into a line — e.g. an
+   * `ADD_FREE_ITEM` effect whose product failed the buyer's assortment scope. Mirrors
+   * `priceChanges`: present only when non-empty. */
+  warnings?: CartPromotionWarning[]
 }
 
 function applyCartRepriceTriggerFields(cart: Cart, input: CartRepriceInput): void {
@@ -636,19 +658,53 @@ const repriceCartCommand: CommandHandler<CartRepriceInput, CartRepriceResult> = 
     const now = new Date()
     const changes: CartPriceChange[] = []
     const touched: CartLine[] = []
+    const adjustments: SalesAdjustmentDraft[] = []
+    const promotionWarnings: CartPromotionWarning[] = []
+    const createdGiftLines: CartLine[] = []
+    const removedGiftLines: CartLine[] = []
 
     const applyTriggerFieldsPhase = async () => {
       applyCartRepriceTriggerFields(cart, input)
     }
     const linePhases = buildCartLineRepricePhases(em, ctx.container, cart, lines, input.trigger, now, changes, touched)
-    const totalsPhase = buildRecomputeCartTotalsPhase(ctx.container, cart, lines, now, changes)
+
+    // Step 7.1 — §6/§6a: `promotionsService.evaluate()` resolves tenant/org scope from
+    // whatever is registered under the `auth` DI token on ITS OWN container
+    // (`promotions/lib/promotions-service.ts`'s `resolvePromotionsServiceScope`), the same
+    // convention that module's own HTTP routes already follow (`api/evaluate/route.ts`).
+    // `cart.reprice` is the one internal caller that mirrors it: register BEFORE resolving
+    // the service, inside the command rather than at a route edge, since this command runs
+    // from multiple entry points (`cart.get`'s internal dispatch today, `cart.lock` in a
+    // later step) and an internal caller should not have to remember to do it itself.
+    ctx.container.register({ auth: asValue({ tenantId: cart.tenantId, orgId: cart.organizationId }) })
+    const rawAssortmentScope = input.routeContext?.assortmentScope
+    const assortmentScope = shouldEnforceAssortmentScope(cart.channel, rawAssortmentScope) ? rawAssortmentScope : undefined
+    const promotionsPhase = buildPromotionsEffectsPhase({
+      em,
+      container: ctx.container,
+      cart,
+      lines,
+      assortmentScope,
+      tenantScope: scope,
+      now,
+      adjustments,
+      warnings: promotionWarnings,
+      createdGiftLines,
+      removedGiftLines,
+    })
+
+    // `lines` is mutated in place by `promotionsPhase` (gift lines pushed/removed) — the
+    // totals phase closes over the SAME array reference and filters/maps it at its own
+    // execution time (after `promotionsPhase` has already run), so it always sees the
+    // current set without a second DB round trip.
+    const totalsPhase = buildRecomputeCartTotalsPhase(ctx.container, cart, lines, now, changes, adjustments)
 
     // §3.1a: "mutates Cart/CartLine/CartPromotionApplication inside
     // withAtomicFlush(em, phases, { transaction: true, label: 'cart.<op>' })" — one
-    // transaction spanning the buyer-context field update, every line's re-price, and the
-    // final totals recompute, so a partial re-price (some lines priced, the totals pass
-    // never ran) can never persist.
-    await withAtomicFlush(em, [applyTriggerFieldsPhase, ...linePhases, totalsPhase], {
+    // transaction spanning the buyer-context field update, every line's re-price, the
+    // promotions phase, and the final totals recompute, so a partial re-price (some lines
+    // priced, the totals pass never ran) can never persist.
+    await withAtomicFlush(em, [applyTriggerFieldsPhase, ...linePhases, promotionsPhase, totalsPhase], {
       transaction: true,
       label: 'cart.reprice',
     })
@@ -678,6 +734,36 @@ const repriceCartCommand: CommandHandler<CartRepriceInput, CartRepriceResult> = 
         tenantId: line.tenantId,
       })
     }
+    for (const line of createdGiftLines) {
+      await emitCrudSideEffects({
+        dataEngine,
+        action: 'created',
+        entity: line,
+        identifiers: { id: line.id, organizationId: line.organizationId, tenantId: line.tenantId },
+        indexer: cartLineRepriceIndexer,
+      })
+      await emitCartEvent('cart.line.added', {
+        id: line.id,
+        cartId: line.cartId,
+        organizationId: line.organizationId,
+        tenantId: line.tenantId,
+      })
+    }
+    for (const line of removedGiftLines) {
+      await emitCrudSideEffects({
+        dataEngine,
+        action: 'deleted',
+        entity: line,
+        identifiers: { id: line.id, organizationId: line.organizationId, tenantId: line.tenantId },
+        indexer: cartLineRepriceIndexer,
+      })
+      await emitCartEvent('cart.line.removed', {
+        id: line.id,
+        cartId: line.cartId,
+        organizationId: line.organizationId,
+        tenantId: line.tenantId,
+      })
+    }
     if (changes.length > 0) {
       await emitCartEvent('cart.price.changed', {
         cartId: cart.id,
@@ -687,7 +773,11 @@ const repriceCartCommand: CommandHandler<CartRepriceInput, CartRepriceResult> = 
       })
     }
 
-    return { cart: toCartSummary(cart), priceChanges: changes }
+    return {
+      cart: toCartSummary(cart),
+      priceChanges: changes,
+      ...(promotionWarnings.length > 0 ? { warnings: promotionWarnings } : {}),
+    }
   },
 }
 

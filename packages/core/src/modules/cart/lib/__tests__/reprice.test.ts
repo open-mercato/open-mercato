@@ -170,6 +170,38 @@ describe('buildCartLineRepricePhases', () => {
     const phases = buildCartLineRepricePhases(em, container, cart, [], 'stale_snapshot', new Date(), [], [])
     expect(phases).toHaveLength(0)
   })
+
+  // Step 7.1 — §4.2/§6a.2: a flagged line is excluded from re-pricing; a gift (origin:
+  // 'promotion') line is excluded too, so the promotions phase's deliberate `unitPriceNet/
+  // Gross: '0'` snapshot is never silently overwritten by a real catalog price on the next
+  // re-price trigger.
+  it('excludes a flagged line and a promotion-origin (gift) line from re-pricing', async () => {
+    const cart = makeCart()
+    const pricableLine = makeLine({ id: 'line-1' })
+    const flaggedLine = makeLine({ id: 'line-2', flagState: 'product_unavailable' })
+    const giftLine = makeLine({ id: 'line-3', origin: 'promotion', promotionId: 'promo-1', unitPriceNet: '0', unitPriceGross: '0' })
+    const container = makeContainer({})
+
+    const changes: CartPriceChange[] = []
+    const touched: CartLine[] = []
+    const phases = buildCartLineRepricePhases(
+      em,
+      container,
+      cart,
+      [pricableLine, flaggedLine, giftLine],
+      'stale_snapshot',
+      new Date('2026-02-01T00:00:00.000Z'),
+      changes,
+      touched,
+    )
+
+    expect(phases).toHaveLength(1)
+    for (const phase of phases) await phase()
+
+    expect(touched).toEqual([pricableLine])
+    expect(flaggedLine.unitPriceNet).toBe('10')
+    expect(giftLine.unitPriceNet).toBe('0')
+  })
 })
 
 describe('toCartTotalsLineSnapshot', () => {
@@ -249,6 +281,40 @@ describe('buildRecomputeCartTotalsPhase', () => {
       grandTotalGrossAmount: 19.2,
     })
     expect(cart.totalsComputedAt).toBe(now)
+  })
+
+  // Step 7.1 — §4.2/§6a.2: a flagged line is excluded from totals.
+  it('excludes a flagged line from the lines sent to calculateDocumentTotals', async () => {
+    const cart = makeCart()
+    const pricableLine = makeLine({ id: 'line-1' })
+    const flaggedLine = makeLine({ id: 'line-2', flagState: 'product_unavailable' })
+    const container = makeContainer({})
+    const now = new Date('2026-02-01T00:00:00.000Z')
+
+    const phase = buildRecomputeCartTotalsPhase(container, cart, [pricableLine, flaggedLine], now, [])
+    await phase()
+
+    const callArgs = container.calculateDocumentTotals.mock.calls[0][0]
+    expect(callArgs.lines).toHaveLength(1)
+    expect(callArgs.lines[0].productId).toBe(pricableLine.productId)
+  })
+
+  // Step 7.1 — a `CART_DISCOUNT`-derived adjustment is threaded straight through.
+  it('forwards the supplied adjustments array to calculateDocumentTotals, default [] when omitted', async () => {
+    const cart = makeCart()
+    const line = makeLine()
+    const container = makeContainer({})
+    const now = new Date('2026-02-01T00:00:00.000Z')
+    const adjustments = [
+      { scope: 'order' as const, kind: 'discount', promotionId: 'promo-1', amountNet: -5, amountGross: -6, currencyCode: 'USD' },
+    ]
+
+    await buildRecomputeCartTotalsPhase(container, cart, [line], now, [], adjustments)()
+    expect(container.calculateDocumentTotals.mock.calls[0][0].adjustments).toBe(adjustments)
+
+    const omittedCallContainer = makeContainer({})
+    await buildRecomputeCartTotalsPhase(omittedCallContainer, cart, [line], now, [])()
+    expect(omittedCallContainer.calculateDocumentTotals.mock.calls[0][0].adjustments).toEqual([])
   })
 
   it('sets lastPriceChangeAt only when priceChanges is non-empty', async () => {

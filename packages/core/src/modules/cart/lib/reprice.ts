@@ -9,7 +9,7 @@ import type {
   ResolvedLinePrice,
 } from '@open-mercato/core/modules/catalog/services/catalogBuyerPricingService'
 import type { SalesCalculationService } from '@open-mercato/core/modules/sales/services/salesCalculationService'
-import type { SalesLineSnapshot } from '@open-mercato/core/modules/sales/lib/types'
+import type { SalesAdjustmentDraft, SalesLineSnapshot } from '@open-mercato/core/modules/sales/lib/types'
 import { Cart, CartLine } from '../data/entities'
 
 // Step 5.1 — the whole-cart re-pricing engine behind the `cart.reprice` command (triggers
@@ -161,7 +161,15 @@ export function buildCartLineRepricePhases(
   const salesCalculationService = container.resolve<SalesCalculationService>('salesCalculationService')
   const pricingContext = buildPricingContext(cart)
 
-  return lines.map((line) => async () => {
+  // Step 7.1 — §4.2/§6a.2: a flagged line is excluded from re-pricing (same reasoning as the
+  // totals/evaluate exclusion below — it is not for sale right now). A `promotion`-origin
+  // (gift) line is excluded too: it carries a deliberate `unitPriceNet/Gross: '0'` snapshot
+  // set by the promotions phase, never a catalog-resolved price — running it through this
+  // engine would silently overwrite "free" with whatever the underlying product's real
+  // catalog price happens to be on the very next re-price trigger.
+  const eligibleLines = lines.filter((line) => line.flagState == null && line.origin !== 'promotion')
+
+  return eligibleLines.map((line) => async () => {
     const rows = await fetchLinePriceRows(em, scope, pricingContext, line.productId, line.variantId ?? null)
     const quantity = Number(line.quantity)
     const resolved = await buyerPricingService.resolveLinePrice(em, rows, buildBuyerContext(cart, quantity, now), scope)
@@ -219,8 +227,15 @@ export function toCartTotalsLineSnapshot(line: CartLine, currencyCode: string): 
  * The final `withAtomicFlush` phase: recomputes `Cart.totals` as a REAL whole-cart
  * aggregate via `salesCalculationService.calculateDocumentTotals` (§3.2) — "the cart stores
  * the returned totals verbatim. It does not round, re-sum or adjust them" — and sets
- * `totalsComputedAt`/`lastPriceChangeAt`. `adjustments` is always `[]`: no promotion/order-
- * scoped adjustment exists yet in this worktree (Phase 3).
+ * `totalsComputedAt`/`lastPriceChangeAt`.
+ *
+ * `adjustments` (Step 7.1, default `[]` so every pre-existing caller is unaffected) carries
+ * order-scope `SalesAdjustmentDraft`s — today only `CART_DISCOUNT` effects the promotions
+ * phase collected earlier in the same `withAtomicFlush` sequence.
+ *
+ * `lines` is filtered to `flagState == null` here (not by the caller) so this is the one
+ * place that ever has to remember a flagged line is excluded from totals (§4.2/§6a.2) —
+ * mirrors `buildCartLineRepricePhases`'s own defensive filter above.
  */
 export function buildRecomputeCartTotalsPhase(
   container: { resolve: <T = unknown>(name: string) => T },
@@ -228,13 +243,15 @@ export function buildRecomputeCartTotalsPhase(
   lines: CartLine[],
   now: Date,
   changes: CartPriceChange[],
+  adjustments: SalesAdjustmentDraft[] = [],
 ): () => Promise<void> {
   return async () => {
     const salesCalculationService = container.resolve<SalesCalculationService>('salesCalculationService')
+    const pricableLines = lines.filter((line) => line.flagState == null)
     const result = await salesCalculationService.calculateDocumentTotals({
       documentKind: 'quote',
-      lines: lines.map((line) => toCartTotalsLineSnapshot(line, cart.currencyCode)),
-      adjustments: [],
+      lines: pricableLines.map((line) => toCartTotalsLineSnapshot(line, cart.currencyCode)),
+      adjustments,
       context: {
         tenantId: cart.tenantId,
         organizationId: cart.organizationId,

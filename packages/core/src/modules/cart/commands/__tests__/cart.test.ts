@@ -10,6 +10,8 @@ jest.mock('../../events', () => ({
 
 type FakeCartRow = Record<string, unknown>
 
+let seededCartPromotionApplications: FakeCartRow[] = []
+
 function matchesWhere(row: FakeCartRow, where: Record<string, unknown>): boolean {
   return Object.entries(where).every(([key, value]) => {
     if (value && typeof value === 'object' && !(value instanceof Date) && '$in' in (value as object)) {
@@ -27,7 +29,9 @@ const mockFindOneWithDecryption = jest.fn(async (_em: unknown, entity: unknown, 
 const mockFindWithDecryption = jest.fn(async (_em: unknown, entity: unknown, where: Record<string, unknown>) => {
   if (entity === CartLine) return seededCartLines.filter((row) => matchesWhere(row, where))
   if (entity === Cart) return seededCarts.filter((row) => matchesWhere(row, where))
-  // `lib/reprice.ts`'s per-line `CatalogProductPrice` row fetch is irrelevant to these
+  if (entity === CartPromotionApplication) return seededCartPromotionApplications.filter((row) => matchesWhere(row, where))
+  // `lib/reprice.ts`'s per-line `CatalogProductPrice` row fetch (and the promotions phase's
+  // own `CatalogProduct`/`CatalogProductVariant` gift-line lookups) are irrelevant to these
   // command-level tests — the `catalogBuyerPricingService.resolveLinePrice` mock these tests
   // supply ignores its `rows` argument entirely, so an empty array is harmless here.
   return []
@@ -41,7 +45,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandBus, CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { Cart, CartLine } from '../../data/entities'
+import { Cart, CartLine, CartPromotionApplication } from '../../data/entities'
 import { hashCartToken } from '../../lib/token'
 import type { ResolvedCartRouteContext } from '../../lib/routeContext'
 import { emitCartEvent as mockedEmitCartEvent } from '../../events'
@@ -87,13 +91,17 @@ function makeRouteContext(overrides: Partial<ResolvedCartRouteContext> = {}): Re
 
 function makeEm() {
   let created: FakeCartRow | null = null
+  let createCounter = 0
   const em: any = {
     fork: jest.fn(),
+    find: jest.fn(async () => []),
     create: jest.fn((_ctor: unknown, data: FakeCartRow) => {
-      created = { id: 'generated-cart-id', ...data }
+      createCounter += 1
+      created = { id: `generated-id-${createCounter}`, ...data }
       return created
     }),
     persist: jest.fn(),
+    remove: jest.fn(),
     flush: jest.fn(async () => undefined),
     // `cart.reprice` wraps its phases in `withAtomicFlush(em, phases, { transaction: true })`
     // (§3.1a) — these three are the minimal surface that code path needs on a fake
@@ -177,6 +185,10 @@ function makeFakeCommandBus(): CommandBus {
   } as unknown as CommandBus
 }
 
+function makeDefaultPromotionsService() {
+  return { evaluate: jest.fn(async () => ({ appliedPromotions: [] })) }
+}
+
 function makeCtx(opts: {
   em: unknown
   dataEngine: unknown
@@ -184,9 +196,12 @@ function makeCtx(opts: {
   catalogBuyerPricingService?: unknown
   salesCalculationService?: unknown
   commandBus?: unknown
+  promotionsService?: unknown
+  catalogScopedProductService?: unknown
   auth?: CommandRuntimeContext['auth']
   selectedOrganizationId?: string | null
 }): CommandRuntimeContext {
+  const registerCalls: unknown[] = []
   return {
     container: {
       resolve: (token: string): any => {
@@ -198,8 +213,16 @@ function makeCtx(opts: {
         }
         if (token === 'salesCalculationService') return opts.salesCalculationService ?? makeSalesCalculationService()
         if (token === 'commandBus') return opts.commandBus ?? makeFakeCommandBus()
+        // Step 7.1 — `cart.reprice` registers `auth` on its own container before resolving
+        // this (`lib/promotions-service.ts`'s `resolvePromotionsServiceScope` convention);
+        // a fake container just needs the token to resolve, never reads `auth` itself.
+        if (token === 'promotionsService') return opts.promotionsService ?? makeDefaultPromotionsService()
+        if (token === 'catalogScopedProductService') return opts.catalogScopedProductService ?? { loadScopedProducts: jest.fn(async () => new Map()) }
         throw new Error(`Unexpected DI token: ${token}`)
       },
+      register: jest.fn((...args: unknown[]) => {
+        registerCalls.push(args)
+      }),
     } as any,
     auth: opts.auth ?? null,
     selectedOrganizationId: opts.selectedOrganizationId ?? null,
@@ -486,6 +509,7 @@ describe('cart.get — §5.2 triggers 2-4 (Step 5.1)', () => {
     jest.clearAllMocks()
     seededCarts = []
     seededCartLines = []
+    seededCartPromotionApplications = []
   })
 
   function seedCartWithLine(cartOverrides: FakeCartRow = {}): FakeCartRow {
@@ -723,6 +747,7 @@ describe('cart.reprice', () => {
     jest.clearAllMocks()
     seededCarts = []
     seededCartLines = []
+    seededCartPromotionApplications = []
   })
 
   function seedCartWithLines(cartOverrides: FakeCartRow = {}, lines: FakeCartRow[] = []): FakeCartRow {
