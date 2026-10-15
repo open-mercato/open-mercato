@@ -168,12 +168,15 @@ function computeFieldDiff(
   before: Record<string, unknown>,
   after: Record<string, unknown>,
   display?: AiToolFieldDiffDisplayHints,
+  options?: { keys?: Iterable<string> },
 ): AiPendingActionFieldDiff[] {
   const diff: AiPendingActionFieldDiff[] = []
-  const keys = new Set<string>([
-    ...Object.keys(before ?? {}),
-    ...Object.keys(after ?? {}),
-  ])
+  const keys = options?.keys
+    ? new Set<string>(options.keys)
+    : new Set<string>([
+        ...Object.keys(before ?? {}),
+        ...Object.keys(after ?? {}),
+      ])
   for (const field of keys) {
     const beforeValue = before ? before[field] : undefined
     const afterValue = after ? after[field] : undefined
@@ -247,6 +250,26 @@ function matchBatchPatch(
   return {}
 }
 
+/**
+ * When a tool's `loadBeforeRecord(s)` resolver does not project an explicit
+ * `after`, the patch is derived from the raw tool-call args
+ * (`extractPatchFromArgs` / `matchBatchPatch`), which may carry envelope
+ * fields (e.g. `productId`) the resolver's `before` snapshot never declared,
+ * and never carries keys for snapshot fields the call left untouched. A
+ * resolver-projected `after` is a deliberate, already-scoped comparison
+ * target, so its key set is trusted as-is; only the args-derived fallback
+ * needs this filter to avoid reporting untouched fields as "cleared" and
+ * leaking envelope keys into the diff (issue #7349).
+ */
+function fallbackPatchDiffKeys(
+  patch: Record<string, unknown>,
+  before: Record<string, unknown>,
+): string[] {
+  return Object.keys(patch ?? {}).filter((key) =>
+    Object.prototype.hasOwnProperty.call(before ?? {}, key),
+  )
+}
+
 function normalizeAttachmentIds(args: Record<string, unknown>): string[] {
   const raw = args?.attachmentIds
   if (!Array.isArray(raw)) return []
@@ -289,8 +312,14 @@ async function buildSingleRecordDiff(
       sideEffectsSummary: null,
     }
   }
+  const hasExplicitAfter = before.after != null
   const patch = before.after ?? extractPatchFromArgs(input.toolCallArgs)
-  const fieldDiff = computeFieldDiff(before.before, patch, before.display)
+  const fieldDiff = computeFieldDiff(
+    before.before,
+    patch,
+    before.display,
+    hasExplicitAfter ? undefined : { keys: fallbackPatchDiffKeys(patch, before.before) },
+  )
   return {
     fieldDiff,
     targetEntityType: before.entityType,
@@ -331,12 +360,18 @@ async function buildBatchRecords(
     }
   }
   const diffs: AiPendingActionRecordDiff[] = rows.map((row) => {
+    const hasExplicitAfter = row.after != null
     const patch = row.after ?? matchBatchPatch(input.toolCallArgs, row.recordId)
     return {
       recordId: row.recordId,
       entityType: row.entityType,
       label: row.label,
-      fieldDiff: computeFieldDiff(row.before, patch, row.display),
+      fieldDiff: computeFieldDiff(
+        row.before,
+        patch,
+        row.display,
+        hasExplicitAfter ? undefined : { keys: fallbackPatchDiffKeys(patch, row.before) },
+      ),
       recordVersion: row.recordVersion ?? null,
     }
   })
