@@ -75,6 +75,55 @@ describe('seedSupportTicketCategories', () => {
       'billing',
     ])
   })
+
+  it('reports whether this call seeded the dictionary', async () => {
+    const { em } = makeEm()
+    await expect(seedSupportTicketCategories(em, SCOPE)).resolves.toBe(true)
+    await expect(seedSupportTicketCategories(em, SCOPE)).resolves.toBe(false)
+  })
+
+  it('never re-adds a default category an admin deleted', async () => {
+    const { em, table } = makeEm()
+    await seedSupportTicketCategories(em, SCOPE)
+    const entries = table('DictionaryEntry')
+    entries.splice(entries.findIndex((entry) => entry.value === 'billing'), 1)
+
+    await seedSupportTicketCategories(em, SCOPE)
+
+    expect(table('DictionaryEntry').map((entry) => entry.value)).not.toContain('billing')
+    expect(table('DictionaryEntry')).toHaveLength(3)
+  })
+
+  it('leaves an emptied dictionary empty', async () => {
+    const { em, table } = makeEm()
+    await seedSupportTicketCategories(em, SCOPE)
+    table('DictionaryEntry').length = 0
+
+    await seedSupportTicketCategories(em, SCOPE)
+
+    expect(table('DictionaryEntry')).toHaveLength(0)
+  })
+
+  it('does not seed next to a soft-deleted dictionary', async () => {
+    const { em, table } = makeEm()
+    table('Dictionary').push({ id: 'old', ...SCOPE, key: 'staff.support_ticket_category', deletedAt: new Date() })
+
+    await expect(seedSupportTicketCategories(em, SCOPE)).resolves.toBe(false)
+
+    expect(table('Dictionary')).toHaveLength(1)
+    expect(table('DictionaryEntry')).toHaveLength(0)
+  })
+
+  it('treats a lost creation race as already seeded', async () => {
+    const { em, table } = makeEm({
+      beforeFlush: (pending) => {
+        if (pending.some((entry) => entry.table === 'Dictionary')) throw new FakeUniqueViolation('duplicate key')
+      },
+    })
+
+    await expect(seedSupportTicketCategories(em, SCOPE)).resolves.toBe(false)
+    expect(table('DictionaryEntry')).toHaveLength(0)
+  })
 })
 
 describe('ensureFallbackProjectAndRule', () => {
