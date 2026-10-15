@@ -233,7 +233,7 @@ Imported media go through the same checks as files uploaded in the admin panel:
 - Every stored file counts toward the tenant storage quota, `OM_ATTACHMENT_TENANT_QUOTA_MB` (default 512 MB).
 - Files are stored with the storage driver configured for the attachment partition.
 
-The product is still imported without a rejected file, and a warning with code `sync_akeneo.media_rejected` is written to the integration log. When the tenant quota is full, the product's import fails and is listed in the sync run. Free up space or raise the quota, then run a full sync to import it again.
+The product is still imported without a rejected file, and a warning with code `sync_akeneo.media_rejected` is written to the integration log. The warning is linked to the product, not to a sync run, so filter the integration log by that code to find it. When the tenant quota is full, the product's import fails and is listed in the sync run. Free up space or raise the quota, then run a full sync to import it again.
 
 Every request to Akeneo, including reading the response body, must finish within `OM_INTEGRATION_AKENEO_REQUEST_TIMEOUT_MS` (default 30 000 ms). Raise it if large media downloads time out on a slow link. JSON responses larger than `OM_INTEGRATION_AKENEO_MAX_RESPONSE_BYTES` (default 32 MiB) fail the request.
 

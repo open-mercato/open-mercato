@@ -6,6 +6,7 @@ import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib
 import { emitCrudSideEffects, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { DataMapping } from '@open-mercato/core/modules/data_sync/lib/adapter'
 import type { ExternalIdMappingService } from '@open-mercato/core/modules/data_sync/lib/id-mapping'
 import { SyncExternalIdMapping } from '@open-mercato/core/modules/integrations/data/entities'
@@ -25,7 +26,7 @@ import { normalizeEntityFieldsetConfig, type CustomFieldsetDefinition } from '@o
 import { invalidateDefinitionsCache } from '@open-mercato/core/modules/entities/api/definitions.cache'
 import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
 import { buildAttachmentFileUrl, buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
-import type { StorageDriverFactory } from '@open-mercato/core/modules/attachments/lib/drivers'
+import type { AttachmentService } from '@open-mercato/core/modules/attachments/lib/attachment-service'
 import {
   isScopedAttachmentUploadError,
   type ScopedAttachmentUploadErrorCode,
@@ -2382,13 +2383,25 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     return attachment.id
   }
 
-  async function deleteStoredMediaFile(attachment: Attachment): Promise<void> {
-    const storageDriverFactory = container.resolve('storageDriverFactory') as StorageDriverFactory
-    const partitionDriver = await storageDriverFactory.resolveForPartition(attachment.partitionCode, scope)
-    const driver = partitionDriver.key === attachment.storageDriver
-      ? partitionDriver
-      : storageDriverFactory.resolveForAttachment(attachment.storageDriver)
-    await driver.delete(attachment.partitionCode, attachment.storagePath)
+  async function releaseImportedAttachment(attachment: Attachment): Promise<boolean> {
+    const attachmentService = container.resolve('attachmentService') as AttachmentService
+    if (!attachmentService.releaseScoped) {
+      throw new Error('[internal] attachmentService.releaseScoped is not available')
+    }
+    try {
+      await attachmentService.releaseScoped({
+        attachmentId: attachment.id,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        expectedOwner: { entityId: attachment.entityId, recordId: attachment.recordId },
+        expectedAssignment: { type: attachment.entityId, id: attachment.recordId },
+        expectedPartitionCode: attachment.partitionCode,
+      })
+      return true
+    } catch (error) {
+      if (isCrudHttpError(error) && error.status === 409) return false
+      throw error
+    }
   }
 
   async function reconcileAttachments(params: {
@@ -2420,8 +2433,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         ? params.reconciliation.deleteMissingMedia
         : params.reconciliation.deleteMissingAttachments
       if (!shouldDelete || desiredExternalIds.has(externalId)) continue
-      await deleteStoredMediaFile(attachment)
-      await em.remove(attachment).flush()
+      if (!(await releaseImportedAttachment(attachment))) continue
       await emitAttachmentCrudChange('deleted', attachment)
     }
 

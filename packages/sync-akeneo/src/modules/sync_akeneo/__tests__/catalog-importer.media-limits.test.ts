@@ -1,5 +1,6 @@
 import { CatalogProduct, CatalogProductVariant } from '@open-mercato/core/modules/catalog/data/entities'
 import { ScopedAttachmentUploadError } from '@open-mercato/core/modules/attachments/lib/scoped-upload-service'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createAkeneoImporter } from '../lib/catalog-importer'
 import { buildDefaultAkeneoMapping, type AkeneoDataMapping, type AkeneoProduct } from '../lib/shared'
 
@@ -145,16 +146,11 @@ function createMediaWorld(download: (code: string) => Promise<MediaBinary>) {
   }
 
   const integrationLogService = { write: jest.fn(async () => ({})) }
-  const partitionDriver = { key: 's3', delete: jest.fn(async () => undefined) }
-  const localDriver = { key: 'local', delete: jest.fn(async () => undefined) }
-  const storageDriverFactory = {
-    resolveForPartition: jest.fn(async () => partitionDriver),
-    resolveForAttachment: jest.fn((key: string) => (key === 'local' ? localDriver : partitionDriver)),
-  }
+  const attachmentService = { releaseScoped: jest.fn(async () => undefined) }
 
   mockContainerResolve.mockImplementation((key: string) => {
     if (key === 'integrationLogService') return integrationLogService
-    if (key === 'storageDriverFactory') return storageDriverFactory
+    if (key === 'attachmentService') return attachmentService
     if (key === 'em') return em
     if (key === 'commandBus') return commandBus
     if (key === 'dataEngine') return { flushOrmEntityChanges: jest.fn(async () => undefined) }
@@ -204,9 +200,7 @@ function createMediaWorld(download: (code: string) => Promise<MediaBinary>) {
     em,
     flushedSnapshots,
     integrationLogService,
-    storageDriverFactory,
-    partitionDriver,
-    localDriver,
+    attachmentService,
     removed,
   }
 }
@@ -367,24 +361,21 @@ describe('akeneo importer media storage (issue #7233)', () => {
     },
   )
 
-  it('deletes a no-longer-desired media file through the storage driver it was stored with', async () => {
+  it('releases no-longer-desired media through the attachment service and keeps media other records still use', async () => {
     const world = createMediaWorld(async (code) => pngBinary(code, 4))
-    mockFindWithDecryption.mockImplementation(async () => [
-      {
-        id: 'stale-s3',
-        partitionCode: 'productsMedia',
-        storagePath: 'org/tenant/stale-s3.png',
-        storageDriver: 's3',
-        storageMetadata: { externalId: 'stale-s3', kind: 'image' },
-      },
-      {
-        id: 'stale-local',
-        partitionCode: 'productsMedia',
-        storagePath: 'org/tenant/stale-local.png',
-        storageDriver: 'local',
-        storageMetadata: { externalId: 'stale-local', kind: 'image' },
-      },
-    ])
+    const staleRows = ['stale-1', 'stale-shared'].map((id) => ({
+      id,
+      entityId: 'catalog:catalog_product',
+      recordId: 'product-1',
+      partitionCode: 'productsMedia',
+      storagePath: `org/tenant/${id}.png`,
+      storageDriver: 's3',
+      storageMetadata: { externalId: id, kind: 'image' },
+    }))
+    mockFindWithDecryption.mockImplementation(async () => staleRows)
+    world.attachmentService.releaseScoped
+      .mockImplementationOnce(async () => undefined)
+      .mockImplementationOnce(async () => { throw new CrudHttpError(409, { error: 'Attachment is still referenced by another record' }) })
     const importer = await createAkeneoImporter(world.client as never, scope)
     const mapping = buildMediaMapping()
     const products = mapping.settings?.products
@@ -393,10 +384,21 @@ describe('akeneo importer media storage (issue #7233)', () => {
 
     await importer.upsertProduct(buildProductWithMedia(['asset-1']), mapping)
 
-    expect(world.storageDriverFactory.resolveForPartition).toHaveBeenCalledWith('productsMedia', scope)
-    expect(world.partitionDriver.delete).toHaveBeenCalledWith('productsMedia', 'org/tenant/stale-s3.png')
-    expect(world.localDriver.delete).toHaveBeenCalledWith('productsMedia', 'org/tenant/stale-local.png')
-    expect(world.removed.map((row) => row.id)).toEqual(['stale-s3', 'stale-local'])
+    expect(world.attachmentService.releaseScoped).toHaveBeenCalledTimes(2)
+    expect(world.attachmentService.releaseScoped).toHaveBeenNthCalledWith(1, {
+      attachmentId: 'stale-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      expectedOwner: { entityId: 'catalog:catalog_product', recordId: 'product-1' },
+      expectedAssignment: { type: 'catalog:catalog_product', id: 'product-1' },
+      expectedPartitionCode: 'productsMedia',
+    })
+    const deletedIds = mockEmitCrudSideEffects.mock.calls
+      .map(([args]) => args as { action: string; entity: { id?: string } })
+      .filter((args) => args.action === 'deleted')
+      .map((args) => args.entity.id)
+    expect(deletedIds).toEqual(['stale-1'])
+    expect(world.removed).toEqual([])
     expect(mockStorePartitionFile).not.toHaveBeenCalled()
   })
 

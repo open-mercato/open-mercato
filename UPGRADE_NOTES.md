@@ -898,7 +898,7 @@ quota. Now:
 - Media go through the shared attachment upload path. A file above `OM_ATTACHMENT_MAX_UPLOAD_MB`
   (default 25 MB) stops downloading at the limit. SVG/HTML/XML (active content) and executables are
   rejected. All three are skipped: the product imports without the file and a `warn` integration log
-  entry with code `sync_akeneo.media_rejected` is written.
+  entry with code `sync_akeneo.media_rejected` is written (linked to the product, not to a sync run).
 - Imported media reserve and count against `OM_ATTACHMENT_TENANT_QUOTA_MB` (default 512 MB). When
   the quota is full, the product's import fails and is listed in the sync run.
 - Media are stored with the partition's configured storage driver (no longer always `local`), with a
@@ -909,6 +909,8 @@ quota. Now:
 - JSON and OAuth token responses above the new `OM_INTEGRATION_AKENEO_MAX_RESPONSE_BYTES` (default
   32 MiB) fail the request with `AkeneoResponseTooLargeError`. Error bodies quoted in thrown
   messages are truncated to 64 KiB.
+- Removing media that Akeneo no longer lists now goes through `attachmentService.releaseScoped()`: the
+  row is deleted before the stored bytes, and media another record still uses are kept.
 - `downloadMediaFile()` returns `contentLength` as the number of bytes received, not the remote
   `Content-Length` header.
 

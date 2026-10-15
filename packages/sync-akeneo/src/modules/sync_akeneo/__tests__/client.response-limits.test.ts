@@ -86,9 +86,12 @@ function createClientServing(routes: Record<string, () => Response>) {
   return { client, fetchMock }
 }
 
-async function settleWithin<T>(promise: Promise<T>, ms: number): Promise<'resolved' | 'rejected' | 'still-reading'> {
+async function settleWithin<T>(promise: Promise<T>, ms: number): Promise<'resolved' | 'timed-out' | 'rejected' | 'still-reading'> {
   return Promise.race([
-    promise.then(() => 'resolved' as const, () => 'rejected' as const),
+    promise.then(
+      () => 'resolved' as const,
+      (error: unknown) => (error instanceof Error && error.name === 'FetchTimeoutError' ? 'timed-out' as const : 'rejected' as const),
+    ),
     new Promise<'still-reading'>((resolve) => setTimeout(() => resolve('still-reading'), ms).unref()),
   ])
 }
@@ -191,7 +194,7 @@ describe('akeneo client response limits (issues #7233, #7242)', () => {
         [DOWNLOAD_PATH]: () => new Response(stalledBody(), { status: 200, headers: { 'content-type': 'image/png' } }),
       })
 
-      await expect(settleWithin(client.downloadMediaFile(DOWNLOAD_URL), 1_500)).resolves.toBe('rejected')
+      await expect(settleWithin(client.downloadMediaFile(DOWNLOAD_URL), 1_500)).resolves.toBe('timed-out')
     })
   })
 
@@ -285,7 +288,7 @@ describe('akeneo client response limits (issues #7233, #7242)', () => {
         1_500,
       )
 
-      expect(outcome).toBe('rejected')
+      expect(outcome).toBe('timed-out')
     })
 
     it('keeps the request deadline running while the OAuth token body drips', async () => {
@@ -302,7 +305,7 @@ describe('akeneo client response limits (issues #7233, #7242)', () => {
         1_500,
       )
 
-      expect(outcome).toBe('rejected')
+      expect(outcome).toBe('timed-out')
     })
 
     it('truncates a huge error body instead of buffering all of it', async () => {
