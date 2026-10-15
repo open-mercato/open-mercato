@@ -543,7 +543,12 @@ not as a confirmed absence.
   the creating command rejects rather than silently defaulting if no
   rate is resolvable when `currencyId` differs from the tenant's base
   currency — see the Multi-Currency spec,
-  `.ai/specs/2026-09-17-multi-currency.md`, Design decision 2),
+  `.ai/specs/2026-09-17-multi-currency.md`, Design decision 2.
+  **Update (2026-10-15):** `exchangeRate` stays `null` on invoices that
+  predate the feature and is set once, after the invoice has posted, only
+  through `backfillVendorInvoiceExchangeRate` (see Commands); once set,
+  `currencyId`, `invoiceDate` and `exchangeRate` are frozen together
+  with the invoice — Multi-Currency Design decision 15),
   `status` (`DRAFT`/`PENDING_APPROVAL`/`APPROVED`/`REJECTED`/`POSTED`/
   `CANCELLED`), `goodsReceiptReference` (nullable `uuid`, FK-id →
   `wms.InventoryMovement.id` where `type = 'receipt'`, no ORM relation
@@ -581,7 +586,8 @@ export const features = [
 ]
 ```
 
-`createVendorInvoice`/`updateVendorInvoice`/`submitVendorInvoiceForApproval`
+`createVendorInvoice`/`updateVendorInvoice`/`submitVendorInvoiceForApproval`/
+`backfillVendorInvoiceExchangeRate`
 require `accounts_payable.invoices.manage`; `postVendorInvoice`
 requires `accounts_payable.invoices.post` (separate from `.manage` —
 mirroring `ledger.accounts.manage` vs `ledger.entries.post`: editing a
@@ -732,7 +738,24 @@ async seedDefaults({ em, tenantId, organizationId }) {
   same `vendorId` and the same normalized `invoiceNumber` (see Data
   Models) with `409 DUPLICATE_VENDOR_INVOICE`; the response carries the
   id of the existing invoice so the caller (a person or another module)
-  can open it instead of retrying.
+  can open it instead of retrying. **Added 2026-10-15 (Multi-Currency
+  Design decision 15):** while the invoice is `DRAFT`, a change to
+  `currencyId` or `invoiceDate` re-resolves `exchangeRate` with the same
+  rule as creation (`ExchangeRateService` against `invoiceDate`, source
+  priority per that spec's Design decision 9); the invoice is not booked
+  yet, so the rate cannot diverge from the dates.
+- `backfillVendorInvoiceExchangeRate` — **added 2026-10-15.** Sets
+  `exchangeRate` on an existing invoice whose rate is `null` (a document
+  that predates Multi-Currency). Input `{ id }`; resolves the rate with the
+  same rule as creation, against the invoice's own `invoiceDate`; returns
+  `{ exchangeRate, rateSource, rateDate }`. **409
+  `EXCHANGE_RATE_ALREADY_SET`** when the rate is not `null` (the one
+  allowed transition is `null` → value; nothing else changes a posted
+  invoice's `currencyId`, `invoiceDate` or `exchangeRate`), **422
+  `EXCHANGE_RATE_UNAVAILABLE`** when no rate is resolvable. Runs on this
+  module's own command pipeline (audit/undo, events, optimistic lock) —
+  `fx_revaluation` never writes `VendorInvoice`. Requires
+  `accounts_payable.invoices.manage`.
 - `submitVendorInvoiceForApproval` — `DRAFT` → `PENDING_APPROVAL`.
   Emits `accounts_payable.vendor_invoice.submitted` (persistent) — the
   only way to start the approval workflow, see Workflow definition.
@@ -1124,6 +1147,19 @@ Custom write route (mapped to `update`).
   implementation time, not resolved by this spec on its own).
 - **Response 403**: caller lacks `accounts_payable.invoices.post`.
 
+### `POST /api/accounts_payable/invoices/:id/exchange-rate/backfill`
+
+Custom write route wired through the mutation guard registry (mapped to
+`update`). Added 2026-10-15 (Multi-Currency Design decision 15).
+
+- **Request body**: `{}`.
+- **Response 200**: `{ exchangeRate, rateSource, rateDate }`.
+- **Response 404**: the invoice is not in the caller's scope.
+- **Response 409 `EXCHANGE_RATE_ALREADY_SET`**: `exchangeRate` is not `null`.
+- **Response 422 `EXCHANGE_RATE_UNAVAILABLE`**: no rate resolvable for
+  `currencyId` at `invoiceDate`.
+- **Response 403**: caller lacks `accounts_payable.invoices.manage`.
+
 ## Migration & Deployment
 
 New, additive tables: `accounts_payable_vendor_invoices`,
@@ -1201,7 +1237,7 @@ report and resolve pre-existing duplicates.
 | `commands/vendorInvoices.ts` | Create | `createVendorInvoice`, `updateVendorInvoice`, `submitVendorInvoiceForApproval`, `applyVendorInvoiceApprovalDecision`, `postVendorInvoice`, `cancelVendorInvoice` |
 | `api/openapi.ts` | Create | `openApi` exports for every `accounts_payable` route |
 | `api/invoices/route.ts` | Create | `VendorInvoice` CRUD (`makeCrudRoute`), including the `beforeDelete`-guarded `DELETE` |
-| `api/invoices/[id]/submit/route.ts`, `.../post/route.ts` | Create | Custom guarded write routes |
+| `api/invoices/[id]/submit/route.ts`, `.../post/route.ts`, `.../exchange-rate/backfill/route.ts` | Create | Custom guarded write routes (the backfill route added 2026-10-15) |
 | `backend/accounts_payable/invoices/page.tsx` (+ create/[id]) | Create | Vendor invoice list/create/edit UI |
 | `backend/config/accounts_payable/page.tsx` | Create | `liabilityAccountId`/`vatInputAccountId` config UI |
 | `commands/__tests__/*` | Create | Regression coverage for all commands above |
@@ -1244,6 +1280,12 @@ report and resolve pre-existing duplicates.
   the same number for a different vendor succeeds; after the first
   invoice is `CANCELLED`, the same number succeeds again; editing a
   draft so it collides returns the same 409.
+- Exchange-rate backfill (added 2026-10-15): on a posted foreign-currency
+  invoice with `exchangeRate = null`, the backfill command sets it from
+  `invoiceDate` and returns the source and date; a second call returns
+  409 `EXCHANGE_RATE_ALREADY_SET`; with no rate available it returns 422
+  `EXCHANGE_RATE_UNAVAILABLE`. Editing the `invoiceDate` or `currencyId`
+  of a draft re-resolves the rate.
 
 ## Risks & Impact Review
 
@@ -1869,3 +1911,14 @@ changes what `postVendorInvoice` sends downstream.
   in-process way to read `VendorInvoice`. Added a proposed read-only DI
   service `vendorInvoiceReadService.listPostedForPeriod` to Cross-module
   integration and Phase 2; shape marked for confirmation.
+
+### 2026-10-15 (Multi-Currency alignment: exchange-rate backfill)
+
+- Added `backfillVendorInvoiceExchangeRate` (command, route
+  `POST /api/accounts_payable/invoices/:id/exchange-rate/backfill`, test),
+  the draft-edit re-resolution of `exchangeRate`, and the rule that
+  `currencyId`, `invoiceDate` and `exchangeRate` are frozen once the invoice
+  posts, with `null` → value through the backfill as the only transition.
+  Source: Multi-Currency (#6190) Design decision 15, which moved this command
+  out of `fx_revaluation` so that the owning module's pipeline writes its own
+  entity. Not yet reviewed by a maintainer.
