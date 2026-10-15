@@ -2600,3 +2600,51 @@ implementation branches; nothing here is a decision, only findings.
   helper (`isNonZeroAmount`, string-based, valid only for the ledger's plain
   non-negative decimal strings); if a shared decimal helper for money lands,
   it should replace this.
+
+### 2026-10-15 (cont. — Deferred Revenue #6193: `sales` correction links checked, review round)
+
+Review of the Deferred Revenue spec (#6193) found that its correction guard
+keyed on a link that does not exist. Checked against `sales`' entities on
+`develop` (2026-10-13); nothing here is a decision, only findings.
+
+- **No `sales` row references `SalesInvoiceLine.id`.** `SalesCreditMemo` links to
+  the invoice header (`invoice_id`, nullable) and the order (`order_id`,
+  nullable). `SalesCreditMemoLine` links to `order_line_id` (nullable);
+  `SalesReturn` links only to the order and `SalesReturnLine` to
+  `order_line_id`. `SalesInvoiceLine.order_line_id` is itself nullable. A
+  consumer that wants to know "has this invoice line been corrected" can
+  therefore match only on the invoice header (credit memos) or on the order
+  line (credit-memo and return lines), and cannot see a return against a line
+  whose `order_line_id` is null. Any future module reading corrections hits the
+  same limit; AR (`sales_invoice_gl_posting`) is the likelier place for a direct
+  link.
+- **Entities carry `deleted_at`** (`SalesInvoice`, `SalesCreditMemo`,
+  `SalesReturn`, `SalesReturnLine`) and a `status`; the Deferred Revenue guard
+  treats any non-deleted row as a correction, whatever its status — the
+  conservative reading.
+- **Invoice date used by AR:** `sales_invoice_gl_posting` posts with
+  `operationDate: invoice.issueDate`; Deferred Revenue's reclassification now
+  uses the same date so it moves revenue out of income in the period that
+  booked it.
+- **Reversal date rule (#5663):** a reversal's `operationDate` may not be
+  earlier than the entry it reverses; `cancelRevenueDeferral` reverses on the
+  cancel date.
+- **Decided by the spec author, 2026-10-15:** a locked invoice period no longer
+  rejects the reclassification: the entry is dated today as a correcting entry
+  (409 `FISCAL_PERIOD_LOCKED` only if today's period is locked too). Recovery
+  from a wrong deferral is a `cancelRevenueDeferral` command (reverses the
+  reclassification, keeps the audit trail), not a manual reversal.
+  Accountant confirmation of the correcting-entry treatment is still wanted.
+- **Prior art for "what to do with a schedule when the invoice is credited"
+  (checked 2026-10-15, documentation only, not source):** ERPNext's deferred
+  revenue/credit-note pages and Odoo 17's deferred-revenues page describe no
+  automatic freezing or adjustment of an existing schedule on a credit note;
+  the correction is left to the accountant. Odoo reclassifies on the invoice
+  date. Neither settles whether the schedule should be frozen, so this is not
+  decisive for Design decision 14.
+- **Literature: Unverified.** Kieso's revenue-recognition chapter is not
+  available in the session (needs the PDF); nothing is cited from memory.
+- **Open, not decided:** Design decision 14 (freeze vs warn vs release
+  command after a detected correction) pending the literature check and the
+  domain expert; who owns the business decision behind "recognize
+  immediately, no refund" (DD6).
