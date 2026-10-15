@@ -35,6 +35,7 @@ export const TASK_ALREADY_CLAIMED_CODE = 'task_already_claimed'
 export const TASK_NOT_CLAIMABLE_CODE = 'task_not_claimable'
 export const TASK_NOT_ASSIGNER_CODE = 'task_not_assigner'
 export const TASK_NOT_ASSIGNEE_CODE = 'task_not_assignee'
+export const TASK_ASSIGNMENT_CHANGED_CODE = 'task_assignment_changed'
 
 const assignmentInputSchema = z.object({ id: z.string().uuid() })
 
@@ -63,6 +64,29 @@ function notFound(translate: Translate): CrudHttpError {
   return new CrudHttpError(404, {
     error: translate('staff.time_tracking.tasks.errors.notFound', 'Task not found or not accessible.'),
   })
+}
+
+function notClaimable(translate: Translate): CrudHttpError {
+  return new CrudHttpError(422, {
+    code: TASK_NOT_CLAIMABLE_CODE,
+    error: translate('staff.timesheets.errors.taskNotClaimable', 'A finished task cannot be claimed.'),
+  })
+}
+
+function alreadyClaimed(translate: Translate): CrudHttpError {
+  return new CrudHttpError(409, {
+    code: TASK_ALREADY_CLAIMED_CODE,
+    error: translate('staff.timesheets.errors.taskAlreadyClaimed', 'Someone else already took this task.'),
+  })
+}
+
+async function loadDoneStatusIds(em: EntityManager, task: StaffTimeTask): Promise<string[]> {
+  const statuses = await em.find(
+    StaffTimeTaskStatus,
+    { timeProjectId: task.timeProjectId, tenantId: task.tenantId, organizationId: task.organizationId, isDone: true },
+    { fields: ['id'] },
+  )
+  return statuses.map((status) => status.id)
 }
 
 async function resolveActorStaffMemberId(em: EntityManager, ctx: CommandRuntimeContext, task: StaffTimeTask): Promise<string | null> {
@@ -157,35 +181,29 @@ const claimTaskCommand: CommandHandler<StaffTimeTaskAssignmentInput, StaffTimeTa
       })
     }
 
-    const status = await em.findOne(
-      StaffTimeTaskStatus,
-      { id: task.taskStatusId, tenantId: task.tenantId, organizationId: task.organizationId },
-      { fields: ['id', 'isDone'] },
-    )
-    if (status?.isDone) {
-      throw new CrudHttpError(422, {
-        code: TASK_NOT_CLAIMABLE_CODE,
-        error: translate('staff.timesheets.errors.taskNotClaimable', 'A finished task cannot be claimed.'),
-      })
-    }
-    if (task.assigneeStaffMemberId) {
-      throw new CrudHttpError(409, {
-        code: TASK_ALREADY_CLAIMED_CODE,
-        error: translate('staff.timesheets.errors.taskAlreadyClaimed', 'Someone else already took this task.'),
-      })
-    }
+    const doneStatusIds = await loadDoneStatusIds(em, task)
+    if (doneStatusIds.includes(task.taskStatusId)) throw notClaimable(translate)
+    if (task.assigneeStaffMemberId) throw alreadyClaimed(translate)
 
     const now = new Date()
     const affected = await em.nativeUpdate(
       StaffTimeTask,
-      { id: task.id, tenantId: task.tenantId, organizationId: task.organizationId, assigneeStaffMemberId: null, deletedAt: null },
+      {
+        id: task.id,
+        tenantId: task.tenantId,
+        organizationId: task.organizationId,
+        assigneeStaffMemberId: null,
+        deletedAt: null,
+        ...(doneStatusIds.length > 0 ? { taskStatusId: { $nin: doneStatusIds } } : {}),
+      },
       { assigneeStaffMemberId: staffMemberId, updatedAt: now },
     )
     if (affected === 0) {
-      throw new CrudHttpError(409, {
-        code: TASK_ALREADY_CLAIMED_CODE,
-        error: translate('staff.timesheets.errors.taskAlreadyClaimed', 'Someone else already took this task.'),
-      })
+      em.clear()
+      const current = await em.findOne(StaffTimeTask, { id: task.id, tenantId: task.tenantId, organizationId: task.organizationId, deletedAt: null })
+      if (!current) throw notFound(translate)
+      if (!current.assigneeStaffMemberId && doneStatusIds.includes(current.taskStatusId)) throw notClaimable(translate)
+      throw alreadyClaimed(translate)
     }
     em.clear()
     const claimed = await em.findOne(StaffTimeTask, { id: task.id, tenantId: task.tenantId, organizationId: task.organizationId })
@@ -242,7 +260,7 @@ const releaseTaskCommand: CommandHandler<StaffTimeTaskAssignmentInput, StaffTime
     )
     if (affected === 0) {
       throw new CrudHttpError(409, {
-        code: 'optimistic_lock_conflict',
+        code: TASK_ASSIGNMENT_CHANGED_CODE,
         error: translate('staff.timesheets.errors.taskChanged', 'The task changed while you were releasing it. Refresh and try again.'),
       })
     }

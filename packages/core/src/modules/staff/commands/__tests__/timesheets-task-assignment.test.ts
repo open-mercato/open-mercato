@@ -63,13 +63,13 @@ async function loadCommand(id: string): Promise<RegisteredCommand> {
   return commandRegistry.get(id) as unknown as RegisteredCommand
 }
 
-function makeWorld(options: { assignee?: string | null; isDone?: boolean; raceWinner?: string } = {}) {
+function makeWorld(options: { assignee?: string | null; isDone?: boolean; raceWinner?: string; raceMovedToDone?: boolean } = {}) {
   const task: TaskRow = {
     id: TASK_ID,
     tenantId: TENANT_ID,
     organizationId: ORG_ID,
     timeProjectId: 'project-1',
-    taskStatusId: 'status-1',
+    taskStatusId: options.isDone ? 'status-done' : 'status-1',
     assigneeStaffMemberId: options.assignee ?? null,
     updatedAt: new Date('2026-01-01T00:00:00.000Z'),
     deletedAt: null,
@@ -79,17 +79,26 @@ function makeWorld(options: { assignee?: string | null; isDone?: boolean; raceWi
       task.assigneeStaffMemberId = options.raceWinner
       options.raceWinner = undefined
     }
+    if (options.raceMovedToDone) {
+      task.taskStatusId = 'status-done'
+      options.raceMovedToDone = undefined
+    }
     if (task.deletedAt !== null || task.assigneeStaffMemberId !== where.assigneeStaffMemberId) return 0
+    const statusFilter = where.taskStatusId as { $nin?: string[] } | undefined
+    if (statusFilter?.$nin?.includes(task.taskStatusId)) return 0
     Object.assign(task, data)
     return 1
   })
   const em: Record<string, unknown> = {
     nativeUpdate,
     clear: jest.fn(),
+    find: jest.fn(async (cls: { name: string }, where: Record<string, unknown>) => {
+      if (cls.name === 'StaffTimeTaskStatus' && where.isDone === true) return [{ id: 'status-done' }]
+      return []
+    }),
     findOne: jest.fn(async (cls: { name: string }, where: Record<string, unknown>) => {
       if (cls.name === 'StaffTimeTask') return where.id === TASK_ID ? { ...task } : null
       if (cls.name === 'StaffTeamMember') return where.userId === USER_ID ? { id: ACTOR_MEMBER_ID, userId: USER_ID } : null
-      if (cls.name === 'StaffTimeTaskStatus') return { id: 'status-1', isDone: options.isDone === true }
       return null
     }),
   }
@@ -164,6 +173,17 @@ describe('staff.timesheets.tasks.claim', () => {
     await expectHttpError(command.execute({ id: TASK_ID }, ctx), 422, 'task_not_claimable')
   })
 
+  it('excludes done columns inside the conditional update, so a task moved to done meanwhile is not claimed', async () => {
+    const command = await loadCommand('staff.timesheets.tasks.claim')
+    const { task, ctx, nativeUpdate } = makeWorld({ raceMovedToDone: true })
+
+    await expectHttpError(command.execute({ id: TASK_ID }, ctx), 422, 'task_not_claimable')
+
+    expect(nativeUpdate.mock.calls[0][1]).toEqual(expect.objectContaining({ taskStatusId: { $nin: ['status-done'] } }))
+    expect(task.assigneeStaffMemberId).toBeNull()
+    expect(mockEmitCrudSideEffects).not.toHaveBeenCalled()
+  })
+
   it('undo puts the task back to unassigned only while the claim still holds', async () => {
     const command = await loadCommand('staff.timesheets.tasks.claim')
     const { task, ctx } = makeWorld()
@@ -207,6 +227,6 @@ describe('staff.timesheets.tasks.release', () => {
   it('answers 409 when the assignee changed under the release', async () => {
     const command = await loadCommand('staff.timesheets.tasks.release')
     const { ctx } = makeWorld({ assignee: ACTOR_MEMBER_ID, raceWinner: OTHER_MEMBER_ID })
-    await expectHttpError(command.execute({ id: TASK_ID }, ctx), 409, 'optimistic_lock_conflict')
+    await expectHttpError(command.execute({ id: TASK_ID }, ctx), 409, 'task_assignment_changed')
   })
 })
