@@ -418,6 +418,31 @@ describe('PdfSnapshotService.readSnapshotForViewer (#7229)', () => {
     expect(em.rows('FormAttachment')).toHaveLength(1)
   })
 
+  it('loads the submission and decrypts the revision once when building the canonical snapshot lazily', async () => {
+    const { em, service, submissionId } = buildFixture()
+    revealDetails(em)
+    const findOne = jest.spyOn(em, 'findOne')
+    const decrypt = jest.spyOn(identityEncryption, 'decrypt')
+
+    try {
+      const result = await service.readSnapshotForViewer({
+        organizationId: ORG_ID,
+        tenantId: TENANT_ID,
+        submissionId,
+        viewerRole: 'clinician',
+      })
+
+      expect(result.attachmentId).toBe(em.rows('FormSubmission')[0].pdfSnapshotAttachmentId)
+      const loadedEntities = findOne.mock.calls.map(([entity]) => entity.name)
+      expect(loadedEntities.filter((name) => name === 'FormSubmission')).toHaveLength(1)
+      expect(loadedEntities.filter((name) => name === 'FormSubmissionRevision')).toHaveLength(1)
+      expect(decrypt).toHaveBeenCalledTimes(1)
+    } finally {
+      findOne.mockRestore()
+      decrypt.mockRestore()
+    }
+  })
+
   it('serves the canonical snapshot when the only unreadable property is a layout info_block', async () => {
     const { em, service, submissionId, emitted } = buildFixture({ withInfoBlock: true })
     revealDetails(em)

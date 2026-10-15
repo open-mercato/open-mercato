@@ -177,20 +177,12 @@ export class PdfSnapshotService {
   async ensureSnapshot(args: Scope & { submissionId: string }): Promise<StoredSnapshot> {
     const em = this.emFactory()
     const submission = await this.loadSubmittedSubmission(em, args)
-
-    if (submission.pdfSnapshotAttachmentId) {
-      const existing = await this.readStored(em, args, submission.pdfSnapshotAttachmentId)
-      if (existing) return existing
-      // Linked attachment row vanished — treat as unset and regenerate.
-    }
-
-    const built = await this.buildAndStore(em, args, submission)
-    return built
+    return this.resolveCanonicalSnapshot(em, args, submission)
   }
 
   /**
    * Snapshot for a request principal (participant via access token or portal).
-   * Returns the canonical snapshot (via `ensureSnapshot`) only when `viewerRole`
+   * Returns the canonical snapshot (as `ensureSnapshot` would) only when `viewerRole`
    * reads every rendered field; otherwise renders an uncached copy restricted
    * to the role-readable answers. A null role reads no answers.
    */
@@ -217,11 +209,7 @@ export class PdfSnapshotService {
 
     const renderedKeys = listSnapshotFieldKeys(schema, this.registry)
     if (renderedKeys.every((key) => readable.has(key))) {
-      return this.ensureSnapshot({
-        organizationId: args.organizationId,
-        tenantId: args.tenantId,
-        submissionId: args.submissionId,
-      })
+      return this.resolveCanonicalSnapshot(em, args, submission, inputs)
     }
 
     const document = buildSnapshotDocument({
@@ -274,6 +262,21 @@ export class PdfSnapshotService {
       throw new PdfSnapshotServiceError('NOT_SUBMITTED', 'Submission is not submitted.', 409)
     }
     return submission
+  }
+
+  /** Stored canonical snapshot, or a freshly built one; reuses `inputs` when the caller already loaded them. */
+  private async resolveCanonicalSnapshot(
+    em: EntityManager,
+    args: Scope,
+    submission: FormSubmission,
+    inputs?: RenderInputs,
+  ): Promise<StoredSnapshot> {
+    if (submission.pdfSnapshotAttachmentId) {
+      const existing = await this.readStored(em, args, submission.pdfSnapshotAttachmentId)
+      if (existing) return existing
+      // Linked attachment row vanished — treat as unset and regenerate.
+    }
+    return this.buildAndStore(em, args, submission, inputs ?? (await this.loadRenderInputs(em, args, submission)))
   }
 
   private async readStored(
@@ -335,10 +338,11 @@ export class PdfSnapshotService {
 
   private async buildAndStore(
     em: EntityManager,
-    args: Scope & { submissionId: string },
+    args: Scope,
     submission: FormSubmission,
+    inputs: RenderInputs,
   ): Promise<StoredSnapshot> {
-    const { form, formVersion, answers } = await this.loadRenderInputs(em, args, submission)
+    const { form, formVersion, answers } = inputs
 
     const document = buildSnapshotDocument({
       form,
