@@ -4,8 +4,9 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { StaffSupportTicket, StaffTimeTask, StaffTimeTaskComment, StaffTimeTaskStatus } from '../../data/entities'
 import { emitStaffEvent } from '../../events'
-import { resolvePortalRecipientUserIds } from '../time-tracking/portalRecipients'
+import { filterPortalRecipientsByFeature, resolvePortalRecipientUserIds } from '../time-tracking/portalRecipients'
 import { derivePortalStatus } from './portalStatus'
+import { PORTAL_SUPPORT_TICKETS_VIEW_FEATURE } from './portalTickets'
 
 const logger = createLogger('staff').child({ component: 'lib/support/portalBroadcast' })
 
@@ -30,11 +31,17 @@ async function emitPortalUpdate(
   version: string,
 ): Promise<boolean> {
   if (!task.customerId) return false
-  const recipientUserIds = await resolvePortalRecipientUserIds(em, {
+  const customerUserIds = await resolvePortalRecipientUserIds(em, {
     tenantId: task.tenantId,
     organizationId: task.organizationId,
     customerId: task.customerId,
   })
+  const recipientUserIds = await filterPortalRecipientsByFeature(
+    em,
+    customerUserIds,
+    { tenantId: task.tenantId, organizationId: task.organizationId },
+    PORTAL_SUPPORT_TICKETS_VIEW_FEATURE,
+  )
   if (recipientUserIds.length === 0) return false
   await emitStaffEvent(
     'staff.support_ticket.portal_updated',

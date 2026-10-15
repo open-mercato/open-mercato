@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 
 const mockEmitStaffEvent = jest.fn()
 const mockResolvePortalRecipients = jest.fn()
+const mockFilterPortalRecipients = jest.fn()
 
 jest.mock('../../../events', () => ({
   emitStaffEvent: (...args: unknown[]) => mockEmitStaffEvent(...args),
@@ -10,6 +11,7 @@ jest.mock('../../../events', () => ({
 
 jest.mock('../../time-tracking/portalRecipients', () => ({
   resolvePortalRecipientUserIds: (...args: unknown[]) => mockResolvePortalRecipients(...args),
+  filterPortalRecipientsByFeature: (...args: unknown[]) => mockFilterPortalRecipients(...args),
 }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
@@ -64,6 +66,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   mockEmitStaffEvent.mockResolvedValue(undefined)
   mockResolvePortalRecipients.mockResolvedValue(['portal-user-1'])
+  mockFilterPortalRecipients.mockImplementation(async (_em: unknown, userIds: string[]) => userIds)
 })
 
 function portalUpdates() {
@@ -144,6 +147,37 @@ describe('publishTaskPortalStatus', () => {
 
   it('never emits a portal update with an empty recipient list', async () => {
     mockResolvePortalRecipients.mockResolvedValue([])
+    const world: World = {
+      tasks: [task('t1', 'progress')],
+      tickets: [ticket('t1', 'received')],
+      statuses: [{ id: 'progress', isDefault: false, isDone: false }],
+    }
+    const { em } = makeEm(world)
+
+    await publishTaskPortalStatus(em, 't1', SCOPE)
+
+    expect(portalUpdates()).toHaveLength(0)
+  })
+
+  it('addresses only the customer users that hold the portal support view feature', async () => {
+    mockResolvePortalRecipients.mockResolvedValue(['portal-user-1', 'portal-user-2'])
+    mockFilterPortalRecipients.mockResolvedValue(['portal-user-2'])
+    const world: World = {
+      tasks: [task('t1', 'progress')],
+      tickets: [ticket('t1', 'received')],
+      statuses: [{ id: 'progress', isDefault: false, isDone: false }],
+    }
+    const { em } = makeEm(world)
+
+    await publishTaskPortalStatus(em, 't1', SCOPE)
+
+    expect(mockFilterPortalRecipients).toHaveBeenCalledWith(em, ['portal-user-1', 'portal-user-2'], SCOPE, 'portal.support_tickets.view')
+    expect(portalUpdates()).toHaveLength(1)
+    expect(portalUpdates()[0][1]).toEqual(expect.objectContaining({ recipientUserIds: ['portal-user-2'] }))
+  })
+
+  it('emits nothing when no customer user holds the portal support view feature', async () => {
+    mockFilterPortalRecipients.mockResolvedValue([])
     const world: World = {
       tasks: [task('t1', 'progress')],
       tickets: [ticket('t1', 'received')],
