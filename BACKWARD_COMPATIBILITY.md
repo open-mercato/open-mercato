@@ -569,3 +569,7 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 | API routes (§7, `PUT /api/webhooks/:id`, `PUT /api/webhooks/webhooks/:id`) | Webhook update request field semantics corrected: omitted fields are no longer replaced by create defaults. Same URLs, field names, types, bounds and response shapes; `webhookCreateSchema` keeps its defaults | ⚠️ Behaviour change on a previously-corrupting path; no URL/field/response change. A caller that omitted the fields to reset them must send the values explicitly. Regression-tested in `validators.test.ts`, `partial-update.test.ts` and `TC-WEBHOOK-011` |
 
 **Migration path for existing modules**: send the delivery settings explicitly where a reset is intended. Webhooks already reset by an earlier toggle are not repaired (see UPGRADE_NOTES.md).
+
+## Discord AI Proposals (2026-10-13)
+
+[Waiver](UPGRADE_NOTES.md#discord-proposals)
