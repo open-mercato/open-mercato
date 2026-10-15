@@ -774,16 +774,17 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
     from base (a three-currency settlement still needs an explicit
     value or a cross-rate this document would have to derive itself —
     see that spec's worked example). A caller overriding the default
-    explicitly should remain possible either way. **New precondition
-    (Multi-Currency Design decision 12):** once `fx_revaluation` exists,
-    this match MUST first check whether the target `SalesInvoice` (or
-    `VendorInvoice`, via the other settlement paths) is a line in the
-    current, unreversed `FxRevaluationRun` and reject with **409
-    `PRIOR_VALUATION_NOT_REVERSED`** if so — settling a still-covered
-    document before its period-end valuation is reversed would double-
-    count the movement (unrealized left on the books plus realized
-    here). Neither the default-from-invoice behavior nor the new
-    precondition is applied yet; both land together with
+    explicitly should remain possible either way. **No settlement
+    precondition (Multi-Currency Design decision 12, revised 2026-10-15):**
+    an earlier draft of that spec made this match reject with 409
+    `PRIOR_VALUATION_NOT_REVERSED` while the target invoice sat in an
+    unreversed `FxRevaluationRun`. That precondition is withdrawn:
+    `fx_revaluation` posts its period-end valuation together with a
+    reversing entry dated the first day of the next period, in one
+    transaction, so by the time a settlement in the new period is matched
+    the unrealized movement is already unwound and this command needs no
+    check, no new error and no dependency on `fx_revaluation`. The
+    default-from-invoice behavior above is not applied yet; it lands with
     `fx_revaluation`'s own implementation. Computes the realized
     gain/loss as
     `statementLineAmountInBankCurrency - (settledAmount * bookedExchangeRate) - overpaymentAmount`
@@ -929,6 +930,20 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
   `sales`, `accounts_payable`, `accounts_payable_payments`, or
   `sales_invoice_gl_posting`.** One-way dependency direction, matching
   `packages/core/AGENTS.md`.
+
+
+**Read contract for other modules (added 2026-10-15).** `fx_revaluation`
+(Multi-Currency #6190, an optional peer; with this module absent no settlement
+exists and every posted invoice is fully open) reads
+`BankStatementLine` rows with `matchedDocumentType = 'sales_invoice'`
+FK-id-only, with the tenant and organization scope applied and no ORM relation:
+`matchedDocumentId`, `settledAmount`, `lineDate` and `matchedAt`. It derives a
+sales invoice's open amount as of a valuation date as `grandTotalGrossAmount −
+Σ settledAmount` over matches whose `lineDate` is on or before that date.
+These columns, and the rule that only `matchBankStatementLine` sets
+`settledAmount` and `matchedAt`, are a contract: a change to them is a visible
+change to this spec and to the Multi-Currency spec. This module imports nothing
+from `fx_revaluation`.
 
 ### Backend Pages
 
@@ -1846,3 +1861,13 @@ poz. 522, 640, 644, 1206) requires subsidiary accounts for cash operations when 
 cash desk (kasa) is kept. This module models bank accounts and bank statements
 only; it has no cash desk, cash documents or cash-in-hand register. A tenant that
 keeps a kasa needs a separate, later spec. Not yet reviewed by a maintainer.
+
+### 2026-10-15 — Multi-Currency alignment
+
+Replaced the "new precondition" (409 `PRIOR_VALUATION_NOT_REVERSED`) in
+`matchBankStatementLine` with a statement that no precondition is needed: the
+Multi-Currency spec (#6190, Design decision 12) now reverses its own valuation on
+the first day of the next period, so a settlement in the new period needs no
+gate. Added the read contract for `fx_revaluation` (`matchedDocumentId`,
+`settledAmount`, `lineDate`, `matchedAt`). No change to this module's behaviour or
+schema. Not yet reviewed by a maintainer.
