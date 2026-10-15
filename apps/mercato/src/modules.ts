@@ -94,6 +94,9 @@ export const enabledModules: ModuleEntry[] = [
   // case'). Run the om-refresh-standalone-harness skill to add that coverage,
   // then enable it in the template.
   { id: 'availability', from: '@open-mercato/core' },
+  // Ecommerce store module (SPEC-029): store, hostname and channel binding,
+  // buyer-context resolution and the public storefront read API.
+  { id: 'ecommerce', from: '@open-mercato/core' },
   { id: 'api_keys', from: '@open-mercato/core' },
   { id: 'devices', from: '@open-mercato/core' },
   { id: 'dictionaries', from: '@open-mercato/core' },
