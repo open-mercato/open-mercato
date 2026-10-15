@@ -572,3 +572,7 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 | Database schema, ACL features, DI names, CLI commands | No change | ✓ n/a |
 
 **Migration path for existing modules**: none. A client that read a logout `401` as "already signed out" gets the redirect instead.
+
+## Discord AI Proposals (2026-10-13)
+
+[Waiver](UPGRADE_NOTES.md#discord-proposals)

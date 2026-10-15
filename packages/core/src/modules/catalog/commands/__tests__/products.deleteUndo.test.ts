@@ -2,6 +2,7 @@ export {}
 
 import {
   CatalogOptionSchemaTemplate,
+  CatalogPriceHistoryEntry,
   CatalogProduct,
   CatalogProductPrice,
   CatalogProductUnitConversion,
@@ -364,6 +365,28 @@ describe('catalog.products.delete undo', () => {
     expect(ids(store, CatalogProductPrice)).toEqual(['price-other'])
     expect(ids(store, CatalogProductUnitConversion)).toEqual([])
     expect(ids(store, CatalogOptionSchemaTemplate)).toEqual([])
+  })
+
+  it('records an undo price history entry for every restored price', async () => {
+    const store = createStore()
+    seedCatalog(store)
+    const deleteCommand = loadDeleteCommand()
+    const ctx = buildContext(store)
+    const { logEntry } = await deleteProduct(store, deleteCommand, ctx)
+
+    await deleteCommand.undo({ logEntry, ctx })
+
+    const undoRows = store.em.create.mock.calls
+      .filter(
+        ([entity, data]) => (entity as EntityClass).name === CatalogPriceHistoryEntry.name && data.changeType === 'undo',
+      )
+      .map(([, data]) => data)
+      .sort((left, right) => String(left.priceId).localeCompare(String(right.priceId)))
+    expect(undoRows.map((row) => [row.priceId, row.productId])).toEqual([
+      ['price-variant', PRODUCT],
+      ['price-variant-only', PRODUCT],
+    ])
+    expect(undoRows.every((row) => (row.metadata as Row).undoneCommand === 'catalog.products.delete')).toBe(true)
   })
 
   it('restores variants, prices, unit conversions and the product-owned option schema on undo', async () => {
@@ -829,10 +852,17 @@ describe('catalog.products.delete undo', () => {
     const createdOrder = store.em.create.mock.calls.map(([entity]) => (entity as EntityClass).name)
     const firstIndex = (entity: EntityClass) => createdOrder.indexOf(entity.name)
     expect(firstIndex(CatalogOptionSchemaTemplate)).toBe(0)
-    expect(store.em.fork).toHaveBeenLastCalledWith({ keepTransactionContext: true })
-    expect(store.em.fork.mock.invocationCallOrder[store.em.fork.mock.calls.length - 1]).toBeGreaterThan(begin)
+    const commit = store.em.commit.mock.invocationCallOrder[store.em.commit.mock.calls.length - 1]
+    const transactionalForks = store.em.fork.mock.calls.filter(
+      (_call, index) => store.em.fork.mock.invocationCallOrder[index] < commit,
+    )
+    expect(transactionalForks[transactionalForks.length - 1]).toEqual([{ keepTransactionContext: true }])
+    const lastTransactionalFork = Math.max(
+      ...store.em.fork.mock.invocationCallOrder.filter((order) => order < commit),
+    )
+    expect(lastTransactionalFork).toBeGreaterThan(begin)
     const firstChildCreate = store.em.create.mock.invocationCallOrder[firstIndex(CatalogProductUnitConversion)]
-    expect(lookups.filter((order) => order > firstChildCreate)).toEqual([])
+    expect(lookups.filter((order) => order > firstChildCreate && order < commit)).toEqual([])
     expect(firstIndex(CatalogOptionSchemaTemplate)).toBeLessThan(firstIndex(CatalogProduct))
     expect(firstIndex(CatalogProduct)).toBeLessThan(firstIndex(CatalogProductUnitConversion))
     expect(firstIndex(CatalogProductUnitConversion)).toBeLessThan(firstIndex(CatalogProductVariant))
