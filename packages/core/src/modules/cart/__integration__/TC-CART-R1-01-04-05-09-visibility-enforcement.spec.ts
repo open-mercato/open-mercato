@@ -67,7 +67,12 @@ test.describe('TC-CART-R1-01/04/05/09: assortment-visibility enforcement on line
     });
 
     expect(response.status, response.text).toBe(200);
-    expect(response.body).toEqual({ outcome: { status: 'rejected', reason: 'product_unavailable' } });
+    // Step 5.2 — a visibility-rejected add is a 200 warning under the §10.1 envelope now,
+    // not the bare `{ outcome }` shape: nothing was added, so `cart.lineCount` stays 0 and
+    // the rejection surfaces as a lineless top-level warning instead.
+    const rejectedBody = response.body as { cart: { lineCount: number }; warnings?: Array<{ code: string; lineId?: string }> };
+    expect(rejectedBody.cart.lineCount).toBe(0);
+    expect(rejectedBody.warnings).toEqual([{ code: 'product_unavailable', message: expect.any(String) }]);
 
     const after = await cartStorefrontRequest(store.hostname, '/api/cart/current', { method: 'GET', cartToken: cart.token });
     expect(after.status).toBe(200);
@@ -106,7 +111,9 @@ test.describe('TC-CART-R1-01/04/05/09: assortment-visibility enforcement on line
       body: { productId: visibleProduct.productId, quantity: '1' },
     });
     expect(addResponse.status, addResponse.text).toBe(201);
-    const lineId = (addResponse.body as { outcome: { line: { id: string } } }).outcome.line.id;
+    // Step 5.2 — a successful add now returns the full §10.1 `cart` envelope, not a bare
+    // `{ outcome }`; the just-added line is the only one in a fresh cart's `lines` array.
+    const lineId = (addResponse.body as { cart: { lines: Array<{ id: string }> } }).cart.lines[0].id;
 
     // Narrow the channel's assortment scope so `visibleProduct` no longer matches, then restore
     // it in `finally` so later tests in this file keep seeing the fixture's original scope.
@@ -119,7 +126,10 @@ test.describe('TC-CART-R1-01/04/05/09: assortment-visibility enforcement on line
       });
 
       expect(updateResponse.status, updateResponse.text).toBe(200);
-      expect(updateResponse.body).toEqual({ outcome: { status: 'rejected', reason: 'product_unavailable' } });
+      // Step 5.2 — the rejected line still exists, so its rejection is a lineId-attached
+      // top-level warning rather than the old bare `{ outcome }` shape.
+      const rejectedBody = updateResponse.body as { warnings?: Array<{ code: string; lineId?: string }> };
+      expect(rejectedBody.warnings).toEqual([{ code: 'product_unavailable', lineId, message: expect.any(String) }]);
 
       const row = await readCartLineRow(lineId);
       expect(row, 'line should still exist').toBeTruthy();
@@ -167,7 +177,10 @@ test.describe('TC-CART-R1-01/04/05/09: assortment-visibility enforcement on line
     // collapse to the byte-identical response.
     expect(restrictedStatus).toBe(200);
     expect(nonexistentStatus).toBe(200);
-    expect(restrictedBody).toEqual({ outcome: { status: 'rejected', reason: 'product_unavailable' } });
+    // Step 5.2 — both collapse to the identical §10.1 envelope + lineless top-level warning.
+    expect((restrictedBody as { warnings?: Array<{ code: string }> }).warnings).toEqual([
+      { code: 'product_unavailable', message: expect.any(String) },
+    ]);
     expect(nonexistentBody).toEqual(restrictedBody);
 
     // Timing parity is best-effort over HTTP (network/DB jitter dwarfs a single extra indexed

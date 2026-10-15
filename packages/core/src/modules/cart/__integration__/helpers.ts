@@ -5,6 +5,7 @@ import { apiRequest } from '@open-mercato/core/helpers/integration/api';
 import { resolveAppRoot } from '@open-mercato/core/helpers/integration/appRoot';
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures';
 import { expectId, getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
+import { hashCartToken } from '../lib/token';
 
 /**
  * Shared fixtures for the Step 4.9 cart integration suite (`TC-CART-R1-*`, `TC-CART-CONC-*`,
@@ -303,15 +304,33 @@ export async function cartStorefrontRequest(
 }
 
 export type CartCreateResponseBody = {
-  cart: { cartId: string; token: string; channel: string; tenantId: string; organizationId: string };
+  cart: { token: string; status: string };
 };
 
-/** `POST /api/cart/current` against `hostname` — returns the plaintext token (§8.3, returned exactly once). */
+/**
+ * `POST /api/cart/current` against `hostname` — returns the plaintext token (§8.3, returned
+ * exactly once). Step 5.2 — the §10.1 `CartView` envelope has no `cartId` field at all (the
+ * spec's own addressing model is token-only, never an id the client is expected to hold), so
+ * `cartId` is resolved with a direct DB lookup by the token's hash — the same hash
+ * `cart.get`/`cart.lines.*` use to resolve a presented token (`lib/token.ts`'s
+ * `hashCartToken`) — rather than from the response body.
+ */
 export async function createStorefrontCart(hostname: string): Promise<{ cartId: string; token: string }> {
   const response = await cartStorefrontRequest(hostname, CART_CURRENT_PATH, { method: 'POST', body: {} });
   expect(response.status, `cart create should be 201 (${response.text})`).toBe(201);
   const body = response.body as CartCreateResponseBody;
-  return { cartId: body.cart.cartId, token: body.cart.token };
+  const token = body.cart.token;
+  const cartId = await resolveCartIdByToken(token);
+  return { cartId, token };
+}
+
+/** Resolves a plaintext cart token to its row id via `token_hash` — see `createStorefrontCart`'s doc comment. */
+export async function resolveCartIdByToken(token: string): Promise<string> {
+  const tokenHash = hashCartToken(token);
+  return withClient(async (client) => {
+    const result = await client.query<{ id: string }>(`select id from carts where token_hash = $1`, [tokenHash]);
+    return expectId((result as unknown as { rows: Array<{ id: string }> }).rows[0]?.id, 'cart token should resolve a cart id');
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -328,6 +347,7 @@ export function resolveCartQueueBaseDir(): string {
 export type CartRow = {
   id: string;
   status: string;
+  channel: string;
   lastActivityAt: string | null;
   expiresAt: string;
   lockedAt: string | null;
@@ -336,11 +356,17 @@ export type CartRow = {
   resolvedAt: string | null;
 };
 
-/** Reads a cart's lifecycle columns directly, for assertions the `/current` response doesn't expose (e.g. a rejected mutation left a line's quantity untouched) or that no longer resolve once a sweep purges the row. */
+/**
+ * Reads a cart's lifecycle columns directly, for assertions the `/current` response doesn't
+ * expose (e.g. a rejected mutation left a line's quantity untouched) or that no longer
+ * resolve once a sweep purges the row. `channel` is included (Step 5.2) because the §10.1
+ * `CartView` envelope has no `channel` field at all — a test proving an anonymous caller
+ * cannot override it reads the DB column directly instead.
+ */
 export async function readCartRow(cartId: string): Promise<CartRow | null> {
   return withClient(async (client) => {
     const result = await client.query<CartRow>(
-      `select id, status, last_activity_at as "lastActivityAt", expires_at as "expiresAt",
+      `select id, status, channel, last_activity_at as "lastActivityAt", expires_at as "expiresAt",
               locked_at as "lockedAt", lock_expires_at as "lockExpiresAt",
               checkout_session_id as "checkoutSessionId", resolved_at as "resolvedAt"
          from carts where id = $1`,

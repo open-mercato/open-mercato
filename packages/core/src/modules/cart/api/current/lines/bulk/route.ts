@@ -9,7 +9,7 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 import { bulkAddLinesCommand } from '../../../../commands/lines'
-import type { CartLinesBulkAddInput, CartLinesBulkAddResult } from '../../../../commands/lines'
+import type { CartLinesBulkAddEntryOutcome, CartLinesBulkAddInput, CartLinesBulkAddResult } from '../../../../commands/lines'
 import { cartLineBulkAddRequestSchema } from '../../../../data/validators'
 import {
   CART_RESOURCE_KIND,
@@ -20,6 +20,8 @@ import {
   resolveCurrentCart,
   resolveRouteContextOrError,
 } from '../../../../lib/currentCartRoute'
+import { buildCartResponseEnvelope } from '../../../../lib/cartView'
+import type { CartViewWarning } from '../../../../lib/cartView'
 import {
   computeRequestDigest,
   findIdempotencyReplay,
@@ -124,9 +126,36 @@ export async function POST(request: Request) {
     // Step 5.1 — same reasoning as the single-line add route: `cart.lines.bulkAdd` never
     // itself produces a repricing side effect, so `priceChanges`/`versionBumpReason` here
     // can only come from the `resolveCurrentCart`-embedded §5.2 trigger 2-4 check above.
-    const responseBody: Record<string, unknown> = { outcome: result }
-    if (contextPriceChanges.length > 0) responseBody.priceChanges = contextPriceChanges
-    if (contextVersionBumpReason) responseBody.versionBumpReason = contextVersionBumpReason
+    //
+    // Step 5.2 — §10.1's generic envelope has no slot for "up to 100 independent per-entry
+    // dispositions"; collapsing `outcome.results` into the handful of top-level `warnings`
+    // the envelope DOES support would discard information no batch-endpoint client can do
+    // without (which of the 100 entries succeeded, which were rejected, and why). `outcome`
+    // is therefore kept as a deliberate, documented ADDITION alongside the mandated `cart`
+    // envelope — not a replacement — for this one route only. Only `added`/`merged` entries
+    // contribute a top-level `quantity_capped` warning (one per affected line); a rejected
+    // entry's reason is already fully disclosed in `outcome.results[index]`, so it is not
+    // duplicated as a lineless top-level warning the way the single-line route's rejected-
+    // add case needs to be (there, `outcome` itself is dropped for the warning-level case).
+    const warnings: CartViewWarning[] = result.results
+      .filter((entry): entry is Extract<CartLinesBulkAddEntryOutcome, { status: 'added' | 'merged' }> => entry.status === 'added' || entry.status === 'merged')
+      .flatMap((entry) =>
+        entry.warnings.map((code) => ({
+          code,
+          lineId: entry.line.id,
+          message: '[internal] The requested quantity was capped at the maximum allowed',
+        })),
+      )
+    const envelope = await buildCartResponseEnvelope({
+      container,
+      cartId: cart.id,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      priceChanges: contextPriceChanges,
+      versionBumpReason: contextVersionBumpReason,
+      warnings,
+    })
+    const responseBody: Record<string, unknown> = { ...envelope, outcome: result }
     if (idempotencyKey) {
       await recordIdempotencyResponse(em, scope, cart.id, idempotencyKey, requestDigest, BULK_ADD_STATUS, responseBody)
     }

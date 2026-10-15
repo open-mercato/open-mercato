@@ -10,6 +10,7 @@ import {
   countCartsForTenant,
   createCartStorefrontFixture,
   createStorefrontCart,
+  readCartRow,
   type CartStorefrontFixture,
 } from './helpers';
 
@@ -114,10 +115,10 @@ test.describe('TC-CART-R1-02/03/11: request-body hardening against scope/channel
       expect(body.issues?.[0]?.code, attempt.label).toBe('unrecognized_keys');
     }
 
-    // The cart's channel is unaffected by any of the above — still `storefront`.
-    const after = await cartStorefrontRequest(store.hostname, '/api/cart/current', { method: 'GET', cartToken: cart.token });
-    expect(after.status).toBe(200);
-    expect((after.body as { cart: { channel: string } }).cart.channel).toBe('storefront');
+    // The cart's channel is unaffected by any of the above — still `storefront`. Read via the
+    // DB directly (Step 5.2): the §10.1 `CartView` envelope has no `channel` field.
+    const row = await readCartRow(cart.cartId);
+    expect(row?.channel).toBe('storefront');
   });
 
   test('TC-CART-R1-11b: cart.create called with channel "api" and no authenticated principal is rejected before any cart is persisted', async () => {

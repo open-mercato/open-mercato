@@ -518,7 +518,12 @@ export type CartLineSnapshot = {
   deletedAt: Date | null
 }
 
-function toCartLineSnapshot(line: CartLine): CartLineSnapshot {
+// Exported (Step 5.2) so `lib/cartView.ts`'s §10.1 `CartView` envelope builder can map a
+// freshly re-fetched `CartLine` the same way every command in this file already does,
+// instead of duplicating this 20-field mapping a third time. `lib/currentCartRoute.ts`
+// already imports command handlers/types directly from this module (see its own header
+// comment) — a plain pure-function export carries no additional coupling risk.
+export function toCartLineSnapshot(line: CartLine): CartLineSnapshot {
   return {
     id: line.id,
     cartId: line.cartId,

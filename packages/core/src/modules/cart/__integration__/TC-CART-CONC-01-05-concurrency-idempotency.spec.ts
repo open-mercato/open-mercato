@@ -165,8 +165,10 @@ test.describe('TC-CART-CONC-01/02/03/05: concurrency and idempotency', () => {
 
     for (const response of responses) {
       expect([200, 201], response.text).toContain(response.status);
-      const outcome = (response.body as { outcome: { status: string } }).outcome;
-      expect(['added', 'merged']).toContain(outcome.status);
+      // Step 5.2 — a successful add/merge now returns the §10.1 `cart` envelope (no bare
+      // `{ outcome }` to read a `status` off); the added/merged line is always present.
+      const cartBody = (response.body as { cart: { lines: Array<{ productId: string }> } }).cart;
+      expect(cartBody.lines.some((line) => line.productId === product.productId)).toBe(true);
     }
 
     const lines = await readCartLinesForProduct(cart.cartId, product.productId);

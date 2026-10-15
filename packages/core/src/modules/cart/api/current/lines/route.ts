@@ -20,6 +20,8 @@ import {
   resolveCurrentCart,
   resolveRouteContextOrError,
 } from '../../../lib/currentCartRoute'
+import { buildCartResponseEnvelope } from '../../../lib/cartView'
+import type { CartViewWarning } from '../../../lib/cartView'
 import {
   computeRequestDigest,
   findIdempotencyReplay,
@@ -48,6 +50,19 @@ function statusForAddOutcome(outcome: CartLinesAddOutcome): number {
   if (outcome.status === 'merged') return 200
   if (outcome.reason === 'product_unavailable') return 200
   return 422
+}
+
+/**
+ * Step 5.2 — §10.1's "every endpoint returns the same envelope" applies to every outcome
+ * whose own status is a non-fatal 200/201 (added/merged/the product_unavailable warning);
+ * a genuinely hard-stop 422 (quantity/pricing rule) keeps the pre-existing bare `{ outcome }`
+ * body — that error-presentation design is §15a's/Step 5.3's territory, not this step's, and
+ * nothing in `outcome.results`-shaped data belongs in a `CartView` anyway (no line exists to
+ * describe). See `lib/cartView.ts`'s own doc comment for the rest of this step's judgment
+ * calls.
+ */
+function isWarningLevelOutcome(outcome: CartLinesAddOutcome): boolean {
+  return outcome.status !== 'rejected' || outcome.reason === 'product_unavailable'
 }
 
 export async function POST(request: Request) {
@@ -134,9 +149,30 @@ export async function POST(request: Request) {
     // Step 5.1 — `cart.lines.add` never itself produces a repricing side effect (a brand
     // new/merged line is priced, not re-priced); `priceChanges`/`versionBumpReason` here can
     // only come from the `resolveCurrentCart`-embedded §5.2 trigger 2-4 check above.
-    const responseBody: Record<string, unknown> = { outcome: result }
-    if (contextPriceChanges.length > 0) responseBody.priceChanges = contextPriceChanges
-    if (contextVersionBumpReason) responseBody.versionBumpReason = contextVersionBumpReason
+    let responseBody: Record<string, unknown>
+    if (isWarningLevelOutcome(result)) {
+      const warnings: CartViewWarning[] =
+        result.status === 'added' || result.status === 'merged'
+          ? result.warnings.map((code) => ({
+              code,
+              lineId: result.line.id,
+              message: '[internal] The requested quantity was capped at the maximum allowed',
+            }))
+          : [{ code: 'product_unavailable', message: '[internal] This product is not available for the buyer’s assortment scope' }]
+      responseBody = await buildCartResponseEnvelope({
+        container,
+        cartId: cart.id,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        priceChanges: contextPriceChanges,
+        versionBumpReason: contextVersionBumpReason,
+        warnings,
+      })
+    } else {
+      responseBody = { outcome: result }
+      if (contextPriceChanges.length > 0) responseBody.priceChanges = contextPriceChanges
+      if (contextVersionBumpReason) responseBody.versionBumpReason = contextVersionBumpReason
+    }
     if (idempotencyKey) {
       await recordIdempotencyResponse(em, scope, cart.id, idempotencyKey, requestDigest, status, responseBody)
     }

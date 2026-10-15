@@ -18,6 +18,7 @@ import {
   resolveCurrentCart,
   resolveRouteContextOrError,
 } from '../../lib/currentCartRoute'
+import { buildCartResponseEnvelope } from '../../lib/cartView'
 import { enforceCartRateLimit } from '../../lib/rateLimit'
 
 // Step 4.7 — `POST /current` (cart.create) and `GET /current` (cart.get), the two
@@ -82,7 +83,18 @@ export async function POST(request: Request) {
 
     await guarded.runAfterSuccess()
 
-    return NextResponse.json({ cart: result }, { status: 201 })
+    // Step 5.2 — §10.1 envelope. `result` (`CartCreateResult`) is deliberately minimal
+    // (cartId/token/channel/tenantId/organizationId — see `commands/cart.ts`'s own doc
+    // comment); the full `CartView` is built by re-fetching the just-created (lineless) cart.
+    const envelope = await buildCartResponseEnvelope({
+      container,
+      cartId: result.cartId,
+      tenantId: result.tenantId,
+      organizationId: result.organizationId,
+      token: result.token,
+    })
+
+    return NextResponse.json(envelope, { status: 201 })
   } catch (error) {
     return mapRouteErrorToResponse(error)
   }
@@ -105,17 +117,22 @@ export async function GET(request: Request) {
     const resolvedCart = await resolveCurrentCart(commandBus, ctx, resolved.routeContext, token)
     if (!resolvedCart) return notFoundCartResponse()
 
-    // Step 5.1 — "GET writes only when a trigger fires" (PLAN.md): `priceChanges`/
-    // `versionBumpReason` are present only when §5.2 triggers 2-4 actually ran a re-price
-    // for this request (`resolveCurrentCart` -> `cart.get` -> `cart.reprice`); an ordinary
-    // GET inside the staleness budget with no digest drift returns the bare `{ cart }` shape
-    // it always has.
+    // Step 5.1 — `priceChanges`/`versionBumpReason` are present only when §5.2 triggers 2-4
+    // actually ran a re-price for this request (`resolveCurrentCart` -> `cart.get` ->
+    // `cart.reprice`); an ordinary GET inside the staleness budget with no digest drift
+    // omits both. Step 5.2 — every response is now the full §10.1 envelope, not the bare
+    // `CartSummary` this route used to return with no `lines` array at all.
     const { cart, priceChanges, versionBumpReason } = resolvedCart
-    const body: Record<string, unknown> = { cart }
-    if (priceChanges.length > 0) body.priceChanges = priceChanges
-    if (versionBumpReason) body.versionBumpReason = versionBumpReason
+    const envelope = await buildCartResponseEnvelope({
+      container,
+      cartId: cart.id,
+      tenantId: cart.tenantId,
+      organizationId: cart.organizationId,
+      priceChanges,
+      versionBumpReason,
+    })
 
-    return NextResponse.json(body)
+    return NextResponse.json(envelope)
   } catch (error) {
     return mapRouteErrorToResponse(error)
   }

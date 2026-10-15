@@ -1,0 +1,346 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { notFound } from '@open-mercato/shared/lib/crud/errors'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { formatCurrency } from '@open-mercato/ui/utils/format'
+import { CatalogProductPrice } from '@open-mercato/core/modules/catalog/data/entities'
+import { buildPriceRowFilter, resolvePriceVariantId } from '@open-mercato/core/modules/catalog/lib/pricing'
+import type { PriceRow, PricingContext } from '@open-mercato/core/modules/catalog/lib/pricing'
+import type {
+  BuyerPricingContext,
+  CatalogBuyerPricingService,
+  LinePriceTier,
+  ResolvedLinePrice,
+} from '@open-mercato/core/modules/catalog/services/catalogBuyerPricingService'
+import type { SalesDocumentAmounts } from '@open-mercato/core/modules/sales/lib/types'
+
+import { Cart, CartLine } from '../data/entities'
+import type { CartStatus, CartTaxMode } from '../data/entities'
+import { toCartLineSnapshot } from '../commands/lines'
+import type { CartLineSnapshot } from '../commands/lines'
+import type { CartPriceChange } from './reprice'
+
+// Step 5.2 — PLAN.md's own plan-correction note: Step 4.5's `commands/cart.ts` deferred
+// building "the richer public `CartView` envelope (§10.1 ... that lands with the routes and
+// line commands that first need it" and no step between 4.6 and 5.1 picked it up. This file
+// is that envelope builder, shared by every `/api/cart/current/*` route file so the mapping
+// from a `Cart` + its `CartLine[]` to the wire shape exists exactly once.
+//
+// Deliberately duplicates `commands/lines.ts`'s small per-line pricing-context/price-row
+// helpers (`buildCartPricingRowFilterContext`, `buildBuyerPricingContext`,
+// `fetchPriceRowsBatch`, `groupRowsByProduct`, `filterRowsForVariant`) at this file's own
+// small scope, rather than exporting and importing lines.ts's private functions — the same
+// precedent `lib/reprice.ts` already set for its own near-identical duplication ("keeps the
+// dependency direction `lib -> catalog/sales services` only, never `lib -> commands`"). The
+// one function this file DOES import from `commands/lines.ts` is the pure `toCartLineSnapshot`
+// mapper, newly exported there for this purpose — `lib/currentCartRoute.ts` already imports
+// command handlers/types directly from `commands/cart.ts`, so a plain data-mapping import
+// here is consistent with this module's existing layering, not a new kind of coupling.
+//
+// Unlike `lib/reprice.ts`'s `fetchLinePriceRows` (one product/variant at a time — reprice is
+// "not a hot path"), this file batches the price-row fetch across every line in ONE query
+// (mirroring `commands/lines.ts`'s `bulkAddLinesCommand`) because `nextTier` is computed on
+// EVERY `/current/*` response, including the plain `GET` a storefront cart drawer polls.
+
+type CartViewScope = { tenantId: string; organizationId: string }
+
+function buildPricingRowFilterContext(cart: Cart): PricingContext {
+  return {
+    channelId: cart.salesChannelId ?? null,
+    customerId: cart.customerId ?? null,
+    customerIds: cart.customerIds ?? [],
+    customerGroupIds: cart.customerGroupIds,
+    currencyCode: cart.currencyCode,
+    priceKindId: cart.priceKindId ?? null,
+    quantity: 1,
+    date: new Date(),
+  }
+}
+
+function buildBuyerPricingContext(cart: Cart, quantity: number, date: Date): BuyerPricingContext {
+  return {
+    channelId: cart.salesChannelId ?? null,
+    customerId: cart.customerId ?? null,
+    customerIds: cart.customerIds ?? [],
+    customerGroupIds: cart.customerGroupIds,
+    currencyCode: cart.currencyCode,
+    priceKindId: cart.priceKindId ?? null,
+    quantity,
+    date,
+  }
+}
+
+async function fetchPriceRowsBatch(
+  em: EntityManager,
+  scope: CartViewScope,
+  pricingContext: PricingContext,
+  productIds: string[],
+  variantIds: string[],
+): Promise<PriceRow[]> {
+  if (!productIds.length) return []
+  const targetClause = variantIds.length
+    ? { $or: [{ product: { $in: productIds } }, { variant: { $in: variantIds } }] }
+    : { product: { $in: productIds } }
+  const where = {
+    $and: [buildPriceRowFilter(pricingContext), targetClause],
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  }
+  const rows = await findWithDecryption(em, CatalogProductPrice, where as never, { populate: ['priceKind', 'offer'] }, scope)
+  return rows as unknown as PriceRow[]
+}
+
+function groupRowsByProduct(rows: PriceRow[], variantToProduct: Map<string, string>): Map<string, PriceRow[]> {
+  const grouped = new Map<string, PriceRow[]>()
+  for (const row of rows) {
+    const variantId = resolvePriceVariantId(row)
+    const productId = variantId
+      ? variantToProduct.get(variantId) ?? null
+      : typeof row.product === 'string'
+        ? row.product
+        : row.product?.id ?? null
+    if (!productId) continue
+    const bucket = grouped.get(productId) ?? []
+    bucket.push(row)
+    grouped.set(productId, bucket)
+  }
+  return grouped
+}
+
+function filterRowsForVariant(rows: PriceRow[], variantId: string | null): PriceRow[] {
+  return rows.filter((row) => {
+    const rowVariantId = resolvePriceVariantId(row)
+    return rowVariantId === null || rowVariantId === variantId
+  })
+}
+
+// ---------------------------------------------------------------------------
+// §5.4 B2B quantity tiers — `nextTier`
+// ---------------------------------------------------------------------------
+
+export type CartLineNextTierView = {
+  minQuantity: number
+  unitAmount: number
+  formatted: string
+  saving: string
+}
+
+export type CartLineView = CartLineSnapshot & { nextTier: CartLineNextTierView | null }
+
+/**
+ * Picks the side (`net`/`gross`) matching `Cart.taxMode`, falling back to whichever side a
+ * tier actually resolved when the preferred one is unavailable (e.g. no tax rate could be
+ * derived for the missing side) — same fallback shape `resolveBothSides` itself uses
+ * internally, just applied to a tier's already-resolved pair instead of a raw price row.
+ */
+function pickTierAmount(tier: LinePriceTier, taxMode: CartTaxMode): number | null {
+  return taxMode === 'gross' ? tier.amountGross ?? tier.amountNet : tier.amountNet ?? tier.amountGross
+}
+
+/**
+ * §5.4: `{ minQuantity, unitAmount, formatted, saving } | null`. `saving` is a percentage
+ * string computed from the CURRENT effective unit price (the tier `resolveLinePrice` itself
+ * resolved for the line's actual quantity, matching §5.4's own "tier selection is automatic")
+ * down to the next tier's unit price — both read off the SAME `resolveLinePrice` call so they
+ * share a basis, rather than mixing a freshly-resolved `nextTier` against the line's
+ * possibly-stale persisted snapshot. `formatted` reuses `@open-mercato/ui/utils/format`'s
+ * `formatCurrency` — the same helper `ecommerce/lib/storefrontPricing.ts` already wraps for
+ * its own near-identical per-tier `formatted` field (search "Intl.NumberFormat"/
+ * "formatCurrency" under `catalog`/`ecommerce`, per this step's own research note).
+ */
+function buildNextTierView(resolved: ResolvedLinePrice, cart: Cart): CartLineNextTierView | null {
+  const next = resolved.nextTier
+  if (!next) return null
+  const nextAmount = pickTierAmount(next, cart.taxMode)
+  if (nextAmount === null) return null
+  const currentAmount = resolved.currentTier
+    ? pickTierAmount(resolved.currentTier, cart.taxMode)
+    : cart.taxMode === 'gross'
+      ? resolved.amountGross ?? resolved.amountNet
+      : resolved.amountNet ?? resolved.amountGross
+  const savingPercent =
+    currentAmount !== null && currentAmount > 0
+      ? Math.max(0, Math.round(((currentAmount - nextAmount) / currentAmount) * 100))
+      : 0
+  return {
+    minQuantity: next.minQuantity,
+    unitAmount: nextAmount,
+    formatted: formatCurrency(nextAmount, cart.currencyCode, cart.locale) ?? String(nextAmount),
+    saving: `${savingPercent}%`,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// §10.1 response envelope
+// ---------------------------------------------------------------------------
+
+/** `{ id; status } | null` — §10.1's own shape. See `buildCartResponseEnvelope`'s doc comment for the `status` judgment call. */
+export type CartApprovalView = { id: string; status: string } | null
+
+export type CartView = {
+  token?: string
+  updatedAt: Date
+  status: CartStatus
+  currencyCode: string
+  locale: string
+  taxMode: CartTaxMode
+  lines: CartLineView[]
+  totals: SalesDocumentAmounts
+  promotions: never[]
+  requiresApproval: boolean
+  approval: CartApprovalView
+  itemCount: number
+  lineCount: number
+  expiresAt: Date
+}
+
+export type CartViewWarning = { code: string; lineId?: string; message: string }
+
+export type CartResponseEnvelope = {
+  cart: CartView
+  priceChanges?: CartPriceChange[]
+  versionBumpReason?: 'mutation' | 'repricing' | 'merge'
+  warnings?: CartViewWarning[]
+}
+
+/**
+ * §4.2: `flag_state` is "shown separately, with a warning" — the only persisted source of a
+ * line-level warning today (no command sets it yet; the §6a.2/§6a.5 re-visibility pass is a
+ * later step, same as `availability_state`). Folded into the top-level `warnings` array
+ * (judgment call, documented on `buildCartResponseEnvelope`) so a client has one place to
+ * check "is there anything to tell the buyer" without walking every line.
+ */
+function buildFlaggedLineWarnings(lines: CartLine[]): CartViewWarning[] {
+  return lines
+    .filter((line) => line.flagState === 'product_unavailable')
+    .map((line) => ({
+      code: 'product_unavailable',
+      lineId: line.id,
+      message: '[internal] This line is no longer available for the buyer’s assortment scope',
+    }))
+}
+
+export type BuildCartResponseEnvelopeParams = {
+  container: AppContainer
+  cartId: string
+  tenantId: string
+  organizationId: string
+  /** Present ONLY for the `POST /current` creation response (§8.3, §10.1). */
+  token?: string
+  priceChanges?: CartPriceChange[]
+  versionBumpReason?: 'mutation' | 'repricing' | 'merge'
+  /** Extra, route-supplied warnings — e.g. the CURRENT mutation's own `quantity_capped`
+   * outcome, which (unlike `flag_state`) is not persisted anywhere a later read could
+   * reconstruct it from. Merged with `buildFlaggedLineWarnings`'s own derived entries. */
+  warnings?: CartViewWarning[]
+}
+
+/**
+ * Builds the §10.1 `CartView` envelope for one `/api/cart/current/*` response. ALWAYS
+ * re-fetches `Cart` + its non-deleted `CartLine`s fresh (one extra round trip beyond
+ * whatever the calling route's own command already did) rather than trusting a summary the
+ * route captured earlier in the request: `cart.lines.update`'s own tier-crossing re-price
+ * can bump `Cart.updatedAt` as a side effect, so a pre-mutation `CartSummary` captured by
+ * `resolveCurrentCart` before the command ran would otherwise hand the client a stale
+ * `updatedAt` — exactly the kind of gap that produces a false 409 on the client's next
+ * optimistic-lock header. The command handlers in `commands/cart.ts`/`commands/lines.ts`
+ * never return a lines array at all today (checked per this step's own brief), so there is
+ * no cheaper path that still threads already-loaded data through.
+ *
+ * Judgment calls (documented here since no later step owns them):
+ * - `approval`: `Cart.approvalId`/`requiresApproval` exist, but no approval ENTITY or status
+ *   field exists anywhere in this worktree yet (`commands/cart.ts`'s own comment on
+ *   `approvalId`: "not yet a real entity in this repo"). `status: 'pending'` is the only
+ *   state reachable today — nothing can resolve or reject an approval yet — so it is the
+ *   literal used whenever `approvalId` is non-null; `approval` is `null` otherwise, per
+ *   §10.1's own `{ id; status } | null` shape (never omitted).
+ * - `itemCount`/`lineCount`: no storefront cart-like view in this worktree's `ecommerce`
+ *   module to borrow a precedent from (checked). The obvious reading: `lineCount` is the
+ *   number of non-deleted `CartLine` rows; `itemCount` sums their quantities (a cart with one
+ *   line at quantity 5 has `lineCount: 1`, `itemCount: 5`).
+ * - top-level `warnings`: FLATTENS, rather than duplicates, the per-line signals a client
+ *   would otherwise have to walk every line to find — `flag_state` (persisted) plus whatever
+ *   the calling route passes via `params.warnings` (the current mutation's own transient
+ *   `quantity_capped` outcome, which nothing persists). Each entry carries `lineId` when it
+ *   names a surviving line; a rejection that created no line (e.g. a visibility-rejected
+ *   `cart.lines.add`) has no `lineId` to attach.
+ */
+export async function buildCartResponseEnvelope(params: BuildCartResponseEnvelopeParams): Promise<CartResponseEnvelope> {
+  const scope: CartViewScope = { tenantId: params.tenantId, organizationId: params.organizationId }
+  const em = (params.container.resolve('em') as EntityManager).fork()
+
+  const cart = await findOneWithDecryption(
+    em,
+    Cart,
+    { id: params.cartId, tenantId: scope.tenantId, organizationId: scope.organizationId, kind: 'basket' as const },
+    {},
+    scope,
+  )
+  if (!cart) throw notFound('[internal] cart not found')
+
+  const lines = (await findWithDecryption(
+    em,
+    CartLine,
+    { cartId: cart.id, deletedAt: null, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    {},
+    scope,
+  )) as CartLine[]
+
+  const buyerPricingService = params.container.resolve<CatalogBuyerPricingService>('catalogBuyerPricingService')
+
+  const productIds = Array.from(new Set(lines.map((line) => line.productId)))
+  const variantIds = Array.from(new Set(lines.map((line) => line.variantId).filter((id): id is string => !!id)))
+  const variantToProduct = new Map<string, string>()
+  for (const line of lines) {
+    if (line.variantId) variantToProduct.set(line.variantId, line.productId)
+  }
+  const pricingRowContext = buildPricingRowFilterContext(cart)
+  const priceRows = await fetchPriceRowsBatch(em, scope, pricingRowContext, productIds, variantIds)
+  const rowsByProduct = groupRowsByProduct(priceRows, variantToProduct)
+
+  const now = new Date()
+  const lineViews: CartLineView[] = []
+  // Sequential, not `Promise.all` — `resolveLinePrice` may itself run an `EntityManager`
+  // read (the `SalesTaxRate` fallback lookup) on this SAME forked `em`; concurrent calls
+  // sharing one `em` is the exact hazard SPEC-018 exists to avoid, even though this file
+  // never mutates anything on it.
+  for (const line of lines) {
+    const rows = filterRowsForVariant(rowsByProduct.get(line.productId) ?? [], line.variantId ?? null)
+    let nextTier: CartLineNextTierView | null = null
+    if (rows.length) {
+      const context = buildBuyerPricingContext(cart, Number(line.quantity), now)
+      const resolved = await buyerPricingService.resolveLinePrice(em, rows, context, scope)
+      nextTier = buildNextTierView(resolved, cart)
+    }
+    lineViews.push({ ...toCartLineSnapshot(line), nextTier })
+  }
+
+  const lineCount = lineViews.length
+  const itemCount = lines.reduce((sum, line) => sum + Number(line.quantity), 0)
+  const approval: CartApprovalView = cart.approvalId ? { id: cart.approvalId, status: 'pending' } : null
+
+  const view: CartView = {
+    ...(params.token ? { token: params.token } : {}),
+    updatedAt: cart.updatedAt,
+    status: cart.status,
+    currencyCode: cart.currencyCode,
+    locale: cart.locale,
+    taxMode: cart.taxMode,
+    lines: lineViews,
+    totals: cart.totals as unknown as SalesDocumentAmounts,
+    promotions: [],
+    requiresApproval: cart.requiresApproval,
+    approval,
+    itemCount,
+    lineCount,
+    expiresAt: cart.expiresAt,
+  }
+
+  const warnings = [...buildFlaggedLineWarnings(lines), ...(params.warnings ?? [])]
+
+  const envelope: CartResponseEnvelope = { cart: view }
+  if (params.priceChanges && params.priceChanges.length > 0) envelope.priceChanges = params.priceChanges
+  if (params.versionBumpReason) envelope.versionBumpReason = params.versionBumpReason
+  if (warnings.length > 0) envelope.warnings = warnings
+  return envelope
+}

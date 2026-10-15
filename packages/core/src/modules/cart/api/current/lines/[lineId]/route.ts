@@ -25,6 +25,8 @@ import {
   resolveCurrentCart,
   resolveRouteContextOrError,
 } from '../../../../lib/currentCartRoute'
+import { buildCartResponseEnvelope } from '../../../../lib/cartView'
+import type { CartViewWarning } from '../../../../lib/cartView'
 import { enforceCartRateLimit } from '../../../../lib/rateLimit'
 
 // Step 4.7 — `PATCH /current/lines/[lineId]` → `cart.lines.update`; `DELETE
@@ -56,6 +58,11 @@ function statusForUpdateOutcome(outcome: CartLinesUpdateOutcome): number {
   if (outcome.status === 'updated') return 200
   if (outcome.reason === 'product_unavailable') return 200
   return 422
+}
+
+/** Step 5.2 — mirrors `lines/route.ts`'s identical `isWarningLevelOutcome` judgment call. */
+function isWarningLevelUpdateOutcome(outcome: CartLinesUpdateOutcome): boolean {
+  return outcome.status !== 'rejected' || outcome.reason === 'product_unavailable'
 }
 
 export async function PATCH(request: Request, context: RouteParams) {
@@ -128,9 +135,31 @@ export async function PATCH(request: Request, context: RouteParams) {
     const mutationPriceChanges = result.status === 'updated' ? result.priceChanges : []
     const priceChanges = [...contextPriceChanges, ...mutationPriceChanges]
     const versionBumpReason = contextVersionBumpReason ?? (mutationPriceChanges.length > 0 ? 'repricing' : undefined)
-    const responseBody: Record<string, unknown> = { outcome: result }
-    if (priceChanges.length > 0) responseBody.priceChanges = priceChanges
-    if (versionBumpReason) responseBody.versionBumpReason = versionBumpReason
+
+    let responseBody: Record<string, unknown>
+    if (isWarningLevelUpdateOutcome(result)) {
+      const warnings: CartViewWarning[] =
+        result.status === 'updated'
+          ? result.warnings.map((code) => ({
+              code,
+              lineId: result.line.id,
+              message: '[internal] The requested quantity was capped at the maximum allowed',
+            }))
+          : [{ code: 'product_unavailable', lineId, message: '[internal] This line is no longer available for the buyer’s assortment scope' }]
+      responseBody = await buildCartResponseEnvelope({
+        container,
+        cartId: cart.id,
+        tenantId: resolved.routeContext.tenantId,
+        organizationId: resolved.routeContext.organizationId,
+        priceChanges,
+        versionBumpReason,
+        warnings,
+      })
+    } else {
+      responseBody = { outcome: result }
+      if (priceChanges.length > 0) responseBody.priceChanges = priceChanges
+      if (versionBumpReason) responseBody.versionBumpReason = versionBumpReason
+    }
 
     return NextResponse.json(responseBody, { status: statusForUpdateOutcome(result) })
   } catch (error) {
@@ -178,7 +207,9 @@ export async function DELETE(request: Request, context: RouteParams) {
     })
 
     const commandInput: CartLinesRemoveInput = { routeContext: resolved.routeContext, cartId: cart.id, lineId }
-    const { result } = await commandBus.execute<CartLinesRemoveInput, CartLinesRemoveResult>(removeLineCommand.id, {
+    // §10.1 has no slot for a removed line's own snapshot (removing it is exactly what the
+    // caller asked for); `result` is discarded in favor of the full post-removal envelope.
+    await commandBus.execute<CartLinesRemoveInput, CartLinesRemoveResult>(removeLineCommand.id, {
       input: commandInput,
       ctx,
     })
@@ -187,10 +218,16 @@ export async function DELETE(request: Request, context: RouteParams) {
 
     // Step 5.1 — `cart.lines.remove` never itself produces a repricing side effect;
     // `priceChanges`/`versionBumpReason` here can only come from the `resolveCurrentCart`-
-    // embedded §5.2 trigger 2-4 check above.
-    const responseBody: Record<string, unknown> = { outcome: result }
-    if (contextPriceChanges.length > 0) responseBody.priceChanges = contextPriceChanges
-    if (contextVersionBumpReason) responseBody.versionBumpReason = contextVersionBumpReason
+    // embedded §5.2 trigger 2-4 check above. Step 5.2 — `.remove` always succeeds, so it
+    // always returns the full §10.1 envelope (never the bare `{ outcome }` shape).
+    const responseBody = await buildCartResponseEnvelope({
+      container,
+      cartId: cart.id,
+      tenantId: resolved.routeContext.tenantId,
+      organizationId: resolved.routeContext.organizationId,
+      priceChanges: contextPriceChanges,
+      versionBumpReason: contextVersionBumpReason,
+    })
 
     return NextResponse.json(responseBody)
   } catch (error) {

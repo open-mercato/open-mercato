@@ -13,6 +13,7 @@ import {
   forceCartResolved,
   insertCartMergeLogReference,
   cartStorefrontRequest,
+  readCartRow,
   resolveCartQueueBaseDir,
   type CartStorefrontFixture,
 } from './helpers';
@@ -109,9 +110,13 @@ test.describe('TC-CART-SWEEP-01/02/03/04: cart sweeper integration coverage', ()
     const after = await getCartStatus(store.hostname, cart.token);
     expect(after.status).toBe(200);
     expect(after.cart?.status).toBe('active');
-    expect(after.cart?.lockedAt).toBeNull();
-    expect(after.cart?.lockExpiresAt).toBeNull();
-    expect(after.cart?.checkoutSessionId).toBeNull();
+
+    // Step 5.2 — the §10.1 `CartView` envelope has no `lockedAt`/`lockExpiresAt`/
+    // `checkoutSessionId` fields at all; read them via the DB directly instead.
+    const row = await readCartRow(cart.cartId);
+    expect(row?.lockedAt).toBeNull();
+    expect(row?.lockExpiresAt).toBeNull();
+    expect(row?.checkoutSessionId).toBeNull();
   });
 
   test('TC-CART-SWEEP-04: purge-expired-carts hard-deletes an unreferenced resolved cart, but excludes one a CartMergeLog still references until that reference is gone', async () => {
