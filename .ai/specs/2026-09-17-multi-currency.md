@@ -21,16 +21,14 @@ today revalues **open** (unsettled) foreign-currency AP/AR balances at
 period end — the "wycena bilansowa" a Polish-entity's books need at
 each balance-sheet date. Realized gain/loss at settlement is already
 fully designed by Cash & Bank Management (#6055); this spec adds the
-missing unrealized/period-end half, as a small new module that reuses
-General Ledger's existing reversal mechanism rather than inventing a
-new one.
+missing unrealized/period-end half, as a small new module that posts its valuation, and a reversing entry for the next period, through General Ledger's existing posting commands rather than inventing a new entry type.
 
 ## Problem Statement
 
 The financial-module Event Storming recording named Multi-Currency as
 priority #2 of the five topics still open after Annual Financial
 Statements (#6188), Tax Management (#6168) and Compliance & Audit
-(#6038 Phase 2) shipped. Unlike topic #1, the recording itself doesn't
+(#6038 Phase 2) were proposed — all three are open spec PRs, not shipped. Unlike topic #1, the recording itself doesn't
 discuss Multi-Currency directly — the earlier ERPNext/Odoo/Kieso
 comparison had already flagged it as a real gap, and four sibling
 specs, written independently over several weeks, all arrived at the
@@ -89,18 +87,14 @@ additions and the resolution rule; the actual schema change lands as a
 small patch to `accounts-payable.md` and the sales-side spec that owns
 `SalesInvoice` (`sales-invoice-gl-posting.md` or wherever `SalesInvoice`
 itself is next revised), the same forward-pointer pattern used for
-GL account balances and Posting Rules Engine when Annual Financial
-Statements (#6188) shipped.
+GL account balances and Posting Rules Engine when Annual Financial Statements (#6188) was proposed (an open spec PR).
 
 **B. A new, deliberately small Core module, `fx_revaluation`**, whose
 only job is: at period end, find every AP/AR document still open in a
 non-base currency, get the valuation-date rate from the existing
 `ExchangeRateService`, compute the unrealized gain/loss against each
 document's booked `exchangeRate`, and post one balanced `JournalEntry`
-— reusing GL core engine's existing `REVERSAL` mechanism (not a new
-`JournalEntry.type`) to unwind the prior period's valuation
-automatically before posting the new one, exactly as Kieso's Appendix
-3B describes reversing entries: *"A reversing entry is the exact
+— together with a reversing entry dated the first day of the next period, in the same transaction, so the valuation never outlives its period (no new `JournalEntry.type`; Design decisions 5 and 12), as Kieso describes reversing entries: *"A reversing entry is the exact
 opposite of the adjusting entry made in the previous period."*
 
 ## Design decisions
@@ -176,51 +170,53 @@ opposite of the adjusting entry made in the previous period."*
    directly via `entityManager`, the same direct cross-module read
    pattern Cash & Bank Management already uses for `SalesInvoice`.
 
-5. **No new `JournalEntry.type` value — reuse `REVERSAL` and
-   `referenceType` tagging instead.** GL core engine's `type` enum is
-   `NORMAL` / `CLOSING` / `OPENING` / `REVERSAL`, each already
-   justified by an existing design decision ("Corrections are
-   reversals, not undo"). Adding a fifth value (e.g. `ADJUSTING`)
-   would touch `ledger`'s own schema and every place that switches on
-   `type`. Instead, the revaluation entry posts as an ordinary
-   `NORMAL` entry tagged `referenceType: 'fx_revaluation:period_end'`,
-   `referenceId: <FxRevaluationRun.id>` — the same tagging convention
-   Cash & Bank Management already uses
-   (`referenceType: 'cash_bank_management:bank_statement_line'`) — and
-   is unwound at the start of the next run via GL core engine's
-   dedicated `reverseJournalEntry` command (never `postJournalEntry`
-   called with a `type: 'REVERSAL'` override — that is not the
-   documented contract; `reverseJournalEntry` posts the linked
-   `REVERSAL` entry with inverted lines and its **own**
-   `operationDate`, per GL core engine's Commands section), linked
-   back via the same `referenceType`/`referenceId` pair. Kieso, Ch. 3,
-   "Reversing Entries—An Optional
-   Step" (p. 3-35 — the section introducing Appendix 3B, not the
-   appendix's own worked pages): *"A reversing entry is the exact
-   opposite of the adjusting entry made in the previous period. Use
-   of reversing entries is an optional bookkeeping procedure..."* —
-   GL core engine
-   already made reversal its one correction mechanism, so this spec
-   is applying an existing, already-adopted pattern to a new use case,
-   not introducing one.
+5. **No new `JournalEntry.type` value — the valuation and its reversing
+   entry are both ordinary `NORMAL` entries.** GL core engine's `type`
+   enum is `NORMAL` / `CLOSING` / `OPENING` / `REVERSAL`, each already
+   justified by an existing design decision ("Corrections are reversals,
+   not undo"). Adding a fifth value (e.g. `ADJUSTING`) would touch
+   `ledger`'s own schema and every place that switches on `type`.
+   Instead, the valuation posts as a `NORMAL` entry tagged
+   `referenceType: 'fx_revaluation:period_end'`, `referenceId:
+   <FxRevaluationRun.id>` — the same tagging convention Cash & Bank
+   Management already uses (`referenceType:
+   'cash_bank_management:bank_statement_line'`) — and the entry that
+   unwinds it on the first day of the next period (Design decision 12)
+   is a second `NORMAL` entry with the lines inverted, tagged
+   `referenceType: 'fx_revaluation:period_end_reversal'` and the same
+   `referenceId`. The unwinding entry is deliberately **not** posted
+   through `ledger.reverseJournalEntry`: GL core engine lets an entry be
+   reversed once and does not let a reversal be reversed, so an
+   automatic `REVERSAL` could not be cancelled when the same period is
+   revalued again (Design decision 6); as ordinary entries, both can.
+   `reverseJournalEntry` stays the only way this module *cancels* a
+   posted entry — never `postJournalEntry` with a `type: 'REVERSAL'`
+   override, which is not the documented contract. Kieso, Ch. 3,
+   "Reversing Entries—An Optional Step" (p. 3-35 — the section
+   introducing Appendix 3B, not the appendix's own worked pages): *"A
+   reversing entry is the exact opposite of the adjusting entry made in
+   the previous period. Use of reversing entries is an optional
+   bookkeeping procedure..."* — the pattern is applied here to a new use
+   case, not introduced.
 
-6. **Reversal-then-repost is one command, not two.** Running
-   `fx_revaluation.revalueOpenBalances` for a period reverses the most
-   recent *unreversed* prior run for the same tenant/organization (if
-   any) and computes and posts a fresh valuation against the requested
-   `valuationDate`, in one command/one transaction — never two
-   separate top-level calls the caller has to sequence itself. This
-   keeps the operation idempotent under re-runs before period close
-   (re-running it just reverses-and-reposts) and matches the
-   "reversing entries happen at the start of the next period,
-   immediately before that period's entries resume" sequencing Kieso
-   describes. **Correction (maintainer-review round):** the *order*
-   implied above — reverse, then validate the new valuation — was
-   backwards, and is corrected in Design decision 10: every check
-   (rates, document data, staleness, base currency) runs first, and
-   the reversal only happens once all of them pass, inside a single
-   locked transaction. This decision's "one command, not two" claim
-   stands; Design decision 10 fixes the internal step order.
+6. **A run posts the valuation and its reversing entry together; running
+   again for the same period supersedes the earlier run.**
+   `fx_revaluation.revalueOpenBalances` for a fiscal period, in one
+   command and one transaction, (a) posts the valuation as a `NORMAL`
+   entry dated `valuationDate` and (b) posts its reversing entry dated
+   the first day of the next period (Design decision 12). If a `POSTED`
+   run already exists for the same fiscal period, the command first
+   cancels it: `ledger.reverseJournalEntry` on each of its two entries,
+   each dated with that entry's own date so that both periods net to
+   zero, and the run is marked `SUPERSEDED`; then it posts a new pair.
+   That keeps the operation idempotent under re-runs before close. A run
+   for a later period never touches an earlier one — the earlier
+   valuation is already unwound by its own reversing entry. The order of
+   validation and writes is Design decision 10. This replaces the first
+   version of this decision (the next run reverses "the most recent
+   unreversed prior run"), which left the prior valuation on the books
+   until that next run and is the cause of the settlement deadlock
+   described in Design decision 12.
 
 7. **Realized gain/loss stays exactly as Cash & Bank Management (#6055)
    already designed it — this spec does not re-derive that formula.**
@@ -295,41 +291,40 @@ opposite of the adjusting entry made in the previous period."*
       (`organizationId`/`tenantId` + `id IN (...)`), not a per-document
       lookup.
    b. **Query direction is fixed: document-currency code →
-      base-currency code**, matching the Data Model's existing
+      base-currency code**, matching the Data Model's
       `unrealizedGainLoss = outstanding × (valuationRate − bookedRate)`
-      formula, which only balances if `exchangeRate` means "base-
-      currency units per one document-currency unit." Checked against
-      both providers' own source comments: for this exact direction
-      (`XXX → PLN`), NBP and Raiffeisen both always tag the row
-      `type: 'buy'` ("bank buys foreign currency, gives PLN") — the
-      direction, not an independent choice, fixes the type for every
-      provider-fetched row. `ExchangeRate`'s own uniqueness constraint
-      (`organizationId, tenantId, fromCurrencyCode, toCurrencyCode,
-      date, source`) confirms at most one row per source for a fixed
-      direction/date — so the only real multiplicity within
-      `RateResult.rates` for this query is **which provider**
-      (`source`), not which `type`.
-   c. **Provider priority, explicit and configurable.** Both bundled
-      providers require PLN on one side of the pair (checked directly
-      — `providerBaseCurrency = 'PLN'`, gated by
-      `availableCurrencies.has('PLN')` in both `fetchRates`
-      implementations), so this policy is written for the PLN-base
-      case this spec already treats as the working assumption (Design
-      decision 8). Default provider priority: `['NBP', 'Raiffeisen
-      Bank Polska']` (NBP first, as the central-bank source; see
-      Design decision 8 — Art. 30 is now Confirmed to require NBP's
-      *Table A* average rate specifically, which this module's
-      `NBPProvider` does not fetch at all, only NBP's Table C bid/ask
-      — this priority-ordering policy remains correct as a *provider*
-      choice, but is not sufficient on its own until Table A support
-      is added, per Implementation Plan Step 0). Configurable via
-      `ModuleConfigService` under `fx_revaluation.ratePriority`
-      (ordered `source` list), same cross-module config pattern Cash &
-      Bank Management already uses for its own account lookups. Any
-      remaining ambiguity after priority ordering (e.g., two manual
-      entries from differently-named sources for the same pair/date)
-      is rejected — **422 `EXCHANGE_RATE_AMBIGUOUS`** — rather than
-      picked arbitrarily.
+      formula, which only balances if `exchangeRate` means "base-currency
+      units per one document-currency unit." Checked against both
+      providers' source comments: for this direction (`XXX → PLN`) NBP
+      (Table C) and Raiffeisen tag the row `type: 'buy'`. `ExchangeRate`'s
+      uniqueness key (`organizationId, tenantId, fromCurrencyCode,
+      toCurrencyCode, date, source`) does **not** contain `type`, so for a
+      fixed direction and date there is at most one row per `source`; the
+      selection key `fx_revaluation` uses is therefore **`source`** (with
+      the pair and the date), never `type`.
+   c. **The statutory rate is stored under its own `source`, so `currencies`
+      needs no schema change.** Art. 30 ust. 1 requires the NBP average
+      rate (Table A; Design decision 8). `NBPProvider` does not fetch it
+      (it reads only `tables/c`, bid/ask), and a Table A row cannot share
+      the `NBP` source: an `EUR → PLN` Table A row for a date would
+      violate the unique key against the Table C row already written for
+      that date. Adding `type` to the key would be a schema and contract
+      change in `currencies` — an "Ask First" item under
+      `currencies/AGENTS.md` and `BACKWARD_COMPATIBILITY.md` — and is not
+      proposed. Instead Implementation Plan Step 0 adds a Table A provider
+      with its own `source: 'NBP_A'` (rows `type: 'mid'`), and
+      `fx_revaluation.ratePriority` (an ordered `source` list in
+      `ModuleConfigService`) defaults to `['NBP_A']`. **The module
+      refuses to post — 422 `EXCHANGE_RATE_UNAVAILABLE` naming the source
+      — rather than fall back to Table C or Raiffeisen** when no `NBP_A`
+      row is resolvable for a currency and date; another source enters
+      `ratePriority` only by an explicit tenant decision. Any ambiguity
+      left after priority ordering (two manual entries from
+      differently-named sources, both listed) is rejected — **422
+      `EXCHANGE_RATE_AMBIGUOUS`**. Both bundled providers require PLN on
+      one side of the pair (`providerBaseCurrency = 'PLN'`), so the policy
+      is written for the PLN-base case this spec treats as the working
+      assumption (Design decision 8).
    d. **Empty/error results.** `RateResult.rates.length === 0` after
       the service's own `maxDaysBack`/`autoFetch` fallback, or a
       populated `RateResult.error` from a batched `getRates()` call,
@@ -343,37 +338,45 @@ opposite of the adjusting entry made in the previous period."*
       `FxRevaluationLine` (see Data Model) — a later re-run or audit
       never has to re-guess which of several candidate rows was used.
 
-10. **Reversal-then-repost validates everything before any write, and
-    is concurrency-safe.** Fixes an ordering bug: an earlier draft's
-    API Contracts reversed the prior run *before* checking for missing
-    rates or missing document rates, so a later `422` could delete a
-    valid prior valuation while posting no replacement — contradicting
-    this document's own "no partial run" claim. Corrected order,
-    inside one `em.transactional()` block (see Architecture):
-    a. `SELECT ... FOR UPDATE` the current `'POSTED'`
-       `FxRevaluationRun` row for this `tenantId`/`organizationId` (if
-       any) — this is the concurrency guard: a second, concurrent call
-       blocks here until the first transaction commits, then re-reads
-       and correctly targets whatever run is current at that point,
-       rather than two callers both reversing the same row.
-    b. Resolve every needed rate (Design decision 9) and validate
-       every in-scope document has a non-null `exchangeRate` — **no
-       write yet**. Any failure here (`EXCHANGE_RATE_UNAVAILABLE`,
-       `EXCHANGE_RATE_MISSING_ON_DOCUMENT`, `EXCHANGE_RATE_AMBIGUOUS`)
-       aborts before touching the locked row.
-    c. Only once (b) fully succeeds: if the locked prior run has a
-       non-null `journalEntryId`, call
-       `commandBus.execute('ledger.reverseJournalEntry', ...)` and
-       mark it `REVERSED`; if it was itself a no-op run
-       (`journalEntryId: null`), just mark it `REVERSED` — nothing to
-       reverse (an explicit test case, per the maintainer review).
-    d. Post the new `NORMAL` entry (or none, if every individual delta
-       is exactly zero — see Design decision 11) and insert the new
-       `FxRevaluationRun`/`FxRevaluationLine` rows, all in the same
-       transaction as (a)–(c). A failure at any point rolls back the
-       whole step — the prior run's `REVERSED` mark and the new run's
-       insert commit together or not at all, so "no partial run" is
-       now a transactional guarantee, not just a stated intent.
+10. **Validate before any ledger write, serialize per tenant, and keep
+    external I/O out of the locked transaction.** An earlier draft
+    reversed the prior run before checking for missing rates, so a later
+    `422` could delete a valid valuation while posting no replacement.
+    The order is: (a) **before the transaction**, resolve the in-scope
+    currency codes and every needed rate (Design decision 9) with
+    `ExchangeRateService.getRates()` as it is: with its default
+    `autoFetch: true` this may call a provider over HTTP and insert rate
+    rows, which is the only side effect and is idempotent; a failure
+    here ends the call with no ledger effect. (b) Open
+    `em.transactional()` and take
+    `pg_advisory_xact_lock(hashtextextended('fx_revaluation:' ||
+    organizationId || ':' || tenantId, 0))` through `em.execute(...)`
+    (not `em.getConnection().execute`, which would run outside the
+    transaction). A row lock on "the current `POSTED` run" is not
+    enough: for a tenant's first run there is no row, and two concurrent
+    first runs would both post. A partial unique index on
+    `FxRevaluationRun (organization_id, tenant_id, fiscal_period_id)
+    WHERE status = 'POSTED'` is the backstop (a violation answers **409
+    `FX_RUN_CONFLICT`**; unreachable while the lock holds). (c) Inside
+    the transaction, read the documents and their open amounts as of
+    `valuationDate` (Design decision 13), validate that every in-scope
+    document has a non-null `exchangeRate`, and re-read the rates with
+    `autoFetch: false` — the rows (a) made available; any failure aborts
+    before anything is written. (d) If a `POSTED` run exists for this
+    fiscal period, supersede it (Design decision 6):
+    `ledger.reverseJournalEntry` for each of its entries, skipped for an
+    entry id that is null (a no-op run), and mark it `SUPERSEDED`. (e)
+    Post the valuation and its reversing entry (Design decision 12) — or
+    neither, if every individual delta is exactly zero (Design decision
+    11) — and insert the new `FxRevaluationRun`/`FxRevaluationLine`
+    rows. The ledger commands are called through `commandBus.execute`
+    with the open EntityManager as `ctx.transactionalEm`
+    (`CommandRuntimeContext` in `@open-mercato/shared`); the ledger
+    commands treat a call that carries it as composed, running inside
+    the caller's transaction and not emitting their own events before it
+    commits (GL core engine implementation, #6340). A failure anywhere
+    rolls back the whole step: the supersede, the two postings and the
+    inserts commit together or not at all.
 
 11. **Sign convention is document-type-dependent, and a leg is only
     ever omitted when its own delta is exactly zero — never the whole
@@ -424,57 +427,65 @@ opposite of the adjusting entry made in the previous period."*
     single netted `gainLossAccountId` for one document's own
     settlement).
 
-12. **The prior valuation is reversed at the start of the next run,
-    which must happen before any settlement of the revalued documents
-    in the new period — not merely "at the next revaluation run."**
-    Closes a real gap: for an invoice booked at 400 (PLN), revalued to
-    420 at period end, then **settled for 420** early in the new
-    period before the next revaluation run executes, the unchanged
-    Cash & Bank Management settlement design clears the booked 400 and
-    recognizes a realized gain of 20 — but the prior period's
-    unreversed 20 unrealized-gain entry is *still on the books*, so the
-    control account carries a stale 20 on a document that no longer
-    exists as an open exposure, and total recognized gain doubles (20
-    unrealized + 20 realized) for what was, economically, a single
-    20 movement. Fix: `fx_revaluation.AGENTS.md` gains a MUST —
-    whichever process settles a foreign-currency document (Cash & Bank
-    Management's `matchBankStatementLine`) MUST check, before matching,
-    whether that document is a line in the current (unreversed)
-    `FxRevaluationRun`, and if so, require that run to be reversed
-    first (a `409 PRIOR_VALUATION_NOT_REVERSED` from
-    `matchBankStatementLine`, pointing at the specific
-    `FxRevaluationRun`) — coordinating with the settlement path is a
-    small, additive precondition, not a redesign of Cash & Bank
-    Management's own formula (Design decision 7 still holds). This is
-    a new cross-spec coordination point for `cash-bank-management.md`,
-    added to Patches to sibling specs and Risks below, alongside the
-    existing `bookedExchangeRate`-defaulting note.
+12. **The valuation reverses itself on the first day of the next period,
+    in the same transaction — so a settlement in the new period needs no
+    gate.** The previous draft let the unrealized valuation stand until
+    "the next revaluation run" and made `matchBankStatementLine` reject
+    (`409 PRIOR_VALUATION_NOT_REVERSED`) any document in an unreversed
+    run. Review of `d9bf77e1e` found the flaw: the only thing that
+    reverses a run is the next run, which Design decision 13 accepts
+    only for the period being closed, so an EUR receivable valued on 31
+    December and paid on 3 January could not be matched until the 31
+    January run — a month of foreign-currency collections and payments
+    blocked. The fix is the one Kieso describes (Design decision 5):
+    `revalueOpenBalances` posts the valuation dated `valuationDate` and,
+    in the same transaction, a reversing entry (a `NORMAL` entry with
+    inverted lines) dated the first day of the next period. Worked
+    example: an invoice booked at 400 PLN is valued at 420 on 31
+    December (+20 unrealized gain); on 1 January the reversing entry
+    posts −20; when the customer pays 420 on 3 January, Cash & Bank
+    Management clears the booked 400 and recognizes a realized gain of
+    20 — the control account carries no stale 20 and the gain over both
+    periods is 20, not 40. A settlement dated after `valuationDate` but
+    before the run executes is also handled, because the balance is
+    valued as of `valuationDate` (Design decision 13), not as of the
+    run. Consequences: Cash & Bank Management's settlement path needs
+    **no** new precondition, so the cross-module coupling into
+    `cash-bank-management.md` and its `409 PRIOR_VALUATION_NOT_REVERSED`
+    are removed from this spec (Patches to sibling specs, Risks); and
+    the reversing entry needs an unlocked `FiscalPeriod` covering the
+    day after the period's end — if there is none, the call fails **409
+    `NEXT_PERIOD_UNAVAILABLE`** before anything is written (API
+    Contracts).
 
-13. **`valuationDate` must be recent, not arbitrarily historical — this
-    module reconstructs nothing.** An earlier draft let
-    `valuationDate` default to "the period's end date" with no
-    freshness check, but the vendor-invoice (Design decision 18) and sales-invoice
-    (Design decision 17) open amounts are **current-state** values, not
-    a point-in-time ledger a historical run could reconstruct from —
-    a document open on Dec 31 but paid Jan 3, or partially paid after
-    the cutoff, would already show a changed open amount by
-    the time a late run executes, silently misstating exposure. Per
-    this document's own "simplest solution" discipline (Alternatives
-    considered) — a dated-allocation/historical-snapshot engine is out
-    of scope, not a gap to quietly accept — the fix is a scope
-    restriction, not new infrastructure: **`valuationDate` must fall
-    within a configurable grace window of "today"**
-    (`fx_revaluation.valuationGraceDays`, default `10`, covering a
-    realistic month-end close cycle that finishes a few business days
-    into the next month) and the referenced `FiscalPeriod` must still
-    be the tenant's **most recently closed-or-closing** period, not an
-    arbitrarily old one. A `valuationDate`/`fiscalPeriodId` combination
-    outside that window is rejected — **422
-    `VALUATION_DATE_TOO_STALE`** — with the message directing the
-    caller to run revaluation promptly at period-end rather than
-    reconstruct exposure retroactively. This is a real, acknowledged
-    capability boundary (see Out of scope), not a silent
-    approximation.
+13. **The balance is valued as of `valuationDate`: later settlements are
+    added back and later documents excluded; a grace window still bounds
+    what the module cannot reconstruct.** An earlier draft used
+    current-state open amounts, bounded only by `valuationGraceDays`.
+    Review of `d9bf77e1e` showed that the window limits the cutoff error
+    but does not remove it: a 31 December run executed on 5 January
+    would drop a payment made on 3 January, understate a partial payment
+    made on 4 January, and include an invoice issued on 2 January, with
+    nothing to reject or flag it. The rule is now: the open amount of a
+    document is the formula of Design decisions 17 and 18 taken over the
+    settlements dated **on or before `valuationDate`**, and a document
+    whose posting date is after `valuationDate` is excluded. The
+    settlement dates already exist as data (`BankStatementLine.lineDate`
+    for sales invoices; the batch's `sentOn` for vendor invoices, see
+    Design decision 18) — this is a dated filter on existing rows, not a
+    historical-snapshot engine. What the module still cannot reconstruct
+    is a change that leaves no dated trace — for example a document
+    cancelled or re-priced after the valuation date — and that is what
+    the grace window is for: **`valuationDate` must fall within
+    `fx_revaluation.valuationGraceDays` of today** (default `10`, a
+    realistic month-end close cycle) and `fiscalPeriodId` must be the
+    tenant's **latest unlocked period whose end date is not after
+    today**. Outside that, **422 `VALUATION_DATE_TOO_STALE`**. A locked
+    period is a different answer — **409 `FISCAL_PERIOD_LOCKED`** —
+    because revaluation is a pre-close step; the earlier text spoke of a
+    "closed-or-closing" period here and "409 if already `CLOSED`" in the
+    API, which contradicted each other, and both now say "locked"
+    (`FiscalPeriod.isLocked`).
 
 14. **A cross-currency settlement (bank currency ≠ base ≠ invoice
     currency) cannot default `bookedExchangeRate` from the invoice's
@@ -507,39 +518,56 @@ opposite of the adjusting entry made in the previous period."*
     `1,075 / 1,000 = 1.075` USD/EUR, not `4.30`.
 
 15. **Pre-existing documents get `currencyId` backfilled but not
-    `exchangeRate` — with a supported, explicit remediation command,
-    not a permanent dead end.** `VendorInvoice`/`SalesInvoice` rows
-    that predate this feature have `currencyCode` but neither
-    `currencyId` nor `exchangeRate`. A one-time migration backfills
-    `currencyId` for every existing row (a pure, rate-independent
-    `currencyCode` → `Currency.id` lookup, scoped per
+    `exchangeRate`, and the commands that set a rate belong to the
+    module that owns the document.** `SalesInvoice` rows that predate
+    this feature have `currencyCode` but neither `currencyId` nor
+    `exchangeRate`; `VendorInvoice` rows already carry `currencyId`
+    (Design decision 3) and lack only `exchangeRate`. A one-time
+    migration backfills `SalesInvoice.currencyId` (a pure,
+    rate-independent `currencyCode` → `Currency.id` lookup, scoped per
     `organizationId`/`tenantId`) — safe because it needs no historical
-    rate. `exchangeRate` is **not** backfilled automatically (a
-    retroactively "resolved" rate for a document issued months ago
-    would be a guess, not the rate the party actually saw), so
-    pre-existing foreign-currency documents stay excluded from
-    revaluation scope (already covered in Edge Cases) until an
-    operator explicitly runs a new, admin-triggered
-    `fx_revaluation.backfillDocumentRate` command per document — which
-    resolves `exchangeRate` via the **same** rule as new documents
-    (Design decision 2: `ExchangeRateService.getRate()` against the
-    document's own `issueDate`), an explicit, auditable, one-row-at-a-
-    time action rather than a silent bulk guess. Once `currencyId`/
-    `exchangeRate` exist on a document (new or backfilled), both are
-    **immutable after the document posts** — a draft (pre-posting)
-    edit to `currencyCode` or `issueDate` (both still editable per
-    `sales.invoices.update`'s current contract, checked directly
-    against `packages/core/src/modules/sales/commands/documents.ts`)
-    triggers re-resolution of both fields, since the document isn't
-    booked yet; once posted, `currencyCode`, `issueDate`, `currencyId`,
-    and `exchangeRate` are frozen together (correcting a posted
-    document means reversing it, the same "reversal not undo"
-    discipline as GL core engine — see Out of scope) so the three
-    fields can never silently diverge. `sales-invoice-gl-posting.md`
-    (or wherever `sales.invoices.update` is next revised) needs to add
-    this immutability guard once `SalesInvoice.currencyId`/
-    `exchangeRate` exist — a new coordination point, added to Patches
-    to sibling specs.
+    rate. `exchangeRate` is **not** backfilled automatically: a rate
+    resolved retroactively for a document issued months ago would be a
+    guess, not the rate the party actually saw. Pre-existing
+    foreign-currency documents therefore make a run fail loudly (**422
+    `EXCHANGE_RATE_MISSING_ON_DOCUMENT`**, Edge Cases) until an operator
+    sets the rate per document. **Ownership (2026-10-15 review round):**
+    `fx_revaluation` never writes `SalesInvoice` or `VendorInvoice` (its
+    `AGENTS.md` says so). An earlier draft put a
+    `fx_revaluation.backfillDocumentRate` command here; it wrote the
+    owners' entities directly, bypassing their command pipeline
+    (audit/undo, CRUD events, query-index refresh, optimistic locking),
+    and inverted the one-way dependency this spec claims. Each owning
+    module now exposes the command on its own pipeline: `sales` — `POST
+    /api/sales/invoices/:id/exchange-rate/backfill`; `accounts_payable`
+    — `POST
+    /api/accounts_payable/vendor-invoices/:id/exchange-rate/backfill`
+    (path to be aligned with the owning spec). Contract, the same for
+    both: body `{}`; requires the owning module's own invoice-manage
+    feature, not an `fx_revaluation` one; resolves `exchangeRate` with
+    the same rule as a new document (Design decision 2:
+    `ExchangeRateService` against the document's own `issueDate`, source
+    priority per Design decision 9); **200** `{ exchangeRate,
+    rateSource, rateDate }`; **409 `EXCHANGE_RATE_ALREADY_SET`** when
+    the rate is not null; **404** when the document is not in the
+    caller's scope; **422 `EXCHANGE_RATE_UNAVAILABLE`**. Once
+    `currencyId` and `exchangeRate` exist on a document (new or
+    backfilled), both are **immutable after the document posts**; the
+    guard allows exactly one transition, `exchangeRate` null → value,
+    through this command. A draft (pre-posting) edit to `currencyCode`
+    or `issueDate` (both still editable per `sales.invoices.update`'s
+    current contract, checked directly against
+    `packages/core/src/modules/sales/commands/documents.ts`) triggers
+    re-resolution of both fields — inside `sales.invoices.update` (and
+    its `accounts_payable` equivalent), not in `fx_revaluation` — since
+    the document is not booked yet; once posted, `currencyCode`,
+    `issueDate`, `currencyId` and `exchangeRate` are frozen together
+    (correcting a posted document means reversing it, the same "reversal
+    not undo" discipline as GL core engine — see Out of scope), so the
+    three fields can never silently diverge. The guard is a new
+    coordination point for `sales-invoice-gl-posting.md` (or wherever
+    `sales.invoices.update` is next revised) and for the
+    `accounts-payable.md` equivalent, added to Patches to sibling specs.
 
 16. **A `FxRevaluationRun` snapshots the base currency it valued
     against — it does not trust `Currency.isBase` to still mean the
@@ -577,10 +605,8 @@ opposite of the adjusting entry made in the previous period."*
     default-created invoice as "fully settled" and misstate the rest. The
     revaluation entry adjusts the receivable control account, so its base
     must be what the ledger actually holds for the invoice:
-    `grandTotalGrossAmount − Σ BankStatementLine.settledAmount` over the
-    invoice's `sales_invoice` matches in Cash & Bank Management (#6055; a
-    soft read: no `cash_bank_management`, no settlements), and only for an
-    invoice with an unreversed `JournalEntry` carrying
+    `grandTotalGrossAmount − Σ BankStatementLine.settledAmount` over the invoice's `sales_invoice` matches dated on or before `valuationDate` (`BankStatementLine.lineDate`; Design decision 13) in Cash & Bank Management (#6055; a
+    soft read: no `cash_bank_management`, no settlements), and only for an invoice posted on or before `valuationDate` with an unreversed `JournalEntry` carrying
     `referenceType: 'sales:sales_invoice'`, `referenceId: invoice.id` (the
     reference #6046 writes). An unposted invoice is not in the ledger and is
     never revalued. This is consistent with the settlement path:
@@ -600,10 +626,8 @@ opposite of the adjusting entry made in the previous period."*
     `accounts_payable` maintains one; its specs define `VendorInvoice` with
     `total_gross` only, no `PAID` status and no settlement flag, and record
     payments on `PaymentBatchLine`.) For an invoice with `status = 'POSTED'`
-    (it is in the ledger; an unposted or cancelled invoice is never
-    revalued) the open amount is
-    `total_gross − Σ PaymentBatchLine.amount` over its lines on payment
-    batches with `status = 'SENT'` (only `markPaymentBatchSent` posts the
+    (it is in the ledger, posted on or before `valuationDate`; an unposted or cancelled invoice is never revalued) the open amount as of `valuationDate` is
+    `total_gross − Σ PaymentBatchLine.amount` over its lines on payment batches with `status = 'SENT'` and `sentOn` on or before `valuationDate` (only `markPaymentBatchSent` posts the
     payment; a line on a `DRAFT` or `CONFIRMED` batch has paid nothing). In
     Phase 1 of `accounts_payable_payments` a line always carries the full
     invoice amount, so the open amount is `total_gross` or `0`; the formula
@@ -629,77 +653,78 @@ FK-id-only with the tenant/organization scope applied and no ORM relation
 (the precedent is `communication_channels` reading `messages`); and the
 columns it relies on (`vendorInvoiceId`, `amount`, the batch `status`) are listed as
 a contract in the payments spec, so a change to them is a visible spec change.
-Decided by the team (2026-10-12): no external review of this direction; the
-reasoning rests on the knowledge base's conventions and the two AP specs.
+Decided by the team (2026-10-12): no external review of this direction; the reasoning rests on the knowledge base's conventions and the two AP specs. **Added 2026-10-15 (as-of valuation, Design decision 13):** the as-of filter needs the date a batch was sent. The payments spec defines no such field — `PaymentBatch` has `scheduledPaymentDate` only — so the read contract lists `sentOn` (the `operationDate` of the payment entry `markPaymentBatchSent` posts) beside `vendorInvoiceId`, `amount` and the batch `status`. ⚠ **NEEDS HUMAN CONFIRMATION** with the owner of the payments spec. The note of 2026-10-12 that this contract is already listed could not be confirmed: there is no "Read contract for other modules" section in `accounts-payable-payments.md` on `docs/accounts-payable` (6c17a8553), so it is carried as a patch (Patches to sibling specs).
 
 ## Architecture
-
-### New module: `fx_revaluation` (Core)## Architecture
 
 ### New module: `fx_revaluation` (Core)
 
 - `data/entities.ts` — `FxRevaluationRun`, `FxRevaluationLine` (see
   Data Model).
 - `commands/revalueOpenBalances.ts` — the one command this module
-  exists for. Opens its own transaction (`em.transactional()`, the
-  same "outer command owns the transaction, nested `commandBus.execute`
-  calls join it" pattern Cash & Bank Management's
-  `matchBankStatementLine` already uses for its own
-  `ledger.postJournalEntry` call plus its own entity write in one
-  commit). Inside that transaction: locks the current `'POSTED'`
-  `FxRevaluationRun` row for this tenant/org with `SELECT ... FOR
-  UPDATE` (if any), re-validates everything (rates, document data,
-  fiscal-period lock) per Design decision 10 **before any write**,
-  then — only once validation passes — calls
-  `commandBus.execute('ledger.reverseJournalEntry', ...)` for the
-  locked prior run's `journalEntryId` (skipped if that run was itself
-  a no-op with `journalEntryId: null`), marks it `REVERSED`, and calls
-  `commandBus.execute('ledger.postJournalEntry', ...)` once for the new
-  valuation — never `postJournalEntry` with a `type: 'REVERSAL'`
-  override for the unwind step, which is not the ledger's documented
-  reversal contract (see Design decision 5 and 10). Reads open
-  `VendorInvoice`/`SalesInvoice` rows directly via `entityManager`
-  (scoped `tenantId`/`organizationId`, same cross-module direct-read
-  precedent as Cash & Bank Management), calls
-  `currencies.ExchangeRateService.getRates()` (batch) for the
-  valuation date, and computes per-document unrealized gain/loss per
-  Design decisions 9 and 11.
-- `api/runs.ts` — `POST /api/fx_revaluation/runs` (see API Contracts).
+  exists for. Its order of work is Design decision 10: rates are
+  resolved before the transaction; inside `em.transactional()` it takes
+  the per-tenant advisory lock through `em.execute`, re-validates, and
+  supersedes the fiscal period's `POSTED` run if there is one (two
+  `ledger.reverseJournalEntry` calls); then it posts the valuation entry
+  and its reversing entry (two `ledger.postJournalEntry` calls, Design
+  decisions 5 and 12) and inserts the run and its lines. The ledger
+  commands are called through `commandBus.execute` with the open
+  EntityManager as `ctx.transactionalEm` (`CommandRuntimeContext`), so
+  they run inside this transaction; this module emits no event of its
+  own (Canonical Mechanisms). It reads open `VendorInvoice`/`SalesInvoice`
+  data directly through `entityManager` (scoped by `tenantId` and
+  `organizationId`, FK-id reads, no ORM relation), calls
+  `currencies.ExchangeRateService.getRates()` (batch) for the valuation
+  date, and computes per-document unrealized gain/loss per Design
+  decisions 9 and 11. It reads; it never writes another module's
+  entities.
+- API route files (auto-discovery layout; `preview` is a literal segment
+  and is not shadowed by `[id]`): `api/runs/route.ts` — `POST` and `GET`
+  (list); `api/runs/preview/route.ts` — `GET`;
+  `api/runs/[id]/route.ts` — `GET` (detail).
+- `acl.ts` — `fx_revaluation.runs.create` and `fx_revaluation.runs.read`;
+  `setup.ts` — default role features for both.
 - `AGENTS.md` — module rules: MUST NOT write to `VendorInvoice` or
   `SalesInvoice`, and MUST NOT read `SalesInvoice.outstandingAmount` (open
-  amounts follow Design decisions 17 and 18); MUST reject
-  (not skip) a document whose `currencyId` differs from base but whose
-  `exchangeRate` is null; MUST read the FiscalPeriod lock state before
-  posting.
-- **Depends on**: `currencies` (hard — rate lookups),
-  `ledger` (hard — posts `JournalEntry`, and reads the
-  `sales:sales_invoice` posting), `accounts_payable`/`accounts_payable_payments`/`sales`/
-  `cash_bank_management` (soft, direct entity reads only — no ORM relations, matching the
-  root AGENTS.md "no direct ORM relationships between modules" rule
-  already enforced everywhere else in this family of specs).
+  amounts follow Design decisions 17 and 18); MUST reject (not skip) a
+  document whose `currencyId` differs from base but whose `exchangeRate` is
+  null; MUST read the `FiscalPeriod` lock state before posting; MUST refuse
+  to post when no rate from a `ratePriority` source is resolvable (Design
+  decision 9c).
+- **Depends on**: `currencies` (hard — rate lookups), `ledger` (hard —
+  posts `JournalEntry`, reads the `sales:sales_invoice` posting),
+  `accounts_payable`/`accounts_payable_payments`/`sales`/
+  `cash_bank_management` (soft, direct reads only — no ORM relations,
+  matching the root AGENTS.md "no direct ORM relationships between modules"
+  rule). Status of each: Implementation Plan, "Blocked on".
 
 ### Patches to sibling specs (small, forward-pointer style)
 
 - `accounts-payable.md` — add `VendorInvoice.exchangeRate`
-  (`numeric(18,8)`, nullable) to the entity's field list, with a
-  pointer to this document for the resolution rule.
-- The spec owning `SalesInvoice` (`sales-invoice-gl-posting.md`, since
-  it already documents `SalesInvoice`'s current currency handling in
-  detail) — add `SalesInvoice.currencyId`/`exchangeRate`, and a note
-  that `postSalesInvoiceToLedger`'s existing `currencyCode` →
-  `currencyId` resolution step should read the stored `currencyId`
-  once this ships, rather than re-resolving it.
-- `cash-bank-management.md` — note that `bookedExchangeRate` can
-  default from `SalesInvoice.exchangeRate` once populated, **only when
-  the bank account's currency equals the tenant's base currency**
-  (Design decision 14) — and add the new
-  `matchBankStatementLine` precondition: reject (`409
-  PRIOR_VALUATION_NOT_REVERSED`) settling a document that is a line in
-  the current, unreversed `FxRevaluationRun` (Design decision 12).
-- The spec owning `SalesInvoice`/`sales.invoices.update`
-  (`sales-invoice-gl-posting.md`) — add the post-creation immutability
-  guard for `currencyId`/`exchangeRate`/`currencyCode`/`issueDate`
-  once a document is posted (Design decision 15).
+  (`numeric(18,8)`, nullable) with a pointer to this document for the
+  resolution rule; the `backfill` command and route, the draft-edit
+  re-resolution, and the post-posting immutability guard (Design decision
+  15).
+- The spec owning `SalesInvoice` (`sales-invoice-gl-posting.md`, since it
+  already documents `SalesInvoice`'s current currency handling in detail) —
+  add `SalesInvoice.currencyId`/`exchangeRate`, the same `backfill` command
+  and route, the draft-edit re-resolution in `sales.invoices.update`, the
+  post-posting immutability guard (Design decision 15), and a note that
+  `postSalesInvoiceToLedger`'s `currencyCode` → `currencyId` resolution
+  should read the stored `currencyId` once this ships.
+- `accounts-payable-payments.md` — add the read contract for other modules:
+  `PaymentBatchLine.vendorInvoiceId` and `amount`, and, from
+  `PaymentBatch`, `status` and `sentOn` (the `operationDate` of the entry
+  `markPaymentBatchSent` posts). `sentOn` does not exist today (Design
+  decision 18).
+- `cash-bank-management.md` — note that `bookedExchangeRate` can default
+  from `SalesInvoice.exchangeRate` once populated, **only when the bank
+  account's currency equals the tenant's base currency** (Design decision
+  14); and list `BankStatementLine.settledAmount`, `lineDate` and the
+  match's invoice reference as the read contract (Design decision 17).
+  **No settlement precondition is needed** — the earlier
+  `PRIOR_VALUATION_NOT_REVERSED` patch is withdrawn (Design decision 12).
 
 ## Data Model
 
@@ -712,19 +737,24 @@ reasoning rests on the knowledge base's conventions and the two AP specs.
 | `fiscalPeriodId` | `uuid` (FK-id, no ORM relation) | the period this run values as of |
 | `baseCurrencyId` | `uuid` (FK-id → `currencies.Currency`) | the base currency actually used for this run, snapshotted at creation (Design decision 16) |
 | `valuationDate` | `date` | the date requested (may differ from `valuationRateDate` after fallback) |
-| `reversesRunId` | `uuid`, nullable (FK-id) | the prior run this one reversed, if any |
-| `journalEntryId` | `uuid`, nullable (FK-id) | the posted `NORMAL` valuation entry; `null` for a no-op run (Edge Cases) |
-| `reversalJournalEntryId` | `uuid`, nullable (FK-id) | set once a later run reverses this one |
-| `status` | `'POSTED' \| 'REVERSED'` | |
+| `supersedesRunId` | `uuid`, nullable (FK-id) | the earlier run for the same fiscal period this one replaced, if any (Design decision 6) |
+| `journalEntryId` | `uuid`, nullable (FK-id) | the posted `NORMAL` valuation entry, dated `valuationDate`; `null` for a no-op run (Edge Cases) |
+| `reversingJournalEntryId` | `uuid`, nullable (FK-id) | the posted `NORMAL` reversing entry, dated the first day of the next period (Design decision 12); `null` exactly when `journalEntryId` is |
+| `status` | `'POSTED' \| 'SUPERSEDED'` | `SUPERSEDED` once a later run for the same fiscal period has cancelled both entries (Design decision 6) |
 | `totalUnrealizedGainLoss` | `numeric(18,4)` | base currency, signed net of gains and losses (P&L total; individual control-account legs are on `FxRevaluationLine`, Design decision 11) |
 | `createdBy` | `uuid` | acting user |
 | `createdAt` | `timestamptz` | |
+
+Partial unique index `(organization_id, tenant_id, fiscal_period_id) WHERE
+status = 'POSTED'`: at most one live run per fiscal period (the backstop
+for Design decision 10b).
 
 ### `fx_revaluation.FxRevaluationLine`
 
 | Field | Type | Notes |
 |---|---|---|
 | `id` | `uuid` | PK |
+| `organizationId` / `tenantId` | `uuid` | scope, copied from the run (the line is read directly, so it carries its own) |
 | `runId` | `uuid` (FK-id) | parent `FxRevaluationRun` |
 | `documentType` | `'vendor_invoice' \| 'sales_invoice'` | drives the sign convention, Design decision 11 |
 | `documentId` | `uuid` (FK-id, no ORM relation) | |
@@ -749,62 +779,58 @@ route (it isn't CRUD — it computes and posts); `GET /runs` and
 
 - **Body**: `{ fiscalPeriodId: string, valuationDate?: string }`
   (`valuationDate` defaults to the period's end date).
-- Loads the `FiscalPeriod`; **400** if not found, **409** if already
-  `CLOSED`/`isLocked` (revaluation is a pre-close step, not a
-  post-close one).
+- **404** if the `FiscalPeriod` is not found in the caller's scope.
+  **409 `FISCAL_PERIOD_LOCKED`** if it is locked (revaluation is a
+  pre-close step, not a post-close one). **409 `NEXT_PERIOD_UNAVAILABLE`**
+  if no unlocked `FiscalPeriod` covers the day after the period's end —
+  the reversing entry needs one (Design decision 12); nothing is written.
 - **422 `VALUATION_DATE_TOO_STALE`** if `valuationDate` falls outside
-  `fx_revaluation.valuationGraceDays` of today, or `fiscalPeriodId`
-  isn't the tenant's most recently closed-or-closing period (Design
+  `fx_revaluation.valuationGraceDays` of today, or `fiscalPeriodId` isn't
+  the tenant's latest unlocked period ending on or before today (Design
   decision 13).
-- **422 `BASE_CURRENCY_CHANGED`** if the tenant's current
-  `Currency.isBase` row doesn't match the most recent prior run's
-  `baseCurrencyId` (Design decision 16).
-- Locks the current `'POSTED'` `FxRevaluationRun` row for this
-  tenant/org with `SELECT ... FOR UPDATE`, then validates fully before
-  any write (Design decision 10):
-    - Reads all open `VendorInvoice` rows (open amount `> 0` per
-    Design decision 18, `currencyId` ≠ tenant base currency) and all open, posted
-    `SalesInvoice` rows (ledger-side open amount `> 0`, `currencyId` ≠
-    tenant base currency; Design decision 17) as of `valuationDate`.
-  - Resolves rates per Design decision 9; **422
-    `EXCHANGE_RATE_UNAVAILABLE`** (rate genuinely not found after
-    lookback/auto-fetch) or **422 `EXCHANGE_RATE_AMBIGUOUS`**
-    (unresolvable multi-provider tie) with the specific currency/date
-    — no partial run.
-  - Rejects (**422 `EXCHANGE_RATE_MISSING_ON_DOCUMENT`**) if any
-    in-scope document has `currencyId` ≠ base but `exchangeRate: null`
-    — a data problem to surface, not paper over with an assumed rate
-    of `1` (pre-existing documents needing the backfill command,
-    Design decision 15).
-- Only once validation passes: reverses the locked prior run via
-  `ledger.reverseJournalEntry` (skipped if it was itself a no-op —
-  Design decision 10c) and posts the new `NORMAL` `JournalEntry` with
-  per-control-account, per-side legs (Design decision 11) — the whole
-  entry is omitted only if every individual document delta is exactly
-  `0`, in which case no entry is posted and the run is recorded with
-  `journalEntryId: null`.
-- **Response 201**: `{ runId, journalEntryId, reversalOfRunId?,
-  totalUnrealizedGainLoss, lineCount }`.
+- **422 `BASE_CURRENCY_CHANGED`** if the tenant's current `Currency.isBase`
+  row doesn't match the most recent prior run's `baseCurrencyId` (Design
+  decision 16).
+- **Rates are resolved first, outside the transaction** (Design decision
+  10a): **422 `EXCHANGE_RATE_UNAVAILABLE`** (no row from a `ratePriority`
+  source after lookback and auto-fetch — never a fallback to Table C) or
+  **422 `EXCHANGE_RATE_AMBIGUOUS`**, with the specific currency and date;
+  no ledger write has happened.
+- **In the transaction** (Design decision 10b–e): takes the per-tenant
+  advisory lock; reads all vendor invoices (posted, open amount `> 0` as of
+  `valuationDate`, `currencyId` ≠ tenant base currency; Design decision 18)
+  and all posted sales invoices (ledger-side open amount `> 0` as of
+  `valuationDate`, `currencyId` ≠ base; Design decision 17); rejects **422
+  `EXCHANGE_RATE_MISSING_ON_DOCUMENT`** if any in-scope document has
+  `exchangeRate: null` — a data problem to surface, not paper over with an
+  assumed rate of `1` (remedy: the owning module's `backfill` command,
+  Design decision 15); supersedes the fiscal period's `POSTED` run if there
+  is one; then posts the valuation entry and its reversing entry with
+  per-control-account, per-side legs (Design decisions 11 and 12). Both
+  entries are omitted only if every individual document delta is exactly
+  `0`; the run is then recorded with `journalEntryId: null` and
+  `reversingJournalEntryId: null`.
+- **409 `FX_RUN_CONFLICT`**: the partial unique index fired (unreachable
+  while the advisory lock holds; Design decision 10b).
+- **Response 201**: `{ runId, journalEntryId, reversingJournalEntryId,
+  supersedesRunId?, totalUnrealizedGainLoss, lineCount }`.
 - **Response 403**: caller lacks `fx_revaluation.runs.create`.
 
 ### `GET /api/fx_revaluation/runs/preview`
 
-- **Query**: `{ fiscalPeriodId: string, valuationDate?: string }` —
-  same inputs and same validation as `POST /runs` (including the
-  staleness/base-currency/rate checks), but read-only: computes and
-  returns the line list without posting or reversing anything.
+- **Query**: `{ fiscalPeriodId: string, valuationDate?: string }` — same
+  inputs and same validation as `POST /runs` (period, next period,
+  staleness, base currency, rates), but read-only: computes and returns the
+  line list without posting or superseding anything.
 - **Response 200**: `{ lines: FxRevaluationLinePreview[],
-  totalUnrealizedGainLoss, wouldReverseRunId? }` — the same shape the
-  UI's preview table renders (UI/UX below). A preview is **not**
-  cached and **not** guaranteed to still be valid by the time
-  `POST /runs` executes (rates, a document's open amount, or the prior
-  `'POSTED'` run can change between the two calls) — the UI must
-  re-preview, not silently repost, if the user waits before
-  confirming (stale-preview rule, addressing the previously-missing
-  contract).
-- **Response 403**: caller lacks `fx_revaluation.runs.create` (same
-  feature as posting — previewing a run a caller can't post has no
-  use case here).
+  totalUnrealizedGainLoss, wouldSupersedeRunId? }` — the same shape the UI's
+  preview table renders (UI/UX below). A preview is **not** cached and
+  **not** guaranteed to still be valid by the time `POST /runs` executes
+  (rates, a document's open amount, or the fiscal period's `POSTED` run can
+  change between the two calls) — the UI must re-preview, not silently
+  repost, if the user waits before confirming.
+- **Response 403**: caller lacks `fx_revaluation.runs.create` (same feature
+  as posting — previewing a run a caller can't post has no use case here).
 
 ### `GET /api/fx_revaluation/runs`
 
@@ -838,73 +864,83 @@ line detail.
 
 ## Edge Cases & Failure Scenarios
 
-- **No open foreign-currency documents at all.** The run completes
-  with `lineCount: 0`, `journalEntryId: null`, `status: 'POSTED'`
-  (a no-op run is still recorded, so period-end history shows
-  revaluation was checked, not skipped).
-- **AR and AP deltas exactly offset (net P&L is `0`, but neither
-  control account moved by `0`).** Still posts all four legs (Design
-  decision 11) — only a single document's own delta being exactly `0`
-  is omitted from the entry; the "no documents at all" no-op above is
-  the only case with no entry at all.
-- **The prior `'POSTED'` run was itself a no-op** (`journalEntryId:
-  null`, e.g. a period with no open foreign-currency documents).
-  Marked `REVERSED` with no call to `ledger.reverseJournalEntry` —
-  nothing was posted, so nothing needs unwinding (Design decision
-  10c).
+- **No open foreign-currency documents at all.** The run completes with
+  `lineCount: 0`, `journalEntryId: null`, `reversingJournalEntryId: null`,
+  `status: 'POSTED'` (a no-op run is still recorded, so period-end history
+  shows revaluation was checked, not skipped).
+- **AR and AP deltas exactly offset (net P&L is `0`, but neither control
+  account moved by `0`).** Still posts all four legs (Design decision 11) —
+  only a single document's own delta being exactly `0` is omitted from the
+  entry; the "no documents at all" no-op above is the only case with no
+  entry at all.
+- **Revaluing the same fiscal period again, the earlier run being a
+  no-op** (both entry ids null). Marked `SUPERSEDED` with no call to
+  `ledger.reverseJournalEntry` — nothing was posted, so nothing needs
+  cancelling (Design decision 10d).
 - **A document's `exchangeRate` is `null` because it predates this
-  feature.** Rejected outright (**422
-  `EXCHANGE_RATE_MISSING_ON_DOCUMENT`**) rather than silently assuming
-  rate `1`; the supported remediation is the explicit, one-row
-  `fx_revaluation.backfillDocumentRate` command (Design decision 15),
-  not automatic bulk backfill.
+  feature.** Rejected outright (**422 `EXCHANGE_RATE_MISSING_ON_DOCUMENT`**)
+  rather than silently assuming rate `1`; the supported remedy is the
+  owning module's explicit, one-document `backfill` command (Design
+  decision 15), not automatic bulk backfill.
 - **Exchange rate for `valuationDate` genuinely doesn't exist** (e.g. a
-  weekend/holiday with no published NBP/Raiffeisen rate). Relies on
+  weekend/holiday with no published NBP rate). Relies on
   `ExchangeRateService`'s own `maxDaysBack` recursive lookback before
-  surfacing `EXCHANGE_RATE_UNAVAILABLE` — this spec does not
-  reimplement that fallback.
-- **Two providers both return a rate for the same pair/date, at
-  different priority positions.** Resolved deterministically by
-  `fx_revaluation.ratePriority` (Design decision 9c); a genuine tie
-  (two equally-ranked or equally-ambiguous manual entries) is rejected
-  (**422 `EXCHANGE_RATE_AMBIGUOUS`**), never picked arbitrarily.
-- **Two concurrent `POST /runs` calls for the same tenant/org.** The
-  second blocks on the `SELECT ... FOR UPDATE` lock (Design decision
-  10a) until the first's transaction commits, then re-reads the
-  now-current run — no double-reversal, no lost update.
-- **`valuationDate` is more than `valuationGraceDays` in the past, or
-  the period is no longer the most recent.** Rejected (**422
-  `VALUATION_DATE_TOO_STALE`**, Design decision 13) — this module does
-  not reconstruct historical AP/AR aging; revaluation must run
-  promptly at period-end.
+  surfacing `EXCHANGE_RATE_UNAVAILABLE` — this spec does not reimplement
+  that fallback.
+- **No `NBP_A` (Table A) row for a currency and date, but a Table C or
+  Raiffeisen row exists.** Not used: **422 `EXCHANGE_RATE_UNAVAILABLE`**
+  naming the source (Design decision 9c). The statutory rate class is not
+  traded for availability.
+- **Two sources both listed in `ratePriority` return a rate for the same
+  pair and date.** Resolved deterministically by the list order (Design
+  decision 9c); a genuine tie (two equally-ranked manual entries) is
+  rejected (**422 `EXCHANGE_RATE_AMBIGUOUS`**), never picked arbitrarily.
+- **Two concurrent `POST /runs` calls for the same tenant/org.** The second
+  waits on the advisory lock (Design decision 10b) until the first
+  commits, then supersedes it — also on a tenant's first run, which a row
+  lock could not serialize.
+- **A document settled after `valuationDate` but before the run executes**
+  (31 December run, executed 5 January, payment on 3 January). The balance
+  is valued as of `valuationDate`, so the payment is added back and the
+  document is revalued on its 31 December open amount (Design decision 13);
+  the reversing entry on 1 January then unwinds exactly what was posted.
+- **A document issued after `valuationDate` but before the run executes.**
+  Excluded (Design decision 13).
+- **A revalued document is settled in the new period.** No gate and no
+  rejection: the valuation was reversed on the first day of the new period,
+  so the settlement sees only the booked rate and the realized gain/loss
+  posts once (Design decision 12).
+- **The day after the period's end has no unlocked `FiscalPeriod`** (the
+  next fiscal year's periods were not generated yet, or the next period is
+  already locked). Rejected (**409 `NEXT_PERIOD_UNAVAILABLE`**) before any
+  write; the valuation is never posted without its reversing entry.
+- **`valuationDate` is more than `valuationGraceDays` in the past, or the
+  period is no longer the latest unlocked one.** Rejected (**422
+  `VALUATION_DATE_TOO_STALE`**, Design decision 13) — the module does not
+  reconstruct changes that leave no dated trace.
 - **The tenant's base currency changed since the prior run.** Rejected
   (**422 `BASE_CURRENCY_CHANGED`**, Design decision 16) rather than
-  silently mixing a stored rate against the old base with a fresh
-  lookup against the new one.
-- **A revalued document is settled before the next revaluation run
-  reverses its valuation.** `matchBankStatementLine` rejects
-  (**409 `PRIOR_VALUATION_NOT_REVERSED`**, Design decision 12) until
-  the covering `FxRevaluationRun` is reversed, preventing the
-  unrealized-plus-realized double-count.
-- **Cross-currency settlement (bank currency ≠ base ≠ invoice
-  currency).** `bookedExchangeRate` cannot default from the invoice's
-  own stored rate (different units) — entered explicitly or derived
-  via the two-hop cross-rate `cash-bank-management.md` would need to
-  implement (Design decision 14); this spec does not silently
-  substitute one for the other.
-- **Partial settlement between the document's issue date and
-  valuation date.** Revaluation uses the document's *current* open
-  amount, not its original total. For a vendor invoice that is
-  `total_gross` less its lines on `SENT` payment batches (Design decision 18); for a sales invoice it is the
-  ledger-side open amount (Design decision 17), because `sales` does not
-  maintain `SalesInvoice.outstandingAmount`. Fully-settled documents (open
-  amount = 0) are excluded.
+  silently mixing a stored rate against the old base with a fresh lookup
+  against the new one.
+- **Cross-currency settlement (bank currency ≠ base ≠ invoice currency).**
+  `bookedExchangeRate` cannot default from the invoice's own stored rate
+  (different units) — entered explicitly or derived via the two-hop
+  cross-rate `cash-bank-management.md` would need to implement (Design
+  decision 14); this spec does not silently substitute one for the other.
+- **Partial settlement between the document's issue date and the valuation
+  date.** Revaluation uses the open amount as of `valuationDate`, not the
+  original total. For a vendor invoice that is `total_gross` less its lines
+  on `SENT` batches sent on or before that date (Design decision 18); for a
+  sales invoice it is the ledger-side open amount at that date (Design
+  decision 17), because `sales` does not maintain
+  `SalesInvoice.outstandingAmount`. Fully-settled documents (open amount =
+  0) are excluded.
 - **Running the command twice for the same period before close.** The
-  second call reverses the first run's entry and reposts fresh — no
-  manual cleanup needed, and no double-counted unrealized balance.
-- **A `FiscalPeriod` already `CLOSED`.** Rejected (**409**) —
-  revaluation belongs to the closing checklist, before `CLOSING` is
-  posted, not after.
+  second call cancels the first run's two entries (each dated with its own
+  date) and posts a fresh pair — no manual cleanup, no double-counted
+  unrealized balance in either period.
+- **A locked `FiscalPeriod`.** Rejected (**409 `FISCAL_PERIOD_LOCKED`**) —
+  revaluation belongs to the closing checklist, before the period is locked.
 
 ## Risks & Impact Review
 
@@ -921,23 +957,29 @@ line detail.
   fetcher (out of this document's own module boundary, Design decision
   1). **Severity: High** — this is a correctness gap in the amounts
   the module posts, not a cosmetic one, though it is caught before any
-  implementation exists. **Mitigation**: Implementation Plan Step 0 is
-  now a concrete, scoped task (add Table A support to `currencies`)
-  rather than an open confirmation; `fx_revaluation` cannot correctly
-  implement Design decision 9 until it lands. **Detection**: none
+  implementation exists. **Mitigation**: Implementation Plan Step 0 is a concrete, scoped task (add a Table A provider to `currencies` under its own `source: 'NBP_A'`, so the unique key and `currencies`' schema stay as they are — Design decision 9c); `fx_revaluation` refuses to post (422 `EXCHANGE_RATE_UNAVAILABLE`) until a Table A row is resolvable, instead of falling back to Table C, so the gap can delay the module but cannot produce a wrong posting. **Detection**: none
   needed pre-implementation; once built, a valuation run using Table C
   instead of Table A would be caught by comparing posted rates against
   NBP's own published Table A for the same date — a reconciliation
   check worth adding to Testing Strategy when `currencies`' Table A
   support is designed.
-- **`matchBankStatementLine`'s new precondition (Design decision 12)
-  is a real, if small, behavioral change to Cash & Bank Management**,
-  not just a forward-pointer — settlement of a foreign-currency
-  document can now be rejected (`409
-  PRIOR_VALUATION_NOT_REVERSED`) depending on `fx_revaluation` run
-  state, a cross-module dependency #6055's own spec didn't originally
-  need to consider. Needs explicit sign-off from whoever next revises
-  `cash-bank-management.md`, not silent adoption.
+- **The reversing entry needs an unlocked next period (Design decision 12).**
+  A tenant that locks the next fiscal year's periods early, or has not
+  generated them, cannot run the valuation (409 `NEXT_PERIOD_UNAVAILABLE`).
+  Intended — the alternative is a valuation with no reversing entry — but it
+  adds a step to the year-end checklist: generate the new year's periods
+  before the last run of the old one. **Severity: Low** (explicit error, no
+  wrong posting).
+- **The as-of valuation (Design decision 13) rests on settlement dates in
+  two sibling specs.** `BankStatementLine.lineDate` is in #6055; the batch's
+  `sentOn` is not in the payments spec yet (Design decision 18, patch to
+  `accounts-payable-payments.md`). Until it is, vendor invoices cannot be
+  valued as of a date and the module is blocked for them. **Severity:
+  Medium** — a spec gap, caught before implementation.
+- **Cash & Bank Management needs no change for revaluation (Design decision
+  12)** — only the optional `bookedExchangeRate` default (Design decision
+  14). The earlier `PRIOR_VALUATION_NOT_REVERSED` precondition, which would
+  have blocked settlement of every revalued document, is withdrawn.
 - **The `currencies` module's own `updateCurrency` command still
   allows changing `isBase` with no coordination with this module or
   with `accounts_payable`/`sales`** (Design decision 16) — this
@@ -955,8 +997,7 @@ line detail.
   redundant once `SalesInvoice.currencyId` exists (Design decision 3)
   — a real, if small, implementation-ordering dependency between three
   specs that don't otherwise depend on each other.
-- **None of `accounts_payable`, `sales`'s invoice-GL-posting, `ledger`,
-  or `fixed_assets`' currency handling has shipped code yet** — this
+- **Sibling contracts are proposed, not shipped.** Every contract this design calls is in an open spec PR and none is on `main` (Implementation Plan, "Blocked on"). **None of `accounts_payable`, `sales`'s invoice-GL-posting, `ledger`, or `fixed_assets`' currency handling has shipped code yet** — this
   spec's Data Model additions are proposed against still-unimplemented
   sibling specs, so there's no running system to integration-test
   against today; the design is checked for internal consistency, not
@@ -969,8 +1010,7 @@ line detail.
   independently re-verified against the cited primary sources
   (`exchangeRateService.ts`, both rate providers, the GL core engine
   and Cash & Bank Management specs, the live `currencies`/`sales`
-  commands) before being addressed; see Changelog for the full list
-  and citations.
+  commands) before being addressed; see Changelog for the full list and citations. A second review (PR #6190, reviewed head `d9bf77e1e`) raised one blocker (the settlement gate), five majors and minors; each was re-verified against the spec and the `currencies` source and is recorded in the 2026-10-15 changelog entry.
 
 ## Alternatives considered
 
@@ -1030,12 +1070,8 @@ line detail.
   (documents get their rate from `ExchangeRateService` at creation;
   correcting a wrong rate means correcting/reversing the document,
   same "reversal not undo" discipline as GL core engine).
-- Point-in-time reconstruction of AP/AR balances for an arbitrarily
-  historical `valuationDate` (Design decision 13) — revaluation must
-  run within `valuationGraceDays` of the period it values.
-- Automatic bulk backfill of `exchangeRate` on documents that predate
-  this feature (Design decision 15) — the explicit, per-document
-  `backfillDocumentRate` admin command is the supported path.
+- Point-in-time reconstruction of AP/AR balances beyond the dated filter of Design decision 13 — a change that leaves no dated trace (a document cancelled or re-priced after the valuation date) is not reconstructed; revaluation must run within `valuationGraceDays` of the period it values.
+- Automatic bulk backfill of `exchangeRate` on documents that predate this feature (Design decision 15) — the explicit, per-document `backfill` command of the owning module (`sales`, `accounts_payable`) is the supported path.
 - Preventing (rather than detecting after the fact) a tenant's base
   currency from changing once foreign-currency documents exist
   (Design decision 16) — that guard belongs to the `currencies`
@@ -1043,60 +1079,88 @@ line detail.
 
 ## Implementation Plan
 
+**Blocked on (gate before Step 1).** Every contract this design calls is
+proposed in an open spec PR; none is on `main`. Implementation does not
+start for a step until the contract it uses is merged or pinned to a commit.
+Proposed: `ledger` — `postJournalEntry`, `reverseJournalEntry`,
+`FiscalPeriod` (#5663 spec, #6340 implementation); `accounts_payable` —
+`VendorInvoice` (#5962) and `accounts_payable_payments` — `PaymentBatchLine`
+and `PaymentBatch.sentOn` (to be added, Design decision 18);
+`cash_bank_management` — bank statement lines and matches (#6055);
+`sales_invoices_gl_posting` — the `sales:sales_invoice` reference and the
+receivable-account config (#6046); `currencies` — Table A provider (Step 0,
+not started). Each is to be recorded here with its PR and commit when
+implementation starts. This PR's base branch is to be aligned with the
+sibling spec PRs.
+
 0. **Add NBP Table A (average-rate) support to `currencies` before the
    commands/UI steps below — resolved 2026-09-21, Design decision 8.**
-   No longer an open confirmation: Art. 30 ust. 1 is now Confirmed to
-   require the NBP average rate specifically, and `NBPProvider`
-   currently fetches only Table C. This step is a concrete addition to
-   `currencies`' own fetcher scope (out of this document's module
-   boundary — coordinate with whoever owns `currencies`), not a
-   question to ask a human; Design decision 9c's provider-priority
-   policy is revisited together with it before Step 3 below is
-   implemented, since `fx_revaluation` cannot post statutorily-correct
-   valuations against Table C rates in the meantime.
-1. Patch `accounts-payable.md` and the `SalesInvoice`-owning spec with
-   the field additions from Design decision 3, plus the post-posting
-   immutability guard (Design decision 15).
+   Art. 30 ust. 1 requires the NBP average rate specifically, and
+   `NBPProvider` fetches only Table C. This step is a provider of its own
+   (`source: 'NBP_A'`, rows `type: 'mid'`; Design decision 9c) added to
+   `currencies`' fetcher scope — outside this document's module boundary,
+   coordinate with whoever owns `currencies` — and no change to the
+   `exchange_rates` unique key. `fx_revaluation.ratePriority` then defaults
+   to `['NBP_A']`.
+1. Patch `accounts-payable.md`, the `SalesInvoice`-owning spec,
+   `accounts-payable-payments.md` and `cash-bank-management.md` as listed
+   in Patches to sibling specs: the field additions (Design decision 3),
+   the owner-side `backfill` command and route, the draft-edit
+   re-resolution and post-posting immutability guard (Design decision 15),
+   the payments read contract with `sentOn`, and the cash-bank read
+   contract.
 2. Scaffold `fx_revaluation` module: entities (including
-   `FxRevaluationRun.baseCurrencyId`), `AGENTS.md`, module
-   registration, dependency declarations (`currencies`, `ledger`),
-   and the `fx_revaluation.ratePriority`/`valuationGraceDays` Module
-   Config keys.
-3. Implement `revalueOpenBalances` command: rate resolution (Design
-   decision 9), the validate-then-write transaction with row-locking
-   (Design decision 10), the sign convention and per-control-account
-   aggregation (Design decision 11), and the staleness/base-currency
-   guards (Design decisions 13, 16).
+   `FxRevaluationRun.baseCurrencyId` and the partial unique index),
+   `AGENTS.md`, `acl.ts`, `setup.ts`, module registration, dependency
+   declarations (`currencies`, `ledger`), and the `ratePriority`,
+   `valuationGraceDays`, `unrealizedGainAccountId`,
+   `unrealizedLossAccountId` Module Config keys.
+3. Implement `revalueOpenBalances`: rate resolution outside the
+   transaction (Design decision 9, 10a), the advisory-lock transaction
+   (Design decision 10), the as-of open amounts (Design decisions 13, 17,
+   18), the sign convention and per-control-account aggregation (Design
+   decision 11), the supersede step (Design decision 6), the valuation and
+   reversing entries (Design decisions 5, 12), and the staleness,
+   next-period and base-currency guards (Design decisions 12, 13, 16).
 4. Implement `POST /api/fx_revaluation/runs`, `GET
-   /api/fx_revaluation/runs/preview`, `GET /api/fx_revaluation/runs`,
-   and `GET /api/fx_revaluation/runs/:id` with the rejection rules
-   from API Contracts.
-5. Implement the `backfillDocumentRate` admin command (Design decision
-   15).
-6. Implement the admin preview/run UI and read-only history under
-   Ledger → Period-End (UI/UX).
-7. Wire `VendorInvoice`/`SalesInvoice` creation commands to resolve
-   and store `exchangeRate` (and, for `SalesInvoice`, `currencyId`) at
-   creation time, once those modules exist.
-8. Coordinate the `cash-bank-management.md` patches: the
-   base-currency-equals-bank-currency restriction on defaulting
-   (Design decision 14) and the `PRIOR_VALUATION_NOT_REVERSED`
-   settlement precondition (Design decision 12).
+   /api/fx_revaluation/runs/preview`, `GET /api/fx_revaluation/runs` and
+   `GET /api/fx_revaluation/runs/:id` in the route-file layout of
+   Architecture, with the rejection rules from API Contracts.
+5. Implement the `backfill` commands and routes in `sales` and
+   `accounts_payable` (Design decision 15) — in those modules, on their own
+   command pipelines.
+6. Implement the admin preview/run UI and read-only history under Ledger →
+   Period-End (UI/UX).
+7. Wire `VendorInvoice`/`SalesInvoice` creation commands to resolve and
+   store `exchangeRate` (and, for `SalesInvoice`, `currencyId`) at creation
+   time, once those modules exist.
+8. Coordinate the `cash-bank-management.md` patch: the
+   base-currency-equals-bank-currency restriction on defaulting (Design
+   decision 14) and the read contract. There is no settlement precondition
+   to coordinate (Design decision 12).
 
 ## File Manifest
 
 | File | Change |
 |---|---|
 | `.ai/specs/2026-09-17-multi-currency.md` | New (this document) |
-| `packages/core/src/modules/fx_revaluation/data/entities.ts` | New — `FxRevaluationRun` (incl. `baseCurrencyId`), `FxRevaluationLine` (incl. `valuationRateSource`/`valuationRateDate`) |
+| `packages/core/src/modules/fx_revaluation/data/entities.ts` | New — `FxRevaluationRun` (incl. `baseCurrencyId`, `supersedesRunId`, `reversingJournalEntryId`), `FxRevaluationLine` (incl. `organizationId`/`tenantId`, `valuationRateSource`/`valuationRateDate`) |
+| `packages/core/src/modules/fx_revaluation/migrations/` | New — both tables, the partial unique index (generated, not hand-written) |
 | `packages/core/src/modules/fx_revaluation/AGENTS.md` | New |
+| `packages/core/src/modules/fx_revaluation/acl.ts` | New — `fx_revaluation.runs.create`, `fx_revaluation.runs.read` |
+| `packages/core/src/modules/fx_revaluation/setup.ts` | New — default role features, Module Config defaults |
 | `packages/core/src/modules/fx_revaluation/commands/revalueOpenBalances.ts` | New |
-| `packages/core/src/modules/fx_revaluation/commands/backfillDocumentRate.ts` | New — Design decision 15 |
-| `packages/core/src/modules/fx_revaluation/api/runs.ts` | New — `POST /runs`, `GET /runs/preview` |
-| `packages/core/src/modules/fx_revaluation/api/runs/[id].ts` (or route-file equivalent) | New — `GET /runs`, `GET /runs/:id` (`makeCrudRoute`) |
-| `.ai/specs/2026-09-06-accounts-payable.md` | Patch — `VendorInvoice.exchangeRate` |
-| sales-invoice-GL-posting spec | Patch — `SalesInvoice.currencyId`/`exchangeRate`, post-posting immutability guard (Design decision 15) |
-| `.ai/specs/2026-09-10-cash-bank-management.md` | Patch — default `bookedExchangeRate` from invoice only when bank currency = base (Design decision 14), `PRIOR_VALUATION_NOT_REVERSED` settlement precondition (Design decision 12) |
+| `packages/core/src/modules/fx_revaluation/api/runs/route.ts` | New — `POST /runs`, `GET /runs` |
+| `packages/core/src/modules/fx_revaluation/api/runs/preview/route.ts` | New — `GET /runs/preview` |
+| `packages/core/src/modules/fx_revaluation/api/runs/[id]/route.ts` | New — `GET /runs/:id` |
+| `packages/core/src/modules/fx_revaluation/backend/` | New — Ledger → Period-End page (preview, run, history) |
+| `packages/core/src/modules/fx_revaluation/i18n/` | New — locale keys (Internationalization section) |
+| `packages/core/src/modules/fx_revaluation/**/__tests__/` | New — the Testing Strategy matrix |
+| `packages/core/src/modules/currencies/services/providers/` | Patch (Implementation Plan Step 0) — Table A provider, `source: 'NBP_A'`; not part of this module |
+| `.ai/specs/2026-09-06-accounts-payable.md` | Patch — `VendorInvoice.exchangeRate`, `backfill` command/route, immutability guard |
+| `.ai/specs/2026-09-06-accounts-payable-payments.md` | Patch — read contract incl. `PaymentBatch.sentOn` |
+| sales-invoice-GL-posting spec | Patch — `SalesInvoice.currencyId`/`exchangeRate`, `backfill` command/route, post-posting immutability guard (Design decision 15) |
+| `.ai/specs/2026-09-10-cash-bank-management.md` | Patch — default `bookedExchangeRate` from invoice only when bank currency = base (Design decision 14), read contract (Design decision 17). No settlement precondition. |
 
 ## Migration & Backward Compatibility
 
@@ -1112,8 +1176,7 @@ line detail.
   select these columns is affected.
 - **Backfill order**: `currencyId` backfill (pure lookup, safe,
   automatic) runs before `fx_revaluation` is enabled for a tenant;
-  `exchangeRate` backfill (per-document, admin-triggered,
-  `backfillDocumentRate`) is optional and can happen any time
+  `exchangeRate` backfill (per-document, admin-triggered, the owning module's `backfill` command) is optional and can happen any time
   afterward — a tenant can start using `fx_revaluation` for
   newly-created documents immediately, with older documents joining
   revaluation scope only as they're individually backfilled.
@@ -1134,36 +1197,37 @@ base / EUR foreign currency):
 
 | # | Scenario | Expected |
 |---|---|---|
-| 1 | No open foreign-currency documents | `lineCount: 0`, `journalEntryId: null`, `status: 'POSTED'` |
+| 1 | No open foreign-currency documents | `lineCount: 0`, both entry ids `null`, `status: 'POSTED'` |
 | 2 | One open AR invoice, rate up | Gain posted: debit AR control, credit unrealized-gain account |
 | 3 | One open AP invoice, same rate move | Loss posted: debit unrealized-loss account, credit AP control (opposite legs from #2) |
 | 4 | AR gain and AP loss of equal magnitude | Four lines posted (Design decision 11 worked example), `totalUnrealizedGainLoss: 0` |
 | 5 | Document `exchangeRate: null` (pre-existing, not yet backfilled) | `422 EXCHANGE_RATE_MISSING_ON_DOCUMENT` |
-| 6 | `backfillDocumentRate` on that same document, then re-run | Succeeds; document now included |
+| 6 | The owning module's `backfill` command on that same document (and `409 EXCHANGE_RATE_ALREADY_SET` on a second call), then re-run | Succeeds; document now included |
 | 7 | Rate unavailable even after lookback | `422 EXCHANGE_RATE_UNAVAILABLE` |
-| 8 | Two providers return conflicting manual entries for the same pair/date | `422 EXCHANGE_RATE_AMBIGUOUS` |
-| 9 | Second `POST /runs` call for the same period | Reverses run #1's entry via `ledger.reverseJournalEntry`, posts fresh; `reversesRunId` set |
-| 10 | Prior run was a no-op (`journalEntryId: null`) | Marked `REVERSED` with no `reverseJournalEntry` call |
-| 11 | Two concurrent `POST /runs` calls | Second blocks on the row lock, then correctly targets the now-current run — no double reversal |
+| 8 | Two listed sources return conflicting manual entries for the same pair/date | `422 EXCHANGE_RATE_AMBIGUOUS` |
+| 9 | Second `POST /runs` call for the same fiscal period | Both entries of run #1 cancelled via `ledger.reverseJournalEntry` (each dated with its own date), run #1 `SUPERSEDED`, fresh pair posted; `supersedesRunId` set; each period nets to the new valuation only |
+| 10 | Earlier run for the period was a no-op (both entry ids `null`) | Marked `SUPERSEDED` with no `reverseJournalEntry` call |
+| 11 | Two concurrent first-ever `POST /runs` calls (no `POSTED` row exists) | Serialized by the advisory lock; the second supersedes the first; exactly one `POSTED` run remains |
 | 12 | `valuationDate` older than `valuationGraceDays` | `422 VALUATION_DATE_TOO_STALE` |
 | 13 | Base currency changed since the prior run | `422 BASE_CURRENCY_CHANGED` |
-| 14 | Settling a document still covered by an unreversed run | `matchBankStatementLine` → `409 PRIOR_VALUATION_NOT_REVERSED` |
-| 15 | Same settlement, after the covering run is reversed | Succeeds, realized gain/loss posts per Cash & Bank Management's existing formula |
+| 14 | A valuation is posted | Two entries exist: the valuation dated `valuationDate` and the reversing entry (inverted lines) dated the first day of the next period, same `referenceId` |
+| 15 | Document revalued on 31 Dec, settled on 3 Jan | Settlement accepted with no gate; control account carries no stale unrealized amount; gain recognized once across both periods (Design decision 12 example) |
 | 16 | Three-currency settlement (PLN base, EUR invoice, USD bank) | `bookedExchangeRate` is not defaulted from the invoice; explicit entry or cross-rate required (Design decision 14) |
-| 17 | Partial settlement between issue date and valuation date | Revaluation uses the current open amount (vendor: Design decision 18; sales: ledger-side, Design decision 17), not original total |
-| 18 | `FiscalPeriod` already `CLOSED` | `409` |
+| 17 | Run for 31 Dec executed 5 Jan; payment on 3 Jan; partial payment on 4 Jan; invoice issued 2 Jan | Open amount as of 31 Dec: payments added back, the 2 Jan invoice excluded (Design decision 13) |
+| 18 | `FiscalPeriod` locked | `409 FISCAL_PERIOD_LOCKED` |
 | 19 | Preview (`GET /runs/preview`) then a change to a document's open amount before posting | Posting reflects the *new* state; UI must re-preview, not reuse the stale one |
+| 20 | No unlocked `FiscalPeriod` covers the day after the period's end | `409 NEXT_PERIOD_UNAVAILABLE`; nothing written |
+| 21 | Only a Table C (`NBP`) or Raiffeisen row exists for the date | `422 EXCHANGE_RATE_UNAVAILABLE` naming `NBP_A`; no fallback |
+| 22 | Failure after the supersede step (e.g. the second posting rejected) | Whole transaction rolled back: the earlier run is still `POSTED`, no new entry exists |
+| 23 | Second `POST /runs` for a tenant with a `POSTED` run for a different period | The earlier period's run is untouched (already unwound by its own reversing entry) |
 
 ## Canonical Mechanisms
 
-- **API routes**: `POST /runs` and `backfillDocumentRate`'s route are
-  custom, mutation-guard-wired routes (`openApi` export,
-  `requireAuth`/`requireFeatures` metadata); `GET /runs` and `GET
+- **API routes**: `POST /runs` is a custom, mutation-guard-wired route (`openApi` export, `requireAuth`/`requireFeatures` metadata; the `backfill` routes live in `sales` and `accounts_payable`); `GET /runs` and `GET
   /runs/:id` are plain `makeCrudRoute` `list`/`get` handlers — no
   hand-rolled read logic for a case the framework's CRUD factory
   already covers.
-- **Writes**: the admin UI's "Run FX Revaluation" action and the
-  backfill action both go through `useGuardedMutation(...).runMutation(...)`
+- **Writes**: the admin UI's "Run FX Revaluation" action goes through `useGuardedMutation(...).runMutation(...)`
   + `apiCall()`, never a raw `fetch`.
 - **Tables**: the run-history list is a `DataTable` with a stable
   `entityId` (`FxRevaluationRun.id`), matching
@@ -1189,9 +1253,15 @@ Admin UI strings (the "Run FX Revaluation" action, preview table
 column headers, run-history list) live under the `fx_revaluation.*`
 i18n namespace via `useT()`/`resolveTranslations()`, the same
 convention `financial_pl.statements.*` established in #6188.
-Currency codes, provider `source` names ("NBP", "Raiffeisen Bank
-Polska"), and GL account names are data, not UI copy, and are not
-translated.
+Currency codes, provider `source` names ("NBP", "NBP Table A",
+"Raiffeisen Bank Polska"), and GL account names are data, not UI copy, and
+are not translated. The API error codes added by the 2026-10-15 review round
+(`FISCAL_PERIOD_LOCKED`, `NEXT_PERIOD_UNAVAILABLE`, `FX_RUN_CONFLICT`,
+`EXCHANGE_RATE_UNAVAILABLE`, `EXCHANGE_RATE_ALREADY_SET`) each get a locale
+key under `fx_revaluation.errors.*` (the `backfill` one in the owning
+module's namespace), resolved with `translate(key, fallback)`; the preview
+and run-history columns for rate source/date and run status
+(`POSTED`/`SUPERSEDED`) are keyed the same way.
 
 ## Literature & Prior Art
 
@@ -1312,8 +1382,8 @@ and why.
 |---|---|---|---|
 | root AGENTS.md | No direct ORM relationships between modules | Compliant | `FxRevaluationLine.documentId`/`currencyId`, `FxRevaluationRun.baseCurrencyId`/`fiscalPeriodId`/`journalEntryId` are all FK-ids only; `revalueOpenBalances` reads `VendorInvoice`/`SalesInvoice` via direct `entityManager` scans (Architecture), the same documented cross-module direct-read precedent Cash & Bank Management uses — never an ORM relation. |
 | root AGENTS.md | Filter by `organization_id`/`tenant_id` | Compliant | Both new entities carry `organizationId`/`tenantId`; every rate/document lookup in Design decisions 9–10 is explicitly scoped. |
-| root AGENTS.md → UI & HTTP | Non-`CrudForm` writes use `useGuardedMutation(...).runMutation(...)` | Compliant | Canonical Mechanisms + UI/UX: "Run FX Revaluation" and the backfill action both go through `useGuardedMutation`/`apiCall()`. |
-| packages/core/AGENTS.md → API Routes | Every API route file exports `openApi`; custom write routes wire the mutation-guard registry | Compliant | API Contracts header note + Canonical Mechanisms: `POST /runs` and `backfillDocumentRate`'s route are custom, mutation-guard-wired; `GET /runs`/`GET /runs/:id` are `makeCrudRoute`. |
+| root AGENTS.md → UI & HTTP | Non-`CrudForm` writes use `useGuardedMutation(...).runMutation(...)` | Compliant | Canonical Mechanisms + UI/UX: "Run FX Revaluation" goes through `useGuardedMutation`/`apiCall()`. The per-document rate backfill UI belongs to `sales`/`accounts_payable`, not here. |
+| packages/core/AGENTS.md → API Routes | Every API route file exports `openApi`; custom write routes wire the mutation-guard registry | Compliant | API Contracts header note + Canonical Mechanisms: `POST /runs` is custom and mutation-guard-wired (the `backfill` routes live in `sales` and `accounts_payable`); `GET /runs`/`GET /runs/:id` are `makeCrudRoute`. |
 | packages/core/AGENTS.md → API Routes | Route metadata declares per-method `requireAuth`/`requireFeatures` | Compliant | API Contracts header note: `fx_revaluation.runs.create` (write paths) vs. `fx_revaluation.runs.read` (the two `GET` history routes) — a narrower read feature than #6188's single manage-only ACL, since a review-only accountant role has a real use case here (reading past runs without posting new ones). |
 | packages/core/AGENTS.md → Encryption | PII/GDPR fields declared in `<module>/encryption.ts`, read via `findWithDecryption` | N/A | No PII/GDPR-relevant column in either entity — amounts, rates, currency/document/account references only. |
 | packages/ui/AGENTS.md | Backend forms use `<CrudForm>`; lists use `<DataTable>` with stable `entityId` | Compliant | UI/UX + Canonical Mechanisms: run history is a `DataTable` keyed by `FxRevaluationRun.id`; the preview table is a read-only computed list, not a form (nothing to edit before posting). |
@@ -1333,18 +1403,27 @@ and why.
 |---|---|---|
 | Data models match API contracts | Pass | `FxRevaluationRun.baseCurrencyId`/`FxRevaluationLine.valuationRateSource`/`valuationRateDate` (Data Model) are exactly what Design decisions 9 and 16 require the API's rejection/response contracts to carry. |
 | API contracts match UI/UX section | Pass | The preview/history split in UI/UX now matches `GET /runs/preview` vs. `GET /runs`/`GET /runs/:id` in API Contracts. |
-| Risks cover all write operations | Pass | Risks & Impact Review names all ten maintainer-review findings plus the two residual coordination risks (Cash & Bank Management's new precondition, `currencies`' still-unguarded `isBase` change). |
-| Commands defined for all mutations | Pass | `revalueOpenBalances` and the new `backfillDocumentRate` are both commands behind mutation-guard-wired routes; no bare `makeCrudRoute` write exists for either. |
+| Risks cover all write operations | Pass | Risks & Impact Review names the first-round findings and the 2026-10-15 round (concurrency under the advisory lock, supersede, Table A source, next-period availability, sibling-spec contracts). |
+| Commands defined for all mutations | Pass | `revalueOpenBalances` is the only write this module owns, behind a mutation-guard-wired route; it posts through `ledger.postJournalEntry`/`reverseJournalEntry` on the caller's transaction. Per-document rate backfill is a command of the owning module (`sales`, `accounts_payable`), not of `fx_revaluation`. |
 | Cache strategy covers all read APIs | Pass (N/A, justified) | See Compliance Matrix. |
 
 ### Non-Compliant Items
 
-None outstanding.
+- **High, open until Implementation Plan Step 0:** `currencies` has no
+  Table A (`NBP_A`) provider yet, and the spec refuses to post rather than
+  fall back to Table C (Design decision 9). The design is complete; the
+  prerequisite is not built.
+- **Open, owned by other specs:** the payments spec does not yet list
+  `sentOn` in its "Read contract for other modules" (Design decisions 17/18);
+  ledger #5663/#6340 and the sales/AP/cash-bank specs this one depends on
+  are still open PRs.
 
 ### Verdict
 
-**Fully compliant** — approved for the re-review requested on PR
-#6190, pending a maintainer's second look.
+**Design consistent after the 2026-10-15 review round; implementation is
+blocked on Step 0 and on the sibling-spec contracts above** (Implementation
+Plan, "Blocked on"). Previous "fully compliant / approved" wording withdrawn;
+re-review requested.
 
 ## Changelog
 
@@ -1450,17 +1529,6 @@ Mechanisms (naming `makeCrudRoute`/`useGuardedMutation`/`DataTable`/
 previously had — routes/forms were described in prose without naming
 the actual framework primitives), Internationalization (i18n), and this
 Final Compliance Report.
-
-### Review — 2026-09-21
-
-- **Reviewer**: Agent (`om-spec-writing` skill, this compliance pass)
-- **Security**: Passed — no PII/GDPR fields introduced; `organization_id`/`tenantId` scoping explicit throughout Data Model; separate `.create`/`.read` ACL features declared on every route.
-- **Performance**: Passed — no N+1 pattern; rate resolution batches via `getRates()`, currency-code resolution batches via one scoped `IN (...)` query (Design decision 9a).
-- **Cache**: Passed (N/A, justified) — no new cache layer; low-frequency per-fiscal-period reads.
-- **Commands**: Passed — `revalueOpenBalances`/`backfillDocumentRate` are commands behind mutation-guard-wired routes; no bare CRUD write bypasses them.
-- **Concurrency**: Passed — `SELECT ... FOR UPDATE` row-locking (Design decision 10a) makes the reversal-then-repost sequence safe under concurrent calls, verified against the same "`CommandBus.execute` doesn't itself create a cross-command transaction" constraint the maintainer review cited.
-- **Risks**: Passed — Risks & Impact Review covers all ten maintainer-review findings plus the two residual cross-module coordination risks (Cash & Bank Management's new precondition, `currencies`' still-unguarded `isBase` change) with no residual risk left undocumented.
-- **Verdict**: Approved — re-requesting review against this revision.
 
 ## Changelog addendum — 2026-09-21 (cont. — UoR Art. 30 literature grounding closed)
 
@@ -1571,3 +1639,39 @@ The ⚠ marker on decision 18 is replaced by a note that it is a team decision. 
 condition that the read columns are listed as a contract in the payments spec was
 not met when decision 18 was written; it now is (`accounts-payable-payments.md`,
 "Read contract for other modules"). Not yet reviewed by a maintainer.
+
+### 2026-10-15 — Review round (PR #6190, @adeptofvoltron, reviewed head d9bf77e1e)
+
+Every finding was re-checked against the spec and the sibling code/specs
+before being addressed.
+
+- **Blocker — settlement deadlock.** Valid. The valuation now reverses itself
+  in the same transaction (reversing `NORMAL` entry dated the first day of the
+  next period); the `PRIOR_VALUATION_NOT_REVERSED` gate and the patch to
+  `cash-bank-management.md` are withdrawn (Design decisions 6, 12; Architecture;
+  Risks).
+- **High — Table A.** Valid. Table A gets its own source `NBP_A`, default
+  `ratePriority ['NBP_A']`; no Table C fallback — the run refuses to post
+  (422 `EXCHANGE_RATE_UNAVAILABLE`). Implementation Plan Step 0 and the
+  compliance report now state this as a blocker (Design decision 9).
+- **As-of balances.** Valid. Open amounts are computed as of `valuationDate`
+  (settlements dated up to it added back, documents posted after it excluded);
+  `sentOn` is stated as a contract the payments spec still has to list
+  (Design decisions 13, 17, 18 — marked ⚠).
+- **Concurrency.** Valid. Per-tenant `pg_advisory_xact_lock` via `em.execute`,
+  rates resolved before the transaction and re-read inside it, partial unique
+  index on POSTED runs → 409 `FX_RUN_CONFLICT`; same-period re-run supersedes
+  both entries via `reverseJournalEntry` (Design decision 10; Data Model).
+- **Cross-module writes.** Valid. `backfillDocumentRate` removed from
+  `fx_revaluation`; the owning modules (`sales`, `accounts_payable`) get their
+  own backfill commands (Design decision 15; Architecture patches).
+- **Dependencies.** Wording now says the sibling specs are open PRs, with an
+  explicit "Blocked on" list in the Implementation Plan.
+- **Minors.** "Locked" used consistently (409 `FISCAL_PERIOD_LOCKED`); 404 for a
+  missing period; 409 `NEXT_PERIOD_UNAVAILABLE`; route layout, ACL and `setup.ts`
+  aligned; Testing Strategy extended to 23 cases; i18n keys listed.
+- **Nit.** Self-issued "Approved" review block and "Fully compliant" verdict
+  removed.
+- **Not addressed in this spec (needs action outside it):** CI/base-branch
+  alignment of the PR; whether Table A provider work lands in `currencies`
+  as proposed. Not yet reviewed by a maintainer.
