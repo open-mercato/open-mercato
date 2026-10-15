@@ -1,10 +1,19 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { expect, request as playwrightRequest, type APIRequestContext, type APIResponse } from '@playwright/test';
-import { apiRequest } from '@open-mercato/core/helpers/integration/api';
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import { resolveAppRoot } from '@open-mercato/core/helpers/integration/appRoot';
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures';
 import { expectId, getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
+import {
+  createOrganizationFixture,
+  createRoleFixture,
+  createUserFixture,
+  deleteOrganizationIfExists,
+  deleteRoleIfExists,
+  deleteUserIfExists,
+  setRoleAclFeatures,
+} from '@open-mercato/core/helpers/integration/authFixtures';
 import { hashCartToken } from '../lib/token';
 
 /**
@@ -165,6 +174,92 @@ export async function cleanupCartStorefrontFixture(
   await deleteIfExists(request, token, STORES_PATH, fixture.storeId ?? null);
   await deleteIfExists(request, token, DOMAIN_MAPPINGS_PATH, fixture.domainMappingId ?? null);
   await deleteIfExists(request, token, SALES_CHANNELS_PATH, fixture.salesChannelId ?? null);
+}
+
+export type SecondTenantCartActor = {
+  tenantId: string;
+  organizationId: string;
+  roleId: string;
+  userId: string;
+  token: string;
+};
+
+export async function createTenantFixture(
+  request: APIRequestContext,
+  superadminToken: string,
+  name: string,
+): Promise<string> {
+  const response = await apiRequest(request, 'POST', '/api/directory/tenants', {
+    token: superadminToken,
+    data: { name },
+  });
+  expect(response.status(), `POST /api/directory/tenants should return 201 (${await response.text()})`).toBe(201);
+  return expectId((await readJsonSafe<{ id?: string }>(response))?.id, 'tenant fixture should return an id');
+}
+
+export async function deleteTenantIfExists(
+  request: APIRequestContext,
+  superadminToken: string | null,
+  tenantId: string | null,
+): Promise<void> {
+  if (!superadminToken || !tenantId) return;
+  await apiRequest(request, 'DELETE', `/api/directory/tenants?id=${encodeURIComponent(tenantId)}`, {
+    token: superadminToken,
+  }).catch(() => undefined);
+}
+
+/**
+ * Provisions a fresh tenant + organization + role (granted every feature via the `*`
+ * wildcard `setRoleAclFeatures` recognizes — this actor only ever calls setup/admin
+ * endpoints to build its own `createCartStorefrontFixture`, same as the seeded `admin`
+ * token does for tenant A, not a feature-scoped test subject) + user, then mints an auth
+ * token for that user. Mirrors `promotions/__integration__/helpers.ts`'s own
+ * `createSecondTenantActor` — `carts` is tenant- AND organization-scoped
+ * (`createCartStorefrontFixture` derives both from the token passed in), so a genuinely
+ * separate tenant is what exercises the real cross-tenant token-isolation boundary
+ * (`TC-CART-R1-12`).
+ */
+export async function createSecondTenantCartActor(
+  request: APIRequestContext,
+  superadminToken: string,
+  stamp: string,
+): Promise<SecondTenantCartActor> {
+  const tenantId = await createTenantFixture(request, superadminToken, `QA Cart Tenant B ${stamp}`);
+  const organizationId = await createOrganizationFixture(request, superadminToken, {
+    name: `QA Cart Org B ${stamp}`,
+    tenantId,
+  });
+  const roleId = await createRoleFixture(request, superadminToken, {
+    name: `QA Cart Org B Role ${stamp}`,
+    tenantId,
+  });
+  await setRoleAclFeatures(request, superadminToken, {
+    roleId,
+    features: ['*'],
+    organizations: [organizationId],
+  });
+  const email = `qa-cart-${stamp}@test.invalid`;
+  const password = 'Valid1!Pass';
+  const userId = await createUserFixture(request, superadminToken, {
+    email,
+    password,
+    organizationId,
+    roles: [roleId],
+  });
+  const token = await getAuthToken(request, email, password);
+  return { tenantId, organizationId, roleId, userId, token };
+}
+
+export async function cleanupSecondTenantCartActor(
+  request: APIRequestContext,
+  superadminToken: string,
+  actor: SecondTenantCartActor | null,
+): Promise<void> {
+  if (!actor) return;
+  await deleteUserIfExists(request, superadminToken, actor.userId);
+  await deleteRoleIfExists(request, superadminToken, actor.roleId);
+  await deleteOrganizationIfExists(request, superadminToken, actor.organizationId);
+  await deleteTenantIfExists(request, superadminToken, actor.tenantId);
 }
 
 /** Restricts an existing channel binding's assortment scope — used to flip a line's visibility mid-test (TC-CART-R1-05). */
