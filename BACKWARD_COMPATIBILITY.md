@@ -575,3 +575,7 @@ Undoing a create or update that made a currency the base left the organization w
 | Database schema, event IDs, ACL features, DI names, generated files | No change | ✓ n/a |
 
 **Migration path for existing modules**: a client that cleared the base flag to change the base must promote the new base currency instead (`PUT { id, isBase: true }`). Scopes that already hold zero or two base currencies from earlier bugs are not repaired automatically: promoting a non-base currency resolves both cases; in a two-base organization, promote the intended base afterwards (see UPGRADE_NOTES.md).
+
+## Discord AI Proposals (2026-10-13)
+
+[Waiver](UPGRADE_NOTES.md#discord-proposals)
