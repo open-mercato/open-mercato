@@ -1910,10 +1910,15 @@ const CALL_API_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
 function resolveCallApiUrl(endpoint: string): URL {
   const appUrl = process.env.APP_URL || 'http://localhost:3000'
 
-  let target: URL
   let appUrlObj: URL
   try {
     appUrlObj = new URL(appUrl)
+  } catch {
+    throw new Error(`CALL_API requires an http(s) APP_URL, got: ${appUrl}`)
+  }
+
+  let target: URL
+  try {
     target = endpoint.startsWith('/')
       ? new URL(`${appUrl.replace(/\/+$/, '')}${endpoint}`)
       : new URL(endpoint)
@@ -1927,6 +1932,8 @@ function resolveCallApiUrl(endpoint: string): URL {
   if (appUrlObj.protocol !== 'http:' && appUrlObj.protocol !== 'https:') {
     throw new Error(`CALL_API requires an http(s) APP_URL, got: ${appUrl}`)
   }
+
+  target.pathname = target.pathname.replace(/\/{2,}/g, '/')
 
   if (target.username || target.password) {
     throw new Error('SSRF Prevention: CALL_API endpoint must not contain credentials')
@@ -1971,8 +1978,6 @@ async function fetchCallApiWithGuardedRedirects(
       return { response, url }
     }
 
-    await response.body?.cancel()
-
     const location = response.headers.get('location')
     const refuse = () =>
       new Error(
@@ -1987,6 +1992,8 @@ async function fetchCallApiWithGuardedRedirects(
     } catch {
       throw refuse()
     }
+
+    await response.body?.cancel()
 
     const upperMethod = method.toUpperCase()
     if (

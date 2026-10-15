@@ -690,6 +690,16 @@ describe('executeCallApi', () => {
       ).rejects.toThrow(/only supports \/api\/\*/)
     })
 
+    it('accepts an {{env.APP_URL}}/api/ endpoint when APP_URL ends with a slash', async () => {
+      process.env.APP_URL = 'https://shop.example.com/'
+      mockFetch.mockResolvedValue(okJson())
+
+      await executeCallApi(mockEm, { endpoint: '{{env.APP_URL}}/api/sales/orders' }, mockContext, mockContainer)
+
+      const [url] = mockFetch.mock.calls[0] as any
+      expect(url).toBe('https://shop.example.com/api/sales/orders')
+    })
+
     it('does not let fetch follow redirects on its own', async () => {
       mockFetch.mockResolvedValue(okJson())
 
@@ -835,6 +845,12 @@ describe('executeCallApi', () => {
       await expect(
         executeCallApi(mockEm, { endpoint: '/api/sales/orders' }, mockContext, mockContainer),
       ).rejects.toThrow(/requires an http\(s\) APP_URL/)
+
+      process.env.APP_URL = 'not a url'
+
+      await expect(
+        executeCallApi(mockEm, { endpoint: '/api/sales/orders' }, mockContext, mockContainer),
+      ).rejects.toThrow(/requires an http\(s\) APP_URL, got: not a url/)
 
       expect(mockFetch).not.toHaveBeenCalled()
       expect(createdApiKeys).toHaveLength(0)

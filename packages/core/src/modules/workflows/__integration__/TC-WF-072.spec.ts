@@ -14,7 +14,7 @@ import {
  * `/api/` surface (#7235).
  *
  * An absolute endpoint on APP_URL's origin but outside `/api/` used to be sent
- * with the key; it must now fail the run before any key is minted. The
+ * with the key; it must now fail the run with the path-guard error. The
  * documented `{{env.APP_URL}}/api/...` form must keep completing.
  */
 

@@ -127,9 +127,9 @@ The picker is specific to `CALL_API`, because it browses *this* application's en
 > with `/api/`; an absolute URL must have the same origin (scheme, host and port) as `APP_URL` and
 > a path under its `/api/`. Anything else fails with an SSRF-prevention error before the one-time
 > API key is created. A redirect is followed only when its target passes the same check (at most
-> three hops); any other redirect fails the activity, including one whose `Location` names an
-> internal or `http://` origin because a TLS-terminating proxy hides `APP_URL` from the app. To
-> reach a third-party service, use **CALL_WEBHOOK**.
+> three hops); any other redirect fails the activity. This includes redirects that an app behind a
+> TLS-terminating proxy builds from its internal or `http://` origin. To reach a third-party
+> service, use **CALL_WEBHOOK**.
 
 **Response Handling:**
 
