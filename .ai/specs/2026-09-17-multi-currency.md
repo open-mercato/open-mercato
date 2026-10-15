@@ -325,6 +325,49 @@ opposite of the adjusting entry made in the previous period."*
       one side of the pair (`providerBaseCurrency = 'PLN'`), so the policy
       is written for the PLN-base case this spec treats as the working
       assumption (Design decision 8).
+
+      **Checked against `currencies` on `develop` (2026-10-15).** The Table
+      A provider fits the module as it is; what the code allows and what it
+      does not:
+      - *A public extension point exists.* `RateFetchingService` takes any
+        `RateProvider` (`source`, `providerBaseCurrency`, `fetchRates`,
+        `isAvailable`), and `registerCurrencyRateProvider(provider)`
+        (`services/providers/registry.ts`, used by the `example` module's
+        `di.ts`) adds one from any module, keyed by `source`. The bundled
+        providers are registered in `currencies/di.ts` the same way.
+      - *No schema change.* The `exchange_rates` unique key is
+        `(organization, tenant, from, to, date, source)` and persistence
+        matches rows on the same key, so `NBP_A` rows never collide with
+        `NBP` (Table C) rows. `ExchangeRate.type` is free text.
+      - *One small type change.* `RateProviderResult.type` is typed
+        `'buy' | 'sell' | null`; storing `'mid'` widens that union in
+        `providers/base.ts` (no DB change). Without it the provider would
+        have to write `null`.
+      - *On-demand fetching needs nothing else.* `ExchangeRateService`
+        with `autoFetch` calls every registered provider for the date, so
+        `NBP_A` is fetched when a valuation asks for it. Scheduled fetching
+        goes through `CurrencyFetchConfig`, whose `providerSchema` is a
+        fixed enum (`NBP`, `Raiffeisen Bank Polska`, `Custom`) with a
+        hard-coded provider list in `CurrencyFetchingConfig.tsx`; making
+        `NBP_A` schedulable there is optional and not needed for this
+        module.
+      - *Fallback caveat.* `findRateWithFallback` steps back a day only when
+        **no** source has a row for that date. If `NBP` rows exist for a day
+        but `NBP_A` rows do not, the lookup does not continue to the
+        previous day for `NBP_A`; the run then ends in 422
+        `EXCHANGE_RATE_UNAVAILABLE` (the intended refusal), and the
+        operator retries once the table is published.
+      - *Placement.* The same Table A default rate is needed by AP/AR for
+        booking-day rates (decision of 2026-10-12: resolving the default
+        rate belongs to `currencies`), so the provider is written in
+        `currencies` (`services/providers/nbpTableA.ts`, registered in
+        `di.ts`) as the first commit of the implementation PR, not as a
+        separate PR. If OM Core does not want it there, the same class can
+        be registered from `fx_revaluation`'s `di.ts` through
+        `registerCurrencyRateProvider` without touching `currencies` —
+        a supported mechanism, not a workaround — at the cost of AP/AR
+        not getting Table A from `currencies`. ⚠ **NEEDS HUMAN
+        CONFIRMATION** with OM Core (question on #6190).
    d. **Empty/error results.** `RateResult.rates.length === 0` after
       the service's own `maxDaysBack`/`autoFetch` fallback, or a
       populated `RateResult.error` from a batched `getRates()` call,
@@ -957,7 +1000,7 @@ line detail.
   fetcher (out of this document's own module boundary, Design decision
   1). **Severity: High** — this is a correctness gap in the amounts
   the module posts, not a cosmetic one, though it is caught before any
-  implementation exists. **Mitigation**: Implementation Plan Step 0 is a concrete, scoped task (add a Table A provider to `currencies` under its own `source: 'NBP_A'`, so the unique key and `currencies`' schema stay as they are — Design decision 9c); `fx_revaluation` refuses to post (422 `EXCHANGE_RATE_UNAVAILABLE`) until a Table A row is resolvable, instead of falling back to Table C, so the gap can delay the module but cannot produce a wrong posting. **Detection**: none
+  implementation exists. **Mitigation**: Implementation Plan Step 0 is a concrete, scoped task (add a Table A provider to `currencies` under its own `source: 'NBP_A'`, so the unique key and `currencies`' schema stay as they are — checked against the code on `develop`, Design decision 9c; it can also be registered from `fx_revaluation` through the public provider registry if OM Core prefers); `fx_revaluation` refuses to post (422 `EXCHANGE_RATE_UNAVAILABLE`) until a Table A row is resolvable, instead of falling back to Table C, so the gap can delay the module but cannot produce a wrong posting. **Detection**: none
   needed pre-implementation; once built, a valuation run using Table C
   instead of Table A would be caught by comparing posted rates against
   NBP's own published Table A for the same date — a reconciliation
@@ -1098,9 +1141,12 @@ sibling spec PRs.
    Art. 30 ust. 1 requires the NBP average rate specifically, and
    `NBPProvider` fetches only Table C. This step is a provider of its own
    (`source: 'NBP_A'`, rows `type: 'mid'`; Design decision 9c) added to
-   `currencies`' fetcher scope — outside this document's module boundary,
-   coordinate with whoever owns `currencies` — and no change to the
-   `exchange_rates` unique key. `fx_revaluation.ratePriority` then defaults
+   `currencies` (`services/providers/nbpTableA.ts`, registered in `di.ts`,
+   `RateProviderResult.type` widened to include `'mid'`) as the first
+   commit of the implementation PR — no separate PR, no change to the
+   `exchange_rates` unique key. The fallback, if OM Core objects, is to
+   register the same provider from `fx_revaluation` via
+   `registerCurrencyRateProvider`. `fx_revaluation.ratePriority` then defaults
    to `['NBP_A']`.
 1. Patch `accounts-payable.md`, the `SalesInvoice`-owning spec,
    `accounts-payable-payments.md` and `cash-bank-management.md` as listed
@@ -1409,7 +1455,8 @@ and why.
 
 ### Non-Compliant Items
 
-- **High, open until Implementation Plan Step 0:** `currencies` has no
+- **High, open until Implementation Plan Step 0 (extension mechanism
+  verified 2026-10-15, Design decision 9c):** `currencies` has no
   Table A (`NBP_A`) provider yet, and the spec refuses to post rather than
   fall back to Table C (Design decision 9). The design is complete; the
   prerequisite is not built.
@@ -1675,3 +1722,17 @@ before being addressed.
 - **Not addressed in this spec (needs action outside it):** CI/base-branch
   alignment of the PR; whether Table A provider work lands in `currencies`
   as proposed. Not yet reviewed by a maintainer.
+
+### 2026-10-15 (cont. — Table A provider checked against `currencies`)
+
+Checked `currencies` on `develop` (`services/providers/{base,nbp,registry}.ts`,
+`rateFetchingService.ts`, `exchangeRateService.ts`, `di.ts`, `data/entities.ts`,
+`data/validators.ts`, `CurrencyFetchingConfig.tsx`). Result, recorded in Design
+decision 9c: a provider registry already exists, the unique key includes
+`source`, so `NBP_A` needs no schema change; only the `type` union in
+`RateProviderResult` widens to `'mid'`. Step 0 is the first commit of the
+implementation PR, not a separate PR. Fallback: register the provider from
+`fx_revaluation` via `registerCurrencyRateProvider`. Correction of an earlier
+statement in the review thread: that fallback does not duplicate rate logic or
+cross a module boundary. Open ⚠: OM Core's preference on placement. Not yet
+reviewed by a maintainer.
