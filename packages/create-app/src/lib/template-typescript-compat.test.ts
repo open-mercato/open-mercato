@@ -38,6 +38,12 @@ test('standalone template path aliases do not use the TypeScript 6 deprecated ba
   assert.deepEqual(tsconfig.compilerOptions.paths?.['@/*'], ['./src/*'])
 })
 
+test('standalone application typecheck excludes executable agent snippets', () => {
+  const tsconfig = JSON.parse(fs.readFileSync(tsconfigPath, 'utf8')) as { exclude?: string[] }
+  assert.ok(tsconfig.exclude?.includes('src/modules/**/agents/**/scripts/**'))
+  assert.ok(tsconfig.exclude?.includes('src/modules/**/agents/**/tools/**'))
+})
+
 test('standalone home page does not import an autologin subpath ahead of its dependency version', () => {
   const source = fs.readFileSync(homePagePath, 'utf8')
 
