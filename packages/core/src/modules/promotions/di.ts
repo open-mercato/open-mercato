@@ -1,6 +1,7 @@
 import { asFunction } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { PromotionCacheService } from './services/promotion-cache'
+import { PromotionCodeGenerationService } from './services/code-generation'
 import { PromotionCodeService } from './lib/code-service'
 import { PromotionUsageService } from './lib/promotion-usage-service'
 import { PromotionsServiceImpl } from './lib/promotions-service'
@@ -20,6 +21,11 @@ export function register(container: AppContainer) {
     // `extendReservation`/`validateCode` (the two §A.2a methods that call it directly,
     // never through a command).
     promotionCodeService: asFunction(() => new PromotionCodeService(container)).scoped().proxy(),
+    // SPEC-055 §Implementation Plan Phase 3 Step 6 (Release 4 PLAN.md Step 6.4) — the
+    // frozen `promotionCodeGenerationService` DI token. No container dependency of its
+    // own (it only enqueues onto the module-level `promotions-code-generate` queue) but
+    // `.scoped()` for consistency with its siblings here.
+    promotionCodeGenerationService: asFunction(() => new PromotionCodeGenerationService()).scoped().proxy(),
     // SPEC-055 §Release 4 Contract Freeze / §Promotion Usage Lifecycle — the frozen
     // `promotionUsageService` DI token (Step 6.3). No container dependency of its own
     // (unlike `promotionCodeService`'s rate limiter) — `commands/usage.ts` and this
