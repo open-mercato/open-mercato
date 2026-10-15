@@ -2688,8 +2688,10 @@ keyed on a link that does not exist. Checked against `sales`' entities on
   registered providers; scheduled fetching uses a fixed provider enum
   (`providerSchema`) and a hard-coded UI list. `findRateWithFallback` goes back a day only when no
   source has a row for the date.
-- **Decision (⚠ pending OM Core):** Table A provider lives in `currencies`, built as the first commit of
-  the implementation PR; fallback is registering it from `fx_revaluation`.
+- **Decision (team, 2026-10-15; OM Core may object):** Table A provider lives in `currencies`, built as the first commit of
+  the implementation PR. Reasons: AP/AR need the same rate (dependency direction), the provider registry is
+  process-wide (hidden side effect on `autoFetch`), `currencies` already owns the other sources. Fallback only
+  if OM Core objects: register it from `fx_revaluation`.
 - **Open:** payments spec needs `PaymentBatch.sentOn` and a "Read contract for other modules"
   section (AP #5962); `markPaymentBatchSent` does not state its posting date today.
 
