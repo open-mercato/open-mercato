@@ -201,7 +201,7 @@ export function AuditLogsActions({
         const canRedo = showRedo && isRedoCandidate(item)
         if (!canUndo && !showRedo) return null
         return (
-          <div className="flex justify-end gap-1">
+          <div className="flex justify-end gap-1" data-actions-cell>
             {canUndo ? (
               <Button
                 variant="ghost"
