@@ -11,6 +11,7 @@ import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import type { WebhookCreateInput, WebhookUpdateInput } from '../../data/validators'
 import { invalidateWebhookSubscriptionCacheFor } from '../../lib/subscription-cache'
+import { applyWebhookActiveState } from '../../lib/activation'
 
 type WebhookCrudCtx = CrudCtx & {
   __webhookSecret?: string
@@ -135,7 +136,7 @@ const crud = makeCrudRoute<WebhookCreateInput, WebhookUpdateInput, z.infer<typeo
       if (input.rateLimitPerMinute !== undefined) entity.rateLimitPerMinute = input.rateLimitPerMinute
       if (input.autoDisableThreshold !== undefined) entity.autoDisableThreshold = input.autoDisableThreshold
       if (input.integrationId !== undefined) entity.integrationId = input.integrationId
-      if (input.isActive !== undefined) entity.isActive = input.isActive
+      if (input.isActive !== undefined) applyWebhookActiveState(entity, input.isActive)
     },
   },
   del: { idFrom: 'query' },
