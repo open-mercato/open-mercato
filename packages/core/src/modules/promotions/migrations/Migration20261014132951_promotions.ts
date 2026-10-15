@@ -13,6 +13,7 @@ export class Migration20261014132951_promotions extends Migration {
     this.addSql(`create index "promotion_code_reservations_expires_idx" on "promotion_code_reservations" ("expires_at");`);
     this.addSql(`create index "promotion_code_reservations_tenant_org_idx" on "promotion_code_reservations" ("tenant_id", "organization_id");`);
     this.addSql(`alter table "promotion_code_reservations" add constraint "promotion_code_reservations_code_id_cart_id_unique" unique ("code_id", "cart_id");`);
+    this.addSql(`create unique index "promotion_code_reservations_code_customer_unique" on "promotion_code_reservations" ("code_id", "customer_id") where "customer_id" is not null;`);
 
     this.addSql(`create table "promotion_code_usages" ("id" uuid not null default gen_random_uuid(), "code_id" uuid not null, "customer_id" text null, "organization_id" uuid not null, "tenant_id" uuid not null, "used_at" timestamptz not null, primary key ("id"));`);
     this.addSql(`create index "promotion_code_usages_code_idx" on "promotion_code_usages" ("code_id");`);

@@ -345,6 +345,41 @@ describe('PromotionCodeService.reserveCode', () => {
     expect(tables.get(CodeReservation)![0].id).toBe(winningId)
   })
 
+  it('rejects with the standard code_invalid 422 when a losing race hits the per-customer unique index, instead of surfacing the raw DB error', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { code: 'SAVE10' })
+    const service = new PromotionCodeService(fakeContainer())
+
+    // Two concurrent carts for the SAME customer: `evaluateCodeEligibility`'s pre-check
+    // (count of other carts' active reservations) passes for both before either inserts —
+    // the exact race the pre-check alone cannot close (review finding). THIS call's own
+    // insert loses to the other cart's reservation landing first on
+    // `promotion_code_reservations_code_customer_unique` (`code_id`, `customer_id`), a
+    // DIFFERENT constraint than the `(code_id, cart_id)` idempotent-extend case above — so
+    // re-querying by this call's own `cartId` finds nothing to "extend".
+    em.flushImpl = async () => {
+      seedReservation(tables, { codeId: code.id, cartId: 'other-cart', customerId: 'cust-1' })
+      const err = Object.assign(
+        new Error('duplicate key value violates unique constraint "promotion_code_reservations_code_customer_unique"'),
+        { code: '23505', constraint: 'promotion_code_reservations_code_customer_unique' },
+      )
+      throw err
+    }
+
+    await expectCrudError(
+      service.reserveCode(
+        em as unknown as import('@mikro-orm/postgresql').EntityManager,
+        { codeString: 'SAVE10', cartId: 'cart-1', customerId: 'cust-1' },
+        SCOPE,
+      ),
+      422,
+      CODE_INVALID_REASON,
+    )
+    // The losing cart never gets a reservation row of its own; only the winner's remains.
+    expect(tables.get(CodeReservation)).toHaveLength(1)
+    expect(tables.get(CodeReservation)![0].cartId).toBe('other-cart')
+  })
+
   it('rejects a guest cart against a per-customer-limited code with the distinct named reason', async () => {
     const { em, tables } = createFakeEm()
     seedCode(tables, { code: 'LIMITED1', usagePerCustomer: 1 })

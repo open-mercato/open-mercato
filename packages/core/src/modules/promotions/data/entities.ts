@@ -350,6 +350,16 @@ export class GeneratedCode {
 @Unique({ properties: ['codeId', 'cartId'] })
 @Index({ name: 'promotion_code_reservations_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
 @Index({ name: 'promotion_code_reservations_expires_idx', properties: ['expiresAt'] })
+// Closes the reserve-time race the spec names for `usage_per_customer`-limited codes: two
+// concurrent carts for the SAME customer could otherwise both obtain a reservation before
+// either calls `use`. A plain `@Unique` can't express "unique only when customer_id is not
+// null" (a guest's reservations are rightly scoped by cart only, never by identity) — same
+// partial-index pattern as `configs.ModuleConfig`'s `module_configs_scoped_unique`.
+@Index({
+  name: 'promotion_code_reservations_code_customer_unique',
+  expression:
+    'create unique index "promotion_code_reservations_code_customer_unique" on "promotion_code_reservations" ("code_id", "customer_id") where "customer_id" is not null',
+})
 export class CodeReservation {
   [OptionalProps]?: 'createdAt'
 

@@ -211,6 +211,15 @@ async function upsertReservation(
     em.persist(reservation)
     await em.flush()
   } catch (err) {
+    // `promotion_code_reservations_code_customer_unique` — a second cart for the SAME
+    // customer losing the race on this partial index (two concurrent `reserve` calls both
+    // passing `evaluateCodeEligibility`'s pre-check before either inserts) is a genuine
+    // eligibility failure, not an idempotent retry: the eligibility check would have
+    // rejected this exact call had it run a moment later, so surface the same clean 422
+    // instead of an unhandled 500.
+    if (input.customerId != null && isUniqueViolation(err, 'promotion_code_reservations_code_customer_unique')) {
+      throw eligibilityFailureError(CODE_INVALID_REASON)
+    }
     // §Data Models: `UNIQUE (code_id, cart_id)` — a losing concurrent insert for the
     // exact same (code, cart) pair is the idempotent-extend case, not an error: treat it
     // the same as the `existing` branch above instead of surfacing the DB error.

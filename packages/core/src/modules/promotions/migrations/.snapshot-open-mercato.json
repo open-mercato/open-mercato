@@ -469,6 +469,15 @@
           "keyName": "promotion_code_reservations_tenant_org_idx",
           "primary": false,
           "unique": false
+        },
+        {
+          "keyName": "promotion_code_reservations_code_customer_unique",
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"promotion_code_reservations_code_customer_unique\" on \"promotion_code_reservations\" (\"code_id\", \"customer_id\") where \"customer_id\" is not null"
         }
       ],
       "checks": [],
