@@ -57,6 +57,7 @@
   "currencies.form.field.decimalSeparator": "Decimal Separator",
   "currencies.form.field.isActive": "Active",
   "currencies.form.field.isBase": "Base Currency",
+  "currencies.form.field.isBaseLocked": "This is the base currency. To change it, set another currency as the base.",
   "currencies.form.field.name": "Currency Name",
   "currencies.form.field.namePlaceholder": "US Dollar",
   "currencies.form.field.symbol": "Symbol",

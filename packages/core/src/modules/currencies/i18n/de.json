@@ -57,6 +57,7 @@
   "currencies.form.field.decimalSeparator": "Dezimaltrennzeichen",
   "currencies.form.field.isActive": "Aktiv",
   "currencies.form.field.isBase": "Basiswährung",
+  "currencies.form.field.isBaseLocked": "Dies ist die Basiswährung. Um sie zu ändern, legen Sie eine andere Währung als Basis fest.",
   "currencies.form.field.name": "Währungsname",
   "currencies.form.field.namePlaceholder": "US-Dollar",
   "currencies.form.field.symbol": "Symbol",

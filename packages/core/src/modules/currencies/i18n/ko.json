@@ -57,6 +57,7 @@
   "currencies.form.field.decimalSeparator": "소수 구분 기호",
   "currencies.form.field.isActive": "활성",
   "currencies.form.field.isBase": "기준 통화",
+  "currencies.form.field.isBaseLocked": "기준 통화입니다. 변경하려면 다른 통화를 기준 통화로 설정하세요.",
   "currencies.form.field.name": "통화 이름",
   "currencies.form.field.namePlaceholder": "미국 달러",
   "currencies.form.field.symbol": "기호",
