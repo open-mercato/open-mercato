@@ -310,7 +310,7 @@ exists. `currencies` joins `requires` as a third hard dependency (see
 Module Dependency) — multi-currency exchange-rate handling itself
 stays out of scope (see Out of scope).
 
-**Update (2026-09-17):** the Multi-Currency spec
+**Update (2026-09-17, revised 2026-10-15):** the Multi-Currency spec
 ([#6190](https://github.com/open-mercato/open-mercato/pull/6190)) proposes adding
 `SalesInvoice.currencyId`/`exchangeRate` directly, resolved at
 invoice-creation time rather than here at posting time. Once that
@@ -318,7 +318,20 @@ ships, this resolution step becomes redundant with a value already
 on the row — `postSalesInvoiceToLedger` should read the stored
 `currencyId` instead of re-querying `currencies.Currency` by code.
 Not applied yet; flagged here so the two changes land in the right
-order.
+order. **What that spec asks of `sales` itself (its Design decision
+15), none of it implemented in this module:** (1) a command and route on
+`sales`' own pipeline, `POST /api/sales/invoices/:id/exchange-rate/backfill`,
+that sets `exchangeRate` on an invoice whose rate is `null` (invoices that
+predate the feature) — 409 `EXCHANGE_RATE_ALREADY_SET` when it is set, 422
+`EXCHANGE_RATE_UNAVAILABLE` when no rate resolves; (2) re-resolution of
+`currencyId` and `exchangeRate` inside `sales.invoices.update` while the
+invoice is a draft and `currencyCode` or `issueDate` changes; (3) a guard
+that freezes `currencyCode`, `issueDate`, `currencyId` and `exchangeRate`
+once the invoice posts, the single allowed transition being `exchangeRate`
+`null` → value through the backfill. A one-time migration fills
+`SalesInvoice.currencyId` from `currencyCode`. `fx_revaluation` never writes
+`SalesInvoice`; the owner's pipeline does. This document only consumes the
+stored `currencyId`.
 
 **`operationDate` requires a non-null `issueDate` — the command
 validates this rather than guessing a substitute date.** #5663 makes
@@ -1580,3 +1593,12 @@ with the general ledger. Citations updated; design unchanged. Also noted: the
 `documentType` enum this spec relies on lacks the "rozliczeniowe" category of art.
 20 ust. 3 pkt 4, which is a gap in #5663, not in this spec. Not yet reviewed by
 a maintainer.
+
+### 2026-10-15 (Multi-Currency alignment)
+
+Revised the "Update (2026-09-17)" note in Design Decisions (currency
+resolution): it now lists what the Multi-Currency spec (#6190, Design
+decision 15) asks of `sales` — the owner-side exchange-rate backfill command,
+draft re-resolution in `sales.invoices.update`, and the freeze after posting —
+and states that this module only consumes the stored `currencyId`. No change
+to this module's behaviour. Not yet reviewed by a maintainer.
