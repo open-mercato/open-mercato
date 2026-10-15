@@ -45,10 +45,6 @@ Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numberedâ
 
 ### Pending Specifications
 
-Implemented provider additions:
-
-- [Atlas Cloud AI Provider](implemented/2026-09-11-atlas-cloud-ai-provider.md) - Optional OpenAI-compatible Atlas Cloud preset for the AI Assistant.
-
 Specs awaiting implementation or partially complete. Focus here for actionable work.
 
 | SPEC | Date | Title | Description |
@@ -243,6 +239,7 @@ Fully implemented and deployed. Canonical files live in [`implemented/`](impleme
 | [Checkout Pay Links](implemented/2026-03-19-checkout-pay-links.md) | 2026-03-19 | Checkout Pay Links | Pay link generation and checkout flow (Phase A) |
 | [Checkout Wireframes](implemented/2026-03-19-checkout-pay-links-wireframes.md) | 2026-03-19 | Checkout Pay Links Wireframes | Companion wireframes for the Checkout Pay Links spec |
 | [CRM Conversation Shared Visibility](2026-08-25-crm-channel-shared-visibility.md) | 2026-08-25 | CRM Conversation Shared Visibility | Owner-controlled sharing of personal-mailbox email: per-Person conversation grants and a whole-channel team-mailbox flag, both read-time derived so un-sharing is lossless |
+| [Atlas Cloud AI Provider](implemented/2026-09-11-atlas-cloud-ai-provider.md) | 2026-09-11 | Atlas Cloud AI Provider | Optional OpenAI-compatible Atlas Cloud preset for the AI Assistant |
 
 ## Specification Structure
 
