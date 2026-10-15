@@ -94,6 +94,33 @@ export async function loadActiveAssignerUserIds(
   return uniqueExcluding(assigners.map((member) => member.userId), null)
 }
 
+export type ProjectRecipientProbe = {
+  id: string
+  ownerUserId?: string | null
+  defaultAssigneeStaffMemberId?: string | null
+}
+
+/**
+ * Whether new project work reaches somebody before the chain falls through to the
+ * organization's project managers (step 4): an active assigner with a user account,
+ * a usable default assignee with a user account (the ticket's step-1 audience), or
+ * the project owner. `false` is the state the support routing settings warn about.
+ */
+export async function projectReachesRecipientBeforeManagers(
+  em: EntityManager,
+  scope: ProjectAssignmentScope,
+  project: ProjectRecipientProbe,
+  options: { graceDays?: number | null; now?: Date } = {},
+): Promise<boolean> {
+  if (typeof project.ownerUserId === 'string' && project.ownerUserId.length > 0) return true
+  const members = await loadActiveProjectMembers(em, scope, project.id, options)
+  const hasUser = (member: { userId: string | null }) => typeof member.userId === 'string' && member.userId.length > 0
+  if (members.some((member) => member.isAssigner && hasUser(member))) return true
+  const defaultAssigneeId = project.defaultAssigneeStaffMemberId ?? null
+  if (!defaultAssigneeId) return false
+  return members.some((member) => member.staffMemberId === defaultAssigneeId && hasUser(member))
+}
+
 type ContainerLike = { resolve: <T = unknown>(name: string) => T }
 
 export type NotifyProjectWorkOptions = {

@@ -27,7 +27,12 @@ jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
   getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => mockReportError(...args) }),
 }))
 
-import { notifyProjectWork, resolveProjectWorkRecipients, PROJECT_MANAGERS_FEATURE } from '../workRecipients'
+import {
+  notifyProjectWork,
+  projectReachesRecipientBeforeManagers,
+  resolveProjectWorkRecipients,
+  PROJECT_MANAGERS_FEATURE,
+} from '../workRecipients'
 
 const SCOPE = { tenantId: 'tenant-1', organizationId: 'org-1' }
 const PROJECT_ID = 'project-1'
@@ -132,5 +137,45 @@ describe('notifyProjectWork', () => {
     const result = await notifyProjectWork(container, SCOPE, { typeDef: TYPE_DEF, recipients: { step: 1, userIds: ['u1'] }, build })
     expect(result).toEqual({ step: 1, notifiedCount: 0 })
     expect(mockReportError).toHaveBeenCalledWith(failure, expect.objectContaining({ module: 'staff', code: 'staff.project_work_notification_failed' }))
+  })
+})
+
+describe('projectReachesRecipientBeforeManagers', () => {
+  const em = {} as EntityManager
+
+  it('is true when the project has an owner, without loading members', async () => {
+    await expect(projectReachesRecipientBeforeManagers(em, SCOPE, { id: PROJECT_ID, ownerUserId: 'owner' })).resolves.toBe(true)
+    expect(mockLoadActiveProjectMembers).not.toHaveBeenCalled()
+  })
+
+  it('is true when an active assigner has a user account', async () => {
+    mockLoadActiveProjectMembers.mockResolvedValue(assigners(null, 'a1'))
+    await expect(projectReachesRecipientBeforeManagers(em, SCOPE, { id: PROJECT_ID, ownerUserId: null })).resolves.toBe(true)
+  })
+
+  it('is true when the default assignee is an active member with a user account', async () => {
+    mockLoadActiveProjectMembers.mockResolvedValue([{ membershipId: 'm1', staffMemberId: 'default', userId: 'u1', isAssigner: false }])
+    await expect(
+      projectReachesRecipientBeforeManagers(em, SCOPE, { id: PROJECT_ID, defaultAssigneeStaffMemberId: 'default' }),
+    ).resolves.toBe(true)
+  })
+
+  it('is false with no owner, no reachable assigner and no usable default assignee', async () => {
+    mockLoadActiveProjectMembers.mockResolvedValue([
+      { membershipId: 'm1', staffMemberId: 'default', userId: null, isAssigner: false },
+      { membershipId: 'm2', staffMemberId: 'plain', userId: 'u2', isAssigner: false },
+      { membershipId: 'm3', staffMemberId: 'assigner', userId: null, isAssigner: true },
+    ])
+    await expect(
+      projectReachesRecipientBeforeManagers(em, SCOPE, { id: PROJECT_ID, defaultAssigneeStaffMemberId: 'default' }, { graceDays: 3 }),
+    ).resolves.toBe(false)
+    expect(mockLoadActiveProjectMembers).toHaveBeenCalledWith(em, SCOPE, PROJECT_ID, { graceDays: 3 })
+  })
+
+  it('is false when the default assignee is no longer an active member', async () => {
+    mockLoadActiveProjectMembers.mockResolvedValue([])
+    await expect(
+      projectReachesRecipientBeforeManagers(em, SCOPE, { id: PROJECT_ID, defaultAssigneeStaffMemberId: 'gone' }),
+    ).resolves.toBe(false)
   })
 })
