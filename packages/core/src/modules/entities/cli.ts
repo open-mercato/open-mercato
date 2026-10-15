@@ -3,7 +3,7 @@ import type { ModuleEncryptionMap } from '@open-mercato/shared/modules/encryptio
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CacheStrategy } from '@open-mercato/cache/types'
 import { CustomEntity, CustomFieldDef, EncryptionMap } from './data/entities'
-import { upsertCanonicalEncryptionMap } from './lib/encryption-maps'
+import { appendMissingFieldsToOrganizationMaps, upsertCanonicalEncryptionMap } from './lib/encryption-maps'
 import {
   installCustomEntitiesFromModules,
   getAggregatedCustomEntityConfigs,
@@ -313,6 +313,18 @@ export async function upsertEncryptionMapSpecs(
     materializedScopes.push(materializedScope)
     await onMaterializedScope?.(materializedScope)
     logger(`🔒 Seeded encryption map for ${spec.entityId} ✨`)
+    if (organizationId !== null) continue
+    // Organization maps shadow the tenant map, so a tenant-wide seed must reach them too.
+    const organizationScopes = await appendMissingFieldsToOrganizationMaps(em, {
+      entityId: spec.entityId,
+      tenantId,
+      fields: spec.fields,
+    })
+    for (const organizationScope of organizationScopes) {
+      materializedScopes.push(organizationScope)
+      await onMaterializedScope?.(organizationScope)
+      logger(`🔒 Added missing fields to the ${spec.entityId} map of organization ${organizationScope.organizationId}`)
+    }
   }
   return materializedScopes
 }
