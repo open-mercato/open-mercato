@@ -297,6 +297,29 @@ describe('buildCartResponseEnvelope', () => {
     ])
   })
 
+  // TC-CART-TOT-02 (§3.2 "the cart stores the returned totals verbatim. It does not round,
+  // re-sum or adjust them"). `buildCartResponseEnvelope` never imports/resolves
+  // `salesCalculationService` at all (confirmed by reading `cartView.ts`) — `envelope.cart.totals`
+  // is `cart.totals` straight off the fetched row. Odd, deliberately non-"clean" decimals here
+  // (not round numbers a recompute might coincidentally reproduce) make a silent re-rounding
+  // or re-sum detectable: any recomputation of these particular inputs would not land back on
+  // this exact persisted value by accident.
+  it('TC-CART-TOT-02: returns Cart.totals verbatim on read, with no re-rounding or recomputation', async () => {
+    const persistedTotals = {
+      subtotalNetAmount: 16.3333,
+      subtotalGrossAmount: 19.5999,
+      discountTotalAmount: 0.0001,
+      taxTotalAmount: 3.2666,
+      grandTotalNetAmount: 16.3333,
+      grandTotalGrossAmount: 19.5999,
+    }
+    seededCarts = [makeCartFixture({ totals: persistedTotals })]
+    const container = makeContainer()
+    const envelope = await buildCartResponseEnvelope({ container, cartId: CART_ID, tenantId: TENANT_ID, organizationId: ORG_ID })
+
+    expect(envelope.cart.totals).toEqual(persistedTotals)
+  })
+
   it('includes priceChanges/versionBumpReason only when the caller supplies non-empty values', async () => {
     const container = makeContainer()
     const envelope = await buildCartResponseEnvelope({

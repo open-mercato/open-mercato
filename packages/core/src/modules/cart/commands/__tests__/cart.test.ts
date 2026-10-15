@@ -544,6 +544,39 @@ describe('cart.get — §5.2 triggers 2-4 (Step 5.1)', () => {
     expect(commandBus.execute as jest.Mock).not.toHaveBeenCalled()
   })
 
+  // TC-CART-TOT-02 — "totals stored verbatim; no re-rounding on read" at the command layer:
+  // odd, non-"clean" decimals (not round numbers a recompute might coincidentally reproduce)
+  // make a silent re-sum/re-round detectable. Two consecutive GETs, neither triggering a
+  // re-price, must return the exact same totals object both times.
+  it('TC-CART-TOT-02: two GETs with no trigger firing both return Cart.totals verbatim, unchanged', async () => {
+    const persistedTotals = {
+      subtotalNetAmount: 16.3333,
+      subtotalGrossAmount: 19.5999,
+      discountTotalAmount: 0.0001,
+      taxTotalAmount: 3.2666,
+      grandTotalNetAmount: 16.3333,
+      grandTotalGrossAmount: 19.5999,
+    }
+    const cart = seedCartWithLine({ totalsComputedAt: new Date(), totals: persistedTotals })
+    const handler = commandRegistry.get<CartGetInput, CartGetResult>('cart.get')
+    const commandBus = makeFakeCommandBus()
+    const freshContext = makeRouteContext()
+
+    for (let i = 0; i < 2; i += 1) {
+      const { em } = makeEm()
+      const dataEngine = makeDataEngine()
+      const ctx = makeCtx({ em, dataEngine, commandBus })
+      const result = await handler!.execute(
+        { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: cart.id as string, freshContext },
+        ctx,
+      )
+      expect(result.found).toBe(true)
+      if (!result.found) throw new Error('expected found')
+      expect(result.cart.totals).toEqual(persistedTotals)
+    }
+    expect(commandBus.execute as jest.Mock).not.toHaveBeenCalled()
+  })
+
   it('does not reprice a non-active cart even when the digest differs', async () => {
     const cart = seedCartWithLine({ status: 'abandoned' })
     const handler = commandRegistry.get<CartGetInput, CartGetResult>('cart.get')

@@ -196,6 +196,31 @@ describe('toCartTotalsLineSnapshot', () => {
     expect(snapshot.discountAmount).toBe(12)
     expect(snapshot.discountAmountBasis).toBe('line')
   })
+
+  // TC-CART-TOT-03/04 (§3.2 rule 1, SPEC-055 A-R6/`TC-PROM-060`) — regression guard for rev
+  // 8's withdrawn per-unit-division rule. `discountTotalNet` is already documented (§4.2) as
+  // the persisted NET line-total discount, so this mapper has no gross/net branch to get
+  // wrong; the one thing it must never do is divide the stored total back out by quantity.
+  // No real promotion integration exists in this worktree yet (Phase 3/7) — this feeds a
+  // synthetic `CartLine.discountTotalNet`, the shape a future promotion-applied line would
+  // carry, straight at the mapper under test.
+  it('TC-CART-TOT-04: a multi-unit line carries its discountTotalNet as-is, never divided by quantity', () => {
+    const line = makeLine({ quantity: '5', discountTotalNet: '-12.40' })
+    const snapshot = toCartTotalsLineSnapshot(line, 'USD')
+    expect(snapshot.discountAmountBasis).toBe('line')
+    expect(snapshot.discountAmount).toBe(12.4)
+    // Pins the exact regression rev 8's rule produced: 12.40 / 5 = 2.48 must NOT be the result.
+    expect(snapshot.discountAmount).not.toBeCloseTo(12.4 / 5)
+  })
+
+  it('TC-CART-TOT-04: discountAmountBasis is never unset (and never "unit"/omitted) while discountTotalNet is non-null, regardless of quantity', () => {
+    for (const quantity of ['1', '3', '7', '12.5']) {
+      const line = makeLine({ quantity, discountTotalNet: '-5.00' })
+      const snapshot = toCartTotalsLineSnapshot(line, 'USD')
+      expect(snapshot.discountAmountBasis).toBe('line')
+      expect(snapshot.discountAmount).toBe(5)
+    }
+  })
 })
 
 describe('buildRecomputeCartTotalsPhase', () => {
