@@ -571,3 +571,7 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 | API route URL, request and response schemas, event IDs, ACL features, DI names, database schema | No change | ✓ n/a |
 
 **Migration path for existing modules**: none for code. An integration that creates staff users with an organization-restricted principal must grant it the target organizations or use an unrestricted principal.
+
+## Discord AI Proposals (2026-10-13)
+
+[Waiver](UPGRADE_NOTES.md#discord-proposals)
