@@ -370,8 +370,18 @@ opposite of the adjusting entry made in the previous period."*
         be registered from `fx_revaluation`'s `di.ts` through
         `registerCurrencyRateProvider` without touching `currencies` —
         a supported mechanism, not a workaround — at the cost of AP/AR
-        not getting Table A from `currencies`. ⚠ **NEEDS HUMAN
-        CONFIRMATION** with OM Core (question on #6190).
+        not getting Table A from `currencies`.
+
+        **Decided 2026-10-15 (team): the provider lives in `currencies`.**
+        Reasons: (1) AP/AR need the same Table A rate for booking-day
+        defaults, so a provider owned by `fx_revaluation` would make them
+        depend on the valuation module or duplicate it, reversing the
+        one-way dependency direction; (2) the provider registry is a
+        process-wide map, so a provider registered by `fx_revaluation`
+        would change `autoFetch` behaviour for every consumer as a hidden
+        side effect; (3) `currencies` already owns the other rate sources
+        (`NBP`, Raiffeisen). OM Core is asked once on #6190 and may
+        object; only then does the `fx_revaluation` registration apply.
    d. **Empty/error results.** `RateResult.rates.length === 0` after
       the service's own `maxDaysBack`/`autoFetch` fallback, or a
       populated `RateResult.error` from a batched `getRates()` call,
