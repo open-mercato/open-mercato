@@ -39,7 +39,7 @@ Customer Portal users can register support tickets, follow their status, talk to
 | D1 | Module boundary (@jtomaszewski; review m2) | **Option B, hedge now.** The feature stays in `staff`, but every helpdesk-only field moves to the extension entity `staff_support_tickets` instead of new columns on `staff_time_tasks`. The display rename (old Phase 1) is dropped. The `staff` → `staff` / `time_tracking` / `projects` / `helpdesk` extraction (option A) is a separate, later spec. When it happens, `staff_support_tickets`, `lib/support/*` and the portal routes move to `helpdesk` as files; only `source` and `customer_id`, which are generic task attributes, stay with tasks. |
 | D2 | Default assignee vs creator self-assignment (review B1) | The default assignee applies **only** in `staff.support_tickets.create_from_portal`, where there is no human creator. `staff.timesheets.tasks.create` is **unchanged**: an omitted or `null` `assigneeStaffMemberId` still resolves to the creator through `resolveStaffMemberIdForUser` (`commands/timesheets-tasks.ts:517-520`), and the board's quick-add (`KanbanBoard.tsx`) and "New task" dialog (`NewTaskDialog.tsx`/`TaskBoardScreen.tsx`) keep sending the creator explicitly. No behavior change on existing surfaces. |
 | D3 | Issue #430 (review m3) | This spec **supersedes** #430 as the helpdesk design of record. #430's SLA, workload and tag scope remain valid follow-ups that build on this model (see Non-goals). #430's later discussion about building on `messages` is not adopted: the conversation lives in task comments with `visibility`. |
-| D4 | Live refresh of backoffice screens (review m1) | Add an id-only client broadcast, `staff.support_ticket.activity_recorded`, that open boards, drawers and the Support tickets page refetch on. |
+| D4 | Live refresh of backoffice screens (review m1) | Add an id-only client broadcast, `staff.support_ticket.activity_recorded`, that open boards, drawers and the Support Inbox page refetch on. |
 | D5 | Claimable-work notifications outside portal tickets | Replace the general "unassigned task created" notification with **`staff.timesheets.time_task.released`**: assigners are told when a task becomes unassigned (a release, or a manager clearing the assignee). |
 | D6 | Category inheritance (review n6) | **Exact organization**, matching `loadWarrantyClaimDictionaryOptions`. Each organization is seeded with its own categories, so categories and routing rules always line up within one organization. |
 
@@ -247,7 +247,7 @@ The dictionary key is `staff.support_ticket_category`. It is per-organization an
 
 - `staff_support_tickets.customer_request_snapshot` is declared in `encryption.ts`. It is a new column with no legacy rows, it is not indexed for search, and it is read only through `findOneWithDecryption`/`findWithDecryption` in the portal routes and the drawer panel.
 - Task `title`/`description` and all comment bodies **stay unencrypted**, the same as today. Customer-authored comments are plaintext as well. This is an accepted v1 risk, recorded under Risks. Encrypting comment bodies is a separate change (see Non-goals), because existing comments are indexed (`commentCrudIndexer`) and read through plain `em.find` at several sites.
-- Global search is unchanged: `staff:staff_time_task` keeps its fields, and search on tasks already requires `staff.timesheets.projects.manage`. Finding a ticket by `support_reference` is done on the Support tickets page, through the tasks API `supportReference` filter.
+- Global search is unchanged: `staff:staff_time_task` keeps its fields, and search on tasks already requires `staff.timesheets.projects.manage`. Finding a ticket by `support_reference` is done on the Support Inbox page, through the tasks API `supportReference` filter.
 
 ### Routing algorithm (`resolveSupportRoute`)
 
@@ -326,7 +326,7 @@ Detail and sub-resources **load with** this clause, never "load, then check", fo
 |---|---|---|
 | `staff.support_ticket.created` | persistent | `{ taskId, projectId, customerId, supportReference, categoryValue }` |
 | `staff.support_ticket.customer_replied` | persistent | `{ taskId, projectId, commentId, supportReference }` |
-| `staff.support_ticket.activity_recorded` | clientBroadcast | `{ taskId, projectId, kind: 'created' \| 'customer_replied' \| 'portal_status' }`. **Ids only, no customer data.** Open boards, drawers and the Support tickets page refetch on it (D4). |
+| `staff.support_ticket.activity_recorded` | clientBroadcast | `{ taskId, projectId, kind: 'created' \| 'customer_replied' \| 'portal_status' }`. **Ids only, no customer data.** Open boards, drawers and the Support Inbox page refetch on it (D4). |
 | `staff.support_ticket.portal_updated` | portalBroadcast, excludeFromTriggers | `{ ticketId, supportReference, portalStatus, kind, recipientUserIds }` |
 | `staff.timesheets.time_task.assignee_changed` | persistent, clientBroadcast | `{ taskId, projectId, previousAssigneeStaffMemberId, assigneeStaffMemberId, reason: 'default' \| 'claim' \| 'release' \| 'manual' }`. Ids only, the same shape as the existing `status_changed`. Emitted by `create_from_portal` (when the default is applied), claim, release, and any `PUT` that changes the assignee. |
 
@@ -367,7 +367,7 @@ All recipient lists go through one **escalation chain**, `resolveProjectWorkReci
 - **Support ticket types** (`support_ticket.created`, `support_ticket.customer_replied`):
   - the subscriber sets `staff_support_tickets.unnotified_at` (keeping the earliest value);
   - it logs a structured warning through the module logger, with the tenant, organization, project, ticket id, event type and the chain step that came back empty;
-  - the Support tickets page shows a **"Nobody notified"** badge and filter on the ticket;
+  - the Support Inbox page shows a **"Nobody notified"** badge and filter on the ticket;
   - the routing settings page shows a warning for that project, asking the admin to add assigners, a default assignee or an owner.
 - **Clearing the flag:** `unnotified_at` returns to null as soon as the ticket gets an assignee (claim, manual assignment, or a later default), through the `assignee_changed` subscriber, or when a later support notification for the same ticket reaches someone.
 - **General task types** (`time_task.released`, `time_task.assigned`): only the structured warning is logged. There is no ticket row to flag, and the board's Unassigned chip already surfaces released tasks.
@@ -409,7 +409,7 @@ All notifications are rendered with i18n keys and link to the board drawer, whic
 
 ### Backoffice (staff)
 
-- **Sidebar.** The existing "Time tracking" group (label unchanged, D1) gains a **Support tickets** page (`/backend/staff/time-tracking/support`, feature `staff.timesheets.tasks.view`).
+- **Sidebar.** The existing "Time tracking" group (label unchanged, D1) gains a **Support Inbox** page (`/backend/staff/time-tracking/support`, feature `staff.timesheets.tasks.view`).
   - The page is a `DataTable` over the tasks API with `source=portal`.
   - Columns: support reference, subject, customer, category, portal status, project, assignee, last activity.
   - Filters: portal status, category, project, customer, assignee, **"Nobody notified"**, and a reference search. Tickets with `unnotifiedAt` show a "Nobody notified" badge.
@@ -465,7 +465,7 @@ All notifications are rendered with i18n keys and link to the board drawer, whic
 | Two assigners claim the same task at the same time | The conditional update lets exactly one win; the other gets `409 taskAlreadyClaimed`, and the board refreshes from `assignee_changed`. |
 | The default assignee left the project, their assignment window expired, or they were deleted | New portal tickets are created unassigned, and the escalation chain notifies the assigners. The project form shows a warning. Nothing fails. |
 | A staff member creates a task on the board in a project that has a default assignee | The creator is the assignee, exactly as today (D2). The project default applies only to portal tickets. |
-| The escalation chain reaches step 4 and it returns nobody (no project manager in the organization, more than 200 tenant-wide candidates, a missing organization id, or an RBAC failure) | The ticket or reply is saved normally. `unnotified_at` is set, a structured warning is logged, the ticket shows "Nobody notified" on the Support tickets page, and the routing settings page warns on the project. The flag clears when someone is assigned. Managers of other organizations are never used as a fallback. |
+| The escalation chain reaches step 4 and it returns nobody (no project manager in the organization, more than 200 tenant-wide candidates, a missing organization id, or an RBAC failure) | The ticket or reply is saved normally. `unnotified_at` is set, a structured warning is logged, the ticket shows "Nobody notified" on the Support Inbox page, and the routing settings page warns on the project. The flag clears when someone is assigned. Managers of other organizations are never used as a fallback. |
 | A member's team member loses their user account while flagged as an assigner | They drop out of the recipient lists (no user to notify) and can't claim (no session). The members tab flags the row. |
 | An assigner tries to claim a task in a done status, or one that is already assigned | `422 staff.timesheets.errors.taskNotClaimable` or `409 taskAlreadyClaimed`. Taking over someone else's task is out of scope (Q11). |
 | A staff member deletes the task | The portal answers `404` for it and it drops out of the list. |
@@ -503,7 +503,7 @@ Staff-side handling ships **before** portal intake, so customers never get a cha
 |---|---|---|
 | 1. Data model, categories and routing admin | Migration (task columns, `staff_support_tickets`, routing rules); seeding of categories; routing rules CRUD and the settings page (with the "Create fallback project" action) | Yes. Admins can configure; nothing is customer-facing yet, and no project is created unless an admin asks for one. |
 | 2. Project assigners and default assignee | `is_assigner`, the portal default-assignee setting, claim and release, `assignee_changed`, the `released`/`assigned` notifications, the recipient escalation chain, and the Unassigned chip | Yes. Useful on its own for every project. |
-| 3. Staff-side ticket handling | The ticket create command, comment visibility and guards, the drawer "Customer request" panel, the Support tickets page, staff notifications, the portal-status subscriber, the `activity_recorded` broadcast | Yes. It is inert until portal tickets exist, and tested with tickets created through the command in fixtures. |
+| 3. Staff-side ticket handling | The ticket create command, comment visibility and guards, the drawer "Customer request" panel, the Support Inbox page, staff notifications, the portal-status subscriber, the `activity_recorded` broadcast | Yes. It is inert until portal tickets exist, and tested with tickets created through the command in fixtures. |
 | 4. Portal intake and conversation | Seeding of the "Customer support" project and the fallback rule; portal API, the list/new/detail pages with two-way messages, the dashboard widget, the portal broadcast and `defaultCustomerRoleFeatures` | Yes. This is the first customer-visible release. |
 | 5. Attachments | Portal and staff customer-visible files, including the new drawer section | Yes |
 
@@ -614,12 +614,12 @@ Staff-side handling ships **before** portal intake, so customers never get a cha
    - the `activity_recorded` payload holds ids only;
    - a support notification that reaches nobody sets `unnotified_at` and logs a warning, the ticket is still created, and a later assignment clears the flag.
 4. **3.4** Backoffice UI:
-   - the Support tickets page, with a reference search, the "Nobody notified" badge and filter, and live refresh on `activity_recorded`;
+   - the Support Inbox page, with a reference search, the "Nobody notified" badge and filter, and live refresh on `activity_recorded`;
    - the drawer "Customer request" panel showing the snapshot, with the two-button composer and the "customer sees original" hint;
    - the board badge;
    - the tasks API filters, plus the `supportTicket` response enricher.
 
-   *Test:* Playwright TC-STAFF-SUP-004 against a fixture ticket. It includes an open Support tickets page updating when a second fixture ticket is created.
+   *Test:* Playwright TC-STAFF-SUP-004 against a fixture ticket. It includes an open Support Inbox page updating when a second fixture ticket is created.
 
 ### Phase 4: Portal intake and conversation
 
@@ -769,3 +769,13 @@ The step-level test IDs above were planned before implementation. The suite ship
   - `portal_updated` carries a `version` (the task's `updatedAt` for a status change, the comment id and `updatedAt` for a reply). The portal event bridge drops a payload repeated within 500 ms, so a resolve → reply → resolve sequence inside half a second used to lose the final update.
   - A `status_changed` trigger always announces the current derived status; generic task updates keep compare-and-publish.
   - The portal ticket page, the ticket list and the dashboard widget ignore responses from superseded fetches, so an older response can no longer overwrite a newer one.
+- **2026-10-15** — Maintainer review 1 of the implementation (PR #7421) and the first CI run:
+  - The routing-rule unique index (`coalesce(category_value, '')`) is declared on the entity and in the snapshot, not only in the migration.
+  - `portal_updated` goes only to the customer's portal users who hold `portal.support_tickets.view` (customer ACL tables read by name; per-user ACL overrides role ACLs; wildcard-aware).
+  - Release answers 409 `task_assignment_changed` when the task is no longer assigned to the caller; claim refuses a task in a done column atomically (422 `task_not_claimable`).
+  - Default categories are seeded only by the run that creates the support-category dictionary, so `seed-support-defaults` never resurrects a category an admin deleted.
+  - Implemented the "nobody gets notified" routing warning (previously unbuilt): the routing preview reports `nobodyNotified` per project and `unnotifiedTicketCount` per project and organization, and the Support tab shows both, linking to the Support Inbox filtered by "Nobody notified".
+  - The board's Unassigned count refreshes on support activity; the Support Inbox project filter is a searchable combobox; the inbox forwards the capped-total flag (`yarn check:pagination-capped`); portal delete buttons follow `portal.support_tickets.manage`.
+  - Undo of "Create fallback project" refuses once tasks exist in the project (409 `support_fallback_project_in_use`).
+  - CI runs set `OM_INTEGRATION_TEST`, which disables rate limiting globally, so the two rate-limit Playwright tests were removed; the limits are unit-tested in `lib/support/__tests__/portalRoute.test.ts`.
+

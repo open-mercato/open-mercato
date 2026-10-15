@@ -23,7 +23,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 401, description: 'Unauthorized' },
         { status: 403, description: 'The caller is not the current assignee' },
         { status: 404, description: 'Task not found, or not on a project the caller can see' },
-        { status: 409, description: 'The task changed since the version the caller sent' },
+        { status: 409, description: 'The task changed since the version the caller sent, or it is no longer assigned to the caller (`task_assignment_changed`)' },
       ],
     },
   },

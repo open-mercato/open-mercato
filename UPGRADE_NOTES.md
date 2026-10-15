@@ -33,7 +33,7 @@ yarn mercato staff seed-support-defaults --tenant <tenantId> --org <organization
 yarn mercato customer_accounts sync-customer-role-acls
 ```
 
-- `seed-support-defaults` is idempotent. It seeds the support ticket categories, the "Customer support" fallback project and the fallback routing rule. Without them, a portal customer cannot file a ticket because there is no project to route it to.
+- `seed-support-defaults` is safe to re-run. It creates the "Customer support" fallback project and the fallback routing rule when they are missing. It seeds the default support ticket categories only in the run that creates the organization's support-category dictionary; once that dictionary exists, a re-run never re-adds a category an admin deleted. Without the fallback project and rule, a portal customer cannot file a ticket because there is no project to route it to.
 - `sync-customer-role-acls` grants the new portal features to the default customer roles: `portal.support_tickets.view` (buyer, viewer) and `portal.support_tickets.manage` (buyer). It is additive and never creates roles. Add `--tenant <tenantId>` to limit it to one tenant.
 - No staff (`acl.ts`) features were added, so `yarn mercato auth sync-role-acls` is not required for this change.
 

@@ -134,7 +134,8 @@ export async function GET(req: Request) {
       if (attachment.fileSize > 0) headers['Content-Length'] = String(attachment.fileSize)
       return new NextResponse(new Uint8Array(buffer), { status: 200, headers })
     }
-    return NextResponse.json({ items: await listCustomerVisibleAttachments(api, scope, owned.task.id) })
+    const canManage = await scope.hasFeature(PORTAL_SUPPORT_TICKETS_MANAGE_FEATURE)
+    return NextResponse.json({ items: await listCustomerVisibleAttachments(api, scope, owned.task.id, canManage) })
   } catch (err) {
     return portalErrorResponse(err, 'staff portal support attachments GET failed')
   }
@@ -204,7 +205,7 @@ export async function POST(req: Request) {
       throw error
     }
     await guarded.runAfterSuccess()
-    return NextResponse.json({ ok: true, item: serializePortalAttachment(api, attachment, owned.task.id, scope.auth.sub) }, { status: 201 })
+    return NextResponse.json({ ok: true, item: serializePortalAttachment(api, attachment, owned.task.id, scope.auth.sub, true) }, { status: 201 })
   } catch (err) {
     return portalErrorResponse(err, 'staff portal support attachments POST failed')
   }

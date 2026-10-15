@@ -9,8 +9,8 @@ const logger = createLogger('staff').child({ component: 'time-tracking/portal-re
  * column **names** rather than imports.
  *
  * Staff is slated for extraction into `@open-mercato/staff`, so it may not take a
- * static dependency on `customer_accounts`; `requires` in `index.ts` stays
- * `['planner', 'resources']`. A Kysely query against the string
+ * static dependency on `customer_accounts`; `requires` in `index.ts` never gains it.
+ * A Kysely query against the string
  * `'customer_users'` reads the mapping without an import edge, exactly the way
  * `warranty_claims/commands/claims.ts` does — and if the table is absent because
  * the module is not installed, the query throws and this returns an empty list,
