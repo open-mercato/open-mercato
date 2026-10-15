@@ -24,6 +24,26 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
+### Browser web research: all egress is now restricted to public addresses (#7218)
+
+The `@open-mercato/web-research-browser` sidecar used to vet only the top-level navigation. A
+rendered page's images, scripts, fetches, WebSockets, redirect hops and WebRTC traffic could still
+reach loopback, private-network and cloud-metadata addresses. Some of those responses were returned
+to the model. Chromium now sends every connection through a loopback egress proxy that vets each
+connection and pins it to the vetted public address. Subresources are always filtered, service
+workers are blocked, and non-proxied WebRTC UDP and QUIC are disabled. A render that ends on a non-public URL
+now returns a `navigation` error instead of the page.
+
+`OM_WEB_RESEARCH_BROWSER_FILTER_SUBRESOURCES` is ignored; when it is set, the sidecar logs a
+warning each time it launches Chromium. `LAUNCH_ARGS` now also carries the WebRTC proxy-only policy
+and `--disable-quic`. The `filterSubresources` field of `SidecarState` and option of
+`installNavigationGuard` are `@deprecated` and have no effect. `installNavigationGuard` now throws a
+`SidecarError` of kind `init` instead of warning when `context.route()` is unavailable.
+
+**Action for operators:** nothing to configure. Remove `OM_WEB_RESEARCH_BROWSER_FILTER_SUBRESOURCES`
+from your environment. Intranet assets referenced by rendered pages (images, scripts, APIs on
+private addresses) no longer load; public pages render as before.
+
 <a id="discord-proposals"></a>
 
 ### Discord AI reply proposals require system origin (issue #7312)
