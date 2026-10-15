@@ -96,6 +96,7 @@
   "business_rules.components.conditionRow.value.placeholder": "z.B. \"ACTIVE\" oder [\"A\",\"B\"]",
   "business_rules.confirm.delete": "Sind Sie sicher, dass Sie die Regel \"{{name}}\" löschen möchten?",
   "business_rules.errors.createFailed": "Geschäftsregel konnte nicht erstellt werden",
+  "business_rules.errors.duplicateRuleId": "Für diesen Mandanten existiert bereits eine Regel mit der Regel-ID \"{{ruleId}}\". Wählen Sie eine andere Regel-ID.",
   "business_rules.errors.executionFailed": "Regelausführung fehlgeschlagen",
   "business_rules.errors.fetchFailed": "Regel konnte nicht abgerufen werden",
   "business_rules.errors.invalidCondition": "Ungültige Bedingung",

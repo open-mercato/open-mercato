@@ -7,6 +7,7 @@ import { webhookUpdateSchema } from '../../../data/validators'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { invalidateWebhookSubscriptionCacheFor } from '../../../lib/subscription-cache'
+import { applyWebhookActiveState } from '../../../lib/activation'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['webhooks.view'] },
@@ -103,7 +104,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
   if (input.rateLimitPerMinute !== undefined) webhook.rateLimitPerMinute = input.rateLimitPerMinute
   if (input.autoDisableThreshold !== undefined) webhook.autoDisableThreshold = input.autoDisableThreshold
   if (input.integrationId !== undefined) webhook.integrationId = input.integrationId
-  if (input.isActive !== undefined) webhook.isActive = input.isActive
+  if (input.isActive !== undefined) applyWebhookActiveState(webhook, input.isActive)
 
   await em.flush()
 

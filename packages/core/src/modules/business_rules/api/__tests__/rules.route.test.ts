@@ -452,6 +452,68 @@ describe('Business Rules API - /api/business_rules/rules', () => {
       expect(consoleError).toHaveBeenCalled()
       consoleError.mockRestore()
     })
+
+    test('should return 409 when Rule ID already exists for the tenant', async () => {
+      const newRule = {
+        ruleId: 'QA_DUP_1',
+        ruleName: 'Duplicate Rule',
+        ruleType: 'ACTION',
+        entityType: 'QaDup',
+        conditionExpression: { field: 'status', operator: '=', value: 'ACTIVE' },
+      }
+
+      const uniqueViolation = Object.assign(
+        new Error(
+          'duplicate key value violates unique constraint "business_rules_rule_id_tenant_id_unique"'
+        ),
+        { code: '23505' }
+      )
+
+      mockEm.create.mockReturnValue({ id: '723e4567-e89b-12d3-a456-426614174009', ...newRule })
+      mockEm.flush.mockRejectedValue(uniqueViolation)
+      mockLogger.error.mockClear()
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify(newRule),
+      })
+      const response = await POST(request)
+
+      expect(response.status).toBe(409)
+      const body = await response.json()
+      expect(body.error).toContain('QA_DUP_1')
+      expect(mockLogger.error).not.toHaveBeenCalled()
+    })
+
+    test('should return 409 when reusing the Rule ID of a soft-deleted rule', async () => {
+      const newRule = {
+        ruleId: 'QA_DUP_1',
+        ruleName: 'Rule After Delete',
+        ruleType: 'ACTION',
+        entityType: 'QaDup',
+        conditionExpression: { field: 'status', operator: '=', value: 'ACTIVE' },
+      }
+
+      const uniqueViolation = Object.assign(
+        new Error(
+          'duplicate key value violates unique constraint "business_rules_rule_id_tenant_id_unique"'
+        ),
+        { code: '23505' }
+      )
+
+      mockEm.create.mockReturnValue({ id: '823e4567-e89b-12d3-a456-426614174010', ...newRule })
+      mockEm.flush.mockRejectedValue(uniqueViolation)
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify(newRule),
+      })
+      const response = await POST(request)
+
+      expect(response.status).toBe(409)
+      const body = await response.json()
+      expect(body.error).not.toBe(enStrings['business_rules.errors.createFailed'])
+    })
   })
 
   describe('PUT - Update rule', () => {

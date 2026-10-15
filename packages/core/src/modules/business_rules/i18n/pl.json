@@ -96,6 +96,7 @@
   "business_rules.components.conditionRow.value.placeholder": "np. \"ACTIVE\" lub [\"A\",\"B\"]",
   "business_rules.confirm.delete": "Czy na pewno chcesz usunąć regułę \"{{name}}\"?",
   "business_rules.errors.createFailed": "Nie udało się utworzyć reguły biznesowej",
+  "business_rules.errors.duplicateRuleId": "Reguła z identyfikatorem \"{{ruleId}}\" już istnieje dla tego najemcy. Wybierz inny identyfikator reguły.",
   "business_rules.errors.executionFailed": "Wykonanie reguły nie powiodło się",
   "business_rules.errors.fetchFailed": "Nie udało się pobrać reguły",
   "business_rules.errors.invalidCondition": "Nieprawidłowy warunek",

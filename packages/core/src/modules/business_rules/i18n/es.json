@@ -96,6 +96,7 @@
   "business_rules.components.conditionRow.value.placeholder": "ej. \"ACTIVE\" o [\"A\",\"B\"]",
   "business_rules.confirm.delete": "¿Está seguro de que desea eliminar la regla \"{{name}}\"?",
   "business_rules.errors.createFailed": "Error al crear la regla de negocio",
+  "business_rules.errors.duplicateRuleId": "Ya existe una regla con el ID de regla \"{{ruleId}}\" para este inquilino. Elija un ID de regla diferente.",
   "business_rules.errors.executionFailed": "Falló la ejecución de la regla",
   "business_rules.errors.fetchFailed": "Error al obtener la regla",
   "business_rules.errors.invalidCondition": "Condición inválida",

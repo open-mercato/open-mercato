@@ -5,6 +5,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { isUniqueViolation } from '@open-mercato/shared/lib/db/pg-errors'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { BusinessRule } from '../../data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -322,6 +323,15 @@ export async function POST(req: Request) {
     await em.persist(rule).flush()
     await invalidateBusinessRuleDiscoveryCache(cache, rule.tenantId, rule.organizationId)
   } catch (error) {
+    if (isUniqueViolation(error)) {
+      return NextResponse.json(
+        {
+          error: t('business_rules.errors.duplicateRuleId', { ruleId: parsed.data.ruleId }),
+          fieldErrors: { ruleId: t('business_rules.errors.duplicateRuleId', { ruleId: parsed.data.ruleId }) },
+        },
+        { status: 409 },
+      )
+    }
     logger.error('Failed to persist new rule', { err: error })
     return NextResponse.json(
       { error: t('business_rules.errors.createFailed') },
@@ -524,6 +534,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid payload', schema: errorResponseSchema },
         { status: 401, description: 'Unauthorized', schema: errorResponseSchema },
+        { status: 409, description: 'A rule with this Rule ID already exists for the tenant', schema: errorResponseSchema },
       ],
     },
     PUT: {
