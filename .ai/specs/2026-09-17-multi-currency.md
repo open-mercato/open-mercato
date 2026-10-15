@@ -312,7 +312,7 @@ opposite of the adjusting entry made in the previous period."*
       change in `currencies` — an "Ask First" item under
       `currencies/AGENTS.md` and `BACKWARD_COMPATIBILITY.md` — and is not
       proposed. Instead Implementation Plan Step 0 adds a Table A provider
-      with its own `source: 'NBP_A'` (rows `type: 'mid'`), and
+      with its own `source: 'NBP_A'` (rows `type: null`), and
       `fx_revaluation.ratePriority` (an ordered `source` list in
       `ModuleConfigService`) defaults to `['NBP_A']`. **The module
       refuses to post — 422 `EXCHANGE_RATE_UNAVAILABLE` naming the source
@@ -339,10 +339,14 @@ opposite of the adjusting entry made in the previous period."*
         `(organization, tenant, from, to, date, source)` and persistence
         matches rows on the same key, so `NBP_A` rows never collide with
         `NBP` (Table C) rows. `ExchangeRate.type` is free text.
-      - *One small type change.* `RateProviderResult.type` is typed
-        `'buy' | 'sell' | null`; storing `'mid'` widens that union in
-        `providers/base.ts` (no DB change). Without it the provider would
-        have to write `null`.
+      - *No type change either.* Table A rows are stored with
+        `type = null` and recognised by `source = 'NBP_A'`. A `'mid'` value
+        would need a change in `currencies`: `RateProviderResult.type` is
+        `'buy' | 'sell' | null`, and the manual-entry validator
+        (`exchangeRateCreateSchema`) accepts only `buy`, `sell` or `null`.
+        `null` is valid on both paths, so `currencies` is untouched apart
+        from the new provider file and its registration. Rates are not
+        entered by hand: the provider fetches them.
       - *On-demand fetching needs nothing else.* `ExchangeRateService`
         with `autoFetch` calls every registered provider for the date, so
         `NBP_A` is fetched when a valuation asks for it. Scheduled fetching
@@ -1140,9 +1144,9 @@ sibling spec PRs.
    commands/UI steps below — resolved 2026-09-21, Design decision 8.**
    Art. 30 ust. 1 requires the NBP average rate specifically, and
    `NBPProvider` fetches only Table C. This step is a provider of its own
-   (`source: 'NBP_A'`, rows `type: 'mid'`; Design decision 9c) added to
-   `currencies` (`services/providers/nbpTableA.ts`, registered in `di.ts`,
-   `RateProviderResult.type` widened to include `'mid'`) as the first
+   (`source: 'NBP_A'`, rows `type: null`; Design decision 9c) added to
+   `currencies` (`services/providers/nbpTableA.ts`, registered in `di.ts`;
+   no change to `RateProviderResult` or the validators) as the first
    commit of the implementation PR — no separate PR, no change to the
    `exchange_rates` unique key. The fallback, if OM Core objects, is to
    register the same provider from `fx_revaluation` via
@@ -1730,7 +1734,7 @@ Checked `currencies` on `develop` (`services/providers/{base,nbp,registry}.ts`,
 `data/validators.ts`, `CurrencyFetchingConfig.tsx`). Result, recorded in Design
 decision 9c: a provider registry already exists, the unique key includes
 `source`, so `NBP_A` needs no schema change; only the `type` union in
-`RateProviderResult` widens to `'mid'`. Step 0 is the first commit of the
+Table A rows use `type = null` (corrected the same day: `'mid'` would have needed a type change and fails the manual-entry validator). Step 0 is the first commit of the
 implementation PR, not a separate PR. Fallback: register the provider from
 `fx_revaluation` via `registerCurrencyRateProvider`. Correction of an earlier
 statement in the review thread: that fallback does not duplicate rate logic or
