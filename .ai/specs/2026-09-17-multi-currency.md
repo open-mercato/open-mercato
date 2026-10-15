@@ -751,7 +751,7 @@ FK-id-only with the tenant/organization scope applied and no ORM relation
 (the precedent is `communication_channels` reading `messages`); and the
 columns it relies on (`vendorInvoiceId`, `amount`, the batch `status`) are listed as
 a contract in the payments spec, so a change to them is a visible spec change.
-Decided by the team (2026-10-12): no external review of this direction; the reasoning rests on the knowledge base's conventions and the two AP specs. **Added 2026-10-15 (as-of valuation, Design decision 13):** the as-of filter needs the date a batch was sent. The payments spec defines no such field — `PaymentBatch` has `scheduledPaymentDate` only — so the read contract lists `sentOn` (the `operationDate` of the payment entry `markPaymentBatchSent` posts) beside `vendorInvoiceId`, `amount` and the batch `status`. ⚠ **NEEDS HUMAN CONFIRMATION** with the owner of the payments spec. The note of 2026-10-12 that this contract is already listed could not be confirmed: there is no "Read contract for other modules" section in `accounts-payable-payments.md` on `docs/accounts-payable` (6c17a8553), so it is carried as a patch (Patches to sibling specs).
+Decided by the team (2026-10-12): no external review of this direction; the reasoning rests on the knowledge base's conventions and the two AP specs. **Added 2026-10-15 (as-of valuation, Design decision 13):** the as-of filter needs the date a batch was sent. The payments spec defines no such field — `PaymentBatch` has `scheduledPaymentDate` only — so the read contract lists `sentOn` (the `operationDate` of the payment entry `markPaymentBatchSent` posts) beside `vendorInvoiceId`, `amount` and the batch `status`. **Done 2026-10-15:** the payments spec (`docs/accounts-payable`) now has `PaymentBatch.sentOn`, an optional `sentOn` input on `markPaymentBatchSent` (default today, not later than today) and a "Read contract for other modules" section listing these columns, with this module as the first consumer. The note of 2026-10-12 that the contract was already listed was wrong at the time (there was no such section in 6c17a8553); it is true now.
 
 ## Architecture
 
@@ -814,8 +814,8 @@ Decided by the team (2026-10-12): no external review of this direction; the reas
 - `accounts-payable-payments.md` — add the read contract for other modules:
   `PaymentBatchLine.vendorInvoiceId` and `amount`, and, from
   `PaymentBatch`, `status` and `sentOn` (the `operationDate` of the entry
-  `markPaymentBatchSent` posts). `sentOn` does not exist today (Design
-  decision 18).
+  `markPaymentBatchSent` posts). **Done 2026-10-15** in
+  `accounts-payable-payments.md` (Design decision 18).
 - `cash-bank-management.md` — note that `bookedExchangeRate` can default
   from `SalesInvoice.exchangeRate` once populated, **only when the bank
   account's currency equals the tenant's base currency** (Design decision
@@ -1070,10 +1070,10 @@ line detail.
   wrong posting).
 - **The as-of valuation (Design decision 13) rests on settlement dates in
   two sibling specs.** `BankStatementLine.lineDate` is in #6055; the batch's
-  `sentOn` is not in the payments spec yet (Design decision 18, patch to
-  `accounts-payable-payments.md`). Until it is, vendor invoices cannot be
-  valued as of a date and the module is blocked for them. **Severity:
-  Medium** — a spec gap, caught before implementation.
+  `sentOn` was missing from the payments spec and was added on 2026-10-15
+  (Design decision 18); it is in the spec, not yet implemented, so
+  vendor-invoice valuation waits for the payments implementation.
+  **Severity: Low** — a spec gap, closed before implementation.
 - **Cash & Bank Management needs no change for revaluation (Design decision
   12)** — only the optional `bookedExchangeRate` default (Design decision
   14). The earlier `PRIOR_VALUATION_NOT_REVERSED` precondition, which would
@@ -1183,7 +1183,7 @@ start for a step until the contract it uses is merged or pinned to a commit.
 Proposed: `ledger` — `postJournalEntry`, `reverseJournalEntry`,
 `FiscalPeriod` (#5663 spec, #6340 implementation); `accounts_payable` —
 `VendorInvoice` (#5962) and `accounts_payable_payments` — `PaymentBatchLine`
-and `PaymentBatch.sentOn` (to be added, Design decision 18);
+and `PaymentBatch.sentOn` (in the payments spec since 2026-10-15, Design decision 18);
 `cash_bank_management` — bank statement lines and matches (#6055);
 `sales_invoices_gl_posting` — the `sales:sales_invoice` reference and the
 receivable-account config (#6046); `currencies` — Table A provider (Step 0,
@@ -1261,7 +1261,7 @@ sibling spec PRs.
 | `packages/core/src/modules/currencies/di.ts` | Patch (Step 0) — register the Table A provider next to `NBPProvider` and `RaiffeisenPolandProvider` |
 | `packages/core/src/modules/currencies/services/README.md` | Patch (Step 0) — document `NBP_A` (source, `type = null`, fetched by `autoFetch` with the other providers) |
 | `.ai/specs/2026-09-06-accounts-payable.md` | Patch — `VendorInvoice.exchangeRate`, `backfill` command/route, immutability guard |
-| `.ai/specs/2026-09-06-accounts-payable-payments.md` | Patch — read contract incl. `PaymentBatch.sentOn` |
+| `.ai/specs/2026-09-06-accounts-payable-payments.md` | Patch — read contract incl. `PaymentBatch.sentOn` (done 2026-10-15) |
 | sales-invoice-GL-posting spec | Patch — `SalesInvoice.currencyId`/`exchangeRate`, `backfill` command/route, post-posting immutability guard (Design decision 15) |
 | `.ai/specs/2026-09-10-cash-bank-management.md` | Patch — default `bookedExchangeRate` from invoice only when bank currency = base (Design decision 14), read contract (Design decision 17). No settlement precondition. |
 
@@ -1517,10 +1517,10 @@ and why.
   Table A (`NBP_A`) provider yet, and the spec refuses to post rather than
   fall back to Table C (Design decision 9). The design is complete; the
   prerequisite is not built.
-- **Open, owned by other specs:** the payments spec does not yet list
-  `sentOn` in its "Read contract for other modules" (Design decisions 17/18);
-  ledger #5663/#6340 and the sales/AP/cash-bank specs this one depends on
-  are still open PRs.
+- **Open, owned by other specs:** ledger #5663/#6340 and the
+  sales/AP/payments/cash-bank specs this one depends on are still open PRs.
+  (`PaymentBatch.sentOn` and the payments read contract were added on
+  2026-10-15, Design decisions 17/18.)
 
 ### Verdict
 
@@ -1793,3 +1793,11 @@ implementation PR, not a separate PR. Fallback: register the provider from
 statement in the review thread: that fallback does not duplicate rate logic or
 cross a module boundary. Open ⚠: OM Core's preference on placement. Not yet
 reviewed by a maintainer.
+
+### 2026-10-15 (cont. — `sentOn` closed)
+
+`accounts-payable-payments.md` (branch `docs/accounts-payable`) now defines
+`PaymentBatch.sentOn`, the optional `sentOn` input of `markPaymentBatchSent`
+and the "Read contract for other modules" section. The ⚠ on Design decision 18
+is removed and the "Blocked on" entry for the payments spec now refers to open
+PRs only. Not yet reviewed by a maintainer.
