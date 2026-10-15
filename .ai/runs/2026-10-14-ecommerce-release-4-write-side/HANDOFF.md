@@ -1,10 +1,10 @@
 # Handoff — 2026-10-14-ecommerce-release-4-write-side
 
-**Last updated:** 2026-10-15T09:25:00Z (Phases 1-2 CLOSED; Phase 3/4 functionally closed — one open item each; Phase 5 in progress, Steps 5.1-5.3 done)
+**Last updated:** 2026-10-15T09:40:00Z (Phases 1-2 CLOSED; Phase 3/4 functionally closed — one open item each; Phase 5 nearly done — Steps 5.1-5.4 done, only the gate test step 5.5 remains)
 **Branch:** feat/release-4-write-side
 **PR:** https://github.com/adeptofvoltron/open-mercato/pull/15 (draft, base `develop` on the fork)
-**Current phase/step:** Phases 1-2 fully done. Phase 3 done except Step 3.4's Part A (open item). Phase 4 done except Step 4.9's CONC-05 concurrency bug (open item, neither blocks downstream work). Phase 5 (Cart Phase 2, pricing behavior): Steps 5.1-5.3 done. Resume at Step 5.4 (line-total discount mapping + totals-equivalence property test).
-**Last commit:** see `git log` on `feat/release-4-write-side` for the exact tip — Step 5.3's commits (the availability advisory + docs) are the most recent.
+**Current phase/step:** Phases 1-2 fully done. Phase 3 done except Step 3.4's Part A (open item). Phase 4 done except Step 4.9's CONC-05 concurrency bug (open item, neither blocks downstream work). Phase 5 (Cart Phase 2, pricing behavior): Steps 5.1-5.4 done. Resume at Step 5.5 — the Phase 2 gate test step, which closes the phase.
+**Last commit:** see `git log` on `feat/release-4-write-side` for the exact tip — Step 5.4's commits (the totals-equivalence property test + docs) are the most recent.
 
 ## OPEN ITEM 4 — verification gap, not a bug (Step 5.2, resolve before Phase 2 closes)
 Step 5.2 updated the 4 existing Playwright spec files for the new `CartView` response shape (dropped fields now read via direct SQL, no more `{outcome}`-only responses). These edits were reviewed carefully by code inspection — both by the dispatched agent and independently by this session — and judged correct, but **neither actually ran them against a live server**: no dev server was reachable for this worktree at the time (only the `om_cart49` database survived from Step 4.9; its server/scheduler had already been torn down). **Step 5.5 (the Phase 2 gate test step) MUST run the full `cart/__integration__/` suite live at least once before Phase 2 is considered closed** — if anything is red, it is almost certainly in the 4 updated spec files, not in `lib/cartView.ts`'s own logic (which the Jest coverage of `cartView.test.ts` did exercise directly).
@@ -49,10 +49,12 @@ Built the `cart` module from zero: scaffold/ACL/setup/events/encryption (4.1), e
 
 **Step 5.3** added `CartLineView.availabilityState` to `lib/cartView.ts` (computed live via the already-shared `resolveAvailability`, no seam extraction needed) plus an `out_of_stock` top-level warning on every matching read (settled by the spec's own R7 text). Quantity rules (the step's other half) needed no new code — confirmed already fully built in Step 4.6. 6 new tests (107 total in `cart`).
 
-## Next concrete action
-Step 5.4 — line-total discount mapping to `SalesLineSnapshot` and the totals-equivalence property test **without** promotions: same snapshots give equal `SalesDocumentAmounts` for `documentKind: 'quote'` and `'order'`, 4-dp numerics, over the tax matrix and a non-dividing quantity. This is the step that actually PROVES `cart.reprice`'s totals aggregate (Step 5.1) is correct, not just connected. Step 5.5 (the Phase 2 gate tests) closes out the phase after it, and MUST address OPEN ITEM 4 (run `cart/__integration__/` live — now even more overdue, 2 steps deep) plus add the `backdateCartTotalsComputedAt` helper Step 5.1 flagged.
+**Step 5.4** added `lib/__tests__/totalsEquivalence.property.test.ts` (TC-CART-TOT-01): a 500-iteration seeded property test proving `calculateDocumentTotals` returns equal totals for `documentKind: 'quote'` vs `'order'` given identical `SalesLineSnapshot[]` — the Phase 2 cut of §3.2's release invariant (calling the calculation service directly, not a real order-creation command — that's Phase 3's job once promotions exist). Also covers TC-CART-TOT-02 (no re-rounding on read) and a mapper-level TC-CART-TOT-03/04 regression guard (synthetic discount, no real promotions yet). 6 new tests (113 total in `cart`).
 
-**PR checkpoint status**: the last comment posted covers through Steps 5.1-5.2 (`https://github.com/adeptofvoltron/open-mercato/pull/15#issuecomment-6186444505`). Step 5.3 is unreported so far; post one more once Step 5.4 lands too.
+## Next concrete action
+Step 5.5 — the Phase 2 gate test step, closing Phase 5. Per §14's gate text: "triggers 1-4 and 7 each verified in isolation (no other action re-prices)." Beyond writing that isolation test, **this step MUST also resolve OPEN ITEM 4** (run the full `cart/__integration__/` suite live at least once — now 3 steps overdue: Steps 5.2 and 5.3 both deferred it for lack of a reachable stack) and add the `backdateCartTotalsComputedAt` helper Step 5.1 flagged for trigger-2/3/4 Playwright coverage (`TC-CART-PRICE-01`/`02`), plus un-skip `TC-CART-CONC-04` (`versionBumpReason: 'repricing'`, skipped since Step 4.9 for lack of `cart.reprice` — now unblockable since Step 5.1 built it). Standing up a fresh dev server/DB for this worktree, per `.ai/qa/AGENTS.md`'s established convention, is probably unavoidable at this point.
+
+**PR checkpoint status**: the last comment posted covers through Steps 5.1-5.2 (`https://github.com/adeptofvoltron/open-mercato/pull/15#issuecomment-6186444505`). Steps 5.3 and 5.4 are unreported; post the Phase-5-close checkpoint once Step 5.5 lands.
 
 ## Blockers / open questions
 None blocking. Step 3.4 Part A is open but does not block anything downstream yet (see "OPEN ITEM" above).
