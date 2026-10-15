@@ -43,8 +43,14 @@ async function openSession(browser: Browser, user: SessionUser): Promise<Page> {
 
 async function readApiKeyPickerOptions(page: Page): Promise<string[]> {
   await page.goto('/backend/rules/create', { waitUntil: 'domcontentloaded' })
-  await page.getByRole('button', { name: 'Add Action' }).first().click()
-  await page.getByRole('combobox').filter({ hasText: 'Select action type...' }).first().click()
+  const actionTypePicker = page.getByRole('combobox').filter({ hasText: 'Select action type...' }).first()
+  await expect(async () => {
+    if (!(await actionTypePicker.isVisible())) {
+      await page.getByRole('button', { name: 'Add Action' }).first().click()
+    }
+    await expect(actionTypePicker).toBeVisible({ timeout: 2_000 })
+  }).toPass({ timeout: 60_000 })
+  await actionTypePicker.click()
   await page.getByRole('option', { name: 'Call OpenMercato', exact: true }).click()
   const apiKeyPicker = page.getByRole('combobox').filter({ hasText: 'Select API key' }).first()
   await expect(apiKeyPicker).toBeEnabled()
@@ -146,7 +152,7 @@ test.describe('TC-BR-016: CALL_OPEN_MERCATO rule editor enforces the API key gra
       expect(grantorOptions.some((label) => label.includes(peopleKeyName)), 'grantor sees the people profile').toBe(true)
 
       await restrictedPage.goto(`/backend/rules/${ruleId}`, { waitUntil: 'domcontentloaded' })
-      const ruleNameInput = restrictedPage.getByLabel('Rule Name')
+      const ruleNameInput = restrictedPage.getByPlaceholder('Enter a descriptive rule name')
       await expect(ruleNameInput).toHaveValue(ruleName)
       await ruleNameInput.fill(`${ruleName} renamed`)
       await restrictedPage.getByRole('button', { name: 'Update Rule' }).first().click()
@@ -154,21 +160,19 @@ test.describe('TC-BR-016: CALL_OPEN_MERCATO rule editor enforces the API key gra
       expect(await readRuleEnabled(request, adminToken, ruleId)).toBe(true)
 
       await restrictedPage.goto(`/backend/rules/${ruleId}`, { waitUntil: 'domcontentloaded' })
-      await expect(restrictedPage.getByLabel('Rule Name')).toHaveValue(ruleName)
+      await expect(restrictedPage.getByPlaceholder('Enter a descriptive rule name')).toHaveValue(ruleName)
       await restrictedPage.getByRole('checkbox', { name: 'Enabled' }).uncheck()
       await restrictedPage.getByRole('button', { name: 'Update Rule' }).first().click()
       await expect(restrictedPage).toHaveURL(/\/backend\/rules(?:\?.*)?$/)
       expect(await readRuleEnabled(request, adminToken, ruleId), 'the edit form can switch the rule off').toBe(false)
 
       await restrictedPage.goto('/backend/rules', { waitUntil: 'domcontentloaded' })
-      await restrictedPage.getByPlaceholder('Search rules...').fill(ruleName)
       const restrictedRow = restrictedPage.getByRole('row').filter({ hasText: ruleName })
       await restrictedRow.getByRole('button', { name: 'No', exact: true }).click()
       await expect(restrictedPage.getByText(GRANT_REFUSAL).first(), 'list toggle shows why re-enabling is refused').toBeVisible()
       expect(await readRuleEnabled(request, adminToken, ruleId)).toBe(false)
 
       await grantorPage.goto('/backend/rules', { waitUntil: 'domcontentloaded' })
-      await grantorPage.getByPlaceholder('Search rules...').fill(ruleName)
       const grantorRow = grantorPage.getByRole('row').filter({ hasText: ruleName })
       await grantorRow.getByRole('button', { name: 'No', exact: true }).click()
       await expect(grantorRow.getByRole('button', { name: 'Yes', exact: true })).toBeVisible()
