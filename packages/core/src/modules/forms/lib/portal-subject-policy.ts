@@ -11,10 +11,11 @@
  * actor assignment (`forms.submissions.manage`), so staff already vouched for
  * that pairing and the submit is not re-checked here. Token (invitation)
  * principals carry a server-derived subject and are out of scope.
+ *
+ * The start route applies `isPortalSubjectAllowed` before anything is
+ * persisted; `SubmissionService.submit()` applies `isPortalSubmitAllowed`
+ * inside its locked transaction when the caller is a portal customer.
  */
-
-import type { EntityManager } from '@mikro-orm/postgresql'
-import { FormSubmission } from '../data/entities'
 
 export const PORTAL_SUBJECT_TYPE = 'customer'
 
@@ -38,18 +39,4 @@ export function isPortalSubjectAllowed(customerUserId: string, subject: PortalSu
 export function isPortalSubmitAllowed(customerUserId: string, submission: PortalSubmissionSubject): boolean {
   if (!isSameId(submission.startedBy, customerUserId)) return true
   return isPortalSubjectAllowed(customerUserId, submission)
-}
-
-export async function isPortalSubmitForbidden(
-  em: EntityManager,
-  args: { submissionId: string; organizationId: string; tenantId: string; customerUserId: string },
-): Promise<boolean> {
-  const submission = await em.findOne(FormSubmission, {
-    id: args.submissionId,
-    organizationId: args.organizationId,
-    tenantId: args.tenantId,
-    deletedAt: null,
-  })
-  if (!submission) return false
-  return !isPortalSubmitAllowed(args.customerUserId, submission)
 }

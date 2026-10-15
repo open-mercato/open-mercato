@@ -23,9 +23,9 @@ import type { DistributionService } from '../../../../../services/distribution-s
 import { FormDistribution, FormInvitation } from '../../../../../data/entities'
 import { submissionSubmitInputSchema } from '../../../../../data/validators'
 import { resolveRuntimePrincipal } from '../../../../../lib/runtime-principal'
-import { isPortalSubmitForbidden } from '../../../../../lib/portal-subject-policy'
 import {
   buildSubmitMetadata,
+  isPortalSubjectForbiddenError,
   mapDistributionError,
   portalSubjectForbiddenResponse,
   readJsonBody,
@@ -72,16 +72,6 @@ export async function POST(
   if (!principal) return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 })
 
   try {
-    if (principal.source === 'customer') {
-      const forbidden = await isPortalSubmitForbidden(em, {
-        submissionId,
-        organizationId: principal.organizationId,
-        tenantId: principal.tenantId,
-        customerUserId: principal.principal,
-      })
-      if (forbidden) return portalSubjectForbiddenResponse()
-    }
-
     let distribution: FormDistribution | null = null
 
     if (principal.source === 'token') {
@@ -118,6 +108,7 @@ export async function POST(
       baseRevisionId: parsed.data.base_revision_id,
       submittedBy: principal.principal,
       submitMetadata: buildSubmitMetadata(req, parsed.data.submit_metadata),
+      submittedByPortalCustomer: principal.source === 'customer',
     })
 
     if (principal.source === 'token') {
@@ -135,6 +126,7 @@ export async function POST(
       redirect_url: distribution?.redirectUrl ?? null,
     })
   } catch (error) {
+    if (isPortalSubjectForbiddenError(error)) return portalSubjectForbiddenResponse()
     return mapDistributionError(error)
   }
 }

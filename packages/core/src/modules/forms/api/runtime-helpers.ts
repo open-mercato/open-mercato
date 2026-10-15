@@ -28,6 +28,10 @@ export function mapSubmissionError(error: unknown): NextResponse {
   return NextResponse.json({ error: 'INTERNAL_ERROR', message }, { status: 500 })
 }
 
+export function isPortalSubjectForbiddenError(error: unknown): boolean {
+  return isSubmissionServiceError(error) && error.code === 'SUBJECT_FORBIDDEN'
+}
+
 export async function portalSubjectForbiddenResponse(): Promise<NextResponse> {
   const { translate } = await resolveTranslations()
   return NextResponse.json(

@@ -40,6 +40,8 @@ import { POST as startSubmission } from '../api/form-submissions/route'
 import { POST as portalSubmit } from '../api/form-submissions/[id]/submit/route'
 import { POST as publicSubmit } from '../api/public/submissions/[id]/submit/route'
 import { FormDistribution, FormInvitation, FormSubmission } from '../data/entities'
+import { SubmissionServiceError } from '../services/submission-service'
+import { isPortalSubmitAllowed } from '../lib/portal-subject-policy'
 
 const ORG_ID = '00000000-0000-4000-8000-000000000001'
 const TENANT_ID = '00000000-0000-4000-8000-000000000002'
@@ -141,7 +143,13 @@ beforeEach(() => {
     decodedData: {},
     actors: [{ id: 'actor-1', submissionId: SUBMISSION_ID, userId: args.startedBy, role: 'participant' }],
   }))
-  submit.mockImplementation(async () => submissionRow({ status: 'submitted', submittedBy: CALLER_ID }))
+  submit.mockImplementation(async (args: { submittedBy: string; submittedByPortalCustomer?: boolean }) => {
+    const row = storedSubmission as { startedBy: string; subjectType: string; subjectId: string } | null
+    if (row && args.submittedByPortalCustomer && !isPortalSubmitAllowed(args.submittedBy, row)) {
+      throw new SubmissionServiceError('SUBJECT_FORBIDDEN', 'Submission subject is not the caller\'s own customer subject.', 403)
+    }
+    return submissionRow({ status: 'submitted', submittedBy: args.submittedBy })
+  })
   findOne.mockImplementation(async (entity: unknown) => {
     if (entity === FormSubmission) return storedSubmission
     if (entity === FormInvitation) return { id: INVITATION_ID, distributionId: DISTRIBUTION_ID }
@@ -197,14 +205,31 @@ describe('POST /api/forms/form-submissions — subject authorization (#7224)', (
 })
 
 describe('POST /api/forms/form-submissions/:id/submit — self-started drafts (#7224)', () => {
-  it('refuses to finalize a self-started draft whose subject is another customer', async () => {
+  it('asks the service to enforce the portal subject policy for the caller', async () => {
+    const response = await callPortalSubmit()
+
+    expect(response.status).toBe(200)
+    expect(submit).toHaveBeenCalledTimes(1)
+    expect(submit.mock.calls[0][0]).toMatchObject({
+      submissionId: SUBMISSION_ID,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      submittedBy: CALLER_ID,
+      submittedByPortalCustomer: true,
+    })
+  })
+
+  it('answers a translated 403 when the service refuses a self-started foreign-subject draft', async () => {
     storedSubmission = submissionRow({ subjectId: VICTIM_ID })
 
     const response = await callPortalSubmit()
 
     expect(response.status).toBe(403)
-    await expect(response.json()).resolves.toMatchObject({ error: 'SUBJECT_FORBIDDEN' })
-    expect(submit).not.toHaveBeenCalled()
+    const body = await response.json()
+    expect(body).toMatchObject({
+      error: 'SUBJECT_FORBIDDEN',
+      message: 'You can only start or submit this form for yourself.',
+    })
   })
 
   it('refuses to finalize a self-started draft on an unsupported subject type', async () => {
@@ -213,16 +238,6 @@ describe('POST /api/forms/form-submissions/:id/submit — self-started drafts (#
     const response = await callPortalSubmit()
 
     expect(response.status).toBe(403)
-    expect(submit).not.toHaveBeenCalled()
-  })
-
-  it('scopes the submission lookup to the caller organization and tenant', async () => {
-    await callPortalSubmit()
-
-    expect(findOne).toHaveBeenCalledWith(
-      FormSubmission,
-      expect.objectContaining({ id: SUBMISSION_ID, organizationId: ORG_ID, tenantId: TENANT_ID, deletedAt: null }),
-    )
   })
 
   it('still lets a staff-assigned co-actor submit on a subject that is not theirs', async () => {
@@ -231,35 +246,41 @@ describe('POST /api/forms/form-submissions/:id/submit — self-started drafts (#
     const response = await callPortalSubmit()
 
     expect(response.status).toBe(200)
-    expect(submit).toHaveBeenCalledTimes(1)
   })
 
-  it('submits the caller\'s own self-started draft', async () => {
-    const response = await callPortalSubmit()
-
-    expect(response.status).toBe(200)
-    expect(submit).toHaveBeenCalledTimes(1)
-    expect(submit.mock.calls[0][0]).toMatchObject({ submissionId: SUBMISSION_ID, submittedBy: CALLER_ID })
-  })
-
-  it('leaves a missing submission to the service so it keeps its not-found answer', async () => {
-    storedSubmission = null
-
+  it('no longer reads the submission in the route before submitting', async () => {
     await callPortalSubmit()
 
-    expect(submit).toHaveBeenCalledTimes(1)
+    expect(findOne).not.toHaveBeenCalledWith(FormSubmission, expect.anything())
   })
 })
 
 describe('POST /api/forms/public/submissions/:id/submit — customer principal (#7224)', () => {
+  it('asks the service to enforce the portal subject policy for a customer session', async () => {
+    const response = await callPublicSubmit()
+
+    expect(response.status).toBe(200)
+    expect(submit).toHaveBeenCalledTimes(1)
+    expect(submit.mock.calls[0][0]).toMatchObject({
+      submissionId: SUBMISSION_ID,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      submittedBy: CALLER_ID,
+      submittedByPortalCustomer: true,
+    })
+    expect(findOne).not.toHaveBeenCalledWith(FormSubmission, expect.anything())
+  })
+
   it('refuses a customer-session submit of a self-started foreign-subject draft', async () => {
     storedSubmission = submissionRow({ subjectId: VICTIM_ID })
 
     const response = await callPublicSubmit()
 
     expect(response.status).toBe(403)
-    await expect(response.json()).resolves.toMatchObject({ error: 'SUBJECT_FORBIDDEN' })
-    expect(submit).not.toHaveBeenCalled()
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'SUBJECT_FORBIDDEN',
+      message: 'You can only start or submit this form for yourself.',
+    })
   })
 
   it('refuses a customer-session submit of a self-started draft on another subject type', async () => {
@@ -268,18 +289,6 @@ describe('POST /api/forms/public/submissions/:id/submit — customer principal (
     const response = await callPublicSubmit()
 
     expect(response.status).toBe(403)
-    expect(submit).not.toHaveBeenCalled()
-  })
-
-  it('submits the caller\'s own self-started draft through the public route', async () => {
-    const response = await callPublicSubmit()
-
-    expect(response.status).toBe(200)
-    expect(submit).toHaveBeenCalledTimes(1)
-    expect(findOne).toHaveBeenCalledWith(
-      FormSubmission,
-      expect.objectContaining({ id: SUBMISSION_ID, organizationId: ORG_ID, tenantId: TENANT_ID, deletedAt: null }),
-    )
   })
 
   it('still lets a staff-assigned co-actor submit through the public route', async () => {
@@ -288,7 +297,6 @@ describe('POST /api/forms/public/submissions/:id/submit — customer principal (
     const response = await callPublicSubmit()
 
     expect(response.status).toBe(200)
-    expect(submit).toHaveBeenCalledTimes(1)
   })
 
   it('leaves token (invitation) principals untouched', async () => {
@@ -301,12 +309,11 @@ describe('POST /api/forms/public/submissions/:id/submit — customer principal (
       submissionId: SUBMISSION_ID,
     })
     storedSubmission = submissionRow({ subjectType: 'forms_invitation', subjectId: INVITATION_ID, startedBy: INVITATION_ID })
-    submit.mockResolvedValue(submissionRow({ status: 'submitted', submittedBy: INVITATION_ID }))
 
     const response = await callPublicSubmit()
 
     expect(response.status).toBe(200)
     expect(submit).toHaveBeenCalledTimes(1)
-    expect(findOne).not.toHaveBeenCalledWith(FormSubmission, expect.anything())
+    expect(submit.mock.calls[0][0]).toMatchObject({ submittedBy: INVITATION_ID, submittedByPortalCustomer: false })
   })
 })

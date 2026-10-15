@@ -22,7 +22,7 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
-## 0.8.0 → 0.9.0 (2026-10-09)
+## 0.9.0 → 0.9.1 (unreleased)
 
 ### Portal form submissions are limited to the caller's own `customer` subject (#7224)
 
@@ -57,6 +57,8 @@ where s.started_by in (select id from customer_users)
 
 Nothing is rewritten automatically. Portal pages that legitimately started submissions on another
 subject type (for example `patient`) also match, so review the rows before revoking anything.
+
+## 0.8.0 → 0.9.0 (2026-10-09)
 
 <a id="discord-proposals"></a>
 

@@ -13,14 +13,13 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
-import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getCustomerAuthFromRequest } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import { SubmissionService } from '../../../../services/submission-service'
 import { submissionSubmitInputSchema } from '../../../../data/validators'
-import { isPortalSubmitForbidden } from '../../../../lib/portal-subject-policy'
 import {
   buildSubmitMetadata,
+  isPortalSubjectForbiddenError,
   mapSubmissionError,
   portalSubjectForbiddenResponse,
   readJsonBody,
@@ -58,17 +57,8 @@ export async function POST(
 
   const container = await createRequestContainer()
   const service = container.resolve('formsSubmissionService') as SubmissionService
-  const em = container.resolve('em') as EntityManager
 
   try {
-    const forbidden = await isPortalSubmitForbidden(em, {
-      submissionId,
-      organizationId: auth.orgId,
-      tenantId: auth.tenantId,
-      customerUserId: auth.sub,
-    })
-    if (forbidden) return portalSubjectForbiddenResponse()
-
     const submission = await service.submit({
       submissionId,
       organizationId: auth.orgId,
@@ -76,9 +66,11 @@ export async function POST(
       baseRevisionId: parsed.data.base_revision_id,
       submittedBy: auth.sub,
       submitMetadata: buildSubmitMetadata(req, parsed.data.submit_metadata),
+      submittedByPortalCustomer: true,
     })
     return NextResponse.json({ submission: serializeSubmission(submission) })
   } catch (error) {
+    if (isPortalSubjectForbiddenError(error)) return portalSubjectForbiddenResponse()
     return mapSubmissionError(error)
   }
 }
