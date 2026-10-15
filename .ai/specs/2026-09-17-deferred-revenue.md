@@ -476,9 +476,23 @@ independent implementations of the same pattern, not a shared library
     decision. **Prior art checked 2026-10-15:** ERPNext and Odoo, as
     documented, neither freeze nor adjust a schedule when a credit note
     is issued and leave the reconciliation to the accountant (Literature &
-    Prior Art, Step 3). The accounting literature (Kieso's
-    revenue-recognition chapter) has not been checked for this question,
-    so the final treatment stays open.
+    Prior Art, Step 3). **Literature checked 2026-10-15
+    (Kieso, *Intermediate Accounting*, 17th ed., Ch. 18 — US GAAP/ASC 606,
+    not the Polish Act):** a return or allowance is booked as contra-revenue
+    in the period it happens and the revenue already recognized is not
+    rewritten (pp. 18-19–18-20); unearned revenue is a contract
+    liability released only as the performance obligation is satisfied
+    (p. 18-31, Henly example); a contract modification is generally
+    accounted for prospectively — previously reported results are not
+    changed, the effect lands in the period of change and later periods
+    (pp. 18-32–18-33, with a cumulative catch-up as the alternative in
+    footnote 15). This supports the premise of the guard: after a
+    correction, revenue must not keep being recognized on the original
+    amount. It does **not** prescribe freezing the schedule, warning only,
+    or an in-module release command, and it does not say whether a credit
+    note against an invoiced deferred amount shrinks the remaining
+    schedule. The final treatment therefore stays open and goes to the
+    accountant.
 15. **Posting dates, `stop` validation and the `COMPLETED` transition —
     added, 2026-10-15 review round.** The schedule rows were fully
     defined (Design decision 11); these were not.
