@@ -1,0 +1,9 @@
+{
+  "cart.audit.cart.create": "Create cart",
+  "cart.audit.lines.add": "Add cart line",
+  "cart.audit.lines.bulkAdd": "Add cart lines (bulk)",
+  "cart.audit.lines.remove": "Remove cart line",
+  "cart.audit.merge": "Merge cart",
+  "cart.errors.store_context_unavailable": "Cart is unavailable for this store right now",
+  "cart.errors.unexpected": "Unexpected error"
+}
