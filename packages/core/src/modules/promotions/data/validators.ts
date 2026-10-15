@@ -848,6 +848,46 @@ export const promotionUsageRevertSchema = z.object({
 export type PromotionUsageRevertInput = z.infer<typeof promotionUsageRevertSchema>
 
 // ---------------------------------------------------------------------------
+// Usage service inputs (§Public TypeScript Contract `RegisterUsageInput`/
+// `RevertUsageInput`, §A.2a, Release 4 Phase 3 Step 6.3) — the top-level
+// `promotions.usage.register`/`.usage.revert` command payloads, mirroring how
+// `codeReserveInputSchema`/`codeUseInputSchema` above validate `ReserveCodeInput`/
+// `UseCodeInput`. Distinct from `promotionUsageRegisterSchema` above, which validates a
+// single already-resolved `PromotionUsage` row (unused scaffolding — no command/route
+// writes one row at a time); `registerUsageInputSchema` validates the whole batch call
+// shape, one promotion per `appliedPromotions[]` entry, per `lib/types.ts`'s
+// `RegisterUsageInput`. `effects` is accepted as `z.record(z.unknown())` rather than a
+// full discriminated-union schema — the same "jsonb snapshot, not zod-validated"
+// convention `promotionUsageRegisterSchema.effectsSnapshot` above already uses, since
+// `ResolvedEffect[]` is a pure-evaluation-engine output already fully typed by the time it
+// reaches this command boundary, not raw wire input from an untrusted HTTP caller.
+// ---------------------------------------------------------------------------
+
+export const appliedPromotionInputSchema = z.object({
+  promotionId: uuid(),
+  promotionName: z.string(),
+  effects: z.array(z.record(z.string(), z.unknown())),
+})
+
+export type AppliedPromotionInput = z.infer<typeof appliedPromotionInputSchema>
+
+export const registerUsageInputSchema = z.object({
+  orderId: z.string().trim().min(1).max(200),
+  orderType: promotionUsageOrderTypeSchema,
+  customerId: requiredNullableCustomerIdSchema,
+  currency: currencyCodeSchema,
+  appliedPromotions: z.array(appliedPromotionInputSchema),
+})
+
+export type RegisterUsageCommandInput = z.infer<typeof registerUsageInputSchema>
+
+export const revertUsageInputSchema = z.object({
+  orderId: z.string().trim().min(1).max(200),
+})
+
+export type RevertUsageCommandInput = z.infer<typeof revertUsageInputSchema>
+
+// ---------------------------------------------------------------------------
 // Cart-facing endpoints (§Cart-Facing Endpoints, Phase 2 Step 2.7) — the frozen public
 // `EvaluateInput`/`BuyerContext` contract from `lib/types.ts`, re-expressed as zod so
 // `POST /api/promotions/evaluate` (and `POST /api/promotions/free-products`, which

@@ -338,17 +338,50 @@ describe('PromotionsServiceImpl.evaluateForProduct', () => {
   })
 })
 
-// Step 6.3's own job (`promotionUsageService.registerUsage`/`.revertUsage`) — these two
-// stay untouched one-line throwing placeholders; only the five code-service methods
-// below are this step's (6.2) scope.
-describe('PromotionsServiceImpl — Step 6.3 usage-service stubs', () => {
-  it('throws a clear [internal] placeholder for every not-yet-implemented method', async () => {
-    const service = new PromotionsServiceImpl(fakeContainer({ promotionCacheService: fakeCacheService([]) }))
+// Step 6.3 — orchestration coverage for `registerUsage`/`revertUsage`: proves command
+// dispatch and scope resolution from `auth`, same pattern as the Step 6.2 code-service
+// methods below. The actual row-lock/budget-reread/transaction logic is
+// `lib/__tests__/promotion-usage-service.test.ts`'s job, not this file's.
+describe('PromotionsServiceImpl.registerUsage', () => {
+  it('dispatches through commandBus as `promotions.usage.register` with the raw input', async () => {
+    const commandBus = fakeCommandBus({ 'promotions.usage.register': { ok: true, budgetExceeded: ['promo-1'] } })
+    const service = new PromotionsServiceImpl(fakeContainer({ promotionCacheService: fakeCacheService([]), commandBus }))
 
-    await expect(
-      service.registerUsage({ orderId: 'o', orderType: 'order', customerId: null, currency: 'USD', appliedPromotions: [] }),
-    ).rejects.toThrow(/\[internal\].*Phase 3/)
-    await expect(service.revertUsage({ orderId: 'o' })).rejects.toThrow(/\[internal\].*Phase 3/)
+    const input = { orderId: 'order-1', orderType: 'order' as const, customerId: null, currency: 'USD', appliedPromotions: [] }
+    const result = await service.registerUsage(input)
+
+    expect(result).toEqual({ ok: true, budgetExceeded: ['promo-1'] })
+    expect(commandBus.calls).toEqual([{ commandId: 'promotions.usage.register', input }])
+  })
+
+  it('fails closed with a 400 CrudHttpError when no `auth` is registered in the container', async () => {
+    const container: PromotionsServiceContainer = {
+      resolve: <T>(name: string): T => {
+        if (name === 'promotionCacheService') return fakeCacheService([]) as unknown as T
+        throw new Error(`[internal] not registered: ${name}`)
+      },
+    }
+    const service = new PromotionsServiceImpl(container)
+
+    expect.assertions(2)
+    try {
+      await service.registerUsage({ orderId: 'o', orderType: 'order', customerId: null, currency: 'USD', appliedPromotions: [] })
+    } catch (err) {
+      expect(isCrudHttpError(err)).toBe(true)
+      expect(isCrudHttpError(err) && err.status).toBe(400)
+    }
+  })
+})
+
+describe('PromotionsServiceImpl.revertUsage', () => {
+  it('dispatches through commandBus as `promotions.usage.revert` with the raw input', async () => {
+    const commandBus = fakeCommandBus({ 'promotions.usage.revert': { ok: true, revertedCount: 2 } })
+    const service = new PromotionsServiceImpl(fakeContainer({ promotionCacheService: fakeCacheService([]), commandBus }))
+
+    const result = await service.revertUsage({ orderId: 'order-1' })
+
+    expect(result).toEqual({ ok: true, revertedCount: 2 })
+    expect(commandBus.calls).toEqual([{ commandId: 'promotions.usage.revert', input: { orderId: 'order-1' } }])
   })
 })
 

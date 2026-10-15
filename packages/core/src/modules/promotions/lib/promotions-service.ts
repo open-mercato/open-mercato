@@ -385,11 +385,29 @@ export class PromotionsServiceImpl implements PromotionsService {
     )
   }
 
-  async registerUsage(_input: RegisterUsageInput): Promise<{ ok: true; budgetExceeded: string[] }> {
-    throw new Error('[internal] registerUsage not implemented until Phase 3')
+  // §A.2a: a registered command (`promotions.usage.register`) — "financially or budget
+  // consequential" per root AGENTS.md's command-pattern rule, same as the five code-
+  // service methods above.
+  async registerUsage(input: RegisterUsageInput): Promise<{ ok: true; budgetExceeded: string[] }> {
+    const { auth, scope } = resolvePromotionsServiceAuthAndScope(this.container)
+    const commandBus = resolvePromotionsCommandBus(this.container)
+    const ctx = buildPromotionsCommandContext(this.container, auth, scope)
+    const { result } = await commandBus.execute<RegisterUsageInput, { ok: true; budgetExceeded: string[] }>(
+      'promotions.usage.register',
+      { input, ctx },
+    )
+    return result
   }
 
-  async revertUsage(_input: RevertUsageInput): Promise<{ ok: true; revertedCount: number }> {
-    throw new Error('[internal] revertUsage not implemented until Phase 3')
+  // §A.2a: a registered command (`promotions.usage.revert`).
+  async revertUsage(input: RevertUsageInput): Promise<{ ok: true; revertedCount: number }> {
+    const { auth, scope } = resolvePromotionsServiceAuthAndScope(this.container)
+    const commandBus = resolvePromotionsCommandBus(this.container)
+    const ctx = buildPromotionsCommandContext(this.container, auth, scope)
+    const { result } = await commandBus.execute<RevertUsageInput, { ok: true; revertedCount: number }>(
+      'promotions.usage.revert',
+      { input, ctx },
+    )
+    return result
   }
 }

@@ -2,6 +2,7 @@ import { asFunction } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { PromotionCacheService } from './services/promotion-cache'
 import { PromotionCodeService } from './lib/code-service'
+import { PromotionUsageService } from './lib/promotion-usage-service'
 import { PromotionsServiceImpl } from './lib/promotions-service'
 
 export function register(container: AppContainer) {
@@ -19,6 +20,13 @@ export function register(container: AppContainer) {
     // `extendReservation`/`validateCode` (the two §A.2a methods that call it directly,
     // never through a command).
     promotionCodeService: asFunction(() => new PromotionCodeService(container)).scoped().proxy(),
+    // SPEC-055 §Release 4 Contract Freeze / §Promotion Usage Lifecycle — the frozen
+    // `promotionUsageService` DI token (Step 6.3). No container dependency of its own
+    // (unlike `promotionCodeService`'s rate limiter) — `commands/usage.ts` and this
+    // module's events are resolved/imported directly — but still `.scoped()` for
+    // consistency with its siblings here and in case a future need (e.g. rate limiting)
+    // arises.
+    promotionUsageService: asFunction(() => new PromotionUsageService()).scoped().proxy(),
     // SPEC-055 §Amendment A.2 — the primary in-process integration facade. Same
     // closure-over-`container` pattern as `promotionCacheService` above, so `evaluate`/
     // `evaluateForProduct` resolve `em`/`promotionCacheService`/`auth` from the SAME
