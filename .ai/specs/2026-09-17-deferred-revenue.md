@@ -1,9 +1,5 @@
 # Deferred Revenue — Scheduled Recognition Over Time (RMP)
 
-> **Temporary location.** This document lives at
-> `.ai/specs/2026-09-17-deferred-revenue.md` on branch `docs/deferred-revenue`
-> pending review and merge.
-
 ## TLDR
 
 The Event Storming wall (AR/Sales section) names one concrete, currently
@@ -81,6 +77,9 @@ A new, small Core module, `deferred_revenue`:
    harmonogramu" variant: catches up any due-but-unposted entries,
    then recognizes the remaining balance immediately and closes the
    schedule (see Design decisions for the policy this assumes).
+4. **`cancelRevenueDeferral`** — recovery for an erroneous deferral
+   before its first accrual: reverses the reclassification entry and
+   removes the schedule (Design decision 16).
 
 No new rate/scheduling infrastructure beyond what Fixed Assets already
 proved works for this shape of problem — the two modules stay
@@ -140,7 +139,7 @@ independent implementations of the same pattern, not a shared library
    `accounts_payable`/`sales_invoice_gl_posting`/`posting_rules` all
    already use for a required-but-unseeded account).
 6. **Early stop recognizes the remainder immediately; it does not
-   refund — confirmed with the user, 2026-09-25.** The wall names
+   refund — confirmed by the spec author, 2026-09-25.** The wall names
    "przerwanie harmonogramu" as a variant but doesn't specify its
    accounting treatment. Phase 1 assumes the common case behind the
    wall's own example — a non-refundable annual license or prepaid
@@ -161,6 +160,14 @@ independent implementations of the same pattern, not a shared library
    on the unconfirmed assumption), which the review correctly flagged
    as backwards: an implementer would have had to redo commands/API/UI
    if the confirmed answer differed. See Implementation Plan.
+   **Who confirmed it (review question, 2026-10-15):** the confirmation
+   of 2026-09-25 was given by the spec author, Mikołaj Przybysz. The PR
+   discussion describes it as confirmed with the customer, but the
+   source material does not name a business owner for this decision, so
+   none is recorded here. ⚠ **NEEDS HUMAN CONFIRMATION**: name the
+   business owner of the "recognize immediately, no refund" policy (and
+   have the domain expert confirm it is the right default treatment)
+   before it is relied on for implementation.
 7. **No automated scheduler — manual trigger only, Phase 1.** Matches
    this project's own established discipline (knowledge base §2,
    "Phase 1/Phase 2 scope discipline") and Fixed Assets' own identical
@@ -372,40 +379,170 @@ independent implementations of the same pattern, not a shared library
     `remainingScheduleEntriesVoided` count is only ever emitted once
     that transaction has actually committed. A partial catch-up
     failure (an unexpected error on one entry, not a lock skip) is
-    reported in a `catchUpFailed` count (see API Contracts) and the
-    whole `stop` call is safely retryable — re-calling `/stop` with the
+    reported in the `catchUpFailed` count of the **409
+    `STOP_CATCH_UP_INCOMPLETE`** body (see the gating rule below) and
+    the whole `stop` call is safely retryable — re-calling `/stop` with the
     same `stopDate` re-runs the same idempotent catch-up claim logic
     and then re-attempts the final step, which is itself guarded by the
     existing `409` "already `STOPPED`/`COMPLETED`" check.
+
+    **Gating rule (added, 2026-10-15 review round).** Step 3 runs only
+    when step 2 finished with `catchUpFailed = 0` **and**
+    `catchUpSkipped = 0`. The first version let step 3 run after a
+    skipped row: its "remaining schedule balance" then included the
+    skipped row's amount, which moved it into the `stopDate` period —
+    exactly the silent absorption step 2 says it avoids. When either
+    count is non-zero the call does not run step 3: the deferral stays
+    `ACTIVE`, no row is voided, and the response is **409
+    `STOP_CATCH_UP_INCOMPLETE`**, carrying the three catch-up counts and
+    the period of each skipped row, so the caller can unlock the period
+    or fix the failure and retry `/stop` with the same `stopDate`.
+    Catch-up entries that did post stay posted (each was individually
+    committed, Design decision 1) and are not posted again on the retry.
+    A successful `stop` therefore always carries a
+    `finalRecognitionJournalEntryId`.
 14. **Phase 1 guard against a correction/credit-memo on an
-    already-deferred line — added, maintainer-review round.** The
-    initial draft named this gap in Risks but designed nothing against
-    it, leaving `accrueRevenueRecognition` free to keep recognizing the
+    already-deferred line — added, maintainer-review round; match key
+    and coverage corrected in the 2026-10-15 review round.** The initial
+    draft named this gap in Risks but designed nothing against it,
+    leaving `accrueRevenueRecognition` free to keep recognizing the
     original `totalAmount` even after the underlying sale was reduced
-    elsewhere — a real, silent overstatement of revenue, not a
-    theoretical one. A full reconciliation (adjusting the remaining
-    schedule to match a partial credit) is genuinely out of scope for
-    Phase 1 (see Out of scope — no signal for the correct treatment in
-    the source material, and `sales`/`sales_invoice_gl_posting` are
-    soft, read-only dependencies with no event this module could
-    subscribe to yet). What **is** in scope, and enforceable today
-    without new cross-module infrastructure: inside the same locked
-    transaction Design decision 12 already opens for each schedule
-    entry (after the `accruedAt IS NULL` and `status === 'ACTIVE'`
-    re-checks, before posting), `accrueRevenueRecognition` reads
-    (direct `entityManager`, scoped by `organizationId`/`tenantId`,
-    the same soft-dependency posture as every other cross-module read
-    in this module) for any `sales.SalesCreditMemo`/`sales.SalesReturn`
-    row referencing this deferral's `invoiceLineId`. If one exists,
-    the entry is **not** posted; it is reported in a new
-    `blockedByCorrection` bucket (see API Contracts) rather than
-    silently succeeding or silently failing, and the parent
-    `RevenueDeferral` is left `ACTIVE` with a note that it needs manual
-    review — true reconciliation stays a human decision, exactly the
-    same posture Design decision 6 takes for early-stop policy. This
-    converts an undesigned silent-overstatement gap into an explicit,
-    reported stop condition — narrowing, not closing, the risk (see
-    Risks & Impact Review, updated).
+    elsewhere — a real, silent overstatement of revenue. A full
+    reconciliation (adjusting the remaining schedule to match a partial
+    credit) is out of scope for Phase 1: there is no signal for the
+    correct treatment in the source material, and `sales` and
+    `sales_invoice_gl_posting` are soft, read-only dependencies with no
+    event this module could subscribe to yet.
+
+    **The match key.** The first version of this decision read "any
+    `SalesCreditMemo`/`SalesReturn` row referencing this deferral's
+    `invoiceLineId`". Checked against `sales`' entities (develop,
+    2026-10-13), **no row references `SalesInvoiceLine.id`**:
+    `SalesCreditMemo` links to the invoice header (`invoice_id`,
+    nullable) and the order (`order_id`, nullable);
+    `SalesCreditMemoLine` links to `order_line_id` (nullable);
+    `SalesReturn` links only to the order, and `SalesReturnLine` to
+    `order_line_id`; `SalesInvoiceLine.order_line_id` is itself
+    nullable. A guard keyed on `invoiceLineId` would have compiled and
+    never matched, and the touchpoint table treated "no match" as "no
+    correction exists". The key is therefore: a correction **exists**
+    for a deferral when, in the same organization and tenant and not
+    soft-deleted, (a) a `SalesCreditMemo` has `invoice_id` equal to
+    `RevenueDeferral.invoiceId` — header-level and deliberately
+    conservative, so a credit memo against another line of the same
+    invoice also matches and a human reconciles it — **or** (b) a
+    `SalesCreditMemoLine` or a `SalesReturnLine` has an `order_line_id`
+    equal to the deferred `SalesInvoiceLine.order_line_id`, when that
+    value is not null. What stays uncovered is stated, not hidden: a
+    return for an invoice line whose `order_line_id` is null, and a
+    credit memo with neither an `invoice_id` nor a line-level
+    `order_line_id`, are invisible to this guard. It narrows the risk;
+    it does not close it (see Risks & Impact Review).
+
+    **Coverage: every command that could post a stale amount.**
+    - `deferRevenueRecognition` rejects **422
+      `DEFERRED_REVENUE_CORRECTION_EXISTS`** when a correction already
+      exists, since a deferral must not be created on a line whose
+      amount is already in doubt.
+    - `accrueRevenueRecognition` runs the check inside the same locked
+      transaction Design decision 12 already opens per schedule entry
+      (after the `accruedAt IS NULL` and `status === 'ACTIVE'`
+      re-checks, before posting). On a match the entry is **not**
+      posted and is reported in `blockedByCorrection`.
+    - `stopRevenueRecognitionSchedule` runs the same check in its
+      preflight, before step 1 and before any catch-up posting, and
+      rejects **409 `DEFERRED_REVENUE_CORRECTION_EXISTS`**. Without
+      this, step 3 would recognize the whole remaining balance — a
+      stale amount — in a single entry, bypassing the guard on the one
+      path that posts the largest amount.
+
+    **The blocked state is recorded, not noted.** The first version said
+    the deferral stays `ACTIVE` "with a note that it needs manual
+    review", but the Data Model had no field for it. `RevenueDeferral`
+    now carries `correctionDetectedAt` (`timestamptz`, nullable), set
+    once, idempotently, the first time the guard blocks any of the
+    three commands for that deferral and never cleared in Phase 1. The
+    detail route returns it and the UI shows an `Alert` (UI/UX).
+    **Consequence, stated plainly:** a deferral with a detected
+    correction can neither accrue further nor be stopped. True
+    reconciliation — a command that adjusts the remaining schedule or
+    lets an accountant release the hold — is Phase 2 (Out of scope).
+    Until then an accountant posts the correction in the ledger by hand
+    and the frozen deferral stays visible with its flag. ⚠ **NEEDS
+    HUMAN CONFIRMATION** — an autonomous default. Freezing is the
+    conservative choice (no revenue is recognized on a stale amount),
+    but it leaves an accountant without an in-module way out; whether a
+    release or override command belongs in Phase 1 is an open product
+    decision. **Prior art checked 2026-10-15:** ERPNext and Odoo, as
+    documented, neither freeze nor adjust a schedule when a credit note
+    is issued and leave the reconciliation to the accountant (Literature &
+    Prior Art, Step 3). The accounting literature (Kieso's
+    revenue-recognition chapter) has not been checked for this question,
+    so the final treatment stays open.
+15. **Posting dates, `stop` validation and the `COMPLETED` transition —
+    added, 2026-10-15 review round.** The schedule rows were fully
+    defined (Design decision 11); these were not.
+    - **Reclassification entry (`deferRevenueRecognition`).** Its
+      `operationDate` is the invoice's `issueDate` — the date
+      `sales_invoice_gl_posting` used for the original revenue posting
+      (`operationDate: invoice.issueDate`), and the date on which Odoo
+      books its own reclassification (see Literature & Prior Art, Step
+      3) — so the amount moves out of income in the period that booked
+      it. **Locked or missing period — decided 2026-10-15 by the spec
+      author:** if the `FiscalPeriod` covering `issueDate` is locked, or
+      no period covers it, the reclassification is dated on the day the
+      command runs, as a correcting entry in the current period (compare
+      the Accounting Act, art. 25 on correcting a closed period — the
+      author's reading, not stated for this case). The original revenue
+      stays in the closed period and the correction lands in the current
+      one, so the current period's income shows a negative movement for
+      that amount. If the period of that date is also locked or missing,
+      the call rejects **409 `FISCAL_PERIOD_LOCKED`** and writes nothing.
+      The entry's `description` states that it reclassifies an invoice of
+      an earlier period, and the `201` response returns
+      `reclassificationDated: 'INVOICE_DATE' | 'CURRENT_DATE'` so the
+      caller and the UI can show which rule applied. Confirmation of this
+      treatment by the domain expert is still advisable, but it is no
+      longer an open default.
+    - **Final recognition entry (`stop`, step 3).** Its `operationDate`
+      is `stopDate`; that period's lock was already checked in step 1.
+    - **`stopDate` validation.** `serviceStartDate <= stopDate <
+      serviceEndDate`, otherwise **400**. `stopDate` may not be earlier
+      than the `periodEndDate` of the last already-accrued row,
+      otherwise **409 `STOP_DATE_BEFORE_LAST_ACCRUAL`**; the final entry
+      would otherwise be dated before recognition that has already
+      posted.
+    - **`status` transitions.** `ACTIVE` is the only initial state.
+      `COMPLETED` is set by `accrueRevenueRecognition`, inside the same
+      locked transaction as the post of the last schedule row (when no
+      row with `accruedAt IS NULL` remains after it). `STOPPED` is set
+      by `stop`'s step 3. Nothing else changes `status`.
+16. **`cancelRevenueDeferral` — recovery for an erroneous deferral
+    before its first accrual — added, 2026-10-15 review round.** The
+    first version added `RevenueDeferral.deletedAt` and listed
+    "restoration after an erroneous pre-accrual deferral" in the
+    integration matrix, but defined no command, no ACL feature and no
+    link to the reclassification entry, so recovery was two manual steps
+    that could drift apart. The plain unique index on `invoiceLineId`
+    also still counted soft-deleted rows, so a cancelled line could
+    never be deferred again. Design: a command `cancelRevenueDeferral`
+    (route `POST /api/deferred_revenue/deferrals/:id/cancel`, feature
+    `deferred_revenue.deferrals.manage`, the same optimistic-lock header
+    as `stop`). In one `em.transactional()` block, first taking Design
+    decision 12's `SELECT ... FOR UPDATE` on the `RevenueDeferral` row,
+    it re-checks `status === 'ACTIVE'` and that **no** schedule row has
+    `accruedAt IS NOT NULL`; calls `ledger.reverseJournalEntry` on
+    `reclassificationJournalEntryReferenceId` (joining the transaction;
+    the reversal's `operationDate` is the cancel date, which #5663
+    requires to be on or after the reclassification's date); deletes the
+    unaccrued schedule rows; and sets `deletedAt`. The unique index
+    becomes partial (`WHERE deleted_at IS NULL`, Data Model → Migration),
+    so the line can be deferred again. After the first accrual no
+    recovery is defined, as before, and is still named as a gap
+    (Migration & Backward Compatibility). **Decided
+    2026-10-15 by the spec author**; the alternative — dropping
+    `deletedAt` and declaring pre-accrual recovery out of scope for
+    Phase 1 — was rejected.
 
 ## Architecture
 
@@ -416,13 +553,16 @@ independent implementations of the same pattern, not a shared library
   see Data Model).
 - `commands/deferRevenueRecognition.ts`, `commands/
   accrueRevenueRecognition.ts`, `commands/
-  stopRevenueRecognitionSchedule.ts`.
+  stopRevenueRecognitionSchedule.ts`, `commands/
+  cancelRevenueDeferral.ts`.
 - `lib/moduleConfig.ts` — registers `deferredRevenueLiabilityAccountId`.
 - `AGENTS.md` — MUST NOT touch `SalesInvoiceLine`/`SalesInvoice` amount
   fields (the deferral is a GL-only reclassification, the invoice's own
   totals never change); MUST reject rather than default when
   `deferredRevenueLiabilityAccountId` is unset; MUST check the covering
-  `FiscalPeriod` lock before every post, same as `accrueDepreciation`.
+  `FiscalPeriod` lock before every post, same as `accrueDepreciation`;
+  MUST run the correction guard (Design decision 14) before any post
+  in `defer`, `accrue` and `stop`.
 - **Depends on**: `ledger` (hard — posts `JournalEntry`), `sales` and
   `sales_invoice_gl_posting` (soft — direct `entityManager` reads only,
   no ORM relations, the same cross-module read posture Cash & Bank
@@ -437,26 +577,26 @@ draft named no features at all):
 
 ```
 { id: 'deferred_revenue.deferrals.view', title: 'View revenue deferrals and schedules', module: 'deferred_revenue' },
-{ id: 'deferred_revenue.deferrals.manage', title: 'Create and stop revenue deferrals', module: 'deferred_revenue', dependsOn: ['deferred_revenue.deferrals.view'] },
+{ id: 'deferred_revenue.deferrals.manage', title: 'Create, stop and cancel revenue deferrals', module: 'deferred_revenue', dependsOn: ['deferred_revenue.deferrals.view'] },
 { id: 'deferred_revenue.accrue', title: 'Run revenue recognition accrual', module: 'deferred_revenue', dependsOn: ['deferred_revenue.deferrals.view'] },
 ```
 
-`deferRevenueRecognition` and `stopRevenueRecognitionSchedule` require
-`deferred_revenue.deferrals.manage`; `accrueRevenueRecognition`
+`deferRevenueRecognition`, `stopRevenueRecognitionSchedule` and
+`cancelRevenueDeferral` require `deferred_revenue.deferrals.manage`; `accrueRevenueRecognition`
 requires `deferred_revenue.accrue` (separated from `.manage` because,
 matching `accrueDepreciation`'s own precedent, accrual is typically run
 by a different operational role than the one deciding what to defer or
 stop); all read routes require `deferred_revenue.deferrals.view`. Every
 route file exports `openApi` (via `buildModuleCrudOpenApi` for the two
 `makeCrudRoute` list/detail routes, plus a hand-written schema for the
-three custom command routes and the `preview` read route — **added,
+four custom command routes and the `preview` read route — **added,
 spec-checklist pass, 2026-09-21**, matching the per-route requirement
 every sibling spec's own compliance matrix checks) and a `metadata`
 export naming the per-method `requireAuth`/`requireFeatures` pair above
-(never a top-level `export const requireAuth`). The three custom write
+(never a top-level `export const requireAuth`). The four custom write
 routes (`deferRevenueRecognition`, `accrueRevenueRecognition`,
-`stopRevenueRecognitionSchedule`) go through the mutation guard
-registry — mapped to `update` (accrue and stop act on existing state)
+`stopRevenueRecognitionSchedule`, `cancelRevenueDeferral`) go through the mutation guard
+registry — mapped to `update` (accrue, stop and cancel act on existing state)
 and `create` (`deferRevenueRecognition` originates a new
 `RevenueDeferral`) respectively, the same mapping convention Fixed
 Assets' own non-CRUD action routes use.
@@ -472,7 +612,7 @@ the last part.
 | Touchpoint | Mechanism | Owner | Module-absent behavior |
 |---|---|---|---|
 | `sales.SalesInvoiceLine` / `SalesInvoiceLineRevenueAccount` | Direct `entityManager` read, scoped by `organizationId`/`tenantId`, no ORM relation | `deferred_revenue` (this module owns the read; neither `sales` nor `sales_invoice_gl_posting` is aware of it) | If `sales_invoice_gl_posting` is not installed, no `SalesInvoiceLineRevenueAccount` row can exist for any line, so `POST .../deferrals` always resolves its existing **404** ("no `SalesInvoiceLineRevenueAccount` row for this line") — the same response an installed-but-not-yet-posted line already produces; no new failure mode, and `deferred_revenue` never appears in either module's own `requires` |
-| `sales.SalesCreditMemo` / `SalesReturn` (Design decision 14) | Direct `entityManager` read, scoped identically | `deferred_revenue` | If the entity/table doesn't exist (module not installed or the correction feature not yet shipped), the read returns no matching rows the same as "no correction exists yet" — `blockedByCorrection` never fires, which is the same behavior as today with no correction recorded; a future version of that module changing the entity shape is the real risk (see Risks) |
+| `sales.SalesCreditMemo`, `SalesCreditMemoLine`, `SalesReturnLine`, and `sales.SalesInvoiceLine.order_line_id` (Design decision 14) | Direct `entityManager` read, scoped identically. No `sales` row references `SalesInvoiceLine.id`, so the match key is `SalesCreditMemo.invoice_id` (header-level) and the `order_line_id` of credit-memo and return lines — see Design decision 14 for what stays uncovered | `deferred_revenue` | If the table doesn't exist (module not installed or the correction feature not yet shipped), the read returns no matching rows, the same as "no correction exists yet", so the guard stays silent; a future version of `sales` changing the entity shape, or adding a direct invoice-line link, is the real risk (see Risks) |
 | `ledger.postJournalEntry` / `ledger.reverseJournalEntry` | `commandBus.execute(...)`, joins the caller's own transaction (see Design decision 12) | `ledger` (hard `requires` — `deferred_revenue` cannot function at all without it) | N/A — hard dependency, module absence is not a supported configuration |
 
 ### Tenant & Organization Scoping
@@ -500,7 +640,7 @@ same posture Cash & Bank Management already established for reading
 |---|---|---|
 | `id` | `uuid` | PK |
 | `organizationId` / `tenantId` | `uuid` | scope |
-| `invoiceLineId` | `uuid` (FK-id, no ORM relation, unique) | the `sales.SalesInvoiceLine` this deferral covers — one deferral per line |
+| `invoiceLineId` | `uuid` (FK-id, no ORM relation, unique among non-deleted rows) | the `sales.SalesInvoiceLine` this deferral covers — one active deferral per line; a cancelled deferral (Design decision 16) frees the line (partial unique index, see Migration) |
 | `invoiceId` | `uuid` (FK-id) | denormalized for list/filter queries, matching `AssetDisposal`'s own convenience-FK precedent |
 | `originalRevenueAccountId` | `uuid` (FK-id → `ledger.LedgerAccount`) | snapshot, read once from `SalesInvoiceLineRevenueAccount` at deferral time |
 | `deferredRevenueLiabilityAccountId` | `uuid` (FK-id → `ledger.LedgerAccount`) | **added, maintainer-review round** (Design decision 9) — snapshot, read once from `ModuleConfigService` at deferral time; `accrueRevenueRecognition`/`stopRevenueRecognitionSchedule` always post against this field, never a live config read |
@@ -508,11 +648,12 @@ same posture Cash & Bank Management already established for reading
 | `totalAmount` | `numeric(19,4)` | snapshot of the line's `totalNetAmount` at deferral time, in `currencyCode` |
 | `serviceStartDate` / `serviceEndDate` | `date` | the period the amount actually covers |
 | `reclassificationJournalEntryReferenceId` | `uuid` (FK-id) | the entry that moved the amount from income to RMP |
-| `status` | `'ACTIVE' \| 'STOPPED' \| 'COMPLETED'` | |
+| `status` | `'ACTIVE' \| 'STOPPED' \| 'COMPLETED'` | `ACTIVE` initially; `COMPLETED` set by `accrueRevenueRecognition` when it posts the last row; `STOPPED` set by `stopRevenueRecognitionSchedule` (Design decision 15) |
 | `stoppedAt` | `date`, nullable | set by `stopRevenueRecognitionSchedule` |
+| `correctionDetectedAt` | `timestamptz`, nullable | **added, 2026-10-15 review round** (Design decision 14) — set once, idempotently, the first time the correction guard blocks `accrue` or `stop` for this deferral; never cleared in Phase 1 (clearing is the Phase 2 reconciliation) |
 | `createdAt` | `timestamptz` | |
 | `updatedAt` | `timestamptz` | **added, maintainer-review round** — backs the default-ON optimistic lock on `status`/`stoppedAt` (see API Contracts, `POST .../stop`), matching every other mutable entity in the financial-module family (e.g. `FiscalPeriod.updatedAt`) |
-| `deletedAt` | `timestamptz`, nullable | **added, spec-checklist pass, 2026-09-21** — soft delete, mirroring `FixedAsset.deletedAt`'s exact shape (blocked once the entity leaves its initial, nothing-posted-yet state). Blocked once any `RevenueRecognitionScheduleEntry` for this deferral has `accruedAt IS NOT NULL` — i.e. only deletable pre-first-accrual, formalizing the ad hoc "delete before first accrual" recovery path already described in Migration & Backward Compatibility as an actual column/rule instead of an undocumented hard `DELETE` |
+| `deletedAt` | `timestamptz`, nullable | **added, spec-checklist pass, 2026-09-21; owned by `cancelRevenueDeferral` since the 2026-10-15 review round** (Design decision 16) — soft delete, mirroring `FixedAsset.deletedAt`'s shape. Set only by `cancelRevenueDeferral`, which is allowed only while no schedule row has `accruedAt IS NOT NULL` and reverses the reclassification entry in the same transaction |
 
 ### `deferred_revenue.RevenueRecognitionScheduleEntry`
 
@@ -543,7 +684,8 @@ pattern this spec explicitly copies "by shape" (Design decision 1).
 
 An unaccrued row (`accruedAt IS NULL`) may be deleted only by
 `stopRevenueRecognitionSchedule`, and only after that command's own
-catch-up step has run — never edited in place, matching `JournalEntry`'s
+catch-up step has run, or by `cancelRevenueDeferral` (Design decision
+16, before any row is accrued) — never edited in place, matching `JournalEntry`'s
 append-only posture once a row is accrued.
 
 ### Migration (`migrations/`)
@@ -561,7 +703,7 @@ exactly, backing both the per-deferral schedule view (`GET
 .../deferrals/:id`) and `accrueRevenueRecognition`'s "find due,
 unposted entries" query (`WHERE accrued_at IS NULL AND period_end_date
 <= :asOf`); `(organization_id, invoice_line_id)` on `revenue_deferral`
-(unique) backs the "one deferral per line" rejection (`POST
+(unique, partial: `WHERE deleted_at IS NULL`, so a cancelled deferral frees its line — Design decision 16) backs the "one deferral per line" rejection (`POST
 .../deferrals`, 400); `(organization_id, status)` on `revenue_deferral`
 backs `GET .../deferrals`'s `status` filter.
 
@@ -601,7 +743,17 @@ a preview-before-commit schedule with no backing read contract).
 - **422 `DEFERRED_REVENUE_CURRENCY_UNSUPPORTED`**: **added,
   maintainer-review round** (Design decision 10) — the invoice's
   `currencyCode` is not the tenant's base currency.
-- **201**: `{ deferralId, reclassificationJournalEntryId, scheduleEntryCount }`.
+- **409 `FISCAL_PERIOD_LOCKED`**: **added, 2026-10-15 review round**
+  (Design decision 15) — the `FiscalPeriod` covering the invoice's
+  `issueDate` (the reclassification's date) is locked or missing **and**
+  the period of today's date is too (Design decision 15: when only the
+  invoice's period is locked, the entry is dated today instead);
+  nothing is written.
+- **422 `DEFERRED_REVENUE_CORRECTION_EXISTS`**: **added, 2026-10-15
+  review round** (Design decision 14) — a `SalesCreditMemo` or
+  credit-memo/return line already corrects this invoice or its order
+  line.
+- **201**: `{ deferralId, reclassificationJournalEntryId, scheduleEntryCount, reclassificationDated }`, where `reclassificationDated` is `'INVOICE_DATE'` or `'CURRENT_DATE'` (Design decision 15).
 
 ### `GET /api/deferred_revenue/deferrals`
 
@@ -616,7 +768,7 @@ undefined). **200**: paged array of `RevenueDeferral` summaries.
 
 **Added, maintainer-review round.** Detail route: the `RevenueDeferral`
 plus its full `RevenueRecognitionScheduleEntry` list (accrued and
-pending), backing the read-only schedule view (UI/UX). **404**: not
+pending), backing the read-only schedule view (UI/UX), including `correctionDetectedAt` (Design decision 14). **404**: not
 found or out of scope for the caller's organization/tenant.
 
 ### `POST /api/deferred_revenue/accrue`
@@ -633,7 +785,9 @@ found or out of scope for the caller's organization/tenant.
   from both a lock-skip and an unexpected-error failure so the
   response distinguishes "will post later" (`skipped`), "needs human
   reconciliation" (`blockedByCorrection`), and "broke, investigate"
-  (`failed`).
+  (`failed`). The match key is Design decision 14's. A deferral whose
+  last schedule row this call posts becomes `COMPLETED` (Design
+  decision 15).
 
 ### `POST /api/deferred_revenue/deferrals/:id/stop`
 
@@ -644,19 +798,54 @@ found or out of scope for the caller's organization/tenant.
   `unlockFiscalPeriod` already use for a status-flag mutation outside
   `CrudForm`.
 - **Body**: `{ stopDate: string }`.
+- **400**: **added, 2026-10-15 review round** (Design decision 15) —
+  `stopDate` outside `serviceStartDate <= stopDate < serviceEndDate`.
 - **409 `OptimisticLockConflictBody`**: `updatedAt` mismatch — the
   deferral changed concurrently; the client refetches and retries.
 - **409**: deferral already `STOPPED`/`COMPLETED`.
 - **409 `FISCAL_PERIOD_LOCKED`**: **added, maintainer-review round**
   (Design decision 13) — the `FiscalPeriod` covering `stopDate` is
   locked; checked before any catch-up posting, never discovered after.
-- **200**: `{ catchUpAccrued: number, catchUpSkipped: number,
-  catchUpFailed: number, finalRecognitionJournalEntryId,
-  remainingScheduleEntriesVoided: number }` — `catchUpSkipped`/
-  `catchUpFailed` **added, maintainer-review round** (Design decision
-  13) to report a partial catch-up outcome instead of silently
-  folding it into a single count; the call is safely retryable with
-  the same `stopDate` if any catch-up entries failed.
+- **409 `STOP_DATE_BEFORE_LAST_ACCRUAL`**: **added, 2026-10-15 review
+  round** (Design decision 15) — `stopDate` is earlier than the
+  `periodEndDate` of the last already-accrued row.
+- **409 `DEFERRED_REVENUE_CORRECTION_EXISTS`**: **added, 2026-10-15
+  review round** (Design decision 14) — a correction exists for this
+  deferral; checked in the preflight, before any posting. Sets
+  `correctionDetectedAt`.
+- **409 `STOP_CATCH_UP_INCOMPLETE`**: **added, 2026-10-15 review
+  round** (Design decision 13, gating rule) — the catch-up step
+  skipped a row (locked period) or failed; the final step did not run,
+  nothing was voided, the deferral is still `ACTIVE`. The body carries
+  `{ catchUpAccrued, catchUpSkipped, catchUpFailed, skippedPeriods }`.
+- **200**: `{ catchUpAccrued: number, finalRecognitionJournalEntryId:
+  string, remainingScheduleEntriesVoided: number }` — returned only
+  after the final step has committed, so both fields are always
+  present (**changed, 2026-10-15 review round**: the response used to
+  carry `catchUpSkipped`/`catchUpFailed` and nullable final fields; a
+  call with a skipped or failed catch-up row now ends in **409
+  `STOP_CATCH_UP_INCOMPLETE`** instead, Design decision 13). The `200`
+  call sets `status = 'STOPPED'`.
+
+### `POST /api/deferred_revenue/deferrals/:id/cancel`
+
+**Added, 2026-10-15 review round** (Design decision 16).
+
+- **Headers**: `x-om-ext-optimistic-lock-expected-updated-at:
+  <RevenueDeferral.updatedAt>`, enforced via
+  `enforceCommandOptimisticLock`, exactly as on `.../stop`.
+- **Body**: none.
+- **409 `OptimisticLockConflictBody`**: `updatedAt` mismatch.
+- **409**: deferral already `STOPPED`/`COMPLETED`, or already
+  cancelled.
+- **409 `DEFERRAL_HAS_ACCRUALS`**: at least one schedule row has
+  `accruedAt IS NOT NULL`; recovery after the first accrual is not
+  defined (Migration & Backward Compatibility).
+- **409 `FISCAL_PERIOD_LOCKED`**: the `FiscalPeriod` covering the
+  cancel date (the reversal's `operationDate`) is locked.
+- **200**: `{ reversalJournalEntryId }`. Requires
+  `deferred_revenue.deferrals.manage`.
+
 
 ## UI/UX
 
@@ -668,7 +857,10 @@ maintainer-review round** — API Contracts), the same preview-before-commit
 pattern already used by `generateAnnualStatements` (#6188) and the FX
 revaluation run (#6190). A read-only schedule view per deferral (backed
 by `GET .../deferrals/:id`), and a "Stop" action with a confirmation
-showing exactly what will be recognized immediately.
+showing exactly what will be recognized immediately. A "Cancel deferral"
+action is offered only while no schedule row is accrued (Design decision
+16), and an `Alert` is shown on any deferral whose `correctionDetectedAt`
+is set (Design decision 14).
 
 ## Edge Cases & Failure Scenarios
 
@@ -676,11 +868,12 @@ showing exactly what will be recognized immediately.
   span less than a full period). Produces a single schedule row for
   the whole amount — deferring something that resolves to "recognize
   it all next period" is a legitimate, if trivial, case, not an error.
-- **Deferring a line whose invoice is later corrected** (a sales
-  correction/credit memo against an already-deferred line). Not
-  designed here — flagged in Risks, since `deferRevenueRecognition`
-  has no awareness of a later `SalesCreditMemo` reducing the same
-  line's amount.
+- **Deferring a line whose invoice is already corrected** (a
+  `SalesCreditMemo` against the invoice, or a credit-memo or return
+  line against the same order line). Rejected (**422
+  `DEFERRED_REVENUE_CORRECTION_EXISTS`**, Design decision 14). A
+  correction that arrives *after* the deferral is caught later by
+  `accrue` and `stop`, below.
 - **`accrueRevenueRecognition` run against a locked `FiscalPeriod`.**
   Skipped, not failed — reported in the `skipped` bucket, exactly
   `accrueDepreciation`'s existing behavior for the same situation.
@@ -704,12 +897,39 @@ showing exactly what will be recognized immediately.
   guarantee `accrueDepreciation` already provides, now made
   concurrency-safe rather than merely sequentially-safe (Design
   decision 12).
-- **A `SalesCreditMemo`/`SalesReturn` exists against an already-deferred
-  line by the time `accrueRevenueRecognition` reaches its schedule
-  entry.** **Added, maintainer-review round** (Design decision 14) —
-  the entry is held, not posted, and reported in the `blockedByCorrection`
-  bucket for manual reconciliation, rather than silently continuing to
-  recognize the original, now-stale `totalAmount`.
+- **A correction exists against an already-deferred line by the time
+  `accrueRevenueRecognition` reaches its schedule entry.** **Added,
+  maintainer-review round; match key corrected 2026-10-15** (Design
+  decision 14) — the entry is held, not posted, reported in
+  `blockedByCorrection`, and `correctionDetectedAt` is set, rather than
+  silently continuing to recognize the original, now-stale
+  `totalAmount`. The deferral stays frozen until Phase 2.
+- **`stopRevenueRecognitionSchedule` on a deferral with a detected
+  correction.** **Added, 2026-10-15 review round** (Design decision 14)
+  — rejected (**409 `DEFERRED_REVENUE_CORRECTION_EXISTS`**) in the
+  preflight; stop does not recognize the remaining balance on a stale
+  amount.
+- **`stop` where the catch-up step skips a locked-period row or fails.**
+  **Added, 2026-10-15 review round** (Design decision 13, gating rule)
+  — the call ends in **409 `STOP_CATCH_UP_INCOMPLETE`**; the final step
+  does not run, nothing is voided, and the retry resumes without
+  re-posting what already posted.
+- **`stop` with a `stopDate` outside the service period, or before the
+  last accrued period's end.** **Added, 2026-10-15 review round**
+  (Design decision 15) — **400**, or **409
+  `STOP_DATE_BEFORE_LAST_ACCRUAL`**.
+- **Deferring a line whose invoice's period is locked.** **Added,
+  2026-10-15 review round** (Design decision 15) — not rejected: the
+  reclassification is dated today as a correcting entry and the response
+  reports `reclassificationDated: 'CURRENT_DATE'`. Only when today's
+  period is also locked or missing does the call end in **409
+  `FISCAL_PERIOD_LOCKED`**.
+- **`cancelRevenueDeferral` after the first accrual.** **Added,
+  2026-10-15 review round** (Design decision 16) — **409
+  `DEFERRAL_HAS_ACCRUALS`**; no recovery is defined after that point.
+- **`cancelRevenueDeferral` when the cancel date's period is locked.**
+  **Added, 2026-10-15 review round** — **409 `FISCAL_PERIOD_LOCKED`**;
+  neither the reversal nor the soft delete happens.
 
 ## Risks & Impact Review
 
@@ -735,17 +955,36 @@ detection discussion.
   `/accrue`'s response is directly observable per call; an operator
   dashboard/alert on a nonzero count is an operational follow-up, not
   designed here.
-- **Design decision 6's "recognize immediately" policy on early stop is
-  an assumption, not a confirmed business rule** — flagged **⚠ NEEDS
-  HUMAN CONFIRMATION**, now gating Implementation Plan Step 0
-  (**resequenced, maintainer-review round** — see Design decision 6
-  and Implementation Plan) rather than the last implementation step.
-  **Severity: High if wrong** (a confirmed-wrong default would mean
-  every early stop recognized revenue that should have been refunded
-  instead — a real overstatement, not a cosmetic one) **but blocked
-  from ever executing** by Implementation Plan Step 0. **Detection**:
-  N/A pre-implementation — this is a design-time gate, not a runtime
-  condition to monitor.
+- **Design decision 6's "recognize immediately" policy on early stop —
+  confirmed by the spec author on 2026-09-25; business owner not yet
+  named.** The earlier wording ("an assumption") is superseded.
+  **Severity: High if wrong** — a wrong default would mean every early
+  stop recognizes revenue that should have been refunded, a real
+  overstatement — but the policy is confirmed; naming the business
+  owner (Design decision 6) is the remaining open item. **Detection**:
+  N/A pre-implementation, this is a design-time question, not a
+  runtime condition to monitor.
+- **The correction guard narrows the risk, it does not close it, and a
+  guarded deferral is frozen — added, 2026-10-15 review round.**
+  Design decision 14's match key cannot see a return against an
+  invoice line whose `order_line_id` is null, nor a credit memo with
+  neither an `invoice_id` nor a line link, so such a correction still
+  leaves revenue overstated. A deferral that does match is frozen for
+  `accrue` and `stop` until a Phase 2 reconciliation command exists.
+  **Severity: Medium** (a silent overstatement on an uncovered
+  correction; a stuck deferral on a covered one). **Detection**: every
+  `blockedByCorrection` count and every deferral with
+  `correctionDetectedAt` set is the signal; an uncovered correction has
+  none, which is why the gap is named here.
+- **Deferring an invoice from a closed period leaves schedule rows in
+  closed periods — added, 2026-10-15 review round.** With the
+  reclassification dated today (Design decision 15), a deferral can be
+  created for a service period that began in a locked period; the
+  schedule rows whose own period is locked are skipped by `accrue`
+  (reported in `skipped`) and make `stop` end in **409
+  `STOP_CATCH_UP_INCOMPLETE`** until that period is unlocked.
+  **Severity: Low** (visible, reported, no wrong posting).
+  **Detection**: the `skipped` count and the 409 body's `skippedPeriods`.
 - **The concurrency fix (Design decision 12) adds a row lock shared by
   `accrue` and `stop` — added, maintainer-review round.** Under high
   contention (many schedule entries due for the same deferral at once,
@@ -821,6 +1060,10 @@ detection discussion.
   identical deferral).
 - Refund-triggered early stop (routes through `SalesCreditMemo`/
   `SalesReturn` instead, per Design decision 6).
+- A reconciliation command for a deferral frozen by a detected
+  correction (Phase 2, Design decision 14).
+- Recovery after the first accrual (Design decision 16): only
+  pre-accrual cancellation is designed.
 - A generic, shared scheduling library covering both this module and
   Fixed Assets' RMK (see Alternatives considered).
 
@@ -831,9 +1074,11 @@ confirmation moved from last (step 7) to first (step 0), since steps 3,
 5, and 6 all build on that assumption; confirming it after the fact
 risked rebuilding commands, API, and UI if the answer differed.
 
-0. **Confirmed 2026-09-25** — Design decision 6's early-stop policy
-   ("recognize immediately, no refund path") matches how these
-   contracts are actually sold. No longer a gate on the steps below.
+0. **Confirmed 2026-09-25 by the spec author** — Design decision 6's
+   early-stop policy ("recognize immediately, no refund path") matches
+   how these contracts are actually sold. No longer a gate on the steps
+   below; the business owner of the decision is still to be named
+   (Design decision 6).
 1. Patch `2026-09-15-default-chart-of-accounts.md` with the `840` account
    (Design decision 8).
 2. Scaffold `deferred_revenue`: entities (including
@@ -843,21 +1088,26 @@ risked rebuilding commands, API, and UI if the answer differed.
    declarations, Access Control feature list.
 3. Implement `deferRevenueRecognition` (reclassification post +
    schedule generation), including the base-currency rejection (Design
-   decision 10) and the anniversary-month schedule rule (Design
-   decision 11).
+   decision 10), the anniversary-month schedule rule (Design decision
+   11), the reclassification date and period check (Design decision 15)
+   and the correction guard (Design decision 14).
 4. Implement `accrueRevenueRecognition`, mirroring `accrueDepreciation`'s
    paging/lock-skip mechanics plus the locked-claim concurrency
-   contract (Design decision 12) and the correction guard (Design
-   decision 14).
+   contract (Design decision 12), the correction guard (Design decision
+   14) and the `COMPLETED` transition (Design decision 15).
 5. Implement `stopRevenueRecognitionSchedule`, including the period
-   preflight and atomic final step (Design decision 13) and the
-   optimistic-lock header on `.../stop`.
+   preflight and atomic final step (Design decision 13), the gating
+   rule, `stopDate` validation and the correction-guard preflight
+   (Design decisions 13–15), and the optimistic-lock header on
+   `.../stop`; and `cancelRevenueDeferral` with its route and the
+   partial unique index (Design decision 16).
 6. Implement the read routes (`GET .../deferrals/preview`, `GET
    .../deferrals`, `GET .../deferrals/:id`).
 7. Build the preview-before-commit and schedule-view UI.
 8. Execute the Testing Strategy's concurrency and integration cases
    (two-contender accrue, accrue-vs-stop, crash-after-post retry,
-   locked-period preflight) before merge.
+   locked-period preflight, the correction guard in all three
+   commands, `stop` with a skipped catch-up row, cancel) before merge.
 
 ## Migration & Backward Compatibility
 
@@ -897,21 +1147,14 @@ compatibility note — the initial draft had none).
   totals are immutable from this module's perspective for the life of
   a tenant, migration or not — only GL-side reclassification entries
   move value between accounts.
-- **Reversal/rollback of an erroneous deferral.** Not designed as a
-  dedicated command in Phase 1 (no `undeferRevenueRecognition`); the
-  general-purpose mechanism is the same one `ledger` already exposes
-  for any wrong posting — a manual `reverseJournalEntry` against the
-  reclassification entry — but that alone does not restore
-  `RevenueDeferral.status`/undo the generated schedule rows, since
-  those are this module's own state, not `ledger`'s. **Before first
-  accrual** (all `RevenueRecognitionScheduleEntry` rows still
-  `accruedAt IS NULL`), the schedule rows can be deleted and the
-  `RevenueDeferral` row itself removed alongside a manual ledger
-  reversal, with no downstream state depending on them yet. **After
-  first accrual**, no defined recovery exists — named here as a gap,
-  not designed around, matching the "no redeferral" one-per-line rule
-  (Data Model) that already makes a clean re-attempt impossible without
-  it.
+- **Reversal/rollback of an erroneous deferral —
+  `cancelRevenueDeferral` (Design decision 16, 2026-10-15 review
+  round).** Before the first accrual, the command reverses the
+  reclassification entry through `ledger.reverseJournalEntry`, deletes
+  the unaccrued schedule rows and soft-deletes the `RevenueDeferral` in
+  one transaction; the partial unique index then lets the line be
+  deferred again. **After the first accrual** no recovery is defined —
+  named here as a gap, not designed around.
 
 ## Testing Strategy
 
@@ -931,7 +1174,17 @@ review's own framing).
 | 3 | Crash (process kill) after `ledger.postJournalEntry` commits internally but before the outer transaction commits | Not reachable — the ledger post and the `accruedAt` write share one `em.transactional()` block (Design decision 12); a crash before that block's own commit means neither lands. Simulate by killing the process mid-transaction and asserting neither the `JournalEntry` nor the `accruedAt` write survived |
 | 4 | Retry after case 3 | Re-running `/accrue` with the same `asOf` posts exactly once — the entry is still `accruedAt IS NULL` |
 | 5 | `POST .../stop` with a locked `stopDate` period, after some catch-up entries already exist as `ACTIVE`-period entries | Rejects **409 `FISCAL_PERIOD_LOCKED`** before any catch-up posting — no catch-up entries exist afterward that wouldn't have existed before the call |
-| 6 | Partial catch-up failure inside `stop` (one entry's `ledger.postJournalEntry` throws an unexpected error) | Reported in `catchUpFailed`; the final recognition step does not run; the deferral stays `ACTIVE`; retrying `/stop` with the same `stopDate` is safe |
+| 6 | Partial catch-up failure inside `stop` (one entry's `ledger.postJournalEntry` throws an unexpected error) | **409 `STOP_CATCH_UP_INCOMPLETE`** with the counts; the final recognition step does not run; the deferral stays `ACTIVE`; retrying `/stop` with the same `stopDate` is safe and does not re-post entries that already posted |
+| 7 | `stop` where catch-up skips a row because its period is locked (**added 2026-10-15**) | **409 `STOP_CATCH_UP_INCOMPLETE`**; the skipped row's amount is not moved into the `stopDate` period; no row voided; status stays `ACTIVE` |
+| 8 | A `SalesCreditMemo` with `invoice_id` equal to the deferral's invoice exists (**added 2026-10-15**) | `deferRevenueRecognition` rejects **422**; `accrue` holds the entry in `blockedByCorrection` and sets `correctionDetectedAt`; `stop` rejects **409** before any posting |
+| 9 | A `SalesCreditMemoLine` or `SalesReturnLine` has `order_line_id` equal to the invoice line's `order_line_id` (**added 2026-10-15**) | Same three outcomes as #8 |
+| 10 | The deferred invoice line has a null `order_line_id` and only a return exists (**added 2026-10-15**) | Not detected — documents the named gap in Design decision 14, so the limit is a tested fact rather than a surprise |
+| 11 | `cancelRevenueDeferral` before any accrual (**added 2026-10-15**) | One transaction: reversal entry posted, schedule rows deleted, `deletedAt` set; the same `invoiceLineId` can then be deferred again |
+| 12 | `cancelRevenueDeferral` after the first accrual (**added 2026-10-15**) | **409 `DEFERRAL_HAS_ACCRUALS`**; nothing changes |
+| 13 | `accrue` posts the last schedule row (**added 2026-10-15**) | `status` becomes `COMPLETED` in the same transaction; a following `stop` returns 409 |
+| 14 | `stop` with `stopDate` outside the service period, or before the last accrued `periodEndDate` (**added 2026-10-15**) | **400**, or **409 `STOP_DATE_BEFORE_LAST_ACCRUAL`** |
+| 15 | `deferRevenueRecognition` where the invoice `issueDate`'s period is locked or missing, and today's period is open (**added 2026-10-15**) | Succeeds; the reclassification is dated today; `reclassificationDated` is `CURRENT_DATE`; the schedule is generated as usual |
+| 16 | `deferRevenueRecognition` where both the invoice's period and today's period are locked or missing (**added 2026-10-15**) | **409 `FISCAL_PERIOD_LOCKED`**; no `RevenueDeferral`, schedule or entry written |
 
 ### Integration matrix (finding 6)
 
@@ -943,12 +1196,13 @@ review's own framing).
 | Rounding (12-period, non-divisible amount) | Design decision 11 worked example |
 | Locked periods (accrue) | Edge Cases — skipped, not failed |
 | Locked periods (stop) | Concurrency #5 |
-| Source correction (`SalesCreditMemo`/`SalesReturn`) | Design decision 14 — `blockedByCorrection` |
+| Source correction (`SalesCreditMemo`/`SalesReturn`) | Design decision 14 — Concurrency table #8–#10 (guard in all three commands, named gap) |
 | Configuration change mid-schedule (liability account) | Design decision 9 — snapshot unaffected by later config change |
 | Currency rejection | Design decision 10 — `422 DEFERRED_REVENUE_CURRENCY_UNSUPPORTED` |
 | Scope/permission denial | Access Control feature checks per route |
 | Preview/commit agreement | `GET .../deferrals/preview` output must equal the schedule `POST .../deferrals` actually persists for the same input |
-| Restoration/correction after an erroneous pre-accrual deferral | Migration & Backward Compatibility — manual delete + reversal path |
+| Restoration/correction after an erroneous pre-accrual deferral | Design decision 16 — Concurrency table #11–#12 |
+| Posting dates, `stopDate` validation, `COMPLETED` | Design decision 15 — Concurrency table #13–#16 |
 
 ## Canonical Mechanisms
 
@@ -973,7 +1227,7 @@ Review Heuristic 6.
 - **Cache**: read routes (`GET .../deferrals`, `GET .../deferrals/:id`)
   are DI-resolved-cache-backed, tenant-scoped tags, invalidated on
   every write command (`deferRevenueRecognition`,
-  `accrueRevenueRecognition`, `stopRevenueRecognitionSchedule`) for the
+  `accrueRevenueRecognition`, `stopRevenueRecognitionSchedule`, `cancelRevenueDeferral`) for the
   affected `deferralId` and the list tag.
 - **Events**: none declared in Phase 1 — no downstream consumer named
   yet, the same explicit "named, not silently skipped" posture
@@ -994,11 +1248,13 @@ Review Heuristic 6.
 draft had no i18n treatment at all. All user-facing strings resolve
 through `useT()` client-side / `resolveTranslations()` server-side —
 never hard-coded labels — matching Fixed Assets' own minimal i18n
-section exactly. In scope: the "Defer recognition"/"Stop" action labels
+section exactly. In scope: the "Defer recognition"/"Stop"/"Cancel deferral" action labels
 and confirmation-dialog copy, `RevenueDeferral.status` display labels
 (`StatusBadge`), the schedule table's column headers, and every new
 error code's user-facing message (`DEFERRED_REVENUE_ACCOUNT_UNSET`,
-`DEFERRED_REVENUE_CURRENCY_UNSUPPORTED`, `FISCAL_PERIOD_LOCKED`, the
+`DEFERRED_REVENUE_CURRENCY_UNSUPPORTED`, `DEFERRED_REVENUE_CORRECTION_EXISTS`,
+`STOP_CATCH_UP_INCOMPLETE`, `STOP_DATE_BEFORE_LAST_ACCRUAL`,
+`DEFERRAL_HAS_ACCRUALS`, `FISCAL_PERIOD_LOCKED`, the
 `409` "already `STOPPED`/`COMPLETED`" message, and the optimistic-lock
 conflict message). No new locale infrastructure — this module adds
 translation keys under its own namespace, following the same
@@ -1015,9 +1271,11 @@ uses.
 | `packages/core/src/modules/deferred_revenue/commands/deferRevenueRecognition.ts` | New |
 | `packages/core/src/modules/deferred_revenue/commands/accrueRevenueRecognition.ts` | New |
 | `packages/core/src/modules/deferred_revenue/commands/stopRevenueRecognitionSchedule.ts` | New |
+| `packages/core/src/modules/deferred_revenue/commands/cancelRevenueDeferral.ts` | New (**added, 2026-10-15 review round**) |
 | `packages/core/src/modules/deferred_revenue/api/deferrals/route.ts` | New — list/create/preview routes (**added, maintainer-review round**) |
 | `packages/core/src/modules/deferred_revenue/api/deferrals/[id]/route.ts` | New — detail route (**added, maintainer-review round**) |
 | `packages/core/src/modules/deferred_revenue/api/deferrals/[id]/stop/route.ts` | New |
+| `packages/core/src/modules/deferred_revenue/api/deferrals/[id]/cancel/route.ts` | New (**added, 2026-10-15 review round**) |
 | `packages/core/src/modules/deferred_revenue/api/accrue/route.ts` | New |
 | `.ai/specs/2026-09-15-default-chart-of-accounts.md` | Patch — `840` RMP account |
 
@@ -1027,7 +1285,10 @@ uses.
 
 Checked directly against the actual Event Storming source files
 (`Claude outputs/eventstormingpodsumowanie.md`, `eventstormingfinal.md`,
-`eventstormingwall.html`) rather than an earlier, informal paraphrase of
+`eventstormingwall.html` — **external working materials, not committed to
+this repository**, so the quotes taken from them cannot be checked from
+the repo; they are cited as external sources, **noted 2026-10-15**)
+rather than an earlier, informal paraphrase of
 them — see Problem Statement for the correction this produced (no
 leasing/loan signal anywhere in the source; RMP/AR is the only "own
 spec" the wall actually names). Fixed Assets
@@ -1115,6 +1376,30 @@ missing `840` account (Design decision 8).
   per period" shape as this spec and the Event Storming wall's own
   example.
 
+- **How ERPNext and Odoo handle a correction against a deferred
+  invoice (checked 2026-10-15, for Design decision 14; documentation
+  only, not code).** ERPNext's Deferred Revenue page (docs.frappe.io/erpnext/deferred-revenue)
+  does not describe credit notes or sales returns against a deferred
+  invoice beyond a caution that a credit note, cancellation or amended
+  invoice may need corresponding deferred processing and verification
+  (paraphrase), that recognition entries must not be deleted by hand,
+  and that an early end is recorded as a service stop date; it does not
+  say that a credit note stops or adjusts the schedule. Its Credit Note
+  page (docs.frappe.io/erpnext/credit-note) does not mention deferred
+  revenue at all. Odoo 17's Deferred revenues page
+  (odoo.com/documentation/17.0/applications/finance/accounting/customer_invoices/deferred_revenues.html)
+  says nothing about credit notes or cancellation; it describes entries
+  generated per invoice line from the line's start and end dates, with
+  the reclassification entry dated on the invoice date. Neither system,
+  as documented, freezes or adjusts a schedule on a correction; both
+  leave it to the accountant. **Deliberate divergence:** Design decision
+  14 blocks posting on a detected correction rather than warning and
+  continuing, because a stale recognition entry is a posted
+  overstatement. **Not checked:** how either system behaves in code,
+  Comarch Optima, Symfonia and enova365 (no public documentation was
+  read), and the literature (Kieso, Hay, Fowler were not read for this
+  question).
+
 ## Final Compliance Report — 2026-09-21
 
 ### AGENTS.md Files Reviewed
@@ -1146,7 +1431,7 @@ missing `840` account (Design decision 8).
 | root AGENTS.md | Zod validation for all API inputs | Compliant | All API Contracts bodies are typed, finite shapes suitable for Zod schemas (dates, uuids, enums) |
 | packages/core/AGENTS.md | API routes MUST export `openApi` | Compliant | **Added, spec-checklist pass, 2026-09-21** — Access Control (Architecture) now states this per route; missing from the first compliance pass |
 | packages/core/AGENTS.md | `metadata` export with per-method `requireAuth`/`requireFeatures` | Compliant | **Added, spec-checklist pass** — Access Control (Architecture); missing from the first compliance pass |
-| packages/core/AGENTS.md → API Routes | Custom (non-`makeCrudRoute`) write routes use the mutation guard registry | Compliant | **Added, spec-checklist pass** — Access Control (Architecture) now names the `create`/`update` mapping for the three command routes; missing from the first compliance pass |
+| packages/core/AGENTS.md → API Routes | Custom (non-`makeCrudRoute`) write routes use the mutation guard registry | Compliant | **Added, spec-checklist pass** — Access Control (Architecture) now names the `create`/`update` mapping for the four command routes (`cancelRevenueDeferral` added 2026-10-15); missing from the first compliance pass |
 | packages/core/AGENTS.md | Cross-module touchpoints name mechanism, owner, and module-absent behavior | Compliant | **Added, spec-checklist pass** — new Cross-module touchpoints table (Architecture); the first compliance pass named the mechanism but not module-absent behavior |
 | root AGENTS.md → UI & HTTP | `pageSize` at or below 100 | Compliant | **Added, spec-checklist pass** — `GET .../deferrals` (API Contracts) now states the cap; missing from the first compliance pass |
 | root AGENTS.md | i18n keys planned for user-facing strings | Compliant | **Added, spec-checklist pass** — new Internationalization section; missing entirely from the first compliance pass |
@@ -1160,7 +1445,7 @@ missing `840` account (Design decision 8).
 | Data models match API contracts | Pass | `deferredRevenueLiabilityAccountId`/`currencyCode`/`updatedAt` (Data Model) are exactly the fields the new error codes and optimistic-lock header (API Contracts) depend on |
 | API contracts match UI/UX section | Pass | `GET .../deferrals/preview` and `GET .../deferrals/:id` (API Contracts) back the preview and schedule-view UI (UI/UX) exactly |
 | Risks cover all write operations | Pass | `deferRevenueRecognition` (currency/config risk — Design decisions 9/10), `accrueRevenueRecognition` (concurrency, correction risk — Design decisions 12/14), `stopRevenueRecognitionSchedule` (concurrency, period-lock risk — Design decisions 12/13) all have a corresponding Risks & Impact Review entry |
-| Commands defined for all mutations | Pass | Three commands (`deferRevenueRecognition`, `accrueRevenueRecognition`, `stopRevenueRecognitionSchedule`) cover every write path; no direct entity writes bypass them |
+| Commands defined for all mutations | Pass | Four commands (`deferRevenueRecognition`, `accrueRevenueRecognition`, `stopRevenueRecognitionSchedule`, `cancelRevenueDeferral`) cover every write path; no direct entity writes bypass them |
 | Cache strategy covers all read APIs | Pass | Canonical Mechanisms declares tag-based invalidation for both new read routes |
 
 ### Non-Compliant Items
@@ -1191,6 +1476,22 @@ compliant" as requiring every business question to be pre-answered.
   Plan Step 0 (Design decision 6 confirmation) was the one remaining
   gate and was resolved with the user on 2026-09-25 (see Design
   decision 6 and Changelog).
+
+### Re-check — 2026-10-15 (review round, head `b0536e298`)
+
+Re-run after this round's edits, by reading the spec against itself (no
+code exists to check). Every new error code
+(`DEFERRED_REVENUE_CORRECTION_EXISTS`, `STOP_CATCH_UP_INCOMPLETE`,
+`STOP_DATE_BEFORE_LAST_ACCRUAL`, `DEFERRAL_HAS_ACCRUALS`) appears in API
+Contracts, Edge Cases, Testing Strategy and i18n; the new command,
+route and `correctionDetectedAt` appear in Architecture, Access
+Control, Data Model, API Contracts, UI/UX and File Manifest; the stale
+"Not designed here" and "an assumption" wording is gone. **Verdict:
+compliant**, with one autonomous default awaiting confirmation
+(⚠ NEEDS HUMAN CONFIRMATION: the correction freeze, Design decision 14;
+Design decisions 15 and 16 were decided by the spec author on
+2026-10-15) and one open attribution (the business owner of Design
+decision 6).
 
 ## Changelog
 
@@ -1283,3 +1584,45 @@ are all updated to record the confirmation and drop the conditional
 ("once ... is resolved") language — this spec is now unconditionally
 ready for implementation.
 
+*Update, 2026-10-15: the business owner of this decision is still to be named, and Design decisions 14–16 carry new autonomous defaults, so "unconditionally ready for implementation" no longer holds as written — see the 2026-10-15 entry below.*
+
+### 2026-10-15 — Review round (PR #6193, `@adeptofvoltron`, reviewed head `b0536e298`)
+
+Addressed every finding of the review that requested changes:
+
+- **Major — correction guard.** Checked against `sales`' entities (develop,
+  2026-10-13): no row references `SalesInvoiceLine.id`, so Design decision
+  14's guard could never match. Replaced the key with
+  `SalesCreditMemo.invoice_id` and the `order_line_id` of credit-memo and
+  return lines, named what stays uncovered, extended the guard to
+  `deferRevenueRecognition` and `stopRevenueRecognitionSchedule`, and
+  replaced the "note" with `correctionDetectedAt`.
+- **`stop` catch-up.** Added the gating rule (Design decision 13): the final
+  step runs only when no catch-up row was skipped or failed; otherwise **409
+  `STOP_CATCH_UP_INCOMPLETE`**. The response no longer carries
+  `catchUpSkipped`/`catchUpFailed`.
+- **Recovery.** Added `cancelRevenueDeferral` (Design decision 16), its
+  route, feature mapping and tests; the unique index on `invoiceLineId`
+  becomes partial.
+- **Dates and state.** New Design decision 15: reclassification date (invoice
+  `issueDate`), final entry date (`stopDate`), `stopDate` validation and the
+  `COMPLETED` transition.
+- **Consistency.** Removed the stale "Not designed here" and "an
+  assumption" text, the "Temporary location" banner, and marked the Event
+  Storming source files as external.
+- **Question Q1.** The confirmation of Design decision 6 is recorded as given
+  by the spec author; the business owner is not named in the source
+  material and is left as an open ⚠ NEEDS HUMAN CONFIRMATION item.
+- **Base branch.** The PR now targets `develop`.
+
+Decided by the spec author on 2026-10-15: a locked invoice period no longer
+rejects a deferral — the reclassification is dated today as a correcting entry
+(Design decision 15); and pre-accrual recovery is a `cancelRevenueDeferral`
+command (Design decision 16). Still awaiting confirmation (⚠ NEEDS HUMAN
+CONFIRMATION): the correction freeze with no release command in Phase 1
+(Design decision 14), for which ERPNext and Odoo give no precedent (they leave
+it to the accountant) and the literature has not yet been checked.
+freeze with no release command in Phase 1 (Design decision 14); the
+reclassification dated at the invoice's `issueDate`, with a locked period
+rejected rather than redated (Design decision 15); pre-accrual cancel as a
+command rather than out of scope (Design decision 16).
