@@ -110,6 +110,19 @@ const IMPOSSIBLE_ID = '00000000-0000-0000-0000-000000000000'
 
 export { resolveListProjectAccess }
 
+/**
+ * Upper bound on the task ids the support filters materialize into the `id IN (...)`
+ * narrowing. The newest matching tickets win; an older match beyond the cap drops out
+ * of the filtered list instead of growing an unbounded parameter list.
+ */
+export const SUPPORT_FILTER_MAX_TASK_IDS = 1000
+
+function intersectIds(current: string[] | null, next: string[]): string[] {
+  if (current === null) return next
+  const allowed = new Set(next)
+  return current.filter((id) => allowed.has(id))
+}
+
 function splitIdList(value: unknown): string[] | null {
   if (typeof value !== 'string' || value.trim().length === 0) return null
   const ids = value
@@ -178,8 +191,14 @@ async function resolveTaskIdsForSupport(ctx: CrudCtx, criteria: SupportFilterCri
     if (criteria.supportCategory) where.categoryValue = criteria.supportCategory
     if (criteria.supportReference) where.supportReference = { $ilike: `${escapeLikePattern(criteria.supportReference)}%` }
     if (criteria.supportUnnotified) where.unnotifiedAt = { $ne: null }
-    const rows = await findWithDecryption(em, StaffSupportTicket, where, { fields: ['taskId'] }, { tenantId, organizationId })
-    return rows.map((row) => row.taskId)
+    const rows = await findWithDecryption(
+      em,
+      StaffSupportTicket,
+      where,
+      { fields: ['taskId'], limit: SUPPORT_FILTER_MAX_TASK_IDS, orderBy: { createdAt: 'desc' } },
+      { tenantId, organizationId },
+    )
+    return Array.from(new Set(rows.map((row) => row.taskId)))
   } catch (err) {
     logger.error('staff.timesheets.tasks support filter resolution failed', { err })
     getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.task_support_filter_failed' })
@@ -223,13 +242,13 @@ export async function buildTaskListFilters(
   for (const raw of [query.ids, query.id]) {
     const parsed = splitIdList(raw)
     if (parsed === null) continue
-    narrowIds = narrowIds ? narrowIds.filter((id) => parsed.includes(id)) : parsed
+    narrowIds = intersectIds(narrowIds, parsed)
   }
 
   const requestedTagIds = splitIdList(query.tagIds)
   if (requestedTagIds !== null) {
     const tagged = requestedTagIds.length === 0 ? [] : await resolveTaskIdsForTags(ctx, requestedTagIds)
-    narrowIds = narrowIds ? narrowIds.filter((id) => tagged.includes(id)) : tagged
+    narrowIds = intersectIds(narrowIds, tagged)
   }
 
   const supportCategory = typeof query.supportCategory === 'string' ? query.supportCategory.trim() : ''
@@ -241,7 +260,7 @@ export async function buildTaskListFilters(
       supportReference: supportReference || undefined,
       supportUnnotified,
     })
-    narrowIds = narrowIds ? narrowIds.filter((id) => supportTaskIds.includes(id)) : supportTaskIds
+    narrowIds = intersectIds(narrowIds, supportTaskIds)
   }
 
   const access = await resolveListProjectAccess(ctx)
