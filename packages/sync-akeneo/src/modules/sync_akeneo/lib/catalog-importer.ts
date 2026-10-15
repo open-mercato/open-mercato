@@ -25,9 +25,13 @@ import { normalizeEntityFieldsetConfig, type CustomFieldsetDefinition } from '@o
 import { invalidateDefinitionsCache } from '@open-mercato/core/modules/entities/api/definitions.cache'
 import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
 import { buildAttachmentFileUrl, buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
-import { deletePartitionFile, storePartitionFile } from '@open-mercato/core/modules/attachments/lib/storage'
-import { ensureDefaultPartitions, resolveDefaultPartitionCode } from '@open-mercato/core/modules/attachments/lib/partitions'
-import { mergeAttachmentMetadata } from '@open-mercato/core/modules/attachments/lib/metadata'
+import type { StorageDriverFactory } from '@open-mercato/core/modules/attachments/lib/drivers'
+import {
+  isScopedAttachmentUploadError,
+  type ScopedAttachmentUploadErrorCode,
+  type ScopedAttachmentUploadService,
+} from '@open-mercato/core/modules/attachments/lib/scoped-upload-service'
+import type { IntegrationLogService } from '@open-mercato/core/modules/integrations/lib/log-service'
 import { attachmentCrudEvents, attachmentCrudIndexer } from '@open-mercato/core/modules/attachments/lib/crud'
 import { emitCatalogQueryIndexEvent } from '@open-mercato/core/modules/catalog/commands/shared'
 import { SalesChannel } from '@open-mercato/core/modules/sales/data/entities'
@@ -52,7 +56,7 @@ import {
   type AkeneoValues,
   buildDefaultAkeneoMapping,
 } from './shared'
-import type { AkeneoClient } from './client'
+import { isAkeneoResponseTooLargeError, type AkeneoClient } from './client'
 import { inferAkeneoProductMapping } from './inference'
 import { normalizeMarkdownText } from './markdown'
 
@@ -60,6 +64,12 @@ type ImportScope = {
   organizationId: string
   tenantId: string
 }
+
+const REJECTED_MEDIA_UPLOAD_CODES: ReadonlySet<ScopedAttachmentUploadErrorCode> = new Set([
+  'dangerous_executable',
+  'max_upload_size',
+  'active_content',
+])
 
 type UpsertResult = {
   localId: string
@@ -2305,42 +2315,59 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     }
   }
 
-  async function upsertAsset(asset: DesiredAsset): Promise<string> {
+  async function recordRejectedMedia(asset: DesiredAsset, reason: string): Promise<void> {
+    const integrationLogService = container.resolve('integrationLogService') as IntegrationLogService
+    await integrationLogService.write({
+      integrationId: 'sync_akeneo',
+      level: 'warn',
+      code: 'sync_akeneo.media_rejected',
+      message: `Akeneo media ${asset.remote.codeOrUrl} was not imported: ${reason}`,
+      scopeEntityType: asset.entityId,
+      scopeEntityId: asset.recordId,
+      payload: {
+        externalId: asset.externalId,
+        remoteCode: asset.remote.codeOrUrl,
+        kind: asset.kind,
+        reason,
+      },
+    }, scope)
+  }
+
+  async function upsertAsset(asset: DesiredAsset): Promise<string | null> {
     const existingAttachmentId = await externalIdMappingService.lookupLocalId('sync_akeneo', 'attachment', asset.externalId, scope)
     if (existingAttachmentId) return existingAttachmentId
 
-    await ensureDefaultPartitions(em)
-    const binary = await client.downloadMediaFile(asset.remote.codeOrUrl)
+    let binary: Awaited<ReturnType<AkeneoClient['downloadMediaFile']>>
+    try {
+      binary = await client.downloadMediaFile(asset.remote.codeOrUrl)
+    } catch (error) {
+      if (!isAkeneoResponseTooLargeError(error)) throw error
+      await recordRejectedMedia(asset, 'max_upload_size')
+      return null
+    }
     const fileName = asset.remote.fileNameHint ?? binary.fileName ?? `akeneo-${randomUUID().slice(0, 8)}`
-    const partitionCode = resolveDefaultPartitionCode(asset.entityId)
-    const stored = await storePartitionFile({
-      partitionCode,
-      orgId: scope.organizationId,
-      tenantId: scope.tenantId,
-      fileName,
-      buffer: binary.buffer,
-    })
-    const attachment = em.create(Attachment, {
-      entityId: asset.entityId,
-      recordId: asset.recordId,
-      organizationId: scope.organizationId,
-      tenantId: scope.tenantId,
-      partitionCode,
-      fileName,
-      mimeType: asset.remote.mimeTypeHint ?? binary.contentType ?? 'application/octet-stream',
-      fileSize: binary.contentLength ?? binary.buffer.byteLength,
-      storageDriver: 'local',
-      storagePath: stored.storagePath,
-      storageMetadata: mergeAttachmentMetadata(null, {
-        assignments: [{ type: asset.entityId, id: asset.recordId }],
-      }),
-      url: buildAttachmentFileUrl('pending'),
-      content: null,
-    })
-    em.persist(attachment)
-    await em.flush()
+    const uploadService = container.resolve('attachmentScopedUploadService') as ScopedAttachmentUploadService
+    let attachment: Attachment
+    try {
+      attachment = await uploadService.upload({
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        entityId: asset.entityId,
+        recordId: asset.recordId,
+        fileName,
+        declaredMimeType: asset.remote.mimeTypeHint ?? binary.contentType,
+        buffer: binary.buffer,
+      })
+    } catch (error) {
+      if (!isScopedAttachmentUploadError(error)) throw error
+      if (REJECTED_MEDIA_UPLOAD_CODES.has(error.code)) {
+        await recordRejectedMedia(asset, error.code)
+        return null
+      }
+      throw new Error(`Akeneo media ${asset.remote.codeOrUrl} was rejected by attachment storage (${error.code})`)
+    }
     attachment.url = asset.kind === 'image'
-      ? buildAttachmentImageUrl(attachment.id, { slug: slugifyAttachmentFileName(fileName) })
+      ? buildAttachmentImageUrl(attachment.id, { slug: slugifyAttachmentFileName(attachment.fileName) })
       : buildAttachmentFileUrl(attachment.id)
     attachment.storageMetadata = {
       ...(attachment.storageMetadata ?? {}),
@@ -2350,9 +2377,18 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       remoteCode: asset.remote.codeOrUrl,
     }
     await em.flush()
-    await emitAttachmentCrudChange('created', attachment)
+    await emitAttachmentCrudChange('updated', attachment)
     await externalIdMappingService.storeExternalIdMapping('sync_akeneo', 'attachment', attachment.id, asset.externalId, scope)
     return attachment.id
+  }
+
+  async function deleteStoredMediaFile(attachment: Attachment): Promise<void> {
+    const storageDriverFactory = container.resolve('storageDriverFactory') as StorageDriverFactory
+    const partitionDriver = await storageDriverFactory.resolveForPartition(attachment.partitionCode, scope)
+    const driver = partitionDriver.key === attachment.storageDriver
+      ? partitionDriver
+      : storageDriverFactory.resolveForAttachment(attachment.storageDriver)
+    await driver.delete(attachment.partitionCode, attachment.storagePath)
   }
 
   async function reconcileAttachments(params: {
@@ -2362,12 +2398,11 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     reconciliation: AkeneoReconciliationSettings
   }): Promise<{ heroAttachmentId: string | null; heroAttachmentUrl: string | null }> {
     const desiredExternalIds = new Set(params.desiredAssets.map((asset) => asset.externalId))
-    const desiredImages = params.desiredAssets.filter((asset) => asset.kind === 'image')
-    const desiredFiles = params.desiredAssets.filter((asset) => asset.kind === 'file')
-    const desiredAttachmentIds = await Promise.all(params.desiredAssets.map((asset) => upsertAsset(asset)))
-    const heroAttachmentId = desiredImages.length > 0
-      ? desiredAttachmentIds[params.desiredAssets.findIndex((asset) => asset.externalId === desiredImages[0]?.externalId)]
-      : null
+    let heroAttachmentId: string | null = null
+    for (const asset of params.desiredAssets) {
+      const attachmentId = await upsertAsset(asset)
+      if (!heroAttachmentId && attachmentId && asset.kind === 'image') heroAttachmentId = attachmentId
+    }
     const heroAttachmentUrl = heroAttachmentId ? buildAttachmentImageUrl(heroAttachmentId) : null
 
     const existing = await findWithDecryption(em, Attachment, {
@@ -2385,7 +2420,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         ? params.reconciliation.deleteMissingMedia
         : params.reconciliation.deleteMissingAttachments
       if (!shouldDelete || desiredExternalIds.has(externalId)) continue
-      await deletePartitionFile(attachment.partitionCode, attachment.storagePath, attachment.storageDriver)
+      await deleteStoredMediaFile(attachment)
       await em.remove(attachment).flush()
       await emitAttachmentCrudChange('deleted', attachment)
     }

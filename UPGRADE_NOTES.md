@@ -889,6 +889,34 @@ new application version serves traffic. Until it has run, saving an encryption m
 or through `upsertCanonicalEncryptionMap` fails. Rolling deploys that start new pods before
 migrating must migrate first.
 
+### Akeneo imports bound media and response sizes and store media through the attachment upload path
+
+The Akeneo client used to read every response body in full with no deadline once headers arrived.
+The importer then wrote media straight to disk, outside the attachment size limit and the tenant
+quota. Now:
+
+- Media go through the shared attachment upload path. A file above `OM_ATTACHMENT_MAX_UPLOAD_MB`
+  (default 25 MB) stops downloading at the limit. SVG/HTML/XML (active content) and executables are
+  rejected. All three are skipped: the product imports without the file and a `warn` integration log
+  entry with code `sync_akeneo.media_rejected` is written.
+- Imported media reserve and count against `OM_ATTACHMENT_TENANT_QUOTA_MB` (default 512 MB). When
+  the quota is full, the product's import fails and is listed in the sync run.
+- Media are stored with the partition's configured storage driver (no longer always `local`), with a
+  sanitized file name, a sniffed MIME type and the byte size actually received. Downloads of one
+  product's media run one at a time.
+- `OM_INTEGRATION_AKENEO_REQUEST_TIMEOUT_MS` (default 30 000 ms) now covers the whole response,
+  including reading the body. That includes media downloads.
+- JSON and OAuth token responses above the new `OM_INTEGRATION_AKENEO_MAX_RESPONSE_BYTES` (default
+  32 MiB) fail the request with `AkeneoResponseTooLargeError`. Error bodies quoted in thrown
+  messages are truncated to 64 KiB.
+- `downloadMediaFile()` returns `contentLength` as the number of bytes received, not the remote
+  `Content-Length` header.
+
+**Action for operators:** large catalogs may hit the tenant quota on import, so raise
+`OM_ATTACHMENT_TENANT_QUOTA_MB` if needed. Raise `OM_INTEGRATION_AKENEO_REQUEST_TIMEOUT_MS` if large
+media time out on slow links. Check the integration log for `sync_akeneo.media_rejected` warnings
+after the first sync.
+
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
 Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).
