@@ -751,7 +751,7 @@ FK-id-only with the tenant/organization scope applied and no ORM relation
 (the precedent is `communication_channels` reading `messages`); and the
 columns it relies on (`vendorInvoiceId`, `amount`, the batch `status`) are listed as
 a contract in the payments spec, so a change to them is a visible spec change.
-Decided by the team (2026-10-12): no external review of this direction; the reasoning rests on the knowledge base's conventions and the two AP specs. **Added 2026-10-15 (as-of valuation, Design decision 13):** the as-of filter needs the date a batch was sent. The payments spec defines no such field — `PaymentBatch` has `scheduledPaymentDate` only — so the read contract lists `sentOn` (the `operationDate` of the payment entry `markPaymentBatchSent` posts) beside `vendorInvoiceId`, `amount` and the batch `status`. **Done 2026-10-15:** the payments spec (`docs/accounts-payable`) now has `PaymentBatch.sentOn`, an optional `sentOn` input on `markPaymentBatchSent` (default today, not later than today) and a "Read contract for other modules" section listing these columns, with this module as the first consumer. The note of 2026-10-12 that the contract was already listed was wrong at the time (there was no such section in 6c17a8553); it is true now.
+Decided by the team (2026-10-12): no external review of this direction; the reasoning rests on the knowledge base's conventions and the two AP specs. **Added 2026-10-15 (as-of valuation, Design decision 13):** the as-of filter needs the date a batch was sent. The payments spec defines no such field — `PaymentBatch` has `scheduledPaymentDate` only — so the read contract lists `sentOn` (the `operationDate` of the payment entry `markPaymentBatchSent` posts) beside `vendorInvoiceId`, `amount` and the batch `status`. **Done 2026-10-15:** the payments spec (`docs/accounts-payable`) now has `PaymentBatch.sentOn`, an optional `sentOn` input on `markPaymentBatchSent` (default today, not later than today) and a "Read contract for other modules" section listing these columns, with this module as the first consumer. The read-contract paragraph itself (three columns) had been added on 2026-10-12 (`6dea4561d`); only `sentOn` is new.
 
 ## Architecture
 
@@ -811,11 +811,10 @@ Decided by the team (2026-10-12): no external review of this direction; the reas
   post-posting immutability guard (Design decision 15), and a note that
   `postSalesInvoiceToLedger`'s `currencyCode` → `currencyId` resolution
   should read the stored `currencyId` once this ships.
-- `accounts-payable-payments.md` — add the read contract for other modules:
+- `accounts-payable-payments.md` — the read contract for other modules (paragraph of 2026-10-12) lists:
   `PaymentBatchLine.vendorInvoiceId` and `amount`, and, from
   `PaymentBatch`, `status` and `sentOn` (the `operationDate` of the entry
-  `markPaymentBatchSent` posts). **Done 2026-10-15** in
-  `accounts-payable-payments.md` (Design decision 18).
+  `markPaymentBatchSent` posts). `sentOn` was added to it on 2026-10-15 (Design decision 18).
 - `cash-bank-management.md` — note that `bookedExchangeRate` can default
   from `SalesInvoice.exchangeRate` once populated, **only when the bank
   account's currency equals the tenant's base currency** (Design decision
@@ -1519,8 +1518,8 @@ and why.
   prerequisite is not built.
 - **Open, owned by other specs:** ledger #5663/#6340 and the
   sales/AP/payments/cash-bank specs this one depends on are still open PRs.
-  (`PaymentBatch.sentOn` and the payments read contract were added on
-  2026-10-15, Design decisions 17/18.)
+  (The payments read contract was added on 2026-10-12 and `PaymentBatch.sentOn`
+  on 2026-10-15, Design decisions 17/18.)
 
 ### Verdict
 
@@ -1797,7 +1796,7 @@ reviewed by a maintainer.
 ### 2026-10-15 (cont. — `sentOn` closed)
 
 `accounts-payable-payments.md` (branch `docs/accounts-payable`) now defines
-`PaymentBatch.sentOn`, the optional `sentOn` input of `markPaymentBatchSent`
-and the "Read contract for other modules" section. The ⚠ on Design decision 18
+`PaymentBatch.sentOn` and the optional `sentOn` input of `markPaymentBatchSent`,
+and the read-contract paragraph of 2026-10-12 lists `sentOn` too. The ⚠ on Design decision 18
 is removed and the "Blocked on" entry for the payments spec now refers to open
 PRs only. Not yet reviewed by a maintainer.
