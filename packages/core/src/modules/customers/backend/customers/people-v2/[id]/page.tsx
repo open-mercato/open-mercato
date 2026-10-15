@@ -36,6 +36,7 @@ import { DealsSection } from '../../../../components/detail/DealsSection'
 import { TasksSection } from '../../../../components/detail/TasksSection'
 import type { TagSummary } from '../../../../components/detail/types'
 import { ScheduleActivityDialog, type ScheduleActivityEditData } from '../../../../components/detail/ScheduleActivityDialog'
+import { resolveActivityStartOnDay } from '../../../../components/detail/schedule/useScheduleFormState'
 import { PersonDetailHeader } from '../../../../components/detail/PersonDetailHeader'
 import { ChangelogTab } from '../../../../components/detail/ChangelogTab'
 import { PersonDetailTabs, resolveLegacyTab, type PersonTabId } from '../../../../components/detail/PersonDetailTabs'
@@ -236,13 +237,13 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     }),
   )
 
-  const handleAddActivity = React.useCallback((kind: ActivityKind) => {
+  const handleAddActivity = React.useCallback((kind: ActivityKind, selectedDate?: Date) => {
     setScheduleEditData({
       id: '',
       interactionType: kind,
       title: null,
       body: null,
-      scheduledAt: null,
+      scheduledAt: selectedDate ? resolveActivityStartOnDay(kind, selectedDate).toISOString() : null,
       durationMinutes: null,
       location: null,
       allDay: null,

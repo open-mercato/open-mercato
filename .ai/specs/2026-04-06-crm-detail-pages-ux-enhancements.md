@@ -1089,6 +1089,10 @@ Key behavior:
 - Respects `prefers-reduced-motion` for week-swap transitions.
 - No new API — consumes the same planned-activities payload used by `PlannedActivitiesSection`.
 
+Creation-date correction (#7478): an explicitly selected local calendar day seeds the company/person **Add new** activity dialog and the deal composer's **Schedule** dialog. The requested activity type and its existing time default are preserved. Changing the selection after cancelling uses the latest day. Without an explicit selection, forward-slot defaults still apply, including their next-day handling near midnight. Existing activity edits retain persisted timestamps, and undated tasks remain undated.
+
+The calendar selection and creation callbacks gain optional date inputs; existing callers remain valid. This is additive UI wiring with no API, database, event, ACL, or DI changes. Regression coverage follows real calendar/menu callbacks, create-dialog state, local month/year boundaries and type-specific defaults; browser coverage exercises creation and persistence on the company, person and deal routes.
+
 ---
 
 ### Enhancement 16 — Coming Soon Placeholder
@@ -1382,6 +1386,7 @@ Third-party modules need no migration to keep working. Consumers that want to:
 
 | Date | Change |
 | ---- | ------ |
+| 2026-10-15 | Corrected activity creation to inherit the explicitly selected local calendar day on company, person and deal pages (#7478), preserving type-specific defaults and edit timestamps through optional callback inputs. |
 | 2026-04-19 | Rev 5: Retroactively documented UX iterations that shipped alongside Phases 1–5 after the initial 2026-04-06 draft. Added "Additional UX Iterations" section covering Enhancements 6–16 (Company Dashboard tab + widgets, AI Action Chips, per-user Customer Labels, Dictionary Kind Settings, Dictionary Entry Reorder/Set-Default, Company Billing extension, Person-Company Roles junction, Deal Stage Transitions audit, Decision Makers Footer, Mini Week Calendar, Coming Soon Placeholder). Extended Implementation Phases table with Phases 5–8. Updated Scope list in TLDR. No contract or migration changes beyond what Rev 3/Rev 4 already documented in the Migration & Backward Compatibility section — the new tables, columns, events, routes and ACL features referenced here are the same ones already enumerated there. This revision closes the gap where the spec described the original 5 enhancements but the branch delivered 16 |
 | 2026-04-18 | Rev 4: Post-review fixes. Documented `audit_logs` schema + service + CLI + export route additions that back the Changelog tab. Added `aria-*` semantics (`role="progressbar"`, `aria-valuenow`, `aria-valuetext`, `aria-current="step"`) to `PipelineStepper`. Added `Cmd/Ctrl+Enter` handler to `CreatePersonDialog`. Restored `data-component-handle` on the UMES example `PageBody` that was removed by an unrelated commit on this branch |
 | 2026-04-17 | Rev 3: Added "Migration & Backward Compatibility" section covering every new contract surface introduced by the feat/crm-details-screens branch (new events, new commands, new routes, new tables, ACL features). Documented query engine `eq` semantic routing, `withAtomicFlush` transaction fix, label feature-gate kind-scoping, entity-role undelete undo, per-org feature check, and deals→notifications event-bus refactor |
