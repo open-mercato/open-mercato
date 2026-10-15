@@ -1600,6 +1600,7 @@ export default function EditCatalogProductPage({
           }}
           initialValues={initialValues ?? undefined}
           isLoading={loading}
+          disableInitialFocus
           loadingMessage={t("catalog.products.edit.loading", "Loading product")}
           submitLabel={t("catalog.products.edit.save", "Save changes")}
           cancelHref="/backend/catalog/products"

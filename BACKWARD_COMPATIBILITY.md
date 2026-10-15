@@ -212,6 +212,7 @@ Module code resolves services by name from the Awilix container. Renaming a DI r
 - MUST NOT change the interface of a resolved service in a breaking way
 - MAY add new DI registrations freely
 - MAY add optional methods to existing service interfaces
+- `calendarEventTypeRegistry` (Customers): the registration key and the `upsert`, `replace`, `patch`, `remove`, `removeSource`, and `snapshot` operations are STABLE additive contracts. Contributor modules may resolve it softly when Customers is optional.
 
 ### 10. ACL Feature IDs (FROZEN)
 
@@ -556,3 +557,7 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 | Database schema, event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
 
 **Migration path for existing modules**: send `parentId: null` / `childIds: []` where clearing is intended. Trees flattened before the upgrade are not repaired (see UPGRADE_NOTES.md).
+
+## Discord AI Proposals (2026-10-13)
+
+[Waiver](UPGRADE_NOTES.md#discord-proposals)
