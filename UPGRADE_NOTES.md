@@ -24,6 +24,8 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
+<a id="staff-user-create-org-scope"></a>
+
 ### Staff user create enforces the caller's organization scope (#7238)
 
 `POST /api/auth/users`, through the `auth.users.create` command, now applies the same destination
@@ -40,6 +42,14 @@ Superadmins, system actors and callers without an organization restriction are u
 **Action for integrators:** a script or API key that creates staff users with an
 organization-restricted principal must either be granted the target organizations or use an
 unrestricted principal.
+
+**Backward compatibility** (recorded here because `BACKWARD_COMPATIBILITY.md` is at its agent-context
+byte budget): intentional security narrowing of the `auth.users.create` command and
+`POST /api/auth/users`, regression-tested in `users.create-destination-scope.test.ts` and
+`TC-AUTH-068`. One additive signature change: `targetUserId` of `resolveUserDestinationRoles`
+(`@open-mercato/core/modules/auth/lib/grantChecks`) becomes optional; without role tokens and without
+a target user it returns `[]`, and every existing call compiles and behaves the same. The route URL,
+request and response schemas, event IDs, ACL features, DI names and database schema are unchanged.
 
 ### Warranty claim undo refusals return a localized `error` plus a `code`; claim-line undos refuse stale state
 

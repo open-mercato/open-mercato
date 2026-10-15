@@ -558,20 +558,6 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 
 **Migration path for existing modules**: send `parentId: null` / `childIds: []` where clearing is intended. Trees flattened before the upgrade are not repaired (see UPGRADE_NOTES.md).
 
----
-
-## Staff User Create Organization Scope (2026-10-13)
-
-`auth.users.create` checked only the target tenant, and its route checked role grants only when `roles` was sent, so a caller restricted to some organizations could create a confirmed staff user in any organization of its tenant ([#7238](https://github.com/open-mercato/open-mercato/issues/7238)). The command now runs `assertActorCanAssignUserDestination`, the check `auth.users.update` already runs when it moves a user:
-
-| Surface | Change | Classification |
-|---------|--------|----------------|
-| Command behaviour (`auth.users.create`) and API route (`POST /api/auth/users`) | A non-superadmin, non-system caller whose organization scope does not contain the target organization receives `403 { error: 'Cannot assign user to a destination organization outside actor scope.' }` before any write, with or without `roles`. It previously received `201`. A foreign-tenant organization still receives `404 Organization not found` | ⚠️ Intentional security narrowing. Regression-tested in `users.create-destination-scope.test.ts` and `TC-AUTH-068` |
-| Function signature (`resolveUserDestinationRoles` in `@open-mercato/core/modules/auth/lib/grantChecks`) | `targetUserId` becomes optional (`targetUserId?: string \| null`). Without role tokens and without a target user, it returns `[]` | ✓ ADDITIVE (a required field became optional; every existing call compiles and behaves the same) |
-| API route URL, request and response schemas, event IDs, ACL features, DI names, database schema | No change | ✓ n/a |
-
-**Migration path for existing modules**: none for code. An integration that creates staff users with an organization-restricted principal must grant it the target organizations or use an unrestricted principal.
-
 ## Discord AI Proposals (2026-10-13)
 
 [Waiver](UPGRADE_NOTES.md#discord-proposals)
