@@ -291,9 +291,6 @@ describe('prepareMutation', () => {
     const tool = makeTool({
       name: 'catalog.update_product',
       isMutation: true,
-      // Mirrors `catalog.update_product`'s loadBeforeRecord: a full
-      // snapshot as `before`, no `after` — prepareMutation must derive the
-      // patch from toolCallArgs instead.
       loadBeforeRecord: async () => ({
         recordId: 'p-1',
         entityType: 'catalog.product',
@@ -315,7 +312,6 @@ describe('prepareMutation', () => {
       {
         agent,
         tool,
-        // Flat call shape: only `title` is being changed.
         toolCallArgs: { productId: 'p-1', title: 'New title' },
       },
       { ...baseCtx, container },
@@ -463,8 +459,6 @@ describe('prepareMutation', () => {
     expect(records).toHaveLength(2)
     expect(records[0].recordId).toBe('p-1')
     expect(records[0].label).toBe('Widget')
-    // Patch only carries `name` — `sku` stays untouched and must NOT surface
-    // as a diff entry (regression #7349).
     expect(records[0].fieldDiff).toEqual([
       { field: 'name', before: 'old', after: 'new-1' },
     ])

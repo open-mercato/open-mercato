@@ -250,17 +250,6 @@ function matchBatchPatch(
   return {}
 }
 
-/**
- * When a tool's `loadBeforeRecord(s)` resolver does not project an explicit
- * `after`, the patch is derived from the raw tool-call args
- * (`extractPatchFromArgs` / `matchBatchPatch`), which may carry envelope
- * fields (e.g. `productId`) the resolver's `before` snapshot never declared,
- * and never carries keys for snapshot fields the call left untouched. A
- * resolver-projected `after` is a deliberate, already-scoped comparison
- * target, so its key set is trusted as-is; only the args-derived fallback
- * needs this filter to avoid reporting untouched fields as "cleared" and
- * leaking envelope keys into the diff (issue #7349).
- */
 function fallbackPatchDiffKeys(
   patch: Record<string, unknown>,
   before: Record<string, unknown>,
