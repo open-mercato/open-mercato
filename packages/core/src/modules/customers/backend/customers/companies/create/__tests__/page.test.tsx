@@ -7,17 +7,18 @@ import { extensionSpotChildId } from '@open-mercato/shared/modules/widgets/exten
 import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import { E } from '#generated/entities.ids.generated'
 import CreateCompanyPage from '../page'
+import type { CrudFormProps } from '@open-mercato/ui/backend/CrudForm'
+import { createCrud } from '@open-mercato/ui/backend/utils/crud'
+import type { CompanyFormValues } from '../../../../../components/formConfig'
 
-type CapturedCrudFormProps = {
-  injectionSpotId?: string
-  legacyInjectionSpotId?: string
-  entityIds?: string[]
-}
+type CapturedCrudFormProps = CrudFormProps<CompanyFormValues>
+
+const pushMock = jest.fn()
 
 const capturedCrudFormProps: CapturedCrudFormProps[] = []
 
 jest.mock('next/navigation', () => ({
-  useRouter: () => ({ push: jest.fn() }),
+  useRouter: () => ({ push: pushMock }),
   useSearchParams: () => ({ get: () => null }),
 }))
 
@@ -54,6 +55,22 @@ function renderCreatePage(): CapturedCrudFormProps {
 }
 
 describe('company create page injection host', () => {
+  beforeEach(() => jest.clearAllMocks())
+
+  it('returns the created ID and waits for lifecycle completion before navigating', async () => {
+    jest.mocked(createCrud).mockResolvedValue({ result: { id: 'new-company' }, response: {} as Response })
+    const props = renderCreatePage()
+    const values: CompanyFormValues = { displayName: 'Example Company' }
+
+    const result = await props.onSubmit?.(values)
+
+    expect(result).toEqual({ resourceId: 'new-company' })
+    expect(pushMock).not.toHaveBeenCalled()
+    await props.onSubmitSuccess?.(values, result)
+    expect(pushMock).toHaveBeenCalledWith('/backend/customers/companies-v2/new-company')
+    expect(createCrud).toHaveBeenCalledTimes(1)
+  })
+
   it('binds the canonical company CrudForm spot declared by the module', () => {
     const props = renderCreatePage()
 

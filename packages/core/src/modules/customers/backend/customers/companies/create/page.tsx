@@ -45,6 +45,8 @@ export default function CreateCompanyPage() {
           initialValues={{ addresses: [] as CompanyFormValues['addresses'] }}
           injectionSpotId={extensionPoints.hosts.companyForm.spotId}
           legacyInjectionSpotId={COMPANY_CREATE_LEGACY_INJECTION_SPOT_ID}
+          entityId="customers.company"
+          resourceKind="customers.company"
           entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
           submitLabel={t('customers.companies.form.submit')}
           cancelHref={returnTo ?? '/backend/customers/companies'}
@@ -125,6 +127,10 @@ export default function CreateCompanyPage() {
             }
 
             flash(t('customers.companies.form.success'), 'success')
+            return newId ? { resourceId: newId } : undefined
+          }}
+          onSubmitSuccess={async (_values, result) => {
+            const newId = result?.resourceId
             if (returnTo) router.push(returnTo)
             else if (newId) router.push(`/backend/customers/companies-v2/${newId}`)
             else router.push('/backend/customers/companies')

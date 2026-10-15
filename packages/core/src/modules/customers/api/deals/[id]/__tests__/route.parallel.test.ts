@@ -1,5 +1,16 @@
 /** @jest-environment node */
 
+import { registerResponseEnrichers } from '@open-mercato/shared/lib/crud/enricher-registry'
+
+let mockCacheEnabled = false
+const mockCache = { get: jest.fn(), set: jest.fn() }
+jest.mock('@open-mercato/shared/lib/crud/cache', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/crud/cache'),
+  isCrudCacheEnabled: () => mockCacheEnabled,
+  resolveCrudCache: () => mockCacheEnabled ? mockCache : null,
+}))
+
+
 // Regression coverage for issue #3175 (deals slice): the deal detail route must
 // dispatch its independent post-access enrichment reads in parallel instead of
 // awaiting them one after another. The test holds findWithDecryption open until
@@ -110,7 +121,11 @@ function buildDeal() {
 }
 
 describe('GET /api/customers/deals/[id] — parallel enrichment (issue #3175)', () => {
+  afterEach(() => registerResponseEnrichers([]))
   beforeEach(() => {
+    mockCacheEnabled = false
+    mockCache.get.mockReset()
+    mockCache.set.mockReset()
     jest.resetModules()
     mockGetAuthFromRequest.mockReset()
     mockResolveOrganizationScopeForRequest.mockReset()
@@ -172,4 +187,37 @@ describe('GET /api/customers/deals/[id] — parallel enrichment (issue #3175)', 
     expect(body.deal.id).toBe(DEAL_ID)
     expect(maxInFlight).toBeGreaterThanOrEqual(2)
   })
+
+  it('enriches deal cold/cache-hit reads and preserves cached native data', async () => {
+    mockCacheEnabled = true
+    mockCache.get.mockResolvedValue(null)
+    let priority = 'high'
+    const enrichOne = jest.fn(async (record: Record<string, unknown>) => ({ ...record, _example: { priority } }))
+    registerResponseEnrichers([{ moduleId: 'example', enrichers: [{ id: 'example.priority', targetEntity: 'customers.deal', timeout: 10, enrichOne }] }])
+    const { GET } = await import('../route')
+    const request = new Request(`http://localhost/api/customers/deals/${DEAL_ID}`)
+    const cold = await GET(request, { params: { id: DEAL_ID } })
+    expect(await cold.json()).toMatchObject({ _example: { priority: 'high' }, deal: { _example: { priority: 'high' } } })
+    const base = mockCache.set.mock.calls[0][1] as Record<string, unknown>
+    expect(base).not.toHaveProperty('_example')
+    priority = 'critical'
+    mockCache.get.mockResolvedValue(base)
+    mockFindOneWithDecryption.mockResolvedValueOnce(buildDeal())
+    const hit = await GET(request, { params: { id: DEAL_ID } })
+    expect(await hit.json()).toMatchObject({ _example: { priority: 'critical' } })
+    expect(base).not.toHaveProperty('_example')
+    expect(base.deal).not.toHaveProperty('_example')
+    expect(enrichOne).toHaveBeenCalledTimes(2)
+  })
+
+  it('propagates critical enricher failures on cache hits instead of falling back to a cold read', async () => {
+    mockCacheEnabled = true
+    mockCache.get.mockResolvedValue({ deal: { id: DEAL_ID, title: 'Cached' } })
+    registerResponseEnrichers([{ moduleId: 'example', enrichers: [{ id: 'example.critical', targetEntity: 'customers.deal', critical: true, timeout: 10, enrichOne: async () => { throw new Error('[internal] failed') } }] }])
+    const { GET } = await import('../route')
+    await expect(GET(new Request(`http://localhost/api/customers/deals/${DEAL_ID}`), { params: { id: DEAL_ID } })).rejects.toThrow('[internal] failed')
+    expect(mockFindWithDecryption).not.toHaveBeenCalled()
+    expect(mockCache.set).not.toHaveBeenCalled()
+  })
+
 })

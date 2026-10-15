@@ -31,6 +31,7 @@ type PersonDetailHeaderProps = {
   onDelete: () => Promise<void>
   isDirty: boolean
   isSaving: boolean
+  actions?: React.ReactNode
   /** Callback to focus a specific field in the Zone 1 CrudForm by field name. */
   onFocusField?: (fieldName: string) => void
   /**
@@ -86,6 +87,7 @@ export function PersonDetailHeader({
   onDelete,
   isDirty,
   isSaving,
+  actions,
   onFocusField,
   onOpenCompaniesTab,
   onDataReload,
@@ -246,7 +248,8 @@ export function PersonDetailHeader({
 
         {/* Right side: actions */}
         <div className="flex w-full shrink-0 items-center justify-start gap-2 sm:w-auto sm:justify-end">
-          <SendObjectMessageDialog
+          {actions}
+            <SendObjectMessageDialog
             object={{
               entityModule: 'customers',
               entityType: 'person',

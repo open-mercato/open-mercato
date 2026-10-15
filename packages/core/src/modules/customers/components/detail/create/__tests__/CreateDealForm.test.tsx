@@ -2,13 +2,19 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { z } from 'zod'
 import { CreateDealForm } from '../CreateDealForm'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { GLOBAL_MUTATION_INJECTION_SPOT_ID } from '@open-mercato/ui/backend/injection/mutationEvents'
+import type { InjectionFieldWidget, InjectionWidgetModule, ModuleInjectionTable } from '@open-mercato/shared/modules/widgets/injection'
+import type { ModuleInjectionWidgetEntry } from '@open-mercato/shared/modules/registry'
+import { registerCoreInjectionTables, registerCoreInjectionWidgets, registerEnabledModuleIds } from '@open-mercato/shared/modules/widgets/injection-loader'
+
 
 const mockPush = jest.fn()
 const mockCreateCrud = jest.fn()
-const mockRunMutation = jest.fn()
+const mockGlobalBeforeSave = jest.fn()
 let mockCustomDefinitions: Array<{
   key: string
   kind: string
@@ -45,12 +51,15 @@ jest.mock('@open-mercato/ui/backend/utils/crud', () => ({
   createCrud: (...args: unknown[]) => mockCreateCrud(...args),
 }))
 
-jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
-  useGuardedMutation: () => ({
-    runMutation: mockRunMutation,
-    retryLastMutation: jest.fn(),
-  }),
+jest.mock('@open-mercato/ui/backend/utils/customFieldForms', () => ({
+  ...jest.requireActual('@open-mercato/ui/backend/utils/customFieldForms'),
+  fetchCustomFieldFormStructure: async () => ({ definitions: mockCustomDefinitions.map((definition) => ({ ...definition, entityId: 'customers:customer_deal' })), metadata: {} }),
 }))
+jest.mock('@open-mercato/ui/backend/utils/customFieldDefs', () => ({
+  ...jest.requireActual('@open-mercato/ui/backend/utils/customFieldDefs'),
+  fetchCustomFieldDefs: async () => mockCustomDefinitions.map((definition) => ({ ...definition, entityId: 'customers:customer_deal' })),
+}))
+jest.mock('@open-mercato/ui/backend/fields/registry', () => ({ ...jest.requireActual('@open-mercato/ui/backend/fields/registry'), loadGeneratedFieldRegistrations: async () => {} }))
 
 jest.mock('../../DealForm', () => {
   const textField = z.preprocess((value) => (typeof value === 'string' ? value : ''), z.string())
@@ -71,7 +80,7 @@ jest.mock('../../DealForm', () => {
       description: textField,
       personIds: z.array(z.string()).default([]),
       companyIds: z.array(z.string()).default([]),
-    }),
+    }).passthrough(),
   }
 })
 
@@ -164,20 +173,30 @@ jest.mock('../DealCustomAttributes', () => {
   }
 })
 
+function register(widgets: Array<InjectionFieldWidget | InjectionWidgetModule>, table: ModuleInjectionTable) {
+  const entries: ModuleInjectionWidgetEntry[] = widgets.map((widget) => ({ moduleId: 'extension', key: widget.metadata.id, widgetId: widget.metadata.id, source: 'package', loader: async () => widget }))
+  registerCoreInjectionWidgets(entries)
+  registerCoreInjectionTables([{ moduleId: 'extension', table }], entries)
+  registerEnabledModuleIds(['customers', 'extension'])
+}
+
+afterEach(() => { register([], {}) })
+
 beforeEach(() => {
   mockCustomDefinitions = []
   mockPush.mockClear()
   mockCreateCrud.mockReset()
-  mockCreateCrud.mockResolvedValue({ id: 'deal-1' })
-  mockRunMutation.mockReset()
-  mockRunMutation.mockImplementation(async ({ operation }: { operation: () => Promise<unknown> }) => operation())
+  mockCreateCrud.mockResolvedValue({ result: { id: 'deal-1' } })
+  mockGlobalBeforeSave.mockReset()
+  register([], {})
 })
 
 describe('CreateDealForm', () => {
-  it('starts with the existing empty values when initialValues is omitted', () => {
+  it('starts with the existing empty values when initialValues is omitted', async () => {
     render(<CreateDealForm returnTo="/backend/customers/deals" />)
 
-    expect(screen.getByLabelText('Deal title')).toHaveValue('')
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Create deal' })).toBeEnabled())
+    expect(screen.getByLabelText(/Deal title/)).toHaveValue('')
   })
 
   it('prefills initialValues and includes them in the create payload', async () => {
@@ -193,7 +212,7 @@ describe('CreateDealForm', () => {
       />,
     )
 
-    expect(screen.getByLabelText('Deal title')).toHaveValue('Copperleaf renewal')
+    expect(screen.getByLabelText(/Deal title/)).toHaveValue('Copperleaf renewal')
     fireEvent.click(screen.getAllByRole('button', { name: 'Create deal' })[0])
 
     await waitFor(() => expect(mockCreateCrud).toHaveBeenCalled())
@@ -204,7 +223,7 @@ describe('CreateDealForm', () => {
       description: 'Renewal seeded by the host application',
     })
     expect(mockCreateCrud).toHaveBeenCalledWith('customers/deals', expectedPayload, expect.any(Object))
-    expect(mockRunMutation).toHaveBeenCalledWith(expect.objectContaining({ mutationPayload: expectedPayload }))
+    expect(document.querySelectorAll('form')).toHaveLength(1)
   })
 
   it('ignores explicitly undefined initialValues entries', async () => {
@@ -240,7 +259,7 @@ describe('CreateDealForm', () => {
     const customInput = await screen.findByLabelText('Temperature')
     await waitFor(() => expect(customInput).toHaveValue('Warm'))
 
-    fireEvent.change(screen.getByLabelText('Deal title'), { target: { value: 'Copperleaf renewal' } })
+    fireEvent.change(screen.getByLabelText(/Deal title/), { target: { value: 'Copperleaf renewal' } })
     fireEvent.click(screen.getAllByRole('button', { name: 'Create deal' })[0])
 
     await waitFor(() => expect(mockCreateCrud).toHaveBeenCalled())
@@ -249,7 +268,7 @@ describe('CreateDealForm', () => {
       customFields: { temperature: 'Warm' },
     })
     expect(mockCreateCrud).toHaveBeenCalledWith('customers/deals', expectedPayload, expect.any(Object))
-    expect(mockRunMutation).toHaveBeenCalledWith(expect.objectContaining({ mutationPayload: expectedPayload }))
+    expect(document.querySelectorAll('form')).toHaveLength(1)
   })
 
   it('blocks submit when a required custom field is empty', async () => {
@@ -265,11 +284,73 @@ describe('CreateDealForm', () => {
     render(<CreateDealForm returnTo="/backend/customers/deals" />)
 
     await screen.findByLabelText('Priority')
-    fireEvent.change(screen.getByLabelText('Deal title'), { target: { value: 'Copperleaf renewal' } })
+    fireEvent.change(screen.getByLabelText(/Deal title/), { target: { value: 'Copperleaf renewal' } })
     fireEvent.click(screen.getAllByRole('button', { name: 'Create deal' })[0])
 
-    expect(await screen.findByText('Required')).toBeInTheDocument()
+    expect(await screen.findByText('ui.forms.errors.required')).toBeInTheDocument()
     expect(mockCreateCrud).not.toHaveBeenCalled()
-    expect(mockRunMutation).not.toHaveBeenCalled()
+    expect(mockGlobalBeforeSave).not.toHaveBeenCalled()
   })
+})
+
+it('validates headless fields, runs the global guard once and waits for create after-save before navigating', async () => {
+  let finishContribution: () => void = () => {}
+  const contribution = new Promise<void>((resolve) => { finishContribution = resolve })
+  const afterSave = jest.fn(async (_values: Record<string, unknown>, context: Record<string, unknown>) => {
+    expect(context.resourceKind).toBe('customers.deal')
+    expect(context.resourceId).toBe('deal-1')
+    await contribution
+  })
+  const beforeSave = jest.fn(async (values: Record<string, unknown>) => values['_extension.priority'] === 'blocked' ? { ok: false, fieldErrors: { '_extension.priority': 'Priority blocked' } } : true)
+  const extension: InjectionFieldWidget = {
+    metadata: { id: 'extension.priority' },
+    fields: [{ id: '_extension.priority', label: 'Extension priority', type: 'text', group: 'details' }],
+    eventHandlers: { onBeforeSave: beforeSave, onAfterSave: afterSave },
+  }
+  const guard: InjectionWidgetModule = {
+    metadata: { id: 'extension.guard', title: 'Guard' },
+    Widget: () => <span>Guard</span>,
+    eventHandlers: { onBeforeSave: mockGlobalBeforeSave },
+  }
+  register([extension, guard], { 'crud-form:customers.deal:fields': 'extension.priority', [GLOBAL_MUTATION_INJECTION_SPOT_ID]: 'extension.guard' })
+  const { container } = render(<CreateDealForm returnTo="/backend/customers/deals" initialValues={{ title: 'Native title' }} />)
+  const priority = await screen.findByLabelText('Extension priority')
+  fireEvent.change(priority, { target: { value: 'blocked' } })
+  fireEvent.submit(container.querySelector('form')!)
+  await screen.findByText('Priority blocked')
+  expect(mockCreateCrud).not.toHaveBeenCalled()
+  fireEvent.change(priority, { target: { value: 'high' } })
+  fireEvent.submit(container.querySelector('form')!)
+  await waitFor(() => expect(afterSave).toHaveBeenCalledTimes(1))
+  expect(mockCreateCrud).toHaveBeenCalledTimes(1)
+  expect(mockCreateCrud.mock.calls[0][1]).not.toHaveProperty('_extension')
+  expect(mockCreateCrud.mock.calls[0][1]).not.toHaveProperty('_extension.priority')
+  expect(mockPush).not.toHaveBeenCalled()
+  await act(async () => finishContribution())
+  await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/backend/customers/deals'))
+  expect(mockGlobalBeforeSave).toHaveBeenCalledTimes(1)
+  expect(container.querySelectorAll('form')).toHaveLength(1)
+})
+
+it('submits the authoritative form values with Ctrl+Enter and cancels without another native create', async () => {
+  render(<CreateDealForm returnTo="/backend/customers/deals" initialValues={{ title: 'Initial' }} />)
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Create deal' })).toBeEnabled())
+  fireEvent.change(screen.getByLabelText(/Deal title/), { target: { value: 'Keyboard edit' } })
+  fireEvent.keyDown(screen.getByLabelText(/Deal title/), { key: 'Enter', ctrlKey: true })
+  await waitFor(() => expect(mockCreateCrud).toHaveBeenCalledTimes(1))
+  expect(mockCreateCrud.mock.calls[0][1]).toEqual(expect.objectContaining({ title: 'Keyboard edit' }))
+  await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(1))
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(mockPush).toHaveBeenCalledTimes(2)
+  expect(mockCreateCrud).toHaveBeenCalledTimes(1)
+})
+
+it('surfaces native submission field errors and keeps the create form open', async () => {
+  mockCreateCrud.mockRejectedValue(createCrudFormError('Native rejection', { title: 'Title rejected' }))
+  render(<CreateDealForm returnTo="/backend/customers/deals" initialValues={{ title: 'Valid title' }} />)
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Create deal' })).toBeEnabled())
+  fireEvent.click(screen.getByRole('button', { name: 'Create deal' }))
+  await screen.findByText('Title rejected')
+  expect(mockPush).not.toHaveBeenCalled()
+  expect(screen.getByLabelText(/Deal title/)).toHaveAttribute('aria-invalid', 'true')
 })
