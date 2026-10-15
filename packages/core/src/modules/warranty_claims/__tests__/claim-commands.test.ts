@@ -1,4 +1,4 @@
-import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import type { CommandHandler, CommandRuntimeContext, CommandUndoLogEntry } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { WarrantyClaim, WarrantyClaimEvent, WarrantyClaimLine } from '../data/entities'
@@ -96,6 +96,7 @@ import {
   createClaimLineCommand,
   receiveClaimLineCommand,
   releaseClaimLineQuarantineCommand,
+  setClaimLineAssessmentCommand,
   updateClaimLineCommand,
 } from '../commands/claim-lines'
 
@@ -1228,5 +1229,137 @@ describe('warranty claim commands', () => {
 
     await expect(updateClaimCommand.execute({ id: CLAIM_ID, notes: 'new' }, ctx)).rejects.toMatchObject({ status: 409 })
     expect(claim.notes).toBeNull()
+  })
+})
+
+
+function lineReplayScenario<TInput extends { id: string; updatedAt?: string | Date | null }>(
+  command: CommandHandler<TInput, { lineId: string; claimId: string }>,
+  input: TInput,
+  expectedFields: Partial<WarrantyClaimLine>,
+) {
+  return {
+    name: command.id,
+    expectedFields,
+    execute: (ctx: CommandRuntimeContext) => command.execute(input, ctx),
+    prepare: (ctx: CommandRuntimeContext) => command.prepare!(input, ctx),
+    undo: (ctx: CommandRuntimeContext, logEntry: CommandUndoLogEntry) => command.undo!({ input, ctx, logEntry }),
+    redo: (ctx: CommandRuntimeContext, logEntry: CommandUndoLogEntry = {}) => command.redo!({ input, ctx, logEntry }),
+  }
+}
+
+const replayInput = {
+  id: LINE_ID,
+  tenantId: TENANT_ID,
+  organizationId: ORG_ID,
+  updatedAt: '2026-07-01T00:00:00.000Z',
+}
+
+const lineReplayScenarios = [
+  lineReplayScenario(receiveClaimLineCommand, {
+    ...replayInput,
+    conditionGrade: 'B',
+    inspectionNotes: 'Receiving inspection',
+  }, { conditionGrade: 'B', inspectionNotes: 'Receiving inspection' }),
+  lineReplayScenario(releaseClaimLineQuarantineCommand, replayInput, { quarantineStatus: 'released' }),
+  lineReplayScenario(setClaimLineAssessmentCommand, {
+    ...replayInput,
+    assessmentPayload: { recommendation: 'repair', confidence: 0.9 },
+  }, { assessmentPayload: { recommendation: 'repair', confidence: 0.9 } }),
+]
+
+describe.each(lineReplayScenarios)('$name redo version handling', (scenario) => {
+  beforeEach(() => {
+    const actual = jest.requireActual<typeof import('@open-mercato/shared/lib/crud/optimistic-lock-command')>(
+      '@open-mercato/shared/lib/crud/optimistic-lock-command',
+    )
+    enforceWithGuardsMock.mockImplementation(async (_container, input) => {
+      actual.enforceCommandOptimisticLock({
+        ...input,
+        envValue: 'all',
+      } as Parameters<typeof actual.enforceCommandOptimisticLock>[0])
+    })
+  })
+
+  test('reapplies legacy input after undo without replaying its expired body version', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('received')
+    const line = makeLine(claim, { quarantineStatus: 'held', creditAmount: '9' })
+    mockClaims.push(claim)
+    mockLines.push(line)
+    const prepared = await scenario.prepare(ctx)
+    await scenario.execute(ctx)
+    expect(line).toMatchObject(scenario.expectedFields)
+    const logEntry = { snapshotBefore: prepared?.before }
+
+    await scenario.undo(ctx, logEntry)
+    expect(line.updatedAt?.toISOString()).not.toBe(replayInput.updatedAt)
+    await expect(scenario.execute(ctx)).rejects.toMatchObject({ status: 409, body: { code: 'optimistic_lock_conflict' } })
+
+    await scenario.redo(ctx, logEntry)
+    expect(line).toMatchObject(scenario.expectedFields)
+    expect(line.creditAmount).toBe('9')
+    expect(line.tenantId).toBe(TENANT_ID)
+    expect(line.organizationId).toBe(ORG_ID)
+    expect(mockEvents).toHaveLength(2)
+  })
+
+  test('accepts a current version supplied on the redo request', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('received')
+    const line = makeLine(claim, { updatedAt: new Date('2026-10-13T10:00:00.000Z') })
+    mockClaims.push(claim)
+    mockLines.push(line)
+    ctx.request = new Request('http://localhost/api/audit_logs/audit-logs/actions/redo', {
+      method: 'POST',
+      headers: { 'x-om-ext-optimistic-lock-expected-updated-at': line.updatedAt!.toISOString() },
+    })
+
+    await scenario.redo(ctx)
+    expect(line).toMatchObject(scenario.expectedFields)
+  })
+
+  test('rejects a stale redo request header before writing', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('received')
+    const line = makeLine(claim, { updatedAt: new Date('2026-10-13T10:00:00.000Z') })
+    mockClaims.push(claim)
+    mockLines.push(line)
+    ctx.request = new Request('http://localhost/api/audit_logs/audit-logs/actions/redo', {
+      method: 'POST',
+      headers: { 'x-om-ext-optimistic-lock-expected-updated-at': replayInput.updatedAt },
+    })
+    const before = { ...line }
+
+    await expect(scenario.redo(ctx)).rejects.toMatchObject({ status: 409, body: { code: 'optimistic_lock_conflict' } })
+    expect(line).toEqual(before)
+    expect(mockEvents).toHaveLength(0)
+  })
+
+  test('still rejects a locked parent claim on redo', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('closed')
+    const line = makeLine(claim)
+    mockClaims.push(claim)
+    mockLines.push(line)
+    const before = { ...line }
+
+    await expect(scenario.redo(ctx)).rejects.toMatchObject({ status: 400 })
+    expect(line).toEqual(before)
+    expect(mockEvents).toHaveLength(0)
+  })
+
+  test('does not replay a line outside the caller organization', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('received')
+    const line = makeLine(claim)
+    line.organizationId = '99999999-9999-4999-8999-999999999999'
+    mockClaims.push(claim)
+    mockLines.push(line)
+    const before = { ...line }
+
+    await expect(scenario.redo(ctx)).rejects.toMatchObject({ status: 404 })
+    expect(line).toEqual(before)
+    expect(mockEvents).toHaveLength(0)
   })
 })
