@@ -73,9 +73,6 @@ const createTransactionCommand: CommandHandler<Record<string, unknown>, { id: st
       })
       tx.persist(transaction)
       await tx.flush()
-      // Reserve last and through the transaction-bound executor: the slot commits or
-      // rolls back together with the transaction row, and the link row stays locked
-      // only for the UPDATE → COMMIT window.
       const reserved = await tx.execute<Array<{ active_reservation_count: number }>>(
         `
           UPDATE checkout_links
@@ -229,9 +226,6 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
       // Only apply terminal link state and emit the terminal event when the
       // status actually changes — prevents double-notification on idempotent
       // redeliveries (e.g. authorized → captured, both mapping to 'completed').
-      // The reservation is released with a relative, row-locked UPDATE in this
-      // same transaction: writing back counters from the link read above would
-      // overwrite reservations, completions and releases committed since then.
       if (!previousTerminal && nextTerminal) {
         const released = await tx.execute<Array<{ completion_count: number; max_completions: number | null }>>(
           `
@@ -255,8 +249,6 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
           })
         }
         const maxCompletions = released[0].max_completions
-        // Only the completion that brings the count exactly to the limit reports it,
-        // so the event fires once per link even when completions run concurrently.
         if (
           nextStatus === 'completed'
           && maxCompletions != null
