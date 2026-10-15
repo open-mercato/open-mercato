@@ -1,10 +1,10 @@
 # Handoff — 2026-10-14-ecommerce-release-4-write-side
 
-**Last updated:** 2026-10-15T10:15:00Z (Phases 1-2 CLOSED; Phase 3/4 functionally closed — one open item each; Phase 5 (Cart Phase 2) now CLOSED — all 5 steps done, two new open items carried forward, neither blocking)
+**Last updated:** 2026-10-15T11:15:00Z (Phases 1-2 CLOSED; Phase 3/4 functionally closed — one open item each; Phase 5 CLOSED; Phase 6 — Promotions Phase 3 — in progress, Step 6.2 done)
 **Branch:** feat/release-4-write-side
 **PR:** https://github.com/adeptofvoltron/open-mercato/pull/15 (draft, base `develop` on the fork)
-**Current phase/step:** Phases 1-2 fully done. Phase 3 done except Step 3.4's Part A (open item). Phase 4 done except Step 4.9's CONC-05 concurrency bug (open item, neither blocks downstream work). Phase 5 (Cart Phase 2, pricing behavior) is now fully done (Steps 5.1-5.5). Resume at Phase 6 (promotions codes and usage), Step 6.2 — Step 6.1 was already satisfied early, during Step 1.2.
-**Last commit:** see `git log` on `feat/release-4-write-side` for the exact tip — Step 5.5's test-only changes are the most recent, not yet committed by this step (per its own brief: "do not commit — the orchestrating session will review the diff and commit it").
+**Current phase/step:** Phases 1-2 fully done. Phase 3 done except Step 3.4's Part A (open item). Phase 4 done except Step 4.9's CONC-05 concurrency bug (open item). Phase 5 (Cart Phase 2) fully done, two findings carried forward (currency/locale digest coupling). Phase 6 (Promotions Phase 3): Step 6.2 done (Step 6.1 already satisfied early in Step 1.2). Resume at Step 6.3 (`promotionUsageService.registerUsage`/`.revertUsage`).
+**Last commit:** see `git log` on `feat/release-4-write-side` for the exact tip — Step 6.2's commits (code commands/service + docs) are the most recent.
 
 ## OPEN ITEM 4 — RESOLVED at Step 5.5
 Step 5.5 stood up a fresh dev server against the still-current `om_cart49` disposable DB and ran the full `cart/__integration__/` suite live: 24 passed, 1 skipped (pre-existing CONC-05), 0 failed. The 4 existing Playwright spec files' Step 5.2/5.3 envelope-shape edits needed no fixes — they were correct by inspection AND are now confirmed correct by a real run.
@@ -58,10 +58,12 @@ Built the `cart` module from zero: scaffold/ACL/setup/events/encryption (4.1), e
 
 **Step 5.5** closed Phase 5. Resolved OPEN ITEM 4 (live Playwright re-verification, 3 steps overdue) by standing up a fresh dev server against the still-current `om_cart49` disposable DB — full `cart/__integration__/` suite: 24 passed, 1 skipped (pre-existing CONC-05), 0 failed, no fixes needed in the 4 existing spec files. Built the trigger-isolation gate at the Jest level (`commands/__tests__/cart.test.ts` +3 tests for triggers 3/4 in isolation, `commands/__tests__/lines.test.ts` +2 "not in the set" controls; triggers 1/2's own isolation already existed from Steps 4.6/4.9/5.1). Added `backdateCartTotalsComputedAt`/`updateStoreLocaleAndCurrency` helpers and a new 4-test `TC-CART-PRICE-01-02-reprice-triggers.spec.ts` for triggers 3/4 over real HTTP (trigger 2 stays Jest-only — no authenticated storefront buyer session helper exists in this worktree). Un-skipped `TC-CART-CONC-04`. **Found and documented (not fixed) two new real-HTTP gaps** — see the "Two new open items" section above. 5 new tests (118 total in `cart`).
 
-## Next concrete action
-Phase 6 (Promotions Phase 3 — codes and usage), Step 6.2: code commands and code service (validate, reserve idempotent per cart, `extendReservation`, release by `cartId`, use; capacity-holding rules D-R4-8; rate limit; uniform errors). Step 6.1 (entities/migration) was already satisfied early, during Step 1.2 — nothing to do there, proceed straight to 6.2.
+**Step 6.2** built `promotions/lib/code-service.ts`'s `PromotionCodeService` + `commands/codes.ts`'s 3 registered commands (`reserve`/`release`/`use`), replacing the 5 throwing stubs in `PromotionsServiceImpl`. Row-lock correction for `useCode` (C6/D-R4-12), D-R4-8's per-customer-limit counting rule, rate-limited `reserveCode`. 35 new tests (160 total in `promotions`).
 
-**PR checkpoint status**: the last comment posted covers through Steps 5.1-5.2 (`https://github.com/adeptofvoltron/open-mercato/pull/15#issuecomment-6186444505`). Steps 5.3, 5.4 and 5.5 (closing Phase 5) are unreported; post the Phase-5-close checkpoint before or alongside Phase 6's first checkpoint.
+## Next concrete action
+Step 6.3 — `promotionUsageService.registerUsage`/`.revertUsage`: row lock then re-read sum, idempotent upsert, `207 Multi-Status`, `budget_exhausted` event on first hit, counters-key update. This fills in the last two throwing stubs on `PromotionsServiceImpl` (`registerUsage`/`revertUsage`, left untouched by Step 6.2 on purpose).
+
+**PR checkpoint status**: the last comment posted covers through Steps 5.3-5.5/Phase 5's close (`https://github.com/adeptofvoltron/open-mercato/pull/15#issuecomment-6187607263`). Step 6.2 is unreported; post the next checkpoint once a few more Phase 6 steps land.
 
 ## Blockers / open questions
 None blocking. Step 3.4 Part A is open but does not block anything downstream yet (see "OPEN ITEM" above).
