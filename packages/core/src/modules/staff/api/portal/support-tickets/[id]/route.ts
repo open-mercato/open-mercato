@@ -54,11 +54,12 @@ function nonEmptyName(value: unknown): string | null {
 async function loadVisibleAttachments(
   scope: Parameters<typeof listCustomerVisibleAttachments>[1],
   taskId: string,
+  canManage: boolean,
 ): Promise<PortalSupportAttachmentItem[]> {
   const api = await loadPortalAttachmentsApi()
   if (!api) return []
   try {
-    return await listCustomerVisibleAttachments(api, scope, taskId)
+    return await listCustomerVisibleAttachments(api, scope, taskId, canManage)
   } catch (err) {
     logger.warn('staff portal support ticket attachments could not be listed', { err, taskId })
     getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.portal_support_attachments_failed' })
@@ -101,7 +102,7 @@ export async function GET(req: Request) {
     }
     const request = ticket.customerRequestSnapshot
     const canReply = await scope.hasFeature(PORTAL_SUPPORT_TICKETS_MANAGE_FEATURE)
-    const attachments = await loadVisibleAttachments(scope, task.id)
+    const attachments = await loadVisibleAttachments(scope, task.id, canReply)
     return NextResponse.json(
       detailSchema.parse({
         id: task.id,

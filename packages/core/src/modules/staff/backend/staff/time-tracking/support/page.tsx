@@ -26,7 +26,7 @@ import { supportPortalStatusLabel } from '../../../../lib/time-tracking-ui/Suppo
 import { searchCustomers } from '../../../../lib/time-tracking-ui/CustomerPicker'
 
 const PAGE_SIZE = 25
-const DIRECTORY_PAGE_SIZE = 100
+const PROJECT_SEARCH_PAGE_SIZE = 50
 const OPTIONS_URL = '/api/staff/timesheets/support-tickets/options'
 const UNASSIGNED_VALUE = '__unassigned__'
 const ASSIGNEE_CHANGED_EVENT = 'staff.timesheets.time_task.assignee_changed'
@@ -105,13 +105,16 @@ export default function SupportTicketsPage() {
 
   const [rows, setRows] = React.useState<SupportRow[]>([])
   const [total, setTotal] = React.useState(0)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [page, setPage] = React.useState(1)
   const [isLoading, setIsLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState(false)
   const [search, setSearch] = React.useState('')
-  const [filterValues, setFilterValues] = React.useState<FilterValues>({})
+  const [filterValues, setFilterValues] = React.useState<FilterValues>(() =>
+    searchParams?.get('supportUnnotified') === 'true' ? { supportUnnotified: true } : {},
+  )
   const [refreshKey, setRefreshKey] = React.useState(0)
-  const [projectOptions, setProjectOptions] = React.useState<Option[]>([])
+  const [projectLabels, setProjectLabels] = React.useState<Record<string, string>>({})
   const [assigneeOptions, setAssigneeOptions] = React.useState<Option[]>([])
   const [categoryOptions, setCategoryOptions] = React.useState<Option[]>([])
   const [customerLabels, setCustomerLabels] = React.useState<Record<string, string>>({})
@@ -125,14 +128,8 @@ export default function SupportTicketsPage() {
     let cancelled = false
     void (async () => {
       try {
-        const [projects, options] = await Promise.all([
-          loadOptions(`/api/staff/timesheets/time-projects?page=1&pageSize=${DIRECTORY_PAGE_SIZE}`, (row) =>
-            readString(row, 'name'),
-          ),
-          apiCall<InboxOptionsResponse>(OPTIONS_URL),
-        ])
+        const options = await apiCall<InboxOptionsResponse>(OPTIONS_URL)
         if (cancelled) return
-        setProjectOptions(projects)
         if (!options.ok) {
           setOptionsError(true)
           return
@@ -185,6 +182,7 @@ export default function SupportTicketsPage() {
         setLoadError(false)
         setRows(readItems(call.result).map(toSupportRow).filter((row): row is SupportRow => row !== null))
         setTotal(readTotal(call.result, 0))
+        setTotalIsCapped(call.result?.totalIsCapped === true)
       } catch {
         if (!cancelled) setLoadError(true)
       } finally {
@@ -234,6 +232,20 @@ export default function SupportTicketsPage() {
     [t],
   )
 
+  const loadProjectOptions = React.useCallback(async (query?: string) => {
+    const params = new URLSearchParams({ page: '1', pageSize: String(PROJECT_SEARCH_PAGE_SIZE) })
+    const trimmed = (query ?? '').trim()
+    if (trimmed) params.set('q', trimmed)
+    const projects = await loadOptions(`/api/staff/timesheets/time-projects?${params.toString()}`, (row) =>
+      readString(row, 'name'),
+    )
+    setProjectLabels((current) => ({
+      ...current,
+      ...Object.fromEntries(projects.map((project) => [project.value, project.label])),
+    }))
+    return projects
+  }, [])
+
   const filters = React.useMemo<FilterDef[]>(
     () => [
       {
@@ -255,8 +267,10 @@ export default function SupportTicketsPage() {
       {
         id: 'timeProjectId',
         label: t('staff.support.tickets.filters.project', 'Project'),
-        type: 'select',
-        options: projectOptions,
+        type: 'combobox',
+        placeholder: t('staff.support.tickets.filters.projectPlaceholder', 'Search projects'),
+        loadOptions: loadProjectOptions,
+        formatValue: (value: string) => projectLabels[value] ?? value,
       },
       {
         id: 'customerId',
@@ -278,7 +292,7 @@ export default function SupportTicketsPage() {
         type: 'checkbox',
       },
     ],
-    [assigneeOptions, categoryOptions, customerLabels, loadCustomerOptions, projectOptions, t],
+    [assigneeOptions, categoryOptions, customerLabels, loadCustomerOptions, loadProjectOptions, projectLabels, t],
   )
 
   const columns = React.useMemo<ColumnDef<SupportRow>[]>(
@@ -393,6 +407,7 @@ export default function SupportTicketsPage() {
             pageSize: PAGE_SIZE,
             total,
             totalPages,
+            totalIsCapped,
             onPageChange: setPage,
           }}
           onRowClick={(row) => openTask(row.id)}

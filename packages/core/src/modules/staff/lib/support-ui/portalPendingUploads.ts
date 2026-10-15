@@ -1,4 +1,4 @@
-import { failedUploadsStorageKey } from '../support-ui/portalSupport'
+import { failedUploadsStorageKey } from './portalSupport'
 
 /**
  * Files that failed to upload while filing a ticket. The names survive a reload in

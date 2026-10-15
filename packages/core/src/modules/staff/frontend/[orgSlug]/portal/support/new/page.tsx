@@ -26,8 +26,8 @@ import {
   ATTACHMENT_ACCEPT_TYPES,
   resolvePortalMaxUploadBytes,
   validateAttachmentFile,
-} from '@open-mercato/core/modules/staff/lib/support/portalAttachmentValidation'
-import { rememberFailedUploads } from '@open-mercato/core/modules/staff/lib/support/portalPendingUploads'
+} from '@open-mercato/core/modules/staff/lib/support-ui/portalAttachmentValidation'
+import { rememberFailedUploads } from '@open-mercato/core/modules/staff/lib/support-ui/portalPendingUploads'
 import {
   formatFileSize,
   type PortalSupportOptions,
@@ -307,7 +307,7 @@ export default function PortalSupportNewTicketPage({ params }: Props) {
                   {files.map((file, index) => (
                     <li key={`${file.name}-${index}`} className="flex items-center justify-between gap-2 text-sm">
                       <span className="truncate">
-                        {file.name} · {formatFileSize(file.size)}
+                        {file.name} · {formatFileSize(t, file.size)}
                       </span>
                       <IconButton
                         type="button"

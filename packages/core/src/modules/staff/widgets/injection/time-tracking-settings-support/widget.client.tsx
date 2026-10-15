@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import Link from 'next/link'
 import { Pencil, Plus, Save, Trash2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -37,6 +38,7 @@ import {
   type DictionaryTableEntry,
 } from '@open-mercato/core/modules/dictionaries/components/DictionaryTable'
 import type { TimeTrackingSettings } from '../../../lib/time-tracking/settings'
+import { DEFAULT_SUPPORT_REFERENCE_PREFIX } from '../../../lib/time-tracking/settingKeys'
 import type { TimeTrackingSettingsTabContext } from '../../../lib/time-tracking-ui/settingsTabs'
 
 const CATEGORY_DICTIONARY_KEY = 'staff.support_ticket_category'
@@ -45,6 +47,7 @@ const PREVIEW_URL = '/api/staff/timesheets/support-routing-rules/preview'
 const FALLBACK_PROJECT_URL = '/api/staff/timesheets/support-routing-rules/fallback-project'
 const PROJECTS_URL = '/api/staff/timesheets/time-projects'
 const SETTINGS_URL = '/api/staff/timesheets/settings'
+const UNNOTIFIED_INBOX_URL = '/backend/staff/time-tracking/support?supportUnnotified=true'
 const SAVE_CONTEXT_ID = 'staff.support.settings'
 const DICTIONARIES_VIEW_FEATURE = 'dictionaries.view'
 const DICTIONARIES_MANAGE_FEATURE = 'dictionaries.manage'
@@ -60,6 +63,7 @@ type PreviewProject = {
   code: string | null
   status: string
   usable: boolean
+  nobodyNotified?: boolean
 }
 
 type PreviewRule = {
@@ -81,6 +85,7 @@ type RoutingPreview = {
   fallback: { ruleId: string; project: PreviewProject } | null
   rules: PreviewRule[]
   categories: PreviewCategory[]
+  unnotifiedTicketCount?: number
 }
 
 type ProjectOption = {
@@ -253,7 +258,7 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
   const [creatingFallback, setCreatingFallback] = React.useState(false)
 
   const { settings, onSettingsSaved } = context
-  const savedPrefix = settings.support?.referencePrefix ?? 'SUP'
+  const savedPrefix = settings.support?.referencePrefix ?? DEFAULT_SUPPORT_REFERENCE_PREFIX
   const [prefix, setPrefix] = React.useState(savedPrefix)
   const [prefixError, setPrefixError] = React.useState<string | null>(null)
   const [prefixSaving, setPrefixSaving] = React.useState(false)
@@ -587,6 +592,12 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
     return t('staff.support.settings.routing.problem.projectUnusable', 'The project is completed, deleted, or has no default status.')
   }
 
+  const nobodyNotifiedText = t(
+    'staff.support.settings.routing.nobodyNotified',
+    'Nobody will be notified about tickets routed here: the project has no active assigner, no usable default assignee and no owner.',
+  )
+  const unnotifiedTicketCount = typeof preview.unnotifiedTicketCount === 'number' ? preview.unnotifiedTicketCount : 0
+
   const tableTranslations = React.useMemo(() => ({
     title: t('staff.support.settings.categories.title', 'Categories'),
     valueColumn: t('staff.support.settings.categories.value', 'Value'),
@@ -690,6 +701,16 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
               />
             ) : (
               <>
+                {unnotifiedTicketCount > 0 ? (
+                  <Alert status="warning" data-testid="support-unnotified-tickets">
+                    <AlertDescription>
+                      {t('staff.support.settings.routing.unnotifiedTickets', '{count} tickets were not notified to anyone.', { count: unnotifiedTicketCount })}{' '}
+                      <Link className="font-medium underline" href={UNNOTIFIED_INBOX_URL}>
+                        {t('staff.support.settings.routing.unnotifiedTicketsLink', 'Open them in the Support Inbox')}
+                      </Link>
+                    </AlertDescription>
+                  </Alert>
+                ) : null}
                 {!preview.fallback ? (
                   <Alert
                     status="warning"
@@ -713,6 +734,11 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
                         <AlertDescription>
                           {t('staff.support.settings.routing.fallbackUnusableDescription', 'It is completed, deleted, or has no default status. Point the fallback rule at another project.')}
                         </AlertDescription>
+                      </Alert>
+                    ) : null}
+                    {preview.fallback.project.nobodyNotified === true ? (
+                      <Alert status="warning" data-testid="support-fallback-nobody-notified">
+                        <AlertDescription>{nobodyNotifiedText}</AlertDescription>
                       </Alert>
                     ) : null}
                     <div className="max-w-md space-y-2">
@@ -770,7 +796,16 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
                         {overrides.map((rule) => (
                           <TableRow key={rule.id}>
                             <TableCell>{categoryLabels.get(rule.categoryValue ?? '') ?? rule.categoryValue}</TableCell>
-                            <TableCell>{projectLabel(rule.project)}</TableCell>
+                            <TableCell>
+                              <div className="space-y-1">
+                                <span>{projectLabel(rule.project)}</span>
+                                {rule.project.nobodyNotified === true ? (
+                                  <Alert status="warning" size="xs" data-testid="support-rule-nobody-notified">
+                                    <AlertDescription>{nobodyNotifiedText}</AlertDescription>
+                                  </Alert>
+                                ) : null}
+                              </div>
+                            </TableCell>
                             <TableCell>
                               <Switch
                                 checked={rule.isActive}

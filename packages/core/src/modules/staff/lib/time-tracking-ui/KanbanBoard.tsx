@@ -366,6 +366,10 @@ export function KanbanBoard({
     queryClient.invalidateQueries({ queryKey: [...BOARD_QUERY_ROOT, 'children'] }).catch(() => {})
   }, [queryClient])
 
+  const invalidateUnassignedCount = React.useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: [...BOARD_QUERY_ROOT, 'unassigned-count'] }).catch(() => {})
+  }, [queryClient])
+
   const invalidateStatuses = React.useCallback(() => {
     queryClient.invalidateQueries({ queryKey: [...BOARD_QUERY_ROOT, 'statuses'] }).catch(() => {})
   }, [queryClient])
@@ -415,9 +419,9 @@ export function KanbanBoard({
       const projectId = typeof eventPayload?.timeProjectId === 'string' ? eventPayload.timeProjectId : null
       if (projectId && projectId !== timeProjectId) return
       invalidateBoard()
-      queryClient.invalidateQueries({ queryKey: [...BOARD_QUERY_ROOT, 'unassigned-count'] }).catch(() => {})
+      invalidateUnassignedCount()
     },
-    [invalidateBoard, queryClient, timeProjectId],
+    [invalidateBoard, invalidateUnassignedCount, timeProjectId],
   )
 
   useAppEvent(
@@ -427,8 +431,9 @@ export function KanbanBoard({
       const projectId = typeof eventPayload?.projectId === 'string' ? eventPayload.projectId : null
       if (projectId && projectId !== timeProjectId) return
       invalidateBoard()
+      invalidateUnassignedCount()
     },
-    [invalidateBoard, timeProjectId],
+    [invalidateBoard, invalidateUnassignedCount, timeProjectId],
   )
 
   const setTaskPending = React.useCallback((taskId: string, pending: boolean) => {

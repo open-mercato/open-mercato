@@ -25,13 +25,13 @@ import {
   ATTACHMENT_ACCEPT_TYPES,
   resolvePortalMaxUploadBytes,
   validateAttachmentFile,
-} from '@open-mercato/core/modules/staff/lib/support/portalAttachmentValidation'
+} from '@open-mercato/core/modules/staff/lib/support-ui/portalAttachmentValidation'
 import {
   forgetFailedUpload,
   getRetryableUpload,
   readFailedUploadNames,
   rememberFailedUploads,
-} from '@open-mercato/core/modules/staff/lib/support/portalPendingUploads'
+} from '@open-mercato/core/modules/staff/lib/support-ui/portalPendingUploads'
 import {
   PORTAL_SUPPORT_STATUS_VARIANTS,
   PORTAL_SUPPORT_UPDATED_EVENT,
@@ -511,9 +511,9 @@ export default function PortalSupportTicketDetailPage({ params }: Props) {
                     <a className="flex min-w-0 items-center gap-2 text-foreground hover:underline" href={attachment.downloadUrl}>
                       <Download className="h-4 w-4 shrink-0" />
                       <span className="truncate">{attachment.fileName}</span>
-                      <span className="shrink-0 text-muted-foreground">{formatFileSize(attachment.fileSize)}</span>
+                      <span className="shrink-0 text-muted-foreground">{formatFileSize(t, attachment.fileSize)}</span>
                     </a>
-                    {attachment.canDelete ? (
+                    {ticket.canReply && attachment.canDelete ? (
                       <IconButton
                         type="button"
                         variant="ghost"

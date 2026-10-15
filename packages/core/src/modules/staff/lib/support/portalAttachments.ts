@@ -90,6 +90,7 @@ export function serializePortalAttachment(
   attachment: AttachmentEntity,
   taskId: string,
   customerUserId: string,
+  canManage = false,
 ): PortalSupportAttachmentItem {
   const tags = readAttachmentTags(api, attachment)
   return {
@@ -99,7 +100,7 @@ export function serializePortalAttachment(
     mimeType: attachment.mimeType ?? null,
     downloadUrl: `/api/staff/portal/support-tickets/${encodeURIComponent(taskId)}/attachments?attachmentId=${encodeURIComponent(attachment.id)}`,
     uploadedByCustomer: tags.some((tag) => tag.startsWith(CUSTOMER_UPLOAD_TAG_PREFIX)),
-    canDelete: tags.includes(customerUploadTag(customerUserId)),
+    canDelete: canManage && tags.includes(customerUploadTag(customerUserId)),
     createdAt: attachment.createdAt ? attachment.createdAt.toISOString() : null,
   }
 }
@@ -107,11 +108,14 @@ export function serializePortalAttachment(
 /**
  * The files of a ticket the customer may see: tagged `customer-visible` and passing
  * the attachments module's own access check. Internal staff files are never returned.
+ * `canManage` is whether the caller holds `portal.support_tickets.manage`; without it
+ * no item reports `canDelete`, matching the DELETE route's own feature check.
  */
 export async function listCustomerVisibleAttachments(
   api: PortalAttachmentsApi,
   scope: SupportPortalScope,
   taskId: string,
+  canManage = false,
 ): Promise<PortalSupportAttachmentItem[]> {
   const decryptionScope = { tenantId: scope.tenantId, organizationId: scope.organizationId }
   const attachments = await findWithDecryption(
@@ -132,5 +136,5 @@ export async function listCustomerVisibleAttachments(
       if (!readAttachmentTags(api, attachment).includes(CUSTOMER_VISIBLE_ATTACHMENT_TAG)) return false
       return api.checkAttachmentAccess(auth, attachment, partition, { requireAuthForPublic: true }).ok
     })
-    .map((attachment) => serializePortalAttachment(api, attachment, taskId, scope.auth.sub))
+    .map((attachment) => serializePortalAttachment(api, attachment, taskId, scope.auth.sub, canManage))
 }

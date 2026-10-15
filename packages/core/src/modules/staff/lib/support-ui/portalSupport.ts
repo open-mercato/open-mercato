@@ -82,11 +82,13 @@ export function formatPortalDate(value: string | null | undefined, locale?: stri
   return date.toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })
 }
 
-export function formatFileSize(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+export function formatFileSize(t: TranslateFn, bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return t('staff.portal.support.fileSize.bytes', '{size} B', { size: 0 })
+  if (bytes < 1024) return t('staff.portal.support.fileSize.bytes', '{size} B', { size: bytes })
+  if (bytes < 1024 * 1024) {
+    return t('staff.portal.support.fileSize.kilobytes', '{size} KB', { size: (bytes / 1024).toFixed(1) })
+  }
+  return t('staff.portal.support.fileSize.megabytes', '{size} MB', { size: (bytes / (1024 * 1024)).toFixed(1) })
 }
 
 export function failedUploadsStorageKey(ticketId: string): string {
