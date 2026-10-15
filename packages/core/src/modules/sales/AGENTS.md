@@ -56,7 +56,7 @@ const calcService = container.resolve('salesCalculationService')
 
 ### Core Entities
 - **Sales Orders** — confirmed customer orders. MUST have a channel and at least one line
-- **Sales Quotes** — proposed orders. MUST track conversion status
+- **Sales Quotes** — proposed orders; deleted on conversion
 - **Order/Quote Lines** — individual items. MUST reference valid products
 - **Adjustments** — discounts/surcharges. MUST use registered `AdjustmentKind`
 

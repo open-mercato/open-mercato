@@ -1155,6 +1155,18 @@
     });
   }
 
+  function prepareProposalToggles() {
+    document.querySelectorAll('[data-proposal-toggle]').forEach(function (box) {
+      var scope = box.closest('.screen') || document;
+      function apply() {
+        scope.querySelectorAll('[data-proposal-only]').forEach(function (el) { el.hidden = !box.checked; });
+        scope.querySelectorAll('[data-direct-only]').forEach(function (el) { el.hidden = box.checked; });
+      }
+      box.addEventListener('change', apply);
+      apply();
+    });
+  }
+
   function prepareSwitches() {
     document.querySelectorAll('.switch[data-switch]').forEach(function (toggle) {
       function apply() {
@@ -1330,7 +1342,7 @@
       }
       chips.forEach(function (chip) {
         chip.addEventListener('click', function () {
-          chips.forEach(function (other) { other.classList.toggle('chip-active', other === chip); });
+          chips.forEach(function (other) { other.classList.toggle('chip-active', other === chip); other.setAttribute('aria-pressed', other === chip ? 'true' : 'false'); });
           state.chip = chip.getAttribute('data-filter-chip');
           apply();
         });
@@ -1557,6 +1569,7 @@
     prepareTableFilters();
     prepareFloorLayout();
     prepareSwitches();
+    prepareProposalToggles();
     prepareAvailabilityToggles();
     prepareCategoryProducts();
     prepareLayoutForms();

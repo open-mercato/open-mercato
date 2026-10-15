@@ -2,11 +2,11 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification — approved, ready for implementation |
+| **Status** | Draft — in review ([open-mercato/open-mercato#7472](https://github.com/open-mercato/open-mercato/pull/7472)) |
 | **Created** | 2026-10-15 |
 | **Module** | `property_management` (new, `packages/core/src/modules/property_management`) |
-| **Touches** | `planner` (export one helper, additive), `catalog` (enricher + form-field widget, additive), `sales` (commands consumed), `customer_accounts` / portal (pages, nav, notifications), `scheduler` (optional peer), `dictionaries` |
-| **Source** | Clickable prototype `.ai/prototypes/property-management/` (44 screens) and `.ai/prototypes/property-management.requirements.md` (Epics A–K, US-A1 … US-K1) |
+| **Touches** | `planner` (export one helper, additive), `catalog` (enricher + form-field widget, additive), `sales` (commands consumed), `customer_accounts` / portal (pages, nav, customer-role features), `notifications` (portal recipients — see D2), `scheduler` (optional peer), `dictionaries` |
+| **Source** | Clickable prototype `.ai/prototypes/property-management/` (45 screens) and `.ai/prototypes/property-management.requirements.md` (Epics A–K, US-A1 … US-K1, incl. US-I5) |
 
 ## TLDR
 
@@ -18,16 +18,26 @@
 - Property structure: buildings (optional opening hours, availability, archive), floors (size, numbering with ground floor 0, laid out from below/above-ground counts), spaces (non-overlapping rectangles, one default space per floor), units (size + position, drag-and-drop placement, product history), common areas.
 - Availability on building / floor / space / unit, inherited downwards: blocks new leases and bookings, **cancels bookings** in the period (customers notified), **flags leases** "Unit unavailable".
 - Floor plan (to-scale status view) and floor setup pages.
-- Leases: draft → active → ended; product snapshot; version history; extension offers answered in the portal; **scheduled monthly invoicing** through the sales Quote → Order → Invoice flow.
+- Leases on **two paths** chosen on one form: a **lease proposal** (a sales quote the customer's portal user approves or declines; the unit is reserved meanwhile) or a **direct lease** (active on save, sales order created directly). Product snapshot; version history; extensions on the same two paths; the first month is invoiced when the lease starts its order, then **monthly on a schedule**. One lease at a time per unit; a company may lease any number of units.
 - Bookings: product + price snapshot; only within opening hours and outside unavailable periods; a **sales order per confirmed booking**.
-- Customer portal: my bookings, book (review shows the unit on its floor), my lease + extension offer, bell notifications.
+- Customer portal: my bookings, book (review shows the unit on its floor), my leases + extension offers, bell notifications — each gated by a portal feature.
 
-**Out of scope (separately specified or deferred):** credits; payment collection; rent escalation, deposits, proration beyond calendar-month periods; uploaded floor-plan backgrounds; non-rectangular geometry; the portal's access, events, invoices, support and extras sections.
+**Out of scope (separately specified or deferred):** credits; payment collection; rent escalation, deposits; uploaded floor-plan backgrounds; non-rectangular geometry; the portal's access, events, invoices, support and extras sections.
 
 **Concerns:**
 - The module is large; it ships in seven phases, each independently usable (Implementation Plan).
 
----
+## Decisions after review
+
+Raised by the review of #7472 and settled by the maintainer (defaults accepted):
+
+- **D1 — Partial months are prorated by days.** Sales has no recurring, period or proration concept. A period shorter than a calendar month is invoiced as quantity = days in period ÷ days in month (4 decimals; sales line quantities are `numeric(18,4)`) at the monthly rate.
+- **D2 — Portal bell entries via an additive `notifications` API.** `notificationService` only accepts staff recipients today; a separate PR adds `createForCustomerUsers` to the `notifications` module before Phase 7. Until it lands, portal users get live events only.
+- **D3 — Early lease end stays.** `lease.end` ends a lease early or at term and reduces the order line to the invoiced months; notice and handover stay outside this module.
+- **D4 — Proposals in History.** Proposals (new and extension) live in `LeaseProposal`; the History card lists them as rows with no invoices until approved.
+- **D5 — Backoffice booking is an API capability only.** A manager can book on a customer's behalf through the API (`customer_user_id` null); there is no backoffice booking screen in this iteration.
+- **D6 — Delete only a never-used building.** A building that ever had a lease or booking is archived, not deleted.
+- **D7 — Proposal expiry in days.** A proposal stays open for N days (form field, prefilled from the `proposalExpiryDays` setting, default 14); the respond-by date and the quote's `validUntil` derive from it.
 
 ## Overview
 
@@ -60,8 +70,12 @@ A single core module, `property_management`, delivered in seven phases (structur
 | Own bookings table, not `resources` (Q4 = B) | `resources` serves staff-schedulable resources; units need geometry, product snapshots and lease/booking exclusivity. |
 | Geometry in metres, rectangles only | Validatable (fit, overlap) and drawn to scale; matches the prototype. Non-rectangular shapes deferred. |
 | Leasable/bookable is a **product** property stored in a module-owned mapping (`ProductUse`) | Catalog categories are hierarchical and one category can hold both kinds (Open space: flex desk vs dedicated desk); catalog has no such flag and must not gain module-specific columns. Exposed on products via a response enricher (eudr/wms precedent). |
-| Lease billing via **Quote → Order → Invoice** | Activating a lease creates a quote converted to an order (one line: the product, quantity = months, unit price = monthly rate); the scheduler invoices one month at a time against that order. Fully within the sales flow; the order line carries the product, so invoices agree with the lease version by construction. |
+| Leases on **two paths**, both ending in an order | **Lease proposal**: `sales.quotes.create` (one line: the product, quantity = months, unit price = monthly rate) answered by the customer's portal user; approval runs `sales.quotes.convert_to_order`, which deletes the quote and creates the order. **Direct lease**: `sales.orders.create` with the same line, for a lease agreed elsewhere. Either way the lease points to its **order** (never the quote, which does not survive conversion), the first month is invoiced at once, and the scheduler invoices each later month against the order line. The order line carries the product, so invoices agree with the lease version by construction. |
 | **Order per confirmed booking** | One `sales.orders.create` per booking (product + price snapshot). Orders without a source quote are a supported path: `orderCreateSchema` has no quote reference, the backoffice creates orders directly (`/backend/sales/documents/create?kind=order`), and `warranty_claims` does the same from code. |
+| Settings in a **module-owned table** | `property_management_settings`, one row per organization — the `sales_settings` / `customer_settings` pattern. `moduleConfigService` is tenant-scoped and shared by 15 modules; giving it an organization scope would mean replacing a unique index on `module_configs` and backfilling rows. |
+| One lease at a time **per unit**, any number **per company** | A unit's lease terms never overlap; a tenant company can hold several leases (offices, parking). |
+| Sales writes **compensate**, they do not roll back | `sales.orders.create` and `sales.invoices.create` commit in their own transactions, so a later failure here cannot undo them. Compound commands follow `warranty_claims`' sequence: sales write → link → on failure delete what was created (see Writes into sales). |
+| Portal audience **by permission** | Portal pages, endpoints, live events and bell entries are gated by customer-role features; recipients are resolved by this module (no bridge filters by feature). |
 | Unavailability **cancels bookings, flags leases** | Bookings in the period are cancelled with notification; leases are never ended by it — they are flagged "Unit unavailable" until the period ends. |
 | Spaces as partitions | Spaces never overlap; resizing never moves units; a layout with any unit outside its space cannot be saved. |
 | Bookings: per-unit row lock, not a DB exclusion constraint | Avoids the `btree_gist` extension dependency; overlap is checked inside the booking command under `SELECT … FOR UPDATE` on the unit. |
@@ -72,7 +86,9 @@ A single core module, `property_management`, delivered in seven phases (structur
 |-------------|-------------|
 | Extend planner subjects to building/floor/space/unit | Planner's subject enum and reason dictionaries are frozen contracts; extending them couples planner to this domain. Code reuse achieves the same with zero contract change. |
 | Units as `resources` resources | Different use case (staff scheduling); would drag capacity units, comments and tags in and still lack geometry. |
-| Direct invoices without an order | Skips Quote → Order; invoice lines carry no product reference, so lease ↔ invoice consistency would rely on metadata. |
+| Direct invoices without an order | Invoice lines carry no product reference, so lease ↔ invoice consistency would rely on metadata. |
+| One path only (always quote, or always direct) | Operators need both: tenants who negotiate and approve online, and leases signed on paper that must start billing now. |
+| Organization scope in `moduleConfigService` | Changes a service and a unique index shared by 15 modules for one module's needs. |
 | Floor plan as an image with hotspots | No scale, no fit/overlap validation, no to-scale portal map. |
 
 ## User Stories / Use Cases
@@ -118,7 +134,7 @@ packages/core/src/modules/property_management/
 | `lib/bookingSlots.ts` | Bookable windows for a unit and date = planner `getMergedAvailabilityWindows` over the building's opening-hours rules, minus unavailability ranges, minus confirmed bookings. No opening hours ⇒ whole day. |
 | `lib/leasePeriods.ts` (pure) | Calendar-month billing periods for a lease version; first/last periods cut at the lease's start/end dates. |
 | `lib/productUse.ts` | Resolves a product's use (`leasable|bookable`) and billing unit; products eligible for a category = direct assignments of the category **and its descendants** (`descendant_ids`). |
-| Workers | `property_management.lease_invoicing` (daily, concurrency 1): issues due invoices, ends leases past `ends_on`, expires unanswered extension offers. `property_management.booking_sweep` (every 15 min): completes past bookings, sends reminders once (`reminder_sent_at`). `property_management.unavailability_apply`: cancels bookings for large unavailability sets in chunks of 100. Scheduled through the optional `schedulerService` in `setup.ts` `seedDefaults` (warranty_claims pattern: stable UUID ids, `try/catch`). |
+| Workers | `property_management.lease_invoicing` (daily, concurrency 1): issues due invoices, ends leases past `ends_on`, expires unanswered extension offers. `property_management.booking_sweep` (every 15 min): completes past bookings, sends reminders once (`reminder_sent_at`), and reconciles bookings left `pending` by a crash (see Writes into sales). `property_management.unavailability_apply`: cancels bookings for large unavailability sets in chunks of 100. Scheduled through the optional `schedulerService` in `setup.ts` `seedDefaults` (warranty_claims pattern: stable UUID ids, `try/catch`). |
 | Time | Every calendar computation — opening hours, slots, "today", billing periods, lease end, offer deadlines — uses the **building's timezone**. |
 
 ### Commands & Events
@@ -136,23 +152,36 @@ All mutations are commands (singular ids). Undo is specified per command; side e
 | `property_management.common_area.create / update / delete` | inverse | — |
 | `property_management.unavailability.create` (compound) | remove the row; **cancelled bookings are not restored** — the slots may have been rebooked, and customers were already told | booking cancellations, customer notifications, sales order status changes |
 | `property_management.unavailability.end` (make available) | re-create the row | — |
-| `property_management.lease.create / update / delete` | inverse (delete never ends a tenancy; invoices survive). `update` on an active lease writes a `corrected` version and updates the lease order line via `sales.orders.lines.upsert` (unit price, quantity = remaining + invoiced months); issued invoices are untouched; undo restores the previous version and line while no invoice was issued since | — |
-| `property_management.lease.activate` (compound) | dispatch `sales.orders.delete` + `sales.quotes.delete` (scrubbed ctx), revert status — only while no invoice was issued | — |
+| `property_management.lease.create` (direct, compound) | dispatch `sales.orders.delete`, delete the lease — only while no invoice was issued | creates the lease order (`sales.orders.create`, `metadata.propertyManagementLeaseId`) and issues the first month's invoice; lease is `active` on save |
+| `property_management.lease.propose` (compound) | `lease_proposal.withdraw` | creates the sales quote (`sales.quotes.create`, status `sent`, `validUntil` = `respond_by` from `expiresInDays`, `metadata.propertyManagementProposalId`); lease `proposed`, unit reserved; customer notification |
+| `property_management.lease.update / delete` | inverse (delete never ends a tenancy; invoices survive). `update` on an active lease writes a `corrected` version and updates the lease order line via `sales.orders.lines.upsert` (unit price, quantity = remaining + invoiced months); issued invoices are untouched; undo restores the previous version and line while no invoice was issued since. A proposed lease is edited by withdrawing and proposing again | — |
+| `property_management.lease_proposal.approve` (portal, compound) | none — the customer's acceptance; the manager ends or corrects the lease instead | `sales.quotes.convert_to_order` (quote deleted, order created); new lease → `active`, extension → `extended` version and new `ends_on`; first invoice of the new term (immediately for a new lease, on the term's first day for an extension); manager notification. Refused (`409`) after `respondBy`, while the unit is unavailable for the term, or when the quote's lines no longer match the proposal (`quote_changed`) |
 | `property_management.lease.end` (early or at term) | revert status and the order line quantity | the order line quantity is reduced to the invoiced months via `sales.orders.lines.upsert` |
-| `property_management.lease.extend` (manager records the signed agreement for an accepted offer) | delete the extension quote/order and the `extended` version while uninvoiced | — (creates a new quote → order for the extension term; the lease's `ends_on` and current version move) |
-| `property_management.lease_extension.offer / withdraw` | withdraw / re-offer | customer notification |
-| `property_management.lease_extension.answer` (portal; accept/decline) | none — it is the customer's statement, not a state the manager may revert; a declined offer stays acceptable until its deadline, and acceptance changes nothing until `lease.extend` | manager notification |
-| `property_management.lease_extension.expire` (worker) | none — time-based | — |
-| `property_management.lease_billing.issue` (worker) | none — an issued invoice is corrected with a credit memo in sales | invoice. Sequence: insert the period row as `pending` (the unique key is the claim) → `sales.invoices.create` with `metadata.propertyManagementBillingPeriodId` → mark `issued`. A retry finding a `pending` row first looks up an invoice by that metadata key and only creates one if none exists (crash-safe, no duplicates, no orphans) |
-| `property_management.booking.create` (compound) | cancel the booking and set its order to the cancelled status | customer notification |
+| `property_management.lease.extend` (direct, compound) | delete the extension order and the `extended` version while uninvoiced | creates the extension's order (`sales.orders.create`); `ends_on` and current version move at once |
+| `property_management.lease.propose_extension` (compound) | `lease_proposal.withdraw` | creates the extension quote; one open proposal per lease; customer notification |
+| `property_management.lease_proposal.withdraw` (manager) | propose again | quote moved to the `canceled` status via `sales.quotes.update`; a new-lease proposal releases the unit; customer notification |
+| `property_management.lease_proposal.decline` (portal) | none — the customer's statement; a declined proposal stays approvable until `respondBy` (approval first sets the quote back to `sent`) | quote moved to `rejected` via `sales.quotes.update`; a new-lease proposal releases the unit; manager notification |
+| `property_management.lease_proposal.expire` (worker) | none — time-based | quote moved to `canceled`; new lease → `expired`, unit released |
+| `property_management.lease_billing.issue` (worker) | none — an issued invoice is corrected with a credit memo in sales | invoice. Sequence: insert the period row as `pending` (the unique key is the claim) → compute the line and totals with `salesCalculationService.calculateDocumentTotals({ documentKind: 'invoice' })` (`sales.invoices.create` stores whatever totals it is given, so the caller must do the math) → `sales.invoices.create` with `orderId`, one line referencing the lease's `orderLineId`, and `metadata.propertyManagementBillingPeriodId` → mark `issued`. The invoiced quantity per order line is tracked in this ledger, since sales never increments `invoicedQuantity`. A retry finding a `pending` row first looks up an invoice by that metadata key and only creates one if none exists (crash-safe, no duplicates, no orphans) |
+| `property_management.booking.create` (compound) | cancel the booking and set its order to the cancelled status | creates the booking order (`sales.orders.create`, which computes totals itself); customer notification |
 | `property_management.booking.cancel` | none — the customer has been notified and the slot released for others; rebooking is the recovery | notification; the booking's order is moved to the sales order status entry configured as cancelled (`sales.orders.update` with `statusEntryId`), or deleted with `sales.orders.delete` when it has no invoice or payment |
+
+Proposals are answered only in the portal: this module never calls `api/quotes/send`, so no public quote link (`/quote/[token]`) exists for them, and sales' own accept route cannot bypass the lease rules.
 
 Child sales commands are dispatched with a scrubbed context (no `request`), as `warranty_claims` does, so the parent's optimistic-lock header never reaches them.
 
-**Events** (`createModuleEvents`, `module.entity.action`, past tense) — frozen once released:
-`property_management.building.{created,updated,archived,deleted}`, `.floor.{created,updated,deleted}`, `.space.{created,updated,deleted}`, `.unit.{created,updated,deleted,product_changed}`, `.common_area.{created,updated,deleted}`, `.unavailability.{created,ended}`, `.lease.{created,updated,activated,extended,ended,deleted,invoice_issued,invoice_failed}`, `.lease_extension.{offered,withdrawn,accepted,declined,expired}`, `.booking.{created,cancelled,completed}`. `portalBroadcast: true` on `booking.created`, `booking.cancelled`, `lease_extension.offered`.
+**Writes into sales — compensation, not rollback.** A database transaction can be rolled back as a whole only while every write sits inside it. `sales.orders.create` forks its own EntityManager and commits before it returns, and `sales.invoices.create` commits in its own transaction too, so a failure in this module *after* the sales call cannot un-create the sales document. Every compound command therefore follows the `warranty_claims` replacement-order sequence (`warranty_claims/commands/claims.ts`):
 
-**Notifications** (`notifications.ts`): portal recipients — `property_management.booking.reminder`, `.booking.cancelled`, `.lease_extension.offered`; staff recipients — `.lease_extension.answered`, `.lease.invoice_failed`. Portal notifications are `Notification` rows whose recipient is the customer user (as read by `customer_accounts/api/portal/notifications.ts`).
+1. **Hold** — in this module's transaction, lock the unit and write the own record in a holding state (booking `pending`, lease `pending_order` for a direct lease or an approval). The holding row keeps the slot or term from being taken meanwhile.
+2. **Create** — dispatch the sales command with `metadata.propertyManagement…Id` set to the own record's id.
+3. **Link** — in a new transaction, store the sales ids and move the record to its final state (booking `confirmed`, lease `active`).
+4. **Compensate** — if step 2 fails, delete the holding row (booking, direct lease) or return the proposal to `sent` and show the sales error. If step 3 fails, dispatch `sales.orders.delete` for the order just created, then undo step 1.
+5. **Orphan** — if compensation itself fails, log it, raise the `lease.order_orphaned` / `booking.order_orphaned` staff notification naming the order, and return `500`. The sweep (bookings) or a retry (leases, approvals) first looks up an order by the metadata key, and links it instead of creating a second one.
+
+**Events** (`createModuleEvents`, `module.entity.action`, past tense) — frozen once released:
+`property_management.building.{created,updated,archived,deleted}`, `.floor.{created,updated,deleted}`, `.space.{created,updated,deleted}`, `.unit.{created,updated,deleted,product_changed}`, `.common_area.{created,updated,deleted}`, `.unavailability.{created,ended}`, `.lease.{created,updated,activated,extended,ended,deleted,invoice_issued,invoice_failed,order_orphaned}`, `.lease_proposal.{sent,withdrawn,approved,declined,expired}`, `.booking.{created,cancelled,completed,order_orphaned}`. `portalBroadcast: true` on `booking.created`, `booking.cancelled`, `lease_proposal.sent` — always emitted with explicit `recipientUserIds` (see Portal access), never to the whole organization.
+
+**Notifications** (`notifications.ts`): portal recipients — `property_management.booking.reminder`, `.booking.cancelled`, `.lease_proposal.sent`; staff recipients — `.lease_proposal.answered`, `.lease.invoice_failed`, `.lease.order_orphaned`, `.booking.order_orphaned` (sent to holders of `property_management.leases.manage` / `.bookings.manage` via `createForFeature`). Portal notifications are `Notification` rows whose recipient is the customer user (as read by `customer_accounts/api/portal/notifications.ts`), addressed to the same recipients as the portal events; creating them needs D2.
 
 ### Cross-module touchpoints
 
@@ -160,10 +189,10 @@ Child sales commands are dispatched with a scrubbed context (no `request`), as `
 |------|-----------|-------------------|-------------|
 | `catalog` | FK ids (`catalog_category_id`, `catalog_product_id`); `catalogPricingService` for prices; response enricher on `catalog_product` (use, billing unit); CrudForm field widget on spot `crud-form:catalog.product:fields` (`catalog/extension-points.ts`) | this module | catalog is a hard dependency (units cannot exist without a product) — declared in `index.ts` |
 | `customers` (CRM) | FK ids (tenant company, contact person, booking person) | this module | hard dependency (core) |
-| `sales` | `commandBus.execute('sales.quotes.create' → 'sales.quotes.convert_to_order' → 'sales.invoices.create')`, `sales.orders.create`, `sales.orders.update/delete` | this module | hard dependency (core) |
-| `planner` | **direct core-to-core import** of `lib/availabilityMerge`, `lib/availabilitySchedule`, new exported `lib/weeklyRrule` (moved from the private `buildWeeklyRrule`) and the weekly schedule editor component — accepted deliberately: pure functions and UI with no data access, the same way `resources` and `staff` import them today | this module | hard dependency (core) |
+| `sales` | `commandBus.execute` of `sales.orders.create`, `sales.orders.update/delete`, `sales.orders.lines.upsert`, `sales.invoices.create`; `salesCalculationService` (DI) for invoice totals | this module | hard dependency (core) |
+| `planner` | **direct core-to-core import** of `lib/availabilityMerge`, `lib/availabilitySchedule`, new exported `lib/weeklyRrule` (moved from the private `buildWeeklyRrule`) and the weekly schedule editor component (`AvailabilityRulesEditor`) — accepted deliberately: pure functions and UI with no data access. `resources` and `staff` already import `lib/availabilitySchedule` and `AvailabilityRulesEditor` this way; `lib/availabilityMerge` and `lib/weeklyRrule` would be the first imports of their kind | this module | hard dependency (core) |
 | `scheduler` | `schedulerService.register(...)` in `seedDefaults` | this module | soft-optional: `hasRegistration` + `try/catch`; without it the workers can be run from the CLI (`mercato property_management billing:run`) and a banner on the leases page says automatic billing is off |
-| `customer_accounts` / portal | portal pages + `page.meta.ts` nav, `defaultCustomerRoleFeatures`, `CustomerUser.customerEntityId` → tenant company | this module | portal pages simply not reachable |
+| `customer_accounts` / portal | portal pages + `page.meta.ts` nav, `defaultCustomerRoleFeatures`, `CustomerUser.customerEntityId` → tenant company, `CustomerRbacService` to resolve event and notification recipients | this module | portal pages simply not reachable |
 | `dictionaries` | `property_management.unavailability-reasons` dictionary seeded in `setup.ts` | this module | — |
 
 ## Data Models
@@ -198,24 +227,30 @@ All tables `property_management_*`, UUID PKs, `organization_id` + `tenant_id` on
 `subject_type` (`building|floor|space|unit`), `subject_id`, `reason_entry_id` (dictionary), `reason_text`, `starts_at`, `ends_at` (nullable = open-ended), `ended_at` (set when made available early), `cancelled_booking_count`, `apply_status` (`applied|applying`). Index `(organization_id, subject_type, subject_id, starts_at)`. `subject_id` is polymorphic, so the command loads the subject with the caller's `organization_id` before inserting — never trusts the id alone.
 
 ### Lease
-`reference` (unique per org, `L-YYYY-NNN`, issued from a per-organization counter row locked `FOR UPDATE`), `unit_id`, `customer_company_id`, `primary_contact_person_id`, `status` (`draft|active|ended`), `starts_on`, `ends_on`, `current_version_id`, `sales_quote_id`, `sales_order_id`. Active leases of one unit **must not have overlapping terms** (checked under the unit row lock) — so the next tenant's lease can be signed while the current one runs. Activation also fails while confirmed bookings fall inside the term. "Unit unavailable" is **derived** (resolver) and returned by the list API, filterable. Index `(organization_id, unit_id, status)`.
+`reference` (unique per org, `L-YYYY-NNN`, issued from a per-organization counter row locked `FOR UPDATE`), `unit_id`, `customer_company_id`, `primary_contact_person_id`, `status` (`proposed|pending_order|active|declined|expired|ended`), `starts_on`, `ends_on`, `current_version_id`, `sales_order_id`. Leases of one unit (active, about to start, or `proposed` with an open proposal — a proposal reserves the unit) **must not have overlapping terms** (checked under the unit row lock) — so the next tenant's lease can be signed while the current one runs. A company may hold any number of leases on different units. Creating or approving a lease also fails while confirmed bookings fall inside the term. "Unit unavailable" is **derived** (resolver) and returned by the list API, filterable. Index `(organization_id, unit_id, status)`.
+
+### LeaseReferenceCounter
+`organization_id` (unique with `tenant_id`), `year`, `last_number`. Locked `FOR UPDATE` when a lease is created; the reference is `L-{year}-{last_number + 1}` zero-padded to 3 digits. Not user-editable.
+
+### PropertyManagementSettings
+One row per organization (unique `(organization_id, tenant_id)`): `billing_channel_id` (nullable — no default), `invoice_issue_day` (1–28, default 1), `cancelled_order_status_entry_id` (nullable), `lease_ending_threshold_days` (default 60), `booking_reminder_minutes` (default 60), `proposal_expiry_days` (1–90, default 14). Missing row = defaults. Written by `property_management.settings.save`.
 
 ### LeaseVersion (append-only)
-`lease_id`, `version_no`, `event` (`drafted|activated|corrected|extended`), `catalog_product_id`, `product_name`, `monthly_rate`, `currency_code`, `starts_on`, `ends_on`, `sales_order_id`, `sales_order_line_id`, `effective_from`. The product is copied from the unit's open `UnitProductPeriod` at draft time and frozen at activation.
+`lease_id`, `version_no`, `event` (`activated|corrected|extended`), `catalog_product_id`, `product_name`, `monthly_rate`, `currency_code`, `starts_on`, `ends_on`, `sales_order_id`, `sales_order_line_id`, `effective_from`. The product is copied from the unit's open `UnitProductPeriod` when the lease is created or proposed, and never changes afterwards.
 
-### LeaseExtensionOffer
-`lease_id`, `starts_on`, `ends_on`, `monthly_rate`, `currency_code`, `message` (encrypted), `respond_by`, `status` (`sent|accepted|declined|withdrawn|expired`), `answered_at`, `answered_by_customer_user_id`. Partial unique: one `sent` offer per lease.
+### LeaseProposal
+`lease_id`, `kind` (`new|extension`), `sales_quote_id` (until approval — the quote is deleted on conversion), `sales_order_id` (after approval), `starts_on`, `ends_on`, `monthly_rate`, `currency_code`, `message` (encrypted), `expires_in_days`, `respond_by` (= sent date + `expires_in_days`, end of day in the building's timezone; also the quote's `validUntil`), `status` (`sent|approved|declined|withdrawn|expired`), `answered_at`, `answered_by_customer_user_id`. Partial unique: one open (`sent` or `declined` before `respond_by`) proposal per lease. Shown in the lease History as rows with no invoices until approved.
 
 ### LeaseBillingPeriod (idempotency ledger)
 `lease_id`, `lease_version_id`, `period_start`, `period_end`, `amount`, `status` (`pending|issued|failed`), `sales_invoice_id`, `attempts`, `last_error`. **Unique `(lease_id, period_start)`** — the worker's claim and idempotency key; see `lease_billing.issue` for the crash-safe sequence.
 
 ### Booking
-`unit_id`, `customer_company_id` (nullable for members), `booked_by_person_id`, `customer_user_id` (nullable — backoffice-made bookings), `starts_at`, `ends_at`, `status` (`confirmed|completed|cancelled`), `cancel_reason` (`customer|manager|unavailability`), `unavailability_id`, `catalog_product_id`, `product_name`, `unit_price`, `quantity`, `billing_unit`, `total_amount`, `currency_code`, `sales_order_id`, `reminder_sent_at`, `notes` (encrypted). Indexes `(organization_id, unit_id, starts_at)`, `(organization_id, customer_user_id, starts_at)`, `(organization_id, status, starts_at)`.
+`unit_id`, `customer_company_id` (nullable for members), `booked_by_person_id`, `customer_user_id` (nullable — backoffice-made bookings), `starts_at`, `ends_at`, `status` (`pending|confirmed|completed|cancelled`; `pending` only between the hold and the order link, and it already blocks the slot), `cancel_reason` (`customer|manager|unavailability`), `unavailability_id`, `catalog_product_id`, `product_name`, `unit_price`, `quantity`, `billing_unit`, `total_amount`, `currency_code`, `sales_order_id`, `reminder_sent_at`, `notes` (encrypted). Indexes `(organization_id, unit_id, starts_at)`, `(organization_id, customer_user_id, starts_at)`, `(organization_id, status, starts_at)`.
 
 **Booking rules (MVP):** slots start on the hour; an hourly booking is 1–10 whole hours, quantity = hours; a daily booking (flex desk) is one day from opening to closing, quantity 1; a booking never crosses midnight or the building's opening hours; price = `catalogPricingService` price for the product × quantity, snapshotted. Customers may cancel until the booking starts; no cancellation fee in this iteration.
 
 ### Encryption (`encryption.ts`)
-`Booking.notes`, `LeaseExtensionOffer.message` — free text written to or about people. Read through `findWithDecryption`. Building addresses are business addresses, not personal data.
+`Booking.notes`, `LeaseProposal.message` — free text written to or about people. Read through `findWithDecryption`. Building addresses are business addresses, not personal data.
 
 ### Custom entities (`ce.ts`)
 `property_management:building`, `:unit`, `:lease` declared so operators can add custom fields.
@@ -241,28 +276,53 @@ One call for the floor plan and setup pages: floor, spaces, units (with product,
 ### `POST /api/property_management/units/{id}/product`
 `{ catalogProductId }` → closes the open product period and opens a new one. `409` while the unit has an active lease (product locked); allowed with upcoming bookings.
 
-### `POST /api/property_management/leases/{id}/activate` · `/end`
-Activate creates the sales quote and order (see Commands). `422` if the unit is unavailable for new leases or already has an active lease.
+### `POST /api/property_management/leases` (custom create)
+`{ unitId, customerCompanyId, primaryContactPersonId?, startsOn, endsOn, monthlyRate, asProposal: boolean, expiresInDays?: int 1..90 (proposal only; defaults to the `proposalExpiryDays` setting), message? }`. `asProposal: false` → `lease.create` (active, order, first invoice) → `201 { id, salesOrderId }`; `true` → `lease.propose` → `201 { id, proposalId, salesQuoteId }`. `422` if the unit is unavailable for new leases; `409` if another lease or open proposal of the unit overlaps the term.
 
-### `POST /api/property_management/leases/{id}/extension-offers` · `DELETE …/extension-offers/{offerId}`
-`{ startsOn, endsOn, monthlyRate, respondBy, message? }`. `409` when a `sent` offer exists.
+### `POST /api/property_management/leases/{id}/end`
+Ends the lease at a date (early or at term); the order line is reduced to the invoiced months.
+
+### `POST /api/property_management/leases/{id}/extensions` · `DELETE …/proposals/{proposalId}`
+`{ startsOn, endsOn, monthlyRate, asProposal: boolean, expiresInDays?, message? }` → `lease.extend` or `lease.propose_extension`. `409` when an open proposal exists. `DELETE` withdraws an open proposal (new or extension).
 
 ### `GET` · `PUT /api/property_management/settings`
-`{ billingChannelId: uuid | null, invoiceIssueDay: int 1..28, cancelledOrderStatusEntryId: uuid | null, leaseEndingThresholdDays: int 1..365, bookingReminderMinutes: int 5..1440 }`; `GET` returns the stored values with defaults applied. `PUT` validates that the channel and status entry belong to the caller's organization (`422` otherwise); scope comes from the auth context, never the body. Requires `property_management.manage`.
+`{ billingChannelId: uuid | null, invoiceIssueDay: int 1..28, cancelledOrderStatusEntryId: uuid | null, leaseEndingThresholdDays: int 1..365, bookingReminderMinutes: int 5..1440, proposalExpiryDays: int 1..90 }`; `GET` returns the organization's row with defaults applied. `PUT` runs `property_management.settings.save` (mutation guards, optimistic lock on the row) and validates that the channel and status entry belong to the caller's organization (`422` otherwise). The organization comes from `resolveSingleOrganizationIdOrDeny` (as `sales/api/settings/document-numbers`), never the body. Requires `property_management.manage`.
 
-### Portal (`requireCustomerAuth`, scoped to the customer user's company)
-| Endpoint | Purpose |
-|----------|---------|
-| `GET /api/property_management/portal/units?building={id}&date=` | Bookable units with slots, grouped by floor; excludes unavailable units |
-| `GET /api/property_management/portal/bookings?building=&state=` | My bookings |
-| `POST /api/property_management/portal/bookings` | `{ unitId, startsAt, endsAt, notes? }` → `201`; `409` slot taken / outside opening hours / unit unavailable |
-| `POST /api/property_management/portal/bookings/{id}/cancel` | Customer cancellation |
-| `GET /api/property_management/portal/lease` | Current lease of the customer's company (unit, product, size, term, rate, open offer) |
-| `POST /api/property_management/portal/lease/extension-offers/{id}/answer` | `{ answer: 'accept'|'decline' }`; a declined offer may still be accepted until `respondBy` |
+### Portal (`requireCustomerAuth` + the feature listed, scoped to the customer user / company)
+| Endpoint | Feature | Purpose |
+|----------|---------|---------|
+| `GET /api/property_management/portal/units?building={id}&date=` | `portal.property_bookings.view` | Bookable units with slots, grouped by floor; excludes unavailable units |
+| `GET /api/property_management/portal/bookings?building=&state=` | `portal.property_bookings.view` | My bookings |
+| `POST /api/property_management/portal/bookings` | `portal.property_bookings.manage` | `{ unitId, startsAt, endsAt, notes? }` → `201`; `409` slot taken / outside opening hours / unit unavailable |
+| `POST /api/property_management/portal/bookings/{id}/cancel` | `portal.property_bookings.manage` | Cancel one of my bookings |
+| `GET /api/property_management/portal/leases` | `portal.property_leases.view` | The company's open proposals (new leases first) and active leases (unit, product, size, term, rate, unavailability, open extension proposal) |
+| `POST /api/property_management/portal/lease-proposals/{id}/approve` · `/decline` | `portal.property_leases.manage` | Approve (new lease or extension) or decline; a declined proposal may still be approved until `respondBy`; `409` after it |
 
-Portal scoping: bookings are scoped to the **customer user** (`customer_user_id`) — a member without a company books and sees only their own bookings; the lease is scoped to the customer user's company (`CustomerUser.customerEntityId`), never to a body parameter. `GET portal/units` runs a constant 5 queries per request (building + floors/units, opening rules, unavailability, confirmed bookings for the date, prices via `resolvePriceMany`); slots are computed in memory.
+### Portal access
+
+Portal features follow the existing `portal.<resource>.<verb>` convention and are granted through `defaultCustomerRoleFeatures` (existing tenants: `yarn mercato customer_accounts sync-customer-role-acls`). Reused: `portal.notifications.view` for the bell, `portal.invoices.view` for invoices (the portal's Invoices section, owned elsewhere). New, because nothing existing covers units, bookings or leases:
+
+| Feature | Grants | `portal_admin` | `buyer` | `viewer` |
+|---------|--------|:--:|:--:|:--:|
+| `portal.property_bookings.view` | Bookings page, unit list and slots | ✓ (`portal.*`) | ✓ | ✓ |
+| `portal.property_bookings.manage` | Book and cancel own bookings | ✓ | ✓ | — |
+| `portal.property_leases.view` | My leases page | ✓ | ✓ | ✓ |
+| `portal.property_leases.manage` | Approve or decline lease and extension proposals (a company commitment) | ✓ | — | — |
+
+**Recipients.** Neither event bridge filters by feature, so this module resolves recipients before emitting, as `warranty_claims` and `staff` do: booking events go to the booking's `customer_user_id` when that user holds `portal.property_bookings.view`; lease events go to the active customer users of the lease's company (`customer_entity_id`, capped at 100) who hold `portal.property_leases.view` (proposals: `.manage`), checked with `CustomerRbacService.userHasAllFeatures`. An empty list means nothing is emitted. Bell entries use the same list.
+
+Portal scoping: bookings are scoped to the **customer user** (`customer_user_id`) — a member without a company books and sees only their own bookings; leases are scoped to the customer user's company (`CustomerUser.customerEntityId`), never to a body parameter. `GET portal/units` runs a constant 5 queries per request (building + floors/units, opening rules, unavailability, confirmed bookings for the date, prices via `resolvePriceMany`); slots are computed in memory.
 
 Errors use the platform's error envelope; messages are i18n keys, never raw strings.
+
+## Search (`search.ts`)
+
+Fulltext only (no vector) through the query index (`indexer: { entityType }` on every CRUD route):
+- `property_management:building` — name, address.
+- `property_management:unit` — name, building name, floor name, product name (from the open product period).
+- `property_management:lease` — reference, tenant company name, unit name (denormalized at index time; reindexed on `lease.*` and `unit.updated`).
+
+Bookings are not indexed: the Bookings list filters by date, location and status, and its search box runs against the list query.
 
 ## Internationalization (i18n)
 
@@ -278,12 +338,14 @@ The prototype is the visual reference for every screen; the spec records only be
 - **Unit, space, common-area forms** — position is set by **drag and drop** on the to-scale preview (0.5 m snap, arrow keys 0.5 m / Shift 1 m, `aria-roledescription="draggable"`); x/y are read-only read-outs; a dropped unit adopts the space that fully contains it; fit/overlap problems are named in words and disable Save.
 - **Availability** — the same `Available` switch in every list and form (buildings, floors, spaces, units). Switching off opens a dialog (reason required, from, until) that previews the bookings it cancels and the leases it flags (dry-run API); switching on is immediate. Dialogs: `Cmd/Ctrl+Enter` confirm, `Escape` cancel.
 - **Leases list** — status chips include *Unit unavailable*; row status shows Active + "Unit unavailable · until …".
-- **Lease detail** — product (locked once active), the sales order created at activation, History card (versions + invoices per version, linked to sales), extension offer composer with live preview of the tenant's card.
+- **New lease** — one form; a *Send as a proposal* checkbox switches between creating an active lease (order + first invoice) and sending a proposal (quote, *Proposal expires after N days*, prefilled from Settings, with the resulting respond-by date shown). The unit picker lists only units free for the term.
+- **Lease detail** — product (locked), the sales order (from the approved proposal or created directly), History card (versions, proposals, invoices per version, linked to sales), *Extend lease* with the same checkbox and a live preview of the tenant's card for proposals.
+- **Floor plan** — a unit held by an open proposal keeps the available fill and carries a *Proposed* badge (annotation, like *lease ending*).
 - **Bookings list** — "Booked as" column (product + price snapshot) and "Order" column (the booking's sales order, marked cancelled with the booking).
-- **Settings** — one `CrudForm` over the keys in §Configuration; the sales channel has no default, and a refused activation or booking links here while it is unset.
+- **Settings** — one `CrudForm` over the keys in §Configuration; the sales channel has no default, and a refused lease, proposal or booking links here while it is unset.
 - DS primitives only: `DataTable`, `CrudForm`, `StatusBadge`, `Alert`, `FormField`, `SectionHeader`, `EmptyState`, `LoadingMessage`, `useConfirmDialog`; semantic status tokens; lucide icons; `aria-label` on icon-only buttons.
 
-**Portal** (`frontend/[orgSlug]/portal/…`, nav *Bookings*, *My lease*): my bookings; book (location switcher, units grouped by floor with product and space, slots within opening hours, prices in the product's `currency_code`); review with a to-scale "Where it is" map (only the booked unit highlighted); confirmation; my lease (unit + product + size, term, rate, expiry warning identical to the backoffice threshold); extension offer accept/decline; bell entries for booking reminders, cancellations and extension offers.
+**Portal** (`frontend/[orgSlug]/portal/…`, nav *Bookings*, *My leases*, each shown only to holders of its `.view` feature): my bookings; book (location switcher, units grouped by floor with product and space, slots within opening hours, prices in the product's `currency_code`); review with a to-scale "Where it is" map (only the booked unit highlighted; below 640 px the other units lose their labels and a caption names where the unit is); confirmation; my leases (open proposals first, with Approve / Decline for holders of `portal.property_leases.manage`; then one card per active lease of the company: unit + product + size, term, rate, current unavailability, expiry warning identical to the backoffice threshold); lease and extension proposals approved or declined there; bell entries for booking reminders, cancellations and extension offers.
 
 ### Frontend Architecture Contract
 
@@ -309,14 +371,15 @@ Budgets: 0 page-root `"use client"`; no client file > 300 LOC (`FloorPlanCanvas`
 
 ## Configuration
 
-Per organization, through the DI `moduleConfigService` (`configs/lib/module-config-service`, as `catalog/api/settings` uses it): `billingChannelId` (sales channel for lease and booking documents — required before activation/booking; the API returns `422 billing_channel_missing` otherwise), `cancelledOrderStatusEntryId` (sales order status used for cancelled bookings), `leaseEndingThresholdDays` (int, default 60), `invoiceIssueDay` (int 1–28, default 1, in the building's timezone), `bookingReminderMinutes` (int, default 60).
+Per organization, in the module's own `PropertyManagementSettings` row (Data Models), read and written through `GET`/`PUT /api/property_management/settings` — the `sales_settings` pattern: `billingChannelId` (sales channel for lease and booking documents — required before activation/booking; the API returns `422 billing_channel_missing` otherwise), `cancelledOrderStatusEntryId` (sales order status used for cancelled bookings), `leaseEndingThresholdDays` (int, default 60), `invoiceIssueDay` (int 1–28, default 1, in the building's timezone), `bookingReminderMinutes` (int, default 60), `proposalExpiryDays` (int 1–90, default 14 — prefills the proposal forms). `moduleConfigService` is not used: it is tenant-scoped (Design Decisions).
 
 ## Migration & Compatibility
 
 - New module and tables only; no existing table changes.
 - **Planner (additive):** `buildWeeklyRrule` moves from `commands/availability-weekly.ts` into exported `lib/weeklyRrule.ts`; the command and the three inline copies switch to it (no behaviour change).
 - **Catalog (additive):** one response enricher field set (`propertyManagement: { use, billingUnit }`) and one injected form field; no catalog schema change.
-- New event ids, notification ids, ACL features (`property_management.view`, `.manage`, `.availability.manage`, `.leases.manage`, `.bookings.manage`, portal `portal.property_management.bookings`, `.lease`) and API routes are new contract surfaces — frozen once released (`BACKWARD_COMPATIBILITY.md`).
+- New event ids, notification ids, ACL features (`property_management.view`, `.manage`, `.availability.manage`, `.leases.manage`, `.bookings.manage`; portal `portal.property_bookings.view|manage`, `portal.property_leases.view|manage`) and API routes are new contract surfaces — frozen once released (`BACKWARD_COMPATIBILITY.md`).
+- No change to `moduleConfigService` or `module_configs`.
 - Migrations generated with `yarn db:generate`, snapshot committed; no `db:migrate` in the PR.
 
 ## Implementation Plan
@@ -332,16 +395,17 @@ Each step ends with a working app and is covered by the tests named in it. Integ
 6. Building archive (blocked by active leases/upcoming bookings — check wired as leases and bookings arrive) and delete-only-if-never-used.
 
 ### Phase 2: Leases
-1. Lease, LeaseVersion entities; create (draft, product snapshot), update, delete; one active lease per unit. *Integration:* second active lease on a unit → 409.
-2. Settings API (`GET`/`PUT /api/property_management/settings`, `property_management.manage`, values via `moduleConfigService` scoped to the caller's tenant/organization) and the Settings page. *Integration:* `PUT` with an issue day of 29 → 422; activation before a channel is set → `422 billing_channel_missing`.
-3. `lease.activate` / `lease.end` creating the sales quote → order (scrubbed ctx) and storing ids; undo while uninvoiced. *Integration:* activation produces an order whose line carries the unit's product and the monthly rate.
-4. Leases list (status chips, building filter, search) and detail with sales order link and History card.
-5. Extension offers (offer/withdraw, one outstanding, preview card); `lease_extension.offered` event. *Integration:* second offer while one is sent → 409.
+1. Lease, LeaseVersion, LeaseProposal, LeaseReferenceCounter entities; update, delete; non-overlapping terms per unit, counting open proposals. *Integration:* a lease overlapping another lease or an open proposal on the same unit → 409; one company holding leases on two units → both succeed.
+2. PropertyManagementSettings entity, `property_management.settings.save`, settings API and the Settings page. *Integration:* `PUT` with an issue day of 29 → 422; two organizations of one tenant keep separate channels; creating a lease before a channel is set → `422 billing_channel_missing`.
+3. Direct path: `lease.create` and `lease.end` with the hold → create order → link → compensate sequence (scrubbed ctx); undo while uninvoiced. *Integration:* a direct lease is active with an order whose line carries the unit's product and the monthly rate; a forced failure after the order is created leaves no order behind; a retry links an existing order instead of creating a second. (The first-month invoice is issued once Phase 5 lands.)
+4. Proposal path: `lease.propose`, `lease_proposal.withdraw / expire`, the quote (`sales.quotes.create`), unit reservation and the Proposed badge data. *Integration:* proposing creates a `sent` quote whose line matches the proposal; the unit cannot be leased to another company meanwhile; withdrawing cancels the quote and frees the unit.
+5. New lease form with the *Send as a proposal* checkbox; Leases list (status chips incl. *Proposed*, building filter, search) and detail with sales order link and History card.
+6. Extensions on both paths (`lease.extend`, `lease.propose_extension`; one open proposal per lease; preview card); `lease_proposal.sent` event. *Integration:* a second proposal while one is open → 409; a direct extension moves `ends_on` and creates the extension order.
 
 ### Phase 3: Bookings
-1. Booking entity; `booking.create` (unit row lock, overlap check, product/price snapshot via `catalogPricingService`, `sales.orders.create`), `booking.cancel` (order cancelled). *Integration:* two concurrent bookings of one slot → exactly one succeeds.
+1. Booking entity; `booking.create` (unit row lock, overlap check, `pending` hold, product/price snapshot via `catalogPricingService`, `sales.orders.create`, link, compensation), `booking.cancel` (order cancelled). *Integration:* two concurrent bookings of one slot → exactly one succeeds; a forced link failure deletes the order and frees the slot.
 2. `units/{id}/slots` without opening hours; backoffice bookings list with "Booked as". *Integration:* changing the unit's product leaves existing bookings' snapshot unchanged.
-3. `booking_sweep` worker (complete past bookings; reminders) registered via scheduler.
+3. `booking_sweep` worker (complete past bookings; reminders; reconcile stale `pending` bookings by order metadata) registered via scheduler. *Integration:* a `pending` booking older than 15 minutes with a matching order is confirmed; without one it is released.
 
 ### Phase 4: Availability and opening hours
 1. Unavailability entity, resolver, `unavailability.create` dry-run/confirm with `previewToken` (cancel bookings + notify + order status), the chunked `unavailability_apply` worker, and `end`. *Integration:* making a floor unavailable today cancels its bookings, flags its active leases, blocks new bookings in the window; a stale preview token → 409.
@@ -350,9 +414,9 @@ Each step ends with a working app and is covered by the tests named in it. Integ
 4. "Unit unavailable" lease flag + filter chip.
 
 ### Phase 5: Lease invoicing
-1. `leasePeriods.ts` + LeaseBillingPeriod ledger. *Unit tests:* periods for mid-month start/end.
-2. `lease_billing.issue` worker issuing `sales.invoices.create` against the lease order line with the pending → invoice → issued sequence; failures recorded + `lease.invoice_failed` staff notification. *Integration:* running the worker twice for one period issues one invoice; a period left `pending` with an existing invoice is reconciled, not re-invoiced.
-3. History card lists invoices per version; `lease.extend` (signed agreement for an accepted offer) creates the extension quote → order and an `extended` version; the daily sweep ends leases past `ends_on` and expires unanswered offers. *Integration:* extend after acceptance → new version and new order; an offer past `respondBy` becomes `expired`.
+1. `leasePeriods.ts` + LeaseBillingPeriod ledger, with the partial-month rule from D1 (prorated by days). *Unit tests:* periods and quantities for mid-month start/end.
+2. `lease_billing.issue` worker computing totals with `salesCalculationService` and issuing `sales.invoices.create` against the lease order line with the pending → invoice → issued sequence; failures recorded + `lease.invoice_failed` staff notification. *Integration:* running the worker twice for one period issues one invoice; a period left `pending` with an existing invoice is reconciled, not re-invoiced; the invoice's totals equal `salesCalculationService`'s for the same line (tax included).
+3. History card lists proposals and invoices per version; the first-month invoice on direct create and on approval; the daily sweep ends leases past `ends_on` and expires unanswered proposals. *Integration:* a direct lease and an approved proposal each get their first invoice at once; a proposal past `respondBy` becomes `expired` and its unit is free.
 4. Early `lease.end` reduces the order line to the invoiced months; `lease.update` on an active lease writes a `corrected` version and updates the line. *Integration:* ending a 24-month lease after 10 invoices leaves the order line at 10.
 
 ### Phase 6: Floor plan status view
@@ -360,12 +424,31 @@ Each step ends with a working app and is covered by the tests named in it. Integ
 2. `FloorPlanCanvas` with legend, building/floor switcher, unit detail drawers, "Edit floor". *Playwright:* hydration smoke; clicking a unit opens its panel.
 
 ### Phase 7: Customer portal
-1. Portal nav + my bookings + book (slots, prices) + review with "Where it is" map + confirmation. *Integration:* customer of company A cannot see or book against company B's data.
-2. My lease + extension answer (accept/decline, re-accept until deadline). *Integration:* answering an expired offer → 409.
-3. Portal notifications (reminder, cancellation, extension offered) + `portalBroadcast` live refresh.
+1. Portal features in `setup.ts` (`defaultCustomerRoleFeatures`), portal nav + my bookings + book (slots, prices) + review with "Where it is" map + confirmation. *Integration:* customer of company A cannot see or book against company B's data; a `viewer` cannot book (403).
+2. My leases (open proposals first, then every active lease of the company) + approve / decline for new-lease and extension proposals (re-approve until deadline). *Integration:* a company with two leases sees both; approving a new-lease proposal makes the lease active with an order and a first invoice; approving after `respondBy` → 409; a `buyer` sees the proposal but cannot answer (403); a quote edited in sales after sending → `409 quote_changed`.
+3. Portal notifications (reminder, cancellation, extension offered) + `portalBroadcast` live refresh, recipients resolved by feature; depends on D2. *Integration:* a lease-offer event reaches the tenant company's `portal_admin` and not another company's users or a user without `portal.property_leases.view`.
 
 ### Testing Strategy
-Pure libs (geometry, numbering, periods, slots) by unit tests; every API route above by integration tests; drag and drop, availability dialog, booking flow and floor plan by Playwright. Concurrency tests for booking overlap and billing idempotency.
+Pure libs (geometry, numbering, periods, slots) by unit tests; drag and drop, availability dialog, booking flow and floor plan by Playwright; concurrency tests for booking overlap and billing idempotency. Integration coverage per API path (each test creates its fixtures through the API and cleans up):
+
+| API path | Phase | Covered by |
+|----------|-------|------------|
+| `buildings` CRUD, `POST buildings/{id}/floors/layout` | 1 | create with 1 below / 3 above → floors −1…2; lowering past a floor with units → 422; delete of a used building → 409 |
+| `floors` CRUD (name, size) | 1 | resizing a floor smaller than a unit on it → 422 |
+| `spaces` CRUD | 1 | overlapping space → 422; shrinking a space that strands a unit → 422; deleting the default space of a floor with units → 409 |
+| `units` CRUD, `POST units/{id}/product` | 1–2 | overlapping unit → 422; product change → new history period; product change with an active lease → 409 |
+| `common-areas` CRUD | 1 | common area overlapping a unit → 422 |
+| `product-uses` + catalog enricher | 1 | flagged product enriched on `GET /api/catalog/products` |
+| `settings` GET/PUT | 2 | issue day 29 → 422; per-organization values |
+| `POST leases` (direct and `asProposal`), `leases` list/detail/update/delete, `/end` | 2, 5 | direct → active + order; proposal → quote + reserved unit; overlap with a lease or open proposal → 409; compensation; early end reduces the order line |
+| `leases/{id}/extensions` POST, `…/proposals/{id}` DELETE | 2 | direct extension moves `ends_on`; second open proposal → 409; withdraw → quote canceled, portal no longer shows it |
+| `unavailabilities` (dry run, confirm), `unavailabilities/{id}/end` | 4 | cancels and flags; stale preview → 409; end → new bookings allowed again |
+| `units/{id}/slots` | 3–4 | slots exclude bookings, unavailability and closed hours |
+| `bookings` list (backoffice) | 3 | "Booked as" snapshot unchanged after a product change |
+| `floors/{id}/layout?date=` | 6 | lease ending in ≤ threshold → `leaseEnding` |
+| `portal/units`, `portal/bookings` GET, POST, `/{id}/cancel` | 7 | company isolation; `viewer` cannot book; cancelling another user's booking → 404 |
+| `portal/leases`, `portal/lease-proposals/{id}/approve` · `/decline` | 7 | two leases listed; approve → active + order + invoice; expired → 409; `buyer` cannot answer; `quote_changed` → 409 |
+| CLI `mercato property_management billing:run` | 5 | issues due invoices once; second run issues none |
 
 ## Edge Cases & Failure Scenarios
 
@@ -376,7 +459,11 @@ Pure libs (geometry, numbering, periods, slots) by unit tests; every API route a
 | A floor is resized smaller than its spaces/units | `422` naming what would fall outside; the floor size field shows the error. |
 | A unit's product is deleted in the catalog | Snapshots keep leases, bookings and history intact; the unit shows a "product missing" warning and cannot take new leases or bookings until a product is set. |
 | A product's use changes from bookable to leasable in the catalog while units have future bookings | The product-use edit is refused with the list of affected units and bookings. |
-| The sales command fails during lease activation or booking | The compound command rolls back; the lease stays draft / the booking is not created; the sales error is shown. |
+| The sales command fails while creating a lease, approving a proposal or booking | Nothing was created in sales; the lease or booking hold is released / the proposal stays `sent`; the error is shown. |
+| The customer approves after the deadline | `409 proposal_expired`; the card shows the proposal as expired and suggests contacting the building manager. |
+| A proposal's quote is edited in the sales backoffice after it was sent | Approval is refused with `409 quote_changed`; the manager withdraws and proposes again. |
+| The unit becomes unavailable while a proposal is open | Approval is refused until it is available again for the term; the proposal is not withdrawn automatically. |
+| Linking fails after the sales order was created | The order is deleted (compensation) and the user sees the error; if deleting fails too, staff get an "orphaned order" notification naming the order, and a retry links it instead of creating another. |
 | The scheduler module is not installed | No automatic invoices; the leases page shows a banner and the CLI `mercato property_management billing:run` issues due invoices. |
 | A tenant answers an offer after its deadline | `409 offer_expired`; the portal shows the offer as expired and points to the building manager. |
 | Two managers make overlapping floors/spaces unavailable | Both rows stand; the effective availability is their union; ending one leaves the other in force. |
@@ -386,12 +473,12 @@ Pure libs (geometry, numbering, periods, slots) by unit tests; every API route a
 
 ### Data Integrity Failures
 - **Double booking** under concurrency — mitigated by the unit row lock + overlap check in one transaction; integration test with parallel requests.
-- **Duplicate invoices** from worker retries — unique `(lease_id, period_start)` ledger; the invoice is created inside the same unit of work that marks the period issued.
+- **Duplicate invoices** from worker retries — unique `(lease_id, period_start)` ledger row claimed as `pending` before the invoice is created; a retry looks the invoice up by its metadata key before creating one.
 - **Layout drift** (a unit outside its space) — invariants enforced by commands, not only the UI; space updates re-validate contained units.
 
 ### Cascading Failures & Side Effects
 - **Unavailability cancels many bookings** — dry run shows exactly what is cancelled; the confirm button states the count; cancellations run in one transaction; notifications emitted after commit.
-- **Sales command failure during booking/activation** — compound command rolls back the booking/lease state; user sees the sales error message.
+- **Sales command failure during booking, lease creation or approval** — sales documents commit on their own, so failures after them are compensated (order deleted) rather than rolled back; orphans are reported to staff and re-linked on retry.
 
 ### Tenant & Data Isolation Risks
 - Portal endpoints derive the company from `CustomerUser.customerEntityId`, never from the request body; every query filters by `organization_id`.
@@ -401,7 +488,7 @@ Pure libs (geometry, numbering, periods, slots) by unit tests; every API route a
 
 ### Operational Risks
 - **Scheduler absent** — invoices not issued; detected by a banner on the leases page and the `billing:run` CLI; documented in setup.
-- **Sales channel not configured** — activation and booking return `422 billing_channel_missing`; settings page links to configuration.
+- **Sales channel not configured** — creating or proposing a lease and booking return `422 billing_channel_missing`; settings page links to configuration.
 
 ### Risk Register
 
@@ -415,6 +502,8 @@ Pure libs (geometry, numbering, periods, slots) by unit tests; every API route a
 | Closing a whole building cancels thousands of bookings | availability worker | Medium | Low | Row takes effect at once; cancellations chunked on a worker with progress | Low |
 | Timezone drift (org vs building) in periods and slots | slots, billing, sweeps | Medium | Medium | One rule: building timezone everywhere; unit tests around DST changes | Low |
 | Duplicate reminders on sweep reruns | portal notifications | Low | Medium | `reminder_sent_at` set in the same transaction as the send | Low |
+| Orphaned sales order after a failed link | leases, bookings, sales orders | Medium | Low | Compensating delete; metadata lookup on retry and in the sweep; staff notification | Low |
+| Portal event reaches the wrong customer | portal, leases, bookings | High | Low | Explicit `recipientUserIds` resolved by company and feature; never organization-wide | Low |
 | Catalog product deleted while referenced | units, leases, bookings | Medium | Low | Snapshots on unit periods, leases, bookings; unit shows "product missing" warning | Low |
 
 ## Final Compliance Report — 2026-10-15
@@ -439,14 +528,15 @@ Pure libs (geometry, numbering, periods, slots) by unit tests; every API route a
 | root AGENTS.md | Modules plural snake_case | Compliant (precedent) | `property_management` follows `planner`/`sales`/`catalog`/`wms` precedent |
 | root AGENTS.md (Design System) | Semantic tokens, text scale, shared primitives, dialog keys, `aria-label` | Compliant | UI/UX section |
 | packages/core → API Routes | `makeCrudRoute`, `openApi` on every route | Compliant | API Contracts |
-| packages/core → Encryption | Sensitive fields in `encryption.ts`, `findWithDecryption` | Compliant | `Booking.notes`, `LeaseExtensionOffer.message` |
+| packages/core → Encryption | Sensitive fields in `encryption.ts`, `findWithDecryption` | Compliant | `Booking.notes`, `LeaseProposal.message` |
 | packages/core → Events / Notifications | `createModuleEvents`, singular past-tense ids | Compliant | Commands & Events |
 | catalog AGENTS.md | Prices via `catalogPricingService`, never inline | Compliant | Booking and unit-period price snapshots |
-| sales AGENTS.md | Use `salesCalculationService`; scope documents to a channel | Compliant | sales commands do the math; `billingChannelId` setting |
-| sales AGENTS.md | Quote → Order → Invoice (quote optional) | Compliant | Lease: quote → order → invoices. Booking: order without a quote — the supported direct-order path (`orderCreateSchema` has no quote reference; the backoffice and `warranty_claims` create orders directly) |
+| sales AGENTS.md | Use `salesCalculationService`; scope documents to a channel | Compliant | orders: `sales.orders.create` computes totals; invoices: this module computes them with `salesCalculationService` before `sales.invoices.create`; `billingChannelId` setting |
+| sales AGENTS.md | Quote → Order → Invoice (quote optional) | Compliant | Leases and bookings both use the direct-order path (`orderCreateSchema` has no quote reference; the backoffice and `warranty_claims` create orders directly); leases then invoice against their order |
 | queue AGENTS.md | Idempotent workers, `metadata` export, concurrency ≤ 20 | Compliant | Ledger key; concurrency 1 |
 | ui AGENTS.md | `CrudForm`, `DataTable`, `apiCall`, `useGuardedMutation` | Compliant | Frontend Architecture Contract |
-| root AGENTS.md | Integration tests ship with the feature | Compliant | Implementation Plan |
+| root AGENTS.md | Integration tests ship with the feature | Compliant | Per-path coverage table in Testing Strategy |
+| customer_accounts | Portal features `portal.<resource>.<verb>` via `defaultCustomerRoleFeatures` | Compliant | Portal access |
 
 ### Internal Consistency Check
 
@@ -454,15 +544,15 @@ Pure libs (geometry, numbering, periods, slots) by unit tests; every API route a
 |-------|--------|-------|
 | Data models match API contracts | Pass | Every custom endpoint maps to listed entities |
 | API contracts match UI/UX section | Pass | Dry-run availability, slots, layout, portal endpoints |
-| Risks cover all write operations | Pass | Booking, billing, unavailability, layout, activation |
+| Risks cover all write operations | Pass | Booking, billing, unavailability, layout, lease creation, proposals |
 | Commands defined for all mutations | Pass | Commands table |
 | Cache strategy covers all read APIs | Pass | No module cache in MVP; layout endpoint bounded to 6 queries; revisit if floor plans exceed 200 units |
 
 ### Non-Compliant Items
-None.
+None. Open dependency: portal bell entries need the additive customer-user path in `notifications` (D2), shipped as its own PR.
 
 ### Verdict
-**Fully compliant** — approved, ready for implementation.
+**Compliant** — in review on #7472.
 
 ## Changelog
 
@@ -481,5 +571,11 @@ None.
 - **Cache**: Passed — no module cache in the MVP, justified by bounded query counts; revisit above 200 units per floor.
 - **Commands**: Passed after revision — every mutation is a command with undo or a stated reason it has none.
 - **Risks**: Passed after revision — billing crash recovery, bulk cancellation, timezone drift and reminder duplication added.
-- **Verdict**: Approved.
+- **Verdict**: Approved at the time; superseded by the review of #7472 below.
 - Booking orders without a quote confirmed as the supported direct-order path (maintainer, verified against `orderCreateSchema` and the backoffice document-create page); the sales sign-off gate on Phase 3 and Phase 7 Step 1 removed.
+
+### Review of #7472 — 2026-10-15
+- **Reviewer**: fresh-context agent running `om-auto-qa-pr` read-only; findings verified by the author.
+- **Changes**: leases bill against an order created directly (no quote — conversion deletes it); settings moved to a module-owned per-organization table; sales writes compensate instead of rolling back; portal pages, endpoints, events and bell entries gated by new `portal.property_bookings.*` / `portal.property_leases.*` features with recipients resolved by the module; one lease at a time per unit, any number per company, portal *My leases*; invoice totals computed with `salesCalculationService`; per-path integration coverage; lease reference counter and search indexing specified; planner import precedent corrected; Open Questions Q1–Q6 added.
+- **Lease paths (maintainer, after review)**: a lease is created directly (active, order, first invoice) or as a proposal (sales quote approved or declined by the customer's portal user on My leases; the unit is reserved until answered or expired). Extensions get the same two paths; `LeaseExtensionOffer` became `LeaseProposal`; the draft status is gone. Q4 resolved.
+- **Defaults accepted (maintainer)**: Q1–Q6 resolved as D1–D6; proposal expiry in days added as a lease-form field with an organization default (D7).

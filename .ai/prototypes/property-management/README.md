@@ -1,7 +1,7 @@
 # Property Management interactive backend prototype
 
-This directory contains a static, pre-implementation prototype for a standalone office-space
-management module, derived from `.ai/prototypes/property-management.requirements.md`: the floor plan and
+This directory contains a static, pre-implementation prototype for the `property_management` core
+module (office-space management), derived from `.ai/prototypes/property-management.requirements.md`: the floor plan and
 its unit panels, floors with their spaces and units, Buildings, Leases, Bookings and Settings, plus
 the customer-portal Bookings, My lease and notifications screens (screens 27-37).
 
@@ -29,7 +29,7 @@ The toolbar supports click-through, presentation, and comment modes. Comments ar
 |---|---------|
 | 1–9, 5b, 5c | Floor plan, leasable and bookable unit panels |
 | 10–13 | Buildings — list, new, edit, delete |
-| 14–19 | Leases — list, new, detail, propose extension, proposal sent, delete |
+| 14–19 | Leases — list, new lease or proposal (one checkbox), detail, extend (directly or as a proposal), proposal sent, delete |
 | 20 | Bookings — all bookings of bookable units |
 | 21–26 | Floor — spaces & units, new unit, new space, resize space, edit a leased unit, new common area |
 | 27–30 | Customer portal — my bookings, book, review & confirm, booked |
@@ -40,6 +40,7 @@ The toolbar supports click-through, presentation, and comment modes. Comments ar
 | 40 | Building — archive (blocked while leases and bookings run) |
 | 41 | Floor — edit the West Wing (from "Edit floor" on the floor plan) |
 | 42 | Settings — sales channel, invoice issue day, cancelled-booking status, lease-ending and reminder lead times |
+| 43 | Customer portal — approve or decline a lease proposal (on My leases) |
 
 ## Limitations
 
@@ -79,7 +80,7 @@ The toolbar supports click-through, presentation, and comment modes. Comments ar
   Northgate, Riverside Tower, Elm Works) are Acme Corp's locations; names and addresses are made up. Only
   Harbor Point has a modeled floor/occupancy dataset; picking another location is illustrative and
   surfaces a toast.
-- The floor plan's two bookable units, "BE.02 Studio" (6 seats) and "Ideas Blender" (4 seats), are
+- The floor plan's two bookable units, "Studio 2B" (6 seats) and "Huddle Room" (4 seats), are
   Harbor Point's bookable rooms. Acme Corp sells them as
   "meeting rooms", which is also the catalog category they belong to here; the module's own terms
   are "unit", "leasable unit" and "bookable unit" (see §Units in the requirements).
@@ -111,7 +112,7 @@ The toolbar supports click-through, presentation, and comment modes. Comments ar
   resizing are modeled, plus editing a leased unit (screen 25, from Office 202's panel): it can
   be moved or resized, its type and product are locked, and Delete is blocked until its lease and
   bookings are cancelled. A bookable unit's product can change even with upcoming bookings
-  (screen 38, from BE.02 Studio's panel); every booking keeps the product and price it was made at
+  (screen 38, from Studio 2B's panel); every booking keeps the product and price it was made at
   (the Bookings list's "Booked as" column), and units and leases keep a product history. Units, spaces and common areas are placed by drag and drop on the preview
   (pointer events with capture, 0.5 m snap, arrow keys for keyboard users; a dropped unit adopts the
   space that contains it) — the x, y fields are read-only. Common areas (corridors, kitchens,

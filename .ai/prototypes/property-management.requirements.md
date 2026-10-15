@@ -1,6 +1,6 @@
 # Property Management
 
-> Requirements for a standalone office-space management module (2026-10-14).
+> Requirements for the `property_management` core module (office-space management), 2026-10-14.
 
 ## Context
 
@@ -23,7 +23,7 @@ This module integrates with the existing Open Mercato **customers** module (the 
 CRM Company records and tenant contacts and booking organizers are CRM People records. Every unit is
 typed and priced by the **catalog** module: a unit's type is a catalog category and its product is a
 catalog product from that category. Customers book units, check their lease and answer extension
-offers in their own **portal**; this module contributes those portal pages (Bookings and My lease)
+offers in their own **portal**; this module contributes those portal pages (Bookings and My leases)
 and the booking and lease notifications in the portal's bell.
 
 ## Scope decisions
@@ -161,13 +161,21 @@ and the booking and lease notifications in the portal's bell.
   invoices billed under it. The history must agree with the invoices: every invoice issued under a
   lease bills the product and rate of the version in force for the period it covers. A proposed
   extension is a history row with no invoices until it is signed and takes effect.
-- **Lease lifecycle** = draft → active → ended. A lease is *created as a draft*: creating a record
-  must never silently flip an office to Occupied on the floor plan. Ending a tenancy early — notice,
+- **Lease lifecycle** = a lease is created on one of two paths, chosen with one checkbox on the
+  same form:
+  - **Lease proposal** → `proposed` → `active` (approved) / `declined` / `expired` → `ended`. It
+    creates a sales quote that the customer's portal user approves or declines. The unit is
+    reserved while the proposal is open. Approval converts the quote to the lease's sales order
+    and invoices the first month. A declined proposal can still be approved until its deadline.
+  - **Direct lease** → `active` on save → `ended`. For a lease agreed elsewhere: saving creates the
+    sales order directly and invoices the first month.
+  Either way the lease points to its sales order. Ending a tenancy early — notice,
   handover, final invoice — is its own flow and is out of scope here; shortening the end date is an
   ordinary edit, and deleting the record is for something entered in error, not for a tenant moving
   out. The deletion confirmation has to say that distinction out loud.
-- **Lease uniqueness** = an office may have at most one active lease at a time, so the create form
-  only offers offices with no active lease.
+- **Lease uniqueness** = a unit may have at most one lease running at any moment (terms never
+  overlap), so the create form only offers units free for the chosen term. A company has no such
+  limit: it can lease several units at once (two offices, an office and a parking space).
 - **Lease expiry warning** = an office whose lease ends within **60 days** is marked as such on the
   floor plan and in its detail panel. "Ending soon" is an *annotation on an occupied office*, not a
   fourth office status: the lease is still active and the office is still in use. It therefore uses
@@ -175,13 +183,14 @@ and the booking and lease notifications in the portal's bell.
   gains a dashed warning-toned edge plus a clock-marked badge naming the end date, while
   Unavailable (the only other warning-toned state) stays a solid warning fill. The threshold is one
   organization setting (default 60 days, §Settings), applied identically wherever expiry is surfaced.
-- **Lease extension offers** = an extension is offered by Acme Corp and answered in the portal.
-  The offer states term, rate (with the difference from the current rate), what else changes, and
-  its own response deadline. Accepting is explicitly not signing: the agreement follows for
-  signature and the lease does not change until then, so the lease card keeps showing the current
-  term and countdown either way. A declined offer stays acceptable until its deadline. A manager composes one from the lease, with a live preview of the exact
-  card the tenant will be shown; sending is not a change to the lease, and only one proposal may be
-  outstanding at a time — withdraw before proposing again.
+- **Lease extensions** = the same two paths. An **extension proposal** creates a sales quote for
+  the new term, answered in the portal; it states term, rate (with the difference from the current
+  rate), what else changes, and its own response deadline. Approving is binding: it creates the
+  extension's sales order and moves the lease end at once, and the screen says so before the click.
+  A declined proposal stays approvable until its deadline. A **direct extension** records an
+  extension agreed elsewhere and creates its order straight away. A manager composes either from the
+  lease; a proposal shows a live preview of the exact card the tenant will see. Only one proposal
+  may be outstanding at a time — withdraw before proposing again.
 - **Layout** = a spatial floor plan **drawn to scale**: the floor is drawn as its own rectangle at
   its real proportions (§Floor size), and every unit, corridor and lobby is a
   rectangle with a position and a size in metres inside it — not a table or card grid. All floors
@@ -192,7 +201,7 @@ and the booking and lease notifications in the portal's bell.
 - **Unit geometry** = a unit's position (x, y of its corner, from the floor's top-left) and size
   (width × depth) are in metres; it must lie inside its space and may not overlap another unit or
   a common area. Units are rectangles, like floors and spaces. On Harbor Point's 2nd floor
-  (42 × 18 m): offices 201–206 are 8 × 6 m, the Lobby 12 × 6 m, BE.02 Studio 7 × 6 m, Ideas Blender
+  (42 × 18 m): offices 201–206 are 8 × 6 m, the Lobby 12 × 6 m, Studio 2B 7 × 6 m, Huddle Room
   5 × 6 m, the corridor 4 × 18 m, and Company Unit 2A 14 × 18 m. These sizes are illustrative.
 - **Placing by drag and drop** = the position of a unit, a space and a common area is set by
   dragging it on the to-scale preview, never typed: the x, y fields are a read-only read-out.
@@ -227,10 +236,10 @@ and the booking and lease notifications in the portal's bell.
   Elm Works) carry illustrative totals only, and picking one in a switcher surfaces the
   prototype's "illustrative" toast.
 - **Module boundary** = this module owns buildings, floors, spaces, units, leases, bookings (the
-  backoffice list and the portal booking flow), the portal's My lease pages, and the booking and
+  backoffice list and the portal booking flow), the portal's My leases pages, and the booking and
   lease notifications in the portal bell. It reads from — but does not own — CRM People and
   Companies (`customers` module), product categories and products (`catalog` module, stored on a
-  unit as IDs, never copied), sales documents (`sales` module — quotes, orders, invoices and payment
+  unit as IDs, never copied), sales documents (`sales` module — orders, invoices and payment
   collection), and the portal's other sections (access, events, invoices, support). Those destinations surface the
   "not part of this prototype" toast.
 - **Portal booking scope** = browse today's bookable units at a location → pick a free slot →
@@ -244,8 +253,8 @@ and the booking and lease notifications in the portal's bell.
   that price (§Sales documents); how it is paid (invoice, card) is decided in sales, out of this
   module's scope.
 - **Sales documents** = this module creates sales documents but does not own them. Activating a
-  lease creates a quote for the lease's product (quantity = months, unit price = monthly rate) and
-  converts it to a sales order; on the invoice issue day this module issues that month's invoice
+  lease creates a sales order directly (the quote step is optional in sales and skipped): one line
+  for the lease's product, quantity = months, unit price = monthly rate; on the invoice issue day this module issues that month's invoice
   against the order, so every invoice carries the lease version's product and rate. Each confirmed
   booking creates its own sales order (product and price as booked, no quote); cancelling the
   booking moves that order to the configured cancelled status. Order and invoice numbers are shown
@@ -253,7 +262,8 @@ and the booking and lease notifications in the portal's bell.
 - **Settings** = one per organization: the sales channel lease and booking documents are created in
   (required — leases cannot be activated nor units booked until it is set), the invoice issue day
   (1–28, default 1), the sales order status for cancelled bookings, the lease-ending threshold
-  (default 60 days) and the booking reminder lead time (default 60 minutes).
+  (default 60 days), the booking reminder lead time (default 60 minutes) and the default proposal
+  expiry (default 14 days, changeable per proposal).
 - **Credits are out of scope** = plan credits, credit balances and buying credits are not part of
   this module and will be specified separately. Every booking is priced in złoty, to be paid in cash.
 - **Where a booked unit is** = the review step shows the unit's floor drawn to scale with only the
@@ -287,7 +297,7 @@ takes over another floor, or renames one after a refit. They need to maintain th
 themselves, in the same Facilities section where they use them, rather than filing a ticket.
 
 ### Epic E — Keep the lease records the whole product reads from
-The floor plan, invoicing and the tenant's own portal all read from the lease records. A manager needs to maintain them — add one, correct one, remove one entered in
+The floor plan, invoicing and the tenant's own portal all read from the lease records. A manager needs to maintain them — add one directly or propose it to the customer, correct one, remove one entered in
 error — and, when one is running out, to offer the tenant an extension from the same place rather
 than composing an email.
 
@@ -307,13 +317,13 @@ on real records.
 A customer (tenant staff or coworking member) needs to book a free meeting room or desk today without
 calling or emailing the building manager — at any location, knowing what it costs and where it is.
 
-### Epic I — Check my lease from the customer portal
-A tenant customer wants to see their own lease terms without asking the building manager. When that
-lease is running out they should learn it from the portal rather than from a letter, and answer
+### Epic I — Check my leases from the customer portal
+A tenant customer wants to see their company's lease terms without asking the building manager — one
+company can lease several units. When a lease is running out they should learn it from the portal rather than from a letter, and answer
 the extension offer in the same place.
 
 ### Epic J — Know what needs my attention in the customer portal
-A customer should not have to visit My bookings and My lease in turn to find out that a booking
+A customer should not have to visit My bookings and My leases in turn to find out that a booking
 begins in an hour or an extension offer is waiting. One bell in the portal header collects it, and
 every entry links to the screen that resolves it. (Other modules — invoices, events — add their own
 entries to the same bell.)
@@ -413,7 +423,8 @@ Acceptance criteria:
 - Every bookable unit panel states its capacity and its size as width × depth in metres plus its
   area, matching the floor plan (§Unit geometry).
 - Clicking a free bookable unit opens a detail panel indicating no bookings today.
-- Back-to-back or overlapping bookings are both shown distinctly (no silent merging).
+- Back-to-back bookings are shown as separate rows. A unit never holds overlapping bookings: a
+  request for a slot that is already taken is refused.
 - Detail panel states plainly that booking changes happen in the booking flow, not here.
 
 ### US-C1 — Switch floors within a building
@@ -550,23 +561,28 @@ Acceptance criteria:
 - Each lease shows its reference, office, building, tenant, term, monthly rate and status.
 - A lease within the expiry threshold is flagged with the days remaining, using the same threshold
   as the floor plan and the tenant's portal.
-- The list can be narrowed by status (active, ending soon, draft, ended, unit unavailable) and by
+- The list can be narrowed by status (active, ending soon, proposed, ended, unit unavailable) and by
   building, and searched fulltext across every column.
 - Every rate matches that tenant's monthly invoice, which this module issues against the lease's
   sales order.
 - An active lease whose unit sits in something unavailable (unit, space, floor or building) is
   flagged "Unit unavailable" with the end date, alongside its status.
 
-### US-E2 — Add a lease
+### US-E2 — Add a lease or propose one
 **As a** building manager
-**I want to** draft a lease against a vacant office and a CRM company
-**So that** it is ready before the tenant moves in, without changing the floor plan yet.
+**I want to** either create a lease for a CRM company directly, or send it to them as a proposal to
+approve in their portal
+**So that** a lease agreed elsewhere starts at once, and a new one waits for the customer's approval.
 
 Acceptance criteria:
-- Building, office, tenant, start, end and rate are required.
-- Only offices with no active lease can be picked.
+- Building, unit, tenant, start, end and rate are required; a "Send as a proposal" checkbox on the
+  same form picks the path. A proposal also states how many days it stays open (prefilled from
+  Settings, default 14); when they pass, it expires and the unit is released.
+- Only units free for the whole term — no lease and no other open proposal — can be picked.
 - The tenant is a CRM Company record, not free text.
-- The lease is saved as a draft and does not mark its office occupied.
+- A direct lease is active on save: its sales order is created and the first month is invoiced.
+- A proposal creates a sales quote, reserves the unit (the floor plan marks it Proposed) and bills
+  nothing until the customer approves.
 
 ### US-E3 — Correct a lease
 **As a** building manager
@@ -579,10 +595,10 @@ Acceptance criteria:
 - There is a direct path from the lease to its office on the floor plan.
 - Delete is separated from save and confirmed separately.
 
-### US-E4 — Offer a tenant an extension
+### US-E4 — Extend a lease, directly or as a proposal
 **As a** building manager
-**I want to** propose an extension on a lease that is running out, and see what the tenant will be
-asked
+**I want to** extend a lease that is running out — directly, or by proposing it and seeing what the
+tenant will be asked
 **So that** I get an answer before it expires without starting an email thread.
 
 Acceptance criteria:
@@ -591,8 +607,10 @@ Acceptance criteria:
   length picker sets the end date, and a response deadline defaults ahead of expiry.
 - The rate field states the difference from the current rate in both currency and percent, and the
   tenant is shown the same difference.
-- The manager sees a preview of the exact offer the tenant will receive before sending.
-- Sending does not change the lease, and the screen says so.
+- A "Send as a proposal" checkbox picks the path; unticked, the extension takes effect on save and
+  its sales order is created.
+- For a proposal, the manager sees a preview of the exact card the tenant will receive before
+  sending; sending does not change the lease, and the screen says so.
 - While a proposal is outstanding the lease shows what was offered, that it is unanswered, and when
   the tenant will be reminded; proposing again is not offered until the current one is withdrawn.
 - There is a direct path to the tenant's own view of the offer.
@@ -619,7 +637,8 @@ Acceptance criteria:
 - The lease shows the product it was signed for, read-only, with a note that it does not follow
   later changes to the unit's product.
 - History lists every version, most recent first: date, event, product, term, rate and invoices.
-- The lease shows the sales order created when it was activated, linked to sales.
+- The lease shows its sales order (created directly, or from the approved proposal's quote), linked
+  to sales.
 - Each version's invoices match it — same product and rate — and link to sales.
 - A proposed extension appears as its own version with no invoices until it takes effect.
 
@@ -819,14 +838,15 @@ Acceptance criteria:
 - Each booking states what it cost, in złoty.
 - Booking a new unit is directly reachable from this list.
 
-### US-I1 — See my current lease
+### US-I1 — See my current leases
 **As a** tenant customer
-**I want to** see my unit, lease start and end dates, rate and a contact
+**I want to** see every unit my company leases, with lease start and end dates, rate and a contact
 **So that** I don't have to ask the building manager for terms I already agreed to.
 
 Acceptance criteria:
-- Lease detail shows the unit (name, floor, building), its product and size, lease start and end
-  dates, and rate.
+- My leases lists every active lease of the customer's company, one card each.
+- Each card shows the unit (name, floor, building), its product and size, lease start and end
+  dates, and rate, and says so when the unit is currently unavailable (the lease continues).
 - Lease detail is read-only — no edit or cancel affordance.
 
 ### US-I2 — See I have no active lease
@@ -840,7 +860,7 @@ Acceptance criteria:
 
 ### US-I3 — See that my lease is running out
 **As a** tenant customer
-**I want to** see how long is left on my lease as soon as it gets close
+**I want to** see how long is left on a lease as soon as it gets close
 **So that** I can plan around it instead of finding out when the notice arrives.
 
 Acceptance criteria:
@@ -849,18 +869,33 @@ Acceptance criteria:
 - The treatment matches what the manager sees for the same lease — same threshold, same warning
   tone, same countdown.
 
-### US-I4 — Answer an extension offer
+### US-I4 — Answer an extension proposal
 **As a** tenant customer
-**I want to** see the terms Acme Corp is offering to extend on, and accept or decline them
+**I want to** see the terms Acme Corp is proposing to extend on, and approve or decline them
 **So that** I can settle it in one place instead of an email thread.
 
 Acceptance criteria:
 - The offer states the proposed term, the proposed rate including how it differs from the current
   one, and what else changes; it carries its own response deadline.
-- Accept and decline are equally reachable.
-- The screen states plainly that accepting is not signing — the agreement follows for signature,
-  and the lease does not change until it is signed; the lease card keeps the current term either way.
-- A declined offer can still be accepted until its deadline passes.
+- Approve and decline are equally reachable, for users allowed to answer for the company.
+- The screen states plainly that approving is binding: the lease is extended at once and the new
+  rate applies from the new term.
+- A declined proposal can still be approved until its deadline passes.
+
+### US-I5 — Approve a lease proposal
+**As a** customer's portal user
+**I want to** see a lease Acme Corp proposes to my company — unit, product, term, rate — and approve
+or decline it
+**So that** we can take the space without paperwork going back and forth.
+
+Acceptance criteria:
+- Open proposals appear at the top of My leases, above the company's active leases, with their
+  response deadline.
+- Approve and decline need the permission to answer for the company; other users see the proposal
+  read-only.
+- Approving makes the lease active, creates its sales order and issues the first month's invoice;
+  the screen says so before the click.
+- Declining releases the unit; the proposal can still be approved until its deadline.
 
 ### US-J1 — See what needs my attention from anywhere in the portal
 **As a** customer
@@ -872,7 +907,7 @@ Acceptance criteria:
   header repeats it as a number.
 - Unread is conveyed by more than colour — a bolder title and a marker on the row.
 - Every notification opens the screen that resolves it: a booking opens My bookings, an extension
-  offer opens My lease.
+  offer opens My leases.
 - Every fact a notification states matches the screen it links to; the list offers "mark all as
   read".
 
@@ -900,12 +935,13 @@ Acceptance criteria:
 - The cancelled-booking status is chosen from the existing sales order statuses.
 - Changing the lease-ending threshold changes the floor plan, Leases list, lease detail and portal
   warnings together.
+- The proposal expiry (days) prefills the new-lease and extension proposal forms.
 
 ## Cross-cutting rules
 
 - The customer portal is visually distinct chrome from the backend (top nav, not a sidebar), so a
   reviewer never confuses which surface a screen belongs to. The portal carries Acme Corp's logo lockup; the backend stays structurally the Open Mercato admin shell.
-- This module contributes two entries to the portal's top nav, Bookings and My Lease, alongside the
+- This module contributes two entries to the portal's top nav, Bookings and My leases, alongside the
   inert Dashboard and Profile. The portal's other sections (Access, Events, Invoices, Support,
   Extras) belong to other modules and are left out of this prototype's nav; links into them surface
   the "not part of this prototype" toast.
@@ -936,8 +972,8 @@ Acceptance criteria:
   on the Leases screens, buildings and floors on the Buildings screens, and bookings in the customer
   portal. The bookings list is read-only too.
 - All names shown are synthetic/fictional, including the coworking operator, the standard mock
-  company **Acme Corp**: its 7 locations, the two Facilities bookable units ("BE.02 Studio,"
-  "Ideas Blender") and the product vocabulary ("Private office," "Company unit,"
+  company **Acme Corp**: its 7 locations, the two Facilities bookable units ("Studio 2B,"
+  "Huddle Room") and the product vocabulary ("Private office," "Company unit,"
   "Open space membership"). "Unit", "leasable unit" and "bookable unit" are this module's own terms
   (§Units); Acme Corp sells the bookable ones as "meeting rooms" — which is also the catalog
   category name used here.

@@ -37,6 +37,10 @@
   padding: 0 0.25rem; color: var(--muted-foreground);
 }
 @media (max-width: 60rem) { .doc-toolbar-title { display: none; } }
+@media (max-width: 40rem) {
+  .doc-toolbar { position: static; transform: none; margin: 0.75rem auto 0; width: fit-content; }
+  .doc { padding-top: 1.5rem; }
+}
 
 /* Screen menu — sections at the top level, their screens one level in. */
 .screen-menu-wrap { position: relative; display: inline-flex; }
@@ -633,6 +637,15 @@
 }
 .floorplan-scale-compact { min-width: 0; }
 .floorplan-scale-compact .unit-tile-name { font-size: 0.6875rem; }
+/* Phone width: the to-scale map keeps its proportions but is too small for every label, so only
+   the highlighted unit keeps its name; the caption under the map says where it is in words. */
+@media (max-width: 40rem) {
+  .floorplan-scale-compact .unit-tile.is-faded .unit-tile-name,
+  .floorplan-scale-compact .floorplan-corridor span { display: none; }
+  .floorplan-scale-compact .floorplan-lobby { color: transparent; }
+  .floorplan-scale-compact .unit-tile.is-new .unit-tile-name { font-size: 0.625rem; }
+}
+.floorplan-caption { margin: 0.75rem 0 0; }
 .floorplan-dim {
   display: flex; align-items: center; gap: 0.5rem;
   font-size: 0.6875rem; color: var(--muted-foreground); font-variant-numeric: tabular-nums;
@@ -1044,3 +1057,9 @@
   cursor: pointer; color: var(--accent-indigo-foreground); background: var(--accent-indigo);
 }
 .cal-event:hover { filter: brightness(1.08); }
+/* Lease create/extend forms: the "send as a proposal" checkbox shows the proposal-only fields and
+   action, and hides the direct ones (prepareProposalToggles). */
+[data-proposal-only][hidden], [data-direct-only][hidden] { display: none !important; }
+.check-field { display: flex; align-items: flex-start; gap: 0.625rem; cursor: pointer; }
+.check-field input[type="checkbox"] { width: 1rem; height: 1rem; margin: 0.1875rem 0 0; accent-color: var(--primary); flex: none; }
+.check-field .t-label { display: block; }
