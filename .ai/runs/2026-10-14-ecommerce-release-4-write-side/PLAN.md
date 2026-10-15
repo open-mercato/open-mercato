@@ -48,7 +48,7 @@
 | 4 | 4.7 | Cart: /api/cart/current routes, idempotency, rate limits, mutation guards | dispatch | done | see `git log` |
 | 4 | 4.8 | Cart: sweeper workers, scheduling and Upgrade Action | dispatch | done | see `git log` |
 | 4 | 4.9 | Cart: Phase 1 tests (R1 visibility suite, cross-tenant token, concurrency, idempotency) | dispatch:capable | partial | see `git log` — CONC-05 bug open, see detail line |
-| 5 | 5.1 | Cart: re-price triggers 1–4 and 7, per-request digest, priceChanges disclosure | dispatch:capable | todo | — |
+| 5 | 5.1 | Cart: re-price triggers 1–4 and 7, per-request digest, priceChanges disclosure | dispatch:capable | done | see `git log` |
 | 5 | 5.2 | Cart: quantity tiers and nextTier | dispatch | todo | — |
 | 5 | 5.3 | Cart: quantity rules and computed availability advisory | dispatch | todo | — |
 | 5 | 5.4 | Cart: line-total discount mapping and totals-equivalence property test | dispatch:capable | todo | — |
@@ -157,7 +157,7 @@ Each Step below matches the Tasks table. Spec section numbers refer to the specs
 
 ### Phase 5 — Cart Phase 2 (pricing behaviour)
 
-- **5.1** Triggers 1–4 and 7, per-request `BuyerContext` digest comparison (also on GET), `priceChanges` including `buyer_context_changed`, GET writes only when a trigger fires.
+- **5.1** Triggers 1–4 and 7, per-request `BuyerContext` digest comparison (also on GET), `priceChanges` including `buyer_context_changed`, GET writes only when a trigger fires. Built `cart.reprice` (triggers 2-4) and wired its detection into `cart.get`, reached by every `/current/*` route (not only the literal GET) since all four resolve a fresh route context before calling it. Trigger 1 (already built, Step 4.6) now surfaces the same `priceChanges` disclosure. **Closes the whole-cart `Cart.totals` placeholder gap flagged since Step 4.7/4.9** — `cart.reprice` is the first command to call `salesCalculationService.calculateDocumentTotals` for real. Note: per §5.2's own "it does not re-price on every read" design, totals stay intentionally stable between triggers — an ordinary add/update with no digest/currency/locale drift and no staleness timeout does not itself recompute the whole-cart aggregate; the release invariant's real guarantee lands at trigger 5 (checkout lock, Phase 7, mandatory). **Trigger 7 investigated and deliberately deferred, not stubbed**: no admin cart view exists (§15 Phase 4, out of Release 4 scope); `acl.ts`'s `cart.carts.manage` feature anticipates it but nothing calls it yet. Playwright integration coverage for triggers 2-4 deferred to Step 5.5 (no live stack was up at this step's start); unit-tested instead (27 new tests).
 - **5.2** Quantity tiers and `nextTier`.
 - **5.3** Quantity rules (min/max/increment, `nearestValid`) and the computed availability advisory.
 - **5.4** Line-total discount mapping to `SalesLineSnapshot` and the totals-equivalence property test without promotions: same snapshots give equal `SalesDocumentAmounts` for `quote` and `order`, 4-dp numerics, over the tax matrix and a non-dividing quantity.
