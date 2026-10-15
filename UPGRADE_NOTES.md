@@ -366,6 +366,29 @@ Indication Directive, Art. 6a). Omnibus itself stays off until a tenant enables 
 the `REVOKE` to your production deploy runbook and review any purge tooling that deletes from
 catalog tables.
 
+### Omnibus member-state derogations and the order/quote line snapshot
+
+Two more additive migrations complete the Omnibus feature:
+
+- `catalog` (`Migration20261015120000_catalog`) adds `catalog_products.omnibus_exempt` (default
+  `false`), `catalog_products.first_listed_at` and `catalog_product_variants.omnibus_exempt` (null =
+  inherit the product). It **backfills `first_listed_at` from `created_at`** for existing products, so
+  the new-arrival rule can apply to them; adjust the date on products that were on the market earlier.
+- `sales` (`Migration20261015120000_sales_line_omnibus_snapshot`) adds six nullable columns to
+  `sales_order_lines` and `sales_quote_lines` (`omnibus_reference_net`, `omnibus_reference_gross`,
+  `omnibus_promotion_anchor_at`, `omnibus_applicability_reason`, `is_personalized`,
+  `personalization_reason`). They are filled once, when a line is created while Omnibus is enabled, and
+  never recomputed; existing lines stay empty.
+
+`PATCH /api/catalog/config/omnibus` now **accepts** the per-channel rules `progressiveReductionRule`,
+`progressiveMaxGapDays`, `perishableGoodsRule` (`standard` | `exempt` | `last_price`), `newArrivalRule`
+(`standard` | `shorter_window`) and `newArrivalsLookbackDays`, which it previously rejected with
+`omnibus_derogation_not_supported`. Every rule defaults to the standard window, so a stored
+configuration resolves exactly as before until a rule is set.
+
+**Action for operators:** apply the migrations; enable a derogation on a channel only when that
+member state has adopted it, and mark perishable products (or variants) in the product form.
+
 ### Translation entries accept field keys up to 400 characters
 
 `PUT /api/translations/:entityType/:entityId` (`translationBodySchema` in

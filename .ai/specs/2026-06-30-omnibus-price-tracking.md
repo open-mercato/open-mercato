@@ -418,7 +418,13 @@ function computeLowestPrice(em, ctx, config, presentedEntry):
   cache.set(...); return result
 ```
 
-`resolveProgressive`: fetch the offer's entries ASC by `recorded_at`; the sequence qualifies when it is monotonically non-increasing on `axis` **and** every gap **between consecutive entries** is `<= channel.progressiveMaxGapDays` (default 7). On qualify → `lowestRow = pre-campaign baseline` (the last entry strictly before the offer's first entry — the price before the first reduction), `previousRow = deepest campaign price` (the last/lowest offer entry), reason `progressive_reduction_frozen`; **if no pre-campaign baseline exists → return null (fall through to standard)**. `resolvePerishable`: `exempt` → `perishable_exempt`; `last_price` → reference = the **immediately-preceding entry** = the newest history entry strictly before the current/presented price (deterministic; ties broken by `id`), reason `perishable_last_price`. `resolveNewArrival`: product age (`now − first_listed_at`) `< lookbackDays` and `newArrivalRule = 'shorter_window'` → `effLookback = newArrivalsLookbackDays` (or, when `null`, the product's actual age), reason `new_arrival_reduced_window`. Idempotency on write: `23505` on `idempotency_key` swallowed as success.
+`resolveProgressive`: fetch the offer's entries ASC by `recorded_at`; the sequence qualifies when it is monotonically non-increasing on `axis` **and** every gap **between consecutive entries** is `<= channel.progressiveMaxGapDays` (default 7). On qualify → `lowestRow = pre-campaign baseline` (the last entry strictly before the offer's first entry — the price before the first reduction), `previousRow = deepest campaign price` (the last/lowest offer entry), reason `progressive_reduction_frozen`; **if no pre-campaign baseline exists → return null (fall through to standard)**. `resolvePerishable`: `exempt` → `perishable_exempt`; `last_price` → reference = the **immediately-preceding entry** = the newest history entry strictly before the current/presented price (deterministic; ties broken by `id`), reason `perishable_last_price`. `resolveNewArrival`: product age (`windowEnd − first_listed_at`, i.e. measured at the reduction's anchor, or at `now` for a sliding window) `< lookbackDays` and `newArrivalRule = 'shorter_window'` → `effLookback = newArrivalsLookbackDays` (or, when `null`, the product's actual age; clamped to `[1, lookbackDays]`), reason `new_arrival_reduced_window`.
+
+As built (Phase 4, PR #5192) the derogations run inside the batched `computeLowestPrices` pipeline:
+- **Flags** — `omnibus_exempt` (variant value, else product value) and `first_listed_at` are loaded by the service in one scoped query per entity type, and only when the channel's rule needs them. `OmnibusResolutionContext.omnibusExempt` / `firstListedAt` are optional overrides; callers do not have to pass them.
+- **Progressive** — one SQL round trip per scope level returns the offer's observations in recording order and the pre-campaign baseline: the newest non-offer observation (same price kind, currency and channel; variant level when the context has a variant, otherwise product level) strictly before the offer's first entry whose price was still live then. The campaign must also start at or below that baseline. The block reports `promotionAnchorAt` = the first offer entry and the window `[firstOffer − lookbackDays, firstOffer]`.
+- **Perishable `last_price`** — the preceding entry is the newest observation strictly before the presented entry (or `now`) whose price had not been deleted or create-undone before that point, never the presented reduction itself. Without one the lookup falls through to the standard window.
+- **New arrival** — the reduced lookback is part of the cache key, so a product ageing out of the rule gets a fresh entry. Idempotency on write: `23505` on `idempotency_key` swallowed as success.
 
 ## Worked Examples (numeric)
 
@@ -467,7 +473,7 @@ All examples: tenant `T`, org `O`, product `PRD`, price kind `PK` (`isPromotion=
 | EC-16 | Perishable `omnibus_exempt=true`, rule `exempt` | `perishable_exempt` |
 | EC-17 | Variant `omnibus_exempt=null` | inherit product-level exemption |
 | EC-18 | New product (`first_listed_at` 5 days ago), `shorter_window` 7d | reduced window; `new_arrival_reduced_window`; `lookbackDays` in response = reduced |
-| EC-19 | `first_listed_at` null (legacy) | treat as not-new (new-arrival rule does not fire) — default-to-`created_at` on new rows prevents this going forward |
+| EC-19 | `first_listed_at` null (legacy) | treat as not-new (new-arrival rule does not fire) — the Phase 4 migration backfills `first_listed_at = created_at` and new rows default to `created_at`, so only an explicitly cleared value is null |
 | EC-20 | Enabling Omnibus with EU channel lacking backfill | PATCH → 422 `backfill_required_before_enable` |
 | EC-21 | Backfill re-run | idempotent (existing-id skip); baseline `recorded_at = windowStart − 1ms` |
 | EC-22 | Direct SQL `UPDATE`/`DELETE` on history | DB trigger raises; no row changed |
@@ -539,13 +545,15 @@ All changes are **additive-only** → no deprecation protocol required (per `BAC
 2. `omnibus:backfill` CLI (single + all-channel + unscoped).
 3. `acl.ts`: add **`catalog.price_history.view`** and **`catalog.settings.view`**, and **reuse the existing `catalog.settings.manage`** for the config PATCH (do not add `catalog.settings.edit` — it breaks the `view`/`manage` convention and overlaps `manage`). Sync into `setup.ts` `defaultRoleFeatures` (admin gets `catalog.*`; employee gets the two `view` features) and run `yarn mercato auth sync-role-acls`.
 
+**Status:** Phases 1–3 shipped in PR #7142 (2026-10-13). Phases 4–5 are implemented on top of them in PR #5192 (2026-10-15).
+
 ### Phase 4 — Member-state derogations
-1. Product/variant `omnibus_exempt`; product `first_listed_at` (defaults to `created_at`).
-2. Progressive (6a(5)), perishable (`exempt`/`last_price`, 6a(3)), new-arrival reduced window (6a(4)); per-channel rule fields + validation.
+1. Product/variant `omnibus_exempt`; product `first_listed_at` (defaults to `created_at`; the migration backfills existing products from `created_at`).
+2. Progressive (6a(5)), perishable (`exempt`/`last_price`, 6a(3)), new-arrival reduced window (6a(4)); per-channel rule fields + validation (the PATCH now accepts the five rule fields instead of rejecting them), settings-panel controls per channel, product/variant form fields.
 
 ### Phase 5 — Sales snapshot + personalization
-1. Six immutable omnibus snapshot columns on `SalesOrderLine` **and** `SalesQuoteLine`; capture on line creation (forked EM, optional `catalogOmnibusService`, never recomputed on edit; gate `if (!existing && service && sourceLine.productId)`).
-2. `isPersonalized` / `personalizationReason` (6(1)(ea)) on resolution + snapshot.
+1. Six immutable omnibus snapshot columns on `SalesOrderLine` **and** `SalesQuoteLine`; capture on line creation (forked EM, optional `catalogOmnibusService`, never recomputed on edit; gate `if (!existing && service && sourceLine.productId)`). The applied price row comes from the line's `priceId` (or `metadata.priceId`); the channel is the document's, falling back to the price row's.
+2. `isPersonalized` / `personalizationReason` (6(1)(ea)) on the snapshot, derived from the applied price row: `customer_specific_price`, `customer_group_price`, `user_specific_price`, `user_group_price`. The products-list response fields remain deferred (see Known Gaps).
 
 ### File Manifest (indicative)
 | File | Action | Purpose |
@@ -611,8 +619,9 @@ All changes are **additive-only** → no deprecation protocol required (per `BAC
 | C16 | Presented promo excluded from its own window (EC-7) | promo recorded at `starts_at`; reference = pre-reduction price (100), NOT the promo price (80) |
 
 ### Integration tests (shipped)
-- `TC-CAT-035` — `isPersonalized` present in products response.
-- `TC-CAT-036` — price-history coverage: announced `is_announced=true`, idempotency (single entry), org isolation, cursor pagination, undo entry (`change_type='undo'`).
+- `TC-CAT-OMNI-001` … `TC-CAT-OMNI-004` — history capture, EU reference price, config/ACL/isolation, settings panel (Phases 1–3).
+- `TC-CAT-OMNI-005` — member-state derogations: product `omnibus_exempt` / `first_listed_at` through the products API, perishable `exempt` and `last_price`, new-arrival reduced window, invalid rule rejected (C5–C7).
+- `TC-SALES-045` — order-line snapshot captured on order create and on line upsert, unchanged after a line edit with Omnibus disabled, absent on a line added while disabled (C14, EC-24).
 
 ## Compliance Gap Analysis
 
@@ -626,7 +635,7 @@ External review vs Directive (EU) 2019/2161 + Commission Guidance (2021/C 526/02
 | 4 | New-arrivals shorter lookback | Medium | 4 | **Implemented** — `first_listed_at` + `newArrivalRule` |
 | 5 | Member-state variations | Medium | 4 | **Implemented** — per-channel rules + `countryCode` |
 | 6 | Announced vs. silent | Medium | 2 | **Implemented** — promotion-detection `applicable` + `is_announced` |
-| 7 | Personalized disclosure | Low–Med | 5 | **Deferred** — `isPersonalized`/`personalizationReason` not yet emitted (see Known Gaps); storefront rendering deferred |
+| 7 | Personalized disclosure | Low–Med | 5 | **Partial** — recorded on order/quote line snapshots; not yet emitted on the products list (see Known Gaps); storefront rendering deferred |
 
 - **Gap 1:** `starts_at ⇒ windowEnd=starts_at`, `windowStart=starts_at−lookback`, fixed for the promotion's life; `promotionAnchorAt` exposed.
 - **Gap 2:** `offer_id` is the campaign key; uninterrupted downward sequence freezes to the pre-first-reduction price; interrupted/non-progressive → rolling-MIN.
@@ -703,7 +712,7 @@ Compliance failures are legal failures. **Implementation status:** structured lo
 - **Retention / monthly partitioning** (`PARTITION BY RANGE (recorded_at)`) before high-volume EU production.
 - **`REVOKE UPDATE/DELETE`** on the app DB role as a production deploy step.
 - **`omnibus-preview` at-least-one-scope** zod refinement (currently all three optional, no `.refine()`).
-- **`isPersonalized` / `personalizationReason` not implemented (deferred)** — as of 2026-10-09 the products-list response emits neither field (no code path sets them). The contract below stays authoritative for when it is built; it is additive, so shipping it later is BC-safe. Until then, 6(1)(ea) personalized-pricing disclosure is **not** covered by this feature.
+- **`isPersonalized` / `personalizationReason` on the products list not implemented (deferred)** — as of 2026-10-15 the products-list response emits neither field; only the order/quote line snapshot (Phase 5) records them. The contract below stays authoritative for when it is built; it is additive, so shipping it later is BC-safe. Until then, 6(1)(ea) personalized-pricing disclosure is **not** covered by this feature.
 - **`isPersonalized` placement/signals** — the **authoritative contract is top-level camelCase** `isPersonalized` / `personalizationReason` on each products-list item (see API Contracts). An earlier implementation nested them snake_case under `pricing`; that is an as-built deviation to **fix to match this contract**, not an alternative shape. Signal-source mapping is currently minimal and should be expanded per Art. 6(1)(ea).
 - **EC-7 enforcement** — the spec now mandates excluding the presented reduction from its own window (RULE in EC-7, test C16). Verify the as-built resolver actually drops the presented entry at the `recorded_at ≤ windowEnd` boundary; if it does not, that is a correctness bug to fix.
 - **Cache invalidation on price write** — the spec requires price writes to invalidate the omnibus cache tag (Architecture → Caching). Verify the as-built price commands emit that invalidation; if they rely on TTL only, storefront reads may be stale up to 5 minutes after a price change.
@@ -761,3 +770,4 @@ None blocking. Open **as-built verification** items (spec is compliant; implemen
 - **2026-10-08** — Known Gap added: window candidates ignore `starts_at`/`ends_at` (scheduled prices in effect inside the window can be missed). `GET /api/catalog/config/omnibus` accepts `catalog.settings.view` **or** `catalog.settings.manage`, so a settings manager can always read what they edit.
 - **2026-10-09** — Review fixes: `GET /api/catalog/prices/history` now requires `productId` or `variantId` (unscoped listing → 400) so reads and `includeTotal` counts always hit a scoped index; omnibus config `channels` keys must be UUIDs; product-delete undo records `undo` history entries for restored prices. `isPersonalized`/`personalizationReason` recorded as a deferred Known Gap (not implemented on the products-list response).
 - **2026-10-13** — Review fixes (PR #7142): a product-level lookup (`product_id` scope) now matches only product-level rows (`variant_id IS NULL`) — variant rows share `product_id` and leaked a variant's lower price into the product's reference. The baseline skips a price whose history already ended at or before `windowStart` (a `delete` row, or an undo of its create). An update or undo that turns a tracked price customer-, group-, user- or tier-specific writes a closing `delete` row from the last tracked state (`metadata: { closedBy, reason: 'untracked' }`), so the public price it replaced stops being a baseline.
+- **2026-10-15** — Phases 4–5 implemented on top of the PR #7142 MVP (PR #5192): product/variant `omnibus_exempt`, product `first_listed_at` (migration backfills `created_at`), per-channel progressive / perishable / new-arrival rules resolved inside the batched pipeline (flags loaded by the service, new-arrival age measured at the window end, preceding entry limited to prices still live), settings and product/variant UI, and the six-column order/quote line snapshot with `isPersonalized` from the applied price row. Integration coverage: `TC-CAT-OMNI-005`, `TC-SALES-045`.
