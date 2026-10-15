@@ -199,6 +199,66 @@ export async function createSecondTenantActor(
   return { tenantId, organizationId, roleId, userId, token };
 }
 
+// ---------------------------------------------------------------------------
+// Step 6.8 (Release 4 PLAN.md) — `Code`/cart-facing-route fixtures shared by the
+// concurrency, budget and cross-tenant specs added in this step.
+// ---------------------------------------------------------------------------
+
+export const CODES_PATH = '/api/promotions/codes';
+export const USAGE_REGISTER_PATH = '/api/promotions/usage/register';
+export const USAGE_REVERT_PATH = '/api/promotions/usage/revert';
+export const CODES_RESERVE_PATH = '/api/promotions/codes/reserve';
+export const CODES_VALIDATE_PATH = '/api/promotions/codes/validate';
+export const CODES_USE_PATH = '/api/promotions/codes/use';
+export const CODES_RELEASE_PATH = '/api/promotions/codes/release';
+
+export function codeDetailQueryPath(id: string): string {
+  return `${CODES_PATH}?ids=${encodeURIComponent(id)}&page=1&pageSize=1`;
+}
+
+export function codeGeneratePath(id: string): string {
+  return `${CODES_PATH}/${id}/generate`;
+}
+
+export function codeGeneratedPath(id: string): string {
+  return `${CODES_PATH}/${id}/generated`;
+}
+
+export type CodeFixture = { id: string; code: string | null };
+
+/** Creates a `Code` via `POST /api/promotions/codes`. */
+export async function createCodeFixture(
+  request: APIRequestContext,
+  token: string,
+  overrides: Record<string, unknown> = {},
+): Promise<CodeFixture> {
+  const stamp = uniqueStamp();
+  const isDynamic = overrides.type === 'dynamic';
+  const body = {
+    name: `QA Code ${stamp}`,
+    type: 'static',
+    code: isDynamic ? undefined : `QA-CODE-${stamp}`.toUpperCase(),
+    amount: isDynamic ? 5 : undefined,
+    usage: 'single',
+    active: true,
+    ...overrides,
+  };
+  const createResponse = await apiRequest(request, 'POST', CODES_PATH, { token, data: body });
+  expect(createResponse.status(), 'POST /api/promotions/codes should return 201').toBe(201);
+  const createBody = await readJsonSafe<{ id?: string }>(createResponse);
+  const id = expectId(createBody?.id, 'code creation response should include id');
+  return { id, code: (body.code as string | undefined) ?? null };
+}
+
+export async function deleteCodeIfExists(
+  request: APIRequestContext,
+  token: string | null,
+  id: string | null,
+): Promise<void> {
+  if (!token || !id) return;
+  await apiRequest(request, 'DELETE', `${CODES_PATH}?id=${encodeURIComponent(id)}`, { token }).catch(() => undefined);
+}
+
 export async function cleanupSecondTenantActor(
   request: APIRequestContext,
   superadminToken: string,

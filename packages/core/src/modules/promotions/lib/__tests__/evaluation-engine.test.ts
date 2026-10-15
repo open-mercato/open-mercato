@@ -73,6 +73,19 @@ describe('evaluatePromotions — orchestration skip checks', () => {
     expect(result).toEqual({ appliedPromotions: [] })
   })
 
+  // TC-PROM-026 (Release 4 PLAN.md Step 6.8): the exclusion case above only proves half
+  // of the currency-eligibility contract — this closes the gap by proving the promotion
+  // is NOT skipped once `input.currency` is one of its `eligibleCurrencies`.
+  it('includes a promotion whose eligibleCurrencies contains input.currency', () => {
+    const result = evaluatePromotions(
+      [promotion({ eligibleCurrencies: ['EUR'] })],
+      input({ currency: 'EUR' }),
+    )
+    expect(result).toEqual({
+      appliedPromotions: [{ promotionId: 'promo-1', promotionName: 'Test Promotion', effects: [] }],
+    })
+  })
+
   it('skips a promotion whose totalDiscountGranted already meets or exceeds maxBudget', () => {
     const result = evaluatePromotions(
       [promotion({ maxBudget: '100.00', budgetCurrency: 'USD', totalDiscountGranted: '150.00' })],
