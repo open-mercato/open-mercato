@@ -120,6 +120,7 @@ import {
   toPositiveNumberOrNull,
   toIntegerInRangeOrDefault,
   normalizeProductConversionInputs,
+  pickEnrichmentNamespaces,
   type ProductUnitConversionInput,
 } from "@open-mercato/core/modules/catalog/components/products/productFormUtils";
 import {
@@ -773,7 +774,11 @@ export default function EditCatalogProductPage({
                 : null,
         };
         if (!cancelled) {
-          setInitialValues({ ...initial, ...customValues });
+          setInitialValues({
+            ...initial,
+            ...customValues,
+            ...pickEnrichmentNamespaces(record),
+          });
           setCategorizeOptions({
             categories: categoryOptions,
             channels: channelOptionEntries,
@@ -1394,6 +1399,19 @@ export default function EditCatalogProductPage({
         typeof updateResult.result?.updatedAt === "string"
           ? updateResult.result.updatedAt
           : null;
+      // The update route does not echo response enrichments (`_wms`, …), so re-read
+      // them when the record carries any — otherwise CrudForm's post-save
+      // `transformDisplayData` resync restores the injected fields' pre-save values
+      // and the next save writes them back (#6142).
+      let refreshedEnrichments: Record<string, unknown> = {};
+      if (Object.keys(pickEnrichmentNamespaces(formValues as Record<string, unknown>)).length > 0) {
+        const refreshedProductRes = await apiCall<ProductResponse>(
+          `/api/catalog/products?id=${encodeURIComponent(productId)}&page=1&pageSize=1&withDeleted=false`,
+        );
+        refreshedEnrichments = pickEnrichmentNamespaces(
+          refreshedProductRes.ok ? refreshedProductRes.result?.items?.[0] : undefined,
+        );
+      }
       // Merge the just-submitted `values` back into `initialValues` too, not only
       // `updatedAt` — CrudForm re-syncs its visible fields from `initialValues`
       // whenever that prop's identity changes, so leaving the other fields at
@@ -1404,6 +1422,7 @@ export default function EditCatalogProductPage({
           ? {
               ...prev,
               ...values,
+              ...refreshedEnrichments,
               updatedAt: refreshedUpdatedAt ?? prev.updatedAt,
             }
           : prev,

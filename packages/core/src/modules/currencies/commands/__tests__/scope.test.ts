@@ -68,6 +68,9 @@ function buildEm(record: Record<string, unknown> | null = null) {
     begin: jest.fn().mockResolvedValue(undefined),
     commit: jest.fn().mockResolvedValue(undefined),
     rollback: jest.fn().mockResolvedValue(undefined),
+    find: jest.fn().mockResolvedValue([]),
+    execute: jest.fn().mockResolvedValue([]),
+    isInTransaction: jest.fn(() => em.begin.mock.calls.length > em.commit.mock.calls.length + em.rollback.mock.calls.length),
   }
   em.fork = jest.fn().mockReturnValue(em)
   return em
