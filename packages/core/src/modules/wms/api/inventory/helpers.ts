@@ -112,10 +112,7 @@ export async function executeWmsCustomPostRoute<TInput, TResult>(
         tenantId: auth.tenantId,
       },
     })
-    if (!intercepted.ok) {
-      return NextResponse.json(intercepted.body, { status: intercepted.statusCode })
-    }
-    return NextResponse.json(intercepted.body, { status: intercepted.statusCode })
+    return NextResponse.json(intercepted.body, { status: intercepted.statusCode, headers: intercepted.headers })
   } catch (error) {
     if (error instanceof CrudHttpError) {
       return NextResponse.json(error.body, { status: error.status })
