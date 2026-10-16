@@ -22,6 +22,42 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
+## 0.9.0 → 0.9.1 (unreleased)
+
+### Portal form submissions are limited to the caller's own `customer` subject (#7224)
+
+`POST /api/forms/form-submissions` now answers `403 { error: "SUBJECT_FORBIDDEN" }` unless
+`subject_type` is `customer` and `subject_id` is the signed-in portal customer's own id. Nothing is
+persisted on a refusal. Both submit routes (`POST /api/forms/form-submissions/:id/submit` and the
+customer-session branch of `POST /api/forms/public/submissions/:id/submit`) apply the same rule to a
+submission the caller started themselves, so a draft started for another subject before this
+release can no longer be submitted. A portal customer that staff assigned as an actor through
+`POST /api/forms/submissions/:id/actors` can still submit on that submission's subject, and invitation
+(token) submissions are unchanged. The URL, request and response shapes are unchanged.
+
+**Action for module authors:** portal pages that pass any other `subjectType` (for example `patient`)
+to `EmbeddedForm` / `FormRunner`, or through the `subjectType` query parameter of the portal
+continue page, now get 403 when a submission starts. Start on the caller's own `customer` subject,
+or have staff create the actor assignment for other subjects.
+
+**Operator check:** submissions that a portal customer started before the upgrade on a subject that
+was not their own, together with any consent records projected from them, can be listed with:
+
+```sql
+select s.id as submission_id, s.subject_type, s.subject_id, s.started_by, s.status,
+       c.id as consent_record_id, c.status as consent_status
+from forms_form_submission s
+left join forms_consent_record c on c.submission_id = s.id
+where s.started_by in (select id from customer_users)
+  and (
+    (s.subject_type = 'customer' and s.subject_id <> s.started_by)
+    or s.subject_type <> 'customer'
+  );
+```
+
+Nothing is rewritten automatically. Portal pages that legitimately started submissions on another
+subject type (for example `patient`) also match, so review the rows before revoking anything.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### Warranty claim undo refusals return a localized `error` plus a `code`; claim-line undos refuse stale state
