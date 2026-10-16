@@ -5389,9 +5389,9 @@ __metadata:
   linkType: hard
 
 "@fastify/busboy@npm:^3.0.0":
-  version: 3.2.0
-  resolution: "@fastify/busboy@npm:3.2.0"
-  checksum: 10/7d42b23eed18b1aaf2d2b1c77a5b76ec3606d59f5ddec31c04b144536be57478ed0c73e04768f11535b11a37b48aaaa0aed4904d5f18391ff90045c258e41acc
+  version: 3.2.3
+  resolution: "@fastify/busboy@npm:3.2.3"
+  checksum: 10/a117c64ac2d0b682db07e4c91d6273043559b9183409032349f8542d4d396335662afc3fbe825aa200d36bd2c5da06bde5150e0fdcaf750e67df296d546c6a91
   languageName: node
   linkType: hard
 
