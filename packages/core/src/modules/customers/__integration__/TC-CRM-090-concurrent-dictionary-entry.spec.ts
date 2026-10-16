@@ -8,6 +8,7 @@ import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixt
  * Each create adds the job title to the `job_title` dictionary. Two transactions that both
  * miss the entry used to insert it at flush time, so the second one hit the
  * `customer_dictionary_entries_unique` constraint and the whole create returned 500 DATABASE_ERROR.
+ * The list is read once before the creates so a cached dictionary must be invalidated by them.
  *
  * Self-contained: creates its own people and dictionary entry and deletes them in teardown.
  */
@@ -19,12 +20,15 @@ const PARALLEL_CREATES = 8
 type DictionaryItem = { id: string; value: string }
 
 test.describe('TC-CRM-090 parallel person creates sharing a new job title', () => {
-  test('every create succeeds and the dictionary keeps a single entry', async ({ request }) => {
+  test('every create succeeds and the refreshed dictionary keeps a single entry', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()
     const jobTitle = `Race Buyer ${stamp}`
     const personIds: string[] = []
     try {
+      const warmUp = await apiRequest(request, 'GET', JOB_TITLES, { token })
+      expect(warmUp.ok(), `dictionary warm-up status ${warmUp.status()}`).toBeTruthy()
+
       const responses = await Promise.all(
         Array.from({ length: PARALLEL_CREATES }, (_, index) =>
           apiRequest(request, 'POST', PEOPLE, {

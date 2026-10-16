@@ -18,6 +18,7 @@ const {
   requireTimelineParentEntity,
   requireDealInScope,
   ensureDictionaryEntry,
+  invalidateDictionaryKindCaches,
   loadEntityTagIds,
   syncEntityTags,
 } = shared
@@ -349,6 +350,42 @@ describe('customers commands shared utilities', () => {
       expect(result).toBe(concurrent)
       expect(concurrent.color).toBe('#00ff00')
       expect(em.persist).toHaveBeenCalledWith(concurrent)
+    })
+
+    it('records the kind only when the entry was missing', async () => {
+      const em = createEm()
+      const createdKinds = new Set<string>()
+      em.findOne.mockResolvedValueOnce(null)
+      await ensureDictionaryEntry(em as any, { tenantId: 't1', organizationId: 'o1', kind: 'job_title', value: 'Buyer' }, createdKinds)
+
+      em.findOne.mockResolvedValueOnce(Object.assign(new CustomerDictionaryEntry(), { kind: 'status', color: null, icon: null }))
+      await ensureDictionaryEntry(em as any, { tenantId: 't1', organizationId: 'o1', kind: 'status', value: 'Active' }, createdKinds)
+
+      expect(Array.from(createdKinds)).toEqual(['job_title'])
+    })
+  })
+
+  describe('invalidateDictionaryKindCaches', () => {
+    it('drops the organization-scoped dictionary tags once per kind', async () => {
+      const cache = { deleteByTags: jest.fn(async () => 0) }
+      const ctx = { container: { resolve: jest.fn(() => cache) } } as any
+
+      await invalidateDictionaryKindCaches(ctx, { tenantId: 't1', organizationId: 'o1' }, ['job_title', 'status', 'job_title'])
+
+      expect(cache.deleteByTags).toHaveBeenCalledTimes(2)
+      expect(cache.deleteByTags).toHaveBeenCalledWith(['customers:dictionaries:t1:job_title:org:o1'])
+      expect(cache.deleteByTags).toHaveBeenCalledWith(['customers:dictionaries:t1:status:org:o1'])
+    })
+
+    it('does nothing without kinds and tolerates a missing cache service', async () => {
+      const resolve = jest.fn(() => {
+        throw new Error('cache not registered')
+      })
+      const ctx = { container: { resolve } } as any
+
+      await expect(invalidateDictionaryKindCaches(ctx, { tenantId: 't1', organizationId: 'o1' }, [])).resolves.toBeUndefined()
+      expect(resolve).not.toHaveBeenCalled()
+      await expect(invalidateDictionaryKindCaches(ctx, { tenantId: 't1', organizationId: 'o1' }, ['status'])).resolves.toBeUndefined()
     })
   })
 

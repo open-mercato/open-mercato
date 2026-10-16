@@ -35,6 +35,7 @@ import {
   ensureSameScope,
   extractUndoPayload,
   ensureDictionaryEntry,
+  invalidateDictionaryKindCaches,
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
@@ -135,6 +136,7 @@ async function resolvePipelineStageValue(
   pipelineStageId: string,
   tenantId: string,
   organizationId: string,
+  createdDictionaryKinds?: Set<string>,
 ): Promise<string | null> {
   const stage = await loadPipelineStageSnapshot(em, pipelineStageId, tenantId, organizationId)
   if (!stage) return null
@@ -143,7 +145,7 @@ async function resolvePipelineStageValue(
     organizationId,
     kind: 'pipeline_stage',
     value: stage.label,
-  })
+  }, createdDictionaryKinds)
   return entry?.value ?? stage.label
 }
 
@@ -556,6 +558,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
       pipelineStageId: null,
     }
     let resolvedPipelineStageLabel: string | null = null
+    const createdDictionaryKinds = new Set<string>()
     await withAtomicFlush(em, [
       async () => {
         stageSnapshot = parsed.pipelineStageId
@@ -572,7 +575,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
             organizationId: parsed.organizationId,
             kind: 'pipeline_stage',
             value: stageSnapshot.label,
-          }))?.value ?? stageSnapshot.label
+          }, createdDictionaryKinds))?.value ?? stageSnapshot.label
           : parsed.pipelineStage ?? null
       },
       async () => {
@@ -613,6 +616,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
       () => syncDealPeople(em, deal, parsed.personIds ?? [], parsed.primaryPersonEntityId, { stampLockToken: false }),
       () => syncDealCompanies(em, deal, parsed.companyIds ?? [], { stampLockToken: false }),
     ], { transaction: true })
+    await invalidateDictionaryKindCaches(ctx, { tenantId: parsed.tenantId, organizationId: parsed.organizationId }, createdDictionaryKinds)
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await setCustomFieldsIfAny({
@@ -774,6 +778,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     let resolvedCurrentPipelineStageLabel: string | null = null
     let pipelineStageAssignmentChanged = false
     let requestedClosureOutcome: DealClosureOutcome | null = null
+    const createdDictionaryKinds = new Set<string>()
 
     await runCrudCommandWrite({
       ctx,
@@ -833,11 +838,11 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
               organizationId: record.organizationId,
               kind: 'pipeline_stage',
               value: nextStageSnapshot.label,
-            }))?.value ?? nextStageSnapshot.label
+            }, createdDictionaryKinds))?.value ?? nextStageSnapshot.label
             : null
           resolvedCurrentPipelineStageLabel =
             !nextStageSnapshot && record.pipelineStageId && (parsed.pipelineStageId !== undefined || !record.pipelineStage)
-              ? await resolvePipelineStageValue(em, record.pipelineStageId, record.tenantId, record.organizationId)
+              ? await resolvePipelineStageValue(em, record.pipelineStageId, record.tenantId, record.organizationId, createdDictionaryKinds)
               : null
         },
         () => {
@@ -919,6 +924,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
         () => syncDealCompanies(em, record, parsed.companyIds),
       ],
     })
+    await invalidateDictionaryKindCaches(ctx, record, createdDictionaryKinds)
 
     // Emit a lifecycle event for deal won/lost status changes; the notifications
     // subscriber translates these into recipient notifications. Tenant/organization

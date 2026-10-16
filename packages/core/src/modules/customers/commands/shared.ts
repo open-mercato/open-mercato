@@ -6,6 +6,8 @@ import { ensureOrganizationScope, ensureSameScope } from '@open-mercato/shared/l
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { EventBus } from '@open-mercato/events'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import type { CacheStrategy } from '@open-mercato/cache'
+import { invalidateDictionaryCache } from '../api/dictionaries/cache'
 
 const logger = createLogger('customers')
 export { ensureOrganizationScope, ensureSameScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
@@ -174,7 +176,8 @@ export async function ensureDictionaryEntry(
     label?: string | null
     color?: string | null | undefined
     icon?: string | null | undefined
-  }
+  },
+  createdKinds?: Set<string>,
 ): Promise<CustomerDictionaryEntry | null> {
   const trimmed = params.value?.trim()
   if (!trimmed) return null
@@ -191,20 +194,24 @@ export async function ensureDictionaryEntry(
     normalizedValue: normalized,
   }
   const now = new Date()
-  // Concurrent writers may insert the same entry; ON CONFLICT DO NOTHING keeps the caller's transaction alive.
-  const entry = (await em.findOne(CustomerDictionaryEntry, scope)) ?? (await em.upsert(
-    CustomerDictionaryEntry,
-    {
-      ...scope,
-      value: trimmed,
-      label: params.label?.trim() || trimmed,
-      color: color ?? null,
-      icon: icon ?? null,
-      createdAt: now,
-      updatedAt: now,
-    },
-    { onConflictFields: ['organizationId', 'tenantId', 'kind', 'normalizedValue'], onConflictAction: 'ignore' },
-  ))
+  let entry = await em.findOne(CustomerDictionaryEntry, scope)
+  if (!entry) {
+    // Concurrent writers may insert the same entry; ON CONFLICT DO NOTHING keeps the caller's transaction alive.
+    entry = await em.upsert(
+      CustomerDictionaryEntry,
+      {
+        ...scope,
+        value: trimmed,
+        label: params.label?.trim() || trimmed,
+        color: color ?? null,
+        icon: icon ?? null,
+        createdAt: now,
+        updatedAt: now,
+      },
+      { onConflictFields: ['organizationId', 'tenantId', 'kind', 'normalizedValue'], onConflictAction: 'ignore' },
+    )
+    createdKinds?.add(params.kind)
+  }
   let changed = false
   if (color !== undefined && entry.color !== color) {
     entry.color = color ?? null
@@ -219,6 +226,29 @@ export async function ensureDictionaryEntry(
     em.persist(entry)
   }
   return entry
+}
+
+export async function invalidateDictionaryKindCaches(
+  ctx: CommandRuntimeContext,
+  scope: CustomerEntityScope,
+  kinds: Iterable<string>,
+): Promise<void> {
+  const distinctKinds = Array.from(new Set(kinds))
+  if (!distinctKinds.length) return
+  let cache: CacheStrategy | undefined
+  try {
+    cache = ctx.container.resolve('cache') as CacheStrategy
+  } catch (err) {
+    logger.warn('cache resolve failed; skipping dictionary invalidation', { component: 'commands.shared', err })
+    return
+  }
+  for (const mappedKind of distinctKinds) {
+    await invalidateDictionaryCache(cache, {
+      tenantId: scope.tenantId,
+      mappedKind,
+      organizationIds: [scope.organizationId],
+    })
+  }
 }
 
 export function resolveParentResourceKind(entityKind: CustomerEntityKind | string | null | undefined): string | null {
