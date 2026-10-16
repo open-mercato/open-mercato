@@ -143,8 +143,9 @@ jest.mock('@open-mercato/ui/primitives/kbd', () => ({
   KbdShortcut: ({ keys }: { keys: string[] }) => <kbd>{keys.join('+')}</kbd>,
 }))
 
+const useIsMobileMock = jest.fn(() => false)
 jest.mock('@open-mercato/ui/hooks/useIsMobile', () => ({
-  useIsMobile: () => false,
+  useIsMobile: () => useIsMobileMock(),
 }))
 
 const flashMock = jest.fn()
@@ -535,6 +536,88 @@ describe('act surfaces come from the server', () => {
     expect(notice.textContent).not.toContain('denied:')
     expect(notice.textContent).not.toContain('sales:sales_order')
     expect(screen.queryByTestId('task-reassign')).toBeNull()
+  })
+
+  test('a host completion guard renders its own message key and offers no complete action', async () => {
+    mockTask(
+      baseTask({
+        status: 'PENDING',
+        canComplete: false,
+        canReassign: true,
+        actBlockedReason: 'completion-guard',
+        completionGuard: {
+          guardId: 'host.signed-contract',
+          code: 'CONTRACT_NOT_SIGNED',
+          messageKey: 'host.tasks.contractNotSigned',
+        },
+      }),
+    )
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('task-act-blocked')).toBeTruthy())
+    const notice = screen.getByTestId('task-act-blocked')
+    expect(notice.getAttribute('data-block-reason')).toBe('host.tasks.contractNotSigned')
+    expect(notice.textContent).toContain('workflows.tasks.detail.blocked.completionGuard')
+    expect(screen.queryByTestId('task-complete')).toBeNull()
+  })
+
+  function guardBlockedTask(overrides: TaskPayload = {}) {
+    return baseTask({
+      status: 'PENDING',
+      canComplete: false,
+      canReassign: true,
+      actBlockedReason: 'completion-guard',
+      completionGuard: { guardId: 'host.g', code: 'BLOCKED', messageKey: null },
+      ...overrides,
+    })
+  }
+
+  test('a completion guard vetoes finishing, not handing on: reassign stays offered', async () => {
+    mockTask(guardBlockedTask())
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('task-act-blocked')).toBeTruthy())
+    expect(screen.getAllByTestId('task-reassign')).toHaveLength(1)
+    fireEvent.click(screen.getByTestId('task-reassign'))
+    await waitFor(() => expect(screen.getByTestId('task-reassign-assignee')).toBeTruthy())
+  })
+
+  test('the mobile layout keeps reassign under a completion guard too', async () => {
+    useIsMobileMock.mockReturnValue(true)
+    try {
+      mockTask(guardBlockedTask())
+      renderPage()
+
+      await waitFor(() => expect(screen.getByTestId('task-act-blocked')).toBeTruthy())
+      expect(screen.getAllByTestId('task-reassign')).toHaveLength(1)
+    } finally {
+      useIsMobileMock.mockReturnValue(false)
+    }
+  })
+
+  test('a completion guard offers no reassign to a caller who may not reassign', async () => {
+    mockTask(guardBlockedTask({ canReassign: false }))
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('task-act-blocked')).toBeTruthy())
+    expect(screen.queryByTestId('task-reassign')).toBeNull()
+  })
+
+  test('a completion guard without a message key falls back to the generic sentence', async () => {
+    mockTask(
+      baseTask({
+        status: 'PENDING',
+        canComplete: false,
+        actBlockedReason: 'completion-guard',
+        completionGuard: { guardId: 'host.g', code: 'BLOCKED', messageKey: null },
+      }),
+    )
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('task-act-blocked')).toBeTruthy())
+    expect(screen.getByTestId('task-act-blocked').getAttribute('data-block-reason')).toBe(
+      'workflows.tasks.detail.blocked.completionGuard',
+    )
   })
 
   test('claim is withheld when the server says so, however claimable the row looks', async () => {

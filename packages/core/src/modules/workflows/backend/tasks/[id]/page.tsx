@@ -70,7 +70,7 @@ import {
 } from '../../../components/work-inbox/EntityContextPanel'
 import {
   WORK_INBOX_OVERDUE_TONE,
-  describeTaskActionBlock,
+  describeTaskActionBlockWithGuard,
   describeWorkInboxPriority,
   describeWorkInboxStatus,
 } from '../../../lib/work-inbox/presentation'
@@ -450,7 +450,25 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
   const canReassign = task.canReassign ?? false
   const blockDescriptor = canComplete
     ? null
-    : describeTaskActionBlock(task.actBlockedReason ?? 'not-workable')
+    : describeTaskActionBlockWithGuard(task.actBlockedReason ?? 'not-workable', task.completionGuard)
+  /*
+   * A host completion guard vetoes FINISHING the task, not handing it on: the
+   * server still answers `canReassign: true` under a veto, so the control stays.
+   */
+  const showReassign = canReassign && (canComplete || task.actBlockedReason === 'completion-guard')
+  const reassignControl = showReassign ? (
+    <div className="flex justify-end">
+      <Button
+        type="button"
+        variant="outline"
+        data-testid="task-reassign"
+        disabled={submitting}
+        onClick={() => setReassignOpen(true)}
+      >
+        {t('workflows.tasks.actions.reassign')}
+      </Button>
+    </div>
+  ) : null
 
   if (isMobile) {
     return (
@@ -470,6 +488,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
                 onReassign={() => setReassignOpen(true)}
               />
             ) : null}
+            {reassignControl}
             <MobileTaskForm
               task={task}
               formData={formData}
@@ -607,19 +626,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
                 legitimately hand a row to somebody else, and the endpoint gates
                 on visibility rather than ownership precisely so it can.
               */}
-              {canComplete && canReassign ? (
-                <div className="flex justify-end">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    data-testid="task-reassign"
-                    disabled={submitting}
-                    onClick={() => setReassignOpen(true)}
-                  >
-                    {t('workflows.tasks.actions.reassign')}
-                  </Button>
-                </div>
-              ) : null}
+              {reassignControl}
 
               {canComplete ? (
                 <form onSubmit={handleSubmit} className="space-y-6">

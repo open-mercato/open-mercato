@@ -12,6 +12,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
+import { isTaskCompletionBlockedError } from '../../../../lib/task-completion-guards'
 import type { TaskHandlerService } from '../../../../lib/task-handler'
 import { gateTaskAction } from '../../../../lib/task-visibility-request'
 import {
@@ -146,6 +147,10 @@ export async function POST(
     })
   } catch (error) {
     if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
+    // A host-owned precondition refused, not a failure: answer before logging.
+    if (isTaskCompletionBlockedError(error)) {
+      return NextResponse.json(error.body, { status: error.status })
+    }
     logger.error('Error completing user task', { err: error })
 
     // Handle specific error codes from task-handler
@@ -213,7 +218,12 @@ export const openApi: OpenApiRouteDoc = {
         { status: 401, description: 'Unauthorized', schema: workflowErrorSchema },
         { status: 403, description: 'The task is visible to the caller but is not theirs to act on — it has no assignee and no role queue, so it must be reassigned first (§6.4: administration widens seeing, never acting).', schema: workflowErrorSchema },
         { status: 404, description: 'Task not found, or not visible to the caller', schema: workflowErrorSchema },
-        { status: 409, description: 'Task already completed', schema: workflowErrorSchema },
+        {
+          status: 409,
+          description:
+            'Task already completed, assigned to another user, or vetoed by a registered completion guard. A guard veto answers { error, code, guardId, messageKey } where code is the guard\'s own code.',
+          schema: workflowErrorSchema,
+        },
         { status: 500, description: 'Internal server error', schema: workflowErrorSchema },
       ],
     },

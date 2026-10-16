@@ -225,6 +225,25 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
   spot — FROZEN once mounted. It exists because this page can only walk a `formSchema` generically;
   the module that owns a proposal renders it in its own vocabulary (the §7.6 draft card).
 
+## Task Completion Guards (issue #7178)
+
+- **`lib/task-completion-guards.ts` is the ONE veto seam for finishing a task.** Host modules call
+  `registerTaskCompletionGuards([{ moduleId, guards }])` from their `di.ts` (merge-by-module, stored on
+  `globalThis` like the work-inbox sources); the module namespace is also in DI as `taskCompletionGuards`.
+- **Enforced inside `completeUserTask`**, after lookup/ownership/form/decision and BEFORE any mutation,
+  so the complete route, the `workflows.tasks.complete` command and in-process callers share one check.
+  A veto throws `TaskCompletionBlockedError` (`code` = the guard's code, `status` 409); the route answers
+  its `body`, the command rethrows it as `CrudHttpError(409, body)`.
+- **Mirrored in `canComplete`.** The task detail route evaluates the same guards in `preview` mode on a
+  never-flushed `em.fork()`, ONLY when visibility already allows completion, and feeds the veto into
+  `resolveTaskAffordances` (`actBlockedReason: 'completion-guard'` + `completionGuard`). The portal
+  detail/complete routes apply the same preview and 409 mapping — a new task surface MUST too.
+- **Fail closed** (`COMPLETION_GUARD_FAILED` on a throw — also reported via `reportError` as
+  `workflows.task_completion_guard_failed` — `TASK_COMPLETION_BLOCKED` on a code-less veto);
+  **zero cost** when nothing is registered — the handler loads nothing extra. MUST NOT bypass this by
+  completing a `UserTask` row directly (`closeAgentDispositionTask` is the documented non-advancing
+  exception). Spec: `.ai/specs/2026-10-11-workflows-task-completion-guards.md`.
+
 ## Node Outcome Rows (the canvas footer — fidelity gap #4)
 
 - **`lib/node-outcome-rows.ts` (PURE) decides what the rows ARE**; `components/nodes/NodeOutcomeRows.tsx`
@@ -947,6 +966,7 @@ Treat a regression here as a broken feature, not a nit.
 | `activityExecutor` | Execute or enqueue activities (called by transition handler) |
 | `conditionHandler` | Evaluate and wake WAIT_FOR_CONDITION waiters (`evaluateWaitCondition` from the queue backstop, `wakeConditionWaiters` from a context write) |
 | `eventLogger` | Log workflow events for audit trail |
+| `taskCompletionGuards` | Register / evaluate host vetoes on user-task completion (`lib/task-completion-guards.ts`) |
 
 ## Adding a New Activity Type
 
