@@ -224,6 +224,18 @@ answer; an uncaught one reached Next.js as an unhandled throw, and the caller sa
 treated a 500 from your route as the expected outcome of a guard; it now receives the real status.
 Routes that already catch `CrudHttpError` are unchanged.
 
+### Stripe webhook bodies over 1 MiB are rejected with `413` before they are read (#7222)
+
+`POST /api/payment_gateways/webhook/stripe` used to buffer the whole request body before verifying
+the signature, with no size limit. The Stripe webhook handler now registers a `maxBodyBytes` limit of
+1 MiB (`DEFAULT_WEBHOOK_BODY_LIMIT_BYTES`), or `OM_WEBHOOK_MAX_BODY_BYTES` when that is set lower, so
+a body over the limit, by its `Content-Length` or by the bytes actually streamed, is answered
+with `413 {"error":"Webhook payload too large"}` before signature verification or the transaction
+lookup runs.
+
+**Action for operators:** none, unless your Stripe account sends webhook events larger than 1 MiB;
+those are now refused with `413` and Stripe retries them.
+
 ### `resolveAttachmentOrganizationId` is deprecated in favour of `resolveAttachmentRequestScope`
 
 `@open-mercato/core/modules/attachments/lib/requestScope` now exports
