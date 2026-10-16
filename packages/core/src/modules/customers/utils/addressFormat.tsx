@@ -27,6 +27,12 @@ export type AddressValue = {
   phone?: string | null
   taxId?: string | null
   taxIdType?: string | null
+  /**
+   * Who to call about this specific address — distinct from `name`, the address's own label
+   * ("Home", "Warehouse"). Additive per Phase 3 of the same spec. Postal-only contract still
+   * excludes it from `formatAddressLines`/`AddressView`, like the sibling contact fields above.
+   */
+  recipientName?: string | null
 }
 
 /**
