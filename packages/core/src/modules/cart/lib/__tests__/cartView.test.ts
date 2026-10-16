@@ -3,9 +3,12 @@ type Row = Record<string, any>
 let seededCarts: Row[] = []
 let seededCartLines: Row[] = []
 let seededPriceRows: Row[] = []
+let seededPromotionApplications: Row[] = []
+let seededPromotions: Row[] = []
 
 import { CatalogProductPrice } from '@open-mercato/core/modules/catalog/data/entities'
-import { Cart, CartLine } from '../../data/entities'
+import { Promotion } from '@open-mercato/core/modules/promotions/data/entities'
+import { Cart, CartLine, CartPromotionApplication } from '../../data/entities'
 
 function matchesSimpleWhere(row: Row, where: Row): boolean {
   return Object.entries(where).every(([key, value]) => {
@@ -26,6 +29,7 @@ const mockFindWithDecryption = jest.fn(async (_em: unknown, entity: unknown, whe
   // price-row filter is a complex MikroORM query shape this fake store does not
   // re-implement — every call for this entity returns the full seeded set.
   if (entity === CatalogProductPrice) return [...seededPriceRows]
+  if (entity === CartPromotionApplication) return filterRows(seededPromotionApplications, where)
   return []
 })
 
@@ -134,10 +138,52 @@ function makeResolvedLinePrice(overrides: Row = {}) {
   }
 }
 
+function makePromotionApplicationFixture(overrides: Row = {}): Row {
+  return {
+    id: 'promotion-app-1',
+    organizationId: ORG_ID,
+    tenantId: TENANT_ID,
+    cartId: CART_ID,
+    promotionId: 'promotion-1',
+    code: null,
+    codeId: null,
+    codeType: null,
+    codeReservationId: null,
+    scope: 'order',
+    cartLineId: null,
+    effect: {},
+    amountNet: null,
+    amountGross: null,
+    appliedAt: new Date('2026-02-01T00:00:00.000Z'),
+    createdAt: new Date('2026-02-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-02-01T00:00:00.000Z'),
+    ...overrides,
+  }
+}
+
+function makePromotionFixture(overrides: Row = {}): Row {
+  return {
+    id: 'promotion-1',
+    organizationId: ORG_ID,
+    tenantId: TENANT_ID,
+    name: 'Promotion One',
+    deletedAt: null,
+    ...overrides,
+  }
+}
+
 function makeContainer(opts: { resolveLinePrice?: jest.Mock } = {}) {
   const resolveLinePrice = opts.resolveLinePrice ?? jest.fn(async () => makeResolvedLinePrice())
   const em: any = { fork: jest.fn() }
   em.fork.mockReturnValue(em)
+  // `buildAppliedPromotionViews`'s batch `Promotion` name lookup — `commands/promotions.ts`'s
+  // own precedent (`resolvePromotionIdsForCode`) uses a plain `em.find`, not
+  // `findWithDecryption`, so this mock sits directly on `em`, not the shared
+  // `mockFindWithDecryption` fake store.
+  em.find = jest.fn(async (entity: unknown, where: Row) => {
+    if (entity === Promotion) return filterRows(seededPromotions, where)
+    return []
+  })
   return {
     resolve: (token: string): any => {
       if (token === 'em') return em
@@ -145,6 +191,7 @@ function makeContainer(opts: { resolveLinePrice?: jest.Mock } = {}) {
       throw new Error(`Unexpected DI token: ${token}`)
     },
     resolveLinePrice,
+    em,
   } as any
 }
 
@@ -152,6 +199,8 @@ function resetFixtures() {
   seededCarts = [makeCartFixture()]
   seededCartLines = []
   seededPriceRows = [{ id: 'price-row-1', product: 'product-1', tenantId: TENANT_ID, organizationId: ORG_ID, minQuantity: 1, maxQuantity: null }]
+  seededPromotionApplications = []
+  seededPromotions = []
   jest.clearAllMocks()
   mockResolveAvailability.mockImplementation(async () => ({ byItem: {} }))
 }
@@ -427,6 +476,85 @@ describe('buildCartResponseEnvelope', () => {
         { code: 'out_of_stock', lineId: 'line-1', message: expect.any(String) },
         { code: 'quantity_capped', lineId: 'line-2', message: '[internal] capped' },
       ])
+    })
+  })
+
+  // QA F10 — §10.1's `promotions: AppliedPromotionView[]` was hardcoded to `[]` with no
+  // real mapping from `CartPromotionApplication` at all. See `cartView.ts`'s
+  // `buildAppliedPromotionViews` for the field shape and the deleted-promotion judgment call.
+  describe('§10.1 promotions (QA F10)', () => {
+    it('maps an order-scope code application and a line-scope automatic application, resolving promotion names from Promotion rows', async () => {
+      seededPromotionApplications = [
+        makePromotionApplicationFixture({
+          id: 'app-order',
+          promotionId: 'promotion-order',
+          code: 'SUMMER10',
+          codeId: 'code-1',
+          scope: 'order',
+          cartLineId: null,
+          amountNet: '-14.8000',
+          amountGross: '-17.7600',
+        }),
+        makePromotionApplicationFixture({
+          id: 'app-line',
+          promotionId: 'promotion-line',
+          scope: 'line',
+          cartLineId: 'line-1',
+          amountNet: '-29.6000',
+          amountGross: '-35.5200',
+        }),
+      ]
+      seededPromotions = [
+        makePromotionFixture({ id: 'promotion-order', name: 'Summer Sale' }),
+        makePromotionFixture({ id: 'promotion-line', name: 'Automatic Line Discount' }),
+      ]
+      const container = makeContainer()
+      const envelope = await buildCartResponseEnvelope({ container, cartId: CART_ID, tenantId: TENANT_ID, organizationId: ORG_ID })
+
+      expect(envelope.cart.promotions).toEqual([
+        {
+          promotionId: 'promotion-order',
+          promotionName: 'Summer Sale',
+          code: 'SUMMER10',
+          scope: 'order',
+          cartLineId: null,
+          amountNet: '-14.8000',
+          amountGross: '-17.7600',
+        },
+        {
+          promotionId: 'promotion-line',
+          promotionName: 'Automatic Line Discount',
+          code: null,
+          scope: 'line',
+          cartLineId: 'line-1',
+          amountNet: '-29.6000',
+          amountGross: '-35.5200',
+        },
+      ])
+    })
+
+    it('batches ONE Promotion lookup across every distinct promotionId, never one per application row', async () => {
+      seededPromotionApplications = [
+        makePromotionApplicationFixture({ id: 'app-1', promotionId: 'promotion-1', scope: 'line', cartLineId: 'line-1' }),
+        makePromotionApplicationFixture({ id: 'app-2', promotionId: 'promotion-1', scope: 'line', cartLineId: 'line-2' }),
+        makePromotionApplicationFixture({ id: 'app-3', promotionId: 'promotion-2', scope: 'line', cartLineId: 'line-3' }),
+      ]
+      seededPromotions = [makePromotionFixture({ id: 'promotion-1' }), makePromotionFixture({ id: 'promotion-2', name: 'Promotion Two' })]
+      const container = makeContainer()
+      await buildCartResponseEnvelope({ container, cartId: CART_ID, tenantId: TENANT_ID, organizationId: ORG_ID })
+
+      expect(container.em.find).toHaveBeenCalledTimes(1)
+      const [, where] = container.em.find.mock.calls[0]
+      expect(where.id.$in).toEqual(expect.arrayContaining(['promotion-1', 'promotion-2']))
+    })
+
+    it('omits an application row whose Promotion was deleted, without throwing', async () => {
+      seededPromotionApplications = [makePromotionApplicationFixture({ id: 'app-gone', promotionId: 'promotion-gone' })]
+      seededPromotions = []
+      const container = makeContainer()
+      const envelope = await buildCartResponseEnvelope({ container, cartId: CART_ID, tenantId: TENANT_ID, organizationId: ORG_ID })
+
+      expect(envelope.cart.promotions).toEqual([])
     })
   })
 })

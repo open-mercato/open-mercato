@@ -19,9 +19,10 @@ import type {
   ResolvedLinePrice,
 } from '@open-mercato/core/modules/catalog/services/catalogBuyerPricingService'
 import type { SalesDocumentAmounts } from '@open-mercato/core/modules/sales/lib/types'
+import { Promotion } from '@open-mercato/core/modules/promotions/data/entities'
 
-import { Cart, CartLine } from '../data/entities'
-import type { CartStatus, CartTaxMode } from '../data/entities'
+import { Cart, CartLine, CartPromotionApplication } from '../data/entities'
+import type { CartPromotionScope, CartStatus, CartTaxMode } from '../data/entities'
 import { toCartLineSnapshot } from '../commands/lines'
 import type { CartLineSnapshot } from '../commands/lines'
 import type { CartMergeSummary } from '../commands/merge'
@@ -271,6 +272,28 @@ function buildNextTierView(resolved: ResolvedLinePrice, cart: Cart): CartLineNex
 /** `{ id; status } | null` — §10.1's own shape. See `buildCartResponseEnvelope`'s doc comment for the `status` judgment call. */
 export type CartApprovalView = { id: string; status: string } | null
 
+/**
+ * §10.1's `promotions: AppliedPromotionView[]` — one entry per `CartPromotionApplication`
+ * row on this cart (QA F10). `promotionId` is deliberately the ONLY identifier exposed for
+ * removal purposes: `DELETE /current/promotions/[id]` (`api/current/promotions/[id]/route.ts`,
+ * `commands/promotions.ts`'s `removePromotionCommand`) reads its `[id]` path param as the
+ * applied PROMOTION's id and queries `CartPromotionApplication` by `promotionId`, never by
+ * the application row's own `id` — so exposing a separate row-id field here would invite a
+ * client to pass the wrong value. A promotion applied as a `LINE_DISCOUNT` to several lines
+ * produces one entry per line (same `promotionId`, different `cartLineId`); removing by
+ * `promotionId` deletes all of them in one call, matching `removePromotionCommand`'s own
+ * "removes every application row for this promotion" behavior.
+ */
+export type AppliedPromotionView = {
+  promotionId: string
+  promotionName: string
+  code: string | null
+  scope: CartPromotionScope
+  cartLineId: string | null
+  amountNet: string | null
+  amountGross: string | null
+}
+
 export type CartView = {
   token?: string
   updatedAt: Date
@@ -280,7 +303,7 @@ export type CartView = {
   taxMode: CartTaxMode
   lines: CartLineView[]
   totals: SalesDocumentAmounts
-  promotions: never[]
+  promotions: AppliedPromotionView[]
   requiresApproval: boolean
   approval: CartApprovalView
   itemCount: number
@@ -318,6 +341,50 @@ function buildFlaggedLineWarnings(lines: CartLine[]): CartViewWarning[] {
       lineId: line.id,
       message: '[internal] This line is no longer available for the buyer’s assortment scope',
     }))
+}
+
+/**
+ * Resolves `CartPromotionApplication` rows into `AppliedPromotionView`s, batch-fetching
+ * `Promotion` names in ONE query across every distinct `promotionId` (never N+1) — the same
+ * cross-module FK-id-then-fetch-separately precedent `commands/promotions.ts`'s
+ * `resolvePromotionIdsForCode` already set for this exact pair (`cart` has no ORM relation
+ * onto `promotions`).
+ *
+ * An application row whose `Promotion` has since been hard- or soft-deleted degrades by
+ * OMITTING that entry (documented judgment call, Step 8.4): a promotion the buyer can no
+ * longer be told anything meaningful about is not worth surfacing as a half-populated row,
+ * and the entry carries no other display-safe name to fall back to.
+ */
+async function buildAppliedPromotionViews(
+  em: EntityManager,
+  scope: CartViewScope,
+  applications: CartPromotionApplication[],
+): Promise<AppliedPromotionView[]> {
+  if (applications.length === 0) return []
+  const promotionIds = Array.from(new Set(applications.map((application) => application.promotionId)))
+  const promotions = await em.find(Promotion, {
+    id: { $in: promotionIds },
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    deletedAt: null,
+  })
+  const promotionNameById = new Map(promotions.map((promotion) => [promotion.id, promotion.name]))
+
+  const views: AppliedPromotionView[] = []
+  for (const application of applications) {
+    const promotionName = promotionNameById.get(application.promotionId)
+    if (!promotionName) continue
+    views.push({
+      promotionId: application.promotionId,
+      promotionName,
+      code: application.code ?? null,
+      scope: application.scope,
+      cartLineId: application.cartLineId ?? null,
+      amountNet: application.amountNet ?? null,
+      amountGross: application.amountGross ?? null,
+    })
+  }
+  return views
 }
 
 export type BuildCartResponseEnvelopeParams = {
@@ -459,6 +526,15 @@ export async function buildCartResponseEnvelope(params: BuildCartResponseEnvelop
   const itemCount = lines.reduce((sum, line) => sum + Number(line.quantity), 0)
   const approval: CartApprovalView = cart.approvalId ? { id: cart.approvalId, status: 'pending' } : null
 
+  const promotionApplications = (await findWithDecryption(
+    em,
+    CartPromotionApplication,
+    { cartId: cart.id, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    {},
+    scope,
+  )) as CartPromotionApplication[]
+  const promotions = await buildAppliedPromotionViews(em, scope, promotionApplications)
+
   const view: CartView = {
     ...(params.token ? { token: params.token } : {}),
     updatedAt: cart.updatedAt,
@@ -468,7 +544,7 @@ export async function buildCartResponseEnvelope(params: BuildCartResponseEnvelop
     taxMode: cart.taxMode,
     lines: lineViews,
     totals: cart.totals as unknown as SalesDocumentAmounts,
-    promotions: [],
+    promotions,
     requiresApproval: cart.requiresApproval,
     approval,
     itemCount,

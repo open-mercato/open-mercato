@@ -106,7 +106,9 @@ Every successful response above returns the same shape (`cart: CartView`), built
       { "id": "...", "productId": "...", "quantity": "2", "unitPriceNet": "19.99", "discountTotalNet": "0.0000", "availabilityState": "...", "nextTier": null }
     ],
     "totals": { "subtotalNetAmount": "...", "grandTotalGrossAmount": "..." },
-    "promotions": [],
+    "promotions": [
+      { "promotionId": "...", "promotionName": "Summer Sale", "code": "SUMMER10", "scope": "order", "cartLineId": null, "amountNet": "-14.8000", "amountGross": "-17.7600" }
+    ],
     "itemCount": 2,
     "lineCount": 1,
     "expiresAt": "..."
@@ -118,6 +120,8 @@ Every successful response above returns the same shape (`cart: CartView`), built
 ```
 
 `priceChanges`/`versionBumpReason`/`warnings` are omitted (not emitted empty) on a request that triggers no disclosure.
+
+`promotions` carries one entry per currently-applied `CartPromotionApplication` row — an automatic promotion that matched without a code and a code the buyer entered both show up here. `scope` is `"order"` for a whole-cart discount (`cartLineId: null`) or `"line"` for a discount attributed to one line (`cartLineId` set). `promotionId` is also the value `DELETE /api/cart/current/promotions/{id}` expects — the path segment is a promotion id, not a separate row id. A promotion that has since been deleted is omitted from the array rather than shown with a missing name.
 
 ## `cart.lock` / `cart.unlock` / `cart.markConverted` have no public route
 
