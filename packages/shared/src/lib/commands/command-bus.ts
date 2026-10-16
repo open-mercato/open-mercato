@@ -145,15 +145,22 @@ function deepEqual(a: unknown, b: unknown, seen?: Set<unknown>): boolean {
   }
   if (a && b && typeof a === 'object' && typeof b === 'object') {
     if (!seen) seen = new Set()
+    // `seen` is the current path: an object met again on it is a cycle. An object reached twice by
+    // different paths (the items of one array held under two keys) is compared like any other.
     if (seen.has(a) || seen.has(b)) return false
     seen.add(a)
     seen.add(b)
-    const aRec = a as Record<string, unknown>
-    const bRec = b as Record<string, unknown>
-    const keysA = Object.keys(aRec)
-    const keysB = Object.keys(bRec)
-    if (keysA.length !== keysB.length) return false
-    return keysA.every((key) => deepEqual(aRec[key], bRec[key], seen))
+    try {
+      const aRec = a as Record<string, unknown>
+      const bRec = b as Record<string, unknown>
+      const keysA = Object.keys(aRec)
+      const keysB = Object.keys(bRec)
+      if (keysA.length !== keysB.length) return false
+      return keysA.every((key) => deepEqual(aRec[key], bRec[key], seen))
+    } finally {
+      seen.delete(a)
+      seen.delete(b)
+    }
   }
   return false
 }
