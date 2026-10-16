@@ -54,6 +54,17 @@ export type CartPriceChangeReason =
   // `cart.lock`, same as `'merge'`/`'promotion_applied'`/`'promotion_removed'` above —
   // never detected by `detectCartRepriceTrigger` (§5.2 triggers 2-4 only).
   | 'lock'
+  // Step 8.2 (QA F12) — `commands/lines.ts`'s `cart.lines.add`/`.remove`/`.bulkAdd` undo
+  // handlers dispatch `cart.reprice` as a follow-up command after restoring a reversed line
+  // mutation, so `Cart.totals` (and every line's promotion-driven `discountTotalNet`) is
+  // restored to its pre-mutation state too — reversing just the one line would otherwise
+  // leave the whole-cart aggregate pointing at the state right before the undo, not after.
+  // Manually supplied by that dispatch, same as `'merge'`/`'lock'` above — never detected by
+  // `detectCartRepriceTrigger`. `cart.lines.add`/`.update`/`.remove`/`.bulkAdd` themselves
+  // never use this value: their own `execute()` runs the promotions/totals phases directly
+  // (`lib/promotionContext.ts`'s `buildPromotionsEffectsPhase` + this file's
+  // `buildRecomputeCartTotalsPhase`) rather than dispatching a full `cart.reprice`.
+  | 'undo'
 
 export type CartPriceChange = {
   lineId: string

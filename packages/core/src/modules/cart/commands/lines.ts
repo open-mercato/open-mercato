@@ -1,12 +1,13 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { asValue } from 'awilix'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
-import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import type { CommandBus, CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { ensureSameScope } from '@open-mercato/shared/lib/commands/scope'
 import { badRequest, conflict, notFound } from '@open-mercato/shared/lib/crud/errors'
-import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -45,6 +46,7 @@ import type { QuantityRulePolicy, QuantityRules } from '@open-mercato/core/modul
 import type { PolicyResolutionService } from '@open-mercato/core/modules/availability/lib/policyResolution'
 
 import type { SalesCalculationService } from '@open-mercato/core/modules/sales/services/salesCalculationService'
+import type { SalesAdjustmentDraft } from '@open-mercato/core/modules/sales/lib/types'
 
 import { Cart, CartLine } from '../data/entities'
 import type { CartChannel, CartLineActorType, CartLineOrigin } from '../data/entities'
@@ -56,9 +58,18 @@ import {
 import type { CartVisibilityLineRef, ResolvedAssortmentScope } from '../lib/visibility'
 import { shouldEnforceAssortmentScope } from '../lib/routeContext'
 import type { ResolvedCartRouteContext } from '../lib/routeContext'
+import { buildRecomputeCartTotalsPhase } from '../lib/reprice'
 import type { CartPriceChange } from '../lib/reprice'
+import { buildPromotionsEffectsPhase } from '../lib/promotionContext'
+import type { CartPromotionWarning } from '../lib/promotionContext'
 import { assertCartNotLocked } from '../lib/lockGuard'
 import { emitCartEvent } from '../events'
+// Type-only — erased at compile time, so this carries none of the runtime circularity risk
+// a VALUE import would: `commands/cart.ts` already imports `emitVisibilityRejectedEvent`
+// from THIS file (Step 7.4), so a value-level import back from here would create a
+// module-load cycle. See `dispatchCartRepriceForUndo` below for how the undo handlers call
+// `cart.reprice` without importing its handler object.
+import type { CartRepriceInput, CartRepriceResult } from './cart'
 
 // Step 4.6 — `cart.lines.add`, `.update`, `.remove`, `.bulkAdd`. Builds directly on Step
 // 4.4's `evaluateCartVisibility` (§6a) and Step 4.5's `cart.create`/`cart.get` + the
@@ -67,6 +78,26 @@ import { emitCartEvent } from '../events'
 
 const CART_LINE_ENTITY_ID = E.cart.cart_line
 const cartLineCrudIndexer: CrudIndexerConfig<CartLine> = { entityType: CART_LINE_ENTITY_ID }
+
+// Step 8.2 (QA F12) — this file's own `Cart`-entity indexer/events config, deliberately
+// duplicated from `commands/cart.ts`'s identical `cartCrudIndexer`/`cartCrudEvents` rather
+// than imported from there: `cart.ts` already imports `emitVisibilityRejectedEvent` from
+// THIS file (Step 7.4), so importing a VALUE back from `cart.ts` here would create a
+// module-load cycle. `lib/reprice.ts`'s own header comment sets the precedent for this exact
+// trade-off ("Deliberately duplicates `commands/lines.ts`'s small per-line pricing helpers
+// ... rather than exporting and importing lines.ts's private functions").
+const CART_ENTITY_ID = E.cart.cart
+const cartCrudIndexer: CrudIndexerConfig<Cart> = { entityType: CART_ENTITY_ID }
+const cartCrudEvents: CrudEventsConfig<Cart> = {
+  module: 'cart',
+  entity: 'cart',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+}
 
 const MAX_BULK_ADD_ENTRIES = 100
 // Multiples of an increment are compared as floating-point numbers; this tolerance
@@ -655,6 +686,165 @@ function resolveSnapshotFields(product: CatalogProduct, variant: CatalogProductV
 }
 
 // ---------------------------------------------------------------------------
+// Shared: whole-cart promotions + totals recompute (Step 8.2, QA F12)
+// ---------------------------------------------------------------------------
+
+/**
+ * Spec `cart-module.md:119`'s write flow for every command — load, re-price, run through
+ * `promotionsService`, `calculateDocumentTotals`, persist totals, all inside the same
+ * transaction — applied to this file's own line-mutation commands, which until this step
+ * only ever touched the one line they were mutating and left `Cart.totals`/every OTHER
+ * line's `discountTotalNet` stale (QA finding F12: a 2-unit "5% off 2+ items" cart showed
+ * zeroed totals after add, a stale discount after a quantity cut below the threshold, and a
+ * non-zero grand total after deleting the last line).
+ *
+ * Reuses `cart.reprice`'s OWN phase builders (`lib/promotionContext.ts`'s
+ * `buildPromotionsEffectsPhase`, `lib/reprice.ts`'s `buildRecomputeCartTotalsPhase`) rather
+ * than a parallel re-implementation — this function's only job is wiring them into THIS
+ * caller's own `withAtomicFlush` phase array, mirroring `commands/cart.ts`'s
+ * `repriceCartCommand.execute` almost verbatim for just these two phases (catalog
+ * unit-price re-resolution — `buildCartLineRepricePhases` — and the §6a.2 whole-cart
+ * re-visibility pass are deliberately NOT included: out of this step's scope per the task
+ * brief, and already covered by this file's own per-line checks/pricing).
+ *
+ * Registers `auth` on the container SYNCHRONOUSLY, before returning any phase — same
+ * ordering `cart.reprice` uses, since `promotionsService.evaluate()` resolves its tenant/org
+ * scope from that DI token and fails closed (400) without it.
+ *
+ * The returned phases close over a freshly-populated `lines` array via a leading fetch
+ * phase rather than a value the caller fetches up front: every caller here mutates a
+ * scalar (create/update/soft-delete a line) BEFORE these phases run, so re-reading the
+ * cart's full line set must itself be a phase in the SAME `withAtomicFlush` sequence
+ * (`packages/core/AGENTS.md`'s "Entity Update Safety" rule) — never a plain query the caller
+ * runs ahead of `withAtomicFlush` entirely. The array is mutated in place by the leading
+ * fetch phase (`lines.push(...)`) rather than reassigned, so the SAME reference threads
+ * through every later phase exactly like `buildPromotionsEffectsPhase`'s own in-place gift
+ * line push/splice already depends on.
+ */
+function buildCartPromotionsAndTotalsPhases(params: {
+  em: EntityManager
+  container: CommandRuntimeContext['container']
+  cart: Cart
+  scope: CartLineScope
+  assortmentScope: ResolvedAssortmentScope | undefined
+  now: Date
+  createdGiftLines: CartLine[]
+  removedGiftLines: CartLine[]
+  promotionWarnings: CartPromotionWarning[]
+}): Array<() => Promise<void>> {
+  const { em, container, cart, scope, assortmentScope, now, createdGiftLines, removedGiftLines, promotionWarnings } = params
+  container.register({ auth: asValue({ tenantId: cart.tenantId, orgId: cart.organizationId }) })
+
+  const lines: CartLine[] = []
+  const adjustments: SalesAdjustmentDraft[] = []
+  const changes: CartPriceChange[] = []
+
+  const fetchLinesPhase = async () => {
+    const fetched = (await findWithDecryption(
+      em,
+      CartLine,
+      { cartId: cart.id, deletedAt: null, tenantId: scope.tenantId, organizationId: scope.organizationId },
+      {},
+      scope,
+    )) as CartLine[]
+    lines.push(...fetched)
+  }
+
+  const promotionsPhase = buildPromotionsEffectsPhase({
+    em,
+    container,
+    cart,
+    lines,
+    assortmentScope,
+    tenantScope: scope,
+    now,
+    adjustments,
+    warnings: promotionWarnings,
+    createdGiftLines,
+    removedGiftLines,
+  })
+
+  const totalsPhase = buildRecomputeCartTotalsPhase(container, cart, lines, now, changes, adjustments)
+
+  return [fetchLinesPhase, promotionsPhase, totalsPhase]
+}
+
+/**
+ * The cart-level side effects every line-mutation command now owes once it also mutates
+ * `Cart.totals`/`totalsComputedAt` — mirrors `cart.reprice`'s own post-commit emission for
+ * the SAME three things (the cart's own `updated` CRUD side effect, a created gift line's
+ * `created` side effect + `cart.line.added`, a removed gift line's `deleted` side effect +
+ * `cart.line.removed`), scoped to just what `buildCartPromotionsAndTotalsPhases` can
+ * possibly have produced. Called AFTER the caller's own `withAtomicFlush` commits, same
+ * "side effects only after the DB write lands" rule as every other emission in this file.
+ */
+async function emitCartPromotionsAndTotalsSideEffects(
+  dataEngine: DataEngine,
+  cart: Cart,
+  outcome: { createdGiftLines: CartLine[]; removedGiftLines: CartLine[]; promotionWarnings: CartPromotionWarning[] },
+): Promise<void> {
+  await emitCrudSideEffects({
+    dataEngine,
+    action: 'updated',
+    entity: cart,
+    identifiers: { id: cart.id, organizationId: cart.organizationId, tenantId: cart.tenantId },
+    events: cartCrudEvents,
+    indexer: cartCrudIndexer,
+  })
+  for (const line of outcome.createdGiftLines) {
+    await emitCrudSideEffects({ dataEngine, action: 'created', entity: line, identifiers: getCartLineIdentifiers(line), indexer: cartLineCrudIndexer })
+    await emitCartEvent('cart.line.added', { id: line.id, cartId: line.cartId, organizationId: line.organizationId, tenantId: line.tenantId })
+  }
+  for (const line of outcome.removedGiftLines) {
+    await emitCrudSideEffects({ dataEngine, action: 'deleted', entity: line, identifiers: getCartLineIdentifiers(line), indexer: cartLineCrudIndexer })
+    await emitCartEvent('cart.line.removed', { id: line.id, cartId: line.cartId, organizationId: line.organizationId, tenantId: line.tenantId })
+  }
+  for (const warning of outcome.promotionWarnings) {
+    if (warning.code !== 'promotion_no_longer_valid') continue
+    await emitCartEvent('cart.promotion.no_longer_valid', {
+      cartId: cart.id,
+      tenantId: cart.tenantId,
+      organizationId: cart.organizationId,
+      promotionId: warning.promotionId,
+    })
+  }
+}
+
+/**
+ * The undo-side half of QA F12's fix (task brief point 7): `cart.lines.add`/`.remove`/
+ * `.bulkAdd` restore their reversed line(s) in their own `undo()` handler, but reversing a
+ * line is not the inverse of `Cart.totals` — only a full `cart.reprice` recomputes the
+ * whole-cart aggregate, so this dispatches that command as a follow-up, the same pattern
+ * `commands/promotions.ts`'s own `dispatchReprice` helper already establishes for
+ * `cart.promotions.apply`/`.remove`.
+ *
+ * Calls the command bus with the LITERAL id string `'cart.reprice'` rather than importing
+ * `repriceCartCommand` from `./cart` — a value-level import back from here would create a
+ * module-load cycle (`cart.ts` already imports from this file). `CartRepriceInput`/
+ * `CartRepriceResult` stay `import type`-only above for the identical reason.
+ *
+ * Trigger reason `'undo'` (`lib/reprice.ts`'s `CartPriceChangeReason`): none of the existing
+ * values describe "a command's own undo handler is restoring a reversed line mutation" —
+ * `'merge'`/`'lock'`/`'promotion_applied'`/`'promotion_removed'` are each already owned by a
+ * different caller for a different reason, so reusing one of them would mislabel the
+ * `priceChanges`/`cart.price.changed` disclosure this reprice may still produce. An undo has
+ * no `ResolvedCartRouteContext` of its own to forward (unlike `cart.get`'s trigger dispatch
+ * or `cart.promotions.apply`/`.remove`'s), so this never enforces assortment scope on a gift
+ * line a reprice happens to create here — the same `undefined`-scope behavior every other
+ * `routeContext`-less caller in this module already has.
+ */
+async function dispatchCartRepriceForUndo(
+  ctx: CommandRuntimeContext,
+  cart: { id: string; tenantId: string; organizationId: string },
+): Promise<void> {
+  const commandBus = ctx.container.resolve('commandBus') as CommandBus
+  await commandBus.execute<CartRepriceInput, CartRepriceResult>('cart.reprice', {
+    input: { cartId: cart.id, tenantId: cart.tenantId, organizationId: cart.organizationId, trigger: 'undo' },
+    ctx,
+  })
+}
+
+// ---------------------------------------------------------------------------
 // cart.lines.add
 // ---------------------------------------------------------------------------
 
@@ -680,7 +870,7 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
   id: 'cart.lines.add',
   // §3.1a's undo table: reverses a buyer-visible content change.
   isUndoable: true,
-  async execute(input, ctx) {
+  async execute(input, ctx): Promise<CartLinesAddOutcome> {
     const { tenantId, organizationId, rawScope } = resolveLineAuthScopeIds(input)
     const scope: CartLineScope = { tenantId, organizationId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -721,6 +911,13 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
     let outcome: CartLinesAddOutcome | null = null
     let changedLine: CartLine | null = null
     let changedAction: 'created' | 'updated' | null = null
+
+    // Step 8.2 (QA F12) — populated only when the mutation phase below actually accepted
+    // the line (`shouldRecompute` gates every phase that follows on this).
+    const createdGiftLines: CartLine[] = []
+    const removedGiftLines: CartLine[] = []
+    const promotionWarnings: CartPromotionWarning[] = []
+    const shouldRecompute = () => !!outcome && outcome.status !== 'rejected'
 
     // The merge-by-quantity decision below (`findExistingCustomerLine`) and its write are a
     // read-decide-write sequence on a row that may not exist yet, so a row-level lock can't
@@ -824,22 +1021,52 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
         changedAction = 'created'
         outcome = { status: 'added', line: toCartLineSnapshot(newLine), before: null, warnings }
       },
+      // Step 8.2 (QA F12) — whole-cart promotions re-evaluation + totals recompute, gated
+      // on the mutation phase above actually accepting the line (never on a rejection).
+      ...buildCartPromotionsAndTotalsPhases({
+        em,
+        container: ctx.container,
+        cart,
+        scope,
+        assortmentScope,
+        now,
+        createdGiftLines,
+        removedGiftLines,
+        promotionWarnings,
+      }).map((phase) => async () => {
+        if (!shouldRecompute()) return
+        await phase()
+      }),
     ], { transaction: true, label: 'cart.lines.add' })
 
     if (!outcome) throw new Error('[internal] cart.lines.add produced no outcome')
+    // Captured into plain `const`s (never reassigned themselves) rather than read directly
+    // off `outcome`/`changedLine`/`changedAction` from here on: those are `let`s reassigned
+    // inside the `withAtomicFlush` phase closures above, which (correctly, for cases this
+    // step does not control) makes TS stop narrowing them past the `await` — `never`
+    // target-types below absorb that at zero runtime cost.
+    const finalOutcome = outcome as CartLinesAddOutcome
 
     if (changedLine && changedAction) {
+      const mutatedLine = changedLine as CartLine
+      const action = changedAction as 'created' | 'updated'
+      // Re-snapshot AFTER the promotions phase ran — it may have further updated
+      // `discountTotalNet` on this exact line if a promotion targets it.
+      const resultOutcome: CartLinesAddOutcome =
+        finalOutcome.status === 'rejected' ? finalOutcome : { ...finalOutcome, line: toCartLineSnapshot(mutatedLine) }
       const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-      await emitCrudSideEffects({ dataEngine, action: changedAction, entity: changedLine, identifiers: getCartLineIdentifiers(changedLine), indexer: cartLineCrudIndexer })
-      await emitCartEvent(changedAction === 'created' ? 'cart.line.added' : 'cart.line.updated', {
-        id: changedLine.id,
-        cartId: changedLine.cartId,
-        organizationId: changedLine.organizationId,
-        tenantId: changedLine.tenantId,
+      await emitCrudSideEffects({ dataEngine, action, entity: mutatedLine, identifiers: getCartLineIdentifiers(mutatedLine), indexer: cartLineCrudIndexer })
+      await emitCartEvent(action === 'created' ? 'cart.line.added' : 'cart.line.updated', {
+        id: mutatedLine.id,
+        cartId: mutatedLine.cartId,
+        organizationId: mutatedLine.organizationId,
+        tenantId: mutatedLine.tenantId,
       })
+      await emitCartPromotionsAndTotalsSideEffects(dataEngine, cart, { createdGiftLines, removedGiftLines, promotionWarnings })
+      return resultOutcome
     }
 
-    return outcome
+    return finalOutcome
   },
   buildLog: async ({ result }) => {
     if (result.status === 'rejected') return null
@@ -879,6 +1106,10 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({ dataEngine, action: payload?.before ? 'updated' : 'deleted', entity: line, identifiers: getCartLineIdentifiers(line), indexer: cartLineCrudIndexer })
+
+    // Step 8.2 (QA F12) — reversing this line is not the inverse of `Cart.totals`; only a
+    // full `cart.reprice` (trigger `'undo'`) recomputes the whole-cart aggregate correctly.
+    await dispatchCartRepriceForUndo(ctx, { id: line.cartId, tenantId: line.tenantId, organizationId: line.organizationId })
   },
 }
 
@@ -992,8 +1223,34 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
         cart.lastPriceChangeAt = now
       }
     }
-    line.quantity = String(finalQuantity)
-    await em.flush()
+    // Step 8.2 (QA F12) — this command previously closed with a single bare `em.flush()`
+    // here. Adding the whole-cart promotions/totals recompute means a QUERY (the fresh
+    // full-line fetch `buildCartPromotionsAndTotalsPhases` needs) now runs after this
+    // scalar mutation on the SAME `em` — `packages/core/AGENTS.md`'s "Entity Update Safety"
+    // rule requires `withAtomicFlush` for that, so this is no longer a plain flush. Every
+    // validation/rejection check above (quantity rule, visibility, not-priceable) still
+    // runs BEFORE this point and returns directly, matching `cart.lines.add`'s own
+    // validate-first-then-atomic-mutate structure.
+    const createdGiftLines: CartLine[] = []
+    const removedGiftLines: CartLine[] = []
+    const promotionWarnings: CartPromotionWarning[] = []
+
+    await withAtomicFlush(em, [
+      async () => {
+        line.quantity = String(finalQuantity)
+      },
+      ...buildCartPromotionsAndTotalsPhases({
+        em,
+        container: ctx.container,
+        cart,
+        scope,
+        assortmentScope,
+        now,
+        createdGiftLines,
+        removedGiftLines,
+        promotionWarnings,
+      }),
+    ], { transaction: true, label: 'cart.lines.update' })
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({ dataEngine, action: 'updated', entity: line, identifiers: getCartLineIdentifiers(line), indexer: cartLineCrudIndexer })
@@ -1006,7 +1263,10 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
         changes: priceChanges,
       })
     }
+    await emitCartPromotionsAndTotalsSideEffects(dataEngine, cart, { createdGiftLines, removedGiftLines, promotionWarnings })
 
+    // Re-snapshot AFTER the promotions phase ran — it may have set/cleared this line's own
+    // `discountTotalNet` this same cycle.
     return { status: 'updated', line: toCartLineSnapshot(line), warnings, priceChanges }
   },
 }
@@ -1029,7 +1289,7 @@ const removeLineCommand: CommandHandler<CartLinesRemoveInput, CartLinesRemoveRes
   // §3.1a's undo table: reverses a buyer-visible content change.
   isUndoable: true,
   async execute(input, ctx) {
-    const { tenantId, organizationId } = resolveLineAuthScopeIds(input)
+    const { tenantId, organizationId, rawScope } = resolveLineAuthScopeIds(input)
     const scope: CartLineScope = { tenantId, organizationId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
@@ -1054,6 +1314,7 @@ const removeLineCommand: CommandHandler<CartLinesRemoveInput, CartLinesRemoveRes
     // now uniform with `.add`/`.update`/`.bulkAdd` on locked-ness specifically, while staying
     // deliberately more permissive than them on every OTHER non-active status.
     const cart = await loadMutableCart(em, scope, input.cartId, { requireActive: false })
+    const assortmentScope = resolveEnforcedScope(cart, rawScope)
 
     const line = await findOneWithDecryption(em, CartLine, { id: input.lineId, cartId: cart.id, tenantId, organizationId, deletedAt: null }, {}, scope)
     if (!line) throw notFound('[internal] cart line not found')
@@ -1061,12 +1322,36 @@ const removeLineCommand: CommandHandler<CartLinesRemoveInput, CartLinesRemoveRes
     if (line.origin === 'promotion') throw conflict('[internal] promotion_line_immutable')
 
     const before = toCartLineSnapshot(line)
-    line.deletedAt = new Date()
-    await em.flush()
+    const now = new Date()
+
+    // Step 8.2 (QA F12) — same reasoning as `cart.lines.update`'s own comment: a QUERY (the
+    // fresh full-line fetch the whole-cart recompute needs) now runs after this scalar
+    // mutation on the SAME `em`, so the former bare `em.flush()` becomes `withAtomicFlush`.
+    const createdGiftLines: CartLine[] = []
+    const removedGiftLines: CartLine[] = []
+    const promotionWarnings: CartPromotionWarning[] = []
+
+    await withAtomicFlush(em, [
+      async () => {
+        line.deletedAt = now
+      },
+      ...buildCartPromotionsAndTotalsPhases({
+        em,
+        container: ctx.container,
+        cart,
+        scope,
+        assortmentScope,
+        now,
+        createdGiftLines,
+        removedGiftLines,
+        promotionWarnings,
+      }),
+    ], { transaction: true, label: 'cart.lines.remove' })
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({ dataEngine, action: 'deleted', entity: line, identifiers: getCartLineIdentifiers(line), indexer: cartLineCrudIndexer })
     await emitCartEvent('cart.line.removed', { id: line.id, cartId: line.cartId, organizationId: line.organizationId, tenantId: line.tenantId })
+    await emitCartPromotionsAndTotalsSideEffects(dataEngine, cart, { createdGiftLines, removedGiftLines, promotionWarnings })
 
     return { removed: true, line: toCartLineSnapshot(line) }
   },
@@ -1102,6 +1387,10 @@ const removeLineCommand: CommandHandler<CartLinesRemoveInput, CartLinesRemoveRes
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({ dataEngine, action: 'updated', entity: line, identifiers: getCartLineIdentifiers(line), indexer: cartLineCrudIndexer })
     await emitCartEvent('cart.line.added', { id: line.id, cartId: line.cartId, organizationId: line.organizationId, tenantId: line.tenantId })
+
+    // Step 8.2 (QA F12) — restoring this line is not the inverse of `Cart.totals`; only a
+    // full `cart.reprice` (trigger `'undo'`) recomputes the whole-cart aggregate correctly.
+    await dispatchCartRepriceForUndo(ctx, { id: line.cartId, tenantId: line.tenantId, organizationId: line.organizationId })
   },
 }
 
@@ -1344,6 +1633,14 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
       changedActions.push('created')
     })
 
+    // Step 8.2 (QA F12) — whole-cart promotions re-evaluation + totals recompute, appended
+    // after every entry's own mutation phase, mirroring `cart.reprice`'s own ordering (line
+    // mutations first, promotions phase, totals phase last).
+    const now = new Date()
+    const createdGiftLines: CartLine[] = []
+    const removedGiftLines: CartLine[] = []
+    const promotionWarnings: CartPromotionWarning[] = []
+
     // Same per-cart advisory lock as `cart.lines.add` (above) — `lineByKey`'s merge-by-quantity
     // decision is read-decide-write against rows that may not exist yet, so two concurrent
     // `bulkAdd`/`add` calls on this cart must serialize, not just this call's own entries
@@ -1353,6 +1650,17 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
         await em.execute('select pg_advisory_xact_lock(hashtextextended(?::text, 0))', [`cart:lines:${cart.id}`])
       },
       ...phases,
+      ...buildCartPromotionsAndTotalsPhases({
+        em,
+        container: ctx.container,
+        cart,
+        scope,
+        assortmentScope,
+        now,
+        createdGiftLines,
+        removedGiftLines,
+        promotionWarnings,
+      }),
     ], { transaction: true, label: 'cart.lines.bulkAdd' })
     await emitVisibilityRejectedEvent(cart, visibilityRejectedCount, 'lines.bulkAdd')
 
@@ -1367,6 +1675,17 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
         organizationId: changedLine.organizationId,
         tenantId: changedLine.tenantId,
       })
+    }
+    await emitCartPromotionsAndTotalsSideEffects(dataEngine, cart, { createdGiftLines, removedGiftLines, promotionWarnings })
+
+    // Re-snapshot every added/merged outcome AFTER the promotions phase ran — it may have
+    // further updated `discountTotalNet` on any of these lines.
+    const changedLineById = new Map(changedLines.map((line) => [line.id, line]))
+    for (let i = 0; i < outcomes.length; i += 1) {
+      const outcome = outcomes[i]
+      if (outcome.status !== 'added' && outcome.status !== 'merged') continue
+      const changedLine = changedLineById.get(outcome.line.id)
+      if (changedLine) outcomes[i] = { ...outcome, line: toCartLineSnapshot(changedLine) }
     }
 
     const addedCount = outcomes.filter((outcome) => outcome.status === 'added' || outcome.status === 'merged').length
@@ -1397,6 +1716,7 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
     if (!payload?.entries?.length) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    let cartRef: { id: string; tenantId: string; organizationId: string } | null = null
     for (const entry of payload.entries) {
       const line = await em.findOne(CartLine, { id: entry.after.id })
       if (!line) continue
@@ -1408,7 +1728,13 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
       }
       await em.flush()
       await emitCrudSideEffects({ dataEngine, action: entry.before ? 'updated' : 'deleted', entity: line, identifiers: getCartLineIdentifiers(line), indexer: cartLineCrudIndexer })
+      cartRef = { id: line.cartId, tenantId: line.tenantId, organizationId: line.organizationId }
     }
+
+    // Step 8.2 (QA F12) — same reasoning as `cart.lines.add`/`.remove`'s own undo: restoring
+    // these lines is not the inverse of `Cart.totals`; one `cart.reprice` dispatch after the
+    // whole batch is restored recomputes the whole-cart aggregate correctly.
+    if (cartRef) await dispatchCartRepriceForUndo(ctx, cartRef)
   },
 }
 

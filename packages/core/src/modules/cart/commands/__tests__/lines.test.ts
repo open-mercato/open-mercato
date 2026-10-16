@@ -77,6 +77,11 @@ import type {
   CartLinesUpdateOutcome,
 } from '../lines'
 import '../lines'
+// Step 8.2 (QA F12) — registers `cart.reprice`/`cart.create`/`cart.get` into the SAME shared
+// `commandRegistry` `getHandler` reads from, so the undo-restores-totals tests below can
+// dispatch a REAL `cart.reprice` through a test-local `commandBus` stub instead of a
+// fully-faked one — see the "undo ... restores Cart.totals" tests.
+import '../cart'
 
 const TENANT_ID = 'tenant-cart-1'
 const ORG_ID = 'org-cart-1'
@@ -179,6 +184,13 @@ function makeDataEngine() {
   return { markOrmEntityChange: jest.fn(), flushOrmEntityChanges: jest.fn(async () => {}) }
 }
 
+// Step 8.2 (QA F12) — every line-mutation command now also runs `buildPromotionsEffectsPhase`
+// + `buildRecomputeCartTotalsPhase` after its own mutation, so this harness's container must
+// resolve `promotionsService` and support `.register(...)` (the `auth` DI token those phases
+// need) even for tests that don't care about promotions themselves. `commandBus` backs the
+// `.add`/`.remove`/`.bulkAdd` undo handlers' `cart.reprice` dispatch — a plain stub by
+// default; a test that cares about undo-restores-totals overrides it with one that actually
+// delegates to the registered `cart.reprice` handler (see that describe block).
 function makeCtx(opts: {
   em: unknown
   dataEngine?: unknown
@@ -186,9 +198,12 @@ function makeCtx(opts: {
   salesCalculationService?: unknown
   policyResolutionService?: unknown
   catalogScopedProductService?: unknown
+  promotionsService?: unknown
+  commandBus?: unknown
 }): CommandRuntimeContext {
   return {
     container: {
+      register: jest.fn(),
       resolve: (token: string): any => {
         if (token === 'em') return opts.em
         if (token === 'dataEngine') return opts.dataEngine ?? makeDataEngine()
@@ -196,7 +211,25 @@ function makeCtx(opts: {
           return opts.catalogBuyerPricingService ?? { resolveLinePrice: jest.fn(async () => makeResolvedLinePrice()) }
         }
         if (token === 'salesCalculationService') {
-          return opts.salesCalculationService ?? { calculateLine: jest.fn(async ({ line }: any) => makeLineTotalsFixture(line.quantity)) }
+          return (
+            opts.salesCalculationService ?? {
+              calculateLine: jest.fn(async ({ line }: any) => makeLineTotalsFixture(line.quantity)),
+              calculateDocumentTotals: jest.fn(async ({ lines, adjustments }: any) => makeDocumentTotalsFixture(lines, adjustments)),
+            }
+          )
+        }
+        if (token === 'promotionsService') {
+          return (
+            opts.promotionsService ?? {
+              evaluate: jest.fn(async () => ({ appliedPromotions: [] })),
+              extendReservation: jest.fn(async () => undefined),
+              reserveCode: jest.fn(),
+              releaseCode: jest.fn(),
+            }
+          )
+        }
+        if (token === 'commandBus') {
+          return opts.commandBus ?? { execute: jest.fn(async () => ({ result: { cart: {}, priceChanges: [] }, logEntry: null })) }
         }
         if (token === 'policyResolutionService') {
           if (opts.policyResolutionService) return opts.policyResolutionService
@@ -214,6 +247,27 @@ function makeCtx(opts: {
     organizationScope: null,
     organizationIds: null,
     request: undefined as any,
+  }
+}
+
+/** Default `calculateDocumentTotals` fixture — sums each line's net/gross/discount so a
+ * non-zero add and a zeroed-out "last line removed" case both read back correctly without
+ * every test having to supply its own `salesCalculationService` override. */
+function makeDocumentTotalsFixture(lines: Array<Record<string, any>>, adjustments: Array<Record<string, any>> = []) {
+  const subtotalNetAmount = lines.reduce((sum, line) => sum + (line.unitPriceNet ?? 0) * line.quantity, 0)
+  const subtotalGrossAmount = lines.reduce((sum, line) => sum + (line.unitPriceGross ?? 0) * line.quantity, 0)
+  const lineDiscountTotal = lines.reduce((sum, line) => sum + (line.discountAmount ?? 0), 0)
+  const orderDiscountTotal = adjustments.reduce((sum, adjustment) => sum + Math.abs(adjustment.amountNet ?? 0), 0)
+  const discountTotalAmount = lineDiscountTotal + orderDiscountTotal
+  return {
+    totals: {
+      subtotalNetAmount,
+      subtotalGrossAmount,
+      discountTotalAmount,
+      taxTotalAmount: subtotalGrossAmount - subtotalNetAmount,
+      grandTotalNetAmount: subtotalNetAmount - discountTotalAmount,
+      grandTotalGrossAmount: subtotalGrossAmount - discountTotalAmount,
+    },
   }
 }
 
@@ -953,5 +1007,187 @@ describe('cart lock-awareness (Step 7.5)', () => {
 
     expect(result.removed).toBe(true)
     expect(seededCartLines[0].deletedAt).not.toBeNull()
+  })
+})
+
+// Step 8.2 — QA finding F12: every line-mutation command now re-evaluates promotions and
+// recomputes `Cart.totals` as a whole-cart aggregate (`buildPromotionsEffectsPhase` +
+// `buildRecomputeCartTotalsPhase`), instead of only ever touching the single line it
+// mutates. These tests encode the exact live repro from the finding.
+describe('cart promotions + totals recompute (Step 8.2, QA F12)', () => {
+  beforeEach(resetFixtures)
+
+  function makeBareLine(overrides: Row = {}): Row {
+    return {
+      id: 'line-1',
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      cartId: CART_ID,
+      lineNumber: 1,
+      productId: 'product-1',
+      variantId: null,
+      sku: null,
+      name: 'Widget',
+      optionValues: null,
+      quantity: '1',
+      unitPriceNet: '10',
+      unitPriceGross: '12',
+      taxRate: '20',
+      priceKindId: null,
+      priceRowId: 'price-row-1',
+      priceTierMinQuantity: 1,
+      pricedAt: new Date(),
+      lineTotals: makeLineTotalsFixture(1),
+      discountTotalNet: null,
+      promotionId: null,
+      origin: 'customer',
+      configuration: null,
+      addedByActorType: 'buyer',
+      addedByActorId: null,
+      metadata: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+      ...overrides,
+    }
+  }
+
+  // Regression guard: `Cart.totals` must never again land at the zeroed placeholder QA F12
+  // found — a plain add with no promotions in play returns a real, non-zero aggregate.
+  it('a plain add with no promotions returns non-zero totals, never the zeroed placeholder', async () => {
+    const handler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')
+    const em = makeEm()
+    const ctx = makeCtx({ em })
+
+    const result = await handler.execute(
+      { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, productId: 'product-1', quantity: 2, addedByActorType: 'rep' },
+      ctx,
+    )
+
+    expect(result.status).toBe('added')
+    expect(seededCarts[0].totals).toMatchObject({ grandTotalNetAmount: 20, grandTotalGrossAmount: 24 })
+    expect(seededCarts[0].totalsComputedAt).toBeInstanceOf(Date)
+  })
+
+  // Live repro row 2: 2 units qualify for a "2+ items" promotion (simulated here via a
+  // quantity-gated `promotionsService.evaluate` mock, since this is a Jest-level test of
+  // cart's own orchestration, not the real rule engine). PATCH-ing the quantity to 1 must
+  // drop the promotion out of totals AND clear the line's own stale `discountTotalNet` —
+  // not merely halve it, since below the "2+" threshold the promotion no longer applies at
+  // all. This also exercises `lib/promotionContext.ts`'s Step 8.2 fix: a line's discount is
+  // re-derived from EVERY evaluation, not left stale from a PRIOR one that no longer holds.
+  it('PATCH-ing quantity below a "2+ items" promotion threshold drops the discount and recomputes totals', async () => {
+    seededCartLines = [makeBareLine({ quantity: '2', discountTotalNet: '-1.0000' })]
+    seededCarts[0] = { ...seededCarts[0], totals: { subtotalNetAmount: 20, subtotalGrossAmount: 24, discountTotalAmount: 1, taxTotalAmount: 4, grandTotalNetAmount: 19, grandTotalGrossAmount: 23 } }
+    const handler = getHandler<CartLinesUpdateInput, CartLinesUpdateOutcome>('cart.lines.update')
+    const em = makeEm()
+    const evaluate = jest.fn(async ({ items }: any) => {
+      const line = items[0]
+      if (Number(line.quantity) >= 2) {
+        return {
+          appliedPromotions: [
+            {
+              promotionId: 'promo-1',
+              effects: [{ type: 'LINE_DISCOUNT', targetLineId: line.lineId, amountNet: '-1.0000', amountGross: '-1.2000' }],
+            },
+          ],
+        }
+      }
+      return { appliedPromotions: [] }
+    })
+    const ctx = makeCtx({ em, promotionsService: { evaluate } })
+
+    const result = await handler.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineId: 'line-1', quantity: 1 }, ctx)
+
+    expect(result.status).toBe('updated')
+    if (result.status !== 'updated') throw new Error('expected updated')
+    expect(result.line.quantity).toBe('1')
+    expect(result.line.discountTotalNet).toBeNull()
+    expect(seededCartLines[0].discountTotalNet).toBeNull()
+    expect(seededCarts[0].totals).toMatchObject({ discountTotalAmount: 0, grandTotalNetAmount: 10, grandTotalGrossAmount: 12 })
+  })
+
+  // Live repro row 3: deleting the cart's last remaining line must zero every total field,
+  // never leave a stale non-zero `grandTotalNetAmount` behind.
+  it('deleting the last remaining line zeroes every total field', async () => {
+    seededCartLines = [makeBareLine()]
+    seededCarts[0] = { ...seededCarts[0], totals: { subtotalNetAmount: 10, subtotalGrossAmount: 12, discountTotalAmount: 0, taxTotalAmount: 2, grandTotalNetAmount: 10, grandTotalGrossAmount: 12 } }
+    const handler = getHandler<CartLinesRemoveInput, CartLinesRemoveResult>('cart.lines.remove')
+    const em = makeEm()
+    const ctx = makeCtx({ em })
+
+    const result = await handler.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineId: 'line-1' }, ctx)
+
+    expect(result.removed).toBe(true)
+    expect(seededCarts[0].totals).toMatchObject({
+      subtotalNetAmount: 0,
+      subtotalGrossAmount: 0,
+      discountTotalAmount: 0,
+      taxTotalAmount: 0,
+      grandTotalNetAmount: 0,
+      grandTotalGrossAmount: 0,
+    })
+  })
+
+  // Task brief point 7: undo must restore `Cart.totals`, not just the line — a REAL
+  // `cart.reprice` dispatch (via a test-local `commandBus` that delegates to the shared
+  // `commandRegistry`, not a faked result) is what makes this assertion meaningful.
+  function makeRealDispatchingCommandBus() {
+    return {
+      execute: jest.fn(async (id: string, opts: any) => {
+        const target = getHandler<any, any>(id)
+        const result = await target.execute(opts.input, opts.ctx)
+        return { result, logEntry: null }
+      }),
+    }
+  }
+
+  it('undo of cart.lines.add restores Cart.totals to the pre-mutation value, not just the line', async () => {
+    seededCartLines = [makeBareLine({ id: 'line-0' })]
+    seededCarts[0] = { ...seededCarts[0], totals: { subtotalNetAmount: 10, subtotalGrossAmount: 12, discountTotalAmount: 0, taxTotalAmount: 2, grandTotalNetAmount: 10, grandTotalGrossAmount: 12 } }
+    seededProducts = [...seededProducts, makeProductFixture({ id: 'product-2', sku: 'WIDGET-2' })]
+
+    const handler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')
+    const em = makeEm()
+    const ctx = makeCtx({ em, commandBus: makeRealDispatchingCommandBus() })
+
+    const addResult = await handler.execute(
+      { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, productId: 'product-2', quantity: 1, addedByActorType: 'rep' },
+      ctx,
+    )
+    expect(addResult.status).toBe('added')
+    expect(seededCarts[0].totals.grandTotalNetAmount).toBe(20)
+
+    const logEntry = await handler.buildLog!({ input: {} as any, result: addResult, ctx, snapshots: {} })
+    await handler.undo!({
+      input: {} as any,
+      ctx,
+      logEntry: { ...(logEntry as any), commandPayload: (logEntry as any).payload } as unknown as CommandUndoLogEntry,
+    })
+
+    expect(seededCarts[0].totals.grandTotalNetAmount).toBe(10)
+  })
+
+  it('undo of cart.lines.remove restores Cart.totals to the pre-removal value, not just the line', async () => {
+    seededCartLines = [makeBareLine()]
+    seededCarts[0] = { ...seededCarts[0], totals: { subtotalNetAmount: 10, subtotalGrossAmount: 12, discountTotalAmount: 0, taxTotalAmount: 2, grandTotalNetAmount: 10, grandTotalGrossAmount: 12 } }
+
+    const handler = getHandler<CartLinesRemoveInput, CartLinesRemoveResult>('cart.lines.remove')
+    const em = makeEm()
+    const ctx = makeCtx({ em, commandBus: makeRealDispatchingCommandBus() })
+
+    const result = await handler.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineId: 'line-1' }, ctx)
+    expect(result.removed).toBe(true)
+    expect(seededCarts[0].totals.grandTotalNetAmount).toBe(0)
+
+    const logEntry = await handler.buildLog!({ input: {} as any, result, ctx, snapshots: {} })
+    await handler.undo!({
+      input: {} as any,
+      ctx,
+      logEntry: { ...(logEntry as any), commandPayload: (logEntry as any).payload } as unknown as CommandUndoLogEntry,
+    })
+
+    expect(seededCartLines[0].deletedAt).toBeNull()
+    expect(seededCarts[0].totals.grandTotalNetAmount).toBe(10)
   })
 })

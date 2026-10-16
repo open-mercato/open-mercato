@@ -328,6 +328,16 @@ export function buildPromotionsEffectsPhase(params: BuildPromotionsEffectsPhaseP
     }
 
     // ---- MUTATE section: no more `em` reads past this point in this phase ----
+    // Step 8.2 (QA F12) — every evaluated line's discount is re-derived from THIS
+    // evaluation, not merged with its previous one: a line that dropped out of
+    // `lineDiscountTargets` since the last evaluation (e.g. its quantity just fell below the
+    // promotion's own "2+ items" threshold) must lose its stale `discountTotalNet`, not keep
+    // whatever a PRIOR evaluation last wrote. Clearing every `evaluableLine` first, then
+    // reapplying below for whatever is still targeted, makes that hold unconditionally
+    // without a second lookup of which lines changed.
+    for (const line of evaluableLines) {
+      if (line.discountTotalNet !== null) line.discountTotalNet = null
+    }
     for (const { line, effect } of lineDiscountTargets) {
       line.discountTotalNet = effect.amountNet
     }
