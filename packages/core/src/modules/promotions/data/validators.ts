@@ -629,19 +629,23 @@ export type PromotionOrderBatchInput = z.infer<typeof promotionOrderBatchSchema>
 // Promotion
 // ---------------------------------------------------------------------------
 
+// Default-free field set shared by the create and update schemas. Zod v4's `.partial()`
+// keeps an inner `.default()`, so deriving the update schema from a defaulted shape
+// injected `active: false` / `tags: []` / etc. into every partial update and silently
+// overwrote stored values. Defaults live on the create schema only.
 const promotionBaseShape = {
   name: z.string().trim().min(1).max(200),
   description: clearableStringSchema(4000),
   order: z.number().int(),
-  active: z.boolean().optional().default(false),
+  active: z.boolean(),
   startsAt: clearableDateSchema,
   endsAt: clearableDateSchema,
-  cumulative: z.boolean().optional().default(true),
-  tags: z.array(z.string().trim().min(1).max(60)).optional().default([]),
-  excludedTags: z.array(z.string().trim().min(1).max(60)).optional().default([]),
-  excludeFlags: z.record(z.string(), z.boolean()).optional().default({}),
+  cumulative: z.boolean(),
+  tags: z.array(z.string().trim().min(1).max(60)),
+  excludedTags: z.array(z.string().trim().min(1).max(60)),
+  excludeFlags: z.record(z.string(), z.boolean()),
   // Empty array = all currencies (§Data Models).
-  eligibleCurrencies: z.array(currencyCodeSchema).optional().default([]),
+  eligibleCurrencies: z.array(currencyCodeSchema),
   maxBudget: clearableDecimalStringSchema,
   budgetCurrency: clearableCurrencyCodeSchema,
 }
@@ -666,7 +670,17 @@ const promotionBudgetAndWindowRefine = (
   }
 }
 
-export const promotionCreateSchema = z.object(promotionBaseShape).superRefine(promotionBudgetAndWindowRefine)
+export const promotionCreateSchema = z
+  .object({
+    ...promotionBaseShape,
+    active: promotionBaseShape.active.optional().default(false),
+    cumulative: promotionBaseShape.cumulative.optional().default(true),
+    tags: promotionBaseShape.tags.optional().default([]),
+    excludedTags: promotionBaseShape.excludedTags.optional().default([]),
+    excludeFlags: promotionBaseShape.excludeFlags.optional().default({}),
+    eligibleCurrencies: promotionBaseShape.eligibleCurrencies.optional().default([]),
+  })
+  .superRefine(promotionBudgetAndWindowRefine)
 
 export type PromotionCreateInput = z.infer<typeof promotionCreateSchema>
 
@@ -693,6 +707,8 @@ export const promotionCodeTypeSchema = z.enum(promotionCodeTypeValues)
 export const promotionCodeUsageModeValues = ['single', 'multiple', 'unlimited'] as const
 export const promotionCodeUsageModeSchema = z.enum(promotionCodeUsageModeValues)
 
+// Default-free field set shared by the create and update schemas; see the identical
+// note above `promotionBaseShape` for why `active` must not carry a default here.
 const codeBaseShape = {
   name: z.string().trim().min(1).max(200),
   type: promotionCodeTypeSchema,
@@ -704,7 +720,7 @@ const codeBaseShape = {
   usage: promotionCodeUsageModeSchema,
   usageAmount: z.number().int().positive().nullable().optional(),
   usagePerCustomer: z.number().int().positive().nullable().optional(),
-  active: z.boolean().optional().default(true),
+  active: z.boolean(),
 }
 
 const codeShapeRefine = (
@@ -732,7 +748,12 @@ const codeShapeRefine = (
   }
 }
 
-export const promotionCodeCreateSchema = z.object(codeBaseShape).superRefine(codeShapeRefine)
+export const promotionCodeCreateSchema = z
+  .object({
+    ...codeBaseShape,
+    active: codeBaseShape.active.optional().default(true),
+  })
+  .superRefine(codeShapeRefine)
 
 export type PromotionCodeCreateInput = z.infer<typeof promotionCodeCreateSchema>
 
