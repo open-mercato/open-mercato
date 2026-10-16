@@ -9,7 +9,7 @@
  * - Event logging
  */
 
-import { describe, test, expect, jest, beforeEach } from '@jest/globals'
+import { describe, test, expect, jest, beforeEach, afterEach } from '@jest/globals'
 import type { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import * as stepHandler from '../step-handler'
@@ -32,6 +32,26 @@ describe('Sub-Workflow Execution (Phase 8)', () => {
   const childDefinitionId = '00000000-0000-4000-8000-000000000005'
   const childInstanceId = '00000000-0000-4000-8000-000000000006'
   const stepInstanceId = '00000000-0000-4000-8000-000000000007'
+
+  afterEach(() => {
+    delete (Object.prototype as Record<string, unknown>).workflowPolluted
+  })
+
+  test('output mapping ignores prototype-bearing paths without polluting the process', () => {
+    const outputMapping = JSON.parse(
+      '{"safe":"status","__proto__.workflowPolluted":"status","alias":"__proto__","alias.workflowPolluted":"status"}',
+    ) as Record<string, string>
+
+    const mapped = stepHandler.mapSubWorkflowOutput({ status: 'approved' }, outputMapping)
+
+    expect(mapped).toEqual({
+      outputData: {
+        safe: 'approved',
+        alias: { workflowPolluted: 'approved' },
+      },
+    })
+    expect(Object.prototype).not.toHaveProperty('workflowPolluted')
+  })
 
   // Parent workflow definition with SUB_WORKFLOW step
   const parentDefinition: Partial<WorkflowDefinition> = {

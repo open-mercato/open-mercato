@@ -61,6 +61,68 @@ describe('Workflows Validators', () => {
     })
   })
 
+  describe('workflow mapping path safety', () => {
+    test('rejects the reported SUB_WORKFLOW inputMapping payload', () => {
+      const definition = {
+        steps: [
+          { stepId: 'start', stepName: 'Start', stepType: 'START' },
+          {
+            stepId: 'sub',
+            stepName: 'Sub',
+            stepType: 'SUB_WORKFLOW',
+            config: {
+              subWorkflowId: 'unused',
+              inputMapping: JSON.parse('{"__proto__.toString":"evil"}'),
+            },
+          },
+          { stepId: 'end', stepName: 'End', stepType: 'END' },
+        ],
+        transitions: [
+          { transitionId: 't1', fromStepId: 'start', toStepId: 'sub', trigger: 'auto' },
+          { transitionId: 't2', fromStepId: 'sub', toStepId: 'end', trigger: 'auto' },
+        ],
+      }
+
+      expect(workflowDefinitionDataSchema.safeParse(definition).success).toBe(false)
+    })
+
+    test.each([
+      ['SUB_WORKFLOW input target', 'SUB_WORKFLOW', 'inputMapping', '__proto__.polluted', 'source.value'],
+      ['SUB_WORKFLOW output target', 'SUB_WORKFLOW', 'outputMapping', 'result.constructor.value', 'source.value'],
+      ['SUB_WORKFLOW output source', 'SUB_WORKFLOW', 'outputMapping', 'result', 'source.prototype.value'],
+      ['PARALLEL_JOIN output target', 'PARALLEL_JOIN', 'outputMapping', '__proto__', 'branches.a.value'],
+      ['PARALLEL_JOIN output source', 'PARALLEL_JOIN', 'outputMapping', 'result', 'constructor.prototype'],
+    ])('rejects an unsafe %s path', (_label, stepType, mappingField, targetPath, sourcePath) => {
+      const parsed = workflowStepSchema.safeParse({
+        stepId: 'mapping-step',
+        stepName: 'Mapping step',
+        stepType,
+        config: {
+          subWorkflowId: 'child',
+          forkStepId: 'fork',
+          [mappingField]: { [targetPath]: sourcePath },
+        },
+      })
+
+      expect(parsed.success).toBe(false)
+    })
+
+    test.each(['SUB_WORKFLOW', 'PARALLEL_JOIN'])('accepts ordinary dotted mappings for %s', (stepType) => {
+      const parsed = workflowStepSchema.safeParse({
+        stepId: 'mapping-step',
+        stepName: 'Mapping step',
+        stepType,
+        config: {
+          subWorkflowId: 'child',
+          forkStepId: 'fork',
+          outputMapping: { 'result.status': 'branches.branchA.status' },
+        },
+      })
+
+      expect(parsed.success).toBe(true)
+    })
+  })
+
   describe('branching steps as transition sugar', () => {
     const branchingDefinition = {
       steps: [
