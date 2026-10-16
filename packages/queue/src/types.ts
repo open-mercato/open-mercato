@@ -187,6 +187,84 @@ export type QueueJobScope = {
 }
 
 // ============================================================================
+// Introspection Types (Queue Status Dashboard — payload-free unless noted)
+// ============================================================================
+
+/**
+ * Sanitized record of a recently failed job. Intentionally OMITS `job.data` /
+ * payload — this is the Tier 1 (broadly-accessible) status surface's contract.
+ */
+export type FailedJobSummary = {
+  id: string
+  queue: string
+  /** Best-effort worker id, when derivable from the job's own metadata. */
+  workerId?: string
+  /** Strategy-provided failure reason, truncated server-side. */
+  failedReason?: string
+  attemptsMade?: number
+  /** Epoch ms. */
+  failedAt?: number
+}
+
+/** Bounded-sample processing-time metrics for one queue. Durations/timestamps only, no `data`. */
+export type QueueProcessingStats = {
+  /** How many completed jobs were actually sampled to compute this. */
+  sampleSize: number
+  /** Duration of the most recently completed job (finishedOn − processedOn), ms. */
+  lastProcessingMs?: number
+  /** Mean processing duration over the sample, ms. */
+  avgProcessingMs?: number
+  /** Tail latency over the sample, ms. */
+  p95ProcessingMs?: number
+  /** Mean queue latency over the sample (processedOn − timestamp), ms. */
+  avgWaitMs?: number
+  /** Epoch ms of the newest completed job in the sample. */
+  lastCompletedAt?: number
+  fidelity?: 'exact' | 'partial'
+}
+
+/**
+ * Sanitized record of an in-flight (active) or queued (waiting/delayed) job, with
+ * server-computed timing. Intentionally OMITS `job.data` / payload.
+ */
+export type InFlightJobSummary = {
+  id: string
+  queue: string
+  /** BullMQ job name, when present. */
+  type?: string
+  workerId?: string
+  state: 'active' | 'waiting' | 'delayed'
+  /** Epoch ms the job was enqueued (job.timestamp). */
+  enqueuedAt?: number
+  /** Epoch ms the job started processing (job.processedOn) — active only. */
+  startedAt?: number
+  /** now − startedAt — how long an ACTIVE job has been processing, ms. */
+  runningMs?: number
+  /** now − enqueuedAt — how long a WAITING/DELAYED job has been queued, ms. */
+  ageMs?: number
+  attemptsMade?: number
+}
+
+/**
+ * A job INCLUDING its raw payload — Tier 2 (privileged) only. Redaction and
+ * tenant filtering are the CALLER's responsibility (`configs/lib/queue-job-inspector.ts`),
+ * never this package's — the queue itself stays a dumb transport.
+ */
+export type RecentJob = {
+  id: string
+  queue: string
+  state?: string
+  type?: string
+  attemptsMade?: number
+  timestamp?: number
+  processedOn?: number
+  finishedOn?: number
+  failedReason?: string
+  /** RAW payload. Callers MUST tenant-filter + redact before this leaves the server. */
+  data: unknown
+}
+
+// ============================================================================
 // Queue Interface
 // ============================================================================
 
@@ -248,7 +326,56 @@ export interface Queue<T = unknown> {
     active: number
     completed: number
     failed: number
+    /**
+     * Optional (#3105). Omitted by a strategy that cannot supply it — the local
+     * strategy keeps no delayed-job state, so this is async-only today.
+     */
+    delayed?: number
   }>
+
+  // ---------------------------------------------------------------------
+  // Optional introspection (Queue Status Dashboard, #3105) — all additive.
+  // Every method below is payload-free EXCEPT getRecentJobs, which is the
+  // privileged, separately-gated Tier 2 Job Inspector contract.
+  // ---------------------------------------------------------------------
+
+  /**
+   * Bounded, payload-free summary of recent failed jobs. A strategy that keeps
+   * no retained failed-job store (the local strategy) leaves this unimplemented;
+   * the snapshot builder then falls back to counts-only.
+   */
+  getFailedJobsSummary?(limit: number, offset?: number): Promise<FailedJobSummary[]>
+
+  /**
+   * Processing-time metrics derived from a bounded, newest-first sample of
+   * recently completed jobs. Payload-free — only the job's own timestamp fields
+   * are read.
+   */
+  getProcessingStats?(opts?: { type?: string; sampleSize?: number }): Promise<QueueProcessingStats>
+
+  /**
+   * A small, bounded, payload-free window of in-flight (active) or queued
+   * (waiting/delayed) jobs with server-computed timing, so stuck or slow jobs
+   * are visible without enumerating the queue.
+   */
+  getInFlightJobsSummary?(opts: {
+    state?: 'active' | 'waiting' | 'delayed'
+    type?: string
+    limit: number
+  }): Promise<InFlightJobSummary[]>
+
+  /**
+   * Tier 2 (privileged) ONLY. Returns full jobs INCLUDING raw payload — never
+   * call this from a broadly-accessible surface. Supports a bounded last-X
+   * window, or a single job by `id` (the click-through path from a Tier 1 row).
+   */
+  getRecentJobs?(opts: {
+    state?: 'waiting' | 'active' | 'completed' | 'failed' | 'delayed'
+    type?: string
+    id?: string
+    limit: number
+    offset?: number
+  }): Promise<RecentJob[]>
 }
 
 // ============================================================================
