@@ -15,6 +15,8 @@ interface MiniWeekCalendarProps {
   entityId: string
   useCanonicalInteractions?: boolean
   refreshRef?: React.RefObject<(() => void) | null>
+  selectedDay?: Date | null
+  onSelectedDayChange?: (day: Date | null) => void
 }
 
 function getWeekDays(baseDate: Date): Date[] {
@@ -58,7 +60,7 @@ function dotColorForType(type: string, isToday: boolean): string {
   return INTERACTION_TYPE_COLORS[type] ?? INTERACTION_TYPE_FALLBACK_COLOR
 }
 
-export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, refreshRef }: MiniWeekCalendarProps) {
+export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, refreshRef, selectedDay: controlledSelectedDay, onSelectedDayChange }: MiniWeekCalendarProps) {
   const t = useT()
   const today = React.useMemo(() => new Date(), [])
   const [weekOffset, setWeekOffset] = React.useState(0)
@@ -172,7 +174,8 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
   }, [events])
 
   // Selected day for summary (defaults to today)
-  const [selectedDay, setSelectedDay] = React.useState<Date | null>(null)
+  const [internalSelectedDay, setSelectedDay] = React.useState<Date | null>(null)
+  const selectedDay = controlledSelectedDay === undefined ? internalSelectedDay : controlledSelectedDay
   const activeDay = selectedDay ?? today
 
   // Collect events for the active day + tomorrow for the summary list
@@ -238,7 +241,11 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
               variant="ghost"
               size="sm"
               key={day.toISOString()}
-              onClick={() => setSelectedDay(isSameDay(day, selectedDay ?? today) ? null : day)}
+              onClick={() => {
+                const nextDay = selectedDay && isSameDay(day, selectedDay) ? null : day
+                setSelectedDay(nextDay)
+                onSelectedDayChange?.(nextDay)
+              }}
               className={cn(
                 'h-auto flex flex-col items-center border-r last:border-r-0 py-3 text-sm transition-colors cursor-pointer rounded-none',
                 isSelected ? 'bg-foreground text-background font-bold' : 'hover:bg-accent/50',

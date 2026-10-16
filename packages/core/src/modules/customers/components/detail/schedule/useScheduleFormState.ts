@@ -119,6 +119,12 @@ export function resolveDefaultActivityStart(type: ActivityType, now: Date): Date
   return nextSlotAfter(now)
 }
 
+export function resolveActivityStartOnDay(type: ActivityType, selectedDate: Date, now: Date = new Date()): Date {
+  const start = resolveDefaultActivityStart(type, now)
+  start.setFullYear(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate())
+  return start
+}
+
 function formatLocalDateInput(date: Date): string {
   return `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}`
 }
