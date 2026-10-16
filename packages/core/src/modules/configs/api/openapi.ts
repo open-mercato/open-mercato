@@ -1,6 +1,24 @@
 import { z } from 'zod'
+import { queueStatusSnapshotSchema, jobInspectorResponseSchema } from '../lib/queue-status.types'
 
 export const configsTag = 'Configs'
+
+// Queue Status Dashboard (#3105). Reused directly from `lib/queue-status.types.ts` — that
+// file is already the runtime source of truth for the snapshot shape, so the OpenAPI doc
+// stays byte-identical to what the route actually validates/returns rather than drifting.
+export const queueStatusResponseSchema = queueStatusSnapshotSchema
+export const queueStatusQuerySchema = z.object({
+  queue: z.string().optional().describe('Restrict the snapshot to a single registered queue'),
+  type: z.string().optional().describe('Restrict the bounded summaries to a single job type/name'),
+})
+export const jobInspectorQuerySchema = z.object({
+  queue: z.string().describe('The registered queue to inspect'),
+  state: z.enum(['waiting', 'active', 'completed', 'failed', 'delayed']).optional(),
+  type: z.string().optional().describe('Restrict to a single job type/name'),
+  limit: z.coerce.number().int().positive().optional().describe('Last-X jobs to return (server-clamped)'),
+  id: z.string().optional().describe('Fetch a single job by id — the click-through path from a Tier 1 row'),
+})
+export const jobInspectorResponseDocSchema = jobInspectorResponseSchema
 
 export const configErrorSchema = z
   .object({

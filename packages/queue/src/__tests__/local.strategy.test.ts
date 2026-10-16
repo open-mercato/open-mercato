@@ -1001,3 +1001,96 @@ describe('Queue - local strategy', () => {
   })
 
 })
+
+describe('Queue - local strategy - introspection (#3105)', () => {
+  const origCwd = process.cwd()
+  let tmp: string
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'queue-test-'))
+    process.chdir(tmp)
+  })
+
+  afterEach(() => {
+    process.chdir(origCwd)
+    try { fs.rmSync(tmp, { recursive: true, force: true }) } catch {}
+  })
+
+  test('getProcessingStats reports an honest empty/partial result (no completed-job store is retained)', async () => {
+    const queue = createQueue('test-queue', 'local')
+
+    const stats = await queue.getProcessingStats!()
+
+    expect(stats).toEqual({ sampleSize: 0, fidelity: 'partial' })
+  })
+
+  test('getInFlightJobsSummary reports waiting jobs oldest-first with a non-negative ageMs, and never reads payload', async () => {
+    const queue = createQueue<{ secret: string }>('test-queue', 'local')
+    await queue.enqueue({ secret: 'first' })
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    await queue.enqueue({ secret: 'second' })
+
+    const inFlight = await queue.getInFlightJobsSummary!({ state: 'waiting', limit: 10 })
+
+    expect(inFlight).toHaveLength(2)
+    expect(inFlight[0].state).toBe('waiting')
+    expect(inFlight[0].ageMs).toBeGreaterThanOrEqual(inFlight[1].ageMs!)
+    expect(JSON.stringify(inFlight)).not.toContain('secret')
+
+    await queue.close()
+  })
+
+  test('getInFlightJobsSummary always reports empty for "active" (no cross-process visibility)', async () => {
+    const queue = createQueue('test-queue', 'local')
+    await queue.enqueue({ value: 1 })
+
+    await expect(queue.getInFlightJobsSummary!({ state: 'active', limit: 10 })).resolves.toEqual([])
+
+    await queue.close()
+  })
+
+  test('getInFlightJobsSummary clamps a client-supplied limit to the server cap', async () => {
+    const queue = createQueue<{ n: number }>('test-queue', 'local')
+    for (let i = 0; i < 5; i++) await queue.enqueue({ n: i })
+
+    const inFlight = await queue.getInFlightJobsSummary!({ state: 'waiting', limit: 2 })
+
+    expect(inFlight).toHaveLength(2)
+
+    await queue.close()
+  })
+
+  test('getRecentJobs returns pending jobs newest-first, bounded, including the raw payload (Tier 2 only)', async () => {
+    const queue = createQueue<{ secret: string }>('test-queue', 'local')
+    await queue.enqueue({ secret: 'first' })
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    const secondId = await queue.enqueue({ secret: 'second' })
+
+    const jobs = await queue.getRecentJobs!({ limit: 1 })
+
+    expect(jobs).toHaveLength(1)
+    expect(jobs[0]).toMatchObject({ id: secondId, data: { secret: 'second' } })
+
+    await queue.close()
+  })
+
+  test('getRecentJobs resolves a single job by id', async () => {
+    const queue = createQueue<{ secret: string }>('test-queue', 'local')
+    await queue.enqueue({ secret: 'first' })
+    const targetId = await queue.enqueue({ secret: 'target' })
+
+    const jobs = await queue.getRecentJobs!({ id: targetId, limit: 50 })
+
+    expect(jobs).toEqual([expect.objectContaining({ id: targetId, data: { secret: 'target' } })])
+
+    await queue.close()
+  })
+
+  test('getRecentJobs returns an empty array for an unknown id', async () => {
+    const queue = createQueue('test-queue', 'local')
+
+    await expect(queue.getRecentJobs!({ id: 'missing', limit: 10 })).resolves.toEqual([])
+
+    await queue.close()
+  })
+})
