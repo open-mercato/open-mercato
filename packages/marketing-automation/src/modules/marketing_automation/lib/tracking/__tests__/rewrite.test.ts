@@ -38,6 +38,16 @@ describe('rewriteLinksForTracking', () => {
     expect(rewriteLinksForTracking(html, () => null)).toBe(html)
   })
 
+  // The pattern must match the attribute named exactly `href`, not any attribute ending in those
+  // four letters — otherwise a data attribute or an SVG reference gets corrupted into a tracking url.
+  test.each([
+    ['a data-href attribute', '<div data-href="https://x.test/a">x</div>'],
+    ['an xlink:href reference', '<svg><use xlink:href="https://x.test/a"/></svg>'],
+    ['a custom attribute ending in href', '<div myhref="https://x.test/a">x</div>'],
+  ])('leaves %s untouched', (_label, html) => {
+    expect(rewriteLinksForTracking(html, track)).toBe(html)
+  })
+
   // The target arrives HTML-escaped from the attribute and must be signed in its real form, or the
   // recipient is redirected to a url with a literal `&amp;` in it.
   test('unescapes the target before handing it to the maker', () => {
@@ -52,6 +62,24 @@ describe('rewriteLinksForTracking', () => {
   test('escapes the tracking url back into the attribute', () => {
     const out = rewriteLinksForTracking('<a href="https://x.test/a">x</a>', () => 'https://shop.test/t?a=1&b=2')
     expect(out).toContain('href="https://shop.test/t?a=1&amp;b=2"')
+  })
+
+  // Through the module's one canonical escaper (`lib/html-escape.ts`), not a weaker local copy: a
+  // fix to the attribute-injection class that escaper exists to close must reach this call site too.
+  test('escapes every character the canonical attribute escaper does, not just & and "', () => {
+    const out = rewriteLinksForTracking('<a href="https://x.test/a">x</a>', () => `https://shop.test/t?x='<y>`)
+    expect(out).toContain('href="https://shop.test/t?x=&#39;&lt;y&gt;"')
+  })
+
+  // A doubly-escaped entity decodes once, not twice: `&amp;lt;` is the correct escaping of the
+  // literal text `&lt;`, and a sequential decode pass (amp first, then lt) would turn it into `<`.
+  test('does not over-decode a doubly-escaped entity', () => {
+    const seen: string[] = []
+    rewriteLinksForTracking('<a href="https://x.test/a?label=&amp;lt;">x</a>', (target) => {
+      seen.push(target)
+      return null
+    })
+    expect(seen).toEqual(['https://x.test/a?label=&lt;'])
   })
 })
 
