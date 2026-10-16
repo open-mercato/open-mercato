@@ -160,14 +160,25 @@ independent implementations of the same pattern, not a shared library
    on the unconfirmed assumption), which the review correctly flagged
    as backwards: an implementer would have had to redo commands/API/UI
    if the confirmed answer differed. See Implementation Plan.
-   **Who confirmed it (review question, 2026-10-15):** the confirmation
-   of 2026-09-25 was given by the spec author, Mikołaj Przybysz. The PR
-   discussion describes it as confirmed with the customer, but the
-   source material does not name a business owner for this decision, so
-   none is recorded here. ⚠ **NEEDS HUMAN CONFIRMATION**: name the
-   business owner of the "recognize immediately, no refund" policy (and
-   have the domain expert confirm it is the right default treatment)
-   before it is relied on for implementation.
+   **Confirmed by the domain expert, 2026-10-16.** Mateusz Duda
+   (Financial Controller, incro), by email: for a cancellation without a
+   refund and with the services stopped, recognizing the rest of the RMP
+   balance on the cancellation date is correct. The earlier confirmation
+   of 2026-09-25 was given by the spec author, Mikołaj Przybysz; the
+   source material names no business owner of the policy itself, which
+   stays unnamed and no longer blocks implementation.
+   **The refund case is a different process, and this module does not
+   shortcut it** (same email): recognize revenue over time → the
+   cancellation stops further accruals → a credit note is issued → the
+   credit note reduces the remaining RMP balance. The remainder is **not**
+   recognized as revenue, because there will be no further services and so
+   no basis for the revenue. For this module: `stopRevenueRecognitionSchedule`
+   is the no-refund path only. When a refund is due, the credit note comes
+   first; Design decision 14 then freezes the deferral and the accountant
+   reduces the remaining balance by hand. Accrual is a manual trigger
+   (Design decision 7), so nothing posts between the cancellation and the
+   credit note unless someone runs it; a dedicated "hold" command is not
+   designed. The "Stop" dialog says this (UI/UX).
 7. **No automated scheduler — manual trigger only, Phase 1.** Matches
    this project's own established discipline (knowledge base §2,
    "Phase 1/Phase 2 scope discipline") and Fixed Assets' own identical
@@ -468,12 +479,14 @@ independent implementations of the same pattern, not a shared library
     reconciliation — a command that adjusts the remaining schedule or
     lets an accountant release the hold — is Phase 2 (Out of scope).
     Until then an accountant posts the correction in the ledger by hand
-    and the frozen deferral stays visible with its flag. ⚠ **NEEDS
-    HUMAN CONFIRMATION** — an autonomous default. Freezing is the
-    conservative choice (no revenue is recognized on a stale amount),
-    but it leaves an accountant without an in-module way out; whether a
-    release or override command belongs in Phase 1 is an open product
-    decision. **Prior art checked 2026-10-15:** ERPNext and Odoo, as
+    and the frozen deferral stays visible with its flag. **Confirmed by the domain expert,
+    2026-10-16** (Mateusz Duda, Financial Controller, incro, by email):
+    freezing until the accountant decides is right. The accountant
+    corrects by hand because a correction is a new document; and when the
+    correction also affects the remaining schedule, the accountant
+    corrects the schedule as well. Freezing is the conservative choice
+    (no revenue is recognized on a stale amount); a release or adjust
+    command stays Phase 2 (Out of scope). **Prior art checked 2026-10-15:** ERPNext and Odoo, as
     documented, neither freeze nor adjust a schedule when a credit note
     is issued and leave the reconciliation to the accountant (Literature &
     Prior Art, Step 3). **Reference law adopted 2026-10-15 (the spec author decided Polish law
@@ -507,9 +520,8 @@ independent implementations of the same pattern, not a shared library
     Polish rule, the Polish rule governs. Tax treatment (CIT/PIT book
     a correction in the period it is issued — art. 12 ust. 3j–3m CIT,
     art. 14 ust. 1m–1p PIT, per the same secondary article,
-    **Unverified**) is separate and out of scope. Still open ⚠:
-    freeze, warn only, or a release/adjust command in Phase 1 — a
-    question for the domain expert.
+    **Unverified**) is separate and out of scope. Nothing in this decision
+    remains open.
 15. **Posting dates, `stop` validation and the `COMPLETED` transition —
     added, 2026-10-15 review round.** The schedule rows were fully
     defined (Design decision 11); these were not.
@@ -542,6 +554,22 @@ independent implementations of the same pattern, not a shared library
       'CURRENT_DATE'`, and the UI shows the two choices in an `Alert`
       with a confirm action. This replaces the first version of this
       round, which fell back to the current date automatically.
+      **Confirmed by the domain expert, 2026-10-16** (Mateusz Duda,
+      Financial Controller, incro, by email): the accountant decides. In
+      the year, (a) correct the revenue and spread it evenly across the
+      periods, or (b) correct in an open period, with the part that
+      belongs to a future year booked as RMP in that year. After the year
+      end it depends on the statement stage: statements not yet approved
+      → (a); approved → (b) in the open period of the new year, or
+      additionally (c) a correction through prior years' result,
+      **only for material errors** (immaterial ones go to the current
+      result). All of it is the accountant's manual decision. The two
+      choices the module offers map to (a) (unlock and repeat) and (b)
+      (`reclassificationDate: 'CURRENT_DATE'`); (c) happens outside the
+      module, and the `Alert` mentions it. This is consistent with the
+      art. 54 reading above (ust. 3: an earlier-year error goes to
+      equity); the materiality distinction is the expert's statement, not
+      checked against the statute.
     - **Final recognition entry (`stop`, step 3).** Its `operationDate`
       is `stopDate`; that period's lock was already checked in step 1.
     - **`stopDate` validation.** `serviceStartDate <= stopDate <
@@ -895,13 +923,22 @@ maintainer-review round** — API Contracts), the same preview-before-commit
 pattern already used by `generateAnnualStatements` (#6188) and the FX
 revaluation run (#6190). A read-only schedule view per deferral (backed
 by `GET .../deferrals/:id`), and a "Stop" action with a confirmation
-showing exactly what will be recognized immediately. A "Cancel deferral"
+showing exactly what will be recognized immediately, and warning that it
+is for a cancellation without a refund — if a refund is due, issue the credit
+note first (Design decision 6). A "Cancel deferral"
 action is offered only while no schedule row is accrued (Design decision
 16), and an `Alert` is shown on any deferral whose `correctionDetectedAt`
-is set (Design decision 14).
+is set (Design decision 14). The locked-period `Alert` lists the two choices
+the module offers and names the third, a manual correction through prior years'
+result for a material error (Design decision 15).
 
 ## Edge Cases & Failure Scenarios
 
+- **A customer cancels and is refunded.** Confirmed 2026-10-16 (Design
+  decision 6): do **not** use `stop`. Issue the credit note first;
+  the correction guard freezes the deferral, and the accountant reduces
+  the remaining RMP balance by hand. The remainder is not recognized as
+  revenue.
 - **A one-month service period** (`serviceStartDate`/`serviceEndDate`
   span less than a full period). Produces a single schedule row for
   the whole amount — deferring something that resolves to "recognize
@@ -996,12 +1033,13 @@ detection discussion.
   dashboard/alert on a nonzero count is an operational follow-up, not
   designed here.
 - **Design decision 6's "recognize immediately" policy on early stop —
-  confirmed by the spec author on 2026-09-25; business owner not yet
-  named.** The earlier wording ("an assumption") is superseded.
-  **Severity: High if wrong** — a wrong default would mean every early
-  stop recognizes revenue that should have been refunded, a real
-  overstatement — but the policy is confirmed; naming the business
-  owner (Design decision 6) is the remaining open item. **Detection**:
+  confirmed by the spec author on 2026-09-25 and by the domain expert on
+  2026-10-16, for the no-refund case only.** The earlier wording ("an
+  assumption") is superseded. **Severity: High if wrong** — using `stop`
+  where a refund is due would recognize revenue that should not exist, a
+  real overstatement — so the dialog warns and the refund route (credit
+  note first, then the freeze) is documented; a business owner of the
+  policy is not named, which no longer blocks. **Detection**:
   N/A pre-implementation, this is a design-time question, not a
   runtime condition to monitor.
 - **The correction guard narrows the risk, it does not close it, and a
@@ -1099,7 +1137,9 @@ detection discussion.
 - An automated accrual scheduler (Phase 2, matching Fixed Assets'
   identical deferral).
 - Refund-triggered early stop (routes through `SalesCreditMemo`/
-  `SalesReturn` instead, per Design decision 6).
+  `SalesReturn` instead, per Design decision 6; confirmed 2026-10-16: the
+  credit note reduces the remaining RMP balance, the remainder is not
+  recognized).
 - A reconciliation command for a deferral frozen by a detected
   correction (Phase 2, Design decision 14).
 - Recovery after the first accrual (Design decision 16): only
@@ -1116,9 +1156,10 @@ risked rebuilding commands, API, and UI if the answer differed.
 
 0. **Confirmed 2026-09-25 by the spec author** — Design decision 6's
    early-stop policy ("recognize immediately, no refund path") matches
-   how these contracts are actually sold. No longer a gate on the steps
-   below; the business owner of the decision is still to be named
-   (Design decision 6).
+   how these contracts are actually sold, and by the domain expert on
+   2026-10-16 (for the no-refund case). No longer a gate on the steps
+   below; a business owner of the decision is not named and does not
+   block (Design decision 6).
 1. Patch `2026-09-15-default-chart-of-accounts.md` with the `840` account
    (Design decision 8).
 2. Scaffold `deferred_revenue`: entities (including
@@ -1531,6 +1572,18 @@ compliant" as requiring every business question to be pre-answered.
   gate and was resolved with the user on 2026-09-25 (see Design
   decision 6 and Changelog).
 
+### Re-check — 2026-10-16 (domain-expert answers)
+
+Mateusz Duda (Financial Controller, incro) answered the three open questions
+by email on 2026-10-16: the correction freeze (Design decision 14) is
+confirmed, the locked-month choice stays with the accountant with an added
+manual option (c) (Design decision 15), and the no-refund early stop is
+confirmed with the refund case routed through a credit note (Design decision
+6). Every ⚠ NEEDS HUMAN CONFIRMATION in this spec is closed; no business owner
+of Design decision 6 is named, which is recorded and does not block. The
+"Fully compliant" verdict above stands, with the 2026-10-15 re-check below as
+its latest full read.
+
 ### Re-check — 2026-10-15 (review round, head `b0536e298`)
 
 Re-run after this round's edits, by reading the spec against itself (no
@@ -1542,7 +1595,7 @@ route and `correctionDetectedAt` appear in Architecture, Access
 Control, Data Model, API Contracts, UI/UX and File Manifest; the stale
 "Not designed here" and "an assumption" wording is gone. **Verdict:
 compliant**, with one autonomous default awaiting confirmation
-(⚠ NEEDS HUMAN CONFIRMATION: the correction freeze, Design decision 14;
+(**resolved 2026-10-16**, see the re-check above; ⚠ NEEDS HUMAN CONFIRMATION: the correction freeze, Design decision 14;
 Design decisions 15 and 16 were decided by the spec author on
 2026-10-15) and one open attribution (the business owner of Design
 decision 6).
@@ -1680,3 +1733,27 @@ decision 16). Still awaiting confirmation (⚠ NEEDS HUMAN CONFIRMATION): the
 correction freeze with no release command in Phase 1 (Design decision 14) —
 the question for the domain expert is whether to freeze, warn only, or give the
 accountant a release/adjust command.
+
+### 2026-10-16 — Domain-expert answers (Mateusz Duda, Financial Controller, incro)
+
+The three questions sent on 2026-10-15 were answered by email:
+
+1. **Correction or return on an invoice with an active schedule
+   (Design decision 14).** Confirmed: freeze; the accountant corrects by
+   hand, including the schedule when the correction affects it. ⚠ removed.
+2. **Locked month of the invoice (Design decision 15).** Confirmed: the
+   accountant decides. In the year: (a) correct and spread evenly, or (b)
+   correct in an open period with the future-year part as next year's RMP.
+   After the year end: unapproved statements → (a); approved → (b) in the new
+   year's open period, or (c) through prior years' result for a material error
+   (immaterial → current result). Option (c) is manual and outside the
+   module; the `Alert` mentions it.
+3. **Cancellation without a refund (Design decision 6).** Confirmed:
+   recognize the remainder on the cancellation date. **New:** with a refund the
+   process is accrue over time → cancellation stops accruals → credit note →
+   the credit note reduces the remaining RMP balance; the remainder is not
+   recognized as revenue. The "Stop" dialog now warns, an Edge Case documents
+   the refund route, and the Out of scope bullet records it.
+
+The business owner of the policy in Design decision 6 is still not named; it
+is recorded as informational. Not yet reviewed by a maintainer.
