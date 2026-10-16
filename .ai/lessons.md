@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 152 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 153 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -113,6 +113,7 @@ This catalog indexes 152 focused lessons. Route the task first, then read only r
 - [Blur suppression must guard the whole validation pipeline](lessons/blur-suppression-must-guard-the-whole-validation-pipeline.md) — area:backend-ui,testing; module:ui; topic:schema-composition,testing,validation-errors
 - [Auto-discovered DataTable fields must only advertise controls the table can actually honor](lessons/auto-discovered-datatable-fields-must-only-advertise.md) — area:backend-ui,umes,module-data; module:ui,customers,entities; topic:custom-fields,filters,ui-components
 - [Browser SSE bridges must work across worker and web processes](lessons/browser-sse-bridges-must-work-across-worker-and-web.md) — area:backend-ui,module-data,integration; module:events,queue,catalog; topic:data-import,events,realtime
+- [Canonical read migrations must preserve legacy role access](lessons/canonical-read-migrations-must-preserve-legacy-role-access.md) — area:backend-ui,debugging,testing; module:customers; topic:access-control,backward-compatibility,testing
 - [Component-scoped notification effects must not depend on header chrome](lessons/component-scoped-notification-effects-must-not-depend.md) — area:backend-ui,integration,testing; module:notifications,events,ui; topic:access-control,data-scoping,events
 - [Detail sections must route writes through page-level guarded mutations](lessons/detail-sections-must-route-writes-through-page-level.md) — area:backend-ui,umes,module-data; module:customers,events,ui; topic:events,network-security,testing
 - [dnd-kit contexts rendered in SSR need stable ids](lessons/dnd-kit-contexts-rendered-in-ssr-need-stable-ids.md) — area:backend-ui; module:customers,ui,cli; topic:generated-files,ui-components
