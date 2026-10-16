@@ -5,6 +5,7 @@ import type {
   UserTaskAssigneeKind,
   UserTaskConfig,
 } from '../data/validators'
+import { parseAbsoluteDeadline } from './duration'
 
 /**
  * Resolving what a task author wrote into what a task actually says.
@@ -261,10 +262,48 @@ export function resolveTaskDecisions(
 /**
  * The authored deadline duration. `deadline` is the business-word superset;
  * `slaDuration` is the original bare-duration form and keeps working forever.
+ * An absolute `deadline.at` has no duration, and it supersedes `slaDuration`
+ * exactly as `deadline.duration` does.
  */
 export function resolveTaskDeadlineDuration(
   config: Pick<UserTaskConfig, 'deadline' | 'slaDuration'>
 ): string | null {
+  if (typeof config.deadline?.at === 'string' && config.deadline.at.length) return null
   const duration = config.deadline?.duration ?? config.slaDuration
   return typeof duration === 'string' && duration.length ? duration : null
+}
+
+export type ResolvedTaskDeadline =
+  | { kind: 'duration'; duration: string }
+  | {
+      kind: 'at'
+      /** What the author wrote, e.g. `{{context.dueDate}}`. */
+      authored: string
+      /** The interpolated value, before parsing. */
+      resolved: unknown
+      /** The absolute deadline, or null when `resolved` is not a valid instant. */
+      dueDate: Date | null
+    }
+
+/**
+ * Which deadline the task carries: a duration still to be anchored to task
+ * creation, or an ABSOLUTE `deadline.at` resolved against the run context now.
+ *
+ * `dueDate: null` on the `at` arm means the value did not resolve to an instant
+ * (unresolved template, free text, naive datetime — see `parseAbsoluteDeadline`).
+ * Unlike an unresolved dynamic assignee there is no fallback for that: the
+ * caller fails the step, because a wrong deadline silently mis-schedules every
+ * reminder and the breach.
+ */
+export function resolveTaskDeadline(
+  config: Pick<UserTaskConfig, 'deadline' | 'slaDuration'>,
+  interpolate: TaskInterpolate
+): ResolvedTaskDeadline | null {
+  const authoredAt = config.deadline?.at
+  if (typeof authoredAt === 'string' && authoredAt.length) {
+    const resolved = interpolate(authoredAt)
+    return { kind: 'at', authored: authoredAt, resolved, dueDate: parseAbsoluteDeadline(resolved) }
+  }
+  const duration = resolveTaskDeadlineDuration(config)
+  return duration ? { kind: 'duration', duration } : null
 }

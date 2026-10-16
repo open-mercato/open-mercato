@@ -73,6 +73,20 @@ fresh proposals. Old cards cannot be distinguished from forgeries; do not backfi
 their text or sender email. Inspect prior approved replies if forgery is suspected. Normal
 messages and fresh system-filed proposals retain their existing behavior.
 
+### Workflows: a user-task deadline can be an absolute `at` — new additive `TaskDeadlineSpec` (#7181)
+
+A `USER_TASK` deadline (`userTaskConfig.deadline`) now takes exactly one of `duration` (anchored to
+task creation, as before) or `at` (an ISO date or an ISO datetime with `Z` or an offset, usually
+interpolated from the run context, e.g. `{{context.dueDate}}`). The extended form is a NEW export,
+`taskDeadlineSpecSchema` / `TaskDeadlineSpec` (`@open-mercato/core/modules/workflows/data/task-primitives`,
+re-exported from `@open-mercato/core/modules/workflows/data/validators`), and `userTaskConfig.deadline`
+validates against it. Every definition that was valid before still parses and runs unchanged.
+
+The existing `taskDeadlineSchema` / `TaskDeadline` contract is unchanged — `{ duration: string }`,
+`duration` required — so no action is needed. Code that handles `userTaskConfig.deadline` itself and
+wants to support the new form should type it as `TaskDeadlineSpec` and check which of `duration` /
+`at` is set.
+
 ### Payment gateway webhooks: opt-in transport, locator and response options; ambiguous matches are rejected
 
 `registerWebhookHandler(...)` accepts new optional options for providers that sign form-encoded bodies or expect a specific acknowledgement:
