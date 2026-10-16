@@ -9,6 +9,7 @@
  */
 
 import { z } from 'zod'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type {
   DecisionAnswer,
   DecisionErrorCode,
@@ -74,6 +75,18 @@ export class DecisionModelError extends Error {
 
 export const PROBABILITY_SUM_TOLERANCE = 0.02
 
+const EXACT_SUM_EPSILON = 1e-9
+
+const logger = createLogger('ai_assistant').child({ component: 'decision-model' })
+
+function logNormalized(questionName: string, sum: number): void {
+  try {
+    logger.debug('Normalized decision probabilities', { questionName, sum })
+  } catch {
+    return
+  }
+}
+
 const probabilitySchema = z.number().finite().min(0).max(1)
 
 const rawChoiceAnswerSchema = z.object({
@@ -116,6 +129,7 @@ function normalizeDistribution(questionName: string, probabilities: number[]): n
   if (Math.abs(sum - 1) > PROBABILITY_SUM_TOLERANCE) {
     throw invalidResponse(questionName, 'has probabilities that do not sum to 1')
   }
+  if (Math.abs(sum - 1) > EXACT_SUM_EPSILON) logNormalized(questionName, sum)
   return probabilities.map((probability) => probability / sum)
 }
 

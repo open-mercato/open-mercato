@@ -19,6 +19,8 @@
 | 1 | 1.5 | Decision model service and DI registration | dispatch:capable | done | a71fc5bcb |
 | 2 | 2.1 | Env example block and create-app template sync | dispatch:cheap | done | f430e20e9 |
 | 2 | 2.2 | Docs page, ai-assistant AGENTS.md entry and spec changelog | dispatch | done | caf825a6f |
+| 2 | 2.3 | Debug log on probability normalization | inline | done | df3f71727 |
+| 2 | 2.4 | Record the skipped AGENTS.md entry in the spec | inline | todo | — |
 
 ## Goal
 
@@ -88,3 +90,10 @@ Ship the provider-neutral decision model port from the source spec: types in `@o
 - `apps/docs/docs/framework/ai-assistant/decision-models.mdx` (configuration, usage example with soft-optional resolve, caveats, data flow), sidebar entry if the docs sidebar is explicit.
 - `packages/ai-assistant/AGENTS.md`: short "How to use a decision model" task entry (respect `yarn agents:check-budget`).
 - Spec changelog entry for the implementation (status stays out of `implemented/` until deployed).
+
+#### Step 2.3 — Debug log on probability normalization
+- Appended mid-run: the spec's edge-case table says a near-1 sum is "normalized; logged at debug", and Step 1.1 normalized without logging. `normalizeDistribution` now logs `{ questionName, sum }` at debug (never state or instructions), guarded so a failing logger cannot break validation. Test with a mocked logger.
+
+#### Step 2.4 — Record the skipped AGENTS.md entry in the spec
+- Appended mid-run: the `packages/ai-assistant/AGENTS.md` "How to use a decision model" entry from spec Implementation Plan step 6 cannot land, because that file's instruction chain is ~102 KB over the 32 KB budget and `yarn agents:check-budget` only allows it to shrink. Raising the baseline is a CI-guard change that needs a human. Record the deviation in the spec changelog; the docs page carries the guidance and the root Task Router already routes AI work to `apps/docs/docs/framework/ai-assistant/*.mdx`.
+
