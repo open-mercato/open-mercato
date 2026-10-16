@@ -233,6 +233,8 @@
   "ai_assistant.chat.mutation_cards.preview.reviewDetails": "Pokaż szczegóły",
   "ai_assistant.chat.mutation_cards.preview.title": "Sprawdź proponowane zmiany",
   "ai_assistant.chat.mutation_cards.preview.unavailable": "Ta propozycja jest niedostępna. Mogła zostać rozstrzygnięta lub usunięta albo zleciła ją inna osoba.",
+  "ai_assistant.chat.mutation_cards.result.cancelledBody": "Anulowano tę proponowaną zmianę. Nie wprowadzono żadnych zmian.",
+  "ai_assistant.chat.mutation_cards.result.cancelledTitle": "Propozycja anulowana",
   "ai_assistant.chat.mutation_cards.result.failureBody": "Nie udało się zastosować zmiany.",
   "ai_assistant.chat.mutation_cards.result.failureTitle": "Akcja nie powiodła się",
   "ai_assistant.chat.mutation_cards.result.fixWithAi": "Popraw z AI",
