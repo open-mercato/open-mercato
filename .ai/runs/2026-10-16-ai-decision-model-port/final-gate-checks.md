@@ -28,3 +28,31 @@
 
 ## Design-system / style pass (`om-ds-guardian`)
 - ⏭️ Skipped: no UI files touched.
+
+## Re-run on the final HEAD — 2026-10-16T20:15:12Z
+
+**Head:** 60b71af96 (includes the review fixes 46536816d and e62e26f23)
+**Runner:** local mode, a fresh worktree with a clean `yarn install`, dev server stopped
+
+| # | Command | Result |
+|---|---|---|
+| 1 | `yarn build:packages` | ✅ pass |
+| 2 | `yarn generate` | ✅ pass |
+| 3 | `yarn build:packages` | ✅ pass |
+| 4 | `yarn i18n:check-sync` | ✅ pass |
+| 5 | `yarn i18n:check-usage` | ✅ pass |
+| 6 | `yarn typecheck` | ✅ pass (turbo cache hit) |
+| 7 | `yarn test` | ⚠️ fail outside this change (details below) |
+| 8 | `yarn build:app` | ✅ pass |
+| + | `yarn lint` (not in the gate) | ✅ pass — 0 errors, 10 warnings, all in existing `apps/mercato` example code |
+
+### Step 7 detail
+- First attempt: `open-mercato-docs#test` ran out of heap under the parallel run (`NODE_OPTIONS=--max-old-space-size=1024`, concurrency 2), and turbo stopped the remaining tasks. Run alone, the docs tests pass 23/23, including the build that renders the new `decision-models.mdx` page.
+- Second attempt with `--continue`: 46/48 tasks green. Two failures, neither caused by this PR:
+  - `@open-mercato/core#test` — `warranty_claims/__tests__/quantity.test.ts` (2 tests) depends on the system locale. With `LANG=pl_PL.UTF-8` it gets `"2,5"` and fails; with `LANG=en_US.UTF-8` it passes 8/8. The test comes from `develop`, and this PR does not touch `packages/core`.
+  - `create-mercato-app#test` — 80/913. A per-test comparison against a run with the base `template/.env.example` shows **every failing test on HEAD also fails on base; no failure is new**. The base run has one extra failure, `template .env.example documents every monorepo env var`, which is expected in that mixed state (the app `.env.example` still has the decision block). It confirms the template sync in this PR is required and correct.
+- `@open-mercato/ai-assistant` (including the decision-model suites) and every other package pass.
+
+### Still not verified
+- A live call to the OpenRouter Decisions API; the adapter is covered by contract tests against the documented wire shape only.
+- GitHub CI on the PR (fork workflows not yet approved).
