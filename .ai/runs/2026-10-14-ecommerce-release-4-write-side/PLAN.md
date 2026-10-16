@@ -69,7 +69,7 @@
 | 7 | 7.6 | Cart: Phase 3 gates (R1/R7/R13, equivalence with promotions via sales order, P95) | dispatch:capable | done | — |
 | 7 | 7.7 | Docs: module AGENTS.md files, API docs, UPGRADE_NOTES, spec changelogs and statuses | dispatch | done | — |
 | 7 | 7.8 | Create-app template sync for cart/promotions (app registration already done per-module, see 1.1 note) | dispatch | done | — |
-| 8 | 8.1 | Cart: re-price narrows price rows to the line's variant (QA F14) | dispatch:capable | todo | — |
+| 8 | 8.1 | Cart: re-price narrows price rows to the line's variant (QA F14) | dispatch:capable | done | e09ed4956 |
 | 8 | 8.2 | Cart: line mutations recompute prices, promotions and totals (QA F12) | dispatch:capable | todo | — |
 | 8 | 8.3 | Cart: CONC-05 row lock on line merge-by-quantity, un-skip the regression test | dispatch:capable | todo | — |
 | 8 | 8.4 | Cart: CartView.promotions as AppliedPromotionView[] (QA F10) | dispatch | todo | — |

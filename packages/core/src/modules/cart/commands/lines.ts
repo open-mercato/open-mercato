@@ -19,6 +19,7 @@ import {
 } from '@open-mercato/core/modules/catalog/data/entities'
 import {
   buildPriceRowFilter,
+  filterRowsForVariant,
   resolvePriceKindId,
   resolvePriceVariantId,
 } from '@open-mercato/core/modules/catalog/lib/pricing'
@@ -284,13 +285,6 @@ function groupRowsByProduct(rows: PriceRow[], variantToProduct: Map<string, stri
     grouped.set(productId, bucket)
   }
   return grouped
-}
-
-function filterRowsForVariant(rows: PriceRow[], variantId: string | null): PriceRow[] {
-  return rows.filter((row) => {
-    const rowVariantId = resolvePriceVariantId(row)
-    return rowVariantId === null || rowVariantId === variantId
-  })
 }
 
 async function resolveLinePricing(

@@ -208,6 +208,50 @@ describe('buildCartLineRepricePhases', () => {
     expect(flaggedLine.unitPriceNet).toBe('10')
     expect(giftLine.unitPriceNet).toBe('0')
   })
+
+  // QA F14 — `fetchLinePriceRows`'s `targetClause` is `{ $or: [{ product: productId }, {
+  // variant: variantId }] }`, and every variant's price row ALSO carries the parent
+  // `product_id` (not just `variant_id`), so the `{ product: productId }` arm returns every
+  // sibling variant's rows too. `mockFindWithDecryption` returns ALL seeded rows regardless
+  // of the query, standing in for that over-wide real-DB result; the regression is proven by
+  // asserting what `fetchLinePriceRows` hands to `resolveLinePrice` for each line, not by the
+  // resolved price (which is mocked here) — each line must see ONLY its own variant's row
+  // (plus any product-level row), never a sibling variant's.
+  it('TC-CART-PRICE-F14: narrows price rows to each line\'s own variant before resolving', async () => {
+    const cart = makeCart()
+    const lineForVariantA = makeLine({ id: 'line-a', variantId: 'variant-a' })
+    const lineForVariantB = makeLine({ id: 'line-b', variantId: 'variant-b' })
+
+    seededPriceRows = [
+      { id: 'price-row-variant-a', tenantId: TENANT_ID, organizationId: ORG_ID, variant: 'variant-a' },
+      { id: 'price-row-variant-b', tenantId: TENANT_ID, organizationId: ORG_ID, variant: 'variant-b' },
+    ]
+
+    const capturedRows: Row[][] = []
+    const resolveLinePrice = jest.fn(async (_em: unknown, rows: Row[]) => {
+      capturedRows.push(rows)
+      return makeResolvedLinePrice({ priceRow: rows[0] ?? null })
+    })
+    const container = makeContainer({ resolveLinePrice })
+
+    const changes: CartPriceChange[] = []
+    const touched: CartLine[] = []
+    const phases = buildCartLineRepricePhases(
+      em,
+      container,
+      cart,
+      [lineForVariantA, lineForVariantB],
+      'stale_snapshot',
+      new Date('2026-02-01T00:00:00.000Z'),
+      changes,
+      touched,
+    )
+    for (const phase of phases) await phase()
+
+    expect(capturedRows).toHaveLength(2)
+    expect(capturedRows[0].map((row) => row.id)).toEqual(['price-row-variant-a'])
+    expect(capturedRows[1].map((row) => row.id)).toEqual(['price-row-variant-b'])
+  })
 })
 
 describe('toCartTotalsLineSnapshot', () => {

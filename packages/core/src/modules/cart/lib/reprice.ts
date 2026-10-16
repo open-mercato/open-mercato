@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CatalogProductPrice } from '@open-mercato/core/modules/catalog/data/entities'
-import { buildPriceRowFilter, resolvePriceKindId } from '@open-mercato/core/modules/catalog/lib/pricing'
+import { buildPriceRowFilter, filterRowsForVariant, resolvePriceKindId } from '@open-mercato/core/modules/catalog/lib/pricing'
 import type { PriceRow, PricingContext } from '@open-mercato/core/modules/catalog/lib/pricing'
 import type {
   BuyerPricingContext,
@@ -116,7 +116,7 @@ async function fetchLinePriceRows(
     organizationId: scope.organizationId,
   }
   const rows = await findWithDecryption(em, CatalogProductPrice, where as never, { populate: ['priceKind', 'offer'] }, scope)
-  return rows as unknown as PriceRow[]
+  return filterRowsForVariant(rows as unknown as PriceRow[], variantId)
 }
 
 function applyPriceSnapshot(line: CartLine, resolved: ResolvedLinePrice, pricedAt: Date): void {

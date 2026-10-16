@@ -45,6 +45,7 @@ const CATEGORIES_PATH = '/api/catalog/categories';
 const PRODUCTS_PATH = '/api/catalog/products';
 const PRICE_KINDS_PATH = '/api/catalog/price-kinds';
 const PRICES_PATH = '/api/catalog/prices';
+const VARIANTS_PATH = '/api/catalog/variants';
 
 const PRODUCT_DESCRIPTION =
   'Long enough description for SEO checks in QA automation flows. This text keeps the create validation satisfied.';
@@ -371,6 +372,155 @@ export async function cleanupCartProductFixture(
   if (fixture.categoryIdOwned !== false) {
     await deleteIfExists(request, token, CATEGORIES_PATH, fixture.categoryId ?? null);
   }
+}
+
+export type CartVariantPriceFixture = {
+  productId: string;
+  categoryId: string;
+  priceKindId: string;
+  variantAId: string;
+  variantBId: string;
+  priceIdForVariantA: string;
+  priceIdForVariantB: string;
+  unitPriceNetForVariantA: number;
+  unitPriceNetForVariantB: number;
+};
+
+/**
+ * QA F14 regression fixture — one product with TWO variants, each carrying its OWN
+ * `CatalogProductPrice` row (scoped by `variantId` only, no `channelId`). Per
+ * `catalog/commands/prices.ts`'s `createPriceCommand`, a variant-scoped price row still gets
+ * its `product_id` column populated (resolved from the variant) — the exact row shape that
+ * makes `cart/lib/reprice.ts`'s `fetchLinePriceRows` `{ $or: [{ product: productId }, {
+ * variant: variantId }] }` clause widen to every sibling variant's rows (F14). The two rows
+ * carry distinct `unitPriceNet` amounts so a cross-variant mix-up is directly observable.
+ */
+export async function createCartVariantPriceFixture(
+  request: APIRequestContext,
+  token: string,
+  input: { stamp: string; label: string },
+): Promise<CartVariantPriceFixture> {
+  const categoryId = await postForId(
+    request,
+    token,
+    CATEGORIES_PATH,
+    { name: `QA Cart Variant Cat ${input.label} ${input.stamp}` },
+    'variant-price category fixture',
+  );
+
+  const productId = await postForId(
+    request,
+    token,
+    PRODUCTS_PATH,
+    {
+      title: `QA Cart Variant Product ${input.label} ${input.stamp}`,
+      handle: `qa-cart-variant-${input.label}-${input.stamp}`.toLowerCase(),
+      sku: `QA-CART-VARIANT-${input.label}-${input.stamp}`.toUpperCase(),
+      description: PRODUCT_DESCRIPTION,
+      categoryIds: [categoryId],
+    },
+    'variant-price product fixture',
+  );
+
+  const priceKindId = await postForId(
+    request,
+    token,
+    PRICE_KINDS_PATH,
+    {
+      code: `qa_cart_variant_${input.label}_${input.stamp}`.replace(/-/g, '_').toLowerCase(),
+      title: `QA Cart Variant ${input.label} ${input.stamp}`,
+      displayMode: 'including-tax',
+    },
+    'variant-price price-kind fixture',
+  );
+
+  const variantAId = await postForId(
+    request,
+    token,
+    VARIANTS_PATH,
+    { productId, name: `Variant A ${input.stamp}`, sku: `QA-CART-VARIANT-A-${input.stamp}`.toUpperCase(), isActive: true },
+    'variant A fixture',
+  );
+  const variantBId = await postForId(
+    request,
+    token,
+    VARIANTS_PATH,
+    { productId, name: `Variant B ${input.stamp}`, sku: `QA-CART-VARIANT-B-${input.stamp}`.toUpperCase(), isActive: true },
+    'variant B fixture',
+  );
+
+  const unitPriceNetForVariantA = 138;
+  const unitPriceNetForVariantB = 148;
+
+  const priceIdForVariantA = await postForId(
+    request,
+    token,
+    PRICES_PATH,
+    {
+      variantId: variantAId,
+      priceKindId,
+      currencyCode: 'EUR',
+      unitPriceNet: unitPriceNetForVariantA,
+      unitPriceGross: unitPriceNetForVariantA * 1.2,
+    },
+    'variant A price fixture',
+  );
+  const priceIdForVariantB = await postForId(
+    request,
+    token,
+    PRICES_PATH,
+    {
+      variantId: variantBId,
+      priceKindId,
+      currencyCode: 'EUR',
+      unitPriceNet: unitPriceNetForVariantB,
+      unitPriceGross: unitPriceNetForVariantB * 1.2,
+    },
+    'variant B price fixture',
+  );
+
+  return {
+    productId,
+    categoryId,
+    priceKindId,
+    variantAId,
+    variantBId,
+    priceIdForVariantA,
+    priceIdForVariantB,
+    unitPriceNetForVariantA,
+    unitPriceNetForVariantB,
+  };
+}
+
+export async function cleanupCartVariantPriceFixture(
+  request: APIRequestContext,
+  token: string | null,
+  fixture: Partial<CartVariantPriceFixture> | null,
+): Promise<void> {
+  if (!fixture) return;
+  await deleteIfExists(request, token, PRODUCTS_PATH, fixture.productId ?? null);
+  await deleteIfExists(request, token, PRICE_KINDS_PATH, fixture.priceKindId ?? null);
+  await deleteIfExists(request, token, CATEGORIES_PATH, fixture.categoryId ?? null);
+}
+
+export type CartLinePricingRow = {
+  unitPriceNet: string | null;
+  priceRowId: string | null;
+  variantId: string | null;
+};
+
+/** Reads a cart line's resolved pricing snapshot directly — the F14 regression's assertion
+ * target (`cart_lines.unit_price_net`/`price_row_id`) is not part of the `/api/cart/current`
+ * response envelope, same reasoning as this file's own {@link readCartLineRow}. */
+export async function readCartLinePricing(lineId: string): Promise<CartLinePricingRow | null> {
+  return withClient(async (client) => {
+    const result = await client.query<CartLinePricingRow>(
+      `select unit_price_net as "unitPriceNet", price_row_id as "priceRowId", variant_id as "variantId"
+         from cart_lines where id = $1`,
+      [lineId],
+    );
+    return (result as unknown as { rows: CartLinePricingRow[] }).rows[0] ?? null;
+  });
 }
 
 function hostHeaders(hostname: string): Record<string, string> {
