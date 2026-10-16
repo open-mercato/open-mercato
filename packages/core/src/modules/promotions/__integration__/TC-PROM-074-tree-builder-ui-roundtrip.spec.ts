@@ -110,7 +110,10 @@ test.describe('TC-PROM-074: tree builder save/reload with nested groups and bene
 
       // A benefit cannot be saved without at least one non-blank label.
       await expect(page.getByText('At least one label is required before this benefit can be saved.')).toBeVisible();
-      await page.getByPlaceholder('Locale code (e.g. en)').fill('en');
+      // The locale field used to be a free-text input; it is now a `Select`
+      // constrained to the app's supported locales (QA F4).
+      await page.getByRole('combobox', { name: 'Locale code (e.g. en)' }).click();
+      await page.getByRole('option', { name: 'en', exact: true }).click();
       await page.getByRole('button', { name: 'Add locale' }).click();
       await page.getByPlaceholder('Label text').fill('Fixed $25 off');
       await expect(page.getByPlaceholder('Label text')).toHaveValue('Fixed $25 off');

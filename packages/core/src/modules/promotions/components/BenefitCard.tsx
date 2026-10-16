@@ -22,9 +22,9 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
 import { CheckboxField } from '@open-mercato/ui/primitives/checkbox-field'
-import { ComboboxInput, type ComboboxOption } from '@open-mercato/ui/backend/inputs/ComboboxInput'
 import { CollapsibleSection } from '@open-mercato/ui/backend/SectionHeader'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { getSupportedLocales } from '@open-mercato/shared/lib/i18n/locale-set'
 import { RuleFieldInput } from './RuleFieldInput'
 import { BENEFIT_FIELD_SPECS } from './ruleFieldSpecs'
 import {
@@ -293,23 +293,34 @@ function LabelsEditor({
   const t = useT()
   const entries = Object.entries(labels)
   const [newLocale, setNewLocale] = React.useState('')
+  // Only offer locales this benefit does not already carry a row for — the
+  // app's real supported-locale set (`getSupportedLocales()`) replaces the
+  // former free-text locale `Input`, which silently accepted a typo like
+  // `eng` with no validation against anything.
+  const availableLocales = getSupportedLocales().filter(
+    (locale) => !Object.prototype.hasOwnProperty.call(labels, locale),
+  )
 
   return (
     <div className="space-y-2">
       {entries.map(([locale, text]) => (
-        <div key={locale} className="grid grid-cols-[100px_1fr_auto] items-end gap-2">
-          <span className="truncate text-xs text-muted-foreground">{locale}</span>
-          <Input
-            type="text"
-            value={text}
-            disabled={disabled}
-            placeholder={t('promotions.benefits.labels.textPlaceholder', 'Label text')}
-            onChange={(event) => onChange({ ...labels, [locale]: event.target.value })}
-          />
+        <div key={locale} className="flex items-end gap-2">
+          <div className="w-28">
+            <span className="truncate text-xs text-muted-foreground">{locale}</span>
+          </div>
+          <div className="flex-1">
+            <Input
+              type="text"
+              value={text}
+              disabled={disabled}
+              placeholder={t('promotions.benefits.labels.textPlaceholder', 'Label text')}
+              onChange={(event) => onChange({ ...labels, [locale]: event.target.value })}
+            />
+          </div>
           <IconButton
             type="button"
             variant="destructive"
-            size="sm"
+            size="lg"
             aria-label={t('promotions.benefits.labels.remove', 'Remove label')}
             disabled={disabled}
             onClick={() => {
@@ -322,31 +333,38 @@ function LabelsEditor({
           </IconButton>
         </div>
       ))}
-      <div className="grid grid-cols-[100px_1fr_auto] items-end gap-2">
-        <Input
-          type="text"
-          value={newLocale}
-          disabled={disabled}
-          placeholder={t('promotions.benefits.labels.localePlaceholder', 'Locale code (e.g. en)')}
-          onChange={(event) => setNewLocale(event.target.value)}
-        />
-        <span />
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={disabled || !newLocale.trim() || Object.prototype.hasOwnProperty.call(labels, newLocale.trim())}
-          onClick={() => {
-            const locale = newLocale.trim()
-            if (!locale) return
-            onChange({ ...labels, [locale]: '' })
-            setNewLocale('')
-          }}
-        >
-          <Plus className="size-4" />
-          {t('promotions.benefits.labels.addLocale', 'Add locale')}
-        </Button>
-      </div>
+      {availableLocales.length > 0 ? (
+        <div className="flex items-end gap-2">
+          <div className="w-28">
+            <Select value={newLocale} onValueChange={setNewLocale} disabled={disabled}>
+              <SelectTrigger size={36} aria-label={t('promotions.benefits.labels.localePlaceholder', 'Locale code (e.g. en)')}>
+                <SelectValue placeholder={t('promotions.benefits.labels.localePlaceholder', 'Locale code (e.g. en)')} />
+              </SelectTrigger>
+              <SelectContent>
+                {availableLocales.map((locale) => (
+                  <SelectItem key={locale} value={locale}>
+                    {locale}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex-1" />
+          <Button
+            type="button"
+            variant="outline"
+            disabled={disabled || !newLocale}
+            onClick={() => {
+              if (!newLocale) return
+              onChange({ ...labels, [newLocale]: '' })
+              setNewLocale('')
+            }}
+          >
+            <Plus className="size-4" />
+            {t('promotions.benefits.labels.addLocale', 'Add locale')}
+          </Button>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -377,7 +395,7 @@ export function BenefitCard({
   })
   const style: React.CSSProperties = { transform: CSS.Transform.toString(transform), transition }
 
-  const typeOptions: ComboboxOption[] = BENEFIT_TYPE_OPTIONS.map((benefitType) => ({
+  const typeOptions = BENEFIT_TYPE_OPTIONS.map((benefitType) => ({
     value: benefitType,
     label: t(BENEFIT_TYPE_LABEL_KEYS[benefitType].key, BENEFIT_TYPE_LABEL_KEYS[benefitType].fallback),
   }))
@@ -412,14 +430,22 @@ export function BenefitCard({
             <div className="min-w-0 flex-1 space-y-3">
               <label className="flex flex-col gap-1 text-xs">
                 <span className="text-muted-foreground">{t('promotions.benefits.typeLabel', 'Benefit type')}</span>
-                <ComboboxInput
+                <Select
                   value={benefit.benefitType}
-                  onChange={(next) => onTypeChange(next as BenefitTypeId)}
-                  suggestions={typeOptions}
-                  allowCustomValues={false}
+                  onValueChange={(next) => onTypeChange(next as BenefitTypeId)}
                   disabled={disabled}
-                  placeholder={t('promotions.benefits.typePlaceholder', 'Select a benefit type...')}
-                />
+                >
+                  <SelectTrigger size={36}>
+                    <SelectValue placeholder={t('promotions.benefits.typePlaceholder', 'Select a benefit type...')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {typeOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </label>
               <label className="flex flex-col gap-1 text-xs">
                 <span className="text-muted-foreground">{t('promotions.benefits.appliesTo.label', 'Applies to')}</span>

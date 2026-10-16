@@ -10,7 +10,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { GripVertical, X } from 'lucide-react'
 import { Card, CardContent } from '@open-mercato/ui/primitives/card'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
-import { ComboboxInput, type ComboboxOption } from '@open-mercato/ui/backend/inputs/ComboboxInput'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { RuleFieldInput } from './RuleFieldInput'
 import { RULE_FIELD_SPECS } from './ruleFieldSpecs'
@@ -46,7 +46,7 @@ export function RuleCard({ rule, disabled, onTypeChange, onConfigChange, onDelet
   })
   const style: React.CSSProperties = { transform: CSS.Transform.toString(transform), transition }
 
-  const typeOptions: ComboboxOption[] = RULE_TYPE_OPTIONS.map((ruleType) => ({
+  const typeOptions = RULE_TYPE_OPTIONS.map((ruleType) => ({
     value: ruleType,
     label: t(RULE_TYPE_LABEL_KEYS[ruleType].key, RULE_TYPE_LABEL_KEYS[ruleType].fallback),
   }))
@@ -73,14 +73,22 @@ export function RuleCard({ rule, disabled, onTypeChange, onConfigChange, onDelet
             <div className="min-w-0 flex-1 space-y-3">
               <label className="flex flex-col gap-1 text-xs">
                 <span className="text-muted-foreground">{t('promotions.rules.typeLabel', 'Rule type')}</span>
-                <ComboboxInput
+                <Select
                   value={rule.ruleType}
-                  onChange={(next) => onTypeChange(next as RuleTypeId)}
-                  suggestions={typeOptions}
-                  allowCustomValues={false}
+                  onValueChange={(next) => onTypeChange(next as RuleTypeId)}
                   disabled={disabled}
-                  placeholder={t('promotions.rules.typePlaceholder', 'Select a rule type...')}
-                />
+                >
+                  <SelectTrigger size={36}>
+                    <SelectValue placeholder={t('promotions.rules.typePlaceholder', 'Select a rule type...')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {typeOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </label>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {fieldSpecs.map((spec) => (
