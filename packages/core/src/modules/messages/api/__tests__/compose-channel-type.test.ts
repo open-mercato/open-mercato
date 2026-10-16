@@ -477,15 +477,19 @@ describe('POST /api/messages — channel conversation deliverability (#5535)', (
 // #7503 — a compose/list payload the validator rejects used to escape the
 // handler as an uncaught ZodError, which Next.js answered as a bare 500 with
 // an empty body. The caller got no reason and the UI fell back to a generic
-// "could not send" toast. These must answer 400 with the validator's message.
+// "could not send" toast. These must answer 400 with the repo-standard
+// `{ error, details }` shape (#7508 review): `error` is a stable, translated
+// label — never the raw Zod validator message — and `details` carries the
+// Zod issues for callers that want field-level detail.
 describe('POST /api/messages — validator rejections answer 400, not a bare 500 (#7503)', () => {
-  it('answers 400 with a message when required fields are missing, instead of throwing', async () => {
+  it('answers 400 with the stable error label when required fields are missing, instead of throwing', async () => {
     const response = await composeMessage(composeRequest({}))
 
     expect(response.status).toBe(400)
     const body = await response.json()
-    expect(typeof body.error).toBe('string')
-    expect(body.error.length).toBeGreaterThan(0)
+    expect(body.error).toBe('Invalid message payload')
+    expect(Array.isArray(body.details)).toBe(true)
+    expect(body.details.length).toBeGreaterThan(0)
     expect(commandBusExecuteMock).not.toHaveBeenCalled()
   })
 
@@ -501,7 +505,8 @@ describe('POST /api/messages — validator rejections answer 400, not a bare 500
 
     expect(response.status).toBe(400)
     const body = await response.json()
-    expect(typeof body.error).toBe('string')
+    expect(body.error).toBe('Invalid message payload')
+    expect(body.details.some((issue: { path: unknown[] }) => issue.path.includes('subject'))).toBe(true)
     expect(commandBusExecuteMock).not.toHaveBeenCalled()
   })
 
@@ -517,7 +522,9 @@ describe('POST /api/messages — validator rejections answer 400, not a bare 500
 
     expect(response.status).toBe(400)
     const body = await response.json()
-    expect(typeof body.error).toBe('string')
+    expect(body.error).toBe('Invalid message payload')
+    expect(Array.isArray(body.details)).toBe(true)
+    expect(body.details.length).toBeGreaterThan(0)
     expect(commandBusExecuteMock).not.toHaveBeenCalled()
   })
 
@@ -536,20 +543,24 @@ describe('POST /api/messages — validator rejections answer 400, not a bare 500
 
     expect(response.status).toBe(400)
     const body = await response.json()
-    expect(typeof body.error).toBe('string')
+    expect(body.error).toBe('Invalid message payload')
+    expect(Array.isArray(body.details)).toBe(true)
+    expect(body.details.length).toBeGreaterThan(0)
     expect(commandBusExecuteMock).not.toHaveBeenCalled()
   })
 })
 
 describe('GET /api/messages — validator rejections answer 400, not a bare 500 (#7503)', () => {
-  it('answers 400 with a message for an unknown folder value, instead of throwing', async () => {
+  it('answers 400 with the stable error label for an unknown folder value, instead of throwing', async () => {
     const response = await listMessages(
       new Request('http://localhost/api/messages?folder=not-a-real-folder'),
     )
 
     expect(response.status).toBe(400)
     const body = await response.json()
-    expect(typeof body.error).toBe('string')
-    expect(body.error.length).toBeGreaterThan(0)
+    expect(body.error).toBe('Invalid request parameters')
+    expect(Array.isArray(body.details)).toBe(true)
+    expect(body.details.length).toBeGreaterThan(0)
+    expect(body.details.some((issue: { path: unknown[] }) => issue.path.includes('folder'))).toBe(true)
   })
 })

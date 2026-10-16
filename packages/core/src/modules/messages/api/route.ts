@@ -149,7 +149,11 @@ export async function GET(req: Request) {
     input = listMessagesSchema.parse(params)
   } catch (err) {
     if (err instanceof z.ZodError) {
-      return Response.json({ error: err.issues[0]?.message ?? '[internal] Invalid request' }, { status: 400 })
+      const { translate } = await resolveTranslations()
+      return Response.json(
+        { error: translate('messages.errors.invalidListQuery', 'Invalid request parameters'), details: err.issues },
+        { status: 400 },
+      )
     }
     throw err
   }
@@ -510,7 +514,11 @@ export async function POST(req: Request) {
     })
   } catch (err) {
     if (err instanceof z.ZodError) {
-      return Response.json({ error: err.issues[0]?.message ?? '[internal] Invalid request' }, { status: 400 })
+      const { translate } = await resolveTranslations()
+      return Response.json(
+        { error: translate('messages.errors.invalidComposePayload', 'Invalid message payload'), details: err.issues },
+        { status: 400 },
+      )
     }
     throw err
   }
