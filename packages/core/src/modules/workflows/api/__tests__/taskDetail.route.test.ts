@@ -7,12 +7,18 @@
  * another tenant's task ids one uuid at a time.
  */
 
-import { describe, test, expect, jest, beforeEach } from '@jest/globals'
+import { describe, test, expect, jest, beforeEach, afterEach } from '@jest/globals'
 import { NextRequest } from 'next/server'
 import { GET as getTask } from '../tasks/[id]/route'
 import { UserTask } from '../../data/entities'
 import { makeTaskVisibilityRouteStubs, type TaskVisibilityRouteStubs } from './helpers/taskVisibilityRoute'
 import { userTaskDetailResponseSchema } from '../openapi'
+import { registerEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
+import {
+  clearTaskEntityRegistrationsForTests,
+  registerTaskEntityAclRequirements,
+  registerTaskEntityLinkBuilders,
+} from '../../lib/task-entity-registry'
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(),
@@ -448,5 +454,73 @@ describe('GET /api/workflows/tasks/[id] — act surfaces', () => {
       expect(data).toHaveProperty(key)
     }
     expect(userTaskDetailResponseSchema.safeParse({ data }).success).toBe(true)
+  })
+})
+
+/**
+ * An app-owned entity whose module registered its ACL requirement and link
+ * builder (#7180). The ORM classifies it `system` with no core requirement, so
+ * before the seam this task was visible to superadmins only.
+ */
+describe('GET /api/workflows/tasks/[id] — registered app entity', () => {
+  const boundTask = () =>
+    makeTask({
+      entityBindings: [{ entityType: 'notary:notary_case', entityId: 'case-1', label: 'Case 1' }],
+      entityTypes: ['notary:notary_case'],
+    })
+
+  beforeEach(() => {
+    registerEntityIds({ notary: { notary_case: 'notary:notary_case' } })
+    clearTaskEntityRegistrationsForTests()
+    registerTaskEntityAclRequirements([{ entityId: 'notary:notary_case', view: ['notary.cases.view'] }])
+    registerTaskEntityLinkBuilders([
+      { entityId: 'notary:notary_case', buildHref: (recordId) => `/backend/notary/cases/${recordId}` },
+    ])
+    const { classifyRecordsEntity } = require('@open-mercato/core/modules/entities/lib/entityClassification')
+    classifyRecordsEntity.mockResolvedValue({ kind: 'system', restricted: false })
+  })
+
+  afterEach(() => {
+    clearTaskEntityRegistrationsForTests()
+    registerEntityIds({})
+    const { classifyRecordsEntity } = require('@open-mercato/core/modules/entities/lib/entityClassification')
+    classifyRecordsEntity.mockResolvedValue({ kind: 'custom', restricted: true })
+  })
+
+  test('is served to a caller holding the registered view feature, with the registered deep link', async () => {
+    withVisibility({ acl: { features: ['workflows.tasks.view', 'notary.cases.view'] } })
+    setTask(boundTask())
+
+    const response = await runDetail()
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.data.entityBindings).toEqual([
+      {
+        entityType: 'notary:notary_case',
+        entityId: 'case-1',
+        label: 'Case 1',
+        href: '/backend/notary/cases/case-1',
+      },
+    ])
+    expect(userTaskDetailResponseSchema.safeParse(body).success).toBe(true)
+  })
+
+  test('is a bare 404 for a caller without the registered view feature', async () => {
+    withVisibility({ acl: { features: ['workflows.tasks.view'] } })
+    setTask(boundTask())
+
+    const response = await runDetail()
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: 'Task not found' })
+  })
+
+  test('is a bare 404 again once the registration is gone — the gate fails closed', async () => {
+    clearTaskEntityRegistrationsForTests()
+    withVisibility({ acl: { features: ['workflows.tasks.view', 'notary.cases.view'] } })
+    setTask(boundTask())
+
+    expect((await runDetail()).status).toBe(404)
   })
 })

@@ -22,6 +22,7 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
@@ -289,9 +290,26 @@ export default function WorkInboxPage() {
             ) : null}
             {row.original.entityBindings.length > 0 ? (
               <div className="text-xs text-muted-foreground">
-                {row.original.entityBindings
-                  .map((binding) => binding.label || `${binding.entityType} ${binding.entityId}`)
-                  .join(', ')}
+                {row.original.entityBindings.map((binding, index) => {
+                  const text = binding.label || `${binding.entityType} ${binding.entityId}`
+                  return (
+                    <React.Fragment key={`${binding.entityType}:${binding.entityId}:${index}`}>
+                      {index > 0 ? ', ' : null}
+                      {binding.href ? (
+                        <Link
+                          href={binding.href}
+                          className="text-primary hover:underline"
+                          data-testid="work-inbox-entity-link"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          {text}
+                        </Link>
+                      ) : (
+                        text
+                      )}
+                    </React.Fragment>
+                  )
+                })}
               </div>
             ) : null}
             {row.original.overdue ? (

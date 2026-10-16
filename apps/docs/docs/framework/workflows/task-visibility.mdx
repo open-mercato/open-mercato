@@ -53,6 +53,33 @@ Two related limits, stated rather than implied:
 - Bindings are **not re-scope-checked per record**. The task's own tenant/organization are checked; the bound record's are not re-fetched.
 - A task bound to a **tenant's own custom entity** is handled by the same classification path as a built-in one. Reading the model as "only known platform entity types resolve" would have hidden every task bound to a custom entity, which is why classification is shared with the entities module rather than hard-coded.
 
+### Binding tasks to your own module's entities
+
+The core requirement table only knows platform entities. An ORM entity your module owns classifies as a system entity with **no** requirement, so the gate resolves it to `unavailable` and a task bound to it is visible to superadmins only. The owning module states the answer for its own entity — typically from its `workflows.ts`, next to `registerWorkflowSafeCommands`:
+
+```ts
+// src/modules/notary/workflows.ts
+import {
+  registerTaskEntityAclRequirements,
+  registerTaskEntityLinkBuilders,
+} from '@open-mercato/core/modules/workflows/lib/task-entity-registry'
+
+registerTaskEntityAclRequirements([
+  { entityId: 'notary:notary_case', view: ['notary.cases.view'] },
+])
+
+registerTaskEntityLinkBuilders([
+  { entityId: 'notary:notary_case', buildHref: (recordId) => `/backend/notary/cases/${encodeURIComponent(recordId)}` },
+])
+```
+
+- `entityId` is the **generated** id from `entities.ids.generated.ts`; bindings resolve to it however they spell it (`notary.notary_case`, `Notary:Notary_Case`).
+- A caller then sees the task iff they hold **all** `view` features (wildcard-aware) — plus everything else the rule already requires (relationship, tenant, organization). Nothing about scoping changes.
+- **The core table always wins.** A registration for an entity it already lists is ignored, so a module can never weaken or re-point a core requirement. A `view` list that is empty is refused at registration, because it would open the type to everyone in scope.
+- An entity nobody registered keeps resolving to `unavailable`.
+- The link builder is resolved **server-side**: the Work Inbox rows and the task detail carry it as `entityBindings[].href`. Only same-origin paths (`/…`) are accepted; anything else, or a builder that throws, renders the binding without a link. The enumerated core links win over a registration for the same type.
+- The record-page pending-work widget needs no registration: map it onto your record page's injection spot and it matches bindings by `resourceKind` in either spelling.
+
 ### Failure is closed; absence is not
 
 | Situation | Result |
