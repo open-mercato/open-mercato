@@ -1,9 +1,9 @@
 # Queue Status Dashboard — Queue Health, Failed-Job Visibility & Privileged Job Inspection
 
-- **Status:** Draft (deferred — not yet implemented)
+- **Status:** Implemented
 - **Scope:** OSS
 - **Owner module:** `configs` (admin surface) + `@open-mercato/queue` (introspection contract)
-- **Tracking issue:** _filled in after issue creation_
+- **Tracking issue:** [#3105](https://github.com/open-mercato/open-mercato/issues/3105)
 
 ## TLDR
 
@@ -729,28 +729,21 @@ yarn i18n:check-hardcoded
 
 ## Final Compliance Report
 
-This spec is **Draft (deferred — not yet implemented)**. The compliance gate below is the
-checklist the implementing PR(s) must satisfy before this spec moves to
-`.ai/specs/implemented/`; it is recorded now so the implementer inherits the bar rather than
-re-deriving it.
-
 | Gate | Status | Notes |
 |------|--------|-------|
-| Architecture: admin surface in `configs`, contract in `@open-mercato/queue`; no direct ORM cross-module relationship | ☐ deferred | Verified at design time against the existing `system-status` pattern and the worker registry export. |
-| Tenant isolation: non-superadmin never sees another tenant's jobs/payloads (server-side, fail-closed) | ☐ deferred | Hard invariant; gated by the critical integration test (tenant-A → zero tenant-B rows). |
-| Backward compatibility: all `@open-mercato/queue` changes additive-only | ☐ deferred | `delayed?`, `getFailedJobsSummary?`, `getProcessingStats?`, `getInFlightJobsSummary?`, `getRecentJobs?` optional; `?queue=`/`?type=`/`?id=` query params additive; no removed/renamed export, no event-id change. |
-| Tier 1 stays payload-free incl. metrics + in-flight + filters | ☐ deferred | Processing stats expose durations only; in-flight summary omits `data`; `?type=` filters on `job.name`, never payload contents. Snapshot sanitization test asserts no `data` anywhere. |
-| ACL: `.view` broad, `.inspect_payloads` superadmin/platform-operator only, not bundled | ☐ deferred | Immutable feature ids in `configs/acl.ts`; synced via `setup.ts`. |
-| UI: DS status tokens, `apiCall`, `LoadingMessage`/`ErrorMessage`, i18n via `useT()`/`resolveTranslations()` | ☐ deferred | No hardcoded status colors or user-facing strings. |
-| Integration coverage: both API paths + key UI paths + both `local`/`async` strategies | ☐ deferred | Enumerated in the Integration Coverage section. |
-| `yarn generate` / `typecheck` / `lint` / `i18n:check-hardcoded` green | ☐ deferred | See Validation Commands. |
-
-No code lands in this PR, so there is nothing to compliance-gate at merge beyond the spec
-content checklist (TLDR, Problem Statement, Proposed Solution, Architecture, Data Models /
-contracts, Risks & Impact Review, this report, Changelog), which this revision now satisfies.
+| Architecture: admin surface in `configs`, contract in `@open-mercato/queue`; no direct ORM cross-module relationship | ✅ | `configs/lib/queue-status-registry.ts` enumerates via `getModules()` (mirrors `scheduler/lib/safeQueueTargets.ts`); `configs` depends on `@open-mercato/queue`'s public `Queue` contract only. |
+| Tenant isolation: non-superadmin never sees another tenant's jobs/payloads (server-side, fail-closed) | ✅ | `configs/lib/queue-job-inspector.ts`; the critical case (tenant-A sees zero tenant-B rows even when tenant-B is newest, and a foreign-tenant job id resolves to nothing) is covered in `configs/__tests__/queue-job-inspector.test.ts`. |
+| Backward compatibility: all `@open-mercato/queue` changes additive-only | ✅ | `delayed?`, `getFailedJobsSummary?`, `getProcessingStats?`, `getInFlightJobsSummary?`, `getRecentJobs?` all optional; `?queue=`/`?type=`/`?id=` query params additive; no removed/renamed export, no event-id change. |
+| Tier 1 stays payload-free incl. metrics + in-flight + filters | ✅ | `configs/lib/queue-status.ts`'s DTOs carry no `data` field; `configs/__tests__/queue-status.test.ts` asserts no `data`/`payload` substring anywhere in a built snapshot. |
+| ACL: `.view` broad, `.inspect_payloads` superadmin/platform-operator only, not bundled | ✅ | `configs/acl.ts` declares both as distinct ids; `configs/setup.ts` syncs `.inspect_payloads` to `superadmin` only, `.view` to both `superadmin` and `admin`. |
+| UI: DS status tokens, `apiCall`, `LoadingMessage`/`ErrorMessage`, i18n via `useT()`/`resolveTranslations()` | ✅ | `QueueStatusPanel.tsx` / `QueueJobInspector.tsx`; `yarn i18n:check-hardcoded` found zero new hardcoded strings. |
+| Integration coverage: both API paths + key UI paths + both `local`/`async` strategies | ⚠️ partial | Covered at the unit level for both routes and both strategies (`packages/queue/src/__tests__/{async,local}.strategy.test.ts`, `configs/api/queues-status/**/__tests__`). No `.ai/qa/tests/` integration spec was added in this PR — flagged for QA/follow-up rather than blocking the dashboard's initial landing. |
+| `yarn generate` / `typecheck` / `lint` / `i18n:check-hardcoded` green | ✅ | All green; see the implementing PR's validation section. |
 
 ## Changelog
 
+- **2026-10-16** — Implemented (Phases 1-4). Phase 5 (mutating actions) remains the
+  documented non-goal/follow-up. See the linked PR for the full file list and test suite.
 - **2026-08-03** — Corrected failed-job retention assumptions: local queues retain only
   `failedCount` and therefore use the counts-only details-unavailable fallback; async queues
   expose a bounded recent-failure inspection window under `removeOnFail: 1000`, not durable
