@@ -1,27 +1,25 @@
 # Handoff — 2026-10-16-ai-decision-model-port
 
-**Last updated:** 2026-10-16T17:28:10Z
+**Last updated:** 2026-10-16T18:24:56Z
 **Branch:** feat/ai-decision-model-port
-**PR:** https://github.com/open-mercato/open-mercato/pull/7553 (draft)
-**Current phase/step:** Phase 2 Step 2.1
-**Last commit:** bd7dec3be — feat(ai-assistant): add decisionModelService with timeout, validation and safe logging
+**PR:** https://github.com/open-mercato/open-mercato/pull/7553 (ready for review)
+**Current phase/step:** complete — every Tasks row is done
+**Last commit:** e62e26f23 — docs(ai-assistant): align decision model docs and spec with review findings
 
 ## What just happened
-- Phase 1 (port types, schemas, fixture + OpenRouter adapters, registry, service + DI) landed and passed checkpoint 1.
+- All Steps landed. The final gate and the `om-auto-review-pr --autofix` pass ran; the 1 minor and 4 nits were fixed, and the re-review verdict for the code is approve.
 
 ## Next concrete action
-- Step 2.1 — Env example block and create-app template sync.
+- Author: sign the CLA (`license/cla` check). Maintainer: approve the fork workflows, apply labels, decide on the skipped `ai-assistant/AGENTS.md` entry.
 
 ## Blockers / open questions
-- Account has pull-only access upstream: labels/assignee must be applied by a maintainer.
+- CLA unsigned; CI workflows not run on the fork PR; `create-mercato-app#test` fails locally for environmental reasons (identical on base).
 
 ## Environment caveats
 - Dev runtime runnable: not needed (no UI, no routes)
 - Browser / UI checks: skipped because the change has no UI surface
 - Database/migration state: clean (no entities, no migrations)
-- `packages/ai-assistant/tsconfig.decision-check.json` is an untracked, git-excluded scoped typecheck helper; never commit it.
-- Tasks-table `Commit` cells hold the pre-amend SHA of each Step (the row flip is amended into the Step commit); match Steps by commit subject.
 
 ## Worktree
 - Path: .ai/tmp/om-auto-create-pr-loop/ai-decision-model-port-20261016-191019
-- Created this run: yes
+- Created this run: yes (removed at run end)

@@ -28,3 +28,8 @@
 ## 2026-10-16T18:16:20Z — final gate
 - 7 of 8 `validation.commands` pass. `yarn test` fails only in `create-mercato-app#test` (agent-harness evaluator, fake runner killed with SIGABRT); reproduced identically with this branch's only create-app change reverted, so it is pre-existing/environmental and not caused by this run. Details in `final-gate-checks.md`.
 - Integration suite and DS pass skipped: no HTTP/UI surface.
+
+## 2026-10-16T18:24:56Z — review pass and run end
+- `om-auto-review-pr --autofix`: 1 minor (`__proto__` key silently dropped by `z.record`) + 4 nits, all fixed in Steps 1.1-review-fix and 2.2-review-fix; re-review approves the code. Reviews posted as comment reviews (GitHub forbids self-approval).
+- Re-validation: ai-assistant jest 1650/1650, `yarn typecheck` pass, eslint pass.
+- Run ends with Status: complete; PR flipped to ready. Merge is still blocked on the CLA signature, maintainer-approved CI on the fork, and labels. PR: https://github.com/open-mercato/open-mercato/pull/7553
