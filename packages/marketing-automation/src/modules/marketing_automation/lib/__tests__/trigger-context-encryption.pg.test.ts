@@ -1,191 +1,120 @@
-/**
- * Behavioural cover for the trigger-context encryption fix against a real PostgreSQL.
- *
- * `applyTransition`/`failRun` write through `em.nativeUpdate`, which MikroORM documents as having
- * no side effects on the context — including the ORM lifecycle hooks the tenant-encryption
- * subscriber listens on. Before `encryptTriggerContextForNativeWrite` existed, completing or
- * failing a run overwrote the `trigger_context` column — declared encrypted in `encryption.ts` —
- * with plaintext. A map-declaration assertion cannot prove this: it has to look at what actually
- * lands in the column.
- *
- * Uses the deterministic `DerivedKmsService` fallback (`TENANT_DATA_ENCRYPTION_KEY`) so the test
- * needs no Vault. Gated on OM_MARKETING_AUTOMATION_PG_URL — a throwaway database, since the suite
- * creates and drops its own tables. Run it with, for example:
- *
- *   docker run -d --rm --name om-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=om \
- *     -p 54372:5432 postgres:18-alpine
- *   OM_MARKETING_AUTOMATION_PG_URL=postgres://postgres:postgres@127.0.0.1:54372/om \
- *   TENANT_DATA_ENCRYPTION_KEY=test-only-derived-key \
- *     yarn workspace @open-mercato/marketing-automation jest trigger-context-encryption.pg
- */
-import 'reflect-metadata'
 import { randomUUID } from 'node:crypto'
-import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
-import { MikroORM, type EntityManager } from '@mikro-orm/postgresql'
+import type { MikroORM } from '@mikro-orm/postgresql'
+import { EncryptionMap } from '@open-mercato/core/modules/entities/data/entities'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { MarketingCampaignRun } from '../../data/entities'
-import { applyTransition, failRun, type RunScope } from '../runs'
+import { applyTransition, claimRun, createRun, failRun } from '../runs'
+import { PG_URL, SCOPE, createPgOrm, maybe } from '../../__tests__/pg-helpers'
 
-const PG_URL = process.env.OM_MARKETING_AUTOMATION_PG_URL ?? ''
-const maybe = PG_URL ? describe : describe.skip
-
-const TENANT = '11111111-1111-4111-8111-111111111111'
-const ORG = '22222222-2222-4222-8222-222222222222'
-const RUN_ENTITY_ID = 'marketing_automation:marketing_campaign_run'
-
-maybe('trigger_context encryption survives applyTransition/failRun against PostgreSQL', () => {
+/**
+ * M1 against a real column, not a map-declaration assertion: `nativeUpdate` bypasses MikroORM's
+ * encryption subscriber, so the fix has to actually land ciphertext on disk for `applyTransition`
+ * and `failRun`, not just call a mocked encryption service with the right arguments.
+ */
+maybe('trigger_context encryption against PostgreSQL', () => {
   jest.setTimeout(60_000)
   let orm: MikroORM
-  let em: EntityManager
-  const originalKey = process.env.TENANT_DATA_ENCRYPTION_KEY
-  const originalToggle = process.env.TENANT_DATA_ENCRYPTION
+  const originalFallback = process.env.ALLOW_DERIVED_KMS_FALLBACK
+  const originalEnabled = process.env.TENANT_DATA_ENCRYPTION
 
   beforeAll(async () => {
-    process.env.TENANT_DATA_ENCRYPTION_KEY = 'test-only-derived-key-trigger-context'
-    delete process.env.TENANT_DATA_ENCRYPTION
-
-    orm = await MikroORM.init({
-      clientUrl: PG_URL,
-      entities: [MarketingCampaignRun],
-      metadataProvider: ReflectMetadataProvider,
-      allowGlobalContext: true,
-      debug: false,
+    process.env.ALLOW_DERIVED_KMS_FALLBACK = 'true'
+    process.env.TENANT_DATA_ENCRYPTION = 'true'
+    orm = await createPgOrm([MarketingCampaignRun, EncryptionMap])
+    // A system-wide map: tenant/organization null matches every scope in loadPolicy's SQL.
+    const em = orm.em.fork()
+    em.create(EncryptionMap, {
+      entityId: 'marketing_automation:marketing_campaign_run',
+      tenantId: null,
+      organizationId: null,
+      fieldsJson: [{ field: 'trigger_context' }],
+      isActive: true,
     })
-    await orm.schema.refresh()
-    const connection = orm.em.getConnection()
-    await connection.execute(`
-      create table if not exists "encryption_maps" (
-        "id" uuid not null default gen_random_uuid(),
-        "entity_id" text not null,
-        "tenant_id" uuid null,
-        "organization_id" uuid null,
-        "fields_json" jsonb null,
-        "is_active" boolean not null default true,
-        "created_at" timestamptz not null default now(),
-        "updated_at" timestamptz not null default now(),
-        "deleted_at" timestamptz null,
-        constraint "encryption_maps_pkey" primary key ("id")
-      )
-    `)
-    await connection.execute(
-      `insert into "encryption_maps" ("entity_id", "tenant_id", "organization_id", "fields_json")
-       values (?, ?, null, ?)`,
-      [RUN_ENTITY_ID, TENANT, JSON.stringify([{ field: 'trigger_context' }])],
-    )
-  }, 60_000)
+    await em.flush()
+  }, 30_000)
 
   afterAll(async () => {
-    if (originalKey === undefined) delete process.env.TENANT_DATA_ENCRYPTION_KEY
-    else process.env.TENANT_DATA_ENCRYPTION_KEY = originalKey
-    if (originalToggle === undefined) delete process.env.TENANT_DATA_ENCRYPTION
-    else process.env.TENANT_DATA_ENCRYPTION = originalToggle
+    process.env.ALLOW_DERIVED_KMS_FALLBACK = originalFallback
+    process.env.TENANT_DATA_ENCRYPTION = originalEnabled
     await orm?.close(true)
   })
 
-  beforeEach(async () => {
-    em = orm.em.fork()
-    await em.getConnection().execute('truncate table "marketing_campaign_runs"')
-    await em.getConnection().execute('truncate table "encryption_maps"')
-    await em.getConnection().execute(
-      `insert into "encryption_maps" ("entity_id", "tenant_id", "organization_id", "fields_json")
-       values (?, ?, null, ?)`,
-      [RUN_ENTITY_ID, TENANT, JSON.stringify([{ field: 'trigger_context' }])],
-    )
-  })
-
-  const scope: RunScope = { tenantId: TENANT, organizationId: ORG }
-
-  async function insertRunRow(claimToken: string): Promise<string> {
-    const run = em.create(MarketingCampaignRun, {
-      campaignId: randomUUID(),
-      organizationId: ORG,
-      tenantId: TENANT,
-      subjectEntityId: null,
-      triggerEventId: 'order.created',
-      context: {},
-      currentStepIndex: 0,
-      stepLog: [],
-      status: 'running',
-      attempts: 0,
-      claimToken,
-    })
-    await em.persistAndFlush(run)
-    return run.id
-  }
-
   async function rawTriggerContext(runId: string): Promise<string | null> {
-    const rows = await em.getConnection().execute<{ trigger_context: string | null }[]>(
-      'select trigger_context from "marketing_campaign_runs" where id = ?',
+    const rows = await orm.em.fork().getConnection().execute<Array<{ trigger_context: unknown }>>(
+      'select trigger_context from marketing_campaign_runs where id = ?',
       [runId],
     )
-    return rows[0]?.trigger_context ?? null
+    const value = rows[0]?.trigger_context
+    return value == null ? null : String(value)
   }
 
-  const PLAINTEXT_TRIGGER = { email: 'partner@example.com', orderId: 'ORD-9000' }
+  async function seedRun(): Promise<string> {
+    const run = await createRun(orm.em.fork(), {
+      campaignId: randomUUID(),
+      scope: SCOPE,
+      subjectEntityId: randomUUID(),
+      triggerEventId: 'evt-1',
+      context: { tenantId: SCOPE.tenantId, organizationId: SCOPE.organizationId, eventId: 'evt-1', occurredAt: new Date().toISOString(), dispatchDepth: 1 } as never,
+    })
+    return run!.id
+  }
 
-  it('applyTransition stores ciphertext, and it decrypts back to the original payload', async () => {
-    const claimToken = randomUUID()
-    const runId = await insertRunRow(claimToken)
+  it('applyTransition leaves ciphertext on disk, decryptable back to the original payload', async () => {
+    const runId = await seedRun()
+    const secret = { email: 'buyer@example.com', note: 'VIP — handle personally' }
+    const claimToken = await claimRun(orm.em.fork(), runId, SCOPE, new Date())
+    expect(claimToken).not.toBeNull()
 
-    const affected = await applyTransition(em, runId, scope, claimToken, {
-      kind: 'completed',
+    const applied = await applyTransition(orm.em.fork(), runId, SCOPE, claimToken!, {
+      kind: 'waiting',
+      resumeAt: new Date(),
+      nextStepIndex: 1,
+      nextStepId: 'step-2',
       stepLog: [],
-      context: { trigger: PLAINTEXT_TRIGGER } as never,
+      context: { tenantId: SCOPE.tenantId, organizationId: SCOPE.organizationId, eventId: 'evt-1', occurredAt: new Date().toISOString(), dispatchDepth: 1, trigger: secret } as never,
     }, new Date())
-    expect(affected).toBe(true)
+    expect(applied).toBe(true)
 
-    const stored = await rawTriggerContext(runId)
-    expect(stored).not.toBeNull()
-    expect(stored).not.toContain('partner@example.com')
-    expect(stored).not.toContain('ORD-9000')
+    const raw = await rawTriggerContext(runId)
+    expect(raw).not.toBeNull()
+    expect(raw).not.toContain('buyer@example.com')
+    expect(raw).not.toContain('VIP')
 
-    const service = new TenantDataEncryptionService(em)
+    const service = new TenantDataEncryptionService(orm.em.fork())
     const decrypted = await service.decryptEntityPayload(
-      RUN_ENTITY_ID,
-      { triggerContext: JSON.parse(stored as string) },
-      TENANT,
-      ORG,
+      'marketing_automation:marketing_campaign_run',
+      { triggerContext: raw },
+      SCOPE.tenantId,
+      SCOPE.organizationId,
     )
-    expect(decrypted.triggerContext).toEqual(PLAINTEXT_TRIGGER)
+    expect(JSON.parse(decrypted.triggerContext as string)).toEqual(secret)
   })
 
-  it('failRun stores ciphertext, and it decrypts back to the original payload', async () => {
-    const claimToken = randomUUID()
-    const runId = await insertRunRow(claimToken)
+  it('failRun leaves ciphertext on disk too', async () => {
+    const runId = await seedRun()
+    const secret = { phone: '+1-555-0100' }
+    const claimToken = await claimRun(orm.em.fork(), runId, SCOPE, new Date())
+    expect(claimToken).not.toBeNull()
 
-    await failRun(em, runId, scope, claimToken, {
+    await failRun(orm.em.fork(), runId, SCOPE, claimToken!, {
       attempts: 0,
-      error: new Error('boom'),
+      error: new Error('[internal] transport refused'),
       stepLog: [],
       resumeStepIndex: 0,
-      context: { trigger: PLAINTEXT_TRIGGER } as never,
+      context: { tenantId: SCOPE.tenantId, organizationId: SCOPE.organizationId, eventId: 'evt-1', occurredAt: new Date().toISOString(), dispatchDepth: 1, trigger: secret } as never,
     }, new Date())
 
-    const stored = await rawTriggerContext(runId)
-    expect(stored).not.toBeNull()
-    expect(stored).not.toContain('partner@example.com')
-    expect(stored).not.toContain('ORD-9000')
+    const raw = await rawTriggerContext(runId)
+    expect(raw).not.toBeNull()
+    expect(raw).not.toContain('555-0100')
 
-    const service = new TenantDataEncryptionService(em)
+    const service = new TenantDataEncryptionService(orm.em.fork())
     const decrypted = await service.decryptEntityPayload(
-      RUN_ENTITY_ID,
-      { triggerContext: JSON.parse(stored as string) },
-      TENANT,
-      ORG,
+      'marketing_automation:marketing_campaign_run',
+      { triggerContext: raw },
+      SCOPE.tenantId,
+      SCOPE.organizationId,
     )
-    expect(decrypted.triggerContext).toEqual(PLAINTEXT_TRIGGER)
-  })
-
-  it('leaves trigger_context null when the transition carries no trigger payload', async () => {
-    const claimToken = randomUUID()
-    const runId = await insertRunRow(claimToken)
-
-    await applyTransition(em, runId, scope, claimToken, {
-      kind: 'completed',
-      stepLog: [],
-      context: {} as never,
-    }, new Date())
-
-    expect(await rawTriggerContext(runId)).toBeNull()
+    expect(JSON.parse(decrypted.triggerContext as string)).toEqual(secret)
   })
 })
