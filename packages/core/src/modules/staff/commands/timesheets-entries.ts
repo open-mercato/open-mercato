@@ -905,6 +905,7 @@ const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEn
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entry = await em.findOne(StaffTimeEntry, scopedStaffSnapshotWhere(after.id, staffSnapshotScopeFromSnapshot(after)))
     if (entry) {
+      assertTimeEntryUnlocked(entry, (await resolveTranslations()).translate)
       entry.deletedAt = new Date()
       await em.flush()
 
@@ -1097,6 +1098,7 @@ const startTimerCommand: CommandHandler<StaffTimeEntryStartTimerInput, { timeEnt
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entry = await em.findOne(StaffTimeEntry, scopedStaffSnapshotWhere(after.id, staffSnapshotScopeFromSnapshot(after)))
     if (entry) {
+      assertTimeEntryUnlocked(entry, (await resolveTranslations()).translate)
       entry.deletedAt = new Date()
       await em.flush()
 
@@ -1318,6 +1320,7 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entry = await em.findOne(StaffTimeEntry, scopedStaffSnapshotWhere(before.id, staffSnapshotScopeFromSnapshot(before)))
     if (!entry) return
+    assertTimeEntryUnlocked(entry, (await resolveTranslations()).translate)
     entry.date = before.date as unknown as Date
     entry.durationMinutes = before.durationMinutes
     entry.roundedMinutes = before.roundedMinutes ?? null
@@ -1467,6 +1470,7 @@ const deleteTimeEntryCommand: CommandHandler<{ id?: string }, { timeEntryId: str
       })
       em.persist(entry)
     } else {
+      assertTimeEntryUnlocked(entry, (await resolveTranslations()).translate)
       entry.staffMemberId = before.staffMemberId
       entry.date = before.date as unknown as Date
       entry.durationMinutes = before.durationMinutes
