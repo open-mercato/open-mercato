@@ -31,7 +31,8 @@ export type DefaultChartOfAccountsAccountTypeSeed = {
  * Models. Every `number` here is illustrative, never read or matched by
  * name anywhere else in this codebase (knowledge base §2 convention).
  *
- * 39 `LedgerAccountType` rows, 43 `LedgerAccount` rows. Deliberately
+ * 42 `LedgerAccountType` rows, 46 `LedgerAccount` rows (the counts shown in
+ * the UI come from this array, never from a literal). Deliberately
  * leaves numbering gaps within each zespół (e.g. `010`/`020`/`070`, not
  * `010`/`011`/`012`), matching Kieso's own Illustration 3.9 convention —
  * room for a tenant to insert their own accounts after import without
@@ -244,6 +245,27 @@ export const DEFAULT_CHART_OF_ACCOUNTS_PL: DefaultChartOfAccountsAccountTypeSeed
   },
 
   // Zespół 5 — Koszty według typów działalności i ich rozliczenie
+  //
+  // 500 / 501 added after the PR #6439 review: the natural zespół 5 target of
+  // the 4 -> 5 reclassification for a service company, which otherwise had
+  // only 550 (zarząd) and 552 (sprzedaż) to choose from. The names follow the
+  // reviewer's description ("koszty działalności podstawowej"); the exact
+  // 500/501 split is not checked against a primary source and is a
+  // convenience for the tenant, who can rename or replace both after import.
+  {
+    number: '500',
+    name: 'Koszty działalności podstawowej',
+    normalBalance: 'DEBIT',
+    accountGroupCode: '5',
+    accounts: [{ number: '500-1', description: 'Koszty działalności podstawowej' }],
+  },
+  {
+    number: '501',
+    name: 'Koszty działalności pomocniczej',
+    normalBalance: 'DEBIT',
+    accountGroupCode: '5',
+    accounts: [{ number: '501-1', description: 'Koszty działalności pomocniczej' }],
+  },
   {
     number: '550',
     name: 'Koszty zarządu',

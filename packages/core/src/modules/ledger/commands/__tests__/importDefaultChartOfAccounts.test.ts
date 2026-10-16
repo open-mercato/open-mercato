@@ -1,5 +1,6 @@
 // Unit tests for `ledger.importDefaultChartOfAccounts` (OM-19), per the
-// (corrected, 40/44 — PR #6137 review, m3: added account 490) Testing
+// (corrected, 42/46 — PR #6137 review, m3: added account 490; PR #6439
+// review: added 500/501) Testing
 // Strategy in
 // `2026-09-15-default-chart-of-accounts.md`.
 //
@@ -104,9 +105,18 @@ describe('ledger.importDefaultChartOfAccounts', () => {
     jest.resetModules()
   })
 
-  it('the template itself is 40 account types / 44 accounts (sanity check backing every count below)', () => {
-    expect(TOTAL_TEMPLATE_TYPES).toBe(40)
-    expect(TOTAL_TEMPLATE_ACCOUNTS).toBe(44)
+  it('the template itself is 42 account types / 46 accounts (sanity check backing every count below)', () => {
+    expect(TOTAL_TEMPLATE_TYPES).toBe(42)
+    expect(TOTAL_TEMPLATE_ACCOUNTS).toBe(46)
+  })
+
+  it('zespół 5 offers 500 and 501 next to 550 and 552, each with its own first account (PR #6439 review, point 4)', () => {
+    const zespol5 = DEFAULT_CHART_OF_ACCOUNTS_PL.filter((type) => type.accountGroupCode === '5')
+    expect(zespol5.map((type) => type.number)).toEqual(['500', '501', '550', '552'])
+    for (const type of zespol5) {
+      expect(type.normalBalance).toBe('DEBIT')
+      expect(type.accounts.map((account) => account.number)).toEqual([`${type.number}-1`])
+    }
   })
 
   it('refuses to run against a non-empty chart of accounts and writes nothing', async () => {
@@ -177,7 +187,7 @@ describe('ledger.importDefaultChartOfAccounts', () => {
     expect(nonDeletedCount(em, LedgerAccount, ORG_A)).toBe(TOTAL_TEMPLATE_ACCOUNTS)
   })
 
-  it('happy path: creates exactly 40 account types and 44 accounts, correctly linked', async () => {
+  it('happy path: creates exactly the template\'s account types and accounts, correctly linked', async () => {
     const command = loadImportCommand()
     const em = buildFakeEm()
     const groups = seedAccountGroups(em, { organizationId: ORG_A, tenantId: TENANT })
@@ -186,14 +196,14 @@ describe('ledger.importDefaultChartOfAccounts', () => {
 
     const result = await command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)
 
-    expect(result.createdAccountTypeIds).toHaveLength(40)
-    expect(result.createdAccountIds).toHaveLength(44)
+    expect(result.createdAccountTypeIds).toHaveLength(TOTAL_TEMPLATE_TYPES)
+    expect(result.createdAccountIds).toHaveLength(TOTAL_TEMPLATE_ACCOUNTS)
 
     const typeIds = new Set(result.createdAccountTypeIds)
     const typeRows = em.tables.get('LedgerAccountType') ?? []
     const accountRows = em.tables.get('LedgerAccount') ?? []
-    expect(typeRows).toHaveLength(40)
-    expect(accountRows).toHaveLength(44)
+    expect(typeRows).toHaveLength(TOTAL_TEMPLATE_TYPES)
+    expect(accountRows).toHaveLength(TOTAL_TEMPLATE_ACCOUNTS)
 
     for (const type of typeRows) {
       expect(type.organizationId).toBe(ORG_A)
@@ -235,8 +245,81 @@ describe('ledger.importDefaultChartOfAccounts', () => {
     expect(nonDeletedCount(em, LedgerAccountType, ORG_A)).toBe(0)
     expect(nonDeletedCount(em, LedgerAccount, ORG_A)).toBe(0)
     // Soft-deleted, not hard-deleted — every row is still physically present.
-    expect(em.tables.get('LedgerAccountType')).toHaveLength(40)
-    expect(em.tables.get('LedgerAccount')).toHaveLength(44)
+    expect(em.tables.get('LedgerAccountType')).toHaveLength(TOTAL_TEMPLATE_TYPES)
+    expect(em.tables.get('LedgerAccount')).toHaveLength(TOTAL_TEMPLATE_ACCOUNTS)
+  })
+
+  it('announces every imported row to search and subscribers: one created change per type and per account (PR #6439 review, point 2)', async () => {
+    const command = loadImportCommand()
+    const em = buildFakeEm()
+    seedAccountGroups(em, { organizationId: ORG_A, tenantId: TENANT })
+    const { ctx, dataEngine } = buildFakeCtx(em, { organizationId: ORG_A, tenantId: TENANT })
+
+    const result = await command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)
+
+    const calls = (dataEngine.markOrmEntityChange as jest.Mock).mock.calls.map(([arg]) => arg)
+    expect(calls).toHaveLength(TOTAL_TEMPLATE_TYPES + TOTAL_TEMPLATE_ACCOUNTS)
+    expect(calls.every((call) => call.action === 'created')).toBe(true)
+
+    const typeCalls = calls.filter((call) => call.events?.entity === 'ledger_account_type')
+    const accountCalls = calls.filter((call) => call.events?.entity === 'ledger_account')
+    expect(typeCalls.map((call) => call.identifiers.id).sort()).toEqual([...result.createdAccountTypeIds].sort())
+    expect(accountCalls.map((call) => call.identifiers.id).sort()).toEqual([...result.createdAccountIds].sort())
+    for (const call of calls) {
+      expect(call.identifiers.organizationId).toBe(ORG_A)
+      expect(call.identifiers.tenantId).toBe(TENANT)
+      expect(call.events.module).toBe('ledger')
+      // Same indexer configuration the single-row create commands use, so the
+      // query index picks the rows up.
+      expect(call.indexer).toBeDefined()
+    }
+  })
+
+  it('announces nothing when the import is refused', async () => {
+    const command = loadImportCommand()
+    const em = buildFakeEm()
+    seedAccountGroups(em, { organizationId: ORG_A, tenantId: TENANT })
+    em.seed(LedgerAccountType, {
+      id: 'existing-type',
+      organizationId: ORG_A,
+      tenantId: TENANT,
+      number: 'existing',
+      name: 'Existing type',
+      normalBalance: 'DEBIT',
+      accountGroupId: null,
+      deletedAt: null,
+    })
+    const { ctx, dataEngine } = buildFakeCtx(em, { organizationId: ORG_A, tenantId: TENANT })
+
+    await expect(command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)).rejects.toMatchObject({ status: 409 })
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+  })
+
+  it('undo announces the removal of every imported row', async () => {
+    const command = loadImportCommand()
+    const em = buildFakeEm()
+    seedAccountGroups(em, { organizationId: ORG_A, tenantId: TENANT })
+    const { ctx, dataEngine } = buildFakeCtx(em, { organizationId: ORG_A, tenantId: TENANT })
+
+    const result = await command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)
+    const logMeta = await command.buildLog({ input: { organizationId: ORG_A, tenantId: TENANT }, result, ctx })
+    ;(dataEngine.markOrmEntityChange as jest.Mock).mockClear()
+
+    await command.undo({
+      logEntry: {
+        commandPayload: logMeta!.payload,
+        organizationId: logMeta!.organizationId,
+        tenantId: logMeta!.tenantId,
+      },
+      ctx,
+    })
+
+    const calls = (dataEngine.markOrmEntityChange as jest.Mock).mock.calls.map(([arg]) => arg)
+    expect(calls).toHaveLength(TOTAL_TEMPLATE_TYPES + TOTAL_TEMPLATE_ACCOUNTS)
+    expect(calls.every((call) => call.action === 'deleted')).toBe(true)
+    expect(calls.map((call) => call.identifiers.id).sort()).toEqual(
+      [...result.createdAccountTypeIds, ...result.createdAccountIds].sort(),
+    )
   })
 
   it('imported rows are ordinary rows — no special "imported" marker field that could block future edits', async () => {
@@ -283,13 +366,13 @@ describe('ledger.importDefaultChartOfAccounts', () => {
 
     const result = await command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)
 
-    expect(result.createdAccountTypeIds).toHaveLength(40)
+    expect(result.createdAccountTypeIds).toHaveLength(TOTAL_TEMPLATE_TYPES)
     // ORG_A's new rows never carry ORG_B's id, and ORG_B's pre-existing row
     // is untouched (still exactly one, non-deleted).
     const allTypes = em.tables.get('LedgerAccountType') ?? []
     expect(allTypes.filter((row) => row.organizationId === ORG_B)).toHaveLength(1)
     expect(nonDeletedCount(em, LedgerAccountType, ORG_B)).toBe(1)
-    expect(allTypes.filter((row) => row.organizationId === ORG_A)).toHaveLength(40)
+    expect(allTypes.filter((row) => row.organizationId === ORG_A)).toHaveLength(TOTAL_TEMPLATE_TYPES)
   })
 
   it('maps a concurrent-import number-unique violation to its own 409 conflict, not a raw 500 (PR #6137 review, m1)', async () => {

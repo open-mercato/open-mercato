@@ -64,7 +64,7 @@
   "ledger.accounts.list.columns.number": "Numer",
   "ledger.accounts.list.confirmDelete": "Usunąć konto {{number}}?",
   "ledger.accounts.list.confirmImport": "Zaimportować domyślny plan kont?",
-  "ledger.accounts.list.confirmImportDescription": "Zostanie utworzony domyślny szablon polskiego planu kont (40 typów kont, 44 konta). Import jest możliwy tylko przy pustym planie kont.",
+  "ledger.accounts.list.confirmImportDescription": "Zostanie utworzony domyślny szablon polskiego planu kont ({{typeCount}} typów kont, {{accountCount}} kont). Import jest możliwy tylko przy pustym planie kont.",
   "ledger.accounts.list.error.load": "Nie udało się załadować kont",
   "ledger.accounts.list.searchPlaceholder": "Szukaj kont…",
   "ledger.accounts.list.title": "Plan kont",

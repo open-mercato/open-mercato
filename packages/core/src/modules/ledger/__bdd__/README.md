@@ -241,12 +241,13 @@ command's own logic.
 
 **Scenario source, this feature specifically:** this spec doesn't carry
 separate "User Stories"/"Edge Cases & Failure Scenarios" headings the way
-`2026-08-18-general-ledger-core-engine.md` does — these five scenarios are
+`2026-08-18-general-ledger-core-engine.md` does — these six scenarios are
 derived instead from its **Problem Statement** (the "faster starting
 point than building from zero" business need), **Design Decisions** (the
 empty-chart-of-accounts precondition, soft-deleted rows never blocking a
-re-import, imported rows being ordinary/editable afterward), and
-**Testing Strategy** sections, matching the same (corrected 39/43) scope
+re-import, imported rows being ordinary/editable afterward, imported rows being announced for search
+and subscribers), and
+**Testing Strategy** sections, matching the same scope
 already covered by the Jest unit suite
 (`commands/__tests__/importDefaultChartOfAccounts.test.ts`).
 

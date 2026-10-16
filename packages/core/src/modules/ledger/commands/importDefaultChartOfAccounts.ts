@@ -4,12 +4,20 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import { conflict, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { JournalEntryLine, LedgerAccount, LedgerAccountGroup, LedgerAccountType } from '../data/entities'
 import { ledgerAccountCreateSchema, ledgerAccountTypeCreateSchema } from '../data/validators'
+import {
+  ledgerAccountCrudEvents,
+  ledgerAccountCrudIndexer,
+  ledgerAccountTypeCrudEvents,
+  ledgerAccountTypeCrudIndexer,
+} from '../lib/crudSideEffects'
 import { DEFAULT_CHART_OF_ACCOUNTS_PL } from '../lib/defaultChartOfAccounts'
 
 type Scope = { organizationId: string; tenantId: string }
@@ -214,6 +222,8 @@ const importDefaultChartOfAccountsCommand: CommandHandler<
     // Account types before accounts (accounts reference `accountTypeId`),
     // inside one atomic transaction (Design Decisions, "One command, one
     // transaction, one undo").
+    const createdTypeRecords: LedgerAccountType[] = []
+    const createdAccountRecords: LedgerAccount[] = []
     try {
       await withAtomicFlush(
         em,
@@ -232,6 +242,7 @@ const importDefaultChartOfAccountsCommand: CommandHandler<
                 updatedAt: now,
               })
               em.persist(record)
+              createdTypeRecords.push(record)
             }
           },
           () => {
@@ -247,6 +258,7 @@ const importDefaultChartOfAccountsCommand: CommandHandler<
                 updatedAt: now,
               })
               em.persist(record)
+              createdAccountRecords.push(record)
             }
           },
         ],
@@ -280,6 +292,34 @@ const importDefaultChartOfAccountsCommand: CommandHandler<
         )
       }
       throw err
+    }
+
+    // The import writes through the ORM directly instead of one
+    // `createLedgerAccountType`/`createLedgerAccount` call per row, so it has
+    // to raise the same `created` events and indexer updates those commands
+    // raise — otherwise search and subscribers never see the imported rows
+    // (PR #6439 review, point 2). Queued here, flushed by the command bus
+    // after the command returns, like every other CRUD command.
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    for (const record of createdTypeRecords) {
+      await emitCrudSideEffects({
+        dataEngine,
+        action: 'created',
+        entity: record,
+        identifiers: { id: record.id, organizationId: scope.organizationId, tenantId: scope.tenantId },
+        events: ledgerAccountTypeCrudEvents,
+        indexer: ledgerAccountTypeCrudIndexer,
+      })
+    }
+    for (const record of createdAccountRecords) {
+      await emitCrudSideEffects({
+        dataEngine,
+        action: 'created',
+        entity: record,
+        identifiers: { id: record.id, organizationId: scope.organizationId, tenantId: scope.tenantId },
+        events: ledgerAccountCrudEvents,
+        indexer: ledgerAccountCrudIndexer,
+      })
     }
 
     return {
@@ -348,6 +388,8 @@ const importDefaultChartOfAccountsCommand: CommandHandler<
     }
 
     const now = new Date()
+    const deletedAccounts: LedgerAccount[] = []
+    const deletedTypes: LedgerAccountType[] = []
     await withAtomicFlush(
       em,
       [
@@ -362,6 +404,7 @@ const importDefaultChartOfAccountsCommand: CommandHandler<
           for (const account of accounts) {
             account.deletedAt = now
             account.updatedAt = now
+            deletedAccounts.push(account)
           }
         },
         async () => {
@@ -375,11 +418,36 @@ const importDefaultChartOfAccountsCommand: CommandHandler<
           for (const type of types) {
             type.deletedAt = now
             type.updatedAt = now
+            deletedTypes.push(type)
           }
         },
       ],
       { transaction: true, label: 'ledger.importDefaultChartOfAccounts.undo' },
     )
+
+    // Undo removes the rows `execute` announced, so it announces their
+    // removal the same way.
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    for (const account of deletedAccounts) {
+      await emitCrudUndoSideEffects({
+        dataEngine,
+        action: 'deleted',
+        entity: account,
+        identifiers: { id: account.id, organizationId, tenantId },
+        events: ledgerAccountCrudEvents,
+        indexer: ledgerAccountCrudIndexer,
+      })
+    }
+    for (const type of deletedTypes) {
+      await emitCrudUndoSideEffects({
+        dataEngine,
+        action: 'deleted',
+        entity: type,
+        identifiers: { id: type.id, organizationId, tenantId },
+        events: ledgerAccountTypeCrudEvents,
+        indexer: ledgerAccountTypeCrudIndexer,
+      })
+    }
   },
 }
 

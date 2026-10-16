@@ -33,6 +33,7 @@ import {
   executeCommand,
   FakeEntityManager,
   newId,
+  recordedEntityChanges,
   setActiveEm,
   ORG_ID,
   TENANT_ID,
@@ -242,5 +243,20 @@ Then(
     // The other organization's pre-existing row is still exactly the one it started with.
     const otherOrgTypeCount = await em.count(LedgerAccountType, { organizationId: OTHER_ORG_ID, deletedAt: null })
     assert.strictEqual(otherOrgTypeCount, 1)
+  },
+)
+
+Then(
+  'every imported account type and account is announced as newly created, exactly as if it had been created by hand',
+  function () {
+    assert.strictEqual(rejection, null, `expected the import to succeed, but it rejected with ${String(rejection)}`)
+    assert.ok(importResult, 'expected a result from the import')
+    const announced = (entity: string) =>
+      recordedEntityChanges
+        .filter((change) => change.action === 'created' && change.events?.entity === entity)
+        .map((change) => change.identifiers.id)
+        .sort()
+    assert.deepStrictEqual(announced('ledger_account_type'), [...importResult!.createdAccountTypeIds].sort())
+    assert.deepStrictEqual(announced('ledger_account'), [...importResult!.createdAccountIds].sort())
   },
 )

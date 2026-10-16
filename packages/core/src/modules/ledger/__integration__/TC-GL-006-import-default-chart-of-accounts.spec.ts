@@ -17,7 +17,8 @@ import { deleteGeneralEntityIfExists, readJsonSafe } from '@open-mercato/core/he
  * TC-GL-006: `POST /api/ledger/accounts/import-default-chart-of-accounts` —
  * 200 (happy path), 409 (non-empty chart of accounts), 403 (missing
  * `ledger.accounts.manage`) — plus the button's UI path (hidden for
- * view-only, table refresh on success).
+ * view-only, table refresh on success, not offered once the chart has
+ * accounts) and search over the imported accounts (PR #6439 review).
  *
  * Added retroactively per PR #6137 review, M2 — the original spec/
  * implementation shipped with command-level unit tests only, no
@@ -56,7 +57,7 @@ function scopedHeaders(scope: { tenantId: string; organizationId: string }): Rec
 
 const IMPORT_PATH = '/api/ledger/accounts/import-default-chart-of-accounts';
 
-test.describe('TC-GL-006: import-default-chart-of-accounts 200/409/403 + button UI path', () => {
+test.describe('TC-GL-006: import-default-chart-of-accounts 200/409/403 + button UI path + search', () => {
   test('happy path: 200 with the full template row counts', async ({ request }) => {
     const superadminToken = await getAuthToken(request, 'superadmin');
     const stamp = randomUUID();
@@ -73,7 +74,7 @@ test.describe('TC-GL-006: import-default-chart-of-accounts 200/409/403 + button 
       const res = await apiRequest(request, 'POST', IMPORT_PATH, { token: superadminToken, headers });
       expect(res.status(), 'import against a fresh, empty organization should return 200').toBe(200);
       const body = (await res.json()) as { ok: boolean; createdAccountTypeCount: number; createdAccountCount: number };
-      expect(body).toMatchObject({ ok: true, createdAccountTypeCount: 40, createdAccountCount: 44 });
+      expect(body).toMatchObject({ ok: true, createdAccountTypeCount: 42, createdAccountCount: 46 });
     } finally {
       await deleteOrganizationIfExists(request, superadminToken, organizationId);
       await deleteGeneralEntityIfExists(request, superadminToken, '/api/directory/tenants', tenantId);
@@ -117,6 +118,45 @@ test.describe('TC-GL-006: import-default-chart-of-accounts 200/409/403 + button 
       const body = (await res.json()) as { error?: string };
       expect(typeof body.error, 'the 409 body should carry the refusal message').toBe('string');
       expect(body.error).toMatch(/non-empty chart of accounts/i);
+    } finally {
+      await deleteOrganizationIfExists(request, superadminToken, organizationId);
+      await deleteGeneralEntityIfExists(request, superadminToken, '/api/directory/tenants', tenantId);
+    }
+  });
+
+  test('imported accounts are found by search, by number and by description (PR #6439 review)', async ({ request }) => {
+    const superadminToken = await getAuthToken(request, 'superadmin');
+    const stamp = randomUUID();
+    let tenantId: string | null = null;
+    let organizationId: string | null = null;
+    try {
+      tenantId = await createTenant(request, superadminToken, `QA TC-GL-006e Tenant ${stamp}`);
+      organizationId = await createOrganizationFixture(request, superadminToken, {
+        name: `QA TC-GL-006e Organization ${stamp}`,
+        tenantId,
+      });
+      const headers = scopedHeaders({ tenantId, organizationId });
+
+      const importRes = await apiRequest(request, 'POST', IMPORT_PATH, { token: superadminToken, headers });
+      expect(importRes.status(), 'import against a fresh, empty organization should return 200').toBe(200);
+
+      const search = async (term: string) => {
+        const res = await apiRequest(request, 'GET', `/api/ledger/accounts?search=${encodeURIComponent(term)}&pageSize=50`, {
+          token: superadminToken,
+          headers,
+        });
+        expect(res.status(), `GET /api/ledger/accounts?search=${term} should return 200`).toBe(200);
+        const body = (await res.json()) as { items: Array<{ number: string; description: string | null }> };
+        return body.items;
+      };
+
+      // By number: the zespół 5 accounts added in the same review.
+      const byNumber = await search('500-1');
+      expect(byNumber.map((item) => item.number)).toContain('500-1');
+
+      // By description (the account's name): "Koszty działalności podstawowej".
+      const byDescription = await search('działalności podstawowej');
+      expect(byDescription.map((item) => item.number)).toContain('500-1');
     } finally {
       await deleteOrganizationIfExists(request, superadminToken, organizationId);
       await deleteGeneralEntityIfExists(request, superadminToken, '/api/directory/tenants', tenantId);
@@ -229,8 +269,16 @@ test.describe('TC-GL-006: import-default-chart-of-accounts 200/409/403 + button 
 
       // The success flash names the row counts; the table then shows an
       // imported row's number (e.g. "100-1" — Zespół 1, first template row).
-      await expect(page.getByText(/imported 40 account types and 44 accounts/i)).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByText(/imported 42 account types and 46 accounts/i)).toBeVisible({ timeout: 15_000 });
       await expect(page.getByText('100-1', { exact: true }).first()).toBeVisible({ timeout: 10_000 });
+
+      // The chart now has accounts, so the import action is no longer offered
+      // (it would only end in a 409) — right after the refresh and after a
+      // full reload.
+      await expect(page.getByRole('button', { name: /import default chart of accounts/i })).toHaveCount(0);
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await expect(page.getByText('100-1', { exact: true }).first()).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByRole('button', { name: /import default chart of accounts/i })).toHaveCount(0);
     } finally {
       await deleteUserIfExists(request, superadminToken, managerUserId);
       await deleteRoleIfExists(request, superadminToken, managerRoleId);

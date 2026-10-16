@@ -21,6 +21,7 @@ import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider
 import { hasFeature } from '@open-mercato/shared/security/features'
 import type { FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { loadLedgerAccountTypeLabelsByIds } from '../../lib/optionLoaders'
+import { DEFAULT_CHART_OF_ACCOUNTS_PL } from '../../../lib/defaultChartOfAccounts'
 
 type LedgerAccountRow = {
   id: string
@@ -41,6 +42,14 @@ type ResponsePayload = {
   totalIsCapped?: boolean
 }
 
+// Shown in the import confirmation. Derived from the template itself so the
+// text cannot drift from what the import creates (it did, in de/es/ko, when
+// the counts were literals in each locale).
+const DEFAULT_CHART_COUNTS = {
+  typeCount: DEFAULT_CHART_OF_ACCOUNTS_PL.length,
+  accountCount: DEFAULT_CHART_OF_ACCOUNTS_PL.reduce((sum, type) => sum + type.accounts.length, 0),
+}
+
 export default function LedgerAccountsPage() {
   const t = useT()
   const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
@@ -57,6 +66,13 @@ export default function LedgerAccountsPage() {
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
   const [totalIsCapped, setTotalIsCapped] = React.useState(false)
+  // Whether the chart has no accounts at all, taken from the last *unsearched*
+  // load (a search that matches nothing says nothing about the chart). `null`
+  // until the first load answers, so the import action never flashes up for a
+  // chart that already has accounts. The import command refuses a non-empty
+  // chart with a 409, so the button is only offered while it can succeed
+  // (PR #6439 review, point 1).
+  const [chartIsEmpty, setChartIsEmpty] = React.useState<boolean | null>(null)
   const [search, setSearch] = React.useState('')
   const [filters] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
@@ -99,6 +115,7 @@ export default function LedgerAccountsPage() {
           setTotal(payload.total || 0)
           setTotalPages(payload.totalPages || 1)
           setTotalIsCapped(payload.totalIsCapped === true)
+          if (!search) setChartIsEmpty((payload.total || 0) === 0)
 
           // Resolve `accountTypeId` to a human-readable label for the column
           // below, batched into one request via `?ids=` (raw UUIDs were shown
@@ -183,7 +200,8 @@ export default function LedgerAccountsPage() {
       title: t('ledger.accounts.list.confirmImport', 'Import the default chart of accounts?'),
       description: t(
         'ledger.accounts.list.confirmImportDescription',
-        'This creates the default Polish chart-of-accounts template (40 account types, 44 accounts). It can only run while your chart of accounts is empty.',
+        'This creates the default Polish chart-of-accounts template ({{typeCount}} account types, {{accountCount}} accounts). It can only run while your chart of accounts is empty.',
+        DEFAULT_CHART_COUNTS,
       ),
     })
     if (!confirmed) return
@@ -285,10 +303,12 @@ export default function LedgerAccountsPage() {
           actions={
             canManage ? (
               <div className="flex items-center gap-2">
-                <Button variant="outline" onClick={handleImportDefaultChartOfAccounts}>
-                  <Upload className="mr-2 h-4 w-4" />
-                  {t('ledger.accounts.list.actions.importDefault', 'Import default chart of accounts')}
-                </Button>
+                {chartIsEmpty === true ? (
+                  <Button variant="outline" onClick={handleImportDefaultChartOfAccounts}>
+                    <Upload className="mr-2 h-4 w-4" />
+                    {t('ledger.accounts.list.actions.importDefault', 'Import default chart of accounts')}
+                  </Button>
+                ) : null}
                 <Button asChild>
                   <Link href="/backend/ledger/accounts/create">
                     <Plus className="mr-2 h-4 w-4" />

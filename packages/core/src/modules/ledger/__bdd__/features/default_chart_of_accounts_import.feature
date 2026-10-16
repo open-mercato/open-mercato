@@ -30,3 +30,8 @@ Feature: Importing the default Polish chart of accounts
     Given two organizations, one with an existing chart of accounts and one with none
     When I import the default chart of accounts into the organization that has none
     Then only that organization's chart of accounts changes, and the other organization's chart of accounts is untouched
+
+  Scenario: Imported accounts are announced so search and other modules see them
+    Given an organization with no account types or accounts yet
+    When I import the default chart of accounts
+    Then every imported account type and account is announced as newly created, exactly as if it had been created by hand

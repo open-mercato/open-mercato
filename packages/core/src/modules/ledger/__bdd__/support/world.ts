@@ -227,6 +227,7 @@ export function activeLedgerAccountIdOrThrow(): string {
 Before(function () {
   activeEm = null
   activeLedgerAccountId = null
+  recordedEntityChanges.length = 0
 })
 
 // `emitCrudSideEffects`'s only real dependency (see
@@ -234,8 +235,21 @@ Before(function () {
 // DB/network involved, so a no-op stub is enough. Not currently exercised
 // by any wired-up scenario (see README, "Verification status"), kept here
 // so `buildCommandContext` matches the shape every command expects.
+/**
+ * Every change a command reported through `markOrmEntityChange` since the
+ * current scenario started, for the scenarios that assert a command announces
+ * what it wrote (search and subscribers only learn about a row that way).
+ */
+export const recordedEntityChanges: Array<{
+  action: string
+  identifiers: { id: string }
+  events?: { entity?: string }
+}> = []
+
 const noopDataEngine = {
-  markOrmEntityChange: () => undefined,
+  markOrmEntityChange: (change: (typeof recordedEntityChanges)[number]) => {
+    recordedEntityChanges.push(change)
+  },
   emitEvent: () => undefined,
 }
 
