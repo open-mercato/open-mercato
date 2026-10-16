@@ -61,11 +61,12 @@ Open Mercato stores money in fixed-scale columns: `(18,4)` in sales, `(16,4)` fo
 
 Plain functions over `big.js`:
 
-- `toDecimal(value)`: accepts `string | number | Big` and throws on NaN, Infinity or a malformed string. A value is malformed when its exponent exceeds `MAX_DECIMAL_EXPONENT = 1000`, it has more than `MAX_DECIMAL_SIGNIFICANT_DIGITS = 1000` significant digits, more than `MAX_DECIMAL_INTEGER_DIGITS = 300` integer digits (so the float copy stays finite), or a digit below `1e-1000`. Oversized input is rejected before persistence. CRUD money endpoints return 400; payment gateway payload validation returns 422.
+- `toDecimal(value)`: accepts `string | number | Big` and throws on NaN, Infinity or a malformed string. A value is malformed when its exponent exceeds `MAX_DECIMAL_EXPONENT = 1000`, it has more than `MAX_DECIMAL_SIGNIFICANT_DIGITS = 1000` significant digits, more than `MAX_DECIMAL_INTEGER_DIGITS = 300` integer digits (so the float copy stays finite), or a digit below `1e-1000`, or the string is longer than `MAX_DECIMAL_INPUT_LENGTH = 2048` characters. A `Big` is recognised by shape (`c`, `e`, `s`), so one from another copy of big.js still counts. Oversized input is rejected before persistence. CRUD money endpoints return 400; payment gateway payload validation returns 422.
 - `decimalToString(value)`: no exponent, no padding.
 - `addDecimals`, `subtractDecimals`, `multiplyDecimals`, `sumDecimals`.
-- `divideDecimals(a, b, decimalPlaces)`: applies D3.
+- `divideDecimals(a, b, decimalPlaces)`: applies D3. The quotient is cut, so callers round before comparing or storing it.
 - `roundDecimal(value, decimalPlaces)`: applies D6.
+- Every computed result stays within the input caps, so it can be stored and parsed back: digits beyond 1000 significant digits or below `1e-1000` (chained FX products grow their decimals with every multiplication) are rounded half-up, and a result with more than 300 integer digits throws `[internal] Decimal result out of range`. Decimal places outside `0..1000` and `minDecimal()` / `maxDecimal()` without values throw `[internal]` errors.
 - `compareDecimals`, `isZeroDecimal`, `minDecimal`, `maxDecimal`, `absDecimal`, `negateDecimal`.
 - Constants: `FX_DECIMAL_PLACES = 50`, `MIN_SIGNIFICANT_DIGITS = 17`, `DEFAULT_AMOUNT_DECIMAL_PLACES = 4`.
 - `resolveAmountDecimalPlaces(currencyDecimalPlaces)`: applies D4.
@@ -73,7 +74,8 @@ Plain functions over `big.js`:
 - `resolveExactDecimal(exact, legacy)` - the bridge rule: the exact string wins unless the float was changed on its own.
 - `withExactAmounts(parsed, raw, fields)` - adds `<field>Exact` strings from the raw request next to coerced numbers. When the raw field is already a number, it reads the `<field>Exact` string attached to the raw input instead. A parsed `null` (or a schema that outputs strings) is used as-is, so a raw `<field>Exact` can never bypass validation.
 - `withExactListAmounts(items, raw, key, fields)` - the same for each item of a nested list (document lines, payment allocations).
-- `withDecimalCaps(schema, message?)` - wraps a number-coercing money schema so oversized input is rejected before coercion instead of being stored as `0` or `null`.
+- `withDecimalCaps(schema, message?)` - wraps a number-coercing money schema so oversized input is rejected before coercion instead of being stored as `0` or `null`. Blank strings are left to the wrapped schema; `z.coerce.number()` keeps turning `''` into `0`, as before.
+- `withExactAmounts` only suits fields whose rules are sign checks: `max`, `int` and `multipleOf` see the float, not the exact digits. Every current caller meets this.
 - `padDecimalPlaces(value, min)` - plain decimal string with at least `min` decimals, never cut (emails, exports of frozen amounts).
 - `amountComparisonTolerance(dp)` - reconciliation tolerance of `5 × 10^-(max(dp, 4) - 1)`: 0.005 at 4 places and 0.0000005 at 8 places. Settlement checks use their separate one-unit tolerance.
 - `@open-mercato/shared/lib/currencyPrecision`: `resolveCurrencyDecimalPlaces` (raw currency digits) and `resolveCurrencyAmountDecimalPlaces` (`max(4, dp)`).
@@ -177,7 +179,7 @@ Every module whose API gains `<field>Exact` fields or wider money columns gets a
 | A third-party hook writes only `number` and loses precision | Medium | sales hooks | Hook bridge re-derives `Exact` from changed `number` fields | That field is limited to float precision |
 | Clients compare padded strings (`"40.0000"`) | Low | API | Values are numerically equal; documented | Exact string equality checks need updating |
 | `big.js` adds bundle weight to the client | Low | UI | ~3 KB gzipped | - |
-| Oversized input (`1e-100000000`, 100k-significant-digit strings, values past Postgres or float limits) costs CPU or fails in the database | Medium | write APIs | Exponent, significant-digit, integer-digit and smallest-digit caps reject it before persistence (400 for CRUD money endpoints, 422 for gateway payloads) | A valid price just under 1e300 times a large quantity can still overflow the float copy |
+| Oversized input (`1e-100000000`, 100k-significant-digit strings, values past Postgres or float limits) costs CPU or fails in the database | Medium | write APIs | Exponent, significant-digit, integer-digit and smallest-digit caps reject it before persistence (400 for CRUD money endpoints, 422 for gateway payloads) | A valid price just under 1e300 times a large quantity exceeds the integer cap and throws `[internal] Decimal result out of range` (500) instead of storing an infinite float copy |
 | Postgres `numeric` division in SQL aggregates | Low | analytics | SQL `SUM` is exact; only `AVG`/division uses PG's own scale rules | - |
 
 ## Final Compliance Report
@@ -211,3 +213,4 @@ Every module whose API gains `<field>Exact` fields or wider money columns gets a
 - 2026-10-14: Upstream merge includes catalog price history. History money columns use unconstrained numeric, change detection compares exact decimals, and history responses preserve all digits while retaining the legacy minimum of four decimal places. The catalog migration is regenerated from the upstream snapshot; precision integration coverage now checks history snapshots.
 - 2026-10-14: Address haxiorz's review: restore deprecated bigint capture-ledger bridges, reject positive gateway amount underflow, move the pure currency precision check into shared, and regenerate money snapshots with unconstrained numeric metadata. The gateway precision integration test includes the underflow rejection; metadata/schema regression coverage verifies repeated migration generation is a no-op.
 - 2026-10-14: Align compatibility notes, currency precision sources, reconciliation tolerance, and input-limit documentation with the implemented helpers and routes.
+- 2026-10-16: Merge upstream develop. Decimal results stay within the input caps (rounded beyond 1000 significant digits or `1e-1000`, integer overflow throws); `Big` values are recognised by shape; decimal places, empty `minDecimal`/`maxDecimal` and inputs longer than 2048 characters are rejected with `[internal]` errors; caveats of `withExactAmounts` and `withDecimalCaps` documented.

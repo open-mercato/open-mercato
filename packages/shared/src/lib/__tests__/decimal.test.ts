@@ -3,10 +3,15 @@ import {
   addDecimals,
   amountComparisonTolerance,
   compareDecimals,
+  countDecimalPlaces,
+  type DecimalValue,
   decimalStringSchema,
   decimalToString,
   divideDecimals,
   isDecimalInput,
+  isZeroDecimal,
+  MAX_DECIMAL_EXPONENT,
+  MAX_DECIMAL_INPUT_LENGTH,
   MAX_DECIMAL_INTEGER_DIGITS,
   MAX_DECIMAL_SIGNIFICANT_DIGITS,
   maxDecimal,
@@ -122,7 +127,68 @@ describe('decimal', () => {
     expect(isDecimalInput('1.5e-1000')).toBe(false)
     expect(isDecimalInput(`0.${'0'.repeat(999)}1`)).toBe(true)
     expect(isDecimalInput(`0.${'0'.repeat(20000)}1`)).toBe(false)
-    expect(isDecimalInput(`0.${'0'.repeat(20000)}`)).toBe(true)
+    expect(isDecimalInput(`0.${'0'.repeat(2000)}`)).toBe(true)
+  })
+
+  it('caps the overall input length', () => {
+    expect(isDecimalInput(`${'0'.repeat(MAX_DECIMAL_INPUT_LENGTH - 1)}1`)).toBe(true)
+    expect(isDecimalInput(`${'0'.repeat(MAX_DECIMAL_INPUT_LENGTH)}1`)).toBe(false)
+    expect(isDecimalInput(`0.${'0'.repeat(20000)}`)).toBe(false)
+  })
+
+  it('keeps every arithmetic result parseable', () => {
+    const inputs = ['0', '1', '-1', '0.1', '1e-600', '-1e-600', '1e299', `0.${'3'.repeat(999)}`, '123456789.987654321']
+    const outOfRange = (operation: () => DecimalValue): DecimalValue[] => {
+      try {
+        return [operation()]
+      } catch (error) {
+        expect((error as Error).message).toBe('[internal] Decimal result out of range')
+        return []
+      }
+    }
+    const results = inputs.flatMap((left) => inputs.flatMap((right) => [
+      ...outOfRange(() => addDecimals(left, right)),
+      ...outOfRange(() => subtractDecimals(left, right)),
+      ...outOfRange(() => sumDecimals([left, right])),
+      ...outOfRange(() => multiplyDecimals(left, right)),
+      ...(isZeroDecimal(right) ? [] : outOfRange(() => divideDecimals(left, right))),
+    ]))
+    expect(results.length).toBeGreaterThan(inputs.length * inputs.length * 3)
+    for (const result of results) {
+      expect(parseDecimal(decimalToString(result))?.eq(result)).toBe(true)
+    }
+  })
+
+  it('rounds chained products to the caps instead of growing past them', () => {
+    let value = divideDecimals(1, 3)
+    const seventh = divideDecimals(1, 7)
+    for (let step = 0; step < 25; step += 1) value = multiplyDecimals(value, seventh)
+    expect(countDecimalPlaces(value)).toBeLessThanOrEqual(MAX_DECIMAL_EXPONENT)
+    expect(parseDecimal(decimalToString(value))).not.toBeNull()
+    expect(decimalToString(multiplyDecimals('1e-600', '1e-600'))).toBe('0')
+  })
+
+  it('throws instead of producing a value past the integer cap', () => {
+    expect(() => multiplyDecimals('1e299', '1e299')).toThrow('[internal] Decimal result out of range')
+    expect(() => addDecimals(`9${'9'.repeat(299)}`, 1)).toThrow('[internal] Decimal result out of range')
+  })
+
+  it('accepts a Big from another copy of big.js', () => {
+    const foreign = { c: [1, 2, 3], e: 0, s: 1, toString: () => '1.23' }
+    expect(isDecimalInput(foreign)).toBe(true)
+    expect(decimalToString(addDecimals(foreign as unknown as DecimalValue, 1))).toBe('2.23')
+    expect(isDecimalInput({ c: [1], e: 999999, s: 1 })).toBe(false)
+    expect(() => toDecimal({ c: 'x' } as unknown as DecimalValue)).toThrow('[internal] Invalid decimal value')
+  })
+
+  it('rejects invalid decimal places and empty extremes with internal errors', () => {
+    expect(() => divideDecimals(1, 3, Number.NaN)).toThrow('[internal] Invalid decimal places')
+    expect(() => divideDecimals(1, 3, 2.5)).toThrow('[internal] Invalid decimal places')
+    expect(() => roundDecimal(1, -1)).toThrow('[internal] Invalid decimal places')
+    expect(() => padDecimalPlaces(1, 1001)).toThrow('[internal] Invalid decimal places')
+    expect(() => amountComparisonTolerance(1200)).toThrow('[internal] Invalid decimal places')
+    expect(() => minDecimal()).toThrow('[internal] minDecimal requires at least one value')
+    expect(() => maxDecimal()).toThrow('[internal] maxDecimal requires at least one value')
   })
 
   it('parses loosely and validates strictly', () => {
