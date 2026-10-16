@@ -169,10 +169,11 @@ and the booking and lease notifications in the portal's bell.
     and invoices the first month. A declined proposal can still be approved until its deadline.
   - **Direct lease** → `active` on save → `ended`. For a lease agreed elsewhere: saving creates the
     sales order directly and invoices the first month.
-  Either way the lease points to its sales order. Ending a tenancy early — notice,
-  handover, final invoice — is its own flow and is out of scope here; shortening the end date is an
-  ordinary edit, and deleting the record is for something entered in error, not for a tenant moving
-  out. The deletion confirmation has to say that distinction out loud.
+  Either way the lease points to its sales order. A lease can be **ended early** by setting its end
+  date; anything already invoiced after that date is credited (billing is in advance). Notice
+  periods and handover stay outside this module. Deleting the record is only for something entered
+  in error before anything was invoiced, never for a tenant moving out, and the delete dialog says
+  so.
 - **Lease uniqueness** = a unit may have at most one lease running at any moment (terms never
   overlap), so the create form only offers units free for the chosen term. A company has no such
   limit: it can lease several units at once (two offices, an office and a parking space).
@@ -219,8 +220,10 @@ and the booking and lease notifications in the portal's bell.
 - **Interactivity** = read-only status view. The manager can click a unit to see its details, but
   cannot cancel a booking or change lease status from this screen — those actions live in their
   own lease-management and booking flows.
-- **Scope of oversight** = a building manager may oversee multiple buildings and, within a
-  building, multiple floors. The screen needs a building/floor switcher.
+- **Scope of oversight** = a building manager is assigned to one or more buildings and sees and
+  changes only those, with everything in them (floors, units, leases, bookings). An administrator
+  with the "all buildings" permission sees every building and assigns managers on the building
+  form. The screen needs a building/floor switcher.
 - **CRM integration** = the backend sidebar shows only this module's Facilities group; the
   `customers` module's own navigation is left out of the prototype for clarity. Every named individual shown anywhere in this product (a tenant's
   primary contact, a booking organizer) links out to their real CRM People record at
@@ -270,9 +273,10 @@ and the booking and lease notifications in the portal's bell.
   booked unit highlighted — the same drawing the manager uses, with nothing about who leases the
   units around it.
 - **Portal lease scope** = the customer sees their *current* lease only — unit (with its product
-  and size), term, rate, contact — plus the extension offer when one is open. No lease history.
+  and size), term, rate, contact — plus any open proposal. A company can hold several leases; each
+  gets its own card. No lease history.
 - **Portal address order** = the building belongs to the Unit section, not to a page subtitle. A
-  customer has one lease and does not need their location announced above the page title; they need
+  lease card does not need its location announced above the page title; the customer needs
   to read unit, floor and building as one address, smallest first, the way they would say it.
 
 ## Epics
@@ -500,6 +504,8 @@ Acceptance criteria:
 - Each floor's size (x × y, metres) is editable in place next to its name.
 - Offices and bookable units per floor are shown but not editable here.
 - There is a direct path from the building to its floor plan.
+- An administrator can assign and remove the building's managers on the same form; managers see
+  the assignment read-only.
 - Delete is separated from save so it is never a mis-click next to the primary action.
 
 ### US-D4 — Delete a building safely
@@ -580,7 +586,8 @@ Acceptance criteria:
   Settings, default 14); when they pass, it expires and the unit is released.
 - Only units free for the whole term — no lease and no other open proposal — can be picked.
 - The tenant is a CRM Company record, not free text.
-- A direct lease is active on save: its sales order is created and the first month is invoiced.
+- A direct lease is saved at once and becomes active as soon as its sales order is created
+  (moments later, in the background); the first month is then invoiced.
 - A proposal creates a sales quote, reserves the unit (the floor plan marks it Proposed) and bills
   nothing until the customer approves.
 
@@ -933,7 +940,8 @@ Acceptance criteria:
 - Settings is reachable from the Facilities group in the sidebar.
 - The sales channel has no default; until it is set, activating a lease or confirming a booking
   is refused with a message linking to Settings.
-- The invoice issue day accepts 1–28 and applies in each building's time zone.
+- The invoice issue day accepts 1–28. All dates and times are the building's local time; there is
+  no time-zone setting.
 - The cancelled-booking status is chosen from the existing sales order statuses.
 - Changing the lease-ending threshold changes the floor plan, Leases list, lease detail and portal
   warnings together.

@@ -2711,7 +2711,7 @@
     <span class="surface-tag" data-surface="backoffice"><svg><use href="#ic-layout-dashboard"/></svg> Backoffice</span>
     <h2>12. Buildings — edit a building and its floors</h2>
     <p>The manager renames a building, corrects its address, renames its floors, and adds or removes floors at the top or bottom by changing the floor counts.</p>
-    <div class="screen-refs"><span class="ref">§Epic D</span><span class="ref">US-D2</span><span class="ref">US-D3</span><span class="ref">US-D5</span><span class="ref">US-D6</span></div>
+    <div class="screen-refs"><span class="ref">§Epic D</span><span class="ref">US-D2</span><span class="ref">US-D3</span><span class="ref">US-D5</span><span class="ref">US-D6</span><span class="ref">US-C2</span></div>
   </div>
 
 <div class="frame">
@@ -2773,6 +2773,15 @@
               <div class="field">
                 <label for="pm-field-4">Address <span class="req">*</span></label>
                 <input id="pm-field-4" class="input" type="text" value="120 Harbor Avenue, Northbridge" style="max-width:32rem" />
+              </div>
+              <div class="field">
+                <label>Building managers</label>
+                <div class="row wrap" style="gap:0.5rem">
+                  <span class="chip">Alex Novak <button type="button" class="btn btn-ghost btn-icon btn-xs" aria-label="Remove Alex Novak"><svg><use href="#ic-x"/></svg></button></span>
+                  <span class="chip">Ewa Lis <button type="button" class="btn btn-ghost btn-icon btn-xs" aria-label="Remove Ewa Lis"><svg><use href="#ic-x"/></svg></button></span>
+                  <button type="button" class="chip chip-dashed"><svg><use href="#ic-plus"/></svg> Add manager</button>
+                </div>
+                <span class="t-hint">Managers see and change only the buildings they are assigned to. Administrators see every building.</span>
               </div>
               <div class="field">
                 <div class="row-4 wrap">
@@ -2977,6 +2986,7 @@
     <div class="note"><b>8</b><span>Opening hours are set: Monday to Friday 09:00–18:00, Saturday 10:00–14:00, Sunday closed. Bookings are only offered inside them — the portal's booking slots run 09:00–18:00 on a weekday (screen 28). They do not govern tenants' access to their leased units. Each day switches open or closed on its own.</span></div>
     <div class="note"><b>9</b><span>Availability works like an unavailable office (screen 7), one level up: make the building unavailable — with a reason and dates — and none of its units take new leases or bookings until it is available again. On confirming, bookings in that period are cancelled — each customer is notified — and leases stay, flagged "Unit unavailable" on the Leases list (screen 14). Floors and spaces carry the same control (screens 39 and 24); Elm Works is the unavailable example on the list (screen 10).</span></div>
     <div class="note"><b>10</b><span>"Archive building" closes a location for good (screen 40): it leaves every list and switcher and takes nothing new, but keeps its leases, bookings, invoices and history. Delete is for a building entered by mistake.</span></div>
+    <div class="note"><b>11</b><span>Building managers decide who sees this building: a manager sees only the buildings they are assigned to — on the floor plan switcher, the Buildings, Leases and Bookings lists and in search — and one with no assignment gets screen 4. Only administrators (the "all buildings" permission) can change the list; managers see it read-only. Alex Novak is the signed-in manager (avatar AN).</span></div>
   </div>
 </section>
 <section class="screen" id="s13">
@@ -3609,7 +3619,7 @@
               </div>
               <div class="alert alert-info" data-direct-only hidden>
                 <svg><use href="#ic-info"/></svg>
-                <div><span class="alert-title">The lease starts straight away</span><div class="t-hint">Saving makes the lease active, creates its sales order and issues the first month's invoice.</div></div>
+                <div><span class="alert-title">The lease starts straight away</span><div class="t-hint">Saving starts the lease: its sales order is created in the background, the lease turns active within moments (the list shows <em>Activating…</em> until then), and the first month is invoiced.</div></div>
               </div>
               <div class="field">
                 <label>Primary contact</label>
@@ -3811,7 +3821,7 @@
     <div class="note"><b>3</b><span>The expiry banner leads with the days left and states plainly that nothing has been proposed. "Ending soon" without "and nobody has acted on it" is only half the information.</span></div>
     <div class="note"><b>4</b><span>"Show on floor plan" goes to the same office's panel (screen 5c) — the two views of this lease, one spatial and one contractual.</span></div>
     <div class="note"><b>5</b><span>The tenant and the unit are read-only: moving a lease to another company or another unit is not an edit, it is a new lease — the lease was signed for this unit's product. Dates and rate are editable because those are ordinary corrections; each correction becomes a new version in History.</span></div>
-    <div class="note"><b>6</b><span>Terminating a lease early is not modeled. Shortening the end date is an edit; ending a lease with notice, handover and a final invoice is its own flow (§Lease lifecycle).</span></div>
+    <div class="note"><b>6</b><span>Ending a lease early is <em>End lease</em> (§Lease lifecycle): it sets the end date, and anything already invoiced after it is credited, since rent is billed in advance. Shortening the end date is not a plain edit for that reason; notice periods and handover stay outside this module.</span></div>
     <div class="note"><b>7</b><span>The lease records the product it was signed for — "Private office — up to 10 people" — and keeps it even if Office 202's product changes later. History lists every version of the lease's product, term and rate, each with the invoices billed under it. This lease began as a proposal: Nordic Design Studio approved quote SQ-2024-0388 in their portal, which converted it to sales order SO-2024-0412 (one line for that product at the monthly rate) and issued the first invoice; on the 1st of each month since, this module has issued that month's invoice against the order. The order and invoices are sales records outside this prototype, so their links toast.</span></div>
   </div>
 </section>
@@ -3938,7 +3948,7 @@
               </div>
               <div class="alert alert-info" data-direct-only hidden>
                 <svg><use href="#ic-info"/></svg>
-                <div><span class="alert-title">The lease is extended straight away</span><div class="t-hint">Saving creates the extension's sales order and moves the lease end to 30 Sep 2027. Invoices for the new term start on 1 Oct 2026.</div></div>
+                <div><span class="alert-title">The lease is extended straight away</span><div class="t-hint">Saving creates the extension's sales order in the background; once it exists the lease end moves to 30 Sep 2027. Invoices for the new term start on 1 Oct 2026.</div></div>
               </div>
 
               <div class="row" style="justify-content:flex-end">
@@ -6291,6 +6301,7 @@
   <div class="notes">
     <div class="note"><b>1</b><span>"View my bookings" returns to screen 27, where this booking would now appear as the upcoming row shown there.</span></div>
     <div class="note"><b>2</b><span>The confirmation repeats what the booking costs, so the customer has the price in writing alongside the time and the place.</span></div>
+    <div class="note"><b>3</b><span>Confirming holds the slot at once; the sales order for the booking is created in the background a moment later. Until then this screen shows <em>Booking…</em> in place of the success state, and it switches to this confirmation by itself when the order exists. The prototype shows the confirmed state.</span></div>
   </div>
 </section>
 <!-- ============================================================= -->
@@ -8157,7 +8168,7 @@
                   <input class="input" id="pm-issue-day" type="number" min="1" max="28" value="1" style="max-width:7rem" />
                   <span class="addon">of the month</span>
                 </div>
-                <span class="t-hint">The day each month's lease invoice is issued, in the building's time zone. 1–28, so every month has it.</span>
+                <span class="t-hint">The day each month's lease invoice is issued — at the start of the month it pays for. 1–28, so every month has it.</span>
               </div>
               <div class="field">
                 <label for="pm-cancel-status">Status for cancelled bookings <span class="req">*</span></label>
