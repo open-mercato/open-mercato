@@ -31,6 +31,7 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
@@ -868,16 +869,42 @@ async function requireEntryTarget(
   if (entry.lockedReportId) {
     // An entry frozen in a closed report is read-only, and its tags are part of
     // what the report renders.
-    throw new CrudHttpError(409, {
-      code: TAG_TARGET_LOCKED_CODE,
-      error: translate(
-        'staff.time_tracking.tags.errors.entryLocked',
-        'This time entry is locked in a closed report and its tags cannot be changed.',
-      ),
-      lockedReportId: entry.lockedReportId,
-    })
+    throw entryTagsLockedError(translate, entry.lockedReportId)
   }
   return { id: entry.id, tenantId: entry.tenantId, organizationId: entry.organizationId }
+}
+
+function entryTagsLockedError(translate: Translate, lockedReportId: string): CrudHttpError {
+  return new CrudHttpError(409, {
+    code: TAG_TARGET_LOCKED_CODE,
+    error: translate(
+      'staff.time_tracking.tags.errors.entryLocked',
+      'This time entry is locked in a closed report and its tags cannot be changed.',
+    ),
+    lockedReportId,
+  })
+}
+
+/**
+ * Undo restores a tag set the entry had before a report froze it, so it is held
+ * to the same lock as the forward commands. It deliberately ignores `deletedAt`
+ * and a missing row: neither can carry a lock, and undo behaved that way before.
+ */
+async function assertEntryTagUndoAllowed(
+  payload: AssignmentUndoPayload,
+  ctx: { container: { resolve: (name: string) => unknown } },
+): Promise<void> {
+  const em = (ctx.container.resolve('em') as EntityManager).fork()
+  const entry = await findOneWithDecryption(
+    em,
+    StaffTimeEntry,
+    { id: payload.targetId, tenantId: payload.tenantId, organizationId: payload.organizationId },
+    undefined,
+    { tenantId: payload.tenantId, organizationId: payload.organizationId },
+  )
+  if (!entry?.lockedReportId) return
+  const { translate } = await resolveTranslations()
+  throw entryTagsLockedError(translate, entry.lockedReportId)
 }
 
 type AssignmentCommandInput = {
@@ -1258,6 +1285,7 @@ const assignEntryTagsCommand: CommandHandler<StaffTimeEntryTagAssignmentInput, A
   undo: async ({ logEntry, ctx }) => {
     const payload = extractUndoPayload<AssignmentUndoPayload>(logEntry)
     if (!payload) return
+    await assertEntryTagUndoAllowed(payload, ctx)
     await restoreAssignmentState(entryJunctionOps, payload, ctx)
   },
 }
@@ -1302,6 +1330,7 @@ const unassignEntryTagsCommand: CommandHandler<StaffTimeEntryTagAssignmentInput,
   undo: async ({ logEntry, ctx }) => {
     const payload = extractUndoPayload<AssignmentUndoPayload>(logEntry)
     if (!payload) return
+    await assertEntryTagUndoAllowed(payload, ctx)
     await restoreAssignmentState(entryJunctionOps, payload, ctx)
   },
 }
