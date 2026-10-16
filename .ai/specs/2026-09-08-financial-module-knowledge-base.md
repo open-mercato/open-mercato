@@ -2696,3 +2696,12 @@ keyed on a link that does not exist. Checked against `sales`' entities on
   of the payment entry; optional input on `markPaymentBatchSent`, default today, not later than today) and a
   "Read contract for other modules" section (AP #5962). Before, the spec did not state the posting date.
 
+### 2026-10-16 (cont. — Deferred Revenue #6193: domain-expert answers, Mateusz Duda)
+
+Source: email from Mateusz Duda (Financial Controller, incro) of 2026-10-16, answering the three questions sent on 2026-10-15. Domain-expert statements; no statute was checked for them beyond what is already recorded.
+
+- **Correction or return on an invoice with an active RMP schedule (DD14).** Freeze confirmed. A correction is a new document, so the accountant corrects by hand, and also the schedule when the correction affects it. Release/adjust command stays Phase 2.
+- **Locked month of the invoice (DD15).** The accountant decides. In the year: (a) correct revenue and spread evenly, or (b) correct in an open period with the future-year part as next year's RMP. After year end: unapproved statements → (a); approved → (b) in the new year's open period, or (c) through prior years' result, only for material errors (immaterial → current result). Consistent with the art. 54 reading already recorded (ust. 3); the materiality distinction is the expert's statement, not checked against the statute.
+- **Cancellation (DD6).** Without a refund and with services stopped: recognize the remainder on the cancellation date. With a refund: recognize over time → cancellation stops accruals → credit note → the credit note reduces the remaining RMP balance; the remainder is not recognized as revenue (no further services, so no basis). So `stopRevenueRecognitionSchedule` is the no-refund path only; for a refund the credit note comes first and the correction guard freezes the deferral.
+- **Closed:** every ⚠ NEEDS HUMAN CONFIRMATION in the Deferred Revenue spec. Not named: a business owner of the DD6 policy (informational).
+
