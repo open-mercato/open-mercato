@@ -17,7 +17,9 @@ import type {
   DecisionRequest,
 } from '@open-mercato/shared/lib/ai/decision-model'
 
-const decisionKeySchema = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/)
+const decisionKeySchema = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).refine((key) => key !== '__proto__', {
+  message: 'Reserved key',
+})
 
 export const decisionChoiceQuestionSchema = z.object({
   type: z.literal('choice'),
@@ -49,7 +51,11 @@ export const decisionQuestionSchema = z.discriminatedUnion('type', [
 
 export const decisionRequestSchema = z.object({
   state: z.unknown(),
-  questions: z.record(decisionKeySchema, decisionQuestionSchema)
+  questions: z.unknown()
+    .refine((raw) => !(typeof raw === 'object' && raw !== null && Object.prototype.hasOwnProperty.call(raw, '__proto__')), {
+      message: 'Reserved question name',
+    })
+    .pipe(z.record(decisionKeySchema, decisionQuestionSchema))
     .refine((questions) => Object.keys(questions).length >= 1 && Object.keys(questions).length <= 8, {
       message: 'Between 1 and 8 questions are required',
     }),

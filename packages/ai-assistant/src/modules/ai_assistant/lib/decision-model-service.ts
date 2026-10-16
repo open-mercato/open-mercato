@@ -73,7 +73,7 @@ export interface DecisionModelServiceDeps {
   now?: () => number
 }
 
-const ERROR_MESSAGES: Record<string, string> = {
+const ERROR_MESSAGES: Record<DecisionErrorCode, string> = {
   unavailable: 'Decision model is unavailable',
   invalid_request: 'Decision request is invalid',
   auth: 'Decision provider rejected the credentials',
@@ -86,7 +86,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   invalid_response: 'Decision provider returned an invalid response',
 }
 
-const REPORTED_ERROR_CODES: Record<string, string> = {
+const REPORTED_ERROR_CODES: Partial<Record<DecisionErrorCode, string>> = {
   provider_error: 'ai_assistant.decision_provider_error',
   invalid_response: 'ai_assistant.decision_invalid_response',
 }

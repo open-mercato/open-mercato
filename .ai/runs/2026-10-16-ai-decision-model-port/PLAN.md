@@ -21,6 +21,8 @@
 | 2 | 2.2 | Docs page, ai-assistant AGENTS.md entry and spec changelog | dispatch | done | caf825a6f |
 | 2 | 2.3 | Debug log on probability normalization | inline | done | df3f71727 |
 | 2 | 2.4 | Record the skipped AGENTS.md entry in the spec | inline | done | f16aa072e |
+| 2 | 1.1-review-fix | Reject __proto__ keys, type error maps by code, drop 2xx httpStatus | inline | done | bd620bfd7 |
+| 2 | 2.2-review-fix | Document the debug normalization log and align the fixture opt-in wording | inline | todo | — |
 
 ## Goal
 
@@ -96,4 +98,10 @@ Ship the provider-neutral decision model port from the source spec: types in `@o
 
 #### Step 2.4 — Record the skipped AGENTS.md entry in the spec
 - Appended mid-run: the `packages/ai-assistant/AGENTS.md` "How to use a decision model" entry from spec Implementation Plan step 6 cannot land, because that file's instruction chain is ~102 KB over the 32 KB budget and `yarn agents:check-budget` only allows it to shrink. Raising the baseline is a CI-guard change that needs a human. Record the deviation in the spec changelog; the docs page carries the guidance and the root Task Router already routes AI work to `apps/docs/docs/framework/ai-assistant/*.mdx`.
+
+#### Step 1.1-review-fix — Reject __proto__ keys, type error maps by code, drop 2xx httpStatus
+- From the `om-auto-review-pr` pass: `__proto__` passed the key regex but zod's `z.record` drops it silently (question vanished, `ok: true`). Reject it on the raw `questions` object and as an option key; regression tests added. Type `ERROR_MESSAGES`/`REPORTED_ERROR_CODES` by `DecisionErrorCode`. An unparseable 2xx body no longer reports `httpStatus: 200`.
+
+#### Step 2.2-review-fix — Document the debug normalization log and align the fixture opt-in wording
+- From the same review: the docs page now mentions the debug `{ questionName, sum }` normalization log; the spec's D9 wording matches the shared boolean parser the registry uses (`1`/`true`/`yes`/`on`).
 

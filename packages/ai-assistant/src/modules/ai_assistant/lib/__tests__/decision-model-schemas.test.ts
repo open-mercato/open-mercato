@@ -51,6 +51,12 @@ describe('decisionRequestSchema', () => {
     expect(parsed.success).toBe(true)
   })
 
+  it('rejects __proto__ as a question name or option key instead of dropping it', () => {
+    const questions = JSON.parse('{"__proto__":{"type":"score","instructions":"Rate","levels":["a","b"]},"other":{"type":"score","instructions":"Rate","levels":["a","b"]}}')
+    expect(decisionRequestSchema.safeParse({ state: null, questions }).success).toBe(false)
+    expect(decisionRequestSchema.safeParse(choiceRequest(['__proto__', 'b'])).success).toBe(false)
+  })
+
   it('rejects an unknown question type', () => {
     const parsed = decisionRequestSchema.safeParse({
       state: null,

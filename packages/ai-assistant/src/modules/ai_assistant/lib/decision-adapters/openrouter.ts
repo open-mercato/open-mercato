@@ -248,7 +248,7 @@ export function createOpenRouterDecisionAdapter(): DecisionModelAdapter {
       }
       const parsed = wireResponseSchema.safeParse(parseJson(await response.text()))
       if (!parsed.success) {
-        throw new DecisionModelError('provider_error', 'OpenRouter decision response body is not valid JSON of the expected shape', response.status)
+        throw new DecisionModelError('provider_error', 'OpenRouter decision response body is not valid JSON of the expected shape')
       }
       const answers = normalizeDecisionAnswers(request, mapWireAnswers(request, parsed.data.answers))
       return {

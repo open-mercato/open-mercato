@@ -277,6 +277,7 @@ describe('createOpenRouterDecisionAdapter', () => {
       fetchMock.mockResolvedValue(new Response('<html>oops</html>', { status: 200 }))
       const error = await decideError()
       expect(error.code).toBe('provider_error')
+      expect(error.httpStatus).toBeUndefined()
     })
   })
 
