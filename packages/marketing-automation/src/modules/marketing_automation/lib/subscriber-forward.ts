@@ -83,8 +83,16 @@ export async function forwardEventToCampaigns(
       payload: payload as Record<string, unknown>,
     })
   } catch (error) {
-    // A failure here must not fail the command that emitted the event — a campaign not firing
-    // is far less bad than an order failing to save.
+    /**
+     * Rethrown, not swallowed.
+     *
+     * Every caller of this helper is a `persistent: true` subscriber, which already runs off the
+     * command path in the durable events worker — it is never inline on the save that emitted the
+     * event. Swallowing here used to look safe for exactly the reason a command-path failure would
+     * be unsafe, but it defeats the one thing persistence buys: the worker only retries and
+     * dead-letters a job whose handler actually threw. A transient probe or enqueue failure was
+     * being logged once and then dropped forever.
+     */
     logger.error('[internal] failed to forward event to marketing campaigns', {
       eventId,
       error: error instanceof Error ? error.message : String(error),
@@ -94,5 +102,6 @@ export async function forwardEventToCampaigns(
       code: 'marketing_automation.forward_failed',
       attributes: { eventId },
     })
+    throw error
   }
 }
