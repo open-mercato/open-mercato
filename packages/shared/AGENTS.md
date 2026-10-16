@@ -193,7 +193,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 const { t } = await resolveTranslations()
 ```
 
-**User-facing vs internal errors.** When a `throw new Error(...)`, `createCrudFormError(...)`, `raiseCrudError(...)`, or `toast.*(...)` message will surface to a user, route it through `t('module.errors.<key>')`. When it's a developer-only assertion (programming bug, container/wiring issue, contract violation that should never be triggered at runtime), prefix the literal with `[internal]` so the i18n hardcoded-string checker treats it as opted out:
+**User-facing vs internal errors.** When a `throw new Error(...)`, `createCrudFormError(...)`, `raiseCrudError(...)`, `toast.*(...)`, `CrudHttpError`/helper, or `NextResponse.json({ error })` message will surface to a user, route it through `t('module.errors.<key>')`. When it's a developer-only assertion (programming bug, container/wiring issue, contract violation that should never be triggered at runtime), prefix the literal with `[internal]` so the i18n hardcoded-string checker treats it as opted out:
 
 ```typescript
 throw new Error('[internal] Event bus not available in container')

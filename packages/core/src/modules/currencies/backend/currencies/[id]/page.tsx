@@ -76,6 +76,8 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
     loadCurrency()
   }, [params, t])
 
+  const isCurrentBase = currency?.isBase === true
+
   const groups = React.useMemo<CrudFormGroup[]>(
     () => [
       {
@@ -137,6 +139,8 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
             id: 'isBase',
             type: 'checkbox',
             label: t('currencies.form.field.isBase'),
+            disabled: isCurrentBase,
+            description: isCurrentBase ? t('currencies.form.field.isBaseLocked') : undefined,
           },
           {
             id: 'isActive',
@@ -146,7 +150,7 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
         ],
       },
     ],
-    [t]
+    [t, isCurrentBase]
   )
 
   const handleDelete = React.useCallback(async () => {

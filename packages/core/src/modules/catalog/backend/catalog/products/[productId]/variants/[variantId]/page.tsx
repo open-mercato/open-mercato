@@ -35,6 +35,7 @@ import {
   normalizeTaxRateSummary,
   mergeTaxRateSummaries,
 } from '@open-mercato/core/modules/catalog/components/products/productForm'
+import { pickEnrichmentNamespaces } from '@open-mercato/core/modules/catalog/components/products/productFormUtils'
 import {
   VariantBasicsSection,
   VariantOptionValuesSection,
@@ -385,6 +386,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
                   ? record.updated_at
                   : null,
             ...customDefaults,
+            ...pickEnrichmentNamespaces(record),
           })
         }
       } catch (err) {

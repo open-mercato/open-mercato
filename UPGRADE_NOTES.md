@@ -57,9 +57,109 @@ uses exact decimals. Public contracts keep their `number` fields (a float copy) 
   rounded away, and values beyond the old integer digits make the rollback fail with
   "numeric field overflow". Back up before rolling back.
 
----
+### Portal form submissions are limited to the caller's own `customer` subject (#7224)
+
+`POST /api/forms/form-submissions` now answers `403 { error: "SUBJECT_FORBIDDEN" }` unless
+`subject_type` is `customer` and `subject_id` is the signed-in portal customer's own id. Nothing is
+persisted on a refusal. Both submit routes (`POST /api/forms/form-submissions/:id/submit` and the
+customer-session branch of `POST /api/forms/public/submissions/:id/submit`) apply the same rule to a
+submission the caller started themselves, so a draft started for another subject before this
+release can no longer be submitted. A portal customer that staff assigned as an actor through
+`POST /api/forms/submissions/:id/actors` can still submit on that submission's subject, and invitation
+(token) submissions are unchanged. The URL, request and response shapes are unchanged.
+
+**Action for module authors:** portal pages that pass any other `subjectType` (for example `patient`)
+to `EmbeddedForm` / `FormRunner`, or through the `subjectType` query parameter of the portal
+continue page, now get 403 when a submission starts. Start on the caller's own `customer` subject,
+or have staff create the actor assignment for other subjects.
+
+**Operator check:** submissions that a portal customer started before the upgrade on a subject that
+was not their own, together with any consent records projected from them, can be listed with:
+
+```sql
+select s.id as submission_id, s.subject_type, s.subject_id, s.started_by, s.status,
+       c.id as consent_record_id, c.status as consent_status
+from forms_form_submission s
+left join forms_consent_record c on c.submission_id = s.id
+where s.started_by in (select id from customer_users)
+  and (
+    (s.subject_type = 'customer' and s.subject_id <> s.started_by)
+    or s.subject_type <> 'customer'
+  );
+```
+
+Nothing is rewritten automatically. Portal pages that legitimately started submissions on another
+subject type (for example `patient`) also match, so review the rows before revoking anything.
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
+
+### `POST /api/auth/logout` no longer requires a valid access token (#7225)
+
+The staff logout route is now declared `requireAuth: false`. Its handler already revoked the
+session named by the `auth_token` JWT's `sid` claim and the one behind the `session_token` cookie,
+but the dispatcher used to answer `401` before the handler ran whenever the access token was
+missing or no longer verified, and that `401` cleared no cookie. A logout from a tab whose 8-hour
+access token had lapsed therefore left the remember-me `session_token` (`REMEMBER_ME_DAYS`, default
+30 days) valid in the database and in the browser, so the next visit signed the user straight back
+in.
+
+A `POST /api/auth/logout` that carries an `auth_token` or `session_token` cookie, valid or not,
+now revokes whatever session those cookies identify, clears both cookies and redirects to `/login`
+(`307`). A request that carries neither cookie is only redirected, with no `Set-Cookie`. Every
+staff session cookie is `SameSite=Lax`, so a cross-site form POST carries neither cookie: it can
+neither revoke a session nor clear the user's cookies. The route stays POST-only.
+
+**Action for integrators:** none, unless a client treated a `401` from logout as "already signed
+out". It now receives the `307` redirect instead.
+
+### Warranty claim undo refusals return a localized `error` plus a `code`; claim-line undos refuse stale state
+
+Undoing a `warranty_claims` claim command through `POST /api/audit_logs/audit-logs/actions/undo` used to
+answer `409 { "error": "warranty_claims.errors.conflict" }` with the raw i18n key. It now answers
+`409 { "error": "<localized message>", "code": "warranty_claims.errors.conflict" }`.
+
+Claim-line undos (`warranty_claims.claim_line.create`, `.update`, `.delete`, `.receive`,
+`.release_quarantine`, `.set_assessment`) used to write their stored snapshot over the line whatever had
+happened since. Undoing a line update after the line was received, for example, wiped its grade and
+quarantine hold. They now refuse with `409` and change nothing when:
+
+- the line changed after the operation, the claim was deleted, or the log entry has no after-snapshot
+  (`code: "warranty_claims.errors.conflict"`);
+- the claim status no longer allows the edit, for example a closed claim
+  (`code: "warranty_claims.errors.lineLocked"` or `"warranty_claims.errors.receivingStatusInvalid"`).
+
+Undoing a line delete no longer re-creates a row that is missing. Undoing a set-assessment now
+recomputes the claim header totals.
+
+**Action for API clients:** match undo refusals on `code`, not on `error`.
+
+<a id="discord-proposals"></a>
+
+### Discord AI reply proposals require system origin (issue #7312)
+
+Approving or dismissing an unmarked `channel_discord.ai_reply_proposal` message now fails.
+Previously, a user with `messages.compose` could forge an approval card that caused a colleague
+to post attacker-written text as a public reply. Proposal creation now records a server-only
+origin marker, and both actions verify it against the stored content and tenant/organization.
+
+**Emergency security waiver:** the surface is approval/dismissal through the existing provider
+actions and commands; the classification is security behavior narrowing. Route URLs,
+action/command IDs, schemas, signatures, and database fields remain unchanged. Continued
+acceptance of unmarked cards is itself the exploit: they cannot be distinguished from forgeries.
+A legacy fallback, including checking the mutable bot email, would retain the exploitable branch,
+so no legacy bridge or toggle exists. The PR must carry `security` and a named human maintainer
+approval acknowledging this waiver before merge. The Discord spec contains the corresponding
+"Migration & Backward Compatibility — proposal origin" section.
+Public compose and draft-update requests cannot supply this marker.
+
+**Module authors:** use the Discord provider's `fileDiscordReplyProposal` helper for new cards.
+Posting the message type through `/api/messages` or an unstamped internal compose no longer
+produces an actionable proposal. No new dependency, configuration, or database migration is needed.
+
+**Operators:** upgrade all app/worker processes, remove pending unmarked cards, and generate
+fresh proposals. Old cards cannot be distinguished from forgeries; do not backfill markers using
+their text or sender email. Inspect prior approved replies if forgery is suspected. Normal
+messages and fresh system-filed proposals retain their existing behavior.
 
 ### Payment gateway webhooks: opt-in transport, locator and response options; ambiguous matches are rejected
 
@@ -78,6 +178,55 @@ One behavior is hardened for every provider. The route now verifies every locate
 
 **Action for provider authors:** none unless you want the new options. If your provider can legitimately store several transactions with the same provider session id under credentials that verify each other's signatures, return a more specific locator so a single transaction matches. A provider that locates transactions only by payment id must reject candidates whose `providerSessionId` or `amount` differ from the signed notification, because a retried checkout can leave several transactions for one payment.
 
+<a id="currencies-one-base"></a>
+
+### Currencies keep exactly one base currency through undo, redo and concurrent writes
+
+- `PUT /api/currencies/currencies` with `isBase: false` on the current base currency now answers
+  `400`. To change the base, promote another currency with `isBase: true`; the previous base is
+  demoted in the same transaction.
+- Undoing a create or update that made a currency the base restores the previous base while the
+  undone currency is still the base; if another currency has become the base since, the base is left
+  unchanged. When no previous base is still live (it was deleted since, there was none, or the
+  action-log entry predates this release), the undo answers `409` and changes nothing while the
+  undone currency is still the base. Undoing a create is also refused
+  when that currency is the live base and the create did not replace a base that is still live (for
+  example, a currency promoted after it was created).
+- Undoing a currency create while active exchange rates reference it answers `409`. Delete or
+  deactivate those rates first, as `DELETE` already required.
+- Currency writes in one organization are serialized by a transaction-scoped advisory lock.
+- `seedExampleCurrencies` (used by `seedDefaults` and `mercato currencies seed`) inserts USD as
+  the base only when the organization has no live base, so re-seeding no longer adds a second base.
+
+**Action for module authors:** none unless a client clears `isBase` to change the base. Existing
+data is not repaired: list `GET /api/currencies/currencies?isBase=true` per organization. If it
+returns zero rows, promote the intended base currency. If it returns two, promote any non-base
+currency first (this demotes both), then promote the intended base. If the organization has no
+non-base currency, create one with `isBase: true` instead (this also demotes both).
+
+**Backward compatibility** (recorded here because `BACKWARD_COMPATIBILITY.md` is at its agent-context
+byte budget):
+
+- `PUT /api/currencies/currencies`: behaviour change on a previously-corrupting path. `{ isBase: false }`
+  on the base answers `400` (`currencies.errors.baseCurrencyUnset`) instead of `200` with no base left,
+  matching the rule `DELETE` already applied. Sending `isBase: false` for a non-base currency or
+  `isBase: true` for the base is unchanged. Response shapes are unchanged.
+- `currencies.currencies.create` / `update` undo: behaviour change. The `409` codes are
+  `currencies.errors.undoWouldClearBase` and `currencies.errors.undoHasRates`. Undoing an update that
+  did not change the base flag no longer rewrites `isBase`. For action-log entries written before the
+  upgrade, undoing an old update that cleared the base flag restores it only when the organization has
+  no base. Undoing a delete revives a row still flagged as base (legacy data only) as non-base when
+  another base is live. Undos that kept one base still succeed, except a create undo while active
+  exchange rates reference the currency.
+- `create` / `update` redo: redo of a create restores the logged base flag and demotes the current
+  base, recording it so the redo can be undone. Redo of an update replays `isBase` only when the
+  original update made the currency the base.
+- Command results: additive optional `base: { promoted, demotedBaseCurrencyIds }` when the command made
+  the currency the base. HTTP response bodies are unchanged.
+- The advisory lock is keyed by tenant and organization; writes in different organizations do not wait
+  for each other. No contract change.
+- Database schema, event IDs, ACL features, DI names and generated files are unchanged.
+
 ### The communication-channels OAuth callback reports its result in `?oauth=`, not `?flash=` (#6402)
 
 `GET /api/communication_channels/oauth/[provider]/callback` used to redirect back to `returnUrl`
@@ -88,6 +237,34 @@ are unchanged.
 
 **Action for module/app authors:** a custom `returnUrl` page that read `flash=connected|error`
 must read `oauth` instead. The built-in **My communication channels** page is already updated.
+
+### `CrudForm` now dispatches the event handlers of `crud-form:<entityId>:fields` widgets (#6142)
+
+Field widgets (`InjectionFieldWidget`, a `fields` array plus optional `eventHandlers`) declared
+`eventHandlers` that `CrudForm` never invoked. They now run alongside component widgets, in
+priority order: `onBeforeSave` (validation and `requestHeaders`), `onSave`, `onAfterSave`,
+`transformFormData`, `transformDisplayData` and the other lifecycle events, as SPEC-041g specifies.
+Delete events do **not** fall back to a field widget's save handlers; declare
+`onBeforeDelete` / `onDelete` / `onAfterDelete` explicitly if your field widget needs them.
+
+Injected fields that target a group the host form does not declare are also placed differently.
+When the injection-table entry maps the widget with `kind: 'group'`, they render as their own card
+built from `groupLabel` / `groupDescription` / `column`. Otherwise they are appended to the last
+group that renders plain fields, never to a `kind: 'customFields'` or `bare` group, which used to
+drop them silently.
+
+**Action for module authors:** if your field widget declared `eventHandlers` that were never
+called, review them before upgrading: they now run on every save of the host form.
+
+### New `wms.inventory_profile.deleted` event (#6142)
+
+Deleting a WMS inventory profile emitted no event, so the cached `_wms` product enrichment kept
+serving the deleted profile and the product form showed it as still managed. `wms.inventoryProfiles.delete`
+now emits `wms.inventory_profile.deleted` with the same payload as `.created` / `.updated`. Undoing a
+profile create, update or delete also emits the matching event, so the caches follow undo too.
+
+**Action for module authors:** none. Subscribers bound to `wms.inventory_profile.*` now also receive
+`deleted`; check that they handle it.
 
 ### Catalog product bulk-delete jobs require tenant, organization and user scope (#3826)
 
@@ -148,6 +325,18 @@ answer; an uncaught one reached Next.js as an unhandled throw, and the caller sa
 treated a 500 from your route as the expected outcome of a guard; it now receives the real status.
 Routes that already catch `CrudHttpError` are unchanged.
 
+### Stripe webhook bodies over 1 MiB are rejected with `413` before they are read (#7222)
+
+`POST /api/payment_gateways/webhook/stripe` used to buffer the whole request body before verifying
+the signature, with no size limit. The Stripe webhook handler now registers a `maxBodyBytes` limit of
+1 MiB (`DEFAULT_WEBHOOK_BODY_LIMIT_BYTES`), or `OM_WEBHOOK_MAX_BODY_BYTES` when that is set lower, so
+a body over the limit, by its `Content-Length` or by the bytes actually streamed, is answered
+with `413 {"error":"Webhook payload too large"}` before signature verification or the transaction
+lookup runs.
+
+**Action for operators:** none, unless your Stripe account sends webhook events larger than 1 MiB;
+those are now refused with `413` and Stripe retries them.
+
 ### `resolveAttachmentOrganizationId` is deprecated in favour of `resolveAttachmentRequestScope`
 
 `@open-mercato/core/modules/attachments/lib/requestScope` now exports
@@ -161,6 +350,19 @@ indistinguishable from a missing one).
 scope instead of returning `null` — returning `null` there would drop the organization predicate
 entirely and read across the tenant. Migrate to `resolveAttachmentRequestScope` so the deny becomes
 a response your route chooses.
+
+### Business rule and rule set PUTs keep `enabled` / `priority` / `version` when they are omitted (#6940)
+
+`PUT /api/business_rules/rules` used to reset an omitted `enabled` to `true`, `priority` to `100` and
+`version` to `1`, and `PUT /api/business_rules/sets` reset an omitted `enabled` to `true`. The update
+schemas (`updateBusinessRuleSchema`, `createLocalizedUpdateBusinessRuleSchema`, `updateRuleSetSchema`)
+inherited the create-time defaults, so disabling a rule also reset its priority and renaming a
+disabled rule set re-enabled it. Omitted fields are now left untouched; the create schemas keep their
+defaults.
+
+- A caller that relied on omission to reset these fields must send the values explicitly.
+- Rules and rule sets already changed by a partial update are not repaired. Check `enabled` and
+  `priority` on the business rules pages and set them again where needed.
 
 ### `directory.organizations.update` keeps `parentId` / `childIds` when they are omitted
 
@@ -237,6 +439,41 @@ into the ASCII LIKE metacharacters, so a pattern escaped with `escapeLikePattern
 regains live wildcards. Bind the **raw** search term to `buildAccentInsensitiveContainsPatternSql()`
 instead — it unaccents first, then escapes, and adds the surrounding `%`. The deprecated helper is
 unchanged and will be removed no earlier than 0.9.0.
+
+### Shipping carrier webhooks now update shipments; status sync applies forward skips
+
+Carrier webhooks were acknowledged (`202`) but never applied: `POST /api/shipping-carriers/webhook/[provider]`
+queued the job inside an extra `{ name, payload }` envelope, so the `shipping-carriers-webhook` worker found no
+provider key and returned without touching the shipment. The route now queues the job payload itself, and the
+worker still accepts the old envelope, so jobs already waiting in a queue at upgrade time are applied too.
+After upgrading, carrier webhooks start changing `carrier_shipments.unified_status` and emitting the shipment
+lifecycle events.
+
+Carriers report the current status, not every step, so `shipping_carriers` now applies a
+carrier-reported status that skips intermediate steps: from `label_created` and `picked_up` the
+shipment can move straight to `out_for_delivery`, `delivered`, `failed_delivery` or `returned`
+(previously only `picked_up` / `in_transit` / `cancelled`, and such reports were silently dropped).
+Backwards moves and moves out of `delivered` / `returned` / `cancelled` are still refused, and the
+user cancel gate is unchanged. Webhook and tracking-refresh updates now decide and write under a
+row lock, so concurrent carrier updates for one shipment cannot regress it. A user cancel
+(`POST /api/shipping-carriers/cancel`) still writes `cancelled` without that lock after the carrier call
+returns, so a `delivered` webhook committed while the cancel call is in flight can still be overwritten.
+
+`shipping_carriers.shipment.status_changed`, `.delivered` and `.returned` emitted by the webhook
+worker used to carry the raw carrier string of the **new** status in `previousStatus`. They now
+carry the unified status the shipment had before the change (as the tracking-refresh path already
+did), and gain an additive `carrierStatus` field with the raw carrier string.
+
+Every `shipping_carriers.shipment.*` event is now emitted with the shipment's tenant and organization as
+trusted event scope. Subscribers that act only on trusted scope — such as
+`warranty_claims:return-shipment-tracking`, which receives an `awaiting_return` claim when its return
+shipment is delivered — skipped these events before. Workflow and agent event triggers configured on
+`shipping_carriers.shipment.*` events need the same scope, so they also start firing after the upgrade.
+
+**Action for subscriber authors:** if a subscriber read the carrier's raw status from
+`previousStatus` on webhook-originated events, read `carrierStatus` instead. Subscribers waiting
+for `delivered` / `returned` may now receive them for shipments that never reported the
+intermediate statuses.
 
 ### New `ecommerce` module (stores, storefront read API) is enabled in `apps/mercato`
 
@@ -628,6 +865,31 @@ in create mode and renders its empty state. The bridge also keeps the shipped `e
 `example.injection.customer-priority-field` field widget rendering on this page exactly as before,
 via the dual-published `:fields` child.
 
+### The CLI dispatcher answers `--help`/`-h` for module commands (#5581)
+
+Asking the `mercato` CLI what a command's flags are used to run the command. `mercato db generate --help` performed a full migration generation, `mercato db migrate --help` applied every pending migration, and in a checkout without `.env` any invocation — help included — silently materialized `.env` from `.env.example` against that file's placeholder `DATABASE_URL`. Help is now a no-op that prints usage: the dispatcher intercepts `--help`/`-h` before calling a command's `run()`, and the `.env` bootstrap is skipped for any help invocation.
+
+For a first-party command this is invisible, and no command or flag was renamed or removed. The actionable change is for **out-of-tree modules**: a `ModuleCli` whose `run()` parses `-h` or `--help` itself — a `-h` host shorthand is the obvious case — no longer receives that flag, because the dispatcher answers it first. `-h` meaning help is the overwhelming CLI convention, so it is the new default, but a command that means something else by it needs to say so.
+
+**Action for module authors:** if one of your CLI descriptors parses `-h`/`--help` in its own `run()`, set `handlesHelp: true` on that descriptor and the dispatcher will forward the flag through unchanged:
+
+```typescript
+import type { ModuleCli } from '@open-mercato/shared/modules/registry'
+
+const cli: ModuleCli[] = [
+  {
+    command: 'sync',
+    // The dispatcher forwards --help/-h to run() instead of intercepting it.
+    handlesHelp: true,
+    run: async (argv) => { /* parses -h itself */ },
+  },
+]
+```
+
+Setting `handlesHelp: true` moves the no-op guarantee onto your command: the dispatcher stops standing between the flag and your `run()`, so your handler must answer it before doing any work — including when it follows a subcommand (`mercato mymod cache purge --help`). Check the whole argument list, not just the first position, or a help request executes the very path it was asking about.
+
+Every other descriptor needs no change. Two optional fields were added to `ModuleCli` (`packages/shared/src/modules/registry.ts`), so existing descriptors still typecheck untouched — an ADDITIVE-ONLY change under [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md) § 13. The companion field `help?: string` is purely opt-in: set it to the usage text the dispatcher should print under `Usage: mercato <module> <command> [args]`, and omit it to get the generic usage line plus the module's command list.
+
 ### An explicit OTLP telemetry backend now fails startup when OpenTelemetry is not installed (#5799)
 
 Only relevant if `TELEMETRY_BACKEND` is set to `otlp`, `signoz`, or `newrelic`. `initTelemetry()`
@@ -775,6 +1037,18 @@ index `encryption_maps_entity_scope_live_unique`. Saving an encryption map now u
 new application version serves traffic. Until it has run, saving an encryption map in the admin UI
 or through `upsertCanonicalEncryptionMap` fails. Rolling deploys that start new pods before
 migrating must migrate first.
+
+### Timesheet undos respect the closed-report lock (#7507)
+
+A time entry a closed report has locked (`locked_report_id` set) already refused forward
+writes with `409 time_entry_locked`. Undoing an earlier `staff.timesheets.time_entries.create`,
+`.start_timer` or `.update`, or an earlier `staff.timesheets.tags.assign_entry` /
+`.unassign_entry`, through `POST /api/audit_logs/audit-logs/actions/undo` used to remove or
+rewrite that entry, or change its tags, anyway. These undos now answer with the same
+`409 { "code": "time_entry_locked", "error": "<localized message>", "lockedReportId": "…" }`
+and change nothing; undoing a `.delete` runs the same check as a precaution. Unlock the report
+first; the same undo then works again. No schema, route or permission changes. Undoing a tag
+delete is not covered by this change.
 
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
@@ -1354,6 +1628,19 @@ The query object is now built by `buildQueryParams` from `@open-mercato/shared/l
 **One behavior change worth planning for.** A list route whose schema types a filter param as a plain `z.string()` (no array branch) now returns **400** when a client sends that param twice, where it previously accepted the request and silently used the last value. That is the correct failure mode — quietly discarding a caller's filter is the defect this fixes — but a lenient client may be relying on the old behavior. Callers using the comma form, or sending each param once, are unaffected; a caller sending repeats starts receiving the values it already asked for, which is strictly a widening.
 
 **Action for module authors:** audit your own list-route schemas for filter params that clients may repeat. Where a param is genuinely multi-valued, widen it to `z.union([z.string(), z.array(z.string())])` (or `z.array(z.string())`) and normalize it with `toQueryValueList`. Where it is genuinely single-valued, no change is needed — a repeated occurrence should be rejected. No route URL, HTTP method, response field, `makeCrudRoute` signature, options type, or database column changes, so `BACKWARD_COMPATIBILITY.md` §2, §3 and §7 are not violated.
+
+### `columnChooserGroup` / `filterGroup` are resolved as translation keys when they look like one (#5924)
+
+The column chooser (`ColumnChooserPanel`) and the advanced-filter field picker (`FilterFieldPicker`) used to render a column's declared group string verbatim. Both now run it through `resolveGroupLabel` from `@open-mercato/ui/backend/utils/groupLabels`, so a group that is *shaped like a translation key* — dot-separated, no whitespace, e.g. `customers.columnGroups.crm` — is looked up in the active dictionary and falls back to the raw string when no key is registered. The bundled customers pages now declare their 12 group labels this way and ship them translated in `en`, `pl`, `de`, `es` and `ko`.
+
+**This is opt-in and additive for module authors.** A group string that is not key-shaped (`'Contact'`, `'Basic Info'`, and every plain-English label third-party modules pass today) renders exactly as before. To localize your own groups, declare the group as a dotted key and register it in your module's locale files.
+
+**Two behavior changes to be aware of.**
+
+- **Group *identity* no longer depends on the active locale.** Fields and columns that declare no group are collected under an internal sentinel (`UNGROUPED_GROUP_ID`) and only translated at render time; previously the translated fallback label itself was the grouping key. A column or filter field that explicitly declares the literal group `'Other'` (column chooser) or `'More'` (field picker) therefore no longer merges into the ungrouped bucket under `en` — it renders as its own group in every locale, which is what it already did in every non-English locale. If you were relying on that English-only merge, drop the explicit group instead.
+- **Tenant-authored group titles are never treated as keys.** Custom-field fieldset titles reach the column chooser through `useAutoDiscoveredFields`, and those are free text a tenant types into the product. The key-shape gate is what keeps a tenant who happens to type a dotted string from having their label silently replaced by a dictionary value.
+
+**One limitation, stated plainly:** the 12 `customers.columnGroups.*` keys this ships are defined by the `customers` module dictionary, and `loadDictionary` (`packages/shared/src/lib/i18n/server.ts`) merges module dictionaries **over** the host app's `src/i18n/<locale>.json`. Adding those keys to your app locale file therefore does **not** override them. Overriding a module-owned key from an app dictionary is not supported today; only keys no module defines — such as the new `ui.advancedFilter.fieldPicker.ungrouped` — are host-overridable.
 
 ### `PortalShell`'s `authenticated={false}` no longer overrides a signed-in portal context (#5678)
 
