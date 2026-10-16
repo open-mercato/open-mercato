@@ -1736,7 +1736,7 @@
     ],
     "maxContextFiles": 6,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 106496,
+    "maxTotalContextBytes": 110592,
     "relatedCases": [
       "OMH-023"
     ]
