@@ -889,6 +889,18 @@ new application version serves traffic. Until it has run, saving an encryption m
 or through `upsertCanonicalEncryptionMap` fails. Rolling deploys that start new pods before
 migrating must migrate first.
 
+### Timesheet undos respect the closed-report lock (#7507)
+
+A time entry a closed report has locked (`locked_report_id` set) already refused forward
+writes with `409 time_entry_locked`. Undoing an earlier `staff.timesheets.time_entries.create`,
+`.start_timer` or `.update`, or an earlier `staff.timesheets.tags.assign_entry` /
+`.unassign_entry`, through `POST /api/audit_logs/audit-logs/actions/undo` used to remove or
+rewrite that entry, or change its tags, anyway. These undos now answer with the same
+`409 { "code": "time_entry_locked", "error": "<localized message>", "lockedReportId": "…" }`
+and change nothing; undoing a `.delete` runs the same check as a precaution. Unlock the report
+first; the same undo then works again. No schema, route or permission changes. Undoing a tag
+delete is not covered by this change.
+
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
 Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).
