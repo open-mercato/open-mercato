@@ -727,6 +727,8 @@ const setCampaignEnabledCommand: CommandHandler<
     })
     if (!campaign) throw new CrudHttpError(404, { error: 'Campaign not found' })
 
+    // Fast-fail check against the unlocked read, same as save_graph: most conflicts are caught here,
+    // cheaply, before anything takes a row lock.
     await enforceCommandOptimisticLockWithGuards(ctx.container, {
       resourceKind: 'marketing_automation.campaign',
       resourceId: campaign.id,
@@ -752,21 +754,42 @@ const setCampaignEnabledCommand: CommandHandler<
       }
     }
 
-    const changed = campaign.isEnabled !== payload.isEnabled
-    campaign.isEnabled = payload.isEnabled
-    /**
-     * Enabling resets the deliverability breaker's memory.
-     *
-     * The breaker counts the failure rate over a fixed window, so an operator who fixed the cause and
-     * re-enabled had the campaign paused again on the very next sweep — by the same failures they had just
-     * dealt with — and the only way out was waiting the window out with nothing saying so. Re-enabling IS the
-     * statement that the cause is dealt with, so it is the act that moves this.
-     *
-     * Only on enabling. Disabling leaves it where it was: a campaign switched off for an unrelated reason and
-     * switched on later should not arrive with a cleared slate it never earned.
-     */
-    if (changed && payload.isEnabled) campaign.breakerResetAt = new Date()
-    await em.flush()
+    let changed = false
+    await em.transactional(async (tx) => {
+      /**
+       * Locked and re-asserted for the reason `save_graph` and `apply_split_winner` are: the check
+       * above is check-then-write, and two enable/disable calls — or an enable racing a graph save —
+       * can both pass it against the same stale `updatedAt` before either writes.
+       */
+      const managed = await tx.findOne(
+        MarketingCampaign,
+        { id: campaign.id },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+      )
+      if (!managed) throw new CrudHttpError(404, { error: 'Campaign not found' })
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
+        resourceKind: 'marketing_automation.campaign',
+        resourceId: managed.id,
+        current: managed.updatedAt,
+        expected: payload.updatedAt,
+        request: ctx.request ?? null,
+      })
+
+      changed = managed.isEnabled !== payload.isEnabled
+      managed.isEnabled = payload.isEnabled
+      /**
+       * Enabling resets the deliverability breaker's memory.
+       *
+       * The breaker counts the failure rate over a fixed window, so an operator who fixed the cause and
+       * re-enabled had the campaign paused again on the very next sweep — by the same failures they had just
+       * dealt with — and the only way out was waiting the window out with nothing saying so. Re-enabling IS the
+       * statement that the cause is dealt with, so it is the act that moves this.
+       *
+       * Only on enabling. Disabling leaves it where it was: a campaign switched off for an unrelated reason and
+       * switched on later should not arrive with a cleared slate it never earned.
+       */
+      if (changed && payload.isEnabled) managed.breakerResetAt = new Date()
+    })
 
     if (changed) {
       await emitMarketingAutomationEvent(
@@ -776,7 +799,12 @@ const setCampaignEnabledCommand: CommandHandler<
       )
     }
 
-    return { id: campaign.id, isEnabled: campaign.isEnabled, updatedAt: campaign.updatedAt.toISOString() }
+    const saved = await em.findOne(MarketingCampaign, { id: campaign.id })
+    return {
+      id: campaign.id,
+      isEnabled: payload.isEnabled,
+      updatedAt: (saved?.updatedAt ?? campaign.updatedAt).toISOString(),
+    }
   },
 }
 
@@ -797,7 +825,8 @@ const deleteCampaignCommand: CommandHandler<{ id: string }, { id: string }> = {
     if (!campaign) throw new CrudHttpError(404, { error: 'Campaign not found' })
 
     // Deleting is a mutation of a user-editable record, so it carries the same version check as a
-    // save — the platform's locking covers update AND delete.
+    // save — the platform's locking covers update AND delete. Fast-fail against the unlocked read,
+    // same as save_graph.
     await enforceCommandOptimisticLockWithGuards(ctx.container, {
       resourceKind: 'marketing_automation.campaign',
       resourceId: campaign.id,
@@ -807,25 +836,45 @@ const deleteCampaignCommand: CommandHandler<{ id: string }, { id: string }> = {
 
     // Soft delete, and the resume path already refuses a removed campaign, so customers parked
     // inside it stop rather than continuing to receive messages from a deleted campaign.
-    /**
-     * The trigger rows go with it.
-     *
-     * The dispatcher already refuses a deleted campaign, so nothing ever ran — but the SUBSCRIBER's "is anybody
-     * listening" probe counts trigger rows, so every matching platform event kept enqueueing a dispatch job that
-     * then found nothing to do. A deleted campaign quietly taxed every order in the shop, forever, and showed up
-     * as dispatch work in the job log.
-     *
-     * Deleted rather than soft-deleted, because a trigger row has no life of its own: it exists to be found by
-     * that probe, and a restore replays the save which writes them again.
-     */
-    await em.nativeDelete(MarketingCampaignTrigger, {
-      campaignId: campaign.id,
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
+    await em.transactional(async (tx) => {
+      /**
+       * Locked and re-asserted, same reason as `set_enabled`: the check above is check-then-write,
+       * and a graph save can commit in between it and this write. Re-checked against the LOCKED row
+       * so a stale caller gets a 409 instead of deleting a campaign that was edited out from under it.
+       */
+      const managed = await tx.findOne(
+        MarketingCampaign,
+        { id: campaign.id },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+      )
+      if (!managed) throw new CrudHttpError(404, { error: 'Campaign not found' })
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
+        resourceKind: 'marketing_automation.campaign',
+        resourceId: managed.id,
+        current: managed.updatedAt,
+        request: ctx.request ?? null,
+      })
+
+      /**
+       * The trigger rows go with it, IN THE SAME TRANSACTION as the campaign flush.
+       *
+       * The dispatcher already refuses a deleted campaign, so nothing ever ran — but the SUBSCRIBER's "is anybody
+       * listening" probe counts trigger rows, so every matching platform event kept enqueueing a dispatch job that
+       * then found nothing to do. A deleted campaign quietly taxed every order in the shop, forever, and showed up
+       * as dispatch work in the job log. Separate statements outside a transaction left a failure between them
+       * with a live campaign and no triggers; this way either both land or neither does.
+       *
+       * Deleted rather than soft-deleted, because a trigger row has no life of its own: it exists to be found by
+       * that probe, and a restore replays the save which writes them again.
+       */
+      await tx.nativeDelete(MarketingCampaignTrigger, {
+        campaignId: managed.id,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      })
+      managed.deletedAt = new Date()
+      managed.isEnabled = false
     })
-    campaign.deletedAt = new Date()
-    campaign.isEnabled = false
-    await em.flush()
 
     await emitMarketingAutomationEvent('marketing_automation.campaign.deleted', {
       id: campaign.id,
