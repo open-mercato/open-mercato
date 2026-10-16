@@ -19,6 +19,7 @@ import { loadTierThresholds } from './tiers.js'
 import { recordDeadLetter } from './dead-letter.js'
 import { releaseSendSlot, reserveSendSlot, settleSendSlot } from './send-slots.js'
 import { mergeRunContext } from './run-context.js'
+import { withRetryJitter } from './engine/scheduling.js'
 import {
   applyTransition,
   claimRun,
@@ -297,7 +298,9 @@ async function recordFailure(
   if (outcome.status === 'retrying') {
     // The instant comes from the write that set it, not from a read that could be served stale.
     const delayMs = Math.max(0, (outcome.resumeAt?.getTime() ?? deps.now.getTime()) - deps.now.getTime())
-    await deps.enqueueResume(run.id, delayMs)
+    // Jittered only on the way to the queue; `outcome.resumeAt` itself stays the exact backoff
+    // instant the row was written with, so a later read still reports the schedule verbatim.
+    await deps.enqueueResume(run.id, withRetryJitter(delayMs))
   }
   return outcome.status
 }

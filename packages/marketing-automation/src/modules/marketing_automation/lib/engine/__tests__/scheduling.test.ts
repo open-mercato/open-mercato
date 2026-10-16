@@ -5,6 +5,7 @@ import {
   computeNextRetryAt,
   computeRetryDelayMinutes,
   hasExhaustedAttempts,
+  withRetryJitter,
 } from '../scheduling'
 
 describe('computeRetryDelayMinutes', () => {
@@ -40,6 +41,23 @@ describe('computeClaimLeaseCutoff', () => {
     const now = new Date('2026-09-28T12:00:00.000Z')
     const cutoff = computeClaimLeaseCutoff(now)
     expect(now.getTime() - cutoff.getTime()).toBe(CLAIM_LEASE_MINUTES * 60_000)
+  })
+})
+
+describe('withRetryJitter', () => {
+  // Bounded: enough to spread a provider-outage retry storm, not enough to be a schedule change.
+  test('adds no more than half a minute, and never subtracts', () => {
+    for (let i = 0; i < 50; i += 1) {
+      const jittered = withRetryJitter(5 * 60_000)
+      expect(jittered).toBeGreaterThanOrEqual(5 * 60_000)
+      expect(jittered).toBeLessThan(5 * 60_000 + 30_000)
+    }
+  })
+
+  test('two calls for the same nominal delay are not required to agree', () => {
+    // The whole point: synchronized retries after a shared outage must not re-fire in lockstep.
+    const samples = new Set(Array.from({ length: 20 }, () => withRetryJitter(80 * 60_000)))
+    expect(samples.size).toBeGreaterThan(1)
   })
 })
 
