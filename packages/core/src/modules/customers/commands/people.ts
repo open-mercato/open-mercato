@@ -16,6 +16,7 @@ import {
   CustomerComment,
   CustomerActivity,
   CustomerInteraction,
+  CustomerEmailConversationShare,
   CustomerDeal,
   CustomerDealPersonLink,
   CustomerPersonCompanyLink,
@@ -135,6 +136,15 @@ type PersonInteractionSnapshot = {
   custom?: Record<string, unknown>
 }
 
+type PersonEmailConversationShareSnapshot = {
+  id: string
+  ownerUserId: string
+  sharedByUserId: string
+  createdAt: Date
+  updatedAt: Date | null
+  deletedAt: Date | null
+}
+
 type PersonSnapshot = {
   entity: {
     id: string
@@ -188,6 +198,7 @@ type PersonSnapshot = {
   activities: PersonActivitySnapshot[]
   todos: PersonTodoSnapshot[]
   interactions: PersonInteractionSnapshot[]
+  emailConversationShares?: PersonEmailConversationShareSnapshot[]
 }
 
 type PersonUndoPayload = {
@@ -775,6 +786,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       tenantId: entity.tenantId,
     }
     await withAtomicFlush(em, [
+      () => em.nativeDelete(CustomerEmailConversationShare, { personEntity: entity, organizationId: entity.organizationId, tenantId: entity.tenantId }),
       () => em.nativeDelete(CustomerTagAssignment, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId }),
       () => {
         if (profile) em.remove(profile)
@@ -1232,7 +1244,25 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       const id = requireId(input, 'Person id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const snapshot = await loadPersonSnapshot(em, id)
-      return snapshot ? { before: snapshot } : {}
+      if (!snapshot) return {}
+      ensureTenantScope(ctx, snapshot.entity.tenantId)
+      ensureOrganizationScope(ctx, snapshot.entity.organizationId)
+      const shares = await findWithDecryption(
+        em,
+        CustomerEmailConversationShare,
+        { personEntity: snapshot.entity.id, tenantId: snapshot.entity.tenantId, organizationId: snapshot.entity.organizationId },
+        { orderBy: { createdAt: 'asc' } },
+        { tenantId: snapshot.entity.tenantId, organizationId: snapshot.entity.organizationId },
+      )
+      snapshot.emailConversationShares = shares.map((share) => ({
+        id: share.id,
+        ownerUserId: share.ownerUserId,
+        sharedByUserId: share.sharedByUserId,
+        createdAt: share.createdAt,
+        updatedAt: share.updatedAt ?? null,
+        deletedAt: share.deletedAt ?? null,
+      }))
+      return { before: snapshot }
     },
     async execute(input, ctx) {
       const id = requireId(input, 'Person id required')
@@ -1252,6 +1282,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       const profile = await em.findOne(CustomerPersonProfile, { entity: record })
       await withAtomicFlush(em, [
         async () => {
+          await em.nativeDelete(CustomerEmailConversationShare, { personEntity: record, organizationId: record.organizationId, tenantId: record.tenantId })
           if (profile) em.remove(profile)
           await em.nativeDelete(CustomerAddress, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
           await em.nativeDelete(CustomerComment, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
@@ -1349,13 +1380,15 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       const before = snapshots.before as PersonSnapshot | undefined
       if (!before) return null
       const { translate } = await resolveTranslations()
+      const snapshotBefore = { ...before }
+      delete snapshotBefore.emailConversationShares
       return {
         actionLabel: translate('customers.audit.people.delete', 'Delete person'),
         resourceKind: 'customers.person',
         resourceId: before.entity.id,
         tenantId: before.entity.tenantId,
         organizationId: before.entity.organizationId,
-        snapshotBefore: before,
+        snapshotBefore,
         payload: {
           undo: {
             before,
@@ -1364,7 +1397,15 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       }
     },
     undo: async ({ logEntry, ctx }) => {
-      const payload = extractUndoPayload<PersonUndoPayload>(logEntry, CUSTOMER_ENTITY_UNDO_DATE_OPTIONS)
+      const payload = extractUndoPayload<PersonUndoPayload>(logEntry, {
+        ...CUSTOMER_ENTITY_UNDO_DATE_OPTIONS,
+        datePaths: [
+          ...CUSTOMER_ENTITY_UNDO_DATE_OPTIONS.datePaths,
+          'before.emailConversationShares.createdAt',
+          'before.emailConversationShares.updatedAt',
+          'before.emailConversationShares.deletedAt',
+        ],
+      })
       const before = payload?.before
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -1653,6 +1694,34 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
         em.persist(restoredInteraction)
       }
       await em.flush()
+
+      await em.nativeDelete(CustomerEmailConversationShare, { personEntity: entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
+      for (const share of before.emailConversationShares ?? []) {
+        const restoredShare = em.create(CustomerEmailConversationShare, {
+          id: share.id,
+          organizationId: entity.organizationId,
+          tenantId: entity.tenantId,
+          personEntity: entity,
+          ownerUserId: share.ownerUserId,
+          sharedByUserId: share.sharedByUserId,
+          createdAt: share.createdAt,
+          updatedAt: share.updatedAt,
+          deletedAt: share.deletedAt,
+        })
+        em.persist(restoredShare)
+      }
+      await em.flush()
+      const shareIdsWithNullUpdatedAt = (before.emailConversationShares ?? [])
+        .filter((share) => share.updatedAt === null)
+        .map((share) => share.id)
+      if (shareIdsWithNullUpdatedAt.length) {
+        await em.nativeUpdate(CustomerEmailConversationShare, {
+          id: { $in: shareIdsWithNullUpdatedAt },
+          personEntity: entity,
+          organizationId: entity.organizationId,
+          tenantId: entity.tenantId,
+        }, { updatedAt: null })
+      }
 
       return { entity, profile, beforeInteractions, beforeTodos }
         })()
