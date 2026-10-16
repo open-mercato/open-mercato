@@ -21,6 +21,7 @@ import { createDictionarySelectLabels } from './utils'
 import { E } from '#generated/entities.ids.generated'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { useCurrencyDictionary } from './hooks/useCurrencyDictionary'
+import { formatCurrencyOptionLabel } from '../../lib/currencyOptionLabel'
 import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { normalizeCustomFieldSubmitValue } from './customFieldUtils'
 import { DealOwnerSelect, type DealOwnerOption } from './DealOwnerSelect'
@@ -900,7 +901,7 @@ export function DealForm({
     const remainder: { value: string; label: string; color: string | null; icon: string | null }[] = []
     payload.entries.forEach((entry) => {
       const value = entry.value.toUpperCase()
-      const label = entry.label && entry.label.length ? `${value} – ${entry.label}` : value
+      const label = formatCurrencyOptionLabel(value, entry.label)
       const option = { value, label, color: null, icon: null }
       if (priorityOrder.has(value)) prioritized.push(option)
       else remainder.push(option)
