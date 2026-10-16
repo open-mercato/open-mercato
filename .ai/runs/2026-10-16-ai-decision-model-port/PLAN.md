@@ -16,7 +16,7 @@
 | 1 | 1.2 | Fixture adapter with deterministic rules | dispatch | done | 418e29744 |
 | 1 | 1.3 | OpenRouter adapter with wire mapping, HTTP error mapping and response validation | dispatch | done | 2016503af |
 | 1 | 1.4 | Decision model registry with built-in registration and env resolution | dispatch | done | 7900de4f2 |
-| 1 | 1.5 | Decision model service and DI registration | dispatch:capable | todo | — |
+| 1 | 1.5 | Decision model service and DI registration | dispatch:capable | done | a71fc5bcb |
 | 2 | 2.1 | Env example block and create-app template sync | dispatch:cheap | todo | — |
 | 2 | 2.2 | Docs page, ai-assistant AGENTS.md entry and spec changelog | dispatch | todo | — |
 
