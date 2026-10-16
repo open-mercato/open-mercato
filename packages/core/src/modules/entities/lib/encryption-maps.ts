@@ -162,3 +162,57 @@ async function readLiveEncryptionMapVersion(
   const current = rows[0]?.updated_at
   return current ? toDate(current) : null
 }
+
+export type OrganizationEncryptionMapScope = {
+  entityId: string
+  tenantId: string
+  organizationId: string
+}
+
+/**
+ * Appends the declared field rules a tenant's organization-level maps for `entityId` lack.
+ *
+ * Tenant setup seeds a map per organization, and the encryption service prefers an
+ * organization map over the tenant map without merging the two. Re-seeding only the tenant map
+ * therefore leaves those organizations on their old field list, and a newly declared field is
+ * written as plaintext there. Existing rules are never removed or changed: the same contract as
+ * `buildEncryptionMapBackfillSql`, so an admin's own additions survive.
+ */
+export async function appendMissingFieldsToOrganizationMaps(
+  em: EntityManager,
+  input: { entityId: string; tenantId: string; fields: ModuleEncryptionFieldRule[] },
+): Promise<OrganizationEncryptionMapScope[]> {
+  const updatedOrganizationIds = new Set<string>()
+  for (const rule of input.fields) {
+    const field = typeof rule?.field === 'string' ? rule.field.trim() : ''
+    if (!field) continue
+    const appended = rule.hashField ? { field, hashField: rule.hashField } : { field }
+    const rows = await em.execute<Array<{ organization_id: string }>>(
+      `
+        update "encryption_maps"
+        set "fields_json" = coalesce("fields_json", '[]'::jsonb) || ?::jsonb, "updated_at" = now()
+        where "entity_id" = ?
+          and "tenant_id" = ?
+          and "organization_id" is not null
+          and "deleted_at" is null
+          and jsonb_typeof(coalesce("fields_json", '[]'::jsonb)) = 'array'
+          and not exists (
+            select 1
+            from jsonb_array_elements(case when jsonb_typeof("fields_json") = 'array' then "fields_json" else '[]'::jsonb end) as existing_rule
+            where existing_rule->>'field' = ?
+          )
+        returning "organization_id"
+      `,
+      [JSON.stringify([appended]), input.entityId, input.tenantId, field],
+    )
+    for (const row of rows) {
+      if (row?.organization_id) updatedOrganizationIds.add(String(row.organization_id))
+    }
+  }
+  if (updatedOrganizationIds.size) forgetEncryptionPolicyMemo(em)
+  return Array.from(updatedOrganizationIds, (organizationId) => ({
+    entityId: input.entityId,
+    tenantId: input.tenantId,
+    organizationId,
+  }))
+}

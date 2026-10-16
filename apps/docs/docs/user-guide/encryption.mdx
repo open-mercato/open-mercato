@@ -56,6 +56,7 @@ export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
 
 - Seed or update maps for a tenant with the CLI (respects the env toggle):
   - `yarn mercato entities seed-encryption --tenant <tenantId> [--organization <orgId>]`
+  - Without `--organization`, the command also appends missing field rules to the tenant's organization-level maps. Tenant setup creates a map per organization, and an organization map takes precedence over the tenant map, so those organizations would otherwise keep their old field list. Existing rules are never removed or changed.
 - During `auth:setup`, the app collects `defaultEncryptionMaps` from enabled modules and applies them automatically when encryption is enabled.
 
 ### Adding a map to a module that is already deployed
