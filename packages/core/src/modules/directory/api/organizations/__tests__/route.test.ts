@@ -268,3 +268,161 @@ describe('directory organizations GET — pageSize honors the ≤100 platform ca
     expect(body.pageSize).toBe(100)
   })
 })
+
+describe('directory organizations GET — malformed ?ids= are rejected at the boundary (#7274)', () => {
+  const tenantOrgId = '88888888-8888-4888-8888-888888888888'
+  const unknownOrgId = '99999999-9999-4999-8999-999999999999'
+  const views = ['options', 'manage', 'tree'] as const
+
+  const tenantOrgRow = {
+    id: tenantOrgId,
+    name: 'Tenant Org',
+    slug: 'tenant-org',
+    parentId: null,
+    isActive: true,
+    depth: 0,
+    treePath: tenantOrgId,
+    updatedAt: new Date('2026-06-01T10:20:30.000Z'),
+    tenantId: foreignTenantId,
+  }
+
+  function expectNoLookups() {
+    expect(resolveIsSuperAdminMock).not.toHaveBeenCalled()
+    expect(resolveOrganizationScopeMock).not.toHaveBeenCalled()
+    expect(enforceTenantSelectionMock).not.toHaveBeenCalled()
+    expect(findWithDecryptionMock).not.toHaveBeenCalled()
+    expect(findOneWithDecryptionMock).not.toHaveBeenCalled()
+    expect(emFind).not.toHaveBeenCalled()
+    expect(emFindOne).not.toHaveBeenCalled()
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    emFind.mockResolvedValue([])
+    emFindOne.mockResolvedValue(null)
+    findWithDecryptionMock.mockResolvedValue([])
+    findOneWithDecryptionMock.mockResolvedValue(null)
+    resolveIsSuperAdminMock.mockResolvedValue(false)
+  })
+
+  it.each(views)('rejects a malformed id with 400 before any lookup (view=%s)', async (view) => {
+    authMock.mockResolvedValue({ sub: superAdminUserId, tenantId: foreignTenantId, orgId: tenantOrgId })
+
+    const response = await GET(
+      new Request(`http://localhost/api/directory/organizations?view=${view}&ids=abc`),
+    )
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body).toEqual({ items: [], error: 'Invalid query' })
+    expectNoLookups()
+  })
+
+  it.each(views)('rejects a mixed valid/malformed id list with 400 (view=%s)', async (view) => {
+    authMock.mockResolvedValue({ sub: superAdminUserId, tenantId: foreignTenantId, orgId: tenantOrgId })
+
+    const response = await GET(
+      new Request(`http://localhost/api/directory/organizations?view=${view}&ids=${tenantOrgId},not-a-uuid`),
+    )
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body).toEqual({ items: [], error: 'Invalid query' })
+    expectNoLookups()
+  })
+
+  it('rejects a malformed id from a tenantless caller before tenant derivation', async () => {
+    authMock.mockResolvedValue({ sub: tenantlessUserId, tenantId: null, orgId: null })
+
+    const response = await GET(
+      new Request('http://localhost/api/directory/organizations?view=options&ids=abc'),
+    )
+
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toBe('Invalid query')
+    expectNoLookups()
+  })
+
+  it('rejects a malformed id from a super-admin in the all-tenants manage view', async () => {
+    authMock.mockResolvedValue({ sub: superAdminUserId, tenantId: null, orgId: null })
+    resolveIsSuperAdminMock.mockResolvedValue(true)
+
+    const response = await GET(
+      new Request(`http://localhost/api/directory/organizations?view=manage&ids=${unknownOrgId},abc`),
+    )
+
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toBe('Invalid query')
+    expectNoLookups()
+  })
+
+  it('returns an empty list for a valid but unknown id', async () => {
+    authMock.mockResolvedValue({ sub: superAdminUserId, tenantId: foreignTenantId, orgId: tenantOrgId })
+
+    const response = await GET(
+      new Request(`http://localhost/api/directory/organizations?view=options&ids=${unknownOrgId}`),
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ items: [] })
+    const where = emFind.mock.calls[0][1] as { id: { $in: string[] } }
+    expect(where.id.$in).toEqual([unknownOrgId])
+  })
+
+  it('returns the scoped organization for valid ids in the options view', async () => {
+    authMock.mockResolvedValue({ sub: superAdminUserId, tenantId: foreignTenantId, orgId: tenantOrgId })
+    emFind.mockResolvedValue([tenantOrgRow])
+
+    const response = await GET(
+      new Request(`http://localhost/api/directory/organizations?view=options&ids=${tenantOrgId},%20${unknownOrgId},`),
+    )
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.items.map((item: { id: string }) => item.id)).toEqual([tenantOrgId])
+    const where = emFind.mock.calls[0][1] as { tenant: string; id: { $in: string[] } }
+    expect(where.tenant).toBe(foreignTenantId)
+    expect(where.id.$in).toEqual([tenantOrgId, unknownOrgId])
+  })
+
+  it('accepts a non-RFC-version UUID that the database can still look up', async () => {
+    const legacyOrgId = '00000000-0000-0000-0000-000000000001'
+    authMock.mockResolvedValue({ sub: superAdminUserId, tenantId: foreignTenantId, orgId: tenantOrgId })
+
+    const response = await GET(
+      new Request(`http://localhost/api/directory/organizations?view=options&ids=${legacyOrgId}`),
+    )
+
+    expect(response.status).toBe(200)
+    const where = emFind.mock.calls[0][1] as { id: { $in: string[] } }
+    expect(where.id.$in).toEqual([legacyOrgId])
+  })
+
+  it('returns the requested organization for a valid id in the manage view', async () => {
+    authMock.mockResolvedValue({ sub: superAdminUserId, tenantId: foreignTenantId, orgId: tenantOrgId })
+    emFind.mockResolvedValue([tenantOrgRow])
+
+    const response = await GET(
+      new Request(
+        `http://localhost/api/directory/organizations?view=manage&tenantId=${foreignTenantId}&ids=${tenantOrgId}&page=1&pageSize=1`,
+      ),
+    )
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.items.map((item: { id: string }) => item.id)).toEqual([tenantOrgId])
+  })
+
+  it('returns the tenant tree for a valid id in the tree view', async () => {
+    authMock.mockResolvedValue({ sub: superAdminUserId, tenantId: foreignTenantId, orgId: tenantOrgId })
+    emFind.mockResolvedValue([tenantOrgRow])
+
+    const response = await GET(
+      new Request(`http://localhost/api/directory/organizations?view=tree&ids=${tenantOrgId}`),
+    )
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.items.map((item: { id: string }) => item.id)).toEqual([tenantOrgId])
+  })
+})
