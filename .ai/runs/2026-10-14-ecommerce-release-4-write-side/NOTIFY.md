@@ -517,3 +517,11 @@ Ran the complete `.ai/agentic.config.json` `validation.commands` sequence end-to
 `final-gate-checks.md` written. HANDOFF.md rewritten top-to-bottom reflecting Phase 8's full closure (all 14 Steps done). PLAN.md's Step 8.12 row flipped to `done`.
 
 **Phase 8 (all 14 Steps, F1-F15) is now fully closed.** Next: the `om-auto-review-pr` authoritative review pass, the PR's final summary comment, label normalization, and lock release.
+
+## 2026-10-16T21:00:00Z — Resume closed: om-auto-review-pr re-review posted, PR body refreshed, lock released
+
+`om-auto-review-pr --autofix` re-reviewed the PR against Phase 8's full diff (12403f8a..c36db1670f, 56 files, +3351/-143): APPROVE, no blocker/major findings, no debug artifacts or new `any` types found in a final self-review sweep. GitHub self-approval blocked (same account) — recorded via a PR comment + the existing `merge-queue` label, same precedent the prior review pass set. The `🏷️ label rationale` comment was updated in place (no label VALUES changed — merge-queue/needs-qa/feature/priority-medium/risk-high/ci-monitoring were already correct). Posted the resume-summary comment and refreshed the PR body to `Status: complete` with the full current change description (not just this resume's delta, per the template's own "refresh, don't append" rule).
+
+PR URL: https://github.com/adeptofvoltron/open-mercato/pull/15
+
+**Final state**: all 56+14=70 PLAN.md Steps done; full repo-wide gate green; live integration 65/66 (one confirmed pre-existing, unrelated red); 5 UI screenshots; 5 follow-up items documented in HANDOFF.md and the PR's own comments (GitHub Issues disabled on this fork, confirmed via API). `in-progress` lock removed next, `ci-monitoring` retained (CI genuinely still running on this fork as of this entry).
