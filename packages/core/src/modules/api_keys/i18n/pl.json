@@ -5,6 +5,7 @@
   "api_keys.copy.warning": "Zachowaj ten klucz w bezpiecznym miejscu – nie można go później odzyskać.",
   "api_keys.errors.forbidden": "Brak uprawnień",
   "api_keys.errors.notFound": "Nie znaleziono",
+  "api_keys.errors.organizationMustMatchCreator": "Klucz API przypisany do organizacji musi używać organizacji Twojego konta. Wybierz tę organizację, aby utworzyć działający klucz.",
   "api_keys.errors.organizationOutOfScope": "Organizacja poza zakresem",
   "api_keys.errors.roleNotFound": "Nie znaleziono roli {identifier}",
   "api_keys.errors.roleWrongTenant": "Rola {role} należy do innego najemcy",
