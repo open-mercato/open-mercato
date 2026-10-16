@@ -210,6 +210,7 @@ Integration coverage: there is no HTTP or UI path change. Strategy-level tests a
 
 ## Changelog
 
+- 2026-10-16: Phase 1 implemented: `codec.ts`, `CACHE_COMPRESSION` / `CACHE_COMPRESSION_MIN_BYTES` resolved in `service.ts`, Redis (`getBuffer`) and SQLite (BLOB) strategies wired, unit tests per codec, a real `better-sqlite3` test with mixed TEXT/BLOB rows and a live Redis test gated on `CACHE_REDIS_URL`. Docs in `packages/cache/AGENTS.md` and `ENV.md`.
 - 2026-10-15: Dropped the HTTP-compression and web-research zstd follow-ups: Phase 0 shows zstd's size gain over gzip is about 5%, too small to justify them.
 - 2026-10-15: Phase 0 Run C: Redis memory and read latency at 100/500 users, on localhost and over ~1 Gbps / ~100 Mbps links.
 - 2026-10-15: Codec decisions from Phase 0: zstd level 1 instead of 3 (same size, 2× faster); `CACHE_COMPRESSION=gzip` added as a stable-API alternative and as the fallback when zstd is unavailable.
