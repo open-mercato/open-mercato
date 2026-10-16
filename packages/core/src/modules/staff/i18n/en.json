@@ -1155,6 +1155,7 @@
   "staff.time_tracking.entries.source.mobile": "Mobile",
   "staff.time_tracking.entries.source.timer": "Timer",
   "staff.time_tracking.entries.summary.count": "Total ({visible} of {total} entries)",
+  "staff.time_tracking.entries.summary.filteredCount": "Total of all {total} matching entries",
   "staff.time_tracking.entries.summary.multiCurrencyHint": "These entries are billed in more than one currency, so they are shown separately instead of added up.",
   "staff.time_tracking.entries.table.durationAria": "Entry duration",
   "staff.time_tracking.entries.table.noTask": "No task",

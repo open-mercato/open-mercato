@@ -10,6 +10,7 @@ import { formatCurrency } from '@open-mercato/ui/utils/format'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatDuration } from '../time-tracking/duration'
 import type { TimeEntriesSummary } from './timeEntryListData'
+import type { TimeEntryTotals } from '../timesheets/timeEntryTotals'
 
 /**
  * The mockup's table footer: `Razem (5 z 23 wpisów) · 15:15 · 4 315,00 PLN`.
@@ -21,28 +22,43 @@ import type { TimeEntriesSummary } from './timeEntryListData'
  * financially false, and a footer is exactly where somebody would trust it.
  */
 export type TimeEntriesSummaryFooterProps = {
+  /** Sums of the rows on the current page. */
   summary: TimeEntriesSummary
   totalCount: number
   canSeeMoney: boolean
+  /**
+   * Sums of the WHOLE filtered set, from the list API's `includeTotals=true`.
+   * When present the footer shows these instead of the page sums; absent or
+   * `null` keeps the page-only behaviour.
+   */
+  totals?: TimeEntryTotals | null
 }
 
-function DefaultTimeEntriesSummaryFooter({ summary, totalCount, canSeeMoney }: TimeEntriesSummaryFooterProps) {
+function DefaultTimeEntriesSummaryFooter({ summary, totalCount, canSeeMoney, totals }: TimeEntriesSummaryFooterProps) {
   const t = useT()
-  const money = canSeeMoney ? summary.money : []
+  const wholeSet = totals ?? null
+  const money = canSeeMoney ? (wholeSet ? wholeSet.money ?? [] : summary.money) : []
+  const minutes = wholeSet ? wholeSet.durationMinutes : summary.totalMinutes
 
   return (
     <div
-      className="mt-2 flex flex-wrap items-center justify-end gap-x-4 gap-y-1 rounded-md border border-border bg-muted/40 px-4 py-2 text-sm"
+      className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1 text-sm"
       data-testid="entries-summary-footer"
+      data-staff-entries-summary-footer=""
+      data-summary-scope={wholeSet ? 'filtered' : 'page'}
     >
       <span className="text-muted-foreground">
-        {t('staff.time_tracking.entries.summary.count', 'Total ({visible} of {total} entries)', {
-          visible: summary.visibleCount,
-          total: totalCount,
-        })}
+        {wholeSet
+          ? t('staff.time_tracking.entries.summary.filteredCount', 'Total of all {total} matching entries', {
+              total: wholeSet.entryCount,
+            })
+          : t('staff.time_tracking.entries.summary.count', 'Total ({visible} of {total} entries)', {
+              visible: summary.visibleCount,
+              total: totalCount,
+            })}
       </span>
       <span className="font-mono font-semibold tabular-nums text-foreground" data-testid="entries-summary-duration">
-        {formatDuration(summary.totalMinutes, 'clock')}
+        {formatDuration(minutes, 'clock')}
       </span>
       {money.length > 1 ? (
         <span
@@ -76,6 +92,7 @@ const timeEntriesSummaryFooterPropsSchema: z.ZodType<TimeEntriesSummaryFooterPro
   summary: opaqueProp<TimeEntriesSummary>(),
   totalCount: z.number(),
   canSeeMoney: z.boolean(),
+  totals: opaqueProp<TimeEntryTotals>().nullable().optional(),
 })
 
 registerComponent<TimeEntriesSummaryFooterProps>({
