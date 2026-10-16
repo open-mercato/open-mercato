@@ -342,6 +342,12 @@ Provide `duration` or `until` — a WAIT activity with neither is rejected when 
 saved. Prefer `"async": true` so the delay is scheduled on the queue instead of blocking the
 worker.
 
+A synchronous WAIT longer than one minute that is the **last** activity of its transition is
+scheduled on the queue automatically, exactly as if it were marked async, so a wait of weeks or
+months (for example `"P90D"`) holds the run for its full length. A synchronous WAIT longer than
+~24.8 days that is followed by other activities is refused with an error rather than resolving
+early — move it to the end of the transition, mark it async, or use a `WAIT_FOR_TIMER` step.
+
 ## Execution Modes
 
 ### Synchronous (Default)
