@@ -1,6 +1,10 @@
 # Handoff — 2026-10-14-ecommerce-release-4-write-side
 
-**Last updated:** 2026-10-15T22:40:00Z — **ALL 56 STEPS DONE, FULL REPO-WIDE GATE PASSED, PR MARKED READY FOR REVIEW. THIS RUN IS CLOSED.**
+## REOPENED 2026-10-16 — Phase 8 (manual QA fixes)
+
+Manual QA on a standalone scaffold found 15 issues (PR comments `#issuecomment-6217199918` and `#issuecomment-6217322094`). PLAN.md now has **Phase 8 (Steps 8.1–8.12, all `todo`)** with the owner decisions recorded in its Phase 8 intro. Resume with `om-auto-continue-pr-loop https://github.com/adeptofvoltron/open-mercato/pull/15` (full URL: the checkout's `gh` default repo is upstream). Steps 3.4 and 4.9 were closed by owner decision (3.4 Part A exempt + guard test in 8.11; CONC-05 moved to 8.3). **OPEN ITEM 3 below is superseded**: the owner ruled the spec wins (cart-module.md:119), so line mutations must recompute totals — Step 8.2. The "this run is closed" text below is the historical state as of 2026-10-15.
+
+**Last updated (pre-reopen):** 2026-10-15T22:40:00Z — **ALL 56 STEPS DONE, FULL REPO-WIDE GATE PASSED, PR MARKED READY FOR REVIEW. THIS RUN IS CLOSED.**
 **Branch:** feat/release-4-write-side
 **PR:** https://github.com/adeptofvoltron/open-mercato/pull/15 (**ready for review**, no longer draft; `feature`/`priority-medium`/`risk-high`/`needs-qa`/`review` labels applied)
 **Current phase/step:** Every phase (0 through 7) is closed. Nothing left in PLAN.md's Tasks table is `todo`. The final full-repo validation gate (run once more end-to-end, not scoped to any single package) found and fixed one real i18n gap and three real repo-wide structural-guard violations — all in `cart`/`promotions`'s own new code, none caught by any individual step's own narrower per-step validation. `@open-mercato/core` (where both modules live) is now 100% clean. **There is no more work to resume — this run is finished.** If a future session reopens this run, it is to act on a REVIEW or QA finding against the now-ready PR, not to continue PLAN.md.
