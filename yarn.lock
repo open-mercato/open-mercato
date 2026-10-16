@@ -7862,9 +7862,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@modelcontextprotocol/sdk@npm:^1.30.0":
-  version: 1.30.0
-  resolution: "@modelcontextprotocol/sdk@npm:1.30.0"
+"@modelcontextprotocol/sdk@npm:^1.31.0":
+  version: 1.31.0
+  resolution: "@modelcontextprotocol/sdk@npm:1.31.0"
   dependencies:
     "@hono/node-server": "npm:^1.19.9 || ^2.0.5"
     ajv: "npm:^8.17.1"
@@ -7891,7 +7891,7 @@ __metadata:
       optional: true
     zod:
       optional: false
-  checksum: 10/369723a62ce230e55d4fc98549fb080a51916a2004f3907bfca899f5602de8791d9b252038abc6cf120a9d1c75845d2459a471b678c9b9cfc7bae5febf112b63
+  checksum: 10/c26e57ca3ccd1ee7e30f3ae4d1c42ddbef2c76632dbc4377b5ca891c5a4e08596e87281427b27188593896403aab74c18ed0c5df9dd6f191f15bcce811777d8e
   languageName: node
   linkType: hard
 
@@ -8588,7 +8588,7 @@ __metadata:
     "@ai-sdk/azure": "npm:^4.0.0"
     "@ai-sdk/google": "npm:^4.0.56"
     "@ai-sdk/openai": "npm:^4.0.50"
-    "@modelcontextprotocol/sdk": "npm:^1.30.0"
+    "@modelcontextprotocol/sdk": "npm:^1.31.0"
     "@open-mercato/cli": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     "@open-mercato/ui": "workspace:*"

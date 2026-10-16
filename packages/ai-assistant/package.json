@@ -90,7 +90,7 @@
     "@ai-sdk/azure": "^4.0.0",
     "@ai-sdk/google": "^4.0.56",
     "@ai-sdk/openai": "^4.0.50",
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/sdk": "^1.31.0",
     "ai": "^7.0.83",
     "cmdk": "^1.0.0",
     "framer-motion": "^13.1.1",
