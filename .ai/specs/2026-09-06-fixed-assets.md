@@ -1380,7 +1380,8 @@ scenario this module's Phase 1 `accrueDepreciation` creates. This spec
 takes the position that the mechanism should work as designed (the
 account-group check has no dependency on an MPK dimension being present —
 its own priority-hybrid decision falls back to
-`DefaultAccountPostingRule` or the `500-99` suspense account when no
+`DefaultAccountPostingRule` or the sentinel `UNALLOCATED` cost center with
+`PostingRulesSettings.unallocatedCostAccountId` when no
 explicit dimension exists, exactly the case here, since `fixed_assets`
 writes no `journal_entry_line_dimensions` row until its own Phase 2), but
 does **not** claim this as a verified, zero-risk guarantee. Concretely:
@@ -3095,3 +3096,15 @@ from secondary websites, ISAP unreachable" status for these provisions.
 - **Added.** Art. 32 ust. 7–8: micro and small units may apply the tax-law
   depreciation rules, except among others capital companies. Phase 1 design
   unchanged. Not yet reviewed by a maintainer.
+
+### 2026-10-16 — Stale reference to the `500-99` suspense account
+
+The Testing Strategy passage on the account-group check said the Posting Rules
+Engine falls back to a `500-99` suspense account when no explicit dimension
+exists. That account was removed from the Posting Rules spec on 2026-09-14 (it
+was never created by any spec, and `-99` collides with a real chart's
+non-tax-deductible convention); the fallback is the sentinel `UNALLOCATED` cost
+center with `PostingRulesSettings.unallocatedCostAccountId`. The default chart
+of accounts template now also has an account type `500` (zespół 5, PR #6439), so
+a `500-99` number would read as a real template account. Text corrected; no
+design change.
