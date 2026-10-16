@@ -39,7 +39,7 @@ You do **not** need `MCP_SERVER_API_KEY` for `mcp:dev`. The `MCP_SERVER_API_KEY 
 :::
 
 :::info Route modules outside Next.js
-Both servers run in plain Node, and a tool call imports the API route module behind it. Route modules say `from 'next/server'`, a bare subpath only a bundler resolves (`next` ships no `exports` map). The `mercato ai_assistant` commands therefore install a small resolve hook at startup that retries `next/<subpath>.js` when Node cannot resolve `next/<subpath>`. If you embed the operation runner in your own Node process instead of these commands, call `installNextSubpathResolveHook()` from `@open-mercato/ai-assistant/modules/ai_assistant/lib/next-subpath-resolve-hook` before the first tool call, or tools backed by such routes fail with `Failed to load route module: Cannot find module '…/next/server'`.
+Both servers run in plain Node, and a tool call imports the API route module behind it. Route modules say `from 'next/server'`, a bare subpath only a bundler resolves (`next` ships no `exports` map). The `mercato` CLI (and with it every `mercato ai_assistant` command) therefore installs a small resolve hook at startup that retries `next/<subpath>.js` when Node cannot resolve `next/<subpath>`. If you embed the operation runner in your own Node process instead of these commands, call `installNextSubpathResolveHook()` from `@open-mercato/shared/lib/bootstrap/next-subpath-resolve-hook` (also re-exported from `@open-mercato/ai-assistant/modules/ai_assistant/lib/next-subpath-resolve-hook`) before the first tool call, or tools backed by such routes fail with `Failed to load route module: Cannot find module '…/next/server'`.
 :::
 
 ### How ACL gates which tools appear
