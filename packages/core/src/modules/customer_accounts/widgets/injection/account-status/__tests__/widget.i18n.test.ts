@@ -14,8 +14,8 @@ import path from 'node:path'
 import widget from '../widget'
 
 const I18N_DIR = path.resolve(__dirname, '../../../../i18n')
-const LOCALES = ['en', 'pl', 'es', 'de', 'ko'] as const
-const TARGET_LOCALES = ['pl', 'es', 'de', 'ko'] as const
+const LOCALES = ['en', 'pl', 'es', 'de', 'ko', 'pt'] as const
+const TARGET_LOCALES = ['pl', 'es', 'de', 'ko', 'pt'] as const
 
 const DESCRIPTION_KEY = 'customer_accounts.widgets.accountStatus.description'
 

@@ -3,9 +3,10 @@ import en from '../i18n/en.json'
 import es from '../i18n/es.json'
 import ko from '../i18n/ko.json'
 import pl from '../i18n/pl.json'
+import pt from '../i18n/pt.json'
 import { notificationTypes } from '../notifications'
 
-const dictionaries: Record<string, Record<string, string>> = { de, en, es, ko, pl }
+const dictionaries: Record<string, Record<string, string>> = { de, en, es, ko, pl, pt }
 
 describe('webhook notification catalogue', () => {
   it('uses a static delivery-failure label in every locale', () => {

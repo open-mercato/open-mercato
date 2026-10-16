@@ -49,7 +49,7 @@ describe('translations locales route scope', () => {
     )
     await expect(response.json()).resolves.toEqual({
       locales: ['en', 'pl'],
-      servable: ['en', 'pl', 'es', 'de', 'ko'],
+      servable: ['en', 'pl', 'es', 'de', 'ko', 'pt'],
     })
   })
 
