@@ -232,6 +232,7 @@ export const okResponseSchema = z.object({
 export const errorResponseSchema = z.object({
   code: z.string().optional(),
   error: z.string(),
+  details: z.array(z.any()).optional(),
 })
 
 export const messageTypeResponseItemSchema = z.object({
