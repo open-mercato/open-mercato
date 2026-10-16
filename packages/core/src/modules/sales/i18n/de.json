@@ -1290,6 +1290,8 @@
   "sales.orders.detail.title": "Auftragsdetails",
   "sales.orders.edit_addresses_blocked": "Adressen können für den aktuellen Status nicht geändert werden.",
   "sales.orders.edit_customer_blocked": "Kunde kann für den aktuellen Status nicht geändert werden.",
+  "sales.orders.errors.cancel_has_payments": "Diese Bestellung hat nicht erstattete Zahlungen. Erstatten Sie sie, bevor Sie die Bestellung stornieren.",
+  "sales.orders.errors.cancel_has_shipments": "Diese Bestellung hat Sendungen. Stornieren oder retournieren Sie sie, bevor Sie die Bestellung stornieren.",
   "sales.orders.form.general": "Allgemein",
   "sales.orders.form.invoices": "Rechnungen",
   "sales.orders.form.lines": "Positionen",

@@ -35,6 +35,7 @@ import {
   SALES_RESOURCE_KIND_ORDER,
 } from './shared'
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
+import { assertOrderCanBeCancelled, isCancelledOrderStatus } from '../lib/orderCancellationGuard'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
@@ -360,6 +361,19 @@ const createPaymentCommand: CommandHandler<
       // Guard the parent order's aggregate version (Gap A): a payment mutation
       // recalculates the order totals, so a stale parent must 409 before we touch it.
       await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
+      if (input.documentStatusEntryId && !isCancelledOrderStatus(order.status)) {
+        const requestedOrderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId, { tenantId: input.tenantId })
+        if (isCancelledOrderStatus(requestedOrderStatus)) {
+          await assertOrderCanBeCancelled(tx, order, {
+            payment: {
+              status: await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null, { tenantId: input.tenantId }),
+              amount: input.amount,
+              capturedAmount: input.capturedAmount,
+              refundedAmount: input.refundedAmount,
+            },
+          })
+        }
+      }
       if (
         order.currencyCode &&
         input.currencyCode &&
@@ -754,6 +768,26 @@ const updatePaymentCommand: CommandHandler<
     // Guard the parent order's aggregate version (Gap A): updating a payment
     // recalculates the order totals, so a stale parent must 409 before mutating.
     await enforceSalesDocumentOptimisticLock(ctx, previousOrder, SALES_RESOURCE_KIND_ORDER)
+    if (input.documentStatusEntryId) {
+      const targetOrder =
+        input.orderId && input.orderId !== previousOrder?.id
+          ? await findOneWithDecryption(em, SalesOrder, { id: input.orderId }, {}, { tenantId: resolvedTenantId, organizationId: resolvedOrganizationId })
+          : previousOrder
+      const requestedOrderStatus = await resolveDictionaryEntryValue(em, input.documentStatusEntryId, { tenantId: resolvedTenantId })
+      if (targetOrder && !isCancelledOrderStatus(targetOrder.status) && isCancelledOrderStatus(requestedOrderStatus)) {
+        await assertOrderCanBeCancelled(em, targetOrder, {
+          payment: {
+            id: payment.id,
+            status: input.statusEntryId !== undefined
+              ? await resolveDictionaryEntryValue(em, input.statusEntryId ?? null, { tenantId: resolvedTenantId })
+              : payment.status ?? null,
+            amount: input.amount !== undefined ? input.amount : payment.amount,
+            capturedAmount: input.capturedAmount !== undefined ? input.capturedAmount : payment.capturedAmount,
+            refundedAmount: input.refundedAmount !== undefined ? input.refundedAmount : payment.refundedAmount,
+          },
+        })
+      }
+    }
     // Apply payment scalar fields, order/line status changes and the
     // allocations rebuild in one transaction so a mid-write failure cannot
     // leave the payment and its allocations partially committed (#2336).
