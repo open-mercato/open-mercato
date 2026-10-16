@@ -403,3 +403,5 @@ Compliant, with one recorded, author-approved deviation and one precedent-backed
   - Score `probabilities` from the vendor are accepted as an array or as an index-keyed object, since the vendor shape is not fully published.
   - Vendor error messages are never surfaced; a vendor `error.code` is included in the internal message only when it matches a safe token pattern.
   - A missing `OPENROUTER_API_KEY` at call time maps to `unavailable`.
+  - A probability sum within 1 ± 0.02 is normalized and logged at debug (`{ questionName, sum }` only).
+- Deviation from Implementation Plan step 6: the `packages/ai-assistant/AGENTS.md` "How to use a decision model" entry was not added. That file's instruction chain is already about 102 KB over the 32 KB budget, and `yarn agents:check-budget` only lets it shrink. The guidance lives on the docs page, which the root Task Router already points AI work to. Adding the entry needs a maintainer decision (trim the file or re-record the budget baseline).

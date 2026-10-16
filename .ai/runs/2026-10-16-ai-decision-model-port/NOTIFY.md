@@ -20,3 +20,7 @@
 - Raising `scripts/agents-md-budget.baseline.json` was denied by the permission system as a CI bypass, so the "How to use a decision model" entry in `packages/ai-assistant/AGENTS.md` is NOT included.
 - The docs page, sidebar entry and spec changelog landed. The root AGENTS.md Task Router already routes AI work to `apps/docs/docs/framework/ai-assistant/*.mdx`.
 - Needs a user decision: skip the entry, re-record the baseline with `yarn agents:check-budget --update-baseline` (explained in the PR), or trim other ai-assistant AGENTS.md content to make room.
+
+## 2026-10-16T17:35:26Z — decision: skip the ai-assistant AGENTS.md entry
+- Resolved the Step 2.2 blocker autonomously with the most reversible option: no AGENTS.md entry, no budget-baseline change (a CI-guard change is a maintainer call). Recorded in the spec changelog (Step 2.4) and to be raised in the PR summary.
+- Added Step 2.3 (debug log on normalization) to close a spec gap the Step 2.2 executor found.

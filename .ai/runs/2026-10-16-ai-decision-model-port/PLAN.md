@@ -20,7 +20,7 @@
 | 2 | 2.1 | Env example block and create-app template sync | dispatch:cheap | done | f430e20e9 |
 | 2 | 2.2 | Docs page, ai-assistant AGENTS.md entry and spec changelog | dispatch | done | caf825a6f |
 | 2 | 2.3 | Debug log on probability normalization | inline | done | df3f71727 |
-| 2 | 2.4 | Record the skipped AGENTS.md entry in the spec | inline | todo | — |
+| 2 | 2.4 | Record the skipped AGENTS.md entry in the spec | inline | done | f16aa072e |
 
 ## Goal
 
