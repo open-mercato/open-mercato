@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import { setModuleRegistrationSource } from './modules-config'
 import type { PackageResolver, ModuleEntry } from './resolver'
 import { resolveInstalledOfficialModulePackage } from './module-package'
+import { getModuleLocators } from './module-identity'
 
 type ModuleMetadata = {
   ejectable?: boolean
@@ -178,8 +179,8 @@ export function copyDirRecursive(src: string, dest: string): void {
   }
 }
 
-export function updateModulesTs(modulesPath: string, moduleId: string): void {
-  setModuleRegistrationSource(modulesPath, moduleId, '@app')
+export function updateModulesTs(modulesPath: string, moduleId: string, provenance?: Pick<ModuleEntry, 'locator' | 'packageName'>): void {
+  setModuleRegistrationSource(modulesPath, moduleId, '@app', provenance)
 }
 
 export type EjectableModule = {
@@ -268,7 +269,11 @@ export function listEjectableModules(resolver: PackageResolver): EjectableModule
 
 export function ejectModule(resolver: PackageResolver, moduleId: string): void {
   const modules = resolver.loadEnabledModules()
-  const entry = modules.find((m: ModuleEntry) => m.id === moduleId)
+  const matches = modules.filter((module: ModuleEntry) => module.id === moduleId)
+  if (matches.length > 1) {
+    throw new Error(`Module name collision: "${moduleId}" is registered multiple times in src/modules.ts. Resolve duplicate registrations before ejecting.`)
+  }
+  const entry = matches[0]
 
   if (!entry) {
     throw new Error(
@@ -310,5 +315,7 @@ export function ejectModule(resolver: PackageResolver, moduleId: string): void {
   rewriteCrossModuleImports(pkgBase, appBase, moduleId, entry.from || '@open-mercato/core')
 
   const modulesPath = resolver.getModulesConfigPath()
-  updateModulesTs(modulesPath, moduleId)
+  const packageName = entry.from || '@open-mercato/core'
+  const locator = getModuleLocators(entry, resolver).find((identity) => identity.startsWith('github:')) ?? `npm:${packageName}`
+  updateModulesTs(modulesPath, moduleId, { packageName, locator })
 }
