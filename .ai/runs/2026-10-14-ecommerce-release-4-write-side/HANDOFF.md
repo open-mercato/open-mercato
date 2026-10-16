@@ -1,20 +1,32 @@
 # Handoff — 2026-10-14-ecommerce-release-4-write-side
 
-## Phase 8 (manual QA fixes) — IN PROGRESS, resumed by `om-auto-continue-pr-loop` 2026-10-16
+## Phase 8 (manual QA fixes) — CLOSED 2026-10-16
 
-Manual QA on a standalone scaffold found 15 issues (PR comments `#issuecomment-6217199918` and `#issuecomment-6217322094`). PLAN.md's Phase 8 (Steps 8.1–8.12) carries the owner decisions in its own intro. Steps 3.4 and 4.9 were closed by owner decision (3.4 Part A exempt + guard test in 8.11; CONC-05 moved to 8.3). The "this run is closed" text further below is now superseded historical state (as of 2026-10-15, before this reopening) — kept for the Phase 0–7 narrative, not current status.
+Manual QA on a standalone scaffold found 15 issues (PR comments `#issuecomment-6217199918` and `#issuecomment-6217322094`). PLAN.md's Phase 8 (Steps 8.1–8.14) carries the owner decisions in its own intro. Steps 3.4 and 4.9 were closed by owner decision (3.4 Part A exempt + guard test in 8.11; CONC-05 moved to 8.3). **All 14 Steps are now `done`.** The "this run is closed" text further below is older, superseded historical state (as of 2026-10-15, before this reopening) — kept for the Phase 0–7 narrative, not current status.
 
-**Last updated:** 2026-10-16T20:15:00Z — Step 8.12's live integration gate is GREEN (65/66, one filed pre-existing follow-up); UI screenshots captured. Remaining before Phase 8 closes: the full repo-wide validation gate, follow-up issues, PR reply, and flipping 8.12 itself to `done`.
+**Last updated:** 2026-10-16T20:45:00Z — **Phase 8 is fully closed.** Every F-number (F1–F15) is addressed: fixed in code (F1–F5, F7–F10, F13–F15), or documented as a deliberate follow-up with evidence (F6, F11, plus 3 residuals discovered along the way — see "Known follow-ups" below). The full repo-wide validation gate is green. Remaining: the `om-auto-review-pr` authoritative review pass, the final PR summary comment, label normalization, and lock release — the standard `om-auto-continue-pr-loop` close-out steps, not Phase 8 work itself.
 **Branch:** feat/release-4-write-side
-**PR:** https://github.com/adeptofvoltron/open-mercato/pull/15 (currently `in-progress`-locked by this resume; pipeline label was `merge-queue` from before this reopening — will be re-evaluated at Phase 8's own close per the label state machine, since real post-merge-queue defects are being fixed)
-**Current phase/step:** Phase 8, Steps 8.1–8.11 `done` (8.3 required no new commit). Steps 8.13/8.14 are fix-forward Steps from Step 8.12's own live-gate findings (both done). **Step 8.12 itself is still `todo`** — its live-integration and UI-screenshot sub-items are now complete (see Checkpoint 5 below / `checkpoint-5-checks.md`); what remains is the full repo-wide `validation.commands` gate, filing follow-up issues (F6, F11, plus 3 residuals found along the way), the PR reply mapping F-numbers to commits, and flipping the row once all of that lands.
-**Last commit:** `5c8c19817f` (`test(promotions): anchor TC-PROM-074's Value/Operator label locators`). See Checkpoint 5 below / `checkpoint-5-checks.md` for full detail.
+**PR:** https://github.com/adeptofvoltron/open-mercato/pull/15 (currently `in-progress`-locked by this resume; pipeline label was `merge-queue` from before this reopening — will be re-evaluated per the label state machine, since real post-merge-queue defects were found and fixed)
+**Current phase/step:** Phase 8 complete (Steps 8.1–8.14, all `done`). Nothing left in PLAN.md's Tasks table is `todo`.
+**Last commit:** see `git log` on `feat/release-4-write-side` for the exact tip at close-out time.
+
+### Known follow-ups (not fixed in Phase 8 — documented with evidence, not silently dropped)
+
+"File follow-up issues on the fork" (Step 8.12's own text) could not be done literally: `gh repo view adeptofvoltron/open-mercato --json hasIssuesEnabled` returns `false` — confirmed, not assumed. These five items are carried in the PR's own final summary comment instead:
+
+1. **F6** — `ruleFieldSpecs.ts`'s product/variant, category, customer-group and code rule fields are raw UUID text inputs with no picker UI.
+2. **F11** — cart totals' order-level discount does not reduce the tax base (needs confirmation against how `sales` orders handle the same case).
+3. `commands/promotions.ts`'s own `loadMutableCart` has NO `requireActive` check at all (pre-existing since Step 7.5) — `cart.promotions.apply`/`.remove` never reject a non-active, non-locked cart the way `commands/lines.ts` now does after Step 8.5.
+4. `BenefitCard.tsx`'s `TiersEditor` still has its own pre-existing `grid-cols-[1fr_1fr_1fr_auto]` arbitrary value (confirmed present before Phase 8 reopened — F4's own finding was specifically about `LabelsEditor`, a different function in the same file).
+5. `code-generation.worker.ts` writes `Code.generated` via a raw `em.flush()` that bypasses CRUD list-cache invalidation (`ENABLE_CRUD_API_CACHE=true`) — confirmed via direct reproduction (`TC-PROM-083`): the worker genuinely completes and the DB row is correct, but the CRUD list route keeps serving a stale count. Predates Phase 8 by two phases (built at Step 6.4).
 
 ### Checkpoint 5 (Step 8.12's live-integration + UI-screenshot sub-items) summary
 
-Live `cart`+`promotions` integration gate: **65/66 passing.** Two rounds of genuine findings were triaged and resolved rather than papered over — Step 8.10's code charset was too strict for 5 pre-existing fixtures' own naming convention (widened, Step 8.13); three live specs had test-authoring bugs exposed once the charset stopped blocking them earlier (fixed, Step 8.13); a fourth, more subtle locator collision in `TC-PROM-074` was initially mis-categorized as "pre-existing" by the live-run report but traced by the orchestrating session to a genuine Step-8.8 side effect (the `ComboboxInput`→`Select` swap made a previously-invisible label collision visible to Playwright's text matching) and fixed with evidence, not just accepted (Step 8.14). The one remaining red, `TC-PROM-083`, is a confirmed, pre-existing, out-of-scope backend cache-invalidation bug (`code-generation.worker.ts`, predates Phase 8 by two phases) — filed as a follow-up issue, not fixed here. 5 UI screenshots captured for Steps 8.7/8.8, all visually verified against the real running app. Full detail: `checkpoint-5-checks.md`.
+Live `cart`+`promotions` integration gate: **65/66 passing.** Two rounds of genuine findings were triaged and resolved rather than papered over — Step 8.10's code charset was too strict for 5 pre-existing fixtures' own naming convention (widened, Step 8.13); three live specs had test-authoring bugs exposed once the charset stopped blocking them earlier (fixed, Step 8.13); a fourth, more subtle locator collision in `TC-PROM-074` was initially mis-categorized as "pre-existing" by the live-run report but traced by the orchestrating session to a genuine Step-8.8 side effect (the `ComboboxInput`→`Select` swap made a previously-invisible label collision visible to Playwright's text matching) and fixed with evidence, not just accepted (Step 8.14). The one remaining red, `TC-PROM-083`, is a confirmed, pre-existing, out-of-scope backend cache-invalidation bug (`code-generation.worker.ts`, predates Phase 8 by two phases) — filed as a follow-up (see above), not fixed here. 5 UI screenshots captured for Steps 8.7/8.8, all visually verified against the real running app. Full detail: `checkpoint-5-checks.md`.
 
-### Checkpoint 4 (Steps 8.6–8.10) summary
+### Final gate (full repo-wide `validation.commands`, after Checkpoint 5)
+
+**Green across every package.** `core` 2386/2388 suites (22697/22715 tests, 0 failed), `ui` 293/293, `shared` 236/237 (0 failed), `app` 107/107, `onboarding` 22/22 — all run directly since the aggregate `yarn test` stops scheduling after a pre-existing `@open-mercato/cli` TMPDIR failure (confirmed environmental and clean standalone, not a regression). `yarn build:packages`/`generate`/`typecheck`/`build:app` all clean. Full detail: `final-gate-checks.md`.
 
 ### Checkpoint 4 (Steps 8.6–8.10) summary
 

@@ -507,3 +507,13 @@ Reviewed checkpoint 5's re-run report (64/66, two NEW remaining failures both ch
 Fixed: `valueFields`/`operatorFields` now use `hasText: /^Value/` / `/^Operator/` (case-sensitive, start-anchored) instead of the case-insensitive substring-matching string form — each genuine field's own `<span>{label}</span>` is always first in its `<label>`, so anchoring at the start excludes the Select's own concatenated text while still matching the real field. Swept the rest of `promotions/__integration__/*.spec.ts` for the same risk class (any `hasText` string filter that could collide with one of the 11 rule-type/5 benefit-type labels) — none found.
 
 `yarn workspace @open-mercato/core run typecheck`: clean. A full live re-run was judged unnecessary for a single-locator fix verified by direct DOM/component-source reasoning rather than guesswork; if the orchestrating session wants belt-and-suspenders confidence, a final live pass happens naturally if/when `yarn test:integration` runs as part of the broader repo-wide gate.
+
+## 2026-10-16T20:45:00Z — Step 8.12 done: full repo-wide gate green, Phase 8 fully closed
+
+Ran the complete `.ai/agentic.config.json` `validation.commands` sequence end-to-end: `yarn build:packages` (39/39), `yarn generate` (clean), rebuild (39/39), `yarn i18n:check-sync` (clean), `yarn i18n:check-usage` (advisory, zero `cart`/`promotions` findings), `yarn typecheck` (39/39). `yarn test` stopped scheduling after a pre-existing `@open-mercato/cli` TMPDIR failure (turbo's own known behavior on this host) — ran `core`/`ui`/`shared`/`app`/`onboarding` directly: all green (`core` 2386/2388 suites, 22697/22715 tests, 0 failed; `ui` 293/293; `shared` 236/237, 0 failed; `app` 107/107; `onboarding` 22/22). `cli`'s 3 failing suites confirmed environmental via standalone re-run with the correct `TMPDIR` (31/31 passed). `yarn build:app` clean.
+
+"File follow-up issues on the fork" could not be done literally — confirmed via `gh repo view ... --json hasIssuesEnabled` → `false`, matching this run's own documented environment caveat. Adapted: F6, F11, and three residuals found along the way (promotions.ts's missing requireActive check, TiersEditor's pre-existing arbitrary value, TC-PROM-083's cache-invalidation gap) are now documented in HANDOFF.md's new "Known follow-ups" section, to be carried into the PR's own final summary comment next.
+
+`final-gate-checks.md` written. HANDOFF.md rewritten top-to-bottom reflecting Phase 8's full closure (all 14 Steps done). PLAN.md's Step 8.12 row flipped to `done`.
+
+**Phase 8 (all 14 Steps, F1-F15) is now fully closed.** Next: the `om-auto-review-pr` authoritative review pass, the PR's final summary comment, label normalization, and lock release.
