@@ -40,10 +40,10 @@ type Scope = { tenantId: string; organizationId: string }
  * A system-actor context cannot be constructed from HTTP, so trusting its input is the same trust level the
  * platform already extends; a request-borne caller still gets its scope from the session and nothing else.
  */
-function requireScope(
+async function requireScope(
   ctx: { auth?: { tenantId?: string | null; orgId?: string | null } | null; systemActor?: boolean },
   rawInput?: unknown,
-): Scope {
+): Promise<Scope> {
   let tenantId = ctx.auth?.tenantId ?? null
   let organizationId = ctx.auth?.orgId ?? null
 
@@ -56,7 +56,10 @@ function requireScope(
   }
 
   if (!tenantId || !organizationId) {
-    throw new CrudHttpError(400, { error: 'A campaign requires both a tenant and an organization scope' })
+    const { translate } = await resolveTranslations()
+    throw new CrudHttpError(400, {
+      error: translate('marketing_automation.errors.scopeRequired', 'A campaign requires both a tenant and an organization scope'),
+    })
   }
   return { tenantId, organizationId }
 }
@@ -91,6 +94,16 @@ export const VALIDATION_CODES = {
 
 function invalidGraph(code: string, error: string, detail?: string): CrudHttpError {
   return new CrudHttpError(400, { error, code, ...(detail ? { detail } : {}) })
+}
+
+async function campaignNotFoundError(): Promise<CrudHttpError> {
+  const { translate } = await resolveTranslations()
+  return new CrudHttpError(404, { error: translate('marketing_automation.errors.campaignNotFound', 'Campaign not found') })
+}
+
+async function splitVariantNotFoundError(): Promise<CrudHttpError> {
+  const { translate } = await resolveTranslations()
+  return new CrudHttpError(404, { error: translate('marketing_automation.errors.splitVariantNotFound', 'Split or variant not found') })
 }
 
 /**
@@ -486,7 +499,7 @@ const createCampaignCommand: CommandHandler<{ name: string; description?: string
   id: 'marketing_automation.campaigns.create',
 
   async execute(input, ctx) {
-    const scope = requireScope(ctx, input)
+    const scope = await requireScope(ctx, input)
     ensureOrganizationScope(ctx, scope.organizationId)
 
     const em = ctx.container.resolve<EntityManager>('em').fork()
@@ -513,7 +526,7 @@ const createCampaignCommand: CommandHandler<{ name: string; description?: string
   },
   captureAfter: async (input, result, ctx) => {
     const em = ctx.container.resolve<EntityManager>('em').fork()
-    const scope = requireScope(ctx, input)
+    const scope = await requireScope(ctx, input)
     return loadCampaignWithTriggersSnapshot(em, result.id, scope)
   },
   buildLog: async ({ result, snapshots }) => {
@@ -614,14 +627,14 @@ const applySplitWinnerCommand: CommandHandler<
   id: 'marketing_automation.campaigns.apply_split_winner',
 
   async prepare(rawInput, ctx) {
-    const scope = requireScope(ctx, rawInput)
+    const scope = await requireScope(ctx, rawInput)
     const em = ctx.container.resolve<EntityManager>('em')
     const before = await loadCampaignWithTriggersSnapshot(em, rawInput.id, scope)
     return before ? { before } : {}
   },
 
   async execute(rawInput, ctx) {
-    const scope = requireScope(ctx, rawInput)
+    const scope = await requireScope(ctx, rawInput)
     ensureOrganizationScope(ctx, scope.organizationId)
 
     const stepId = typeof rawInput.stepId === 'string' ? rawInput.stepId.trim() : ''
@@ -649,7 +662,7 @@ const applySplitWinnerCommand: CommandHandler<
       organizationId: scope.organizationId,
       deletedAt: null,
     })
-    if (!campaign) throw new CrudHttpError(404, { error: 'Campaign not found' })
+    if (!campaign) throw await campaignNotFoundError()
 
     // Applying a winner rewrites the campaign, so it collides with a concurrent edit exactly as a
     // save does — the author on the other screen is mid-change to the very steps being replaced.
@@ -669,7 +682,7 @@ const applySplitWinnerCommand: CommandHandler<
       stepId,
       variantKey,
     )
-    if (!steps) throw new CrudHttpError(404, { error: 'Split or variant not found' })
+    if (!steps) throw await splitVariantNotFoundError()
 
     const rewritten = { ...definition, steps }
     // The result has to be runnable on its own terms: a winning lane ending on a wait, promoted to the
@@ -696,7 +709,7 @@ const applySplitWinnerCommand: CommandHandler<
         { id: campaign.id },
         { lockMode: LockMode.PESSIMISTIC_WRITE },
       )
-      if (!managed) throw new CrudHttpError(404, { error: 'Campaign not found' })
+      if (!managed) throw await campaignNotFoundError()
       await enforceCommandOptimisticLockWithGuards(ctx.container, {
         resourceKind: 'marketing_automation.campaign',
         resourceId: managed.id,
@@ -782,14 +795,14 @@ const saveCampaignGraphCommand: CommandHandler<
   id: 'marketing_automation.campaigns.save_graph',
 
   async prepare(rawInput, ctx) {
-    const scope = requireScope(ctx, rawInput)
+    const scope = await requireScope(ctx, rawInput)
     const em = ctx.container.resolve<EntityManager>('em')
     const before = await loadCampaignWithTriggersSnapshot(em, rawInput.id, scope)
     return before ? { before } : {}
   },
 
   async execute(rawInput, ctx) {
-    const scope = requireScope(ctx, rawInput)
+    const scope = await requireScope(ctx, rawInput)
     ensureOrganizationScope(ctx, scope.organizationId)
 
     const { id, ...rest } = rawInput
@@ -815,7 +828,7 @@ const saveCampaignGraphCommand: CommandHandler<
       organizationId: scope.organizationId,
       deletedAt: null,
     })
-    if (!campaign) throw new CrudHttpError(404, { error: 'Campaign not found' })
+    if (!campaign) throw await campaignNotFoundError()
 
     // A campaign graph is exactly the kind of document two people edit at once, so a stale save
     // must collide rather than quietly overwrite the other person's work.
@@ -853,7 +866,7 @@ const saveCampaignGraphCommand: CommandHandler<
         { id: campaign.id },
         { lockMode: LockMode.PESSIMISTIC_WRITE },
       )
-      if (!managed) throw new CrudHttpError(404, { error: 'Campaign not found' })
+      if (!managed) throw await campaignNotFoundError()
       await enforceCommandOptimisticLockWithGuards(ctx.container, {
         resourceKind: 'marketing_automation.campaign',
         resourceId: managed.id,
@@ -952,7 +965,7 @@ const setCampaignEnabledCommand: CommandHandler<
   id: 'marketing_automation.campaigns.set_enabled',
 
   async prepare(rawInput, ctx) {
-    const scope = requireScope(ctx, rawInput)
+    const scope = await requireScope(ctx, rawInput)
     const em = ctx.container.resolve<EntityManager>('em')
     const campaign = await em.findOne(MarketingCampaign, {
       id: rawInput.id,
@@ -969,7 +982,7 @@ const setCampaignEnabledCommand: CommandHandler<
   },
 
   async execute(rawInput, ctx) {
-    const scope = requireScope(ctx, rawInput)
+    const scope = await requireScope(ctx, rawInput)
     ensureOrganizationScope(ctx, scope.organizationId)
 
     const { id, ...rest } = rawInput
@@ -993,7 +1006,7 @@ const setCampaignEnabledCommand: CommandHandler<
       organizationId: scope.organizationId,
       deletedAt: null,
     })
-    if (!campaign) throw new CrudHttpError(404, { error: 'Campaign not found' })
+    if (!campaign) throw await campaignNotFoundError()
 
     // Fast-fail check against the unlocked read, same as save_graph: most conflicts are caught here,
     // cheaply, before anything takes a row lock.
@@ -1034,7 +1047,7 @@ const setCampaignEnabledCommand: CommandHandler<
         { id: campaign.id },
         { lockMode: LockMode.PESSIMISTIC_WRITE },
       )
-      if (!managed) throw new CrudHttpError(404, { error: 'Campaign not found' })
+      if (!managed) throw await campaignNotFoundError()
       await enforceCommandOptimisticLockWithGuards(ctx.container, {
         resourceKind: 'marketing_automation.campaign',
         resourceId: managed.id,
@@ -1078,7 +1091,7 @@ const setCampaignEnabledCommand: CommandHandler<
   buildLog: async ({ input, result, ctx, snapshots }) => {
     const before = snapshots.before as CampaignEnabledSnapshot | undefined
     const { translate } = await resolveTranslations()
-    const scope = requireScope(ctx, input)
+    const scope = await requireScope(ctx, input)
     return {
       actionLabel: result.isEnabled
         ? translate('marketing_automation.audit.campaigns.enable', 'Enable campaign')
@@ -1110,14 +1123,14 @@ const deleteCampaignCommand: CommandHandler<{ id: string }, { id: string }> = {
   id: 'marketing_automation.campaigns.delete',
 
   async prepare(input, ctx) {
-    const scope = requireScope(ctx, input)
+    const scope = await requireScope(ctx, input)
     const em = ctx.container.resolve<EntityManager>('em')
     const before = await loadCampaignWithTriggersSnapshot(em, input.id, scope)
     return before ? { before } : {}
   },
 
   async execute(input, ctx) {
-    const scope = requireScope(ctx, input)
+    const scope = await requireScope(ctx, input)
     ensureOrganizationScope(ctx, scope.organizationId)
 
     const em = ctx.container.resolve<EntityManager>('em').fork()
@@ -1127,7 +1140,7 @@ const deleteCampaignCommand: CommandHandler<{ id: string }, { id: string }> = {
       organizationId: scope.organizationId,
       deletedAt: null,
     })
-    if (!campaign) throw new CrudHttpError(404, { error: 'Campaign not found' })
+    if (!campaign) throw await campaignNotFoundError()
 
     // Deleting is a mutation of a user-editable record, so it carries the same version check as a
     // save — the platform's locking covers update AND delete. Fast-fail against the unlocked read,
@@ -1152,7 +1165,7 @@ const deleteCampaignCommand: CommandHandler<{ id: string }, { id: string }> = {
         { id: campaign.id },
         { lockMode: LockMode.PESSIMISTIC_WRITE },
       )
-      if (!managed) throw new CrudHttpError(404, { error: 'Campaign not found' })
+      if (!managed) throw await campaignNotFoundError()
       await enforceCommandOptimisticLockWithGuards(ctx.container, {
         resourceKind: 'marketing_automation.campaign',
         resourceId: managed.id,
