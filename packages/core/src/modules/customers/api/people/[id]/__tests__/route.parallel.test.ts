@@ -19,6 +19,7 @@ const mockEm = {
   findOne: jest.fn(),
   find: jest.fn(),
   count: jest.fn(),
+  createQueryBuilder: jest.fn(),
 }
 
 const mockContainer = {
@@ -128,6 +129,11 @@ describe('GET /api/customers/people/[id] — parallel enrichment (issue #3203)',
     mockEm.find.mockReset()
     mockEm.count.mockReset()
     mockEm.count.mockResolvedValue(0)
+    mockEm.createQueryBuilder.mockReset()
+    mockEm.createQueryBuilder.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+    })
     mockContainer.resolve.mockClear()
 
     mockGetAuthFromRequest.mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1', isApiKey: false })
@@ -175,5 +181,22 @@ describe('GET /api/customers/people/[id] — parallel enrichment (issue #3203)',
     expect(response.status).toBe(200)
     expect(body.person.id).toBe(PERSON_ID)
     expect(maxInFlight).toBeGreaterThanOrEqual(2)
+  })
+
+  it('counts adapter-created tasks without loading the task preview (#6068)', async () => {
+    mockEm.count.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) =>
+      where.source === 'adapter:todo' ? 2 : 0,
+    )
+
+    const { GET } = await import('../route')
+    const response = await GET(
+      new Request(`http://localhost/api/customers/people/${PERSON_ID}`),
+      { params: { id: PERSON_ID } },
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.counts.todos).toBe(2)
+    expect(body.todos).toEqual([])
   })
 })

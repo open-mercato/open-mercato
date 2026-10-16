@@ -33,6 +33,22 @@ describe('PersonDetailTabs', () => {
     expect(screen.getByRole('tab', { name: /address/i })).toBeInTheDocument()
   })
 
+  it.each([
+    { tasksCount: 0, label: 'Tasks' },
+    { tasksCount: 2, label: 'Tasks 2' },
+    { tasksCount: 1000, label: 'Tasks 999+' },
+  ])(
+    'renders the task total $tasksCount using the shared badge',
+    ({ tasksCount, label }) => {
+      render(
+        <PersonDetailTabs activeTab="activities" onTabChange={() => {}} tasksCount={tasksCount}>
+          <div>content</div>
+        </PersonDetailTabs>,
+      )
+      expect(screen.getByRole('tab', { name: label })).toBeInTheDocument()
+    },
+  )
+
   it('hides built-in and injected tabs listed in hiddenTabIds (#4379)', () => {
     render(
       <PersonDetailTabs
