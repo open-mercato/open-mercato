@@ -229,6 +229,8 @@
   "ai_assistant.chat.mutation_cards.preview.handlerError": "Der Mutations-Handler meldete einen Fehler. Prüfen Sie die Details und schlagen Sie die Aktion ggf. erneut vor.",
   "ai_assistant.chat.mutation_cards.preview.reviewDetails": "Details ansehen",
   "ai_assistant.chat.mutation_cards.preview.title": "Vorgeschlagene Änderungen prüfen",
+  "ai_assistant.chat.mutation_cards.result.cancelledBody": "Sie haben diese vorgeschlagene Änderung abgebrochen. Es wurden keine Änderungen vorgenommen.",
+  "ai_assistant.chat.mutation_cards.result.cancelledTitle": "Vorschlag abgebrochen",
   "ai_assistant.chat.mutation_cards.result.failureBody": "Die Änderung konnte nicht angewendet werden.",
   "ai_assistant.chat.mutation_cards.result.failureTitle": "Aktion fehlgeschlagen",
   "ai_assistant.chat.mutation_cards.result.fixWithAi": "Mit KI korrigieren",

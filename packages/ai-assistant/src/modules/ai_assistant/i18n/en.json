@@ -229,6 +229,8 @@
   "ai_assistant.chat.mutation_cards.preview.handlerError": "The mutation handler reported an error. Review the details and re-propose if needed.",
   "ai_assistant.chat.mutation_cards.preview.reviewDetails": "Review details",
   "ai_assistant.chat.mutation_cards.preview.title": "Review proposed changes",
+  "ai_assistant.chat.mutation_cards.result.cancelledBody": "You cancelled this proposed change. No changes were made.",
+  "ai_assistant.chat.mutation_cards.result.cancelledTitle": "Proposal cancelled",
   "ai_assistant.chat.mutation_cards.result.failureBody": "The mutation could not be applied.",
   "ai_assistant.chat.mutation_cards.result.failureTitle": "Action failed",
   "ai_assistant.chat.mutation_cards.result.fixWithAi": "Fix with AI",

@@ -666,6 +666,16 @@ function mediaLabel(row: Attachment): string {
   return row.id
 }
 
+function mediaUpdatePatch(entry: {
+  altText?: string
+  caption?: string
+}): { altText?: string; caption?: string } {
+  return {
+    ...(entry.altText !== undefined ? { altText: entry.altText } : {}),
+    ...(entry.caption !== undefined ? { caption: entry.caption } : {}),
+  }
+}
+
 const updateProductMediaDescriptionsTool: CatalogAiToolDefinition = {
   name: 'catalog.update_product_media_descriptions',
   displayName: 'Update product media descriptions',
@@ -685,12 +695,14 @@ const updateProductMediaDescriptionsTool: CatalogAiToolDefinition = {
     for (const entry of input.mediaUpdates) {
       const media = await loadProductMediaForScope(em, ctx, tenantId, entry.mediaId)
       if (!media) continue
+      const before = mediaSnapshot(media)
       rows.push({
         recordId: media.id,
         entityType: 'catalog.product_media',
         label: mediaLabel(media),
         recordVersion: recordVersionFromUpdatedAt(media.createdAt ?? null),
-        before: mediaSnapshot(media),
+        before,
+        after: { ...before, ...mediaUpdatePatch(entry) },
       })
     }
     return rows
@@ -719,10 +731,7 @@ const updateProductMediaDescriptionsTool: CatalogAiToolDefinition = {
       const before = mediaSnapshot(media)
       touched.push({
         row: media,
-        patch: {
-          ...(entry.altText !== undefined ? { altText: entry.altText } : {}),
-          ...(entry.caption !== undefined ? { caption: entry.caption } : {}),
-        },
+        patch: mediaUpdatePatch(entry),
         before,
       })
     }
