@@ -216,4 +216,22 @@ describe('attachments image route', () => {
     })
     expect(mockSharp).not.toHaveBeenCalled()
   })
+
+  it('refuses even a sanitised vector image instead of handing SVG to sharp', async () => {
+    mockEm.findOne.mockImplementationOnce(async () => ({
+      ...mockAttachment,
+      mimeType: 'image/svg+xml',
+      storageMetadata: {
+        vectorImage: { sanitizer: 'dompurify', sanitizerVersion: '3.4.11', policyVersion: 1, sha256: '0'.repeat(64) },
+      },
+    }))
+
+    const response = await GET(
+      new Request('http://localhost/api/attachments/image/att-1?width=100') as Parameters<ImageRoute['GET']>[0],
+      { params: Promise.resolve({ id: 'att-1' }) },
+    )
+
+    expect(response.status).toBe(400)
+    expect(mockSharp).not.toHaveBeenCalled()
+  })
 })

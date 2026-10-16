@@ -14,8 +14,37 @@ import {
   buildAttachmentContentDisposition,
   canRenderInlineAttachment,
 } from "@open-mercato/core/modules/attachments/lib/security";
+import {
+  DEFAULT_ATTACHMENT_CONTENT_SECURITY_POLICY,
+  isTrustedVectorImage,
+  VECTOR_IMAGE_CONTENT_SECURITY_POLICY,
+  VECTOR_IMAGE_MIME_TYPE,
+} from "@open-mercato/core/modules/attachments/lib/vector-image";
 import { StorageDriverFactory } from '../../../lib/drivers';
 import { resolveAttachmentRequestScope } from '@open-mercato/core/modules/attachments/lib/requestScope';
+
+function jsonResponse(body: { error: string }, init: { status: number }) {
+  return NextResponse.json(body, {
+    status: init.status,
+    headers: {
+      "Content-Security-Policy": DEFAULT_ATTACHMENT_CONTENT_SECURITY_POLICY,
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}
+
+/**
+ * `next.config.ts` gives this path its sandboxing CSP by matching the raw,
+ * still percent-encoded pathname, and that header wins over the route's own.
+ * The API dispatcher decodes segments, so `/api/attachments/%66ile/{id}` or
+ * `/api/%61ttachments/file/{id}` reach this route while the header rule does
+ * not match them and the app CSP applies instead. A sanitised SVG is served
+ * inline only when the request used the exact canonical path; any other
+ * spelling gets a download.
+ */
+function isCanonicalFilePath(url: URL, id: string): boolean {
+  return url.pathname === `/api/attachments/file/${encodeURIComponent(id)}`;
+}
 
 export const metadata = {
   GET: { requireAuth: false },
@@ -27,7 +56,7 @@ export async function GET(
 ) {
   const { id } = await context.params;
   if (!id) {
-    return NextResponse.json(
+    return jsonResponse(
       { error: "Attachment id is required" },
       { status: 400 },
     );
@@ -41,7 +70,7 @@ export async function GET(
 
   const requestScope = await resolveAttachmentRequestScope(container, auth, req);
   if (requestScope.denied) {
-    return NextResponse.json(
+    return jsonResponse(
       { error: "Attachment not found" },
       { status: 404 },
     );
@@ -54,7 +83,7 @@ export async function GET(
   }
   const attachment = await em.findOne(Attachment, findFilter);
   if (!attachment) {
-    return NextResponse.json(
+    return jsonResponse(
       { error: "Attachment not found" },
       { status: 404 },
     );
@@ -63,7 +92,7 @@ export async function GET(
     code: attachment.partitionCode,
   });
   if (!partition) {
-    return NextResponse.json(
+    return jsonResponse(
       { error: "Partition misconfigured" },
       { status: 500 },
     );
@@ -72,7 +101,7 @@ export async function GET(
   const access = checkAttachmentAccess(scopedAuth, attachment, partition);
   if (!access.ok) {
     const message = access.status === 401 ? "Unauthorized" : "Forbidden";
-    return NextResponse.json({ error: message }, { status: access.status });
+    return jsonResponse({ error: message }, { status: access.status });
   }
 
   const driver = await storageDriverFactory.resolveForPartition(attachment.partitionCode, {
@@ -84,20 +113,26 @@ export async function GET(
     const result = await driver.read(attachment.partitionCode, attachment.storagePath);
     buffer = result.buffer;
   } catch {
-    return NextResponse.json({ error: "File not available" }, { status: 404 });
+    return jsonResponse({ error: "File not available" }, { status: 404 });
   }
 
   const url = new URL(req.url);
   const forceDownload = url.searchParams.get("download") === "1";
-  const renderInline = !forceDownload && canRenderInlineAttachment(attachment.mimeType);
+  const vectorImage =
+    isCanonicalFilePath(url, id) && isTrustedVectorImage(attachment, buffer);
+  const renderInline =
+    !forceDownload && (vectorImage || canRenderInlineAttachment(attachment.mimeType));
+  const inlineContentType = vectorImage
+    ? VECTOR_IMAGE_MIME_TYPE
+    : attachment.mimeType || "application/octet-stream";
   const headers: Record<string, string> = {
     "Cache-Control": partition.isPublic
       ? "public, max-age=86400"
       : "private, max-age=60",
-    "Content-Security-Policy": "default-src 'none'; sandbox",
-    "Content-Type": renderInline
-      ? attachment.mimeType || "application/octet-stream"
-      : "application/octet-stream",
+    "Content-Security-Policy": vectorImage
+      ? VECTOR_IMAGE_CONTENT_SECURITY_POLICY
+      : DEFAULT_ATTACHMENT_CONTENT_SECURITY_POLICY,
+    "Content-Type": renderInline ? inlineContentType : "application/octet-stream",
     "Content-Disposition": buildAttachmentContentDisposition(
       attachment.fileName,
       renderInline ? "inline" : "attachment",

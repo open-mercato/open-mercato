@@ -1,3 +1,5 @@
+import { hasVectorImageRecord } from './vector-image-record'
+
 export type ImageCropType = 'cover' | 'contain'
 
 export type ImageSizeOptions = {
@@ -57,4 +59,17 @@ export function buildAttachmentFileUrl(attachmentId: string, options?: { downloa
   if (options?.download) params.set('download', '1')
   const query = params.toString()
   return `/api/attachments/file/${encodeURIComponent(attachmentId)}${query ? `?${query}` : ''}`
+}
+
+/**
+ * The preview URL for an attachment row. A sanitised vector image previews
+ * through the file route, which serves it inline as SVG; the image route
+ * rasterises only raster formats and refuses SVG.
+ */
+export function resolveAttachmentThumbnailUrl(
+  attachment: { id: string; mimeType?: string | null; storageMetadata?: unknown },
+  options?: ImageSizeOptions,
+): string {
+  if (hasVectorImageRecord(attachment)) return buildAttachmentFileUrl(attachment.id)
+  return buildAttachmentImageUrl(attachment.id, options)
 }

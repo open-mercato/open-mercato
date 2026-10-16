@@ -124,6 +124,8 @@ curl -X POST "$BASE_URL/attachments" \
 
 Response contains the stored item plus a prebuilt `thumbnailUrl` (`/api/attachments/image/{id}`).
 
+Executable file types (`.exe`, `.js`, `.sh`, …) and active content — HTML, XHTML, XML and **SVG** — are rejected with `400`, whatever MIME type the client declares. SVG is not accepted on this route; see [Vector images from module code](#vector-images-from-module-code).
+
 ### Delete attachment — `DELETE /attachments?id=<uuid>`
 
 **Feature:** `attachments.manage`
@@ -204,6 +206,35 @@ Partition endpoints let you route uploads to different buckets or visibility tie
 - Delete partition — `DELETE /attachments/partitions?id=<uuid>` (`attachments.manage`)  
   Default partitions cannot be removed; partitions in use return `409`.
 
+## Vector images from module code
+
+Modules that need to store a vector image — a company logo, a brand mark — upload through the `attachmentService` DI contract rather than this REST API, and opt in per call:
+
+```ts
+const attachmentService = container.resolve('attachmentService') as AttachmentService
+await attachmentService.createScoped({
+  tenantId, organizationId, entityId, recordId, partitionCode,
+  fileName: 'logo.svg',
+  declaredMimeType: 'image/svg+xml',
+  buffer,
+  allowVectorImage: true,
+})
+```
+
+With `allowVectorImage: true`, an `.svg` file (or an extension-less file declared or sniffed as `image/svg+xml`) is sanitised on the server with DOMPurify's SVG profile and only the sanitised document is stored. What a logo needs survives: `<style>` blocks (including the CDATA-wrapped ones design tools export), gradients, clip paths, masks, filters, `<use>` pointing at `#id` in the same document, `viewBox`/`preserveAspectRatio`, and embedded single-frame PNG/JPEG (at most 4,096 px a side) as base64 `data:` URIs on `<image>` or `<feImage>`. Comments, editor metadata and a plain DOCTYPE are dropped. Anything that would change what the file does or how it renders is **rejected rather than stripped** — the first such finding stops the check — with a machine-readable `code` in the error body:
+
+| `code` | Status | Cause |
+| --- | --- | --- |
+| `vector_image_too_large` | 413 | over 1 MiB, before or after sanitising |
+| `vector_image_malformed` | 400 | not UTF-8, not well-formed XML, or the root is not `<svg>` |
+| `vector_image_entity_declaration` | 400 | a DTD declaration (`<!ENTITY>`, `<!ATTLIST>`, `<!ELEMENT>`, `<!NOTATION>`) or a DOCTYPE internal subset |
+| `vector_image_too_complex` | 400 | over 4,000 markup tags or nodes, 2,000 elements, nesting deeper than 64, 64 attributes on one element or 6,000 in total, or over 10,000 units of render work (path, points and text length and filter primitives, weighted as measured in Chrome) once in-document references are expanded, more than 32 filter primitives or 8 blurs, a blur deviation over 10% of the viewport, a blur where a transform stretches or a nested `viewBox` exists, `feMorphology`, lighting, `feConvolveMatrix`, `feDisplacementMap`, `feDropShadow` or `primitiveUnits="objectBoundingBox"` — `<use>`, `href`s, and `url(#…)` paint, clip paths, masks, filters and markers, nested or inherited — or a reference cycle; or a stylesheet over 2,000 rules, 32 selectors or 16 references in one rule, or 20,000 selector × reference pairs |
+| `vector_image_unsafe_content` | 400 | scripts, event handlers, `foreignObject`, embedded documents, XHTML elements, `javascript:`/non-raster `data:` URLs, `<set>`/`<animate>`, a `<style>` containing anything but text, `href` and `xlink:href` that disagree, an `id` or `class` that trimming would change, a fragment that is not a plain ASCII id (a letter, digit or `_`, then letters, digits, `_`, `-`, `.`), an `xml:id`, a fragment `href` on `<image>`, SMIL animation, an embedded raster that is not a single-frame PNG or JPEG of at most 4,096 px a side, CSS functions other than `url()`, `rgb()`, `rgba()`, `hsl()`, `hsla()`, a `filter` that is not one `url()` or `none`, `url()` outside `fill`, `stroke`, `clip-path`, `mask`, `filter` and the `marker` properties, the CSS `d` property, `if()`, CSS with escapes, expressions, custom properties, `var()`, or unterminated strings, comments or `url(`, or a stylesheet outside the exporter subset (at-rules, combinators, pseudo-classes, attribute selectors, nesting; selectors may be a type, `*`, `.class` or `#id`) |
+| `vector_image_external_reference` | 400 | links, `url()`, `@import` or stylesheets pointing outside the document |
+| `vector_image_sanitizer_unavailable` | 500 | the sanitiser could not be loaded |
+
+Show a stored SVG with `<img src="/api/attachments/file/{id}">` (or its `thumbnailUrl`); never insert its markup into a page. `attachmentService.readScoped()` returns it as an `application/octet-stream` download, because a module route cannot keep a sandboxing CSP of its own over the app-wide one. Render-cost limits can refuse some real exports with `vector_image_too_complex`: Figma shadows or glows whose blur deviation is 10% or more of the frame's smaller side, any blur under a scaling group or an import matrix (such as Inkscape's PDF/AI `matrix(1.333…)`), and small icons with large blurs. Re-export with a smaller blur or with transforms flattened. A sanitised document that is still larger than the call's upload limit is rejected with the usual `413` upload-size error. Without the flag, `createScoped` rejects SVG exactly like the REST route. List endpoints return the file URL as a stored vector image's `thumbnailUrl`, because the image route below only resizes raster formats.
+
 ## File delivery and imaging
 
 These routes stream files and thumbnails. Access depends on partition visibility:
@@ -212,6 +243,6 @@ These routes stream files and thumbnails. Access depends on partition visibility
 - Private partitions: require auth; scope must match attachment `organizationId`/`tenantId` or be a superadmin.
 
 - Download original file — `GET /attachments/file/{id}`  
-  Add `?download=1` to force a download response. Respects partition cache headers.
+  Add `?download=1` to force a download response. Respects partition cache headers. Raster images render inline; an SVG renders inline as `image/svg+xml` only when it was stored through the sanitised vector path and its bytes still match the recorded digest, under `Content-Security-Policy: default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox`. Every other file is served as `application/octet-stream` with `attachment` disposition and every response carries `X-Content-Type-Options: nosniff`. An SVG renders inline only when requested at the canonical `/api/attachments/file/{id}`; a percent-encoded spelling of the path gets a download. In the Next.js app every response whose raw path starts with `/api/attachments/file/` — including the API dispatcher's own errors — carries `Content-Security-Policy: default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox` from `next.config.ts`, which Next.js keeps over the route's own header; the route itself sets `default-src 'none'; sandbox` on its non-SVG responses for other hosts.
 - Serve/rescale image — `GET /attachments/image/{id}/{slug?}?width=<n>&height=<n>&cropType=cover|contain`  
-  Returns a resized image (Sharp) and caches thumbnails per size. Omit `width`/`height` to stream the original image type while keeping access controls in place.
+  Returns a resized image (Sharp) and caches thumbnails per size. Omit `width`/`height` to stream the original image type while keeping access controls in place. Raster formats only — SVG returns `400`; use the file route for vector images.

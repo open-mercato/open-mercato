@@ -76,22 +76,30 @@ const nextConfig: NextConfig & { agentRules?: boolean } = {
       {
         source: '/:path*',
         headers: [
-          { key: 'Content-Security-Policy', value: contentSecurityPolicy },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
         ],
       },
       {
-        // Attachment file downloads set their own restrictive CSP (sandbox)
-        // in the route handler — override the global app CSP so it is not
-        // replaced at the Next.js config layer.
+        source: '/:path((?!api/attachments/file/).*)',
+        headers: [
+          { key: 'Content-Security-Policy', value: contentSecurityPolicy },
+        ],
+      },
+      {
+        // Responses whose raw path starts with the attachment file path — the
+        // route's own and the API dispatcher's (unknown sub-paths, errors) —
+        // get a sandboxing CSP from here, and Next.js keeps it over the
+        // route's header. Sources match the undecoded path, so a
+        // percent-encoded spelling (`/api/attachments/%66ile/<id>`) still
+        // reaches the route under the app CSP; the route therefore serves a
+        // sanitised SVG inline only on the canonical path. The extra inline
+        // style and data: image allowances are used only by that SVG; every
+        // other file is a raster image or an octet-stream download.
         source: '/api/attachments/file/:path*',
         headers: [
-          { key: 'Content-Security-Policy', value: "default-src 'none'; sandbox" },
-          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-          { key: 'X-Content-Type-Options', value: 'nosniff' },
-          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+          { key: 'Content-Security-Policy', value: "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox" },
         ],
       },
       {

@@ -80,6 +80,34 @@ const SCOPED_UPLOAD_ERROR_MESSAGES: Record<ScopedAttachmentUploadErrorCode, Atta
     key: 'attachments.errors.persistenceFailed',
     fallback: 'Failed to persist attachment.',
   },
+  vector_image_too_large: {
+    key: 'attachments.errors.vectorImageTooLarge',
+    fallback: 'The SVG file is too large to be checked safely.',
+  },
+  vector_image_malformed: {
+    key: 'attachments.errors.vectorImageMalformed',
+    fallback: 'The file is not a well-formed SVG image.',
+  },
+  vector_image_entity_declaration: {
+    key: 'attachments.errors.vectorImageEntityDeclaration',
+    fallback: 'SVG files with entity declarations are not allowed.',
+  },
+  vector_image_too_complex: {
+    key: 'attachments.errors.vectorImageTooComplex',
+    fallback: 'The SVG image is too complex to be checked safely.',
+  },
+  vector_image_unsafe_content: {
+    key: 'attachments.errors.vectorImageUnsafeContent',
+    fallback: 'The SVG image contains scripts or other active content. Export a plain SVG and try again.',
+  },
+  vector_image_external_reference: {
+    key: 'attachments.errors.vectorImageExternalReference',
+    fallback: 'The SVG image references external files or fonts. Embed them or export a self-contained SVG and try again.',
+  },
+  vector_image_sanitizer_unavailable: {
+    key: 'attachments.errors.vectorImageSanitizerUnavailable',
+    fallback: 'SVG images cannot be checked right now.',
+  },
 }
 
 const UPLOAD_FAILED_MESSAGE: AttachmentErrorMessage = {
@@ -110,6 +138,16 @@ export type CreateScopedAttachmentInput = AttachmentOwner & {
   declaredMimeType?: string | null
   buffer: Buffer
   assignments?: AttachmentAssignment[]
+  /**
+   * Accept an SVG (for example a company logo) by sanitising it on the server
+   * instead of rejecting it as active content. Only the sanitised document is
+   * stored; a file that cannot be sanitised without losing content is rejected
+   * with a `vector_image_*` code. Default false. The stored SVG is served
+   * inline only by `GET /api/attachments/file/{id}` under its sandboxing CSP;
+   * `readScoped` returns it as a download, because a module route cannot keep
+   * a CSP of its own over the app-wide one. Show it with `<img>`.
+   */
+  allowVectorImage?: boolean
   /**
    * Persists a module-owned link inside the same transaction as the Attachment
    * row. The callback receives only the generated id, never an Attachment
@@ -305,12 +343,15 @@ export class DefaultAttachmentService implements AttachmentService {
         assignments: input.assignments,
         partitionCode: input.partitionCode,
         requirePrivatePartition: true,
+        allowVectorImage: input.allowVectorImage === true,
         persistLink: input.persistLink,
       })
     } catch (error) {
       if (isScopedAttachmentUploadError(error)) {
         const message = SCOPED_UPLOAD_ERROR_MESSAGES[error.code] ?? UPLOAD_FAILED_MESSAGE
-        throw new CrudHttpError(error.status, { error: await translateAttachmentError(message) })
+        const body: Record<string, string> = { error: await translateAttachmentError(message) }
+        if (error.code.startsWith('vector_image_')) body.code = error.code
+        throw new CrudHttpError(error.status, body)
       }
       throw error
     }
