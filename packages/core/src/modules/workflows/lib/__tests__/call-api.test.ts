@@ -4,6 +4,9 @@ import type { AwilixContainer } from 'awilix'
 import { executeCallApi } from '../activity-executor'
 import type { WorkflowInstance } from '../../data/entities'
 import { createTransactionalEntityManagerDouble } from '../../../../test-utils/transactionalEntityManagerDouble'
+import { registerModules } from '@open-mercato/shared/lib/modules/registry'
+import { invalidateDictionaryCache } from '@open-mercato/shared/lib/i18n/server'
+import workflowsPl from '../../i18n/pl.json'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(async (em: any, Entity: any, query: any) => em.findOne(Entity, query)),
@@ -878,6 +881,31 @@ describe('executeCallApi', () => {
       ).rejects.toThrow(/refused to follow redirect 308/)
 
       expect(mockFetch).toHaveBeenCalledTimes(4)
+    })
+
+    it('reports refusals in the resolved locale', async () => {
+      const originalForcedLocale = process.env.OM_FORCE_LOCALE
+      process.env.OM_FORCE_LOCALE = 'pl'
+      registerModules([{ id: 'workflows', translations: { pl: workflowsPl } }] as any)
+      invalidateDictionaryCache()
+      try {
+        await expect(
+          executeCallApi(mockEm, { endpoint: 'http://shop.example.com/api/sales/orders' }, mockContext, mockContainer),
+        ).rejects.toThrow(
+          'Ochrona przed SSRF: origin endpointu CALL_API (http://shop.example.com) nie zgadza się z originem APP_URL (https://shop.example.com)',
+        )
+
+        mockFetch.mockResolvedValueOnce(redirectTo(301, null))
+
+        await expect(
+          executeCallApi(mockEm, { endpoint: '/api/sales/orders' }, mockContext, mockContainer),
+        ).rejects.toThrow('CALL_API odmówił podążenia za przekierowaniem 301 do (brak nagłówka Location)')
+      } finally {
+        if (originalForcedLocale === undefined) delete process.env.OM_FORCE_LOCALE
+        else process.env.OM_FORCE_LOCALE = originalForcedLocale
+        registerModules([])
+        invalidateDictionaryCache()
+      }
     })
   })
 })

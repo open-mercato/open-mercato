@@ -74,6 +74,8 @@ import type { AgentDispositionReview } from './agent-disposition-task'
 
 export { isPrivateUrl } from '@open-mercato/shared/lib/network'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { TranslateParams } from '@open-mercato/shared/lib/i18n/context'
 
 const logger = createLogger('workflows')
 
@@ -1630,7 +1632,7 @@ export async function executeCallApi(
   }
 
   // 2. Build full URL (prepend APP_URL for relative paths)
-  const requestUrl = resolveCallApiUrl(endpoint)
+  const requestUrl = await resolveCallApiUrl(endpoint)
 
   // 3. Import the one-time API key helper
   const { withOnetimeApiKey } = await import('../../api_keys/services/apiKeyService')
@@ -1901,20 +1903,33 @@ export async function resolveWorkflowPrincipalUserId(
 const CALL_API_MAX_REDIRECTS = 3
 const CALL_API_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
 
+async function createCallApiError(key: string, fallback: string, params?: TranslateParams): Promise<Error> {
+  const { translate } = await resolveTranslations()
+  return new Error(translate(key, fallback, params))
+}
+
+function createAppUrlNotHttpError(appUrl: string): Promise<Error> {
+  return createCallApiError(
+    'workflows.errors.callApi.appUrlNotHttp',
+    'CALL_API requires an http(s) APP_URL, got: {appUrl}',
+    { appUrl },
+  )
+}
+
 /**
  * Resolve a CALL_API endpoint to the URL the one-time API key may be sent to
  * (SSRF prevention). Relative paths are joined to APP_URL; relative and absolute
  * endpoints must both resolve to APP_URL's exact origin (scheme, host and port)
  * and to a path under APP_URL's `/api/`.
  */
-function resolveCallApiUrl(endpoint: string): URL {
+async function resolveCallApiUrl(endpoint: string): Promise<URL> {
   const appUrl = process.env.APP_URL || 'http://localhost:3000'
 
   let appUrlObj: URL
   try {
     appUrlObj = new URL(appUrl)
   } catch {
-    throw new Error(`CALL_API requires an http(s) APP_URL, got: ${appUrl}`)
+    throw await createAppUrlNotHttpError(appUrl)
   }
 
   let target: URL
@@ -1930,18 +1945,23 @@ function resolveCallApiUrl(endpoint: string): URL {
   }
 
   if (appUrlObj.protocol !== 'http:' && appUrlObj.protocol !== 'https:') {
-    throw new Error(`CALL_API requires an http(s) APP_URL, got: ${appUrl}`)
+    throw await createAppUrlNotHttpError(appUrl)
   }
 
   target.pathname = target.pathname.replace(/\/{2,}/g, '/')
 
   if (target.username || target.password) {
-    throw new Error('SSRF Prevention: CALL_API endpoint must not contain credentials')
+    throw await createCallApiError(
+      'workflows.errors.callApi.endpointCredentials',
+      'SSRF Prevention: CALL_API endpoint must not contain credentials',
+    )
   }
 
   if (target.origin !== appUrlObj.origin) {
-    throw new Error(
-      `SSRF Prevention: CALL_API endpoint origin (${target.origin}) does not match APP_URL origin (${appUrlObj.origin})`
+    throw await createCallApiError(
+      'workflows.errors.callApi.originMismatch',
+      'SSRF Prevention: CALL_API endpoint origin ({endpointOrigin}) does not match APP_URL origin ({appUrlOrigin})',
+      { endpointOrigin: target.origin, appUrlOrigin: appUrlObj.origin },
     )
   }
 
@@ -1979,18 +1999,27 @@ async function fetchCallApiWithGuardedRedirects(
     }
 
     const location = response.headers.get('location')
-    const refuse = () =>
-      new Error(
-        `CALL_API refused to follow redirect ${response.status} to ${location ?? '(no Location header)'}`
+    const refuse = async () => {
+      const { translate } = await resolveTranslations()
+      return new Error(
+        translate(
+          'workflows.errors.callApi.redirectRefused',
+          'CALL_API refused to follow redirect {status} to {location}',
+          {
+            status: response.status,
+            location: location ?? translate('workflows.errors.callApi.noLocationHeader', '(no Location header)'),
+          },
+        )
       )
+    }
     if (!location || redirects >= CALL_API_MAX_REDIRECTS) {
-      throw refuse()
+      throw await refuse()
     }
 
     try {
-      url = resolveCallApiUrl(new URL(location, url).href)
+      url = await resolveCallApiUrl(new URL(location, url).href)
     } catch {
-      throw refuse()
+      throw await refuse()
     }
 
     await response.body?.cancel()
