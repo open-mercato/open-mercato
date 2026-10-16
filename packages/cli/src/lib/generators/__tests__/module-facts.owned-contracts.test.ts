@@ -31,7 +31,7 @@ describe('module-facts owned contracts + provenance (Spec 1)', () => {
     writeFixture(
       moduleRoot,
       'index.ts',
-      "export const metadata = { name: 'facts', title: 'Facts', version: '1.2.3', requires: ['auth', 'catalog'], ejectable: true }\n",
+      "export const metadata = { name: 'facts', title: 'Facts', version: '1.2.3', requires: ['auth', 'catalog'], optionalRequires: ['notifications'], ejectable: true }\n",
     )
     writeFixture(
       moduleRoot,
@@ -212,8 +212,52 @@ describe('module-facts owned contracts + provenance (Spec 1)', () => {
   it('extracts module-metadata owned contract with only safe scalar fields', () => {
     const fact = ownedById(facts, 'module-metadata', 'facts')
     expect(fact).toBeDefined()
-    expect(fact?.metadata).toEqual({ name: 'facts', version: '1.2.3', requires: ['auth', 'catalog'], ejectable: true })
+    expect(fact?.metadata).toEqual({
+      name: 'facts',
+      version: '1.2.3',
+      requires: ['auth', 'catalog'],
+      optionalRequires: ['notifications'],
+      ejectable: true,
+    })
     expect(fact?.source.sourcePath).toBe('node_modules/@open-mercato/example/src/modules/facts/index.ts')
+  })
+
+  it('omits optionalRequires entirely when the module declares none', () => {
+    const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'module-facts-optional-requires-'))
+    try {
+      const noOptionalRoot = path.join(temporaryRoot, 'no-optional')
+      writeFixture(
+        noOptionalRoot,
+        'index.ts',
+        "export const metadata = { name: 'no_optional', version: '1.0.0', requires: ['auth'] }\n",
+      )
+      const noOptionalFacts = extractModuleFacts({
+        moduleId: 'no_optional',
+        moduleRoot: noOptionalRoot,
+        sourcePackage: '@open-mercato/example',
+        sourceVersion: '1.0.0',
+      })
+      const fact = ownedById(noOptionalFacts, 'module-metadata', 'no_optional')
+      expect(fact?.metadata).toEqual({ name: 'no_optional', version: '1.0.0', requires: ['auth'] })
+      expect(fact?.metadata.optionalRequires).toBeUndefined()
+
+      const emptyOptionalRoot = path.join(temporaryRoot, 'empty-optional')
+      writeFixture(
+        emptyOptionalRoot,
+        'index.ts',
+        "export const metadata = { name: 'empty_optional', version: '1.0.0', requires: ['auth'], optionalRequires: [] }\n",
+      )
+      const emptyOptionalFacts = extractModuleFacts({
+        moduleId: 'empty_optional',
+        moduleRoot: emptyOptionalRoot,
+        sourcePackage: '@open-mercato/example',
+        sourceVersion: '1.0.0',
+      })
+      const emptyFact = ownedById(emptyOptionalFacts, 'module-metadata', 'empty_optional')
+      expect(emptyFact?.metadata.optionalRequires).toBeUndefined()
+    } finally {
+      fs.rmSync(temporaryRoot, { recursive: true, force: true })
+    }
   })
 
   it('discovers recursive domain commands and selects a canonical duplicate source with a diagnostic', () => {

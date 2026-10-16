@@ -1,0 +1,319 @@
+# Marketing Automation Module — Agent Guidelines
+
+A campaign is: a **trigger** (a platform event id, or a periodic sweep) → an **audience**
+expression → an ordered list of **steps**, one of which may be an A/B **split** carrying lanes of
+its own. Spec:
+[`.ai/specs/2026-09-28-marketing-automation-module.md`](../../../../../.ai/specs/2026-09-28-marketing-automation-module.md).
+
+## What To Build Next
+
+Read "Ordo parity audit — business features, 2026-09-29" in
+`.ai/specs/2026-09-28-marketing-automation-full-port-roadmap.md` before picking work. It lists the unblocked
+items in order (score rules are done; A2 is next), the blocked ones with verified reasons (coupons need SPEC-055; customer push
+needs a customer device registry and web push, because the platform's push rails reach staff), and what is
+already at parity. Items A5–A7 change `sales` — ask before building them.
+
+## Always
+
+- Keep `lib/engine/` pure — no React, no ORM, no container, no `reportError`. It is the only
+  reason the sequencing rules are testable, and they are the part most worth testing.
+- Express audience conditions as `business_rules` `ConditionExpression` trees. Never add a second
+  condition language; `matchesAudience` is the only entry point.
+- Evaluate an audience through `matchesAudience`, never `evaluateExpression` directly — the veto
+  it adds is load-bearing (see Never).
+- Keep every narrowing a SUPERSET of the audience (`lib/engine/narrowing.ts`). Resolve any ambiguity
+  by widening, and push nothing down that you cannot prove. `matchesAudience` decides membership;
+  the narrowing only decides who is worth projecting.
+- Send through `sendEmail` from `@open-mercato/shared/lib/email/send`, and tag through the
+  `customers.tags.assign` command. No direct provider calls, no new tag storage.
+- Scope every query by BOTH `tenantId` and `organizationId`.
+- Read `primary_email`, `display_name` and `customer_people.timezone` through
+  `findOneWithDecryption`/`findWithDecryption` with the scope — they are encrypted at rest, and a
+  plain `em.findOne` returns ciphertext that then compares against plaintext and silently fails.
+- Repeat a worker's queue name as a string LITERAL in `metadata`. The generator extracts it from
+  the AST and cannot resolve an import; the worker silently disappears from the registry.
+  `workers/__tests__/queue-name-literals.test.ts` guards this.
+- Report an error you catch with `reportError` in addition to logging it — at the I/O edges
+  (`lib/dispatcher.ts`, `subscribers/`, `workers/`), never inside `lib/engine/`.
+- Answer "what does this add to the customer profile?" for every new capability. A feature nothing
+  reads is write-only, and this module has already shipped that defect once.
+- Add a new step type through `registerMarketingSteps` with `labelKey`, `paramsSchema` and
+  `uiFields` populated. Those three are what make it appear in the palette with a working
+  inspector form and server-side validation.
+- Edit the authored steps through `lib/canvas/step-tree.ts`, never by indexing into
+  `definition.steps`. With splits a campaign is a tree, and an edit that assumes a flat array
+  silently ignores everything authored inside a lane.
+- Add a periodic candidate source through `ROW_SWEEP_SOURCES` in `lib/sweep-sources.ts`. The worker,
+  the validator's accepted ids, the palette and the audience builder's offered paths all derive from
+  that registry; a source added anywhere else is invisible to at least one of them.
+- Give a row source a `claimKey` when it must act on a thing exactly once ever, and leave it off when
+  repeats are legitimate. A review request must never be sent twice; a quote-expiry reminder is
+  supposed to be repeatable, and the campaign's re-entry policy is what governs it.
+- Recurse into `readVariants(step).steps` in anything that walks a definition — save validation,
+  position pruning, analytics. Forgetting to is how a lane ends up exempt from a rule the trunk
+  obeys.
+
+## Ask First
+
+- Before changing what an ABSENT consent record means. It currently permits sending
+  (`UNRECORDED_CONSENT_ALLOWS_SENDING`), because refusing would disable every campaign on every existing
+  installation the moment it shipped. Flipping it is a product decision, not a fix.
+- Before making any step type send on a new channel (SMS, WhatsApp, push) — a provider belongs in
+  its own `packages/channel-*`, not here.
+- Before adding a table. The authored graph lives in `campaigns.definition` jsonb on purpose;
+  triggers are a table only because their lookup runs on every platform event.
+- Before changing a key of the subject document. Field paths are what saved audiences reference,
+  so a rename silently breaks every campaign that used it.
+
+## Never
+
+Rationale and the production incidents behind these rules: [`.ai/docs/marketing-automation-lessons.md`](../../../../../.ai/docs/marketing-automation-lessons.md).
+
+- Never let a numeric aggregate be `null` in the subject document — omit the key instead; `matchesAudience` vetoes magnitude comparisons on absent operands.
+- Never push an order-aggregate comparison down when a customer with no orders would satisfy it (`count <= 5`, `= 0`, `totalGross >= 0`) — it would drop every never-buyer.
+- Never conflate the two kinds of stop: a `wait` resumes AFTER it; quiet hours resume AT the same step.
+- Never make the frequency cap per-campaign — `marketing_message_sends` counts across all campaigns.
+- Never walk `definition.steps` in a validation rule without descending into `readVariants` — call the shared `assertNoLoopRisk`.
+- Never default an expected-version token to `''` — pass `undefined`, or the lock silently switches off.
+- Never persist or return third-party error text from a step that handles an address — redact at the step (`lib/redact.ts`).
+- Never let the learned send hour compete with an authored one — an authored hour silences the learned guess entirely.
+- Never push an authored send hour out of quiet hours — discard it like the learned hour.
+- Never let send-time optimisation override quiet hours — optimisation proposes, quiet hours dispose.
+- Never learn a send hour from fewer than `MINIMUM_OPENS_FOR_PATTERN` opens, and never group open hours in server time.
+- Never accept a survey score via `Number(value)` alone — `Number(null/''/false)` all coerce to 0, a valid and worst NPS score.
+- Never run erasure outside a transaction.
+- Never run raw SQL inside a transaction through `em.getConnection().execute` — it opens a connection outside the transaction; use `em.execute(sql, params)`.
+- Never snap a deferred send to the top of the UTC hour — snap to the top of the recipient's OWN hour.
+- Never page a sweep without clearing the identity map between pages.
+- Never check a public endpoint's body size after buffering the body — apply the ceiling WHILE reading (`readBoundedBody`).
+- Never ship a structural guard without a positive-control fixture it MUST flag.
+- Never let a CSV import mark anybody as SUBSCRIBED — only suppression is safe without consent evidence.
+- Never let a suppression import treat "unmatched" as "not a customer" — report the count and a sample instead.
+- Never multiply an audience estimate by a step count to get a message volume — report people and max messages per person separately.
+- Never guess which column of an imported CSV is an address — count and report unusable rows instead.
+- Never make erasure delete rows (null the subject link instead), and never erase a consent record.
+- Never check consent after a timing gate — a refused message is DROPPED, never deferred.
+- Never score RFM against fixed day counts — quintiles are over the tenant's OWN buyers; below `MINIMUM_BUYERS_FOR_RFM` nothing is scored.
+- Never project a customer's value from one order — use the cadence window first order → NOW.
+- Never measure a split-lane step against the trunk step before the split — its predecessor is the SPLIT.
+- Never sort the step funnel by volume — keep the AUTHORED order.
+- Never count a funnel in messages, and never add a `delivered` stage without provider feedback.
+- Never read a purchased CATEGORY from the order snapshot — a category is a current classification, not a historical fact.
+- Never ship a template step whose PARAMS don't validate — check params, not just step types.
+- Never judge an A/B winner, or the auto-promotion margin, on a metric the lanes cannot be compared on (mixed currency, no ordering, nothing attributed yet).
+- Never split the winner metric into two settings — one tenant setting governs both the suggestion and the unattended promotion.
+- Never auto-promote an A/B winner on "not tied" alone — require twice the sample and a relative margin, off by default.
+- Never let an integration spec lean on state another spec created — create the fixture, assert, delete it.
+- Never fetch an authenticated file through `page.request` in a browser spec — assert the link in the DOM, fetch with the API token.
+- Never materialise a generated fixture population into an array — yield it, and cross only the dimensions actually read together.
+- Never let `lib/engine/` reach for React, an ORM, the container or an entity — enforced by `.dependency-cruiser.cjs`.
+- Never leave a type shared across files in a module that also imports from them — type-only cycles erase at runtime but break on a VALUE.
+- Never put anything but a subscriber in `subscribers/` — every file there is auto-registered.
+- Never make a reorder reminder once-ever or daily — put the cycle NUMBER in the claim key.
+- Never name an icon the shared design system does not already export — `yarn generate` would dirty `packages/ui`.
+- Never leave the two PUBLIC pages in English — follow `resolveTranslations`, escape interpolated values via `lib/html-escape.ts`.
+- Never let a link in an email change anything on GET — mutating actions must be POST (RFC 8058 one-click).
+- Never guess whether the author already placed the unsubscribe link after tracking, and never track the unsubscribe URL itself as a click.
+- Never divide a per-run numerator by a per-message denominator — rates and the sample gate divide by people REACHED.
+- Never let a truncation sentinel pass through a row-removing filter.
+- Never let the unsubscribe endpoint confirm something it did not do.
+- Never put an identity in an unsubscribe link — it names the run; the endpoint resolves the customer.
+- Never give an AI tool the power to enable a campaign — publishing is gated behind a human permission.
+- Never push an ENCRYPTED field down to SQL — `narrowing.ts` refuses `address.*` on purpose.
+- Never read a purchased product from the catalogue — use the order line's `catalog_snapshot`.
+- Never let a test send take its recipient from the request — it comes from the session.
+- Never explain the engine with a second implementation — the preview drives `executeRun` itself via `lib/preview.ts`.
+- Never recompute which lane a run walked — it is recorded on the run.
+- Never normalise the link report's shares into a pie — shares are of everyone who clicked ANYTHING and legitimately overlap.
+- Never count raw opens or clicks in a comparison — count unique runs.
+- Never cache a lead score in a column, and never make a tier a stored field — both are derived.
+- Never store an IP address or user agent on a delivery event.
+- Never sign a tracking token with a session/JWT secret, and never put the destination in the URL instead of inside the signature.
+- Never make an occurrence key permanent, and never derive it from anything but the delivered payload.
+- Never proceed without the claim token returned by `claimRun`, and never write a run without re-asserting it.
+- Never let a per-subject failure abort a batch — sweeps and the due-run scan catch per row.
+- Never relax save-time validation to match the dispatcher's runtime skip-unknown-step-type tolerance.
+- Never key a schedule on its interval alone — the source is part of its identity.
+- Never let a malformed payload reach the route as a throw — `safeParse` + a `marketing_automation.validation.*` 400.
+- Never draw a user-editable edge on the canvas — edges are derived; order lives in the definition arrays.
+- Never match a birthday on the year — match month/day, put the YEAR in the claim key.
+- Never read a custom field by the customer id — it is stored against the person PROFILE id.
+- Never derive the agent's tool list from the pack — write it out by hand so publish stays reserved for a person.
+- Never let the deliverability breaker trip on a small sample.
+- Never claim the breaker measures bounces or complaints — it only watches attempted-send failure rate.
+- Never invent a customer field the platform doesn't have (store channel, guessed language) — derive from orders/preferences.
+- Never answer a readiness check from a "setup completed" flag — check what is true now.
+- Never take the subject of a portal route from the request — it comes from the portal session.
+- Never merge the recipient's own frequency preference into the campaign's cap — evaluate each in its own window.
+- Never treat a customer pause as an unsubscribe — a pause DEFERS at the same step.
+- Never reassign a lead that already has an owner unless explicitly asked.
+- Never route with a stored round-robin cursor — use stateless least-loaded-wins.
+- Never store a colleague's name or email in module config — keep the user id.
+- Never send a digest that says nothing happened.
+- Never read a shopper's price from a targeted price row — compare the UNTARGETED list price.
+- Never treat a missing current price as a price drop.
+- Never keep a watch's reference price when the product got DEARER — follow it upwards.
+- Never emit a price-drop event before the watch bookkeeping is committed.
+- Never add a back-in-stock scan by reading `wms` tables directly — blocked on the availability contract.
+- Never resolve segment membership anywhere but `resolveSegmentMembers`, and never with a second implementation.
+- Never treat a narrowed candidate set as people — filter to live persons in BOTH paths.
+- Never queue a bulk action with a member LIST — carry the segment and resolve at job time.
+- Never report a truncated count without saying so.
+- Never define a segment in terms of segments.
+- Never let `buildSubjectDocument` default segment definitions to none.
+- Never rename a segment's slug.
+- Never invent a code alphabet — `lib/engine/referral-code.ts`'s Crockford base32 fold is the only one.
+- Never reissue a customer's referral code — `ensureReferralCode` is idempotent.
+- Never fire a referral reward on the claim — only the first CONVERSION order pays.
+- Never make the referral claim endpoint public.
+- Never return the referrer from a claim.
+- Never let history bookkeeping fail a save — `recordRevision` swallows its own errors.
+- Never restore a version by writing to the campaign directly — replay through `save_graph` with the CURRENT `updatedAt`.
+- Never write a job-log row only on success — create it before the work.
+- Never generate copy per recipient at send time — a draft is authored once and reviewed.
+- Never render a model's HTML in the admin UI without `parseDraftedCopy`.
+- Never put a tenant-supplied string in the system half of a prompt — it goes inside the `<briefing>` fence in the user message.
+- Never sign an inbound hook token with the tracking claim shape — `lib/inbound.ts` has its own key label.
+- Never let the inbound endpoint report whether an address matched a customer.
+- Never print a price from an order line's catalogue snapshot as an offer.
+- Never recommend a product the customer already owns from the generic ranker.
+- Never make a content block's key editable, and never render a missing block as its own reference.
+- Never store a subject's variant choice, and never derive it from anything but the step id and subject id.
+
+## Validation Commands
+
+```bash
+yarn workspace @open-mercato/marketing-automation test
+yarn workspace @open-mercato/marketing-automation typecheck
+yarn i18n:check-sync && yarn i18n:check-usage
+node --require ./scripts/typescript-js-require-hook.cjs node_modules/eslint/bin/eslint.js \
+  --config eslint.ds.config.mjs packages/marketing-automation
+```
+
+**The module is opt-in and OFF by default.** `apps/mercato/src/modules.ts` registers it only when
+`OM_ENABLE_MARKETING_AUTOMATION` is true, so an app started without it in `.env` serves no marketing
+routes at all — every request 404s and every integration spec fails for a reason that looks nothing
+like its cause. Set it in `apps/mercato/.env`, and re-run `yarn generate` after changing it: the route
+shards are emitted from the enabled-module list, so a stale registry keeps serving (or keeps hiding)
+the module whatever the flag says.
+
+Integration tests need a running app plus workers:
+`yarn dev` and `yarn mercato queue worker --all --with-scheduler`.
+
+```bash
+OM_INTEGRATION_MODULES=marketing_automation yarn test:integration
+```
+
+Always with that filter. A bare `yarn test:integration` takes ~2.6 minutes for this module's specs
+because `--grep` and the module filter are applied AFTER Playwright has compiled all ~1270 discovered
+spec files in the monorepo; narrowing `testMatch` up front runs the same specs in ~6 seconds.
+
+The dev server resolves this package through `node_modules`, which Next does not watch, so a rebuilt
+`dist` does NOT reach a running server: rebuild, then restart the dev runtime, before trusting a red
+integration result. A stale server is why a save-validation change once appeared not to work. Keep
+`yarn dev` in a terminal of its own — touching `apps/mercato/.env` restarts only the app runtime
+there, whereas a detached `yarn dev` exits instead of restarting.
+
+## Key Reference Files — Copy From Here
+
+| Concern | File |
+|---|---|
+| step sequencing, the two stops | `lib/engine/executor.ts`, `lib/engine/chain-planner.ts` |
+| audience evaluation and the missing-operand veto | `lib/engine/audience.ts` |
+| frequency cap, quiet hours | `lib/engine/gates.ts` |
+| claim-and-lease, backoff, dead-lettering | `lib/runs.ts`, `lib/engine/scheduling.ts` |
+| score ledger, idempotent awarding | `lib/scores.ts`, `steps/add-points.ts` |
+| score rules, the delta and its sequence number | `lib/score-rules.ts`, `workers/score-rules.ts` |
+| tier ladder, derivation and its defaults | `lib/engine/tiers.ts`, `lib/tiers.ts` |
+| everything known about one customer | `api/customers/[id]/profile/route.ts` |
+| NPS asking, answering and the latest score | `lib/survey.ts`, `steps/nps-survey.ts`, `api/survey/` |
+| subject export and erasure, and what they keep | `lib/gdpr.ts` |
+| consent state, its trail, and the send gate | `lib/consent.ts`, `api/unsubscribe/` |
+| importing somebody else's suppression list | `lib/engine/csv-emails.ts`, `api/consent/import/` |
+| reusable HTML blocks and their substitution | `lib/content-blocks.ts`, `api/content-blocks/` |
+| recommendation ranking and its two signals | `lib/engine/recommendations.ts`, `lib/recommendations.ts` |
+| per-tenant settings, and the only screen that writes them | `api/settings/route.ts` |
+| agent/MCP authoring tools and their invariants | `ai-tools/authoring-pack.ts` |
+| daily series behind the results chart | `lib/analytics/daily-series.ts` |
+| which links were clicked, and its overlap rule | `lib/analytics/links.ts` |
+| drop-off INSIDE a journey, and the split rule | `lib/analytics/step-funnel.ts` |
+| journey preview, and why it reuses the engine | `lib/preview.ts` |
+| learned send hour, and its minimum evidence | `lib/analytics/send-time.ts` |
+| A/B results, winner rules, the two metrics | `lib/analytics/split-results.ts`, `lib/winner-metric.ts` |
+| linear revenue attribution | `lib/analytics/attribution.ts` |
+| periodic candidate sources and their claims | `lib/sweep-sources.ts` |
+| duplicate-delivery guard and its window | `lib/occurrence.ts`, `lib/runs.ts` → `createRun` |
+| signed tracking tokens, link rewriting | `lib/tracking/` (`token.ts`, `rewrite.ts`, `urls.ts`) |
+| the only PUBLIC routes in the module | `api/track/open`, `api/track/click`, `api/unsubscribe`, `api/survey`, `api/inbound` |
+| escaping for the hand-built public pages | `lib/html-escape.ts` |
+| signed inbound hook URLs and their payload split | `lib/inbound.ts`, `api/inbound-hooks/` |
+| AI copy drafting, its prompt and its sanitiser | `lib/ai-copy.ts`, `lib/engine/copy-draft.ts` |
+| campaign history, versions and restore | `lib/revisions.ts`, `api/campaigns/[id]/revisions/` |
+| background job log and its retention | `lib/job-runs.ts`, `api/jobs/` |
+| referral codes, claims and the subject flip | `lib/referrals.ts`, `lib/engine/referral-code.ts` |
+| saved segments, membership and its cycle rule | `lib/segments.ts`, `lib/engine/segment-expression.ts` |
+| ONE membership resolver, shared by five callers | `lib/segment-members.ts` |
+| daily segment sizes and their retention | `lib/segment-snapshots.ts` |
+| a queued bulk action with real progress | `workers/segment-action.ts`, `api/segments/[id]/actions/` |
+| price watches, the drop rules and the scan | `lib/engine/price-watch.ts`, `lib/product-watches.ts` |
+| lead routing and the weekly rep digest | `lib/engine/lead-routing.ts`, `lib/lead-digest.ts` |
+| what the recipient asked for, and the gate | `lib/preferences.ts`, `lib/engine/gates.ts` → preference |
+| the only PORTAL route in the module | `api/portal/preferences/` |
+| the first-run readiness checks | `lib/engine/readiness.ts`, `api/readiness/` |
+| the campaign authoring agent and its limits | `ai-agents.ts`, `ai-tools/__tests__/agent-cannot-publish.test.ts` |
+| the deliverability breaker and what it can see | `lib/engine/deliverability.ts`, `lib/deliverability.ts` |
+| a custom field added to another module's record | `ce.ts` (birth date on the person profile) |
+| a step that writes into the run context | `steps/issue-referral-code.ts` |
+| enrolment shared by events and sweeps | `lib/dispatcher.ts` → `startCampaignForSubject` |
+| trigger context hydration | `lib/trigger-catalog.ts` |
+| a step handler with a channel | `steps/send-email.ts` |
+| an idempotent step | `steps/add-tag.ts` (409 "already assigned" is success) |
+| audience pushdown planner and its superset rule | `lib/engine/narrowing.ts` |
+| candidate resolution and the set algebra | `lib/audience/set-resolver.ts` |
+| canvas ↔ definition mapping, fork and rejoin | `lib/canvas/graph-mapping.ts` |
+| structural edits over the step tree | `lib/canvas/step-tree.ts` |
+| deterministic lane assignment, flattening | `lib/engine/split.ts` |
+
+## Gotchas Carried From Production Experience
+
+- A referral conversion's event SUBJECT is the referrer, not the buyer. No audience expression can turn one
+  person's order into a different person's run, which is why it is an event of its own rather than a rule over
+  `sales.order.created`.
+- `customers.person.created` puts the PERSON PROFILE id in `payload.id`; the customer is
+  `payload.entityId`. Reading `id` keys every run and every tag on the wrong row.
+- `sales.order.created` carries only `{ id, organizationId, tenantId, userId }` — no customer and
+  no total. Anything an audience compares must be hydrated in `lib/trigger-catalog.ts`.
+- Sales money columns are `numeric` mapped to `string`. Parse deliberately.
+- A cancelled order is `canceled` OR `cancelled`; the codebase tolerates both.
+- `add_tag` emits `customers.tag.assigned`, which is itself a trigger. Two things stop a cycle:
+  the save refuses a campaign whose trigger is an event its own steps emit, and
+  `MAX_RUNS_PER_SUBJECT` bounds runs per subject per hour across ALL campaigns. An in-context
+  depth counter was tried first and could not work — the events are emitted by the modules that
+  own them and carry nothing of ours, so nothing could increment a depth across the hop.
+- `em.getConnection().execute` does not bind a JS array to `= any(?)` — it errors rather than binding. Expand
+  placeholders (`in (?, ?, …)`) and spread the values; they are still parameters.
+- `moduleConfigService.getValue` takes the scope inside an OPTIONS object (`{ scope }`) while `setValue`
+  takes it positionally. Passing it positionally to `getValue` compiles, drops the scope and reads the
+  instance-wide record instead, so a tenant's configured value never applies — and nothing fails, because
+  the default is a legitimate answer. Both config loaders had this bug;
+  `lib/__tests__/module-config-scope.test.ts` now asserts the scope arrives.
+- An integration test that mutates a customer it did not create will break a different spec. TC-MA-020 awarded
+  a point to whichever customer the installation listed first, and TC-MA-009 — which asserts an untouched
+  customer has no points — started failing two commits later. Create the fixture, use it, delete it.
+- New features reach existing tenants only after `yarn mercato auth sync-role-acls`, and the dev
+  server caches the generated ACL registry — restart it or a wildcard has nothing to expand.
+
+## Not Implemented, Deliberately
+
+- `storefront.cart.abandoned` — no cart entity exists in the platform. It is in the catalog as
+  unavailable with a reason so the palette explains itself; blocked on `SPEC-029`.
+- SMS, WhatsApp and push: a channel provider belongs in its own `packages/channel-*`, not here.
+- An RSS content block: parsing XML needs a production dependency and fetching an operator-typed URL needs an
+  SSRF policy, which is a platform decision rather than one this module makes for itself.
+- A product-feed content block: `{{recommendations}}` already degrades to best sellers with no history, so a
+  shared block would be a second rendering of the same HTML for a cost nobody has reported.
+- A campaign calendar and a form-based authoring fallback: the first shows facts three existing screens already
+  answer, the second is a second authoring surface for one model. Reasons in the roadmap spec.
+- Everything else in the roadmap's blocked table — each needs a cart, a channel account, storefront tracking,
+  the availability contract, provider feedback, ad credentials, push rails, a `search` scope decision or a change
+  to the frozen `workflows` enum.
