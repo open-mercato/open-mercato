@@ -18,6 +18,13 @@ import { createProfiler, shouldEnableProfiler, type Profiler } from '@open-merca
 import type { VectorIndexService } from '@open-mercato/search/vector'
 import { decryptIndexDocCustomFields } from '@open-mercato/shared/lib/encryption/indexDoc'
 import {
+  DECLINED_ENCRYPTED_SORT_LOG_MESSAGE,
+  DECRYPT_REFUSAL_LOG_MESSAGE,
+  DecryptRefusalTally,
+  resolveDecryptEnabled,
+  resolveDecryptScope,
+} from '@open-mercato/shared/lib/encryption/decryptScope'
+import {
   buildCustomFieldKindIndex,
   createCustomFieldKindMapResolver,
   emptyCustomFieldKindIndex,
@@ -49,7 +56,13 @@ import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { buildContainmentPatterns } from '@open-mercato/shared/lib/search/containment'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from '@open-mercato/shared/lib/query/query-extension-runner'
 import { warnOnCiphertextLikeFallback } from '@open-mercato/shared/lib/query/ciphertext-search-warning'
-import { resolveEncryptedSortFields, resolveEncryptedSortMaxRows, sortRowsInMemory } from '@open-mercato/shared/lib/query/encrypted-sort'
+import {
+  matchEncryptedSortFields,
+  resolveEncryptedFieldNames,
+  resolveEncryptedSortFields,
+  resolveEncryptedSortMaxRows,
+  sortRowsInMemory,
+} from '@open-mercato/shared/lib/query/encrypted-sort'
 import { resolveListCountCap } from '@open-mercato/shared/lib/query/count-cap'
 import { resolveCfDefIndexOrgCandidates } from '@open-mercato/shared/lib/crud/custom-field-definition-index'
 import { mapWithConcurrency } from '@open-mercato/shared/lib/query/bounded-decrypt'
@@ -776,7 +789,8 @@ export class HybridQueryEngine implements QueryEngine {
       const fallbackOrgId =
         opts.organizationId
         ?? (Array.isArray(opts.organizationIds) && opts.organizationIds.length === 1 ? opts.organizationIds[0] : null)
-      const encSvc = this.getEncryptionService()
+      const decryptEnabled = resolveDecryptEnabled(opts)
+      const encSvc = decryptEnabled ? this.getEncryptionService() : null
       const resolvedSorts: Sort[] = []
       for (const sort of opts.sort || []) {
         const field = String(sort.field)
@@ -787,14 +801,40 @@ export class HybridQueryEngine implements QueryEngine {
           if (baseField) resolvedSorts.push({ ...sort, field: baseField })
         }
       }
-      const encryptedSortFields = await resolveEncryptedSortFields(
+      const plainSortFields = resolvedSorts
+        .filter((sort) => !sort.field.startsWith('cf:'))
+        .map((sort) => sort.field)
+      const encryptedFieldNames = await resolveEncryptedFieldNames(
         encSvc,
         entity,
-        resolvedSorts.filter((sort) => !sort.field.startsWith('cf:')).map((sort) => sort.field),
         opts.tenantId ?? null,
         fallbackOrgId,
       )
+      const encryptedSortFields = matchEncryptedSortFields(encryptedFieldNames, plainSortFields)
       const requiresPlaintextSort = encryptedSortFields.size > 0
+      if (!decryptEnabled && plainSortFields.length > 0) {
+        const declinedSortFields = await resolveEncryptedSortFields(
+          this.getEncryptionService(),
+          entity,
+          plainSortFields,
+          opts.tenantId ?? null,
+          fallbackOrgId,
+        )
+        if (declinedSortFields.size > 0) {
+          logger.warn(DECLINED_ENCRYPTED_SORT_LOG_MESSAGE, {
+            entity: String(entity),
+            sortFields: Array.from(declinedSortFields),
+          })
+        }
+      }
+      const requestedFields = opts.fields && opts.fields.length ? opts.fields.map(String) : null
+      const injectsTenantIdForDecrypt =
+        encSvc != null
+        && hasTenantColumn
+        && requestedFields != null
+        && !requestedFields.includes('tenant_id')
+        && !requestedFields.includes('tenantId')
+        && (encryptedFieldNames === null || encryptedFieldNames.length > 0)
 
       const cfSortKeys = Array.from(new Set(
         resolvedSorts.filter((sort) => sort.field.startsWith('cf:')).map((sort) => sort.field.slice(3))
@@ -1177,6 +1217,7 @@ export class HybridQueryEngine implements QueryEngine {
       if (requiresPlaintextSort) {
         for (const field of encryptedSortFields) selectFieldSet.add(field)
       }
+      if (injectsTenantIdForDecrypt) selectFieldSet.add('tenant_id')
       if (opts.includeCustomFields === true) {
         const entityIds = Array.from(new Set(indexSources.map((src) => String(src.entityId))))
         try {
@@ -1304,20 +1345,28 @@ export class HybridQueryEngine implements QueryEngine {
         return customFieldKinds
       }
 
+      const refusalTally = new DecryptRefusalTally()
+
       const decryptRow = async (item: Record<string, unknown>): Promise<Record<string, unknown>> => {
         let next = item
+        if (!encSvc) return next
+        const decision = resolveDecryptScope({
+          rowTenantId: (next?.tenant_id ?? next?.tenantId ?? null) as string | null,
+          rowOrganizationId: (next?.organization_id ?? next?.organizationId ?? null) as string | null,
+          callerTenantId: opts.tenantId ?? null,
+          callerOrganizationId: fallbackOrgId ?? null,
+        })
+        if (!decision.decrypt) {
+          refusalTally.record(decision, next?.id == null ? null : String(next.id))
+          return next
+        }
         if (encSvc?.decryptEntityPayload) {
           const decrypt = encSvc.decryptEntityPayload.bind(encSvc) as (
             entityId: EntityId, payload: Record<string, unknown>, tenantId: string | null, organizationId: string | null,
             options?: { em?: EntityManager },
           ) => Promise<Record<string, unknown>>
           try {
-            const decrypted = await decrypt(
-              entity, next,
-              (next?.tenant_id ?? next?.tenantId ?? opts.tenantId ?? null) as string | null,
-              (next?.organization_id ?? next?.organizationId ?? fallbackOrgId ?? null) as string | null,
-              { em: this.em },
-            )
+            const decrypted = await decrypt(entity, next, decision.tenantId, decision.organizationId, { em: this.em })
             next = { ...next, ...decrypted }
           } catch (err) {
             logger.error('Error decrypting entity payload', { err })
@@ -1328,8 +1377,8 @@ export class HybridQueryEngine implements QueryEngine {
             // The kind is resolved against the very scope the value is decrypted with, so an
             // organization-specific definition can never type another organization's value.
             const cfScope = {
-              tenantId: (next?.tenant_id ?? next?.tenantId ?? opts.tenantId ?? null) as string | null,
-              organizationId: (next?.organization_id ?? next?.organizationId ?? fallbackOrgId ?? null) as string | null,
+              tenantId: decision.tenantId,
+              organizationId: decision.organizationId,
             }
             const resolveKinds = await resolveCustomFieldKinds()
             next = await decryptIndexDocCustomFields(
@@ -1339,6 +1388,11 @@ export class HybridQueryEngine implements QueryEngine {
           } catch { /* keep next as-is */ }
         }
         return next
+      }
+
+      const reportDecryptRefusals = () => {
+        if (refusalTally.refused === 0) return
+        logger.warn(DECRYPT_REFUSAL_LOG_MESSAGE, refusalTally.toLogContext(String(entity)))
       }
 
       let items: Record<string, unknown>[]
@@ -1430,6 +1484,10 @@ export class HybridQueryEngine implements QueryEngine {
           { page, pageSize }, profiler,
         ) as Record<string, unknown>[]
         items = await mapWithConcurrency(itemsRaw, DECRYPT_CONCURRENCY, decryptRow)
+      }
+      reportDecryptRefusals()
+      if (injectsTenantIdForDecrypt) {
+        for (const row of items) delete row.tenant_id
       }
       if (debugEnabled) this.debug('query:complete', { entity, total, items: items.length })
 
