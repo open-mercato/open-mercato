@@ -77,6 +77,8 @@ export async function POST(req: Request) {
   const res = buildSafeRedirectResponse(req, '/login')
   res.cookies.set('auth_token', '', { path: '/', maxAge: 0 })
   res.cookies.set('session_token', '', { path: '/', maxAge: 0 })
+  res.cookies.set('om_selected_org', '', { path: '/', maxAge: 0 })
+  res.cookies.set('om_selected_tenant', '', { path: '/', maxAge: 0 })
   return res
 }
 
@@ -90,7 +92,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     POST: {
       summary: 'Invalidate session and redirect',
-      description: 'Clears authentication cookies and redirects the browser to the login page.',
+      description: 'Clears authentication and organization-scope cookies and redirects the browser to the login page.',
       responses: [
         { status: 302, description: 'Redirect to login after successful logout', mediaType: 'text/html' },
       ],

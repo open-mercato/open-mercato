@@ -106,6 +106,29 @@ describe('POST /api/auth/logout — session revocation', () => {
     const setCookie = res.headers.get('set-cookie') ?? ''
     expect(setCookie).toContain('auth_token=;')
     expect(setCookie).toContain('session_token=;')
+    expect(setCookie).toContain('om_selected_org=;')
+    expect(setCookie).toContain('om_selected_tenant=;')
+  })
+
+  it('expires the organization-scope cookies so the next user does not inherit "All organizations" (#7465)', async () => {
+    const req = new Request('http://localhost/api/auth/logout', {
+      method: 'POST',
+      headers: {
+        cookie: buildCookieHeader({
+          auth_token: buildAuthToken(),
+          om_selected_org: '__all__',
+          om_selected_tenant: 'tttttttt-tttt-4ttt-8ttt-tttttttttttt',
+        }),
+      },
+    })
+
+    const res = await POST(req)
+
+    const expiredCookies = res.cookies.getAll().filter((cookie) => cookie.value === '' && cookie.maxAge === 0)
+    expect(expiredCookies).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'om_selected_org', path: '/' }),
+      expect.objectContaining({ name: 'om_selected_tenant', path: '/' }),
+    ]))
   })
 
   it('ignores an auth_token JWT that cannot be verified (expired / tampered)', async () => {
