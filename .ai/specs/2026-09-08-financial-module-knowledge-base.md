@@ -27,7 +27,7 @@ This is an index, not a status report. Review state, merge state and
 open findings are deliberately not recorded here: the PR page is the
 status and it is never stale, whereas a hand-maintained copy of the state of
 twenty PRs has drifted twice. Spec branches live on the contributor's fork
-(`mikoajp/open-mercato`, `mikoajp/official-modules`), not on `develop`, so the
+(`mikoajp/open-mercato`), not on `develop`, so the
 PR links are the way to browse a spec until it merges. Checked against the
 PR heads on 2026-10-09.
 
@@ -43,28 +43,30 @@ PR heads on 2026-10-09.
 | Posting Rules Engine (konto 490) | `2026-09-06-posting-rules-engine.md` | `docs/posting-rules-engine` | [#6015](https://github.com/open-mercato/open-mercato/pull/6015) | [#6711](https://github.com/open-mercato/open-mercato/pull/6711) (`feat/posting-rules-engine`) |
 | This knowledge base | `2026-09-08-financial-module-knowledge-base.md` | `docs/financial-module-knowledge-base` | [#6016](https://github.com/open-mercato/open-mercato/pull/6016) | — |
 | GL bulk cross-module read service | `2026-09-10-general-ledger-bulk-read-service.md` | `docs/general-ledger-bulk-read-service` | [#6038](https://github.com/open-mercato/open-mercato/pull/6038) | — |
-| SPEC-010 — JPK_KR_PD (`financial_pl`, in `official-modules`) | `SPEC-010-2026-09-11-jpk-kr-pd-financial-pl.md` | `docs/spec-010-jpk-kr-pd-financial-pl` (fork `mikoajp/official-modules`) | [official-modules#54](https://github.com/open-mercato/official-modules/pull/54) (moved from [#6069](https://github.com/open-mercato/open-mercato/pull/6069), closed) | — |
+| SPEC-010 — JPK_KR_PD (`financial_pl`; official-modules numbering) | `2026-09-11-jpk-kr-pd-financial-pl.md` | `docs/financial-pl-specs-010-011-to-core` | PR to be opened (moved from [official-modules#54](https://github.com/open-mercato/official-modules/pull/54) and, before that, [#6069](https://github.com/open-mercato/open-mercato/pull/6069), both closed) | — |
 | Accounts Receivable (sales invoice → GL posting) | `2026-08-18-sales-invoice-gl-posting.md` | `docs/sales-invoice-gl-posting` | [#6046](https://github.com/open-mercato/open-mercato/pull/6046) | — |
 | Cash & Bank Management | `2026-09-10-cash-bank-management.md` | `docs/cash-bank-management` | [#6055](https://github.com/open-mercato/open-mercato/pull/6055) | — |
 | Default Chart of Accounts (Polish plan kont importer) | `2026-09-15-default-chart-of-accounts.md` | `docs/default-chart-of-accounts` | [#6137](https://github.com/open-mercato/open-mercato/pull/6137) | [#6439](https://github.com/open-mercato/open-mercato/pull/6439) (`feat/default-chart-of-accounts`) |
 | Tax Management (Core framework `tax_management`) | `2026-09-16-tax-management.md` | `docs/tax-management` | [#6168](https://github.com/open-mercato/open-mercato/pull/6168) | — |
-| SPEC-011 — Tax Management, Poland part (`financial_pl`) | `SPEC-011-2026-09-16-tax-management-financial-pl.md` | `docs/spec-011-tax-management-financial-pl` (fork `mikoajp/official-modules`) | [official-modules#55](https://github.com/open-mercato/official-modules/pull/55) | — |
+| SPEC-011 — Tax Management, Poland part (`financial_pl`; official-modules numbering) | `2026-09-16-tax-management-financial-pl.md` | `docs/financial-pl-specs-010-011-to-core` | PR to be opened (moved from [official-modules#55](https://github.com/open-mercato/official-modules/pull/55)) | — |
 | Annual Financial Statements (Core `financial_statements` + Poland Bilans/RZiS) | `2026-09-17-annual-financial-statements.md` | `docs/annual-financial-statements` | [#6188](https://github.com/open-mercato/open-mercato/pull/6188) | — |
 | Multi-Currency (exchange rate integration + period-end FX revaluation) | `2026-09-17-multi-currency.md` | `docs/multi-currency` | [#6190](https://github.com/open-mercato/open-mercato/pull/6190) | — |
 | Deferred Revenue (RMP — scheduled recognition over time for AR/Sales) | `2026-09-17-deferred-revenue.md` | `docs/deferred-revenue` | [#6193](https://github.com/open-mercato/open-mercato/pull/6193) | — |
-| SPEC-012 — `financial_pl` integration contracts (`official-modules`) | `SPEC-012-2026-10-08-financial-pl-integration-contracts.md` | `docs/spec-012-financial-pl-integration-contracts` (fork `mikoajp/official-modules`) | [official-modules#60](https://github.com/open-mercato/official-modules/pull/60) | — |
-| SPEC-013 — `financial_pl_accounting` package (`official-modules`) | `SPEC-013-2026-10-08-financial-pl-accounting-package.md` | `docs/spec-013-financial-pl-accounting-package` (fork `mikoajp/official-modules`) | [official-modules#61](https://github.com/open-mercato/official-modules/pull/61) | — |
+| SPEC-012 — `financial_pl` integration contracts (official-modules numbering) | `2026-10-08-financial-pl-integration-contracts.md` | `docs/financial-pl-specs-from-official-modules` | [#7070](https://github.com/open-mercato/open-mercato/pull/7070) (moved from [official-modules#60](https://github.com/open-mercato/official-modules/pull/60)) | — |
+| SPEC-013 — `financial_pl_accounting` package (official-modules numbering) | `2026-10-08-financial-pl-accounting-package.md` | `docs/financial-pl-specs-from-official-modules` | [#7070](https://github.com/open-mercato/open-mercato/pull/7070) (moved from [official-modules#61](https://github.com/open-mercato/official-modules/pull/61)) | — |
 | Budgeting & Forecasting, Cost Accounting | — | — | Not started (SPEC-024 only) | — |
 
-**`financial-pl` (JPK_V7/KSeF) lives outside this repo.** It's a real,
-substantial module, but in the separate `official-modules` repository —
-wired in as an optional, currently-uninstalled submodule
-(`external/official-modules/`; this repo's `official-modules.json` has
-`activated: []`), on an unmerged branch (`feat/financial-pl-invoice-ux`).
-Not shown in the table above, which is scoped to this repo's
-`.ai/specs/`. JPK_KR_PD support is a confirmed target for that module
-(no longer hypothetical); SPEC-010 above is the in-repo spec for the
-cross-module read contract it will depend on.
+**`financial-pl` (JPK_V7/KSeF) is not in this repo yet.** It is a real,
+substantial module that exists only in the `official-modules` repository
+(branch `feat/financial-pl-invoice-ux`, pinned at `17c575c`). As of 2026-10-09
+`official-modules` is deprecated and being archived and `financial_pl` will not
+live there: the financial work continues in Core, with KSeF coming later as a
+separate PR (open-mercato/official-modules#29). The four `financial_pl` specs
+(SPEC-010 to SPEC-013 in `official-modules` numbering, which clashes with the
+unrelated implemented `SPEC-010`..`013` under `.ai/specs/implemented/`) are in
+the table above under their Core filenames. Where to put the packages inside
+Core (`packages/` layout, one module per package) is not decided; the specs
+still say `packages/financial_pl_accounting/` as the target layout.
 
 **2026-09-12 findings: all written into their specs.** The seven findings
 of the 2026-09-12 research pass are on their sibling branches. Checked on
@@ -154,10 +156,9 @@ close the open items above.**
   service. The `RPD` node has eight amount fields (`K_1`–`K_8`) in
   Comarch XL's documentation, entered manually; the vendored XSD is the
   tie-breaker, not yet read.
-- **Not yet written into the specs concerned:** SPEC-010 and SPEC-011 in
-  `official-modules` (location, `requires`, transport via the DI service)
-  and the two new `official-modules` specs (financial_pl integration
-  contracts; `financial_pl_accounting` package overview).
+- **Not yet written into the specs concerned:** ~~SPEC-010 and SPEC-011 in
+  `official-modules`~~ (written 2026-10-08/09 and moved to Core, see the
+  2026-10-16 note at the end of this document).
 
 ---
 
@@ -2705,3 +2706,19 @@ Source: email from Mateusz Duda (Financial Controller, incro) of 2026-10-16, ans
 - **Cancellation (DD6).** Without a refund and with services stopped: recognize the remainder on the cancellation date. With a refund: recognize over time → cancellation stops accruals → credit note → the credit note reduces the remaining RMP balance; the remainder is not recognized as revenue (no further services, so no basis). So `stopRevenueRecognitionSchedule` is the no-refund path only; for a refund the credit note comes first and the correction guard freezes the deferral.
 - **Closed:** every ⚠ NEEDS HUMAN CONFIRMATION in the Deferred Revenue spec. Not named: a business owner of the DD6 policy (informational).
 
+### 2026-10-16 (cont. — `financial_pl` specs move to Core, #7070)
+
+- **Direction (from #7070, @wojciechszyjka, 2026-10-09):** `official-modules` is deprecated and
+  being archived; `financial_pl` will not live there. SPEC-012 and SPEC-013 moved to Core
+  (`.ai/specs/2026-10-08-financial-pl-integration-contracts.md`,
+  `.ai/specs/2026-10-08-financial-pl-accounting-package.md`) with a Prerequisites section: pinned links to
+  the `financial_pl` code (`17c575c`) and to SPEC-010/011 (`6b5dfb9`, `79aa0b9`), and a table of what each
+  phase waits on. The agreement stated in that PR covers SPEC-012/013 only; SPEC-010/011 stay as pinned links there.
+- **SPEC-010/011: move to Core prepared, not yet agreed with maintainers** (branch `docs/financial-pl-specs-010-011-to-core`, local, PR not opened):
+  `.ai/specs/2026-09-11-jpk-kr-pd-financial-pl.md` and `.ai/specs/2026-09-16-tax-management-financial-pl.md`,
+  content unchanged except a provenance note and the same kind of Prerequisites section. Module map above already shows the target filenames.
+- **Superseded wording:** the 2026-10-08 notes above that put `financial_pl_accounting` "in `official-modules`" and
+  say `financial_pl` "lives in `official-modules`" describe the position before this move. The design (separate
+  package, hard `requires`, DI transport and VAT read services) is unchanged; only the repository changed.
+- **Still open:** package layout inside Core against `packages/core/AGENTS.md`; the stale `official-modules` banners
+  inside SPEC-010/011 (kept as is, per "content unchanged"); when `financial_pl` itself is brought into Core.
