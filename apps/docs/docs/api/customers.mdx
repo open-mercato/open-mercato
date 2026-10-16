@@ -99,6 +99,8 @@ Provide the `id` in the query string or body. Soft deletes the entity and reinde
 **Feature:** `customers.companies.view`  
 Supports the same pagination, search, tag, status, lifecycle stage, source, email, and custom field filters as `/customers/people`.
 
+- `domain` — exact match on the company domain, for duplicate checks before creating a company. Pass a bare domain: case, a leading `@` or `www.`, a trailing dot and Unicode spelling are normalized, so `@acme.com`, `www.Acme.com` and `bücher.de` (`xn--bcher-kva.de`) all work. An empty value, a URL, an email address or any other invalid DNS name returns `400` with `code: "invalid_domain"`. Stored values such as `https://www.acme.com/` match, subdomains do not, and the result does not depend on the search index. Returns `422` with `code: "domain_lookup_too_broad"` when more than 10,000 companies with a domain are in scope (child organizations included), and `500` if a stored domain in scope cannot be decrypted.
+
 ### Retrieve company — `GET /customers/companies/{id}`
 
 **Feature:** `customers.companies.view`  
