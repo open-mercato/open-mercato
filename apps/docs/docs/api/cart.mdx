@@ -119,7 +119,7 @@ Every successful response above returns the same shape (`cart: CartView`), built
 }
 ```
 
-`priceChanges`/`versionBumpReason`/`warnings` are omitted (not emitted empty) on a request that triggers no disclosure.
+`priceChanges`/`versionBumpReason`/`warnings` are omitted (not emitted empty) on a request that triggers no disclosure. Every `warnings[].message` is real, translated copy resolved through `cart.warnings.*` i18n keys (`lib/warningMessages.ts`) — never a raw `[internal]`-prefixed developer placeholder; use `warnings[].code` for programmatic handling, `message` for display.
 
 `promotions` carries one entry per currently-applied `CartPromotionApplication` row — an automatic promotion that matched without a code and a code the buyer entered both show up here. `scope` is `"order"` for a whole-cart discount (`cartLineId: null`) or `"line"` for a discount attributed to one line (`cartLineId` set). `promotionId` is also the value `DELETE /api/cart/current/promotions/{id}` expects — the path segment is a promotion id, not a separate row id. A promotion that has since been deleted is omitted from the array rather than shown with a missing name.
 
@@ -139,6 +139,7 @@ These three commands exist (`cart/commands/lock.ts`, exposed via the `cartServic
 | `promotion_line_immutable` | 409 | Attempted to edit/remove a gift line |
 | `assortment_scope_required_for_storefront_channel` | 400 | No store context resolved for a route that needs one |
 | `code_reservation_unavailable` | 409 | A promotion code's budget or per-customer limit is exhausted |
+| `cart_not_active` | 409 | A write (not a GET) against a merged/expired/abandoned/converted cart — the response body carries the cart's real `status` |
 | `cart_merge_scope_mismatch` | 400 | `cart.merge` rejected a cross-store or cross-currency merge |
 | `merge_undo_window_expired` | 409 | `cart.mergeUndo` called past the 15-minute window |
 | `cart_locked` | 423 | The cart is locked (carries `checkoutSessionId`) — reachable once a `checkout` module starts calling `cart.lock` |

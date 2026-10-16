@@ -28,9 +28,11 @@ curl -s -X POST "$BASE_URL/promotions/evaluate" \
 
 **Permissions** — `GET` requires `promotions.view`; `POST`/`PUT`/`DELETE` require `promotions.create`/`.update`/`.delete` respectively. Standard `makeCrudRoute` CRUD against the `Promotion` aggregate (name, status, date window, tags, eligible currencies, budget).
 
+`PUT` is a genuine partial update — an omitted field is left untouched, never reset to its create-time default (`active`/`tags`/`excludedTags`/`excludeFlags`/`cumulative`/`eligibleCurrencies` included). A date-only `endsAt` (the datepicker's own output) is bumped to the end of that day (23:59:59.999 UTC) on write, so a promotion "ending today" stays eligible for the whole day rather than going dead at midnight; a full ISO timestamp passes through unchanged. `startsAt` and the evaluation engine's own comparison are unaffected — the fix lives entirely on the write path.
+
 ### `PUT /api/promotions/{id}/tree`
 
-Requires `promotions.update`. Saves the whole rule-condition tree (groups, rules, benefits) for one promotion in a single call — this is the tree builder's save action, backed by `promotions.rule_tree.reconcile`. Protects the `Promotion` aggregate with its own `updatedAt`-based optimistic lock (carried in the body, not a header) — a `409` means someone else edited the tree since the page loaded.
+Requires `promotions.update`. Saves the whole rule-condition tree (groups, rules, benefits) for one promotion in a single call — this is the tree builder's save action, backed by `promotions.rule_tree.reconcile`. Protects the `Promotion` aggregate with its own `updatedAt`-based optimistic lock (carried in the body, not a header) — a `409` means someone else edited the tree since the page loaded. A `422` carries a Zod `issues[]` array — e.g. an `order_value`/`row_total` rule or a tiered/fixed benefit saved with no `eligibleCurrencies` on the parent promotion (D-R4-27's single-currency validation).
 
 ### `PATCH /api/promotions/order`
 
@@ -39,6 +41,8 @@ Requires `promotions.update`. Batch-reorders promotions (the list page's drag-so
 ## Admin codes — `/api/promotions/codes`
 
 **Permissions** — all methods require `promotions.codes.manage`. Standard CRUD against `Code` (static vouchers and dynamic-pool definitions).
+
+`code`/`prefix`/`suffix` are normalized to trimmed, upper-cased, `A-Z0-9`-only strings on write, and every lookup path (`codes/reserve`, `codes/validate`, `codes/use`, `codes/release`, dynamic-pool generation's own collision check) normalizes the presented string the same way before comparing — a buyer typing `summer10` matches a stored `SUMMER10`.
 
 ### `POST /api/promotions/codes/{id}/generate`
 
