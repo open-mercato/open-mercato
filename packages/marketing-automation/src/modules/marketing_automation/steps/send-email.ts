@@ -432,13 +432,18 @@ export const sendEmailStep: StepHandler<StepDeps> = {
      * Most messages name the customer and nothing else, and the name arrived with the address lookup above,
      * so the common case costs no extra query. A message quoting somebody's order count or loyalty tier pays
      * for exactly that and nothing more.
+     *
+     * Scanned against `bodyWithBlocks`, not the author's raw `bodyHtml`: a placeholder can live inside a
+     * stored content block rather than in what the author typed, and the raw body shows only `{{block:x}}`.
+     * Scanning that would miss the root the block needs, `loadRenderValues` would never populate it, and the
+     * placeholder would reach the recipient unresolved — exactly the failure this mechanism exists to prevent.
      */
     const values = await loadRenderValues(
       deps.em,
       deps.container,
       ctx,
       deps.scope,
-      neededRenderRoots([params.subject, params.bodyHtml, params.bodyText]),
+      neededRenderRoots([params.subject, bodyWithBlocks, params.bodyText]),
       entity,
       deps.now ?? new Date(),
     )
