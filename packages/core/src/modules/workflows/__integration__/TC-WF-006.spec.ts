@@ -102,9 +102,6 @@ test.describe('TC-WF-006: Create and delete workflow definition via UI', () => {
       await expect(row).toBeVisible({ timeout: 10_000 })
 
       // Delete via row action menu → confirm dialog.
-      // RowActions opens on pointerenter AND toggles on click, so hovering is the
-      // stable way to open the menu without the click flipping it back closed.
-      //
       // Scroll the trigger near the bottom of the viewport BEFORE opening the
       // menu. The demo feedback FAB lives at fixed bottom-6 right-6 and the
       // menu opens downward by default — if the trigger is mid-viewport the
@@ -113,7 +110,7 @@ test.describe('TC-WF-006: Create and delete workflow definition via UI', () => {
       // detection to flip the menu upward, away from the FAB.
       const triggerBtn = row.getByRole('button', { name: /open actions/i })
       await triggerBtn.evaluate((el) => el.scrollIntoView({ block: 'end' }))
-      await triggerBtn.hover()
+      await triggerBtn.click()
       await page.getByRole('menuitem', { name: /^delete$/i }).click()
 
       // The definition list no longer hand-rolls its delete confirmation as a
