@@ -37,6 +37,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Validation failed', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 404, description: 'Reservation not found', schema: errorSchema },
+        { status: 409, description: 'Reservation is not active or releasing it would violate balance integrity', schema: errorSchema },
       ],
     },
   },
