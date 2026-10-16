@@ -21,7 +21,8 @@ jest.mock('@open-mercato/shared/lib/commands', () => ({
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: jest.fn().mockResolvedValue({
-    translate: (_key: string, fallback?: string) => fallback ?? _key,
+    translate: (_key: string, fallback?: string, params?: Record<string, string>) =>
+      (fallback ?? _key).replace(/\{(\w+)\}/g, (token, name) => params?.[name] ?? token),
   }),
 }))
 
@@ -649,6 +650,39 @@ describe('catalog.products.delete undo', () => {
 
     expect(store.em.create).not.toHaveBeenCalled()
     expect(ids(store, CatalogProduct)).toEqual([OTHER_PRODUCT])
+  })
+
+  it('refuses with a translated 409 naming the SKU when another variant now uses a restored variant SKU', async () => {
+    const store = createStore()
+    seedCatalog(store)
+    const deleteCommand = loadDeleteCommand()
+    const ctx = buildContext(store)
+    const { logEntry } = await deleteProduct(store, deleteCommand, ctx)
+    const otherProduct = store.rows(CatalogProduct, { id: OTHER_PRODUCT })[0]
+    store.seed(CatalogProductVariant, {
+      id: 'variant-blocker',
+      ...scoped,
+      product: otherProduct,
+      name: 'Blocker',
+      sku: 'SHIRT-S',
+      isDefault: false,
+      isActive: true,
+      deletedAt: null,
+    })
+    store.em.create.mockClear()
+
+    const failure = await deleteCommand.undo({ logEntry, ctx }).catch((err: unknown) => err)
+
+    expect(failure).toMatchObject({
+      status: 409,
+      body: {
+        error:
+          "This product cannot be restored because SKU SHIRT-S is already used by another variant. Change or remove that variant's SKU, then undo again.",
+      },
+    })
+    expect(store.em.create).not.toHaveBeenCalled()
+    expect(ids(store, CatalogProduct)).toEqual([OTHER_PRODUCT])
+    expect(ids(store, CatalogProductVariant)).toEqual(['variant-blocker', 'variant-other'])
   })
 
   it('restores a price that also references a still-existing variant or product of another product', async () => {
