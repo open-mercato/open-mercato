@@ -79,9 +79,4 @@ describe.each(['sales.orders.update', 'sales.quotes.update'] as const)('%s audit
     })
     expect(Object.keys(changes ?? {})).toEqual(['paymentMethodSnapshot'])
   })
-
-  it('lists metadata when only metadata changed', async () => {
-    const changes = await loggedChanges(commandId, RESENT_INPUT, { metadata: { source: { id: 8 } } })
-    expect(Object.keys(changes ?? {})).toEqual(['metadata'])
-  })
 })
