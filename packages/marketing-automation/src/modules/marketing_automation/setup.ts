@@ -17,10 +17,20 @@ type SchedulerServiceLike = {
  * `scheduled_jobs.id` is a uuid column, so a readable key has to be hashed into uuid shape
  * rather than inserted as a string. Deterministic, which makes registration an idempotent
  * upsert instead of creating a duplicate schedule on every tenant setup run.
+ *
+ * Patches the version/variant nibbles (RFC 4122 v4 shape) rather than slicing the raw hash
+ * straight into UUID groups — an unpatched hash only coincidentally produces a value `z.uuid()`
+ * accepts, and the scheduler's trigger/update/delete validators all use `z.uuid()`.
  */
-function stableScheduleUuid(stableKey: string): string {
+export function stableScheduleUuid(stableKey: string): string {
   const hex = createHash('sha256').update(stableKey).digest('hex')
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    `4${hex.slice(13, 16)}`,
+    `${((parseInt(hex[16], 16) & 0x3) | 0x8).toString(16)}${hex.slice(17, 20)}`,
+    hex.slice(20, 32),
+  ].join('-')
 }
 
 /**
@@ -78,7 +88,10 @@ async function ensureSchedules(ctx: {
         targetPayload: { scope },
         sourceType: 'module',
         sourceModule: 'marketing_automation',
-        isEnabled: true,
+        // No worker in this module declares `marketing-automation-resume`/`-sweep` yet, so
+        // `canDispatchScheduleQueueTarget` would reject every tick. Registered disabled for
+        // visibility; flip to true in the phase that ships the resume/sweep workers.
+        isEnabled: false,
       })
     }
   } catch (error) {
