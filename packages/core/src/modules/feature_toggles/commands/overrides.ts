@@ -9,6 +9,7 @@ import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { FeatureTogglesService } from '../lib/feature-flag-check'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 type OverrideSnapshot = {
   id: string | null
@@ -136,7 +137,7 @@ const changeOverrideStateCommand: CommandHandler<ProcessedChangeOverrideStateInp
       }
     }
     await em.flush()
-    const toggle = await em.findOne(FeatureToggle, { id: before.toggleId })
+    const toggle = await findOneWithDecryption(em, FeatureToggle, { id: before.toggleId })
     if (toggle) {
       const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
       await featureTogglesService.invalidateIsEnabledCacheByKey(toggle.identifier, before.tenantId)
