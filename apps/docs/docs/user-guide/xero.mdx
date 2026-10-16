@@ -1,0 +1,70 @@
+---
+title: Xero
+description: Administrator guide — register a Xero app, connect a Xero Organisation and import Xero Contacts into Companies.
+sidebar_label: Xero
+---
+
+# Xero
+
+The Xero integration connects one Xero Organisation to each Open Mercato organization and imports its Contacts into **Companies** every hour. A Contact always updates the same Company, so repeated runs never create duplicates.
+
+- **Import only.** Open Mercato reads Contacts from Xero and never writes back.
+- **Xero owns the fields it sends.** Name, legal name, email, phone, website, status, tax number and the Xero addresses are overwritten from Xero on the next run that returns the Contact. Every other Company field, note and activity stays yours.
+- **Grants are per organization.** Each Open Mercato organization connects its own Xero Organisation through OAuth2. Tokens are encrypted and never shown.
+
+## Before you start
+
+- **`APP_URL`** is the base of the redirect URI. Production needs an `https` URL; for local testing use `http://localhost:<port>`. Xero rejects `127.0.0.1`.
+- **`OM_HUB_OAUTH_STATE_KEY`** (or `KMS_MASTER_KEY`) must be set in production. Connect fails without it.
+- **`CACHE_STRATEGY=redis`** when more than one web replica serves the app, so each Connect state is used only once.
+- The **scheduler** module runs the hourly schedule. Without it, Contacts sync only when started by hand.
+- You need `integrations.credentials.manage` to connect, choose an Organisation and disconnect.
+
+## 1. Register a Xero app
+
+1. Sign in at [developer.xero.com](https://developer.xero.com) and open **My Apps → New app**.
+2. Choose **Web app**.
+3. Enter the redirect URI shown on the **Xero** tab of the integration (Integrations → Xero → Xero). It is `<APP_URL>/api/sync_xero/oauth/callback`, for example `https://app.example.com/api/sync_xero/oauth/callback`. It must match exactly.
+4. Create the app, copy its **Client ID** and generate a **Client Secret**.
+
+One Xero app can serve every organization of your Open Mercato instance: each organization connects with its own consent.
+
+## 2. Enter the Client ID and Secret
+
+Open **Integrations → Xero → Credentials**, enter the Client ID and Client Secret, and save.
+
+## 3. Connect a Xero Organisation
+
+1. Open the **Xero** tab and click **Connect**.
+2. Sign in to Xero, review the requested access and choose the Organisation to allow.
+3. Back in Open Mercato, the tab shows the connected Organisation. When the consent covered several Organisations, choose one on the tab.
+
+Open Mercato requests read-only access to Contacts and Invoices (`accounting.contacts.read`, `accounting.invoices.read`) plus `offline_access`, which keeps the connection alive between runs. Invoices are reserved for a later release; Xero cannot add a scope to an existing connection without a new consent, so it is requested now.
+
+### Try it with the Xero Demo Company
+
+Every Xero login has a **Demo Company** with sample contacts and invoices. Register the app with `APP_URL=http://localhost:3000` (or your local port), connect, and choose the Demo Company in Xero's consent screen. Nothing you do there touches real financial data.
+
+## Schedules and Xero's 60-day limit
+
+When the Organisation is saved, Open Mercato creates an hourly incremental schedule for Contacts, unless one exists already; an existing schedule is never changed. Enable the integration to let it run. The Xero tab lists the schedule and offers **Create default schedule** when it is missing; that button needs `data_sync.configure`.
+
+Xero ends a connection that is not used for 60 days. Every sync renews it, so an enabled integration with its schedule never reaches the limit. When syncing is paused or no schedule is enabled, the Xero tab shows how many days are left before Xero requires a Reconnect.
+
+Keep **Run scheduled jobs as full sync** off: a full sync reads every contact on each run and cannot resume a run that Xero's daily limit interrupts. To re-read everything once, start a single run with **Run as full sync** from **Sync Runs**.
+
+## Daily limits
+
+Xero limits each Organisation to 60 calls a minute and to a daily number of calls set by your Xero app's pricing tier: **1,000 a day** for a new app (Starter tier) and 5,000 on Core. One run reads up to 1,000 Contacts per call, so an hourly sync of a typical Organisation uses a few dozen calls a day. When the daily limit is reached, the run stops quietly and the next run continues where it left off.
+
+## Disconnect
+
+**Disconnect** on the Xero tab erases the stored tokens and asks Xero to revoke them. Then it runs one health check and disables the integration, so the schedules stop firing; they resume when you reconnect and enable the integration again. Disabling needs `integrations.manage`: without it the integration stays enabled, the tab says so, and an administrator must disable it. Companies imported so far stay. Tick **Also remove the Client ID and Secret** to clear the Credentials tab as well.
+
+When the stored connection cannot be read (for example after an encryption key change), the tab offers **Replace unreadable connection**, which connects again over it, and **Disconnect anyway**, which erases it without a revoke. In both cases remove the app from the Organisation's **Connected apps** in Xero yourself.
+
+:::warning Revocation reaches every connection of the same Xero user
+Xero ends **every** connection that the same Xero user authorized for the same Xero app, not only this one. If one Xero user connected several Open Mercato organizations through one Xero app, Disconnect ends all of them; each must connect again.
+:::
+
+When Xero cannot confirm the revocation, remove the app from the Organisation's **Connected apps** in Xero.
