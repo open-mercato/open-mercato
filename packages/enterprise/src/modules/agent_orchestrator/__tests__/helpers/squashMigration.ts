@@ -11,6 +11,11 @@ const MIGRATIONS_DIR = path.join(__dirname, '..', '..', 'migrations')
  * a broken test, not a broken invariant. Resolving the single file in the
  * directory keeps the invariants asserted across re-squashes, and asserts the
  * "exactly one" part of the convention while it is at it.
+ *
+ * Only `Migration<ts>_agent_orchestrator.ts` is the squash. Additive changes made
+ * after the squash shipped in a release stack as their own descriptively named
+ * files (`Migration<ts>_<change>.ts`) so upgraded databases receive them; they
+ * are not matched here.
  */
 export function readSquashMigrationSql(): string {
   const files = fs

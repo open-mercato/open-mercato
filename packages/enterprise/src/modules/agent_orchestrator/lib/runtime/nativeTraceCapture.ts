@@ -39,10 +39,36 @@ export type NativeStepToolCall = {
 export type NativeStepRecord = {
   modelId: string
   finishReason: string
-  usage: { inputTokens: number; outputTokens: number }
+  /** `cachedInputTokens` is the cached SUBSET of `inputTokens`; absent when the provider did not report it. */
+  usage: { inputTokens: number; outputTokens: number; cachedInputTokens?: number }
   toolCalls: NativeStepToolCall[]
   /** Wall-clock ms when the step's onStepFinish fired. */
   endedAtMs: number
+}
+
+/**
+ * Cached share of an AI SDK usage object. ai@7 reports it as
+ * `inputTokenDetails.cacheReadTokens`; older SDKs and some providers use the flat
+ * `cachedInputTokens`. Undefined when neither is a non-negative number, so an
+ * unreported share stays unknown instead of becoming 0.
+ */
+export function readCachedInputTokens(usage: unknown): number | undefined {
+  if (!usage || typeof usage !== 'object') return undefined
+  const shape = usage as { cachedInputTokens?: unknown; inputTokenDetails?: { cacheReadTokens?: unknown } }
+  for (const candidate of [shape.inputTokenDetails?.cacheReadTokens, shape.cachedInputTokens]) {
+    if (typeof candidate === 'number' && Number.isFinite(candidate) && candidate >= 0) return candidate
+  }
+  return undefined
+}
+
+/** Sum of the reported cached shares; null when no step reported one (unknown, not 0). */
+export function sumCachedInputTokens(steps: ReadonlyArray<Pick<NativeStepRecord, 'usage'>>): number | null {
+  let total: number | null = null
+  for (const step of steps) {
+    if (step.usage.cachedInputTokens === undefined) continue
+    total = (total ?? 0) + step.usage.cachedInputTokens
+  }
+  return total
 }
 
 export type NativeTraceInput = {
@@ -54,7 +80,7 @@ export type NativeTraceInput = {
   /** Wall-clock ms when the model execution settled. */
   endedAtMs: number
   /** Run-level usage fallback for toolless runs (no step callbacks). */
-  fallbackUsage?: { inputTokens?: number; outputTokens?: number } | null
+  fallbackUsage?: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number } | null
   /** Declared model id fallback when no step reported one. */
   fallbackModel?: string | null
 }
@@ -162,6 +188,10 @@ export function buildNativeTracePayload(input: NativeTraceInput): TraceIngest {
     input.steps.length > 0 ? stepUsage.inputTokens : (input.fallbackUsage?.inputTokens ?? null)
   const outputTokens =
     input.steps.length > 0 ? stepUsage.outputTokens : (input.fallbackUsage?.outputTokens ?? null)
+  const cachedInputTokens =
+    input.steps.length > 0
+      ? sumCachedInputTokens(input.steps)
+      : (input.fallbackUsage?.cachedInputTokens ?? null)
   const modelId = resolveModelId(input)
 
   return {
@@ -170,6 +200,7 @@ export function buildNativeTracePayload(input: NativeTraceInput): TraceIngest {
     agentId: input.agentId,
     ...(modelId ? { model: modelId } : {}),
     ...(inputTokens != null ? { inputTokens } : {}),
+    ...(cachedInputTokens != null ? { cachedInputTokens } : {}),
     ...(outputTokens != null ? { outputTokens } : {}),
     latencyMs: Math.max(0, input.endedAtMs - input.startedAtMs),
     spans,

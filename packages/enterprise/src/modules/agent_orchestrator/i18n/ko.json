@@ -1353,6 +1353,7 @@
   "agent_orchestrator.traces.detail.artifactLoading": "불러오는 중…",
   "agent_orchestrator.traces.detail.awaiting": "사람 대기 중",
   "agent_orchestrator.traces.detail.back": "트레이스로 돌아가기",
+  "agent_orchestrator.traces.detail.cachedInput": "캐시된 입력 {count}",
   "agent_orchestrator.traces.detail.chosenOption": "선택한 옵션",
   "agent_orchestrator.traces.detail.collapseArtifact": "페이로드 접기",
   "agent_orchestrator.traces.detail.confidence": "신뢰도",
