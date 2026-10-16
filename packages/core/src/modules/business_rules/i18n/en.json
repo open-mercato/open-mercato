@@ -96,6 +96,7 @@
   "business_rules.components.conditionRow.value.placeholder": "e.g., \"ACTIVE\" or [\"A\",\"B\"]",
   "business_rules.confirm.delete": "Are you sure you want to delete the rule \"{{name}}\"?",
   "business_rules.errors.createFailed": "Failed to create business rule",
+  "business_rules.errors.duplicateRuleId": "A rule with Rule ID \"{{ruleId}}\" already exists for this tenant. Choose a different Rule ID.",
   "business_rules.errors.executionFailed": "Rule execution failed",
   "business_rules.errors.fetchFailed": "Failed to fetch rule",
   "business_rules.errors.invalidCondition": "Invalid condition",
