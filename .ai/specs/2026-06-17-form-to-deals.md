@@ -23,7 +23,7 @@
 - Full-ATS entities (job requisitions, interviews, scorecards, offers) — see Use Cases / Non-Goals.
 
 **Concerns (verified):**
-- `@open-mercato/forms` is not yet on `develop` — official-modules open PR #23 (`feat/forms-as-official-module`, @pat-lewczuk). It must be installed in the SAME OM app as the CRM. (Placement: this spec stays OSS; forms is targeted for `core` — an OM-team call, see Migration & Compatibility.)
+- `@open-mercato/forms` landed as an official module (official-modules PR #23 `feat/forms-as-official-module`, @pat-lewczuk, merged 2026-06-24). It must be published, installed and activated in the SAME OM app as the CRM. (Placement: this spec stays OSS; forms is targeted for `core` — an OM-team call, see Migration & Compatibility.)
 - `forms.submission.submitted` is at-least-once (persistent) and id-only (`{ submissionId }`) — the subscriber must re-fetch answers and be crash-safe idempotent.
 - Public submit is not literally unauthenticated: the route mints/accepts an anonymous-token (or customer-session) principal.
 
@@ -63,6 +63,7 @@ Capturing external form submissions into the CRM funnel today needs external glu
 | Idempotency map is the FIRST durable write, with state | `customers.deals.create` runs its own transaction, so the map cannot share the deal's UoW; a `pending` map row first makes redelivery crash-safe. |
 | New deal per submission; dedupe only the Person | Mirrors Greenhouse application(N). |
 | `source_label`/`channel_map` configurable; default "Form" | Attribution by per-channel distribution slug (no URL `?source=` param needed). |
+| Provenance is server-resolved, allowlisted and bounded | The channel label comes from `channel_map` keyed by `distributionId`, which the submitter cannot set; a submitter-supplied bag would import untrusted PII into the CRM and couple the module to whatever tool wrote it. See Source-attribution contract. |
 
 ### Alternatives Considered
 | Alternative | Why Rejected |
@@ -105,6 +106,16 @@ channel (Webflow / JustJoin.IT / OM) ──link──▶ /f/<slug>  (forms publi
 - **New commands:** `form_to_deals.binding.create` / `.update` / `.delete`.
 - **New event (stub):** `form_to_deals.deal.created` `{ dealId, submissionId }`.
 
+### Source-attribution contract
+Attribution here is provenance, not analytics. A deal's channel label is resolved server-side (`FormSubmission.subjectId` → `FormInvitation.distributionId` → `channel_map`, falling back to `source_label`) from a value the submitter cannot influence. The contract is provider-neutral: nothing in it names or assumes a particular capture tool.
+
+- **Allowlisted and bounded.** A deal carries one `source` string drawn from the binding's own config. No arbitrary JSON, no free-form key/value bag, no advertising or device identifiers.
+- **Consent-gated.** Provenance is written only on the path that already passed the consent gate; a `skipped` submission produces no attribution row.
+- **Client-supplied context is untrusted.** Should a later phase accept submitter-visible context (`utm_*`, referrer, landing path), it MUST live under an explicit untrusted namespace, be allowlisted key-by-key, be length-bounded, and never merge into the server-resolved `source`. The MVP accepts none.
+- **Visible only through authorized CRM surfaces.** The label reaches the deal record and the existing CRM screens; this module adds no read endpoint and no export path for it.
+- **Separate from outcome.** Qualification, stage movement and revenue stay on `customers` events. `form_to_deals` emits intake only (`form_to_deals.deal.created`).
+- **No advertising or analytics SDK.** Runtime dependencies stay `customers` + `forms`. An external attribution tool may subscribe to `form_to_deals.deal.created` or the CRM's own outcome events as an adapter living outside this module; no such adapter ships here and none becomes a dependency.
+
 ## Data Models
 
 ### FormToDealBinding (singular) — table `form_to_deals_bindings`
@@ -145,15 +156,16 @@ CRUD for bindings via `makeCrudRoute` (entity `form_to_deals_bindings`); **every
 ### Non-Goals / scope-outs
 - **Supersedes** the Webflow inbound-webhook adapter approach (no provider token, no SSRF-guarded fetch).
 - Does not build a forms/form-builder module (that is `@open-mercato/forms`).
+- No advertising/analytics SDK dependency and no submitter-supplied provenance bag on the deal — see Architecture / Source-attribution contract.
 - **ATS-lite only** for the recruitment use case: NO job-requisition/opening entities, candidate↔many-applications, interview scheduling, scorecards, offer management, hiring-team roles, or EEO/compliance reporting. Candidates are CRM people + deals (diverges from ANALYSIS-004-bamboohr's `hr.candidate` by design). High-volume/multi-requisition recruiting → a separate `recruitment` module (larger spec).
 
 ### Packaging
 - Ships as an **official module** `@open-mercato/form-to-deals` (`external/official-modules/packages/form-to-deals`), same family as `@open-mercato/forms`. It is a **module**, NOT an integration-provider (no external service, credentials, or health check — it bridges the internal `forms` and `customers` modules via the event + command buses).
 - **Why official (not core):** it depends on `forms`, which is an official module today; a core module cannot hard-depend on an optional official module (dependency direction is official → core). So `form_to_deals` tracks `forms` — official now, and may follow `forms` into `core` if/when the OM team moves it.
-- `requires: ['customers']` (core) + soft/peer dependency on `forms` (official). It is a pure consumer of existing core/forms contracts (no core changes) → a **single official-modules PR**, opened AFTER forms PR #23 publishes `@open-mercato/forms` (peer-dep). Merge order: forms #23 → publish → `form_to_deals` PR. Activatable via `official-modules.json` (like `carrier-inpost`/`forms`).
+- `requires: ['customers']` (core) + soft/peer dependency on `forms` (official). It is a pure consumer of existing core/forms contracts (no core changes) → a **single official-modules PR**, opened once `@open-mercato/forms` is published (peer-dep; PR #23 merged 2026-06-24 — confirm the published version before opening the PR). Activatable via `official-modules.json` (like `carrier-inpost`/`forms`).
 
 ### Dependency, placement & rollout
-- Hard dependency: `@open-mercato/forms` active in the SAME OM app as the CRM (PR #23). **Placement: this spec stays OSS `.ai/specs/` — NOT enterprise.** `@open-mercato/forms` is expected to become part of `core`; the core-vs-proprietary call is owned by the OM team (Patryk/Piotrek) and does not gate this spec.
+- Hard dependency: `@open-mercato/forms` active in the SAME OM app as the CRM (official-modules PR #23, merged 2026-06-24). **Placement: this spec stays OSS `.ai/specs/` — NOT enterprise.** `@open-mercato/forms` is expected to become part of `core`; the core-vs-proprietary call is owned by the OM team (Patryk/Piotrek) and does not gate this spec.
 - **Same-app deployment:** forms + `form_to_deals` + `customers` (Dispatch CRM) in ONE OM instance → in-process writes, no public CRM API / no sync. Confirm forms is installed in the Dispatch CRM instance.
 - Subscriber files load even when forms is inactive (event id is a string) and are inert; confirm `yarn generate` does not warn and merge order makes the event id exist before this module ships.
 - New entities → two additive migrations + snapshot; no existing-table changes, no backfill.
@@ -254,6 +266,10 @@ CRUD for bindings via `makeCrudRoute` (entity `form_to_deals_bindings`); **every
 - `packages/core/AGENTS.md`, `packages/events/AGENTS.md`, `packages/ui/AGENTS.md`, `.ai/ds-rules.md`.
 
 ## Changelog
+### 2026-08-26
+- Added **Architecture / Source-attribution contract**: server-resolved and allowlisted provenance, bounded strings, consent-gated, untrusted client context quarantined, visible only through authorized CRM surfaces, separate from outcome events, and no advertising/analytics SDK dependency. This codifies what the MVP already does and constrains later phases. Prompted by external review feedback on issue #3211.
+- Blocker cleared: official-modules PR #23 merged 2026-06-24, so the "not yet on `develop`" concern is stale. The remaining precondition is a published `@open-mercato/forms` installed and activated in the CRM instance.
+
 ### 2026-06-17
 - Renamed/generalized from `candidate_intake` to **`form_to_deals`** — a generic Forms→CRM-deal bridge; recruitment (ATS-lite) is now the primary documented use case, not the module identity (also serves lead/partner/RFP intake).
 - Packaging decision: ships as an **official module** `@open-mercato/form-to-deals` (a module, NOT an integration-provider), tracking `forms` (dependency direction forces official, not core, while forms is official). Single official-modules PR after forms #23 publishes.
