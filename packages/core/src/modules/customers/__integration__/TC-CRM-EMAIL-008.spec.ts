@@ -2,6 +2,7 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { config as loadEnv } from 'dotenv'
 import { expect, test, type APIRequestContext } from '@playwright/test'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
   getTokenScope,
@@ -69,10 +70,13 @@ async function fetchThreadMessages(
 }
 
 async function drainUntil(check: () => Promise<boolean>, label: string): Promise<void> {
+  const shouldDrainQueues = parseBooleanToken(process.env.AUTO_SPAWN_WORKERS) !== true
   const deadline = Date.now() + 30_000
   while (Date.now() < deadline) {
-    await drainIntegrationQueue(OUTBOUND_QUEUE, { appRoot: APP_ROOT })
-    await drainIntegrationQueue(EVENTS_QUEUE, { appRoot: APP_ROOT })
+    if (shouldDrainQueues) {
+      await drainIntegrationQueue(OUTBOUND_QUEUE, { appRoot: APP_ROOT })
+      await drainIntegrationQueue(EVENTS_QUEUE, { appRoot: APP_ROOT })
+    }
     if (await check()) return
     await new Promise((resolve) => setTimeout(resolve, 250))
   }
@@ -174,6 +178,21 @@ async function readThreadId(messageId: string): Promise<string | null> {
       [messageId],
     )
     return result.rows[0]?.thread_id ?? null
+  })
+}
+
+async function hasProjectedEmailInteraction(messageId: string, personId: string): Promise<boolean> {
+  return withClient(async (client) => {
+    const result = await client.query<{ exists: boolean }>(
+      `select exists (
+         select 1 from customer_interactions i
+           join message_channel_links l on l.id = i.external_message_id
+          where l.message_id = $1 and i.entity_id = $2
+            and i.interaction_type = 'email' and i.deleted_at is null
+       ) as exists`,
+      [messageId, personId],
+    )
+    return result.rows[0]?.exists === true
   })
 }
 
@@ -294,8 +313,10 @@ test.describe('TC-CRM-EMAIL-008: CRM reply parent must be readable on the Person
           parentMessageId,
         })
         expect(hijack.status, "replying onto User A's unreadable email is refused").toBe(404)
-        await drainIntegrationQueue(OUTBOUND_QUEUE, { appRoot: APP_ROOT })
-        await drainIntegrationQueue(EVENTS_QUEUE, { appRoot: APP_ROOT })
+        if (parseBooleanToken(process.env.AUTO_SPAWN_WORKERS) !== true) {
+          await drainIntegrationQueue(OUTBOUND_QUEUE, { appRoot: APP_ROOT })
+          await drainIntegrationQueue(EVENTS_QUEUE, { appRoot: APP_ROOT })
+        }
         expect(
           await readWriteFootprint(userBId, channelBId),
           'the refused reply wrote no message, link, conversation, mapping or interaction',
@@ -363,6 +384,13 @@ test.describe('TC-CRM-EMAIL-008: CRM reply parent must be readable on the Person
         })
         expect(viaChannel.status, 'a shared team mailbox lets User B reply').toBe(200)
         expect(viaChannel.body?.threadId).toBe(parentThreadId)
+        const channelReplyMessageId = viaChannel.body?.messageId
+        expect(typeof channelReplyMessageId).toBe('string')
+        const replyPersonId = personId
+        await drainUntil(
+          () => hasProjectedEmailInteraction(channelReplyMessageId as string, replyPersonId),
+          "User B's accepted reply through the shared mailbox on the Person",
+        )
 
         expect(await setChannelVisibility(request, userAToken, channelAId, 'private')).toBe(200)
         const footprintAfterChannel = await readWriteFootprint(userBId, channelBId)

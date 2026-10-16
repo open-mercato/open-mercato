@@ -1,13 +1,13 @@
 ---
 title: "Stabilize flaky integration tests by finding the hang, not by raising the timeout"
-modules: ["events","queue","ui","auth","example","record_locks","warranty_claims","data_sync","sync_excel","communication_channels"]
+modules: ["events","queue","ui","auth","example","record_locks","warranty_claims","data_sync","sync_excel","communication_channels","customers"]
 areas: ["integration","testing","backend-ui"]
 topics: ["events","testing","workers","hydration","component-overrides","timers"]
 ---
 
 # Stabilize flaky integration tests by finding the hang, not by raising the timeout
 
-**Queue ownership**: When the harness explicitly enables `AUTO_SPAWN_WORKERS`, let those workers consume local queues and poll the committed run state. A manual drain adds a second consumer: the local strategy locks file operations, not handler execution, so duplicate customer/address writes can commit before the import engine detects stale progress. Preserve manual draining when workers are disabled or the flag is absent, including the standalone runner's explicit `false`. Keep uniqueness assertions; do not replace them with relaxed counts or longer waits. The channel-reply trace also spent 31 seconds bootstrapping a redundant drain before a required 30-second negative observation in a 60-second test; reusing the configured workers preserves that entire observation window.
+**Queue ownership**: When the harness explicitly enables `AUTO_SPAWN_WORKERS`, let those workers consume local queues and poll the committed run state. A manual drain adds a second consumer: the local strategy locks file operations, not handler execution, so duplicate customer/address writes can commit before the import engine detects stale progress. Preserve manual draining when workers are disabled or the flag is absent, including the standalone runner's explicit `false`. Before recording a no-write baseline for a denied action, wait for the exact preceding authorized message to finish its asynchronous interaction projection; retain the full equality check after denial so legitimate earlier work cannot be mistaken for a forbidden write. Keep uniqueness assertions; do not replace them with relaxed counts or longer waits. The channel-reply trace also spent 31 seconds bootstrapping a redundant drain before a required 30-second negative observation in a 60-second test; reusing the configured workers preserves that entire observation window.
 
 **Context**: `TC-CUR-004` ("Set Base Currency from UI") failed ~1/60 in the `ephemeral-integration` CI shards with `Test timeout of 30000ms exceeded` plus a secondary `apiRequestContext.fetch: Target page, context or browser has been closed` reported from the `finally` teardown.
 
