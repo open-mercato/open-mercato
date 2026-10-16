@@ -205,4 +205,15 @@ describe('report detail — locked entries table', () => {
     await waitFor(() => expect(screen.getByTestId('report-sheet')).toBeInTheDocument())
     expect(screen.queryByText('Locked entries')).not.toBeInTheDocument()
   })
+
+  it('scrolls the locked-entries table inside its card instead of widening the page', async () => {
+    renderPage({ status: 'closed', features: UNLOCK_FEATURES, search: '' })
+
+    const card = await screen.findByTestId('report-locked-entries')
+    const scroller = screen.getByTestId('report-locked-entries-scroll')
+    expect(card).toHaveClass('min-w-0')
+    expect(card).toContainElement(scroller)
+    expect(scroller).toHaveClass('overflow-x-auto')
+    expect(scroller.querySelector('table')).not.toBeNull()
+  })
 })
