@@ -59,6 +59,13 @@ function buildEm(opts: { existingRecord?: Record<string, unknown> | null; flush?
       calls.push('rollback')
     }),
   }
+  let inTransaction = false
+  ;(em.begin as jest.Mock).mockImplementation(async () => { calls.push('begin'); inTransaction = true })
+  ;(em.commit as jest.Mock).mockImplementation(async () => { calls.push('commit'); inTransaction = false })
+  ;(em.rollback as jest.Mock).mockImplementation(async () => { calls.push('rollback'); inTransaction = false })
+  em.isInTransaction = jest.fn(() => inTransaction)
+  em.execute = jest.fn().mockResolvedValue([])
+  em.find = jest.fn().mockResolvedValue([{ id: 'prior-base' }])
   ;(em as Record<string, unknown>).fork = jest.fn().mockReturnValue(em)
   ;(em as Record<string, unknown>).__calls = calls
   return em

@@ -229,6 +229,8 @@
   "ai_assistant.chat.mutation_cards.preview.handlerError": "뮤테이션 핸들러가 오류를 보고했습니다. 세부 정보를 검토하고 필요하면 다시 제안하세요.",
   "ai_assistant.chat.mutation_cards.preview.reviewDetails": "세부 정보 검토",
   "ai_assistant.chat.mutation_cards.preview.title": "제안된 변경 사항 검토",
+  "ai_assistant.chat.mutation_cards.result.cancelledBody": "이 제안된 변경을 취소했습니다. 변경 사항이 적용되지 않았습니다.",
+  "ai_assistant.chat.mutation_cards.result.cancelledTitle": "제안이 취소됨",
   "ai_assistant.chat.mutation_cards.result.failureBody": "뮤테이션을 적용할 수 없습니다.",
   "ai_assistant.chat.mutation_cards.result.failureTitle": "작업 실패",
   "ai_assistant.chat.mutation_cards.result.fixWithAi": "AI로 수정",
