@@ -181,6 +181,29 @@ Findings:
 - zstd-1 and gzip-6 give the same memory and network results. zstd-1 writes about 1.8× faster, which matches the codec table.
 - Side observation: while 10 people were being created in parallel, 2 of 500 `POST /api/customers/people` returned `500 DATABASE_ERROR`. This is unrelated to caching and worth a separate investigation.
 
+## 📊 Phase 1 whole-app load test (2026-10-16, implementation branch)
+
+Setup: the production build (`mercato server start`) with `CACHE_STRATEGY=redis` and `ENABLE_CRUD_API_CACHE=true`, Redis 7.4.1 behind Toxiproxy 2.9.0, a freshly initialized database plus 497 synthetic people and 100 companies. One process per codec; Redis flushed between codecs. Load: one admin session, 32 concurrent clients for 30 s per network profile, reading 18 people/company list pages (`pageSize` 25/50/100), all served from the CRUD cache. Network profiles apply bandwidth and +1 ms latency to Redis replies only.
+
+| Codec | Redis memory after warm-up (562 keys) | Profile | req/s | p50 | p95 | p99 | Redis egress |
+|---|---|---|---|---|---|---|---|
+| off | 2.8 MB | localhost | 29 | 1,099 ms | 1,432 ms | 1,497 ms | 1.9 MB/s |
+| | | ~1 Gbps + 1 ms | 32 | 1,008 ms | 1,232 ms | 1,316 ms | 2.0 MB/s |
+| | | ~100 Mbps + 1 ms | 30 | 1,094 ms | 1,403 ms | 1,476 ms | 1.9 MB/s |
+| zstd | 1.8 MB | localhost | 30 | 1,100 ms | 1,413 ms | 1,496 ms | 0.2 MB/s |
+| | | ~1 Gbps + 1 ms | 31 | 1,073 ms | 1,274 ms | 1,329 ms | 0.3 MB/s |
+| | | ~100 Mbps + 1 ms | 30 | 1,092 ms | 1,341 ms | 1,455 ms | 0.2 MB/s |
+| gzip | 1.8 MB | localhost | 28 | 1,136 ms | 1,425 ms | 1,506 ms | 0.2 MB/s |
+| | | ~1 Gbps + 1 ms | 31 | 1,044 ms | 1,322 ms | 1,399 ms | 0.3 MB/s |
+| | | ~100 Mbps + 1 ms | 30 | 1,083 ms | 1,368 ms | 1,522 ms | 0.3 MB/s |
+
+Findings:
+- No error in any run, and every codec reads entries written by the others (checked by the strategy tests).
+- End-to-end latency and throughput do not change measurably with compression: differences stay within run-to-run noise (about ±5%). In this single-host setup the application spends about 33 ms of CPU per request, so the request rate (about 30/s) is bound by the app, not by Redis.
+- Redis egress falls 7–10× (about 1.9 MB/s to 0.2–0.3 MB/s), and Redis memory used by entries falls from about 1.8 MB to about 0.8 MB (each total includes about 1 MB of Redis baseline). With a single user this is small; Phase 0 shows how it scales with active users.
+- At about 2 MB/s of cache traffic even the ~100 Mbps link is not saturated, so the latency gains measured at the Redis client in Phase 0 Run C only appear once cache traffic approaches the link's capacity (many app instances or many active users sharing a remote Redis).
+- Side observation, reproduced on two fresh databases: creating people 10 at a time, 3–6 of 500 `POST /api/customers/people` return `500 DATABASE_ERROR`. It is unrelated to caching (it happens with the SQLite cache too) and is left for a separate issue.
+
 ## 📋 Phasing
 
 - **Phase 0 — Evidence (no shipped code). ✅ Done 2026-10-15**, see **Phase 0 results**.
@@ -210,6 +233,8 @@ Integration coverage: there is no HTTP or UI path change. Strategy-level tests a
 
 ## Changelog
 
+- 2026-10-16: Phase 1 whole-app load test recorded: no measurable change in end-to-end latency, Redis egress down 7–10×, entry memory roughly halved for a single active user.
+- 2026-10-16: Phase 1 implemented: `codec.ts`, `CACHE_COMPRESSION` / `CACHE_COMPRESSION_MIN_BYTES` resolved in `service.ts`, Redis (`getBuffer`) and SQLite (BLOB) strategies wired, unit tests per codec, a real `better-sqlite3` test with mixed TEXT/BLOB rows and a live Redis test gated on `CACHE_REDIS_URL`. Docs in `packages/cache/AGENTS.md` and `ENV.md`.
 - 2026-10-15: Dropped the HTTP-compression and web-research zstd follow-ups: Phase 0 shows zstd's size gain over gzip is about 5%, too small to justify them.
 - 2026-10-15: Phase 0 Run C: Redis memory and read latency at 100/500 users, on localhost and over ~1 Gbps / ~100 Mbps links.
 - 2026-10-15: Codec decisions from Phase 0: zstd level 1 instead of 3 (same size, 2× faster); `CACHE_COMPRESSION=gzip` added as a stable-API alternative and as the fallback when zstd is unavailable.
