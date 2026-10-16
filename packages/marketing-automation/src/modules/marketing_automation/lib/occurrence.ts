@@ -63,7 +63,7 @@ function canonicalize(value: unknown, depth = 0): unknown {
       // An absent key and a key set to undefined are the same fact, and `JSON.stringify` already
       // drops the latter — dropping it here too keeps the two from hashing differently.
       if (source[key] === undefined) continue
-      canonical[key] = canonicalize(source[key])
+      canonical[key] = canonicalize(source[key], depth + 1)
     }
     return canonical
   }

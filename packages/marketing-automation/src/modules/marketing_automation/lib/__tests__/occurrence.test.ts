@@ -37,6 +37,29 @@ describe('occurrenceKeyFor', () => {
       .not.toBe(occurrenceKeyFor('e', scope, { id: 'p1' }))
   })
 
+  // The depth guard only ever reset through the array branch: an object-only payload reset
+  // `depth` to 0 on every nested property, so the cap never actually bounded object nesting.
+  function nestObject(depth: number, leaf: unknown): unknown {
+    let value = leaf
+    for (let i = 0; i < depth; i += 1) value = { child: value }
+    return value
+  }
+
+  test('object nesting past the depth cap collapses to the same key regardless of the leaf', () => {
+    const shallowEnoughToDiffer = occurrenceKeyFor('e', scope, { payload: nestObject(6, 'a') as Record<string, unknown> })
+    const shallowEnoughToDifferB = occurrenceKeyFor('e', scope, { payload: nestObject(6, 'b') as Record<string, unknown> })
+    expect(shallowEnoughToDiffer).not.toBe(shallowEnoughToDifferB)
+
+    const pastCap = occurrenceKeyFor('e', scope, { payload: nestObject(7, 'a') as Record<string, unknown> })
+    const pastCapOtherLeaf = occurrenceKeyFor('e', scope, { payload: nestObject(7, 'b') as Record<string, unknown> })
+    expect(pastCap).toBe(pastCapOtherLeaf)
+  })
+
+  test('deeply nested object payloads do not overflow the stack', () => {
+    expect(() => occurrenceKeyFor('e', scope, { payload: nestObject(5000, 'leaf') as Record<string, unknown> }))
+      .not.toThrow()
+  })
+
   test('is a hex digest, so it fits a text column and an index', () => {
     expect(occurrenceKeyFor('e', scope, { id: 'p1' })).toMatch(/^[0-9a-f]{64}$/)
   })
