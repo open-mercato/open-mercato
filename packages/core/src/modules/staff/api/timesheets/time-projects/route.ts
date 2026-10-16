@@ -377,9 +377,13 @@ const crud = makeCrudRoute({
           .filter((value) => value.length > 0)
       }
       if (parseBooleanFlag(query.mine) && ctx.auth) {
+        const tenantId = ctx.auth.tenantId ?? null
+        const organizationId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
+        if (!tenantId || !organizationId) {
+          filters[F.id] = { $in: [IMPOSSIBLE_PROJECT_ID] }
+          return filters
+        }
         const em = ctx.container.resolve('em') as EntityManager
-        const tenantId = ctx.auth.tenantId ?? ''
-        const organizationId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? ''
         const assigned = await resolveCallerAssignedProjectIds(
           em,
           ctx.auth.sub,
