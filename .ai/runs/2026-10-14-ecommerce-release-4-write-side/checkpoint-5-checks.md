@@ -70,3 +70,62 @@ Documentation corrections do not depend on Finding A/B's resolution and were com
 3. Debug `TC-PROM-075`'s hang directly (trace + screenshot already captured at `.ai/qa/test-results/artifacts/packages-core-src-modules--8dfaa-es-selector-and-it-persists*/`) before trusting it either way.
 4. Re-run the full `cart`+`promotions` live suite once 1–3 land, THEN run Part 2's UI screenshot pass.
 5. Step 8.12's Tasks-table row stays `todo` until this re-run is clean — not flipped by this pass.
+
+---
+
+# Checkpoint 5 re-run — Phase 8 live integration green, UI screenshots captured
+
+Resumed after the orchestrating session's fix-forward commit (`5a851c5af`, PLAN.md Step 8.13): widened `CODE_CHARSET_PATTERN` to `/^[A-Z0-9_-]+$/` (Finding A) and fixed the three test-authoring bugs in `TC-CART-PRICE-03`/`TC-PROM-074`/`TC-PROM-075` (Finding B).
+
+## Part 1 re-run result: 64 passed / 0 skipped / **2 failed** (66 total, 6.4m)
+
+**Runner:** `yarn test:integration:ephemeral "cart|promotions"` — same command as the original pass. The first attempt was killed mid-build by an external SIGTERM broadcast (a known gotcha: concurrent worktree/task teardown can kill unrelated background processes on this host); colima and Docker were unaffected, so the run was simply restarted (`nohup ... &` + `disown`) and completed cleanly the second time.
+
+All 6 of the original 8 failures that were covered by Finding A/B now pass:
+
+| Spec | Result |
+|---|---|
+| `TC-CART-PRICE-03-variant-reprice-isolation` | ✅ pass |
+| `TC-CART-PROM-05-applied-promotions-view` | ✅ pass |
+| `TC-CART-TOT-01-phase3-promotions-order-equivalence` | ✅ pass |
+| `TC-PROM-022b-concurrent-code-use-race` | ✅ pass |
+| `TC-PROM-075-benefit-cap-selector-auto-assign` | ✅ pass |
+| `TC-PROM-082-phase3-routes-cross-tenant-isolation` | ✅ pass |
+
+Two failures remain — **both NEW failures, different from the original ones at the same spec**, since the specs got further than before once Finding A/B stopped blocking them. Both were root-caused directly against a live ephemeral stack (`yarn test:integration:ephemeral:start`) with ad-hoc debug Playwright specs (written, run, then deleted — never committed) and confirmed to be **pre-existing defects unmasked by the fix-forward commit, not regressions it introduced**, so Part 2 was not blocked.
+
+### TC-PROM-074 — pre-existing TEST BUG (locator, not product)
+
+New failure point: `expect(page.locator('label').filter({ hasText: 'Value' })).toHaveCount(1)` resolves to 2 instead of 1, immediately after the first "Add rule" click (before any benefit exists) — stable for the full 20s timeout, not a transient render race.
+
+Root cause (confirmed live): the "Rule type" field's `<label>` renders as `"Rule typeOrder value"` (the field's own `<span>Rule type</span>` text concatenated with the `Select`'s current display value, "Order value" — the default rule type). Playwright's `locator().filter({ hasText: <string> })` does **case-insensitive** substring matching, so `hasText: 'Value'` also matches "Order **value**" (lowercase v). A same-moment `page.evaluate(() => document.querySelectorAll('label'))` with a case-sensitive `.includes('Value')` check found only the real "Value" field — confirming the UI itself is correct (one rule, one "Value" input = 0, Operator = Equals, Tax inclusive, Limit to category; verified via screenshot and ARIA snapshot too). This assertion was never exercised before this pass — the spec always died earlier on the dual-button "Save promotion" bug (Finding B, now fixed) — so this is a second, independent, pre-existing locator bug in the same file, only now unmasked. Not fixed in this pass (out of this gate's scope); the mechanical fix is to scope the locator more tightly, e.g. `page.locator('[data-crud-field-id... ]')`-style scoping to the rule card, or `hasText: /^Value$/`.
+
+### TC-PROM-083 — genuine but PRE-EXISTING backend bug (cache invalidation), unrelated to Phase 8
+
+New failure point: `expect.poll(... generated === amount ...)` on `GET /api/promotions/codes?ids=...` times out after 30s even though the dynamic-code generation worker actually completes.
+
+Root cause (confirmed live via direct API reproduction, bypassing the UI/queue-drain helper): `POST /api/promotions/codes/{id}/generate` enqueues the job; the worker log shows `Job completed queue=promotions-code-generate`; the underlying `Code.generated` row is genuinely updated in Postgres — but `GET /api/promotions/codes?ids=...` kept returning the stale `generated: 0` across 5+ polls taken *after* the job had already completed. `packages/core/src/modules/promotions/workers/code-generation.worker.ts` (lines 142-148) writes `code.generated = actualCountAfter; await em.flush()` as a **raw ORM mutation**, bypassing the CRUD command/route layer entirely, so it never invalidates the opt-in CRUD list cache (`ENABLE_CRUD_API_CACHE=true`, which both `test:integration` and `test:integration:ephemeral` always set). No subscriber on the worker's own `promotions.generated_code.created` event invalidates it either. This worker and the cache flag predate Phase 8 entirely — Steps 8.1-8.13 only touched currency/budget fields, rule/benefit-type `Select`s, the labels editor, date-inclusive end, and code casing/charset, never this worker or cache wiring. It was simply never reachable before this pass because `TC-PROM-083` always died earlier on the static-code charset rejection (Finding A, now fixed). **This is a real product bug worth a follow-up fix** (give the worker a cache-invalidation call, or route the final write through a command), but it is a pre-existing defect unrelated to anything this release's Phase 8 touched — not fixed in this pass, out of scope for this gate.
+
+### Verdict
+
+No genuine Phase-8 regression in either remaining failure. Per Part 1's own stop condition ("a pre-existing/environmental flake unrelated to anything this release touched is fine to document and continue past"), proceeded to Part 2.
+
+## Part 2 result: UI screenshots captured, all verified
+
+Reused the live stack from the Part 1 re-run's own `yarn test:integration:ephemeral:start` debug session (same server, `http://127.0.0.1:5001`, admin@acme.com / secret) rather than standing up a second one. Captured via a throwaway Playwright spec (written, run, screenshots copied out, spec deleted — never committed) under `${RUN_DIR}/checkpoint-5-artifacts/`:
+
+| File | Proves |
+|---|---|
+| `8.7-currency-budget-fields.png` | Settings panel: "Eligible currencies" multi-select open with USD + EUR picked (EUR visible checked in the scrolled list), "Max budget" = 5000, "Budget currency" = USD. |
+| `8.7-rule-tree-save-error.png` | An `order_value` rule with no eligible currency set, "Save rules" clicked, the specific Step-8.7 flash: *"Add an eligible currency in the promotion's Settings panel before saving a rule or benefit that needs one"* — not the old generic "Could not save the rule tree". |
+| `8.8-rule-type-select-open.png` | Rule-type `Select` OPEN, all 11 options visible: Order value, Order date, Product count, Cart weight, Row total, Specific product, Category, Product attribute, Customer group, Customer order history, Promotion code. |
+| `8.8-benefit-type-select-open.png` | Benefit-type `Select` OPEN, all 5 options visible: Product discount, Cart discount, Free product, Buy X get Y, Tiered discount. |
+| `8.8-labels-editor-locale-select-open.png` | Labels editor with one existing label row (`en` / "10% off") showing the `Input` and delete `IconButton` at matching heights, plus the "Add locale" locale `Select` OPEN showing the remaining real app locales (`pl`, `es`, `de`, `ko`; `en` correctly excluded as already used). |
+
+Environment torn down cleanly afterward (`SIGINT` to the `yarn mercato test:ephemeral` process; `.ai/qa/ephemeral-env.json` cleared; `docker ps -a` confirms no leftover `testcontainers`/Postgres containers).
+
+## Recommendation for the orchestrating session (re-run)
+
+1. **No action required to unblock Step 8.12** — both remaining failures are pre-existing, out-of-scope defects, not Phase-8 regressions; the live gate is otherwise green (64/66, the only 2 reds independently explained and evidenced above).
+2. Consider filing follow-up issues for: (a) `TC-PROM-074`'s `hasText` case-insensitivity collision (mechanical test fix), and (b) the code-generation worker's missing cache invalidation (`code-generation.worker.ts` — real product bug, low severity since it only affects the CRUD-list-cache read path when `ENABLE_CRUD_API_CACHE=true`).
+3. Step 8.12's Tasks-table row is left `todo` by this pass per this task's own instructions — the orchestrating session flips it once it has reviewed this full re-run.
