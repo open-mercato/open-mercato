@@ -350,3 +350,38 @@ describe('FetchGmailApiClient.requestJson retry/backoff', () => {
     expect(capturedDelays).toEqual([500, 1000, 2000])
   })
 })
+
+describe('FetchGmailApiClient.getMessageHeaders', () => {
+  const originalFetch = globalThis.fetch
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+    setGmailApiClient(null)
+  })
+
+  it('requests only the named headers with format=metadata', async () => {
+    setGmailApiClient(null)
+    const urls: string[] = []
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      urls.push(String(input))
+      return fakeResponse({
+        status: 200,
+        body: JSON.stringify({
+          id: 'gm-1',
+          threadId: 'th-1',
+          payload: { headers: [{ name: 'Message-ID', value: '<abc@mail.gmail.com>' }] },
+        }),
+      })
+    }) as typeof fetch
+
+    const client = getGmailApiClient()
+    const result = await client.getMessageHeaders!({ accessToken: 'token' }, 'gm-1', ['Message-ID'])
+
+    expect(urls).toHaveLength(1)
+    const url = new URL(urls[0])
+    expect(url.pathname).toBe('/gmail/v1/users/me/messages/gm-1')
+    expect(url.searchParams.get('format')).toBe('metadata')
+    expect(url.searchParams.getAll('metadataHeaders')).toEqual(['Message-ID'])
+    expect(result.payload?.headers?.[0]?.value).toBe('<abc@mail.gmail.com>')
+  })
+})

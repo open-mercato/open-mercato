@@ -26,6 +26,11 @@ import deliverOutboundMessageCommand, {
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { emitCommunicationChannelsEvent } from '../../events'
 import { ExternalMessage } from '../../data/entities'
+import {
+  registerTelemetryRuntime,
+  resetTelemetryRuntime,
+  type TelemetryRuntime,
+} from '@open-mercato/shared/lib/telemetry/runtime'
 
 const mockFindOne = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
 const mockEmit = emitCommunicationChannelsEvent as jest.MockedFunction<typeof emitCommunicationChannelsEvent>
@@ -596,5 +601,274 @@ describe('deliverOutboundMessageCommand — outbound reply threading', () => {
     }
     expect(converted.channelMetadata).not.toHaveProperty('messageReferenceId')
     expect(converted.channelMetadata.allowedMentions).toEqual({ parse: ['users'] })
+  })
+})
+
+// ── A sent message and its provider copy/replies share one conversation (Gmail) ──
+describe('deliverOutboundMessageCommand: provider ids of the sent message', () => {
+  const MSG = '550e8400-e29b-41d4-a716-446655440010'
+  const TENANT = '550e8400-e29b-41d4-a716-446655440020'
+  const ORG = '550e8400-e29b-41d4-a716-446655440030'
+
+  function makeCtx(sendResult: Record<string, unknown>, convertedMetadata: Record<string, unknown> = {}) {
+    const em: any = {
+      create: jest.fn((_entity: unknown, data: Record<string, any>) => ({ ...data })),
+      persist: jest.fn(),
+      flush: jest.fn(async () => undefined),
+    }
+    em.fork = () => em
+    const adapter = {
+      providerKey: 'gmail',
+      convertOutbound: jest.fn(async () => ({ content: { text: 'hi' }, metadata: convertedMetadata })),
+      sendMessage: jest.fn(async () => sendResult),
+    }
+    const ctx = {
+      container: {
+        resolve: (name: string) => {
+          if (name === 'em') return em
+          if (name === 'channelAdapterRegistry') return { get: () => adapter }
+          if (name === 'integrationCredentialsService') return { resolve: async () => ({}) }
+          if (name === 'integrationLogService') return { error: jest.fn() }
+          throw new Error(`unexpected resolve: ${name}`)
+        },
+      },
+    } as any
+    return { ctx, em, adapter }
+  }
+
+  function primeFinds(mapping: Record<string, any>, link: Record<string, any>) {
+    mockFindOne.mockReset()
+    mockFindOne
+      .mockResolvedValueOnce({ id: 'msg-1', threadId: 'thread-1', body: 'hello', bodyFormat: 'text' } as never)
+      .mockResolvedValueOnce(mapping as never)
+      .mockResolvedValueOnce({
+        id: 'ch-1',
+        isActive: true,
+        providerKey: 'gmail',
+        channelType: 'email',
+        userId: 'u-1',
+        credentialsRef: null,
+        status: 'connected',
+      } as never)
+      .mockResolvedValueOnce(link as never)
+  }
+
+  function outboundMapping(): Record<string, any> {
+    return {
+      messageThreadId: 'thread-1',
+      channelId: 'ch-1',
+      externalConversationId: 'conv-1',
+      externalThreadRef: 'outbound:thread-1',
+    }
+  }
+
+  function pendingLink(): Record<string, any> {
+    return { id: 'link-1', deliveryStatus: 'pending', channelPayload: { text: 'hello' }, channelMetadata: { to: ['client@example.com'] } }
+  }
+
+  beforeEach(() => {
+    mockEmit.mockClear()
+  })
+
+  it('records the Message-ID the provider actually sent, not the client-built one', async () => {
+    const link = pendingLink()
+    const { ctx } = makeCtx(
+      {
+        status: 'sent',
+        externalMessageId: '<client-built@gmail.com>',
+        conversationId: 'gmail-thread:gm-thread-1',
+        metadata: { messageId: 'CAJ+gmail-minted@mail.gmail.com', gmailMessageId: 'gm-1' },
+      },
+      { messageId: '<client-built@gmail.com>' },
+    )
+    primeFinds(outboundMapping(), link)
+    mockFindOne.mockResolvedValueOnce(null as never)
+    mockFindOne.mockResolvedValueOnce(null as never)
+
+    const result = await deliverOutboundMessageCommand.execute(
+      { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+      ctx,
+    )
+
+    expect((result as any).status).toBe('delivered')
+    expect((link.channelMetadata as Record<string, unknown>).messageId).toBe('CAJ+gmail-minted@mail.gmail.com')
+  })
+
+  it('keeps the converted Message-ID when the provider reports none', async () => {
+    const link = pendingLink()
+    const { ctx } = makeCtx(
+      { status: 'sent', externalMessageId: '<client-built@gmail.com>' },
+      { messageId: '<client-built@gmail.com>' },
+    )
+    primeFinds(outboundMapping(), link)
+
+    await deliverOutboundMessageCommand.execute(
+      { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+      ctx,
+    )
+
+    expect((link.channelMetadata as Record<string, unknown>).messageId).toBe('client-built@gmail.com')
+  })
+
+  it('re-keys the outbound placeholder conversation to the provider conversation id', async () => {
+    const mapping = outboundMapping()
+    const conversation: Record<string, any> = { id: 'conv-1', channelId: 'ch-1', externalConversationId: 'outbound:thread-1' }
+    const { ctx, em } = makeCtx({
+      status: 'sent',
+      externalMessageId: '<client-built@gmail.com>',
+      conversationId: 'gmail-thread:gm-thread-1',
+    })
+    primeFinds(mapping, pendingLink())
+    mockFindOne.mockResolvedValueOnce(conversation as never)
+    mockFindOne.mockResolvedValueOnce(null as never)
+
+    const result = await deliverOutboundMessageCommand.execute(
+      { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+      ctx,
+    )
+
+    expect((result as any).status).toBe('delivered')
+    expect(conversation.externalConversationId).toBe('gmail-thread:gm-thread-1')
+    expect(mapping.externalThreadRef).toBe('gmail-thread:gm-thread-1')
+    expect(em.flush).toHaveBeenCalledTimes(2)
+  })
+
+  it('leaves the placeholder alone when another conversation already owns the provider id', async () => {
+    const mapping = outboundMapping()
+    const conversation: Record<string, any> = { id: 'conv-1', channelId: 'ch-1', externalConversationId: 'outbound:thread-1' }
+    const { ctx } = makeCtx({
+      status: 'sent',
+      externalMessageId: '<client-built@gmail.com>',
+      conversationId: 'gmail-thread:gm-thread-1',
+    })
+    primeFinds(mapping, pendingLink())
+    mockFindOne.mockResolvedValueOnce(conversation as never)
+    mockFindOne.mockResolvedValueOnce({ id: 'conv-2', externalConversationId: 'gmail-thread:gm-thread-1' } as never)
+
+    const result = await deliverOutboundMessageCommand.execute(
+      { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+      ctx,
+    )
+
+    expect((result as any).status).toBe('delivered')
+    expect(conversation.externalConversationId).toBe('outbound:thread-1')
+    expect(mapping.externalThreadRef).toBe('outbound:thread-1')
+  })
+
+  it('does not touch a conversation that already carries a provider id', async () => {
+    const mapping = { ...outboundMapping(), externalThreadRef: 'gmail-thread:gm-thread-0' }
+    const { ctx } = makeCtx({
+      status: 'sent',
+      externalMessageId: '<client-built@gmail.com>',
+      conversationId: 'gmail-thread:gm-thread-1',
+    })
+    primeFinds(mapping, pendingLink())
+    const findsBefore = mockFindOne.mock.calls.length
+
+    await deliverOutboundMessageCommand.execute(
+      { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+      ctx,
+    )
+
+    expect(mapping.externalThreadRef).toBe('gmail-thread:gm-thread-0')
+    expect(mockFindOne.mock.calls.length - findsBefore).toBe(4)
+  })
+
+  it('reports the send as delivered when re-keying fails', async () => {
+    const link = pendingLink()
+    const { ctx, em } = makeCtx({
+      status: 'sent',
+      externalMessageId: '<client-built@gmail.com>',
+      conversationId: 'gmail-thread:gm-thread-1',
+    })
+    primeFinds(outboundMapping(), link)
+    mockFindOne.mockRejectedValueOnce(new Error('db blip'))
+
+    const result = await deliverOutboundMessageCommand.execute(
+      { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+      ctx,
+    )
+
+    expect((result as any).status).toBe('delivered')
+    expect(link.deliveryStatus).toBe('sent')
+    expect(em.flush).toHaveBeenCalled()
+    expect(mockEmit).toHaveBeenCalledWith(
+      'communication_channels.message.sent',
+      expect.objectContaining({ messageId: 'msg-1' }),
+      expect.anything(),
+    )
+  })
+  describe('re-keying failure telemetry', () => {
+    const reportError = jest.fn()
+
+    function registerRuntime(report: TelemetryRuntime['reportError']) {
+      registerTelemetryRuntime({ reportError: report } as unknown as TelemetryRuntime)
+    }
+
+    afterEach(() => {
+      resetTelemetryRuntime()
+      reportError.mockReset()
+    })
+
+    async function deliverWithFailingRekey(error: Error) {
+      const link = pendingLink()
+      const { ctx } = makeCtx({
+        status: 'sent',
+        externalMessageId: '<client-built@gmail.com>',
+        conversationId: 'gmail-thread:gm-thread-1',
+      })
+      primeFinds(outboundMapping(), link)
+      mockFindOne.mockRejectedValueOnce(error)
+      const result = await deliverOutboundMessageCommand.execute(
+        { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+        ctx,
+      )
+      return { result, link }
+    }
+
+    it('reports a re-keying failure to telemetry with a stable code', async () => {
+      registerRuntime(reportError)
+      const error = new Error('db blip')
+
+      const { result } = await deliverWithFailingRekey(error)
+
+      expect((result as any).status).toBe('delivered')
+      expect(reportError).toHaveBeenCalledTimes(1)
+      expect(reportError).toHaveBeenCalledWith(error, {
+        module: 'communication_channels',
+        code: 'communication_channels.provider_conversation_adoption_failed',
+        attributes: { messageId: 'msg-1', channelId: 'ch-1' },
+      })
+    })
+
+    it('keeps the send delivered when the telemetry runtime itself throws', async () => {
+      registerRuntime(() => {
+        throw new Error('telemetry down')
+      })
+
+      const { result, link } = await deliverWithFailingRekey(new Error('db blip'))
+
+      expect((result as any).status).toBe('delivered')
+      expect(link.deliveryStatus).toBe('sent')
+    })
+
+    it('reports nothing when re-keying succeeds', async () => {
+      registerRuntime(reportError)
+      const { ctx } = makeCtx({
+        status: 'sent',
+        externalMessageId: '<client-built@gmail.com>',
+        conversationId: 'gmail-thread:gm-thread-1',
+      })
+      primeFinds(outboundMapping(), pendingLink())
+      mockFindOne.mockResolvedValueOnce({ id: 'conv-1', channelId: 'ch-1', externalConversationId: 'outbound:thread-1' } as never)
+      mockFindOne.mockResolvedValueOnce(null as never)
+
+      await deliverOutboundMessageCommand.execute(
+        { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+        ctx,
+      )
+
+      expect(reportError).not.toHaveBeenCalled()
+    })
   })
 })
