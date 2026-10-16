@@ -171,8 +171,16 @@ const fulfilledOrders: RowSweepSource = {
   defaultWithinDays: 7,
   async collect(em, scope, params, now, limit, offset = 0) {
     const withinDays = params.withinDays ?? this.defaultWithinDays
-    // A window, not "everything older than N days": the claim below makes each order single-use, but
-    // the QUERY still has to stop growing or every tick would scan the whole order history.
+    /**
+     * Windowed on `updatedAt`, not `placedAt`.
+     *
+     * There is no dedicated fulfillment/delivery timestamp column, and `placedAt` is set once, at
+     * creation, and never moves again. Windowing on it means an order's age — not how recently it
+     * became fulfilled — decides whether this scan can still see it, so a backordered order placed
+     * on day 0 and fulfilled on day 45 falls out of any window anchored to day 0 before it is ever
+     * eligible, and the review request is permanently missed. `updatedAt` bumps on the write that
+     * flips `fulfillmentStatus`, so the window tracks the transition this source exists to react to.
+     */
     const notAfter = new Date(now.getTime() - withinDays * MS_PER_DAY)
     const notBefore = new Date(now.getTime() - (withinDays + FULFILLED_LOOKBACK_DAYS) * MS_PER_DAY)
 
@@ -182,11 +190,11 @@ const fulfilledOrders: RowSweepSource = {
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
         deletedAt: null,
-        placedAt: { $gte: notBefore, $lte: notAfter },
+        updatedAt: { $gte: notBefore, $lte: notAfter },
         fulfillmentStatus: { $in: FULFILLED_STATUSES },
         status: { $nin: ['canceled', 'cancelled'] },
       },
-      { orderBy: { placedAt: 'DESC', id: 'ASC' }, limit, offset },
+      { orderBy: { updatedAt: 'DESC', id: 'ASC' }, limit, offset },
     )
 
     const candidates: SweepCandidate[] = []

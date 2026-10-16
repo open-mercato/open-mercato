@@ -54,10 +54,20 @@ describe('fulfilled orders — the review-request source', () => {
   test('looks at a WINDOW of orders, not at everything older than the delay', async () => {
     const { em, finds } = fakeEm([])
     await source.collect(em, scope, { withinDays: 7 }, now, 50)
-    const placedAt = finds[0].where.placedAt as { $gte: Date; $lte: Date }
+    const updatedAt = finds[0].where.updatedAt as { $gte: Date; $lte: Date }
     // Upper bound: the delay. Lower bound: a lookback, or every tick would scan the whole history.
-    expect(placedAt.$lte).toEqual(new Date('2026-09-21T12:00:00.000Z'))
-    expect(placedAt.$gte.getTime()).toBeLessThan(placedAt.$lte.getTime())
+    expect(updatedAt.$lte).toEqual(new Date('2026-09-21T12:00:00.000Z'))
+    expect(updatedAt.$gte.getTime()).toBeLessThan(updatedAt.$lte.getTime())
+  })
+
+  // The window has to track WHEN AN ORDER BECAME FULFILLED, not when it was placed — there is no
+  // dedicated fulfillment timestamp, but `updatedAt` bumps on the write that flips the status, while
+  // `placedAt` never moves again after creation. A backordered order placed long ago and fulfilled
+  // just now must still be found.
+  test('finds an order placed long ago but only just fulfilled', async () => {
+    const { em, finds } = fakeEm([])
+    await source.collect(em, scope, { withinDays: 7 }, now, 50)
+    expect(finds[0].where).not.toHaveProperty('placedAt')
   })
 
   test('only orders the customer actually has, and never a cancelled one', async () => {
@@ -71,8 +81,8 @@ describe('fulfilled orders — the review-request source', () => {
   test('uses its own default window when the author set none', async () => {
     const { em, finds } = fakeEm([])
     await source.collect(em, scope, {}, now, 50)
-    const placedAt = finds[0].where.placedAt as { $lte: Date }
-    expect(placedAt.$lte).toEqual(new Date(now.getTime() - source.defaultWithinDays * 86_400_000))
+    const updatedAt = finds[0].where.updatedAt as { $lte: Date }
+    expect(updatedAt.$lte).toEqual(new Date(now.getTime() - source.defaultWithinDays * 86_400_000))
   })
 
   test('hands back the order context an audience and a message can use', async () => {
