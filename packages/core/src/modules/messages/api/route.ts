@@ -732,6 +732,9 @@ export const openApi: OpenApiRouteDoc = {
           }),
         },
       ],
+      errors: [
+        { status: 400, description: 'Query parameters failed validation', schema: errorResponseSchema },
+      ],
     },
     POST: {
       summary: 'Compose a message',
@@ -746,6 +749,7 @@ export const openApi: OpenApiRouteDoc = {
         },
       ],
       errors: [
+        { status: 400, description: 'Compose payload failed validation', schema: errorResponseSchema },
         { status: 403, description: 'Access denied, including a parentMessageId the caller cannot read', schema: errorResponseSchema },
         { status: 404, description: 'parentMessageId is unknown, deleted, or outside the caller organization', schema: errorResponseSchema },
       ],
