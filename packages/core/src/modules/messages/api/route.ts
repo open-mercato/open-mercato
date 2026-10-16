@@ -16,7 +16,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import { User } from '../../auth/data/entities'
 import { Message, MessageObject } from '../data/entities'
-import { composeMessageSchema, listMessagesSchema, type ListMessagesInput } from '../data/validators'
+import { composeMessageSchema, listMessagesSchema, type ComposeMessageInput, type ListMessagesInput } from '../data/validators'
 import {
   composeRequiresChannelTypeResolution,
   composeSourceHintSchema,
@@ -144,7 +144,15 @@ export async function GET(req: Request) {
   const { ctx, scope } = await resolveMessageContext(req)
   const url = new URL(req.url)
   const params = Object.fromEntries(url.searchParams)
-  const input = listMessagesSchema.parse(params)
+  let input: ListMessagesInput
+  try {
+    input = listMessagesSchema.parse(params)
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return Response.json({ error: err.issues[0]?.message ?? '[internal] Invalid request' }, { status: 400 })
+    }
+    throw err
+  }
 
   const cache = isCrudCacheEnabled() ? resolveCrudCache(ctx.container) : null
   const cacheKey = cache ? buildMessageListCacheKey(scope, input) : null
@@ -494,10 +502,18 @@ export async function POST(req: Request) {
     sentAt: _clientSuppliedSentAt,
     ...clientBody
   } = (body ?? {}) as Record<string, unknown>
-  const input = composeMessageSchema.parse({
-    ...clientBody,
-    ...(sourceChannelType ? { sourceChannelType } : {}),
-  })
+  let input: ComposeMessageInput
+  try {
+    input = composeMessageSchema.parse({
+      ...clientBody,
+      ...(sourceChannelType ? { sourceChannelType } : {}),
+    })
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return Response.json({ error: err.issues[0]?.message ?? '[internal] Invalid request' }, { status: 400 })
+    }
+    throw err
+  }
 
   const isPublicVisibility = input.visibility === 'public'
   const sendViaEmail = isPublicVisibility ? true : input.sendViaEmail

@@ -60,7 +60,7 @@ jest.mock('../../lib/routeHelpers', () => {
   return { ...actual, canUseMessageEmailFeature: jest.fn(async () => true) }
 })
 
-import { POST as composeMessage } from '../route'
+import { GET as listMessages, POST as composeMessage } from '../route'
 
 function publicComposeBody(extra: Record<string, unknown> = {}) {
   return {
@@ -139,25 +139,29 @@ describe('POST /api/messages — source channel type resolution (#4975)', () => 
     // claiming the message came from a chat channel.
     resolveChannelTypeMock.mockResolvedValue(null)
 
-    await expect(
-      composeMessage(composeRequest(publicComposeBody({ sourceChannelType: 'discord' }))),
-    ).rejects.toThrow()
+    const response = await composeMessage(
+      composeRequest(publicComposeBody({ sourceChannelType: 'discord' })),
+    )
+    // #7503: a validator refusal answers 400 with a message, not a bare 500.
+    expect(response.status).toBe(400)
     expect(commandBusExecuteMock).not.toHaveBeenCalled()
   })
 
   it('does not let a client-supplied type override the resolved one', async () => {
     resolveChannelTypeMock.mockResolvedValue('email')
 
-    await expect(
-      composeMessage(composeRequest(publicComposeBody({ sourceChannelType: 'discord' }))),
-    ).rejects.toThrow()
+    const response = await composeMessage(
+      composeRequest(publicComposeBody({ sourceChannelType: 'discord' })),
+    )
+    expect(response.status).toBe(400)
     expect(commandBusExecuteMock).not.toHaveBeenCalled()
   })
 
   it('keeps requiring an external email when the source resolves to an email channel', async () => {
     resolveChannelTypeMock.mockResolvedValue('email')
 
-    await expect(composeMessage(composeRequest(publicComposeBody()))).rejects.toThrow()
+    const rejected = await composeMessage(composeRequest(publicComposeBody()))
+    expect(rejected.status).toBe(400)
 
     resolveChannelTypeMock.mockResolvedValue('email')
     const response = await composeMessage(
@@ -169,7 +173,8 @@ describe('POST /api/messages — source channel type resolution (#4975)', () => 
   it('fails closed when the source cannot be resolved to a channel', async () => {
     resolveChannelTypeMock.mockResolvedValue(null)
 
-    await expect(composeMessage(composeRequest(publicComposeBody()))).rejects.toThrow()
+    const response = await composeMessage(composeRequest(publicComposeBody()))
+    expect(response.status).toBe(400)
     expect(commandBusExecuteMock).not.toHaveBeenCalled()
   })
 
@@ -236,17 +241,16 @@ describe('POST /api/messages — server-only compose fields', () => {
     // waive the recipients rule by asserting it.
     resolveChannelTypeMock.mockResolvedValue('email')
 
-    await expect(
-      composeMessage(
-        composeRequest(
-          publicComposeBody({
-            externalEmail: 'jane@example.com',
-            inboundFromChannel: true,
-            recipients: [{ userId, type: 'to' }],
-          }),
-        ),
+    const response = await composeMessage(
+      composeRequest(
+        publicComposeBody({
+          externalEmail: 'jane@example.com',
+          inboundFromChannel: true,
+          recipients: [{ userId, type: 'to' }],
+        }),
       ),
-    ).rejects.toThrow()
+    )
+    expect(response.status).toBe(400)
     expect(commandBusExecuteMock).not.toHaveBeenCalled()
   })
 })
@@ -292,7 +296,8 @@ describe('POST /api/messages — the channel-type lookup stays off the compose h
     // keeps getting it, and an unresolvable source keeps the pre-#4975 rule.
     resolveChannelTypeMock.mockResolvedValue(null)
 
-    await expect(composeMessage(composeRequest(publicComposeBody()))).rejects.toThrow()
+    const response = await composeMessage(composeRequest(publicComposeBody()))
+    expect(response.status).toBe(400)
     expect(resolveChannelTypeMock).toHaveBeenCalledTimes(1)
   })
 })
@@ -466,5 +471,85 @@ describe('POST /api/messages — channel conversation deliverability (#5535)', (
     )
     expect(internalNote.status).toBe(201)
     expect(resolveChannelThreadAccessMock).not.toHaveBeenCalled()
+  })
+})
+
+// #7503 — a compose/list payload the validator rejects used to escape the
+// handler as an uncaught ZodError, which Next.js answered as a bare 500 with
+// an empty body. The caller got no reason and the UI fell back to a generic
+// "could not send" toast. These must answer 400 with the validator's message.
+describe('POST /api/messages — validator rejections answer 400, not a bare 500 (#7503)', () => {
+  it('answers 400 with a message when required fields are missing, instead of throwing', async () => {
+    const response = await composeMessage(composeRequest({}))
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(typeof body.error).toBe('string')
+    expect(body.error.length).toBeGreaterThan(0)
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
+  })
+
+  it('answers 400 when the subject exceeds the 500-character limit', async () => {
+    const response = await composeMessage(
+      composeRequest({
+        visibility: 'internal',
+        recipients: [{ userId, type: 'to' }],
+        subject: 'x'.repeat(501),
+        body: 'x',
+      }),
+    )
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(typeof body.error).toBe('string')
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
+  })
+
+  it('answers 400 when a recipient userId is not a UUID', async () => {
+    const response = await composeMessage(
+      composeRequest({
+        visibility: 'internal',
+        recipients: [{ userId: 'not-a-uuid', type: 'to' }],
+        subject: 'x',
+        body: 'x',
+      }),
+    )
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(typeof body.error).toBe('string')
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
+  })
+
+  it('answers 400 for an action link the href refine rejects', async () => {
+    const response = await composeMessage(
+      composeRequest({
+        visibility: 'internal',
+        recipients: [{ userId, type: 'to' }],
+        subject: 'x',
+        body: 'x',
+        actionData: {
+          actions: [{ id: 'go', label: 'Open', href: '//evil.example.com/x', isTerminal: true }],
+        },
+      }),
+    )
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(typeof body.error).toBe('string')
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('GET /api/messages — validator rejections answer 400, not a bare 500 (#7503)', () => {
+  it('answers 400 with a message for an unknown folder value, instead of throwing', async () => {
+    const response = await listMessages(
+      new Request('http://localhost/api/messages?folder=not-a-real-folder'),
+    )
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(typeof body.error).toBe('string')
+    expect(body.error.length).toBeGreaterThan(0)
   })
 })
