@@ -408,6 +408,18 @@ export const orderLineUpdateSchema = z
   })
   .merge(orderLineCreateSchema.partial())
 
+/**
+ * Translation keys for the bulk-line schema refusals. The schema runs outside a
+ * request, so it cannot translate; it tags each issue with its key in `params`
+ * and the HTTP boundary resolves it. The English text stays here as the
+ * fallback and as the message a non-HTTP caller sees.
+ */
+export const SALES_ORDER_LINE_BULK_ISSUE_KEYS = {
+  empty: 'sales.documents.items.bulk.errorEmptyBatch',
+  duplicate: 'sales.documents.items.bulk.errorDuplicateId',
+  upsertDeleteConflict: 'sales.documents.items.bulk.errorUpsertDeleteConflict',
+} as const
+
 export const SALES_ORDER_LINE_BULK_EMPTY_MESSAGE =
   'Provide at least one line to upsert or delete.'
 export const SALES_ORDER_LINE_BULK_DUPLICATE_MESSAGE =
@@ -436,6 +448,7 @@ export const orderLineBulkUpsertSchema = scoped
         code: z.ZodIssueCode.custom,
         path: ['lines'],
         message: SALES_ORDER_LINE_BULK_EMPTY_MESSAGE,
+        params: { omKey: SALES_ORDER_LINE_BULK_ISSUE_KEYS.empty },
       })
     }
     const seen = new Set<string>()
@@ -446,6 +459,7 @@ export const orderLineBulkUpsertSchema = scoped
           code: z.ZodIssueCode.custom,
           path: ['lines', index, 'id'],
           message: SALES_ORDER_LINE_BULK_DUPLICATE_MESSAGE,
+          params: { omKey: SALES_ORDER_LINE_BULK_ISSUE_KEYS.duplicate },
         })
         return
       }
@@ -457,6 +471,7 @@ export const orderLineBulkUpsertSchema = scoped
         code: z.ZodIssueCode.custom,
         path: ['deleteIds', index],
         message: SALES_ORDER_LINE_BULK_UPSERT_DELETE_CONFLICT_MESSAGE,
+        params: { omKey: SALES_ORDER_LINE_BULK_ISSUE_KEYS.upsertDeleteConflict },
       })
     })
   })

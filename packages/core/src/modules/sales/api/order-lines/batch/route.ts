@@ -15,12 +15,29 @@ import {
   type MutationGuardAfterInput,
   type MutationGuardInput,
 } from '@open-mercato/shared/lib/crud/mutation-guard-registry'
+import { getAllMutationGuardInstances } from '@open-mercato/shared/lib/crud/mutation-guard-store'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { orderLineBulkUpsertSchema } from '../../../data/validators'
 import { withScopedPayload } from '../../utils'
 
 const logger = createLogger('sales')
+
+/**
+ * The bulk schema tags its own refusals with a translation key in `params`
+ * because it runs outside a request and cannot translate. Resolve those here,
+ * leaving zod's own built-in issues as they are.
+ */
+function localizeIssues(
+  issues: z.ZodError['issues'],
+  translate: (key: string, fallback?: string) => string,
+): z.ZodError['issues'] {
+  return issues.map((issue) => {
+    const key = (issue as { params?: { omKey?: unknown } }).params?.omKey
+    if (typeof key !== 'string') return issue
+    return { ...issue, message: translate(key, issue.message) }
+  })
+}
 
 const COMMAND_ID = 'sales.orders.lines.upsert_many'
 const RESOURCE_KIND = 'sales.order'
@@ -31,12 +48,40 @@ export const metadata = {
 
 type BulkUpsertResult = { orderId: string; lineIds: string[] }
 
-function resolveUserFeatures(auth: unknown): string[] {
-  const features = (auth as { features?: unknown })?.features
-  if (!Array.isArray(features)) return []
-  return features.filter((value): value is string => typeof value === 'string')
+type RbacServiceLike = {
+  getGrantedFeatures?: (
+    userId: string,
+    scope: { tenantId?: string | null; organizationId?: string | null },
+  ) => Promise<string[] | undefined>
 }
 
+/**
+ * The features a guard's `features` gate is checked against. Read from RBAC
+ * rather than off the token's `features` claim: a guard that only runs for
+ * holders of a feature must not be skippable by a caller who can shape their
+ * own claim.
+ */
+async function resolveGrantedFeatures(ctx: CommandRuntimeContext): Promise<string[]> {
+  if (!ctx.auth?.sub) return []
+  try {
+    const rbac = ctx.container.resolve('rbacService') as RbacServiceLike | undefined
+    const features = await rbac?.getGrantedFeatures?.(ctx.auth.sub, {
+      tenantId: ctx.auth.tenantId,
+      organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId,
+    })
+    return features ?? []
+  } catch {
+    // rbacService not registered — guards without a feature gate still run.
+    return []
+  }
+}
+
+/**
+ * Every guard the shared CRUD factory would run for this mutation: the ones
+ * modules register through `registerMutationGuards`, plus the legacy DI guard
+ * bridged on top. Consulting only the legacy bridge let a registered policy
+ * that denies an ordinary order write be bypassed through this route.
+ */
 async function runGuards(
   ctx: CommandRuntimeContext,
   input: MutationGuardInput,
@@ -44,28 +89,42 @@ async function runGuards(
   ok: boolean
   errorBody?: Record<string, unknown>
   errorStatus?: number
+  modifiedPayload?: Record<string, unknown>
   afterSuccessCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }>
 }> {
+  const guards = [...getAllMutationGuardInstances()]
   const legacyGuard = bridgeLegacyGuard(ctx.container)
-  if (!legacyGuard) {
+  if (legacyGuard) guards.push(legacyGuard)
+  if (!guards.length || !ctx.auth?.tenantId) {
     return { ok: true, afterSuccessCallbacks: [] }
   }
 
-  return runMutationGuards([legacyGuard], input, {
-    userFeatures: resolveUserFeatures(ctx.auth),
+  return runMutationGuards(guards, input, {
+    userFeatures: await resolveGrantedFeatures(ctx),
   })
 }
 
+/**
+ * These run after the batch has committed and after the success response —
+ * including its undo metadata — has been built. A throwing callback must not
+ * turn a committed write into a reported failure: the caller would retry, and
+ * entries without an id would append a second time. Each one is isolated and
+ * logged, exactly as the shared CRUD factory does.
+ */
 async function runGuardAfterSuccessCallbacks(
   callbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }>,
   input: Omit<MutationGuardAfterInput, 'metadata'>,
 ): Promise<void> {
   for (const callback of callbacks) {
     if (!callback.guard.afterSuccess) continue
-    await callback.guard.afterSuccess({
-      ...input,
-      metadata: callback.metadata ?? null,
-    })
+    try {
+      await callback.guard.afterSuccess({
+        ...input,
+        metadata: callback.metadata ?? null,
+      })
+    } catch (err) {
+      logger.error('Mutation guard afterSuccess failed', { guardId: callback.guard.id, err })
+    }
   }
 }
 
@@ -101,7 +160,8 @@ export async function POST(req: Request) {
     const ctx = await resolveRequestContext(req)
     const { translate } = await resolveTranslations()
     const payload = await req.json().catch(() => ({}))
-    const input = orderLineBulkUpsertSchema.parse(withScopedPayload(payload ?? {}, ctx, translate))
+    const scoped = withScopedPayload(payload ?? {}, ctx, translate)
+    let input = orderLineBulkUpsertSchema.parse(scoped)
 
     const guardScope = {
       tenantId: ctx.auth?.tenantId ?? '',
@@ -113,12 +173,18 @@ export async function POST(req: Request) {
       requestMethod: req.method,
       requestHeaders: req.headers,
     } satisfies Omit<MutationGuardAfterInput, 'metadata'>
-    const guardResult = await runGuards(ctx, guardScope)
+    const guardResult = await runGuards(ctx, {
+      ...guardScope,
+      mutationPayload: input as Record<string, unknown>,
+    })
     if (!guardResult.ok) {
       return NextResponse.json(
-        guardResult.errorBody ?? { error: 'Operation blocked by guard' },
+        guardResult.errorBody ?? { error: translate('sales.documents.errors.guard_blocked', 'Operation blocked by guard') },
         { status: guardResult.errorStatus ?? 422 },
       )
+    }
+    if (guardResult.modifiedPayload) {
+      input = orderLineBulkUpsertSchema.parse({ ...input, ...guardResult.modifiedPayload })
     }
 
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
@@ -159,7 +225,14 @@ export async function POST(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     if (err instanceof z.ZodError) {
-      return NextResponse.json({ error: 'Invalid input', details: err.issues }, { status: 400 })
+      const { translate } = await resolveTranslations()
+      return NextResponse.json(
+        {
+          error: translate('sales.documents.items.bulk.errorInvalidInput', 'Invalid input'),
+          details: localizeIssues(err.issues, translate),
+        },
+        { status: 400 },
+      )
     }
     const interceptorRejection = getCommandInterceptorHttpRejection(err)
     if (interceptorRejection) {

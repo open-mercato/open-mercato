@@ -192,8 +192,14 @@ Unchanged. No entity, column, index or migration is touched.
 
 `OrderLineUpsertEntry` is `orderLineCreateSchema` minus `organizationId`,
 `tenantId` and `orderId` (the envelope carries them), plus an optional `id`:
-present updates that line in place, absent appends a new one. An `id` that is not
-on the order creates a line with that id, matching the per-line command.
+present updates that line in place, absent appends a new one.
+
+An `id` the order does not have is **refused** with the same not-found error an
+unknown `deleteIds` entry gets — it does not create a line with that id. A
+caller holding an id it read before the line was deleted would otherwise
+resurrect it, and an id belonging to another order's line reached persistence as
+a duplicate-key failure (#6457). Callers that want caller-assigned ids must send
+the entry without an `id` and read the assigned one back from `lineIds`.
 
 Schema-level refusals (zod, before any query):
 
@@ -308,10 +314,29 @@ the batch path and the per-line path apply them identically.
 - one audit entry per call, carrying the pre-batch graph in its undo payload,
 - totals are published exactly once and only after the write commits,
 - a flush failure and a commit failure each roll back and publish no totals,
-- undo runs inside one transaction, and rolls back when the restore fails after
-  the old lines are deleted,
+- the audit payload carries both the before and the after graph, without which
+  the stale-undo check has nothing to compare against,
 - unknown order id and tenant-scope mismatch fail as the per-line command does,
+- an entry id that is not a line of the order is refused rather than created,
 - schema refusals: empty batch, duplicate id, id both upserted and deleted.
+
+`packages/core/src/modules/sales/api/__tests__/order-lines.batch.route.test.ts`
+covers the route rather than the command:
+
+- an explicit "All organizations" selection is refused before any guard or
+  command runs, and a payload `organizationId` cannot override it (#6458),
+- a batch writes under the resolved selected organization,
+- a registered mutation guard that rejects stops the command from executing, and
+  its status and body reach the caller,
+- registered guards run even when the legacy DI guard is absent, and receive the
+  mutation payload,
+- a guard's feature gate is checked against RBAC rather than the token's own
+  `features` claim,
+- a guard's `modifiedPayload` is merged back and re-validated before execution,
+- an `afterSuccess` callback that throws does not turn a committed batch into a
+  reported failure, and the remaining callbacks still run,
+- the schema refusals come back translated, while zod's own built-in issues are
+  passed through untouched.
 
 ### Integration coverage
 
@@ -386,6 +411,30 @@ call rather than this change's.
 - No new production dependency.
 
 ## Changelog
+
+### 2026-10-16
+
+- The route now runs **every** registered mutation guard, not only the legacy DI
+  bridge: `getAllMutationGuardInstances()` plus the bridge, the mutation payload
+  passed through, `modifiedPayload` merged back and re-validated. A policy
+  registered through `registerMutationGuards` that denies an ordinary order write
+  was bypassable through the batch endpoint. Guard feature gates are now checked
+  against `rbacService.getGrantedFeatures` rather than the token's own `features`
+  claim.
+- A guard's `afterSuccess` throwing no longer replaces the committed success
+  response with a 400. Each callback is isolated and logged, as the shared CRUD
+  factory does; the caller would otherwise retry a batch that already landed and
+  append its id-less entries twice.
+- An explicit "All organizations" selection is refused instead of silently
+  writing under the caller's home organization (#6458, carried from the fork PR
+  with its route and integration regressions).
+- The schema's three refusals and the route's `Invalid input` are translated:
+  the schema tags each issue with a translation key in `params` and the HTTP
+  boundary resolves it, with entries in all five locales and a non-English
+  assertion.
+- Spec corrections: an entry id the order does not have is refused, not created
+  (#6457) — the old text promised the opposite; and the unit-coverage list now
+  matches what ships, with the route suite listed separately.
 
 ### 2026-10-07
 

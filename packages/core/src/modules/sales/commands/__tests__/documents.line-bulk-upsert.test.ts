@@ -753,4 +753,20 @@ describe('sales.orders.lines.upsert_many', () => {
     expect(caught).toBeDefined()
     expect(em.flush).not.toHaveBeenCalled()
   })
+
+  it('refuses a batch naming the same line id twice', async () => {
+    const world = makeWorld(2)
+    const lineId = world.lines[0].id
+    const { caught, em } = await runBulk(world, {
+      lines: [
+        { id: lineId, currencyCode: 'USD', quantity: 2 },
+        { id: lineId, currencyCode: 'USD', quantity: 3 },
+      ],
+    })
+
+    // Two entries for one line have no defined order of application, so the
+    // batch is refused rather than resolved to whichever happened to win.
+    expect(caught).toBeDefined()
+    expect(em.flush).not.toHaveBeenCalled()
+  })
 })
