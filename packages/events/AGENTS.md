@@ -180,6 +180,9 @@ useAppEvent('mymod.entity.created', (event) => {
   - Recipient role: `recipientRoleId` or `recipientRoleIds` must intersect connection roles
 - Missing `tenantId` in event payload means no delivery
 - SSE sends heartbeats every 30s; client auto-reconnects if no heartbeat within 45s
+- The staff DOM bridge accepts cookie and Bearer authentication only. It rejects `x-api-key` and `Authorization: ApiKey` before opening, and the UI reconnects immediately after the shared organization-scope change signal so the new request carries current selection cookies.
+- SSE re-resolves canonical auth and organization scope from the original request credentials every 30s through the shared `organizationScopeService.resolveForRequest({ auth, request })` DI contract. It closes fail-closed when the scope is rejected or no longer allowed, validation fails, or its user, tenant, selected organization, or roles change. A successful check replaces the connection identity snapshot.
+- Every server stream closes after 5 minutes even when validation succeeds, forcing native `EventSource` reconnect through fresh request authorization. Operators may lower or raise these positive millisecond bounds with `OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS` and `OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS`; invalid values and values below 1000ms fall back to the defaults, and values above Node's safe timer maximum (`2^31-1`ms) are capped there.
 - Max payload size is 4096 bytes per event
 - Client deduplicates events within a 500ms window
 - `isBroadcastEvent(eventId)` checks if an event has `clientBroadcast: true`

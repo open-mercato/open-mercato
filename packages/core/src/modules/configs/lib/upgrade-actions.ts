@@ -7,11 +7,19 @@ import { reconcileAttachmentOrganizations } from '@open-mercato/core/modules/att
 
 const logger = createLogger('configs').child({ component: 'upgrade-actions' })
 
+type BaseCurrencyResolver = {
+  resolveBaseCurrency(scope: {
+    tenantId: string
+    organizationIds: string[]
+  }): Promise<{ status: 'resolved'; code: string } | { status: 'missing' | 'ambiguous' | 'unavailable' }>
+}
+
 export type UpgradeActionContext = {
   tenantId: string
   organizationId: string
   container: AppContainer
   em: EntityManager
+  deferAfterCommit?: (callback: () => void | Promise<void>) => void
 }
 
 export type UpgradeActionDefinition = {
@@ -81,12 +89,23 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     // of which fields to encrypt; the tenant DEK still drives the actual crypto, so seeding it is safe
     // even when encryption is currently disabled — it only takes effect once encryption is on).
     // Lazy-imported so configs stays decoupled from devices/entities (mirrors the customers action).
-    run: async ({ em, tenantId, organizationId }) => {
-      const [{ default: devicesEncryptionMaps }, { upsertEncryptionMapSpecs }] = await Promise.all([
+    run: async ({ container, em, tenantId, organizationId, deferAfterCommit }) => {
+      const [{ default: devicesEncryptionMaps }, { invalidateEncryptionMapScopes, upsertEncryptionMapSpecs }] = await Promise.all([
         import('@open-mercato/core/modules/devices/encryption'),
         import('@open-mercato/core/modules/entities/cli'),
       ])
-      await upsertEncryptionMapSpecs(em, tenantId, organizationId ?? null, devicesEncryptionMaps)
+      const materializedScopes = await upsertEncryptionMapSpecs(
+        em,
+        tenantId,
+        organizationId ?? null,
+        devicesEncryptionMaps,
+      )
+      const invalidate = async () => {
+        const encryptionService = container.resolve('tenantEncryptionService') as Parameters<typeof invalidateEncryptionMapScopes>[0]
+        await invalidateEncryptionMapScopes(encryptionService, materializedScopes)
+      }
+      if (deferAfterCommit) deferAfterCommit(invalidate)
+      else await invalidate()
     },
   },
   {
@@ -145,12 +164,51 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     // without a map, so ingest writes call PII as plaintext with nothing to signal it. This is the
     // heal for that case, and the same re-assert path devices exposes for its own map.
     // Lazy-imported so configs stays decoupled from phone_calls/entities (mirrors the devices action).
-    run: async ({ em, tenantId, organizationId }) => {
-      const [{ default: phoneCallsEncryptionMaps }, { upsertEncryptionMapSpecs }] = await Promise.all([
+    run: async ({ container, em, tenantId, organizationId, deferAfterCommit }) => {
+      const [{ default: phoneCallsEncryptionMaps }, { invalidateEncryptionMapScopes, upsertEncryptionMapSpecs }] = await Promise.all([
         import('@open-mercato/core/modules/phone_calls/encryption'),
         import('@open-mercato/core/modules/entities/cli'),
       ])
-      await upsertEncryptionMapSpecs(em, tenantId, organizationId ?? null, phoneCallsEncryptionMaps)
+      const materializedScopes = await upsertEncryptionMapSpecs(
+        em,
+        tenantId,
+        organizationId ?? null,
+        phoneCallsEncryptionMaps,
+      )
+      const invalidate = async () => {
+        const encryptionService = container.resolve('tenantEncryptionService') as Parameters<typeof invalidateEncryptionMapScopes>[0]
+        await invalidateEncryptionMapScopes(encryptionService, materializedScopes)
+      }
+      if (deferAfterCommit) deferAfterCommit(invalidate)
+      else await invalidate()
+    },
+  },
+  {
+    id: 'ecommerce.seed-draft-store',
+    version: '0.9.1',
+    messageKey: 'configs.upgrades.ecommerceDraftStore.message',
+    ctaKey: 'configs.upgrades.ecommerceDraftStore.cta',
+    successKey: 'configs.upgrades.ecommerceDraftStore.success',
+    loadingKey: 'configs.upgrades.ecommerceDraftStore.loading',
+    requiredModules: ['ecommerce'],
+    run: async ({ container, em, tenantId, organizationId }) => {
+      const { seedDraftStore } = await import('@open-mercato/core/modules/ecommerce/lib/seedDraftStore')
+      const result = await seedDraftStore(
+        em,
+        { tenantId, organizationId },
+        {
+          resolveCurrencyCode: async () => {
+            try {
+              const resolver = container.resolve<BaseCurrencyResolver>('baseCurrencyService')
+              const resolution = await resolver.resolveBaseCurrency({ tenantId, organizationIds: [organizationId] })
+              return resolution.status === 'resolved' ? resolution.code : null
+            } catch {
+              return null
+            }
+          },
+        },
+      )
+      logger.info('ecommerce draft store seed completed', { tenantId, organizationId, status: result.status })
     },
   },
 ]

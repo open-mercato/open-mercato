@@ -138,3 +138,39 @@ export function resolveUpsertTotalsOrigin(
   if (callerTotalNetAmount !== null && callerTotalNetAmount !== undefined) return {}
   return existingSnapshot != null ? { totalsFromStoredRow: true } : {}
 }
+
+/** Reuse stored tax/gross only while the edited line's pricing inputs are unchanged. */
+export function resolveUpsertCalculatedAmounts(
+  caller: Pick<SalesLineSnapshot, 'taxAmount' | 'totalGrossAmount'>,
+  nextSnapshot: SalesLineSnapshot,
+  existingSnapshot: SalesLineSnapshot | null,
+): Pick<SalesLineSnapshot, 'taxAmount' | 'totalGrossAmount'> {
+  const pricingFields = [
+    'quantity',
+    'unitPriceNet',
+    'unitPriceGross',
+    'taxRate',
+  ] as const
+  const nextDiscountAmount = nextSnapshot.discountAmount ?? 0
+  const nextDiscountLineAmount = nextSnapshot.discountAmountFromStoredRow === true ||
+    nextSnapshot.discountAmountBasis === 'line'
+    ? nextDiscountAmount
+    : nextDiscountAmount * nextSnapshot.quantity
+  const discountChanged =
+    (nextSnapshot.discountPercent ?? 0) !== (existingSnapshot?.discountPercent ?? 0) ||
+    ((nextSnapshot.discountPercent ?? 0) === 0 &&
+      Math.round((nextDiscountLineAmount + Number.EPSILON) * 1e4) / 1e4 !==
+        (existingSnapshot?.discountAmount ?? 0))
+  const pricingChanged = existingSnapshot === null || discountChanged ||
+    pricingFields.some((field) => (nextSnapshot[field] ?? 0) !== (existingSnapshot[field] ?? 0))
+  const grossChanged = caller.totalGrossAmount !== undefined && caller.totalGrossAmount !== null &&
+    caller.totalGrossAmount !== existingSnapshot?.totalGrossAmount
+  const taxChanged = caller.taxAmount !== undefined && caller.taxAmount !== null &&
+    caller.taxAmount !== existingSnapshot?.taxAmount
+  return {
+    taxAmount: caller.taxAmount ??
+      (pricingChanged || grossChanged ? null : existingSnapshot?.taxAmount ?? null),
+    totalGrossAmount: caller.totalGrossAmount ??
+      (pricingChanged || taxChanged ? null : existingSnapshot?.totalGrossAmount ?? null),
+  }
+}

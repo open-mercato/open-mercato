@@ -223,6 +223,26 @@ describe('deliverOutboundMessageCommand — link integrity + reauth', () => {
     expect((link.channelMetadata as Record<string, unknown>).messageId).toBe('ext-1')
   })
 
+  it('does not persist the adapter rawMessage buffer on the link channel metadata (#7099)', async () => {
+    const link: Record<string, unknown> = { id: 'link-1', deliveryStatus: 'pending', channelPayload: null, channelMetadata: null }
+    const { ctx, channel, adapter } = makeCtx({ sendResult: { status: 'sent', externalMessageId: 'ext-1' } })
+    adapter.convertOutbound.mockResolvedValueOnce({
+      content: { raw: 'x' },
+      metadata: { rawMessage: Buffer.from('MIME-Version: 1.0'), messageId: '<rfc-1@example.com>', to: ['a@example.com'] },
+    } as never)
+    primeFinds(channel, link)
+
+    await deliverOutboundMessageCommand.execute(
+      { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+      ctx,
+    )
+
+    const sendArgs = adapter.sendMessage.mock.calls[0] as unknown as [{ metadata: Record<string, unknown> }]
+    expect(sendArgs[0].metadata.rawMessage).toBeInstanceOf(Buffer)
+    expect(link.channelMetadata).not.toHaveProperty('rawMessage')
+    expect(link.channelMetadata).toMatchObject({ messageId: 'rfc-1@example.com', to: ['a@example.com'] })
+  })
+
   it('carries the provider timestamp on the emitted message.sent payload (#6095)', async () => {
     // Same contract as the inbound path: the consuming customers subscriber
     // dates its interaction from the event, never from the ExternalMessage row.
