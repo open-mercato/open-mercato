@@ -64,6 +64,7 @@ COPY packages/cli/package.json ./packages/cli/
 COPY packages/content/package.json ./packages/content/
 COPY packages/core/package.json ./packages/core/
 COPY packages/create-app/package.json ./packages/create-app/
+COPY packages/document-generators/package.json ./packages/document-generators/
 COPY packages/documents/package.json ./packages/documents/
 COPY packages/enterprise/package.json ./packages/enterprise/
 COPY packages/eslint-plugin-ds/package.json ./packages/eslint-plugin-ds/
@@ -177,6 +178,7 @@ COPY packages/cli/package.json ./packages/cli/
 COPY packages/content/package.json ./packages/content/
 COPY packages/core/package.json ./packages/core/
 COPY packages/create-app/package.json ./packages/create-app/
+COPY packages/document-generators/package.json ./packages/document-generators/
 COPY packages/documents/package.json ./packages/documents/
 COPY packages/enterprise/package.json ./packages/enterprise/
 COPY packages/eslint-plugin-ds/package.json ./packages/eslint-plugin-ds/
@@ -365,6 +367,7 @@ COPY --from=builder /app/packages/cli/package.json ./packages/cli/
 COPY --from=builder /app/packages/content/package.json ./packages/content/
 COPY --from=builder /app/packages/core/package.json ./packages/core/
 COPY --from=builder /app/packages/create-app/package.json ./packages/create-app/
+COPY --from=builder /app/packages/document-generators/package.json ./packages/document-generators/
 COPY --from=builder /app/packages/documents/package.json ./packages/documents/
 COPY --from=builder /app/packages/enterprise/package.json ./packages/enterprise/
 COPY --from=builder /app/packages/eslint-plugin-ds/package.json ./packages/eslint-plugin-ds/

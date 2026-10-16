@@ -1,0 +1,97 @@
+---
+title: Document Generators
+description: Render PDF and Markdown documents from any module's records, with template versioning, access control, stored history and a reusable UI panel.
+---
+
+# Document Generators
+
+The `@open-mercato/document-generators` package provides the `document_generators` engine module. It renders documents (PDF via React-PDF, or Markdown) from records owned by other modules, stores each generated file privately, and records a history of every generation.
+
+The engine is domain-independent. Sales ships the reference templates (order invoice and quote offer) and registers them through its own `document-generators.ts` convention file. Any module can contribute templates the same way and embed the document panel in its own detail pages.
+
+## What the module provides
+
+- Server-side rendering of PDF (React-PDF) and Markdown, selected by each template's `format`. PDFs use the built-in Helvetica unless the application [configures a Unicode font](./fonts).
+- A template registry filled at bootstrap from every enabled module's `document-generators.ts`.
+- Live preview without side effects, and generation that stores the file and records history.
+- Generation history scoped by tenant and organization, with the template id and version used.
+- Code-defined template versions, so older documents can be re-rendered with the renderer they were made with.
+- A `DraftWatermark` primitive for documents whose source record is not final.
+- Per-template access control through the owning module's features.
+- Retention that follows the source record: deleting it removes stored files and anonymizes history.
+- Reusable UI: a template list, a history list and a combined per-record panel.
+- Backend pages under **Documents**: an overview, the template catalogue and the organization-wide generation history.
+
+## Sales templates
+
+| Template | ID | Resource kind | Format | Required feature |
+|----------|----|---------------|--------|------------------|
+| Order invoice | `sales.order-invoice` | `sales.order` | `pdf` | `sales.orders.view` |
+| Order invoice (Markdown) | `sales.order-invoice-markdown` | `sales.order` | `md` | `sales.orders.view` |
+| Quote offer | `sales.offer` | `sales.quote` | `pdf` | `sales.quotes.view` |
+
+Sales owns these services, templates, translations and the **Documents** tabs on order and quote detail pages. The tabs declare `requiredModules: ['document_generators']`, so they disappear when the engine module is disabled.
+
+## Concepts
+
+| Concept | Meaning |
+|---------|---------|
+| Template | A registered renderer with a globally unique `id` (for example `sales.order-invoice`), a `format` (`pdf` or `md`), `documentType`, `tags`, an optional `requiredFeatures` list, a `filename` handler and a lazy `load`. |
+| Document service | A class extending `BaseDocumentService` that owns one `resourceKind`, loads the source record, normalizes it for its templates and registers them. |
+| Resource identity | `resourceKind` (for example `sales.order`) plus `resourceId`. The service derives it server-side through `resourceId()`; clients never choose it. |
+| Registry | `templateRegistry` collects entries from every enabled module's `document-generators.ts` after `yarn generate`. Template ids are global and must be namespaced as `<module>.<template>`; a duplicate id stops bootstrap with a message naming both modules. |
+| History | One `GeneratedDocument` row per successful generation, scoped by tenant and organization. `resource_label` is encrypted at rest. |
+
+## How a document is produced
+
+```
+widget / UI ── { template_id, data: { id } } ──▶ POST /api/document-generators/preview | /generate
+                                                   │
+                     TemplateAccessPolicy ◀────────┤  requiredFeatures checked before any data is read
+                                                   ▼
+                     templateRegistry.load ── fetchData (scoped query) → toTemplateData → resourceId / filename
+                                                   ▼
+                     DocumentRenderer ── format map ── PdfRenderingService | MarkdownRenderingService
+                                                   ▼
+                     /preview: bytes only     /generate: bytes + stored file + history row
+```
+
+The widget sends only the record id. All document content is built from server-loaded, tenant-scoped data, so the browser cannot influence what a document says.
+
+## Access control
+
+Three layers apply, and each answers a different question:
+
+| Layer | Where | Question |
+|-------|-------|----------|
+| Widget metadata | The owning module's `widget.ts`: `features` plus `requiredModules: ['document_generators']` | Should the tab render at all? |
+| Route guard | Engine features on each API route | May this endpoint be called? |
+| `TemplateAccessPolicy` | Inside every template-facing route | May this caller see or render this template? |
+
+Engine features:
+
+- `document_generators.documents.view` gates the catalogue, filter options, **preview**, history and stored-file download.
+- `document_generators.documents.generate` gates **generate** only, because generation is the call that stores a file and writes history.
+
+Template features come from `requiredFeatures` on each template. The catalogue and filter options omit templates the caller cannot use. Preview and generate reject them with `403` before `fetchData` runs. Wildcard grants such as `sales.*` are honored.
+
+Tenant and organization scope always comes from the authenticated session, never from the request body.
+
+## Versions and drafts
+
+Every template has a `version`, `"1"` by default. To keep an older renderer available after changing the output of a released template, bump `version` and move the previous renderer into `archivedVersions` (`{ version, load }`). Requests may pass `template_version`; omitting it selects the current version, and an unknown version is rejected before any data is read. Duplicate or empty version strings fail at registration. The version used is stored on each history row.
+
+A document is a draft when its owning module says so. Compute `isDraft` in `toTemplateData` from the source status, and render `DraftWatermark` with a translated label. Sales treats a missing status and `draft`, `pending_approval` and `rejected` as drafts. Markdown templates print a bold quoted label instead.
+
+## Storage and retention
+
+`/generate` stores the rendered file through the attachments module in the `privateAttachments` partition and links it to the history row. Stored files are downloaded only through `GET /api/document-generators/documents/{id}/file`, which re-checks the template's `requiredFeatures`; there is no public attachment URL. Persistence is best-effort: a storage failure does not fail the download, but a history row is never written with an unencrypted label.
+
+There is no time-based expiry. Retention follows the source record: when a module emits the standard deleted event for the resource kind, `<resourceKind>.deleted` (for example `sales.order.deleted`), with `{ id, tenantId, organizationId }`, the engine's `source-erasure` subscriber removes the stored files and anonymizes the matching history rows. A module that deletes records without emitting that event leaves its generated documents behind.
+
+## Next steps
+
+- [Getting started](./getting-started.mdx): install the package, enable the module and verify it.
+- [Authoring templates](./authoring.mdx): write a document service and templates for your own module, step by step.
+- [API reference](./api.mdx): REST endpoints, error codes and TypeScript exports.
+- [Contributing](./contributing.mdx): local setup, tests and package structure.

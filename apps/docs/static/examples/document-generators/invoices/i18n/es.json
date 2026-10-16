@@ -1,0 +1,11 @@
+{
+  "invoices.documents.generators.tabLabel": "Documentos",
+  "invoices.documents.templates.invoice.description": "Factura PDF imprimible para este registro.",
+  "invoices.documents.templates.invoice.label": "Factura (PDF)",
+  "invoices.documents.templates.invoice.labels.draftWatermark": "BORRADOR",
+  "invoices.documents.templates.invoice.labels.number": "Número",
+  "invoices.documents.templates.invoice.labels.title": "Factura",
+  "invoices.documents.templates.invoice.labels.total": "Total",
+  "invoices.documents.templates.invoiceMarkdown.description": "Versión de texto Markdown de la factura.",
+  "invoices.documents.templates.invoiceMarkdown.label": "Factura (Markdown)"
+}

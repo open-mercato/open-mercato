@@ -1,0 +1,259 @@
+import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import {
+  BaseDocumentService,
+  buildDocumentFilename,
+  buildLabels,
+  firstText,
+  toIso,
+  toNumber,
+  toSnapshotRecord,
+  toText,
+} from '@open-mercato/shared/modules/document-generators'
+import type {
+  DocumentDataInput,
+  DocumentFetchContext,
+  TemplateNormalizationInput,
+} from '@open-mercato/shared/modules/document-generators'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { SalesChannel, SalesQuote, SalesQuoteLine } from '../../../data/entities'
+import {
+  SALES_OFFER_LABEL_KEYS,
+  type SalesOfferData,
+  type SalesOfferLabels,
+  type SalesOfferLine,
+} from '../../templates/quotes/sales-offer/types'
+import { resolveClientAddress, resolveClientName } from '../../utils/client'
+import { isDraftDocumentStatus } from '../../utils/status'
+import { reconcileDocumentTotals } from '../../utils/totals'
+
+const quoteRequestSchema = z.object({ id: z.string().uuid() })
+
+export interface QuoteDocumentQuoteRecord {
+  id: string
+  quoteNumber: string
+  status?: string | null
+  currencyCode: string
+  customerSnapshot: unknown
+  billingAddressSnapshot: unknown
+  placedAt: string | null
+  createdAt: string
+  validUntil: string | null
+  comments: string | null
+  subtotalNetAmount: string
+  taxTotalAmount: string
+  grandTotalGrossAmount: string
+}
+
+export interface QuoteDocumentLineRecord {
+  lineNumber: number
+  name: string | null
+  description: string | null
+  quantity: string
+  currencyCode: string
+  unitPriceNet: string
+  unitPriceGross: string
+  totalNetAmount: string
+  totalGrossAmount: string
+}
+
+export interface QuoteDocumentChannelRecord {
+  name: string
+  contactEmail: string | null
+  contactPhone: string | null
+}
+
+export interface QuoteDocumentSource {
+  quote: QuoteDocumentQuoteRecord
+  lines: QuoteDocumentLineRecord[]
+  channel: QuoteDocumentChannelRecord | null
+}
+
+const LABEL_DEFAULTS: SalesOfferLabels = {
+  title: 'Offer',
+  number: 'Offer number',
+  date: 'Date',
+  validUntil: 'Valid until',
+  client: 'Client',
+  seller: 'Seller',
+  item: 'Item',
+  quantity: 'Quantity',
+  unitPrice: 'Unit price',
+  total: 'Total',
+  subtotal: 'Subtotal',
+  adjustments: 'Discounts and adjustments',
+  tax: 'Tax',
+  grandTotal: 'Total due',
+  notes: 'Notes',
+  draftWatermark: 'DRAFT',
+}
+
+function requireSource(data: unknown): QuoteDocumentSource {
+  const source = data as Partial<QuoteDocumentSource> | null
+  if (!source || typeof source !== 'object' || !source.quote || !Array.isArray(source.lines)) {
+    throw new CrudHttpError(400, { error: 'invalid_request' })
+  }
+  return source as QuoteDocumentSource
+}
+
+export class QuotesDocumentService extends BaseDocumentService {
+  readonly id = 'quotes'
+  readonly label = 'Quotes'
+  readonly module = 'sales'
+  readonly resourceKind = 'sales.quote'
+
+  constructor() {
+    super()
+    this.registerTemplate({
+      id: 'sales.offer',
+      label: 'sales.documents.templates.offer.label',
+      description: 'sales.documents.templates.offer.description',
+      documentType: 'offer',
+      format: 'pdf',
+      tags: ['sales', 'quote'],
+      requiredFeatures: ['sales.quotes.view'],
+      filename: ({ data }) => buildDocumentFilename(data, 'offer', 'pdf'),
+      load: async () => ({
+        type: 'react-pdf',
+        component: (await import('../../templates/quotes/sales-offer/pdf/SalesOfferPdf')).default,
+      }),
+    })
+  }
+
+  override async fetchData(
+    { data }: { data: unknown },
+    { container, auth }: DocumentFetchContext,
+  ): Promise<QuoteDocumentSource> {
+    const parsed = quoteRequestSchema.safeParse(data)
+    if (!parsed.success) {
+      throw new CrudHttpError(400, { error: 'invalid_request', details: parsed.error.flatten() })
+    }
+    const tenantId = auth?.tenantId
+    const organizationId = auth?.orgId
+    if (!tenantId || !organizationId) {
+      throw new CrudHttpError(403, { error: 'organization_scope_required' })
+    }
+    const scope = { tenantId, organizationId }
+    const em = (container.resolve('em') as EntityManager).fork()
+    const quote = await findOneWithDecryption(
+      em,
+      SalesQuote,
+      { id: parsed.data.id, ...scope, deletedAt: null },
+      {},
+      scope,
+    )
+    if (!quote) throw new CrudHttpError(404, { error: 'not_found' })
+    const lines = await findWithDecryption(
+      em,
+      SalesQuoteLine,
+      { quote: quote.id, ...scope, deletedAt: null },
+      { orderBy: { lineNumber: 'asc' } },
+      scope,
+    )
+    const channel = quote.channelId
+      ? await findOneWithDecryption(em, SalesChannel, { id: quote.channelId, ...scope, deletedAt: null }, {}, scope)
+      : null
+    return {
+      quote: {
+        id: quote.id,
+        quoteNumber: quote.quoteNumber,
+        status: quote.status ?? null,
+        currencyCode: quote.currencyCode,
+        customerSnapshot: quote.customerSnapshot ?? null,
+        billingAddressSnapshot: quote.billingAddressSnapshot ?? null,
+        placedAt: toIso(quote.placedAt),
+        createdAt: toIso(quote.createdAt) ?? new Date(0).toISOString(),
+        validUntil: toIso(quote.validUntil),
+        comments: quote.comments ?? null,
+        subtotalNetAmount: quote.subtotalNetAmount,
+        taxTotalAmount: quote.taxTotalAmount,
+        grandTotalGrossAmount: quote.grandTotalGrossAmount,
+      },
+      lines: lines.map((line) => ({
+        lineNumber: line.lineNumber,
+        name: line.name ?? null,
+        description: line.description ?? null,
+        quantity: line.quantity,
+        currencyCode: line.currencyCode,
+        unitPriceNet: line.unitPriceNet,
+        unitPriceGross: line.unitPriceGross,
+        totalNetAmount: line.totalNetAmount,
+        totalGrossAmount: line.totalGrossAmount,
+      })),
+      channel: channel
+        ? {
+            name: channel.name,
+            contactEmail: channel.contactEmail ?? null,
+            contactPhone: channel.contactPhone ?? null,
+          }
+        : null,
+    }
+  }
+
+  toTemplateData({ data, locale, translate }: TemplateNormalizationInput): SalesOfferData & Record<string, unknown> {
+    const { quote, lines, channel } = requireSource(data)
+    const customerSnapshot = toSnapshotRecord(quote.customerSnapshot)
+    const billingSnapshot = toSnapshotRecord(quote.billingAddressSnapshot)
+    const customer = toSnapshotRecord(customerSnapshot?.customer)
+    const contact = toSnapshotRecord(customerSnapshot?.contact)
+    const companyProfile = toSnapshotRecord(customer?.companyProfile)
+    const currency = quote.currencyCode
+    const normalizedLines: SalesOfferLine[] = lines.map((line) => ({
+      title: toText(line.name) ?? '',
+      description: toText(line.description),
+      quantity: toNumber(line.quantity),
+      unitPrice: toNumber(line.unitPriceNet),
+      total: toNumber(line.totalNetAmount),
+      currency: line.currencyCode || currency,
+    }))
+    const sellerName = toText(channel?.name)
+    const reconciled = reconcileDocumentTotals({
+      lineTotals: normalizedLines.map((line) => line.total),
+      subtotalNet: toNumber(quote.subtotalNetAmount),
+      grandTotalGross: toNumber(quote.grandTotalGrossAmount),
+    })
+    return {
+      locale,
+      isDraft: isDraftDocumentStatus(quote.status),
+      labels: buildLabels(SALES_OFFER_LABEL_KEYS, LABEL_DEFAULTS, 'sales.documents.templates.offer.labels', translate),
+      document: {
+        id: quote.id,
+        number: quote.quoteNumber,
+        date: quote.placedAt ?? quote.createdAt,
+        validUntil: quote.validUntil ?? undefined,
+      },
+      client: {
+        name: resolveClientName(customerSnapshot),
+        email: firstText(contact?.email, customer?.primaryEmail),
+        company: firstText(billingSnapshot?.companyName, companyProfile?.legalName, companyProfile?.brandName),
+        address: resolveClientAddress(billingSnapshot),
+      },
+      seller: sellerName
+        ? {
+            name: sellerName,
+            email: toText(channel?.contactEmail),
+            phone: toText(channel?.contactPhone),
+          }
+        : undefined,
+      lines: normalizedLines,
+      totals: {
+        subtotal: reconciled.subtotal,
+        adjustments: reconciled.adjustments,
+        tax: reconciled.tax,
+        total: reconciled.total,
+        currency,
+      },
+      notes: toText(quote.comments),
+    }
+  }
+
+  resourceId({ data }: DocumentDataInput): string {
+    return String((data as { document?: { id?: unknown } }).document?.id ?? '')
+  }
+
+  override resourceLabel({ data }: DocumentDataInput): string | undefined {
+    const number = (data as { document?: { number?: unknown } }).document?.number
+    return typeof number === 'string' && number.length > 0 ? number : undefined
+  }
+}

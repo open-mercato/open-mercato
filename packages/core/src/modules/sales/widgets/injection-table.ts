@@ -8,6 +8,12 @@ export const injectionTable: ModuleInjectionTable = {
       groupLabel: 'sales.documents.history.tabLabel',
       priority: 50,
     },
+    {
+      widgetId: 'sales.injection.document-generators-order-tab',
+      kind: 'tab',
+      groupLabel: 'sales.documents.generators.tabLabel',
+      priority: 40,
+    },
   ],
   'sales.document.detail.quote:tabs': [
     {
@@ -15,6 +21,12 @@ export const injectionTable: ModuleInjectionTable = {
       kind: 'tab',
       groupLabel: 'sales.documents.history.tabLabel',
       priority: 50,
+    },
+    {
+      widgetId: 'sales.injection.document-generators-quote-tab',
+      kind: 'tab',
+      groupLabel: 'sales.documents.generators.tabLabel',
+      priority: 40,
     },
   ],
   'data-table:sales.payments:columns': {
