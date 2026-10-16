@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { reportError } from '@open-mercato/telemetry'
 
 const logger = createLogger('marketing_automation')
 
@@ -96,6 +97,11 @@ async function ensureSchedules(ctx: {
     }
   } catch (error) {
     logger.warn('[internal] marketing_automation: failed to register schedules', { err: error })
+    reportError(error, {
+      module: 'marketing_automation',
+      code: 'marketing_automation.schedule_registration_failed',
+      attributes: { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+    })
   }
 }
 
@@ -122,6 +128,11 @@ async function ensureSchedulesForNewTenant(ctx: { tenantId: string; organization
     })
   } catch (error) {
     logger.warn('[internal] marketing_automation: could not register schedules for a new tenant', { err: error })
+    reportError(error, {
+      module: 'marketing_automation',
+      code: 'marketing_automation.schedule_registration_failed',
+      attributes: { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+    })
   }
 }
 

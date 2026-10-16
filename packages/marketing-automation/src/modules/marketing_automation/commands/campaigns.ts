@@ -20,6 +20,7 @@ import { availableEventTriggers } from '../lib/trigger-catalog.js'
 import { carrySweepClocks, isSweepIntervalValid, sweepClockKey } from '../lib/sweep-interval.js'
 import { emitMarketingAutomationEvent } from '../events.js'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { reportError } from '@open-mercato/telemetry'
 import { recordRevision } from '../lib/revisions.js'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
@@ -743,6 +744,11 @@ const applySplitWinnerCommand: CommandHandler<
           campaignId: campaign.id,
           error: error instanceof Error ? error.message : String(error),
         })
+        reportError(error, {
+          module: 'marketing_automation',
+          code: 'marketing_automation.revision_not_recorded',
+          attributes: { campaignId: campaign.id },
+        })
       },
     )
 
@@ -903,6 +909,11 @@ const saveCampaignGraphCommand: CommandHandler<
         logger.warn('[internal] marketing campaign revision not recorded', {
           campaignId: campaign.id,
           error: error instanceof Error ? error.message : String(error),
+        })
+        reportError(error, {
+          module: 'marketing_automation',
+          code: 'marketing_automation.revision_not_recorded',
+          attributes: { campaignId: campaign.id },
         })
       },
     )
