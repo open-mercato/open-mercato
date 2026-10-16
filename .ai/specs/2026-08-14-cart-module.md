@@ -916,6 +916,7 @@ Approval routing, bulk lines, admin cart list, abandonment events, **and the who
 | `quantity_capped` | 200 (warning) | Above `maxOrderQuantity`, capped rather than rejected |
 | `cart_locked` | 423 | Carries `checkoutSessionId` (§9) |
 | `cart_has_unavailable_lines` | 409 | `cart.lock` refused while a line is flagged (F7) |
+| `cart_not_active` | 409 | **(rev 9 — F15)** A write was attempted against a non-active cart (merged/expired/abandoned/converted); the response carries the cart's actual `status` |
 | `idempotency_key_mismatch` | 422 | §8.2 |
 | `promotion_line_immutable` | 409 | A buyer attempted to edit/remove a gift line (F4) |
 | `proposal_cart_immutable` | 409 | A line/promotion command targeted a `kind = 'proposal'` cart (§7a.1) |

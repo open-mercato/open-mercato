@@ -1010,6 +1010,135 @@ describe('cart lock-awareness (Step 7.5)', () => {
   })
 })
 
+// Step 8.5 — QA finding F15: a write against a non-active (merged/expired/abandoned/
+// converted) cart used to collapse into the SAME generic `404 cart not found` as a wrong-
+// tenant/nonexistent lookup. `cart.mdx` documents `409` for this case and `GET /current`
+// already discloses the real `status` with a `200`, so `loadMutableCart`'s `requireActive`
+// branch (`commands/lines.ts`) now throws a distinguishable `409 cart_not_active` carrying
+// that status instead. Only `requireActive: true` callers (`.add`/`.update`/`.bulkAdd`) are
+// affected — `.remove`'s own `requireActive: false` stays permissive, as already covered by
+// the "still succeeds" test just above.
+describe('cart non-active-cart write gate (Step 8.5, QA F15)', () => {
+  beforeEach(resetFixtures)
+
+  it('cart.lines.add returns 409 cart_not_active carrying the real status for a merged cart', async () => {
+    seededCarts[0] = { ...seededCarts[0], status: 'merged' }
+    const handler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')
+    const em = makeEm()
+    const ctx = makeCtx({ em })
+
+    let captured: unknown
+    try {
+      await handler.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, productId: 'product-1', quantity: 1, addedByActorType: 'rep' }, ctx)
+    } catch (err) {
+      captured = err
+    }
+
+    expect(isCrudHttpError(captured)).toBe(true)
+    expect((captured as { status: number }).status).toBe(409)
+    expect((captured as { body: Record<string, unknown> }).body).toMatchObject({
+      code: 'cart_not_active',
+      status: 'merged',
+    })
+  })
+
+  it('cart.lines.update returns 409 cart_not_active carrying the real status for an expired cart', async () => {
+    seededCarts[0] = { ...seededCarts[0], status: 'expired' }
+    seededCartLines = [{
+      id: 'line-1', tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineNumber: 1,
+      productId: 'product-1', variantId: null, sku: null, name: 'Widget', optionValues: null,
+      quantity: '5', unitPriceNet: '10', unitPriceGross: '12', taxRate: '20', priceKindId: null,
+      priceRowId: 'price-row-1', priceTierMinQuantity: 1, pricedAt: new Date(),
+      lineTotals: makeLineTotalsFixture(5), discountTotalNet: null, promotionId: null,
+      origin: 'customer', configuration: null, addedByActorType: 'buyer', addedByActorId: null,
+      metadata: null, createdAt: new Date(), updatedAt: new Date(), deletedAt: null,
+    }]
+    const handler = getHandler<CartLinesUpdateInput, CartLinesUpdateOutcome>('cart.lines.update')
+    const em = makeEm()
+    const ctx = makeCtx({ em })
+
+    let captured: unknown
+    try {
+      await handler.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineId: 'line-1', quantity: 8 }, ctx)
+    } catch (err) {
+      captured = err
+    }
+
+    expect(isCrudHttpError(captured)).toBe(true)
+    expect((captured as { status: number }).status).toBe(409)
+    expect((captured as { body: Record<string, unknown> }).body).toMatchObject({
+      code: 'cart_not_active',
+      status: 'expired',
+    })
+  })
+
+  it('cart.lines.bulkAdd returns 409 cart_not_active carrying the real status for an abandoned cart', async () => {
+    seededCarts[0] = { ...seededCarts[0], status: 'abandoned' }
+    const handler = getHandler<CartLinesBulkAddInput, CartLinesBulkAddResult>('cart.lines.bulkAdd')
+    const em = makeEm()
+    const ctx = makeCtx({ em })
+
+    let captured: unknown
+    try {
+      await handler.execute(
+        { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, addedByActorType: 'rep', lines: [{ productId: 'product-1', quantity: 1 }] },
+        ctx,
+      )
+    } catch (err) {
+      captured = err
+    }
+
+    expect(isCrudHttpError(captured)).toBe(true)
+    expect((captured as { status: number }).status).toBe(409)
+    expect((captured as { body: Record<string, unknown> }).body).toMatchObject({
+      code: 'cart_not_active',
+      status: 'abandoned',
+    })
+  })
+
+  // Regression: a `locked` cart MUST still win the distinguishable `423 cart_locked` —
+  // `assertCartNotLocked` runs before the `requireActive` check this step changed, so this
+  // step's edit must not have disturbed that ordering.
+  it('cart.lines.add still returns 423 cart_locked (not 409) for a locked cart', async () => {
+    seededCarts[0] = { ...seededCarts[0], status: 'locked', checkoutSessionId: 'checkout-session-1' }
+    const handler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')
+    const em = makeEm()
+    const ctx = makeCtx({ em })
+
+    let captured: unknown
+    try {
+      await handler.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, productId: 'product-1', quantity: 1, addedByActorType: 'rep' }, ctx)
+    } catch (err) {
+      captured = err
+    }
+
+    expect(isCrudHttpError(captured)).toBe(true)
+    expect((captured as { status: number }).status).toBe(423)
+    expect((captured as { body: Record<string, unknown> }).body).toMatchObject({ code: 'cart_locked' })
+  })
+
+  // Regression: a `kind = 'proposal'` cart is invisible to `loadMutableCart`'s own
+  // `{ kind: 'basket' }` lookup filter entirely — it falls through the `!cart` branch (plain
+  // `404 cart not found`), never reaching the `requireActive` check this step changed.
+  it('cart.lines.add still returns a plain 404 (not 409) for a kind=proposal cart', async () => {
+    seededCarts[0] = { ...seededCarts[0], kind: 'proposal' }
+    const handler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')
+    const em = makeEm()
+    const ctx = makeCtx({ em })
+
+    let captured: unknown
+    try {
+      await handler.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, productId: 'product-1', quantity: 1, addedByActorType: 'rep' }, ctx)
+    } catch (err) {
+      captured = err
+    }
+
+    expect(isCrudHttpError(captured)).toBe(true)
+    expect((captured as { status: number }).status).toBe(404)
+    expect((captured as { body: Record<string, unknown> }).body).not.toMatchObject({ code: 'cart_not_active' })
+  })
+})
+
 // Step 8.2 — QA finding F12: every line-mutation command now re-evaluates promotions and
 // recomputes `Cart.totals` as a whole-cart aggregate (`buildPromotionsEffectsPhase` +
 // `buildRecomputeCartTotalsPhase`), instead of only ever touching the single line it

@@ -7,6 +7,7 @@ import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/opti
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 import { addLineCommand } from '../../../commands/lines'
 import type { CartLinesAddInput, CartLinesAddOutcome } from '../../../commands/lines'
@@ -22,6 +23,7 @@ import {
 } from '../../../lib/currentCartRoute'
 import { buildCartResponseEnvelope } from '../../../lib/cartView'
 import type { CartViewWarning } from '../../../lib/cartView'
+import { resolveCartWarningMessage } from '../../../lib/warningMessages'
 import {
   computeRequestDigest,
   findIdempotencyReplay,
@@ -151,14 +153,15 @@ export async function POST(request: Request) {
     // only come from the `resolveCurrentCart`-embedded §5.2 trigger 2-4 check above.
     let responseBody: Record<string, unknown>
     if (isWarningLevelOutcome(result)) {
+      const { translate } = await resolveTranslations()
       const warnings: CartViewWarning[] =
         result.status === 'added' || result.status === 'merged'
           ? result.warnings.map((code) => ({
               code,
               lineId: result.line.id,
-              message: '[internal] The requested quantity was capped at the maximum allowed',
+              message: resolveCartWarningMessage('quantity_capped', translate),
             }))
-          : [{ code: 'product_unavailable', message: '[internal] This product is not available for the buyer’s assortment scope' }]
+          : [{ code: 'product_unavailable', message: resolveCartWarningMessage('product_unavailable', translate) }]
       responseBody = await buildCartResponseEnvelope({
         container,
         cartId: cart.id,

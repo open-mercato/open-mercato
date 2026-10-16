@@ -2,6 +2,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { notFound } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/translate'
 import { availabilityItemKey, resolveAvailability } from '@open-mercato/shared/lib/availability'
 import type {
   AvailabilityItemResult,
@@ -27,6 +29,7 @@ import { toCartLineSnapshot } from '../commands/lines'
 import type { CartLineSnapshot } from '../commands/lines'
 import type { CartMergeSummary } from '../commands/merge'
 import type { CartPriceChange } from './reprice'
+import { resolveCartWarningMessage } from './warningMessages'
 
 // Step 5.2 — PLAN.md's own plan-correction note: Step 4.5's `commands/cart.ts` deferred
 // building "the richer public `CartView` envelope (§10.1 ... that lands with the routes and
@@ -196,13 +199,13 @@ function buildAvailabilityDemand(lines: CartLine[]): AvailabilityDemand[] {
  * already-built `lineViews` (needs the computed `availabilityState`), unlike
  * `buildFlaggedLineWarnings` which reads the persisted column off the raw `CartLine[]`.
  */
-function buildAvailabilityWarnings(lineViews: CartLineView[]): CartViewWarning[] {
+function buildAvailabilityWarnings(lineViews: CartLineView[], translate: TranslateWithFallbackFn): CartViewWarning[] {
   return lineViews
     .filter((line) => line.availabilityState.state === 'out_of_stock')
     .map((line) => ({
       code: 'out_of_stock',
       lineId: line.id,
-      message: '[internal] This line is out of stock',
+      message: resolveCartWarningMessage('out_of_stock', translate),
     }))
 }
 
@@ -333,13 +336,13 @@ export type CartResponseEnvelope = {
  * (judgment call, documented on `buildCartResponseEnvelope`) so a client has one place to
  * check "is there anything to tell the buyer" without walking every line.
  */
-function buildFlaggedLineWarnings(lines: CartLine[]): CartViewWarning[] {
+function buildFlaggedLineWarnings(lines: CartLine[], translate: TranslateWithFallbackFn): CartViewWarning[] {
   return lines
     .filter((line) => line.flagState === 'product_unavailable')
     .map((line) => ({
       code: 'product_unavailable',
       lineId: line.id,
-      message: '[internal] This line is no longer available for the buyer’s assortment scope',
+      message: resolveCartWarningMessage('line_unavailable', translate),
     }))
 }
 
@@ -552,9 +555,10 @@ export async function buildCartResponseEnvelope(params: BuildCartResponseEnvelop
     expiresAt: cart.expiresAt,
   }
 
+  const { translate } = await resolveTranslations()
   const warnings = [
-    ...buildFlaggedLineWarnings(lines),
-    ...buildAvailabilityWarnings(lineViews),
+    ...buildFlaggedLineWarnings(lines, translate),
+    ...buildAvailabilityWarnings(lineViews, translate),
     ...(params.warnings ?? []),
   ]
 

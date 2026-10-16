@@ -6,6 +6,7 @@ import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/opti
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 import { applyPromotionCommand } from '../../../commands/promotions'
 import type { CartPromotionsApplyInput, CartPromotionsCommandResult } from '../../../commands/promotions'
@@ -21,6 +22,7 @@ import {
 } from '../../../lib/currentCartRoute'
 import { buildCartResponseEnvelope } from '../../../lib/cartView'
 import type { CartViewWarning } from '../../../lib/cartView'
+import { resolveCartWarningMessage } from '../../../lib/warningMessages'
 import { enforceCartRateLimit } from '../../../lib/rateLimit'
 
 // Step 7.2 — `POST /current/promotions` -> `cart.promotions.apply` (§10 "Apply code").
@@ -101,10 +103,11 @@ export async function POST(request: Request) {
 
     await guarded.runAfterSuccess()
 
+    const { translate } = await resolveTranslations()
     const warnings: CartViewWarning[] | undefined = result.warnings?.map((warning) =>
       warning.code === 'product_unavailable'
-        ? { code: warning.code, message: '[internal] This product is not available for the buyer’s assortment scope' }
-        : { code: warning.code, message: '[internal] A previously applied code is no longer valid' },
+        ? { code: warning.code, message: resolveCartWarningMessage('product_unavailable', translate) }
+        : { code: warning.code, message: resolveCartWarningMessage('promotion_no_longer_valid', translate) },
     )
     // `cart.promotions.apply` always dispatches `cart.reprice` internally, which always
     // flushes the cart row inside its own transaction — `updatedAt` bumps every time,

@@ -7,6 +7,7 @@ import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/opti
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 import { bulkAddLinesCommand } from '../../../../commands/lines'
 import type { CartLinesBulkAddEntryOutcome, CartLinesBulkAddInput, CartLinesBulkAddResult } from '../../../../commands/lines'
@@ -22,6 +23,7 @@ import {
 } from '../../../../lib/currentCartRoute'
 import { buildCartResponseEnvelope } from '../../../../lib/cartView'
 import type { CartViewWarning } from '../../../../lib/cartView'
+import { resolveCartWarningMessage } from '../../../../lib/warningMessages'
 import {
   computeRequestDigest,
   findIdempotencyReplay,
@@ -137,13 +139,14 @@ export async function POST(request: Request) {
     // entry's reason is already fully disclosed in `outcome.results[index]`, so it is not
     // duplicated as a lineless top-level warning the way the single-line route's rejected-
     // add case needs to be (there, `outcome` itself is dropped for the warning-level case).
+    const { translate } = await resolveTranslations()
     const warnings: CartViewWarning[] = result.results
       .filter((entry): entry is Extract<CartLinesBulkAddEntryOutcome, { status: 'added' | 'merged' }> => entry.status === 'added' || entry.status === 'merged')
       .flatMap((entry) =>
         entry.warnings.map((code) => ({
           code,
           lineId: entry.line.id,
-          message: '[internal] The requested quantity was capped at the maximum allowed',
+          message: resolveCartWarningMessage('quantity_capped', translate),
         })),
       )
     const envelope = await buildCartResponseEnvelope({

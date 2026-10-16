@@ -1,3 +1,9 @@
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({
+    translate: (_key: string, fallback?: string) => fallback ?? _key,
+  }),
+}))
+
 type Row = Record<string, any>
 
 let seededCarts: Row[] = []
@@ -344,6 +350,19 @@ describe('buildCartResponseEnvelope', () => {
       { code: 'product_unavailable', lineId: 'line-1', message: expect.any(String) },
       { code: 'quantity_capped', lineId: 'line-1', message: '[internal] capped' },
     ])
+  })
+
+  // Step 8.5 (QA F13) — a flagged line's warning message must be real, translated copy
+  // (`lib/warningMessages.ts`'s `resolveCartWarningMessage`), never the raw `[internal]`
+  // developer placeholder this module used to return straight to the storefront buyer.
+  it('resolves a flagged line warning to real translated text with no [internal] prefix', async () => {
+    seededCartLines = [makeLineFixture({ id: 'line-1', flagState: 'product_unavailable' })]
+    const container = makeContainer()
+    const envelope = await buildCartResponseEnvelope({ container, cartId: CART_ID, tenantId: TENANT_ID, organizationId: ORG_ID })
+
+    const warning = envelope.warnings?.find((entry) => entry.code === 'product_unavailable')
+    expect(warning?.message).toBe('This line is no longer available for the buyer’s assortment scope')
+    expect(warning?.message).not.toContain('[internal]')
   })
 
   // TC-CART-TOT-02 (§3.2 "the cart stores the returned totals verbatim. It does not round,

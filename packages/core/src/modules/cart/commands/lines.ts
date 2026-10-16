@@ -6,7 +6,7 @@ import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { ensureSameScope } from '@open-mercato/shared/lib/commands/scope'
-import { badRequest, conflict, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { badRequest, conflict, CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -498,9 +498,10 @@ function resolveLineActor(
 
 /**
  * Uniform not-found, mirroring `cart.get`'s own no-oracle convention (Step 4.5): a wrong
- * tenant/org, a nonexistent id and (when `requireActive` is set) a non-`active` status all
- * collapse to the identical message, so a mutation attempt never discloses which of those
- * is actually true.
+ * tenant/org and a nonexistent id both collapse to the identical message, so a mutation
+ * attempt never discloses which of those is actually true — that part of the no-oracle
+ * collapse protects something real (whether a cart with this id/token even exists for this
+ * tenant) and stays a 404.
  *
  * Step 7.5 — ONE exception to that collapse, applied unconditionally regardless of
  * `requireActive`: a `locked` cart gets the distinguishable `423 cart_locked`
@@ -511,6 +512,18 @@ function resolveLineActor(
  * false` call — see that command's own comment for the documented judgment call this makes
  * (locked specifically is now always enforced; every OTHER non-active status stays exempt
  * for `.remove`, as it already was before this step).
+ *
+ * Step 8.5 (QA F15) — `requireActive`'s own branch is no longer part of the no-oracle
+ * collapse: it now throws a distinguishable `409 cart_not_active` (carrying the cart's real
+ * `status`) instead of folding into the generic 404. `GET /current` already discloses a
+ * non-active cart's `status` with a `200` (`cartService.resolveBasketByToken` / §8.3 do not
+ * gate on `status` at all), so collapsing a WRITE's "exists, right tenant, wrong status" into
+ * the SAME 404 as "does not exist"/"wrong tenant" no longer hides anything a client could not
+ * already learn from the read side — it only contradicted `cart.mdx`'s documented `409`
+ * contract for a non-active-cart write. The owner ruled explicitly: fix the code to match the
+ * docs, not the other way around. "Exists, wrong tenant" vs "exists, right tenant, not
+ * active" remain genuinely different concerns (identity-hiding vs. state-disclosure), so only
+ * the latter is relaxed here.
  */
 async function loadMutableCart(
   em: EntityManager,
@@ -528,7 +541,7 @@ async function loadMutableCart(
   if (!cart) throw notFound('[internal] cart not found')
   assertCartNotLocked(cart)
   if (options.requireActive && cart.status !== 'active') {
-    throw notFound('[internal] cart not found')
+    throw new CrudHttpError(409, { error: '[internal] cart_not_active', code: 'cart_not_active', status: cart.status })
   }
   return cart
 }
