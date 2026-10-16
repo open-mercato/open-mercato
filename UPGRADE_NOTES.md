@@ -58,8 +58,6 @@ where s.started_by in (select id from customer_users)
 Nothing is rewritten automatically. Portal pages that legitimately started submissions on another
 subject type (for example `patient`) also match, so review the rows before revoking anything.
 
-## 0.9.0 → 0.9.1 (unreleased)
-
 ### Notification hrefs must resolve to the application origin (#7240)
 
 Notification `linkHref` and action `href` values were checked only for a leading `/`, so values such as `/\evil.example` or `/<TAB>/evil.example` passed and browsers resolved them to another host. They are now parsed as URLs and must stay on the application origin.
@@ -70,8 +68,6 @@ Notification `linkHref` and action `href` values were checked only for a leading
 - `NotificationHandlerContext.navigate(href)` in client notification handlers ignores hrefs that do not pass the same check.
 - The predicate is available to other packages as `isSafeNotificationHref` from `@open-mercato/shared/modules/notifications/safeHref` (still re-exported from the notifications module's `lib/safeHref`). Custom delivery strategies receive the stored notification entity; pass `linkHref` and action hrefs through `toSafeNotificationHref` from `@open-mercato/core/modules/notifications/lib/safeHref` before sending them out.
 - Valid `/backend/...` paths need no action.
-
----
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
