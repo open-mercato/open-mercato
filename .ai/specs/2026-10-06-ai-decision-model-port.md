@@ -1,6 +1,6 @@
 # AI Decision Model Port
 
-> Status: **Draft — design-only spec PR.** First consumer: the workflows `AI_DECISION` step, specified in `2026-10-06-workflows-ai-decision-step.md` (pending its own spec PR; not yet on `develop`).
+> Status: **Implemented in open PR #7553** (not yet deployed; stays out of `implemented/` until then). First consumer: the workflows `AI_DECISION` step, specified in `2026-10-06-workflows-ai-decision-step.md` (pending its own spec PR; not yet on `develop`).
 
 ## 📝 TLDR
 
@@ -386,3 +386,20 @@ Compliant, with one recorded, author-approved deviation and one precedent-backed
   - The registry registers its built-ins itself (`createDecisionModelRegistry`). The bootstrap file, re-export and import-graph test are removed.
   - `fixture_disabled` resolution, `timeoutMs` clamping and `score.value` derivation are specified.
   - The preset reference is stable (constant name instead of a line number).
+
+### 2026-10-16
+- Implemented on `feat/ai-decision-model-port` (open PR #7553):
+  - Types: `packages/shared/src/lib/ai/decision-model.ts` (types only, `@experimental`).
+  - Schemas and answer normalization: `packages/ai-assistant/src/modules/ai_assistant/lib/decision-model-schemas.ts`.
+  - Adapters: `lib/decision-adapters/openrouter.ts` and `lib/decision-adapters/fixture.ts`.
+  - Registry: `lib/decision-model-registry.ts` (`createDecisionModelRegistry`, `decisionModuleModelEnvKey`, `isDecisionFixtureEnabled`).
+  - Service: `lib/decision-model-service.ts`, registered as the `decisionModelService` singleton in `ai_assistant/di.ts`.
+  - Tests: `lib/__tests__/decision-*.test.ts`.
+  - Env block in `apps/mercato/.env.example`, mirrored in `packages/create-app/template/.env.example`.
+  - Docs: `apps/docs/docs/framework/ai-assistant/decision-models.mdx`.
+- Implementation notes:
+  - The adapters landed before the registry, because the registry registers them itself.
+  - The OpenRouter request JSON is built by hand, because `JSON.stringify` reorders integer-like keys (`"2"` before `"10"`) and would break option order (D2).
+  - Score `probabilities` from the vendor are accepted as an array or as an index-keyed object, since the vendor shape is not fully published.
+  - Vendor error messages are never surfaced; a vendor `error.code` is included in the internal message only when it matches a safe token pattern.
+  - A missing `OPENROUTER_API_KEY` at call time maps to `unavailable`.

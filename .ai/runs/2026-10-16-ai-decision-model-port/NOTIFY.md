@@ -14,3 +14,9 @@
 - Delegations: Steps 1.2, 1.3, 1.4 to standard-tier executors; Step 1.5 to a capable-tier executor. All landed on first attempt, no rescues.
 - Decisions recorded from executors: OpenRouter request JSON is built by hand because `JSON.stringify` reorders integer-like keys (`"2"` before `"10"`), which would break option order (spec D2); score `probabilities` accepted as array or index-keyed object (vendor shape not fully published); vendor `error.code` only included when it matches a safe token pattern, vendor messages never surfaced; missing API key at call time → `unavailable`; an already-aborted caller signal is checked after resolution (no provider + aborted → `unavailable`).
 - Convention: Tasks `Commit` column records the pre-amend SHA (self-referential SHA is impossible with the same-commit flip).
+
+## 2026-10-16T17:33:29Z — Step 2.2 blocker: AGENTS.md budget ratchet
+- The `packages/ai-assistant` instruction chain is already ~102 KB over the 32 KB budget, and `yarn agents:check-budget` only lets it shrink. Any new section fails the check (a 4-line entry was +506 bytes).
+- Raising `scripts/agents-md-budget.baseline.json` was denied by the permission system as a CI bypass, so the "How to use a decision model" entry in `packages/ai-assistant/AGENTS.md` is NOT included.
+- The docs page, sidebar entry and spec changelog landed. The root AGENTS.md Task Router already routes AI work to `apps/docs/docs/framework/ai-assistant/*.mdx`.
+- Needs a user decision: skip the entry, re-record the baseline with `yarn agents:check-budget --update-baseline` (explained in the PR), or trim other ai-assistant AGENTS.md content to make room.

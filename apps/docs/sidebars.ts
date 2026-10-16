@@ -443,6 +443,7 @@ const sidebars: SidebarsConfig = {
             "framework/ai-assistant/overrides",
             "framework/ai-assistant/settings",
             "framework/ai-assistant/moderation",
+            "framework/ai-assistant/decision-models",
             "framework/ai-assistant/playground",
           ],
         },
