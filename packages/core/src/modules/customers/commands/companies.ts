@@ -27,6 +27,12 @@ import {
   CustomerTagAssignment,
 } from '../data/entities'
 import {
+  captureInteractionRestoreDetails,
+  omitInteractionRestoreDetails,
+  restoreInteractionRestoreDetails,
+  type InteractionRestoreDetails,
+} from './interactionRestoreDetails'
+import {
   companyCreateSchema,
   companyUpdateSchema,
   type CompanyCreateInput,
@@ -189,7 +195,7 @@ type CompanyInteractionSnapshot = {
   updatedAt: Date
   deletedAt: Date | null
   custom?: Record<string, unknown>
-}
+} & InteractionRestoreDetails
 
 type CompanySnapshot = {
   entity: {
@@ -246,7 +252,11 @@ type CompanyUndoPayload = {
   after?: CompanySnapshot | null
 }
 
-async function loadCompanySnapshot(em: EntityManager, id: string): Promise<CompanySnapshot | null> {
+async function loadCompanySnapshot(
+  em: EntityManager,
+  id: string,
+  options: { includeInteractionRestoreDetails?: boolean } = {},
+): Promise<CompanySnapshot | null> {
   const entity = await em.findOne(CustomerEntity, { id, deletedAt: null })
   if (!entity || entity.kind !== 'company') return null
   const profile = await em.findOne(CustomerCompanyProfile, { entity })
@@ -408,6 +418,7 @@ async function loadCompanySnapshot(em: EntityManager, id: string): Promise<Compa
         createdAt: interaction.createdAt,
         updatedAt: interaction.updatedAt,
         deletedAt: interaction.deletedAt ?? null,
+        ...(options.includeInteractionRestoreDetails ? captureInteractionRestoreDetails(interaction) : {}),
         custom: await loadCustomFieldSnapshot(em, {
           entityId: INTERACTION_ENTITY_ID,
           recordId: interaction.id,
@@ -998,7 +1009,7 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
     async prepare(input, ctx) {
       const id = requireId(input, 'Company id required')
       const em = (ctx.container.resolve('em') as EntityManager)
-      const snapshot = await loadCompanySnapshot(em, id)
+      const snapshot = await loadCompanySnapshot(em, id, { includeInteractionRestoreDetails: true })
       return snapshot ? { before: snapshot } : {}
     },
     async execute(input, ctx) {
@@ -1182,7 +1193,7 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
         resourceId: before.entity.id,
         tenantId: before.entity.tenantId,
         organizationId: before.entity.organizationId,
-        snapshotBefore: before,
+        snapshotBefore: omitInteractionRestoreDetails(before),
         payload: {
           undo: {
             before,
@@ -1421,6 +1432,7 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
               source: interaction.source,
               appearanceIcon: interaction.appearanceIcon,
               appearanceColor: interaction.appearanceColor,
+              ...restoreInteractionRestoreDetails(interaction),
               createdAt: interaction.createdAt,
               updatedAt: interaction.updatedAt,
               deletedAt: interaction.deletedAt,
