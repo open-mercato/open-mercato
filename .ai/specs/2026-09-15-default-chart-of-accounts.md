@@ -324,14 +324,19 @@ document adds.
 
 ### Events
 
-None emitted in Phase 1. Matches this family's own YAGNI convention for
-events (see the knowledge base's §2 event-driven-posting notes on only
-emitting events an actual consumer needs today): nothing in this
-codebase currently needs to react to "a chart of accounts was
-imported" as distinct from "an account was created," and every
-imported row is already an ordinary `LedgerAccountType`/`LedgerAccount`
-row a future consumer could listen for at the existing granularity if
-that need arises.
+No new event is declared, but the import **raises the existing CRUD events**
+(**changed 2026-10-16, PR #6439 review, point 2**: this section used to say
+"None emitted in Phase 1"). Writing through the ORM instead of one
+`createLedgerAccountType`/`createLedgerAccount` call per row meant search and
+subscribers never saw the imported rows. After the transaction commits, the
+command reports one `created` change per `LedgerAccountType` and per
+`LedgerAccount` it wrote — the same `ledger.ledger_account_type.created` /
+`ledger.ledger_account.created` events and the same indexer configuration the
+single-row commands use (shared in `lib/crudSideEffects.ts`). `undo` reports
+`deleted` for every row it soft-deletes. A refused import (409) reports
+nothing. There is no separate "chart of accounts imported" event: a consumer
+that needs one can count the `created` events of one command call, and nothing
+needs it today.
 
 ### Backend Pages
 
@@ -342,8 +347,17 @@ Polish string, which doesn't match what #6439 actually ships), on the
 existing `backend/ledger/accounts/page.tsx` (alongside the existing
 "create account"/"create account type" actions), gated by
 `ledger.accounts.manage` — hidden entirely for a viewer who only has
-`ledger.accounts.view`. On success, the page's existing `DataTable`
-refreshes to show every imported row. On the precondition failure, the
+`ledger.accounts.view`. The button is **offered only while the chart of
+accounts has no accounts** (**changed 2026-10-16, PR #6439 review, point 1**):
+before, it was always shown and a click on a non-empty chart ended in the 409.
+The page takes this from its last *unsearched* list load, so a search with no
+hits does not bring the button back, and it stays hidden until the first load
+has answered. (A chart with account types but no accounts still shows the
+button and the click ends in the 409, because the list only sees accounts.)
+The confirmation text takes its row counts from the template data
+(`{{typeCount}}` / `{{accountCount}}`) instead of carrying literal numbers in
+each locale file, so it cannot drift from what the import creates. On success,
+the page's existing `DataTable` refreshes to show every imported row. On the precondition failure, the
 page surfaces the command's own refusal message rather than a generic
 error, so an admin immediately understands why ("your chart of accounts
 already has accounts — this import is only for starting from empty").
@@ -418,6 +432,8 @@ aktywa finansowe:**
 
 | `LedgerAccountType` | Child `LedgerAccount` rows |
 | --- | --- |
+| `500` / Koszty działalności podstawowej / DEBIT | `500-1` Koszty działalności podstawowej |
+| `501` / Koszty działalności pomocniczej / DEBIT | `501-1` Koszty działalności pomocniczej |
 | `550` / Koszty zarządu / DEBIT | `550-1` Koszty zarządu |
 | `552` / Koszty sprzedaży / DEBIT | `552-1` Koszty sprzedaży |
 
@@ -499,7 +515,16 @@ template is representative, not exhaustive (see the opening paragraph
 of this section), and neither gap blocks any Phase 1 module the way
 `490`'s absence blocked Posting Rules Engine.
 
-Totals: 40 `LedgerAccountType` rows, 44 `LedgerAccount` rows across the
+`500` and `501` were added on 2026-10-16 (PR #6439 review, point 4): a
+reviewer importing the chart for a service company found no natural zespół 5
+target for the 4→5 reclassification, with only `550` and `552` available. This
+reverses the 2026-10-12 note that two zespół 5 types were a deliberate
+decision. The names follow the reviewer's description ("koszty działalności
+podstawowej"); the exact `500`/`501` split, in particular the name of `501`,
+is not checked against a primary source and both types can be renamed after
+import. **⚠ NEEDS HUMAN CONFIRMATION** (domain expert).
+
+Totals: 42 `LedgerAccountType` rows, 46 `LedgerAccount` rows across the
 nine zespoły — deliberately leaving numbering gaps within each zespół
 (e.g. `010`/`020`/`070`, not `010`/`011`/`012`) matching Kieso's own
 Illustration 3.9 convention of numbering with intentional gaps "to
@@ -530,7 +555,7 @@ every other route in this module.
 
 **Response — 200**:
 ```json
-{ "ok": true, "createdAccountTypeCount": 40, "createdAccountCount": 44 }
+{ "ok": true, "createdAccountTypeCount": 42, "createdAccountCount": 46 }
 ```
 
 **Errors**:
@@ -684,8 +709,12 @@ after them.
 
 ## File Manifest
 
+- `lib/crudSideEffects.ts` (new, 2026-10-16) — the CRUD event and indexer
+  configuration for `LedgerAccount`/`LedgerAccountType`, moved out of
+  `commands/ledgerAccounts.ts` and `commands/ledgerAccountTypes.ts` so the
+  import raises the same events (see Events).
 - `lib/defaultChartOfAccounts.ts` (new) — the hardcoded Phase 1
-  template data (40 `LedgerAccountType` rows, 44 `LedgerAccount` rows
+  template data (42 `LedgerAccountType` rows, 46 `LedgerAccount` rows
   across zespoły 0–8), following `lib/seeds.ts`'s existing
   `seedPolishAccountGroups` pattern.
 - `commands/importDefaultChartOfAccounts.ts` (new) — the command
@@ -722,8 +751,8 @@ after them.
   rows, call the command, assert it succeeds and imports the full
   template alongside them.
 - **Happy path creates the full template**: call the command against
-  an empty chart of accounts, assert exactly 40 `LedgerAccountType`
-  rows and 44 `LedgerAccount` rows are created, each correctly linked
+  an empty chart of accounts, assert exactly 42 `LedgerAccountType`
+  rows and 46 `LedgerAccount` rows are created, each correctly linked
   to its `accountGroupId`/`accountTypeId`/`parentAccountTypeId`/
   `parentAccountId`.
 - **Undo restores empty state**: call the command, then its `undo`,
@@ -751,6 +780,13 @@ after them.
 - **Tenant/organization scoping**: importing in one organization
   doesn't affect another organization's (already-populated or empty)
   chart of accounts.
+- **Announcements** (PR #6439 review, point 2): a successful import reports
+  one `created` change per type and per account, with the `ledger` event and
+  indexer configuration; a refused import reports nothing; `undo` reports
+  `deleted` for every row it removes.
+- **Zespół 5 content** (PR #6439 review, point 4): the template offers `500`,
+  `501`, `550` and `552`, each with exactly one first account numbered
+  `<type>-1`.
 
 ### Integration Coverage
 
@@ -758,18 +794,24 @@ Per root `AGENTS.md` ("Documentation and Specifications": integration
 coverage is mandatory for every affected API path and key UI path, and
 must ship in the same change) — added retroactively (PR #6137 review,
 M2; the original draft had none). New file:
-`packages/core/src/modules/ledger/__integration__/TC-GL-005-import-default-chart-of-accounts.spec.ts`,
+`packages/core/src/modules/ledger/__integration__/TC-GL-006-import-default-chart-of-accounts.spec.ts`
+(renumbered from `TC-GL-005` when the General Ledger core engine took that number),
 following this module's existing `TC-GL-00x` fixture/teardown
 conventions (`.ai/qa/AGENTS.md`: self-contained fixtures, cleaned up in
 `finally`, no reliance on seeded/demo data).
 
 - **API happy path**: `POST /api/ledger/accounts/import-default-chart-of-accounts`
   against a fresh, empty organization returns 200 with
-  `{ ok: true, createdAccountTypeCount: 40, createdAccountCount: 44 }`.
+  `{ ok: true, createdAccountTypeCount: 42, createdAccountCount: 46 }`.
 - **409 on a non-empty chart of accounts**: seed one account first,
   call the route again, assert 409 with the translated
   `ledger.errors.chartOfAccountsNotEmpty` refusal message in the
   response body.
+- **Search** (PR #6439 review): after an import, `GET /api/ledger/accounts?search=`
+  finds an imported account by its number (`500-1`) and by its description.
+- **Import action not offered once the chart has accounts** (PR #6439
+  review): the button is absent right after a successful import and after a
+  full reload.
 - **403 without `ledger.accounts.manage`**: call the route as a
   principal whose role has only `ledger.accounts.view`, assert 403.
 - **UI path**: the button is absent entirely for a view-only principal
@@ -920,11 +962,33 @@ real accounting-team-supplied reference chart of accounts). Corrected
 by splitting `070`/`071` and adding `072` — see Data Models and
 Changelog. Cross-checked against the knowledge base's §2 conventions —
 no new tagging mechanism, no new control-account pattern, no new
-event; nothing to add to §2.
+event declaration (the import raises the existing CRUD events, see Events);
+nothing to add to §2.
 
 **Verdict:** Fully compliant. Implementation complete (#6439, OM-16 to OM-20); this document has since been updated post-implementation and through two rounds of external review (see Changelog) — no longer a first draft.
 
 ## Changelog
+
+### 2026-10-16 — PR #6439 review (@lchrusciel): template 42/46, zespół 5, events, button
+
+The review of #6439 (checked against `5ea612557e`) found, importing the chart
+on a fresh organization, that every number needed for a service company was
+there, and raised five points. This spec now matches the implementation
+(`a09415a24`):
+
+- **Button** shown only while the chart has no accounts (Backend Pages).
+- **Events**: the import raises `created` for every row, `undo` raises
+  `deleted`; the section "None emitted in Phase 1" is replaced (Events).
+- **Translations**: de/es/ko were still English and said 39/43; the confirm
+  text now takes its counts from the template.
+- **Template**: `500` and `501` added to zespół 5, totals 40/44 → **42/46**.
+  This reverses the 2026-10-12 note that two zespół 5 types were deliberate.
+  The name of `501` is unverified (⚠ NEEDS HUMAN CONFIRMATION, see Data Models).
+- **Branch**: labels and the `develop` conflict are repository housekeeping, no
+  spec change. A dry-run merge with `develop` showed no conflicts on 2026-10-16.
+- The integration test file is `TC-GL-006` (renumbered when the GL core engine
+  took `TC-GL-005`); the body now says so, earlier changelog entries keep the
+  number they had at the time.
 
 ### 2026-10-12 — 490 `normalBalance` changed from DEBIT to CREDIT
 
