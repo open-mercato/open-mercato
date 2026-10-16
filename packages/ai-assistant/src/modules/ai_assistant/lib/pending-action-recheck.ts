@@ -306,6 +306,7 @@ export async function checkRecordVersion(
     for (const row of currentRows ?? []) {
       currentVersionById.set(row.recordId, row.recordVersion ?? null)
     }
+    const messages = await resolvePendingActionBatchMessages()
     const stale: AiPendingActionFailedRecord[] = []
     for (const record of records as AiPendingActionRecordDiff[]) {
       const current = currentVersionById.get(record.recordId)
@@ -313,14 +314,14 @@ export async function checkRecordVersion(
       if (current === undefined) {
         stale.push({
           recordId: record.recordId,
-          error: { code: 'stale_version', message: 'Record no longer exists.' },
+          error: { code: 'stale_version', message: messages.recordMissing },
         })
         continue
       }
       if (captured !== null && current !== captured) {
         stale.push({
           recordId: record.recordId,
-          error: { code: 'stale_version', message: 'Record version changed since preview.' },
+          error: { code: 'stale_version', message: messages.recordStale },
         })
       }
     }
@@ -329,7 +330,7 @@ export async function checkRecordVersion(
         ok: false,
         status: 412,
         code: 'stale_version',
-        message: 'All pending records are stale; the model must re-propose the batch.',
+        message: messages.allRecordsStale,
         extra: { staleRecords: stale.map((entry) => entry.recordId) },
       }
     }
@@ -356,7 +357,7 @@ export async function checkRecordVersion(
       ok: false,
       status: 412,
       code: 'stale_version',
-      message: 'Record version changed since preview; re-propose the mutation.',
+      message: (await resolvePendingActionBatchMessages()).singleRecordStale,
       extra: { recordId: before.recordId },
     }
   }

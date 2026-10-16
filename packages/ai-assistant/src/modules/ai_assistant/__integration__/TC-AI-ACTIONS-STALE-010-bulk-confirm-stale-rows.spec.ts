@@ -219,4 +219,131 @@ test.describe('TC-AI-ACTIONS-STALE-010: bulk confirm never writes rows the reche
       }
     }
   });
+
+  test('in the Polish UI a partially stale batch reports its stale row in Polish', async ({ request }) => {
+    test.slow();
+    const adminToken = await getAuthToken(request, 'admin');
+    const { tenantId, organizationId, userId: adminId } = getTokenScope(adminToken);
+    const cleanups: Cleanup[] = [];
+    try {
+      const productF = await createProduct(request, adminToken, 'F', cleanups);
+      const productG = await createProduct(request, adminToken, 'G', cleanups);
+      const previewF = await readProductState(productF);
+      const previewG = await readProductState(productG);
+      const aiTitleF = `AI F ${randomUUID().slice(0, 8)}`;
+      const aiTitleG = `AI G ${randomUUID().slice(0, 8)}`;
+
+      const row = await seedPendingActionInDb({
+        tenantId,
+        organizationId: organizationId || null,
+        createdByUserId: adminId,
+        agentId: AGENT_ID,
+        toolName: BULK_TOOL,
+        normalizedInput: {
+          records: [
+            { recordId: productF, title: aiTitleF },
+            { recordId: productG, title: aiTitleG },
+          ],
+        },
+      });
+      cleanups.push(() => deletePendingActionInDb(row.id));
+      await attachPreviewRecords(row.id, [
+        { recordId: productF, recordVersion: previewF.version, title: aiTitleF, before: previewF.title },
+        { recordId: productG, recordVersion: previewG.version, title: aiTitleG, before: previewG.title },
+      ]);
+
+      const humanTitleG = `Human G ${randomUUID().slice(0, 8)}`;
+      const humanEdit = await apiRequest(request, 'PUT', '/api/catalog/products', {
+        token: adminToken,
+        data: { id: productG, title: humanTitleG },
+      });
+      expect(humanEdit.ok(), `human edit of G should succeed: ${humanEdit.status()}`).toBeTruthy();
+
+      const confirm = await apiRequest(request, 'POST', `${ACTIONS}/${row.id}/confirm`, {
+        token: adminToken,
+        data: {},
+        headers: { Cookie: 'locale=pl' },
+      });
+      expect(confirm.status()).toBe(200);
+      const body = await readJsonSafe<ConfirmBody>(confirm);
+      const failed = body?.pendingAction?.failedRecords ?? [];
+      expect(failed.map((entry) => [entry.recordId, entry.error.code, entry.error.message])).toEqual([
+        [productG, 'stale_version', 'Rekord zmienił się od czasu podglądu.'],
+      ]);
+      expect((await readProductState(productF)).title).toBe(aiTitleF);
+      expect((await readProductState(productG)).title).toBe(humanTitleG);
+    } finally {
+      for (const cleanup of cleanups.reverse()) {
+        await cleanup().catch(() => undefined);
+      }
+    }
+  });
+
+  test('when every previewed row changed, the confirm is refused with 412 listing both rows and nothing is written', async ({ request }) => {
+    test.slow();
+    const adminToken = await getAuthToken(request, 'admin');
+    const { tenantId, organizationId, userId: adminId } = getTokenScope(adminToken);
+    const cleanups: Cleanup[] = [];
+    try {
+      const productH = await createProduct(request, adminToken, 'H', cleanups);
+      const productI = await createProduct(request, adminToken, 'I', cleanups);
+      const previewH = await readProductState(productH);
+      const previewI = await readProductState(productI);
+
+      const row = await seedPendingActionInDb({
+        tenantId,
+        organizationId: organizationId || null,
+        createdByUserId: adminId,
+        agentId: AGENT_ID,
+        toolName: BULK_TOOL,
+        normalizedInput: {
+          records: [
+            { recordId: productH, title: `AI H ${randomUUID().slice(0, 8)}` },
+            { recordId: productI, title: `AI I ${randomUUID().slice(0, 8)}` },
+          ],
+        },
+      });
+      cleanups.push(() => deletePendingActionInDb(row.id));
+      await attachPreviewRecords(row.id, [
+        { recordId: productH, recordVersion: previewH.version, title: 'AI H', before: previewH.title },
+        { recordId: productI, recordVersion: previewI.version, title: 'AI I', before: previewI.title },
+      ]);
+
+      const humanTitles = new Map<string, string>();
+      for (const productId of [productH, productI]) {
+        const humanTitle = `Human ${randomUUID().slice(0, 8)}`;
+        humanTitles.set(productId, humanTitle);
+        const humanEdit = await apiRequest(request, 'PUT', '/api/catalog/products', {
+          token: adminToken,
+          data: { id: productId, title: humanTitle },
+        });
+        expect(humanEdit.ok(), `human edit should succeed: ${humanEdit.status()}`).toBeTruthy();
+      }
+
+      const confirm = await apiRequest(request, 'POST', `${ACTIONS}/${row.id}/confirm`, {
+        token: adminToken,
+        data: {},
+        headers: { Cookie: 'locale=pl' },
+      });
+      expect(confirm.status()).toBe(412);
+      const body = await readJsonSafe<{ code?: string; error?: string; staleRecords?: string[] }>(confirm);
+      expect(body?.code).toBe('stale_version');
+      expect([...(body?.staleRecords ?? [])].sort()).toEqual([productH, productI].sort());
+      expect(body?.error).toBe(
+        'Wszystkie rekordy oczekującej akcji są nieaktualne; asystent musi ponownie zaproponować zmianę.',
+      );
+      for (const productId of [productH, productI]) {
+        expect((await readProductState(productId)).title, 'a refused confirm writes nothing').toBe(humanTitles.get(productId));
+      }
+      const status = await withClient(async (client) => {
+        const result = await client.query<{ status: string }>('select status from ai_pending_actions where id = $1', [row.id]);
+        return result.rows[0]?.status;
+      });
+      expect(status, 'a refused confirm leaves the action pending').toBe('pending');
+    } finally {
+      for (const cleanup of cleanups.reverse()) {
+        await cleanup().catch(() => undefined);
+      }
+    }
+  });
 });

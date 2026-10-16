@@ -43,11 +43,31 @@ export type PendingActionBatchMessages = {
   recordNotPreviewed: string
   recordDuplicateDropped: string
   batchNotApplicable: string
+  recordStale: string
+  recordMissing: string
+  allRecordsStale: string
+  singleRecordStale: string
 }
 
 export async function resolvePendingActionBatchMessages(): Promise<PendingActionBatchMessages> {
   const { translate } = await resolveTranslations()
   return {
+    recordStale: translate(
+      'ai_assistant.errors.pendingRecordStale',
+      'Record version changed since preview.',
+    ),
+    recordMissing: translate(
+      'ai_assistant.errors.pendingRecordMissing',
+      'Record no longer exists.',
+    ),
+    allRecordsStale: translate(
+      'ai_assistant.errors.pendingAllRecordsStale',
+      'All pending records are stale; the model must re-propose the batch.',
+    ),
+    singleRecordStale: translate(
+      'ai_assistant.errors.pendingSingleRecordStale',
+      'Record version changed since preview; re-propose the mutation.',
+    ),
     recordNotPreviewed: translate(
       'ai_assistant.errors.pendingRecordNotPreviewed',
       'This record was not part of the approved preview, so it was not changed.',
