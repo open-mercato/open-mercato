@@ -15,6 +15,35 @@ const clearableStringSchema = (max: number) =>
 
 const clearableDateSchema = z.preprocess(emptyStringToNull, z.coerce.date().nullable().optional())
 
+// QA F7 (Medium, confirmed live): the `endsAt` datepicker sends a bare date (no time
+// component), which `z.coerce.date()` parses as 00:00:00.000 of that day — so a
+// promotion whose admin set "ends Oct 16" (meaning "valid through end of day Oct 16")
+// was excluded for the entire day of Oct 16 by `evaluation-engine.ts`'s
+// `isPromotionEligible` (`evaluatedAtMs > endsAtMs`), which is itself correct for a
+// timestamp that already represents the end of the valid window. The fix belongs on
+// write, not in that comparison: a date-only `endsAt` is bumped to 23:59:59.999 of that
+// same calendar day before coercion, so the stored value means "through the end of that
+// day". A value that already carries a time component (a full ISO timestamp from any
+// API caller) passes through unchanged — exact pre-existing semantics are preserved for
+// anyone already sending a real timestamp.
+//
+// Timezone anchor: UTC. No tenant/store timezone setting exists anywhere in this
+// codebase (checked `configs`, `catalog`, and the module registry) to anchor this to
+// instead, so "end of day" is computed in UTC, matching every other date field in this
+// module (`clearableDateSchema` itself coerces a bare date string to UTC midnight via
+// `z.coerce.date()` — this schema keeps the same anchor for its bump).
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+
+const bumpDateOnlyToEndOfDay = (value: unknown): unknown => {
+  if (typeof value !== 'string' || !DATE_ONLY_PATTERN.test(value)) return value
+  return `${value}T23:59:59.999Z`
+}
+
+export const clearableEndOfDayDateSchema = z.preprocess(
+  (value) => bumpDateOnlyToEndOfDay(emptyStringToNull(value)),
+  z.coerce.date().nullable().optional(),
+)
+
 const clearableUuidSchema = z.preprocess(emptyStringToNull, uuid().nullable().optional())
 
 // Decimal amounts travel as strings end-to-end (§Data Models: "value decimal string") so
@@ -639,7 +668,10 @@ const promotionBaseShape = {
   order: z.number().int(),
   active: z.boolean(),
   startsAt: clearableDateSchema,
-  endsAt: clearableDateSchema,
+  // A date-only `endsAt` means "through the end of that day" (QA F7) — see
+  // `clearableEndOfDayDateSchema` above. `startsAt` stays on `clearableDateSchema`: a
+  // date-only start correctly means "from the beginning of that day".
+  endsAt: clearableEndOfDayDateSchema,
   cumulative: z.boolean(),
   tags: z.array(z.string().trim().min(1).max(60)),
   excludedTags: z.array(z.string().trim().min(1).max(60)),

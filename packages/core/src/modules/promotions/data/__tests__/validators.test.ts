@@ -14,6 +14,7 @@ import {
   promotionUpdateSchema,
   promotionCodeCreateSchema,
   promotionCodeUpdateSchema,
+  clearableEndOfDayDateSchema,
 } from '../validators'
 
 const PROMOTION_ID = '11111111-1111-4111-8111-111111111111'
@@ -87,5 +88,39 @@ describe('promotion code create schema', () => {
     })
 
     expect(parsed.active).toBe(true)
+  })
+})
+
+describe('clearableEndOfDayDateSchema (QA F7)', () => {
+  it('bumps a date-only string to 23:59:59.999 UTC of that same calendar day', () => {
+    const parsed = clearableEndOfDayDateSchema.parse('2026-10-16')
+
+    expect(parsed?.toISOString()).toBe('2026-10-16T23:59:59.999Z')
+  })
+
+  it('passes a full ISO timestamp through unchanged, preserving exact pre-existing semantics', () => {
+    const parsed = clearableEndOfDayDateSchema.parse('2026-10-16T14:30:00.000Z')
+
+    expect(parsed?.toISOString()).toBe('2026-10-16T14:30:00.000Z')
+  })
+
+  it('stays nullable for null and empty string, same as clearableDateSchema', () => {
+    expect(clearableEndOfDayDateSchema.parse(null)).toBeNull()
+    expect(clearableEndOfDayDateSchema.parse('')).toBeNull()
+    expect(clearableEndOfDayDateSchema.parse(undefined)).toBeUndefined()
+  })
+})
+
+describe('promotionUpdateSchema endsAt (QA F7 live repro)', () => {
+  it('stores a date-only endsAt as the end of that day, not the start', () => {
+    const parsed = promotionUpdateSchema.parse({ id: PROMOTION_ID, endsAt: '2026-10-16' })
+
+    expect(parsed.endsAt?.toISOString()).toBe('2026-10-16T23:59:59.999Z')
+  })
+
+  it('stores a date-only startsAt as the start of that day (unchanged behavior)', () => {
+    const parsed = promotionUpdateSchema.parse({ id: PROMOTION_ID, startsAt: '2026-10-16' })
+
+    expect(parsed.startsAt?.toISOString()).toBe('2026-10-16T00:00:00.000Z')
   })
 })

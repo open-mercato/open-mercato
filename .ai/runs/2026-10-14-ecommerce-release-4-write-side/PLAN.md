@@ -77,7 +77,7 @@
 | 8 | 8.6 | Promotions: partial update no longer injects schema defaults (QA F2) | dispatch | done | see `git log` |
 | 8 | 8.7 | Promotions: currency and budget fields in the form, tree save surfaces 422 issues (QA F1, F3) | dispatch | done | see `git log` |
 | 8 | 8.8 | Promotions: Select for rule/benefit type, labels editor locale picker and DS fixes (QA F5, F8, F4) | dispatch | done | b41cf6c509 |
-| 8 | 8.9 | Promotions: inclusive end date (QA F7) | dispatch:capable | todo | — |
+| 8 | 8.9 | Promotions: inclusive end date (QA F7) | dispatch:capable | done | see `git log` |
 | 8 | 8.10 | Promotions: static code normalization on write and lookup (QA F9) | dispatch | todo | — |
 | 8 | 8.11 | Ecommerce: document the storefrontPricing.ts exemption, add a price-equivalence guard test (3.4 Part A) | dispatch:capable | todo | — |
 | 8 | 8.12 | Phase 8 gate: integration/UI tests, docs and HANDOFF corrections, follow-up issues (F6, F11) | dispatch | todo | — |

@@ -13,6 +13,7 @@
 // properties Step 2.4 named.
 
 import { evaluatePromotions, isPromotionEligible } from '../evaluation-engine'
+import { clearableEndOfDayDateSchema } from '../../data/validators'
 import type { EvaluationInput, NormalizedPromotion } from '../types'
 
 function promotion(overrides: Partial<NormalizedPromotion> = {}): NormalizedPromotion {
@@ -207,5 +208,32 @@ describe('isPromotionEligible — excluded-tags check', () => {
   it('returns true when appliedTags is empty regardless of excludedTags', () => {
     const eligible = isPromotionEligible(promotion({ excludedTags: ['vip'] }), input(), [])
     expect(eligible).toBe(true)
+  })
+
+  // QA F7 (Medium, confirmed live): proves the write-side fix (`clearableEndOfDayDateSchema`
+  // in `data/validators.ts`) closes the gap end-to-end, without changing this function's
+  // own comparison (`evaluatedAtMs > endsAtMs`), which is correct once `endsAt` already
+  // represents the end of the valid window. `endOfDayEndsAt` mirrors what the schema now
+  // stores for a date-only "ends Oct 16" admin input.
+  describe('date-only endsAt is inclusive through end of day (QA F7)', () => {
+    const endOfDayEndsAt = clearableEndOfDayDateSchema.parse('2026-10-16')!.toISOString()
+
+    it('is still eligible at 23:00 on the same day the promotion ends', () => {
+      const eligible = isPromotionEligible(
+        promotion({ endsAt: endOfDayEndsAt }),
+        input({ evaluatedAt: '2026-10-16T23:00:00.000Z' }),
+        [],
+      )
+      expect(eligible).toBe(true)
+    })
+
+    it('is no longer eligible on the day after the promotion ends', () => {
+      const eligible = isPromotionEligible(
+        promotion({ endsAt: endOfDayEndsAt }),
+        input({ evaluatedAt: '2026-10-17T00:00:01.000Z' }),
+        [],
+      )
+      expect(eligible).toBe(false)
+    })
   })
 })
