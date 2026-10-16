@@ -79,7 +79,7 @@ async function resolveRequestContext(req: Request): Promise<CommandRuntimeContex
   }
 
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  const organizationId = scope?.selectedId ?? auth.orgId ?? null
+  const organizationId = scope ? scope.selectedId : auth.orgId ?? null
   if (!organizationId) {
     throw new CrudHttpError(400, {
       error: translate('sales.documents.errors.organization_required', 'Organization context is required'),

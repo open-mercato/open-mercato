@@ -6,7 +6,7 @@ import {
   createSalesOrderFixture,
   deleteSalesEntityIfExists,
 } from '@open-mercato/core/helpers/integration/salesFixtures'
-import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
   expectOperation,
   skipIfUndoTestsDisabled,
@@ -166,6 +166,45 @@ async function seedOrder(
 }
 
 test.describe('TC-SALES-2979: bulk order-line upsert over HTTP', () => {
+  test('All organizations refuses both write routes without changing lines or totals (#6458)', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    test.skip(!(await canManageSalesOrders(request, token)), 'sales.orders.manage not granted on this tenant')
+    expect(getTokenContext(token).organizationId, 'the regression requires a user with a home organization').toBeTruthy()
+    let orderId: string | null = null
+
+    try {
+      orderId = await createSalesOrderFixture(request, token, CURRENCY)
+      const beforeLines = await readLines(request, token, orderId)
+      const beforeOrder = await readOrder(request, token, orderId)
+      const line = body(`All organizations ${Date.now()}`, 1, 10)
+      const headers = { Cookie: 'om_selected_org=__all__' }
+
+      const perLineResponse = await apiRequest(request, 'POST', LINES_PATH, {
+        token, headers, data: { orderId, ...line },
+      })
+      expect(perLineResponse.status()).toBe(400)
+
+      const batchResponse = await apiRequest(request, 'POST', BATCH_PATH, {
+        token, headers, data: { orderId, lines: [line] },
+      })
+      expect(batchResponse.status()).toBe(400)
+      expect((await readJsonSafe<{ error?: string }>(batchResponse))?.error).toBeTruthy()
+
+      expect(fingerprint(await readLines(request, token, orderId))).toBe(fingerprint(beforeLines))
+      const afterOrder = await readOrder(request, token, orderId)
+      expect([orderNetOf(afterOrder), orderGrossOf(afterOrder), orderLineCountOf(afterOrder)])
+        .toEqual([orderNetOf(beforeOrder), orderGrossOf(beforeOrder), orderLineCountOf(beforeOrder)])
+
+      const selectedResponse = await apiRequest(request, 'POST', BATCH_PATH, {
+        token, data: { orderId, lines: [line] },
+      })
+      expect(selectedResponse.status()).toBe(200)
+      expect((await readLines(request, token, orderId)).length).toBe(beforeLines.length + 1)
+    } finally {
+      await deleteSalesEntityIfExists(request, token, ORDERS_PATH, orderId)
+    }
+  })
+
   test('one batch reaches the same end state as the per-line sequence it replaces', async ({ request }) => {
     test.slow()
     const token = await getAuthToken(request, 'admin')
