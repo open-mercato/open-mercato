@@ -8,6 +8,7 @@ import { emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shar
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { readSafeDecryptedString } from '../lib/decryptionSafety'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
@@ -1474,11 +1475,12 @@ function assertVendorRecoveryLines(lines: readonly WarrantyClaimLine[], requeste
   }
 }
 
-function buildClaimLog(
-  actionLabel: string,
+async function buildClaimLog(
+  actionLabelKey: string,
+  actionLabelFallback: string,
   resourceId: string,
   snapshots: { before?: unknown; after?: unknown },
-): {
+): Promise<{
   actionLabel: string
   resourceKind: string
   resourceId: string
@@ -1487,11 +1489,12 @@ function buildClaimLog(
   snapshotBefore: unknown
   snapshotAfter: unknown
   payload: { undo: ClaimUndoPayload }
-} {
+}> {
+  const { translate } = await resolveTranslations()
   const after = snapshots.after as ClaimSnapshot | null | undefined
   const before = snapshots.before as ClaimSnapshot | null | undefined
   return {
-    actionLabel,
+    actionLabel: translate(actionLabelKey, actionLabelFallback),
     resourceKind: WARRANTY_CLAIM_RESOURCE_KIND,
     resourceId,
     tenantId: after?.tenantId ?? before?.tenantId ?? null,
@@ -1613,7 +1616,7 @@ const createClaimCommand: CommandHandler<ClaimCreateInput, { claimId: string }> 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadClaimSnapshot(em, result.claimId, scope)
   },
-  buildLog: async ({ result, snapshots }) => buildClaimLog('warranty_claims.audit.claim.create', result.claimId, snapshots),
+  buildLog: async ({ result, snapshots }) => buildClaimLog('warranty_claims.audit.claim.create', 'Create claim', result.claimId, snapshots),
   undo: async ({ logEntry, ctx }) => {
     const payload = extractUndoPayload<ClaimUndoPayload>(logEntry)
     const after = payload?.after
@@ -1685,7 +1688,7 @@ const updateClaimCommand: CommandHandler<ClaimUpdateInput, { claimId: string }> 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadClaimSnapshot(em, result.claimId, scope)
   },
-  buildLog: async ({ result, snapshots }) => buildClaimLog('warranty_claims.audit.claim.update', result.claimId, snapshots),
+  buildLog: async ({ result, snapshots }) => buildClaimLog('warranty_claims.audit.claim.update', 'Update claim', result.claimId, snapshots),
   undo: async ({ logEntry, ctx }) => {
     const payload = extractUndoPayload<ClaimUndoPayload>(logEntry)
     const before = payload?.before
@@ -1749,7 +1752,7 @@ const deleteClaimCommand: CommandHandler<ClaimDeleteInput, { claimId: string }> 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadClaimSnapshot(em, result.claimId, scope)
   },
-  buildLog: async ({ result, snapshots }) => buildClaimLog('warranty_claims.audit.claim.delete', result.claimId, snapshots),
+  buildLog: async ({ result, snapshots }) => buildClaimLog('warranty_claims.audit.claim.delete', 'Delete claim', result.claimId, snapshots),
   undo: async ({ logEntry, ctx }) => {
     const payload = extractUndoPayload<ClaimUndoPayload>(logEntry)
     const before = payload?.before
@@ -1934,7 +1937,7 @@ const transitionClaimCommand: CommandHandler<TransitionClaimInput, { claimId: st
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadClaimSnapshot(em, result.claimId, scope)
   },
-  buildLog: async ({ result, snapshots }) => buildClaimLog('warranty_claims.audit.claim.transition', result.claimId, snapshots),
+  buildLog: async ({ result, snapshots }) => buildClaimLog('warranty_claims.audit.claim.transition', 'Change claim status', result.claimId, snapshots),
   undo: async ({ logEntry, ctx }) => {
     const payload = extractUndoPayload<ClaimUndoPayload>(logEntry)
     const before = payload?.before
@@ -2038,7 +2041,7 @@ const setReturnLabelCommand: CommandHandler<ClaimSetReturnLabelInput, ClaimSetRe
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadClaimSnapshot(em, result.claimId, scope)
   },
-  buildLog: async ({ result, snapshots }) => buildClaimLog('warranty_claims.audit.claim.set_return_label', result.claimId, snapshots),
+  buildLog: async ({ result, snapshots }) => buildClaimLog('warranty_claims.audit.claim.set_return_label', 'Set return label', result.claimId, snapshots),
   undo: async ({ logEntry, ctx }) => {
     const payload = extractUndoPayload<ClaimUndoPayload>(logEntry)
     const before = payload?.before
@@ -2506,7 +2509,7 @@ const createSalesReturnCommand: CommandHandler<ClaimCreateSalesReturnInput, Clai
     return loadClaimSnapshot(em, result.claimId, scope)
   },
   buildLog: async ({ result, snapshots }) => {
-    const base = buildClaimLog('warranty_claims.audit.claim.create_sales_return', result.claimId, snapshots)
+    const base = await buildClaimLog('warranty_claims.audit.claim.create_sales_return', 'Create sales return', result.claimId, snapshots)
     const after = snapshots.after as { orderId?: string | null } | null | undefined
     const undoPayload: ClaimSalesReturnUndoPayload = {
       ...(base.payload.undo as ClaimUndoPayload),
@@ -2900,7 +2903,7 @@ const createCreditMemoCommand: CommandHandler<ClaimCreateCreditMemoInput, ClaimC
     return loadClaimSnapshot(em, result.claimId, scope)
   },
   buildLog: async ({ result, snapshots }) => {
-    const base = buildClaimLog('warranty_claims.audit.claim.create_credit_memo', result.claimId, snapshots)
+    const base = await buildClaimLog('warranty_claims.audit.claim.create_credit_memo', 'Create credit memo', result.claimId, snapshots)
     const undoPayload: ClaimCreditMemoUndoPayload = {
       ...(base.payload.undo as ClaimUndoPayload),
       creditMemo: { id: result.creditMemoId, updatedAt: result.creditMemoUpdatedAt },
@@ -3261,7 +3264,7 @@ const createReplacementOrderCommand: CommandHandler<ClaimCreateReplacementOrderI
     return loadClaimSnapshot(em, result.claimId, scope)
   },
   buildLog: async ({ result, snapshots }) => {
-    const base = buildClaimLog('warranty_claims.audit.claim.create_replacement_order', result.claimId, snapshots)
+    const base = await buildClaimLog('warranty_claims.audit.claim.create_replacement_order', 'Create replacement order', result.claimId, snapshots)
     const undoPayload: ClaimReplacementOrderUndoPayload = {
       ...(base.payload.undo as ClaimUndoPayload),
       replacementOrder: {
