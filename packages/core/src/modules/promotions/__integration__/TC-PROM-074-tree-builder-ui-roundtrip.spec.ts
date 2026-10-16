@@ -66,8 +66,16 @@ test.describe('TC-PROM-074: tree builder save/reload with nested groups and bene
       // --- Root group: one order_value rule ---------------------------------
       await page.getByRole('button', { name: 'Add rule' }).first().click();
 
-      const valueFields = page.locator('label').filter({ hasText: 'Value' });
-      const operatorFields = page.locator('label').filter({ hasText: 'Operator' });
+      // Anchored + case-sensitive: a plain `hasText: 'Value'` string filter is
+      // case-insensitive substring matching, so it also matches the rule-type
+      // Select's own rendered text ("Rule type" + its selected option's label,
+      // e.g. "Order value") now that Step 8.8 swapped that picker from a
+      // ComboboxInput (selected text lives in an <input> value, not real DOM
+      // text content) to a Select (SelectValue renders real text content).
+      // Each field's own label starts with its exact field name, so anchoring
+      // at the start keeps this scoped to the real "Value" field only.
+      const valueFields = page.locator('label').filter({ hasText: /^Value/ });
+      const operatorFields = page.locator('label').filter({ hasText: /^Operator/ });
       const taxInclusiveCheckboxes = page.getByRole('checkbox', { name: 'Tax inclusive' });
 
       await expect(valueFields).toHaveCount(1);
