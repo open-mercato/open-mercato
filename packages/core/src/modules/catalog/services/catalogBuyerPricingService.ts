@@ -59,6 +59,14 @@ export interface CatalogBuyerPricingService {
    * `catalogPricingService`, so registered resolvers apply), both price sides (deriving
    * the missing one from a resolved tax rate), the current and next quantity tier, and
    * whether the winning row is a promotional price kind.
+   *
+   * Resolves ONE line at a time, with no shared cache across targets — fine for `cart`'s
+   * per-line call sites, but `ecommerce/lib/storefrontPricing.ts`'s page-batch resolution
+   * deliberately does NOT call this (3.4 Part A, owner decision 2026-10-16, permanent
+   * exemption): calling it once per product/variant on a page regressed the Storefront
+   * Public API's O(1)-queries-per-page invariant. See that file's own header comment and
+   * `ecommerce/lib/__tests__/storefrontPricingEquivalence.test.ts` for the guard proving the
+   * two paths still agree on the same unit price.
    */
   resolveLinePrice(
     em: EntityManager,

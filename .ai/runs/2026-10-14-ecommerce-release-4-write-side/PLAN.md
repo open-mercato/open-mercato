@@ -38,7 +38,7 @@
 | 3 | 3.1 | Catalog: catalogBuyerPricingService extracted from ecommerce | dispatch:capable | done | see `git log` |
 | 3 | 3.2 | Catalog: catalogScopedProductService with equivalence property test | dispatch:capable | done | see `git log` |
 | 3 | 3.3 | Availability: shared quantity-rule derivation | dispatch | done | see `git log` |
-| 3 | 3.4 | Ecommerce: repoint onto the shared seams and add the fresh buyer-context option | dispatch:capable | done — Parts B+C landed; Part A closed by owner decision 2026-10-16 (exempt `storefrontPricing.ts`, guard in Step 8.11) | see `git log` |
+| 3 | 3.4 | Ecommerce: repoint onto the shared seams and add the fresh buyer-context option | dispatch:capable | done — Parts B+C landed; Part A closed by owner decision 2026-10-16 (exempt `storefrontPricing.ts`, guarded by `ecommerce/lib/__tests__/storefrontPricingEquivalence.test.ts`, Step 8.11) | see `git log` |
 | 4 | 4.1 | Cart: scaffold module, ACL, setup, events, DI, encryption, i18n | dispatch | done | see `git log` |
 | 4 | 4.2 | Cart: entities, validators and migration (incl. Phase 4 seam columns) | dispatch:capable | done | see `git log` |
 | 4 | 4.3 | Cart: token hashing, route-edge store and scope resolution, strict bodies | dispatch:capable | done | see `git log` |
@@ -79,7 +79,7 @@
 | 8 | 8.8 | Promotions: Select for rule/benefit type, labels editor locale picker and DS fixes (QA F5, F8, F4) | dispatch | done | 92cc2c294a |
 | 8 | 8.9 | Promotions: inclusive end date (QA F7) | dispatch:capable | done | b0d766608d |
 | 8 | 8.10 | Promotions: static code normalization on write and lookup (QA F9) | dispatch | done | 8d9c24baef |
-| 8 | 8.11 | Ecommerce: document the storefrontPricing.ts exemption, add a price-equivalence guard test (3.4 Part A) | dispatch:capable | todo | — |
+| 8 | 8.11 | Ecommerce: document the storefrontPricing.ts exemption, add a price-equivalence guard test (3.4 Part A) | dispatch:capable | done | f6c03a8627 |
 | 8 | 8.12 | Phase 8 gate: integration/UI tests, docs and HANDOFF corrections, follow-up issues (F6, F11) | dispatch | todo | — |
 
 ## Goal

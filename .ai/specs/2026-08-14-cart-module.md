@@ -989,6 +989,10 @@ Via the shared `ratelimit` module (`checkRateLimit`, `readEndpointRateLimitConfi
 
 ## 18) Changelog
 
+### 2026-10-16 (Step 8.11 — the 3.4 Part A repoint closed as a permanent exemption, not a deferral)
+
+Closes the open item the 2026-10-15 entry below flagged ("An owner decision... is still open"). Owner decision (`.ai/runs/2026-10-14-ecommerce-release-4-write-side/PLAN.md` Phase 8 intro, 2026-10-16): `ecommerce/lib/storefrontPricing.ts` stays on its own batched `resolveStorefrontPrices` path **permanently** and is not repointed onto `catalogBuyerPricingService.resolveLinePrice` — the repoint was implemented, tested, and found to regress the Storefront Public API's documented O(1)-queries-per-page invariant (measured: listing query-budget tests 15→21, detail 7-11→16-34, the "doesn't grow with variant count" test 9→28; full detail in NOTIFY.md's 2026-10-15T00:30:00Z entry). Documented in both files' own header comments plus a one-line cross-reference in `catalog/AGENTS.md`'s new "Buyer-facing line pricing" note. Guarded by a new equivalence test, `ecommerce/lib/__tests__/storefrontPricingEquivalence.test.ts`, asserting the two pricing paths resolve the SAME unit price for a base/regular row, a sale-kind row, a quantity-tier row, a customer-group row, and the F14 two-variant scenario (each variant resolving its own price, never a sibling's) — all 6 cases confirmed equivalent on this pass; no divergence found.
+
 ### 2026-10-15 (Phases 1–3 implemented — PR #15)
 
 Implementation record for rev 9: `cart` Phases 1–3 shipped on `feat/release-4-write-side` (`adeptofvoltron/open-mercato#15`), tracked step-by-step in `.ai/runs/2026-10-14-ecommerce-release-4-write-side/{PLAN,HANDOFF,NOTIFY}.md`. Per PLAN.md's own Step 7.7 instruction, this spec stays in `.ai/specs/` (not moved to `implemented/`) — Phase 4 (B2B approvals, bulk lines, the admin cart list, the proposal seam §7a) remains unbuilt. Deviations and findings a future reader should know about without re-reading the run's 56 steps:
