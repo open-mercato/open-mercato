@@ -5,13 +5,17 @@ import { useRouter } from 'next/navigation'
 import { Briefcase, Save } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { InjectionSpot, useInjectionSpotEvents } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserId'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { extensionPoints } from '../../../extension-points'
 import { dealFormSchema } from '../DealForm'
 import { createDictionarySelectLabels } from '../utils'
 import { DealSectionCard } from './DealSectionCard'
@@ -22,9 +26,24 @@ import { useDealPipelines } from './useDealPipelines'
 import { useDealCustomFields } from './useDealCustomFields'
 import { EMPTY_VALUES, type BaseValues } from './dealFormTypes'
 
+const logger = createLogger('customers')
+
 const CONTEXT_ID = 'customers.deals.create'
 const DEAL_ENTITY_ID = 'customers:customer_deal'
 const CUSTOM_FIELDS_MANAGE_HREF = `/backend/entities/system/${encodeURIComponent(DEAL_ENTITY_ID)}`
+
+const DEAL_FORM_SPOT_ID = extensionPoints.hosts.dealForm.spotId
+
+type DealFormInjectionContext = {
+  formId: string
+  entityId: string
+  resourceKind: string
+  resourceId: string | undefined
+  recordId: string | undefined
+  isLoading: boolean
+  pending: boolean
+  operation: 'create'
+}
 
 export type CreateDealFormProps = {
   returnTo: string
@@ -114,6 +133,27 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
     router.push(returnTo)
   }, [returnTo, router])
 
+  // `recordId` is intentionally absent — the deal does not exist yet, which is how
+  // record-scoped widgets detect create mode and render their empty state.
+  const injectionContext = React.useMemo<DealFormInjectionContext>(
+    () => ({
+      formId: CONTEXT_ID,
+      entityId: DEAL_ENTITY_ID,
+      resourceKind: 'customers.deal',
+      resourceId: undefined,
+      recordId: undefined,
+      isLoading: !customFieldsLoaded,
+      pending: isSubmitting,
+      operation: 'create' as const,
+    }),
+    [customFieldsLoaded, isSubmitting],
+  )
+
+  const { triggerEvent: triggerDealFormEvent } = useInjectionSpotEvents<
+    DealFormInjectionContext,
+    Record<string, unknown>
+  >(DEAL_FORM_SPOT_ID)
+
   const handleSubmit = React.useCallback(async () => {
     if (isSubmitting) return
     if (!customFieldsLoaded) {
@@ -142,9 +182,27 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
       return
     }
 
+    let injectionRequestHeaders: Record<string, string> | undefined
+    try {
+      const beforeSave = await triggerDealFormEvent('onBeforeSave', merged, injectionContext)
+      if (!beforeSave.ok) {
+        if (beforeSave.fieldErrors && Object.keys(beforeSave.fieldErrors).length) {
+          setErrors(beforeSave.fieldErrors)
+        }
+        flash(beforeSave.message || tr('ui.forms.flash.saveBlocked', 'Save blocked by validation'), 'error')
+        return
+      }
+      injectionRequestHeaders = beforeSave.requestHeaders
+    } catch (err) {
+      logger.error('Error in onBeforeSave', { spotId: DEAL_FORM_SPOT_ID, err })
+      flash(tr('ui.forms.flash.saveBlocked', 'Save blocked by validation'), 'error')
+      return
+    }
+
     setErrors({})
     setIsSubmitting(true)
     try {
+      await triggerDealFormEvent('onSave', merged, injectionContext)
       const data = parsed.data
       const expectedCloseAt =
         data.expectedCloseAt && data.expectedCloseAt.length
@@ -170,7 +228,7 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
       const custom = collectNormalizedCustomValues(merged)
       if (Object.keys(custom).length) payload.customFields = custom
 
-      await runMutation({
+      const createDeal = () => runMutation({
         operation: () =>
           createCrud('customers/deals', payload, {
             errorMessage: tr('customers.deals.create.error', 'Failed to create deal.'),
@@ -178,6 +236,16 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
         context: { formId: CONTEXT_ID, resourceKind: 'customers.deal', retryLastMutation },
         mutationPayload: payload,
       })
+      if (injectionRequestHeaders && Object.keys(injectionRequestHeaders).length) {
+        await withScopedApiRequestHeaders(injectionRequestHeaders, createDeal)
+      } else {
+        await createDeal()
+      }
+      try {
+        await triggerDealFormEvent('onAfterSave', merged, injectionContext)
+      } catch (err) {
+        logger.error('Error in onAfterSave', { spotId: DEAL_FORM_SPOT_ID, err })
+      }
       flash(tr('customers.people.detail.deals.success', 'Deal created.'), 'success')
       router.push(returnTo)
     } catch (err) {
@@ -190,12 +258,14 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
     collectNormalizedCustomValues,
     customFieldsLoaded,
     customValues,
+    injectionContext,
     isSubmitting,
     retryLastMutation,
     returnTo,
     router,
     runMutation,
     tr,
+    triggerDealFormEvent,
     validateCustomFields,
     values,
   ])
@@ -216,6 +286,26 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
       handleSubmit()
     },
     [handleSubmit],
+  )
+
+  const injectionData = React.useMemo(
+    () => ({ ...values, ...customValues }),
+    [customValues, values],
+  )
+
+  const handleInjectionDataChange = React.useCallback(
+    (next: Record<string, unknown>) => {
+      const basePatch: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(next)) {
+        if (key.startsWith('cf_') || key.startsWith('cf:')) {
+          if (customValues[key] !== value) handleCustomChange(key, value)
+        } else if ((values as Record<string, unknown>)[key] !== value) {
+          basePatch[key] = value
+        }
+      }
+      if (Object.keys(basePatch).length) patch(basePatch as Partial<BaseValues>)
+    },
+    [customValues, handleCustomChange, patch, values],
   )
 
   const cancelLabel = tr('customers.deals.create.cancel', 'Cancel')
@@ -267,6 +357,14 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
             companyIds={values.companyIds}
             onPeopleChange={(next) => patch({ personIds: next })}
             onCompaniesChange={(next) => patch({ companyIds: next })}
+            disabled={isSubmitting}
+          />
+
+          <InjectionSpot
+            spotId={DEAL_FORM_SPOT_ID}
+            context={injectionContext}
+            data={injectionData}
+            onDataChange={handleInjectionDataChange}
             disabled={isSubmitting}
           />
         </div>

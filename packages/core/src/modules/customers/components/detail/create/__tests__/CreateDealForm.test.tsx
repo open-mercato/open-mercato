@@ -2,13 +2,18 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { z } from 'zod'
 import { CreateDealForm } from '../CreateDealForm'
+import { extensionPoints } from '../../../../extension-points'
 
 const mockPush = jest.fn()
+const injectionSpotProps: Array<Record<string, unknown>> = []
 const mockCreateCrud = jest.fn()
 const mockRunMutation = jest.fn()
+const mockTriggerSpotEvent = jest.fn()
+const spotEventHookSpotIds: string[] = []
+const scopedHeaderCalls: Array<Record<string, string>> = []
 let mockCustomDefinitions: Array<{
   key: string
   kind: string
@@ -43,6 +48,24 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
 
 jest.mock('@open-mercato/ui/backend/utils/crud', () => ({
   createCrud: (...args: unknown[]) => mockCreateCrud(...args),
+}))
+
+jest.mock('@open-mercato/ui/backend/injection/InjectionSpot', () => ({
+  InjectionSpot: (props: Record<string, unknown>) => {
+    injectionSpotProps.push(props)
+    return null
+  },
+  useInjectionSpotEvents: (spotId: string) => {
+    spotEventHookSpotIds.push(spotId)
+    return { triggerEvent: mockTriggerSpotEvent, widgets: [] }
+  },
+}))
+
+jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
+  withScopedApiRequestHeaders: (headers: Record<string, string>, run: () => Promise<unknown>) => {
+    scopedHeaderCalls.push(headers)
+    return run()
+  },
 }))
 
 jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
@@ -165,12 +188,187 @@ jest.mock('../DealCustomAttributes', () => {
 })
 
 beforeEach(() => {
+  injectionSpotProps.length = 0
+  spotEventHookSpotIds.length = 0
+  scopedHeaderCalls.length = 0
   mockCustomDefinitions = []
   mockPush.mockClear()
   mockCreateCrud.mockReset()
   mockCreateCrud.mockResolvedValue({ id: 'deal-1' })
   mockRunMutation.mockReset()
   mockRunMutation.mockImplementation(async ({ operation }: { operation: () => Promise<unknown> }) => operation())
+  mockTriggerSpotEvent.mockReset()
+  mockTriggerSpotEvent.mockResolvedValue({ ok: true })
+})
+
+const dispatchedSpotEvents = () => mockTriggerSpotEvent.mock.calls.map((call) => call[0] as string)
+
+// The mock accumulates one entry per render, so read the newest — an early entry holds
+// props captured before custom fields finished loading.
+const renderedDealFormSpot = () =>
+  [...injectionSpotProps].reverse().find((props) => props.spotId === extensionPoints.hosts.dealForm.spotId)
+
+describe('CreateDealForm injection host (#5882)', () => {
+  it('publishes the module\'s declared deal form spot so widgets reach the create surface', () => {
+    render(<CreateDealForm returnTo="/backend/customers/deals" />)
+
+    expect(extensionPoints.hosts.dealForm.spotId).toBe('crud-form:customers.deal')
+    expect(renderedDealFormSpot()).toBeDefined()
+  })
+
+  it('gives the spot a create-mode context in the shape CrudForm publishes', () => {
+    render(<CreateDealForm returnTo="/backend/customers/deals" />)
+
+    expect(renderedDealFormSpot()?.context).toEqual({
+      formId: 'customers.deals.create',
+      entityId: 'customers:customer_deal',
+      resourceKind: 'customers.deal',
+      resourceId: undefined,
+      recordId: undefined,
+      isLoading: expect.any(Boolean),
+      pending: false,
+      operation: 'create',
+    })
+  })
+
+  it('leaves recordId absent so record-scoped widgets can detect create mode', () => {
+    render(<CreateDealForm returnTo="/backend/customers/deals" />)
+
+    const context = renderedDealFormSpot()?.context as Record<string, unknown>
+    expect(context.recordId).toBeUndefined()
+    expect(context.operation).toBe('create')
+  })
+
+  it('gives the spot the form values and a setter, as CrudForm does on edit', () => {
+    render(<CreateDealForm returnTo="/backend/customers/deals" initialValues={{ title: 'Copperleaf renewal' }} />)
+
+    const spot = renderedDealFormSpot()
+    expect((spot?.data as Record<string, unknown>).title).toBe('Copperleaf renewal')
+
+    act(() => {
+      ;(spot?.onDataChange as (next: Record<string, unknown>) => void)({
+        ...(spot?.data as Record<string, unknown>),
+        title: 'Renamed by a widget',
+      })
+    })
+
+    expect(screen.getByLabelText('Deal title')).toHaveValue('Renamed by a widget')
+  })
+
+  it('merges custom-field values into the data it hands widgets, as CrudForm does on edit', async () => {
+    mockCustomDefinitions = [{ key: 'temperature', kind: 'text', label: 'Temperature', defaultValue: 'Warm' }]
+
+    render(<CreateDealForm returnTo="/backend/customers/deals" initialValues={{ title: 'Copperleaf renewal' }} />)
+
+    await screen.findByLabelText('Temperature')
+    await waitFor(() => {
+      const data = renderedDealFormSpot()?.data as Record<string, unknown>
+      expect(data.cf_temperature).toBe('Warm')
+    })
+    expect((renderedDealFormSpot()?.data as Record<string, unknown>).title).toBe('Copperleaf renewal')
+  })
+
+  it('routes a widget custom-field write back into custom values, not base form state', async () => {
+    mockCustomDefinitions = [{ key: 'temperature', kind: 'text', label: 'Temperature', defaultValue: 'Warm' }]
+
+    render(<CreateDealForm returnTo="/backend/customers/deals" />)
+    await screen.findByLabelText('Temperature')
+
+    act(() => {
+      const spot = renderedDealFormSpot()
+      ;(spot?.onDataChange as (next: Record<string, unknown>) => void)({
+        ...(spot?.data as Record<string, unknown>),
+        cf_temperature: 'Hot',
+      })
+    })
+
+    await waitFor(() => expect(screen.getByLabelText('Temperature')).toHaveValue('Hot'))
+  })
+})
+
+describe('CreateDealForm injection lifecycle (#5915 review)', () => {
+  it('dispatches the save lifecycle on the declared deal host, in CrudForm order', async () => {
+    render(<CreateDealForm returnTo="/backend/customers/deals" initialValues={{ title: 'Copperleaf renewal' }} />)
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Create deal' })[0])
+
+    await waitFor(() => expect(mockCreateCrud).toHaveBeenCalled())
+    expect(spotEventHookSpotIds).toContain(extensionPoints.hosts.dealForm.spotId)
+    expect(dispatchedSpotEvents()).toEqual(['onBeforeSave', 'onSave', 'onAfterSave'])
+  })
+
+  it('hands widgets the merged form state, including custom-field keys, on onBeforeSave', async () => {
+    mockCustomDefinitions = [{ key: 'temperature', kind: 'text', label: 'Temperature', defaultValue: 'Warm' }]
+
+    render(<CreateDealForm returnTo="/backend/customers/deals" initialValues={{ title: 'Copperleaf renewal' }} />)
+    await screen.findByLabelText('Temperature')
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Create deal' })[0])
+
+    await waitFor(() => expect(mockCreateCrud).toHaveBeenCalled())
+    const [, data, context] = mockTriggerSpotEvent.mock.calls[0] as [string, Record<string, unknown>, Record<string, unknown>]
+    expect(data.title).toBe('Copperleaf renewal')
+    expect(data.cf_temperature).toBe('Warm')
+    expect(context.operation).toBe('create')
+    expect(context.recordId).toBeUndefined()
+  })
+
+  it('blocks the create when a widget refuses the save in onBeforeSave', async () => {
+    mockTriggerSpotEvent.mockImplementation(async (event: string) =>
+      event === 'onBeforeSave'
+        ? { ok: false, message: 'Blocked by the compliance widget', fieldErrors: { title: 'Not allowed' } }
+        : { ok: true },
+    )
+
+    render(<CreateDealForm returnTo="/backend/customers/deals" initialValues={{ title: 'Copperleaf renewal' }} />)
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Create deal' })[0])
+
+    expect(await screen.findByText('Not allowed')).toBeInTheDocument()
+    expect(mockCreateCrud).not.toHaveBeenCalled()
+    expect(mockRunMutation).not.toHaveBeenCalled()
+    expect(dispatchedSpotEvents()).toEqual(['onBeforeSave'])
+  })
+
+  it('applies request headers a widget returns from onBeforeSave to the create call', async () => {
+    mockTriggerSpotEvent.mockImplementation(async (event: string) =>
+      event === 'onBeforeSave' ? { ok: true, requestHeaders: { 'x-om-widget': 'deal-guard' } } : { ok: true },
+    )
+
+    render(<CreateDealForm returnTo="/backend/customers/deals" initialValues={{ title: 'Copperleaf renewal' }} />)
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Create deal' })[0])
+
+    await waitFor(() => expect(mockCreateCrud).toHaveBeenCalled())
+    expect(scopedHeaderCalls).toEqual([{ 'x-om-widget': 'deal-guard' }])
+  })
+
+  it('does not scope headers when no widget asks for any', async () => {
+    render(<CreateDealForm returnTo="/backend/customers/deals" initialValues={{ title: 'Copperleaf renewal' }} />)
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Create deal' })[0])
+
+    await waitFor(() => expect(mockCreateCrud).toHaveBeenCalled())
+    expect(scopedHeaderCalls).toEqual([])
+  })
+
+  it('keeps a completed create successful when a widget fails in onAfterSave', async () => {
+    // `CrudForm` isolates its own `onAfterSave` dispatch, so a widget failing after the
+    // write is logged and the save still succeeds. The create surface must not diverge:
+    // the deal already exists, so reporting a failure and skipping the redirect would
+    // strand the operator on a form whose record was in fact created.
+    mockTriggerSpotEvent.mockImplementation(async (event: string) => {
+      if (event === 'onAfterSave') throw new Error('widget exploded after the write')
+      return { ok: true }
+    })
+
+    render(<CreateDealForm returnTo="/backend/customers/deals" initialValues={{ title: 'Copperleaf renewal' }} />)
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Create deal' })[0])
+
+    await waitFor(() => expect(mockCreateCrud).toHaveBeenCalled())
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/backend/customers/deals'))
+  })
 })
 
 describe('CreateDealForm', () => {
