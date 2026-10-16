@@ -30,11 +30,8 @@ test.describe('TC-PERSP-ATOMIC-VERIFY: perspectives save fidelity', () => {
       columnOrder: ['col-a', 'col-b'],
       columnVisibility: { 'col-a': true, 'col-b': false },
       sorting: [{ id: 'col-a', desc: true }],
-      // Filters MUST use the versioned (v2) tree shape. The read path runs
-      // `maybeMigrateLegacyFilterValues`, which intentionally drops legacy flat
-      // key/value filter records (anything without `v:2` or a `root` node) — so a
-      // `{ status: 'active' }` fixture would be migrated away on read by design.
-      // Using the v2 shape proves filters genuinely round-trip through the atomic save.
+      // The advanced-filter (v2) tree shape; the flat legacy record's round-trip
+      // is covered by TC-PERSP-LEGACY-FILTERS-001.
       filters: { v: 2, root: { combinator: 'and', rules: [] } },
       searchValue: `needle-${stamp}`,
     };
