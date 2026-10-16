@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { emitMarketingAutomationEvent } from '../events.js'
-import { addScoreEntry } from '../lib/scores.js'
+import { addScoreEntry, markScoreEventEmitted } from '../lib/scores.js'
 import type { StepHandler } from '../lib/engine/registry.js'
 import type { AutomationContext } from '../lib/engine/types.js'
 import type { StepDeps } from './deps.js'
@@ -40,7 +40,15 @@ export const addPointsStep: StepHandler<StepDeps> = {
       now: deps.now,
     })
 
-    if (!result.applied) {
+    /**
+     * Not `!result.applied` any more: the ledger write and the emission are two different facts.
+     *
+     * A retry whose EARLIER attempt wrote the ledger but failed before confirming the emit collides
+     * here exactly like a plain redelivery of an already-finished step does — `applied: false` either
+     * way. `eventPending` is what tells them apart, and only a plain redelivery leaves nothing left to
+     * do; the first case still owes the one event a score-threshold campaign is waiting for.
+     */
+    if (!result.eventPending) {
       return { status: 'done', detail: 'points already awarded for this step' }
     }
 
@@ -56,6 +64,9 @@ export const addPointsStep: StepHandler<StepDeps> = {
       delta: params.points,
       campaignId: ctx.campaignId ?? null,
     }, { persistent: true })
+
+    // Confirmed sent — a later retry of this same step must not emit it again.
+    if (result.entryId) await markScoreEventEmitted(deps.em, result.entryId, deps.now)
 
     return { status: 'done', detail: `${params.points > 0 ? '+' : ''}${params.points} points (${result.points} total)` }
   },

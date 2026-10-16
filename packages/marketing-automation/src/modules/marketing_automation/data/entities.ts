@@ -605,6 +605,17 @@ export class MarketingCustomerScoreEntry {
   @Property({ name: 'rule_sequence', type: 'integer', nullable: true })
   ruleSequence?: number | null
 
+  /**
+   * When the step's `score.changed` event was confirmed emitted — null until then.
+   *
+   * The ledger write and the event are two separate operations, and a retry after the write
+   * succeeded but the emit failed collided on the unique index above and returned without ever
+   * emitting. This is what lets the retry tell "already scored, event still owed" apart from
+   * "already scored, event already out" and decide whether to emit again.
+   */
+  @Property({ name: 'event_emitted_at', type: Date, nullable: true })
+  eventEmittedAt?: Date | null
+
   @Property({ name: 'occurred_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date() })
   occurredAt!: Date
 

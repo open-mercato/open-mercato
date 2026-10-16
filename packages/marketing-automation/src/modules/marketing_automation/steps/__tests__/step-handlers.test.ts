@@ -1,10 +1,14 @@
 const addScoreEntry = jest.fn()
+const markScoreEventEmitted = jest.fn()
 const emitMarketingAutomationEvent = jest.fn()
 const ensureReferralCode = jest.fn()
 const loadReferralUrlTemplate = jest.fn()
 const decideAssignment = jest.fn()
 
-jest.mock('../../lib/scores.js', () => ({ addScoreEntry: (...a: unknown[]) => addScoreEntry(...a) }))
+jest.mock('../../lib/scores.js', () => ({
+  addScoreEntry: (...a: unknown[]) => addScoreEntry(...a),
+  markScoreEventEmitted: (...a: unknown[]) => markScoreEventEmitted(...a),
+}))
 jest.mock('../../events.js', () => ({
   emitMarketingAutomationEvent: (...a: unknown[]) => emitMarketingAutomationEvent(...a),
 }))
@@ -43,8 +47,8 @@ const deps = {
 } as never
 
 beforeEach(() => {
-  for (const fn of [addScoreEntry, emitMarketingAutomationEvent, ensureReferralCode, loadReferralUrlTemplate, decideAssignment, execute]) fn.mockReset()
-  addScoreEntry.mockResolvedValue({ applied: true, points: 12, previousPoints: 5 })
+  for (const fn of [addScoreEntry, markScoreEventEmitted, emitMarketingAutomationEvent, ensureReferralCode, loadReferralUrlTemplate, decideAssignment, execute]) fn.mockReset()
+  addScoreEntry.mockResolvedValue({ applied: true, points: 12, previousPoints: 5, eventPending: true, entryId: 'entry-1' })
   ensureReferralCode.mockResolvedValue('ABC12345')
   loadReferralUrlTemplate.mockResolvedValue(null)
   execute.mockResolvedValue(undefined)
@@ -65,12 +69,21 @@ describe('add_points', () => {
     await expect(addPointsStep.execute(ctx(), { points: 0 }, deps)).rejects.toThrow()
   })
 
-  it('is idempotent: a redelivered job collides instead of scoring twice', async () => {
-    addScoreEntry.mockResolvedValue({ applied: false, points: 12, previousPoints: 12 })
+  it('is idempotent: a plain redelivery with nothing pending does nothing more', async () => {
+    addScoreEntry.mockResolvedValue({ applied: false, points: 12, previousPoints: 12, eventPending: false, entryId: 'entry-1' })
     const result = await addPointsStep.execute(ctx(), { points: 7 }, deps)
     // `done`, not `skipped`: the points ARE awarded, just not by this delivery.
     expect(result).toMatchObject({ status: 'done', detail: 'points already awarded for this step' })
     expect(emitMarketingAutomationEvent).not.toHaveBeenCalled()
+  })
+
+  // The defect this guard used to cause: a collision alone does not mean the event already went out.
+  it('a collision whose event is still pending emits and confirms it, same as a fresh award', async () => {
+    addScoreEntry.mockResolvedValue({ applied: false, points: 12, previousPoints: 5, eventPending: true, entryId: 'entry-9' })
+    const result = await addPointsStep.execute(ctx(), { points: 7 }, deps)
+    expect(result).toMatchObject({ status: 'done' })
+    expect(emitMarketingAutomationEvent).toHaveBeenCalledTimes(1)
+    expect(markScoreEventEmitted).toHaveBeenCalledWith(deps.em, 'entry-9', deps.now)
   })
 
   it('carries the PREVIOUS total on the event, which is what makes "reached 100" expressible', async () => {
@@ -82,6 +95,8 @@ describe('add_points', () => {
      * With it, "crossed 100" is expressible — and that fires once.
      */
     expect(payload).toMatchObject({ points: 12, previousPoints: 5, delta: 7 })
+    // Confirmed only after the emit succeeds, so a retry after THIS line throwing would try again.
+    expect(markScoreEventEmitted).toHaveBeenCalledWith(deps.em, 'entry-1', deps.now)
   })
 
   it('skips a run with no subject rather than failing it', async () => {

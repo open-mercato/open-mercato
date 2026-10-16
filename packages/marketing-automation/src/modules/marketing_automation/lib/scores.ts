@@ -33,6 +33,24 @@ export type ScoreEntryResult = {
   applied: boolean
   previousPoints: number
   points: number
+  /**
+   * True when this entry's `score.changed` event still needs to go out.
+   *
+   * Set on a fresh insert, and recovered from the existing row on a collision: a retry whose earlier
+   * attempt wrote the ledger but never confirmed the emit must still try again, while a plain
+   * redelivery of an already-completed step must not re-emit. The ledger write and the emission are
+   * two different facts, and only this field distinguishes them.
+   */
+  eventPending: boolean
+  /** The ledger row's id, for `markScoreEventEmitted` once the caller's emit succeeds. Null only when
+   *  a collision could not be traced back to a (run, step) row — a defensive case that should not
+   *  arise, since only (run, step) writes can collide at all. */
+  entryId: string | null
+}
+
+/** Records that this entry's event reached the bus, so a later retry does not emit it again. */
+export async function markScoreEventEmitted(em: EntityManager, entryId: string, now: Date): Promise<void> {
+  await em.nativeUpdate(MarketingCustomerScoreEntry, { id: entryId }, { eventEmittedAt: now })
 }
 
 export async function loadScorePoints(
@@ -104,10 +122,36 @@ export async function addScoreEntry(em: EntityManager, input: ScoreEntryInput): 
     await fork.flush()
   } catch (error) {
     if (error instanceof UniqueConstraintViolationException) {
-      return { applied: false, previousPoints, points: previousPoints }
+      /**
+       * `previousPoints` above already includes the row that just collided — it was written by an
+       * earlier attempt, so `loadScorePoints` counted it before this insert was even tried. The
+       * event's own "crossed" semantics need the total from BEFORE that row, which only the row
+       * itself (its `points`) can subtract back out.
+       */
+      const existing = input.runId && input.stepId
+        ? await em.findOne(MarketingCustomerScoreEntry, {
+            tenantId: input.scope.tenantId,
+            organizationId: input.scope.organizationId,
+            runId: input.runId,
+            stepId: input.stepId,
+          })
+        : null
+      return {
+        applied: false,
+        previousPoints: existing ? previousPoints - existing.points : previousPoints,
+        points: previousPoints,
+        eventPending: existing ? existing.eventEmittedAt == null : false,
+        entryId: existing?.id ?? null,
+      }
     }
     throw error
   }
 
-  return { applied: true, previousPoints, points: previousPoints + input.points }
+  return {
+    applied: true,
+    previousPoints,
+    points: previousPoints + input.points,
+    eventPending: true,
+    entryId: entry.id,
+  }
 }

@@ -1,13 +1,19 @@
 import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { addScoreEntry, loadScorePoints } from '../scores'
+import { addScoreEntry, loadScorePoints, markScoreEventEmitted } from '../scores'
 
 const scope = { tenantId: 't1', organizationId: 'o1' }
 const now = new Date('2026-09-28T12:00:00.000Z')
 
-function fakeEm(options: { total?: string | null; reject?: unknown } = {}) {
+function fakeEm(options: {
+  total?: string | null
+  reject?: unknown
+  /** The row a collision's `findOne` recovers. Omitted (the default) means "no row found". */
+  existing?: { id: string; points: number; eventEmittedAt: Date | null } | null
+} = {}) {
   const executed: Array<{ sql: string; params: unknown[] }> = []
   const persisted: Record<string, unknown>[] = []
+  const updates: Array<{ where: Record<string, unknown>; data: Record<string, unknown> }> = []
   let flushes = 0
   const fork = {
     create: (_entity: unknown, data: Record<string, unknown>) => ({ id: 'entry-1', ...data }),
@@ -25,8 +31,13 @@ function fakeEm(options: { total?: string | null; reject?: unknown } = {}) {
         return [{ total: options.total ?? '0' }]
       },
     }),
+    findOne: async () => options.existing ?? null,
+    nativeUpdate: async (_entity: unknown, where: Record<string, unknown>, data: Record<string, unknown>) => {
+      updates.push({ where, data })
+      return 1
+    },
   }
-  return { em: em as unknown as EntityManager, executed, persisted, flushes: () => flushes }
+  return { em: em as unknown as EntityManager, executed, persisted, updates, flushes: () => flushes }
 }
 
 describe('loadScorePoints', () => {
@@ -64,7 +75,7 @@ describe('addScoreEntry', () => {
       stepId: 'step-1',
       now,
     })
-    expect(result).toEqual({ applied: true, previousPoints: 30, points: 40 })
+    expect(result).toEqual({ applied: true, previousPoints: 30, points: 40, eventPending: true, entryId: 'entry-1' })
     expect(persisted[0]).toMatchObject({
       subjectEntityId: 'c1',
       points: 10,
@@ -92,11 +103,43 @@ describe('addScoreEntry', () => {
     const { em } = fakeEm({
       total: '40',
       reject: new UniqueConstraintViolationException(new Error('duplicate key value violates unique constraint')),
+      existing: { id: 'entry-1', points: 10, eventEmittedAt: now },
     })
     const result = await addScoreEntry(em, {
       scope, subjectEntityId: 'c1', points: 10, source: 'campaign', runId: 'run-1', stepId: 'step-1', now,
     })
-    expect(result).toEqual({ applied: false, previousPoints: 40, points: 40 })
+    // previousPoints is backed out of the row the collision found: loadScorePoints already
+    // counted it, so the total before it was written is the total after minus its own points.
+    expect(result).toEqual({
+      applied: false, previousPoints: 30, points: 40, eventPending: false, entryId: 'entry-1',
+    })
+  })
+
+  /**
+   * The defect M6 fixes. A retry whose earlier attempt wrote the ledger row but never confirmed the
+   * emit must still try again — `eventEmittedAt` null is what tells this collision apart from a plain
+   * redelivery of an already-finished step.
+   */
+  test('a collision whose event was never confirmed sent is told to try again', async () => {
+    const { em } = fakeEm({
+      total: '40',
+      reject: new UniqueConstraintViolationException(new Error('duplicate key')),
+      existing: { id: 'entry-1', points: 10, eventEmittedAt: null },
+    })
+    const result = await addScoreEntry(em, {
+      scope, subjectEntityId: 'c1', points: 10, source: 'campaign', runId: 'run-1', stepId: 'step-1', now,
+    })
+    expect(result.eventPending).toBe(true)
+    expect(result.entryId).toBe('entry-1')
+  })
+
+  test('a collision with no (run, step) to look the row up by reports nothing pending', async () => {
+    const { em } = fakeEm({
+      total: '40',
+      reject: new UniqueConstraintViolationException(new Error('duplicate key')),
+    })
+    const result = await addScoreEntry(em, { scope, subjectEntityId: 'c1', points: 10, source: 'manual', now })
+    expect(result).toMatchObject({ eventPending: false, entryId: null })
   })
 
   test('any other failure throws, because it is not a duplicate', async () => {
@@ -120,5 +163,13 @@ describe('addScoreEntry', () => {
     })
     await addScoreEntry(em, { scope, subjectEntityId: 'c1', points: 1, source: 'campaign', runId: 'r', stepId: 's', now })
     expect(flushes()).toBe(1)
+  })
+})
+
+describe('markScoreEventEmitted', () => {
+  test('writes the confirmation by id, not through the managed entity', async () => {
+    const { em, updates } = fakeEm()
+    await markScoreEventEmitted(em, 'entry-1', now)
+    expect(updates).toEqual([{ where: { id: 'entry-1' }, data: { eventEmittedAt: now } }])
   })
 })
