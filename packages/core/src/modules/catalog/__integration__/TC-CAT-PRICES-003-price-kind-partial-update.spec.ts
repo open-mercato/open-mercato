@@ -22,7 +22,7 @@ const PRICE_KINDS_PATH = '/api/catalog/price-kinds';
 type PriceKindRow = Record<string, unknown> & { id?: string };
 
 async function readPriceKind(request: APIRequestContext, token: string, id: string): Promise<PriceKindRow> {
-  const response = await apiRequest(request, 'GET', `${PRICE_KINDS_PATH}?page=1&pageSize=100`, { token });
+  const response = await apiRequest(request, 'GET', `${PRICE_KINDS_PATH}?ids=${encodeURIComponent(id)}`, { token });
   expect(response.status(), 'price kinds should be readable').toBe(200);
   const items = (await readJsonSafe<{ items?: PriceKindRow[] }>(response))?.items ?? [];
   const row = items.find((item) => item.id === id);

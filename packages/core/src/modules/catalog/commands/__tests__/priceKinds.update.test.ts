@@ -68,7 +68,7 @@ describe('catalog.priceKinds.update', () => {
     jest.resetModules()
   })
 
-  it('keeps the stored displayMode when the update omits it', async () => {
+  it('keeps the stored displayMode when a rename and isActive toggle omit it', async () => {
     const command = loadUpdateCommand()
     const record = buildRecord()
     const { em, ctx } = buildContext(record)
