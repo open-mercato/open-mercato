@@ -309,6 +309,15 @@ export async function findDueRunIds(
         // Lease recovery: picked up here too, so a crashed worker's run is not lost even if the
         // delayed queue job died with it.
         { status: 'claimed', claimedAt: { $lt: computeClaimLeaseCutoff(now) } },
+        /**
+         * Orphan recovery: `createRun` commits a row as `running` before the immediately-following
+         * `claimRun` ever runs. If that claim is lost — a racing second claim, a crash between the
+         * two calls — the row has neither a claim lease nor a due wait, so nothing else ever looks
+         * at it again. The same lease window as a stale `claimed` row draws the line between "still
+         * mid-handoff" and "orphaned": `claimRun`'s unconditional `running` branch picks it straight
+         * back up once this scan surfaces it.
+         */
+        { status: 'running', startedAt: { $lt: computeClaimLeaseCutoff(now) } },
       ],
     },
     { fields: ['id'], orderBy: { resumeAt: 'ASC', id: 'ASC' }, limit },
