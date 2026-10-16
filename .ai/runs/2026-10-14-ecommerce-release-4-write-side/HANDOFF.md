@@ -1,14 +1,20 @@
 # Handoff — 2026-10-14-ecommerce-release-4-write-side
 
-## REOPENED 2026-10-16 — Phase 8 (manual QA fixes)
+## Phase 8 (manual QA fixes) — IN PROGRESS, resumed by `om-auto-continue-pr-loop` 2026-10-16
 
-Manual QA on a standalone scaffold found 15 issues (PR comments `#issuecomment-6217199918` and `#issuecomment-6217322094`). PLAN.md now has **Phase 8 (Steps 8.1–8.12, all `todo`)** with the owner decisions recorded in its Phase 8 intro. Resume with `om-auto-continue-pr-loop https://github.com/adeptofvoltron/open-mercato/pull/15` (full URL: the checkout's `gh` default repo is upstream). Steps 3.4 and 4.9 were closed by owner decision (3.4 Part A exempt + guard test in 8.11; CONC-05 moved to 8.3). **OPEN ITEM 3 below is superseded**: the owner ruled the spec wins (cart-module.md:119), so line mutations must recompute totals — Step 8.2. The "this run is closed" text below is the historical state as of 2026-10-15.
+Manual QA on a standalone scaffold found 15 issues (PR comments `#issuecomment-6217199918` and `#issuecomment-6217322094`). PLAN.md's Phase 8 (Steps 8.1–8.12) carries the owner decisions in its own intro. Steps 3.4 and 4.9 were closed by owner decision (3.4 Part A exempt + guard test in 8.11; CONC-05 moved to 8.3). The "this run is closed" text further below is now superseded historical state (as of 2026-10-15, before this reopening) — kept for the Phase 0–7 narrative, not current status.
 
-**Last updated (pre-reopen):** 2026-10-15T22:40:00Z — **ALL 56 STEPS DONE, FULL REPO-WIDE GATE PASSED, PR MARKED READY FOR REVIEW. THIS RUN IS CLOSED.**
+**Last updated:** 2026-10-16T15:50:00Z — mid-resume, Checkpoint 3 just landed.
 **Branch:** feat/release-4-write-side
-**PR:** https://github.com/adeptofvoltron/open-mercato/pull/15 (**ready for review**, no longer draft; `feature`/`priority-medium`/`risk-high`/`needs-qa`/`review` labels applied)
-**Current phase/step:** Every phase (0 through 7) is closed. Nothing left in PLAN.md's Tasks table is `todo`. The final full-repo validation gate (run once more end-to-end, not scoped to any single package) found and fixed one real i18n gap and three real repo-wide structural-guard violations — all in `cart`/`promotions`'s own new code, none caught by any individual step's own narrower per-step validation. `@open-mercato/core` (where both modules live) is now 100% clean. **There is no more work to resume — this run is finished.** If a future session reopens this run, it is to act on a REVIEW or QA finding against the now-ready PR, not to continue PLAN.md.
-**Last commit:** see `git log` on `feat/release-4-write-side` for the exact tip — the final-gate fix commits (i18n keys, three structural-guard fixes) are the most recent, after Step 7.8's own commits.
+**PR:** https://github.com/adeptofvoltron/open-mercato/pull/15 (currently `in-progress`-locked by this resume; pipeline label was `merge-queue` from before this reopening — will be re-evaluated at Phase 8's own close per the label state machine, since real post-merge-queue defects are being fixed)
+**Current phase/step:** Phase 8, Steps 8.1–8.5 `done` (8.3 required no new commit — already fixed by a pre-Phase-8 commit, `dd0747db83`). **Next concrete action: Step 8.6** (promotions partial-update schema fix, QA F2). Steps 8.6–8.12 remain `todo`.
+**Last commit:** `cb1cdd3ab4` (`fix(cart): 409 for writes on a non-active cart, translate warning messages (QA F15, F13)`) plus the `7a0a001bf2` docs-only SHA-correction commit before it. See Checkpoint 3 below / `checkpoint-3-checks.md` for full detail.
+
+### Checkpoint 3 (Steps 8.1–8.5) summary
+
+All five fixed and verified independently by the orchestrating session (not just trusted from executor reports): `yarn build:packages` (39/39), `yarn generate` (clean), `@open-mercato/core` typecheck (clean — incidentally also resolved 4 pre-existing errors), full `cart`+`promotions` Jest suite (**419/419**, up from 405 at the start of this window), `totalsEquivalence.property.test.ts` still green, the three repo-wide structural guards still 17/17, eslint clean, `i18n:check-sync`/`:check-hardcoded` clean. No UI was touched in this window, so UI verification was correctly skipped (not deferred). Three new live Playwright specs (`TC-CART-PRICE-03`, `TC-CART-PROM-05`, `TC-CART-F15-F13-01`) are written+typechecked but not yet run against a live stack — deferred to Step 8.12's own live-integration-suite gate, same batching precedent this run already used at Steps 5.5/7.6. Full detail: `checkpoint-3-checks.md`.
+
+**One residual worth a follow-up issue, not a Phase 8 blocker**: `commands/promotions.ts`'s own `loadMutableCart` has NO `requireActive` check at all (pre-existing since Step 7.5, documented in its own code comment) — `cart.promotions.apply`/`.remove` never reject a non-active, non-locked cart the way `commands/lines.ts` now does after Step 8.5. Not part of F15's own repro (which was specifically about line writes) and the Step 8.5 executor scoped around it deliberately; track as a follow-up alongside F6/F11 at Step 8.12.
 
 ## This run is closed — read this before doing anything else
 
