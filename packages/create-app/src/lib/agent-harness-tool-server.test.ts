@@ -8,6 +8,18 @@ import { fileURLToPath } from 'node:url'
 
 const server = fileURLToPath(new URL('../../agentic/shared/scripts/agent-harness-tool-server.mjs', import.meta.url))
 
+const FILE_SYMLINK_SKIP_REASON = 'creating a file symlink needs Developer Mode or administrator rights on Windows'
+
+function tryCreateFileSymlink(target: string, link: string): boolean {
+  try {
+    fs.symlinkSync(target, link, 'file')
+    return true
+  } catch (error) {
+    if (process.platform === 'win32' && (error as NodeJS.ErrnoException).code === 'EPERM') return false
+    throw error
+  }
+}
+
 function call(
   root: string,
   mode: 'read-only' | 'writable',
@@ -29,7 +41,7 @@ function call(
   return result.stdout.trim().split('\n').map((line) => JSON.parse(line))
 }
 
-test('the real harness MCP tool exposes no process, environment, discovery, or network capability', () => {
+test('the real harness MCP tool exposes no process, environment, discovery, or network capability', async (testContext) => {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-mcp-root-')))
   const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-mcp-secret-')))
   const credential = path.join(outside, 'auth.json')
@@ -37,12 +49,11 @@ test('the real harness MCP tool exposes no process, environment, discovery, or n
   fs.mkdirSync(path.join(root, 'config'))
   fs.writeFileSync(path.join(root, 'config', 'secrets.json'), '{"token":"local-secret"}\n')
   fs.writeFileSync(credential, '{"token":"must-not-be-readable"}\n')
-  fs.symlinkSync(credential, path.join(root, 'credential-link'))
+  const fileSymlinks = tryCreateFileSymlink(credential, path.join(root, 'credential-link'))
   try {
     const replies = call(root, 'read-only', ['AGENTS.md'], [], [
       { name: 'read', arguments: { path: 'AGENTS.md' } },
       { name: 'read', arguments: { path: credential } },
-      { name: 'read', arguments: { path: 'credential-link' } },
       { name: 'read', arguments: { path: '/proc/self/environ' } },
       { name: 'read', arguments: { path: 'config/secrets.json' } },
       { name: 'fetch_url', arguments: { url: 'https://example.com/exfiltrate' } },
@@ -53,6 +64,13 @@ test('the real harness MCP tool exposes no process, environment, discovery, or n
     for (const reply of replies.slice(3)) assert.equal(reply.result.isError, true)
     assert.doesNotMatch(JSON.stringify(replies), /must-not-be-readable/)
     assert.equal(fs.existsSync(path.join(root, 'owned.ts')), false)
+    await testContext.test('a file symlink to a credential outside the root', { skip: !fileSymlinks && FILE_SYMLINK_SKIP_REASON }, () => {
+      const linkReplies = call(root, 'read-only', ['AGENTS.md'], [], [
+        { name: 'read', arguments: { path: 'credential-link' } },
+      ])
+      assert.equal(linkReplies[2].result.isError, true)
+      assert.doesNotMatch(JSON.stringify(linkReplies), /must-not-be-readable/)
+    })
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
     fs.rmSync(outside, { recursive: true, force: true })
@@ -125,7 +143,7 @@ test('the writable MCP tool atomically changes only declared contained regular f
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-mcp-write-')))
   const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-mcp-write-outside-')))
   fs.mkdirSync(path.join(root, 'src'))
-  fs.symlinkSync(outside, path.join(root, 'src', 'escape'))
+  fs.symlinkSync(outside, path.join(root, 'src', 'escape'), process.platform === 'win32' ? 'junction' : 'dir')
   try {
     const replies = call(root, 'writable', ['src/modules/**'], ['src/modules/example.ts'], [
       { name: 'write', arguments: { path: 'src/modules/example.ts', content: 'export const value = 1\n' } },

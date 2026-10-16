@@ -74,11 +74,12 @@ describe('warnOnEncryptedLikeFilter', () => {
   beforeEach(() => {
     resetCiphertextLikeWarnCache()
     loggerModule.__warn.mockClear()
-    Object.defineProperty(process.env, 'NODE_ENV', { value: 'test', configurable: true })
+    process.env.NODE_ENV = 'test'
   })
 
   afterAll(() => {
-    Object.defineProperty(process.env, 'NODE_ENV', { value: originalNodeEnv, configurable: true })
+    if (originalNodeEnv === undefined) delete process.env.NODE_ENV
+    else process.env.NODE_ENV = originalNodeEnv
   })
 
   it('warns when the filtered property is covered by an encryption map', async () => {
@@ -154,7 +155,7 @@ describe('warnOnEncryptedLikeFilter', () => {
   })
 
   it('skips the encryption lookup entirely in production', async () => {
-    Object.defineProperty(process.env, 'NODE_ENV', { value: 'production', configurable: true })
+    process.env.NODE_ENV = 'production'
     const service = makeService(['subject'])
     await warnOnEncryptedLikeFilter({
       em: makeEm() as any,

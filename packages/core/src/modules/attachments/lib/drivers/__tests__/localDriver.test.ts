@@ -98,7 +98,7 @@ describe('LocalStorageDriver', () => {
       const result = await driver.read(PARTITION, 'org_org-abc/tenant_tenant-xyz/file.txt')
 
       expect(mockReadFile).toHaveBeenCalledWith(
-        path.join('/storage/main', 'org_org-abc/tenant_tenant-xyz/file.txt'),
+        path.resolve('/storage/main', 'org_org-abc/tenant_tenant-xyz/file.txt'),
       )
       expect(result.buffer).toEqual(Buffer.from('hello'))
     })
@@ -109,7 +109,7 @@ describe('LocalStorageDriver', () => {
       await driver.delete(PARTITION, 'org_org-abc/tenant_tenant-xyz/file.txt')
 
       expect(mockUnlink).toHaveBeenCalledWith(
-        path.join('/storage/main', 'org_org-abc/tenant_tenant-xyz/file.txt'),
+        path.resolve('/storage/main', 'org_org-abc/tenant_tenant-xyz/file.txt'),
       )
     })
 
@@ -127,7 +127,7 @@ describe('LocalStorageDriver', () => {
       )
 
       expect(filePath).toBe(
-        path.join('/storage/main', 'org_org-abc/tenant_tenant-xyz/file.txt'),
+        path.resolve('/storage/main', 'org_org-abc/tenant_tenant-xyz/file.txt'),
       )
       await expect(cleanup()).resolves.not.toThrow()
       // cleanup must NOT delete the original file
@@ -140,7 +140,7 @@ describe('LocalStorageDriver', () => {
       await driver.read(PARTITION, '///org_a/tenant_b/file.txt')
 
       expect(mockReadFile).toHaveBeenCalledWith(
-        path.join('/storage/main', 'org_a/tenant_b/file.txt'),
+        path.resolve('/storage/main', 'org_a/tenant_b/file.txt'),
       )
     })
 

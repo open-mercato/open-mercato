@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import ts from 'typescript-js'
 import type { PackageResolver } from '../../resolver'
 import { generateWebResearchAdapters } from '../web-research-adapters'
@@ -56,7 +57,7 @@ function runGeneratedRegistry(content: string): { status: number | null; stdout:
   const registryFile = path.join(outputDir, 'web-research-adapters.generated.mjs')
   fs.writeFileSync(registryFile, compiled)
   const script = [
-    `const { webResearchAdapterEntries } = await import(${JSON.stringify(registryFile)})`,
+    `const { webResearchAdapterEntries } = await import(${JSON.stringify(pathToFileURL(registryFile).href)})`,
     'console.log(JSON.stringify(webResearchAdapterEntries.map((entry) => [entry.packageName, entry.module.id])))',
   ].join('\n')
   const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {

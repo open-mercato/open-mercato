@@ -54,7 +54,7 @@ test('prototype initialization is atomic and generates reviewer instructions', (
       slug: successfulSlug,
       requirements: 'requirements/<script>alert(1)</script>.md',
     })
-    assert.equal(output, `.ai/prototypes/${successfulSlug}`)
+    assert.equal(output, join('.ai', 'prototypes', successfulSlug))
     const index = readFileSync(join(prototypePath(successfulSlug), 'index.html'), 'utf8')
     assert.match(index, /requirements\/&lt;script&gt;alert\(1\)&lt;\/script&gt;\.md/)
     assert.doesNotMatch(index, /<script>alert\(1\)<\/script>/)
@@ -84,7 +84,7 @@ test('token sync rejects ambiguous targets and audits every bundled variable', (
   const linkedSlug = `linked-prototype-${process.pid}`
   const linkedTarget = prototypePath(linkedSlug)
   try {
-    symlinkSync(outsideDirectory, linkedTarget, 'dir')
+    symlinkSync(outsideDirectory, linkedTarget, process.platform === 'win32' ? 'junction' : 'dir')
     assert.throws(() => resolvePrototypeTarget(linkedTarget), /symbolic link/)
     writeFileSync(join(assetsDirectory, 'components.css'), '.x { color: var(--missing-token); }')
     writeFileSync(join(assetsDirectory, 'screens.css'), '')

@@ -28,7 +28,7 @@ test('classifyProcessCommand maps dev process commands to attribution classes', 
   assert.equal(classifyProcessCommand('/usr/bin/ps -A'), 'other')
 })
 
-test('sampleProcessTreeMemory returns totals, top processes, and dominant process class', async () => {
+test('sampleProcessTreeMemory returns totals, top processes, and dominant process class', { skip: process.platform === 'win32' && 'ps-based process sampling is disabled on Windows' }, async () => {
   const processes = [
     { pid: 100, ppid: 1, rssKb: 100, command: 'node ./scripts/dev.mjs' },
     { pid: 101, ppid: 100, rssKb: 1000, command: 'next-server (v16.2.9)' },
@@ -200,7 +200,7 @@ test('inferDevMemoryMarkerFromLine recognizes Next compile and warmup lines', ()
   assert.equal(inferDevMemoryMarkerFromLine('unrelated log line'), null)
 })
 
-test('createMemoryTraceSession writes ndjson samples and final summary', async () => {
+test('createMemoryTraceSession writes ndjson samples and final summary', { skip: process.platform === 'win32' && 'ps-based process sampling is disabled on Windows' }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-memory-trace-'))
   try {
     const session = createMemoryTraceSession({
