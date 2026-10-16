@@ -73,6 +73,34 @@ fresh proposals. Old cards cannot be distinguished from forgeries; do not backfi
 their text or sender email. Inspect prior approved replies if forgery is suspected. Normal
 messages and fresh system-filed proposals retain their existing behavior.
 
+### `staff` EP-40 capacity providers now drive the timesheet targets and may answer asynchronously (#6934)
+
+**Who is affected:** apps that register a capacity provider, or that replaced the
+`timeCapacityResolver` DI key. No change is required. The provider contract is additive.
+
+**What changed:**
+
+- The Timesheet footer, load bars, default expanded day and My Work KPIs now resolve their
+  target through `timeCapacityResolver.resolveCapacityAsync`, via the new
+  `GET /api/staff/timesheets/capacity` route. With no provider registered, every number
+  and the "Target (d × h)" caption are unchanged.
+- `CapacityProvider` gained an optional `resolveAsync`, for providers that read their own
+  data. `resolve` stays synchronous and required.
+- `CapacityResult` gained an optional `label` and `labelKey` for the footer caption.
+- Answers are now validated more strictly. Any of these falls back to the built-in:
+  negative minutes, a date key that is not a real calendar day, or a missing map. Days
+  outside the requested range are dropped. The total is recomputed as the sum of the
+  per-day targets, and a `null` total clears the per-day map.
+
+**Recommended:**
+
+- Move synchronous callers from `resolveTimesheetCapacity` /
+  `timeCapacityResolver.resolveCapacity` (both now `@deprecated`, and they never consult
+  `resolveAsync`) to `resolveTimesheetCapacityAsync` / `resolveCapacityAsync`.
+- A `timeCapacityResolver` override that implements, or replaces, only `resolveCapacity`
+  keeps working. Its answer is treated as contributed, so the footer shows a neutral
+  "Target". To report `isBuiltIn` yourself, also replace `resolveCapacityAsync`.
+
 ### Payment gateway webhooks: opt-in transport, locator and response options; ambiguous matches are rejected
 
 `registerWebhookHandler(...)` accepts new optional options for providers that sign form-encoded bodies or expect a specific acknowledgement:
