@@ -84,6 +84,15 @@ describe('nps_survey', () => {
     expect(new Set(hrefs).size).toBe(12)
   })
 
+  // A survey is a bulk send like any other campaign message, and had been shipping without the
+  // RFC 8058 pair send_email carries — no one-click opt-out for a recipient's mail client.
+  it('carries the same one-click unsubscribe headers an ordinary campaign email does', async () => {
+    await npsSurveyStep.execute(ctx(), params, deps)
+    const headers = sendEmail.mock.calls[0][0].headers as Record<string, string>
+    expect(headers['List-Unsubscribe-Post']).toBe('List-Unsubscribe=One-Click')
+    expect(headers['List-Unsubscribe']).toMatch(/^<https:\/\/shop\.example\/api\/marketing_automation\/unsubscribe\?/)
+  })
+
   it('leaves no bare ampersand in an href, so an HTML parser cannot mangle a signed link', async () => {
     /**
      * Today every tracking URL carries a single `t=` parameter, so there is nothing to escape and the

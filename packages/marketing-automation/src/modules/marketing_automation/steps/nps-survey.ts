@@ -11,6 +11,7 @@ import { surveyAnswerUrl, unsubscribeUrl } from '../lib/tracking/urls.js'
 import type { StepHandler } from '../lib/engine/registry.js'
 import type { AutomationContext } from '../lib/engine/types.js'
 import type { StepDeps } from './deps.js'
+import { oneClickUnsubscribeHeaders } from './send-email.js'
 
 const paramsSchema = z.object({
   question: z.string().min(1).max(300),
@@ -113,7 +114,7 @@ export const npsSurveyStep: StepHandler<StepDeps> = {
     if (!asked && !promptId) return { status: 'done', detail: 'this survey was already asked for this step' }
 
     const question = interpolate(params.question, ctx, 'html')
-    const unsubscribe = unsubscribeUrl(
+    const rawUnsubscribe = unsubscribeUrl(
       baseUrl,
       {
         tenantId: ctx.tenantId,
@@ -123,7 +124,8 @@ export const npsSurveyStep: StepHandler<StepDeps> = {
         stepId: ctx.actionId,
       },
       secret,
-    ).replace(/&/g, '&amp;')
+    )
+    const unsubscribe = rawUnsubscribe.replace(/&/g, '&amp;')
 
     const html = `<p>${question}</p>${renderScale(baseUrl, secret, ctx)}`
       + `<p style="font-size:12px;color:#666">0 = ${'not at all likely'}, ${NPS_MAX_SCORE} = ${'extremely likely'}</p>`
@@ -134,6 +136,10 @@ export const npsSurveyStep: StepHandler<StepDeps> = {
         to,
         subject: interpolate(params.subject, ctx),
         html,
+        // A survey is a bulk send like any other campaign message: the same RFC 8058 pair
+        // send_email carries, built from the same link, so a recipient's mail client offers the
+        // one-click opt-out here too — not just on ordinary campaign emails.
+        headers: oneClickUnsubscribeHeaders(rawUnsubscribe),
         tenantId: deps.scope.tenantId,
         organizationId: deps.scope.organizationId,
       })

@@ -3,6 +3,7 @@ const findOneWithDecryption = jest.fn()
 const loadContentBlocks = jest.fn()
 const loadRenderValues = jest.fn()
 const reportError = jest.fn()
+const unsubscribeUrl = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/email/send', () => ({ sendEmail: (...a: unknown[]) => sendEmail(...a) }))
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
@@ -15,6 +16,11 @@ jest.mock('../../lib/content-blocks.js', () => {
 jest.mock('../../lib/render-values.js', () => {
   const actual = jest.requireActual('../../lib/render-values')
   return { ...actual, loadRenderValues: (...a: unknown[]) => loadRenderValues(...a) }
+})
+jest.mock('../../lib/tracking/urls.js', () => {
+  const actual = jest.requireActual('../../lib/tracking/urls')
+  unsubscribeUrl.mockImplementation(actual.unsubscribeUrl)
+  return { ...actual, unsubscribeUrl: (...a: unknown[]) => unsubscribeUrl(...a) }
 })
 jest.mock('@open-mercato/telemetry', () => ({ reportError: (...a: unknown[]) => reportError(...a) }))
 
@@ -66,6 +72,7 @@ afterAll(() => { process.env = { ...originalEnv } })
 
 beforeEach(() => {
   for (const fn of [sendEmail, findOneWithDecryption, loadContentBlocks, loadRenderValues, reportError]) fn.mockReset()
+  unsubscribeUrl.mockClear() // mockReset would also drop the real implementation set in jest.mock above
   findOneWithDecryption.mockResolvedValue({ id: 'cust-1', primaryEmail: 'ada@example.com', displayName: 'Ada' })
   loadContentBlocks.mockResolvedValue({})
   loadRenderValues.mockResolvedValue({})
@@ -86,6 +93,13 @@ describe('a real marketing send', () => {
     // so the recipient would press it and stay subscribed.
     expect(headers?.['List-Unsubscribe-Post']).toBe('List-Unsubscribe=One-Click')
     expect(headers?.['List-Unsubscribe']).toMatch(/^<https:\/\/shop\.example\/api\/marketing_automation\/unsubscribe\?/)
+  })
+
+  // The guard, the rendered footer/placeholder and the headers all need this exact link — derived
+  // once and reused, not re-signed with HMAC-SHA256 on every one of the three.
+  it('signs the unsubscribe link exactly once per send', async () => {
+    await sendEmailStep.execute(ctx(), params, deps)
+    expect(unsubscribeUrl).toHaveBeenCalledTimes(1)
   })
 
   it('angle-brackets the URL, as the RFC requires', async () => {

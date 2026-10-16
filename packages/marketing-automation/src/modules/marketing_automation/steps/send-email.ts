@@ -220,9 +220,17 @@ export function renderEmail(
      * link at all.
      */
     unsubscribeLabel?: string
+    /**
+     * Lets a caller that already derived the link hand it over instead of paying the signing-key
+     * derivation and the HMAC again — `execute` needs the same link for its own guard and for the
+     * one-click headers, so without this a single send computed it three times over. `undefined`
+     * (the default) still derives it here, which is what a direct `renderEmail` caller — a test, a
+     * preview — relies on.
+     */
+    unsubscribeLink?: string | null
   } = {},
 ): { subject: string; html: string; text?: string } {
-  const unsubscribe = unsubscribeLinkFor(ctx)
+  const unsubscribe = resolved.unsubscribeLink !== undefined ? resolved.unsubscribeLink : unsubscribeLinkFor(ctx)
   // The customer's values first, then the run context, so nothing supplied here can shadow the ids and
   // scope the context carries.
   const withValues: AutomationContext = { ...(resolved.values ?? {}), ...ctx } as AutomationContext
@@ -284,7 +292,7 @@ export function renderEmail(
  * The URL is already angle-bracketed per the RFC, and it carries no identity: it names the run, and the
  * endpoint resolves the customer.
  */
-function oneClickUnsubscribeHeaders(url: string | null): Record<string, string> | undefined {
+export function oneClickUnsubscribeHeaders(url: string | null): Record<string, string> | undefined {
   if (!url) return undefined
   return {
     'List-Unsubscribe': `<${url}>`,
@@ -311,14 +319,23 @@ async function resolveUnsubscribeLabel(
     const preference = await loadContactPreference(em, scope, subjectEntityId)
     const locale = preference?.locale ? normalizeLocale(preference.locale) : null
     /**
-     * Narrowed against what this installation actually ships.
+     * Narrowed against what this installation actually ships, falling back from the region to the
+     * base language first.
      *
-     * A customer may have chosen a language the platform has since stopped carrying — the column stores a tag
-     * rather than a member of an enum — and asking for a dictionary that does not exist is how a send fails
-     * for a reason the operator cannot read.
+     * `isSupportedLocale` is an exact match — it registers `de`, not `de-AT` — and `normalizeLocale`
+     * deliberately keeps the region for storage, so a customer who picked Austria during onboarding
+     * carries `de-AT` forever. Without this fold, a fully-supported language was read as unsupported
+     * purely because of ITS OWN region, and the footer silently reverted to English for every one of
+     * those customers. A language the platform has genuinely stopped carrying still falls through to
+     * the English default — asking for that dictionary is how a send would otherwise fail for a
+     * reason the operator cannot read.
      */
-    if (!locale || !isSupportedLocale(locale)) return DEFAULT_UNSUBSCRIBE_LABEL
-    const dictionary = await loadDictionary(locale as Locale)
+    const baseLanguage = locale?.split('-')[0] ?? null
+    const resolvedLocale = locale && isSupportedLocale(locale)
+      ? locale
+      : baseLanguage && isSupportedLocale(baseLanguage) ? baseLanguage : null
+    if (!resolvedLocale) return DEFAULT_UNSUBSCRIBE_LABEL
+    const dictionary = await loadDictionary(resolvedLocale as Locale)
     return createFallbackTranslator(dictionary)(
       'marketing_automation.email.unsubscribe',
       DEFAULT_UNSUBSCRIBE_LABEL,
@@ -381,7 +398,11 @@ export const sendEmailStep: StepHandler<StepDeps> = {
      * A test send is unaffected: it has no run, renders through `renderEmail` directly, and never
      * reaches this handler.
      */
-    if (!unsubscribeLinkFor(ctx)) {
+    // Derived once: the guard below, the render and the one-click headers all need the same link,
+    // and each derivation re-signs it with HMAC-SHA256 — needless work on every single send, and a
+    // seam where the three could disagree if anything about `ctx` ever changed between them.
+    const unsubscribeLink = unsubscribeLinkFor(ctx)
+    if (!unsubscribeLink) {
       deps.logger.error('[internal] marketing send refused: no unsubscribe URL could be built', {
         campaignId: ctx.campaignId,
         runId: ctx.runId,
@@ -452,9 +473,8 @@ export const sendEmailStep: StepHandler<StepDeps> = {
       const unsubscribeLabel = await resolveUnsubscribeLabel(deps.em, deps.scope, ctx.subjectEntityId ?? null)
       await sendEmail({
         to,
-        ...renderEmail(params, ctx, { blocks, recommendationsHtml, values, unsubscribeLabel }),
-        // Non-null by here: the guard above refuses a marketing send that cannot build one.
-        headers: oneClickUnsubscribeHeaders(unsubscribeLinkFor(ctx)),
+        ...renderEmail(params, ctx, { blocks, recommendationsHtml, values, unsubscribeLabel, unsubscribeLink }),
+        headers: oneClickUnsubscribeHeaders(unsubscribeLink),
         tenantId: deps.scope.tenantId,
         organizationId: deps.scope.organizationId,
       })
