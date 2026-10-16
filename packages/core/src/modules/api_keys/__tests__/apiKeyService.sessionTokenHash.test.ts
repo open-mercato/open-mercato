@@ -135,6 +135,31 @@ describe('findApiKeyBySessionToken', () => {
 
     await expect(findApiKeyBySessionToken(em as never, 'sess_never_issued')).resolves.toBeNull()
   })
+
+  it('#7304: falls back to a legacy plaintext-only row and self-heals it onto the hash', async () => {
+    const { em, created } = buildEm()
+    // A row minted by pre-#2254 code during a deploy window: plaintext only, no hash yet.
+    created.push({
+      id: 'legacy-key-1',
+      deletedAt: null,
+      sessionToken: SESSION_TOKEN,
+      sessionTokenHash: null,
+      expiresAt: null,
+    })
+
+    const found = await findApiKeyBySessionToken(em as never, SESSION_TOKEN)
+
+    expect(found).toBe(created[0])
+    expect(created[0].sessionTokenHash).toBe(sha256Hex(SESSION_TOKEN))
+    expect(created[0].sessionToken).toBeNull()
+    expect(em.flush).toHaveBeenCalled()
+
+    // Self-healed: a second lookup resolves by hash alone, no fallback needed.
+    ;(em.findOne as jest.Mock).mockClear()
+    const foundAgain = await findApiKeyBySessionToken(em as never, SESSION_TOKEN)
+    expect(foundAgain).toBe(created[0])
+    expect(em.findOne).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('deleteSessionApiKey', () => {
@@ -157,5 +182,22 @@ describe('deleteSessionApiKey', () => {
     const { em } = buildEm()
 
     await expect(deleteSessionApiKey(em as never, 'sess_never_issued')).resolves.toBeUndefined()
+  })
+
+  it('#7304: can delete a legacy plaintext-only row, self-healing it first', async () => {
+    const { em, created } = buildEm()
+    created.push({
+      id: 'legacy-key-1',
+      deletedAt: null,
+      sessionToken: SESSION_TOKEN,
+      sessionTokenHash: null,
+      expiresAt: null,
+    })
+
+    await deleteSessionApiKey(em as never, SESSION_TOKEN)
+
+    expect(created[0].deletedAt).not.toBeNull()
+    expect(created[0].sessionTokenHash).toBe(sha256Hex(SESSION_TOKEN))
+    expect(created[0].sessionToken).toBeNull()
   })
 })

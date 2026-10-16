@@ -299,10 +299,25 @@ export async function findApiKeyBySessionToken(
   if (!sessionToken) return null
 
   // Looked up by hash, never by the raw token (#2254).
-  const record = await em.findOne(ApiKey, {
-    sessionTokenHash: hashSessionToken(sessionToken),
-    deletedAt: null,
-  })
+  const sessionTokenHash = hashSessionToken(sessionToken)
+  let record = await em.findOne(ApiKey, { sessionTokenHash, deletedAt: null })
+
+  if (!record) {
+    // Version-skew fallback (#7304): during a rolling deploy/rollback window the app and the
+    // separate MCP process can briefly run different code versions. A row minted by
+    // pre-#2254 code in that window carries only the plaintext token (sessionTokenHash is
+    // still null) — fall back to it so the session still resolves instead of answering a
+    // false SESSION_EXPIRED, then self-heal the row onto the hash immediately so this is the
+    // only lookup that ever sees the plaintext, and the window closes as soon as each
+    // outstanding legacy row is touched once.
+    const legacyRecord = await em.findOne(ApiKey, { sessionToken, deletedAt: null })
+    if (legacyRecord) {
+      legacyRecord.sessionTokenHash = sessionTokenHash
+      legacyRecord.sessionToken = null
+      await em.persist(legacyRecord).flush()
+      record = legacyRecord
+    }
+  }
 
   if (!record) return null
   if (record.expiresAt && record.expiresAt.getTime() < Date.now()) return null
@@ -408,9 +423,22 @@ export async function deleteSessionApiKey(
   em: EntityManager,
   sessionToken: string
 ): Promise<void> {
-  // Looked up and re-checked by hash, never by the raw token (#2254).
+  // Looked up and re-checked by hash, never by the raw token (#2254). Deliberately does not
+  // call findApiKeyBySessionToken: that helper also drops already-expired rows, but deleting
+  // an expired-but-not-yet-cleaned-up row must still work here.
   const sessionTokenHash = hashSessionToken(sessionToken)
-  const candidate = await em.findOne(ApiKey, { sessionTokenHash, deletedAt: null })
+  let candidate = await em.findOne(ApiKey, { sessionTokenHash, deletedAt: null })
+  if (!candidate) {
+    // Version-skew fallback (#7304): see findApiKeyBySessionToken for the full rationale — a
+    // row minted by pre-#2254 code during a deploy window is plaintext-only until touched.
+    const legacyCandidate = await em.findOne(ApiKey, { sessionToken, deletedAt: null })
+    if (legacyCandidate) {
+      legacyCandidate.sessionTokenHash = sessionTokenHash
+      legacyCandidate.sessionToken = null
+      await em.persist(legacyCandidate).flush()
+      candidate = legacyCandidate
+    }
+  }
   if (!candidate) return
   let deletedId: string | null = null
   await withAtomicFlush(em, [async () => {
