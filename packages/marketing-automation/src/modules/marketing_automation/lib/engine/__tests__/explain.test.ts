@@ -149,6 +149,28 @@ describe('explainDelivery', () => {
     expect(inside.gates.find((entry) => entry.gate === 'sendHour')?.outcome).toBe('pass')
   })
 
+  // The executor's own `nextOccurrenceOfHour` treats "up to SEND_HOUR_GRACE_HOURS late" as the target
+  // hour, so a run resumed an hour or two after it missed its window still sends immediately rather
+  // than waiting a full day. Before this reused that function, explain compared `localHour ===
+  // authoredHour` directly and reported the opposite of what execution actually does.
+  test('passes within the late-resume grace, agreeing with the executor rather than a bare hour match', () => {
+    const late = explain({
+      policy: { sendHour: 9, quietHours: null, frequencyCap: null },
+      facts: facts({ timeZone: 'UTC' }),
+      now: new Date('2026-03-02T10:00:00Z'),
+    })
+    expect(late.gates.find((entry) => entry.gate === 'sendHour')).toMatchObject({ outcome: 'pass' })
+    expect(late.wouldSend).toBe(true)
+
+    // Past the grace window it defers again.
+    const tooLate = explain({
+      policy: { sendHour: 9, quietHours: null, frequencyCap: null },
+      facts: facts({ timeZone: 'UTC' }),
+      now: new Date('2026-03-02T12:00:00Z'),
+    })
+    expect(tooLate.gates.find((entry) => entry.gate === 'sendHour')).toMatchObject({ outcome: 'defer' })
+  })
+
   test('no authored hour is a passing gate, not a missing one', () => {
     const gate = explain().gates.find((entry) => entry.gate === 'sendHour')
     expect(gate).toMatchObject({ outcome: 'pass', detail: { hour: null } })

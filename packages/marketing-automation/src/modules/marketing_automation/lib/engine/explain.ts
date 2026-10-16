@@ -1,4 +1,12 @@
-import { isFrequencyCapped, isPaused, isWithinQuietHours, localHourIn, preferenceCap, usableTimeZone } from './gates.js'
+import {
+  isFrequencyCapped,
+  isPaused,
+  isWithinQuietHours,
+  localHourIn,
+  nextOccurrenceOfHour,
+  preferenceCap,
+  usableTimeZone,
+} from './gates.js'
 import { matchesAudience } from './audience.js'
 import type { ConditionExpression } from '@open-mercato/core/modules/business_rules/lib/expression-evaluator'
 import type { ContactPreference } from './gates.js'
@@ -112,7 +120,10 @@ export function explainDelivery(input: ExplainInput): Explanation {
    */
   const authoredHour = policy.sendHour ?? null
   const localHour = localHourIn(zone, now)
-  record('sendHour', authoredHour === null || localHour === authoredHour ? 'pass' : 'defer', {
+  // Derived from the SAME function the executor calls for the real decision, grace window and
+  // all — a hand-rolled comparison here would silently drift from what actually gets sent.
+  const wouldSendNow = authoredHour === null || nextOccurrenceOfHour(authoredHour, zone, now).getTime() === now.getTime()
+  record('sendHour', wouldSendNow ? 'pass' : 'defer', {
     hour: authoredHour,
     localHour,
     timeZone: zone,
