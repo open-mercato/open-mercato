@@ -24,3 +24,7 @@
 ## 2026-10-16T17:35:26Z — decision: skip the ai-assistant AGENTS.md entry
 - Resolved the Step 2.2 blocker autonomously with the most reversible option: no AGENTS.md entry, no budget-baseline change (a CI-guard change is a maintainer call). Recorded in the spec changelog (Step 2.4) and to be raised in the PR summary.
 - Added Step 2.3 (debug log on normalization) to close a spec gap the Step 2.2 executor found.
+
+## 2026-10-16T18:16:20Z — final gate
+- 7 of 8 `validation.commands` pass. `yarn test` fails only in `create-mercato-app#test` (agent-harness evaluator, fake runner killed with SIGABRT); reproduced identically with this branch's only create-app change reverted, so it is pre-existing/environmental and not caused by this run. Details in `final-gate-checks.md`.
+- Integration suite and DS pass skipped: no HTTP/UI surface.
