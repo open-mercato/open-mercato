@@ -145,6 +145,55 @@ One behavior is hardened for every provider. The route now verifies every locate
 
 **Action for provider authors:** none unless you want the new options. If your provider can legitimately store several transactions with the same provider session id under credentials that verify each other's signatures, return a more specific locator so a single transaction matches. A provider that locates transactions only by payment id must reject candidates whose `providerSessionId` or `amount` differ from the signed notification, because a retried checkout can leave several transactions for one payment.
 
+<a id="currencies-one-base"></a>
+
+### Currencies keep exactly one base currency through undo, redo and concurrent writes
+
+- `PUT /api/currencies/currencies` with `isBase: false` on the current base currency now answers
+  `400`. To change the base, promote another currency with `isBase: true`; the previous base is
+  demoted in the same transaction.
+- Undoing a create or update that made a currency the base restores the previous base while the
+  undone currency is still the base; if another currency has become the base since, the base is left
+  unchanged. When no previous base is still live (it was deleted since, there was none, or the
+  action-log entry predates this release), the undo answers `409` and changes nothing while the
+  undone currency is still the base. Undoing a create is also refused
+  when that currency is the live base and the create did not replace a base that is still live (for
+  example, a currency promoted after it was created).
+- Undoing a currency create while active exchange rates reference it answers `409`. Delete or
+  deactivate those rates first, as `DELETE` already required.
+- Currency writes in one organization are serialized by a transaction-scoped advisory lock.
+- `seedExampleCurrencies` (used by `seedDefaults` and `mercato currencies seed`) inserts USD as
+  the base only when the organization has no live base, so re-seeding no longer adds a second base.
+
+**Action for module authors:** none unless a client clears `isBase` to change the base. Existing
+data is not repaired: list `GET /api/currencies/currencies?isBase=true` per organization. If it
+returns zero rows, promote the intended base currency. If it returns two, promote any non-base
+currency first (this demotes both), then promote the intended base. If the organization has no
+non-base currency, create one with `isBase: true` instead (this also demotes both).
+
+**Backward compatibility** (recorded here because `BACKWARD_COMPATIBILITY.md` is at its agent-context
+byte budget):
+
+- `PUT /api/currencies/currencies`: behaviour change on a previously-corrupting path. `{ isBase: false }`
+  on the base answers `400` (`currencies.errors.baseCurrencyUnset`) instead of `200` with no base left,
+  matching the rule `DELETE` already applied. Sending `isBase: false` for a non-base currency or
+  `isBase: true` for the base is unchanged. Response shapes are unchanged.
+- `currencies.currencies.create` / `update` undo: behaviour change. The `409` codes are
+  `currencies.errors.undoWouldClearBase` and `currencies.errors.undoHasRates`. Undoing an update that
+  did not change the base flag no longer rewrites `isBase`. For action-log entries written before the
+  upgrade, undoing an old update that cleared the base flag restores it only when the organization has
+  no base. Undoing a delete revives a row still flagged as base (legacy data only) as non-base when
+  another base is live. Undos that kept one base still succeed, except a create undo while active
+  exchange rates reference the currency.
+- `create` / `update` redo: redo of a create restores the logged base flag and demotes the current
+  base, recording it so the redo can be undone. Redo of an update replays `isBase` only when the
+  original update made the currency the base.
+- Command results: additive optional `base: { promoted, demotedBaseCurrencyIds }` when the command made
+  the currency the base. HTTP response bodies are unchanged.
+- The advisory lock is keyed by tenant and organization; writes in different organizations do not wait
+  for each other. No contract change.
+- Database schema, event IDs, ACL features, DI names and generated files are unchanged.
+
 ### The communication-channels OAuth callback reports its result in `?oauth=`, not `?flash=` (#6402)
 
 `GET /api/communication_channels/oauth/[provider]/callback` used to redirect back to `returnUrl`
