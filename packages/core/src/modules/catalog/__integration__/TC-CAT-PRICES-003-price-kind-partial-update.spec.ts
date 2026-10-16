@@ -21,18 +21,8 @@ const PRICE_KINDS_PATH = '/api/catalog/price-kinds';
 
 type PriceKindRow = Record<string, unknown> & { id?: string };
 
-async function readPriceKind(
-  request: APIRequestContext,
-  token: string,
-  code: string,
-  id: string,
-): Promise<PriceKindRow> {
-  const response = await apiRequest(
-    request,
-    'GET',
-    `${PRICE_KINDS_PATH}?search=${encodeURIComponent(code)}&page=1&pageSize=100`,
-    { token },
-  );
+async function readPriceKind(request: APIRequestContext, token: string, id: string): Promise<PriceKindRow> {
+  const response = await apiRequest(request, 'GET', `${PRICE_KINDS_PATH}?page=1&pageSize=100`, { token });
   expect(response.status(), 'price kinds should be readable').toBe(200);
   const items = (await readJsonSafe<{ items?: PriceKindRow[] }>(response))?.items ?? [];
   const row = items.find((item) => item.id === id);
@@ -69,23 +59,23 @@ test.describe('TC-CAT-PRICES-003: partial price-kind update keeps displayMode', 
       expect(created.status(), 'price kind fixture should be created').toBe(201);
       priceKindId = expectId((await readJsonSafe<{ id?: string }>(created))?.id, 'price kind should return an id');
 
-      const initial = await readPriceKind(request, token, code, priceKindId);
+      const initial = await readPriceKind(request, token, priceKindId);
       expect(displayModeOf(initial)).toBe('including-tax');
 
       await updatePriceKind(request, token, { id: priceKindId, title: `${title} renamed` });
-      const renamed = await readPriceKind(request, token, code, priceKindId);
+      const renamed = await readPriceKind(request, token, priceKindId);
       expect(renamed.title).toBe(`${title} renamed`);
       expect(displayModeOf(renamed), 'rename must not reset displayMode').toBe('including-tax');
       expect(renamed.currency_code ?? renamed.currencyCode).toBe('USD');
       expect(renamed.is_promotion ?? renamed.isPromotion).toBe(false);
 
       await updatePriceKind(request, token, { id: priceKindId, isActive: false });
-      const deactivated = await readPriceKind(request, token, code, priceKindId);
+      const deactivated = await readPriceKind(request, token, priceKindId);
       expect(deactivated.is_active ?? deactivated.isActive).toBe(false);
       expect(displayModeOf(deactivated), 'isActive toggle must not reset displayMode').toBe('including-tax');
 
       await updatePriceKind(request, token, { id: priceKindId, displayMode: 'excluding-tax' });
-      const switched = await readPriceKind(request, token, code, priceKindId);
+      const switched = await readPriceKind(request, token, priceKindId);
       expect(displayModeOf(switched), 'explicit displayMode is applied').toBe('excluding-tax');
       expect(switched.title).toBe(`${title} renamed`);
     } finally {
