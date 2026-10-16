@@ -13,7 +13,7 @@
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
 | 1 | 1.1 | Port types in shared and zod schemas in ai-assistant | inline | done | 19291ab8e |
-| 1 | 1.2 | Fixture adapter with deterministic rules | dispatch | todo | — |
+| 1 | 1.2 | Fixture adapter with deterministic rules | dispatch | done | 418e29744 |
 | 1 | 1.3 | OpenRouter adapter with wire mapping, HTTP error mapping and response validation | dispatch | todo | — |
 | 1 | 1.4 | Decision model registry with built-in registration and env resolution | dispatch | todo | — |
 | 1 | 1.5 | Decision model service and DI registration | dispatch:capable | todo | — |
