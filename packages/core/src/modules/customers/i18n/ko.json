@@ -2009,6 +2009,7 @@
   "customers.people.detail.addresses.fields.phone": "전화번호",
   "customers.people.detail.addresses.fields.postalCode": "우편번호",
   "customers.people.detail.addresses.fields.primary": "기본 주소로 설정",
+  "customers.people.detail.addresses.fields.recipientName": "수령인 이름",
   "customers.people.detail.addresses.fields.region": "지역 / 주",
   "customers.people.detail.addresses.fields.street": "도로명",
   "customers.people.detail.addresses.fields.streetExtra": "추가 주소 정보",

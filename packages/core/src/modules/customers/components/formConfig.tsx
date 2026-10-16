@@ -1009,6 +1009,8 @@ export const createPersonFormFields = (t: Translator, options?: CustomerFormFiel
               const next: CustomerAddressValue = {
                 id: nextId,
                 name: payload.name ?? undefined,
+                recipientName: payload.recipientName ?? undefined,
+                phone: payload.phone ?? undefined,
                 purpose: payload.purpose ?? undefined,
                 companyName: payload.companyName ?? undefined,
                 addressLine1: payload.addressLine1,
@@ -1039,6 +1041,8 @@ export const createPersonFormFields = (t: Translator, options?: CustomerFormFiel
                 return {
                   ...item,
                   name: payload.name ?? null,
+                  recipientName: payload.recipientName ?? null,
+                  phone: payload.phone ?? null,
                   purpose: payload.purpose ?? null,
                   companyName: payload.companyName ?? null,
                   addressLine1: payload.addressLine1,
@@ -1380,6 +1384,8 @@ export const createCompanyFormFields = (t: Translator, options?: CustomerFormFie
               const next: CustomerAddressValue = {
                 id: nextId,
                 name: payload.name ?? undefined,
+                recipientName: payload.recipientName ?? undefined,
+                phone: payload.phone ?? undefined,
                 purpose: payload.purpose ?? undefined,
                 companyName: payload.companyName ?? undefined,
                 addressLine1: payload.addressLine1,
@@ -1410,6 +1416,8 @@ export const createCompanyFormFields = (t: Translator, options?: CustomerFormFie
                 return {
                   ...item,
                   name: payload.name ?? null,
+                  recipientName: payload.recipientName ?? null,
+                  phone: payload.phone ?? null,
                   purpose: payload.purpose ?? null,
                   companyName: payload.companyName ?? null,
                   addressLine1: payload.addressLine1,

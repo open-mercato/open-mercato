@@ -2009,6 +2009,7 @@
   "customers.people.detail.addresses.fields.phone": "Phone",
   "customers.people.detail.addresses.fields.postalCode": "Postal code",
   "customers.people.detail.addresses.fields.primary": "Set as primary",
+  "customers.people.detail.addresses.fields.recipientName": "Recipient name",
   "customers.people.detail.addresses.fields.region": "Region / State",
   "customers.people.detail.addresses.fields.street": "Street",
   "customers.people.detail.addresses.fields.streetExtra": "Additional address details",
