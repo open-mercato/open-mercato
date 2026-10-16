@@ -129,3 +129,17 @@ Environment torn down cleanly afterward (`SIGINT` to the `yarn mercato test:ephe
 1. **No action required to unblock Step 8.12** — both remaining failures are pre-existing, out-of-scope defects, not Phase-8 regressions; the live gate is otherwise green (64/66, the only 2 reds independently explained and evidenced above).
 2. Consider filing follow-up issues for: (a) `TC-PROM-074`'s `hasText` case-insensitivity collision (mechanical test fix), and (b) the code-generation worker's missing cache invalidation (`code-generation.worker.ts` — real product bug, low severity since it only affects the CRUD-list-cache read path when `ENABLE_CRUD_API_CACHE=true`).
 3. Step 8.12's Tasks-table row is left `todo` by this pass per this task's own instructions — the orchestrating session flips it once it has reviewed this full re-run.
+
+---
+
+# Checkpoint 5 final correction — TC-PROM-074 re-categorized and fixed (Step 8.14)
+
+The re-run above characterized `TC-PROM-074`'s remaining failure as "pre-existing, unmasked, not Phase-8-caused." The orchestrating session's independent code review found a more precise root cause: the `hasText: 'Value'` collision with the rule-type field's own label ("Rule type" + "Order value") is only *exercisable* because Step 8.8 swapped that field from `ComboboxInput` (selected text lives in a plain `<input value>`, invisible to Playwright's text-content matching) to `Select` (`SelectValue` renders the selection as a real DOM text node). Confirmed by diffing `RuleCard.tsx` at the pre-8.8 commit (`9827edb6f6`): the identical `<label>` wrapper existed before, but its inner control never contributed matchable text content until the swap. This makes it directly attributable to Step 8.8, not an unrelated pre-existing defect.
+
+Fixed (`5c8c19817f`, PLAN.md Step 8.14): `valueFields`/`operatorFields` now use `hasText: /^Value/` / `/^Operator/` (case-sensitive, start-anchored) instead of case-insensitive substring matching. Swept the rest of `promotions/__integration__/*.spec.ts` for the same collision risk against any of the 11 rule-type/5 benefit-type labels — none found.
+
+**Targeted live re-verification** (this one spec only, not the full suite — `yarn test:integration:ephemeral "TC-PROM-074"`, ~8.5 min full cycle): **1 passed (10.2s)**. Environment torn down cleanly.
+
+## Final live-gate status for `cart`+`promotions`
+
+**65 / 66 passing.** The sole remaining red is `TC-PROM-083`'s code-generation cache-invalidation gap — confirmed via direct code read (`code-generation.worker.ts` lines 147-148, no cache invalidation on the worker's raw `em.flush()`; no subscriber on `promotions.generated_code.created` either) to be a genuine, pre-existing, out-of-scope defect predating Phase 8 by two phases (built at Step 6.4). Filed as a follow-up issue by the orchestrating session (see the PR's own follow-up-issues list) rather than fixed in this gate, consistent with Step 8.12's own scope (QA findings F1-F15, not a general bug hunt).

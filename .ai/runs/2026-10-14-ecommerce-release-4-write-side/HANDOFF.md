@@ -4,11 +4,17 @@
 
 Manual QA on a standalone scaffold found 15 issues (PR comments `#issuecomment-6217199918` and `#issuecomment-6217322094`). PLAN.md's Phase 8 (Steps 8.1–8.12) carries the owner decisions in its own intro. Steps 3.4 and 4.9 were closed by owner decision (3.4 Part A exempt + guard test in 8.11; CONC-05 moved to 8.3). The "this run is closed" text further below is now superseded historical state (as of 2026-10-15, before this reopening) — kept for the Phase 0–7 narrative, not current status.
 
-**Last updated:** 2026-10-16T16:10:00Z — mid-resume, Checkpoint 4 just landed.
+**Last updated:** 2026-10-16T20:15:00Z — Step 8.12's live integration gate is GREEN (65/66, one filed pre-existing follow-up); UI screenshots captured. Remaining before Phase 8 closes: the full repo-wide validation gate, follow-up issues, PR reply, and flipping 8.12 itself to `done`.
 **Branch:** feat/release-4-write-side
 **PR:** https://github.com/adeptofvoltron/open-mercato/pull/15 (currently `in-progress`-locked by this resume; pipeline label was `merge-queue` from before this reopening — will be re-evaluated at Phase 8's own close per the label state machine, since real post-merge-queue defects are being fixed)
-**Current phase/step:** Phase 8, Steps 8.1–8.10 `done` (8.3 required no new commit — already fixed by a pre-Phase-8 commit, `dd0747db83`). **Next concrete action: Step 8.11** (the storefrontPricing.ts exemption guard test, 3.4 Part A owner decision). Step 8.12 (the Phase 8 gate) remains after that.
-**Last commit:** `8d9c24baef` (`fix(promotions): normalize static code casing and charset on write and lookup (QA F9)`), preceded by 8.6–8.9's own commits. See Checkpoint 4 below / `checkpoint-4-checks.md` for full detail.
+**Current phase/step:** Phase 8, Steps 8.1–8.11 `done` (8.3 required no new commit). Steps 8.13/8.14 are fix-forward Steps from Step 8.12's own live-gate findings (both done). **Step 8.12 itself is still `todo`** — its live-integration and UI-screenshot sub-items are now complete (see Checkpoint 5 below / `checkpoint-5-checks.md`); what remains is the full repo-wide `validation.commands` gate, filing follow-up issues (F6, F11, plus 3 residuals found along the way), the PR reply mapping F-numbers to commits, and flipping the row once all of that lands.
+**Last commit:** `5c8c19817f` (`test(promotions): anchor TC-PROM-074's Value/Operator label locators`). See Checkpoint 5 below / `checkpoint-5-checks.md` for full detail.
+
+### Checkpoint 5 (Step 8.12's live-integration + UI-screenshot sub-items) summary
+
+Live `cart`+`promotions` integration gate: **65/66 passing.** Two rounds of genuine findings were triaged and resolved rather than papered over — Step 8.10's code charset was too strict for 5 pre-existing fixtures' own naming convention (widened, Step 8.13); three live specs had test-authoring bugs exposed once the charset stopped blocking them earlier (fixed, Step 8.13); a fourth, more subtle locator collision in `TC-PROM-074` was initially mis-categorized as "pre-existing" by the live-run report but traced by the orchestrating session to a genuine Step-8.8 side effect (the `ComboboxInput`→`Select` swap made a previously-invisible label collision visible to Playwright's text matching) and fixed with evidence, not just accepted (Step 8.14). The one remaining red, `TC-PROM-083`, is a confirmed, pre-existing, out-of-scope backend cache-invalidation bug (`code-generation.worker.ts`, predates Phase 8 by two phases) — filed as a follow-up issue, not fixed here. 5 UI screenshots captured for Steps 8.7/8.8, all visually verified against the real running app. Full detail: `checkpoint-5-checks.md`.
+
+### Checkpoint 4 (Steps 8.6–8.10) summary
 
 ### Checkpoint 4 (Steps 8.6–8.10) summary
 

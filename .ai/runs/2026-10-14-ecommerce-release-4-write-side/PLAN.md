@@ -82,7 +82,7 @@
 | 8 | 8.11 | Ecommerce: document the storefrontPricing.ts exemption, add a price-equivalence guard test (3.4 Part A) | dispatch:capable | done | f6c03a8627 |
 | 8 | 8.12 | Phase 8 gate: integration/UI tests, docs and HANDOFF corrections, follow-up issues (F6, F11) | dispatch | todo | — |
 | 8 | 8.13 | Phase 8 gate fix-forward: widen code charset to allow `-`/`_`, fix 3 live-spec test bugs (TC-CART-PRICE-03, TC-PROM-074, TC-PROM-075) | inline | done | 5a851c5af |
-| 8 | 8.14 | Phase 8 gate fix-forward 2: anchor TC-PROM-074's `Value`/`Operator` label locators against a Step-8.8-exposed hasText collision | inline | done | see `git log` |
+| 8 | 8.14 | Phase 8 gate fix-forward 2: anchor TC-PROM-074's `Value`/`Operator` label locators against a Step-8.8-exposed hasText collision | inline | done | 5c8c19817 |
 
 ## Goal
 
