@@ -69,6 +69,8 @@ const myCarrier: ShippingAdapter = {
 
 Status transitions are monotonic — terminal statuses (`delivered`, `returned`, `cancelled`) cannot regress.
 
+Carriers report the current status, not every step, so a carrier may skip intermediate statuses (for example `label_created` straight to `delivered`). Forward skips are applied; backwards moves (for example `delivered` to `in_transit`, or `out_for_delivery` to `in_transit`) are refused. Webhook and tracking-refresh updates evaluate the transition against the row read under a lock, so concurrent updates for the same shipment are applied one at a time.
+
 ## Registering adapters
 
 ```ts
@@ -127,6 +129,8 @@ Practical implications:
 - `shipping_carriers.shipment.cancelled` — shipment cancelled
 - `shipping_carriers.webhook.received` — webhook processed
 - `shipping_carriers.webhook.failed` — webhook verification failed
+
+Status events (`status_changed`, `delivered`, `returned`) carry `previousStatus` (the unified status the shipment had before the change) and `newStatus`. Events emitted by the webhook worker also carry `carrierStatus`, the raw status string reported by the carrier.
 
 ## Mock adapter
 

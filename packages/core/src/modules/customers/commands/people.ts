@@ -24,6 +24,12 @@ import {
   CustomerPersonProfile,
   CustomerTagAssignment,
 } from '../data/entities'
+import {
+  captureInteractionRestoreDetails,
+  omitInteractionRestoreDetails,
+  restoreInteractionRestoreDetails,
+  type InteractionRestoreDetails,
+} from './interactionRestoreDetails'
 import { resolvePersonCustomFieldRouting, CUSTOMER_ENTITY_ID, PERSON_ENTITY_ID } from '../lib/customFieldRouting'
 import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
 import {
@@ -133,7 +139,7 @@ type PersonInteractionSnapshot = {
   updatedAt: Date
   deletedAt: Date | null
   custom?: Record<string, unknown>
-}
+} & InteractionRestoreDetails
 
 type PersonSnapshot = {
   entity: {
@@ -380,7 +386,11 @@ function serializePersonSnapshot(
   }
 }
 
-async function loadPersonSnapshot(em: EntityManager, entityId: string): Promise<PersonSnapshot | null> {
+async function loadPersonSnapshot(
+  em: EntityManager,
+  entityId: string,
+  options: { includeInteractionRestoreDetails?: boolean } = {},
+): Promise<PersonSnapshot | null> {
   const entity = await em.findOne(CustomerEntity, { id: entityId, deletedAt: null })
   if (!entity || entity.kind !== 'person') return null
   const profile = await findOneWithDecryption(
@@ -455,6 +465,7 @@ async function loadPersonSnapshot(em: EntityManager, entityId: string): Promise<
       createdAt: interaction.createdAt,
       updatedAt: interaction.updatedAt,
       deletedAt: interaction.deletedAt ?? null,
+      ...(options.includeInteractionRestoreDetails ? captureInteractionRestoreDetails(interaction) : {}),
       custom: await loadCustomFieldSnapshot(em, {
         entityId: INTERACTION_ENTITY_ID,
         recordId: interaction.id,
@@ -1231,7 +1242,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
     async prepare(input, ctx) {
       const id = requireId(input, 'Person id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const snapshot = await loadPersonSnapshot(em, id)
+      const snapshot = await loadPersonSnapshot(em, id, { includeInteractionRestoreDetails: true })
       return snapshot ? { before: snapshot } : {}
     },
     async execute(input, ctx) {
@@ -1355,7 +1366,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
         resourceId: before.entity.id,
         tenantId: before.entity.tenantId,
         organizationId: before.entity.organizationId,
-        snapshotBefore: before,
+        snapshotBefore: omitInteractionRestoreDetails(before),
         payload: {
           undo: {
             before,
@@ -1646,6 +1657,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
           source: interaction.source,
           appearanceIcon: interaction.appearanceIcon,
           appearanceColor: interaction.appearanceColor,
+          ...restoreInteractionRestoreDetails(interaction),
           createdAt: interaction.createdAt,
           updatedAt: interaction.updatedAt,
           deletedAt: interaction.deletedAt,
