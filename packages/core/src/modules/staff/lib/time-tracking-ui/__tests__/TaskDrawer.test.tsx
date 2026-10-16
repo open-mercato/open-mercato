@@ -597,7 +597,69 @@ describe('TaskDrawer', () => {
     await waitFor(() => expect(writeCalls(`/tasks/${TASK_ID}/comments`).length).toBe(1))
     const [, init] = writeCalls(`/tasks/${TASK_ID}/comments`)[0]
     expect(init?.method).toBe('POST')
-    expect(JSON.parse(String(init?.body))).toEqual({ body: 'Rabaty liczymy od netto.' })
+    expect(JSON.parse(String(init?.body))).toEqual({ body: 'Rabaty liczymy od netto.', visibility: 'internal' })
+  })
+
+  it('offers Claim only when the server says the caller can claim the task', async () => {
+    renderDrawer()
+    await screen.findByTestId('task-drawer-comment-input')
+
+    expect(screen.queryByTestId('task-drawer-claim')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('task-drawer-release')).not.toBeInTheDocument()
+  })
+
+  it('claims through the claim endpoint when the server allows it', async () => {
+    taskRow = { ...taskRow, _staffAssignment: { canClaim: true, canRelease: false } }
+    renderDrawer()
+
+    fireEvent.click(await screen.findByTestId('task-drawer-claim'))
+
+    await waitFor(() => expect(writeCalls(`/tasks/${TASK_ID}/claim`).length).toBe(1))
+    expect(writeCalls(`/tasks/${TASK_ID}/claim`)[0][1]?.method).toBe('POST')
+  })
+
+  it('offers Release to the assignee the server names', async () => {
+    taskRow = {
+      ...taskRow,
+      assignee_staff_member_id: SELF_ID,
+      _staffAssignment: { canClaim: false, canRelease: true },
+    }
+    renderDrawer()
+
+    expect(await screen.findByTestId('task-drawer-release')).toBeInTheDocument()
+    expect(screen.queryByTestId('task-drawer-claim')).not.toBeInTheDocument()
+  })
+
+  it('shows the two-button support composer on a portal ticket', async () => {
+    taskRow = {
+      ...taskRow,
+      source: 'portal',
+      _staffSupport: {
+        ticket: {
+          id: 'ticket-1',
+          supportReference: 'SUP-1001',
+          category: { value: 'billing', label: 'Billing' },
+          routedVia: 'category',
+          portalStatus: 'in_progress',
+          customerSnapshot: { displayName: 'Nordvik AS', kind: 'company' },
+          reportedByCustomerUserId: null,
+          unnotifiedAt: null,
+          customerRequest: { subject: 'Invoice question', body: 'Why two invoices?' },
+        },
+      },
+    }
+    renderDrawer()
+
+    expect(await screen.findByTestId('task-drawer-comment-reply-customer')).toBeInTheDocument()
+    expect(screen.getByTestId('task-drawer-comment-internal-note')).toBeInTheDocument()
+    expect(screen.queryByTestId('task-drawer-comment-submit')).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByTestId('task-drawer-comment-input'), { target: { value: 'Checking now.' } })
+    fireEvent.click(screen.getByTestId('task-drawer-comment-reply-customer'))
+
+    await waitFor(() => expect(writeCalls(`/tasks/${TASK_ID}/comments`).length).toBe(1))
+    const [, init] = writeCalls(`/tasks/${TASK_ID}/comments`)[0]
+    expect(JSON.parse(String(init?.body))).toEqual({ body: 'Checking now.', visibility: 'customer' })
   })
 
   it('shows the inclusive rollup as the headline and the own/children split beneath it', async () => {

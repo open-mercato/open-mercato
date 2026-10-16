@@ -37,12 +37,13 @@ const baseTablesByModule: Record<string, Record<string, string[]>> = {
 }
 
 describe('staff data/extensions.ts', () => {
-  it('declares the four time-tracking foreign-key links', () => {
+  it('declares the time-tracking foreign-key links', () => {
     expect(entityExtensions.map((link) => `${link.base} -> ${link.extension}.${link.join.extensionKey}`)).toEqual([
       'customers:customer_entity -> staff:staff_time_entry.customer_id',
       'customers:customer_deal -> staff:staff_time_entry.deal_id',
       'sales:sales_order -> staff:staff_time_entry.order_id',
       'customers:customer_entity -> staff:staff_time_project.customer_id',
+      'customers:customer_entity -> staff:staff_time_task.customer_id',
     ])
   })
 
@@ -82,7 +83,7 @@ describe('staff data/extensions.ts', () => {
   /**
    * The decoupling rule this module lives under: a link is strings, never an import.
    * Staff is slated for extraction into its own package, so a `customers` or `sales`
-   * import here — or a new `requires` entry — would break that extraction.
+   * import here — or a `customers`/`sales` `requires` entry — would break that extraction.
    */
   it('imports nothing from the modules it links to', () => {
     const source = fs.readFileSync(path.join(moduleRoot, 'data', 'extensions.ts'), 'utf8')

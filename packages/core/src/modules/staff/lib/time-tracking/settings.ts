@@ -8,10 +8,12 @@ import {
 import {
   DEFAULT_ASSIGNMENT_GRACE_DAYS,
   MAX_ASSIGNMENT_GRACE_DAYS,
+  TIME_TRACKING_SUPPORT_GROUP,
   buildDefaultTimeTrackingSettings,
   listTimeTrackingSettingKeys,
   normalizeTimeTrackingSettingsRecord,
   registerTimeTrackingSettingKey,
+  supportReferencePrefixSchema,
   timeTrackingSettingKeyIds,
   type TimeTrackingSettingKeyDefinition,
   type TimeTrackingSettingKeyInput,
@@ -32,9 +34,10 @@ export const TIME_TRACKING_TARGETS_DAILY_HOURS_KEY = 'targets.dailyHours'
 export const TIME_TRACKING_WARNINGS_OVERLAP_KEY = 'warnings.overlap'
 export const TIME_TRACKING_WARNINGS_RUNNING_TIMER_KEY = 'warnings.runningTimer'
 export const TIME_TRACKING_ACCESS_ASSIGNMENT_GRACE_DAYS_KEY = 'access.assignmentGraceDays'
+export const TIME_TRACKING_SUPPORT_REFERENCE_PREFIX_KEY = 'support.referencePrefix'
 
 /**
- * The eight keys the module shipped. FROZEN — a stored config row is named after one
+ * The built-in keys the module ships. FROZEN — a stored config row is named after one
  * of these, so none may be renamed or removed. The list is no longer the whole truth:
  * `timeTrackingSettingKeyIds()` returns these plus every contributed key (EP-42).
  */
@@ -47,6 +50,7 @@ export const TIME_TRACKING_SETTING_KEYS = [
   TIME_TRACKING_WARNINGS_OVERLAP_KEY,
   TIME_TRACKING_WARNINGS_RUNNING_TIMER_KEY,
   TIME_TRACKING_ACCESS_ASSIGNMENT_GRACE_DAYS_KEY,
+  TIME_TRACKING_SUPPORT_REFERENCE_PREFIX_KEY,
 ] as const
 
 export type TimeTrackingSettingKey = (typeof TIME_TRACKING_SETTING_KEYS)[number]
@@ -69,12 +73,21 @@ export type TimeTrackingAccess = {
   assignmentGraceDays: number
 }
 
+export type TimeTrackingSupport = {
+  referencePrefix: string
+}
+
 export type TimeTrackingBuiltInSettings = {
   rounding: RoundingSettings
   defaults: TimeTrackingEntryDefaults
   targets: TimeTrackingTargets
   warnings: TimeTrackingWarnings
   access: TimeTrackingAccess
+  /**
+   * Optional in the type so code that builds a settings object without the support
+   * group keeps compiling; a normalized read always carries it.
+   */
+  support?: TimeTrackingSupport
 }
 
 /**
@@ -165,4 +178,36 @@ export async function writeTimeTrackingSettings(
   }
 
   return settings
+}
+
+function readSettingsGroup(input: Record<string, unknown>, group: string): Record<string, unknown> | null {
+  const value = input[group]
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  return value as Record<string, unknown>
+}
+
+/**
+ * A settings payload from a client that predates the support group omits it. That
+ * omission keeps the tenant's stored reference prefix instead of resetting it to the
+ * default, so an older settings screen cannot silently rename future ticket references.
+ */
+export async function preserveOmittedSupportSettings(
+  configService: ModuleConfigService,
+  scope: TimeTrackingSettingsScope,
+  input: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const supportGroup = readSettingsGroup(input, TIME_TRACKING_SUPPORT_GROUP)
+  if (supportGroup && supportGroup.referencePrefix !== undefined) return input
+  const record = await configService.getRecord(
+    STAFF_TIME_TRACKING_MODULE_ID,
+    TIME_TRACKING_SUPPORT_REFERENCE_PREFIX_KEY,
+    { tenantId: scope.tenantId },
+  )
+  if (!record) return input
+  const storedPrefix = supportReferencePrefixSchema.safeParse(record.value)
+  if (!storedPrefix.success) return input
+  return {
+    ...input,
+    [TIME_TRACKING_SUPPORT_GROUP]: { ...(supportGroup ?? {}), referencePrefix: storedPrefix.data },
+  }
 }

@@ -235,6 +235,98 @@ export const notificationTypes: NotificationTypeDefinition[] = [
     linkHref: '/backend/staff/time-tracking/timesheet',
     expiresAfterHours: 168, // 7 days
   },
+  {
+    // Customer support tickets: raised for every portal ticket. The audience is the
+    // assignee (when the project default applied) plus the project's active
+    // assigners, falling back through owner and organization project managers.
+    type: 'staff.support_ticket.created',
+    channels: ['in_app', 'email'],
+    module: 'staff',
+    titleKey: 'staff.notifications.supportTicket.created.title',
+    bodyKey: 'staff.notifications.supportTicket.created.body',
+    icon: 'life-buoy',
+    severity: 'info',
+    actions: [
+      {
+        id: 'open-ticket',
+        labelKey: 'staff.notifications.supportTicket.actions.open',
+        variant: 'default',
+        icon: 'external-link',
+        href: '/backend/staff/time-tracking/support?task={sourceEntityId}',
+      },
+    ],
+    primaryActionId: 'open-ticket',
+    linkHref: '/backend/staff/time-tracking/support?task={sourceEntityId}',
+    expiresAfterHours: 336,
+  },
+  {
+    type: 'staff.support_ticket.customer_replied',
+    channels: ['in_app', 'email'],
+    module: 'staff',
+    titleKey: 'staff.notifications.supportTicket.customerReplied.title',
+    bodyKey: 'staff.notifications.supportTicket.customerReplied.body',
+    icon: 'message-square',
+    severity: 'info',
+    actions: [
+      {
+        id: 'open-ticket',
+        labelKey: 'staff.notifications.supportTicket.actions.open',
+        variant: 'default',
+        icon: 'external-link',
+        href: '/backend/staff/time-tracking/support?task={sourceEntityId}',
+      },
+    ],
+    primaryActionId: 'open-ticket',
+    linkHref: '/backend/staff/time-tracking/support?task={sourceEntityId}',
+    expiresAfterHours: 336,
+  },
+  {
+    // A task in the project became unassigned (released or cleared): tells the
+    // project's assigners there is claimable work.
+    type: 'staff.timesheets.time_task.released',
+    channels: ['in_app'],
+    module: 'staff',
+    titleKey: 'staff.notifications.timeTask.released.title',
+    bodyKey: 'staff.notifications.timeTask.released.body',
+    icon: 'hand',
+    severity: 'info',
+    actions: [
+      {
+        id: 'open-task',
+        labelKey: 'staff.notifications.timeTask.actions.open',
+        variant: 'default',
+        icon: 'external-link',
+        href: '/backend/staff/time-tracking/board?task={sourceEntityId}',
+      },
+    ],
+    primaryActionId: 'open-task',
+    linkHref: '/backend/staff/time-tracking/board?task={sourceEntityId}',
+    expiresAfterHours: 168,
+  },
+  {
+    // Someone else assigned the recipient to a task through the task editor. Not sent
+    // for claims (self-assignment) or for the portal default assignee, who hears
+    // about the intake once through `staff.support_ticket.created`.
+    type: 'staff.timesheets.time_task.assigned',
+    channels: ['in_app'],
+    module: 'staff',
+    titleKey: 'staff.notifications.timeTask.assigned.title',
+    bodyKey: 'staff.notifications.timeTask.assigned.body',
+    icon: 'user-check',
+    severity: 'info',
+    actions: [
+      {
+        id: 'open-task',
+        labelKey: 'staff.notifications.timeTask.actions.open',
+        variant: 'default',
+        icon: 'external-link',
+        href: '/backend/staff/time-tracking/board?task={sourceEntityId}',
+      },
+    ],
+    primaryActionId: 'open-task',
+    linkHref: '/backend/staff/time-tracking/board?task={sourceEntityId}',
+    expiresAfterHours: 168,
+  },
 ]
 
 export default notificationTypes

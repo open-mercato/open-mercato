@@ -9,6 +9,12 @@ export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
       { field: 'unavailability_reason_value' },
     ],
   },
+  {
+    entityId: 'staff:staff_support_ticket',
+    fields: [
+      { field: 'customer_request_snapshot' },
+    ],
+  },
 ]
 
 export default defaultEncryptionMaps
