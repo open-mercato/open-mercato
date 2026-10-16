@@ -199,9 +199,14 @@ describe('customers commands shared utilities', () => {
   describe('ensureDictionaryEntry', () => {
     const createEm = () => ({
       findOne: jest.fn(),
-      create: jest.fn((_cls, payload) => ({ id: 'new-entry', ...payload })),
+      upsert: jest.fn(async (_cls, payload) => ({ id: 'new-entry', ...payload })),
       persist: jest.fn(),
     })
+
+    const upsertOptions = {
+      onConflictFields: ['organizationId', 'tenantId', 'kind', 'normalizedValue'],
+      onConflictAction: 'ignore',
+    }
 
     it('returns null when value is empty after trimming', async () => {
       const em = createEm()
@@ -238,13 +243,14 @@ describe('customers commands shared utilities', () => {
         value: 'Active',
       })
 
-      expect(em.create).toHaveBeenCalledWith(
+      expect(em.upsert).toHaveBeenCalledWith(
         CustomerDictionaryEntry,
         expect.objectContaining({
           kind: 'partner-stage',
           value: 'Active',
           normalizedValue: 'active',
         }),
+        upsertOptions,
       )
     })
 
@@ -276,6 +282,7 @@ describe('customers commands shared utilities', () => {
       })
 
       expect(result).toBe(existing)
+      expect(em.upsert).not.toHaveBeenCalled()
       expect(existing.color).toBe('#abcdef')
       expect(existing.icon).toBe(iconInput.slice(0, 48))
       expect(em.persist).toHaveBeenCalledWith(existing)
@@ -292,7 +299,7 @@ describe('customers commands shared utilities', () => {
         value: ' Hot ',
       })
 
-      expect(em.create).toHaveBeenCalledWith(
+      expect(em.upsert).toHaveBeenCalledWith(
         CustomerDictionaryEntry,
         expect.objectContaining({
           tenantId: 't1',
@@ -303,15 +310,45 @@ describe('customers commands shared utilities', () => {
           normalizedValue: 'hot',
           color: null,
           icon: null,
-        })
+        }),
+        upsertOptions,
       )
-      expect(em.persist).toHaveBeenCalledWith(result)
+      expect(em.persist).not.toHaveBeenCalled()
       expect(result).toMatchObject({
         id: 'new-entry',
         value: 'Hot',
         label: 'Hot',
         normalizedValue: 'hot',
       })
+    })
+
+    it('reuses the row a concurrent writer inserted instead of failing on the unique key', async () => {
+      const concurrent = Object.assign(new CustomerDictionaryEntry(), {
+        id: 'entry-from-other-request',
+        tenantId: 't1',
+        organizationId: 'o1',
+        kind: 'job_title',
+        value: 'Buyer',
+        normalizedValue: 'buyer',
+        label: 'Buyer',
+        color: null,
+        icon: null,
+      })
+      const em = createEm()
+      em.findOne.mockResolvedValue(null)
+      em.upsert.mockResolvedValue(concurrent)
+
+      const result = await ensureDictionaryEntry(em as any, {
+        tenantId: 't1',
+        organizationId: 'o1',
+        kind: 'job_title',
+        value: 'buyer',
+        color: '#00ff00',
+      })
+
+      expect(result).toBe(concurrent)
+      expect(concurrent.color).toBe('#00ff00')
+      expect(em.persist).toHaveBeenCalledWith(concurrent)
     })
   })
 

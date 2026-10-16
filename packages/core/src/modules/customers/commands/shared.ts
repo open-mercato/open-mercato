@@ -184,43 +184,40 @@ export async function ensureDictionaryEntry(
   const normalized = trimmed.toLowerCase()
   const color = params.color === undefined ? undefined : normalizeDictionaryColor(params.color)
   const icon = params.icon === undefined ? undefined : normalizeDictionaryIcon(params.icon)
-  const existing = await em.findOne(CustomerDictionaryEntry, {
+  const scope = {
     tenantId: params.tenantId,
     organizationId: params.organizationId,
     kind: params.kind,
     normalizedValue: normalized,
-  })
-  if (existing) {
-    let changed = false
-    if (color !== undefined) {
-      if (existing.color !== color) {
-        existing.color = color ?? null
-        changed = true
-      }
-    }
-    if (icon !== undefined) {
-      if (existing.icon !== icon) {
-        existing.icon = icon ?? null
-        changed = true
-      }
-    }
-    if (changed) {
-      existing.updatedAt = new Date()
-      em.persist(existing)
-    }
-    return existing
   }
-  const entry = em.create(CustomerDictionaryEntry, {
-    tenantId: params.tenantId,
-    organizationId: params.organizationId,
-    kind: params.kind,
-    value: trimmed,
-    label: params.label?.trim() || trimmed,
-    normalizedValue: normalized,
-    color: color ?? null,
-    icon: icon ?? null,
-  })
-  em.persist(entry)
+  const now = new Date()
+  // Concurrent writers may insert the same entry; ON CONFLICT DO NOTHING keeps the caller's transaction alive.
+  const entry = (await em.findOne(CustomerDictionaryEntry, scope)) ?? (await em.upsert(
+    CustomerDictionaryEntry,
+    {
+      ...scope,
+      value: trimmed,
+      label: params.label?.trim() || trimmed,
+      color: color ?? null,
+      icon: icon ?? null,
+      createdAt: now,
+      updatedAt: now,
+    },
+    { onConflictFields: ['organizationId', 'tenantId', 'kind', 'normalizedValue'], onConflictAction: 'ignore' },
+  ))
+  let changed = false
+  if (color !== undefined && entry.color !== color) {
+    entry.color = color ?? null
+    changed = true
+  }
+  if (icon !== undefined && entry.icon !== icon) {
+    entry.icon = icon ?? null
+    changed = true
+  }
+  if (changed) {
+    entry.updatedAt = now
+    em.persist(entry)
+  }
   return entry
 }
 
