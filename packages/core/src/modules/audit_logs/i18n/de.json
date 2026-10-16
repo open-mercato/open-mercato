@@ -39,6 +39,7 @@
   "audit_logs.common.refreshing": "Aktualisiere…",
   "audit_logs.error.load": "Audit-Logs konnten nicht geladen werden",
   "audit_logs.error.redo": "Aktion kann nicht wiederholt werden",
+  "audit_logs.error.redo_failed": "Wiederholen fehlgeschlagen",
   "audit_logs.error.undo": "Aktion konnte nicht rückgängig gemacht werden",
   "audit_logs.filters.undoable_only": "Nur rückgängig machbar",
   "audit_logs.hint.view_self_only": "Es werden nur Ihre eigenen Änderungen angezeigt. Wenden Sie sich an einen Administrator für erweiterten Zugriff.",
