@@ -80,7 +80,18 @@ export function readCookieFromHeader(header: string | null | undefined, name: st
 
 export type UserValidationResult =
   | { valid: false }
-  | { valid: true; resolvedFeatures: string[]; isPortalAdmin: boolean }
+  | {
+      valid: true
+      resolvedFeatures: string[]
+      isPortalAdmin: boolean
+      // Trusted scope (#2244): re-derived from the persisted CustomerUser record, never from
+      // the JWT's own claims — callers must use these, not the token's tenantId/orgId, to
+      // decide which company's data/users the caller can manage.
+      tenantId: string
+      organizationId: string
+      customerEntityId: string | null
+      personEntityId: string | null
+    }
 
 export async function validateUserState(
   sub: string,
@@ -95,7 +106,7 @@ export async function validateUserState(
   const container = await createRequestContainer()
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
   const user = await findOneWithDecryption(em, CustomerUser, { id: sub }, {
-    fields: ['sessionsRevokedAt', 'deletedAt', 'isActive'],
+    fields: ['tenantId', 'organizationId', 'customerEntityId', 'personEntityId', 'sessionsRevokedAt', 'deletedAt', 'isActive'],
   })
   if (!user) return { valid: false }
   if (user.deletedAt) return { valid: false }
@@ -104,16 +115,33 @@ export async function validateUserState(
     return { valid: false }
   }
 
+  // Trusted scope (#2244): the JWT's tenantId/orgId are a hint only, same as the staff auth
+  // contract (resolveCanonicalStaffAuthContext). A token issued before a tenant/org change —
+  // or carrying a forged claim — is rejected outright rather than trusted for authorization.
+  const currentTenantId = String(user.tenantId)
+  const currentOrganizationId = String(user.organizationId)
+  if (currentTenantId !== tenantId || currentOrganizationId !== orgId) {
+    return { valid: false }
+  }
+
   const { CustomerRbacService } = await import(
     '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
   )
   const rbac = container.resolve('customerRbacService') as InstanceType<typeof CustomerRbacService>
-  const acl = await rbac.loadAcl(sub, { tenantId, organizationId: orgId })
+  const acl = await rbac.loadAcl(sub, { tenantId: currentTenantId, organizationId: currentOrganizationId })
   const resolvedFeatures = await rbac.getEffectiveFeatures(sub, {
-    tenantId,
-    organizationId: orgId,
+    tenantId: currentTenantId,
+    organizationId: currentOrganizationId,
   })
-  return { valid: true, resolvedFeatures, isPortalAdmin: acl.isPortalAdmin }
+  return {
+    valid: true,
+    resolvedFeatures,
+    isPortalAdmin: acl.isPortalAdmin,
+    tenantId: currentTenantId,
+    organizationId: currentOrganizationId,
+    customerEntityId: user.customerEntityId ? String(user.customerEntityId) : null,
+    personEntityId: user.personEntityId ? String(user.personEntityId) : null,
+  }
 }
 
 export async function getCustomerAuthFromRequest(req: Request): Promise<CustomerAuthContext | null> {
@@ -180,12 +208,14 @@ export async function getCustomerAuthFromRequest(req: Request): Promise<Customer
       sub: userId,
       sid,
       type: 'customer',
-      tenantId,
-      orgId: organizationId,
+      // Authorization scope comes from userState (re-derived from the DB in validateUserState),
+      // not from the JWT's own tenantId/orgId/customerEntityId/personEntityId claims (#2244).
+      tenantId: userState.tenantId,
+      orgId: userState.organizationId,
       email: String(payload.email || ''),
       displayName: String(payload.displayName || ''),
-      customerEntityId: payload.customerEntityId ? String(payload.customerEntityId) : null,
-      personEntityId: payload.personEntityId ? String(payload.personEntityId) : null,
+      customerEntityId: userState.customerEntityId,
+      personEntityId: userState.personEntityId,
       resolvedFeatures: userState.resolvedFeatures,
       isPortalAdmin: userState.isPortalAdmin,
     }
