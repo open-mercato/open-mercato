@@ -20,8 +20,18 @@ import { join } from 'node:path'
 const source = readFileSync(join(__dirname, '..', 'campaigns.ts'), 'utf8')
 const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
 
-/** Every `em.transactional` block in the file, so a new one cannot quietly skip the lock. */
-const transactions = [...code.matchAll(/em\.transactional\(async \(tx\) => \{([\s\S]*?)\n    \}\)/g)]
+/**
+ * Only the command handlers, not `restoreCampaignFromSnapshot`.
+ *
+ * That helper runs an undo's own transaction, restoring a known historical snapshot rather than
+ * racing a client-supplied version against a concurrent edit — the same reason `tags.ts`'s undo
+ * handlers write without a lock or version check at all. Every handler body starts at the first
+ * `const createCampaignCommand`, which is this file's only line matching that exact shape.
+ */
+const commandHandlersCode = code.slice(code.indexOf('const createCampaignCommand'))
+
+/** Every `em.transactional` block in the command handlers, so a new one cannot quietly skip the lock. */
+const transactions = [...commandHandlersCode.matchAll(/em\.transactional\(async \(tx\) => \{([\s\S]*?)\n    \}\)/g)]
   .map((match) => match[1])
 
 describe('campaign writes that rewrite a definition', () => {

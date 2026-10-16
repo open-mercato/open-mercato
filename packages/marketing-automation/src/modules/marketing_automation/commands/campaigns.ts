@@ -21,6 +21,8 @@ import { carrySweepClocks, isSweepIntervalValid, sweepClockKey } from '../lib/sw
 import { emitMarketingAutomationEvent } from '../events.js'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { recordRevision } from '../lib/revisions.js'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 
 const logger = createLogger('marketing_automation')
 
@@ -314,6 +316,155 @@ async function replaceTriggers(
 const emptyDefinition = () => campaignDefinitionSchema.parse({ version: 1 })
 
 /**
+ * The full shape an undo has to put back: the campaign's own columns plus its triggers, which
+ * `save_graph` replaces wholesale and `delete` wipes outright. Dates are serialized to ISO strings
+ * so the snapshot survives a round trip through the audit log's JSON column unchanged.
+ */
+type CampaignSnapshot = {
+  id: string
+  tenantId: string
+  organizationId: string
+  name: string
+  description: string | null
+  isEnabled: boolean
+  definition: Record<string, unknown>
+  breakerResetAt: string | null
+  breakerTrippedAt: string | null
+  deletedAt: string | null
+}
+
+type TriggerSnapshot = {
+  id: string
+  campaignId: string
+  tenantId: string
+  organizationId: string
+  kind: 'event' | 'schedule'
+  eventId: string | null
+  scheduleValue: string | null
+  reentryAfterDays: number | null
+  sweepSource: string | null
+  sweepParams: Record<string, unknown> | null
+  lastSweptAt: string | null
+}
+
+type CampaignWithTriggersSnapshot = {
+  campaign: CampaignSnapshot
+  triggers: TriggerSnapshot[]
+}
+
+type CampaignUndoPayload = {
+  before?: CampaignWithTriggersSnapshot | null
+  after?: CampaignWithTriggersSnapshot | null
+}
+
+type CampaignEnabledSnapshot = { isEnabled: boolean; breakerResetAt: string | null }
+type CampaignEnabledUndoPayload = { before?: CampaignEnabledSnapshot | null }
+
+function toCampaignSnapshot(campaign: MarketingCampaign): CampaignSnapshot {
+  return {
+    id: campaign.id,
+    tenantId: campaign.tenantId,
+    organizationId: campaign.organizationId,
+    name: campaign.name,
+    description: campaign.description ?? null,
+    isEnabled: campaign.isEnabled,
+    definition: campaign.definition,
+    breakerResetAt: campaign.breakerResetAt ? campaign.breakerResetAt.toISOString() : null,
+    breakerTrippedAt: campaign.breakerTrippedAt ? campaign.breakerTrippedAt.toISOString() : null,
+    deletedAt: campaign.deletedAt ? campaign.deletedAt.toISOString() : null,
+  }
+}
+
+function toTriggerSnapshot(trigger: MarketingCampaignTrigger): TriggerSnapshot {
+  return {
+    id: trigger.id,
+    campaignId: trigger.campaignId,
+    tenantId: trigger.tenantId,
+    organizationId: trigger.organizationId,
+    kind: trigger.kind,
+    eventId: trigger.eventId ?? null,
+    scheduleValue: trigger.scheduleValue ?? null,
+    reentryAfterDays: trigger.reentryAfterDays ?? null,
+    sweepSource: trigger.sweepSource ?? null,
+    sweepParams: trigger.sweepParams ?? null,
+    lastSweptAt: trigger.lastSweptAt ? trigger.lastSweptAt.toISOString() : null,
+  }
+}
+
+/** Reads the campaign AND its triggers as they stand right now, for an undo to restore later. */
+async function loadCampaignWithTriggersSnapshot(
+  em: EntityManager,
+  id: string,
+  scope: Scope,
+): Promise<CampaignWithTriggersSnapshot | null> {
+  const campaign = await em.findOne(MarketingCampaign, { id, tenantId: scope.tenantId, organizationId: scope.organizationId })
+  if (!campaign) return null
+  const triggers = await em.find(MarketingCampaignTrigger, {
+    campaignId: id,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  })
+  return { campaign: toCampaignSnapshot(campaign), triggers: triggers.map(toTriggerSnapshot) }
+}
+
+/**
+ * Writes a snapshot back, campaign and triggers together, in one transaction.
+ *
+ * Shared by every undo in this file: `create`'s undo (soft-delete, no triggers to restore) is the
+ * degenerate case of the same restore `delete`, `save_graph` and `apply_split_winner` need in full.
+ */
+async function restoreCampaignFromSnapshot(em: EntityManager, snapshot: CampaignWithTriggersSnapshot): Promise<void> {
+  const { campaign: c, triggers } = snapshot
+  await em.transactional(async (tx) => {
+    let campaign = await tx.findOne(MarketingCampaign, { id: c.id })
+    if (!campaign) {
+      campaign = tx.create(MarketingCampaign, {
+        id: c.id,
+        tenantId: c.tenantId,
+        organizationId: c.organizationId,
+        name: c.name,
+        description: c.description,
+        isEnabled: c.isEnabled,
+        definition: c.definition,
+        breakerResetAt: c.breakerResetAt ? new Date(c.breakerResetAt) : null,
+        breakerTrippedAt: c.breakerTrippedAt ? new Date(c.breakerTrippedAt) : null,
+        deletedAt: c.deletedAt ? new Date(c.deletedAt) : null,
+      })
+      tx.persist(campaign)
+    } else {
+      campaign.name = c.name
+      campaign.description = c.description
+      campaign.isEnabled = c.isEnabled
+      campaign.definition = c.definition
+      campaign.breakerResetAt = c.breakerResetAt ? new Date(c.breakerResetAt) : null
+      campaign.breakerTrippedAt = c.breakerTrippedAt ? new Date(c.breakerTrippedAt) : null
+      campaign.deletedAt = c.deletedAt ? new Date(c.deletedAt) : null
+    }
+
+    await tx.nativeDelete(MarketingCampaignTrigger, {
+      campaignId: c.id,
+      tenantId: c.tenantId,
+      organizationId: c.organizationId,
+    })
+    for (const t of triggers) {
+      tx.persist(tx.create(MarketingCampaignTrigger, {
+        id: t.id,
+        campaignId: t.campaignId,
+        tenantId: t.tenantId,
+        organizationId: t.organizationId,
+        kind: t.kind,
+        eventId: t.eventId,
+        scheduleValue: t.scheduleValue,
+        reentryAfterDays: t.reentryAfterDays,
+        sweepSource: t.sweepSource,
+        sweepParams: t.sweepParams,
+        lastSweptAt: t.lastSweptAt ? new Date(t.lastSweptAt) : null,
+      }))
+    }
+  })
+}
+
+/**
  * Who to record as the author of a revision.
  *
  * `ctx.auth.sub` whenever there is one: an HTTP caller's identity is the truth and nothing they send may
@@ -359,6 +510,42 @@ const createCampaignCommand: CommandHandler<{ name: string; description?: string
     }, { persistent: true })
 
     return { id: campaign.id }
+  },
+  captureAfter: async (input, result, ctx) => {
+    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const scope = requireScope(ctx, input)
+    return loadCampaignWithTriggersSnapshot(em, result.id, scope)
+  },
+  buildLog: async ({ result, snapshots }) => {
+    const { translate } = await resolveTranslations()
+    const after = snapshots.after as CampaignWithTriggersSnapshot | undefined
+    return {
+      actionLabel: translate('marketing_automation.audit.campaigns.create', 'Create campaign'),
+      resourceKind: 'marketing_automation.campaign',
+      resourceId: result.id,
+      tenantId: after?.campaign.tenantId ?? null,
+      organizationId: after?.campaign.organizationId ?? null,
+      snapshotAfter: after ?? null,
+      payload: {
+        undo: { after: after ?? null } satisfies CampaignUndoPayload,
+      },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const campaignId = logEntry?.resourceId ?? null
+    if (!campaignId) return
+    const em = ctx.container.resolve<EntityManager>('em').fork()
+    // Soft delete, same shape the delete command leaves behind: a freshly created campaign has
+    // no triggers yet, so there is nothing else to unwind.
+    await em.nativeUpdate(MarketingCampaign, { id: campaignId }, { deletedAt: new Date(), isEnabled: false })
+  },
+  redo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<CampaignUndoPayload>(logEntry)
+    const after = payload?.after
+    if (!after) throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for campaign create' })
+    const em = ctx.container.resolve<EntityManager>('em').fork()
+    await restoreCampaignFromSnapshot(em, after)
+    return { id: after.campaign.id }
   },
 }
 
@@ -425,6 +612,13 @@ const applySplitWinnerCommand: CommandHandler<
   { id: string; updatedAt: string; stepId: string; variantKey: string }
 > = {
   id: 'marketing_automation.campaigns.apply_split_winner',
+
+  async prepare(rawInput, ctx) {
+    const scope = requireScope(ctx, rawInput)
+    const em = ctx.container.resolve<EntityManager>('em')
+    const before = await loadCampaignWithTriggersSnapshot(em, rawInput.id, scope)
+    return before ? { before } : {}
+  },
 
   async execute(rawInput, ctx) {
     const scope = requireScope(ctx, rawInput)
@@ -553,6 +747,31 @@ const applySplitWinnerCommand: CommandHandler<
       variantKey,
     }
   },
+
+  buildLog: async ({ result, snapshots }) => {
+    const before = snapshots.before as CampaignWithTriggersSnapshot | undefined
+    if (!before) return null
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('marketing_automation.audit.campaigns.apply_split_winner', 'Apply split-test winner'),
+      resourceKind: 'marketing_automation.campaign',
+      resourceId: result.id,
+      tenantId: before.campaign.tenantId,
+      organizationId: before.campaign.organizationId,
+      snapshotBefore: before,
+      payload: {
+        undo: { before } satisfies CampaignUndoPayload,
+      },
+    }
+  },
+
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<CampaignUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const em = ctx.container.resolve<EntityManager>('em').fork()
+    await restoreCampaignFromSnapshot(em, before)
+  },
 }
 
 const saveCampaignGraphCommand: CommandHandler<
@@ -561,6 +780,13 @@ const saveCampaignGraphCommand: CommandHandler<
   { id: string; updatedAt: string; waitingRuns: number }
 > = {
   id: 'marketing_automation.campaigns.save_graph',
+
+  async prepare(rawInput, ctx) {
+    const scope = requireScope(ctx, rawInput)
+    const em = ctx.container.resolve<EntityManager>('em')
+    const before = await loadCampaignWithTriggersSnapshot(em, rawInput.id, scope)
+    return before ? { before } : {}
+  },
 
   async execute(rawInput, ctx) {
     const scope = requireScope(ctx, rawInput)
@@ -692,6 +918,31 @@ const saveCampaignGraphCommand: CommandHandler<
       waitingRuns,
     }
   },
+
+  buildLog: async ({ result, snapshots }) => {
+    const before = snapshots.before as CampaignWithTriggersSnapshot | undefined
+    if (!before) return null
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('marketing_automation.audit.campaigns.save_graph', 'Edit campaign flow'),
+      resourceKind: 'marketing_automation.campaign',
+      resourceId: result.id,
+      tenantId: before.campaign.tenantId,
+      organizationId: before.campaign.organizationId,
+      snapshotBefore: before,
+      payload: {
+        undo: { before } satisfies CampaignUndoPayload,
+      },
+    }
+  },
+
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<CampaignUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const em = ctx.container.resolve<EntityManager>('em').fork()
+    await restoreCampaignFromSnapshot(em, before)
+  },
 }
 
 const setCampaignEnabledCommand: CommandHandler<
@@ -699,6 +950,23 @@ const setCampaignEnabledCommand: CommandHandler<
   { id: string; isEnabled: boolean; updatedAt: string }
 > = {
   id: 'marketing_automation.campaigns.set_enabled',
+
+  async prepare(rawInput, ctx) {
+    const scope = requireScope(ctx, rawInput)
+    const em = ctx.container.resolve<EntityManager>('em')
+    const campaign = await em.findOne(MarketingCampaign, {
+      id: rawInput.id,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    })
+    if (!campaign) return {}
+    return {
+      before: {
+        isEnabled: campaign.isEnabled,
+        breakerResetAt: campaign.breakerResetAt ? campaign.breakerResetAt.toISOString() : null,
+      } satisfies CampaignEnabledSnapshot,
+    }
+  },
 
   async execute(rawInput, ctx) {
     const scope = requireScope(ctx, rawInput)
@@ -806,10 +1074,47 @@ const setCampaignEnabledCommand: CommandHandler<
       updatedAt: (saved?.updatedAt ?? campaign.updatedAt).toISOString(),
     }
   },
+
+  buildLog: async ({ input, result, ctx, snapshots }) => {
+    const before = snapshots.before as CampaignEnabledSnapshot | undefined
+    const { translate } = await resolveTranslations()
+    const scope = requireScope(ctx, input)
+    return {
+      actionLabel: result.isEnabled
+        ? translate('marketing_automation.audit.campaigns.enable', 'Enable campaign')
+        : translate('marketing_automation.audit.campaigns.disable', 'Disable campaign'),
+      resourceKind: 'marketing_automation.campaign',
+      resourceId: result.id,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      payload: {
+        undo: { before: before ?? null } satisfies CampaignEnabledUndoPayload,
+      },
+    }
+  },
+
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<CampaignEnabledUndoPayload>(logEntry)
+    const before = payload?.before
+    const campaignId = logEntry?.resourceId ?? null
+    if (!before || !campaignId) return
+    const em = ctx.container.resolve<EntityManager>('em').fork()
+    await em.nativeUpdate(MarketingCampaign, { id: campaignId }, {
+      isEnabled: before.isEnabled,
+      breakerResetAt: before.breakerResetAt ? new Date(before.breakerResetAt) : null,
+    })
+  },
 }
 
 const deleteCampaignCommand: CommandHandler<{ id: string }, { id: string }> = {
   id: 'marketing_automation.campaigns.delete',
+
+  async prepare(input, ctx) {
+    const scope = requireScope(ctx, input)
+    const em = ctx.container.resolve<EntityManager>('em')
+    const before = await loadCampaignWithTriggersSnapshot(em, input.id, scope)
+    return before ? { before } : {}
+  },
 
   async execute(input, ctx) {
     const scope = requireScope(ctx, input)
@@ -883,6 +1188,31 @@ const deleteCampaignCommand: CommandHandler<{ id: string }, { id: string }> = {
     }, { persistent: true })
 
     return { id: campaign.id }
+  },
+
+  buildLog: async ({ snapshots }) => {
+    const before = snapshots.before as CampaignWithTriggersSnapshot | undefined
+    if (!before) return null
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('marketing_automation.audit.campaigns.delete', 'Delete campaign'),
+      resourceKind: 'marketing_automation.campaign',
+      resourceId: before.campaign.id,
+      tenantId: before.campaign.tenantId,
+      organizationId: before.campaign.organizationId,
+      snapshotBefore: before,
+      payload: {
+        undo: { before } satisfies CampaignUndoPayload,
+      },
+    }
+  },
+
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<CampaignUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const em = ctx.container.resolve<EntityManager>('em').fork()
+    await restoreCampaignFromSnapshot(em, before)
   },
 }
 
