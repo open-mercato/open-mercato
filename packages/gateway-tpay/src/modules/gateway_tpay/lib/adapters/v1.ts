@@ -9,6 +9,7 @@ import type {
   GetStatusInput,
   RefundResult,
   UnifiedPaymentStatus,
+  VerifyWebhookInput,
   WebhookEvent,
 } from '@open-mercato/shared/modules/payment_gateways/types'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -18,6 +19,7 @@ import { toGrosze, toTpayAmount } from '../amount'
 import { resolveTpayNotificationUrl } from '../callback-url'
 import { tpayHttpError, translateTpayText } from '../errors'
 import { mapTpayStatus } from '../status-map'
+import { verifyTpayNotification } from '../webhook-handler'
 import {
   assertTpayPaymentUrl,
   createTransaction,
@@ -210,8 +212,8 @@ export const tpayAdapterV1: GatewayAdapter = {
     return unsupportedOperation()
   },
 
-  async verifyWebhook(): Promise<WebhookEvent> {
-    throw new Error('[internal] Tpay notifications are not supported yet')
+  async verifyWebhook(input: VerifyWebhookInput): Promise<WebhookEvent> {
+    return verifyTpayNotification(input)
   },
 
   mapStatus(providerStatus: string): UnifiedPaymentStatus {
