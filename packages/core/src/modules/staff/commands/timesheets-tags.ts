@@ -31,6 +31,7 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
@@ -894,11 +895,13 @@ async function assertEntryTagUndoAllowed(
   ctx: { container: { resolve: (name: string) => unknown } },
 ): Promise<void> {
   const em = (ctx.container.resolve('em') as EntityManager).fork()
-  const entry = await em.findOne(StaffTimeEntry, {
-    id: payload.targetId,
-    tenantId: payload.tenantId,
-    organizationId: payload.organizationId,
-  })
+  const entry = await findOneWithDecryption(
+    em,
+    StaffTimeEntry,
+    { id: payload.targetId, tenantId: payload.tenantId, organizationId: payload.organizationId },
+    undefined,
+    { tenantId: payload.tenantId, organizationId: payload.organizationId },
+  )
   if (!entry?.lockedReportId) return
   const { translate } = await resolveTranslations()
   throw entryTagsLockedError(translate, entry.lockedReportId)
