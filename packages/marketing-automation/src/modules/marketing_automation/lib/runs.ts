@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { raw, UniqueConstraintViolationException } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { MarketingCampaignRun, MarketingMessageSend } from '../data/entities.js'
-import { splitRunContext } from './run-context.js'
+import { splitRunContext, type PersistedRunContext } from './run-context.js'
 import type { RunTransition } from './engine/executor.js'
 import {
   computeClaimLeaseCutoff,
@@ -12,6 +13,34 @@ import {
 import type { AutomationContext, StepOutcome } from './engine/types.js'
 import { SWEEP_CLAIM_PREFIX } from './occurrence.js'
 import { redactForStorage } from './redact.js'
+
+const RUN_ENTITY_ID = 'marketing_automation:marketing_campaign_run'
+
+/**
+ * Encrypts the free-text half of a split context before a `nativeUpdate`.
+ *
+ * MikroORM's encryption subscriber only runs on the ORM lifecycle (create/update through the
+ * identity map); `nativeUpdate` bypasses it entirely. Without this, completing or parking a run
+ * overwrites the `trigger_context` column — declared as encrypted in `encryption.ts` — with
+ * plaintext. `encryptEntityPayload` is a no-op when encryption is disabled, so this is safe to
+ * call unconditionally.
+ */
+async function encryptTriggerContextForNativeWrite(
+  em: EntityManager,
+  split: PersistedRunContext,
+  scope: RunScope,
+): Promise<PersistedRunContext> {
+  if (!split.triggerContext) return split
+  const encryption = resolveTenantEncryptionService(em)
+  if (!encryption) return split
+  const encrypted = await encryption.encryptEntityPayload(
+    RUN_ENTITY_ID,
+    { triggerContext: split.triggerContext },
+    scope.tenantId,
+    scope.organizationId,
+  )
+  return { ...split, triggerContext: encrypted.triggerContext as PersistedRunContext['triggerContext'] }
+}
 
 export type RunScope = { tenantId: string; organizationId: string }
 
@@ -170,7 +199,7 @@ export async function applyTransition(
   const common = {
     stepLog: transition.stepLog as unknown as Record<string, unknown>[],
     // Split for storage: the queryable half stays jsonb, the partner's text goes to the encrypted column.
-    ...splitRunContext(transition.context),
+    ...(await encryptTriggerContextForNativeWrite(em, splitRunContext(transition.context), scope)),
     lastError: null,
   }
 
@@ -249,7 +278,7 @@ export async function failRun(
       currentStepIndex: input.resumeStepIndex,
       currentStepId: input.resumeStepId ?? null,
       stepLog: input.stepLog as unknown as Record<string, unknown>[],
-      ...splitRunContext(input.context),
+      ...(await encryptTriggerContextForNativeWrite(em, splitRunContext(input.context), scope)),
     },
   )
   /**
