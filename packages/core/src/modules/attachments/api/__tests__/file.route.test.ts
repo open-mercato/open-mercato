@@ -214,7 +214,8 @@ describe('attachments file route', () => {
       )
 
     it('returns 404 STORAGE_FILE_MISSING and logs the cause when the local file is gone', async () => {
-      mockStorageRead.mockRejectedValueOnce(Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' }))
+      const missing = Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' })
+      mockStorageRead.mockRejectedValueOnce(missing)
 
       const response = await requestFile()
 
@@ -230,7 +231,10 @@ describe('attachments file route', () => {
           errorCode: 'ENOENT',
         }),
       )
-      expect(mockReportError).not.toHaveBeenCalled()
+      expect(mockReportError).toHaveBeenCalledWith(
+        missing,
+        expect.objectContaining({ module: 'attachments', code: 'attachments.storage_file_missing' }),
+      )
     })
 
     it('treats an S3 NoSuchKey error as a missing file', async () => {

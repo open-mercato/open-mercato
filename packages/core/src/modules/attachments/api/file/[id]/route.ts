@@ -110,6 +110,7 @@ export async function GET(
     };
     if (errorCode && MISSING_STORAGE_OBJECT_CODES.has(errorCode)) {
       logger.warn('Attachment file missing from storage', logContext);
+      getTelemetryRuntime()?.reportError(error, { module: 'attachments', code: 'attachments.storage_file_missing' });
       return NextResponse.json(
         { error: "File not available", code: "STORAGE_FILE_MISSING" },
         { status: 404 },
