@@ -22,7 +22,7 @@
 | 2 | 2.3 | Debug log on probability normalization | inline | done | df3f71727 |
 | 2 | 2.4 | Record the skipped AGENTS.md entry in the spec | inline | done | f16aa072e |
 | 2 | 1.1-review-fix | Reject __proto__ keys, type error maps by code, drop 2xx httpStatus | inline | done | bd620bfd7 |
-| 2 | 2.2-review-fix | Document the debug normalization log and align the fixture opt-in wording | inline | todo | — |
+| 2 | 2.2-review-fix | Document the debug normalization log and align the fixture opt-in wording | inline | done | 1cc20cf99 |
 
 ## Goal
 

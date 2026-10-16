@@ -264,7 +264,9 @@ putting (or omitting) an option key in the state.
   tenants' data.
 - **What the port does not do with your data:** it never logs or persists `state`,
   instructions, criteria or `sessionId`, and it never sends the vendor `user` field. Each
-  call logs only `{ provider, model, durationMs, usage, questionCount, outcomeCodes }`.
+  call logs only `{ provider, model, durationMs, usage, questionCount, outcomeCodes }`. When
+  a distribution summing to within 1 ± 0.02 is normalized, a debug line adds the question
+  name and the original sum.
 - **No retries.** The port makes one attempt; on `rate_limited`, `timeout` or
   `provider_error` the consumer decides whether and when to retry.
 - **Cost tracking.** `result.usage` carries `inputTokens`, `outputTokens` and `costUsd`
