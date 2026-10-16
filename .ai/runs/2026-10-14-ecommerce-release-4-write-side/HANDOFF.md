@@ -4,17 +4,23 @@
 
 Manual QA on a standalone scaffold found 15 issues (PR comments `#issuecomment-6217199918` and `#issuecomment-6217322094`). PLAN.md's Phase 8 (Steps 8.1–8.12) carries the owner decisions in its own intro. Steps 3.4 and 4.9 were closed by owner decision (3.4 Part A exempt + guard test in 8.11; CONC-05 moved to 8.3). The "this run is closed" text further below is now superseded historical state (as of 2026-10-15, before this reopening) — kept for the Phase 0–7 narrative, not current status.
 
-**Last updated:** 2026-10-16T15:50:00Z — mid-resume, Checkpoint 3 just landed.
+**Last updated:** 2026-10-16T16:10:00Z — mid-resume, Checkpoint 4 just landed.
 **Branch:** feat/release-4-write-side
 **PR:** https://github.com/adeptofvoltron/open-mercato/pull/15 (currently `in-progress`-locked by this resume; pipeline label was `merge-queue` from before this reopening — will be re-evaluated at Phase 8's own close per the label state machine, since real post-merge-queue defects are being fixed)
-**Current phase/step:** Phase 8, Steps 8.1–8.5 `done` (8.3 required no new commit — already fixed by a pre-Phase-8 commit, `dd0747db83`). **Next concrete action: Step 8.6** (promotions partial-update schema fix, QA F2). Steps 8.6–8.12 remain `todo`.
-**Last commit:** `cb1cdd3ab4` (`fix(cart): 409 for writes on a non-active cart, translate warning messages (QA F15, F13)`) plus the `7a0a001bf2` docs-only SHA-correction commit before it. See Checkpoint 3 below / `checkpoint-3-checks.md` for full detail.
+**Current phase/step:** Phase 8, Steps 8.1–8.10 `done` (8.3 required no new commit — already fixed by a pre-Phase-8 commit, `dd0747db83`). **Next concrete action: Step 8.11** (the storefrontPricing.ts exemption guard test, 3.4 Part A owner decision). Step 8.12 (the Phase 8 gate) remains after that.
+**Last commit:** `8d9c24baef` (`fix(promotions): normalize static code casing and charset on write and lookup (QA F9)`), preceded by 8.6–8.9's own commits. See Checkpoint 4 below / `checkpoint-4-checks.md` for full detail.
+
+### Checkpoint 4 (Steps 8.6–8.10) summary
+
+All five fixed and verified independently (not just trusted from executor reports): `yarn build:packages` (39/39), `yarn generate` (clean), `@open-mercato/core` typecheck (clean), full `cart`+`promotions` Jest suite (**466/466**, up from 419 at the start of Checkpoint 3), eslint clean (same 2 pre-existing warnings), `i18n:check-sync`/`:check-hardcoded` clean. Step 8.10's grep sweep found and closed a REAL second case-sensitive-lookup bypass (`useCode`'s dynamic-code branch did its own direct `GeneratedCode` lookup, not through the now-normalized `resolveCodeByString`). **UI verification deliberately deferred to Step 8.12**, not skipped — Steps 8.7/8.8 touched UI, but two other concurrent sessions already have dev servers running on this machine, and Step 8.12's own PLAN.md text already explicitly budgets for "UI screenshots for 8.7/8.8" — paying the live-stack stand-up cost twice (here and at 8.12) would be pure waste. Full reasoning and the six live specs now awaiting that one pass: `checkpoint-4-checks.md`.
 
 ### Checkpoint 3 (Steps 8.1–8.5) summary
 
 All five fixed and verified independently by the orchestrating session (not just trusted from executor reports): `yarn build:packages` (39/39), `yarn generate` (clean), `@open-mercato/core` typecheck (clean — incidentally also resolved 4 pre-existing errors), full `cart`+`promotions` Jest suite (**419/419**, up from 405 at the start of this window), `totalsEquivalence.property.test.ts` still green, the three repo-wide structural guards still 17/17, eslint clean, `i18n:check-sync`/`:check-hardcoded` clean. No UI was touched in this window, so UI verification was correctly skipped (not deferred). Three new live Playwright specs (`TC-CART-PRICE-03`, `TC-CART-PROM-05`, `TC-CART-F15-F13-01`) are written+typechecked but not yet run against a live stack — deferred to Step 8.12's own live-integration-suite gate, same batching precedent this run already used at Steps 5.5/7.6. Full detail: `checkpoint-3-checks.md`.
 
-**One residual worth a follow-up issue, not a Phase 8 blocker**: `commands/promotions.ts`'s own `loadMutableCart` has NO `requireActive` check at all (pre-existing since Step 7.5, documented in its own code comment) — `cart.promotions.apply`/`.remove` never reject a non-active, non-locked cart the way `commands/lines.ts` now does after Step 8.5. Not part of F15's own repro (which was specifically about line writes) and the Step 8.5 executor scoped around it deliberately; track as a follow-up alongside F6/F11 at Step 8.12.
+**Residuals worth a follow-up issue, not a Phase 8 blocker** (both confirmed via direct code read, flagged for Step 8.12's own follow-up-issue list alongside F6/F11):
+1. `commands/promotions.ts`'s own `loadMutableCart` has NO `requireActive` check at all (pre-existing since Step 7.5) — `cart.promotions.apply`/`.remove` never reject a non-active, non-locked cart the way `commands/lines.ts` now does after Step 8.5.
+2. `BenefitCard.tsx`'s `TiersEditor` still has its own pre-existing `grid-cols-[1fr_1fr_1fr_auto]` arbitrary value (confirmed present before Phase 8 reopened, NOT introduced or touched by Step 8.8 — F4's own finding was specifically about `LabelsEditor`, a different function in the same file).
 
 ## This run is closed — read this before doing anything else
 
