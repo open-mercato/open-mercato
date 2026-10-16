@@ -7,6 +7,7 @@ import { emitCrudSideEffects, setCustomFieldsIfAny } from '@open-mercato/shared/
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { DataMapping } from '@open-mercato/core/modules/data_sync/lib/adapter'
 import type { ExternalIdMappingService } from '@open-mercato/core/modules/data_sync/lib/id-mapping'
 import { SyncExternalIdMapping } from '@open-mercato/core/modules/integrations/data/entities'
@@ -2365,7 +2366,12 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         await recordRejectedMedia(asset, error.code)
         return null
       }
-      throw new Error(`Akeneo media ${asset.remote.codeOrUrl} was rejected by attachment storage (${error.code})`)
+      const { translate } = await resolveTranslations()
+      throw new Error(translate(
+        'sync_akeneo.errors.mediaStorageRejected',
+        'Akeneo media {code} was rejected by attachment storage ({reason}).',
+        { code: asset.remote.codeOrUrl, reason: error.code },
+      ))
     }
     attachment.url = asset.kind === 'image'
       ? buildAttachmentImageUrl(attachment.id, { slug: slugifyAttachmentFileName(attachment.fileName) })
