@@ -491,6 +491,7 @@ const createFallbackProjectCommand: CommandHandler<StaffSupportFallbackProjectCr
       resourceId: result.ruleId,
       tenantId: result.tenantId,
       organizationId: result.organizationId,
+      context: { cacheAliases: [`${staffTimeProjectCrudEvents.module}.${staffTimeProjectCrudEvents.entity}`] },
       payload: {
         undo: {
           ruleId: result.ruleId,

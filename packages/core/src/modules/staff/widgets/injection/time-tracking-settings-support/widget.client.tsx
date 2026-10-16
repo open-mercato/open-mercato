@@ -26,7 +26,7 @@ import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@open-mercato/ui/primitives/table'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { ICON_SUGGESTIONS } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import {
@@ -211,6 +211,22 @@ function SupportProjectPicker({ labelId, value, knownProjects, placeholder, disa
 
 export default function SupportSettingsTab({ context }: InjectionWidgetComponentProps<TimeTrackingSettingsTabContext>) {
   const t = useT()
+  const locale = useLocale()
+  const unnotifiedTicketsLabel = React.useCallback(
+    (count: number): string => {
+      let category: string
+      try {
+        category = new Intl.PluralRules(locale).select(count)
+      } catch {
+        category = count === 1 ? 'one' : 'other'
+      }
+      if (category === 'one') return t('staff.support.settings.routing.unnotifiedTickets.one', '{count} ticket was not notified to anyone.', { count })
+      if (category === 'few') return t('staff.support.settings.routing.unnotifiedTickets.few', '{count} tickets were not notified to anyone.', { count })
+      if (category === 'many') return t('staff.support.settings.routing.unnotifiedTickets.many', '{count} tickets were not notified to anyone.', { count })
+      return t('staff.support.settings.routing.unnotifiedTickets.other', '{count} tickets were not notified to anyone.', { count })
+    },
+    [locale, t],
+  )
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const { payload: chromePayload, isReady: chromeReady } = useBackendChrome()
@@ -704,7 +720,7 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
                 {unnotifiedTicketCount > 0 ? (
                   <Alert status="warning" data-testid="support-unnotified-tickets">
                     <AlertDescription>
-                      {t('staff.support.settings.routing.unnotifiedTickets', '{count} tickets were not notified to anyone.', { count: unnotifiedTicketCount })}{' '}
+                      {unnotifiedTicketsLabel(unnotifiedTicketCount)}{' '}
                       <Link className="font-medium underline" href={UNNOTIFIED_INBOX_URL}>
                         {t('staff.support.settings.routing.unnotifiedTicketsLink', 'Open them in the Support Inbox')}
                       </Link>

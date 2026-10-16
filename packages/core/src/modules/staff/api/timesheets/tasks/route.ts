@@ -117,6 +117,17 @@ export { resolveListProjectAccess }
  */
 export const SUPPORT_FILTER_MAX_TASK_IDS = 1000
 
+/**
+ * Requests whose support-filter narrowing hit `SUPPORT_FILTER_MAX_TASK_IDS`. The list's
+ * `afterList` hook reports them as `totalIsCapped`, so a truncated support filter is
+ * never presented as the complete result.
+ */
+const supportFilterTruncatedRequests = new WeakSet<Request>()
+
+export function markTaskListTotalCapped(payload: Record<string, unknown>, ctx: { request?: Request }): void {
+  if (ctx.request && supportFilterTruncatedRequests.has(ctx.request)) payload.totalIsCapped = true
+}
+
 function intersectIds(current: string[] | null, next: string[]): string[] {
   if (current === null) return next
   const allowed = new Set(next)
@@ -195,10 +206,11 @@ async function resolveTaskIdsForSupport(ctx: CrudCtx, criteria: SupportFilterCri
       em,
       StaffSupportTicket,
       where,
-      { fields: ['taskId'], limit: SUPPORT_FILTER_MAX_TASK_IDS, orderBy: { createdAt: 'desc' } },
+      { fields: ['taskId'], limit: SUPPORT_FILTER_MAX_TASK_IDS + 1, orderBy: { createdAt: 'desc' } },
       { tenantId, organizationId },
     )
-    return Array.from(new Set(rows.map((row) => row.taskId)))
+    if (rows.length > SUPPORT_FILTER_MAX_TASK_IDS && ctx.request) supportFilterTruncatedRequests.add(ctx.request)
+    return Array.from(new Set(rows.slice(0, SUPPORT_FILTER_MAX_TASK_IDS).map((row) => row.taskId)))
   } catch (err) {
     logger.error('staff.timesheets.tasks support filter resolution failed', { err })
     getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.task_support_filter_failed' })
@@ -390,6 +402,9 @@ const crud = makeCrudRoute({
     buildFilters: buildTaskListFilters,
   },
   enrichers: { entityId: 'staff:staff_time_task' },
+  hooks: {
+    afterList: (payload, ctx) => markTaskListTotalCapped(payload, ctx),
+  },
   actions: {
     create: {
       commandId: staffTimeTaskCommandIds.create,

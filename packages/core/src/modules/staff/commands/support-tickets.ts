@@ -36,6 +36,7 @@ import {
   readHighestSequenceNumber,
   taskCrudEvents,
   taskCrudIndexer,
+  TASK_LIST_CACHE_RESOURCE,
 } from './timesheets-tasks'
 import { explicitStaffCommandScope, extractUndoPayload } from './shared'
 
@@ -346,6 +347,7 @@ const createFromPortalCommand: CommandHandler<SupportTicketCreateFromPortalInput
       parentResourceId: result.taskId,
       tenantId: result.tenantId,
       organizationId: result.organizationId,
+      context: { cacheAliases: [TASK_LIST_CACHE_RESOURCE] },
       payload: {
         undo: {
           taskId: result.taskId,
@@ -523,6 +525,7 @@ const portalMessageCommand: CommandHandler<SupportTicketPortalMessageInput, Supp
       parentResourceId: result.taskId,
       tenantId: result.tenantId,
       organizationId: result.organizationId,
+      context: { cacheAliases: [TASK_LIST_CACHE_RESOURCE] },
       payload: {
         undo: {
           commentId: result.commentId,
