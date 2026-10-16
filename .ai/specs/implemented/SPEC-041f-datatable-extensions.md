@@ -499,6 +499,10 @@ export default {
 - Injected items only appear when widgets are registered and user has required features
 - No changes to DataTable's external API (props interface)
 
+## Changelog
+
+- 2026-10-15: Initial table rendering waits for registry registration, parent column definitions, and injected columns. Hidden defaults and injected placement settle before paint, while subsequent row refreshes retain the header (#7436). Customers People, Companies, and Deals include custom-field definition loading in the existing `isLoading` prop.
+
 ## Implementation Status
 
 | Phase | Status | Date | Notes |

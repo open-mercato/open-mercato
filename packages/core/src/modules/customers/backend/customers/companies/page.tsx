@@ -323,7 +323,7 @@ export default function CustomersCompaniesPage() {
     }
   }, [fetchDictionaryEntries, scopeVersion, reloadToken])
 
-  const { data: customFieldDefs = [] } = useCustomFieldDefs(
+  const { data: customFieldDefs = [], isLoading: customFieldDefsLoading } = useCustomFieldDefs(
     [E.customers.customer_entity, E.customers.customer_company_profile],
     { keyExtras: [scopeVersion, reloadToken] },
   )
@@ -970,7 +970,7 @@ export default function CustomersCompaniesPage() {
           )}
           virtualized
           pagination={{ page, pageSize, total, totalPages, totalIsCapped, onPageChange: setPage, pageSizeOptions: [10, 25, 50, 100], onPageSizeChange: handlePageSizeChange, cacheStatus }}
-          isLoading={isLoading}
+          isLoading={isLoading || customFieldDefsLoading}
         />
         <AdvancedFilterPanel
           fields={advancedFilterFields}

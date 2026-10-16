@@ -60,6 +60,8 @@ Then forward `initialPerspective` to `DataTable`:
 
 `fetchInitialPerspectiveState()` reads the user’s cookie and calls the perspectives API using the incoming request credentials. It returns the saved response payload, the id that should be activated, and a sanitized copy of the perspective settings. The client uses that information to render the table with the correct columns immediately while still revalidating the data once hydrated.
 
+On the initial load, `DataTable` shows its loading state until `isLoading` clears and injected columns finish loading. If the host builds columns from asynchronous custom-field definitions, include that query's loading state in `isLoading` alongside the row request. Hidden defaults and injected-column placement are applied before the header appears; later data refreshes retain the header.
+
 ## What the client stores locally
 
 The `DataTable` component keeps a lightweight snapshot in `localStorage` so subsequent navigations reapply the last view even before React Query has revalidated against the API. The snapshot is invalidated automatically when a perspective is deleted or a role default is cleared.

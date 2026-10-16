@@ -13,4 +13,6 @@ topics: ["generated-files","database-migrations","provider-lifecycle"]
 
 **Rule**: Client-side injection hooks must react to registry registration changes. When bootstrap registers core injection widgets/tables, invalidate loader caches and notify hooks so they reload instead of permanently caching an empty registry snapshot.
 
+Loading consumers must also distinguish an unregistered registry from a registered empty registry. Keep the initial loading signal active until both widget entries and injection tables are registered; a successful empty lookup before bootstrap finishes must not release a table's initial column layout. Recheck the registry version after subscribing so registration between render and effect cannot be missed.
+
 **Applies to**: `packages/shared/src/modules/widgets/injection-loader.ts`, `packages/ui/src/backend/injection/InjectionSpot.tsx`, and any future client hook that reads generated registries during hydration.

@@ -84,6 +84,66 @@ describe('DataTable extensions', () => {
     registerComponentOverrides([])
   })
 
+  it.each(['parent', 'injected'])('waits for all initial columns when %s columns finish first', (firstReady) => {
+    let columnsLoading = true
+    useInjectionDataWidgetsMock.mockImplementation((spotId: string) => ({
+      widgets: spotId.endsWith(':columns') && !columnsLoading
+        ? [{ metadata: { id: 'test.delayed-column' }, columns: [{ id: 'gateway_status', header: 'Gateway status', accessorKey: 'name' }] }]
+        : [],
+      isLoading: spotId.endsWith(':columns') && columnsLoading,
+      error: null,
+    }))
+    const props = {
+      columns: [{ accessorKey: 'name', header: 'Name' }],
+      data: [{ id: 'r1', name: 'Alice' }],
+      extensionTableId: 'tests.delayed-columns',
+      isLoading: true,
+    }
+    const view = renderTable(props)
+    expect(screen.queryAllByRole('columnheader')).toHaveLength(0)
+    expect(screen.getByText('Loading data...')).toBeInTheDocument()
+
+    columnsLoading = firstReady === 'parent'
+    view.rerenderTable({ ...props, isLoading: firstReady !== 'parent' })
+    expect(screen.queryAllByRole('columnheader')).toHaveLength(0)
+
+    columnsLoading = false
+    view.rerenderTable({
+      ...props,
+      isLoading: false,
+      columns: [...props.columns, { accessorKey: 'cf_role', header: 'Buying role' }],
+    })
+    expect(screen.getAllByRole('columnheader').map((header) => header.textContent)).toEqual(['Name', 'Buying role', 'Gateway status'])
+
+    columnsLoading = true
+    view.rerenderTable({ ...props, isLoading: true })
+    expect(screen.getByRole('columnheader', { name: 'Name' })).toBeInTheDocument()
+    view.cleanupQueryClient()
+  })
+
+  it('does not wait for disabled column injection on a table without an extension ID', () => {
+    useInjectionDataWidgetsMock.mockImplementation(() => ({ widgets: [], isLoading: true, error: null }))
+    const view = renderTable({
+      columns: [{ accessorKey: 'name', header: 'Name' }],
+      data: [{ id: 'r1', name: 'Alice' }],
+    })
+
+    expect(screen.getByRole('columnheader', { name: 'Name' })).toBeInTheDocument()
+    view.cleanupQueryClient()
+  })
+
+  it('shows the table when column injection finishes with an error', () => {
+    useInjectionDataWidgetsMock.mockImplementation(() => ({ widgets: [], isLoading: false, error: 'Load failed' }))
+    const view = renderTable({
+      columns: [{ accessorKey: 'name', header: 'Name' }],
+      data: [{ id: 'r1', name: 'Alice' }],
+      extensionTableId: 'tests.failed-columns',
+    })
+
+    expect(screen.getByRole('columnheader', { name: 'Name' })).toBeInTheDocument()
+    view.cleanupQueryClient()
+  })
+
   it('executes transforms and wrappers at the derived DataTable handle', () => {
     registerComponentOverrides([
       {

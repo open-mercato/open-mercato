@@ -245,6 +245,12 @@ export function getInjectionRegistryVersion(): number {
   return _injectionRegistryVersion
 }
 
+/** @internal */
+export function isInjectionRegistryReady(): boolean {
+  return (readGlobalInjectionWidgets() ?? _coreInjectionWidgetEntries) !== null
+    && (readGlobalInjectionTables() ?? _coreInjectionTables) !== null
+}
+
 const injectionRegistryChangeSubscribers = new Set<() => void>()
 let injectionRegistryDomListenerAttached = false
 
