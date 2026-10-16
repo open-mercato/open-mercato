@@ -121,6 +121,7 @@ type PersonInteractionSnapshot = {
   body: string | null
   status: string
   scheduledAt: Date | null
+  timezone?: string | null
   occurredAt: Date | null
   priority: number | null
   authorUserId: string | null
@@ -444,6 +445,7 @@ async function loadPersonSnapshot(em: EntityManager, entityId: string): Promise<
       body: interaction.body ?? null,
       status: interaction.status,
       scheduledAt: interaction.scheduledAt ?? null,
+      timezone: interaction.timezone ?? null,
       occurredAt: interaction.occurredAt ?? null,
       priority: interaction.priority ?? null,
       authorUserId: interaction.authorUserId ?? null,
@@ -1638,6 +1640,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
           body: interaction.body,
           status: interaction.status,
           scheduledAt: interaction.scheduledAt,
+          timezone: interaction.timezone ?? null,
           occurredAt: interaction.occurredAt,
           priority: interaction.priority,
           authorUserId: interaction.authorUserId,
