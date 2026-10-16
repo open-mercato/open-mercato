@@ -213,9 +213,9 @@ test.describe('TC-CRM-053: Activity validation — date/time required, phone val
       await logCallItem.click()
 
       // The DateTimeFields component renders required asterisks via a
-      // DS-token span (`text-status-error-foreground`). On the Call tab both
+      // DS-token span (`text-status-error-text`). On the Call tab both
       // Date and Start Time inputs render (so two markers appear).
-      const requiredMarkers = page.locator('span[aria-hidden="true"].text-status-error-foreground')
+      const requiredMarkers = page.locator('span[aria-hidden="true"].text-status-error-text')
       await expect(requiredMarkers.first()).toBeVisible({ timeout: 15_000 })
       await expect(requiredMarkers).toHaveCount(2)
     } finally {

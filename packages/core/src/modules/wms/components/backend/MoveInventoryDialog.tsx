@@ -807,7 +807,7 @@ export function MoveInventoryDialog({
                 <div className="mt-2 flex items-center gap-2">
                   <ArrowLeftRight className="size-4 text-muted-foreground" aria-hidden="true" />
                   {previewError ? (
-                    <p className="text-sm text-status-warning-fg">{previewError}</p>
+                    <p className="text-sm text-status-warning-text">{previewError}</p>
                   ) : loadingPreview && available == null ? (
                     <p className="text-sm text-muted-foreground">
                       {t('wms.backend.inventory.move.preview.loading', 'Refreshing availability…')}
@@ -848,7 +848,7 @@ export function MoveInventoryDialog({
                     ) : destCapacity?.capacityUnits != null ? (
                       <p
                         className={`mt-1 text-sm tabular-nums ${
-                          destCapacityExcess > 0 ? 'text-status-warning-fg' : 'text-muted-foreground'
+                          destCapacityExcess > 0 ? 'text-status-warning-text' : 'text-muted-foreground'
                         }`}
                       >
                         {t(
@@ -870,7 +870,7 @@ export function MoveInventoryDialog({
                       </p>
                     ) : null}
                     {destCapacityExcess > 0 ? (
-                      <p className="mt-1 text-sm text-status-warning-fg">
+                      <p className="mt-1 text-sm text-status-warning-text">
                         {t(
                           'wms.backend.inventory.move.preview.capacityExceeded',
                           'This move would exceed the destination capacity by {quantity} unit(s).',
