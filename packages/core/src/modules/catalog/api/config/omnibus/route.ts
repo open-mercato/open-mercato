@@ -190,7 +190,7 @@ export const openApi: OpenApiRouteDoc = {
     PATCH: {
       summary: 'Update the tenant Omnibus configuration',
       description:
-        'Shallow-merges the provided top-level fields into the stored tenant configuration (a provided `channels` map replaces the stored one; `null` clears `defaultPresentedPriceKindId`). Member-state derogation fields and `backfillCoverage` are rejected. Enabling requires a resolvable presented price kind and completed backfill coverage for every in-scope EU channel.',
+        'Shallow-merges the provided top-level fields into the stored tenant configuration (a provided `channels` map replaces the stored one; `null` clears `defaultPresentedPriceKindId`). Per-channel member-state derogation rules (`progressiveReductionRule`, `progressiveMaxGapDays`, `perishableGoodsRule`, `newArrivalRule`, `newArrivalsLookbackDays`) are accepted; `backfillCoverage` is rejected. Enabling requires a resolvable presented price kind and completed backfill coverage for every in-scope EU channel.',
       tags: ['Catalog'],
       requestBody: { schema: omnibusConfigPatchSchema },
       responses: [{ status: 200, description: 'Merged Omnibus configuration', schema: omnibusConfigSchema }],
