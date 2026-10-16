@@ -5732,7 +5732,7 @@ const updateQuoteCommand: CommandHandler<
     if (!after) return null;
     const { translate } = await resolveTranslations();
     const changes = before
-      ? buildChanges(
+      ? buildAuditChanges(
           before.quote as unknown as Record<string, unknown>,
           after.quote as unknown as Record<string, unknown>,
           buildDocumentUpdateChangeKeys("quote", parsed),
@@ -6033,7 +6033,7 @@ const updateOrderCommand: CommandHandler<
     if (!after) return null;
     const { translate } = await resolveTranslations();
     const changes = before
-      ? buildChanges(
+      ? buildAuditChanges(
           before.order as unknown as Record<string, unknown>,
           after.order as unknown as Record<string, unknown>,
           buildDocumentUpdateChangeKeys("order", parsed),
