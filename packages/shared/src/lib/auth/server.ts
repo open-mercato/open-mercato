@@ -258,7 +258,7 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
     // Keep every session marker fail-closed so a malformed session key cannot
     // fall back to the regular key path and escape its user/scope binding.
     const isSessionBoundKey = Boolean(
-      record.sessionToken
+      record.sessionTokenHash
       || record.sessionUserId
       || record.sessionSecretEncrypted
       || record.opencodeSessionId
