@@ -13,6 +13,36 @@ const emptyStringToNull = (value: unknown): unknown => {
 const clearableStringSchema = (max: number) =>
   z.preprocess(emptyStringToNull, z.string().trim().max(max).nullable().optional())
 
+// QA F9 (Low/UX, confirmed live): a static promotion code was stored and looked up with
+// exact, case-sensitive matching — `SUMMER10` created by an admin answered 409 to a buyer
+// typing `summer10`. Fixed at the write boundary (here) and the lookup boundary
+// (`lib/code-service.ts#resolveCodeByString`): every `code`/`prefix`/`suffix` is
+// upper-cased on write, so the two sides of the comparison always share one casing.
+// Charset is restricted to `A-Z0-9` — alphanumeric only, no spaces or symbols — since
+// these three fields exist for a human to type or transcribe. This is deliberately
+// WIDER than the code-generation worker's own `CODE_CHARSET` (`workers/
+// code-generation.worker.ts`), which additionally excludes `0`/`O`/`1`/`I`/`L` to avoid
+// visual confusion in a MACHINE-GENERATED body — a different, narrower concern than
+// rejecting spaces/symbols in an admin-typed value.
+const CODE_CHARSET_PATTERN = /^[A-Z0-9]+$/
+
+const codeCharsetStringSchema = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .transform((value) => value.toUpperCase())
+    .refine((value) => CODE_CHARSET_PATTERN.test(value), {
+      message: 'Must contain only letters A-Z and digits 0-9 (no spaces or symbols)',
+    })
+
+// Same `preprocess(emptyStringToNull, ...)` shape as `clearableStringSchema` — null/empty
+// stays valid and skips the charset check entirely; only a non-empty value is upper-cased
+// and charset-checked. Mirrors `clearableCurrencyCodeSchema`'s own
+// `currencyCodeSchema.nullable().optional()` composition below.
+const clearableUppercaseStringSchema = (max: number) =>
+  z.preprocess(emptyStringToNull, codeCharsetStringSchema(max).nullable().optional())
+
 const clearableDateSchema = z.preprocess(emptyStringToNull, z.coerce.date().nullable().optional())
 
 // QA F7 (Medium, confirmed live): the `endsAt` datepicker sends a bare date (no time
@@ -744,9 +774,9 @@ export const promotionCodeUsageModeSchema = z.enum(promotionCodeUsageModeValues)
 const codeBaseShape = {
   name: z.string().trim().min(1).max(200),
   type: promotionCodeTypeSchema,
-  code: clearableStringSchema(100),
-  prefix: clearableStringSchema(20),
-  suffix: clearableStringSchema(20),
+  code: clearableUppercaseStringSchema(100),
+  prefix: clearableUppercaseStringSchema(20),
+  suffix: clearableUppercaseStringSchema(20),
   length: z.number().int().positive().max(64).nullable().optional(),
   amount: z.number().int().positive().nullable().optional(),
   usage: promotionCodeUsageModeSchema,

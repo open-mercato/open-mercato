@@ -11,6 +11,7 @@ import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { Code, GeneratedCode } from '../../data/entities'
 import { createCodeCommand, updateCodeCommand, deleteCodeCommand } from '../codes'
+import { resolveCodeByString } from '../../lib/code-service'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({ translate: (_key: string, fallback?: string) => fallback ?? _key }),
@@ -244,6 +245,27 @@ describe('promotions.code.create command', () => {
     await expect(
       createCodeCommand.execute({ name: 'X', type: 'static', code: 'X', usage: 'unlimited', active: true } as any, ctx),
     ).rejects.toMatchObject({ status: 400 })
+  })
+
+  it('stores a lowercase-typed code upper-cased and resolves it by either casing (QA F9 live repro, end-to-end)', async () => {
+    const { em, tables } = createFakeEm()
+    const dataEngine = fakeDataEngine()
+    const ctx = fakeCtx(em, { dataEngine })
+
+    const result = await createCodeCommand.execute(
+      { name: 'Summer promo', type: 'static', code: 'summer10', usage: 'unlimited', active: true } as any,
+      ctx,
+    )
+
+    const stored = tables.get(Code)!.find((row) => row.id === result.codeId)
+    expect(stored?.code).toBe('SUMMER10')
+
+    const scope = { tenantId: TENANT, organizationId: ORG }
+    const resolvedLower = await resolveCodeByString(em as unknown as import('@mikro-orm/postgresql').EntityManager, 'summer10', scope)
+    const resolvedUpper = await resolveCodeByString(em as unknown as import('@mikro-orm/postgresql').EntityManager, 'SUMMER10', scope)
+
+    expect(resolvedLower?.code.id).toBe(result.codeId)
+    expect(resolvedUpper?.code.id).toBe(result.codeId)
   })
 })
 

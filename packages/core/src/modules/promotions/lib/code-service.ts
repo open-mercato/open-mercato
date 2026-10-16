@@ -72,8 +72,14 @@ export async function resolveCodeByString(
   codeString: string,
   scope: PromotionsCodeScope,
 ): Promise<ResolvedCode | null> {
+  // QA F9 (Low/UX, confirmed live): `Code.code`/`GeneratedCode.code` are stored
+  // upper-cased (`data/validators.ts`'s `codeBaseShape`) — normalize the presented string
+  // the same way so a buyer typing `summer10` resolves the same row as a stored
+  // `SUMMER10`. Every caller (reserve/release/use/validate) funnels through this one
+  // function, so this single normalization closes the gap for all of them.
+  const normalizedCodeString = codeString.trim().toUpperCase()
   const staticCode = await em.findOne(Code, {
-    code: codeString,
+    code: normalizedCodeString,
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
     deletedAt: null,
@@ -83,7 +89,7 @@ export async function resolveCodeByString(
   }
 
   const generatedCode = await em.findOne(GeneratedCode, {
-    code: codeString,
+    code: normalizedCodeString,
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
   })
@@ -369,11 +375,16 @@ export class PromotionCodeService {
           code = lockedCode
 
           if (input.type === 'dynamic') {
+            // QA F9's grep sweep: this lookup is a direct `GeneratedCode` query (needed
+            // for the row lock), not a call through `resolveCodeByString` — it must apply
+            // the SAME trim+uppercase normalization that function does, or a caller
+            // forwarding a buyer's raw-cased `codeString` here (e.g. `codes/use`'s HTTP
+            // body) would miss the upper-cased stored row.
             const lockedGeneratedCode = await em.findOne(
               GeneratedCode,
               {
                 codeId: code.id,
-                code: input.codeString,
+                code: input.codeString.trim().toUpperCase(),
                 tenantId: scope.tenantId,
                 organizationId: scope.organizationId,
               },

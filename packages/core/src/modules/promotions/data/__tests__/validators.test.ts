@@ -111,6 +111,87 @@ describe('clearableEndOfDayDateSchema (QA F7)', () => {
   })
 })
 
+describe('promotion code casing/charset normalization (QA F9 live repro)', () => {
+  it('upper-cases a lowercase static code on create', () => {
+    const parsed = promotionCodeCreateSchema.parse({
+      name: 'Summer promo',
+      type: 'static',
+      code: 'summer10',
+      usage: 'unlimited',
+    })
+
+    expect(parsed.code).toBe('SUMMER10')
+  })
+
+  it('upper-cases a lowercase prefix/suffix on create', () => {
+    const parsed = promotionCodeCreateSchema.parse({
+      name: 'Dynamic promo',
+      type: 'dynamic',
+      amount: 10,
+      prefix: 'sum',
+      suffix: 'end',
+      usage: 'unlimited',
+    })
+
+    expect(parsed.prefix).toBe('SUM')
+    expect(parsed.suffix).toBe('END')
+  })
+
+  it('upper-cases a lowercase code on a partial update', () => {
+    const parsed = promotionCodeUpdateSchema.parse({ id: CODE_ID, code: 'summer10' })
+
+    expect(parsed.code).toBe('SUMMER10')
+  })
+
+  it('rejects a code containing a space', () => {
+    expect(() =>
+      promotionCodeCreateSchema.parse({
+        name: 'Summer promo',
+        type: 'static',
+        code: 'summer 10',
+        usage: 'unlimited',
+      }),
+    ).toThrow()
+  })
+
+  it('rejects a code containing a symbol', () => {
+    expect(() =>
+      promotionCodeCreateSchema.parse({
+        name: 'Summer promo',
+        type: 'static',
+        code: 'su-mmer',
+        usage: 'unlimited',
+      }),
+    ).toThrow()
+  })
+
+  it('rejects a prefix/suffix containing a space or symbol', () => {
+    const base = { name: 'Dynamic promo', type: 'dynamic' as const, amount: 10, usage: 'unlimited' as const }
+    expect(() => promotionCodeCreateSchema.parse({ ...base, prefix: 'su mmer' })).toThrow()
+    expect(() => promotionCodeCreateSchema.parse({ ...base, suffix: 'su-mmer' })).toThrow()
+  })
+
+  it('keeps null and omitted code/prefix/suffix valid (regression guard)', () => {
+    const omitted = promotionCodeCreateSchema.parse({
+      name: 'Dynamic promo',
+      type: 'dynamic',
+      amount: 10,
+      usage: 'unlimited',
+    })
+    expect(omitted.code).toBeUndefined()
+    expect(omitted.prefix).toBeUndefined()
+    expect(omitted.suffix).toBeUndefined()
+
+    const nulled = promotionCodeUpdateSchema.parse({ id: CODE_ID, code: null, prefix: null, suffix: null })
+    expect(nulled.code).toBeNull()
+    expect(nulled.prefix).toBeNull()
+    expect(nulled.suffix).toBeNull()
+
+    const emptyString = promotionCodeUpdateSchema.parse({ id: CODE_ID, code: '' })
+    expect(emptyString.code).toBeNull()
+  })
+})
+
 describe('promotionUpdateSchema endsAt (QA F7 live repro)', () => {
   it('stores a date-only endsAt as the end of that day, not the start', () => {
     const parsed = promotionUpdateSchema.parse({ id: PROMOTION_ID, endsAt: '2026-10-16' })

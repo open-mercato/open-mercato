@@ -16,6 +16,7 @@ import {
   CODE_INVALID_REASON,
   CODE_REQUIRES_IDENTIFIED_CUSTOMER_REASON,
   PromotionCodeService,
+  resolveCodeByString,
   type PromotionCodeServiceContainer,
   type PromotionsCodeScope,
 } from '../code-service'
@@ -257,6 +258,52 @@ async function expectCrudError(promise: Promise<unknown>, status: number, error:
   }
 }
 
+describe('resolveCodeByString (QA F9 live repro)', () => {
+  it('resolves a stored upper-cased static code when the presented string is lowercase', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { code: 'SUMMER10' })
+
+    const resolved = await resolveCodeByString(
+      em as unknown as import('@mikro-orm/postgresql').EntityManager,
+      'summer10',
+      SCOPE,
+    )
+
+    expect(resolved).not.toBeNull()
+    expect(resolved?.type).toBe('static')
+    expect(resolved?.code.id).toBe(code.id)
+  })
+
+  it('resolves a stored upper-cased GeneratedCode when the presented string is lowercase', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { type: 'dynamic', code: null })
+    seedGeneratedCode(tables, { codeId: code.id, code: 'DYNAMIC-ABC', active: true })
+
+    const resolved = await resolveCodeByString(
+      em as unknown as import('@mikro-orm/postgresql').EntityManager,
+      'dynamic-abc',
+      SCOPE,
+    )
+
+    expect(resolved).not.toBeNull()
+    expect(resolved?.type).toBe('dynamic')
+    expect(resolved?.code.id).toBe(code.id)
+  })
+
+  it('also tolerates untrimmed whitespace around the presented string', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { code: 'SUMMER10' })
+
+    const resolved = await resolveCodeByString(
+      em as unknown as import('@mikro-orm/postgresql').EntityManager,
+      '  summer10  ',
+      SCOPE,
+    )
+
+    expect(resolved?.code.id).toBe(code.id)
+  })
+})
+
 describe('PromotionCodeService.reserveCode', () => {
   it('reserves a static code for an identified customer', async () => {
     const { em, tables } = createFakeEm()
@@ -272,6 +319,20 @@ describe('PromotionCodeService.reserveCode', () => {
     expect(result).toEqual({ ok: true, codeId: code.id, type: 'static' })
     expect(tables.get(CodeReservation)).toHaveLength(1)
     expect(tables.get(CodeReservation)![0]).toMatchObject({ codeId: code.id, cartId: 'cart-1', customerId: 'cust-1' })
+  })
+
+  it('reserves a static code when the buyer presents a different casing than the stored code (QA F9 live repro)', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { code: 'SUMMER10' })
+    const service = new PromotionCodeService(fakeContainer())
+
+    const result = await service.reserveCode(
+      em as unknown as import('@mikro-orm/postgresql').EntityManager,
+      { codeString: 'summer10', cartId: 'cart-1', customerId: 'cust-1' },
+      SCOPE,
+    )
+
+    expect(result).toEqual({ ok: true, codeId: code.id, type: 'static' })
   })
 
   it('resolves a dynamic code via GeneratedCode (W5d dual-table namespace)', async () => {
@@ -617,6 +678,22 @@ describe('PromotionCodeService.useCode', () => {
 
     expect(generatedCode.active).toBe(false)
     expect(code.used).toBe(0)
+  })
+
+  it('deactivates the specific GeneratedCode when the presented codeString is a different casing (QA F9 — direct lookup bypassing resolveCodeByString)', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { type: 'dynamic', code: null, used: 0 })
+    const generatedCode = seedGeneratedCode(tables, { codeId: code.id, code: 'DYNAMIC-ABC', active: true })
+    seedReservation(tables, { codeId: code.id, cartId: 'cart-1', customerId: 'cust-1' })
+    const service = new PromotionCodeService(fakeContainer())
+
+    await service.useCode(
+      em as unknown as import('@mikro-orm/postgresql').EntityManager,
+      { codeId: code.id, codeString: 'dynamic-abc', cartId: 'cart-1', customerId: 'cust-1', type: 'dynamic' },
+      SCOPE,
+    )
+
+    expect(generatedCode.active).toBe(false)
   })
 
   it('rejects a second use of an already-exhausted single-use code (row-lock re-check proxy for TC-PROM-022)', async () => {
