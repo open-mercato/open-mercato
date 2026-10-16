@@ -1,3 +1,4 @@
+import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { MarketingValueBoundaries } from '../data/entities.js'
 import { EMPTY_VALUE_BOUNDARIES, RFM_BUCKETS } from './engine/rfm.js'
@@ -127,14 +128,31 @@ export async function refreshValueBoundaries(
     return computed
   }
 
-  const created = em.create(MarketingValueBoundaries, {
-    ...scope,
-    boundaries: computed as unknown as Record<string, unknown>,
-    buyerCount: computed.buyerCount,
-    computedAt: now,
-  })
-  em.persist(created)
-  await em.flush()
+  /**
+   * Check-then-insert, same shape `recordSurveyAsked`/`addScoreEntry` already guard elsewhere in
+   * this module: two overlapping sweep ticks for the same scope can both read `existing: null` and
+   * both reach here, and only one insert can win the row's `mkt_value_boundaries_scope_uq` unique
+   * index. The loser's own computation is still correct — recomputing twice a day is meant to be
+   * harmless — so a collision falls back to an update instead of an unhandled exception.
+   */
+  const fork = em.fork()
+  try {
+    const created = fork.create(MarketingValueBoundaries, {
+      ...scope,
+      boundaries: computed as unknown as Record<string, unknown>,
+      buyerCount: computed.buyerCount,
+      computedAt: now,
+    })
+    fork.persist(created)
+    await fork.flush()
+  } catch (error) {
+    if (!(error instanceof UniqueConstraintViolationException)) throw error
+    await em.fork().nativeUpdate(MarketingValueBoundaries, { ...scope }, {
+      boundaries: computed as unknown as Record<string, unknown>,
+      buyerCount: computed.buyerCount,
+      computedAt: now,
+    })
+  }
   return computed
 }
 

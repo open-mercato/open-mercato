@@ -16,7 +16,7 @@ const now = new Date('2026-10-02T12:00:00.000Z')
 
 function fakeEm(computedAt: Date | null) {
   const executed: string[] = []
-  const em = {
+  const em: Record<string, unknown> = {
     findOne: async () => (computedAt
       ? { boundaries: {}, buyerCount: 10, computedAt }
       : null),
@@ -33,6 +33,7 @@ function fakeEm(computedAt: Date | null) {
     create: () => ({}),
     persist: () => undefined,
     flush: async () => undefined,
+    fork: () => em,
   }
   return { em: em as unknown as EntityManager, executed }
 }
