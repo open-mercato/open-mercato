@@ -18,13 +18,15 @@ const clearableStringSchema = (max: number) =>
 // typing `summer10`. Fixed at the write boundary (here) and the lookup boundary
 // (`lib/code-service.ts#resolveCodeByString`): every `code`/`prefix`/`suffix` is
 // upper-cased on write, so the two sides of the comparison always share one casing.
-// Charset is restricted to `A-Z0-9` — alphanumeric only, no spaces or symbols — since
-// these three fields exist for a human to type or transcribe. This is deliberately
-// WIDER than the code-generation worker's own `CODE_CHARSET` (`workers/
-// code-generation.worker.ts`), which additionally excludes `0`/`O`/`1`/`I`/`L` to avoid
-// visual confusion in a MACHINE-GENERATED body — a different, narrower concern than
-// rejecting spaces/symbols in an admin-typed value.
-const CODE_CHARSET_PATTERN = /^[A-Z0-9]+$/
+// Charset is restricted to `A-Z0-9_-` — alphanumeric plus the two separator characters
+// every real promo-code convention already uses (`SUMMER-2026`, `SAVE_20`) — no spaces, no
+// other symbols — since these three fields exist for a human to type or transcribe. This
+// is deliberately WIDER than the code-generation worker's own `CODE_CHARSET` (`workers/
+// code-generation.worker.ts`), which additionally excludes `0`/`O`/`1`/`I`/`L` (visual
+// confusion in a MACHINE-GENERATED body, a different, narrower concern) and never
+// generates `-`/`_` itself — an admin-supplied `prefix`/`suffix` is where a separator
+// would actually appear.
+const CODE_CHARSET_PATTERN = /^[A-Z0-9_-]+$/
 
 const codeCharsetStringSchema = (max: number) =>
   z
@@ -33,7 +35,7 @@ const codeCharsetStringSchema = (max: number) =>
     .max(max)
     .transform((value) => value.toUpperCase())
     .refine((value) => CODE_CHARSET_PATTERN.test(value), {
-      message: 'Must contain only letters A-Z and digits 0-9 (no spaces or symbols)',
+      message: 'Must contain only letters A-Z, digits 0-9, hyphens or underscores (no spaces or other symbols)',
     })
 
 // Same `preprocess(emptyStringToNull, ...)` shape as `clearableStringSchema` — null/empty

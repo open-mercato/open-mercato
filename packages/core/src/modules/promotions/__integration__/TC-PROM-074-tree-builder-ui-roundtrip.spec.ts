@@ -50,7 +50,9 @@ test.describe('TC-PROM-074: tree builder save/reload with nested groups and bene
       await expect(eligibleCurrenciesField).toBeVisible();
       await eligibleCurrenciesField.getByPlaceholder('Search...').fill('USD');
       await eligibleCurrenciesField.getByRole('button', { name: /^USD/ }).click();
-      await page.getByRole('button', { name: 'Save promotion' }).click();
+      // CrudForm renders both a sticky and an inline submit button at once (same
+      // established pattern TC-PROM-083 already disambiguates with .first()).
+      await page.getByRole('button', { name: 'Save promotion' }).first().click();
       await expect(page.getByText('Promotion saved')).toBeVisible();
 
       await page.reload({ waitUntil: 'domcontentloaded' });

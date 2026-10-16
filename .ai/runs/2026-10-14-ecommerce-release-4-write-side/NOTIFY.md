@@ -467,3 +467,16 @@ Stood up the ephemeral Docker environment (`yarn test:integration:ephemeral "car
 - `HANDOFF.md`'s OPEN ITEM 3 corrected in place (not deleted) — the original Step 5.1 claim that line mutations never recompute `Cart.totals` is now explicitly marked superseded by Step 8.2, with the real residual nuance (bare GETs only) called out so a future reader doesn't inherit the stale claim from a comment or a sibling run-folder reference.
 
 Proceeding per the run's plan; Step 8.12 (final checkpoint) is next.
+
+## 2026-10-16T18:55:00Z — Step 8.13 done: fix-forward from Checkpoint 5's live-run findings
+
+Triaged both findings Checkpoint 5 (Step 8.12 Part 1) surfaced and correctly refused to resolve unilaterally:
+
+**Finding A — owner decision made: widen the code charset, not narrow the fixtures.** Step 8.10's `/^[A-Z0-9]+$/` rejected `-`/`_`, breaking five PRE-EXISTING fixtures' own `QA-<SUITE>-<stamp>` naming convention (all predating Step 8.10). Chose to widen rather than rename five fixtures across three phases, since hyphen/underscore separators are the real-world promo-code norm (`SUMMER-2026`) and the ORIGINAL F9 finding was about casing/space/symbol rejection, never about disallowing separators. Widened `CODE_CHARSET_PATTERN` to `/^[A-Z0-9_-]+$/` in `promotions/data/validators.ts`, updated Step 8.10's own unit test (the hyphen-rejection case now uses a genuine symbol `#`; added a new test proving a hyphen/underscore IS now accepted and upper-cased correctly).
+
+**Finding B — three test-authoring bugs, confirmed not product bugs, all fixed:**
+1. `TC-CART-PRICE-03` (Step 8.1's own spec) read a stale `body.outcome.line.id` — the real `/current/lines` envelope has returned `{cart: CartView}` for every successful outcome since Step 5.2. Fixed to find the line by `variantId` in `body.cart.lines`.
+2. `TC-PROM-074` (Step 8.7's own spec addition) hit a Playwright strict-mode violation on the ambiguous `Save promotion` button name — CrudForm's pre-existing sticky+inline dual-submit-button pattern (not introduced by Phase 8), already correctly disambiguated with `.first()` in the older `TC-PROM-083`. Added `.first()`.
+3. `TC-PROM-075` (a Step-1.10 spec, untouched by any Phase 8 Step directly) hung its full 120s on `getByPlaceholder('Locale code (e.g. en)').fill('en')` — a genuine cross-spec side effect of Step 8.8's own locale `Input`→`Select` swap (QA F4): the placeholder no longer exists on a text input, it's now an `aria-label` on a `SelectTrigger`. Fixed to drive the real Select (click trigger → pick `en` option → click `Add locale`), mirroring `TC-PROM-074`'s own already-correct pattern for the identical control.
+
+Verified: `yarn workspace @open-mercato/core run typecheck` clean; full `cart`+`promotions` Jest suite **467/467** (was 466, +1 new charset-acceptance test). The live Playwright re-run (to confirm all 8 originally-failing specs now pass) continues under Step 8.12's own Part 1 re-run, next.

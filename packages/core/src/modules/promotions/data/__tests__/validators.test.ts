@@ -159,16 +159,27 @@ describe('promotion code casing/charset normalization (QA F9 live repro)', () =>
       promotionCodeCreateSchema.parse({
         name: 'Summer promo',
         type: 'static',
-        code: 'su-mmer',
+        code: 'su#mmer',
         usage: 'unlimited',
       }),
     ).toThrow()
   })
 
+  it('accepts a hyphen or underscore as a separator (real-world promo-code convention)', () => {
+    const parsed = promotionCodeCreateSchema.parse({
+      name: 'Summer promo',
+      type: 'static',
+      code: 'summer-2026_promo',
+      usage: 'unlimited',
+    })
+
+    expect(parsed.code).toBe('SUMMER-2026_PROMO')
+  })
+
   it('rejects a prefix/suffix containing a space or symbol', () => {
     const base = { name: 'Dynamic promo', type: 'dynamic' as const, amount: 10, usage: 'unlimited' as const }
     expect(() => promotionCodeCreateSchema.parse({ ...base, prefix: 'su mmer' })).toThrow()
-    expect(() => promotionCodeCreateSchema.parse({ ...base, suffix: 'su-mmer' })).toThrow()
+    expect(() => promotionCodeCreateSchema.parse({ ...base, suffix: 'su#mmer' })).toThrow()
   })
 
   it('keeps null and omitted code/prefix/suffix valid (regression guard)', () => {

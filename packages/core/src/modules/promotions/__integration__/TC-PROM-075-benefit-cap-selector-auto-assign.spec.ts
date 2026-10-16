@@ -72,8 +72,12 @@ test.describe('TC-PROM-075: capped benefit auto-assigns a selector', () => {
       await page.getByRole('option', { name: 'Most expensive', exact: true }).click();
       await expect(selectorField.getByRole('combobox')).toContainText('Most expensive');
 
-      // A benefit still needs a non-blank label before it can be saved.
-      await page.getByPlaceholder('Locale code (e.g. en)').fill('en');
+      // A benefit still needs a non-blank label before it can be saved. The
+      // locale field used to be a free-text input; it is now a `Select`
+      // constrained to the app's supported locales (Step 8.8, QA F4) — same
+      // pattern TC-PROM-074 already proves.
+      await page.getByRole('combobox', { name: 'Locale code (e.g. en)' }).click();
+      await page.getByRole('option', { name: 'en', exact: true }).click();
       await page.getByRole('button', { name: 'Add locale' }).click();
       await page.getByPlaceholder('Label text').fill('Capped benefit');
 

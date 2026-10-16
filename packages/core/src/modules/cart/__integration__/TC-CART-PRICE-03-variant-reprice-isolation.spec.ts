@@ -66,8 +66,12 @@ test.describe('TC-CART-PRICE-03: a whole-cart re-price keeps each line on its OW
         body: { productId: variantProduct.productId, variantId, quantity: '1' },
       });
       expect(response.status, `add line for variant ${variantId} should be 201 (${response.text})`).toBe(201);
-      const body = response.body as { outcome: { line: { id: string } } };
-      return body.outcome.line.id;
+      // §10.1 envelope since Step 5.2 — a successful add/merge returns `{ cart: CartView }`,
+      // never a bare `{ outcome }` (that shape is reserved for a hard-stop rejection).
+      const body = response.body as { cart: { lines: Array<{ id: string; variantId: string | null }> } };
+      const line = body.cart.lines.find((candidate) => candidate.variantId === variantId);
+      if (!line) throw new Error(`[internal] no line found for variant ${variantId} in the cart response`);
+      return line.id;
     };
 
     const lineIdForVariantA = await addLineForVariant(variantProduct.variantAId);
