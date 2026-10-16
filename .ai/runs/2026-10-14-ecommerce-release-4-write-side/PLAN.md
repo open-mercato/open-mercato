@@ -75,7 +75,7 @@
 | 8 | 8.4 | Cart: CartView.promotions as AppliedPromotionView[] (QA F10) | dispatch | done | 30090ba149 |
 | 8 | 8.5 | Cart: 409 for writes on a non-active cart, translated warning messages (QA F15, F13) | dispatch | done | cb1cdd3ab4 |
 | 8 | 8.6 | Promotions: partial update no longer injects schema defaults (QA F2) | dispatch | done | see `git log` |
-| 8 | 8.7 | Promotions: currency and budget fields in the form, tree save surfaces 422 issues (QA F1, F3) | dispatch | todo | — |
+| 8 | 8.7 | Promotions: currency and budget fields in the form, tree save surfaces 422 issues (QA F1, F3) | dispatch | done | see `git log` |
 | 8 | 8.8 | Promotions: Select for rule/benefit type, labels editor locale picker and DS fixes (QA F5, F8, F4) | dispatch | todo | — |
 | 8 | 8.9 | Promotions: inclusive end date (QA F7) | dispatch:capable | todo | — |
 | 8 | 8.10 | Promotions: static code normalization on write and lookup (QA F9) | dispatch | todo | — |

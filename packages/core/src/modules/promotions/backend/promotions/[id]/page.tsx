@@ -36,6 +36,9 @@ type PromotionDetailResponse = {
   tags: string[]
   excludedTags: string[]
   excludeFlags: Record<string, boolean>
+  eligibleCurrencies: string[]
+  maxBudget: string | null
+  budgetCurrency: string | null
   updatedAt: string
 }
 
@@ -114,6 +117,9 @@ export default function PromotionDetailPage({ params }: { params?: { id?: string
     tags: record.tags,
     excludedTags: record.excludedTags,
     excludeFlags: { excludePromotionalPrices: record.excludeFlags?.excludePromotionalPrices ?? false },
+    eligibleCurrencies: record.eligibleCurrencies ?? [],
+    maxBudget: record.maxBudget ?? null,
+    budgetCurrency: record.budgetCurrency ?? null,
   }
 
   return (
@@ -142,6 +148,9 @@ export default function PromotionDetailPage({ params }: { params?: { id?: string
               tags: values.tags ?? [],
               excludedTags: values.excludedTags ?? [],
               excludeFlags: { excludePromotionalPrices: values.excludeFlags?.excludePromotionalPrices ?? false },
+              eligibleCurrencies: values.eligibleCurrencies ?? [],
+              maxBudget: values.maxBudget ?? null,
+              budgetCurrency: values.budgetCurrency ?? null,
             }
             await updateCrud('promotions', payload)
             flash(t('promotions.form.success.update', 'Promotion saved'), 'success')

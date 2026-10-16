@@ -19,9 +19,12 @@ import { createPromotionFixture, deletePromotionIfExists, uniqueStamp } from './
  * green.
  *
  * Uses `order_value` rules (the default type `RuleCard` offers on "Add
- * rule"), so the fixture promotion is created with a single
- * `eligibleCurrencies` entry up front (D-R4-27 — an order_value rule
- * requires exactly one eligible currency).
+ * rule"), which requires exactly one `eligibleCurrencies` entry (D-R4-27).
+ * Step 8.7 added the "Eligible currencies" field to the promotion metadata
+ * form (`promotionFormFields.tsx`'s Settings panel) — this spec now sets it
+ * through that real field instead of pre-seeding `eligibleCurrencies` on the
+ * fixture's `POST /api/promotions` call, so the test proves the UI gap QA
+ * flagged (F1) is actually closed end to end.
  */
 test.describe('TC-PROM-074: tree builder save/reload with nested groups and benefits', () => {
   test('a rule, a benefit, and a nested child group with its own rule all round-trip through the UI', async ({ page, request }) => {
@@ -33,12 +36,24 @@ test.describe('TC-PROM-074: tree builder save/reload with nested groups and bene
     try {
       const fixture = await createPromotionFixture(request, token, {
         name: `QA PROM 074 ${stamp}`,
-        eligibleCurrencies: ['USD'],
       });
       promotionId = fixture.id;
 
       await login(page, 'admin');
       await page.goto(`/backend/promotions/${promotionId}`, { waitUntil: 'domcontentloaded' });
+
+      // --- Set the eligible currency through the real "Eligible currencies"
+      // field (Step 8.7, QA F1) before touching the tree, then reload so the
+      // tree builder's independently-fetched `updatedAt` reflects the
+      // metadata save and its own later PUT does not 409 on a stale value. --
+      const eligibleCurrenciesField = page.locator('[data-crud-field-id="eligibleCurrencies"]');
+      await expect(eligibleCurrenciesField).toBeVisible();
+      await eligibleCurrenciesField.getByPlaceholder('Search...').fill('USD');
+      await eligibleCurrenciesField.getByRole('button', { name: /^USD/ }).click();
+      await page.getByRole('button', { name: 'Save promotion' }).click();
+      await expect(page.getByText('Promotion saved')).toBeVisible();
+
+      await page.reload({ waitUntil: 'domcontentloaded' });
 
       await expect(page.getByText('Rules & Benefits')).toBeVisible();
       // The tree builder fetches the promotion's tree independently of the

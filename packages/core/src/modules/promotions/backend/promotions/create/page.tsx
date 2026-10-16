@@ -38,6 +38,9 @@ export default function CreatePromotionPage() {
       tags: [],
       excludedTags: [],
       excludeFlags: {},
+      eligibleCurrencies: [],
+      maxBudget: null,
+      budgetCurrency: null,
     }),
     [],
   )
@@ -75,6 +78,9 @@ export default function CreatePromotionPage() {
               tags: values.tags ?? [],
               excludedTags: values.excludedTags ?? [],
               excludeFlags: { excludePromotionalPrices: values.excludeFlags?.excludePromotionalPrices ?? false },
+              eligibleCurrencies: values.eligibleCurrencies ?? [],
+              maxBudget: values.maxBudget ?? null,
+              budgetCurrency: values.budgetCurrency ?? null,
             }
 
             const { result } = await createCrud<{ id: string | null }>('promotions', payload)

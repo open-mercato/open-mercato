@@ -60,6 +60,23 @@ function hasBenefitWithEmptyLabels(group: LocalRuleGroupNode): boolean {
   return group.benefits.some((benefit) => isBenefitLabelsEmpty(benefit.labels)) || group.children.some(hasBenefitWithEmptyLabels)
 }
 
+type TreeValidationIssue = { path?: unknown; message?: unknown }
+
+// `handleSave` throws `Object.assign(new Error(...), { status, ...call.result })`, so a
+// 422's `issues` array (one entry per zod issue: `{ path, message }`, see
+// `api/[id]/tree/route.ts`) is directly readable off the caught error. Surfacing it here
+// is this Step's own fix for the gap it was built to diagnose: before this, every tree
+// save failure flashed the same generic message regardless of cause (QA F3).
+export function extractTreeValidationIssues(error: unknown): TreeValidationIssue[] {
+  if (!error || typeof error !== 'object') return []
+  const issues = (error as { issues?: unknown }).issues
+  return Array.isArray(issues) ? (issues as TreeValidationIssue[]) : []
+}
+
+export function issueTouchesPath(issue: TreeValidationIssue, segment: string): boolean {
+  return Array.isArray(issue.path) && issue.path.includes(segment)
+}
+
 function locateContainer(
   root: LocalRuleGroupNode,
   nodeId: string,
@@ -178,7 +195,23 @@ export function RuleTreeBuilder({ promotionId }: RuleTreeBuilderProps) {
       setReloadToken((value) => value + 1)
     } catch (error) {
       if (surfaceRecordConflict(error, t, { onRefresh: () => setReloadToken((value) => value + 1) })) return
-      flash(t('promotions.tree.saveError', 'Could not save the rule tree'), 'error')
+      const issues = extractTreeValidationIssues(error)
+      if (issues.some((issue) => issueTouchesPath(issue, 'eligibleCurrencies'))) {
+        flash(
+          t(
+            'promotions.tree.errors.eligibleCurrencyRequired',
+            "Add an eligible currency in the promotion's Settings panel before saving a rule or benefit that needs one",
+          ),
+          'error',
+        )
+      } else if (issues.length) {
+        const messages = issues
+          .map((issue) => (typeof issue.message === 'string' ? issue.message : ''))
+          .filter((message) => message.length > 0)
+        flash(messages.length ? messages.join(' ') : t('promotions.tree.saveError', 'Could not save the rule tree'), 'error')
+      } else {
+        flash(t('promotions.tree.saveError', 'Could not save the rule tree'), 'error')
+      }
     } finally {
       setIsSaving(false)
     }
