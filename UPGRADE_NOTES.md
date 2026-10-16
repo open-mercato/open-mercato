@@ -256,6 +256,18 @@ unaffected.
 remove or relax (`required: false`, a broader type) any port declaration that is not actually
 part of the child's contract.
 
+### Catalog validates its required modules during generation (#6517)
+
+Standalone apps enabling `catalog` must also enable `attachments`, `currencies`,
+`dictionaries`, `entities` and the latter's `query_index` dependency in `src/modules.ts`.
+Run `yarn generate` after updating the selection, then use the normal initialization
+and migration workflow. Incomplete selections now fail generation instead of failing
+later during Catalog setup or CRUD. Default module sets already include these modules.
+
+`sales` remains optional. Catalog's commerce demo dataset is skipped when Sales is
+disabled; Catalog defaults and ordinary product CRUD remain available. Enable Sales
+when that demo dataset is desired. See the [dependency specification](.ai/specs/2026-10-01-catalog-runtime-module-dependencies.md).
+
 ### Catalog product search now requires the `unaccent` and `pg_trgm` PostgreSQL extensions
 
 Accent-insensitive product search (`GET /api/catalog/products?search=hustawka` now finds `huśtawka`)
