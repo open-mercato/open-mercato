@@ -108,6 +108,23 @@ describe('POST /api/auth/logout — session revocation', () => {
     expect(setCookie).toContain('session_token=;')
   })
 
+  it('treats a session_token with a malformed %-escape as absent instead of 500ing', async () => {
+    const authToken = buildAuthToken()
+    const req = new Request('http://localhost/api/auth/logout', {
+      method: 'POST',
+      headers: { cookie: buildCookieHeader({ auth_token: authToken, session_token: '%E0%A4%A' }) },
+    })
+
+    const res = await POST(req)
+
+    expect(res.status).toBe(307)
+    expect(deleteSessionById).toHaveBeenCalledWith(sessionId)
+    expect(deleteSessionByToken).not.toHaveBeenCalled()
+    const setCookie = res.headers.get('set-cookie') ?? ''
+    expect(setCookie).toContain('auth_token=;')
+    expect(setCookie).toContain('session_token=;')
+  })
+
   it('ignores an auth_token JWT that cannot be verified (expired / tampered)', async () => {
     const req = new Request('http://localhost/api/auth/logout', {
       method: 'POST',
