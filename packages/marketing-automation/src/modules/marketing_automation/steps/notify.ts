@@ -140,7 +140,7 @@ export const notifyStep: StepHandler<StepDeps> = {
      * that should hear about one. A role name would be a second, mutable definition of the same group.
      */
     await notifications.createForFeature(
-      { ...common, requiredFeature: 'marketing_automation.runs.view' },
+      { ...common, requiredFeature: 'marketing_automation.runs.view', restrictRecipientsToOrganization: true },
       scope,
     )
     return { status: 'done', detail: 'notified the team' }
