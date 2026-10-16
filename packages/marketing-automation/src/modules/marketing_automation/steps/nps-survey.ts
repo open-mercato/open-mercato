@@ -6,7 +6,7 @@ import { reportError } from '@open-mercato/telemetry'
 import { interpolate } from '../lib/interpolate.js'
 import { redactEmails } from '../lib/redact.js'
 import { markSurveySent, NPS_MAX_SCORE, NPS_MIN_SCORE, recordSurveyAsked } from '../lib/survey.js'
-import { resolveTrackingBaseUrl, resolveTrackingSecret } from '../lib/tracking/secret.js'
+import { resolveTrackingBaseUrl, resolveTrackingRoutesReady, resolveTrackingSecret } from '../lib/tracking/secret.js'
 import { surveyAnswerUrl, unsubscribeUrl } from '../lib/tracking/urls.js'
 import type { StepHandler } from '../lib/engine/registry.js'
 import type { AutomationContext } from '../lib/engine/types.js'
@@ -72,6 +72,14 @@ export const npsSurveyStep: StepHandler<StepDeps> = {
     if (!secret || !baseUrl) {
       // Without signed links there is no way to answer, and a survey nobody can answer is worse than none.
       return { status: 'skipped', detail: 'no tracking secret or base url, so the scale could not be signed' }
+    }
+    // Same reason send_email refuses: the public answer route this scale links to may not be
+    // deployed yet, and a survey nobody can actually answer is worse than none.
+    if (!resolveTrackingRoutesReady()) {
+      return {
+        status: 'skipped',
+        detail: 'public tracking routes are not ready: set OM_MARKETING_PUBLIC_ROUTES_READY=true once they are deployed',
+      }
     }
 
     const entity = await findOneWithDecryption(

@@ -59,6 +59,7 @@ const params = { subject: 'Hello', bodyHtml: '<p>Hello</p>', track: false }
 beforeAll(() => {
   process.env.OM_MARKETING_TRACKING_SECRET = 'test-tracking-secret'
   process.env.APP_URL = 'https://shop.example'
+  process.env.OM_MARKETING_PUBLIC_ROUTES_READY = 'true'
 })
 
 afterAll(() => { process.env = { ...originalEnv } })
@@ -110,6 +111,17 @@ describe('a real marketing send', () => {
       expect(sendEmail).not.toHaveBeenCalled()
     } finally {
       process.env.OM_MARKETING_TRACKING_SECRET = 'test-tracking-secret'
+    }
+  })
+
+  it('sends nothing when the public routes those headers point at are not deployed yet', async () => {
+    delete process.env.OM_MARKETING_PUBLIC_ROUTES_READY
+    try {
+      const outcome = await sendEmailStep.execute(ctx(), params, deps)
+      expect(outcome.status).toBe('skipped')
+      expect(sendEmail).not.toHaveBeenCalled()
+    } finally {
+      process.env.OM_MARKETING_PUBLIC_ROUTES_READY = 'true'
     }
   })
 })

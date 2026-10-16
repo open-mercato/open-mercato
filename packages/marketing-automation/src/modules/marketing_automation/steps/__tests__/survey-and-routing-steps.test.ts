@@ -6,6 +6,7 @@ const decideAssignment = jest.fn()
 const reportError = jest.fn()
 const resolveTrackingSecret = jest.fn()
 const resolveTrackingBaseUrl = jest.fn()
+const resolveTrackingRoutesReady = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/email/send', () => ({ sendEmail: (...a: unknown[]) => sendEmail(...a) }))
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
@@ -22,6 +23,7 @@ jest.mock('../../lib/lead-routing.js', () => ({ decideAssignment: (...a: unknown
 jest.mock('../../lib/tracking/secret.js', () => ({
   resolveTrackingSecret: (...a: unknown[]) => resolveTrackingSecret(...a),
   resolveTrackingBaseUrl: (...a: unknown[]) => resolveTrackingBaseUrl(...a),
+  resolveTrackingRoutesReady: (...a: unknown[]) => resolveTrackingRoutesReady(...a),
 }))
 
 import { assignOwnerStep } from '../assign-owner'
@@ -57,9 +59,10 @@ const deps = {
 const params = { subject: 'How did we do?', question: 'How likely are you to recommend us?' }
 
 beforeEach(() => {
-  for (const fn of [sendEmail, findOneWithDecryption, recordSurveyAsked, markSurveySent, decideAssignment, reportError, resolveTrackingSecret, resolveTrackingBaseUrl, commandExecute, logger.error]) fn.mockReset()
+  for (const fn of [sendEmail, findOneWithDecryption, recordSurveyAsked, markSurveySent, decideAssignment, reportError, resolveTrackingSecret, resolveTrackingBaseUrl, resolveTrackingRoutesReady, commandExecute, logger.error]) fn.mockReset()
   resolveTrackingSecret.mockReturnValue('s3cret')
   resolveTrackingBaseUrl.mockReturnValue('https://shop.example')
+  resolveTrackingRoutesReady.mockReturnValue(true)
   findOneWithDecryption.mockResolvedValue({ primaryEmail: 'buyer@example.com' })
   recordSurveyAsked.mockResolvedValue({ asked: true, alreadySent: false, promptId: 'prompt-1' })
   sendEmail.mockResolvedValue(undefined)
@@ -150,6 +153,14 @@ describe('nps_survey', () => {
     resolveTrackingBaseUrl.mockReturnValue(null)
     expect(await npsSurveyStep.execute(ctx(), params, deps)).toMatchObject({ status: 'skipped' })
     expect(sendEmail).not.toHaveBeenCalled()
+  })
+
+  it('skips an unanswerable survey when the public answer route is not deployed yet', async () => {
+    resolveTrackingRoutesReady.mockReturnValue(false)
+    const result = await npsSurveyStep.execute(ctx(), params, deps)
+    expect(result).toMatchObject({ status: 'skipped' })
+    expect(sendEmail).not.toHaveBeenCalled()
+    expect(recordSurveyAsked).not.toHaveBeenCalled()
   })
 
   it('skips a run with nothing to attribute an answer to', async () => {

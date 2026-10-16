@@ -1,3 +1,5 @@
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+
 /**
  * The secret tracking tokens are signed with.
  *
@@ -92,4 +94,21 @@ export function resolveTrackingBaseUrl(env: EnvLike = process.env): string | nul
   const configured = (env.APP_URL || env.NEXT_PUBLIC_APP_URL || '').trim().replace(/\/+$/, '')
   if (configured) return configured
   return env.NODE_ENV === 'production' ? null : DEFAULT_DEV_BASE_URL
+}
+
+const ROUTES_READY_ENV_NAME = 'OM_MARKETING_PUBLIC_ROUTES_READY'
+
+/**
+ * Whether the public `track`/`unsubscribe`/`survey` routes this module's links point at are
+ * actually mounted in this deployment.
+ *
+ * The dispatch engine, its commands and its workers ship ahead of those routes — a later phase
+ * does. The module is off by default, but nothing stops an operator enabling it on a `develop`
+ * checkout that has the engine without yet having the routes, in which case a real send embeds
+ * tracking, unsubscribe and survey links that 404. Unset means not ready, the same "unconfigured
+ * is the safe state" rule `resolveTrackingSecret` follows — the phase that ships the routes sets
+ * this explicitly rather than inheriting a default anybody could already be running.
+ */
+export function resolveTrackingRoutesReady(env: EnvLike = process.env): boolean {
+  return parseBooleanToken(env[ROUTES_READY_ENV_NAME]) === true
 }

@@ -22,7 +22,7 @@ import {
   renderRecommendationsHtml,
 } from '../lib/recommendations.js'
 import { applyTracking } from '../lib/tracking/rewrite.js'
-import { resolveTrackingBaseUrl, resolveTrackingSecret } from '../lib/tracking/secret.js'
+import { resolveTrackingBaseUrl, resolveTrackingRoutesReady, resolveTrackingSecret } from '../lib/tracking/secret.js'
 import { clickUrl, openPixelUrl, unsubscribeUrl } from '../lib/tracking/urls.js'
 import { MAX_RECOMMENDATIONS } from '../lib/engine/recommendations.js'
 import type { StepHandler } from '../lib/engine/registry.js'
@@ -397,6 +397,32 @@ export const sendEmailStep: StepHandler<StepDeps> = {
       return {
         status: 'skipped',
         detail: 'no unsubscribe URL: set OM_MARKETING_TRACKING_SECRET and APP_URL',
+      }
+    }
+
+    /**
+     * A message with a working link to a route that does not exist yet does not go out either.
+     *
+     * The dispatch engine ships ahead of the public `track`/`unsubscribe`/`survey` routes those links
+     * point at — a later phase ships those. Nothing stops an operator enabling this module on a
+     * checkout that has the engine without the routes, and a real send would then promise an opt-out
+     * and a survey answer that both 404. Same shape as the guard above: a configuration fault, so it
+     * is reported and skipped rather than retried.
+     */
+    if (!resolveTrackingRoutesReady()) {
+      deps.logger.error('[internal] marketing send refused: public tracking routes are not ready', {
+        campaignId: ctx.campaignId,
+        runId: ctx.runId,
+        stepId: ctx.actionId,
+      })
+      reportError(new Error('[internal] marketing send attempted before public routes were ready'), {
+        module: 'marketing_automation',
+        code: 'marketing_automation.public_routes_unavailable',
+        attributes: { campaignId: ctx.campaignId ?? undefined, stepId: ctx.actionId ?? undefined },
+      })
+      return {
+        status: 'skipped',
+        detail: 'public tracking routes are not ready: set OM_MARKETING_PUBLIC_ROUTES_READY=true once they are deployed',
       }
     }
 

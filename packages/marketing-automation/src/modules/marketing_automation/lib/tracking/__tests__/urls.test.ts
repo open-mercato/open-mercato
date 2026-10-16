@@ -1,6 +1,6 @@
 import { clickUrl, openPixelUrl, TRACKING_TOKEN_PARAM } from '../urls'
 import { verifyTrackingToken } from '../token'
-import { resolveTrackingBaseUrl } from '../secret'
+import { resolveTrackingBaseUrl, resolveTrackingRoutesReady } from '../secret'
 
 const SECRET = 'secret'
 const claims = {
@@ -56,5 +56,19 @@ describe('resolveTrackingBaseUrl', () => {
   // Emitting localhost links to real recipients is worse than not tracking at all.
   test('in production an unset base disables tracking', () => {
     expect(resolveTrackingBaseUrl({ NODE_ENV: 'production' })).toBeNull()
+  })
+})
+
+describe('resolveTrackingRoutesReady', () => {
+  // Unconfigured is not-ready, the same direction resolveTrackingSecret defaults — a deployment
+  // with the dispatch engine but not yet the public routes must not promise a working opt-out link.
+  test('unset means the routes are not ready', () => {
+    expect(resolveTrackingRoutesReady({})).toBe(false)
+  })
+
+  test('only an explicit true turns it on', () => {
+    expect(resolveTrackingRoutesReady({ OM_MARKETING_PUBLIC_ROUTES_READY: 'true' })).toBe(true)
+    expect(resolveTrackingRoutesReady({ OM_MARKETING_PUBLIC_ROUTES_READY: 'false' })).toBe(false)
+    expect(resolveTrackingRoutesReady({ OM_MARKETING_PUBLIC_ROUTES_READY: 'yes-please' })).toBe(false)
   })
 })
