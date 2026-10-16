@@ -117,6 +117,17 @@ export async function previewJourney<TDeps>(
   const channels = new Map<string, string | null>()
 
   let clock = input.now
+  /**
+   * Reservations this preview itself took in an earlier iteration. `recordSend` is a no-op, so
+   * nothing the simulation sends is visible to `countSendsSince` on a later iteration without this
+   * — a two-email journey with a cap of one per day would show both as delivered.
+   *
+   * Mirrors `CAP_CONSUMING_SEND_STATUSES`: a reservation counts until it is released (the step
+   * skipped — no slot was ever spent) or settled `failed` (nothing reached the customer); settled
+   * `sent` keeps counting, exactly as a real `MarketingMessageSend` row would.
+   */
+  const simulatedReservations = new Map<string, Date>()
+  let nextReservationId = 0
   let state: RunState = {
     id: `preview-${input.campaignId}`,
     campaignId: input.campaignId,
@@ -150,14 +161,21 @@ export async function previewJourney<TDeps>(
        */
       reserveSendSlot: async (input) => {
         for (const cap of input.caps) {
-          const since = new Date(effects.now.getTime() - cap.windowHours * 3_600_000)
-          const taken = await effects.countSendsSince(input.subjectEntityId, since)
-          if (taken >= cap.maxMessages) return { reserved: false, reason: cap.reason }
+          const since = new Date(clock.getTime() - cap.windowHours * 3_600_000)
+          const persisted = await effects.countSendsSince(input.subjectEntityId, since)
+          const simulated = [...simulatedReservations.values()].filter((at) => at.getTime() >= since.getTime()).length
+          if (persisted + simulated >= cap.maxMessages) return { reserved: false, reason: cap.reason }
         }
-        return { reserved: true, id: 'preview' }
+        const id = `preview-${nextReservationId++}`
+        simulatedReservations.set(id, clock)
+        return { reserved: true, id }
       },
-      settleSendSlot: async () => {},
-      releaseSendSlot: async () => {},
+      settleSendSlot: async (id, status) => {
+        if (status === 'failed') simulatedReservations.delete(id)
+      },
+      releaseSendSlot: async (id) => {
+        simulatedReservations.delete(id)
+      },
     }
 
     const transition = await executeRun(state, input.steps, input.policy, deps, simulated)

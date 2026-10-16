@@ -131,6 +131,41 @@ describe('previewJourney', () => {
     ])
   })
 
+  // The preview's own sends are not recorded anywhere, so without an in-memory ledger a later
+  // iteration's cap check sees only the (mocked, unchanging) persisted count and never notices
+  // what this same preview already "sent" a step earlier.
+  test('a cap carries across a wait: the second send in the same window is skipped', async () => {
+    const capped = { frequencyCap: { maxMessages: 1, windowHours: 24 }, quietHours: null }
+    const steps = [
+      step('s1', 'send_email'),
+      step('w1', 'wait', { minutes: 60 }),
+      step('s2', 'send_email'),
+    ]
+    const result = await preview(steps, effectsFor([handler('send_email', 'email'), handler('wait')]), capped)
+    const sends = result.entries.filter((entry) => entry.kind === 'step' && entry.type === 'send_email')
+    expect(sends).toEqual([
+      expect.objectContaining({ stepId: 's1', status: 'done' }),
+      expect.objectContaining({ stepId: 's2', status: 'skipped', detail: 'frequency cap' }),
+    ])
+  })
+
+  // The window has to be evaluated against the CURRENT simulated instant, not the preview's start
+  // time — otherwise a wait longer than the cap's own window could never let a later send through.
+  test('a cap window re-opens once the wait carries the clock past it', async () => {
+    const capped = { frequencyCap: { maxMessages: 1, windowHours: 24 }, quietHours: null }
+    const steps = [
+      step('s1', 'send_email'),
+      step('w1', 'wait', { minutes: 60 * 48 }),
+      step('s2', 'send_email'),
+    ]
+    const result = await preview(steps, effectsFor([handler('send_email', 'email'), handler('wait')]), capped)
+    const sends = result.entries.filter((entry) => entry.kind === 'step' && entry.type === 'send_email')
+    expect(sends).toEqual([
+      expect.objectContaining({ stepId: 's1', status: 'done' }),
+      expect.objectContaining({ stepId: 's2', status: 'done' }),
+    ])
+  })
+
   test('stops at the horizon rather than simulating forever', async () => {
     const steps = [step('w1', 'wait', { minutes: 60 * 24 * 400 }), step('s1', 'send_email')]
     const result = await preview(steps, effectsFor([handler('send_email', 'email'), handler('wait')]))
