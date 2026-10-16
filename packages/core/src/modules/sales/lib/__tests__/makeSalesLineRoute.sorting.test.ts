@@ -60,6 +60,7 @@ function buildRoute() {
     parentFkColumn: 'order_id',
     parentFkParam: 'orderId',
     createSchema: z.object({ orderId: z.string().uuid() }),
+    updateSchema: z.object({ id: z.string().uuid() }),
     features: { view: 'sales.orders.view', manage: 'sales.orders.manage' },
     commandPrefix: 'sales.orders.lines',
     openApi: { resourceName: 'Order line', description: 'an order line' },
