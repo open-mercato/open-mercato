@@ -1,11 +1,13 @@
 ---
 title: "Stabilize flaky integration tests by finding the hang, not by raising the timeout"
-modules: ["events","queue","ui","auth","example","record_locks","warranty_claims"]
+modules: ["events","queue","ui","auth","example","record_locks","warranty_claims","data_sync","sync_excel"]
 areas: ["integration","testing","backend-ui"]
 topics: ["events","testing","workers","hydration","component-overrides","timers"]
 ---
 
 # Stabilize flaky integration tests by finding the hang, not by raising the timeout
+
+**Queue ownership**: When the harness explicitly enables `AUTO_SPAWN_WORKERS`, let those workers consume local queues and poll the committed run state. A manual drain adds a second consumer: the local strategy locks file operations, not handler execution, so duplicate customer/address writes can commit before the import engine detects stale progress. Preserve manual draining when workers are disabled or the flag is absent, including the standalone runner's explicit `false`. Keep uniqueness assertions; do not replace them with relaxed counts or longer waits.
 
 **Context**: `TC-CUR-004` ("Set Base Currency from UI") failed ~1/60 in the `ephemeral-integration` CI shards with `Test timeout of 30000ms exceeded` plus a secondary `apiRequestContext.fetch: Target page, context or browser has been closed` reported from the `finally` teardown.
 
