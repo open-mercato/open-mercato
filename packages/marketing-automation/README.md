@@ -109,16 +109,23 @@ self-contained package into a pull request that changes core.
 
 ## What is in the box
 
-| | |
+The module ships in phases (`.ai/specs/2026-10-02-marketing-automation-phased-delivery.md`); this
+table is this PR's own scope — **phase 1c, the dispatch engine** — not the eventual full module.
+Numbers below were counted against this head, not carried over from an earlier draft.
+
+| | This phase (1c) |
 |---|---|
-| Entities / migrations | 23 / 23 |
+| Entities / migrations | 23 / 7 |
 | Step types | 10 — send email, wait, add tag, add points, assign owner, A/B split, notify a colleague, emit a signal, issue a referral code, ask an NPS question |
 | Triggers | 14 platform events, plus 5 periodic sweep sources |
-| API routes | 53, each with an OpenAPI block; 5 of them public and authorised only by a signed token |
-| Backend screens | 15, plus a customer-portal preference centre |
+| API routes | **0.** The engine, its commands and workers ship ahead of the public routes; `send_email` and `nps_survey` refuse a real send until `OM_MARKETING_PUBLIC_ROUTES_READY=true` confirms they exist |
+| Backend / portal screens | **0.** Nothing under `backend/`, `frontend/` or a portal path yet — campaigns and runs are only reachable through the command bus and the workers |
 | ACL features | 6, with publishing gated separately from editing |
-| Translations | 5 locales, 732 keys — zero missing, zero unused, zero hardcoded strings |
-| Tests | **1039 unit**, **256 integration**, 41 of them driving real screens in a browser |
+| Translations | 5 locales, 769 keys, zero hardcoded strings per `yarn i18n:check-hardcoded` |
+| Tests | **1051 unit**, plus **13 integration tests** (`*.pg.test.ts`, gated on `OM_MARKETING_AUTOMATION_PG_URL`) against a real PostgreSQL: claim races, the enable/delete/save_graph lock, `trigger_context` ciphertext on disk, and score-event retry collisions |
+
+Routes, backend/portal screens and the larger browser-driven suite are a later phase, not this
+one — see the phased-delivery spec for what ships when.
 
 ## Architecture rules that are checked, not just written
 
