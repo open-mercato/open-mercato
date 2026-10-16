@@ -12,7 +12,11 @@ import { fetchWithTimeout, type FetchWithTimeoutInit } from '@open-mercato/share
 import { isUnsafeJwtSecret } from '@open-mercato/shared/lib/auth/jwt'
 import { resolveEnvironment } from '../resolver'
 import { resolveSpawnCommand } from '../spawn'
-import { discoverIntegrationSpecFiles as discoverIntegrationSpecFilesShared } from './integration-discovery'
+import {
+  APP_ONLY_INTEGRATION_ENV_VAR,
+  discoverIntegrationSpecFiles as discoverIntegrationSpecFilesShared,
+  isAppOwnedIntegrationSpecPath,
+} from './integration-discovery'
 import { resolveDockerHostFromContext, runCommandAndCapture } from './runtime-utils'
 
 type EphemeralRuntimeOptions = {
@@ -46,7 +50,33 @@ type IntegrationOptions = {
   verbose: boolean
   forceRebuild: boolean
   reuseExisting: boolean
+  appOnly: boolean
+  help: boolean
 }
+
+type IntegrationSuiteOptions = IntegrationOptions & {
+  appOnlySpecPaths: string[] | null
+}
+
+export const NO_APP_OWNED_INTEGRATION_SPECS_MESSAGE = 'No app-owned integration specs found'
+
+export const INTEGRATION_TEST_USAGE = [
+  'Usage: mercato test:integration [filter] [options]',
+  '',
+  'Boots an ephemeral environment (Postgres, built app) and runs the Playwright integration suite.',
+  '',
+  'Options:',
+  '  --filter <pattern>   Run only specs matching the pattern (also accepted as a bare first argument)',
+  '  --app-only           Run only app-owned specs (outside node_modules/). Exits 0 without starting',
+  '                       anything when the app has none',
+  '  --keep               Leave the app and database running after the suite finishes',
+  '  --screenshots        Capture screenshots for every test (default outside CI)',
+  '  --no-screenshots     Capture screenshots only on failure (default in CI)',
+  '  --verbose            Stream build and server output',
+  '  --force-rebuild      Rebuild the app even when cached build artifacts are fresh',
+  '  --no-reuse-env       Always boot a fresh ephemeral environment',
+  '  -h, --help           Show this help',
+].join('\n')
 
 type EphemeralAppOptions = {
   verbose: boolean
@@ -2427,11 +2457,21 @@ export function parseOptions(rawArgs: string[]): IntegrationOptions {
   let verbose = false
   let forceRebuild = false
   let reuseExisting = true
+  let appOnly = false
+  let help = false
 
   for (let index = 0; index < rawArgs.length; index += 1) {
     const argument = rawArgs[index]
     if (argument === '--keep') {
       keep = true
+      continue
+    }
+    if (argument === '--app-only') {
+      appOnly = true
+      continue
+    }
+    if (argument === '--help' || argument === '-h') {
+      help = true
       continue
     }
     if (argument === '--screenshots') {
@@ -2488,7 +2528,40 @@ export function parseOptions(rawArgs: string[]): IntegrationOptions {
     verbose,
     forceRebuild,
     reuseExisting,
+    appOnly,
+    help,
   }
+}
+
+function matchesPlaywrightFileFilter(relativePath: string, filter: string): boolean {
+  let pattern: RegExp
+  try {
+    pattern = new RegExp(filter, 'i')
+  } catch {
+    return relativePath.toLowerCase().includes(filter.toLowerCase())
+  }
+  return pattern.test(relativePath)
+}
+
+export function resolveAppOwnedIntegrationSpecPaths(
+  discoveredSpecs: ReadonlyArray<{ path: string }>,
+  filter: string | null,
+): string[] {
+  const appOwned = discoveredSpecs
+    .map((entry) => entry.path)
+    .filter((specPath) => isAppOwnedIntegrationSpecPath(specPath))
+  if (!filter) {
+    return appOwned
+  }
+  const matching = appOwned.filter((specPath) => matchesPlaywrightFileFilter(specPath, filter))
+  if (appOwned.length > 0 && matching.length === 0) {
+    throw new Error(`No app-owned integration specs match filter "${filter}"`)
+  }
+  return matching
+}
+
+export function buildAppOnlyPlaywrightFileFilters(specPaths: readonly string[]): string[] {
+  return specPaths.map((specPath) => `/${specPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`)
 }
 
 export function parseEphemeralAppOptions(rawArgs: string[]): EphemeralAppOptions {
@@ -3338,13 +3411,18 @@ type IntegrationTestRunResult = {
 
 async function runIntegrationTestSuiteOnce(
   environment: EphemeralEnvironmentHandle,
-  options: IntegrationOptions,
+  options: IntegrationSuiteOptions,
 ): Promise<void> {
   const testArgs = ['test:integration']
-  if (options.filter) {
+  if (options.appOnlySpecPaths) {
+    testArgs.push(...buildAppOnlyPlaywrightFileFilters(options.appOnlySpecPaths))
+  } else if (options.filter) {
     testArgs.push(options.filter)
   }
-  await runYarnCommandWithOutputMonitoring(testArgs, environment.commandEnvironment, {
+  const commandEnvironment = options.appOnlySpecPaths
+    ? { ...environment.commandEnvironment, [APP_ONLY_INTEGRATION_ENV_VAR]: '1' }
+    : environment.commandEnvironment
+  await runYarnCommandWithOutputMonitoring(testArgs, commandEnvironment, {
     detectEnvironmentUnavailable: true,
     abortOnEnvironmentUnavailable: true,
     playwrightFailureHealthCheck: {
@@ -3371,7 +3449,7 @@ function normalizeError(error: unknown): Error {
 
 async function runIntegrationTestAttempt(
   environment: EphemeralEnvironmentHandle,
-  integrationOptions: IntegrationOptions,
+  integrationOptions: IntegrationSuiteOptions,
   prepareTestEnvironment: (environment: EphemeralEnvironmentHandle) => Promise<void>,
 ): Promise<Error | null> {
   try {
@@ -3399,7 +3477,7 @@ async function detectEnvironmentFailure(
 
 async function runIntegrationTestSuiteWithRecovery(
   startOptions: Pick<EphemeralRuntimeOptions, 'verbose' | 'captureScreenshots' | 'forceRebuild' | 'reuseExisting'>,
-  integrationOptions: IntegrationOptions,
+  integrationOptions: IntegrationSuiteOptions,
   prepareTestEnvironment: (environment: EphemeralEnvironmentHandle) => Promise<void>,
 ): Promise<{
   environment: EphemeralEnvironmentHandle
@@ -3872,8 +3950,31 @@ async function keepEnvironmentRunningForever(): Promise<void> {
   await new Promise<void>(() => {})
 }
 
-export async function runIntegrationTestsInEphemeralEnvironment(rawArgs: string[]): Promise<void> {
+export type IntegrationTestRunDependencies = {
+  discoverSpecs?: () => Promise<ReadonlyArray<{ path: string }>>
+  runSuiteWithRecovery?: typeof runIntegrationTestSuiteWithRecovery
+}
+
+export async function runIntegrationTestsInEphemeralEnvironment(
+  rawArgs: string[],
+  dependencies: IntegrationTestRunDependencies = {},
+): Promise<void> {
   const options = parseOptions(rawArgs)
+  if (options.help) {
+    console.log(INTEGRATION_TEST_USAGE)
+    return
+  }
+  let appOnlySpecPaths: string[] | null = null
+  if (options.appOnly) {
+    const discoverSpecs = dependencies.discoverSpecs ?? discoverIntegrationSpecFiles
+    appOnlySpecPaths = resolveAppOwnedIntegrationSpecPaths(await discoverSpecs(), options.filter)
+    if (appOnlySpecPaths.length === 0) {
+      console.log(NO_APP_OWNED_INTEGRATION_SPECS_MESSAGE)
+      return
+    }
+    console.log(`[integration] --app-only enabled: running ${appOnlySpecPaths.length} app-owned spec file(s).`)
+  }
+  const runSuiteWithRecovery = dependencies.runSuiteWithRecovery ?? runIntegrationTestSuiteWithRecovery
   const startOptions: Pick<EphemeralRuntimeOptions, 'verbose' | 'captureScreenshots' | 'forceRebuild' | 'reuseExisting'> = {
     verbose: options.verbose,
     captureScreenshots: options.captureScreenshots,
@@ -3890,9 +3991,9 @@ export async function runIntegrationTestsInEphemeralEnvironment(rawArgs: string[
     } else {
       console.log('[integration] --no-reuse-env enabled: always booting a fresh ephemeral environment.')
     }
-    const environmentState = await runIntegrationTestSuiteWithRecovery(
+    const environmentState = await runSuiteWithRecovery(
       startOptions,
-      options,
+      { ...options, appOnlySpecPaths },
       async (runtimeEnvironment) => {
         console.log('[integration] Ensuring Playwright Chromium is installed...')
         await runNpxCommand(['playwright', 'install', 'chromium'], runtimeEnvironment.commandEnvironment)

@@ -226,6 +226,27 @@ jobs:
           bash "$GITHUB_WORKSPACE/scripts/ci/npm-retry-on-quarantine.sh" \
             npx "create-mercato-app@${{ needs.snapshot.outputs.snapshot_version }}" /tmp/standalone-app --skip-agentic-setup --registry https://registry.npmjs.org
 
+      - name: Install standalone app dependencies
+        working-directory: /tmp/standalone-app
+        # The scaffolded app ships an empty yarn.lock.template; `yarn install`
+        # must resolve ~1.6k deps fresh. Yarn 4.12 auto-enables hardened mode
+        # on pull_request workflows, which forces immutable installs and fails
+        # with YN0028. Disable both for this scaffolded-app install only — the
+        # monorepo install above still runs with --immutable.
+        env:
+          YARN_ENABLE_HARDENED_MODE: '0'
+          YARN_ENABLE_IMMUTABLE_INSTALLS: '0'
+        # Retry through npm's post-publish quarantine window (see the script).
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/npm-retry-on-quarantine.sh" yarn install
+
+      - name: Keep a clean copy of the scaffold for the post-publish canary
+        id: canary-copy
+        # The canary runs the scaffold's own `yarn ci` on the app exactly as a
+        # user gets it: installed, before this job writes its own .env or
+        # activates enterprise/example modules. It runs on this copy as the
+        # last step, so a canary failure never skips the integration suite.
+        run: cp -a /tmp/standalone-app /tmp/standalone-app-canary
+
       - name: Configure standalone app environment
         working-directory: /tmp/standalone-app
         run: |
@@ -302,19 +323,6 @@ jobs:
           # path must be absolute and identical on both sides (see the matching
           # OM_TEST_EMAIL_CAPTURE_PATH on the integration-test step).
           echo "OM_TEST_EMAIL_CAPTURE_PATH=${GITHUB_WORKSPACE}/.ai/qa/email-capture.jsonl" >> .env
-
-      - name: Install standalone app dependencies
-        working-directory: /tmp/standalone-app
-        # The scaffolded app ships an empty yarn.lock.template; `yarn install`
-        # must resolve ~1.6k deps fresh. Yarn 4.12 auto-enables hardened mode
-        # on pull_request workflows, which forces immutable installs and fails
-        # with YN0028. Disable both for this scaffolded-app install only — the
-        # monorepo install above still runs with --immutable.
-        env:
-          YARN_ENABLE_HARDENED_MODE: '0'
-          YARN_ENABLE_IMMUTABLE_INSTALLS: '0'
-        # Retry through npm's post-publish quarantine window (see the script).
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/npm-retry-on-quarantine.sh" yarn install
 
       - name: Install standalone enterprise package
         working-directory: /tmp/standalone-app
@@ -438,3 +446,43 @@ jobs:
           name: standalone-app-log
           path: /tmp/standalone-app.log
           if-no-files-found: ignore
+
+      - name: Post-publish canary - yarn ci on a clean scaffold (7 GB cap)
+        # Exercises the scaffold's OWN quality gate on the clean copy taken right
+        # after install, so the .env.example -> .env path a real user's
+        # `yarn ci` takes is the one exercised here. Runs inside a container
+        # shaped like a 7 GB / 2 vCPU GitHub-hosted private-repo runner, the
+        # same cap Phase 0 measured, so a template or memory regression goes
+        # red here within one snapshot cycle (spec Architecture -> Integration
+        # Test Coverage, Q11). Not a pre-merge gate: unit and YAML-structure
+        # tests are the pre-merge line.
+        if: ${{ !cancelled() && steps.canary-copy.outcome == 'success' }}
+        run: |
+          WORK="${RUNNER_TEMP:-/tmp}/om-ci-canary"
+          mkdir -p "$WORK/home" "$WORK/corepack"
+          cat > "$WORK/inner.sh" <<'INNER'
+          #!/usr/bin/env bash
+          set -uo pipefail
+          mkdir -p "$HOME/bin"
+          corepack enable --install-directory "$HOME/bin" >/dev/null 2>&1
+          export PATH="$HOME/bin:$PATH"
+          yarn ci
+          rc=$?
+          oom=$(awk '$1=="oom_kill"{print $2}' /sys/fs/cgroup/memory.events 2>/dev/null)
+          peak=$(cat /sys/fs/cgroup/memory.peak 2>/dev/null || echo 0)
+          echo "[canary] rc=$rc peak_mib=$(( peak / 1048576 )) oom_kill=${oom:-unknown}"
+          exit $rc
+          INNER
+          chmod +x "$WORK/inner.sh"
+          # Docker cannot hide the host's cores from os.cpus(), so Next would
+          # start one build worker per host core minus one. CIRCLE_NODE_TOTAL is
+          # the core count Next honors instead, so 2 gives the single worker a
+          # real 2-vCPU runner gets.
+          docker run --rm --memory=7g --memory-swap=7g --cpus=2 \
+            -u "$(id -u):$(id -g)" \
+            -e HOME=/home/runner -e COREPACK_HOME=/corepack -e CI=true -e CIRCLE_NODE_TOTAL=2 \
+            -v "$WORK/home:/home/runner" -v "$WORK/corepack:/corepack" \
+            -v "$WORK/inner.sh:/inner.sh:ro" \
+            -v "/tmp/standalone-app-canary:/tmp/standalone-app-canary" \
+            -w /tmp/standalone-app-canary \
+            node:24.19.0-trixie bash /inner.sh

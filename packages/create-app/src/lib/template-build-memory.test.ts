@@ -74,3 +74,18 @@ test('standalone template forces production mode for Next builds', () => {
     'the development container exports NODE_ENV=development, so the build script must override it before invoking Next',
   )
 })
+
+test('standalone template skips the Turbopack build cache only for the yarn ci build', () => {
+  const nextConfig = fs.readFileSync(new URL('../../template/next.config.ts', import.meta.url), 'utf8')
+
+  assert.match(
+    nextConfig,
+    /const isCiGateBuild = process\.env\.OM_SKIP_NEXT_BUILD_TYPECHECK === '1'/,
+    'the cache switch must follow the flag scripts/ci.mjs sets for its build step',
+  )
+  assert.match(
+    nextConfig,
+    /\.\.\.\(isCiGateBuild \? \{ turbopackFileSystemCacheForBuild: false \} : \{\}\)/,
+    'writing the Turbopack build cache keeps compiler memory alive through static generation and OOM-kills a 7 GB runner',
+  )
+})

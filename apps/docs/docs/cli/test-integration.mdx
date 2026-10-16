@@ -79,6 +79,8 @@ yarn test:integration:spec-coverage
 | `--screenshots` | Forces screenshot capture during test runs. |
 | `--no-screenshots` | Disables screenshot capture during test runs. |
 | `--no-reuse-env` | Forces a new ephemeral app+DB instance instead of reusing an existing one. |
+| `--app-only` | Runs only the app's own specs and skips the platform specs shipped inside `node_modules/@open-mercato/*`. See [App-owned specs only](#app-owned-specs-only). |
+| `-h`, `--help` | Prints the options and exits. |
 
 ## Examples
 
@@ -94,7 +96,19 @@ yarn mercato test:integration --keep --verbose
 
 # Always start a new ephemeral runtime (no attach/reuse)
 yarn mercato test:integration --no-reuse-env
+
+# Standalone app: run only the app's own specs (what the scaffolded integration.yml does)
+yarn test:integration:ephemeral --app-only
 ```
+
+## App-owned specs only
+
+Installed `@open-mercato/*` packages ship their own integration specs, and a standalone app discovers them by default. They need many environment variables and take hours on a small CI runner. `--app-only` limits the run to specs outside `node_modules/`, such as `src/modules/<module>/__integration__/*.spec.ts`.
+
+- The spec list is computed before anything starts. When the app has no specs of its own, the command prints `No app-owned integration specs found` and exits 0 without starting Docker or building the app.
+- `--filter` still works and narrows the app-owned list. A filter that matches none of the app's specs is an error.
+- Keep app specs in `src/modules/<module>/__integration__/`. Specs under `.ai/qa/tests/` run only when the app's Playwright config discovers that folder; the plain template config does not, so a suite that lives only there would boot the environment and then fail with "No tests found".
+- Without the flag, discovery is unchanged.
 
 ## Speed up local runs
 
