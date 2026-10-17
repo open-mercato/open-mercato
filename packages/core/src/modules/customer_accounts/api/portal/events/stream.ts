@@ -6,13 +6,17 @@
  * Events are scoped to the authenticated customer's tenant and organization.
  *
  * Uses customer JWT auth (cookie or Bearer token) instead of staff auth.
+ * The customer session is re-checked periodically and every connection has a
+ * bounded, jittered lifetime, so revoked sessions stop receiving events.
  *
  * Client consumer: `packages/ui/src/portal/hooks/usePortalEventBridge.ts`
  */
 
 import { NextResponse } from 'next/server'
 import { isPortalBroadcastEvent } from '@open-mercato/shared/modules/events'
-import { getCustomerAuthFromRequest } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
+import { resolveSseConnectionBounds } from '@open-mercato/shared/lib/sse/connectionBounds'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { getCustomerAuthFromRequest, type CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
@@ -20,12 +24,42 @@ export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth:
 const HEARTBEAT_INTERVAL_MS = 30_000
 const MAX_PAYLOAD_BYTES = 4096
 
+type PortalSseIdentity = {
+  tenantId: string
+  organizationId: string
+  customerUserId: string
+  sessionId: string
+}
+
 type PortalSseConnection = {
   tenantId: string
   organizationId: string
   customerUserId: string
   send: (data: string) => void
   close: () => void
+}
+
+function toIdentity(auth: CustomerAuthContext): PortalSseIdentity {
+  return {
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId,
+    customerUserId: auth.sub,
+    sessionId: auth.sid,
+  }
+}
+
+function identitiesMatch(left: PortalSseIdentity, right: PortalSseIdentity): boolean {
+  return left.tenantId === right.tenantId
+    && left.organizationId === right.organizationId
+    && left.customerUserId === right.customerUserId
+    && left.sessionId === right.sessionId
+}
+
+function createAuthRevalidationRequest(req: Request): Request {
+  return new Request(req.url, {
+    method: req.method,
+    headers: req.headers,
+  })
 }
 
 function normalizeAudience(data: Record<string, unknown>): {
@@ -150,26 +184,39 @@ export async function GET(req: Request): Promise<Response> {
   if (!auth) {
     return NextResponse.json({ ok: false, error: 'Authentication required' }, { status: 401 })
   }
+  const authorizedIdentity = toIdentity(auth)
+  const { authRevalidationIntervalMs, connectionMaxAgeMs } = resolveSseConnectionBounds()
 
   ensurePortalTap()
 
   const encoder = new TextEncoder()
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null
+  let authRevalidationTimer: ReturnType<typeof setInterval> | null = null
+  let maxAgeTimer: ReturnType<typeof setTimeout> | null = null
+  let streamController: ReadableStreamDefaultController<Uint8Array> | null = null
   let connection: PortalSseConnection | null = null
-  const onAbort = () => cleanup()
+  let authRevalidationInFlight = false
+  let cleanedUp = false
+  const onAbort = () => closeConnection()
 
-  const stream = new ReadableStream({
+  const stream = new ReadableStream<Uint8Array>({
     start(controller) {
+      streamController = controller
       const send = (data: string) => {
-        controller.enqueue(encoder.encode(`data: ${data}\n\n`))
+        if (cleanedUp) return
+        try {
+          streamController?.enqueue(encoder.encode(`data: ${data}\n\n`))
+        } catch {
+          closeConnection()
+        }
       }
 
       connection = {
-        tenantId: auth.tenantId,
-        organizationId: auth.orgId,
-        customerUserId: auth.sub,
+        tenantId: authorizedIdentity.tenantId,
+        organizationId: authorizedIdentity.organizationId,
+        customerUserId: authorizedIdentity.customerUserId,
         send,
-        close: () => controller.close(),
+        close: closeConnection,
       }
       portalConnections.add(connection)
 
@@ -181,32 +228,81 @@ export async function GET(req: Request): Promise<Response> {
 
       heartbeatTimer = setInterval(() => {
         try {
-          controller.enqueue(encoder.encode(':heartbeat\n\n'))
+          streamController?.enqueue(encoder.encode(':heartbeat\n\n'))
         } catch {
-          // Stream may have been closed
+          closeConnection()
         }
       }, HEARTBEAT_INTERVAL_MS)
+
+      authRevalidationTimer = setInterval(() => {
+        void revalidateAuthorization()
+      }, authRevalidationIntervalMs)
+
+      maxAgeTimer = setTimeout(() => {
+        closeConnection()
+      }, connectionMaxAgeMs)
     },
     cancel() {
       cleanup()
     },
   })
 
+  async function revalidateAuthorization(): Promise<void> {
+    if (cleanedUp || authRevalidationInFlight) return
+    authRevalidationInFlight = true
+    try {
+      const freshAuth = await getCustomerAuthFromRequest(createAuthRevalidationRequest(req))
+      if (cleanedUp) return
+      if (!freshAuth || !identitiesMatch(authorizedIdentity, toIdentity(freshAuth))) {
+        closeConnection()
+      }
+    } catch (error) {
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'customer_accounts',
+        code: 'customer_accounts.portal_sse_revalidation_failed',
+      })
+      closeConnection()
+    } finally {
+      authRevalidationInFlight = false
+    }
+  }
+
+  function closeConnection(): void {
+    if (cleanedUp) return
+    const controller = streamController
+    cleanup()
+    try {
+      controller?.close()
+    } catch {}
+  }
+
   function cleanup() {
+    if (cleanedUp) return
+    cleanedUp = true
     if (heartbeatTimer) {
       clearInterval(heartbeatTimer)
       heartbeatTimer = null
+    }
+    if (authRevalidationTimer) {
+      clearInterval(authRevalidationTimer)
+      authRevalidationTimer = null
+    }
+    if (maxAgeTimer) {
+      clearTimeout(maxAgeTimer)
+      maxAgeTimer = null
     }
     if (connection) {
       portalConnections.delete(connection)
       connection = null
     }
+    streamController = null
     // Detach from the request signal so reconnect churn does not accumulate
     // listeners and closures on long-lived AbortSignals.
     req.signal.removeEventListener('abort', onAbort)
   }
 
   req.signal.addEventListener('abort', onAbort, { once: true })
+  if (req.signal.aborted) onAbort()
 
   return new Response(stream, {
     status: 200,
@@ -221,7 +317,7 @@ export async function GET(req: Request): Promise<Response> {
 
 const methodDoc: OpenApiMethodDoc = {
   summary: 'Subscribe to portal events via SSE (Portal Event Bridge)',
-  description: 'Long-lived SSE connection that receives server-side events marked with portalBroadcast: true. Events are filtered by the customer\'s tenant, organization, and recipient user audience.',
+  description: 'Server-bounded SSE connection that receives server-side events marked with portalBroadcast: true. Events are filtered by the customer\'s tenant, organization, and recipient user audience. The customer session is revalidated periodically and the connection is closed once the session is no longer valid or its bounded lifetime ends; clients must reconnect.',
   tags: ['Customer Portal'],
   responses: [
     {

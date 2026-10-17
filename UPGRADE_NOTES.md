@@ -85,6 +85,31 @@ byte budget): intentional security narrowing of the `auth.users.create` command 
 a target user it returns `[]`, and every existing call compiles and behaves the same. The route URL,
 request and response schemas, event IDs, ACL features, DI names and database schema are unchanged.
 
+### The portal SSE event stream re-checks the customer session and closes after a bounded lifetime (#7217)
+
+`GET /api/customer_accounts/portal/events/stream` (the Portal Event Bridge) used to authorize only
+when the stream opened, so a session revoked by logout, session revocation, deactivation, deletion
+or expiry kept receiving `portalBroadcast` events until the client disconnected. Every open portal
+stream now re-checks the customer session from the original request credentials on the revalidation
+interval and closes as soon as it no longer authenticates. Independently of that, each stream is
+closed after the maximum age (jittered by ±15% per connection) so the client reconnects through
+fresh authorization. The URL, response headers, frames and audience filtering are unchanged.
+
+The existing `OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS` (default `30000`) and
+`OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS` (default `300000`) variables now govern both the DOM Event
+Bridge and the Portal Event Bridge. If you already tuned them for the staff stream, the portal stream
+follows the same values.
+
+**Action for integrators:** any non-browser client of the portal stream must expect the server to
+close it periodically and reconnect. The shipped browser bridge (`usePortalEventBridge`) already
+reconnects with backoff.
+
+**Action for operators:** every revalidation interval, each open portal stream runs the same
+customer authentication as a portal API request (JWT check, session and user lookups, customer RBAC
+resolution). Each open portal tab also reconnects roughly every 4¼–5¾ minutes with the default max
+age, and the shipped portal notifications hook refetches after a reconnect. Tune both variables if
+database load requires it.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
