@@ -1,6 +1,7 @@
 import { raw, type FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sql } from 'kysely'
+import { z } from 'zod'
 import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 import {
   actionLogCreateSchema,
@@ -29,6 +30,15 @@ import {
 } from '@open-mercato/core/modules/audit_logs/lib/actorSubject'
 
 const logger = createLogger('audit_logs').child({ component: 'action-log-service' })
+
+const DEFAULT_LIST_PAGE_SIZE = 50
+
+const actionLogListQuerySchema = actionLogListSchema.extend({
+  page: z.number().int().positive().optional(),
+  pageSize: z.number().int().positive().max(200).optional(),
+})
+
+type ParsedActionLogListQuery = z.infer<typeof actionLogListQuerySchema>
 
 let validationWarningLogged = false
 let runtimeValidationAvailable: boolean | null = null
@@ -409,26 +419,26 @@ export class ActionLogService {
   }
 
   private parseListQuery(query: Partial<ActionLogListQuery>) {
-    return actionLogListSchema.parse({
+    return actionLogListQuerySchema.parse({
       ...query,
     })
   }
 
-  private resolveActorUserIds(parsed: ActionLogListQuery): string[] {
+  private resolveActorUserIds(parsed: ParsedActionLogListQuery): string[] {
     const values = [...(parsed.actorUserIds ?? [])]
     if (parsed.actorUserId) values.push(parsed.actorUserId)
 
     return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)))
   }
 
-  private resolveFieldNames(parsed: ActionLogListQuery): string[] {
+  private resolveFieldNames(parsed: ParsedActionLogListQuery): string[] {
     const values = [...(parsed.fieldNames ?? [])]
     if (parsed.fieldName) values.push(parsed.fieldName)
 
     return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)))
   }
 
-  private resolveActionTypes(parsed: ActionLogListQuery): ActionLogFilterType[] {
+  private resolveActionTypes(parsed: ParsedActionLogListQuery): ActionLogFilterType[] {
     const values = [...(parsed.actionTypes ?? [])]
     if (parsed.actionType) values.push(parsed.actionType)
 
@@ -436,22 +446,14 @@ export class ActionLogService {
       .filter((value): value is ActionLogFilterType => ACTION_LOG_FILTER_TYPES.includes(value as ActionLogFilterType))
   }
 
-  private resolvePagination(parsed: ActionLogListQuery): { page: number; pageSize: number; offset: number; limit: number } {
-    const pageSize =
-      typeof parsed.pageSize === 'number' && parsed.pageSize > 0
-        ? parsed.pageSize
-        : typeof parsed.limit === 'number' && parsed.limit > 0
-          ? parsed.limit
-          : 50
-    const page = typeof parsed.page === 'number' && parsed.page > 0 ? parsed.page : 1
-    const offset =
-      typeof parsed.offset === 'number' && parsed.offset >= 0
-        ? parsed.offset
-        : (page - 1) * pageSize
+  private resolvePagination(parsed: ParsedActionLogListQuery): { page: number; pageSize: number; offset: number; limit: number } {
+    const pageSize = parsed.pageSize ?? parsed.limit ?? DEFAULT_LIST_PAGE_SIZE
+    const page = parsed.page ?? 1
+    const offset = parsed.offset ?? (page - 1) * pageSize
     return { page, pageSize, offset, limit: pageSize }
   }
 
-  private async loadEntries(parsed: ActionLogListQuery, options?: { paginate?: boolean }) {
+  private async loadEntries(parsed: ParsedActionLogListQuery, options?: { paginate?: boolean }) {
     let query = (this.buildListQuery(parsed) as any).select('action_logs.id as id')
 
     if (options?.paginate !== false) {
@@ -480,7 +482,7 @@ export class ActionLogService {
     ))
   }
 
-  private buildListQuery(parsed: ActionLogListQuery): any {
+  private buildListQuery(parsed: ParsedActionLogListQuery): any {
     let query = (this.em.getKysely<any>() as any)
       .selectFrom('action_logs')
       .selectAll()
