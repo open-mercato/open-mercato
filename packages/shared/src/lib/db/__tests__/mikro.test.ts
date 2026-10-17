@@ -1,3 +1,6 @@
+import type { TelemetryMetricPoint } from '../../telemetry/runtime'
+import type { ObservablePool } from '../mikro'
+
 describe('ORM entity registry', () => {
   const GLOBAL_ENTITIES_KEY = '__openMercatoOrmEntities__'
   const originalEntities = (globalThis as Record<string, unknown>)[GLOBAL_ENTITIES_KEY]
@@ -128,5 +131,316 @@ describe('resolvePoolConfig', () => {
       expect(config.statementTimeoutMs).toBeUndefined()
       expect(config.lockTimeoutMs).toBeUndefined()
     }
+  })
+})
+
+describe('instrumentPrimaryPool', () => {
+  afterEach(async () => {
+    const {
+      resetTelemetryMetricCollectors,
+      resetTelemetryRuntime,
+    } = await import('../../telemetry/runtime')
+    resetTelemetryMetricCollectors()
+    resetTelemetryRuntime()
+  })
+
+  async function registerMetricRecorder() {
+    const { registerTelemetryRuntime } = await import('../../telemetry/runtime')
+    const points: TelemetryMetricPoint[] = []
+    registerTelemetryRuntime({
+      canUseGlobalTracePropagation: () => false,
+      captureTraceContext: () => ({}),
+      continueTrace: (_carrier, _name, fn) => fn(),
+      recordMetric: (point) => points.push(point),
+      recordHttpDuration: () => {},
+      reportError: () => {},
+      shutdown: async () => {},
+    })
+    return points
+  }
+
+  it('collects exact pool state after telemetry initializes late', async () => {
+    const { EventEmitter } = await import('node:events')
+    const { instrumentPrimaryPool } = await import('../mikro')
+    const { collectTelemetryMetrics } = await import('../../telemetry/runtime')
+    const emitter = new EventEmitter()
+    const originalConnect = () => Promise.resolve({ id: 'client' })
+    const pool = Object.assign(emitter, {
+      totalCount: 8,
+      idleCount: 3,
+      waitingCount: 4,
+      options: { max: 20 },
+      connect: originalConnect,
+    }) as unknown as ObservablePool
+    const dispose = instrumentPrimaryPool(pool)
+
+    collectTelemetryMetrics()
+    const points = await registerMetricRecorder()
+    collectTelemetryMetrics()
+
+    expect(points).toEqual([
+      {
+        kind: 'gauge',
+        name: 'om.db.pool.connections',
+        value: 3,
+        labels: { pool: 'primary', state: 'idle' },
+        unit: '{connection}',
+      },
+      {
+        kind: 'gauge',
+        name: 'om.db.pool.connections',
+        value: 5,
+        labels: { pool: 'primary', state: 'used' },
+        unit: '{connection}',
+      },
+      {
+        kind: 'gauge',
+        name: 'om.db.pool.pending_requests',
+        value: 4,
+        labels: { pool: 'primary' },
+        unit: '{request}',
+      },
+      {
+        kind: 'gauge',
+        name: 'om.db.pool.max',
+        value: 20,
+        labels: { pool: 'primary' },
+        unit: '{connection}',
+      },
+    ])
+
+    dispose()
+    points.length = 0
+    collectTelemetryMetrics()
+    expect(points).toEqual([])
+    expect(pool.connect).toBe(originalConnect)
+  })
+
+  it('preserves promise success and rejection while timing both outcomes', async () => {
+    const { EventEmitter } = await import('node:events')
+    const { instrumentPrimaryPool } = await import('../mikro')
+    const points = await registerMetricRecorder()
+    const client = { id: 'client' }
+    const failure = new Error('[internal] pool exhausted')
+    const results: Array<Promise<unknown>> = [
+      Promise.resolve(client),
+      Promise.reject(failure),
+    ]
+    const originalConnect = jest.fn(() => results.shift() ?? Promise.resolve(client))
+    const pool = Object.assign(new EventEmitter(), {
+      totalCount: 1,
+      idleCount: 0,
+      waitingCount: 0,
+      options: { max: 20 },
+      connect: originalConnect,
+    }) as unknown as ObservablePool
+    const times = [100, 350, 400, 900]
+    const dispose = instrumentPrimaryPool(pool, () => times.shift() ?? 900)
+
+    await expect(pool.connect()).resolves.toBe(client)
+    await expect(pool.connect()).rejects.toBe(failure)
+
+    expect(points.filter((point) => point.name === 'om.db.pool.wait_time'))
+      .toEqual([
+        {
+          kind: 'histogram',
+          name: 'om.db.pool.wait_time',
+          value: 0.25,
+          labels: { pool: 'primary' },
+          unit: 's',
+        },
+        {
+          kind: 'histogram',
+          name: 'om.db.pool.wait_time',
+          value: 0.5,
+          labels: { pool: 'primary' },
+          unit: 's',
+        },
+      ])
+    expect(originalConnect.mock.contexts).toEqual([pool, pool])
+
+    dispose()
+  })
+
+  it('preserves callback arguments, receiver, and acquisition timing', async () => {
+    const { EventEmitter } = await import('node:events')
+    const { instrumentPrimaryPool } = await import('../mikro')
+    const points = await registerMetricRecorder()
+    const client = { id: 'client' }
+    const failure = new Error('[internal] callback acquisition failed')
+    const release = jest.fn()
+    let receivedThis: unknown
+    let callCount = 0
+    const originalConnect = function (
+      this: unknown,
+      callback: (
+        err: Error | undefined,
+        connectedClient: unknown,
+        done: (releaseError?: unknown) => void,
+      ) => void,
+    ): void {
+      receivedThis = this
+      callCount += 1
+      if (callCount === 1) {
+        callback(undefined, client, release)
+        return
+      }
+      callback(failure, undefined, release)
+    }
+    const pool = Object.assign(new EventEmitter(), {
+      totalCount: 1,
+      idleCount: 0,
+      waitingCount: 0,
+      options: { max: 20 },
+      connect: originalConnect,
+    }) as unknown as ObservablePool
+    const times = [1_000, 1_250, 1_500, 2_000]
+    const dispose = instrumentPrimaryPool(pool, () => times.shift() ?? 2_000)
+
+    await new Promise<void>((resolve, reject) => {
+      pool.connect((err, connectedClient, done) => {
+        try {
+          expect(err).toBeUndefined()
+          expect(connectedClient).toBe(client)
+          expect(done).toBe(release)
+          resolve()
+        } catch (testError) {
+          reject(testError)
+        }
+      })
+    })
+    await new Promise<void>((resolve, reject) => {
+      pool.connect((err, connectedClient, done) => {
+        try {
+          expect(err).toBe(failure)
+          expect(connectedClient).toBeUndefined()
+          expect(done).toBe(release)
+          resolve()
+        } catch (testError) {
+          reject(testError)
+        }
+      })
+    })
+
+    expect(receivedThis).toBe(pool)
+    expect(points.filter((point) => point.name === 'om.db.pool.wait_time'))
+      .toEqual([
+        {
+          kind: 'histogram',
+          name: 'om.db.pool.wait_time',
+          value: 0.25,
+          labels: { pool: 'primary' },
+          unit: 's',
+        },
+        {
+          kind: 'histogram',
+          name: 'om.db.pool.wait_time',
+          value: 0.5,
+          labels: { pool: 'primary' },
+          unit: 's',
+        },
+      ])
+
+    dispose()
+  })
+
+  it('replaces prior instrumentation without stacking wrappers or collectors', async () => {
+    const { EventEmitter } = await import('node:events')
+    const { instrumentPrimaryPool } = await import('../mikro')
+    const { collectTelemetryMetrics } = await import('../../telemetry/runtime')
+    const points = await registerMetricRecorder()
+    const client = { id: 'client' }
+    const originalConnect = jest.fn(() => Promise.resolve(client))
+    const pool = Object.assign(new EventEmitter(), {
+      totalCount: 2,
+      idleCount: 1,
+      waitingCount: 0,
+      options: { max: 20 },
+      connect: originalConnect,
+    }) as unknown as ObservablePool
+    const firstDispose = instrumentPrimaryPool(pool, () => 100)
+    const firstInstrumentedConnect = pool.connect
+    const secondDispose = instrumentPrimaryPool(pool, () => 250)
+    const secondInstrumentedConnect = pool.connect
+
+    expect(firstInstrumentedConnect).not.toBe(secondInstrumentedConnect)
+    await expect(pool.connect()).resolves.toBe(client)
+    collectTelemetryMetrics()
+
+    expect(points.filter((point) => point.name === 'om.db.pool.wait_time'))
+      .toHaveLength(1)
+    expect(points.filter((point) => point.name === 'om.db.pool.connections'))
+      .toHaveLength(2)
+
+    firstDispose()
+    expect(pool.connect).toBe(secondInstrumentedConnect)
+    secondDispose()
+    expect(pool.connect).toBe(originalConnect)
+  })
+
+  it('does not let metric-provider failures change pool acquisition semantics', async () => {
+    const { EventEmitter } = await import('node:events')
+    const { instrumentPrimaryPool } = await import('../mikro')
+    const { registerTelemetryRuntime } = await import('../../telemetry/runtime')
+    const client = { id: 'client' }
+    const originalConnect = jest.fn(() => Promise.resolve(client))
+    const pool = Object.assign(new EventEmitter(), {
+      totalCount: 1,
+      idleCount: 0,
+      waitingCount: 0,
+      options: { max: 20 },
+      connect: originalConnect,
+    }) as unknown as ObservablePool
+    registerTelemetryRuntime({
+      canUseGlobalTracePropagation: () => false,
+      captureTraceContext: () => ({}),
+      continueTrace: (_carrier, _name, fn) => fn(),
+      recordMetric: () => {
+        throw new Error('[internal] metric provider unavailable')
+      },
+      recordHttpDuration: () => {},
+      reportError: () => {},
+      shutdown: async () => {},
+    })
+    const dispose = instrumentPrimaryPool(pool, () => 100)
+
+    await expect(pool.connect()).resolves.toBe(client)
+
+    dispose()
+  })
+
+  it('emits pool metrics only under the app namespace, never the semconv names owned by PgInstrumentation', async () => {
+    const { EventEmitter } = await import('node:events')
+    const { instrumentPrimaryPool } = await import('../mikro')
+    const { collectTelemetryMetrics } = await import('../../telemetry/runtime')
+    const points = await registerMetricRecorder()
+    const pool = Object.assign(new EventEmitter(), {
+      totalCount: 4,
+      idleCount: 1,
+      waitingCount: 2,
+      options: { max: 10 },
+      connect: () => Promise.resolve({ id: 'client' }),
+    }) as unknown as ObservablePool
+    const dispose = instrumentPrimaryPool(pool, () => 0)
+
+    await pool.connect()
+    collectTelemetryMetrics()
+
+    const signatures = new Set(points.map((point) => [
+      point.kind,
+      point.name,
+      point.unit,
+      Object.keys(point.labels ?? {}).sort().join(','),
+    ].join(' ')))
+    expect(signatures).toEqual(new Set([
+      'histogram om.db.pool.wait_time s pool',
+      'gauge om.db.pool.connections {connection} pool,state',
+      'gauge om.db.pool.pending_requests {request} pool',
+      'gauge om.db.pool.max {connection} pool',
+    ]))
+    expect(points.filter((point) => point.name.startsWith('db.client.'))).toEqual([])
+    expect(new Set(points.map((point) => point.labels?.pool))).toEqual(new Set(['primary']))
+
+    dispose()
   })
 })
