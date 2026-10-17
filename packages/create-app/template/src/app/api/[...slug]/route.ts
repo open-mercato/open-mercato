@@ -18,6 +18,7 @@ import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FAL
 import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { applicationLifecycleEvents, type ApplicationLifecycleEventId } from '@open-mercato/shared/lib/runtime/events'
 import { withModuleResourceUsage } from '@open-mercato/shared/lib/modules/resource-usage'
+import { runWithRequestCausation } from '@open-mercato/shared/lib/causation/server'
 
 // Ensure all package registrations are initialized for API routes.
 bootstrap()
@@ -441,7 +442,10 @@ async function handleRequest(
 
   try {
     const handlerContext: HandlerContext = { params: match.params, auth }
-    const runHandler = () => runWithCacheTenant(auth?.tenantId ?? null, () => handler(req, handlerContext))
+    const runHandler = () => runWithCacheTenant(
+      auth?.tenantId ?? null,
+      () => runWithRequestCausation(auth, () => handler(req, handlerContext)),
+    )
     const response = methodMetadata?.skipModuleResourceUsageTracking !== true
       ? await withModuleResourceUsage(
         {

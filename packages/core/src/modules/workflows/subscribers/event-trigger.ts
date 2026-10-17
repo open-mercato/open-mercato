@@ -18,20 +18,25 @@ export const metadata = {
   id: 'workflows:event-trigger',
 }
 
-// Events that should never trigger workflows (internal/system events)
-const EXCLUDED_EVENT_PREFIXES = [
-  'query_index.', // Internal indexing events
-  'search.', // Internal search events
-  'workflows.', // Workflow internal events (avoid recursion)
-  'cache.', // Cache events
-  'queue.', // Queue events
-]
+/**
+ * Event id prefixes that never reach workflow triggers (internal/system events):
+ * indexing, search, the workflows module's own events (avoids recursion), cache
+ * and queue events. Exported so the change simulator's trigger backtest skips
+ * exactly the events this subscriber skips.
+ */
+export const WORKFLOW_TRIGGER_EXCLUDED_EVENT_PREFIXES: readonly string[] = Object.freeze([
+  'query_index.',
+  'search.',
+  'workflows.',
+  'cache.',
+  'queue.',
+])
 
 /**
  * Check if an event should be excluded from trigger processing.
  */
-function isExcludedEvent(eventName: string): boolean {
-  return EXCLUDED_EVENT_PREFIXES.some(prefix => eventName.startsWith(prefix))
+export function isWorkflowTriggerExcludedEvent(eventName: string): boolean {
+  return WORKFLOW_TRIGGER_EXCLUDED_EVENT_PREFIXES.some(prefix => eventName.startsWith(prefix))
 }
 
 export default async function handle(
@@ -50,7 +55,7 @@ export default async function handle(
   }
 
   // Skip excluded events
-  if (isExcludedEvent(eventName)) {
+  if (isWorkflowTriggerExcludedEvent(eventName)) {
     return
   }
 

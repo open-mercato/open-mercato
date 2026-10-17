@@ -78,6 +78,15 @@ import { findRouteKindDescriptorForHandle } from '../../../lib/route-kinds'
 import { buildWorkflowRouteEdge } from '../../../lib/route-edge'
 import { isDecisionSourceHandle, type DecisionRowLike } from '../../../lib/node-outcome-rows'
 import { STRUCTURAL_EDIT_CONFLICT_CODE } from '../../../lib/definition-edit-safety'
+import {
+  WORKFLOW_DEFINITION_EDITOR_BANNER_SPOT_ID,
+  WORKFLOW_DEFINITION_EDITOR_TOOLBAR_SPOT_ID,
+  readStartPreConditions,
+  readWorkflowDefinitionEditorDataChange,
+  workflowDefinitionEditorFormId,
+  type WorkflowDefinitionEditorInjectionContext,
+  type WorkflowDefinitionEditorInjectionData,
+} from '../../../lib/editor-injection'
 import type { WorkflowErrorHandlerConfig } from '../../../data/validators'
 import { WORKFLOW_NODE_DELETE_EVENT } from '../../../components/WorkflowNodeCard'
 import { WORKFLOW_ROUTE_CHIP_EVENT, WORKFLOW_ROUTE_ACTIVITY_EVENT, type RouteChipEventDetail, type RouteActivityEventDetail } from '../../../lib/route-chip-events'
@@ -133,6 +142,7 @@ import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { InjectionSpot, useInjectionSpotEvents } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import {
   listStartFixtures,
@@ -565,6 +575,37 @@ export default function VisualEditorPage() {
 
   const isCodeOnly = source === 'code'
   const isCodeOverride = source === 'code_override'
+
+  // Injection spots of this editor (`lib/editor-injection.ts`): toolbar actions
+  // and banners see the current, unsaved trigger-relevant fields; banner widgets
+  // receive `onAfterSave` after every successful explicit Save.
+  const editorInjectionContext = React.useMemo<WorkflowDefinitionEditorInjectionContext>(() => ({
+    formId: workflowDefinitionEditorFormId(definitionId),
+    recordId: definitionId ?? null,
+    codeOnly: isCodeOnly,
+  }), [definitionId, isCodeOnly])
+  const startNodeData = nodes.find((node) => node.type === 'start')?.data
+  const startPreConditions = React.useMemo(
+    () => readStartPreConditions([{ type: 'start', data: startNodeData }]),
+    [startNodeData],
+  )
+  const editorInjectionData = React.useMemo<WorkflowDefinitionEditorInjectionData>(() => ({
+    workflowId,
+    version,
+    enabled,
+    triggers,
+    startPreConditions,
+  }), [workflowId, version, enabled, triggers, startPreConditions])
+  const { triggerEvent: triggerEditorBannerEvent } = useInjectionSpotEvents<WorkflowDefinitionEditorInjectionContext, WorkflowDefinitionEditorInjectionData>(
+    WORKFLOW_DEFINITION_EDITOR_BANNER_SPOT_ID,
+  )
+  const handleEditorInjectionDataChange = useCallback((next: WorkflowDefinitionEditorInjectionData) => {
+    const change = readWorkflowDefinitionEditorDataChange(next)
+    if (!change) return
+    if (change.triggers !== undefined) setTriggers(change.triggers)
+    if (change.enabled !== undefined) setEnabled(change.enabled)
+    if (change.version !== undefined) setVersion(change.version)
+  }, [])
 
   // Per-user draft layer (spec §4.7): drafts persist server-side only for
   // SAVED definitions (uuid ids). Unsaved/new definitions and code-defined
@@ -2199,6 +2240,14 @@ export default function VisualEditorPage() {
         'success',
       )
 
+      void triggerEditorBannerEvent(
+        'onAfterSave',
+        { workflowId, version, enabled, triggers, startPreConditions: readStartPreConditions(nodes) },
+        { formId: workflowDefinitionEditorFormId(definitionId), recordId: definitionId ?? null, codeOnly: isCodeOnly },
+      ).catch((error: unknown) => {
+        logger.error('Error in onAfterSave', { err: error })
+      })
+
       // Stay on the visual editor after saving. On update, refresh the local
       // optimistic-lock token so the next save keeps working. On create, switch
       // the editor into edit mode by pointing the URL at the new id — the load
@@ -2218,7 +2267,7 @@ export default function VisualEditorPage() {
     } finally {
       setIsSaving(false)
     }
-  }, [nodes, edges, workflowId, workflowName, description, version, enabled, category, tags, icon, effectiveFrom, effectiveTo, triggers, contextSchema, definitionIo, interpolation, errorHandler, loadedMetadata, annotations, definitionId, updatedAt, router, t])
+  }, [nodes, edges, workflowId, workflowName, description, version, enabled, category, tags, icon, effectiveFrom, effectiveTo, triggers, contextSchema, definitionIo, interpolation, errorHandler, loadedMetadata, annotations, definitionId, updatedAt, router, t, isCodeOnly, triggerEditorBannerEvent])
 
   // ── Non-pointer authoring path (spec §4.6) ────────────────────────────────
   // Every canvas operation is reachable from the keyboard: the command palette
@@ -3427,6 +3476,14 @@ export default function VisualEditorPage() {
                 )}
                 </>
               )}
+              {focusMode ? null : (
+                <InjectionSpot
+                  spotId={WORKFLOW_DEFINITION_EDITOR_TOOLBAR_SPOT_ID}
+                  context={editorInjectionContext}
+                  data={editorInjectionData}
+                  disabled={isSaving}
+                />
+              )}
               {isCodeOnly ? (
                 <Button
                   size="sm"
@@ -3468,6 +3525,14 @@ export default function VisualEditorPage() {
           )}
         </div>
       )}
+
+      <InjectionSpot
+        spotId={WORKFLOW_DEFINITION_EDITOR_BANNER_SPOT_ID}
+        context={editorInjectionContext}
+        data={editorInjectionData}
+        onDataChange={handleEditorInjectionDataChange}
+        disabled={isSaving || isCodeOnly}
+      />
 
       {/* Edit-safety rule: structural change refused while instances run (spec §4.1) */}
       {structuralConflictBanner}

@@ -16,6 +16,41 @@ const logger = createLogger('audit_logs').child({ component: 'access-log-service
 
 const CORE_RESOURCE_KINDS = new Set<string>(['auth.user', 'auth.role'])
 
+const RETAINED_RESOURCE_KINDS_KEY = Symbol.for('@open-mercato/core/audit_logs/retained-access-log-resource-kinds')
+
+type GlobalWithRetainedResourceKinds = typeof globalThis & {
+  [RETAINED_RESOURCE_KINDS_KEY]?: Set<string>
+}
+
+function retainedResourceKindRegistry(): Set<string> {
+  const scope = globalThis as GlobalWithRetainedResourceKinds
+  if (!scope[RETAINED_RESOURCE_KINDS_KEY]) scope[RETAINED_RESOURCE_KINDS_KEY] = new Set<string>()
+  return scope[RETAINED_RESOURCE_KINDS_KEY]
+}
+
+/**
+ * Registers access-log resource kinds that rotation keeps under the core retention
+ * (`AUDIT_LOGS_CORE_RETENTION_DAYS`, default 7 days) like `auth.user` / `auth.role`, instead of
+ * the non-core retention (`AUDIT_LOGS_NON_CORE_RETENTION_HOURS`, default 8 hours). For modules
+ * whose access rows are an audit trail (e.g. per-person analytics reads); register from the
+ * module's DI `register` so web, worker and CLI processes all see it. Additive and idempotent;
+ * the registry lives on `globalThis` (shared by every copy of this module), blank values are
+ * ignored.
+ */
+export function registerRetainedAccessLogResourceKinds(kinds: readonly string[]): void {
+  const registry = retainedResourceKindRegistry()
+  for (const kind of kinds) {
+    if (typeof kind !== 'string') continue
+    const trimmed = kind.trim()
+    if (trimmed.length > 0) registry.add(trimmed)
+  }
+}
+
+/** Resource kinds kept under the core retention: the core kinds plus every registered kind. */
+export function listRetainedAccessLogResourceKinds(): string[] {
+  return Array.from(new Set([...CORE_RESOURCE_KINDS, ...retainedResourceKindRegistry()])).sort((left, right) => left.localeCompare(right))
+}
+
 function toPositiveNumber(value: string | undefined, fallback: number): number {
   if (!value) return fallback
   const parsed = Number(value)
@@ -399,15 +434,16 @@ export class AccessLogService {
     lastRotatedAt = now
     const coreCutoff = new Date(now - CORE_RETENTION_MS)
     const nonCoreCutoff = new Date(now - NON_CORE_RETENTION_MS)
+    const retainedKinds = listRetainedAccessLogResourceKinds()
     try {
-      if (CORE_RESOURCE_KINDS.size > 0) {
+      if (retainedKinds.length > 0) {
         await fork.nativeDelete(AccessLog, {
-          resourceKind: { $in: Array.from(CORE_RESOURCE_KINDS) },
+          resourceKind: { $in: retainedKinds },
           createdAt: { $lt: coreCutoff },
         })
       }
       await fork.nativeDelete(AccessLog, {
-        resourceKind: { $nin: Array.from(CORE_RESOURCE_KINDS) },
+        resourceKind: { $nin: retainedKinds },
         createdAt: { $lt: nonCoreCutoff },
       })
     } catch (err) {

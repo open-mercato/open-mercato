@@ -25,12 +25,19 @@ type Awaitable<T> = T | Promise<T>
 
 type BackendParams = { params: Awaitable<{ slug?: string[] }> }
 
-async function renderAccessDenied() {
+type AccessDeniedContext = {
+  path: string
+  requiredFeatures?: readonly string[] | null
+}
+
+async function renderAccessDenied(context: AccessDeniedContext) {
   const { translate } = await resolveTranslations()
   return (
     <AccessDeniedMessage
       label={translate('auth.accessDenied.title', 'Access Denied')}
       description={translate('auth.accessDenied.message', 'You do not have permission to view this page. Please contact your administrator.')}
+      path={context.path}
+      requiredFeatures={context.requiredFeatures ? [...context.requiredFeatures] : []}
       action={
         <Link href="/backend" className="text-sm underline hover:opacity-80">
           {translate('auth.accessDenied.dashboard', 'Go to Dashboard')}
@@ -74,7 +81,7 @@ export default async function BackendCatchAll(props: BackendParams) {
     if (required.length) {
       const roles = auth.roles || []
       const ok = required.some(r => roles.includes(r))
-      if (!ok) return renderAccessDenied()
+      if (!ok) return renderAccessDenied({ path: pathname, requiredFeatures: [] })
     }
     const features = match.route.requireFeatures
     if (features && features.length) {
@@ -89,14 +96,14 @@ export default async function BackendCatchAll(props: BackendParams) {
         organizationIdForCheck = organizationId
         tenantIdForCheck = scope.tenantId ?? auth.tenantId ?? null
         if (Array.isArray(allowedOrganizationIds) && allowedOrganizationIds.length === 0) {
-          return renderAccessDenied()
+          return renderAccessDenied({ path: pathname, requiredFeatures: match.route.requireFeatures })
         }
       } catch {
         organizationIdForCheck = auth.orgId ?? null
         tenantIdForCheck = auth.tenantId ?? null
       }
       const ok = await rbac.userHasAllFeatures(auth.sub, features, { tenantId: tenantIdForCheck, organizationId: organizationIdForCheck })
-      if (!ok) return renderAccessDenied()
+      if (!ok) return renderAccessDenied({ path: pathname, requiredFeatures: match.route.requireFeatures })
     }
   }
   const middlewareRedirect = await resolvePageMiddlewareRedirect({

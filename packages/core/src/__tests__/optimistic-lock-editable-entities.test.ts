@@ -90,6 +90,10 @@ const moduleEntities: Record<string, string[]> = {
   notifications: ['NotificationTypeOverride', 'NotificationPreference'],
   availability: ['AvailabilityPolicy'],
   customer_groups: ['CustomerGroup', 'CustomerGroupTerms'],
+  // Process X-Ray settings: hand-written GET/PUT route; the command enforces the lock and
+  // writes with a compare-and-set on `updated_at` (case c below). Automation suggestions
+  // also carry `updated_at` for their status changes (Phase 6 route).
+  insights: ['InsightsProcessSettings', 'InsightsAutomationSuggestion'],
 }
 
 function readEntitySource(moduleId: string): string {
@@ -193,6 +197,8 @@ const makeCrudRouteByEntity: Record<string, string[]> = {
   Tenant: ['directory/api/tenants/route.ts'],
   // CustomerGroupTerms — hand-written upsert route; the lock is enforced via
   // `enforceCommandOptimisticLock` (case c).
+  // InsightsProcessSettings — hand-written settings route; the save command enforces the lock
+  // via `enforceCommandOptimisticLockWithGuards` (case c).
 }
 
 function entityHasDeletedAt(moduleId: string, className: string): boolean {

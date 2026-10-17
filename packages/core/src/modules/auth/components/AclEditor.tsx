@@ -62,6 +62,12 @@ export type AclData = {
   organizations: string[] | null
 }
 
+/** The ACL exactly as the editor loaded it for a tenant (before the actor's own filtering). */
+export type AclBaseline = AclData & {
+  tenantId: string | null
+  updatedAt: string | null
+}
+
 type FeatureListResponse = { items?: Feature[]; modules?: ModuleInfo[] }
 type AclPayload = {
   hasCustomAcl?: boolean
@@ -105,6 +111,8 @@ export function AclEditor({
   currentUserIsSuperAdmin,
   tenantId,
   preserveOnTenantChange = false,
+  onBaselineChange,
+  valueRevision,
 }: {
   kind: 'user' | 'role'
   targetId: string
@@ -117,6 +125,13 @@ export function AclEditor({
    * overwrites (#2055).
    */
   onVersionChange?: (updatedAt: string | null) => void
+  /**
+   * Reports the ACL as loaded (unfiltered) with the tenant it was loaded for, so a parent can
+   * compare it with a fresh read before writing an ACL that has no `updatedAt` to lock on.
+   */
+  onBaselineChange?: (baseline: AclBaseline) => void
+  /** Bumping this re-initializes the editor from `value` (e.g. to load a simulated proposal). */
+  valueRevision?: number
   userRoles?: string[]
   currentUserIsSuperAdmin?: boolean
   tenantId?: string | null
@@ -156,6 +171,8 @@ export function AclEditor({
 
   const tenantIdRef = React.useRef(tenantId)
   React.useEffect(() => { tenantIdRef.current = tenantId }, [tenantId])
+  const onBaselineChangeRef = React.useRef(onBaselineChange)
+  React.useEffect(() => { onBaselineChangeRef.current = onBaselineChange }, [onBaselineChange])
   const hasMountedRef = React.useRef(false)
 
   const fetchAclState = React.useCallback(async (forTenantId: string | null | undefined, cancelledRef: { current: boolean }) => {
@@ -177,8 +194,24 @@ export function AclEditor({
       setGranted(actorSanitizeFeatures(aclJson.features))
       setOrganizations(aclJson.organizations == null ? null : Array.isArray(aclJson.organizations) ? aclJson.organizations : [])
       onVersionChange?.(typeof aclJson.updatedAt === 'string' ? aclJson.updatedAt : null)
+      onBaselineChangeRef.current?.({
+        tenantId: forTenantId ?? null,
+        isSuperAdmin: !!aclJson.isSuperAdmin,
+        features: normalizeFeatureArray(aclJson.features),
+        organizations: aclJson.organizations == null ? null : Array.isArray(aclJson.organizations) ? normalizeFeatureArray(aclJson.organizations) : [],
+        updatedAt: typeof aclJson.updatedAt === 'string' ? aclJson.updatedAt : null,
+      })
     } catch {}
   }, [kind, targetId, actorSanitizeFeatures, onVersionChange])
+
+  const appliedRevisionRef = React.useRef(valueRevision)
+  React.useEffect(() => {
+    if (valueRevision === undefined || valueRevision === appliedRevisionRef.current) return
+    appliedRevisionRef.current = valueRevision
+    setIsSuperAdmin(!!value?.isSuperAdmin)
+    setGranted(actorSanitizeFeatures(value?.features))
+    setOrganizations(value?.organizations == null ? null : Array.isArray(value.organizations) ? value.organizations : [])
+  }, [valueRevision, value, actorSanitizeFeatures])
 
   React.useEffect(() => {
     const cancelled = { current: false }

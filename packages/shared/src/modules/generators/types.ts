@@ -5,6 +5,12 @@ export interface GeneratorPluginBootstrapRegistration {
   registrationImports: string[]
   /** Build the registration call expression, receives the entries variable name */
   buildCall: (entriesExportName: string) => string
+  /**
+   * Also run this registration in CLI and worker processes (`bootstrapFromAppRoot`), through
+   * `bootstrap-registrations.cli.generated.ts`. Only set it when the plugin's entries and
+   * registration import no Next.js, React or browser code.
+   */
+  cli?: boolean
 }
 
 export interface GeneratorPlugin {

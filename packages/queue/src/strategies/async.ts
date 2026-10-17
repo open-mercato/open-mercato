@@ -3,6 +3,8 @@ import { getRedisUrlOrThrow, parseRedisUrl, REDIS_WIRE_PROTOCOL } from '@open-me
 import type { RedisProtocolVersion } from '@open-mercato/shared/lib/redis/connection'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { attachTraceMetadata, runJobInTrace } from '../tracing'
+import { attachCausationMetadata, runJobInCausation } from '../causation'
+import { runOutsideCausation } from '@open-mercato/shared/lib/causation/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const packageLogger = createLogger('queue')
@@ -386,7 +388,7 @@ export function createAsyncQueue<T = unknown>(
     const queue = await getQueue()
     // When bullmq-otel handles propagation, don't also attach our carrier.
     const telemetry = await getQueueTelemetry()
-    const metadata = telemetry ? undefined : attachTraceMetadata(undefined)
+    const metadata = attachCausationMetadata(telemetry ? undefined : attachTraceMetadata(undefined))
     const jobData: QueuedJob<T> = {
       id: crypto.randomUUID(),
       payload: data,
@@ -422,11 +424,13 @@ export function createAsyncQueue<T = unknown>(
         // With bullmq-otel active, BullMQ owns the process span and active
         // context (the handler's pg/undici spans nest under it). Otherwise
         // continue the trace from our own carrier.
-        if (telemetry) {
-          await handler(jobData, ctx)
-        } else {
-          await runJobInTrace(name, jobData.metadata, () => handler(jobData, ctx))
-        }
+        await runJobInCausation(name, jobData.metadata, async () => {
+          if (telemetry) {
+            await handler(jobData, ctx)
+          } else {
+            await runJobInTrace(name, jobData.metadata, () => handler(jobData, ctx))
+          }
+        })
       },
       {
         connection,
@@ -506,9 +510,11 @@ export function createAsyncQueue<T = unknown>(
       // a worker is back, then keep re-sweeping for anything the fast path loses while running.
       // The timer is unref'd so it never holds the process open.
       void sweepAbandonedJobs()
-      abandonedSweepTimer = setInterval(() => {
-        void sweepAbandonedJobs()
-      }, resolveSweepIntervalMs())
+      abandonedSweepTimer = runOutsideCausation(() =>
+        setInterval(() => {
+          void sweepAbandonedJobs()
+        }, resolveSweepIntervalMs()),
+      )
       ;(abandonedSweepTimer as unknown as { unref?: () => void }).unref?.()
     }
 

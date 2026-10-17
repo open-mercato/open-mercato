@@ -8,7 +8,19 @@ import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
-import { AclEditor, type AclData } from '@open-mercato/core/modules/auth/components/AclEditor'
+import { AclEditor, type AclBaseline, type AclData } from '@open-mercato/core/modules/auth/components/AclEditor'
+import {
+  ROLE_ACL_EDITOR_BANNER_SPOT_ID,
+  ROLE_ACL_EDITOR_TOOLBAR_SPOT_ID,
+  readRoleAclEditorDataChange,
+  roleAclEditorFormId,
+  type RoleAclEditorInjectionContext,
+  type RoleAclEditorInjectionData,
+} from '@open-mercato/core/modules/auth/lib/roleAclEditorInjection'
+import { assertRoleAclUnchanged } from '@open-mercato/core/modules/auth/lib/roleAclBaseline'
+import { InjectionSpot, useInjectionSpotEvents } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { WidgetVisibilityEditor, type WidgetVisibilityEditorHandle } from '@open-mercato/core/modules/dashboards/components/WidgetVisibilityEditor'
 import { E } from '#generated/entities.ids.generated'
 import { TenantSelect } from '@open-mercato/core/modules/directory/components/TenantSelect'
@@ -36,6 +48,8 @@ type RoleListResponse = {
   isSuperAdmin?: boolean
 }
 
+const logger = createLogger('auth')
+
 export default function EditRolePage({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const t = useT()
@@ -46,7 +60,34 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
   const [aclUpdatedAt, setAclUpdatedAt] = React.useState<string | null>(null)
   const [actorIsSuperAdmin, setActorIsSuperAdmin] = React.useState(false)
   const [selectedTenantId, setSelectedTenantId] = React.useState<string | null>(null)
+  const [aclBaseline, setAclBaseline] = React.useState<AclBaseline | null>(null)
+  const [aclRevision, setAclRevision] = React.useState(0)
   const widgetEditorRef = React.useRef<WidgetVisibilityEditorHandle | null>(null)
+
+  const aclInjectionContext = React.useMemo<RoleAclEditorInjectionContext | null>(() => (
+    id ? { formId: roleAclEditorFormId(String(id)), recordId: String(id), tenantId: selectedTenantId ?? null } : null
+  ), [id, selectedTenantId])
+  const aclInjectionData = React.useMemo<RoleAclEditorInjectionData | null>(() => (
+    id
+      ? {
+        roleId: String(id),
+        tenantId: selectedTenantId ?? null,
+        isSuperAdmin: aclData.isSuperAdmin,
+        features: aclData.features,
+        organizations: aclData.organizations,
+        updatedAt: aclUpdatedAt,
+      }
+      : null
+  ), [aclData, aclUpdatedAt, id, selectedTenantId])
+  const { triggerEvent: triggerAclBannerEvent } = useInjectionSpotEvents<RoleAclEditorInjectionContext, RoleAclEditorInjectionData>(
+    ROLE_ACL_EDITOR_BANNER_SPOT_ID,
+  )
+  const handleAclInjectionDataChange = React.useCallback((next: RoleAclEditorInjectionData) => {
+    const change = readRoleAclEditorDataChange(next)
+    if (!change) return
+    setAclData(change)
+    setAclRevision((revision) => revision + 1)
+  }, [])
 
   React.useEffect(() => {
     if (!id) return
@@ -159,6 +200,21 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
                 )}
               </Alert>
             ) : null}
+            {aclInjectionContext && aclInjectionData ? (
+              <>
+                <InjectionSpot
+                  spotId={ROLE_ACL_EDITOR_TOOLBAR_SPOT_ID}
+                  context={aclInjectionContext}
+                  data={aclInjectionData}
+                />
+                <InjectionSpot
+                  spotId={ROLE_ACL_EDITOR_BANNER_SPOT_ID}
+                  context={aclInjectionContext}
+                  data={aclInjectionData}
+                  onDataChange={handleAclInjectionDataChange}
+                />
+              </>
+            ) : null}
             <AclEditor
               kind="role"
               targetId={String(id)}
@@ -166,6 +222,8 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
               value={aclData}
               onChange={setAclData}
               onVersionChange={setAclUpdatedAt}
+              onBaselineChange={setAclBaseline}
+              valueRevision={aclRevision}
               currentUserIsSuperAdmin={actorIsSuperAdmin}
               tenantId={selectedTenantId ?? null}
               preserveOnTenantChange
@@ -190,7 +248,7 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
         )
         : null),
     },
-  ]), [aclData, actorIsSuperAdmin, detailFieldIds, id, initial, loading, selectedTenantId, t])
+  ]), [aclData, aclInjectionContext, aclInjectionData, aclRevision, actorIsSuperAdmin, detailFieldIds, handleAclInjectionDataChange, id, initial, loading, selectedTenantId, t])
 
   // Publish page-load record context to the AppShell-owned `backend:record:current`
   // mount so the enterprise record_locks widget resolves `auth.role` + id explicitly.
@@ -236,6 +294,16 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
             if (Object.keys(customFields).length) {
               payload.customFields = customFields
             }
+            const aclLockHeader = buildOptimisticLockHeader(aclUpdatedAt)
+            if (Object.keys(aclLockHeader).length === 0) {
+              await assertRoleAclUnchanged({
+                roleId: String(id),
+                tenantId: effectiveTenantId,
+                roleTenantId: initial?.tenantId ?? null,
+                baseline: aclBaseline,
+                t,
+              })
+            }
             const roleOptimisticLockHeader = buildOptimisticLockHeader(initial?.updatedAt)
             if (Object.keys(roleOptimisticLockHeader).length > 0) {
               await withScopedApiRequestHeaders(roleOptimisticLockHeader, () => updateCrud('auth/roles', payload))
@@ -245,7 +313,6 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
             // Optimistic lock the ACL save against the loaded RoleAcl version so a
             // concurrent permission edit cannot silently overwrite (#2055). CrudForm
             // surfaces the 409 as the unified conflict bar.
-            const aclLockHeader = buildOptimisticLockHeader(aclUpdatedAt)
             const saveRoleAcl = () => updateCrud('auth/roles/acl', { roleId: id, tenantId: effectiveTenantId, ...aclData }, {
               errorMessage: t('auth.roles.form.errors.aclUpdate', 'Failed to update role access control'),
             })
@@ -253,6 +320,21 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
               await withScopedApiRequestHeaders(aclLockHeader, saveRoleAcl)
             } else {
               await saveRoleAcl()
+            }
+            if (aclInjectionContext) {
+              try {
+                await triggerAclBannerEvent('onAfterSave', {
+                  roleId: String(id),
+                  tenantId: effectiveTenantId,
+                  isSuperAdmin: aclData.isSuperAdmin,
+                  features: aclData.features,
+                  organizations: aclData.organizations,
+                  updatedAt: aclUpdatedAt,
+                }, aclInjectionContext)
+              } catch (error) {
+                logger.error('Error in role ACL onAfterSave', { err: error })
+                getTelemetryRuntime()?.reportError(error, { module: 'auth', code: 'auth.role_acl_after_save_failed' })
+              }
             }
             await widgetEditorRef.current?.save()
             try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}

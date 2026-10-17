@@ -1292,6 +1292,37 @@ export type UpdateWorkflowDefinitionApiInput = z.infer<typeof updateWorkflowDefi
 export const updateWorkflowDefinitionInputCheckedSchema =
   updateWorkflowDefinitionInputSchema.superRefine(componentHasNoTriggers)
 
+export const WORKFLOW_TRIGGER_BACKTEST_MAX_TRIGGERS = 50
+
+/**
+ * The proposal of the change simulator's trigger backtest (`workflows.trigger_backtest`): the parts
+ * of a definition the editor would save that decide whether an event starts it — the workflow id
+ * (identifies an unsaved definition), the version and enabled flag (which version's triggers are
+ * live), the embedded triggers (validated exactly as on save) and the START step's pre-conditions.
+ */
+export const workflowTriggerBacktestProposalSchema = z.object({
+  workflowId: z.string().min(1).max(100).regex(/^[a-z0-9._-]+$/, 'Workflow ID must contain only lowercase letters, numbers, dots, hyphens, and underscores'),
+  version: z.number().int().positive(),
+  enabled: z.boolean().default(true),
+  triggers: z.array(workflowDefinitionTriggerSchema).max(WORKFLOW_TRIGGER_BACKTEST_MAX_TRIGGERS),
+  startPreConditions: z.array(startPreConditionSchema).max(100).default([]),
+}).superRefine((proposal, ctx) => {
+  const seen = new Set<string>()
+  proposal.triggers.forEach((trigger, index) => {
+    if (!seen.has(trigger.triggerId)) {
+      seen.add(trigger.triggerId)
+      return
+    }
+    ctx.addIssue({
+      code: 'custom',
+      path: ['triggers', index, 'triggerId'],
+      message: `Trigger ID "${trigger.triggerId}" is used more than once`,
+    })
+  })
+})
+
+export type WorkflowTriggerBacktestProposal = z.infer<typeof workflowTriggerBacktestProposalSchema>
+
 export const workflowDefinitionFilterSchema = z.object({
   workflowId: z.string().optional(),
   workflowName: z.string().optional(),

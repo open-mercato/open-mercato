@@ -504,7 +504,7 @@ function normalizeMetadata(input: unknown): Record<string, any> {
   return typeof input === 'object' && input ? { ...(input as Record<string, unknown>) } : {}
 }
 
-function normalizeDimensions(metadata: Record<string, any>) {
+function normalizeDimensions(metadata: Record<string, any>): { width?: number; height?: number; depth?: number; unit?: string } {
   const raw = metadata.dimensions
   if (!raw || typeof raw !== 'object') return {}
   return {
@@ -515,7 +515,7 @@ function normalizeDimensions(metadata: Record<string, any>) {
   }
 }
 
-function normalizeWeight(metadata: Record<string, any>) {
+function normalizeWeight(metadata: Record<string, any>): { value?: number; unit?: string } {
   const raw = metadata.weight
   if (!raw || typeof raw !== 'object') return {}
   return {
