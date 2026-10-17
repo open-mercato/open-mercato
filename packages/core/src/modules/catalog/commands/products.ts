@@ -2456,17 +2456,21 @@ const deleteProductCommand: CommandHandler<
       em.persist(record);
     }
     applyProductSnapshot(em, record, before);
-    await withAtomicFlush(
-      em,
-      [
-        () => em.flush(),
-        () => restoreOffersFromSnapshot(em, record, before.offers),
-        () => syncCategoryAssignments(em, record, before.categoryIds),
-        () => syncProductTags(em, record, before.tags),
-        ...buildProductDeleteChildrenRestorePhases(em, owner, childrenPlan),
-      ],
-      { transaction: true },
-    );
+    try {
+      await withAtomicFlush(
+        em,
+        [
+          () => em.flush(),
+          () => restoreOffersFromSnapshot(em, record, before.offers),
+          () => syncCategoryAssignments(em, record, before.categoryIds),
+          () => syncProductTags(em, record, before.tags),
+          ...buildProductDeleteChildrenRestorePhases(em, owner, childrenPlan),
+        ],
+        { transaction: true },
+      );
+    } catch (error) {
+      await rethrowProductUniqueConstraint(error);
+    }
     const restoredPrices = await loadRestoredPricesForHistory(
       em,
       owner,
