@@ -4,6 +4,7 @@ import {
   createProductFixture,
   deleteCatalogProductIfExists,
 } from '@open-mercato/core/helpers/integration/catalogFixtures'
+import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { deleteGeneralEntityIfExists, expectId, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { expectOperation, skipIfUndoTestsDisabled, undoOk } from '@open-mercato/core/helpers/integration/undoHarness'
 
@@ -30,16 +31,14 @@ async function createOffer(
   return expectId(body?.id, 'offer id')
 }
 
-async function listOffers(request: APIRequestContext, token: string, productId: string): Promise<Item[]> {
-  const response = await apiRequest(
-    request,
-    'GET',
-    `/api/catalog/offers?productId=${encodeURIComponent(productId)}&page=1&pageSize=50`,
-    { token },
-  )
-  expect(response.ok(), `Failed to list offers: ${response.status()}`).toBeTruthy()
-  const items = (await readJsonSafe<{ items?: Item[] }>(response))?.items ?? []
-  return items.slice().sort((a, b) => String(a.id).localeCompare(String(b.id)))
+async function listOffers(productId: string): Promise<Item[]> {
+  return withClient(async (client) => {
+    const result = await client.query<Item>(
+      'select id, title from catalog_product_offers where product_id = $1 order by id',
+      [productId],
+    )
+    return result.rows
+  })
 }
 
 async function readProductTitle(request: APIRequestContext, token: string, productId: string): Promise<unknown> {
@@ -98,7 +97,7 @@ test.describe('TC-CAT-UNDO-003 product update undo keeps offers created later', 
       await undoOk(request, token, operation.undoToken, 'catalog.products.update undo')
 
       expect(await readProductTitle(request, token, productId), 'undo reverts the product title').toBe(originalTitle)
-      const offers = await listOffers(request, token, productId)
+      const offers = await listOffers(productId)
       expect(offers.map((offer) => offer.id), 'undo keeps both offers').toEqual(
         [existingOfferId, laterOfferId].sort(),
       )
@@ -138,12 +137,12 @@ test.describe('TC-CAT-UNDO-003 product update undo keeps offers created later', 
           { channelId: channelIds[1], title: `Added by update ${stamp}` },
         ],
       })
-      const afterUpdate = await listOffers(request, token, productId)
+      const afterUpdate = await listOffers(productId)
       expect(afterUpdate.map((offer) => offer.id), 'the update adds an offer').toHaveLength(2)
 
       await undoOk(request, token, operation.undoToken, 'catalog.products.update undo')
 
-      const offers = await listOffers(request, token, productId)
+      const offers = await listOffers(productId)
       expect(offers.map((offer) => offer.id), 'undo removes the offer the update added').toEqual([existingOfferId])
     } finally {
       await deleteCatalogProductIfExists(request, token, productId)

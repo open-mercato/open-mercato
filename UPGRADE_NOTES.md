@@ -85,6 +85,19 @@ byte budget): intentional security narrowing of the `auth.users.create` command 
 a target user it returns `[]`, and every existing call compiles and behaves the same. The route URL,
 request and response schemas, event IDs, ACL features, DI names and database schema are unchanged.
 
+### Undoing a catalog product update only reverts the offers that update changed (#ISSUE)
+
+Undo of `catalog.products.update` used to make the product's offers match the snapshot taken before
+the update. Offers created afterwards through `/api/catalog/offers` were hard-deleted, and later
+offer edits or deletions were reverted. Undo now compares the update's before and after snapshots
+with the current rows. It removes, recreates or reverts only the offers that update changed, and only
+while each one is still as the update left it. An offer the update removed is not recreated when a
+newer offer now holds its sales channel. In that case the rest of the undo still applies and no error
+is returned.
+
+**Backward compatibility:** no API, schema, event or status-code change. The undo payload format is
+unchanged, and log entries written before this release undo with the new rules.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
