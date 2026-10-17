@@ -85,6 +85,37 @@ byte budget): intentional security narrowing of the `auth.users.create` command 
 a target user it returns `[]`, and every existing call compiles and behaves the same. The route URL,
 request and response schemas, event IDs, ACL features, DI names and database schema are unchanged.
 
+### Login and portal session routes reject cross-site browser requests with `403` (#7239)
+
+`POST /api/auth/login`, `POST /api/auth/session/refresh`, `POST /api/customer_accounts/login`,
+`POST /api/customer_accounts/magic-link/verify` and `POST /api/customer_accounts/invitations/accept`
+used to issue session cookies to any request, so a form on another site could sign a visitor's
+browser into the attacker's account. They now answer `403 { ok: false, error }` before reading the
+body when the browser marks the request as cross-site:
+
+- `Sec-Fetch-Site: cross-site` is always rejected. `same-origin` and `none` are accepted.
+- Otherwise the `Origin` header decides. A request without `Origin` and without `Sec-Fetch-Site`
+  (CLI, scripts, server-to-server and mobile clients) is accepted unchanged. `Origin: null` and an
+  unparsable `Origin` are rejected. Any other `Origin` must equal `APP_URL`,
+  `NEXT_PUBLIC_APP_URL`, an entry of `APP_ALLOWED_ORIGINS`, or the request's own
+  `X-Forwarded-Host` / `Host` (scheme from `X-Forwarded-Proto` when present). Outside production a
+  loopback `Origin` is accepted when a configured origin is loopback too.
+
+URLs, request bodies and success responses are unchanged. The policy is described in
+[`apps/docs/docs/framework/security/cross-site-login.mdx`](apps/docs/docs/framework/security/cross-site-login.mdx).
+
+**Action for operators:** only browsers that send no Fetch Metadata, and requests from a sibling
+subdomain (`Sec-Fetch-Site: same-site`), reach the `Origin` check. If they report a `403` on
+sign-in, set `APP_URL` to the public origin, list the extra origin in `APP_ALLOWED_ORIGINS`, or make
+the reverse proxy forward `X-Forwarded-Host`. An `Origin` that matches none of these is logged as a
+`Cross-site request rejected` warning with the `origin`, `host` and `forwardedHost` values.
+
+**Action for integrators:** an HTML form or browser app on a different site can no longer sign in
+through these routes, and `APP_ALLOWED_ORIGINS` does not re-enable it. A browser marks such a
+request `Sec-Fetch-Site: cross-site`, and that is always rejected. Sign in on the application's own
+origin, or call the API from a server. A sign-in form on a sibling subdomain of the same site keeps
+working once its origin is listed in `APP_ALLOWED_ORIGINS`.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
