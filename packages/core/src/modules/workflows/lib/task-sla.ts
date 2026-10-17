@@ -32,6 +32,7 @@ import {
   type AgentReviewStepLike,
 } from './agent-review'
 import { findDefinitionForInstance } from './find-definition'
+import { isRunClosedToUserTasks } from './instance-status'
 import { emitWorkflowsEvent } from '../events'
 import type * as stepHandlerModule from './step-handler'
 import type * as transitionHandlerModule from './transition-handler'
@@ -300,7 +301,9 @@ type BreachOutcome =
   | 'reassigned'
   | 'routed'
   | 'route_skipped_branch'
+  | 'route_skipped_closed_run'
   | 'attention'
+  | 'attention_skipped_closed_run'
 
 interface AppliedBreachHandling {
   outcome: BreachOutcome
@@ -393,6 +396,11 @@ async function applyBreachHandling(
 
   if (resolution.kind === 'attention') {
     if (!instance) return { outcome: 'none' }
+    // A closed run is not waiting on anyone, so there is nothing to triage and
+    // its metadata is not written.
+    if (isRunClosedToUserTasks(instance.status)) {
+      return { outcome: 'attention_skipped_closed_run', detail: { stepId, status: instance.status } }
+    }
     await markInstanceForAttention(em, instance, stepId, task, now)
     return { outcome: 'attention', detail: { stepId } }
   }
@@ -428,6 +436,17 @@ async function applyBreachHandling(
     // a task-surface one.
     if (options.branchInstanceId) {
       return { outcome: 'route_skipped_branch', detail: { transitionId: resolution.transition.transitionId } }
+    }
+
+    // A closed run does NOT follow its breach route either: the route would
+    // execute a transition on a run that has ended. The task stays open — a
+    // FAILED run can still be retried — and the breach records why nothing was
+    // routed.
+    if (isRunClosedToUserTasks(instance?.status)) {
+      return {
+        outcome: 'route_skipped_closed_run',
+        detail: { transitionId: resolution.transition.transitionId, status: instance?.status },
+      }
     }
 
     // The task is superseded by the route, not abandoned: `ESCALATED` is an

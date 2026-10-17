@@ -128,7 +128,11 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     // Anything the handler refuses on ownership or status grounds collapses into
     // the same 404 the predicate would have produced, so the act path discloses
     // no more than the read path.
-    if (code === 'TASK_NOT_FOUND' || code === 'TASK_ASSIGNED_TO_ANOTHER_USER') {
+    if (
+      code === 'TASK_NOT_FOUND' ||
+      code === 'TASK_ASSIGNED_TO_ANOTHER_USER' ||
+      code === 'WORKFLOW_NOT_ACTIVE'
+    ) {
       return NextResponse.json(PORTAL_TASK_REFUSAL.body, { status: PORTAL_TASK_REFUSAL.status })
     }
     logger.error('Error completing portal task', { err: error })
