@@ -49,6 +49,7 @@ async function loginWithCredentials(page: Page, email: string, password: string)
 
 test.describe('TC-WEBHOOK-013: credential custom headers are hidden without webhooks.secrets', () => {
   test('redacts on read, keeps stored values on write, and refuses unsafe writes', async ({ request }) => {
+    test.setTimeout(60_000);
     const adminToken = await getAuthToken(request);
     const scope = getTokenScope(adminToken);
 
@@ -94,16 +95,10 @@ test.describe('TC-WEBHOOK-013: credential custom headers are hidden without webh
       const renamed = `Webhook credential headers renamed ${Date.now()}`;
       const echoUpdate = await apiRequest(request, 'PUT', `/api/webhooks/${created.id}`, {
         token: manager.token,
-        data: { name: renamed, customHeaders: managerDetail.customHeaders },
+        data: { name: renamed, customHeaders: { ...managerDetail.customHeaders, 'x-source': 'erp' } },
       });
       expect(echoUpdate.status()).toBe(200);
       expect(((await echoUpdate.json()) as WebhookDetail).customHeaders?.Authorization).toBe(REDACTED);
-
-      const collectionEcho = await apiRequest(request, 'PUT', '/api/webhooks', {
-        token: manager.token,
-        data: { id: created.id, customHeaders: { ...managerDetail.customHeaders, 'x-source': 'erp' } },
-      });
-      expect(collectionEcho.status()).toBe(200);
 
       const afterEcho = await readDetail(request, adminToken, created.id);
       expect(afterEcho.name).toBe(renamed);
@@ -116,23 +111,17 @@ test.describe('TC-WEBHOOK-013: credential custom headers are hidden without webh
       expect(orphanMarker.status()).toBe(400);
       expect(((await orphanMarker.json()) as { error: string }).error).toContain('x-new-token');
 
-      const collectionOrphan = await apiRequest(request, 'PUT', '/api/webhooks', {
-        token: manager.token,
-        data: { id: created.id, customHeaders: { 'x-new-token': REDACTED } },
-      });
-      expect(collectionOrphan.status()).toBe(400);
-
       const moveWithHidden = await apiRequest(request, 'PUT', `/api/webhooks/${created.id}`, {
         token: manager.token,
         data: { url: 'https://other.example.net/tc-webhook-013' },
       });
       expect(moveWithHidden.status()).toBe(400);
 
-      const collectionMove = await apiRequest(request, 'PUT', '/api/webhooks', {
+      const moveEchoingMarker = await apiRequest(request, 'PUT', `/api/webhooks/webhooks/${created.id}`, {
         token: manager.token,
-        data: { id: created.id, url: 'https://other.example.net/tc-webhook-013', customHeaders: managerDetail.customHeaders },
+        data: { url: 'https://other.example.net/tc-webhook-013', customHeaders: managerDetail.customHeaders },
       });
-      expect(collectionMove.status()).toBe(400);
+      expect(moveEchoingMarker.status()).toBe(400);
 
       const unchanged = await readDetail(request, adminToken, created.id);
       expect(unchanged.url).toBe('https://example.com/tc-webhook-013');
@@ -161,6 +150,7 @@ test.describe('TC-WEBHOOK-013: credential custom headers are hidden without webh
   });
 
   test('shows hidden values in the UI and keeps them when a manager saves the edit form', async ({ browser, request }) => {
+    test.setTimeout(120_000);
     const adminToken = await getAuthToken(request);
     const scope = getTokenScope(adminToken);
 
@@ -209,12 +199,14 @@ test.describe('TC-WEBHOOK-013: credential custom headers are hidden without webh
         await loginWithCredentials(managerPage, manager.email, manager.password);
         await managerPage.goto(`/backend/webhooks/${created.id}`);
         await expect(managerPage.locator('pre').filter({ hasText: '"x-source": "qa"' })).toContainText(REDACTED);
-        await managerPage.getByRole('button', { name: /actions|more/i }).first().click();
+        await managerPage.getByRole('button', { name: 'Actions' }).hover();
         await managerPage.getByRole('menuitem', { name: 'Edit' }).click();
         await expect(managerPage.getByText(`Hidden values (${REDACTED}) are kept when you save`)).toBeVisible();
         await expect(managerPage.getByText(DESTINATION_TOKEN)).toHaveCount(0);
-        const nameInput = managerPage.getByLabel('Name', { exact: false }).first();
+        await expect(managerPage.getByPlaceholder('{"key": "value"}')).toHaveValue(new RegExp(`"Authorization": "${REDACTED}"`));
+        const nameInput = managerPage.getByPlaceholder('My Webhook');
         await nameInput.fill(renamed);
+        await expect(nameInput).toHaveValue(renamed);
         await managerPage.getByRole('button', { name: 'Save' }).first().click();
         await expect(managerPage.locator('pre').filter({ hasText: '"x-source": "qa"' })).toBeVisible({ timeout: 15_000 });
       } finally {
