@@ -17,10 +17,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { useMarketingMutation } from '../../../components/useMarketingMutation'
+import { useMarketingMutation, useLockedMarketingMutation } from '../../../components/useMarketingMutation'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 
@@ -52,6 +52,7 @@ type HookRow = {
 export default function InboundHooksPage() {
   const t = useT()
   const runMutation = useMarketingMutation('inbound_hooks')
+  const runLockedMutation = useLockedMarketingMutation('inbound_hooks')
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
@@ -82,6 +83,7 @@ export default function InboundHooksPage() {
        */
       if (!hooks.ok || !Array.isArray(hooks.result?.items)) {
         setRows([])
+        setTruncated(false)
         setLoadFailed(true)
         return
       }
@@ -91,6 +93,7 @@ export default function InboundHooksPage() {
       setCampaigns((campaignList.ok && Array.isArray(campaignList.result?.items) ? campaignList.result.items : [])
         .flatMap((item) => (typeof item.id === 'string' && typeof item.name === 'string' ? [{ id: item.id, name: item.name }] : [])))
     } catch {
+      setTruncated(false)
       setLoadFailed(true)
     } finally {
       setLoading(false)
@@ -127,15 +130,13 @@ export default function InboundHooksPage() {
       if (!confirmed) return
     }
     try {
-      await runMutation(
-        () => withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(row.updatedAt),
-          () => apiCallOrThrow(`${HOOKS_PATH}/${row.id}`, {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ updatedAt: row.updatedAt, revoked }),
-          }),
-        ),
+      await runLockedMutation(
+        { optimisticLockUpdatedAt: row.updatedAt },
+        () => apiCallOrThrow(`${HOOKS_PATH}/${row.id}`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ updatedAt: row.updatedAt, revoked }),
+        }),
       )
       await load()
     } catch (error) {

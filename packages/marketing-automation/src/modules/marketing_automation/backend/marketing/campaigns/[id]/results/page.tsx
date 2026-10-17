@@ -9,12 +9,12 @@ import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@open-mercato/ui/primitives/table'
-import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { useMarketingMutation } from '../../../../../components/useMarketingMutation'
+import { useLockedMarketingMutation } from '../../../../../components/useMarketingMutation'
 import { FunnelChart } from '../../../../../components/FunnelChart.js'
 
 type SplitResult = {
@@ -141,7 +141,7 @@ function stageFilter(stageKey: string): string | null {
 
 export default function CampaignResultsPage({ params }: { params?: { id?: string } }) {
   const t = useT()
-  const runMutation = useMarketingMutation('campaign_results')
+  const runLockedMutation = useLockedMarketingMutation('campaign_results')
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const campaignId = typeof params?.id === 'string' ? params.id : ''
 
@@ -206,15 +206,13 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
     if (!confirmed) return
     setApplying(winner.stepId)
     try {
-      await runMutation(
-        () => withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(updatedAt ?? undefined),
-          () => apiCallOrThrow(`/api/marketing_automation/campaigns/${campaignId}/apply-split-winner`, {
-            method: 'POST',
-            body: JSON.stringify({ updatedAt, stepId: winner.stepId, variantKey: winner.variant }),
-            headers: { 'content-type': 'application/json' },
-          }),
-        ),
+      await runLockedMutation(
+        { optimisticLockUpdatedAt: updatedAt },
+        () => apiCallOrThrow(`/api/marketing_automation/campaigns/${campaignId}/apply-split-winner`, {
+          method: 'POST',
+          body: JSON.stringify({ updatedAt, stepId: winner.stepId, variantKey: winner.variant }),
+          headers: { 'content-type': 'application/json' },
+        }),
       )
       flash(
         t('marketing_automation.results.winnerApplied', 'Variant {key} is now the only path.').replace('{key}', winner.variant),

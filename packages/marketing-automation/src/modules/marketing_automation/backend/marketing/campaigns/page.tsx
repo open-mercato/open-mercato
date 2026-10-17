@@ -11,13 +11,13 @@ import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { RowActions, type RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { CampaignTemplateGallery, type CampaignTemplateOption } from '../../../components/CampaignTemplateGallery'
-import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { useMarketingMutation } from '../../../components/useMarketingMutation'
+import { useMarketingMutation, useLockedMarketingMutation } from '../../../components/useMarketingMutation'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 
@@ -51,6 +51,7 @@ type CampaignsResponse = {
 export default function CampaignsListPage() {
   const t = useT()
   const runMutation = useMarketingMutation('campaigns')
+  const runLockedMutation = useLockedMarketingMutation('campaigns')
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -223,11 +224,9 @@ export default function CampaignsListPage() {
     try {
       // Delete carries the row's version too: the platform's locking covers delete, so removing a
       // campaign somebody else just changed collides instead of winning silently.
-      await runMutation(
-        () => withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(row.updatedAt),
-          () => apiCallOrThrow(`/api/marketing_automation/campaigns/${row.id}`, { method: 'DELETE' }),
-        ),
+      await runLockedMutation(
+        { optimisticLockUpdatedAt: row.updatedAt },
+        () => apiCallOrThrow(`/api/marketing_automation/campaigns/${row.id}`, { method: 'DELETE' }),
       )
       await load()
     } catch (deleteError) {

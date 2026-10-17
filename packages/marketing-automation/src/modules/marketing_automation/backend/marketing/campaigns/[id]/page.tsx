@@ -12,12 +12,12 @@ import { Label } from '@open-mercato/ui/primitives/label'
 import { CheckboxField } from '@open-mercato/ui/primitives/checkbox-field'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
-import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { useMarketingMutation } from '../../../../components/useMarketingMutation'
+import { useMarketingMutation, useLockedMarketingMutation } from '../../../../components/useMarketingMutation'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useUnsavedGuard } from '../../../../components/useUnsavedGuard'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
@@ -196,6 +196,7 @@ function PanelLabel({ children, className }: { children: React.ReactNode; classN
 export default function CampaignEditorPage({ params }: { params?: { id?: string } }) {
   const t = useT()
   const runMutation = useMarketingMutation('campaigns')
+  const runLockedMutation = useLockedMarketingMutation('campaigns')
   const campaignId = typeof params?.id === 'string' ? params.id : ''
 
   const [loading, setLoading] = React.useState(true)
@@ -659,17 +660,15 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
     if (!isEnabled && !(await confirmPublish())) return
     setSaving(true)
     try {
-      const response = await runMutation(
-        () => withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(updatedAt),
-          () => apiCallOrThrow<{ isEnabled: boolean; updatedAt: string }>(
-            `/api/marketing_automation/campaigns/${campaignId}/enabled`,
-            {
-              method: 'PUT',
-              body: JSON.stringify({ updatedAt, isEnabled: !isEnabled }),
-              headers: { 'content-type': 'application/json' },
-            },
-          ),
+      const response = await runLockedMutation(
+        { optimisticLockUpdatedAt: updatedAt },
+        () => apiCallOrThrow<{ isEnabled: boolean; updatedAt: string }>(
+          `/api/marketing_automation/campaigns/${campaignId}/enabled`,
+          {
+            method: 'PUT',
+            body: JSON.stringify({ updatedAt, isEnabled: !isEnabled }),
+            headers: { 'content-type': 'application/json' },
+          },
         ),
       )
       const next = response.result
@@ -691,17 +690,15 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
     try {
       // The expected version travels as the platform's extension header, which is what the
       // command guard reads and what makes a conflict surface through the shared conflict bar.
-      const response = await runMutation(
-        () => withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(updatedAt),
-          () => apiCallOrThrow<{ updatedAt: string; waitingRuns: number }>(
-            `/api/marketing_automation/campaigns/${campaignId}/save-graph`,
-            {
-              method: 'PUT',
-              body: JSON.stringify({ updatedAt, name, description, triggers, definition }),
-              headers: { 'content-type': 'application/json' },
-            },
-          ),
+      const response = await runLockedMutation(
+        { optimisticLockUpdatedAt: updatedAt },
+        () => apiCallOrThrow<{ updatedAt: string; waitingRuns: number }>(
+          `/api/marketing_automation/campaigns/${campaignId}/save-graph`,
+          {
+            method: 'PUT',
+            body: JSON.stringify({ updatedAt, name, description, triggers, definition }),
+            headers: { 'content-type': 'application/json' },
+          },
         ),
       )
       const saved = response.result
