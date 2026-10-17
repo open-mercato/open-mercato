@@ -370,6 +370,10 @@ describe('Phase 4a — runtime model override hydration in agent-runtime', () =>
         delete process.env.AI_RUNTIME_BASEURL_ALLOWLIST
 
         expect(await runWithStoredBaseUrl('https://api.openai.com/v1')).toBeUndefined()
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('Stored AI runtime baseURL is not allowed'),
+          expect.objectContaining({ agentId: 'customers.assistant' }),
+        )
       })
 
       it('keeps a stored https baseURL that still matches', async () => {

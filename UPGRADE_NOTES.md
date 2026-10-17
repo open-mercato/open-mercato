@@ -80,6 +80,9 @@ AI_RUNTIME_BASEURL_ALLOWLIST=openrouter.ai,localhost
 AI_RUNTIME_BASEURL_ALLOWLIST=openrouter.ai,http://localhost:11434
 ```
 
+Update the allowlist before upgrading when tenants saved a local or self-hosted base URL: once that
+saved value is ignored, prompts go to the provider's default endpoint instead.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
