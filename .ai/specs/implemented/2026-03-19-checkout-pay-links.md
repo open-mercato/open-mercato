@@ -389,7 +389,7 @@ The actual pay link with a unique public URL slug. Shares all template columns p
 | `slug` | varchar(255) | NOT NULL | URL-friendly, unique per tenant |
 | `completion_count` | integer | DEFAULT `0` | Successful completed uses only |
 | `active_reservation_count` | integer | DEFAULT `0` | In-flight payment attempts currently occupying a usage slot |
-| `is_locked` | boolean | DEFAULT `false` | Set `true` after first transaction |
+| `is_locked` | boolean | DEFAULT `false` | `true` while the link has in-flight reservations (`active_reservation_count > 0`) |
 
 **Indexes:**
 - Partial unique index: `UNIQUE (organization_id, tenant_id, slug) WHERE deleted_at IS NULL`
@@ -512,7 +512,7 @@ Undoability boundary:
 | Command | Undo | Notes |
 |---------|------|-------|
 | `checkout.link.create` | Soft-delete the created link | If `templateId` provided: copy all template fields + custom field values |
-| `checkout.link.update` | Restore `before` snapshot | **Fails with 422** if `is_locked = true` (link has transactions) |
+| `checkout.link.update` | Restore `before` configuration; usage counters and `is_locked` keep their live values | **Fails with 422** if `is_locked = true` (payments in flight); undo fails the same way |
 | `checkout.link.delete` | Restore `deleted_at = null` | Soft delete. Fails if link has active (`pending`/`processing`) transactions |
 
 ### Transaction Commands
@@ -522,12 +522,14 @@ Undoability boundary:
 | `checkout.transaction.create` | N/A (not undoable — financial record) | Internal only. Called from public submit endpoint. Atomically reserves one usage slot by incrementing `active_reservation_count` |
 | `checkout.transaction.updateStatus` | N/A (not undoable) | Internal only. Called from gateway event subscriber and status polling. Releases reservations on terminal states and increments `completion_count` only on successful completion |
 
-**Link locking on first transaction:** When the first `CheckoutTransaction` is created for a link, set `link.is_locked = true` within the same `withAtomicFlush` block. This prevents further edits to the link configuration.
+**Link locking while payments are in flight:** The reservation sets `link.is_locked = true` in the same database transaction that inserts the `CheckoutTransaction`. Terminal transitions clear it once `active_reservation_count` drops to 0. This blocks edits (and undo of edits) to the link configuration while a payment is in flight.
 
 **Atomic usage enforcement:** The `checkout.transaction.create` command uses a single atomic SQL operation:
 ```sql
 UPDATE checkout_links
-SET active_reservation_count = active_reservation_count + 1
+SET active_reservation_count = active_reservation_count + 1,
+    is_locked = true,
+    updated_at = clock_timestamp()
 WHERE id = $1
   AND organization_id = $2
   AND tenant_id = $3
@@ -537,14 +539,17 @@ WHERE id = $1
     max_completions IS NULL
     OR completion_count + active_reservation_count < max_completions
   )
-RETURNING *
+RETURNING active_reservation_count
 ```
-If zero rows returned → link has reached its limit or is inactive. Return `422` with user-friendly error.
+The statement runs through the transaction-bound executor after the `CheckoutTransaction` INSERT, so the slot commits or rolls back with the row (a duplicate `Idempotency-Key` or any insert failure releases it). If zero rows returned → link has reached its limit or is inactive. Return `422` with user-friendly error. `checkout.link.locked` is emitted after commit when the returned `active_reservation_count` is `1`.
 
 **Terminal state reconciliation:**
 - `completed`: decrement `active_reservation_count`, increment `completion_count`
 - `failed` / `cancelled` / `expired`: decrement `active_reservation_count` only
+- applied as one relative `UPDATE checkout_links … RETURNING completion_count, max_completions` (scoped by id, organization, tenant, `deleted_at IS NULL`) in the same transaction as the transaction-status compare-and-swap, so concurrent completions, reservations, cancellations and expiries never overwrite each other
+- `checkout.link.usageLimitReached` is emitted after commit by the completion whose returned `completion_count` equals `max_completions`
 - transitions are idempotent; repeated terminal updates do not mutate counters twice
+- link undo/redo restores configuration only; `completion_count`, `active_reservation_count` and `is_locked` are never rewound from a snapshot onto an existing row
 
 ---
 
@@ -2053,3 +2058,8 @@ None identified.
 
 ### 2026-08-02
 - Defined the 24-hour payment-session replay window and added tenant-scoped cleanup for expired completed initialization claims (#4861)
+
+### 2026-10-10
+- Made pay-link usage counters concurrency-safe: terminal transitions release reservations with an atomic relative update, the reservation runs inside the transaction-insert transaction, and `usageLimitReached`/`locked` fire once per crossing
+- Link undo/redo no longer rewinds usage counters; undoing a link edit is refused while payments are in flight
+- Documented `is_locked` as "has in-flight reservations", matching the implemented behaviour

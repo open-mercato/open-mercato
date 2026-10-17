@@ -85,6 +85,22 @@ byte budget): intentional security narrowing of the `auth.users.create` command 
 a target user it returns `[]`, and every existing call compiles and behaves the same. The route URL,
 request and response schemas, event IDs, ACL features, DI names and database schema are unchanged.
 
+### Checkout pay-link undo/redo keeps the live usage counters; undoing a locked link's edit returns `422`
+
+`completionCount`, `activeReservationCount` and `isLocked` on a checkout link are owned by its
+transactions. Undo of `checkout.link.update`, undo of `checkout.link.delete` and redo of
+`checkout.link.create` used to write the counters captured in their snapshot back onto the live
+row. After an edit or a create/undo-create cycle that meant payments completed since the snapshot
+were dropped from `completionCount`, and a sold-out link accepted payments again.
+`restoreLinkFromSnapshot` (`@open-mercato/checkout/modules/checkout/commands/shared`) now restores
+the link configuration only and leaves those three fields untouched; `createLinkFromSnapshot`
+(used when the row no longer exists) still seeds them from the snapshot. Undoing a link edit while
+the link has payments in flight is now refused with `422`, the same response the edit itself gives.
+
+**Action for module authors:** none, unless you call `restoreLinkFromSnapshot` and relied on it to
+set the counters. Never write absolute counter values to `checkout_links`: concurrent payments
+change them, so apply relative updates in SQL as `checkout.transaction.*` does.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
