@@ -18,7 +18,7 @@ const mockCustomerUserService = {
   verifyPassword: mockVerifyPassword,
   checkLockout: jest.fn(() => false),
   incrementFailedAttempts: jest.fn(),
-  resetFailedAttempts: jest.fn(async () => undefined),
+  resetFailedAttemptsUnlessLocked: jest.fn(async () => true),
   updateLastLoginAt: jest.fn(async () => undefined),
 }
 
