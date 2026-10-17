@@ -293,16 +293,18 @@ export function localizeCampaignTemplate(
           nextParams[field] = translate(copyKey(template.id, String(step.id), field), current)
         }
       }
-      const variants = (step as { variants?: Array<{ steps?: PortableCampaign['definition']['steps'] }> }).variants
+      const variants = (params as { variants?: Array<{ steps?: PortableCampaign['definition']['steps'] }> } | undefined)?.variants
       const nextVariants = Array.isArray(variants)
         ? variants.map((variant) => (
           Array.isArray(variant.steps) ? { ...variant, steps: localizeSteps(variant.steps, depth + 1) } : variant
         ))
         : undefined
+      if (nextVariants) {
+        nextParams = { ...(nextParams ?? params), variants: nextVariants }
+      }
       return {
         ...step,
         ...(nextParams ? { params: nextParams } : {}),
-        ...(nextVariants ? { variants: nextVariants } : {}),
       } as typeof step
     })
   }
