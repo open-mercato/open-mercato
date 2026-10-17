@@ -192,4 +192,98 @@ describe('feature_toggles.overrides commands', () => {
             expect(invalidateIsEnabledCacheByKey).toHaveBeenCalledWith('test_feature', 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22')
         })
     })
+
+    describe('changeOverrideStateCommand undo', () => {
+        const toggleId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'
+        const tenantId = 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22'
+        const overrideId = 'c0eebc99-9c0b-4ef8-bb6d-6bb9bd380a33'
+        const loadedToggle = { id: toggleId, identifier: 'test_feature' }
+
+        function loadCommand(): any {
+            let changeStateCommand: any
+            jest.isolateModules(() => {
+                require('../overrides')
+                changeStateCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'feature_toggles.overrides.changeState')?.[0]
+            })
+            expect(changeStateCommand).toBeDefined()
+            return changeStateCommand
+        }
+
+        function buildContext(existingOverride: Record<string, unknown> | null) {
+            const em = {
+                fork: jest.fn().mockReturnThis(),
+                findOne: jest.fn((entity: { name: string }, query: Record<string, unknown>) => {
+                    if (entity.name === 'FeatureToggle' && query.id === toggleId) return Promise.resolve(loadedToggle)
+                    if (entity.name === 'FeatureToggleOverride' && query.toggle === toggleId && query.tenantId === tenantId) {
+                        return Promise.resolve(existingOverride)
+                    }
+                    return Promise.resolve(null)
+                }),
+                create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data, toggle: { id: toggleId } })),
+                nativeDelete: jest.fn().mockResolvedValue(1),
+                flush: jest.fn().mockResolvedValue(undefined),
+            }
+            const container = {
+                resolve: jest.fn((token: string) => {
+                    if (token === 'em') return em
+                    if (token === 'featureTogglesService') return { invalidateIsEnabledCacheByKey }
+                    return undefined
+                }),
+            }
+            return { em, ctx: { container } }
+        }
+
+        function undoLogEntry(before: Record<string, unknown>, after: Record<string, unknown>) {
+            return { commandPayload: { undo: { before, after } } }
+        }
+
+        it('restores the previous value of an override that still exists', async () => {
+            const changeStateCommand = loadCommand()
+            const existingOverride: Record<string, unknown> = {
+                id: overrideId,
+                toggle: { id: toggleId },
+                tenantId,
+                value: 'disabled',
+            }
+            const { em, ctx } = buildContext(existingOverride)
+            const before = { id: overrideId, toggleId, tenantId, value: 'enabled' }
+
+            await changeStateCommand.undo({ logEntry: undoLogEntry(before, { ...before, value: 'disabled' }), ctx })
+
+            expect(existingOverride.value).toBe('enabled')
+            expect(em.create).not.toHaveBeenCalled()
+            expect(em.nativeDelete).not.toHaveBeenCalled()
+            expect(em.flush).toHaveBeenCalled()
+            expect(invalidateIsEnabledCacheByKey).toHaveBeenCalledWith('test_feature', tenantId)
+        })
+
+        it('recreates a cleared override with its original id and value', async () => {
+            const changeStateCommand = loadCommand()
+            const { em, ctx } = buildContext(null)
+            const before = { id: overrideId, toggleId, tenantId, value: 'enabled' }
+
+            await changeStateCommand.undo({ logEntry: undoLogEntry(before, { id: null, toggleId, tenantId }), ctx })
+
+            expect(em.create).toHaveBeenCalledWith(expect.any(Function), {
+                id: overrideId,
+                toggle: toggleId,
+                tenantId,
+                value: 'enabled',
+            })
+            expect(em.flush).toHaveBeenCalled()
+            expect(invalidateIsEnabledCacheByKey).toHaveBeenCalledWith('test_feature', tenantId)
+        })
+
+        it('removes an override that the command created', async () => {
+            const changeStateCommand = loadCommand()
+            const { em, ctx } = buildContext({ id: overrideId, toggle: { id: toggleId }, tenantId, value: 'enabled' })
+            const before = { id: null, toggleId, tenantId }
+
+            await changeStateCommand.undo({ logEntry: undoLogEntry(before, { id: overrideId, toggleId, tenantId, value: 'enabled' }), ctx })
+
+            expect(em.nativeDelete).toHaveBeenCalledWith(expect.any(Function), { toggle: toggleId, tenantId })
+            expect(em.create).not.toHaveBeenCalled()
+            expect(invalidateIsEnabledCacheByKey).toHaveBeenCalledWith('test_feature', tenantId)
+        })
+    })
 })
