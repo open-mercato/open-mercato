@@ -1044,6 +1044,20 @@ and change nothing; undoing a `.delete` runs the same check as a precaution. Unl
 first; the same undo then works again. No schema, route or permission changes. Undoing a tag
 delete is not covered by this change.
 
+### AI bulk confirmations only write what the operator previewed; AI writes assert the previewed version (#7221)
+
+Confirming a bulk pending action used to run the tool handler on the original batch, so a row the recheck had reported as `stale_version` was still written. `executePendingActionConfirm` now hands the handler only the `records[]` entries that were previewed and passed the recheck. Entries are matched to previewed rows by exact `recordId` (or `id`), the same way the preview matches them:
+
+- Stale rows stay in `failedRecords` and are not written.
+- Input rows whose id does not exactly match a previewed row are reported as `record_not_previewed` and are not written. Direct callers of the executor, such as the tool test runner, see this code where the handler used to report its own skip.
+- When the same id appears more than once, only the first entry (the one the preview showed) runs; the rest are dropped and the id is reported as `record_duplicate_dropped`, unless that row already has a stale or handler error.
+- The confirm route answers the existing `412 stale_version` (it used to answer `200`), and `executePendingActionConfirm` refuses before any status change, when nothing approved is left to run: every input row is stale or unpreviewed, a bulk tool with a `loadBeforeRecords` resolver previewed no rows, or the input does not follow the `records[].recordId` / `records[].id` convention and any row is stale.
+- The handler context carries `expectedRecordVersions` (versions captured at preview, keyed by record id). `AiApiOperationRequest` gained an optional `expectedUpdatedAt`, sent as the optimistic-lock header, and `expectedRecordVersionFor(ctx, recordId)` reads the map. The catalog AI writes use them, so a product whose `updated_at` moved after the preview fails with `optimistic_lock_conflict` (per row for bulk tools, as the action error for `catalog.update_product`) instead of being overwritten. Changes that do not move the product's `updated_at` (for example custom-field-only edits) are not detected, as with every other guarded edit. With `OM_OPTIMISTIC_LOCK=off` that check is off, but stale rows are still excluded.
+
+All additions are optional fields and exports; event ids, payload shapes, routes and the database are unchanged. `BACKWARD_COMPATIBILITY.md` is unchanged; the classification lives here.
+
+**Action for AI tool authors:** keep bulk input as `records[]` entries with a `recordId` (or `id`) equal to the ids `loadBeforeRecords` returns, or accept that a partially stale batch is refused. Pass `expectedUpdatedAt: expectedRecordVersionFor(ctx, id)` on every `createAiApiOperationRunner().run(...)` write so a change after the preview is refused.
+
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
 Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).
