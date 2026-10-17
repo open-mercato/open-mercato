@@ -584,7 +584,7 @@
         },
         "trigger_context": {
           "name": "trigger_context",
-          "type": "jsonb",
+          "type": "json",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
