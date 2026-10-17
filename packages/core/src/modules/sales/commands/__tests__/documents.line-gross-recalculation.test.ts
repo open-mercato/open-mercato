@@ -4,6 +4,7 @@ import { createContainer, asValue, InjectionMode } from 'awilix'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { DefaultSalesCalculationService } from '../../services/salesCalculationService'
 import { SalesOrder, SalesQuote } from '../../data/entities'
+import { createSalesDocumentLockKyselyFixture } from './salesDocumentLockFixture'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -93,6 +94,7 @@ function setWorld(lines: PersistedLine[]) {
 function makeContext(documentKind: 'order' | 'quote') {
   const em = {
     fork() { return this },
+    getKysely: () => createSalesDocumentLockKyselyFixture(documentId),
     find: jest.fn(async (entityClass: { name?: string }) =>
       entityClass.name === 'SalesOrderLine' || entityClass.name === 'SalesQuoteLine'
         ? [...mockWorld.lines]

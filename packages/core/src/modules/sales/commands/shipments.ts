@@ -31,6 +31,7 @@ import {
   ensureTenantScope,
   extractUndoPayload,
   enforceSalesDocumentOptimisticLock,
+  lockSalesDocumentRow,
   SALES_RESOURCE_KIND_ORDER,
 } from './shared'
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
@@ -311,8 +312,16 @@ async function deleteShipmentWithItems(em: EntityManager, shipment: SalesShipmen
   await em.flush()
 }
 
+async function lockOrderBeforeLines(em: EntityManager, order: SalesOrder): Promise<void> {
+  await lockSalesDocumentRow(em, 'sales_orders', order.id, {
+    tenantId: order.tenantId,
+    organizationId: order.organizationId,
+  })
+}
+
 async function recomputeFulfilledQuantities(em: EntityManager, order: SalesOrder): Promise<void> {
   const scope = { tenantId: order.tenantId, organizationId: order.organizationId }
+  await lockOrderBeforeLines(em, order)
   const shipments = await findWithDecryption(em, SalesShipment, { order, deletedAt: null }, {}, scope)
   const shipmentIds = shipments.map((entry) => entry.id)
   const shipmentItems = shipmentIds.length
@@ -385,6 +394,7 @@ async function validateShipmentItems(params: {
     throw new CrudHttpError(400, { error: translate('sales.shipments.items_required', 'Add at least one line to ship.') })
   }
   const scope = { tenantId: order.tenantId, organizationId: order.organizationId }
+  if (lockOrderLines) await lockOrderBeforeLines(em, order)
   const orderLines = await findWithDecryption(
     em,
     SalesOrderLine,

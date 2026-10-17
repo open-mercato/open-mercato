@@ -13,7 +13,7 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { SalesDocumentNumberGenerator } from '../services/salesDocumentNumberGenerator'
 import type { SalesCalculationService } from '../services/salesCalculationService'
 import type { SalesAdjustmentDraft, SalesLineSnapshot, SalesDocumentCalculationResult } from '../lib/types'
-import { cloneJson, deriveLineNetFromGross, ensureOrganizationScope, ensureSameScope, ensureTenantScope, extractUndoPayload, toNumericString, enforceSalesDocumentOptimisticLock, SALES_RESOURCE_KIND_ORDER, SALES_RESOURCE_KIND_RETURN } from './shared'
+import { cloneJson, deriveLineNetFromGross, ensureOrganizationScope, ensureSameScope, ensureTenantScope, extractUndoPayload, toNumericString, enforceSalesDocumentOptimisticLock, lockSalesDocumentRow, SALES_RESOURCE_KIND_ORDER, SALES_RESOURCE_KIND_RETURN } from './shared'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { SalesOrder, SalesOrderAdjustment, SalesOrderLine, SalesReturn, SalesReturnLine } from '../data/entities'
 import { mapOrderLineEntityToSnapshot } from '../lib/lineSnapshots'
@@ -296,6 +296,21 @@ async function loadReturnHeaderSnapshot(em: EntityManager, id: string): Promise<
   }
 }
 
+async function lockReturnOrder(
+  em: EntityManager,
+  orderId: string,
+  scope: { tenantId: string; organizationId: string },
+): Promise<SalesOrder | null> {
+  if (!(await lockSalesDocumentRow(em, 'sales_orders', orderId, scope))) return null
+  return findOneWithDecryption(
+    em,
+    SalesOrder,
+    { id: orderId, deletedAt: null, ...scope },
+    { refresh: true },
+    scope,
+  )
+}
+
 /**
  * Reverse the order-level effects of a return: restore each order line's
  * `returnedQuantity`, drop the return's line-scoped credit adjustments, remove
@@ -316,20 +331,17 @@ async function reverseReturnEffects(
   salesCalculationService: SalesCalculationService,
   snapshot: ReturnSnapshot,
 ): Promise<void> {
-  const order = await findOneWithDecryption(
-    em,
-    SalesOrder,
-    { id: snapshot.orderId, deletedAt: null },
-    {},
-    { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
-  )
-  if (!order) return
-
+  let order: SalesOrder | null = null
   let lines: SalesOrderLine[] = []
   await withAtomicFlush(
     em,
     [
       async () => {
+        order = await lockReturnOrder(em, snapshot.orderId, {
+          tenantId: snapshot.tenantId,
+          organizationId: snapshot.organizationId,
+        })
+        if (!order) return
         lines = await findWithDecryption(
           em,
           SalesOrderLine,
@@ -348,6 +360,7 @@ async function reverseReturnEffects(
         })
       },
       async () => {
+        if (!order) return
         if (snapshot.adjustmentIds.length) {
           const adjustments = await findWithDecryption(
             em,
@@ -420,17 +433,24 @@ async function restoreReturnEffects(
     em,
     [
       async () => {
-        const order = await findOneWithDecryption(
+        const existingOrder = await findOneWithDecryption(
           em,
           SalesOrder,
           { id: snapshot.orderId, deletedAt: null },
           {},
           { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
         )
+        if (!existingOrder) {
+          throw notFound('sales.returns.orderMissing')
+        }
+        ensureSameScope(existingOrder, snapshot.organizationId, snapshot.tenantId)
+        const order = await lockReturnOrder(em, existingOrder.id, {
+          tenantId: snapshot.tenantId,
+          organizationId: snapshot.organizationId,
+        })
         if (!order) {
           throw notFound('sales.returns.orderMissing')
         }
-        ensureSameScope(order, snapshot.organizationId, snapshot.tenantId)
 
         const orderLines = await findWithDecryption(
           em,
@@ -584,17 +604,24 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
 
     const salesCalculationService = ctx.container.resolve<SalesCalculationService>('salesCalculationService')
     const { header, createdLines, order } = await em.transactional(async (tx) => {
-      const order = await findOneWithDecryption(
+      const existingOrder = await findOneWithDecryption(
         tx,
         SalesOrder,
         { id: input.orderId, deletedAt: null },
         {},
         { tenantId: input.tenantId, organizationId: input.organizationId },
       )
+      if (!existingOrder) {
+        throw notFound(translate('sales.returns.orderMissing', 'Order not found.'))
+      }
+      ensureSameScope(existingOrder, input.organizationId, input.tenantId)
+      const order = await lockReturnOrder(tx, existingOrder.id, {
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+      })
       if (!order) {
         throw notFound(translate('sales.returns.orderMissing', 'Order not found.'))
       }
-      ensureSameScope(order, input.organizationId, input.tenantId)
       await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
 
       const orderLines = await findWithDecryption(
