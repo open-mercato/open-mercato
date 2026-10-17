@@ -122,6 +122,7 @@ export default function MarketingJobsPage() {
        */
       if (!result.ok || !Array.isArray(result.result?.items)) {
         setRows([])
+        setTruncated(false)
         setLoadFailed(true)
         return
       }
@@ -129,6 +130,7 @@ export default function MarketingJobsPage() {
       setTruncated(result.result.items.length >= LIST_LIMIT)
       setDeadLetters(Array.isArray(result.result.deadLetters) ? result.result.deadLetters : [])
     } catch {
+      setTruncated(false)
       setLoadFailed(true)
     } finally {
       setLoading(false)

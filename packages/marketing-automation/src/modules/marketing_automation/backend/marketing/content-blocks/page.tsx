@@ -61,12 +61,14 @@ export default function ContentBlocksPage() {
        */
       if (!result.ok || !Array.isArray(result.result?.items)) {
         setRows([])
+        setTruncated(false)
         setLoadFailed(true)
         return
       }
       setRows(result.result.items)
       setTruncated(result.result.items.length >= LIST_LIMIT)
     } catch {
+      setTruncated(false)
       setLoadFailed(true)
     } finally {
       setLoading(false)
