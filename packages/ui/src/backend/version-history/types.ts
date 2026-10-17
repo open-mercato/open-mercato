@@ -1,3 +1,5 @@
+import type { CauseKind } from '@open-mercato/shared/lib/causation/types'
+
 export type VersionHistoryEntry = {
   id: string
   commandId: string
@@ -16,6 +18,10 @@ export type VersionHistoryEntry = {
   snapshotAfter?: unknown | null
   changes?: Record<string, unknown> | null
   context?: Record<string, unknown> | null
+  causeKind?: CauseKind | null
+  causeId?: string | null
+  correlationId?: string | null
+  causedByLogId?: string | null
 }
 
 export type VersionHistoryConfig = {

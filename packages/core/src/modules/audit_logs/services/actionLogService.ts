@@ -1,10 +1,10 @@
 import { raw, type FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { sql } from 'kysely'
+import { sql, type Kysely } from 'kysely'
 import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 import {
   actionLogCreateSchema,
-  actionLogListSchema,
+  actionLogListQuerySchema,
   uuid,
   type ActionLogCreateInput,
   type ActionLogListQuery,
@@ -27,6 +27,33 @@ import {
   actionLogBelongsToSubject,
   canonicalizeActorSubject,
 } from '@open-mercato/core/modules/audit_logs/lib/actorSubject'
+import {
+  CAUSATION_CONTEXT_KEY,
+  projectCausation,
+  type ActionLogCausationProjection,
+  type CausationEnvelope,
+  type CausationFrame,
+} from '@open-mercato/shared/lib/causation/types'
+import {
+  createCausationEnvelope,
+  getAmbientCausation,
+  isCausationEnabled,
+  reportCausationDegradation,
+  stripCausationFromContext,
+} from '@open-mercato/shared/lib/causation/server'
+import {
+  FIELD_HISTORY_COLUMNS,
+  FIELD_HISTORY_STATEMENT_TIMEOUT_MS,
+  clampHistoryLimit,
+  isValidHistoryCursor,
+  mapFieldHistoryRow,
+  type ActionLogCauseCoverageRow,
+  type ActionLogFieldHistoryEntry,
+  type ActionLogFieldHistoryPage,
+  type ActionLogFieldHistoryQuery,
+  type ActionLogHistoryDatabase,
+  type ActionLogScopeReference,
+} from '@open-mercato/core/modules/audit_logs/lib/fieldHistory'
 
 const logger = createLogger('audit_logs').child({ component: 'action-log-service' })
 
@@ -164,6 +191,23 @@ function stringArraysEqual(left: string[] | null, right: string[]): boolean {
   return left.every((value, index) => value === right[index])
 }
 
+const LOG_SCOPE_LOOKUP_CHUNK_SIZE = 500
+
+function uniqueNonEmpty(values: readonly unknown[] | null | undefined): string[] {
+  if (!Array.isArray(values)) return []
+  const result = new Set<string>()
+  for (const value of values) {
+    if (typeof value !== 'string') continue
+    const trimmed = value.trim()
+    if (trimmed) result.add(trimmed)
+  }
+  return Array.from(result)
+}
+
+function isUuidValue(value: unknown): value is string {
+  return typeof value === 'string' && SCHEMA_UUID_REGEX.test(value)
+}
+
 export class ActionLogService {
   constructor(
     private readonly em: EntityManager,
@@ -251,10 +295,21 @@ export class ActionLogService {
     return await this.decryptEntryPayload(detached) as unknown as ActionLog
   }
 
-  async log(input: ActionLogCreateInput, transactionalEm?: EntityManager): Promise<ActionLog | null> {
+  /**
+   * Persists an action log entry. `causation` is the server-resolved envelope
+   * (command bus, workers); when omitted the ambient causation scope is used.
+   * Cause columns are derived only from that argument, never from `input`, and a
+   * caller-provided `context.causation` is always discarded.
+   */
+  async log(
+    input: ActionLogCreateInput,
+    transactionalEm?: EntityManager,
+    causation?: CausationEnvelope | null,
+  ): Promise<ActionLog | null> {
     const data = this.parseCreateInput(input)
+    const causationProjection = this.resolveCausationProjection(input, causation)
     const operationEm = transactionalEm ?? this.em.fork()
-    const log = this.createLogEntity(operationEm, data)
+    const log = this.createLogEntity(operationEm, data, causationProjection)
     await operationEm.persist(log).flush()
     if (transactionalEm) return this.decryptDetachedEntry(log)
     await this.decryptEntries(log)
@@ -287,6 +342,29 @@ export class ActionLogService {
     return data
   }
 
+  private resolveCausationProjection(
+    input: ActionLogCreateInput | null | undefined,
+    causation: CausationEnvelope | null | undefined,
+  ): ActionLogCausationProjection | null {
+    if (!isCausationEnabled()) return null
+    const resolved = causation === undefined ? getAmbientCausation() : causation
+    const projection = resolved ? projectCausation(resolved) : null
+    if (projection) return projection
+    reportCausationDegradation('log_fallback_actor', { resourceKind: input?.resourceKind ?? null })
+    return projectCausation(createCausationEnvelope([this.deriveFallbackCausationFrame(input)]))
+  }
+
+  private deriveFallbackCausationFrame(input: ActionLogCreateInput | null | undefined): CausationFrame {
+    const meta = { derivedFrom: 'actor' }
+    const candidate = readActorCandidate(input?.actorUserId)
+    const actor = canonicalizeActorSubject(candidate)
+    if (actor?.kind === 'api_key') return { kind: 'api_key', id: actor.storageId, meta }
+    if (actor?.kind === 'user') return { kind: 'user', meta }
+    const systemActorReference = candidate ? toSystemActorReference(candidate) : null
+    if (systemActorReference) return { kind: 'system', ref: systemActorReference, meta }
+    return { kind: 'unknown', meta }
+  }
+
   private sanitizeActor(input: ActionLogCreateInput): ActionLogCreateInput {
     if (!input) return input
     const candidate = readActorCandidate(input.actorUserId)
@@ -310,13 +388,21 @@ export class ActionLogService {
     return { ...input, actorUserId, context }
   }
 
-  private createLogEntity(fork: EntityManager, data: ActionLogCreateInput): ActionLog {
+  private createLogEntity(
+    fork: EntityManager,
+    data: ActionLogCreateInput,
+    causation: ActionLogCausationProjection | null = null,
+  ): ActionLog {
+    const callerContext = stripCausationFromContext(isRecord(data.context) ? data.context : null)
+    const contextJson = causation
+      ? { ...(callerContext ?? {}), [CAUSATION_CONTEXT_KEY]: causation.envelope }
+      : callerContext
     const projection = deriveActionLogProjection({
       actorUserId: data.actorUserId ?? null,
       actionLabel: data.actionLabel ?? null,
       changes: isRecord(data.changes) ? data.changes : null,
       commandId: data.commandId,
-      context: isRecord(data.context) ? data.context : null,
+      context: callerContext,
       snapshotBefore: data.snapshotBefore,
     })
 
@@ -342,8 +428,12 @@ export class ActionLogService {
       changesJson: isRecord(data.changes) ? data.changes : null,
       changedFields: projection.changedFields,
       primaryChangedField: projection.primaryChangedField,
-      contextJson: isRecord(data.context) ? data.context : null,
+      contextJson,
       sourceKey: projection.sourceKey,
+      causeKind: causation?.causeKind ?? null,
+      causeId: causation?.causeId ?? null,
+      correlationId: causation?.correlationId ?? null,
+      causedByLogId: causation?.causedByLogId ?? null,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
@@ -409,7 +499,7 @@ export class ActionLogService {
   }
 
   private parseListQuery(query: Partial<ActionLogListQuery>) {
-    return actionLogListSchema.parse({
+    return actionLogListQuerySchema.parse({
       ...query,
     })
   }
@@ -545,6 +635,12 @@ export class ActionLogService {
     const actionTypes = this.resolveActionTypes(parsed)
     if (actionTypes.length === 1) query = query.where('action_logs.action_type', '=', actionTypes[0])
     if (actionTypes.length > 1) query = query.where('action_logs.action_type', 'in', actionTypes)
+
+    if (parsed.causeKind) {
+      query = query.where('action_logs.cause_kind', '=', parsed.causeKind)
+      if (parsed.causeId) query = query.where('action_logs.cause_id', '=', parsed.causeId)
+    }
+    if (parsed.correlationId) query = query.where('action_logs.correlation_id', '=', parsed.correlationId)
 
     if (parsed.sortField === 'user') {
       query = query.leftJoin('users as audit_actor', 'audit_actor.id', 'action_logs.actor_user_id')
@@ -727,7 +823,12 @@ export class ActionLogService {
     return affected === 1
   }
 
-  async markUndone(id: string, traceInput?: ActionLogCreateInput, transactionalEm?: EntityManager) {
+  async markUndone(
+    id: string,
+    traceInput?: ActionLogCreateInput,
+    transactionalEm?: EntityManager,
+    causation?: CausationEnvelope | null,
+  ) {
     const operationEm = transactionalEm ?? this.em.fork()
     const log = await operationEm.findOne(ActionLog, { id, deletedAt: null })
     if (!log) return null
@@ -735,7 +836,13 @@ export class ActionLogService {
     log.executionState = 'undone'
     log.undoToken = null
 
-    const traceLog = traceInput ? this.createLogEntity(operationEm, this.parseCreateInput(traceInput)) : null
+    const traceLog = traceInput
+      ? this.createLogEntity(
+          operationEm,
+          this.parseCreateInput(traceInput),
+          this.resolveCausationProjection(traceInput, causation),
+        )
+      : null
     if (traceLog) {
       operationEm.persist(traceLog)
     }
@@ -758,6 +865,249 @@ export class ActionLogService {
     const entry = await this.em.findOne(ActionLog, { id, deletedAt: null })
     await this.decryptEntries(entry)
     return entry
+  }
+
+  /**
+   * Reads the history of one record (and optionally its child records) by resource,
+   * newest first, with a `(created_at, id)` keyset cursor. Always scoped to the tenant
+   * and, unless `organizationIds` is null (tenant-wide), to the given organizations; an
+   * empty organization list returns nothing. Rows are decrypted through the same path as
+   * every other audit read. Runs with a local statement timeout.
+   */
+  async findFieldHistory(query: ActionLogFieldHistoryQuery): Promise<ActionLogFieldHistoryPage> {
+    const empty: ActionLogFieldHistoryPage = { entries: [], nextBefore: null }
+    const tenantId = typeof query.tenantId === 'string' ? query.tenantId.trim() : ''
+    const resourceId = typeof query.resourceId === 'string' ? query.resourceId.trim() : ''
+    const resourceKinds = uniqueNonEmpty(query.resourceKinds)
+    if (!tenantId || !resourceId || resourceKinds.length === 0) return empty
+    const organizationIds = query.organizationIds === null ? null : uniqueNonEmpty(query.organizationIds ?? [])
+    if (organizationIds !== null && organizationIds.length === 0) return empty
+    const before = query.before ?? null
+    if (before !== null && !isValidHistoryCursor(before)) {
+      throw new TypeError('[internal] Invalid action log history cursor')
+    }
+    const limit = clampHistoryLimit(query.limit)
+    const includeChildren = query.includeChildren === true
+
+    const rows = await this.runWithHistoryStatementTimeout(async (db) => {
+      let builder = db
+        .selectFrom('action_logs')
+        .select([...FIELD_HISTORY_COLUMNS])
+        .select(sql<string>`to_char(action_logs.created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`.as('cursor_at'))
+        .where('action_logs.deleted_at', 'is', null)
+        .where('action_logs.tenant_id', '=', tenantId)
+      if (organizationIds !== null) builder = builder.where('action_logs.organization_id', 'in', organizationIds)
+      builder = builder.where((eb) => {
+        const own = eb.and([
+          eb('action_logs.resource_kind', 'in', resourceKinds),
+          eb('action_logs.resource_id', '=', resourceId),
+        ])
+        if (!includeChildren) return own
+        return eb.or([
+          own,
+          eb.and([
+            eb('action_logs.parent_resource_kind', 'in', resourceKinds),
+            eb('action_logs.parent_resource_id', '=', resourceId),
+          ]),
+        ])
+      })
+      if (before) {
+        const cursorAt = sql<Date>`${before.at}::timestamptz`
+        builder = builder.where((eb) => eb.or([
+          eb('action_logs.created_at', '<', cursorAt),
+          eb.and([
+            eb('action_logs.created_at', '=', cursorAt),
+            eb('action_logs.id', '<', before.id),
+          ]),
+        ]))
+      }
+      return builder
+        .orderBy('action_logs.created_at', 'desc')
+        .orderBy('action_logs.id', 'desc')
+        .limit(limit)
+        .execute()
+    })
+
+    const entries: ActionLogFieldHistoryEntry[] = []
+    for (const row of rows) {
+      const decrypted = await this.decryptEntryPayload({ ...row } as Record<string, unknown>)
+      entries.push(mapFieldHistoryRow(decrypted, row.cursor_at))
+    }
+    const last = entries.at(-1)
+    return {
+      entries,
+      nextBefore: rows.length === limit && last ? { at: last.cursorAt, id: last.logId } : null,
+    }
+  }
+
+  /**
+   * Loads one decrypted history entry by id within the tenant and organization scope
+   * (`organizationIds` null = tenant-wide, empty = nothing).
+   */
+  async findHistoryEntryById(params: {
+    tenantId: string
+    organizationIds: string[] | null
+    id: string
+  }): Promise<ActionLogFieldHistoryEntry | null> {
+    const tenantId = typeof params.tenantId === 'string' ? params.tenantId.trim() : ''
+    if (!tenantId || !isUuidValue(params.id)) return null
+    const organizationIds = params.organizationIds === null ? null : uniqueNonEmpty(params.organizationIds ?? [])
+    if (organizationIds !== null && organizationIds.length === 0) return null
+
+    const rows = await this.runWithHistoryStatementTimeout(async (db) => {
+      let builder = db
+        .selectFrom('action_logs')
+        .select([...FIELD_HISTORY_COLUMNS])
+        .select(sql<string>`to_char(action_logs.created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`.as('cursor_at'))
+        .where('action_logs.deleted_at', 'is', null)
+        .where('action_logs.tenant_id', '=', tenantId)
+        .where('action_logs.id', '=', params.id)
+      if (organizationIds !== null) builder = builder.where('action_logs.organization_id', 'in', organizationIds)
+      return builder.limit(1).execute()
+    })
+    const row = rows[0]
+    if (!row) return null
+    const decrypted = await this.decryptEntryPayload({ ...row } as Record<string, unknown>)
+    return mapFieldHistoryRow(decrypted, row.cursor_at)
+  }
+
+  /**
+   * Returns the plaintext scope columns of the given log ids inside one tenant, without
+   * decrypting payloads, so callers can decide which referenced logs a viewer may see.
+   * Ids are looked up in chunks of 500 under the history statement timeout.
+   */
+  async findLogScopes(params: { tenantId: string; ids: string[] }): Promise<ActionLogScopeReference[]> {
+    const tenantId = typeof params.tenantId === 'string' ? params.tenantId.trim() : ''
+    const ids = uniqueNonEmpty(params.ids).filter(isUuidValue)
+    if (!tenantId || ids.length === 0) return []
+    const chunks: string[][] = []
+    for (let start = 0; start < ids.length; start += LOG_SCOPE_LOOKUP_CHUNK_SIZE) {
+      chunks.push(ids.slice(start, start + LOG_SCOPE_LOOKUP_CHUNK_SIZE))
+    }
+    const rows = await this.runWithHistoryStatementTimeout(async (db) => {
+      const found: Array<{
+        id: string
+        organization_id: string | null
+        resource_kind: string | null
+        resource_id: string | null
+      }> = []
+      for (const chunk of chunks) {
+        const chunkRows = await db
+          .selectFrom('action_logs')
+          .select([
+            'action_logs.id',
+            'action_logs.organization_id',
+            'action_logs.resource_kind',
+            'action_logs.resource_id',
+          ])
+          .where('action_logs.deleted_at', 'is', null)
+          .where('action_logs.tenant_id', '=', tenantId)
+          .where('action_logs.id', 'in', chunk)
+          .execute()
+        found.push(...chunkRows)
+      }
+      return found
+    })
+    return rows.map((row) => ({
+      id: String(row.id),
+      organizationId: row.organization_id ?? null,
+      resourceKind: row.resource_kind ?? null,
+      resourceId: row.resource_id ?? null,
+    }))
+  }
+
+  /**
+   * Counts history rows per resource kind and primary cause kind (null = recorded
+   * before causation tracking). Read-only aggregate for the explain coverage CLI.
+   */
+  async countHistoryByCause(params: {
+    tenantId?: string | null
+    organizationId?: string | null
+    resourceKinds: string[]
+    since?: Date | null
+  }): Promise<ActionLogCauseCoverageRow[]> {
+    const resourceKinds = uniqueNonEmpty(params.resourceKinds)
+    if (resourceKinds.length === 0) return []
+    const rows = await this.runWithHistoryStatementTimeout(async (db) => {
+      let builder = db
+        .selectFrom('action_logs')
+        .select([
+          'action_logs.resource_kind',
+          'action_logs.cause_kind',
+          sql<string>`count(*)`.as('row_count'),
+        ])
+        .where('action_logs.deleted_at', 'is', null)
+        .where('action_logs.resource_kind', 'in', resourceKinds)
+      if (params.tenantId) builder = builder.where('action_logs.tenant_id', '=', params.tenantId)
+      if (params.organizationId) builder = builder.where('action_logs.organization_id', '=', params.organizationId)
+      if (params.since) builder = builder.where('action_logs.created_at', '>=', params.since)
+      return builder
+        .groupBy(['action_logs.resource_kind', 'action_logs.cause_kind'])
+        .execute()
+    })
+    return rows.map((row) => ({
+      resourceKind: row.resource_kind ?? null,
+      causeKind: row.cause_kind ?? null,
+      count: Number.parseInt(String(row.row_count), 10) || 0,
+    }))
+  }
+
+  /**
+   * Returns which of the given resource ids have at least one history row in the tenant.
+   */
+  async findResourceIdsWithHistory(params: {
+    tenantId: string
+    organizationId?: string | null
+    resourceKinds: string[]
+    resourceIds: string[]
+  }): Promise<string[]> {
+    const tenantId = typeof params.tenantId === 'string' ? params.tenantId.trim() : ''
+    const resourceKinds = uniqueNonEmpty(params.resourceKinds)
+    const resourceIds = uniqueNonEmpty(params.resourceIds)
+    if (!tenantId || resourceKinds.length === 0 || resourceIds.length === 0) return []
+    const rows = await this.runWithHistoryStatementTimeout(async (db) => {
+      let builder = db
+        .selectFrom('action_logs')
+        .select('action_logs.resource_id')
+        .distinct()
+        .where('action_logs.deleted_at', 'is', null)
+        .where('action_logs.tenant_id', '=', tenantId)
+        .where('action_logs.resource_kind', 'in', resourceKinds)
+        .where('action_logs.resource_id', 'in', resourceIds)
+      if (params.organizationId) builder = builder.where('action_logs.organization_id', '=', params.organizationId)
+      return builder.execute()
+    })
+    return rows
+      .map((row) => row.resource_id)
+      .filter((value): value is string => typeof value === 'string' && value.length > 0)
+  }
+
+  /**
+   * Runs history reads under a 5 s statement timeout. Outside a transaction it opens a
+   * short read transaction with `set local statement_timeout`. Inside the caller's
+   * transaction it only ever lowers the timeout and restores the caller's value after a
+   * successful run (a failed statement aborts that transaction, which discards the local
+   * setting), so the caller's later statements keep their own timeout.
+   */
+  private async runWithHistoryStatementTimeout<T>(
+    run: (db: Kysely<ActionLogHistoryDatabase>) => Promise<T>,
+  ): Promise<T> {
+    const db = this.em.getKysely<ActionLogHistoryDatabase>()
+    if (!db.isTransaction) {
+      return db.transaction().execute(async (trx) => {
+        await sql`set local statement_timeout = ${sql.lit(FIELD_HISTORY_STATEMENT_TIMEOUT_MS)}`.execute(trx)
+        return run(trx)
+      })
+    }
+    const current = await sql<{ setting: string }>`select setting from pg_settings where name = 'statement_timeout'`.execute(db)
+    const previousMs = Number.parseInt(String(current.rows[0]?.setting ?? ''), 10)
+    const alreadyBounded = Number.isFinite(previousMs) && previousMs > 0 && previousMs <= FIELD_HISTORY_STATEMENT_TIMEOUT_MS
+    if (alreadyBounded) return run(db)
+    await sql`select set_config('statement_timeout', ${String(FIELD_HISTORY_STATEMENT_TIMEOUT_MS)}, true)`.execute(db)
+    const result = await run(db)
+    const restoredMs = Number.isFinite(previousMs) && previousMs > 0 ? previousMs : 0
+    await sql`select set_config('statement_timeout', ${String(restoredMs)}, true)`.execute(db)
+    return result
   }
 
   async latestUndoableForResource(params: {

@@ -47,6 +47,7 @@ The following file names, their expected export names, and their role in module 
 | `notifications.client.ts` | — | MUST NOT change renderer props contract |
 | `ai-agents.ts` | `aiAgents: AiAgentDefinition[]` | MUST NOT change `AiAgentDefinition` required fields; optional sibling exports `aiAgentOverrides` and `aiAgentExtensions` are stable |
 | `ai-tools.ts` | `aiTools: AiToolDefinition[]` | MUST NOT change `AiToolDefinition` / inherited `McpToolDefinition` required fields; optional sibling export `aiToolOverrides` is stable |
+| `insights.explain.ts` | `explainConfig: ExplainModuleConfig` (or default export) built with `defineExplainConfig({ version: 1, ... })` | MUST NOT change the `version: 1` shape or the required fields of `ExplainResourceDescriptor` / field / collection / resolver / provider descriptors; may add optional fields; incompatible shapes require a new `version` |
 | `di.ts` | `register(container)` | MUST NOT change function signature |
 | `cli.ts` | default export | MUST NOT change expected signature |
 | `data/entities.ts` | Entity class exports | See Database Schema rules below |
@@ -177,6 +178,7 @@ Spot IDs are the addresses where external modules inject UI. Renaming or removin
 - MAY add new spot IDs to new or existing pages
 - MAY add new optional context fields to existing spots
 - Wildcard spots (`crud-form:*`, `data-table:*`) MUST continue to match as documented
+- Field-level spots (`crud-form:<entityId>:field:<fieldId>:after`) are reached only by exact keys or by wildcard patterns that name the `:field:` segment (e.g. `crud-form:customers.deal:field:*:after`); a broad wildcard such as `crud-form:*` keeps matching every form-level spot but never resolves into a field-level spot
 
 ### 7. API Route URLs (STABLE)
 
@@ -277,6 +279,7 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 - MUST NOT remove AI generated registry exports: `aiAgentConfigEntries`, `allAiAgents`, `aiAgentOverrideEntries`, `aiAgentExtensionEntries`, `allAiAgentExtensions`, `aiToolConfigEntries`, `allAiTools`, `aiToolOverrideEntries`
 - MUST NOT change generated AI entry shapes: agent entries keep `{ moduleId, agents, overrides, extensions }`; tool entries keep `{ moduleId, tools, overrides }`
 - MAY add new generated files and new optional fields to `BootstrapData`
+- MUST NOT rename `insights-explain.generated.ts` or its `explainConfigEntries` export (`{ moduleId, config }` entries registered at bootstrap through `registerExplainConfigEntries`)
 - MAY add new generated AI registry exports additively
 - Generated `.ai/guides/module-facts.json` is the v1 compatibility projection. It keeps its existing top-level module record and legacy sections; optional per-module `extensionSurfaces` is ADDITIVE. Its `hosts`, `contributions`, and `unresolved` arrays, correlation-resolution values, exact public IDs, and published classification modes are STABLE.
 - Generated `.ai/guides/module-facts.v2.json` is the additive corrected projection and keeps the same `Record<moduleId, ModuleFactsJsonEntry>` top-level shape. New harness consumers prefer v2 and fall back to v1. Once published, v2 values follow the same generated-facts stability rules; future incompatible corrections require another explicit version boundary.
@@ -576,3 +579,76 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 ## Discord AI Proposals (2026-10-13)
 
 [Waiver](UPGRADE_NOTES.md#discord-proposals)
+
+## Causation Foundation (2026-10-08)
+
+[`.ai/specs/2026-10-08-insights-causation-and-explain.md`](.ai/specs/2026-10-08-insights-causation-and-explain.md) records why each audited write happened. Its one new persisted value set is `CAUSE_KINDS` (`@open-mercato/shared/lib/causation/types`), whose values are written to `action_logs.cause_kind` and into stored causation envelopes.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Persisted value set (`CAUSE_KINDS`) | Values are persisted and accepted by the audit `causeKind` filter, so they are frozen once shipped. New kinds MAY be appended; existing kinds MUST NOT be renamed or removed. A reader MUST reject an envelope whose innermost kind it does not know rather than promote an outer frame | ✓ ADDITIVE-ONLY (treat like §5/§10 IDs) |
+| Database schema | New nullable columns on `action_logs`, `rule_execution_logs` and `api_keys`, plus concurrently built indexes; nothing renamed, retyped or removed | ✓ ADDITIVE-ONLY |
+| `ActionLogService` method signatures | `log` and `markUndone` accept an optional trailing `causation` argument | ✓ ADDITIVE (optional parameter appended) |
+| API routes (`GET /api/audit_logs/audit-logs/actions`, `.../actions/export`) | New optional `causeKind`/`causeId`/`correlationId` filters on both; the list response gains `causeKind`/`causeId`/`correlationId`/`causedByLogId` | ✓ ADDITIVE |
+| Event IDs, ACL features, DI names, CLI commands, generated files | No change | ✓ n/a |
+
+**Migration path for existing modules**: none. DI overrides and test doubles of `actionLogService` must accept the optional extra argument (see UPGRADE_NOTES.md).
+
+---
+
+## Insights "Why?" Explain Core (2026-10-08)
+
+Phase 2 of [`.ai/specs/2026-10-08-insights-causation-and-explain.md`](.ai/specs/2026-10-08-insights-causation-and-explain.md) adds the `insights` module, which explains why a record value is what it is from audit history and the recorded causation. Every surface below is new; once shipped it follows the classification shown.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| §1 Auto-discovery convention `insights.explain.ts` | New convention file (row added to the §1 table). Registration validates declarations: a resource, cause resolver or reference resolver without a non-empty `requiredFeatures` list is skipped with a warning (fail closed), and a duplicate `resourceKind` / resolver kind / provider id keeps the first registration. `ExplainCollectionDescriptor.itemResourceKinds` (optional) opts a collection into reading its child rows (`parent_resource_kind` = the resource) | ✓ ADDITIVE; FROZEN once shipped (`version` gates future shapes) |
+| §2 Types (`@open-mercato/shared/modules/insights/explain`) | `ExplainModuleConfig`, `ExplainResourceDescriptor`, `ExplainFieldDescriptor`, `ExplainCollectionDescriptor`, `ExplainCustomFieldsDescriptor`, cause/reference resolver and provider types, `ExplainLoadContext`, `ExplainHistoryEntry`; persisted/response value sets `EXPLAIN_VERDICTS`, `EXPLAIN_CONFIDENCES`, `EXPLAIN_GAP_REASONS`, `EXPLAIN_VALUE_KINDS` | ✓ ADDITIVE; STABLE (optional fields only; value sets additive-only) |
+| §3 Function signatures (`ActionLogService`) | New methods `findFieldHistory`, `findHistoryEntryById`, `findLogScopes`, `countHistoryByCause`, `findResourceIdsWithHistory` — tenant and organization scoped, decrypted where payloads are read, run under a 5 s statement timeout | ✓ ADDITIVE (existing methods unchanged) |
+| §4 Import paths | `@open-mercato/shared/modules/insights/explain` (contract types, `defineExplainConfig`), `@open-mercato/shared/modules/insights/helpers` (scope, id, custom-field and resolver helpers for declarations) | ✓ ADDITIVE; STABLE |
+| §7 API routes | `GET /api/insights/explain`, `GET /api/insights/explain/descriptors`, `GET /api/insights/explain/log` (all `requireFeatures: ['insights.explain.view']`, identical `404 { "error": "not_found" }` for unknown, invisible and out-of-scope records) | ✓ ADDITIVE; STABLE |
+| §9 DI service names | `explainService` (request-scoped) | ✓ ADDITIVE; STABLE |
+| §10 ACL feature IDs | `insights.explain.view`, `insights.explain.access_detail` (depends on `insights.explain.view`) | ✓ ADDITIVE; FROZEN |
+| §13 CLI commands | `mercato insights explain:coverage [--tenant <id>] [--org <id>] [--since <iso>] [--limit N]` (read-only) | ✓ ADDITIVE; STABLE |
+| §14 Generated files | `insights-explain.generated.ts` exporting `explainConfigEntries`, registered at bootstrap | ✓ ADDITIVE; STABLE |
+| Database schema, event IDs, widget spot IDs, notification IDs, AI tool IDs | No change | ✓ n/a |
+
+**Migration path for existing modules**: none. A module opts in by adding `insights.explain.ts` and running `yarn generate`. Operators run `yarn generate` and `yarn mercato auth sync-role-acls` so existing roles receive the new features (see UPGRADE_NOTES.md).
+
+### Insights "Why?" price and access (Phase 3, 2026-10-08)
+
+Phase 3 of the same spec explains sales line prices and access decisions. Every surface below is new and additive.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| §1 Auto-discovery (`insights.explain.ts`) | `catalog` declares the `catalog.price` reference resolver (`requiredFeatures: ['catalog.products.view']`); `sales` registers the `sales.line_price` field provider. The sales line items exposed to explain declarations gain `priceId` and `priceMode` (read from line `metadata`) | ✓ ADDITIVE |
+| §3 Function signatures (`RbacService`) | New `explainAccess(userId, features, { tenantId, organizationId }, { detail? })` → `{ decision, required, reasons, confidence, consistentWithFreshRead, detail }` (decision always equals `userHasAllFeatures` on the same cache-backed ACL; a cache-bypassing re-check lowers `confidence` to `inferred` on disagreement) and `findRolesGrantingFeatures(tenantId, features, { organizationId? })`; new exported types `AccessExplanation*`, `AccessRoleGrant`, `AccessUserAclGrant` and the value set `ACCESS_EXPLANATION_REASONS` (`missing_feature`, `organization_out_of_scope`, `user_acl_override`, `module_disabled`, `feature_removed`). `loadAcl` and every existing method are unchanged | ✓ ADDITIVE; reason values ADDITIVE-ONLY |
+| §7 API routes | `GET /api/insights/explain/access?features=&path=&userId=` (`requireAuth`; resolved tenant required; unknown feature ids → 400 `unknown_feature`; another user requires `insights.explain.access_detail` + `auth.users.list` → 403 `forbidden`; a user outside the caller's tenant/organization scope → 404 `not_found`). Response `{ decision, required, reasons, summary, detail, confidence }`; `detail` only with `insights.explain.access_detail`. Explain field hints gain `sales.insights.linePrice.*` facts with `params.outcome` (`matched_price_row`, `differs`, `no_catalog_link`, `unverifiable`) | ✓ ADDITIVE; STABLE |
+| §9 DI service names | `accessExplainService` (request-scoped) | ✓ ADDITIVE; STABLE |
+| Database schema, event IDs, widget spot IDs, ACL feature IDs, notification IDs, CLI commands | No change | ✓ n/a |
+
+### Insights "Why?" UI and AI (Phase 4a, 2026-10-08)
+
+| Surface | Change | Classification |
+|---|---|---|
+| §3 Component props / types | `AccessDeniedMessage` optional `path` and `requiredFeatures` props; exported `AccessDeniedInjectionContext` and the version-history entry spot context type | ✓ ADDITIVE; STABLE |
+| §6 Widget spot IDs | `version-history:entry:after` (context `{ logId, resourceKind, resourceId }`) and `backend:access-denied:after` (context `{ path, requiredFeatures }`); constants `VERSION_HISTORY_ENTRY_AFTER_INJECTION_SPOT_ID`, `BACKEND_ACCESS_DENIED_AFTER_INJECTION_SPOT_ID` | ✓ ADDITIVE; FROZEN once shipped |
+| §6 Widget IDs | `insights.injection.record-why`, `insights.injection.deal-status-why`, `insights.injection.log-cause`, `insights.injection.access-why` | ✓ ADDITIVE; STABLE |
+| §7 Backend pages | `/backend/insights/why` (requires `insights.explain.view`) | ✓ ADDITIVE; STABLE |
+| §12 AI tool IDs | `insights.explain_record` (read-only, not allowlisted by default) | ✓ ADDITIVE; FROZEN once shipped |
+
+### Insights "Why?" CrudForm field spots (Phase 4b, 2026-10-08)
+
+Phase 4b of the same spec binds the CrudForm field spot family and adds the per-field "Why?" button behind an explain mode. Every surface below is new or additive.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| §6 Widget spot IDs | `crud-form:<entityId>:field:<fieldId>:after` (declared as `CRUD_FORM_EXTENSION_SURFACES.fieldAfter`, previously `bound: false`) is now bound: `CrudForm` renders it at the end of each field of an edit form (record id from `values.id` or `versionHistory.resourceId`) whose resolved spot id starts with `crud-form:`, and only when `hasInjectionWidgetsForSpotPrefix('crud-form:<entityId>:field:')` finds a registration (exact key or explicit pattern containing `:field:`). Context `{ entityId, recordId, fieldId, resourceKind? }` (`CrudFormFieldInjectionContext`; `entityId` is the entity segment of the form's spot id). A wildcard without `:field:` (e.g. `record_locks.injection.crud-form-locking` on `crud-form:*`) never enables or resolves into field spots. Forms without field registrations render unchanged DOM. `fieldBefore` stays unbound | ✓ ADDITIVE; FROZEN once shipped |
+| §6 Widget context | The context `CrudForm` passes to its form-level spots (base, `:header`, `:fields` handlers) gains `injectionSpotId` (resolved base spot id, or `null`) | ✓ ADDITIVE (optional context field) |
+| §3 Function signatures | `hasInjectionWidgetsForSpotPrefix(prefix): boolean` and `INJECTION_FIELD_SPOT_SEGMENT` (`':field:'`) in `@open-mercato/shared/modules/widgets/injection-loader` (`prefix` is a field prefix ending with `:field:`, any other prefix answers `false`; a key counts when its part up to its first `:field:` equals or wildcard-matches the prefix; computed from the registered tables, `false` before registration, recomputed on every registration); `useHasInjectionWidgetsForSpotPrefix(prefix)` (reactive, `false` during SSR/hydration); type `CrudFormFieldInjectionContext` from `@open-mercato/ui/backend/CrudForm`. `loadInjectionWidgetsForSpot` / `loadInjectionDataWidgetsForSpot` skip wildcard keys without `:field:` for a spot id containing `:field:` (no spot rendered before this change contains it) | ✓ ADDITIVE; STABLE |
+| §4 Import paths | `@open-mercato/ui/backend/injection/useHasInjectionWidgetsForSpotPrefix` | ✓ ADDITIVE; STABLE |
+| §7 API routes | `GET /api/insights/explain/descriptors`: each field descriptor gains `currentPath` (`string \| null`, the record property the field is read from) | ✓ ADDITIVE |
+| Widget IDs | `insights.injection.field-why` (on `crud-form:<formEntityId>:field:*:after`) and `insights.injection.field-explain-toggle` (on `crud-form:<formEntityId>:header`) for the form entity ids `customers.deal`, `customers.customer_deal`, `customers.person`, `customers.company` (no global wildcard) | ✓ ADDITIVE; STABLE (override targets) |
+| Feature toggle | `insights_field_explain` (boolean, default `true`, category `insights`), created by `insights` `seedDefaults` only when the `feature_toggles` module is registered; the UI reads it fail-open (missing toggle or disabled module = enabled) | ✓ ADDITIVE; identifier FROZEN once shipped |
+| §14 Generated files | Module facts mark every CrudForm host's `fieldAfter` surface `bound: true`; the `factCoverage` row `CrudFormExtensionSurface.fieldAfter` becomes `emitted-example` (mirrored in both example `surface-inventory.json` files) | ✓ ADDITIVE |
+| Database schema, event IDs, ACL feature IDs, notification IDs, CLI commands | No change | ✓ n/a |
