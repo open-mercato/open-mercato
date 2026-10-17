@@ -116,7 +116,7 @@ export async function translateWebhookCustomHeadersRejection(
   if (rejection.reason === 'credentialHeadersRequireReentry') {
     return translate(
       'webhooks.errors.credentialHeadersRequireReentry',
-      'Header "{header}" has a hidden value. Enter it again or remove it when you move the webhook to a different host.',
+      'Header "{header}" has a hidden value. Enter it again or remove it when you change the webhook URL.',
       { header: rejection.header },
     )
   }

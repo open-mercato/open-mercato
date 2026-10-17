@@ -92,13 +92,13 @@ describe('planWebhookCustomHeadersUpdate', () => {
   const current = { url: 'https://example.com/hook', customHeaders: { Authorization: 'Bearer t', 'x-source': 'qa' } }
 
   it('leaves headers untouched when they are not part of the update', () => {
-    expect(planWebhookCustomHeadersUpdate({ current, next: { url: 'https://example.com/v2' }, canRevealCredentials: false })).toEqual({
+    expect(planWebhookCustomHeadersUpdate({ current, next: { url: current.url }, canRevealCredentials: false })).toEqual({
       ok: true,
       customHeaders: undefined,
     })
   })
 
-  it('refuses to carry stored credentials to a new origin without webhooks.secrets', () => {
+  it('refuses to carry stored credentials to a new URL without webhooks.secrets', () => {
     expect(planWebhookCustomHeadersUpdate({ current, next: { url: 'https://evil.example.net/' }, canRevealCredentials: false })).toEqual({
       ok: false,
       reason: 'credentialHeadersRequireReentry',
@@ -106,7 +106,7 @@ describe('planWebhookCustomHeadersUpdate', () => {
     })
   })
 
-  it('allows a new origin when the stored headers carry no credential', () => {
+  it('allows a new URL when the stored headers carry no credential', () => {
     expect(
       planWebhookCustomHeadersUpdate({
         current: { url: current.url, customHeaders: { 'x-source': 'qa' } },
@@ -116,17 +116,27 @@ describe('planWebhookCustomHeadersUpdate', () => {
     ).toEqual({ ok: true, customHeaders: undefined })
   })
 
-  it('treats an unparsable new URL as a different origin', () => {
+  it('treats a path change on the same host as a URL change', () => {
     expect(
       planWebhookCustomHeadersUpdate({
         current,
-        next: { url: 'not a url', customHeaders: { Authorization: REDACTED } },
+        next: { url: 'https://example.com/other-bin', customHeaders: { Authorization: REDACTED } },
         canRevealCredentials: false,
       }),
     ).toMatchObject({ ok: false, reason: 'credentialHeadersRequireReentry' })
   })
 
-  it('allows clearing headers on a new origin', () => {
+  it('does not count a non-credential header sent back as the marker', () => {
+    expect(
+      planWebhookCustomHeadersUpdate({
+        current,
+        next: { url: 'https://other.example.net/', customHeaders: { 'x-source': REDACTED } },
+        canRevealCredentials: false,
+      }),
+    ).toEqual({ ok: true, customHeaders: { 'x-source': 'qa' } })
+  })
+
+  it('allows clearing headers on a new URL', () => {
     expect(
       planWebhookCustomHeadersUpdate({ current, next: { url: 'https://other.example.net/', customHeaders: null }, canRevealCredentials: false }),
     ).toEqual({ ok: true, customHeaders: null })

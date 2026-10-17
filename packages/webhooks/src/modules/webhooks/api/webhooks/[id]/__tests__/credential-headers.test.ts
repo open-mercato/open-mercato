@@ -276,7 +276,7 @@ describe('webhook custom credential headers (issue #7237)', () => {
     })
   })
 
-  describe('PUT to a different URL host', () => {
+  describe('PUT with a changed URL', () => {
     it('refuses to keep hidden credential values for a caller without webhooks.secrets', async () => {
       grantedFeatures = ['webhooks.view', 'webhooks.manage']
 
@@ -319,11 +319,23 @@ describe('webhook custom credential headers (issue #7237)', () => {
       expect(webhookRecord.customHeaders).toEqual({ Authorization: 'Bearer re-entered', 'x-source': 'open-mercato' })
     })
 
-    it('keeps hidden values when only the path changes on the same origin', async () => {
+    it('refuses when only the path changes on the same host', async () => {
       grantedFeatures = ['webhooks.view', 'webhooks.manage']
 
       const res = await PUT(
-        request('PUT', { url: 'https://example.com/hook-v2', customHeaders: { Authorization: REDACTED } }),
+        request('PUT', { url: 'https://example.com/attacker-bin', customHeaders: { Authorization: REDACTED } }),
+        context,
+      )
+
+      expect(res.status).toBe(400)
+      expect(webhookRecord.url).toBe('https://example.com/hook')
+    })
+
+    it('keeps hidden values when the unchanged URL is sent back', async () => {
+      grantedFeatures = ['webhooks.view', 'webhooks.manage']
+
+      const res = await PUT(
+        request('PUT', { name: 'Renamed', url: 'https://example.com/hook', customHeaders: { Authorization: REDACTED } }),
         context,
       )
 

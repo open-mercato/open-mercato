@@ -45,7 +45,7 @@
   "webhooks.detail.testResult": "최근 테스트 결과",
   "webhooks.detail.testSuccess": "테스트 전달에 성공했습니다.",
   "webhooks.detail.title": "웹훅 상세 정보",
-  "webhooks.errors.credentialHeadersRequireReentry": "\"{header}\" 헤더에 숨겨진 값이 있습니다. 웹훅을 다른 호스트로 옮길 때는 값을 다시 입력하거나 헤더를 제거하세요.",
+  "webhooks.errors.credentialHeadersRequireReentry": "\"{header}\" 헤더에 숨겨진 값이 있습니다. 웹훅 URL을 변경할 때는 값을 다시 입력하거나 헤더를 제거하세요.",
   "webhooks.errors.forbidden": "이 작업을 수행할 권한이 없습니다.",
   "webhooks.errors.notFound": "웹훅을 찾을 수 없습니다.",
   "webhooks.errors.orgRequired": "조직 컨텍스트가 필요합니다.",

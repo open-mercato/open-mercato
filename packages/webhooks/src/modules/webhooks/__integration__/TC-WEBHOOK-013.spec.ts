@@ -17,7 +17,7 @@ import {
  * credential-like custom headers, while ordinary headers stay readable and an admin
  * (webhooks.*) still receives the stored values. Echoing the marker back keeps the stored
  * value, a marker without a stored value is refused, and a manager without webhooks.secrets
- * cannot carry hidden values to a different URL host.
+ * cannot keep hidden values while changing the webhook URL.
  */
 
 const REDACTED = '••••••••';
@@ -122,6 +122,12 @@ test.describe('TC-WEBHOOK-013: credential custom headers are hidden without webh
         data: { url: 'https://other.example.net/tc-webhook-013', customHeaders: managerDetail.customHeaders },
       });
       expect(moveEchoingMarker.status()).toBe(400);
+
+      const samePathMove = await apiRequest(request, 'PUT', `/api/webhooks/${created.id}`, {
+        token: manager.token,
+        data: { url: 'https://example.com/tc-webhook-013-other-bin', customHeaders: managerDetail.customHeaders },
+      });
+      expect(samePathMove.status()).toBe(400);
 
       const unchanged = await readDetail(request, adminToken, created.id);
       expect(unchanged.url).toBe('https://example.com/tc-webhook-013');

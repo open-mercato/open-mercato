@@ -62,7 +62,7 @@ export function resolveRedactedWebhookCustomHeaders(
     const storedValue = stored ? findStoredHeaderValue(name, stored) : null
     if (storedValue === null || storedValue === WEBHOOK_REDACTED_HEADER_VALUE) return { ok: false, header: name }
     headers[name] = storedValue
-    keptStoredValues.push(name)
+    if (isCredentialWebhookHeader(name, storedValue)) keptStoredValues.push(name)
   }
   return { ok: true, headers, keptStoredValues }
 }
@@ -70,14 +70,6 @@ export function resolveRedactedWebhookCustomHeaders(
 export type WebhookCustomHeadersUpdate =
   | { ok: true; customHeaders: Record<string, string> | null | undefined }
   | { ok: false; reason: 'redactedHeaderWithoutValue' | 'credentialHeadersRequireReentry'; header: string }
-
-function urlOrigin(url: string): string | null {
-  try {
-    return new URL(url).origin
-  } catch {
-    return null
-  }
-}
 
 export function planWebhookCustomHeadersUpdate(input: {
   current: { url: string; customHeaders?: Record<string, string> | null }
@@ -99,7 +91,7 @@ export function planWebhookCustomHeadersUpdate(input: {
     keptCredentialHeaders = resolved.keptStoredValues
   }
 
-  const urlChanged = next.url !== undefined && (urlOrigin(next.url) === null || urlOrigin(next.url) !== urlOrigin(current.url))
+  const urlChanged = next.url !== undefined && next.url !== current.url
   if (!canRevealCredentials && urlChanged && keptCredentialHeaders.length > 0) {
     return { ok: false, reason: 'credentialHeadersRequireReentry', header: keptCredentialHeaders[0] }
   }

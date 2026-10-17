@@ -306,7 +306,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         {
           status: 400,
-          description: 'Invalid payload, a hidden header value with no stored value, or kept hidden header values sent to a new URL host by a caller without webhooks.secrets',
+          description: 'Invalid payload, a hidden header value with no stored value, or a URL change that keeps hidden header values for a caller without webhooks.secrets',
           schema: errorSchema,
         },
         { status: 404, description: 'Not found', schema: errorSchema },
