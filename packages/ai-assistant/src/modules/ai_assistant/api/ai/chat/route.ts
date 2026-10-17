@@ -622,7 +622,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       if (!isBaseurlAllowlisted(rawBaseUrl.trim(), allowlist)) {
         return jsonError(
           400,
-          `baseUrl "${rawBaseUrl}" is not in the AI_RUNTIME_BASEURL_ALLOWLIST. Set that env var to a comma-separated list of allowed host patterns to enable per-request baseUrl overrides.`,
+          `baseUrl "${rawBaseUrl}" is not in the AI_RUNTIME_BASEURL_ALLOWLIST. Set that env var to a comma-separated list of allowed hosts (https only) or full origins such as http://localhost:11434 to enable per-request baseUrl overrides.`,
           'baseurl_not_allowlisted',
         )
       }
