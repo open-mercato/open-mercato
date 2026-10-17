@@ -1,10 +1,11 @@
 # SPEC-055: Promotions Module
 
 **Date**: 2026-02-23
-**Status**: Approved (amended 2026-08-14, reconciliation-fixed 2026-08-17, audit-fixed 2026-08-17, applies-to/caps amendment 2026-09-07, §B.6 mapping corrected 2026-09-09 — see §Amendment)
+**Status**: Approved (amended 2026-08-14, reconciliation-fixed 2026-08-17, audit-fixed 2026-08-17, applies-to/caps amendment 2026-09-07, §B.6 mapping corrected 2026-09-09, **eComm Release 4 decisions applied 2026-10-14 (v2.2.0)**, **Phases 1–3 implemented 2026-10-15 (v2.2.1, PR adeptofvoltron/open-mercato#15)** — see §Amendment and §Changelog; Phases 4–5 unchanged, spec-only, not built)
 **Suite**: [Ecommerce Suite Roadmap](./2026-08-14-ecommerce-suite-roadmap.md) — spec 6, Phase 2
+**Release 4 decisions**: [eComm Release 4 Decisions](./analysis/ANALYSIS-2026-10-14-ecommerce-release-4-decisions.md) D-R4-1…29 (authoritative audit trail; this revision is where they land in the spec text)
 
-> **Amendment notice (2026-08-14).** This spec was written against a hypothetical external cart addressed over HTTP by SKU. The platform now has a first-class [`cart` module](./2026-08-14-cart-module.md). The **Amendment** section near the end of this document is normative and takes precedence over the *Cart-Facing Endpoints* section where they conflict: the primary integration becomes a DI service call, the `/api/cart/*` namespace moves to `/api/promotions/*`, item addressing gains product and variant ids, and effects map onto `SalesAdjustmentDraft`. Everything else in this spec — the rule tree, the three-pass engine, codes, usage ledger, extensibility — is unchanged.
+> **Amendment notice (2026-08-14).** This spec was written against a hypothetical external cart addressed over HTTP by SKU. The platform now has a first-class [`cart` module](./2026-08-14-cart-module.md). The **Amendment** section near the end of this document is normative and takes precedence over the *Cart-Facing Endpoints* section where they conflict: the primary integration becomes a DI service call, the `/api/cart/*` namespace moves to `/api/promotions/*`, item addressing gains product and variant ids, and effects map onto `SalesAdjustmentDraft`. Everything else in this spec — the rule tree, the three-pass engine, codes, usage ledger, extensibility — is unchanged. **(rev 2.2.0, 2026-10-14)** Items are now addressed by id alone, with no `sku` fallback, and effects carry `amountNet`/`amountGross` directly rather than a single amount with a basis flag — see §A.4/§A.5 (superseded) and §Public TypeScript Contract for the current shapes.
 
 ---
 
@@ -16,7 +17,7 @@
 - **Extensible by design**: other modules can register custom rule types, custom benefit types, evaluation middleware (before/after hooks), and custom admin configurator components — without modifying core promotions code.
 
 **Scope:**
-- Domain model: `Promotion`, `RuleGroup` (recursive tree), polymorphic `Rule` + 15 built-in rule types, polymorphic `Benefit` + 6 built-in benefit types with an explicit application target (`order`/`line`/`unit`) and cart-wide quantity caps, `Code`, `GeneratedCode`, `CodeReservation`, `CodeUsage`, `PromotionUsage` (per-order audit ledger + global spend tracking)
+- Domain model: `Promotion`, `RuleGroup` (recursive tree), polymorphic `Rule` + eleven Release-4 rule types (rev — W10/P10; the full model reserves config space for six more, hidden until a data source exists — §Data Models), polymorphic `Benefit` + built-in benefit types with an explicit application target (`order`/`line`/`unit`) and cart-wide quantity caps, `Code`, `GeneratedCode`, `CodeReservation`, `CodeUsage`, `PromotionUsage` (per-order audit ledger + global spend tracking)
 - Three-pass evaluation engine (boolean pass → benefit collection pass → effect resolution pass), product-page lightweight variant
 - Promotion ordering, cumulativity, and tag-based self-exclusion algorithm
 - Cart interaction REST API (apply-promotion, code lifecycle endpoints)
@@ -26,7 +27,7 @@
 **Concerns:**
 - Rule tree depth and polymorphic joins require careful N+1 mitigation and upfront caching strategy
 - Code reservation TTL must be handled atomically; concurrent checkouts must not bypass per-customer limits
-- Budget cap enforcement (`max_budget`) requires a serializable transaction in `registerUsage` to prevent concurrent checkouts from jointly overshooting the cap; the optimistic cache-based pre-check reduces but does not eliminate this race window
+- Budget cap enforcement (`max_budget`) requires a row lock (`SELECT … FOR UPDATE`) inside `registerUsage`'s transaction — never serializable isolation, which `withAtomicFlush` does not provide and which a nested `checkout` transaction would silently drop (rev — C6/D-R4-12) — to prevent concurrent checkouts from jointly overshooting the cap; the optimistic cache-based pre-check reduces but does not eliminate this race window
 
 ---
 
@@ -98,39 +99,42 @@ A dedicated `promotions` module placed in `packages/core/src/modules/promotions/
 
 ## Architecture
 
+**(rev — Release 4, D-R4-29).** `notifications.ts`, `search.ts`, `translations.ts`, `ce.ts` and every file under `widgets/` are **Phase 4/5 only** — Release 4 (Phases 1–3) ships none of them, per the root `AGENTS.md` Task Router scope for this release. They are listed here because this tree documents the module's full, eventual shape; §"Implementation Plan" below marks each file's owning phase explicitly.
+
 ```
 promotions/
 ├── index.ts                          Module metadata
 ├── acl.ts                            Feature definitions
 ├── events.ts                         Typed event declarations
 ├── setup.ts                          Tenant init, seeding, defaultRoleFeatures
-├── notifications.ts                  Notification types (code exhausted, etc.)
-├── search.ts                         Fulltext search config for promotions + codes
-├── translations.ts                   Translatable fields (benefit labels)
+├── notifications.ts                  Phase 4 — Notification types (code exhausted, etc.)
+├── search.ts                         Phase 4 — Fulltext search config for promotions + codes
+├── translations.ts                   Phase 4 — Translatable fields (benefit labels)
 ├── di.ts                             DI registrar (services)
-├── ce.ts                             Custom entity sets
+├── ce.ts                             Phase 4 — Custom entity sets
 │
 ├── api/
 │   ├── openapi.ts                    OpenAPI shared helpers
-│   ├── promotions/route.ts           CRUD via makeCrudRoute
-│   ├── promotions/[id]/route.ts      Detail + nested tree fetch
-│   ├── promotions/[id]/tree/route.ts Atomic tree reconciliation (PUT)
-│   ├── promotions/order/route.ts     Batch order update (PATCH)
-│   ├── codes/route.ts                Code CRUD
-│   ├── codes/[id]/generate/route.ts  Trigger dynamic code generation worker
-│   ├── codes/[id]/generated/route.ts List individual generated codes
-│   ├── evaluate/route.ts             Cart benefit resolver (POST) — was cart/apply-promotion, fixed 2026-08-17 (Amendment §A.3)
-│   ├── codes/reserve/route.ts        Code reservation (POST) — was cart/add-code
-│   ├── codes/validate/route.ts       Re-validate reserved code (POST) — was cart/validate-code
-│   ├── codes/use/route.ts            Mark code used + write CodeUsage (POST) — was cart/use-code
-│   ├── codes/release/route.ts        Release reservation (POST) — was cart/delete-code
-│   ├── usage/register/route.ts       Record confirmed discount audit + budget check (POST) — was cart/register-usage
-│   ├── usage/revert/route.ts         Revert usage on order cancellation (POST) — was cart/revert-usage
-│   ├── dynamic-labels/route.ts       Storefront condition metadata (GET)
-│   ├── free-products/route.ts        Free product eligibility (POST)
-│   ├── delivery-methods/route.ts     Delivery promotion eligibility (POST)
-│   ├── product-page/route.ts         Product promotion badge data (POST)
-│   └── extension-types/route.ts      Available extension rule/benefit type metadata (GET)
+│   ├── route.ts                       Rev (W2) — collection CRUD via `makeCrudRoute`; mounts at `/api/promotions`, not `/api/promotions/promotions`
+│   ├── [id]/route.ts                  Rev (W2) — detail + nested tree fetch; mounts at `/api/promotions/[id]`
+│   ├── [id]/tree/route.ts            Atomic tree reconciliation (PUT); `/api/promotions/[id]/tree`
+│   ├── order/route.ts                Batch order update (PATCH); `/api/promotions/order`
+│   ├── codes/route.ts                Code CRUD; `/api/promotions/codes`
+│   ├── codes/[id]/generate/route.ts  Trigger dynamic code generation worker; `/api/promotions/codes/[id]/generate`
+│   ├── codes/[id]/generated/route.ts List individual generated codes; `/api/promotions/codes/[id]/generated`
+│   ├── evaluate/route.ts             Cart benefit resolver (POST); `/api/promotions/evaluate` — was cart/apply-promotion, fixed 2026-08-17 (Amendment §A.3)
+│   ├── codes/reserve/route.ts        Code reservation (POST); `/api/promotions/codes/reserve` — was cart/add-code
+│   ├── codes/validate/route.ts       Re-validate reserved code (POST); `/api/promotions/codes/validate` — was cart/validate-code
+│   ├── codes/use/route.ts            Mark code used + write CodeUsage (POST); `/api/promotions/codes/use` — was cart/use-code
+│   ├── codes/release/route.ts        Release reservation (POST); `/api/promotions/codes/release` — was cart/delete-code
+│   ├── usage/register/route.ts       Record confirmed discount audit + budget check (POST); `/api/promotions/usage/register` — was cart/register-usage
+│   ├── usage/revert/route.ts         Revert usage on order cancellation (POST); `/api/promotions/usage/revert` — was cart/revert-usage
+│   ├── dynamic-labels/route.ts       Storefront condition metadata (GET); `/api/promotions/dynamic-labels`
+│   ├── free-products/route.ts        Free product eligibility (POST); `/api/promotions/free-products`
+│   ├── product-page/route.ts         Product promotion badge data (POST); `/api/promotions/product-page`
+│   └── extension-types/route.ts      Phase 5 — available extension rule/benefit type metadata (GET)
+
+**`delivery-methods/route.ts` is deferred past Release 4 (rev — D-R4-14).** `delivery_method` has no data source Phases 1–3 can supply (no shipping-method resolution exists in `cart`), so the route, its rule evaluator and the `DELIVERY_DISCOUNT` benefit stay unbuilt until a later release gives them one; §Data Models and §API Contracts mark every reference below.
 │
 ├── backend/
 │   ├── promotions/page.tsx           Promotion list (drag-sort, filters, save)
@@ -146,36 +150,40 @@ promotions/
 │   └── rule-tree.ts                  Atomic rule group tree mutations
 │
 ├── lib/
+│   ├── types.ts                      Rev — public TypeScript contract barrel (§A.2, W6); every `cart`-facing type
+│   ├── promotions-service.ts         `promotionsService` — the primary integration facade (DI token `promotionsService`, Amendment §A.2)
 │   ├── evaluation-engine.ts          Three-pass recursive evaluator
-│   ├── rule-evaluators.ts            15 built-in rule evaluators
+│   ├── rule-evaluators.ts            Release-4 rule evaluators (§P10 — not "15 built-in"; see Data Models)
 │   ├── unit-selection.ts             Selector ordering + cart-wide quantity budget
 │   ├── effect-resolvers.ts           Benefit config → ResolvedEffect[] (owns all discount math)
 │   ├── product-page-engine.ts        Lightweight variant (product visibility)
-│   ├── code-service.ts               Code validation, reservation, usage
+│   ├── code-service.ts               Code validation, reservation (per-cart, §A.6 rev), usage — DI token `promotionCodeService`
 │   ├── tag-exclusion.ts              Promotion ordering + cumulativity + tag exclusion loop
-│   ├── extension-registry.ts         Server-side rule/benefit/middleware extension registry
-│   ├── extension-registry.client.ts  Client-side configurator component registry
-│   └── promotion-usage-service.ts    registerUsage / revertUsage / getBudgetConsumed
+│   ├── extension-registry.ts         Phase 5 — Server-side rule/benefit/middleware extension registry
+│   ├── extension-registry.client.ts  Phase 5 — Client-side configurator component registry
+│   └── promotion-usage-service.ts    DI token `promotionUsageService` — registerUsage / revertUsage / getBudgetConsumed
 │
 ├── services/
-│   ├── promotion-cache.ts            Active promotions cache (tag-invalidated)
-│   └── code-generation.ts            Dynamic code batch generator
+│   ├── promotion-cache.ts            DI token `promotionCache` — active promotions cache (tag-invalidated)
+│   ├── code-generation.ts            DI token `promotionCodeGenerationService` — dynamic code batch generator
+│   └── code-reservation-sweeper.ts   Rev — releases lapsed `CodeReservation` rows independently of the cart's own sweep (A.6 rev, X7)
 │
 ├── workers/
-│   └── code-generation.worker.ts     Background worker for dynamic code pools
+│   ├── code-generation.worker.ts     Background worker for dynamic code pools
+│   └── code-reservation-sweep.worker.ts  Rev — queue worker behind the sweeper above, registered via `schedulerService`
 │
 ├── subscribers/
 │   ├── invalidate-promotion-cache.ts On promotion CUD + usage events → invalidate cache
-│   └── budget-exhausted.ts           On budget-exhausted → emit notification
+│   └── budget-exhausted.ts           On budget-exhausted → emit notification (Phase 4 — no notification type exists before then; this subscriber is a no-op shell in Release 4)
 │
 ├── data/
-│   ├── entities.ts                   MikroORM entities (all tables)
+│   ├── entities.ts                   MikroORM entities (all tables, incl. `PromotionUsage` — moved to Phase 1, C8)
 │   └── validators.ts                 Zod schemas for all inputs
 │
 ├── migrations/                       DB migrations (generated, never hand-written)
-├── i18n/en.json                      English locale strings
+├── i18n/{de,en,es,ko,pl}.json         Rev — five locales from Phase 1 (root AGENTS.md i18n rule; previously Phase 4-only `en.json`)
 ├── components/                       Shared React components (tree builder)
-└── widgets/
+└── widgets/                          Phase 4/5 only — no widget file exists before then
     ├── injection-table.ts            Widget-to-slot mappings
     └── injection/                    Widget injection slots (injected by other modules)
 ```
@@ -189,13 +197,16 @@ POST /api/promotions/evaluate  (or promotionsService.evaluate() in-process — A
   │   └─ Serves NormalizedPromotion[] — no ORM entities, zero DB access during evaluation
   │
   ├─ For each promotion (ORDER BY order ASC, id ASC):
+  │   ├─ Date-window check (rev — R-H3b/P8): if promotion.startsAt ≠ null AND context.evaluatedAt < promotion.startsAt → skip;
+  │   │   if promotion.endsAt ≠ null AND context.evaluatedAt > promotion.endsAt → skip. Filtered against the CALLER-SUPPLIED
+  │   │   evaluatedAt, never a clock read inside the evaluator — the engine stays pure and a fixed-clock test is reproducible
   │   ├─ Check excluded_tags ∩ applied_tags → skip if non-empty
   │   ├─ Currency eligibility check: if promotion.eligibleCurrencies.length > 0
   │   │   AND context.currency ∉ promotion.eligibleCurrencies → skip
   │   ├─ Budget pre-check (optimistic): if promotion.maxBudget is set
   │   │   AND promotion.totalDiscountGranted >= promotion.maxBudget → skip
-  │   │   (Not authoritative — enforced atomically in registerUsage)
-  │   ├─ Apply item exclusion filters (exclude_medicine, etc.)
+  │   │   (Not authoritative — enforced atomically in registerUsage via a row lock, not serializable isolation)
+  │   ├─ Apply item exclusion filters (rev — exclude_promotional_prices per D-R4-16, replacing the exclude_medicine example; the flag lives in exclude_flags and is checked per item against priceIsPromotional)
   │   ├─ Pass 1: evaluateGroup(rootGroup, context) → boolean
   │   └─ If true:
   │       ├─ Pass 2: collectBenefits(rootGroup, parentChainValid=true) → NormalizedBenefit[]
@@ -228,6 +239,8 @@ NormalizedPromotion {
   excludedTags: string[]
   excludeFlags: Record<string, boolean>
   eligibleCurrencies: string[]        // empty array = all currencies
+  startsAt: string | null             // rev — R-H3b/P8; ISO date, filtered against context.evaluatedAt at evaluation time, never at cache-build time
+  endsAt: string | null               // rev — same; the cache holds every active=true promotion regardless of its window
   maxBudget: string | null            // null = no cap; decimal string in budgetCurrency
   budgetCurrency: string | null       // ISO 4217; null when maxBudget is null
   totalDiscountGranted: string        // snapshot at cache-build time; used for optimistic budget pre-check only
@@ -264,32 +277,35 @@ NormalizedBenefit {
 
 `services/promotion-cache.ts` guarantees:
 
-1. A single cache build performs **all** required database reads (promotions → rule groups (recursive) → `promotion_rules` → `promotion_benefits` → `SUM(total_discount_amount)` per promotion from `promotion_usages WHERE reverted_at IS NULL`)
-2. After caching, promotion evaluation executes with **zero database access**
+1. A single cache build performs **all** required database reads (every `active = true` promotion **regardless of `starts_at`/`ends_at`** — rev, R-H3b/P8, replacing "active and within date range," which made a window opening or closing invisible until the next rebuild — → rule groups (recursive) → `promotion_rules` → `promotion_benefits` → `SUM(total_discount_amount)` per promotion from `promotion_usages WHERE reverted_at IS NULL`)
+2. After caching, promotion evaluation executes with **zero database access**; date-window filtering happens inside the evaluator against the caller-supplied `context.evaluatedAt` (§Evaluation Engine Data Flow), never against a clock read at cache-build or evaluation time
 3. Any missing eager-loaded relation is treated as a critical bug
-4. `totalDiscountGranted` in `NormalizedPromotion` is a **snapshot** — it is intentionally stale between cache rebuilds. It is used only for an optimistic pre-check that skips obviously-exhausted promotions without adding latency. Authoritative enforcement happens in `registerUsage` inside a serializable transaction.
+4. `totalDiscountGranted` in `NormalizedPromotion` is a **snapshot** — it is intentionally stale between cache rebuilds. It is used only for an optimistic pre-check that skips obviously-exhausted promotions without adding latency. Authoritative enforcement happens in `registerUsage` via a row lock and a re-read of the sum inside the (possibly ambient) transaction — **never** a serializable isolation level (rev — C6/D-R4-12; §Promotion Usage Lifecycle). Kept in a **separate, small counters key** from the main cache (rev — R-H3c/P8), read only for budget-capped promotions, so a `usage.registered` event evicts just that counter rather than forcing a full promotion-tree rebuild on every order
+5. The main cache (the promotion trees) is invalidated **only** by promotion mutation events (`promotions.promotion.*`, `promotions.code.*`) — never by a usage event, which touches only the counters key above (rev — R-H3c/P8)
 
 The evaluation engine (`lib/evaluation-engine.ts`) operates purely on `NormalizedPromotion` objects and **must not** use the entity manager, repository calls, lazy relation access, or dynamic DB lookups. All required data must be provided via the cart context or the normalized promotion.
 
 ### Code Lifecycle
 
 ```
-codes/reserve  → validate code + per-customer limit → create CodeReservation (TTL 24h)
+codes/reserve  → validate code + per-customer limit (CodeUsage + other carts' active reservations, D-R4-8) → create/extend CodeReservation keyed (code_id, cart_id), TTL 24h
 codes/validate → re-check reservation + code active status
-evaluate       → code_id passed in context → CodeRule evaluator matches
-codes/use      → deactivate GeneratedCode OR increment Code.used → write CodeUsage → delete reservation
-codes/release  → delete CodeReservation only
+evaluate       → codes: {id, type}[] passed in context (rev — never a single code_id) → CodeRule evaluator matches
+codes/use      → deactivate GeneratedCode OR increment Code.used → write CodeUsage → delete reservation keyed (code_id, cart_id)
+codes/release  → delete CodeReservation for that (code_id, cart_id) only
 ```
 
 (route names per `/api/promotions/*`, Amendment §A.3 — each also has a matching `promotionsService` method, §A.2)
 
 ### Promotion Usage Lifecycle
 
+**(rev — C6/P7/D-R4-12, replacing the serializable-isolation claim: `withAtomicFlush` joins an ambient transaction and ignores `isolationLevel`, and `checkout` is expected to call `registerUsage` inside its own order transaction — under that call shape, serializable isolation silently stops applying and no `40001` retry helper exists anywhere in `packages/shared` to recover from it if it somehow did.)**
+
 ```
 usage/register → validate orderId not already registered (idempotent upsert)
-              → open serializable transaction
+              → lock the promotion row (SELECT … FOR UPDATE) inside the (possibly ambient) transaction
               → re-read SUM(total_discount_amount) WHERE reverted_at IS NULL AND currency = budget_currency
-              → if max_budget set AND new total would exceed max_budget → rollback, emit budget-exhausted, return 422
+              → if max_budget set AND new total would exceed max_budget → rollback this promotion's write, emit budget_exhausted, return 207 for this promotionId
               → write PromotionUsage (effects_snapshot, total_discount_amount, currency, order_type)
               → commit → emit promotions.usage.registered → invalidate promotion cache entry
 usage/revert  → SET reverted_at = NOW() on all PromotionUsage rows
@@ -297,11 +313,13 @@ usage/revert  → SET reverted_at = NOW() on all PromotionUsage rows
               → emit promotions.usage.reverted → invalidate promotion cache entry
 ```
 
+The row lock, not a transaction isolation level, is what makes this correct whether the call is top-level or nested inside `checkout`'s own transaction — a lock held by the current transaction blocks a concurrent `FOR UPDATE` on the same row regardless of isolation level, so no retry loop is needed. Test: N concurrent `registerUsage` calls against one promotion, issued inside one ambient transaction, never jointly exceed `max_budget` (R-H2).
+
 `PromotionUsageService` (`lib/promotion-usage-service.ts`) exposes:
 
 | Method | Description |
 |--------|-------------|
-| `registerUsage(params)` | Writes `PromotionUsage`; enforces `max_budget` atomically inside a serializable transaction; idempotent on `(promotion_id, order_id, tenant_id)` |
+| `registerUsage(params)` | Writes `PromotionUsage`; enforces `max_budget` atomically via a row lock + re-read-sum inside the (possibly ambient) transaction (rev — C6/D-R4-12, never serializable isolation); idempotent on `(promotion_id, order_id, tenant_id)` |
 | `revertUsage(orderId, organizationId, tenantId)` | Marks all matching usage rows reverted; never deletes rows (audit immutability) |
 | `getBudgetConsumed(promotionId, organizationId, tenantId, currency)` | `SUM(total_discount_amount) WHERE reverted_at IS NULL AND currency = ?`; used by `registerUsage` inside the transaction |
 
@@ -320,19 +338,19 @@ The `promotions.usage.registered` and `promotions.usage.reverted` events trigger
 | `promotions.code.update` | `promotions.code.updated` |
 | `promotions.code.delete` | `promotions.code.deleted` |
 | `promotions.code.use` | `promotions.code.used` |
-| `promotions.generated-code.generate` | `promotions.generated-code.created` (batch) |
+| `promotions.generated_code.generate` | `promotions.generated_code.created` (batch) — **(rev — W1/D-R4-25, decided literally: event ids use underscores, naming `generated_code` by id).** Replaces the hyphenated `promotions.generated-code.generate`/`.created`; no hyphenated event id exists anywhere in this platform (`ecommerce` uses `store_domain_binding`, `branding_updated`) |
 
 Additional events emitted by the evaluation and code pipelines:
 
 | Trigger | Event emitted | Payload |
 |---------|--------------|---------|
-| Successful `apply-promotion` call | `promotions.evaluation.completed` | `{ organizationId, tenantId, appliedPromotionIds, effectCount, durationMs }` |
-| `use-code` finalises successfully | `promotions.code.used` (existing) + `promotions.code.exhausted` (if the code pool is now empty) | |
+| Successful `evaluate` call | `promotions.evaluation.completed` — **(rev — A9)** ephemeral telemetry only, never `clientBroadcast`; every cart mutation triggers an `evaluate`, so this must not be a persisted, UI-facing event | `{ organizationId, tenantId, appliedPromotionIds, effectCount, durationMs }` |
+| `codes/use` finalises successfully | `promotions.code.used` (existing) + `promotions.code.exhausted` (if the code pool is now empty) | |
 | Code pool drops to zero available | `promotions.code.exhausted` | `{ organizationId, tenantId, codeId, codeName }` |
-| Promotion `ends_at` within 48h | `promotions.promotion.expiring-soon` | `{ organizationId, tenantId, promotionId, endsAt }` — emitted by a scheduled check, not on mutation |
-| `register-usage` commits successfully | `promotions.usage.registered` | `{ organizationId, tenantId, promotionId, orderId, orderType, totalDiscountAmount, currency }` |
-| `revert-usage` marks rows reverted | `promotions.usage.reverted` | `{ organizationId, tenantId, orderId, promotionIds: string[] }` |
-| `max_budget` first reached via `registerUsage` | `promotions.promotion.budget-exhausted` | `{ organizationId, tenantId, promotionId, maxBudget, totalDiscountGranted, budgetCurrency }` |
+| Promotion `ends_at` within 48h | `promotions.promotion.expiring_soon` — **(rev — W1/D-R4-25)** underscore id | `{ organizationId, tenantId, promotionId, endsAt }` — emitted by a scheduled check, not on mutation; Phase 4 (no scheduled-check infrastructure before then) |
+| `usage/register` commits successfully | `promotions.usage.registered` | `{ organizationId, tenantId, promotionId, orderId, orderType, totalDiscountAmount, currency }` |
+| `usage/revert` marks rows reverted | `promotions.usage.reverted` | `{ organizationId, tenantId, orderId, promotionIds: string[] }` |
+| `max_budget` first reached via `registerUsage` | `promotions.promotion.budget_exhausted` — **(rev — W1/D-R4-25)** underscore id | `{ organizationId, tenantId, promotionId, maxBudget, totalDiscountGranted, budgetCurrency }` |
 
 ### Evaluation Middleware Hooks
 
@@ -342,7 +360,7 @@ These are synchronous hooks registered on `PromotionExtensionRegistry` — they 
 |------|-------------|----------------|
 | `EvaluationMiddleware.beforeEvaluate` | Before Pass 1 starts for any promotion | Return a modified `CartContext` (e.g. append loyalty tier data to `context.extensions`) |
 | `EvaluationMiddleware.afterResolve` | After Pass 3 produces all `AppliedPromotion[]` | Filter, augment, or reorder the resolved effects (e.g. enterprise pricing caps a maximum discount) |
-| `CodeMiddleware.beforeCodeUse` | Inside the serializable transaction before `use-code` commits | Throw a typed error to veto code use |
+| `CodeMiddleware.beforeCodeUse` | Inside the row-locked transaction before `codes/use` commits (rev — C6/D-R4-12) | Throw a typed error to veto code use |
 | `CodeMiddleware.afterCodeUse` | After `use-code` transaction commits (outside transaction) | Side effects — awarding loyalty points, sending confirmation events |
 
 Middleware is registered at DI startup and is immutable for the lifetime of the process. Registration order is deterministic (alphabetical by module ID within a single DI container boot).
@@ -396,6 +414,8 @@ Table: `promotion_rule_groups`
 | `created_at` | timestamptz | |
 | `updated_at` | timestamptz | |
 
+**(rev — W5a)** `Promotion.rule_group_id` and `RuleGroup.promotion_id` form a two-table cycle at creation time. The `promotions.create` command breaks it by creating the root `RuleGroup` first with `promotion_id` left nullable-then-set in the same transaction (`withAtomicFlush`), or by creating `Promotion` with `rule_group_id` nullable-then-set — either order works as long as one FK is nullable during the single creating transaction; the root group is identified by `parent_rule_group_id IS NULL`, never by being "the promotion's named group," so a reader never depends on which FK happened to be set first.
+
 ### Rule
 
 Table: `promotion_rules`
@@ -411,26 +431,29 @@ Table: `promotion_rules`
 | `created_at` | timestamptz | |
 | `updated_at` | timestamptz | |
 
-**Config schemas per `rule_type`:**
+**Release 4 rule set (rev — P10/D-R4-14, replacing the full 16-type list below).** Only a rule whose input the platform can actually supply is offered in the admin tree builder for Release 4 — shipping an unreachable rule type lets an operator believe a campaign is live when it can never match. Models and validators for the hidden types stay in the codebase (so the discriminated union doesn't need a second migration later); only the admin UI and the rule-evaluator registration for Release 4 are restricted.
 
-| `rule_type` | Config fields |
-|-------------|---------------|
-| `order_value` | `value` decimal string, `operator` text, `tax_inclusive` bool, `limit_to_category` text nullable |
-| `order_date` | `date` date string, `operator` text |
-| `product_count` | `value` integer, `operator` text, `exclude_pharmaceutical` bool |
-| `cart_weight` | `value` decimal string, `operator` text |
-| `row_total` | `value` decimal string, `operator` text, `sku` text nullable, `category_slug` text nullable |
-| `product` | `sku` text, `quantity` integer, `operator` text |
-| `category` | `category_slug` text, `quantity` integer, `operator` text, `exclude_pharmaceutical` bool |
-| `producer` | `producer_code` text, `quantity` integer, `operator` text, `exclude_pharmaceutical` bool |
-| `product_attribute` | `attribute_code` text, `operator` text, `value` text |
-| `user_group` | `user_group_id` uuid string |
-| `customer_order_history` | `value` integer, `operator` text |
-| `consent_flag` | `flag_key` text — identifier of a consent flag the customer must have accepted (e.g. `newsletter_optin`, `loyalty_terms`); evaluated against `consentFlags` in the cart context |
-| `code` | `code_id` uuid string — application-layer validated reference to `promotion_codes`; validated in commands before persist |
-| `delivery_method` | `delivery_method_code` text |
-| `payment_method` | `payment_method_code` text |
-| `shipping_address` | `field` text (`country`/`region`/`postcode`), `operator` text, `value` text |
+| `rule_type` | Config fields | Release 4 |
+|-------------|---------------|-----------|
+| `order_value` | `value` decimal string, `operator` text, `tax_inclusive` bool, `limit_to_category` text nullable | Shipped |
+| `order_date` | `date` date string, `operator` text | Shipped |
+| `product_count` | `value` integer, `operator` text | Shipped (`exclude_pharmaceutical` dropped — no such flag exists on `catalog.CatalogProduct`; see hidden rules below) |
+| `cart_weight` | `value` decimal string, `operator` text | Shipped |
+| `row_total` | `value` decimal string, `operator` text, `product_id` uuid nullable, `category_id` uuid nullable | Shipped (rev — `sku`/`category_slug` replaced by id fields; items are never addressed by SKU in Release 4, §API Contracts) |
+| `product` | `product_id` uuid, `variant_id` uuid nullable, `quantity` integer, `operator` text | Shipped (rev — `sku` replaced by `product_id`/`variant_id`) |
+| `category` | `category_id` uuid, `quantity` integer, `operator` text | Shipped (rev — `category_slug` replaced by `category_id`; **includes descendants** — ancestor-expanded match, the same logic `scope_keys` uses in buyer-scoped visibility, D-R4-15). The echo line in the UI lists what the match covers (§UI/UX). |
+| `product_attribute` | `attribute_code` text, `operator` text, `value` text | Shipped — resolved promotions-side, in batch, from the evaluated items' `productId`/`variantId` (D-R4-21), the same mechanism that resolves category/tag membership |
+| `customer_group` | `customer_group_id` uuid string | Shipped (rev — **replaces** `user_group`, which named no referent on this platform: there is no "user group", only `customer_groups`. Not an additive rename — `user_group` is dropped outright, since nothing has ever shipped against it) |
+| `customer_order_history` | `value` integer, `operator` text | Shipped — reads `customerOrderCount` from the request when the cart supplies it (P10); evaluates false when `null` |
+| `code` | `code_id` uuid string — application-layer validated reference to `promotion_codes`; validated in commands before persist | Shipped |
+| `producer` | `producer_code` text, `quantity` integer, `operator` text | **Hidden.** No producer/manufacturer field exists on `catalog.CatalogProduct` |
+| `exclude_pharmaceutical` | (flag only, no config) | **Hidden.** No such product flag exists in `catalog` |
+| `consent_flag` | `flag_key` text | **Hidden.** No consent store exists in `customer_accounts` |
+| `delivery_method` | `delivery_method_code` text | **Hidden.** No delivery-method field in the Release 4 `evaluate` request (D-R4-14) |
+| `payment_method` | `payment_method_code` text | **Hidden.** Same reason |
+| `shipping_address` | `field` text, `operator` text, `value` text | **Hidden.** Same reason |
+
+This is **eleven** shipped rule types for Release 4, not the "15 built-in" or "16-row table" earlier revisions of this document claimed (W10) — the count was never true against this platform and the gap is closed by deciding which ones have a real data source rather than by building the missing sources.
 
 ### Benefit
 
@@ -493,7 +516,7 @@ These three fields are validated by one shared Zod object intersected into every
 
 **Counting basis — normative.** `max_quantity` and `max_lines` are counted **across the whole cart, per benefit invocation** — not per line, and not per satisfied rule. A cart holding three lines of the same product at four pieces each, against a benefit with `max_quantity: 5`, yields five discounted units in total (four on the first line, one on the second, none on the third under `applies_to: 'unit'`; four on the first line and nothing more under `applies_to: 'line'`, because covering a second whole line would need eight). Per-line counting was rejected because a buyer defeats it by splitting a purchase across lines — and with configurable products (engraving, B2B configurator output) the lines split on their own, so the cap would loosen for reasons unrelated to intent.
 
-**Cap ordering — normative.** `selector` (below) decides which units the budget is spent on, and it is **required whenever `max_quantity` or `max_lines` is set**; a config that caps without selecting is a 422 at the write path. There is deliberately no default: "the first 5 pieces" and "the 5 most expensive pieces" are different promotions with different costs, and silently picking one for the operator is how a campaign overspends. Within the chosen order, ties break on `cartLineId` ascending so evaluation is deterministic across retries.
+**Cap ordering — normative.** `selector` (below) decides which units the budget is spent on, and it is **required whenever `max_quantity` or `max_lines` is set**; a config that caps without selecting is a 422 at the write path. There is deliberately no default: "the first 5 pieces" and "the 5 most expensive pieces" are different promotions with different costs, and silently picking one for the operator is how a campaign overspends. Within the chosen order, ties break on `lineId` ascending (rev — not `cartLineId`, D-R4-21) so evaluation is deterministic across retries.
 
 **Three orthogonal caps.** `max_quantity` bounds *how many units*, `max_discount` bounds *how much money* (§below), and `buy_x_get_y.max_applications` bounds *how many times the trigger fires*. They compose; whichever binds first wins, and a benefit may set all three. The two counters run over different things — `max_applications` counts trigger firings, each consuming `trigger_quantity` units, while `max_quantity` counts *rewarded* units — so one rule settles the overlap: **an application whose reward the remaining `max_quantity` budget cannot fund in full is not granted at all.** A partially funded final application is dropped rather than pro-rated, because a half-delivered "buy 2 get 1 free" is a support ticket.
 
@@ -514,12 +537,14 @@ Every variant below is intersected with the shared quantity-cap block (`max_quan
 
 | `benefit_type` | Config fields |
 |----------------|---------------|
-| `product_discount` | `sku` text nullable, `discount_type` text, `value` decimal string, `limit_to_category` text nullable, `excluded_producers` text[], `max_discount` decimal string nullable, `labels` Record\<locale, string\> |
+| `product_discount` | `product_id` uuid nullable, `discount_type` text, `value` decimal string, `limit_to_category_id` uuid nullable, `max_discount` decimal string nullable, `labels` Record\<locale, string\> |
 | `cart_discount` | `discount_type` text, `value` decimal string, `max_discount` decimal string nullable, `labels` Record\<locale, string\> |
-| `delivery_discount` | `delivery_method_code` text, `discount_type` text, `value` decimal string, `labels` Record\<locale, string\> |
-| `free_product` | `sku` text nullable, `category_slug` text nullable, `quantity` int, `labels` Record\<locale, string\> |
-| `buy_x_get_y` | `trigger_sku` text nullable, `trigger_category_slug` text nullable, `trigger_quantity` int, `reward_sku` text, `reward_quantity` int, `discount_type` text, `value` decimal string, `max_applications` int nullable, `max_discount` decimal string nullable, `labels` Record\<locale, string\> |
-| `tiered_discount` | `limit_to_category` text nullable, `tiers` TierElement[], `max_discount` decimal string nullable, `labels` Record\<locale, string\> |
+| `delivery_discount` | `delivery_method_code` text, `discount_type` text, `value` decimal string, `labels` Record\<locale, string\> — **hidden from the admin tree builder in Release 4 (D-R4-14)**; the type and its config schema stay in the model |
+| `free_product` | `product_id` uuid nullable, `category_id` uuid nullable, `quantity` int, `labels` Record\<locale, string\> |
+| `buy_x_get_y` | `trigger_product_id` uuid nullable, `trigger_category_id` uuid nullable, `trigger_quantity` int, `reward_product_id` uuid, `reward_variant_id` uuid nullable, `reward_quantity` int, `discount_type` text, `value` decimal string, `max_applications` int nullable, `max_discount` decimal string nullable, `labels` Record\<locale, string\> |
+| `tiered_discount` | `limit_to_category_id` uuid nullable, `tiers` TierElement[], `max_discount` decimal string nullable, `labels` Record\<locale, string\> |
+
+**(rev — identity change, consistent with §API Contracts/Data Models above).** Every `sku`/`*_slug` config field is replaced by the matching `*_id` field: items, categories and reward products are referenced by platform id, never by SKU or slug, because SKU is not a stable per-line identity (two lines may share one SKU with different `configuration`) and a slug is a display concern, not an identity. `excluded_producers` is dropped — `catalog.CatalogProduct` has no producer field to exclude by (same reason `producer` is a hidden rule type, above).
 
 **`selector` values** — which qualifying units a capped benefit spends its budget on. Lives in the shared block above, so every benefit type targeting `line` or `unit` has it; **required whenever `max_quantity` or `max_lines` is set**, and read as `all` when a benefit sets no cap.
 
@@ -531,7 +556,7 @@ Every variant below is intersected with the shared quantity-cap block (`max_quan
 | `most_expensive` | Highest unit price first |
 | `nth` | Only the item at position `nth_position` (1-indexed) in ascending price order — the *n*-th unit under `applies_to: 'unit'`, the *n*-th line under `applies_to: 'line'`, following the same ordering rule as every other selector. Its own cap, so it may not be combined with `max_quantity` or `max_lines`. |
 
-Under `applies_to: 'line'` the selector orders **lines** by the unit price of the line; under `applies_to: 'unit'` it orders **units**. Ties break on `cartLineId` ascending, then unit index, so a re-evaluation of an unchanged cart returns identical effects.
+Under `applies_to: 'line'` the selector orders **lines** by the unit price of the line; under `applies_to: 'unit'` it orders **units**. Ties break on `lineId` ascending, then unit index, so a re-evaluation of an unchanged cart returns identical effects.
 
 `max_discount` (optional, decimal string) caps the total monetary discount produced by a single benefit invocation. The effect resolver in `lib/effect-resolvers.ts` applies the cap after computing the raw amount: `effectiveAmount = min(rawAmount, max_discount)`. The cap is expressed in the cart's operating currency. This allows operators to configure benefits such as "10% off the cart, but no more than $1000". Applies to `product_discount`, `cart_discount`, `buy_x_get_y`, and `tiered_discount`; not relevant for `delivery_discount` (naturally bounded by delivery cost) or `free_product`/`buy_x_get_y` free-item additions (no monetary amount computed).
 
@@ -557,7 +582,7 @@ Table: `promotion_codes`
 | `used` | integer | Global uses consumed (default 0) |
 | `usage` | text | `single`, `multiple`, or `unlimited` |
 | `usage_amount` | integer nullable | Max global uses when `multiple` |
-| `usage_per_customer` | integer nullable | Max per-customer uses |
+| `usage_per_customer` | integer nullable | Max per-customer uses, counted (rev — C7/D-R4-8) as `CodeUsage` rows **plus** other carts' active `CodeReservation` rows for that customer — not `CodeUsage` alone, which let two carts both pass the check and race to the single remaining use |
 | `active` | boolean | Default true |
 | `created_at` | timestamptz | |
 | `updated_at` | timestamptz | |
@@ -573,26 +598,27 @@ Table: `promotion_generated_codes`
 | `code_id` | uuid FK → promotion_codes | |
 | `organization_id` | uuid | |
 | `tenant_id` | uuid | |
-| `code` | text UNIQUE (per tenant) | Actual voucher string |
-| `active` | boolean | Default true |
-| `created_at` | timestamptz | |
+| `code` | text UNIQUE (per tenant) | Actual voucher string — **(rev — W5d)** drawn from the same normalised namespace as `Code.code` (below): a lookup of a code string checks both tables, so the two must never collide within one `(tenant_id, organization_id)` |
 
 ### CodeReservation
 
 Table: `promotion_code_reservations`
+
+**(rev — C4/C7/D-R4-8, replacing the `(code_id, customer_id)` model — a reservation now holds real cart-level capacity, which is what `codes/use`, `codes/release` and the cart's own sweeper all key off.)**
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | uuid PK | |
 | `code_id` | uuid | FK to `promotion_codes` |
 | `code_string` | text | Resolved code (for display) |
-| `customer_id` | text | Customer session identifier |
+| `cart_id` | uuid | The reserving cart's id (opaque to this module — `cart` passes it, never a token). **In the unique key** |
+| `customer_id` | text nullable | Customer session identifier; `null` for a guest cart |
 | `organization_id` | uuid | |
 | `tenant_id` | uuid | |
 | `created_at` | timestamptz | |
-| `expires_at` | timestamptz | `created_at + 24h` |
+| `expires_at` | timestamptz | `created_at + 24h`, extended on `extendReservation` (activity) |
 
-> **Unique constraint**: `UNIQUE (code_id, customer_id)` — enforces at most one reservation row per customer per code. The application uses **upsert semantics**: on re-reservation, the existing row's `expires_at` is extended rather than inserting a new row. To check if a reservation is still active, compare `expires_at > NOW()` in application logic or queries — not in the index. This sidesteps PostgreSQL's prohibition on volatile functions (`NOW()`) in index predicates.
+> **Unique constraint**: `UNIQUE (code_id, cart_id)` — enforces at most one reservation row per cart per code, so two carts holding the same code each get their own row and their own capacity accounting (closing R-H4/X4: the old `(code_id, customer_id)` key could not express two carts, and `customer_id NOT NULL` could not express a guest). `reserveCode` uses **upsert semantics**, idempotent per `(code, cart)`: on re-reservation, the existing row's `expires_at` is extended (`extendReservation`) rather than inserting a new row. To check if a reservation is still active, compare `expires_at > NOW()` in application logic or queries — not in the index. This sidesteps PostgreSQL's prohibition on volatile functions (`NOW()`) in index predicates. Released by `cartId` on cart expiry, abandonment or code removal (cart-side), and independently by this module's own `code-reservation-sweep.worker.ts` (X7) — either sweeper is sufficient on its own; both exist because a reservation must not depend on the other module's sweeper running.
 
 ### CodeUsage
 
@@ -602,7 +628,7 @@ Table: `promotion_code_usages`
 |--------|------|-------|
 | `id` | uuid PK | |
 | `code_id` | uuid FK → promotion_codes | |
-| `customer_id` | text | |
+| `customer_id` | text nullable | `null` for a guest — a per-customer limit cannot apply to a guest, so a guest's usage never needs this column populated |
 | `organization_id` | uuid | |
 | `tenant_id` | uuid | |
 | `used_at` | timestamptz | |
@@ -618,12 +644,12 @@ Serves a dual purpose: **compliance audit ledger** (immutable record of exactly 
 | `id` | uuid PK | |
 | `organization_id` | uuid | |
 | `tenant_id` | uuid | |
-| `promotion_id` | uuid FK → promotions | |
+| `promotion_id` | uuid FK → promotions, **`ON DELETE RESTRICT`** (rev — W5b; not cascade) | A ledger row must outlive the promotion it audited — cascading the delete would erase the compliance record the table exists to keep. Deleting a `Promotion` with usage history is a soft delete (`deleted_at`) only |
 | `order_id` | text | External order/quote/cart ID supplied by the caller |
 | `order_type` | text | `order`, `quote`, `pos_cart` — for cross-document audit filtering |
 | `customer_id` | text nullable | Customer session identifier |
 | `currency` | text | ISO 4217 currency code the order was placed in |
-| `total_discount_amount` | numeric | Sum of all `|amount|` values from `ResolvedEffect[]` for this promotion on this order |
+| `total_discount_amount` | numeric | Sum of `\|amountNet\|` across every `ResolvedEffect` for this promotion on this order that carries an amount. **(rev — budget-accounting rule, previously unstated.)** `ADD_FREE_ITEM` effects carry no amount and never contribute to this sum — a buy-2-get-1 promotion's `max_budget` is spent only by any amount-carrying effect on the *same* promotion, never by the gift itself; `DELIVERY_DISCOUNT` effects do contribute when they occur (Release 4: never, D-R4-14) |
 | `effects_snapshot` | jsonb | Full `ResolvedEffect[]` snapshot at time of registration — immutable audit record |
 | `registered_at` | timestamptz | When the usage was recorded |
 | `reverted_at` | timestamptz nullable | Set on order cancellation; row is never deleted — reverted rows are excluded from budget aggregation |
@@ -636,97 +662,95 @@ Serves a dual purpose: **compliance audit ledger** (immutable record of exactly 
 
 ## API Contracts
 
-All routes export `openApi`. All mutating routes require `requireAuth` + appropriate `requireFeatures`. Cart-facing endpoints are authenticated via module API key (header `X-Module-Key`).
+All routes export `openApi`. All mutating routes require `requireAuth` + appropriate `requireFeatures`. **(rev — C3/A1/A2, D-R4-11, replacing `X-Module-Key`).** Every route, admin and cart-facing alike, authenticates via the platform's standard API-key identity (`x-api-key` header or `Authorization: ApiKey …`, `shared/lib/auth/server.ts`), gated by per-method `requireFeatures` — `promotions.evaluate`, `promotions.codes.redeem`, `promotions.usage.manage` for the cart-facing routes (§ACL below), the existing `promotions.*` features for admin CRUD. `organizationId` and `tenantId` are **never** read from a request body on any route in this module — every body below that showed them in rev ≤ 2.1.1 is corrected to derive both from the authenticated principal, and every referenced `promotionId`/`codeId` is checked for tenant/organization ownership before use (a mismatch answers identically to "not found" — no cross-tenant existence oracle). A cross-tenant test exists per route (the `TC-PROM-0xx` ids are assigned per endpoint below).
 
 ### Admin CRUD
 
+**Optimistic locking (rev — completeness gap; default-on per root `AGENTS.md`).** `GET /api/promotions` and `GET /api/promotions/[id]` return `updatedAt`; `CrudForm` derives its conflict header from it automatically (covers update and delete alike). `PUT /api/promotions/[id]/tree` additionally requires the promotion's `updatedAt` in the request (a separate surface from the row-level `updatedAt` `CrudForm` already sends, because the tree PUT replaces the whole tree in one call) and returns `409` with the standard conflict body on a stale value — a last-write-wins tree replacement silently discarding a second admin's concurrent edit is exactly the failure this guards against. `PATCH /api/promotions/order` carries each item's own `updatedAt` (`{ id, order, updatedAt }`) and 409s per item, not for the whole batch, on a stale one.
+
+Every custom write route below (`[id]/tree`, `order`, and every `codes/*`/`usage/*` cart-facing route) is wired through the mutation-guard registry (rev — A3 completeness gap), the same as every other custom write in this platform.
+
 #### `GET /api/promotions`
 Query: `page`, `pageSize` (max 100), `search`, `active`, `cumulative`, `tags`, `startsFrom`, `startsTo`
-Response: `{ items: Promotion[], total: number, page: number, pageSize: number }`
+Response: `{ items: Promotion[], total: number, page: number, pageSize: number }` — each item carries `updatedAt`
 
 #### `POST /api/promotions`
 Body: `{ name, description?, order, active, cumulative, tags, excluded_tags, exclude_flags, starts_at?, ends_at? }`
 Response: `{ id: uuid }` — 201. Creates promotion with an empty root `RuleGroup`.
 
 #### `PUT /api/promotions`
-Body: promotion fields (partial). Updates metadata only; tree mutations use separate commands.
+Body: promotion fields (partial) + the standard optimistic-lock header/field. Updates metadata only; tree mutations use separate commands.
 Response: `{ ok: true }`
 
 #### `DELETE /api/promotions`
-Body: `{ id: uuid }`
+Body: `{ id: uuid }` + the standard optimistic-lock header/field.
 Response: `{ ok: true }` — cascades to rule groups, rules, benefits via DB constraints.
 
 #### `GET /api/promotions/[id]`
-Response: full promotion with nested rule group tree (recursive eager load, depth-limited to 10 levels).
+Response: full promotion with nested rule group tree (recursive eager load, depth-limited to 10 levels), carrying `updatedAt`.
 
 #### `PUT /api/promotions/[id]/tree`
-Accepts the full rule tree as a nested JSON structure. Uses `withAtomicFlush` to reconcile existing records (add, update, delete nodes) in a single transaction.
+Body: the full rule tree as a nested JSON structure, plus the promotion's `updatedAt` (rev — optimistic lock, above). Uses `withAtomicFlush` to reconcile existing records (add, update, delete nodes) in a single transaction. `409` with the standard conflict body on a stale `updatedAt`.
 
 #### `PATCH /api/promotions/order`
-Body: `{ items: Array<{ id: uuid, order: number }> }` — batch update for drag-sort save.
+Body: `{ items: Array<{ id: uuid, order: number, updatedAt: string }> }` — batch update for drag-sort save; a stale `updatedAt` on any item 409s that item only (rev — optimistic lock, above).
 
-#### `GET /api/codes`
+#### `GET /api/promotions/codes`
 Paginated list. Query: `page`, `pageSize`, `search`, `type`, `active`.
 
-#### `POST /api/codes`
+#### `POST /api/promotions/codes`
 Body: code creation payload. Creates `Code` record; for dynamic type, triggers generation worker.
 
-#### `PUT /api/codes`
+#### `PUT /api/promotions/codes`
 Update code metadata.
 
-#### `DELETE /api/codes`
+#### `DELETE /api/promotions/codes`
 Soft-delete; deactivates generated codes.
 
-#### `POST /api/codes/[id]/generate`
+#### `POST /api/promotions/codes/[id]/generate`
 Triggers background generation of remaining dynamic codes to reach `amount`. Returns `{ jobId }`.
 
-#### `GET /api/codes/[id]/generated`
+#### `GET /api/promotions/codes/[id]/generated`
 Paginated list of `GeneratedCode` records. Query: `page`, `pageSize`, `active`.
 
 ### Cart-Facing Endpoints
 
-All authenticated via `X-Module-Key` header (module API key).
+Authenticated per the standard API-key model stated above (rev — C3/D-R4-11); not a module-specific scheme.
 
 #### `POST /api/promotions/evaluate` (was `/api/cart/apply-promotion` — see Amendment §A.3)
+
+**(rev — C1/C5/C11/D-R4-9/D-R4-10/D-R4-21/D-R4-28, replacing the SKU/attribute-carrying request and single-`amount` response below.)** Items are addressed by `productId`/`variantId`/`lineId`, never `sku` — SPEC-029 §5.1.1's lesson (a SKU is not a stable per-line identity once two lines of one product differ by configuration). Category, tag, producer and attribute fields are **not** sent by the caller: `promotions` resolves them itself, in batch, from `productId`/`variantId` via the same catalog scoping services `cart` uses (C11) — a field with no resolvable source for a given product is `null`, so a rule reading it evaluates false rather than the caller guessing. `organizationId`/`tenantId` are never in the body (derived from auth, above).
 
 Request:
 ```jsonc
 {
-  "organizationId": "uuid",
-  "tenantId": "uuid",
   "items": [
     {
-      "sku": "PROD-001",
+      "lineId": "uuid",                 // the caller's own line identity; echoed back, never reinterpreted
+      "productId": "uuid",
+      "variantId": "uuid | null",
       "quantity": 2,
-      "unitPrice": "19.99",          // ex-tax unit price
-      "unitPriceIncTax": "24.59",
-      "rowTotal": "39.98",
-      "rowTotalIncTax": "49.18",
-      "categorySlug": "electronics",
-      "producerCode": "SONY",
-      "weight": "0.5",
-      "attributes": { "color": "red" } // optional product attributes
+      "unitPriceNet": "19.99",
+      "unitPriceGross": "24.59",
+      "priceIsPromotional": false        // D-R4-16 — true when the unit price itself already came from a promotional CatalogPriceKind
     }
   ],
-  "currency": "USD",                  // ISO 4217; required — used for currency eligibility check and stored in PromotionUsage
-  "customerId": "string | null",
-  "customerOrderCount": 5,            // null if unknown
-  "code": {                           // null if no code entered
-    "id": "uuid",
-    "type": "static | dynamic"
+  "currency": "USD",                    // ISO 4217; required — currency eligibility check + stored in PromotionUsage
+  "evaluatedAt": "2026-10-14T12:00:00Z", // D-R4-13 — date-window filtering happens here, against this value, never against "now" inside the evaluator
+  "buyer": {                            // BuyerContext identity, D-R4-28
+    "customerId": "string | null",      // the winning identity (person wins, D3/D3a)
+    "customerIds": ["string"],          // broader set — order history, per-customer limits
+    "customerGroupIds": ["string"]
   },
-  "deliveryMethodCode": "string | null",
-  "paymentMethodCode": "string | null",
-  "shippingAddress": {                // null if not yet provided
-    "country": "PL",
-    "region": "mazowieckie",
-    "postcode": "00-001"
-  },
-  "cartWeight": "3.5",
-  "deliveryCost": "9.99",             // null if delivery not yet selected
-  "consentFlags": ["newsletter_optin"] // consent flags accepted by the customer; empty array if none
+  "customerOrderCount": 5,              // null if unknown; cart supplies when it has the figure (P10)
+  "cartWeight": "3.5",                  // null if unknown
+  "codes": [                            // array, never a single object (X1) — empty if none entered
+    { "id": "uuid", "type": "static | dynamic" }
+  ]
 }
 ```
+
+Deliberately absent from Release 4's request (D-R4-14 — no data source Phases 1–3 can supply): `deliveryMethodCode`, `paymentMethodCode`, `shippingAddress`, `deliveryCost`, `consentFlags`. The corresponding rule types (`delivery_method`, `payment_method`, `shipping_address`, `consent_flag`) and the `delivery_discount`/`DELIVERY_DISCOUNT` benefit are hidden from the admin tree builder (§Data Models) so no promotion can be authored that would need these fields; a later release adds them back together with their caller.
 
 Response:
 ```jsonc
@@ -739,43 +763,30 @@ Response:
         {
           "type": "LINE_DISCOUNT",
           "appliesTo": "line",            // whole line covered
-          "targetSku": "PROD-001",        // resolved from benefit + cart item match
-          "targetCartLineId": "uuid",
+          "targetLineId": "uuid",         // echoes the request's lineId — never sku (rev)
+          "targetProductId": "uuid",
+          "targetVariantId": "uuid | null",
           "lineQuantity": 1,
           "appliedQuantity": 1,           // every unit on the line
-          "unitAmount": "-3.99",
-          "amount": "-3.99",              // unitAmount * appliedQuantity
-          "basis": "net",
+          "amountNet": "-3.99",           // the row-level discount total — cart maps this AS-IS, never divided (§cart-module.md §3.2)
+          "amountGross": "-4.91",
+          "basis": "net",                 // audit only, D-R4-10 — cart always consumes amountNet/amountGross, never re-derives one from the other
           "currency": "USD",
           "label": { "en": "20% off electronics", "pl": "20% zniżki na elektronikę" }
         },
         {
           "type": "LINE_DISCOUNT",
           "appliesTo": "unit",            // cap bit: only 5 of the 8 units
-          "targetSku": "PROD-007",
-          "targetCartLineId": "uuid",
+          "targetLineId": "uuid",
+          "targetProductId": "uuid",
+          "targetVariantId": null,
           "lineQuantity": 8,
           "appliedQuantity": 5,           // max_quantity: 5, selector: cart_order
-          "unitAmount": "-2.40",
-          "amount": "-12.00",             // NOT unitAmount * lineQuantity
+          "amountNet": "-12.00",          // the resolved row total for the 5 covered units — NOT unitAmount * lineQuantity
+          "amountGross": "-14.76",
           "basis": "net",
           "currency": "USD",
           "label": { "en": "20% off electronics", "pl": "20% zniżki na elektronikę" }
-        }
-      ]
-    },
-    {
-      "promotionId": "uuid",
-      "promotionName": "Free Shipping",
-      "effects": [
-        {
-          "type": "DELIVERY_DISCOUNT",
-          "appliesTo": "order",
-          "deliveryMethodCode": "dpd",
-          "amount": "-9.99",              // full delivery cost resolved from context
-          "basis": "net",
-          "currency": "USD",
-          "label": { "en": "Free DPD shipping" }
         }
       ]
     },
@@ -785,9 +796,11 @@ Response:
       "effects": [
         {
           "type": "ADD_FREE_ITEM",
-          "sku": "FREE-MUG",             // resolved by promotions engine; cart does not decide
+          "productId": "uuid",            // resolved by promotions engine; cart does not decide
+          "variantId": "uuid | null",
           "quantity": 1,
           "reason": "BUY_X_GET_Y",
+          "promotionId": "uuid",          // rev (D-R4-7) — the marker cart stores on the gift CartLine, matching this response's own promotionId
           "label": { "en": "Free mug with your order" }
         }
       ]
@@ -796,58 +809,58 @@ Response:
 }
 ```
 
+`DELIVERY_DISCOUNT` stays a defined effect type in the model (§Resolved Effect Types) but cannot occur in a Release-4 response: the `delivery_method` rule it depends on is hidden from the admin tree builder (D-R4-14), so no promotion configured in this release can resolve one.
+
 **Resolved Effect Types:**
 
 | Type | Required fields | Notes |
 |------|----------------|-------|
-| `LINE_DISCOUNT` | `targetSku`, `targetCartLineId`, `appliesTo`, `lineQuantity`, `appliedQuantity`, `unitAmount`, `amount` (negative string), `basis`, `currency` | One effect per affected line item. `amount` is the total row discount; `appliedQuantity` states how many of the line's `lineQuantity` units it covers, and `unitAmount` the per-unit share. A capped benefit reports `appliedQuantity < lineQuantity` — see §Amendment B for why the consumer must not recompute `amount` from `unitAmount × lineQuantity`. |
-| `CART_DISCOUNT` | `appliesTo`, `amount` (negative string), `basis`, `currency` | Flat or percentage discount applied against cart subtotal |
-| `DELIVERY_DISCOUNT` | `appliesTo`, `deliveryMethodCode`, `amount` (negative string), `basis`, `currency` | Amount is the discount against delivery cost; may reduce to zero. For `percentage` discount types, the effect resolver computes the concrete amount using `deliveryCost` from the cart context — `deliveryCost` must be present in the request when a delivery method is selected. |
-| `ADD_FREE_ITEM` | `sku`, `quantity`, `reason` | Promotions resolves which SKU and how many; cart adds the line. `reason` is `FREE_PRODUCT` or `BUY_X_GET_Y` |
+| `LINE_DISCOUNT` | `targetLineId`, `targetProductId`, `targetVariantId`, `appliesTo`, `lineQuantity`, `appliedQuantity`, `amountNet`, `amountGross` (both negative strings), `basis`, `currency` | One effect per affected line item. `amountNet`/`amountGross` are the total row discount for the covered quantity; `appliedQuantity` states how many of the line's `lineQuantity` units it covers. A capped benefit reports `appliedQuantity < lineQuantity`. **Rev (C1/D-R4-9):** the consumer (`cart`) maps `amountNet` as-is to `SalesLineSnapshot.discountAmount` with `discountAmountBasis: 'line'` — never divides by `lineQuantity` or `appliedQuantity`; that per-unit mapping is withdrawn (it matched no `sales` API that has ever existed on `develop`). |
+| `CART_DISCOUNT` | `appliesTo`, `amountNet`, `amountGross` (negative strings), `basis`, `currency` | Flat or percentage discount applied against cart subtotal |
+| `DELIVERY_DISCOUNT` | `appliesTo`, `deliveryMethodCode`, `amountNet`, `amountGross` (negative strings), `basis`, `currency` | Defined in the model; unreachable in Release 4 (D-R4-14, above) |
+| `ADD_FREE_ITEM` | `productId`, `variantId`, `quantity`, `reason`, `promotionId` | Promotions resolves which product/variant and how many; cart adds the line, marked with this `promotionId` (D-R4-7). `reason` is `FREE_PRODUCT` or `BUY_X_GET_Y` |
 
 **Invariants:**
-- `amount` is always a negative decimal string (the cart adds it; no sign confusion)
-- **Every** effect carrying an amount also carries `appliesTo` and `basis` — §A.5 made `basis` required on all of them and A-R1 (rated High) depends on it, so a `CART_DISCOUNT` or `DELIVERY_DISCOUNT` without it is malformed, not merely undocumented
-- One `LINE_DISCOUNT` effect per **cart line** per promotion (Amendment §A.4 replaced SKU targeting with `targetCartLineId` precisely because two lines may share a SKU with different `configuration` — `TC-PROM-054` asserts they receive independent discounts). Effects for the same line from different promotions are separate entries in separate `appliedPromotions` objects. A partially covered line stays **one** effect carrying `appliedQuantity` — the engine never emits one effect per unit, so a 50-unit line cannot fan out into 50 effects
-- `amount === unitAmount × appliedQuantity`, rounded once, to the currency's minor unit. `appliedQuantity ≥ 1` and `appliedQuantity ≤ lineQuantity`; an effect covering zero units is omitted, never returned with `amount: "0"`
-- The identity holds **after** `max_discount` capping, not before. The resolver computes the raw amount, applies the cap to `amount`, then **back-solves** `unitAmount = amount / appliedQuantity` — it never reports a pre-cap `unitAmount` beside a post-cap `amount`. `appliedQuantity` is not reduced to absorb the cap: the promotion still covered those units, it simply paid less per unit
+- `amountNet`/`amountGross` are always negative decimal strings (the cart adds them; no sign confusion)
+- **Every** effect carrying an amount carries `amountNet`, `amountGross`, `appliesTo` and `basis` (rev — C5/D-R4-10, replacing the single-`amount`-with-fallback rule: rev ≤2.1.1 let `sales`-side code reuse one side for the other when only one was supplied, which silently mis-apportioned tax on an order-level discount)
+- One `LINE_DISCOUNT` effect per **cart line** per promotion, addressed by `targetLineId` (rev — replaces Amendment §A.4's `targetSku`/`targetCartLineId` pair now that items are never addressed by SKU at all; `TC-PROM-054` asserts two lines sharing a product with different configuration receive independent discounts). Effects for the same line from different promotions are separate entries in separate `appliedPromotions` objects. A partially covered line stays **one** effect carrying `appliedQuantity` — the engine never emits one effect per unit, so a 50-unit line cannot fan out into 50 effects
+- `appliedQuantity ≥ 1` and `appliedQuantity ≤ lineQuantity`; an effect covering zero units is omitted, never returned with `amountNet: "0"`
+- `max_discount` capping is applied to `amountNet`/`amountGross` directly, each independently rounded half-up at the currency's fraction digits (D-R4-10); there is no `unitAmount` to back-solve in Release 4's model — `appliedQuantity` is not reduced to absorb the cap: the promotion still covered those units, it simply granted less in total
 - `appliedQuantity === lineQuantity` whenever `appliesTo` is `line`; only `appliesTo: 'unit'` may report partial coverage
-- `ADD_FREE_ITEM` effects are decided entirely by the promotions engine — the cart must not compute which free item to add from raw benefit config
-- When `max_discount` is set on a benefit config, the effect resolver caps `|amount|` at `max_discount` before returning the effect — the resolved `amount` is always `≥ -max_discount`. The cap is applied per-benefit, not across the whole promotion.
+- `ADD_FREE_ITEM` effects are decided entirely by the promotions engine — the cart must not compute which free item to add from raw benefit config; a gift whose `productId`/`variantId` fails the buyer's assortment is not something this endpoint can know (promotions has no visibility scope) — `cart` performs that check before inserting the line (D-R4-7, cart-module.md §4.2 `origin`)
+- When `max_discount` is set on a benefit config, the effect resolver caps `|amountNet|` (and derives `amountGross` consistently) at `max_discount` before returning the effect. The cap is applied per-benefit, not across the whole promotion.
 
 #### `POST /api/promotions/codes/reserve` (was `/api/cart/add-code` — see Amendment §A.3)
 
-Request: `{ organizationId, tenantId, codeString, customerId }`
+**(rev — C4/C7/D-R4-8, replacing the bare `(code, customer)` model.)** Request: `{ codeString, cartId, customerId }`. `customerId` is `null` for a guest; a code carrying a per-customer limit then refuses a guest cart with `422 code_requires_identified_customer` (a guest cannot be limited per customer, so it cannot hold one). `organizationId`/`tenantId` come from auth.
 Response: `{ ok: true, codeId: uuid, type: "static|dynamic" }` or 422 with error.
 
-Validates: code exists, is active, has remaining global uses, per-customer limit not reached. Creates `CodeReservation`.
+Validates: code exists, is active, has remaining global uses, per-customer limit not reached counting **`CodeUsage` plus every other cart's active `CodeReservation`** for that customer (rev — closes R-H4/C7: a reservation now holds real capacity, not merely an intention). Creates or extends a `CodeReservation` keyed `(code_id, cart_id)` — idempotent: a second `reserve` call for the same `(code, cart)` extends the TTL rather than erroring or double-counting. Rate-limited (`shared/lib/ratelimit`) to blunt brute-force code guessing; unknown, inactive and exhausted codes answer with the same error shape.
 
 #### `POST /api/promotions/codes/validate` (was `/api/cart/validate-code` — see Amendment §A.3)
 
-Request: `{ organizationId, tenantId, codeString, customerId }`
+Request: `{ codeString, cartId, customerId }` (rev — `cartId` replaces nothing structurally, but is required so validation checks the same reservation `reserve` would extend)
 Response: `{ valid: boolean, reason?: string }`
 
 #### `POST /api/promotions/codes/use` (was `/api/cart/use-code` — see Amendment §A.3)
 
-Request: `{ organizationId, tenantId, codeId, codeString, customerId, type }`
+Request: `{ codeId, codeString, cartId, customerId, type }` (rev — `cartId` replaces nothing structurally; org/tenant from auth)
 Response: `{ ok: true }`
 
-Side effects: runs inside a **serializable transaction** that re-checks global usage limits, per-customer limits, and code active status before proceeding (closes multi-device race conditions). Deactivates `GeneratedCode` (dynamic) OR increments `Code.used` + deactivates if exhausted (static). Writes `CodeUsage`. Deletes `CodeReservation`.
+Side effects (rev — C6/D-R4-12, replacing the serializable-transaction claim below, which `withAtomicFlush` cannot deliver — it joins an ambient transaction and ignores `isolationLevel`, and no `40001` retry helper exists anywhere in `packages/shared`): locks the code's row (`SELECT … FOR UPDATE`) inside the (possibly ambient, e.g. `checkout`'s own) transaction, re-reads global and per-customer usage counts under that lock, then proceeds — correct under a joined transaction with no retry loop needed. Deactivates `GeneratedCode` (dynamic) OR increments `Code.used` + deactivates if exhausted (static). Writes `CodeUsage`. Deletes the `(code_id, cart_id)` `CodeReservation`. Test: N concurrent `use` calls for the same single-use code, one succeeds.
 
 #### `POST /api/promotions/codes/release` (was `/api/cart/delete-code` — see Amendment §A.3)
 
-Request: `{ organizationId, tenantId, codeString, customerId }`
-Response: `{ ok: true }` — deletes `CodeReservation` only.
+Request: `{ codeString, cartId, customerId }` — deletes the `CodeReservation` for that `(code, cartId)` only, never another cart's.
+Response: `{ ok: true }`
 
 #### `POST /api/promotions/usage/register` (was `/api/cart/register-usage` — see Amendment §A.3)
 
-Called by the cart integration after an order/quote is **confirmed** (payment captured or quote finalised). Records the discount audit trail and enforces the lifetime budget cap.
+Called by the cart integration after an order/quote is **confirmed** (payment captured or quote finalised). Records the discount audit trail and enforces the lifetime budget cap. (Release 4 ships and tests this route; its first production caller is `checkout`, out of this release's scope — D-R4-26.)
 
 Request:
 ```jsonc
 {
-  "organizationId": "uuid",
-  "tenantId": "uuid",
   "orderId": "string",
   "orderType": "order | quote | pos_cart",
   "customerId": "string | null",
@@ -855,41 +868,41 @@ Request:
   "appliedPromotions": [
     {
       "promotionId": "uuid",
-      "effects": [/* ResolvedEffect[] — same shape as returned by apply-promotion */]
+      "effects": [/* ResolvedEffect[] — same shape as returned by evaluate */]
     }
   ]
 }
 ```
 
-Response: `{ ok: true }` — 200. Idempotent on re-submission for the same `orderId`.
+Response: `{ ok: true }` — 200. Idempotent on re-submission for the same `orderId`. `organizationId`/`tenantId` from auth.
 
-Side effects: for each `appliedPromotion`, runs `PromotionUsageService.registerUsage(...)` inside a serializable transaction that re-checks `max_budget`. If any promotion's budget would be exceeded, that promotion's write is rolled back and the endpoint returns **207 Multi-Status** with a `budgetExceeded` flag for the affected promotion IDs — the caller should re-evaluate whether to proceed with the order at a reduced discount or notify the customer. Emits `promotions.usage.registered` per successful promotion. Emits `promotions.promotion.budget-exhausted` when the running total first reaches `max_budget`.
+Side effects (rev — C6/D-R4-12, same correction as `codes/use` above): for each `appliedPromotion`, `promotionUsageService.registerUsage(...)` locks the promotion's row inside the transaction, re-reads `SUM(total_discount_amount) WHERE reverted_at IS NULL AND currency = budget_currency`, and only then writes — never a serializable isolation level, which `withAtomicFlush` does not provide and which checkout's ambient transaction would silently drop anyway. If any promotion's budget would be exceeded, that promotion's write is rolled back and the endpoint returns **207 Multi-Status** with a `budgetExceeded` flag for the affected promotion IDs — the caller should re-evaluate whether to proceed with the order at a reduced discount or notify the customer. Emits `promotions.usage.registered` per successful promotion. Emits `promotions.promotion.budget_exhausted` (rev — underscore id, W1/D-R4-25) when the running total first reaches `max_budget`. Test: N concurrent `registerUsage` calls inside one ambient transaction never jointly exceed the budget.
 
 #### `POST /api/promotions/usage/revert` (was `/api/cart/revert-usage` — see Amendment §A.3)
 
 Called by the cart integration when an order is **cancelled** or a quote is **rejected/expired**.
 
-Request: `{ organizationId, tenantId, orderId }`
+Request: `{ orderId }` — `organizationId`/`tenantId` from auth.
 Response: `{ ok: true, revertedCount: number }` — `revertedCount` is the number of `PromotionUsage` rows marked reverted.
 
-Side effects: calls `PromotionUsageService.revertUsage(...)`. Rows are never deleted — `reverted_at` is set. Emits `promotions.usage.reverted`. Invalidates the promotion cache so `totalDiscountGranted` is refreshed.
+Side effects: calls `promotionUsageService.revertUsage(...)`. Rows are never deleted — `reverted_at` is set. Emits `promotions.usage.reverted`. Invalidates the promotion cache so `totalDiscountGranted` is refreshed.
 
-#### `GET /api/dynamic-labels`
+#### `GET /api/promotions/dynamic-labels`
 
-Response: list of promotion condition summaries for storefront label rendering (promotion name, active rules in simplified form, applicable products/categories).
+Response: list of promotion condition summaries for storefront label rendering (promotion name, active rules in simplified form, applicable products/categories). **(rev — V2)** Returns only promotions whose scope the caller's own buyer context can see — an authenticated server caller passes a resolved `EffectiveAssortmentScope`; there is no anonymous, scope-free variant, closing the catalog-enumeration surface `storefront-public-api.md` §4.2 already closes for ordinary product reads.
 
-#### `POST /api/free-products`
+#### `POST /api/promotions/free-products`
 
-Request: cart context subset. Response: free product offers (FreeProductBenefit + BuyXGetY) applicable to the given context.
+Request: cart context subset, addressed by `productId`/`variantId` (rev — never `sku`, same identity change as `evaluate`). Response: free product offers (FreeProductBenefit + BuyXGetY) applicable to the given context. **(rev — V2, P5/D-R4-7)** Respects the caller's buyer scope exactly as `dynamic-labels` does: a reward the buyer's assortment would hide is never offered here either, closing the read-side half of the free-item visibility gap `cart` closes on the write side.
 
-#### `POST /api/delivery-methods`
+#### `POST /api/promotions/delivery-methods` — deferred past Release 4 (rev — D-R4-14)
 
-Request: cart context + delivery method codes to check. Response: which delivery methods have active discount benefits.
+Request: cart context + delivery method codes to check. Response: which delivery methods have active discount benefits. Not built in Phases 1–3: `delivery_method` has no data source until a later release resolves shipping methods ahead of this call.
 
-#### `POST /api/product-page`
+#### `POST /api/promotions/product-page`
 
-Request: `{ organizationId, tenantId, skus: string[] }` — list of SKUs rendered on a product listing or detail page.
-Response: `{ badges: Array<{ sku: string, promotionId: uuid, promotionName: string, label: Record<string, string> }> }` — one entry per SKU that has an active promotion with a matching `ProductDiscount` or `BuyXGetY` benefit. Evaluated via `lib/product-page-engine.ts` against the same normalized promotion cache; zero DB access.
+Request: `{ skus: string[] }` — list of SKUs rendered on a product listing or detail page. `organizationId`/`tenantId` from auth (rev — C3; this endpoint keeps SKU addressing, unlike `evaluate`/`free-products`, because a listing/PDP context has no cart line identity to carry — `TC-PROM-0xx` cross-tenant test still applies per route).
+Response: `{ badges: Array<{ sku: string, promotionId: uuid, promotionName: string, label: Record<string, string> }> }` — one entry per SKU that has an active promotion with a matching `ProductDiscount` or `BuyXGetY` benefit. Evaluated via `lib/product-page-engine.ts` against the same normalized promotion cache; zero DB access. **(rev — V2)** Scoped the same way as `dynamic-labels`/`free-products`: an authenticated caller's resolved buyer scope filters which SKUs can return a badge at all.
 
 #### `GET /api/promotions/extension-types`
 
@@ -932,8 +945,9 @@ Response:
 
 - All admin UI labels, tooltips, empty states, confirmation dialogs, error messages in locale files
 - Benefit `labels` field is a per-locale map stored in JSONB; rendered by cart/checkout/POS
-- `translations.ts` declares benefit label fields as translatable for the platform's translation system
+- `translations.ts` declares benefit label fields as translatable for the platform's translation system — Phase 4 (§Architecture)
 - Key namespaces: `promotions.*`, `promotions.codes.*`, `promotions.rules.*`, `promotions.benefits.*`
+- **(rev — completeness gap)** `i18n/{de,en,es,ko,pl}.json` ship from **Phase 1**, not after the UI as earlier phase ordering had it — `useT()` keys exist from the first component that needs one. `yarn i18n:check-sync` and the hardcoded-string checker gate Phase 1, not Phase 4.
 
 ---
 
@@ -953,17 +967,19 @@ Response:
 Four panels in a single page (not tabs):
 
 1. **Info** — name (required), description, starts_at / ends_at date pickers
-2. **Settings** — active toggle, cumulative toggle, promotional-price-visibility toggle, tags chip input (autocomplete from existing tags), excluded_tags chip input (same autocomplete, distinct input)
-3. **Exclusions** — boolean flag checkboxes (exclude_medicine, exclude_outlet, etc.; driven by config)
+2. **Settings** — active toggle, cumulative toggle, tags chip input (autocomplete from existing tags), excluded_tags chip input (same autocomplete, distinct input). **(rev — P9/D-R4-16, dropping the unbacked "promotional-price-visibility toggle": no such column ever existed.)** The real control — whether this promotion applies on top of a catalog promotional price — lives in the Exclusions panel below as the `exclude_promotional_prices` flag
+3. **Exclusions** — boolean flag checkboxes driven by `exclude_flags` config: `exclude_promotional_prices` (D-R4-16 — excludes items whose unit price already came from a promotional `CatalogPriceKind`; checked against each item's `priceIsPromotional`, §API Contracts) ships in Release 4. Other flags (e.g. a future pharmaceutical exclusion) are extension-registered — none ship with core in this release, since no such product flag exists in `catalog` yet
 4. **Rules & Benefits** — tree builder (see below)
 
 ### Rule Group Tree Builder
 
+**(rev — A6/om-ds-guardian.)** Every colour below is a semantic design-system token, not a literal hue — a "green add-rule button" means `Button` with the `variant` the DS maps to that affordance, not a hardcoded Tailwind color class, and depth is a left-border/elevation step on the DS surface scale, not a `color-mix` lightening ramp (arbitrary CSS values are a lint violation on this platform regardless of how reasonable the ramp looks).
+
 - Recursive `RuleGroupNode` component; indented with L-shaped connector lines per level
-- Background fill lightens by ~10% per nesting level (CSS `color-mix` or CSS variables)
-- Group header: **AND/OR** pill toggle (left), action buttons (right): Add Rule (green), Add Sub-group (blue), Add Benefit (orange), Duplicate (purple, sub-groups only), Delete (red, sub-groups only)
-- Rules rendered as inline cards: type dropdown (filterable combobox), type-specific inline fields, delete (red icon)
-- Benefits rendered in a visually distinct zone at group bottom: orange divider with `BENEFITS` badge, each benefit is an inline card identical in layout to a rule card but orange-accented; includes collapsible Labels section (locale → string inputs)
+- Nesting depth communicated via the DS surface-elevation scale (a left border token that steps per level) — never a computed `color-mix`/arbitrary-value background
+- Group header: **AND/OR** pill toggle (left), action buttons (right) using DS `Button` semantic variants: Add Rule (`secondary`), Add Sub-group (`outline`), Add Benefit (`accent`/promotional-status token — never a hardcoded orange), Duplicate (`ghost`, sub-groups only), Delete (`destructive`, sub-groups only)
+- Rules rendered as inline cards: type dropdown (filterable combobox), type-specific inline fields, delete (`destructive`-variant icon button)
+- Benefits rendered in a visually distinct zone at group bottom: a divider using the DS's accent/benefit token with a `BENEFITS` badge, each benefit is an inline card identical in layout to a rule card but using that same accent token for its border, never a raw color; includes collapsible Labels section (locale → string inputs)
 - Every benefit card carries an **Applies to** segmented control (Whole order / Order line / Each piece) restricted to the values the selected benefit type allows, and a **Limits** row (`max_quantity`, `max_lines`, `quantity_step`, `max_discount`). Choosing `Whole order` hides the quantity limits, which are meaningless there. Entering a quantity limit reveals the **Which pieces** selector (`cart_order` labelled *First added*, `cheapest`, `most_expensive`) and makes it required — the write path rejects a cap without a selector, so the form must not let the operator reach that state
 - The benefit card renders a one-line plain-language echo of the configured combination (*"20% off — the first 5 pieces across the cart, max $50"*), because `applies_to` + selector + three caps is precisely the combination operators mis-read
 - Drag-and-drop within tree is type-scoped (rules→rule containers, sub-groups→sub-group containers, benefits→benefit containers); cross-type drops disabled
@@ -1066,10 +1082,11 @@ export interface BenefitExtension {
  * `quantity_step`, with the deterministic tie-break already applied.
  */
 export type UnitSelection = {
-  /** One entry per covered cart line, in selection order. */
+  /** One entry per covered line, in selection order. */
   lines: Array<{
-    cartLineId: string
-    sku: string
+    lineId: string                  // rev — never sku/cartLineId; the caller's own line identity (D-R4-21)
+    productId: string
+    variantId: string | null
     lineQuantity: number
     /** How many of this line's units the budget covered; ≤ lineQuantity. */
     appliedQuantity: number
@@ -1100,7 +1117,7 @@ export interface EvaluationMiddleware {
 export interface CodeMiddleware {
   id: string
   /**
-   * Runs inside the serializable transaction before `use-code` finalises.
+   * Runs inside the row-locked transaction before `codes/use` finalises (rev — C6/D-R4-12, never serializable isolation).
    * Throw a typed error to veto the code use (e.g. loyalty module vetoes if eligibility check fails).
    */
   beforeCodeUse?(codeId: string, context: CartContext): Promise<void>
@@ -1176,7 +1193,7 @@ afterResolve middlewares (ordered by registration)
 ```typescript
 // In the rule config discriminated union:
 z.discriminatedUnion('rule_type', [
-  // ... 15 built-in branches ...
+  // ... eleven Release-4 branches, plus the six hidden-but-modelled types (§Data Models) ...
   z.object({ rule_type: z.string(), config: z.unknown() })  // extension fallback; validated by extension's own configSchema
 ])
 ```
@@ -1261,7 +1278,7 @@ Slot declarations live in `widgets/injection-table.ts` following the platform's 
 
 ### Extensible Cart Context
 
-The `CartContext` (accepted by `POST /api/promotions/evaluate` / `promotionsService.evaluate()`) is extended with an open-ended `extensions` field to let cart integrations supply extension-specific data:
+`EvaluateInput` (rev — named `CartContext` before the Release 4 public-contract naming pass; accepted by `POST /api/promotions/evaluate` / `promotionsService.evaluate()`, §Public TypeScript Contract) is extended with an open-ended `extensions` field to let cart integrations supply extension-specific data:
 
 ```jsonc
 {
@@ -1279,83 +1296,86 @@ Extension rule evaluators receive the full context and should read from `context
 
 ## Migration & Compatibility
 
-- All tables created via MikroORM migrations (`yarn db:generate` → `yarn db:migrate`)
+- All tables created via MikroORM migrations (`yarn db:generate`; review the SQL, keep only this module's migration + snapshot — **never** `yarn db:migrate` without asking first, root `AGENTS.md`)
 - No existing promotions data — clean migration, no backfill required
 - Cart-facing API is additive; existing cart/POS integrations are unaffected until they opt in
 - POS module (SPEC-022) deferred promotions to Phase 3 — this module enables that integration
 - The 2.1.0 amendment (`applies_to`, quantity caps, quantity-aware `LINE_DISCOUNT`) breaks no contract surface: `promotions` and `cart` are both unimplemented at the time of writing, so `promotion_benefits` has no rows to backfill and no external caller consumes a `ResolvedEffect` yet. It touches no shipped module — §B.6 maps line effects onto `SalesLineSnapshot` fields that `sales` already exposes, and §B.7 defers the `sales` change that would have been a contract surface
+- **(rev — eComm Release 4, 2026-10-14, missing-BC-section fix).** Still greenfield at this revision: every rename this revision makes (`X-Module-Key`→standard API-key identity, `sku`-based addressing→id-based, single `amount`+`basis`→`amountNet`+`amountGross`, `(code_id, customer_id)`→`(code_id, cart_id)`, hyphenated→underscore event ids, `user_group`→`customer_group`) is a rename of a contract that has never shipped — no deprecation protocol triggers, no bridge is owed, and nothing above (clean migration, additive cart-facing API, POS deferral) changes. §Release 4 Contract Freeze records what becomes STABLE the moment Phase 1 *does* ship
 
 ---
 
 ## Implementation Plan
 
+**(rev — C2/C8/D-R4-29, replacing the phase ordering below.)** Three corrections to rev ≤2.1.1's phases, all forced by facts discovered after they were written: (1) `PromotionUsage` moves from "Phase 3" into Phase 1, because Phase 2's cache build already aggregates `SUM(total_discount_amount)` from it — the entity cannot be created after the table it reads; (2) i18n moves from Phase 4 into Phase 1, per the root `AGENTS.md` i18n-before-UI rule; (3) the `code` rule ships in Phase 1 (a plain `code_id` config field, validated against `promotion_codes` at write time) even though the codes system itself — generation, reservation, redemption — is Phase 3, because the rule-tree builder and the `code` rule type are both admin-tree concerns independent of the runtime codes lifecycle. Every step below also reflects the Release-4 rule set (eleven types, not 15/16/17 — §Data Models), the `promotionsService` facade (§Amendment A.2), and the cart-facing auth/identity/reservation model fixed above (§API Contracts).
+
 ### Phase 1 — Domain Model & Core Admin
 
-**Goal:** Operators can create, edit, and delete promotions with a full rule-benefit tree. Data persists correctly. All entities, migrations, and CRUD in place.
+**Goal:** Operators can create, edit, and delete promotions with a full rule-benefit tree. Data persists correctly. All entities, migrations, and CRUD in place. `promotionsService`'s own DI/ACL/events scaffolding exists, even though its `evaluate` method lands in Phase 2.
 
-1. Scaffold module: `index.ts`, `acl.ts`, `events.ts`, `setup.ts`, `di.ts`, `ce.ts`, `translations.ts`
-2. Write all MikroORM entities in `data/entities.ts` (Promotion, RuleGroup, Rule with `rule_type` + `config jsonb`, Benefit with `benefit_type` + `applies_to` + `config jsonb`)
-3. Write Zod validators in `data/validators.ts` for all entities and API inputs, including the shared quantity-cap block (`max_quantity`, `max_lines`, `quantity_step`) intersected into every benefit variant, the per-type `applies_to` allow-list, and the two write-path rejections from §B.4 — a cap without a `selector`, and `selector: all` combined with a cap (`TC-PROM-062`)
-4. Generate and apply DB migration (`yarn db:generate && yarn db:migrate`)
-5. Implement `commands/promotions.ts` — create/update/delete with undo support, events, cache invalidation
-6. Implement `commands/rule-tree.ts` — atomic tree reconciliation command using `withAtomicFlush`
-7. Implement `api/promotions/route.ts` (list, create, update, delete) using `makeCrudRoute` + `indexer`
-8. Implement `api/promotions/[id]/route.ts` (detail with nested tree eager-load)
-9. Implement `PUT /api/promotions/[id]/tree` — tree reconciliation endpoint
-10. Implement `PATCH /api/promotions/order` — batch order update
+1. Scaffold module: `index.ts`, `acl.ts` (incl. `promotions.evaluate`, `promotions.codes.redeem`, `promotions.usage.manage` — D-R4-11), `events.ts` (underscore ids — D-R4-25), `setup.ts` (`defaultRoleFeatures`, admin only for the three new features), `di.ts`. **No** `ce.ts`, `translations.ts`, `search.ts`, `notifications.ts`, or any `widgets/` file — those are Phase 4/5 only (§Architecture).
+2. Write all MikroORM entities in `data/entities.ts`: `Promotion`, `RuleGroup`, `Rule` with `rule_type` + `config jsonb`, `Benefit` with `benefit_type` + `applies_to` + `config jsonb`, and **`PromotionUsage`** (rev — C8, moved from Phase 3; `ON DELETE RESTRICT` on `promotion_id`, §Data Models)
+3. Write Zod validators in `data/validators.ts` for all entities and API inputs: the shared quantity-cap block (`max_quantity`, `max_lines`, `quantity_step`) intersected into every benefit variant; the per-type `applies_to` allow-list; the two write-path rejections from §B.4 (a cap without a `selector`, `selector: all` combined with a cap — `TC-PROM-062`); the Release-4 rule-type allow-list for the admin write path (the eleven shipped types, §Data Models — rejecting a hidden type at the write path, not merely hiding it in the UI, so an API client cannot create what the UI cannot); single-`eligible_currency` validation on `fixed`/tiered/threshold benefits (D-R4-27, `TC-PROM-062b`)
+4. `yarn db:generate`; review the generated SQL; keep only the promotions migration + snapshot (never `yarn db:migrate` — root `AGENTS.md` "Ask First")
+5. Implement `commands/promotions.ts` — create/update/delete with undo support (`extractUndoPayload`), events, cache invalidation after commit (never inside `withAtomicFlush`); breaks the `Promotion`↔`RuleGroup` creation cycle per §Data Models' rev note
+6. Implement `commands/rule-tree.ts` — atomic tree reconciliation command using `withAtomicFlush`; the promotion's `updatedAt` is a required input, `409` on a stale value (optimistic lock, §API Contracts)
+7. Implement `api/route.ts` (list, create, update, delete) using `makeCrudRoute` + `indexer` — mounts at `/api/promotions`, **not** `api/promotions/route.ts` (W2, §Architecture)
+8. Implement `api/[id]/route.ts` (detail with nested tree eager-load)
+9. Implement `PUT /api/promotions/[id]/tree` — tree reconciliation endpoint; carries `updatedAt`
+10. Implement `PATCH /api/promotions/order` — batch order update; each item carries its own `updatedAt`
 11. Build backend list page (`backend/promotions/page.tsx`) — card layout, drag-sort, filters, batch save
-12. Build promotion form pages (create + detail) — 4 panels, tag chip inputs
-13. Build `RuleGroupNode` recursive tree component with AND/OR toggle, action buttons, type dropdowns for all 15 rule types, benefit zone, drag-within-tree
-14. Add the benefit card's **Applies to** segmented control, **Limits** row and conditional **Which pieces** selector (§UI/UX), wired so a capped benefit cannot be saved without a selector, plus the plain-language echo line
-15. Run `npm run modules:prepare` and `yarn generate`
-16. Integration tests: promotion CRUD, tree save, order batch update, `applies_to` persistence and the write-path rejections (`TC-PROM-062`, `TC-PROM-067`, `TC-PROM-071`)
+12. Build promotion form pages (create + detail) — 4 panels (rev — 3 content panels + tree, `promotional-price-visibility` toggle dropped, §UI/UX), tag chip inputs
+13. Build `RuleGroupNode` recursive tree component with AND/OR toggle, action buttons, type dropdowns for the **eleven** Release-4 rule types (rev — not 15), benefit zone, drag-within-tree; DS semantic tokens throughout, no hardcoded colours (A6, §UI/UX)
+14. Add the benefit card's **Applies to** segmented control, **Limits** row and conditional **Which pieces** selector (§UI/UX), wired so a capped benefit cannot be saved without a selector, plus the plain-language echo line (including the category-descendants echo, D-R4-15, and the `exclude_promotional_prices` flag, D-R4-16)
+15. `i18n/{de,en,es,ko,pl}.json` (rev — Phase 1, not Phase 4); `yarn i18n:check-sync`
+16. `yarn generate` (rev — not `npm run modules:prepare`, which is not a repo command)
+17. Integration tests: promotion CRUD, tree save, order batch update, `applies_to` persistence, the write-path rejections (`TC-PROM-062`, `TC-PROM-062b`, `TC-PROM-067`, `TC-PROM-071`), the rule-type allow-list rejection, and optimistic-lock conflicts on `[id]/tree` and `order` (self-contained API fixtures, cleanup in `finally`)
+18. UI integration tests (Playwright, rev — completeness gap): tree builder save/reload with nested groups and benefits; a capped benefit cannot be saved without a selector; list drag-sort and save
 
 ### Phase 2 — Evaluation Engine & Cart API
 
-**Goal:** Cart module can call the promotions API and receive correct benefit descriptors.
+**Goal:** Cart module can call `promotionsService.evaluate` (in-process) or `POST /api/promotions/evaluate` (HTTP) and receive correct, fully resolved effects.
 
-1. Implement `lib/evaluation-engine.ts` — three-pass recursive evaluator accepting `NormalizedPromotion[]`; MUST NOT depend on MikroORM entities or any DB access; applies deterministic ordering (`ORDER BY order ASC, id ASC`); currency eligibility check before Pass 1 (`eligibleCurrencies` vs `context.currency`); optimistic budget pre-check before Pass 1 (`totalDiscountGranted >= maxBudget`); Pass 3 calls effect resolvers with the cart context to compute final amounts
-2. Implement `lib/rule-evaluators.ts` — all 15 concrete rule evaluators with context key declarations; evaluators receive normalized `config` objects only
-3. Implement `lib/unit-selection.ts` — `selectUnits(benefit, context)` expands qualifying cart lines into an ordered unit (or line) sequence per `selector`, applies the deterministic tie-break, then spends the cart-wide `max_quantity` / `max_lines` / `quantity_step` budget and returns the selection. Held here rather than inside a per-line loop because the budget spans lines (§B.3); exported for extension benefit types (§Extensibility)
-4. Implement `lib/effect-resolvers.ts` — all 6 concrete effect resolvers; each resolver maps a `NormalizedBenefit` config + cart context to one or more `ResolvedEffect` objects with computed amounts and resolved SKUs; no math may live outside this file. Resolvers for `product_discount`, `cart_discount`, `buy_x_get_y`, and `tiered_discount` must apply `max_discount` capping after computing the raw amount: `effectiveAmount = min(rawAmount, config.max_discount ?? Infinity)`. Line-targeted resolvers consume the `selectUnits` result and emit one `LINE_DISCOUNT` per covered line carrying `appliesTo`, `lineQuantity`, `appliedQuantity` and `unitAmount` (§B.5), never one effect per unit
-5. Implement `lib/tag-exclusion.ts` — promotion ordering + cumulativity + tag exclusion loop
-6. Implement `services/promotion-cache.ts` — tenant-scoped active promotions cache: fully eager-load all promotions with complete rule/benefit trees, aggregate `totalDiscountGranted` per promotion from `promotion_usages WHERE reverted_at IS NULL`, normalize entity graphs into `NormalizedPromotion[]` (mapping `promotion_rules`/`promotion_benefits` jsonb rows directly to `{ type, config }` shape, pre-sorting arrays by `sort_order`, deep-freezing in non-production builds), cache per key `promotions:active:{tenantId}:{organizationId}`; subscriber in `subscribers/invalidate-promotion-cache.ts` with broad invalidation on any `promotions.*` mutation event or usage event (`promotions.usage.registered`, `promotions.usage.reverted`)
-7. Implement `api/evaluate/route.ts` (was `api/cart/apply-promotion/route.ts` — Amendment §A.3) — full cart evaluation endpoint
-8. Implement `api/dynamic-labels/route.ts`, `api/free-products/route.ts`, `api/delivery-methods/route.ts`
-9. Implement `lib/product-page-engine.ts` — lightweight variant that evaluates active promotions against a list of SKUs; implement `api/product-page/route.ts` consuming it
-10. Integration tests: evaluation engine unit tests for each rule type with assertion that zero DB calls occur during evaluation; end-to-end apply-promotion API tests asserting `ResolvedEffect` amounts (not raw percentages), `ADD_FREE_ITEM` SKU resolution, cumulativity, tag exclusion, sub-group benefit collection; performance benchmark captured for ≥ 100 promotions; cap and targeting behaviour per `TC-PROM-058`–`TC-PROM-061`, `TC-PROM-063`–`TC-PROM-065`, `TC-PROM-069`, `TC-PROM-070`, `TC-PROM-072`
+1. Define the **public TypeScript contract** in `lib/types.ts` (rev — W6, new §Public TypeScript Contract below) — every type `cart` and any HTTP caller needs: `ResolvedEffect` (with `amountNet`/`amountGross`, D-R4-10), `EvaluateInput`/`EvaluateResult`, `BuyerContext` identity (D-R4-28), `CodeRef`. Implement `lib/evaluation-engine.ts` — three-pass recursive evaluator accepting `NormalizedPromotion[]`; MUST NOT depend on MikroORM entities or any DB access; applies deterministic ordering (`ORDER BY order ASC, id ASC`); the date-window check against caller-supplied `evaluatedAt` (D-R4-13, before Pass 1); currency eligibility check; optimistic budget pre-check (`totalDiscountGranted >= maxBudget`); Pass 3 calls effect resolvers with the cart context to compute final amounts
+2. Implement `lib/rule-evaluators.ts` — the **eleven** Release-4 rule evaluators (rev — not 15/16/17, §Data Models): `order_value`, `order_date`, `product_count`, `cart_weight`, `row_total`, `product`, `category` (with descendant expansion, D-R4-15), `product_attribute` (resolved via step 6's batch enrichment), `customer_group` (rev — replaces `user_group`), `code`, `customer_order_history`. Evaluators receive normalized `config` objects only
+3. Implement `lib/unit-selection.ts` and `lib/effect-resolvers.ts`: `selectUnits(benefit, context)` expands qualifying cart lines into an ordered unit (or line) sequence per `selector`, applies the deterministic tie-break, then spends the cart-wide `max_quantity` / `max_lines` / `quantity_step` budget (held here, not a per-line loop, §B.3; exported for extension benefit types). `effect-resolvers.ts` maps a `NormalizedBenefit` config + cart context to `ResolvedEffect` objects carrying **`amountNet` and `amountGross`** (rev — C5/D-R4-10, replacing the single `amount`+fallback model), rounded once, half-up, at the currency's fraction digits in integer minor units (P2); `max_discount` capping applied to `amountNet` directly, `amountGross` derived consistently, never a pre-cap `unitAmount` back-solve (rev — no `unitAmount` in the Release-4 model, §API Contracts); `ADD_FREE_ITEM` carries `promotionId` as its marker (D-R4-7) and no monetary amount
+4. Implement `lib/tag-exclusion.ts` — promotion ordering + cumulativity + tag exclusion loop
+5. Implement `services/promotion-cache.ts`: the cache holds every `active = true` promotion **regardless of date window** (rev — R-H3/P8, replacing "active and within range"); `totalDiscountGranted` moves into a **separate, small counters key** (rev — R-H3c), read only for budget-capped promotions; `startsAt`/`endsAt` ride in `NormalizedPromotion` for the evaluator's own date-window check. Subscriber in `subscribers/invalidate-promotion-cache.ts` invalidates the **main cache only on promotion/code mutation events** (rev — not on usage events, which touch only the counters key)
+6. Implement `promotionsService.evaluate`/`.evaluateForProduct` in `lib/promotions-service.ts` (rev — new file, the DI facade named in §Amendment A.2) — batch context enrichment from the request's `productId`/`variantId` (D-R4-21/C11): resolves category/tag/attribute membership for every item in one batch call against the same catalog-scoping services `cart` uses, never per-item; a field with no resolvable source is `null`. `BuyerContext` identity per D-R4-28
+7. Implement `api/evaluate/route.ts`, `api/product-page/route.ts`, `api/dynamic-labels/route.ts`, `api/free-products/route.ts` — standard API-key identity, `requireFeatures`, ownership checks on referenced ids, assortment scope respected on the three visibility-sensitive routes (V2/P5, §API Contracts). **No** `api/delivery-methods/route.ts` in this release (D-R4-14)
+8. Integration tests: per-rule engine unit tests with a throwing `EntityManager` (zero DB access assertion); end-to-end `evaluate` API tests asserting `ResolvedEffect.amountNet`/`amountGross` (not raw percentages), `ADD_FREE_ITEM` product/variant resolution, cumulativity, tag exclusion, sub-group benefit collection, deterministic selection (`TC-PROM-064`); a cross-tenant test per route; performance benchmark at **200 promotions × 50 lines**, P95 ≤ 150 ms (rev — A.7/`TC-PROM-057`, not "≥ 100," W12/gate-mismatch); cap and targeting behaviour per `TC-PROM-058`–`TC-PROM-061`, `TC-PROM-063`–`TC-PROM-065`, `TC-PROM-069`, `TC-PROM-070`, `TC-PROM-072`
 
 ### Phase 3 — Codes System
 
-**Goal:** Operators can manage code templates; cart can validate, reserve, and finalize code redemptions.
+**Goal:** Operators can manage code templates; cart can validate, reserve, and finalize code redemptions, with per-cart reservation capacity.
 
-1. Write `Code`, `GeneratedCode`, `CodeReservation`, `CodeUsage` entities and validators
-2. Generate and apply migration
+1. Write `Code`, `GeneratedCode`, `CodeReservation` (rev — `cart_id` in the unique key, C4/D-R4-8, §Data Models), `CodeUsage` entities and validators; one normalised code-string namespace unique per `(tenant_id, organization_id)` across both `Code.code` and `GeneratedCode.code` (W5d)
+2. `yarn db:generate`; review SQL; keep only the codes migration + snapshot
 3. Implement `commands/codes.ts` — code CRUD with undo, events
-4. Implement `lib/code-service.ts` — validation, per-customer limit check, reservation, use, delete
-5. Implement `workers/code-generation.worker.ts` — background batch generator with uniqueness validation; register queue `promotions.code.generate`
+4. Implement `lib/code-service.ts` — `reserveCode` (idempotent per `(code, cart)`), `extendReservation`, `validate`, `use` (row-lock budget check, C6/D-R4-12 — never serializable isolation), `release` (by `(code, cartId)`)
+5. Implement `workers/code-generation.worker.ts` — background batch generator with uniqueness validation against the one normalised namespace (step 1); register queue `promotions-code-generate` (rev — hyphenated queue-name convention, W-low)
 6. Implement `services/code-generation.ts` — triggers worker, tracks progress
-7. Implement `api/codes/route.ts`, `api/codes/[id]/generate/route.ts`, `api/codes/[id]/generated/route.ts`
-8. Implement code endpoints under `api/codes/`: `reserve`, `validate`, `use`, `release` (was `cart/add-code`, `cart/validate-code`, `cart/use-code`, `cart/delete-code` — Amendment §A.3)
-9. Build codes backend pages: list, create, detail with generated codes panel
-10. Write `PromotionUsage` entity and validators; generate and apply migration
-11. Implement `lib/promotion-usage-service.ts` — `registerUsage` (serializable transaction, budget cap enforcement, idempotent upsert, `promotions.promotion.budget-exhausted` emission on first budget hit), `revertUsage` (bulk `reverted_at` update), `getBudgetConsumed`
+7. Implement **`services/code-reservation-sweeper.ts`** and **`workers/code-reservation-sweep.worker.ts`** (rev — A.6/X7, previously unspecified) — releases lapsed `CodeReservation` rows independently of `cart`'s own expiry sweeper; registered via `schedulerService`
+8. Implement `api/codes/route.ts`, `api/codes/[id]/generate/route.ts`, `api/codes/[id]/generated/route.ts`
+9. Implement code endpoints under `api/codes/`: `reserve`, `validate`, `use`, `release` (was `cart/add-code`, `cart/validate-code`, `cart/use-code`, `cart/delete-code` — Amendment §A.3); bodies per the rev — C4/D-R4-8 shapes in §API Contracts (`cartId`, never `organizationId`/`tenantId`)
+10. Build codes backend pages: list, create, detail with generated codes panel; DS tokens (A6)
+11. Implement `lib/promotion-usage-service.ts` — `registerUsage` (row-lock + re-read-sum budget enforcement, rev — C6/D-R4-12, never serializable; idempotent upsert; `promotions.promotion.budget_exhausted` emission on first budget hit — rev, underscore id), `revertUsage` (bulk `reverted_at` update), `getBudgetConsumed`. (`PromotionUsage` itself was created in Phase 1, C8 — this step only adds the service.)
 12. Implement `api/usage/register/route.ts` (was `api/cart/register-usage/route.ts` — Amendment §A.3) — loops `appliedPromotions`, calls `registerUsage` per promotion, returns 207 Multi-Status with `budgetExceeded` flag for any promotions that were blocked; exports `openApi`
 13. Implement `api/usage/revert/route.ts` (was `api/cart/revert-usage/route.ts` — Amendment §A.3) — calls `revertUsage`, returns `{ ok: true, revertedCount }`; exports `openApi`
-14. Update `subscribers/invalidate-promotion-cache.ts` to also subscribe to `promotions.usage.registered` and `promotions.usage.reverted` for cache invalidation
-15. Register `PromotionUsageService` in `di.ts`
-16. Integration tests: `TC-PROM-023` – `TC-PROM-026` (see Testing Strategy)
+14. Update `subscribers/invalidate-promotion-cache.ts` to subscribe to `promotions.usage.registered`/`.reverted` for the **counters key only** (rev — step 2.5's cache split; the main tree cache is untouched by usage events)
+15. Register `promotionCodeService`, `promotionUsageService`, `promotionCodeGenerationService` in `di.ts` (rev — DI token names per §Architecture, W3)
+16. Integration tests: `TC-PROM-020`–`026`, `050`–`057` (rev — re-threaded per the Testing Strategy below): code lifecycle, per-customer limit counting `CodeUsage` + other carts' reservations, concurrent reservation of the last code (one succeeds), concurrent `registerUsage` inside one ambient transaction never exceeding budget, currency eligibility, and a cross-tenant test per route; UI test for the codes backend pages
 
 ### Phase 4 — Search, Notifications & Polish
 
 **Goal:** Promotions are searchable; operators receive relevant notifications; edge cases handled.
 
 1. Implement `search.ts` — fulltext indexing for promotions (name, description, tags) and codes (name, code)
-2. Implement `notifications.ts` — code pool exhaustion notification (`promotions.code.exhausted` event), promotion expiring-soon notification
+2. Implement `notifications.ts` — code pool exhaustion notification (`promotions.code.exhausted` event), promotion `expiring_soon` notification (rev — underscore id, W1/D-R4-25)
 3. Implement `subscribers/` for notification events
-4. Add i18n locale files (`i18n/en.json`, `i18n/pl.json`, etc.)
+4. i18n ships from Phase 1 (rev — moved, above); nothing left to do here
 5. Declare widget injection slots in `widgets/injection-table.ts`: `promotions.promotion-list.toolbar`, `promotions.promotion-detail.panels`, `promotions.promotion-detail.sidebar`, `promotions.codes-list.toolbar`, `promotions.dashboard.stats`
-6. POS integration event subscription: `pos.cart.completed` → trigger `use-code` if code in session
+6. POS integration event subscription: `pos.cart.completed` → trigger `codes/use` if code in session
 7. Final compliance and spec update
 8. Integration tests: `TC-PROM-030` Search indexing, `TC-PROM-031` Notification on code exhaustion, `TC-PROM-032` Notification on promotion expiring soon
 
@@ -1387,16 +1407,18 @@ Extension rule evaluators receive the full context and should read from `context
 | `promotions/data/validators.ts` | Create | All Zod schemas |
 | `promotions/commands/promotions.ts` | Create | CRUD commands with undo |
 | `promotions/commands/rule-tree.ts` | Create | Atomic tree reconciliation |
-| `promotions/api/promotions/route.ts` | Create | CRUD route with makeCrudRoute |
+| `promotions/api/route.ts` | Create | CRUD route with makeCrudRoute — mounts at `/api/promotions` (rev — W2, not `api/promotions/route.ts`) |
 | `promotions/backend/promotions/page.tsx` | Create | List page |
 | `promotions/backend/promotions/[id]/page.tsx` | Create | Detail + tree editor |
+| `promotions/i18n/{de,en,es,ko,pl}.json` | Create | Rev — Phase 1, five locales |
+| `promotions/lib/types.ts` | Create | Rev — public TypeScript contract barrel (W6) |
 
 ### Testing Strategy
 
 Integration tests for each phase following `.ai/qa/AGENTS.md`:
-- Phase 1: `TC-PROM-001` Promotion CRUD, `TC-PROM-002` Rule tree save/load, `TC-PROM-003` Order batch update
-- Phase 2: `TC-PROM-010` Apply-promotion returns resolved amounts (not raw percentages) for each rule type, `TC-PROM-011` Cumulativity + tag exclusion, `TC-PROM-012` Sub-group benefit collection, `TC-PROM-013` ADD_FREE_ITEM effect carries correct SKU + quantity for FreeProduct and BuyXGetY, `TC-PROM-014` `max_discount` cap — a `cart_discount` benefit with `value: "10%"` and `max_discount: "100"` applied to a $1500 cart produces `amount: "-100"` (capped), not `"-150"`
-- Phase 3: `TC-PROM-020` Code lifecycle, `TC-PROM-021` Per-customer limit, `TC-PROM-022` Concurrent reservation race, `TC-PROM-023` `register-usage` writes `PromotionUsage` row with correct `effects_snapshot` and `total_discount_amount`, `TC-PROM-024` `revert-usage` sets `reverted_at` on all matching rows (never deletes); `getBudgetConsumed` decrements accordingly, `TC-PROM-025` Budget cap enforcement — promotion with `max_budget: "500"` accepts registrations until cumulative hits 500, then blocks with 207 + `budgetExceeded: true` and emits `promotions.promotion.budget-exhausted`; cache refresh causes post-exhaustion `apply-promotion` to skip the promotion, `TC-PROM-026` Currency eligibility — promotion with `eligible_currencies: ["EUR"]` is excluded from `apply-promotion` response when `currency: "USD"` is passed; included when `currency: "EUR"` is passed
+- Phase 1: `TC-PROM-001` Promotion CRUD, `TC-PROM-002` Rule tree save/load, `TC-PROM-003` Order batch update, `TC-PROM-062` capped benefit without a selector rejected, `TC-PROM-062b` fixed/tiered/threshold benefit without `eligible_currency` rejected (D-R4-27), `TC-PROM-067`/`071` write-path rejections, a hidden-rule-type write rejected at the API even though the UI never offers it
+- Phase 2: `TC-PROM-010` `evaluate` returns resolved `amountNet`/`amountGross` (never raw percentages or a pre-cap `unitAmount`) for each of the eleven rule types, `TC-PROM-011` Cumulativity + tag exclusion, `TC-PROM-012` Sub-group benefit collection, `TC-PROM-013` `ADD_FREE_ITEM` effect carries correct `productId`/`variantId` + quantity + `promotionId` marker for FreeProduct and BuyXGetY, `TC-PROM-014` `max_discount` cap — a `cart_discount` benefit with `value: "10%"` and `max_discount: "100"` applied to a $1500 cart produces `amountNet: "-100"` (capped), not `"-150"`, `TC-PROM-057` P95 ≤ 150 ms at 200 promotions × 50 lines (rev — the gate, not "≥100"), `TC-PROM-064` deterministic selection under a re-evaluation of an unchanged cart, a cross-tenant test per Phase 2 route
+- Phase 3: `TC-PROM-020` Code lifecycle, `TC-PROM-021` Per-customer limit counted as `CodeUsage` + other carts' reservations (rev — D-R4-8), `TC-PROM-022` Concurrent reservation race for the last code (one succeeds), `TC-PROM-023` `usage/register` writes `PromotionUsage` row with correct `effects_snapshot` and `total_discount_amount` (excluding `ADD_FREE_ITEM`, which carries none), `TC-PROM-024` `usage/revert` sets `reverted_at` on all matching rows (never deletes); `getBudgetConsumed` decrements accordingly, `TC-PROM-025` Budget cap enforcement via the row-lock mechanism (rev — C6/D-R4-12, not serializable isolation) — promotion with `max_budget: "500"` accepts registrations until cumulative hits 500, then blocks with 207 + `budgetExceeded: true` and emits `promotions.promotion.budget_exhausted` (rev — underscore); cache refresh causes post-exhaustion `evaluate` to skip the promotion, `TC-PROM-026` Currency eligibility — promotion with `eligible_currencies: ["EUR"]` is excluded from `evaluate` response when `currency: "USD"` is passed; included when `currency: "EUR"` is passed, `TC-PROM-050`–`056` concurrent `registerUsage` inside one ambient transaction never exceeding budget (R-H2), a cross-tenant test per Phase 3 route, UI test for the codes backend pages
 - Phase 4: `TC-PROM-030` Search indexing, `TC-PROM-031` Notification on code exhaustion, `TC-PROM-032` Notification on promotion expiring soon
 - Phase 5: `TC-PROM-040` Custom rule extension evaluation, `TC-PROM-041` Custom benefit extension effect resolution, `TC-PROM-042` `beforeEvaluate` middleware context injection, `TC-PROM-043` `afterResolve` middleware effect filtering, `TC-PROM-044` `beforeCodeUse` veto, `TC-PROM-045` Extension type metadata endpoint
 
@@ -1461,11 +1483,13 @@ Integration tests for each phase following `.ai/qa/AGENTS.md`:
 
 #### Budget Cap Race Window
 
-- **Scenario**: Multiple concurrent orders for the same promotion all pass the optimistic budget pre-check (stale cache snapshot), then all call `register-usage` concurrently. The serializable transaction enforces the cap correctly on each commit, but two requests that entered the transaction at the same time may both see the remaining budget as sufficient before either has committed.
-- **Severity**: Low — serializable isolation in PostgreSQL uses predicate locking to detect read-write conflicts. A transaction that reads and then increments the `SUM` aggregate will conflict with a concurrent transaction doing the same, causing one to retry or abort.
+**(rev — C6/P7/D-R4-12, replacing the serializable-isolation mechanism below.)** `withAtomicFlush` joins an ambient transaction and ignores `isolationLevel`, and `checkout` is expected to call `registerUsage` inside its own order transaction — so `ISOLATION LEVEL SERIALIZABLE` never actually applies under the real call shape, and no `40001` retry helper exists anywhere in `packages/shared` to recover from a serialization failure if it somehow did.
+
+- **Scenario**: Multiple concurrent orders for the same promotion all pass the optimistic budget pre-check (stale cache snapshot), then all call `usage/register` concurrently.
+- **Severity**: Low — a row lock (`SELECT … FOR UPDATE`) on the promotion row inside `registerUsage`'s transaction serializes the read-modify-write against the budget sum, regardless of the surrounding transaction's isolation level or whether it is ambient (nested inside `checkout`'s own transaction) or top-level.
 - **Affected area**: `max_budget` enforcement in `registerUsage`
-- **Mitigation**: `registerUsage` runs at `ISOLATION LEVEL SERIALIZABLE`; PostgreSQL's SSI detects the read-modify-write conflict and forces one transaction to retry. The retry logic re-reads the current sum and may block the second registration if the cap is now met.
-- **Residual risk**: Marginal overshoot in edge cases with very high concurrent throughput (unlikely for promotions context); acceptable and consistent with how most e-commerce platforms handle budget caps.
+- **Mitigation**: `promotionUsageService.registerUsage` locks the promotion's row, re-reads `SUM(total_discount_amount) WHERE reverted_at IS NULL AND currency = budget_currency` under that lock, then writes — correct under a joined transaction with no retry loop needed, unlike the withdrawn serializable-isolation approach. Test: N concurrent `registerUsage` calls against one promotion inside one ambient transaction never jointly exceed the budget.
+- **Residual risk**: None beyond ordinary lock contention under very high concurrent throughput (unlikely for promotions context), which simply serializes the writes rather than risking an overshoot.
 
 ### Migration & Deployment Risks
 
@@ -1512,8 +1536,24 @@ Integration tests for each phase following `.ai/qa/AGENTS.md`:
 | No cross-module coupling introduced | §B.6 maps line effects onto `SalesLineSnapshot` fields `sales` already exposes; §B.7 defers the `SalesAdjustmentDraft.lineId` change to its own spec rather than editing a shipped module from a promotions amendment |
 | No contract surface broken | Both `promotions` and `cart` are unimplemented; no rows to backfill, no external consumer of `ResolvedEffect` (§Migration & Compatibility) |
 | Validation at the application boundary | `applies_to` allow-list, the shared quantity-cap block and the two capped-config rejections are Zod-validated in `data/validators.ts` (Phase 1 step 3), not merely documented |
-| Determinism | Selector ordering has a specified tie-break (`cartLineId`, then unit index) so an unchanged cart re-evaluates identically (§B.4, `TC-PROM-064`) |
-| No hard-coded user-facing strings | The admin control's labels (*Whole order* / *Order line* / *Each piece*, *First added*) and the plain-language echo line route through `translations.ts` like every other benefit-card string |
+| Determinism | Selector ordering has a specified tie-break (`lineId`, then unit index) so an unchanged cart re-evaluates identically (§B.4, `TC-PROM-064`) |
+| No hard-coded user-facing strings | The admin control's labels (*Whole order* / *Order line* / *Each piece*, *First added*) and the plain-language echo line route through `useT()` keys in `i18n/*.json` (rev — not `translations.ts`, which declares the benefit `labels` *content* field as translatable, a distinct per-record-content concern from the admin UI's own chrome strings) |
+
+### Addendum — 2026-10-14 (rev 9 — eComm Release 4 decisions applied)
+
+| Requirement | Status |
+|---|---|
+| §B.6 / A-R6 / `TC-PROM-060` match the shipped `sales` contract | Rewritten for `discountAmountBasis: 'line'` (§B.6 below, C1/D-R4-9) — the 2026-09-09 fix assumed `sales` had no basis flag; `#5640` shipped one on `develop` before this correction, and the mapping is rewritten against what actually exists |
+| HTTP auth model matches the platform | `X-Module-Key` withdrawn; standard API-key identity + `requireFeatures`, no tenant/org ids in request bodies (C3/A1/A2, D-R4-11) |
+| `ResolvedEffect` carries both tax sides | `amountNet` + `amountGross` on every amount-carrying effect (C5/D-R4-10) |
+| Serializable-isolation claims replaced | Row-lock + re-read-sum inside the (possibly ambient) transaction everywhere `withAtomicFlush` was previously described as serializable (C6/D-R4-12, §Promotion Usage Lifecycle, §API Contracts `codes/use`) |
+| Code reservations hold real capacity | `CodeReservation.cart_id`, `UNIQUE (code_id, cart_id)`, idempotent `reserveCode`, per-cart release (C4/C7/D-R4-8) |
+| Free-item line representable in `cart` | `ADD_FREE_ITEM.promotionId` marker matches `cart`'s `CartLine.promotion_id`/`origin` (C4a/D-R4-7, coordinated with `2026-08-14-cart-module.md` rev 9) |
+| Visibility respected on promotion reads | `dynamic-labels`, `free-products`, `product-page` scoped to the caller's buyer context (V1/V2/P5) |
+| Release-4 rule set has a real data source for every shipped type | Eleven types; six hidden (producer, pharmaceutical flag, consent, delivery/payment/address, delivery discount) until a data source exists (P10/D-R4-14, §Data Models) |
+| Phase ordering fixed | `PromotionUsage` and i18n moved into Phase 1 (C8, §Implementation Plan) |
+| Public TypeScript contract exists | `lib/types.ts` barrel (W6, §Public TypeScript Contract) |
+| Event ids, route paths, DI tokens corrected pre-publish | §Architecture, §API Contracts, §Release 4 Contract Freeze (W1–W3) |
 
 ### AGENTS.md Files Reviewed
 - `AGENTS.md` (root)
@@ -1529,7 +1569,7 @@ Integration tests for each phase following `.ai/qa/AGENTS.md`:
 
 | Rule Source | Rule | Status | Notes |
 |-------------|------|--------|-------|
-| root AGENTS.md | No direct ORM relationships between modules | Compliant | All cross-module references use FK IDs only (`user_group_id`, `category_slug`, `delivery_method_code`, `payment_method_code`, `producer_code`) |
+| root AGENTS.md | No direct ORM relationships between modules | Compliant | All cross-module references use FK IDs only (`customer_group_id`, `category_id`, `product_id`, `variant_id` — rev, identity change; `delivery_method_code`/`payment_method_code` hidden rule types, D-R4-14) |
 | root AGENTS.md | Filter by `organization_id` for tenant-scoped entities | Compliant | All entities carry `organization_id` + `tenant_id`; all queries scoped accordingly |
 | root AGENTS.md | Never expose cross-tenant data from API handlers | Compliant | Cache keys include `tenantId`+`organizationId`; all code lookups scoped by tenant; cart endpoints require tenant scope from auth context |
 | root AGENTS.md | Use DI (Awilix) via `di.ts`; avoid `new`-ing directly | Compliant | `di.ts` registers `PromotionCache`, `CodeGenerationService`, `CodeService`; evaluation engine is stateless (no DI needed) |
@@ -1537,7 +1577,7 @@ Integration tests for each phase following `.ai/qa/AGENTS.md`:
 | root AGENTS.md | Derive TS types from Zod via `z.infer` | Compliant | No hand-written type duplicates; all types derived from validators |
 | root AGENTS.md | Use `findWithDecryption`/`findOneWithDecryption` | Compliant | Applied in admin detail routes where `Promotion` and `Code` entities are fetched |
 | root AGENTS.md | Never hand-write migrations | Compliant | All tables generated via `yarn db:generate` |
-| root AGENTS.md | RBAC: `requireAuth` + `requireFeatures` on all admin routes | Compliant | All admin routes declare guards; cart endpoints use `X-Module-Key` auth instead |
+| root AGENTS.md | RBAC: `requireAuth` + `requireFeatures` on all admin routes | Compliant | All admin routes declare guards; cart-facing endpoints use the standard API-key identity + `requireFeatures` (rev — C3/D-R4-11, `X-Module-Key` withdrawn) |
 | root AGENTS.md | API routes MUST export `openApi` | Compliant | All routes include `openApi` export; `api/openapi.ts` provides shared helpers |
 | root AGENTS.md | CRUD routes: use `makeCrudRoute` with `indexer` | Compliant | Promotion and code list routes use `makeCrudRoute` with `indexer: { entityType }` |
 | root AGENTS.md | `setup.ts`: declare `defaultRoleFeatures` when adding `acl.ts` features | Compliant | `setup.ts` maps all features to default admin/manager roles |
@@ -1548,11 +1588,11 @@ Integration tests for each phase following `.ai/qa/AGENTS.md`:
 | root AGENTS.md | `pageSize` at or below 100 | Compliant | All list endpoints default 50, max 100 |
 | root AGENTS.md | No `any` types | Compliant | All types derived from Zod schemas or explicit interfaces; evaluation engine uses `NormalizedPromotion` type hierarchy |
 | root AGENTS.md | Boolean parsing: use `parseBooleanToken`/`parseBooleanWithDefault` | Compliant | Query params `active`, `cumulative` parsed via shared boolean helpers |
-| root AGENTS.md | Run `npm run modules:prepare` after adding module files | Compliant | Noted in Phase 1 step 14 |
+| root AGENTS.md | Run `yarn generate` after adding module files | Compliant | (rev — `npm run modules:prepare` is not a repo command) Noted in Phase 1 step 14 |
 | packages/core/AGENTS.md | Module placed in `packages/core/src/modules/promotions/` | Compliant | Architecture section confirms path |
 | packages/core/AGENTS.md | Module ID: plural, snake_case | Compliant | Module ID `promotions` |
-| packages/core/AGENTS.md | Event IDs: `module.entity.action` (dot-separated, singular entity, past tense) | Compliant | All events follow `promotions.promotion.created`, `promotions.code.used`, `promotions.generated-code.created` pattern |
-| packages/core/AGENTS.md | Feature naming: `<module>.<action>` | Compliant | `promotions.view`, `promotions.create`, `promotions.update`, `promotions.delete`, `promotions.codes.manage` |
+| packages/core/AGENTS.md | Event IDs: `module.entity.action` (dot-separated, singular entity, past tense) | Compliant | All events follow `promotions.promotion.created`, `promotions.code.used`, `promotions.generated_code.created` pattern (rev — underscore, W1/D-R4-25; no hyphenated id) |
+| packages/core/AGENTS.md | Feature naming: `<module>.<action>` | Compliant | `promotions.view`, `promotions.create`, `promotions.update`, `promotions.delete`, `promotions.codes.manage`, and (rev — W4/D-R4-11) `promotions.evaluate`, `promotions.codes.redeem`, `promotions.usage.manage` for the cart-facing routes; `setup.ts` `defaultRoleFeatures` maps the three new ones to admin only |
 | packages/cache/AGENTS.md | Use `@open-mercato/cache`; never raw Redis/SQLite | Compliant | `services/promotion-cache.ts` resolves cache via DI; uses tag-based invalidation |
 | packages/queue/AGENTS.md | Background workers use queue contract; never custom queues | Compliant | `workers/code-generation.worker.ts` exports `metadata` with `queue` + `concurrency` |
 | packages/events/AGENTS.md | Cache invalidation subscriber uses ephemeral subscription | Compliant | `invalidate-promotion-cache.ts` uses ephemeral subscription (immediate, in-process) |
@@ -1561,9 +1601,145 @@ Integration tests for each phase following `.ai/qa/AGENTS.md`:
 | packages/ui/AGENTS.md | Use `LoadingMessage`/`ErrorMessage` | Compliant | All backend pages use `LoadingMessage`/`ErrorMessage` from `@open-mercato/ui/backend/detail` |
 | packages/ui/AGENTS.md | Use `DataTable` for lists | Compliant | Codes list and generated codes panel use `DataTable` |
 | root AGENTS.md | Widget injection: declare in `widgets/injection/`, map via `injection-table.ts` | Compliant | 5 injection slots declared in `widgets/injection-table.ts`; external modules inject via the standard widget system |
-| root AGENTS.md | Events: use `createModuleEvents()` with `as const` for all emitted events | Compliant | New events (`evaluation.completed`, `code.exhausted`, `promotion.expiring-soon`, `usage.registered`, `usage.reverted`, `promotion.budget-exhausted`) added to `events.ts` following `createModuleEvents()` pattern |
+| root AGENTS.md | Events: use `createModuleEvents()` with `as const` for all emitted events | Compliant | New events (`evaluation.completed`, `code.exhausted`, `promotion.expiring_soon`, `usage.registered`, `usage.reverted`, `promotion.budget_exhausted`) added to `events.ts` following `createModuleEvents()` pattern (rev — underscores, W1/D-R4-25) |
 | root AGENTS.md | No direct ORM relationships between modules | Compliant | `PromotionExtensionRegistry` holds only plain objects (interfaces); no ORM entities or repositories cross module boundaries through the registry |
 | root AGENTS.md | Validate all inputs with Zod | Compliant | Extension `configSchema` is validated at write time via `configSchema.parse(config)` in commands; unknown types are not persisted without validation |
+
+---
+
+## Public TypeScript Contract (rev 9 — new, W6)
+
+`lib/types.ts` exports every type a consumer needs to code against Phases 1–3 without guessing a shape from prose. Phase 2 step 1 of §Implementation Plan creates this file; everything below is additive to the existing `data/validators.ts`-derived entity types.
+
+```typescript
+// Identity (D-R4-28)
+export interface BuyerContext {
+  customerId: string | null        // the winning identity (person wins, D3/D3a)
+  customerIds: string[]            // order history, per-customer limits
+  customerGroupIds: string[]
+}
+
+export interface CodeRef { id: string; type: 'static' | 'dynamic' }
+
+// evaluate (D-R4-9, D-R4-10, D-R4-13, D-R4-21, D-R4-28)
+export interface EvaluateItem {
+  lineId: string
+  productId: string
+  variantId: string | null
+  quantity: string
+  unitPriceNet: string
+  unitPriceGross: string
+  priceIsPromotional: boolean      // D-R4-16
+}
+
+export interface EvaluateInput {
+  items: EvaluateItem[]
+  currency: string
+  evaluatedAt: string              // ISO 8601 — D-R4-13
+  buyer: BuyerContext
+  customerOrderCount: number | null
+  cartWeight: string | null
+  codes: CodeRef[]
+}
+
+export type EffectBasis = 'net' | 'gross'
+
+export interface ResolvedEffectBase {
+  type: 'LINE_DISCOUNT' | 'CART_DISCOUNT' | 'DELIVERY_DISCOUNT' | 'ADD_FREE_ITEM'
+  appliesTo: 'order' | 'line' | 'unit'
+  currency: string
+  label: Record<string, string>
+}
+
+export interface LineDiscountEffect extends ResolvedEffectBase {
+  type: 'LINE_DISCOUNT'
+  targetLineId: string
+  targetProductId: string
+  targetVariantId: string | null
+  lineQuantity: number
+  appliedQuantity: number
+  amountNet: string                // negative decimal string
+  amountGross: string
+  basis: EffectBasis                // audit only — D-R4-10
+}
+
+export interface CartDiscountEffect extends ResolvedEffectBase {
+  type: 'CART_DISCOUNT'
+  amountNet: string
+  amountGross: string
+  basis: EffectBasis
+}
+
+export interface DeliveryDiscountEffect extends ResolvedEffectBase {
+  type: 'DELIVERY_DISCOUNT'       // defined; unreachable in Release 4 (D-R4-14)
+  deliveryMethodCode: string
+  amountNet: string
+  amountGross: string
+  basis: EffectBasis
+}
+
+export interface AddFreeItemEffect extends ResolvedEffectBase {
+  type: 'ADD_FREE_ITEM'
+  productId: string
+  variantId: string | null
+  quantity: number
+  reason: 'FREE_PRODUCT' | 'BUY_X_GET_Y'
+  promotionId: string              // D-R4-7 marker, matches cart-module.md CartLine.promotion_id
+}
+
+export type ResolvedEffect = LineDiscountEffect | CartDiscountEffect | DeliveryDiscountEffect | AddFreeItemEffect
+
+export interface AppliedPromotion { promotionId: string; promotionName: string; effects: ResolvedEffect[] }
+export interface EvaluateResult { appliedPromotions: AppliedPromotion[] }
+
+// Codes (C4/C7/D-R4-8)
+export interface ReserveCodeInput { codeString: string; cartId: string; customerId: string | null }
+export interface CodeReservationResult { ok: true; codeId: string; type: 'static' | 'dynamic' }
+export interface CodeValidationResult { valid: boolean; reason?: string }
+export interface UseCodeInput { codeId: string; codeString: string; cartId: string; customerId: string | null; type: 'static' | 'dynamic' }
+export interface CodeUseResult { ok: true }
+
+// Usage (D-R4-12, D-R4-26)
+export interface RegisterUsageInput {
+  orderId: string
+  orderType: 'order' | 'quote' | 'pos_cart'
+  customerId: string | null
+  currency: string
+  appliedPromotions: AppliedPromotion[]
+}
+export interface RevertUsageInput { orderId: string }
+
+// Primary integration facade (Amendment §A.2)
+export interface PromotionsService {
+  evaluate(input: EvaluateInput): Promise<EvaluateResult>
+  evaluateForProduct(input: { productId: string; variantId: string | null; buyer: BuyerContext; evaluatedAt: string }): Promise<{ badges: Array<{ promotionId: string; promotionName: string; label: Record<string, string> }> }>
+  reserveCode(input: ReserveCodeInput): Promise<CodeReservationResult>
+  extendReservation(codeId: string, cartId: string): Promise<void>
+  validateCode(input: ReserveCodeInput): Promise<CodeValidationResult>
+  useCode(input: UseCodeInput): Promise<CodeUseResult>
+  releaseCode(codeId: string, cartId: string): Promise<void>
+  registerUsage(input: RegisterUsageInput): Promise<{ ok: true; budgetExceeded: string[] }>
+  revertUsage(input: RevertUsageInput): Promise<{ ok: true; revertedCount: number }>
+}
+```
+
+`cart` imports these types from `@open-mercato/core/modules/promotions/lib/types` (or the package path this repo's import convention uses for cross-module types); it never re-declares a shadow copy.
+
+## Release 4 Contract Freeze (rev 9 — new, missing BC section per the Release 4 analysis §"Missing BC Section")
+
+Everything below becomes **STABLE** per `BACKWARD_COMPATIBILITY.md` the moment Phase 1 ships. Getting the name right now is cheaper than a deprecation cycle later.
+
+| Surface | Frozen names |
+|---|---|
+| Event ids | `promotions.promotion.{created,updated,deleted}`, `promotions.code.{created,updated,deleted,used,exhausted,generated}`, `promotions.generated_code.created`, `promotions.usage.{registered,reverted}`, `promotions.promotion.budget_exhausted`, `promotions.promotion.expiring_soon` (Phase 4), `promotions.evaluation.completed` (ephemeral/telemetry, never persisted/broadcast) |
+| DI tokens | `promotionsService`, `promotionCache`, `promotionUsageService`, `promotionCodeService`, `promotionCodeGenerationService`, `promotionExtensionRegistry` (Phase 5) |
+| ACL features | `promotions.view`, `.create`, `.update`, `.delete`, `.codes.manage`, `.evaluate`, `.codes.redeem`, `.usage.manage` |
+| Route paths | `/api/promotions`, `/api/promotions/[id]`, `/api/promotions/[id]/tree`, `/api/promotions/order`, `/api/promotions/codes*`, `/api/promotions/evaluate`, `/api/promotions/product-page`, `/api/promotions/dynamic-labels`, `/api/promotions/free-products`, `/api/promotions/usage/{register,revert}` |
+| Public types | Every export in `lib/types.ts` above, in particular `ResolvedEffect`'s discriminated union shape (`amountNet`/`amountGross`/`basis` on every variant) |
+| Tables | `promotions`, `promotion_rule_groups`, `promotion_rules`, `promotion_benefits`, `promotion_codes`, `promotion_generated_codes`, `promotion_code_reservations`, `promotion_usages` |
+| Module id | `promotions` (plural, standard) |
+
+Additive-only, requiring the multi-module owner approval already recorded for D-R4-3: the new `catalog` DI keys `catalogBuyerPricingService`, `catalogScopedProductService`, and the `availability` quantity-rule derivation `cart` and this module both consume.
 
 ---
 
@@ -1579,11 +1755,14 @@ The platform now has [`cart`](./2026-08-14-cart-module.md), an in-process module
 
 ### A.2 The primary integration is a DI service, not HTTP
 
-`promotions/di.ts` registers `promotionsService`:
+`promotions/di.ts` registers `promotionsService` under the DI token `promotionsService` (rev — W3). **The full, current type is `lib/types.ts`'s `PromotionsService` (§Public TypeScript Contract) — that is the normative signature as of rev 9; the block below is kept only as the historical shape this amendment originally introduced, for anyone diffing against an older copy of this document.**
 
 ```typescript
-export type PromotionEvaluationInput = {
-  cart: CartContext              // §Extensible Cart Context, extended per A.4
+// Superseded 2026-10-14 by lib/types.ts's PromotionsService/EvaluateInput (§Public TypeScript Contract) —
+// kept for history. The current input is addressed by productId/variantId, never sku (D-R4-21);
+// uses BuyerContext identity (D-R4-28); carries evaluatedAt (D-R4-13); and codes:{id,type}[] (unchanged shape, now normative).
+export type PromotionEvaluationInput_v1 = {
+  cart: CartContext              // §Extensible Cart Context, extended per A.4 — superseded, see note
   codes: Array<{ id: string; type: 'static' | 'dynamic' }>
   buyer: {
     customerId: string | null
@@ -1591,17 +1770,6 @@ export type PromotionEvaluationInput = {
     customerUserId: string | null
     channelId: string | null
   }
-}
-
-export interface PromotionsService {
-  evaluate(input: PromotionEvaluationInput): Promise<ResolvedPromotions>
-  evaluateForProduct(input: ProductPagePromotionInput): Promise<ProductPagePromotions>
-  reserveCode(input: { codeString: string; cartId: string; customerId: string | null }): Promise<CodeReservationResult>
-  validateCode(input: { codeString: string; cartId: string; customerId: string | null }): Promise<CodeValidationResult>
-  useCode(input: { codeString: string; cartId: string; orderId: string; customerId: string | null }): Promise<CodeUseResult>
-  releaseCode(input: { reservationId: string; reason: string }): Promise<void>
-  registerUsage(input: RegisterUsageInput): Promise<RegisterUsageResult>
-  revertUsage(input: RevertUsageInput): Promise<void>
 }
 ```
 
@@ -1639,87 +1807,60 @@ Nothing is deployed under the old paths, so this is a specification change and n
 
 **This table is the single source of truth for these seven routes.** Every other section of this document — module file structure, *API Contracts* headers, the implementation plan — must read the `/api/promotions/*` path on the right, not the `/api/cart/*` path on the left; occurrences of the old paths elsewhere in this document that were not updated in this pass are a defect, not an alternative.
 
-### A.4 Cart context: ids alongside SKUs
+### A.4 Items are addressed by id, never by SKU (rev 9 — superseded)
 
-`CartContext.items[]` gains three fields:
+**Superseded 2026-10-14 (D-R4-21/C11).** This section originally added `productId`/`variantId`/`cartLineId` fields alongside a retained `sku`, for "external callers [who] may have nothing else." Release 4 drops that retention: `EvaluateInput.items[]` (§Public TypeScript Contract) is addressed by `lineId`/`productId`/`variantId` only — there is no `sku` field anywhere in the Release 4 evaluate contract, and no SKU-keyed rule config (`row_total.sku`, `product.sku`, `category.category_slug`, `producer`) ships either (§Data Models' Release-4 rule set). An external, non-`cart` caller integrating against this API supplies ids the same way `cart` does; a SKU-only integration is not supported in this release. `targetCartLineId` is likewise superseded by `targetLineId` (§API Contracts, §Public TypeScript Contract) — the rename from "cart line" to "line" reflects that the id is the caller's own, not necessarily a `cart`-module `CartLine.id`.
 
-| Field | Type | Notes |
-|---|---|---|
-| `productId` | `string` | `catalog.CatalogProduct.id` |
-| `variantId` | `string \| null` | |
-| `cartLineId` | `string` | Identifies the line for effect targeting |
+`customerGroupIds` (via `BuyerContext`, D-R4-28) and the `customer_group` rule type are unaffected by this supersession and remain as originally added here — matching on set membership is still how a wholesale-only promotion is expressed, without listing customer ids individually. `taxMode`/`storeId` as standalone `CartContext` fields are also superseded: tax basis is now carried per-amount (`amountNet`/`amountGross`, A.5 below) rather than signalled once via `taxMode`, and `storeId`/per-store campaigns are not part of the Release 4 rule set (no rule reads it).
 
-`sku` is retained and still populated — external callers may have nothing else, and SKU-based rules (`producerCode`, category slug matching) keep working.
+### A.5 Effects map onto `SalesAdjustmentDraft` and `SalesLineSnapshot` (rev 9 — superseded; current contract is §API Contracts + B.6)
 
-**Effect targeting changes from `targetSku` to `targetCartLineId`,** with `targetSku` retained for external callers. A cart may legitimately hold two lines with the same SKU and different `configuration` (engraving, B2B configurator output); `targetSku` cannot distinguish them, so a line discount would land on the wrong line or be applied twice.
+**Superseded 2026-10-14 (C5/D-R4-10, and by Amendment §B.6 below for the line-targeted case).** The original mapping used a single `amount` plus a `basis: 'net' | 'gross'` flag, with `salesCalculationService` expected to apply tax to convert sides. That flag alone cannot do it correctly for an order-scoped discount — `resolveAdjustmentAmounts` on `develop` falls back to `net = gross` (and vice versa) when only one side is supplied, silently misapportioning tax. Release 4's `ResolvedEffect` carries **both** `amountNet` and `amountGross` directly (D-R4-10): the engine computes both sides itself, from the same per-item `unitPriceNet`/`unitPriceGross` it was given, and `cart` consumes whichever side `salesCalculationService` needs without ever deriving one from the other. `basis` survives only as an audit-trail field, never the thing a consumer branches on.
 
-`CartContext` also gains:
+Order-scope effects (`CART_DISCOUNT`; `DELIVERY_DISCOUNT` unreachable in Release 4, D-R4-14) still map to `SalesAdjustmentDraft` with `scope: 'order'`, `amountNet`/`amountGross` from the effect. Line-scope effects (`LINE_DISCOUNT`) do **not** map to a `SalesAdjustmentDraft` at all — `sales` still rejects a line-attributed draft (`"Line-scoped adjustments are not supported yet."`) — they map to `SalesLineSnapshot.discountAmount` with `discountAmountBasis: 'line'`, taken from `amountNet` **as-is**, never divided. This is Amendment §B.6's rule, restated normatively here because this section is where a reader lands first; §B.6 is the section with the full derivation and the arithmetic showing why the old per-unit-division reading (introduced 2026-09-09, superseded 2026-10-14) does not match `sales` as shipped.
 
-| Field | Type | Notes |
-|---|---|---|
-| `customerGroupIds` | `string[]` | Enables group-scoped promotions — the B2B case v1.0 could not express |
-| `taxMode` | `'gross' \| 'net'` | Disambiguates the basis of returned amounts (A.5) |
-| `storeId` | `string \| null` | Per-store campaigns |
+`ADD_FREE_ITEM` does not map to an adjustment or a snapshot discount — it instructs `cart` to insert a `CartLine` with `origin: 'promotion'` and `promotion_id` set to this effect's `promotionId` (rev — D-R4-7, replacing the `added_by: 'merge'` language, which predates `cart` rev 7's `added_by_actor_type` rename). Such a line is **excluded from the next evaluation's eligibility computation** (sent to `evaluate` with nothing that would let it re-trigger its own promotion), or a buy-2-get-1 promotion re-triggers on its own free item and loops. This exclusion is an explicit invariant, tested (`TC-PROM-053`).
 
-A new built-in rule type `customer_group` matches against `customerGroupIds` using set membership. Without it, a wholesale-only promotion has to be expressed as a list of customer ids.
+### A.6 Code reservations follow the cart's lifecycle (rev 9 — mechanism corrected, same obligations)
 
-### A.5 Effects map onto `SalesAdjustmentDraft`
-
-`cart` does not apply discounts itself; it forwards them to `salesCalculationService` as `SalesAdjustmentDraft[]`. The existing effect shape maps cleanly, with one gap closed.
-
-| Effect field | `SalesAdjustmentDraft` field |
-|---|---|
-| `promotionId` | `promotionId` |
-| `label` (resolved for the locale) | `label` |
-| `type: 'LINE_DISCOUNT'` | `scope: 'line'` — **superseded by Amendment §B.6**: `sales` rejects a line-attributed adjustment draft today, so line effects travel on the line snapshot instead |
-| `type: 'CART_DISCOUNT' \| 'DELIVERY_DISCOUNT'` | `scope: 'order'` |
-| `amount` | `amountNet` **or** `amountGross` — see below |
-| code | `code` |
-
-**The gap.** v1.0 returns `amount` as a negative decimal string without stating whether it is net or gross, while the request supplies both `unitPrice` (ex-tax) and `unitPriceIncTax`. `salesCalculationService` needs to know which basis it received or it will apply tax to an already-taxed discount.
-
-Resolution: every effect gains a required `basis: 'net' | 'gross'` field. The engine computes against the basis matching `CartContext.taxMode` and states it. Amounts remain negative decimal strings on the wire and are parsed to numbers at the `SalesAdjustmentDraft` boundary.
-
-`ADD_FREE_ITEM` does not map to an adjustment — it instructs `cart` to insert a line at zero price with `added_by: 'merge'` semantics and a `promotionId` marker. Such a line is **excluded from the next evaluation's eligibility computation**, or a buy-2-get-1 promotion re-triggers on its own free item and loops. This exclusion is an explicit invariant, tested.
-
-### A.6 Code reservations follow the cart's lifecycle
-
-`CodeReservation` gains `cart_id`. Reservations are released when:
+`CodeReservation` carries `cart_id` **in its unique key** (`UNIQUE (code_id, cart_id)` — rev, C4/C7/D-R4-8; the original text said merely "gains `cart_id`" without saying the key changed, which left the single-use-per-customer bug the key was supposed to fix unfixed). Reservations are released when:
 
 - the code is removed from the cart
 - the cart is abandoned (ahead of full expiry — a 30-day cart holding a limited code for 30 days exhausts a campaign against baskets nobody bought)
 - the cart expires
 - the cart is merged and the target cart already holds the code
 
-Reservation TTL is independent of and shorter than cart TTL. `cart`'s expiry sweeper calls `releaseCode`; `promotions` also sweeps independently, because a reservation must not depend on another module's job succeeding.
+Reservation TTL is independent of and shorter than cart TTL. `cart`'s expiry sweeper calls `codes/release`; `promotions` also sweeps independently (`services/code-reservation-sweeper.ts`, §Implementation Plan Phase 3 step 7), because a reservation must not depend on another module's job succeeding.
 
 ### A.7 Evaluation cost
 
 `cart` evaluates on every line mutation. Two obligations follow:
 
-1. **Batch mutations evaluate once.** `POST /api/cart/carts/:token/lines/bulk` results in a single `evaluate` call. A 50-line B2B quick order must not run 50 passes.
-2. **Latency budget:** P95 under 150 ms for a 50-line cart against 200 active promotions. Measured at the Phase 2 gate of the suite. If the three-pass engine cannot meet it, the mitigation is a narrowed candidate set from the cache build — not caching the evaluation result, which depends on the whole cart and would key on the cart itself.
+1. **Batch mutations evaluate once.** `POST /api/cart/current/lines/bulk` (rev — path per `cart-module.md` rev 9 §10) results in a single `evaluate` call. A 50-line B2B quick order must not run 50 passes.
+2. **Latency budget:** P95 under 150 ms for a 50-line cart against 200 active promotions. Measured at the Phase 2 gate of this module (engine-only) and re-measured end-to-end at the `cart` module's own Phase 3 release gate. If the three-pass engine cannot meet it, the mitigation is a narrowed candidate set from the cache build — not caching the evaluation result, which depends on the whole cart and would key on the cart itself.
 
 ### A.8 Risks added
 
 | # | Risk | Severity | Failure scenario | Mitigation | Residual |
 |---|---|---|---|---|---|
-| A-R1 | Discount basis confusion | **High** | An effect computed on gross is applied by `salesCalculationService` as net; tax is charged on a discount that already included it. Every promoted order is mispriced. | Required `basis` field (A.5); a property test asserts cart totals with promotions equal order totals with the same promotions | Low |
+| A-R1 | Discount basis confusion | **High** | An order-scoped effect supplies only one side; `sales`-side code reuses it for the other, charging tax on an already-taxed discount. Every promoted order is mispriced. | Every amount-carrying effect carries **both** `amountNet` and `amountGross` directly (rev — C5/D-R4-10, replacing the single `amount`+`basis`-flag model); a property test asserts cart totals with promotions equal order totals with the same promotions | Low |
 | A-R2 | Free-item feedback loop | **High** | A buy-2-get-1 free item counts toward its own trigger; each evaluation adds another free item until a cap or a timeout. | Promotion-inserted lines excluded from eligibility (A.5), tested explicitly; a per-evaluation cap on inserted items as a backstop | Low |
-| A-R3 | Line targeting collision | Medium | Two lines share a SKU with different configurations; a `targetSku` discount lands on the wrong line or twice. | `targetCartLineId` for in-process callers (A.4) | Low |
-| A-R4 | Reservation leak across cart lifetime | Medium | Abandoned carts hold single-use codes; a limited campaign exhausts against baskets nobody bought. | Independent shorter reservation TTL; release on abandonment; both modules sweep (A.6) | Low |
+| A-R3 | Line targeting collision | Medium | Two lines share a product with different configurations; a discount lands on the wrong line or twice. | `targetLineId` (rev — never `sku`, A.4) | Low |
+| A-R4 | Reservation leak across cart lifetime | Medium | Abandoned carts hold single-use codes; a limited campaign exhausts against baskets nobody bought. Two carts holding the same code could previously both pass a per-customer check. | Independent shorter reservation TTL; release on abandonment; both modules sweep; `(code_id, cart_id)` key gives each cart its own capacity (rev — C7/D-R4-8, A.6) | Low |
 | A-R5 | Evaluation latency on bulk B2B carts | Medium | 50-line quick order × 200 promotions blocks the mutation response. | Single evaluation per batch; latency budget gated (A.7) | Medium — depends on engine performance, measured before Phase 2 exit |
+| A-R6 | Budget enforcement loses isolation under an ambient transaction | **High** | `registerUsage` called inside `checkout`'s own order transaction silently drops any serializable-isolation assumption; concurrent orders jointly overshoot `max_budget` with no retry path. | Row lock (`SELECT … FOR UPDATE`) + re-read-sum inside the (possibly ambient) transaction — correct regardless of isolation level, no retry loop (rev — C6/D-R4-12) | Low |
 
 ### A.9 Additional test cases
 
 - `TC-PROM-050` — In-process `promotionsService.evaluate` and `POST /api/promotions/evaluate` return identical effects for the same context
 - `TC-PROM-051` — `customer_group` rule matches on set membership, including a buyer in several groups
-- `TC-PROM-052` — Effect `basis` matches `CartContext.taxMode`; cart totals with promotions equal order totals with the same promotions (A-R1)
+- `TC-PROM-052` — Every amount-carrying effect carries both `amountNet` and `amountGross`, each independently correct; cart totals with promotions equal order totals with the same promotions (A-R1, rev — replaces the single-`basis`-field assertion)
 - `TC-PROM-053` — A promotion-inserted free line does not count toward its own trigger across three consecutive evaluations (A-R2)
-- `TC-PROM-054` — Two lines with the same SKU and different `configuration` receive independent line discounts (A-R3)
+- `TC-PROM-054` — Two lines with the same product and different `configuration` receive independent line discounts, addressed by `targetLineId` (A-R3, rev — never `targetSku`)
 - `TC-PROM-055` — Reservation released on cart abandonment, expiry, code removal, and merge into a cart already holding the code (A-R4)
 - `TC-PROM-056` — A 100-line bulk add triggers exactly one evaluation (A.7)
 - `TC-PROM-057` — 50-line cart against 200 active promotions evaluates within the P95 budget
+- `TC-PROM-050b`–`056` (rev — C6/D-R4-12, A-R6) — N concurrent `registerUsage` calls against one promotion inside one ambient transaction never jointly exceed `max_budget`; N concurrent `codes/use` calls for one single-use code, exactly one succeeds
 
 ---
 
@@ -1755,7 +1896,7 @@ The consequence for the engine is structural, not cosmetic: a cart-wide budget c
 
 On an uncapped benefit `selector: null` is read as `all` — there is no budget to spend, so every qualifying unit is covered and the ordering is irrelevant. `all` remains a distinct, explicitly stored value so an operator can state the intent; the two behave identically and both are rejected the moment a cap is added without the operator revisiting the selector.
 
-`cart_order` is added to the selector value set for the literal "first N added" reading. Ties break on `cartLineId` ascending then unit index, so re-evaluating an unchanged cart returns byte-identical effects — a property the cart relies on to avoid spurious total changes between two reads of the same basket.
+`cart_order` is added to the selector value set for the literal "first N added" reading. Ties break on `lineId` ascending (rev — not `cartLineId`) then unit index, so re-evaluating an unchanged cart returns byte-identical effects — a property the cart relies on to avoid spurious total changes between two reads of the same basket.
 
 ### B.5 `LINE_DISCOUNT` becomes quantity-aware
 
@@ -1763,7 +1904,29 @@ The effect gains `appliesTo`, `lineQuantity`, `appliedQuantity` and `unitAmount`
 
 Without `appliedQuantity` the coverage is unrecoverable downstream. The cart cannot render *"5 of 8 pieces −20%"*, and a return of one piece has no basis on which to decide how much discount to reverse — the same total is consistent with 5 units at −2.40 and 8 units at −1.50.
 
-### B.6 Mapping into `sales` — supersedes the `LINE_DISCOUNT` row of §A.5
+### B.6 Mapping into `sales` — supersedes the `LINE_DISCOUNT` row of §A.5 (rev 9 — rewritten 2026-10-14, C1/D-R4-9; the 2026-09-09 fix below is itself superseded)
+
+**What changed underneath this section a second time.** The 2026-09-09 fix (preserved below for history) corrected a draft that assumed `sales` had no discount-basis concept at all and so divided the effect's total across the line's units. That assumption was already false by the time of writing: `SalesLineSnapshot.discountAmountBasis?: 'unit' | 'line'` and `resolveLineDiscountTotal` shipped in `#5640` (merged 2026-08-28, before the 2026-09-09 edit), and the 2026-09-09 text asserted the opposite — that neither identifier "occurs nowhere" — which the Release 4 pre-implementation analysis found to be the stale claim it was. Followed as written, `cart` would have implemented a workaround for a problem `sales` had already solved, reintroducing the exact sub-cent residual the 2026-09-09 fix was written to avoid (`10.00 / 3 → 3.3333 × 3 = 9.9999`), on a figure that `sales` itself does not produce when given the basis flag directly.
+
+**Resolution (current, normative).** Promotion effects split by target rather than travelling as one kind:
+
+| Effect | Carried as |
+|--------|-----------|
+| `LINE_DISCOUNT` (`appliesTo: 'line'` or `'unit'`) | `SalesLineSnapshot.discountAmount` on the matching line, with `discountAmountBasis: 'line'`, set to `\|amountNet\|` **taken as-is — never divided by `lineQuantity` or `appliedQuantity`** |
+| `CART_DISCOUNT` (`appliesTo: 'order'`) | `SalesAdjustmentDraft` with `scope: 'order'`, carrying `amountNet`/`amountGross` directly (§A.5) |
+| `DELIVERY_DISCOUNT` | Unreachable in Release 4 (D-R4-14) |
+| `ADD_FREE_ITEM` | A new `CartLine` with `origin: 'promotion'` + `promotion_id` (§A.5, D-R4-7) |
+
+Three rules bind `cart` here, each of them a mispriced order if broken. **Their normative home is the `cart` module spec (§3.2, rev 9), not this document** — they constrain `cart`'s implementation, and a promotions amendment does not get to legislate another module's code any more than it gets to legislate `sales`'s (§B.7). They are restated here because this section is where a reader checking the promotions-side contract lands first:
+
+1. **`discountAmount = |amountNet|`, `discountAmountBasis: 'line'`, `discountPercent` never set.** `buildBaseLineResult`'s basis-aware branch (`packages/core/src/modules/sales/lib/calculations.ts:97-116`, `resolveLineDiscountTotal`) consumes a line-total discount directly when `discountAmountBasis` is `'line'` — there is no division step to get wrong, because the shipped contract already expects the total, not a per-unit figure. A benefit covering 5 of 8 units at −2.40 net has `amountNet: "-12.00"`; `cart` assigns `discountAmount: 12.00, discountAmountBasis: 'line'` and `sales` reproduces exactly 12.00. Setting `discountPercent` on a promotion-sourced line is a write-path error (never do it) — `sales/data/validators.ts:345` has it win over `discountAmount` when both are present, silently discarding the resolved figure. The old per-unit-division reading (`|amount| / lineQuantity`, assign to a basis-less field) matched no `sales` API that has ever existed on `develop`; it is withdrawn rather than corrected, because there is no "corrected" version of a mapping that never needed to exist.
+2. **`amountNet`/`amountGross` are already both present on the effect (A.5, D-R4-10)** — there is no basis-conversion step for `cart` to perform here. It takes `amountNet` as the magnitude (absolute value) directly; the days of deriving one side from the other inside `cart` ended with A.5's supersession.
+3. **Sum, then record.** `SalesLineSnapshot.discountAmount` is one scalar per line. Several cumulative promotions discounting the same line sum into it; per-promotion attribution does not survive the mapping — it lives in `PromotionUsage.effects_snapshot` instead.
+
+No sub-cent residual exists under this mapping: the line-total basis is a single assignment, not a divide-then-remultiply round trip, so there is nothing for 4 dp rounding to disturb between the effect and the document. `cart-module.md`'s release invariant (§3.2 rev 9) is defined independently of this residual question, against `quote`/`order` document-total equality — the residual this section used to excuse no longer needs excusing.
+
+<details>
+<summary>Historical: the 2026-09-09 fix, now superseded</summary>
 
 §A.5 mapped `LINE_DISCOUNT` onto `SalesAdjustmentDraft` with `scope: 'line'`. That mapping does not work against the `sales` module as implemented:
 
@@ -1773,19 +1936,9 @@ Without `appliedQuantity` the coverage is unrecoverable downstream. The cart can
 
 So the §A.5 mapping either fails with a 400 or succeeds having silently detached the discount from its line. Neither is acceptable for a per-line, let alone per-unit, promotion.
 
-**Resolution.** Promotion effects split by target rather than travelling as one kind:
+The 2026-09-09 resolution assigned `discountAmount = |amount| / lineQuantity` to a `SalesLineSnapshot.discountAmount` it believed carried no basis flag, with a stated sub-cent residual whenever `lineQuantity` did not divide the total evenly. This was superseded 2026-10-14 once the Release 4 analysis established that `discountAmountBasis: 'line'` already existed on `develop` and made the division (and its residual) both unnecessary and wrong against the shipped API — see the normative resolution above.
 
-| Effect | Carried as |
-|--------|-----------|
-| `LINE_DISCOUNT` (`appliesTo: 'line'` or `'unit'`) | `SalesLineSnapshot.discountAmount` on the matching line, as a **per-unit** amount: `\|amount\| / lineQuantity` |
-| `CART_DISCOUNT`, `DELIVERY_DISCOUNT` (`appliesTo: 'order'`) | `SalesAdjustmentDraft` with `scope: 'order'` — unchanged from §A.5 |
-| `ADD_FREE_ITEM` | A new zero-price line, unchanged from §A.5 |
-
-Three rules bind `cart` here, each of them a mispriced order if broken. **Their normative home is the `cart` module spec (§3, rev 4), not this document** — they constrain `cart`'s implementation, and a promotions amendment does not get to legislate another module's code any more than it gets to legislate `sales`'s (§B.7). They are restated here because §A.5 put the broken mapping in this document and a reader of §A.5 must find the correction:
-
-1. **`discountAmount` is per-unit over the line's FULL quantity — assign `|amount| / lineQuantity`, never `unitAmount` and never `amount`.** There is no basis flag to choose: `buildBaseLineResult` (`packages/core/src/modules/sales/lib/calculations.ts:80-123`) reads `SalesLineSnapshot.discountAmount` as `discountPerUnit` and computes `min(max(discountPerUnit × quantity, 0), netSubtotalBeforeDiscount)` — unconditionally, for every document kind. Divide by `lineQuantity`, not `appliedQuantity`: a benefit covering 5 of 8 units at −2.40 has `amount: "-12.00"`, so `discountAmount = 12.00 / 8 = 1.50` and `sales` reproduces `1.50 × 8 = 12.00`. ✅ The two plausible mistakes both overcharge the merchant: assigning `unitAmount` (2.40) yields `2.40 × 8 = 19.20`, and assigning the total `amount` (12.00) yields `12.00 × 8 = 96.00` — eight times the intended discount. On TC-PROM-065(a)'s figures (10 units at 20.00 net, `amount: "-40.00"`) the second mistake gives `40.00 × 10 = 400.00` against a 200.00 line, where `min(400.00, 200.00)` clamps it to the **entire line free**. The one rule is correct for full and partial coverage alike, so it is unconditional.<br><br>Residual, worth stating: the division is exact only when `lineQuantity` divides the total. `round()` is 4 dp (`calculations.ts:22-24`), matching `numeric(18,4)`, so 10.00 across 3 units gives `3.3333 × 3 = 9.9999` — 0.0001 short of the effect's stated `amount`. Sub-cent, but `cart` §14's Phase 2 gate asserts *byte-identical* totals against the `SalesOrder`, so that gate must name the document total as authoritative and treat the effect's `amount` as the display figure.
-2. **`discountAmount` is a positive magnitude on a net basis.** `sales` subtracts it from `unitPriceNet × quantity`. Effects are negative decimal strings, and `basis` may be `'gross'` when `CartContext.taxMode` is `'gross'` (§A.5). `cart` takes the absolute value, and converts a gross-basis amount to net before assigning it — a gross amount assigned unconverted is A-R1 reappearing through a different field.
-3. **Sum, then record.** `SalesLineSnapshot.discountAmount` is one scalar per line. Several cumulative promotions discounting the same line sum into it; per-promotion attribution does not survive the mapping.
+</details>
 
 The cost of (3) is stated plainly because it is real: a promoted line shows its discount in the total but not which campaigns produced it, so the per-promotion audit trail lives only in `PromotionUsage.effects_snapshot`, which §*Promotion Usage Lifecycle* already writes at order confirmation. The clamp in `sales` (`Math.min(discountTotal, netSubtotalBeforeDiscount)`) also means a discount exceeding the line silently truncates rather than erroring; promotions must not rely on it as a guard, and `max_discount` remains the intended bound.
 
@@ -1799,24 +1952,24 @@ Until that spec exists, §B.6 is the mapping. It is a contraction of ambition, n
 
 | # | Risk | Severity | Failure scenario | Mitigation | Residual |
 |---|---|---|---|---|---|
-| A-R6 | Cap discarded by the per-unit mapping | **High** | `sales` multiplies `SalesLineSnapshot.discountAmount` by the line's full quantity, so a capped effect mapped with either of the two natural-looking values overcharges the merchant and nothing errors: `unitAmount` (−2.40) discounts 8 units where the benefit allowed 5 (19.20 instead of 12.00), and the effect's total `amount` (−12.00) yields 96.00 — eight times the intended discount, and enough to hit the clamp and zero the line once `\|amount\| × lineQuantity` exceeds its subtotal. | `discountAmount = \|amount\| / lineQuantity`, unconditionally (B.6 rule 1); `TC-PROM-060` asserts the partially covered line's document total in all three directions, so either mistake fails the suite | Low |
+| A-R6 | Line-total discount mis-mapped | **High** (rev — mechanism changed 2026-10-14, risk unchanged) | A future edit reintroduces per-unit division (`\|amountNet\| / lineQuantity`) against the now-shipped line-total contract, or sets `discountPercent` beside `discountAmount` and silently discards the resolved figure. | `discountAmount = \|amountNet\|`, `discountAmountBasis: 'line'`, unconditionally, `discountPercent` never set (B.6, rev); `TC-PROM-060` asserts the partially covered line's document total against the single correct mapping and against the withdrawn per-unit one, so a regression fails the suite | Low |
 | A-R7 | Ambiguous cap ordering | Medium | An operator caps at 5 pieces without stating which 5; the engine picks, and a campaign costed against the cheapest units is billed against the most expensive. | `selector` required whenever a cap is set, rejected at the write path, and unreachable in the admin form (B.4) | Low |
-| A-R8 | Cap loosened by line splitting | Medium | A cap counted per line is defeated by splitting a purchase across lines — which configurable products do on their own, without the buyer intending it. | Cart-wide budget held in `resolveEffects` (B.3), tested against a multi-line cart of one SKU (`TC-PROM-059`) | Low |
+| A-R8 | Cap loosened by line splitting | Medium | A cap counted per line is defeated by splitting a purchase across lines — which configurable products do on their own, without the buyer intending it. | Cart-wide budget held in `resolveEffects` (B.3), tested against a multi-line cart of one product (`TC-PROM-059`) | Low |
 
 ### B.9 Additional test cases
 
-- `TC-PROM-058` — `max_quantity: 5` with `selector: cart_order` on an 8-unit line under `applies_to: 'unit'` returns one effect with `appliedQuantity: 5`, `lineQuantity: 8`, and `amount === unitAmount × 5`
-- `TC-PROM-059` — The same benefit against three lines of the same SKU at four units each discounts five units **in total** across lines, not five per line (A-R8)
-- `TC-PROM-060` — A partially covered line mapped through `cart` produces a document total equal to `unitPriceNet × quantity − |amount|`. Asserted in all three directions so neither mis-mapping can pass unnoticed (A-R6): with `discountAmount = |amount| / lineQuantity` the total matches; with `unitAmount` assigned directly it is over-discounted by `lineQuantity / appliedQuantity`; with the raw `amount` assigned it is over-discounted by `lineQuantity`. Concretely — 8 units at 25.00 net (200.00), effect `amount: "-12.00"`, `unitAmount: "-2.40"`, `appliedQuantity: 5` — the expected total is 188.00, and the two wrong mappings give 180.80 and 104.00. **Owned by the `cart` module's suite** — it exercises `cart`'s mapping and `sales`'s arithmetic, not the promotions engine; listed here so A-R6 has a visible mitigation
+- `TC-PROM-058` — `max_quantity: 5` with `selector: cart_order` on an 8-unit line under `applies_to: 'unit'` returns one effect with `appliedQuantity: 5`, `lineQuantity: 8`, and `amountNet`/`amountGross` equal to the resolved total for those 5 units (rev — no `unitAmount` field exists in the Release 4 model to cross-check against; the effect reports only the row total)
+- `TC-PROM-059` — The same benefit against three lines of the same product at four units each discounts five units **in total** across lines, not five per line (A-R8)
+- `TC-PROM-060` — A partially covered line mapped through `cart` produces a document total equal to `unitPriceNet × quantity − |amountNet|` (rev — C1/D-R4-9, replacing the three-direction assertion against a withdrawn per-unit mapping). Asserted against the correct mapping (`discountAmount = |amountNet|`, matches) and against the withdrawn per-unit mapping (`discountAmount = |amountNet| / lineQuantity`, which would now **under**-discount, the inverse of the old over-discount failure) so a regression to either wrong shape fails the suite. Concretely — 8 units at 25.00 net (200.00), effect `amountNet: "-12.00"` for 5 covered units — the expected total is 188.00; the withdrawn per-unit mapping would give `200.00 − 12.00/8×8 = 188.00` by coincidence at full-line coverage but diverges the moment coverage is partial, which is exactly this fixture's point. **Owned by the `cart` module's suite** — it exercises `cart`'s mapping and `sales`'s arithmetic, not the promotions engine; listed here so A-R6 has a visible mitigation
 - `TC-PROM-061` — `applies_to: 'line'` with `max_quantity: 5` against a single 8-unit line applies **nothing** — a line cannot be split under that target
 - `TC-PROM-062` — A benefit config with `max_quantity` and no `selector` is rejected 422 at the write path (A-R7); `selector: all` with a cap is rejected likewise
 - `TC-PROM-063` — `quantity_step: 3` with `max_quantity: 5` discounts 3 units, not 5: a remainder smaller than a whole block is not discounted
 - `TC-PROM-064` — Determinism, tested at the level where it is observable: a unit test on `selectUnits` asserts that two calls with the same benefit and cart return the same `UnitSelection` — same lines, same order, same `appliedQuantity` per line — including when two lines tie on unit price. The evaluation-level assertion is the weaker "two evaluations return identical effects"; *which* units were selected is not recoverable from the effect payload by design (§B.5), so it must be asserted against the helper, not the response
-- `TC-PROM-065` — `max_quantity` and `max_discount` compose, with concrete figures in both directions. Cart: one line, 10 units at 20.00 net, benefit `value: "50%"`, `applies_to: 'unit'`, `selector: cart_order`. (a) `max_quantity: 4`, `max_discount: "100"` → the quantity cap binds first: `appliedQuantity: 4`, `unitAmount: "-10.00"`, `amount: "-40.00"`. (b) `max_quantity: 8`, `max_discount: "50"` → the money cap binds: `appliedQuantity: 8`, `amount: "-50.00"` (capped from −80.00) and `unitAmount: "-6.25"` back-solved, **not** `"-10.00"` (the C2 identity, §Invariants)
+- `TC-PROM-065` — `max_quantity` and `max_discount` compose, with concrete figures in both directions (rev — no `unitAmount` back-solve; `amountNet` is capped directly). Cart: one line, 10 units at 20.00 net, benefit `value: "50%"`, `applies_to: 'unit'`, `selector: cart_order`. (a) `max_quantity: 4`, `max_discount: "100"` → the quantity cap binds first: `appliedQuantity: 4`, `amountNet: "-40.00"`. (b) `max_quantity: 8`, `max_discount: "50"` → the money cap binds: `appliedQuantity: 8` (unchanged — the cap reduces the amount granted, not the units covered), `amountNet: "-50.00"` (capped from the raw −80.00)
 - `TC-PROM-070` — `max_lines: 2` against a cart of four qualifying lines discounts exactly two lines, chosen by `selector`, with `max_quantity` unset; and `max_lines: 2` combined with `max_quantity: 5` stops at whichever binds first
 - `TC-PROM-071` — Every write-path rejection in the §Data Models rejection table returns 422: a cap on an `order`-target benefit, `selector: nth` with `max_quantity`, `nth` without `nth_position`, `nth_position` without `nth`, and `quantity_step` under `applies_to: 'line'`
 - `TC-PROM-072` — A `buy_x_get_y` whose final application cannot be funded in full by the remaining `max_quantity` budget grants that application **not at all** rather than pro-rating it (§B.3)
-- `TC-PROM-066` — A gross-basis effect (`CartContext.taxMode: 'gross'`) is converted to net before assignment to `discountAmount` (B.6 rule 2). The cart-equals-order totals assertion is `TC-PROM-052`'s and is not repeated here
+- `TC-PROM-066` — `amountNet` and `amountGross` are each independently correct for a benefit configured against a tax-inclusive unit price (rev — replaces the single-`basis`-conversion assertion, A.5/B.6). The cart-equals-order totals assertion is `TC-PROM-052`'s and is not repeated here
 - `TC-PROM-067` — The `applies_to` allow-list is enforced, not merely documented: `cart_discount` with `applies_to: 'unit'` and `product_discount` with `applies_to: 'order'` are both rejected 422 at the write path. The same check runs for an extension benefit type against its declared `supportedAppliesTo`, reading only the registry entry and never the extension's `config` (B.2)
 - `TC-PROM-068` — Two cumulative promotions discounting the same line sum into that line's single `discountAmount`, and both remain individually recoverable from `PromotionUsage.effects_snapshot` after order confirmation (B.6 rule 3)
 - `TC-PROM-069` — A `buy_x_get_y` benefit with a 100%-off reward emits `ADD_FREE_ITEM` rather than a `LINE_DISCOUNT`, whatever its `applies_to`, and the inserted line is excluded from the next evaluation's eligibility (B.2, reinforcing `TC-PROM-053`)
@@ -1843,3 +1996,6 @@ The one place this spec diverges is Sylius, whose unit-level actions attach an a
 | 2026-08-17 | 2.0.2 | **`/om-pre-implement-spec` audit fixes.** (1) The 2.0.1 fix was itself incomplete: 8 further `/api/cart/*`/old-operation-name references remained in the Proposed Solution summary, the Evaluation Engine Data Flow / Code Lifecycle / Promotion Usage Lifecycle diagrams, the Extensibility section (twice), the Phase 5 plan step, and a Risk scenario — all now updated. (2) `PromotionsService` (§A.2) was missing `validateCode`/`useCode` — two of the seven renamed routes had no in-process method, contradicting the "in-process callers MUST use the service" rule for those two operations; added. (3) Added §A.2a stating `reserveCode`/`releaseCode`/`useCode`/`registerUsage`/`revertUsage` are registered commands, not bare service calls, per root `AGENTS.md`. (4) Added §A.2b declaring `cart → promotions` a hard dependency, not an optional `tryResolve` peer. (5) Added a Final Compliance Report addendum for all of the above. See `ANALYSIS-2026-02-23-spec-055-promotions-cart-amendment.md` for the full audit. |
 | 2026-09-07 | 2.1.0 | **Benefit application target and quantity caps** (see §Amendment — 2026-09-07, normative over *Data Models — Benefit*, *Resolved Effect Types* and the `LINE_DISCOUNT` row of §A.5; the affected body tables are updated in place). `Benefit` gains an `applies_to` column (`order` \| `line` \| `unit`) with a per-type allow-list, replacing the implied-by-`benefit_type` target, `tiered_discount.scope` and the undefined `delivery_discount.scope`. A shared quantity-cap block (`max_quantity`, `max_lines`, `quantity_step`) intersected into every benefit variant replaces `product_discount.pcs_limit`; counting is **cart-wide per benefit invocation**, held in Pass 3 because the budget spans lines. `selector` gains `cart_order` (the literal "first N") and becomes **required whenever a cap is set** — no default, since "first 5" and "5 most expensive" are different campaign costs. `LINE_DISCOUNT` gains `appliesTo`, `lineQuantity`, `appliedQuantity` and `unitAmount`; a partially covered line stays one effect rather than fanning out per unit. §B.6 supersedes §A.5's line mapping: `sales` rejects a line-attributed adjustment draft today (`documents.ts` — *"Line-scoped adjustments are not supported yet."*) and `SalesAdjustmentDraft` carries no line reference, so line effects travel on `SalesLineSnapshot.discountAmount`, which `sales` reads as a **per-unit** amount and multiplies by the line's full quantity — `cart` therefore assigns `\|amount\| / lineQuantity`, never `unitAmount` and never the raw `amount`. Extending `sales` with line-attributed adjustments is deferred to its own spec (§B.7). `NormalizedBenefit` gains `appliesTo`; `BenefitExtension` gains `supportedAppliesTo`/`defaultAppliesTo` and receives a pre-budgeted `UnitSelection`. New `lib/unit-selection.ts`. Risks A-R6…A-R8 and cases TC-PROM-058…072 added. `BenefitExtension` also declares `capsHonoured`, and `GET /api/promotions/extension-types` surfaces it alongside the applies-to metadata. |
 | 2026-09-09 | 2.1.1 | **§B.6 rule 1 corrected — it was specified against a `sales` API that does not exist.** 2.1.0 mandated `discountAmountBasis: 'line'` and attributed the behaviour to `resolveLineDiscountTotal` in `sales/lib/calculations.ts`. Neither identifier occurs anywhere in the repository: `SalesLineSnapshot` (`packages/core/src/modules/sales/lib/types.ts:35-63`) has no basis field, and `buildBaseLineResult` (`calculations.ts:80-123`) reads `discountAmount` as `discountPerUnit` and multiplies by the line's **full** `quantity` unconditionally — the one basis 2.1.0 forbade, with no opt-out. Followed as written, `cart` would have assigned the effect's total and discounted it `lineQuantity` times over; on this amendment's own TC-PROM-065(a) figures the clamp then takes a 200.00 line to zero against an intended 40.00 discount. Rule 1 now states the real contract — `discountAmount = \|amount\| / lineQuantity`, the line's full quantity rather than `appliedQuantity`, never `unitAmount` and never the raw `amount` — plus the sub-cent residual where the division is inexact (`round()` is 4 dp, `calculations.ts:22-24`). A-R6's mechanism restated around the two real mis-mappings instead of a fictional basis flag; `TC-PROM-060` widened from two directions to three with worked figures; the §B.6 mapping table and the 2.1.0 changelog row corrected to match. §B.7's deferral is unaffected. |
+| 2026-10-14 | 2.2.0 | **eComm Release 4 decisions applied** (D-R4-1…29, C1–C14, P1–P14; see [eComm Release 4 Decisions](./analysis/ANALYSIS-2026-10-14-ecommerce-release-4-decisions.md)), ahead of Phases 1–3 implementation. Highlights: §B.6/A.5 rewritten a second time — 2.1.1's own premise (no basis flag on `develop`) was itself stale by the time it was written, since `discountAmountBasis: 'line'` had shipped in `#5640` before 2.1.1's edit; the correct, final mapping is `discountAmount = \|amountNet\|`, never divided, with no sub-cent residual. Every amount-carrying effect now carries **both** `amountNet` and `amountGross` (C5/D-R4-10), replacing the single `amount`+`basis`-flag model that let `sales`-side code silently reuse one side for the other. `X-Module-Key` withdrawn in favour of the platform's standard API-key identity with new features `promotions.evaluate`/`.codes.redeem`/`.usage.manage`; no `organizationId`/`tenantId` in any request body (C3/A1/A2/D-R4-11). Items addressed by `productId`/`variantId`/`lineId`, never `sku` (A.4 superseded, D-R4-21/C11) — context enrichment (category, tag, attribute) moves promotions-side, batched. `ADD_FREE_ITEM` carries a `promotionId` marker matching `cart`'s `CartLine.promotion_id`/`origin` (C4a/D-R4-7). `CodeReservation.cart_id` enters the unique key (`UNIQUE (code_id, cart_id)`, C4/C7/D-R4-8), replacing `(code_id, customer_id)`. Budget/code-use enforcement corrected from a (non-functional) serializable-transaction claim to a row lock + re-read-sum, correct under `checkout`'s ambient transaction (C6/D-R4-12). Cache now holds every `active=true` promotion regardless of date window, filtered at evaluation against a caller-supplied `evaluatedAt`; `totalDiscountGranted` moved to a separate counters key (R-H3/P8/D-R4-13). Release-4 rule set fixed at eleven shipped types (`user_group`→`customer_group`; category includes descendants, D-R4-15; `product_attribute` resolved server-side); six hidden pending a data source (P10/D-R4-14). `exclude_promotional_prices` flag added, replacing the unbacked "promotional-price-visibility toggle" (P9/D-R4-16). `promotions.*` event ids corrected to underscores (W1/D-R4-25); API route paths corrected to their actual mounted shape (W2); DI token names fixed (W3). New **Public TypeScript Contract** and **Release 4 Contract Freeze** sections (W6, missing-BC-section fix). Implementation Plan re-threaded: `PromotionUsage` and i18n (five locales) moved into Phase 1 (C8); the reservation sweeper, `promotionsService` facade and mutation-guard/optimistic-lock wiring specified where they were previously absent. Event-performance gate fixed to 200 promotions × 50 lines, P95 ≤ 150 ms (not "≥100," W12). DS-compliant (semantic tokens, no hardcoded colours) tree-builder description (A6). |
+| 2026-10-15 | 2.2.1 | **Release 4 Phases 1–3 implemented** (`adeptofvoltron/open-mercato#15`; implementation record in `.ai/runs/2026-10-14-ecommerce-release-4-write-side/{PLAN,HANDOFF,NOTIFY}.md`). Per PLAN.md's Step 7.7, this spec stays in `.ai/specs/` — Phases 4–5 remain unbuilt. Findings a future reader should know about without re-reading the run: (1) `evaluate`/`evaluateForProduct`'s frozen signatures carry no tenant/org parameter, and no DI-resolvable "current auth" context existed anywhere in the codebase — resolved by having `promotionsService` read `container.resolve('auth')` and fail closed with `400` when absent; every in-process caller (the four Phase 2 cart-facing routes, the six Phase 3 codes/usage routes, and the `cart` module's own `cart.reprice`) now registers `{ auth }` onto its own request container before resolving the service — a cross-module convention this document did not anticipate, now load-bearing for `cart`. (2) `Code` has no `promotionId` column; a code links to a promotion only through a `ruleType: 'code'` rule's `config.codeId`, the same mechanism `evaluate()`'s own `evaluateCode` evaluator reads — `cart.promotions.apply` resolves "which promotion does this code unlock" the same way, since there is no FK shortcut. (3) `Code` CRUD commands (`promotions.code.{create,update,delete}`) were missing from the Phase 1 implementation plan — only `reserve`/`release`/`use` were built there — and were added once the admin `codes` route needed them. (4) `codes/release`'s documented body (`{codeString,cartId,customerId}`) doesn't match `releaseCode`'s service signature (`codeId, cartId`); the route resolves the string via `code-service.ts`'s own `resolveCodeByString` rather than a second resolution path. (5) `commandBus.execute()` does not run mutation guards internally — every mutating Phase 2/3 route wires `runRouteMutationGuards` explicitly. (6) Real concurrency proof landed against live Postgres, not mocked: 8 concurrent `codes/use` calls on one single-use code → exactly 1 succeeded; 10 concurrent `usage/register` calls (100 each, 500 budget) → exactly 5 accepted/5 blocked, DB sum exactly 500. Validation evidence: 220 `promotions` jest tests; 34/34 `promotions/__integration__/` Playwright specs passed. |
+| 2026-10-16 | 2.2.2 | **Phase 8 manual-QA fixes** (F2, F1, F3, F5, F8, F4, F7, F9 — tracked in `.ai/runs/2026-10-14-ecommerce-release-4-write-side/{PLAN,HANDOFF,NOTIFY}.md` Phase 8, each with its own regression test against the live repro). **F2 (commit `8e372e4598`)**: `promotionUpdateSchema`'s `.partial()` over a default-carrying base schema still applied Zod 4's `.default()` inside `.partial()`, so `commands/promotions.ts`'s `!== undefined` guards always fired — a `PUT {id, eligibleCurrencies}` silently reset `active`/`tags` to their create-time defaults. Rebuilt the update shape from default-free field schemas; defaults stay create-only. **F1/F3 (commit `9827edb6f6`)**: the promotion form had no `eligibleCurrencies`/`maxBudget`/`budgetCurrency` fields, so a D-R4-27 tree (`order_value`/`row_total` rules, fixed/tiered benefits) couldn't be saved from the UI at all; added (currency select from `currencies`, budget with its required currency). `RuleTreeBuilder.tsx`'s tree-save flow used to flash a generic error and drop the `422` `issues[]` array — now surfaces the real message, pointing at the `eligibleCurrencies` field when that's the failing path. **F5/F8/F4 (commit `92cc2c294a`)**: `RuleCard`/`BenefitCard` used a free-text-filter `ComboboxInput` for closed lists, so the pre-selected first rule/benefit type filtered the dropdown to one visible option (a tester could not find "Product count"; a benefit silently stayed `product_discount`) — switched to the `Select` primitive, open shows all 11 rule types / 5 benefit types. The benefit labels editor's locale field is now a `Select` of the app's real supported locales (was free text); dropped an arbitrary `grid-cols-[100px_1fr_auto]` for DS-scale classes and aligned the `IconButton`/`Input` control heights. **F7 (commit `b0d766608d`)**: a date-only `endsAt` coerced to `00:00:00.000 UTC`, so a promotion "ending today" was dead for the whole day (`evaluation-engine.ts`'s `evaluatedAt > endsAt` check). `clearableEndOfDayDateSchema` bumps a date-only `endsAt` to `23:59:59.999 UTC` of the same day on write (form → API); a full ISO timestamp passes through unchanged — `startsAt` and the engine's own comparison are untouched. **F9 (commit `8d9c24baef`)**: a static code's `code`/`prefix`/`suffix` were stored and matched case-sensitively, so `summer10` missed a stored `SUMMER10`. Normalized to trimmed, upper-cased, `A-Z0-9`-only on write (`clearableUppercaseStringSchema`) and on every lookup path (`resolveCodeByString`, plus `useCode`'s own row-locking `GeneratedCode` query, the one direct lookup that bypasses `resolveCodeByString` because it needs `LockMode.PESSIMISTIC_WRITE`). Validation evidence: full `cart`+`promotions` jest suite 466/466 at Checkpoint 4 (up from 419 at the start of Phase 8); live `promotions/__integration__/` Playwright re-run recorded in `checkpoint-5-checks.md` under the same run folder. |

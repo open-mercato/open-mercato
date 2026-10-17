@@ -1,0 +1,156 @@
+---
+title: Cart
+description: Public HTTP surface for the channel-agnostic basket module — header-bound, token-addressed cart mutations.
+---
+
+import OpenApiExplorerBanner from '@site/src/components/OpenApiExplorerBanner';
+
+<OpenApiExplorerBanner />
+
+The `cart` module ships Release 4, Phases 1-3: line management, re-pricing, promotion application, merge/undo-merge, and the public token-bound `/api/cart/current/*` surface. This page covers only that public HTTP surface. Internal commands (`cart.create`, `cart.reprice`, `cart.lock`, etc.), DI services, entities, and implementation gotchas live in `packages/core/src/modules/cart/AGENTS.md` — read that file if you're extending the module itself rather than integrating against it over HTTP.
+
+Phase 4 (B2B approvals, bulk lines, an admin cart list, the assisted-selling proposal seam) is **not implemented** — it exists only in the module's spec (`.ai/specs/2026-08-14-cart-module.md`) and is out of scope for every route documented below.
+
+## The cart token is the only credential
+
+Every route below resolves "the current cart" from the `X-Cart-Token` header — **never** from a path segment or a query string, so the token never lands in a referrer or an access log. `POST /api/cart/current` returns the plaintext token exactly once, in the response body, at creation. There is no cookie: the calling storefront app owns persisting the token (httpOnly cookie, local storage, etc.) and forwarding the header on every subsequent call.
+
+```bash
+export BASE_URL="http://localhost:3000/api"
+export CART_TOKEN="<token from POST /cart/current>"
+
+curl -s -X POST "$BASE_URL/cart/current" \
+  -H "Content-Type: application/json" -d '{}'
+
+curl -s "$BASE_URL/cart/current" -H "X-Cart-Token: $CART_TOKEN"
+```
+
+All routes below are anonymous/storefront-only (`requireAuth: false` — scope, channel and store are resolved server-side via `storeContextService`, never accepted as caller input). A request body of `{}` where none of the fields are optional is still required and validated with `.strict()`: an unrecognized field is rejected, not ignored.
+
+## `POST /api/cart/current`
+
+Creates a new storefront cart bound to the resolved store/channel. Body: `{}` (no fields — `cartCurrentCreateRequestSchema` is an empty, `.strict()` object; scope/channel/store come from the request's own resolved context, never the body).
+
+**Responses**
+- `201` — the full cart envelope (see "Response envelope" below), including the plaintext `token` once.
+- `400` — invalid (non-empty) body.
+- `429` — rate limited (`CART_CREATE`, IP-keyed — no token exists yet to key against).
+- `503` — no store context resolvable for this request.
+
+## `GET /api/cart/current`
+
+Resolves the cart named by `X-Cart-Token`. Also the entry point for the re-pricing trigger set: every GET re-evaluates buyer-identity/currency/locale drift and staleness (triggers 2-4) and re-prices if one fired, disclosing `priceChanges`/`versionBumpReason` on the response when it does. An ordinary GET with no drift and no staleness timeout leaves the cart untouched and omits both fields.
+
+**Responses**
+- `200` — the cart envelope.
+- `404` — missing/unknown/cross-tenant token (uniform — a cart token never behaves as an existence oracle).
+- `429` / `503` — as above.
+
+## `POST /api/cart/current/lines`
+
+Adds a line. Body (`cartLineAddRequestSchema`):
+
+```json
+{ "productId": "<uuid>", "variantId": "<uuid-or-null>", "quantity": "2", "configuration": {}, "metadata": {} }
+```
+
+`quantity` is a decimal **string**, not a number. Adding a product/variant/`configuration` combination that already has a line merges by summing quantity rather than creating a duplicate line. Quantity rules (min/max/increment) and the visibility check run on every call — a restricted or nonexistent product returns a `200` with a `product_unavailable` warning, never a hard error (no enumeration oracle on product existence).
+
+**Responses**: `200`/`201` with the cart envelope; `404` cart not found; `409`/`423` if the cart is non-active/locked; `422` for a quantity-rule rejection; `429`/`503` as above.
+
+## `PATCH /api/cart/current/lines/{lineId}`
+
+Changes a line's quantity. Body (`cartLineUpdateRequestSchema`): `{ "quantity": "3" }` — quantity only; there is no configuration-change parameter in this release. Crossing a price tier boundary re-prices that one line immediately (trigger 1) and discloses `priceChanges`.
+
+## `DELETE /api/cart/current/lines/{lineId}`
+
+Removes a line unconditionally — removal is never blocked by quantity rules, visibility flags, or (per the lock-guard convention) most other restrictions a mutation would otherwise hit.
+
+## `POST /api/cart/current/lines/bulk`
+
+Batch-adds up to 100 lines in one call. Body (`cartLineBulkAddRequestSchema`): `{ "lines": [{ "productId": "...", "variantId": null, "quantity": "1" }, ...] }`. The response's `outcome` array reports each entry's own disposition (added/merged/capped/rejected) alongside the shared cart envelope — this is the one endpoint where a per-entry outcome list survives alongside the whole-cart response, because the unified envelope has no slot for a batch result.
+
+## `POST /api/cart/current/merge`
+
+Merges a guest cart into the current (session) cart. Body (`cartMergeRequestSchema`): `{ "sourceToken": "<guest cart token>" }` — the target cart is the one `X-Cart-Token` addresses; the source is named by its own token in the body, since it has no session of its own.
+
+Implements five login-time situations (adopt/keep-target/union/sum/conflict) plus a mandatory re-visibility pass over every incoming line — a line a restricted buyer's scope now rejects is dropped from the merge, disclosed in the response's `mergeSummary` and in the persisted merge log's `outcome`, never silently lost (it's still readable in the log's `source_snapshot`). The merge token rotates unconditionally on success; the response carries the new token.
+
+**Responses** include `400 cart_merge_scope_mismatch` when the source and target carts differ on store or currency — merging across either is rejected outright, not attempted.
+
+## `POST /api/cart/current/undo-merge`
+
+Reverses the most recent merge into the current cart. Body: `{}` (`cartMergeUndoRequestSchema`, empty — the merge to undo is looked up from the persisted merge log, never named by the caller). Available for 15 minutes after the merge; past that window the response is `409 merge_undo_window_expired`. The token is **not** re-rotated by undo — whichever token the original merge response returned remains the valid one to present.
+
+## `POST /api/cart/current/promotions`
+
+Applies a promotional code. Body (`cartPromotionApplyRequestSchema`): `{ "codeString": "SUMMER10" }`. Reserves the code, resolves which promotion(s) it unlocks, and triggers an immediate re-price so the discount (or a `409 code_reservation_unavailable` if the code can't be reserved) shows up in the same response cycle.
+
+## `DELETE /api/cart/current/promotions/{id}`
+
+Removes an applied promotion by its promotion id (the path segment is `promotionId`, not an application-row id). Releases the underlying code reservation (if any) and any gift line(s) that promotion produced, then re-prices.
+
+## Response envelope
+
+Every successful response above returns the same shape (`cart: CartView`), built by `buildCartResponseEnvelope`:
+
+```json
+{
+  "cart": {
+    "token": "<present only on create>",
+    "updatedAt": "...",
+    "status": "active",
+    "currencyCode": "USD",
+    "locale": "en-US",
+    "lines": [
+      { "id": "...", "productId": "...", "quantity": "2", "unitPriceNet": "19.99", "discountTotalNet": "0.0000", "availabilityState": "...", "nextTier": null }
+    ],
+    "totals": { "subtotalNetAmount": "...", "grandTotalGrossAmount": "..." },
+    "promotions": [
+      { "promotionId": "...", "promotionName": "Summer Sale", "code": "SUMMER10", "scope": "order", "cartLineId": null, "amountNet": "-14.8000", "amountGross": "-17.7600" }
+    ],
+    "itemCount": 2,
+    "lineCount": 1,
+    "expiresAt": "..."
+  },
+  "priceChanges": [],
+  "versionBumpReason": null,
+  "warnings": []
+}
+```
+
+`priceChanges`/`versionBumpReason`/`warnings` are omitted (not emitted empty) on a request that triggers no disclosure. Every `warnings[].message` is real, translated copy resolved through `cart.warnings.*` i18n keys (`lib/warningMessages.ts`) — never a raw `[internal]`-prefixed developer placeholder; use `warnings[].code` for programmatic handling, `message` for display.
+
+`promotions` carries one entry per currently-applied `CartPromotionApplication` row — an automatic promotion that matched without a code and a code the buyer entered both show up here. `scope` is `"order"` for a whole-cart discount (`cartLineId: null`) or `"line"` for a discount attributed to one line (`cartLineId` set). `promotionId` is also the value `DELETE /api/cart/current/promotions/{id}` expects — the path segment is a promotion id, not a separate row id. A promotion that has since been deleted is omitted from the array rather than shown with a missing name.
+
+## `cart.lock` / `cart.unlock` / `cart.markConverted` have no public route
+
+These three commands exist (`cart/commands/lock.ts`, exposed via the `cartService` DI facade) but **this release ships no HTTP route for any of them**. They are reserved for a future `checkout` module to call in-process. If you need to lock a cart today, there is no API for it — that is the real, current answer, not an oversight to work around.
+
+## Error codes
+
+| Code | HTTP | Meaning |
+|---|---|---|
+| `product_unavailable` | 200 (warning) | Restricted or nonexistent product — the two are never distinguishable |
+| `quantity_increment_violation` | 422 | Carries `nearestValid` |
+| `quantity_below_min` | 422 | |
+| `quantity_capped` | 200 (warning) | Above the max order quantity; capped, not rejected |
+| `idempotency_key_mismatch` | 422 | A replayed idempotency key with a different body |
+| `promotion_line_immutable` | 409 | Attempted to edit/remove a gift line |
+| `assortment_scope_required_for_storefront_channel` | 400 | No store context resolved for a route that needs one |
+| `code_reservation_unavailable` | 409 | A promotion code's budget or per-customer limit is exhausted |
+| `cart_not_active` | 409 | A write (not a GET) against a merged/expired/abandoned/converted cart — the response body carries the cart's real `status` |
+| `cart_merge_scope_mismatch` | 400 | `cart.merge` rejected a cross-store or cross-currency merge |
+| `merge_undo_window_expired` | 409 | `cart.mergeUndo` called past the 15-minute window |
+| `cart_locked` | 423 | The cart is locked (carries `checkoutSessionId`) — reachable once a `checkout` module starts calling `cart.lock` |
+| `cart_has_unavailable_lines` | 409 | Reachable only via `cart.lock`, which has no public route in this release |
+
+## Rate limits
+
+Per cart token **and** per IP, env-prefixed `CART_*`:
+
+| Scope | Default |
+|---|---|
+| `CART_CREATE` | 20 / min / IP |
+| `CART_MUTATE` (lines, promotions, merge) | 60 / min / token |
+| `CART_READ` | 120 / min / token |
