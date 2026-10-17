@@ -58,6 +58,33 @@ where s.started_by in (select id from customer_users)
 Nothing is rewritten automatically. Portal pages that legitimately started submissions on another
 subject type (for example `patient`) also match, so review the rows before revoking anything.
 
+<a id="staff-user-create-org-scope"></a>
+
+### Staff user create enforces the caller's organization scope (#7238)
+
+`POST /api/auth/users`, through the `auth.users.create` command, now applies the same destination
+check that `PUT /api/auth/users` already applied to an organization change. The organization must
+be within the caller's descendant-expanded organization scope, and any roles must belong to its
+tenant and be grantable by the caller. This holds whether or not the request sends `roles`. A caller
+restricted to some organizations who names another organization of the same tenant now gets `403`
+(`Cannot assign user to a destination organization outside actor scope.`) and no user is written.
+Before this release the user was created with `201`.
+
+An organization of another tenant still answers `404 Organization not found`, as before.
+Superadmins, system actors and callers without an organization restriction are unaffected.
+
+**Action for integrators:** a script or API key that creates staff users with an
+organization-restricted principal must either be granted the target organizations or use an
+unrestricted principal.
+
+**Backward compatibility** (recorded here because `BACKWARD_COMPATIBILITY.md` is at its agent-context
+byte budget): intentional security narrowing of the `auth.users.create` command and
+`POST /api/auth/users`, regression-tested in `users.create-destination-scope.test.ts` and
+`TC-AUTH-068`. One additive signature change: `targetUserId` of `resolveUserDestinationRoles`
+(`@open-mercato/core/modules/auth/lib/grantChecks`) becomes optional; without role tokens and without
+a target user it returns `[]`, and every existing call compiles and behaves the same. The route URL,
+request and response schemas, event IDs, ACL features, DI names and database schema are unchanged.
+
 ### Catalog write commands treat records outside the caller's scope as not found (#3825)
 
 `catalog.products.update|delete`, `catalog.variants.update|delete`, `catalog.prices.update|delete`
