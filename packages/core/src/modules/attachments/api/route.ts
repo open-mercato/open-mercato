@@ -12,6 +12,7 @@ import { requestOcrProcessing } from '../lib/ocrQueue'
 import { StorageDriverFactory } from '../lib/drivers'
 import { OcrService, shouldUseLlmOcr } from '../lib/ocrService'
 import { clearAttachmentThumbnailCache } from '../lib/thumbnailCache'
+import { removeAttachmentRecord } from '../lib/storageReferences'
 import { assertAttachmentScopeInvariant } from '../lib/access'
 import { resolveAttachmentRequestScope } from '../lib/requestScope'
 import {
@@ -723,11 +724,12 @@ export async function DELETE(req: Request) {
   if (orgId) deleteFilter.organizationId = orgId
   const record = await em.findOne(Attachment, deleteFilter)
   if (!record) return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
-  await em.remove(record).flush()
+  const removal = await removeAttachmentRecord(em, record)
+  if (!removal.removed) return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
   await clearAttachmentThumbnailCache(record.partitionCode, record.id).catch((error) => {
     logger.error('Failed to cleanup cached thumbnails', { err: error })
   })
-  if (record.storagePath) {
+  if (record.storagePath && removal.releaseStorage) {
     const delDriver = await storageDriverFactory.resolveForPartition(record.partitionCode, {
       tenantId: record.tenantId ?? auth.tenantId!,
       organizationId: record.organizationId ?? orgId ?? '',

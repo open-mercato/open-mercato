@@ -85,6 +85,39 @@ byte budget): intentional security narrowing of the `auth.users.create` command 
 a target user it returns `[]`, and every existing call compiles and behaves the same. The route URL,
 request and response schemas, event IDs, ACL features, DI names and database schema are unchanged.
 
+### Deleting an attachment keeps a stored file that other attachment rows still reference
+
+Catalog copies variant media onto the product, and forwarding a message copies the source message's
+attachments, by creating new `attachments` rows that reuse the source row's stored file
+(`partition_code` + `storage_path`). Every path that deletes an attachment together with its stored
+file used to remove that file with the row it was deleting, which broke all the other rows. Deleting a
+row now removes the stored file only when no other row references it: `DELETE /api/attachments`,
+`DELETE /api/attachments/library/:id`, `attachmentService.releaseScoped()`, `mercato attachments
+delete`, the warranty-claims portal delete and Akeneo media reconciliation go through
+`removeAttachmentRecord` (`@open-mercato/core/modules/attachments/lib/storageReferences`); the deferred
+`releaseScoped(…, { flush: false })` takes the same storage-reference lock inside the caller's
+transaction. When two requests delete the same
+row at the same time, `DELETE /api/attachments` and `DELETE /api/attachments/library/:id` now answer
+`404` to the one that loses instead of a second `200`, and `attachmentService.releaseScoped()` throws
+a `404` `CrudHttpError` (not guaranteed in the deprecated mode below).
+
+Calling `attachmentService.releaseScoped(input, { flush: false })` when the entity manager is not
+inside a transaction is deprecated. It still works for at least one minor release, but logs a
+`[deprecated]` warning and decides at call time, without the lock: two such releases racing for rows
+that share a stored file can leave the file orphaned (a storage leak) instead of deleting it, and a
+copy created before the caller flushes is not seen. The lock only protects the decision while the
+caller's transaction is open.
+
+**Action for module authors:** if you call `releaseScoped` with `{ flush: false }`, call it inside
+your own transaction (for example `withAtomicFlush(em, [...], { transaction: true })`) and run the
+returned cleanup after commit — the documented contract. Expect the cleanup to be `undefined` when
+the stored file is still referenced by another row. If you delete `Attachment` rows and their stored
+files yourself, use `removeAttachmentRecord(em, attachment)` outside a transaction and delete the
+file only when it reports `releaseStorage: true`.
+
+The migration adds the index `attachments_storage_reference_idx` on
+`attachments (partition_code, storage_path)`, built `CONCURRENTLY` outside a transaction.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)

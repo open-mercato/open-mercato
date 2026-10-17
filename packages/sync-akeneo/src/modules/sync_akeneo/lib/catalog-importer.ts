@@ -26,6 +26,7 @@ import { invalidateDefinitionsCache } from '@open-mercato/core/modules/entities/
 import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
 import { buildAttachmentFileUrl, buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 import { deletePartitionFile, storePartitionFile } from '@open-mercato/core/modules/attachments/lib/storage'
+import { removeAttachmentRecord } from '@open-mercato/core/modules/attachments/lib/storageReferences'
 import { ensureDefaultPartitions, resolveDefaultPartitionCode } from '@open-mercato/core/modules/attachments/lib/partitions'
 import { mergeAttachmentMetadata } from '@open-mercato/core/modules/attachments/lib/metadata'
 import { attachmentCrudEvents, attachmentCrudIndexer } from '@open-mercato/core/modules/attachments/lib/crud'
@@ -2385,8 +2386,11 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         ? params.reconciliation.deleteMissingMedia
         : params.reconciliation.deleteMissingAttachments
       if (!shouldDelete || desiredExternalIds.has(externalId)) continue
-      await deletePartitionFile(attachment.partitionCode, attachment.storagePath, attachment.storageDriver)
-      await em.remove(attachment).flush()
+      const removal = await removeAttachmentRecord(em, attachment)
+      if (!removal.removed) continue
+      if (removal.releaseStorage) {
+        await deletePartitionFile(attachment.partitionCode, attachment.storagePath, attachment.storageDriver)
+      }
       await emitAttachmentCrudChange('deleted', attachment)
     }
 
