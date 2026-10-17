@@ -849,6 +849,8 @@ export function DealForm({
 }: DealFormProps) {
   const t = useT()
   const [pending, setPending] = React.useState(false)
+  const initialOrganizationId = initialValues?.organizationId
+  const dealOrganizationId = typeof initialOrganizationId === 'string' ? initialOrganizationId : null
   const {
     data: currencyDictionaryData,
     error: currencyDictionaryErrorRaw,
@@ -1013,6 +1015,7 @@ export function DealForm({
           onChange={(next) => setValue(next ?? '')}
           labels={dictionaryLabels.status}
           selectClassName="w-full"
+          organizationId={dealOrganizationId}
         />
       ),
     } as CrudField,
@@ -1171,7 +1174,7 @@ export function DealForm({
         />
       ),
     } as CrudField,
-  ], [currencyDictionaryLabels, fetchCurrencyOptions, resolvedCurrencyError, pipelines, pipelineStages, loadStagesForPipeline, dictionaryLabels.status, disabled, fetchCompaniesByIds, fetchPeopleByIds, initialOwnerOption, mode, searchCompanies, searchPeople, t])
+  ], [currencyDictionaryLabels, dealOrganizationId, fetchCurrencyOptions, resolvedCurrencyError, pipelines, pipelineStages, loadStagesForPipeline, dictionaryLabels.status, disabled, fetchCompaniesByIds, fetchPeopleByIds, initialOwnerOption, mode, searchCompanies, searchPeople, t])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => {
     const nextGroups: CrudFormGroup[] = [
