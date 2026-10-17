@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { apiCallOrThrow } from '../../backend/utils/apiCall'
 import type { AiPendingActionCardAction, AiPendingActionCardStatus } from './types'
 
@@ -18,6 +19,9 @@ const logger = createLogger('ui').child({ component: 'useAiPendingActionPolling'
  * - Poll every 3 seconds while the status is non-terminal
  *   (`pending` / `executing`). Terminal states (`confirmed`, `cancelled`,
  *   `failed`, `expired`) stop polling.
+ * - Stop polling and report `unavailable` when the route answers 404: the
+ *   action is gone or belongs to another user (pending actions are owner-
+ *   scoped), so retrying can never succeed.
  * - Expose a `refresh()` force-fetch helper the confirmation card uses after
  *   a confirm POST races with the polling loop.
  *
@@ -66,7 +70,12 @@ export interface UseAiPendingActionPollingResult {
   status: AiPendingActionCardStatus | null
   isPolling: boolean
   error: { code?: string; message: string } | null
+  unavailable: boolean
   refresh: () => Promise<AiPendingActionCardAction | null>
+}
+
+function isNotFoundError(err: unknown): boolean {
+  return Boolean(err) && typeof err === 'object' && (err as { status?: unknown }).status === 404
 }
 
 async function fetchPendingAction(
@@ -123,10 +132,12 @@ export function useAiPendingActionPolling(
   const [action, setAction] = React.useState<AiPendingActionCardAction | null>(null)
   const [error, setError] = React.useState<{ code?: string; message: string } | null>(null)
   const [isPolling, setIsPolling] = React.useState<boolean>(!disabled)
+  const [unavailable, setUnavailable] = React.useState<boolean>(false)
 
   const mountedRef = React.useRef(true)
   const timerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const statusRef = React.useRef<AiPendingActionCardStatus | null>(null)
+  const unavailableRef = React.useRef(false)
 
   const clearTimer = React.useCallback(() => {
     if (timerRef.current) {
@@ -151,7 +162,13 @@ export function useAiPendingActionPolling(
       }
       return result.pendingAction
     } catch (err) {
+      if (isNotFoundError(err)) {
+        unavailableRef.current = true
+        if (mountedRef.current) setUnavailable(true)
+        return null
+      }
       logger.error('Failed to load the pending AI action', { err, pendingActionId })
+      getTelemetryRuntime()?.reportError(err, { module: 'ai_assistant', code: 'ai_assistant.pending_action_poll_failed' })
       if (!mountedRef.current) return null
       const message = err instanceof Error ? err.message : 'Failed to load pending action.'
       setError({ message })
@@ -166,7 +183,7 @@ export function useAiPendingActionPolling(
       setIsPolling(false)
       return
     }
-    if (isTerminal(statusRef.current)) {
+    if (isTerminal(statusRef.current) || unavailableRef.current) {
       setIsPolling(false)
       return
     }
@@ -184,6 +201,8 @@ export function useAiPendingActionPolling(
   React.useEffect(() => {
     mountedRef.current = true
     statusRef.current = null
+    unavailableRef.current = false
+    setUnavailable(false)
     if (disabled) {
       setIsPolling(false)
       return () => {
@@ -216,8 +235,9 @@ export function useAiPendingActionPolling(
   return {
     action,
     status,
-    isPolling: isPolling && !isTerminal(status),
+    isPolling: isPolling && !isTerminal(status) && !unavailable,
     error,
+    unavailable,
     refresh,
   }
 }

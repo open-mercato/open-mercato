@@ -59,7 +59,12 @@ export interface AiPendingActionSetStatusExtra {
  *   idempotency within the window (same `idempotencyKey` returns the same
  *   row as long as it is still `pending`; any terminal state mints a new row).
  * - Tenant-scoped lookups for the confirm/cancel/reconnect routes and the
- *   in-app UI's "open actions" list.
+ *   in-app UI's "open actions" list. `getById`, `listPendingForAgent` and
+ *   `setStatus` are also owner-scoped: they match the row's
+ *   `createdByUserId` against `ctx.userId`, so only the proposing user can
+ *   read or resolve it. System callers (the expiry sweeper) pass
+ *   `userId: null` to skip the owner filter; a missing or non-UUID
+ *   `userId` (for example an API-key subject) matches no row.
  * - State-machine enforcement: `setStatus` rejects illegal transitions via
  *   {@link AiPendingActionStateError}. The runtime callers translate this
  *   to a 409 Conflict response.
@@ -180,6 +185,8 @@ export class AiPendingActionRepository {
     ctx: AiPendingActionContext,
   ): Promise<AiPendingAction | null> {
     if (!id || !ctx?.tenantId) return null
+    const owner = resolveOwnerScope(ctx)
+    if (!owner) return null
     const row = await findOneWithDecryption<AiPendingAction>(
       this.em,
       AiPendingAction,
@@ -187,6 +194,7 @@ export class AiPendingActionRepository {
         id,
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId ?? null,
+        ...owner,
       } as any,
       {},
       {
@@ -203,6 +211,8 @@ export class AiPendingActionRepository {
     limit: number = 50,
   ): Promise<AiPendingAction[]> {
     if (!agentId || !ctx?.tenantId) return []
+    const owner = resolveOwnerScope(ctx)
+    if (!owner) return []
     const capped = Math.max(1, Math.min(Math.floor(limit), 200))
     const rows = await findWithDecryption<AiPendingAction>(
       this.em,
@@ -212,6 +222,7 @@ export class AiPendingActionRepository {
         organizationId: ctx.organizationId ?? null,
         agentId,
         status: 'pending',
+        ...owner,
       } as any,
       {
         orderBy: { createdAt: 'desc' } as any,
@@ -237,21 +248,25 @@ export class AiPendingActionRepository {
     if (!id) {
       throw new Error('AiPendingActionRepository.setStatus requires id')
     }
+    const owner = resolveOwnerScope(ctx)
     return this.em.transactional(async (tx) => {
-      const existing = await findOneWithDecryption<AiPendingAction>(
-        tx as unknown as EntityManager,
-        AiPendingAction,
-        {
-          id,
-          tenantId: ctx.tenantId,
-          organizationId: ctx.organizationId ?? null,
-        } as any,
-        {},
-        {
-          tenantId: ctx.tenantId ?? null,
-          organizationId: ctx.organizationId ?? null,
-        },
-      )
+      const existing = owner
+        ? await findOneWithDecryption<AiPendingAction>(
+            tx as unknown as EntityManager,
+            AiPendingAction,
+            {
+              id,
+              tenantId: ctx.tenantId,
+              organizationId: ctx.organizationId ?? null,
+              ...owner,
+            } as any,
+            {},
+            {
+              tenantId: ctx.tenantId ?? null,
+              organizationId: ctx.organizationId ?? null,
+            },
+          )
+        : null
       if (!existing) {
         throw new Error(`AiPendingAction not found: ${id}`)
       }
@@ -315,6 +330,16 @@ export class AiPendingActionRepository {
     )
     return rows
   }
+}
+
+const OWNER_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function resolveOwnerScope(ctx: AiPendingActionContext): { createdByUserId?: string } | null {
+  if (ctx.userId === null) return {}
+  if (typeof ctx.userId === 'string' && OWNER_ID_PATTERN.test(ctx.userId)) {
+    return { createdByUserId: ctx.userId }
+  }
+  return null
 }
 
 function normalizeRecords(

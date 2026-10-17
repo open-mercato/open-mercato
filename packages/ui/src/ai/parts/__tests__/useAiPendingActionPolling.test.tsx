@@ -209,4 +209,38 @@ describe('useAiPendingActionPolling', () => {
       jest.useRealTimers()
     }
   })
+
+  it('stops polling and reports unavailable when the action answers 404', async () => {
+    const notFound = Object.assign(new Error('No pending action accessible to the caller.'), {
+      status: 404,
+      code: 'pending_action_not_found',
+    })
+    ;(apiCallOrThrow as jest.Mock).mockImplementation(async () => {
+      throw notFound
+    })
+
+    jest.useFakeTimers()
+    try {
+      const { result, unmount } = renderHook(() =>
+        useAiPendingActionPolling({ pendingActionId: 'pa-foreign', intervalMs: 1000 }),
+      )
+      await act(async () => {
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      expect(result.current.unavailable).toBe(true)
+      expect(result.current.isPolling).toBe(false)
+      expect(loggerError).not.toHaveBeenCalled()
+
+      await act(async () => {
+        jest.advanceTimersByTime(10_000)
+        await Promise.resolve()
+      })
+      expect(apiCallOrThrow).toHaveBeenCalledTimes(1)
+
+      unmount()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
 })
