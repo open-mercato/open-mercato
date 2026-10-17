@@ -28,9 +28,13 @@ const fields: CrudField[] = [{ id: 'amount', label: 'Amount', type: 'number' }]
 
 // The locale is pinned to one that does NOT use a dot decimal separator, because an
 // en-US pin passes on the buggy implementation too.
-function renderNumberForm(locale: string, onSubmit: (values: Record<string, unknown>) => void) {
+function renderNumberForm(
+  locale: string,
+  onSubmit: (values: Record<string, unknown>) => void,
+  initialValues?: Record<string, unknown>,
+) {
   return renderWithProviders(
-    <CrudForm title="Form" fields={fields} onSubmit={onSubmit} />,
+    <CrudForm title="Form" fields={fields} onSubmit={onSubmit} initialValues={initialValues} />,
     { locale, dict },
   )
 }
@@ -155,5 +159,34 @@ describe('CrudForm number fields accept the locale decimal separator (issue #555
     })
     await waitFor(() => expect(onSubmit).toHaveBeenCalled())
     expect(onSubmit.mock.calls[0][0].amount).toBe(7.2)
+  })
+})
+
+describe('CrudForm number field redisplays a reloaded value with the locale decimal separator (issue #7387)', () => {
+  it('shows a saved value with the comma, not a dot, under a Polish locale', () => {
+    const { container } = renderNumberForm('pl', () => {}, { amount: 1.5 })
+    const input = amountInput(container)
+    // The stored value is a number (1.5), not user-typed text, so the initial buffer
+    // must go through the same locale formatting as typed input — a bare `String(1.5)`
+    // would render `1.5` instead of the Polish `1,5`.
+    expect(input.value).toBe('1,5')
+  })
+
+  it('still shows a dot under an English locale', () => {
+    const { container } = renderNumberForm('en', () => {}, { amount: 1.5 })
+    const input = amountInput(container)
+    expect(input.value).toBe('1.5')
+  })
+
+  it('submits the reloaded comma-displayed value unchanged when the form is resubmitted', async () => {
+    const onSubmit = jest.fn()
+    const { container } = renderNumberForm('pl', onSubmit, { amount: 1.5 })
+
+    await act(async () => {
+      fireEvent.submit(container.querySelector('form') as HTMLFormElement)
+    })
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled())
+    expect(onSubmit.mock.calls[0][0].amount).toBe(1.5)
   })
 })
