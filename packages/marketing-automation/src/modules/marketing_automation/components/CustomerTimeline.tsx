@@ -46,6 +46,8 @@ export function CustomerTimeline({ customerId }: { customerId: string }) {
   const [hasMore, setHasMore] = React.useState(false)
   const [loading, setLoading] = React.useState(true)
   const [loadFailed, setLoadFailed] = React.useState(false)
+  const containerRef = React.useRef<HTMLDivElement>(null)
+  const [visible, setVisible] = React.useState(false)
 
   const load = React.useCallback(async (before: string | null, beforeId: string | null) => {
     setLoading(true)
@@ -78,7 +80,32 @@ export function CustomerTimeline({ customerId }: { customerId: string }) {
     setLoading(false)
   }, [customerId])
 
-  React.useEffect(() => { void load(null, null) }, [load])
+  /**
+   * Fetches only once this section is actually near the viewport.
+   *
+   * The profile above it already paid for a `recentRuns`/`recentScoreEntries` summary from the same two
+   * tables, so firing this richer seven-table merge unconditionally on mount doubled those round trips on
+   * every page view — including the common case where the reader never scrolls this far. Deferring to
+   * visibility does not change what either call returns, only whether this one happens at all.
+   */
+  React.useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined') { setVisible(true); return }
+    const el = containerRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(
+      (observed) => {
+        if (observed.some((entry) => entry.isIntersecting)) {
+          setVisible(true)
+          observer.disconnect()
+        }
+      },
+      { rootMargin: '200px 0px 200px 0px' },
+    )
+    observer.observe(el)
+    return () => { observer.disconnect() }
+  }, [])
+
+  React.useEffect(() => { if (visible) void load(null, null) }, [visible, load])
 
   /**
    * One sentence per kind, written out rather than assembled from parts.
@@ -110,22 +137,29 @@ export function CustomerTimeline({ customerId }: { customerId: string }) {
     }
   }
 
+  if (!visible) {
+    return <div ref={containerRef} className="h-10" />
+  }
   if (loading && entries.length === 0) {
-    return <LoadingMessage label={t('marketing_automation.timeline.loading', 'Loading what happened…')} />
+    return <div ref={containerRef}><LoadingMessage label={t('marketing_automation.timeline.loading', 'Loading what happened…')} /></div>
   }
   if (loadFailed && entries.length === 0) {
-    return <ErrorMessage label={t('marketing_automation.timeline.loadFailed', 'Could not load what happened to this customer.')} />
+    return (
+      <div ref={containerRef}>
+        <ErrorMessage label={t('marketing_automation.timeline.loadFailed', 'Could not load what happened to this customer.')} />
+      </div>
+    )
   }
   if (entries.length === 0) {
     return (
-      <div className="text-sm text-muted-foreground">
+      <div ref={containerRef} className="text-sm text-muted-foreground">
         {t('marketing_automation.timeline.empty', 'Nothing has happened to this customer yet.')}
       </div>
     )
   }
 
   return (
-    <div>
+    <div ref={containerRef}>
       <ul className="space-y-1">
         {entries.map((entry) => (
           <RecordRow key={entry.id}>
