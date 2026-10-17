@@ -108,9 +108,10 @@ test.describe('TC-STAFF-029: Timesheets grid partial save never duplicates store
     const taskTitle = `QA Grid Task ${stamp}`
     const today = new Date()
     today.setHours(12, 0, 0, 0)
-    const boundedEnd = addDays(today, -3)
-    const pastGrace = addDays(boundedEnd, 15)
-    const openDay = addDays(pastGrace, 2)
+    const weekMonday = getMonday(addDays(today, 14))
+    const pastGrace = weekMonday
+    const openDay = addDays(weekMonday, 2)
+    const boundedEnd = addDays(pastGrace, -15)
 
     const adminToken = await getAuthToken(request, 'admin')
     const employeeToken = await getAuthToken(request, 'employee')

@@ -76,9 +76,10 @@ test.describe('TC-STAFF-028: Timesheets grid marks the cell the server refused',
     const projectName = `QA Grid Refused ${stamp}`
     const today = new Date()
     today.setHours(12, 0, 0, 0)
-    const assignmentStart = addDays(today, -20)
+    const weekMonday = getMonday(addDays(today, -14))
+    const beforeStart = weekMonday
+    const assignmentStart = addDays(weekMonday, 1)
     const assignmentEnd = addDays(today, -3)
-    const beforeStart = addDays(assignmentStart, -1)
 
     const adminToken = await getAuthToken(request, 'admin')
     const employeeToken = await getAuthToken(request, 'employee')
