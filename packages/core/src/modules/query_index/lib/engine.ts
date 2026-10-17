@@ -2932,10 +2932,19 @@ export class HybridQueryEngine implements QueryEngine {
         const operator = filter.op === 'gt' ? '>' : filter.op === 'gte' ? '>=' : filter.op === 'lt' ? '<' : '<='
         return q.where(col, operator, filter.value as any)
       }
-      case 'in':
-        return q.where(col, 'in', this.toArray(filter.value))
-      case 'nin':
-        return q.where(col, 'not in', this.toArray(filter.value))
+      case 'in': {
+        // An empty `$in` must match nothing, not compile to the invalid SQL
+        // `in ()` (syntax error at `)`) -- mirrors applyOrganizationScope's
+        // empty-scope handling above (#7525).
+        const values = this.toArray(filter.value)
+        return values.length === 0 ? q.where(sql<boolean>`1 = 0`) : q.where(col, 'in', values)
+      }
+      case 'nin': {
+        // An empty `$nin` must match everything (nothing to exclude), not
+        // compile to the invalid SQL `not in ()` (#7525).
+        const values = this.toArray(filter.value)
+        return values.length === 0 ? q.where(sql<boolean>`1 = 1`) : q.where(col, 'not in', values)
+      }
       case 'like':
         return q.where(col, 'like', filter.value as any)
       case 'ilike':

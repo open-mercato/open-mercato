@@ -1949,6 +1949,82 @@ describe('doc-field null equality (issue #4841)', () => {
   })
 })
 
+// `?ids=` with no valid v1-8 uuid leaves `mergeIdFilter` installing `id: { $in: [] }`
+// on purpose (match nothing, #4143). Both the bounded-count shape and the item-list
+// shape compile that leaf through `applyColumnFilter`, which must map it to a false
+// predicate instead of the literal `in ()` Postgres rejects with a syntax error (#7525).
+describe('empty $in/$nin on the base id column (#7525)', () => {
+  const serializeWheres = (db: any, table: string): string[] =>
+    (db._chains as ChainLog[])
+      .filter((chain) => chain.table === table)
+      .flatMap((chain) => chain.wheres as any[])
+      .map((entry: any) =>
+        JSON.stringify(entry, (_key, inner) =>
+          inner && typeof inner.toOperationNode === 'function' ? inner.toOperationNode() : inner,
+        ),
+      )
+
+  const buildDb = () => createFakeKysely({
+    baseTable: 'todos',
+    hasIndexAny: true,
+    baseCount: 5,
+    indexCount: 5,
+    columns: [
+      { table_name: 'todos', column_name: 'id' },
+      { table_name: 'todos', column_name: 'tenant_id' },
+      { table_name: 'todos', column_name: 'organization_id' },
+      { table_name: 'todos', column_name: 'deleted_at' },
+    ],
+  })
+
+  test('an empty $in compiles to a false predicate on both the count and list shapes, never `in ()`', async () => {
+    const db = buildDb()
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const engine = new HybridQueryEngine(em, fallback as any, () => null)
+
+    await engine.query('example:todo', {
+      fields: ['id'],
+      organizationId: 'org1',
+      tenantId: 't1',
+      filters: { id: { $in: [] } },
+    })
+
+    const columnWheres = (db._chains as ChainLog[])
+      .filter((chain) => chain.table === 'todos')
+      .flatMap((chain) => chain.wheres as any[])
+    expect(columnWheres).not.toContainEqual(['b.id', 'in', []])
+
+    const serialized = serializeWheres(db, 'todos')
+    const falsePredicateCount = serialized.filter((entry) => entry.includes('1 = 0')).length
+    // One for the bounded-count shape (`applyCountShape`), one for the item-list
+    // shape (`applyRegularBaseFilters`) -- both route through `applyColumnFilter`.
+    expect(falsePredicateCount).toBeGreaterThanOrEqual(2)
+  })
+
+  test('an empty $nin compiles to a true predicate, never `not in ()`', async () => {
+    const db = buildDb()
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const engine = new HybridQueryEngine(em, fallback as any, () => null)
+
+    await engine.query('example:todo', {
+      fields: ['id'],
+      organizationId: 'org1',
+      tenantId: 't1',
+      filters: { id: { $nin: [] } },
+    })
+
+    const columnWheres = (db._chains as ChainLog[])
+      .filter((chain) => chain.table === 'todos')
+      .flatMap((chain) => chain.wheres as any[])
+    expect(columnWheres).not.toContainEqual(['b.id', 'not in', []])
+
+    const serialized = serializeWheres(db, 'todos')
+    expect(serialized.filter((entry) => entry.includes('1 = 1')).length).toBeGreaterThanOrEqual(2)
+  })
+})
+
 describe('HybridQueryEngine custom-field leaves inside an $or group (#5039)', () => {
   // The fake builder stores `.where()` arguments verbatim, so an expression-callback
   // stays opaque. Replaying it against a recording ExpressionBuilder is what makes the
