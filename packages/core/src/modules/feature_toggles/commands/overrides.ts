@@ -9,6 +9,7 @@ import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { FeatureTogglesService } from '../lib/feature-flag-check'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 type OverrideSnapshot = {
   id: string | null
@@ -122,28 +123,24 @@ const changeOverrideStateCommand: CommandHandler<ProcessedChangeOverrideStateInp
 
     if (!before.id) {
       await em.nativeDelete(FeatureToggleOverride, { toggle: before.toggleId, tenantId: before.tenantId })
-      await em.flush()
-      const toggle = await em.findOne(FeatureToggle, { id: before.toggleId })
-      if (toggle) {
-        const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
-        await featureTogglesService.invalidateIsEnabledCacheByKey(toggle.identifier, before.tenantId)
-      }
     } else {
       const existing = await em.findOne(FeatureToggleOverride, { toggle: before.toggleId, tenantId: before.tenantId })
       if (existing) {
-        await em.flush()
-        const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
-        await featureTogglesService.invalidateIsEnabledCacheByKey(existing.toggle.identifier, existing.tenantId)
+        existing.value = before.value
       } else {
-        const override = em.create(FeatureToggleOverride, {
+        em.create(FeatureToggleOverride, {
+          id: before.id,
           toggle: before.toggleId,
           tenantId: before.tenantId,
           value: before.value ?? {},
         })
-        await em.flush()
-        const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
-        await featureTogglesService.invalidateIsEnabledCacheByKey(override.toggle.identifier, override.tenantId)
       }
+    }
+    await em.flush()
+    const toggle = await findOneWithDecryption(em, FeatureToggle, { id: before.toggleId })
+    if (toggle) {
+      const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
+      await featureTogglesService.invalidateIsEnabledCacheByKey(toggle.identifier, before.tenantId)
     }
   },
 }
