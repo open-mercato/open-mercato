@@ -136,6 +136,7 @@ type DictionarySelectFieldProps = {
   showManage?: boolean
   showLabelInput?: boolean
   showActiveAppearance?: boolean
+  organizationId?: string | null
 }
 
 export { CUSTOMER_DICTIONARIES_MANAGE_HREF, getCustomerDictionaryManageHref }
@@ -168,6 +169,7 @@ export function DictionarySelectField({
   showManage = false,
   showLabelInput = true,
   showActiveAppearance = true,
+  organizationId,
 }: DictionarySelectFieldProps) {
   const t = useT()
   const queryClient = useQueryClient()
@@ -208,7 +210,7 @@ export function DictionarySelectField({
 
   const fetchOptions = React.useCallback(async () => {
     try {
-      const data = await ensureCustomerDictionary(queryClient, kind, scopeVersion)
+      const data = await ensureCustomerDictionary(queryClient, kind, scopeVersion, organizationId)
       return data.entries.map((entry) => ({
         value: entry.value,
         label: entry.label,
@@ -230,7 +232,7 @@ export function DictionarySelectField({
       }
       throw err
     }
-  }, [kind, queryClient, scopeVersion, translate])
+  }, [kind, organizationId, queryClient, scopeVersion, translate])
 
   const createOption = React.useCallback(
     async (input: { value: string; label?: string; color?: string | null; icon?: string | null }) => {

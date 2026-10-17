@@ -656,6 +656,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                       <PersonCompaniesSection
                         personId={personId}
                         personName={personName}
+                        personOrganizationId={data.person.organizationId ?? null}
                         initialLinkedCompanies={data?.companies ?? []}
                         onChanged={loadData}
                         runGuardedMutation={runMutationWithContext}
