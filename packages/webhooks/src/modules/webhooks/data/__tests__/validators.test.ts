@@ -113,3 +113,28 @@ describe('webhookCreateSchema — reserved custom headers', () => {
     expect(webhookUpdateSchema.safeParse({ customHeaders: { 'x-api-key': 'value' } }).success).toBe(true)
   })
 })
+
+describe('webhookUpdateSchema — id field (#7504)', () => {
+  const WEBHOOK_ID = '123e4567-e89b-12d3-a456-426614174099'
+
+  it('retains a valid id instead of stripping it', () => {
+    const result = webhookUpdateSchema.safeParse({ id: WEBHOOK_ID, name: 'Renamed' })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.id).toBe(WEBHOOK_ID)
+    }
+  })
+
+  it('parses successfully when id is omitted, matching the PUT /:id route body shape', () => {
+    const result = webhookUpdateSchema.safeParse({ name: 'Renamed' })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.id).toBeUndefined()
+    }
+  })
+
+  it('rejects a non-uuid id', () => {
+    const result = webhookUpdateSchema.safeParse({ id: 'not-a-uuid', name: 'Renamed' })
+    expect(result.success).toBe(false)
+  })
+})
