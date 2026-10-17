@@ -85,6 +85,28 @@ byte budget): intentional security narrowing of the `auth.users.create` command 
 a target user it returns `[]`, and every existing call compiles and behaves the same. The route URL,
 request and response schemas, event IDs, ACL features, DI names and database schema are unchanged.
 
+### EUDR statement undos refuse to remove or reopen read-only statements (#7506)
+
+Undoing an `eudr.statements.create` through `POST /api/audit_logs/audit-logs/actions/undo` used to
+soft-delete the statement whatever had happened to it since. It now refuses in the same cases
+`eudr.statements.delete` refuses, answering `409 { "error": "<localized message>", "code": "<key>" }`
+and changing nothing:
+
+- the statement is archived (`code: "eudr.errors.archivedReadOnly"`);
+- the statement is available and its amendment window has elapsed (`code: "eudr.errors.amendWindowElapsed"`);
+- the statement is available and another statement references it (`code: "eudr.errors.referencedDownstream"`).
+
+Undoing an `eudr.statements.update` that would change the statement's status refuses the same way
+when the statement is currently in one of those states, so an undo can no longer move an archived
+or protected available statement back to an earlier status (and then make it removable). This
+includes undoing the update that archived the statement; archived statements stay read-only.
+Undos that leave the status unchanged, or start from a deletable state, behave as before.
+
+This is a bug fix that narrows undo behaviour. There is no schema or API-shape change, and explicit
+`eudr.statements.delete` responses are unchanged.
+
+**Action for API clients:** match undo refusals on `code`, not on `error`.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
