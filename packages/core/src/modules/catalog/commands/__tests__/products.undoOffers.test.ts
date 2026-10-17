@@ -253,4 +253,38 @@ describe('catalog.products.update undo — offers', () => {
     const createIndex = events.indexOf('create:offer-b')
     expect(events.slice(0, createIndex)).toContain('flush:offer-a@web')
   })
+
+  it('restores chained channel moves in dependency order', async () => {
+    const beforeB = offer('offer-b', 'ch-x')
+    const beforeA = offer('offer-a', 'ch-y')
+    const afterB = { ...beforeB, channelId: 'ch-z' }
+    const afterA = { ...beforeA, channelId: 'ch-x' }
+    const { byId, events } = await undoUpdate([beforeB, beforeA], [afterB, afterA], [afterB, afterA])
+    expect(byId('offer-a')?.channelId).toBe('ch-y')
+    expect(byId('offer-b')?.channelId).toBe('ch-x')
+    expect(events).toContain('flush:offer-b@ch-z,offer-a@ch-y')
+  })
+
+  it('leaves offers whose channels the update swapped', async () => {
+    const beforeA = offer('offer-a', 'web')
+    const beforeB = offer('offer-b', 'retail')
+    const afterA = { ...beforeA, channelId: 'retail' }
+    const afterB = { ...beforeB, channelId: 'web' }
+    const { byId, removed, created } = await undoUpdate([beforeA, beforeB], [afterA, afterB], [afterA, afterB])
+    expect(byId('offer-a')?.channelId).toBe('retail')
+    expect(byId('offer-b')?.channelId).toBe('web')
+    expect(removed).toHaveLength(0)
+    expect(created).toHaveLength(0)
+  })
+
+  it('never removes offers when the log entry has no after snapshot', async () => {
+    const offerA = offer('offer-a', 'web', { title: 'Before' })
+    const later = offer('offer-b', 'retail')
+    const harness = createHarness([{ ...offerA, title: 'After' }, later])
+    const logEntry = { payload: { undo: { before: productSnapshot([offerA]) } } }
+    await loadUpdateCommand().undo({ logEntry, ctx: harness.ctx })
+    expect(harness.removed).toHaveLength(0)
+    expect(harness.byId('offer-a')?.title).toBe('Before')
+    expect(harness.byId('offer-b')).toBeDefined()
+  })
 })

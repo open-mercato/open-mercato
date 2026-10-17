@@ -815,19 +815,26 @@ async function restoreOffersFromSnapshot(
     target.metadata = snap.metadata ? cloneJson(snap.metadata) : null;
     target.isActive = snap.isActive;
   };
-  const toCreate: OfferSnapshot[] = [];
-  let updated = false;
-  for (const snap of restorable) {
-    const target = findRemaining(snap.id);
-    if (!target) {
-      toCreate.push(snap);
-      continue;
+  const toCreate = restorable.filter((snap) => !findRemaining(snap.id));
+  let pending = restorable.filter((snap) => !!findRemaining(snap.id));
+  let progressed = true;
+  while (pending.length && progressed) {
+    progressed = false;
+    const blocked: OfferSnapshot[] = [];
+    for (const snap of pending) {
+      const target = findRemaining(snap.id);
+      if (!target) continue;
+      if (channelTaken(snap, target)) {
+        blocked.push(snap);
+        continue;
+      }
+      const moved = target.channelId !== snap.channelId;
+      applySnapshot(target, snap);
+      if (moved) await em.flush();
+      progressed = true;
     }
-    if (channelTaken(snap, target)) continue;
-    applySnapshot(target, snap);
-    updated = true;
+    pending = blocked;
   }
-  if (updated && toCreate.length) await em.flush();
   for (const snap of toCreate) {
     if (channelTaken(snap)) continue;
     const target = em.create(CatalogOffer, {
