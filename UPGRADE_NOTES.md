@@ -1044,6 +1044,20 @@ and change nothing; undoing a `.delete` runs the same check as a precaution. Unl
 first; the same undo then works again. No schema, route or permission changes. Undoing a tag
 delete is not covered by this change.
 
+### WMS detail-page CSV exports neutralize spreadsheet formulas
+
+The **Export CSV** buttons on the WMS SKU, lot, and location detail pages now format every cell
+with the shared CSV exporter rules. Text cells that start with `=`, `+`, `-`, `@`, a tab, or a line
+break are prefixed with `'` so spreadsheet applications show them as text instead of evaluating
+them (for example a location code `=1+1` exports as `'=1+1`). Cells containing a carriage return
+are now quoted. Quantities stay plain numbers, including negative ones.
+
+The cell formatter is available as `formatCsvCell` from `@open-mercato/shared/lib/crud/exporters`
+for modules that build CSV rows in the browser.
+
+**Action:** none for module code. Tools that parse these exports and expect formula-leading codes
+verbatim must strip the leading `'`.
+
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
 Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).
