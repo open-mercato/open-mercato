@@ -476,7 +476,7 @@ export const ColorPicker = React.forwardRef<HTMLButtonElement, ColorPickerProps>
             >
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">{chooseLabel}</span>
-                <span className="font-mono text-xs uppercase tracking-tight text-muted-foreground/80">
+                <span className="font-mono text-xs uppercase tracking-tight text-muted-foreground">
                   {normalizedValue}
                 </span>
               </div>
@@ -705,7 +705,7 @@ export const ColorPicker = React.forwardRef<HTMLButtonElement, ColorPickerProps>
                     'focus-visible:shadow-focus focus-visible:outline-none',
                   )}
                 >
-                  <Plus aria-hidden="true" className="size-5 text-muted-foreground/70" />
+                  <Plus aria-hidden="true" className="size-5 text-muted-foreground" />
                   <span>{addLabel}</span>
                 </button>
               </>

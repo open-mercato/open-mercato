@@ -5,9 +5,14 @@ import { render, screen } from '@testing-library/react'
 import { DictionaryOptionsUnavailableError } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import {
   CUSTOMER_DICTIONARIES_MANAGE_HREF,
+  CompanySelectField,
   DictionarySelectField,
+  createCompanyEditFields,
+  createCompanyFormFields,
+  createPersonFormFields,
   getCustomerDictionaryManageHref,
 } from '../formConfig'
+import type { CrudCustomField, CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { DealFormField } from '../detail/create/DealFormField'
 import { CUSTOMER_DICTIONARY_ORGANIZATION_REQUIRED_CODE } from '../../lib/dictionaries'
 
@@ -30,23 +35,31 @@ jest.mock('@open-mercato/core/modules/dictionaries/components/DictionaryEntrySel
   DictionaryOptionsUnavailableError: class DictionaryOptionsUnavailableError extends Error {},
   DictionaryEntrySelect: ({
     id,
+    ariaLabelledBy,
     manageHref,
     fetchOptions,
   }: {
     id?: string
+    ariaLabelledBy?: string
     manageHref?: string
     fetchOptions: () => Promise<unknown>
   }) => {
     capturedFetchOptions = fetchOptions
     return (
       <>
-        <button type="button" role="combobox" aria-expanded={false} id={id} />
+        <button type="button" role="combobox" aria-expanded={false} id={id} aria-labelledby={ariaLabelledBy} />
         <a data-testid="manage-link" href={manageHref}>
           Manage
         </a>
       </>
     )
   },
+}))
+
+jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
+  apiCall: jest.fn(async () => ({ ok: true, result: { items: [] } })),
+  apiCallOrThrow: jest.fn(async () => ({ ok: true, result: {} })),
+  readApiResultOrThrow: jest.fn(async () => ({ items: [] })),
 }))
 
 jest.mock('../detail/hooks/useCustomerDictionary', () => ({
@@ -201,5 +214,76 @@ describe('DictionarySelectField', () => {
     )
 
     expect(screen.getByLabelText('Status')).toBe(screen.getByRole('combobox'))
+  })
+})
+
+// The CrudForm wrapper labels a custom field with a <label id>, and passes that
+// id to the field. These selects have to forward it to their trigger, or the
+// combobox has no accessible name.
+describe('customers form selects are named by their field label', () => {
+  const t = (key: string, fallback?: string) => fallback ?? key
+
+  function renderCustomField(fields: CrudField[], id: string) {
+    const field = fields.find((entry) => entry.id === id) as CrudCustomField | undefined
+    if (!field || field.type !== 'custom') throw new Error(`[internal] no custom field ${id}`)
+    return render(<>{field.component({ id, value: undefined, setValue: () => {}, labelId: `label-${id}` })}</>)
+  }
+
+  it('forwards the label id from DictionarySelectField to its trigger', () => {
+    render(
+      <DictionarySelectField kind="job-titles" value={undefined} onChange={() => {}} labels={labels} ariaLabelledBy="label-job" />,
+    )
+
+    expect(screen.getByRole('combobox')).toHaveAttribute('aria-labelledby', 'label-job')
+  })
+
+  it.each(['jobTitle', 'status', 'lifecycleStage', 'source'])('names the person form %s select', (id) => {
+    renderCustomField(createPersonFormFields(t), id)
+
+    expect(screen.getByRole('combobox')).toHaveAttribute('aria-labelledby', `label-${id}`)
+  })
+
+  it.each(['status', 'lifecycleStage', 'source'])('names the company form %s select', (id) => {
+    renderCustomField(createCompanyFormFields(t), id)
+
+    expect(screen.getByRole('combobox')).toHaveAttribute('aria-labelledby', `label-${id}`)
+  })
+
+  it('names the company edit industry select', () => {
+    renderCustomField(createCompanyEditFields(t), 'industry')
+
+    expect(screen.getByRole('combobox')).toHaveAttribute('aria-labelledby', 'label-industry')
+  })
+
+  it('names the person form company select', async () => {
+    renderCustomField(createPersonFormFields(t), 'companyEntityId')
+
+    expect(await screen.findByRole('combobox')).toHaveAttribute('aria-labelledby', 'label-companyEntityId')
+  })
+
+  it('forwards the label id from CompanySelectField to its trigger', async () => {
+    render(
+      <CompanySelectField
+        value={undefined}
+        onChange={() => {}}
+        ariaLabelledBy="label-company"
+        labels={{
+          placeholder: 'Select a company',
+          addLabel: 'Add company',
+          addPrompt: 'Enter a company',
+          dialogTitle: 'Add company',
+          inputLabel: 'Name',
+          inputPlaceholder: 'Name',
+          emptyError: 'Required',
+          cancelLabel: 'Cancel',
+          saveLabel: 'Save',
+          errorLoad: 'Failed to load',
+          errorSave: 'Failed to save',
+          loadingLabel: 'Loading',
+        }}
+      />,
+    )
+
+    expect(await screen.findByRole('combobox')).toHaveAttribute('aria-labelledby', 'label-company')
   })
 })

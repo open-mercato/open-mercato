@@ -1179,8 +1179,13 @@ function ColumnResizeHandle({
   )
 }
 
-function SortableHeaderCell({ id, children, className, width }: { id: string; children: React.ReactNode; className?: string; width?: number }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+function SortableHeaderCell({ id, children, className, width, ariaSort }: { id: string; children: React.ReactNode; className?: string; width?: number; ariaSort?: React.AriaAttributes['aria-sort'] }) {
+  // Only the pointer listeners go on the cell. dnd-kit's `attributes` would make
+  // it a focusable `role="button"`, which replaces the column header role (data
+  // cells lose their header) and adds a Tab stop that does nothing, since only
+  // a pointer sensor is registered. Column order stays keyboard-reachable
+  // through the column chooser.
+  const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
   const isSticky = typeof className === 'string' && className.includes('sticky')
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
@@ -1191,7 +1196,7 @@ function SortableHeaderCell({ id, children, className, width }: { id: string; ch
     ...(typeof width === 'number' ? { width, minWidth: width, maxWidth: width } : {}),
   }
   return (
-    <TableHead ref={setNodeRef} style={style} className={className} {...attributes} {...listeners}>
+    <TableHead ref={setNodeRef} style={style} className={className} aria-sort={ariaSort} {...listeners}>
       {children}
     </TableHead>
   )
@@ -1219,7 +1224,7 @@ function ViewSwitcherDropdown({
   const activeName = allViews.find((v) => v.id === activePerspectiveId)?.name.trim() || ''
   const activeLabel = activeName || t('ui.dataTable.perspectives.allViews', 'All views')
   return (
-    <div className="inline-flex h-9 items-center rounded-md border border-input text-sm">
+    <div className="inline-flex h-9 min-w-0 max-w-full items-center rounded-md border border-input text-sm">
       <Button
         data-testid="data-table-open-views-sidebar"
         type="button"
@@ -1238,7 +1243,9 @@ function ViewSwitcherDropdown({
             type="button"
             variant="ghost"
             size="sm"
-            className="h-full max-w-[200px] rounded-none rounded-r-md px-3 font-normal text-muted-foreground"
+            // `shrink min-w-0` undoes the Button default `shrink-0`, so the
+            // active view name truncates instead of pushing the page wider.
+            className="h-full min-w-0 max-w-52 shrink rounded-none rounded-r-md px-3 font-normal text-muted-foreground"
           >
             <span className="truncate">{activeLabel}</span>
             <ChevronDown className="size-3.5 shrink-0 ml-1.5" />
@@ -3454,7 +3461,7 @@ function DataTableImpl<T extends RowData>({
       </Button>
     ) : null
     const leadingItems = advancedFilterButton || perspectiveButtonLeading || saveViewButton ? (
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
         {advancedFilterButton}
         {perspectiveButtonLeading}
         {saveViewButton}
@@ -3589,8 +3596,10 @@ function DataTableImpl<T extends RowData>({
   const headerContentClassName = 'flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between'
   const toolbarWrapperClassName = embedded ? 'mt-2' : 'mt-3 pt-3 border-t'
   // `isolate` keeps the z-index of pinned cells local to the table so they
-  // scroll beneath the sticky app top bar instead of over it.
-  const tableScrollWrapperClassName = embedded ? 'isolate' : 'isolate overflow-auto'
+  // scroll beneath the sticky app top bar instead of over it. The table keeps a
+  // 640 px minimum width below md, so an embedded table needs its own
+  // horizontal scroller too; without one the page scrolls sideways.
+  const tableScrollWrapperClassName = embedded ? 'isolate overflow-x-auto' : 'isolate overflow-auto'
 
   const virtualScrollRef = React.useRef<HTMLDivElement>(null)
   // Measure the horizontal scroll viewport so the empty state can center within
@@ -3767,6 +3776,8 @@ function DataTableImpl<T extends RowData>({
                   const stickyClass = stickyFirstColumn && isFirstDataColumn ? ` md:sticky md:left-0 md:z-10 md:bg-background ${STICKY_LEFT_SHADOW_CLASS}` : ''
                   const isColumnSortable = sortable && !!header.column.getCanSort?.()
                   const headerContent = header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())
+                  const headerSortState = isColumnSortable ? header.column.getIsSorted() : false
+                  const headerAriaSort = headerSortState === 'asc' ? 'ascending' : headerSortState === 'desc' ? 'descending' : undefined
                   // Columns that can't be sorted (e.g. a manual "select" checkbox column) may render
                   // interactive controls (Checkbox, etc.) in their header. Wrapping those in a <Button>
                   // would nest a native <button> inside another, which is invalid HTML and triggers a
@@ -3801,7 +3812,7 @@ function DataTableImpl<T extends RowData>({
                     />
                   ) : null
                   return enableHeaderDnd ? (
-                    <SortableHeaderCell key={header.id} id={header.id} width={sizedWidth} className={cn('group', responsiveClass(priority, columnMeta?.hidden) + stickyClass)}>
+                    <SortableHeaderCell key={header.id} id={header.id} width={sizedWidth} ariaSort={headerAriaSort} className={cn('group', responsiveClass(priority, columnMeta?.hidden) + stickyClass)}>
                       {headerCellContent}
                       {resizeHandle}
                     </SortableHeaderCell>
@@ -3810,6 +3821,7 @@ function DataTableImpl<T extends RowData>({
                       key={header.id}
                       className={cn('group relative', responsiveClass(priority, columnMeta?.hidden) + stickyClass)}
                       style={typeof sizedWidth === 'number' ? { width: sizedWidth, minWidth: sizedWidth, maxWidth: sizedWidth } : undefined}
+                      aria-sort={headerAriaSort}
                     >
                       {headerCellContent}
                       {resizeHandle}

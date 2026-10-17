@@ -159,6 +159,24 @@ describe('AppShell', () => {
     }
   })
 
+  it('names the home crumb with text when the dashboard is the current page', () => {
+    mockPathname = '/backend'
+    renderWithProviders(
+      <AppShell email="demo@example.com" groups={groups}>
+        <div>Dashboard content</div>
+      </AppShell>,
+      { dict },
+    )
+
+    const breadcrumbNav = screen.getByRole('navigation', { name: 'Breadcrumb' })
+    const currentPage = breadcrumbNav.querySelector('[data-slot="breadcrumb-page"]') as HTMLElement
+    expect(currentPage).toHaveAttribute('aria-current', 'page')
+    // `aria-label` is not allowed on a span without a role, so it may be
+    // ignored and the icon-only crumb left without a name.
+    expect(currentPage).not.toHaveAttribute('aria-label')
+    expect(currentPage).toHaveTextContent('Dashboard')
+  })
+
   it('renders navigation and breadcrumbs with translations applied via ApplyBreadcrumb', async () => {
     renderWithProviders(
       <AppShell
@@ -246,6 +264,24 @@ describe('AppShell', () => {
     const activePage = within(breadcrumbNav).getByText((_, el) => el?.getAttribute('data-slot') === 'breadcrumb-page')
     expect(activePage).toHaveTextContent('Roles')
     expect(within(breadcrumbNav).getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/backend')
+  })
+
+  it('renders sidebar group labels in the full muted text color', () => {
+    renderWithProviders(
+      <AppShell email="demo@example.com" groups={groups}>
+        <div>Content</div>
+      </AppShell>,
+      { dict },
+    )
+
+    const labels = Array.from(document.querySelectorAll('[data-sidebar-group="true"] > button'))
+    expect(labels.length).toBeGreaterThan(0)
+    for (const label of labels) {
+      // An opacity modifier on the muted text token drops 12 px labels to
+      // 2.77:1 on white and 4.17:1 on the dark background.
+      expect(label.className).toMatch(/(^|\s)text-muted-foreground(\s|$)/)
+      expect(label.className).not.toMatch(/text-muted-foreground\/\d+/)
+    }
   })
 
   it('applies a local logo immediately and restores the original shell logo', () => {

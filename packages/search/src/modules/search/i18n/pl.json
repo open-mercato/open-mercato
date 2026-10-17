@@ -38,6 +38,7 @@
   "search.dialog.instructions": "Wpisz tekst, aby przeszukać zindeksowane rekordy. Użyj strzałek do nawigacji po wynikach.",
   "search.dialog.noLink": "Brak linku",
   "search.dialog.noLinkHint": "Brak konfiguracji search.ts dla tego typu encji",
+  "search.dialog.results.label": "Wyniki wyszukiwania",
   "search.dialog.score.title": "Wynik trafności",
   "search.dialog.shortcuts.hint": "Naciśnij Cmd+K, aby przełączyć. Enter, aby otworzyć",
   "search.dialog.strategies.exact": "Dokładne",

@@ -525,7 +525,7 @@ test.describe('TC-ECOM-006: store admin UI', () => {
       await expect(page.locator('header').getByRole('button', { name: 'Open global search' })).toBeVisible({
         timeout: UI_TIMEOUT,
       });
-      const input = page.locator('input[aria-controls="topbar-search-results"]');
+      const input = page.locator('header').getByRole('combobox', { name: 'Search', exact: true });
       await expect(async () => {
         await page.keyboard.press('ControlOrMeta+K');
         await expect(input).toBeFocused({ timeout: 2_000 });

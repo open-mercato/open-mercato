@@ -79,6 +79,148 @@ describe('CrudForm initialValues', () => {
     expect(getInput(container).value).toBe('Bob')
   })
 
+  it('associates visible labels with their form controls', async () => {
+    const fields: CrudField[] = [
+      { id: 'title', label: 'Title', type: 'text' },
+      { id: 'notes', label: 'Notes', type: 'textarea' },
+      { id: 'body', label: 'Body', type: 'richtext' },
+      { id: 'amount', label: 'Amount', type: 'number' },
+      { id: 'date', label: 'Date', type: 'date' },
+      { id: 'time', label: 'Time', type: 'time' },
+      { id: 'tags', label: 'Tags', type: 'tags' },
+      { id: 'owner', label: 'Owner', type: 'combobox' },
+      {
+        id: 'team',
+        label: 'Team',
+        type: 'relation',
+        options: [{ value: 'team-1', label: 'Team 1' }],
+      },
+      {
+        id: 'status',
+        label: 'Status',
+        type: 'select',
+        options: [{ value: 'active', label: 'Active' }],
+      },
+      { id: 'enabled', label: 'Enabled', type: 'checkbox' },
+    ]
+
+    renderWithProviders(
+      <CrudForm title="Form" fields={fields} disableInitialFocus onSubmit={() => {}} />,
+      {
+        dict: {
+          'ui.forms.actions.save': 'Save',
+          'ui.forms.select.emptyOption': '-',
+        },
+      },
+    )
+
+    const titleLabel = screen.getByText('Title')
+    const titleInput = screen.getByLabelText('Title')
+    expect(titleInput).toHaveAttribute('id')
+    expect(titleLabel).toHaveAttribute('for', titleInput.id)
+
+    const notesInput = screen.getByLabelText('Notes')
+    expect(notesInput).toHaveAttribute('id')
+
+    const bodyInput = screen.getByLabelText('Body')
+    expect(bodyInput).toHaveAttribute('id')
+
+    const amountInput = screen.getByLabelText('Amount')
+    expect(amountInput).toHaveAttribute('id')
+
+    const dateInput = screen.getByLabelText('Date')
+    expect(dateInput).toHaveAttribute('id')
+
+    const timeInput = screen.getByLabelText('Time')
+    expect(timeInput).toHaveAttribute('id')
+
+    const tagsInput = screen.getByLabelText('Tags')
+    expect(tagsInput).toHaveAttribute('id')
+
+    const ownerInput = screen.getByLabelText('Owner')
+    expect(ownerInput).toHaveAttribute('id')
+
+    const teamInput = screen.getByLabelText('Team')
+    expect(teamInput).toHaveAttribute('id')
+
+    const statusInput = screen.getByLabelText('Status')
+    expect(statusInput).toHaveAttribute('id')
+
+    const checkbox = screen.getByLabelText('Enabled')
+    expect(checkbox).toHaveAttribute('id')
+  })
+
+  it('scopes label targets when two forms share field ids', () => {
+    const fields: CrudField[] = [{ id: 'displayName', label: 'Display name', type: 'text' }]
+
+    const { container } = renderWithProviders(
+      <>
+        <CrudForm title="Company" fields={fields} disableInitialFocus onSubmit={() => {}} />
+        <CrudForm title="Person" fields={fields} disableInitialFocus onSubmit={() => {}} />
+      </>,
+      {
+        dict: {
+          'ui.forms.actions.save': 'Save',
+        },
+      },
+    )
+
+    const fieldNodes = Array.from(container.querySelectorAll('[data-crud-field-id="displayName"]'))
+    expect(fieldNodes).toHaveLength(2)
+
+    const firstLabel = fieldNodes[0].querySelector('label') as HTMLLabelElement
+    const secondLabel = fieldNodes[1].querySelector('label') as HTMLLabelElement
+    const firstInput = fieldNodes[0].querySelector('input') as HTMLInputElement
+    const secondInput = fieldNodes[1].querySelector('input') as HTMLInputElement
+
+    expect(firstInput.id).toBeTruthy()
+    expect(secondInput.id).toBeTruthy()
+    expect(firstInput.id).not.toBe(secondInput.id)
+    expect(firstLabel.htmlFor).toBe(firstInput.id)
+    expect(secondLabel.htmlFor).toBe(secondInput.id)
+    expect(firstLabel.control).toBe(firstInput)
+    expect(secondLabel.control).toBe(secondInput)
+  })
+
+  it('does not emit orphan label targets for field types without a single labelable control', () => {
+    const fields: CrudField[] = [
+      {
+        id: 'permissions',
+        label: 'Permissions',
+        type: 'select',
+        multiple: true,
+        options: [
+          { value: 'read', label: 'Read' },
+          { value: 'write', label: 'Write' },
+        ],
+      },
+      {
+        id: 'industry',
+        label: 'Industry',
+        type: 'custom',
+        component: () => <div data-testid="industry-field">Industry picker</div>,
+      },
+    ]
+
+    renderWithProviders(
+      <CrudForm title="Form" fields={fields} disableInitialFocus onSubmit={() => {}} />,
+      {
+        dict: {
+          'ui.forms.actions.save': 'Save',
+        },
+      },
+    )
+
+    const permissionsLabel = screen.getByText('Permissions')
+    const industryLabel = screen.getByText('Industry')
+
+    expect(permissionsLabel).not.toHaveAttribute('for')
+    expect(industryLabel).not.toHaveAttribute('for')
+    expect(screen.getByLabelText('Read')).toBeInTheDocument()
+    expect(screen.getByLabelText('Write')).toBeInTheDocument()
+    expect(screen.getByTestId('industry-field')).toBeInTheDocument()
+  })
+
   it('shows the selected label when select options arrive after the saved value', async () => {
     const makeFields = (options: Array<{ label: string; value: string }>): CrudField[] => [
       { id: 'teamId', label: 'Team', type: 'select', options },
