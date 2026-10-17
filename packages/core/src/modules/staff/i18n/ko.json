@@ -269,6 +269,8 @@
   "staff.leaveRequests.errors.profileLoad": "프로필을 불러오지 못했습니다.",
   "staff.leaveRequests.errors.profileRequired": "먼저 프로필을 생성하세요.",
   "staff.leaveRequests.errors.reject": "휴가 신청을 반려하지 못했습니다.",
+  "staff.leaveRequests.errors.undoAfterDecision": "이 휴가 신청은 이미 승인 또는 반려되어 더 이상 실행 취소할 수 없습니다. 먼저 결정을 실행 취소하세요.",
+  "staff.leaveRequests.errors.undoMemberMissing": "이 휴가 신청의 원래 팀원이 더 이상 존재하지 않아 변경 사항을 실행 취소할 수 없습니다.",
   "staff.leaveRequests.form.actions.create": "생성",
   "staff.leaveRequests.form.actions.save": "저장",
   "staff.leaveRequests.form.createTitle": "휴가 신청 생성",

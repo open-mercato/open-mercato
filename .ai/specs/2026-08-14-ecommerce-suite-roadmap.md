@@ -179,7 +179,7 @@ All new modules live in `packages/core/src/modules/<module>/` and follow the sta
 
 **Rationale.** A storefront total that disagrees with the order it produces is a correctness defect with financial and legal consequences (invoice mismatch, Omnibus disclosure, VAT). `sales` already owns `SalesTaxRate` and the calculation service used by every back-office document.
 
-**Consequence.** `cart` depends on `sales` for calculation. This is the one place where a read-side module depends on the transactional core; it is deliberate and must not be worked around by reimplementing arithmetic.
+**Consequence.** `cart` depends on `sales` for calculation. This is the one place where a read-side module depends on the transactional core; it is deliberate and must not be worked around by reimplementing arithmetic. A pluggable tax provider changes nothing here: the tax-providers roadmap (`2026-10-03-tax-providers-roadmap.md`) applies the provider's result as a phase of the same totalling inside `salesCalculationService`, and gives callers outside `sales` a `sales`-owned resolution service that runs the provider call before `calculateDocumentTotals` (its Spec 1b), so `cart` and `checkout` keep one arithmetic path.
 
 ---
 
@@ -247,7 +247,7 @@ Field names are `catalogProductId` / `catalogVariantId`, matching the `catalog_p
 
 **Rationale.** `customer_group_id` is consumed today by `catalog/lib/pricing.ts` (specificity score +3), `catalog/api/prices`, `catalog/commands/prices.ts`, `catalog` AI price tooling and `SalesTaxRate` — with no table behind it. Every B2B feature in this suite (contract pricing, group tax treatment, credit terms, assortment scoping) resolves through this id. It is the first thing that must land.
 
-**Consequence.** This module ships before `cart`. Backward compatibility: the column stays a plain UUID with no FK constraint added in the first release, so existing rows carrying arbitrary ids keep working; a reconciliation report lists orphans. Adding the constraint is a later, separately-specified migration.
+**Consequence.** This module ships before `cart`. Backward compatibility: the column stays a plain UUID with no FK constraint added in the first release, so existing rows carrying arbitrary ids keep working; a reconciliation report lists orphans. Adding the constraint is a later, separately-specified migration. Group tax treatment resolves through the same id in `sales` once the organization selects the `sales-tax-rates` provider named next (the default state of that roadmap, `product-rate`, consults no group). Which `SalesTaxRate` row applies by address, date and the row's other columns (channel, priority, compound, validity) is matched by the `sales-tax-rates` provider of the tax-providers roadmap (`2026-10-03-tax-providers-roadmap.md`, its Spec 2, still to be written), which reads `sales_tax_rates.customer_group_id` as the plain UUID this decision keeps and takes the group set from `customerGroupsService.resolveGroups`. This suite's set-membership substitution (customer groups §7.2) and group precedence (customer groups §3.2) stay its rules; how they combine with the row's `priority` is that provider's specification to state.
 
 **Scope note.** Credit limit, credit exposure, payment terms and approval policy attach to the group and to `CustomerEntity`. `CustomerCompanyBilling` already carries `payment_terms` and is extended rather than replaced.
 
@@ -564,6 +564,9 @@ Every public namespace MUST be rate limited and MUST include the buyer-context d
 ---
 
 ## 13) Changelog
+
+### 2026-10-12 (tax-providers pointers)
+- **ADR-2 and ADR-6 point at the tax-providers roadmap** (`2026-10-03-tax-providers-roadmap.md`, in review as #6918). ADR-2: a pluggable tax provider's result is a phase of the same totalling inside `salesCalculationService`, with a `sales`-owned resolution service for callers outside `sales`. ADR-6: which tax rate applies by address, date and the row's other columns is matched in `sales` by the `sales-tax-rates` provider of that roadmap (its Spec 2, still to be written) once the organization selects it; this suite's set-membership substitution (customer groups §7.2) and group precedence (customer groups §3.2) stay its rules.
 
 ### 2026-10-11
 - **§3.1, §3.2, ADR-4 and Phase 0 name the shared availability entry point.** `availabilityService` does not exist: the read contract is `resolveAvailability()` in `packages/shared` (§4.1a of [Availability Contract](./2026-08-14-availability-contract.md)) and the writes are the `availability.reserve`/`.release`/`.commit` commands, owned by the `availability` module. The `availability` ownership row and the `wms` registration row now say so, and ADR-4 and the Phase 0 gate use the read call's real name. Recorded from the post-merge review of #5384.
