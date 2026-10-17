@@ -13,6 +13,8 @@
 import type { EntityManager } from '@mikro-orm/core'
 import { executeRules, resolveBusinessRuleDiscoveryCache } from '../lib/rule-engine'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { reportCausationDegradation } from '@open-mercato/shared/lib/causation/server'
 
 const logger = createLogger('business_rules').child({ component: 'crud-rule-trigger' })
 
@@ -43,6 +45,27 @@ function parseEventName(eventName: string): { entityType: string; eventType: str
   return { entityType, eventType }
 }
 
+const PAYLOAD_ENTITY_ID_KEYS = ['id', 'entityId', 'recordId'] as const
+const MAX_ENTITY_ID_LENGTH = 255
+const ENTITY_ID_CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/
+
+function normalizeEntityIdCandidate(value: unknown): string | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  if (!trimmed || trimmed.length > MAX_ENTITY_ID_LENGTH) return undefined
+  if (ENTITY_ID_CONTROL_CHARACTER_PATTERN.test(trimmed)) return undefined
+  return trimmed
+}
+
+function resolvePayloadEntityId(payload: Record<string, unknown>): string | undefined {
+  for (const key of PAYLOAD_ENTITY_ID_KEYS) {
+    const candidate = normalizeEntityIdCandidate(payload[key])
+    if (candidate) return candidate
+  }
+  return undefined
+}
+
 type CrudRuleTriggerContext = {
   resolve: <T = unknown>(name: string) => T
   eventName?: string
@@ -68,16 +91,26 @@ export default async function handle(
 
   const em = ctx.resolve<EntityManager>('em')
   const cache = resolveBusinessRuleDiscoveryCache(ctx.resolve)
+  const entityId = resolvePayloadEntityId(data)
 
   try {
-    await executeRules(em, {
+    const result = await executeRules(em, {
       entityType: parsed.entityType,
       eventType: parsed.eventType,
+      ...(entityId ? { entityId } : {}),
       data,
       tenantId,
       organizationId,
     }, { cache })
+    if (!entityId && result.executedRules.length > 0) {
+      reportCausationDegradation('rule_entity_id_unresolved', { eventName })
+    }
   } catch (error) {
     logger.error('Rule execution failed for event', { event: eventName, err: error })
+    getTelemetryRuntime()?.reportError(error, {
+      module: 'business_rules',
+      code: 'business_rules.crud_trigger_failed',
+      attributes: { eventName },
+    })
   }
 }

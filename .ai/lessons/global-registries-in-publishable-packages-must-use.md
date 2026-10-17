@@ -13,4 +13,4 @@ topics: ["events","module-boundaries","package-runtime"]
 
 **Rule**: Any publishable cross-package registry that must be visible across bootstrap, API routes, and request containers must persist via `globalThis` with a stable key. Do not store bootstrap-critical registries only in module-local variables.
 
-**Applies to**: ORM/entity registries, DI registrars, module registries, and other standalone-sensitive bootstrap state in `@open-mercato/*` packages.
+**Applies to**: ORM/entity registries, DI registrars, module registries, route manifests (`register{Api,Backend,Frontend}RouteManifests` — a module-local API manifest left `CALL_OPEN_MERCATO` rules with no endpoints once a page bundle ran them), and other standalone-sensitive bootstrap state in `@open-mercato/*` packages.

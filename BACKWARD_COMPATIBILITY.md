@@ -47,6 +47,8 @@ The following file names, their expected export names, and their role in module 
 | `notifications.client.ts` | — | MUST NOT change renderer props contract |
 | `ai-agents.ts` | `aiAgents: AiAgentDefinition[]` | MUST NOT change `AiAgentDefinition` required fields; optional sibling exports `aiAgentOverrides` and `aiAgentExtensions` are stable |
 | `ai-tools.ts` | `aiTools: AiToolDefinition[]` | MUST NOT change `AiToolDefinition` / inherited `McpToolDefinition` required fields; optional sibling export `aiToolOverrides` is stable |
+| `insights.explain.ts` | `explainConfig: ExplainModuleConfig` (or default export) built with `defineExplainConfig({ version: 1, ... })` | MUST NOT change the `version: 1` shape or the required fields of `ExplainResourceDescriptor` / field / collection / resolver / provider descriptors; may add optional fields; incompatible shapes require a new `version` |
+| `insights.process.ts` | `processConfig: ProcessModuleConfig` (or default export) built with `defineProcessConfig({ version: 1, ... })` | MUST NOT change the `version: 1` shape or the required fields of `ProcessDescriptor` / field / milestone / exit / end-state / actor-dimension descriptors; may add optional fields; incompatible shapes require a new `version`. Persisted activity keys (`created`, `deleted`, `<field>:<value>`, `<field>:changed`, `<milestone>.<…>`, exit keys) are derived from the declaration, so renaming a declared key is a breaking change for stored projections |
 | `di.ts` | `register(container)` | MUST NOT change function signature |
 | `cli.ts` | default export | MUST NOT change expected signature |
 | `data/entities.ts` | Entity class exports | See Database Schema rules below |
@@ -177,6 +179,7 @@ Spot IDs are the addresses where external modules inject UI. Renaming or removin
 - MAY add new spot IDs to new or existing pages
 - MAY add new optional context fields to existing spots
 - Wildcard spots (`crud-form:*`, `data-table:*`) MUST continue to match as documented
+- Field-level spots (`crud-form:<entityId>:field:<fieldId>:after`) are reached only by exact keys or by wildcard patterns that name the `:field:` segment (e.g. `crud-form:customers.deal:field:*:after`); a broad wildcard such as `crud-form:*` keeps matching every form-level spot but never resolves into a field-level spot
 
 ### 7. API Route URLs (STABLE)
 
@@ -277,6 +280,9 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 - MUST NOT remove AI generated registry exports: `aiAgentConfigEntries`, `allAiAgents`, `aiAgentOverrideEntries`, `aiAgentExtensionEntries`, `allAiAgentExtensions`, `aiToolConfigEntries`, `allAiTools`, `aiToolOverrideEntries`
 - MUST NOT change generated AI entry shapes: agent entries keep `{ moduleId, agents, overrides, extensions }`; tool entries keep `{ moduleId, tools, overrides }`
 - MAY add new generated files and new optional fields to `BootstrapData`
+- MUST NOT rename `insights-explain.generated.ts` or its `explainConfigEntries` export (`{ moduleId, config }` entries registered at bootstrap through `registerExplainConfigEntries`)
+- MUST NOT rename `insights-process.generated.ts` or its `processConfigEntries` export (`{ moduleId, config }` entries registered through `registerProcessConfigEntries`)
+- MUST NOT rename `bootstrap-registrations.cli.generated.ts` or its `runCliBootstrapRegistrations` export: CLI and worker processes (`bootstrapFromAppRoot`) run the generator-plugin registrations that opt in with `bootstrapRegistration.cli: true`; the file is always written
 - MAY add new generated AI registry exports additively
 - Generated `.ai/guides/module-facts.json` is the v1 compatibility projection. It keeps its existing top-level module record and legacy sections; optional per-module `extensionSurfaces` is ADDITIVE. Its `hosts`, `contributions`, and `unresolved` arrays, correlation-resolution values, exact public IDs, and published classification modes are STABLE.
 - Generated `.ai/guides/module-facts.v2.json` is the additive corrected projection and keeps the same `Record<moduleId, ModuleFactsJsonEntry>` top-level shape. New harness consumers prefer v2 and fall back to v1. Once published, v2 values follow the same generated-facts stability rules; future incompatible corrections require another explicit version boundary.
@@ -576,3 +582,158 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 ## Discord AI Proposals (2026-10-13)
 
 [Waiver](UPGRADE_NOTES.md#discord-proposals)
+
+## Causation Foundation (2026-10-08)
+
+[`.ai/specs/2026-10-08-insights-causation-and-explain.md`](.ai/specs/2026-10-08-insights-causation-and-explain.md) records why each audited write happened. Its one new persisted value set is `CAUSE_KINDS` (`@open-mercato/shared/lib/causation/types`), whose values are written to `action_logs.cause_kind` and into stored causation envelopes.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Persisted value set (`CAUSE_KINDS`) | Values are persisted and accepted by the audit `causeKind` filter, so they are frozen once shipped. New kinds MAY be appended; existing kinds MUST NOT be renamed or removed. A reader MUST reject an envelope whose innermost kind it does not know rather than promote an outer frame | ✓ ADDITIVE-ONLY (treat like §5/§10 IDs) |
+| Database schema | New nullable columns on `action_logs`, `rule_execution_logs` and `api_keys`, plus concurrently built indexes; nothing renamed, retyped or removed | ✓ ADDITIVE-ONLY |
+| `ActionLogService` method signatures | `log` and `markUndone` accept an optional trailing `causation` argument | ✓ ADDITIVE (optional parameter appended) |
+| API routes (`GET /api/audit_logs/audit-logs/actions`, `.../actions/export`) | New optional `causeKind`/`causeId`/`correlationId` filters on both; the list response gains `causeKind`/`causeId`/`correlationId`/`causedByLogId` | ✓ ADDITIVE |
+| Event IDs, ACL features, DI names, CLI commands, generated files | No change | ✓ n/a |
+
+**Migration path for existing modules**: none. DI overrides and test doubles of `actionLogService` must accept the optional extra argument (see UPGRADE_NOTES.md).
+
+---
+
+## Insights "Why?" Explain Core (2026-10-08)
+
+Phase 2 of [`.ai/specs/2026-10-08-insights-causation-and-explain.md`](.ai/specs/2026-10-08-insights-causation-and-explain.md) adds the `insights` module, which explains why a record value is what it is from audit history and the recorded causation. Every surface below is new; once shipped it follows the classification shown.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| §1 Auto-discovery convention `insights.explain.ts` | New convention file (row added to the §1 table). Registration validates declarations: a resource, cause resolver or reference resolver without a non-empty `requiredFeatures` list is skipped with a warning (fail closed), and a duplicate `resourceKind` / resolver kind / provider id keeps the first registration. `ExplainCollectionDescriptor.itemResourceKinds` (optional) opts a collection into reading its child rows (`parent_resource_kind` = the resource) | ✓ ADDITIVE; FROZEN once shipped (`version` gates future shapes) |
+| §2 Types (`@open-mercato/shared/modules/insights/explain`) | `ExplainModuleConfig`, `ExplainResourceDescriptor`, `ExplainFieldDescriptor`, `ExplainCollectionDescriptor`, `ExplainCustomFieldsDescriptor`, cause/reference resolver and provider types, `ExplainLoadContext`, `ExplainHistoryEntry`; persisted/response value sets `EXPLAIN_VERDICTS`, `EXPLAIN_CONFIDENCES`, `EXPLAIN_GAP_REASONS`, `EXPLAIN_VALUE_KINDS` | ✓ ADDITIVE; STABLE (optional fields only; value sets additive-only) |
+| §3 Function signatures (`ActionLogService`) | New methods `findFieldHistory`, `findHistoryEntryById`, `findLogScopes`, `countHistoryByCause`, `findResourceIdsWithHistory` — tenant and organization scoped, decrypted where payloads are read, run under a 5 s statement timeout | ✓ ADDITIVE (existing methods unchanged) |
+| §4 Import paths | `@open-mercato/shared/modules/insights/explain` (contract types, `defineExplainConfig`), `@open-mercato/shared/modules/insights/helpers` (scope, id, custom-field and resolver helpers for declarations) | ✓ ADDITIVE; STABLE |
+| §7 API routes | `GET /api/insights/explain`, `GET /api/insights/explain/descriptors`, `GET /api/insights/explain/log` (all `requireFeatures: ['insights.explain.view']`, identical `404 { "error": "not_found" }` for unknown, invisible and out-of-scope records) | ✓ ADDITIVE; STABLE |
+| §9 DI service names | `explainService` (request-scoped) | ✓ ADDITIVE; STABLE |
+| §10 ACL feature IDs | `insights.explain.view`, `insights.explain.access_detail` (depends on `insights.explain.view`) | ✓ ADDITIVE; FROZEN |
+| §13 CLI commands | `mercato insights explain:coverage [--tenant <id>] [--org <id>] [--since <iso>] [--limit N]` (read-only) | ✓ ADDITIVE; STABLE |
+| §14 Generated files | `insights-explain.generated.ts` exporting `explainConfigEntries`, registered at bootstrap | ✓ ADDITIVE; STABLE |
+| Database schema, event IDs, widget spot IDs, notification IDs, AI tool IDs | No change | ✓ n/a |
+
+**Migration path for existing modules**: none. A module opts in by adding `insights.explain.ts` and running `yarn generate`. Operators run `yarn generate` and `yarn mercato auth sync-role-acls` so existing roles receive the new features (see UPGRADE_NOTES.md).
+
+### Insights "Why?" price and access (Phase 3, 2026-10-08)
+
+Phase 3 of the same spec explains sales line prices and access decisions. Every surface below is new and additive.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| §1 Auto-discovery (`insights.explain.ts`) | `catalog` declares the `catalog.price` reference resolver (`requiredFeatures: ['catalog.products.view']`); `sales` registers the `sales.line_price` field provider. The sales line items exposed to explain declarations gain `priceId` and `priceMode` (read from line `metadata`) | ✓ ADDITIVE |
+| §3 Function signatures (`RbacService`) | New `explainAccess(userId, features, { tenantId, organizationId }, { detail? })` → `{ decision, required, reasons, confidence, consistentWithFreshRead, detail }` (decision always equals `userHasAllFeatures` on the same cache-backed ACL; a cache-bypassing re-check lowers `confidence` to `inferred` on disagreement) and `findRolesGrantingFeatures(tenantId, features, { organizationId? })`; new exported types `AccessExplanation*`, `AccessRoleGrant`, `AccessUserAclGrant` and the value set `ACCESS_EXPLANATION_REASONS` (`missing_feature`, `organization_out_of_scope`, `user_acl_override`, `module_disabled`, `feature_removed`). `loadAcl` and every existing method are unchanged | ✓ ADDITIVE; reason values ADDITIVE-ONLY |
+| §7 API routes | `GET /api/insights/explain/access?features=&path=&userId=` (`requireAuth`; resolved tenant required; unknown feature ids → 400 `unknown_feature`; another user requires `insights.explain.access_detail` + `auth.users.list` → 403 `forbidden`; a user outside the caller's tenant/organization scope → 404 `not_found`). Response `{ decision, required, reasons, summary, detail, confidence }`; `detail` only with `insights.explain.access_detail`. Explain field hints gain `sales.insights.linePrice.*` facts with `params.outcome` (`matched_price_row`, `differs`, `no_catalog_link`, `unverifiable`) | ✓ ADDITIVE; STABLE |
+| §9 DI service names | `accessExplainService` (request-scoped) | ✓ ADDITIVE; STABLE |
+| Database schema, event IDs, widget spot IDs, ACL feature IDs, notification IDs, CLI commands | No change | ✓ n/a |
+
+### Insights "Why?" UI and AI (Phase 4a, 2026-10-08)
+
+| Surface | Change | Classification |
+|---|---|---|
+| §3 Component props / types | `AccessDeniedMessage` optional `path` and `requiredFeatures` props; exported `AccessDeniedInjectionContext` and the version-history entry spot context type | ✓ ADDITIVE; STABLE |
+| §6 Widget spot IDs | `version-history:entry:after` (context `{ logId, resourceKind, resourceId }`) and `backend:access-denied:after` (context `{ path, requiredFeatures }`); constants `VERSION_HISTORY_ENTRY_AFTER_INJECTION_SPOT_ID`, `BACKEND_ACCESS_DENIED_AFTER_INJECTION_SPOT_ID` | ✓ ADDITIVE; FROZEN once shipped |
+| §6 Widget IDs | `insights.injection.record-why`, `insights.injection.deal-status-why`, `insights.injection.log-cause`, `insights.injection.access-why` | ✓ ADDITIVE; STABLE |
+| §7 Backend pages | `/backend/insights/why` (requires `insights.explain.view`) | ✓ ADDITIVE; STABLE |
+| §12 AI tool IDs | `insights.explain_record` (read-only, not allowlisted by default) | ✓ ADDITIVE; FROZEN once shipped |
+
+### Insights "Why?" CrudForm field spots (Phase 4b, 2026-10-08)
+
+Phase 4b of the same spec binds the CrudForm field spot family and adds the per-field "Why?" button behind an explain mode. Every surface below is new or additive.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| §6 Widget spot IDs | `crud-form:<entityId>:field:<fieldId>:after` (declared as `CRUD_FORM_EXTENSION_SURFACES.fieldAfter`, previously `bound: false`) is now bound: `CrudForm` renders it at the end of each field of an edit form (record id from `values.id` or `versionHistory.resourceId`) whose resolved spot id starts with `crud-form:`, and only when `hasInjectionWidgetsForSpotPrefix('crud-form:<entityId>:field:')` finds a registration (exact key or explicit pattern containing `:field:`). Context `{ entityId, recordId, fieldId, resourceKind? }` (`CrudFormFieldInjectionContext`; `entityId` is the entity segment of the form's spot id). A wildcard without `:field:` (e.g. `record_locks.injection.crud-form-locking` on `crud-form:*`) never enables or resolves into field spots. Forms without field registrations render unchanged DOM. `fieldBefore` stays unbound | ✓ ADDITIVE; FROZEN once shipped |
+| §6 Widget context | The context `CrudForm` passes to its form-level spots (base, `:header`, `:fields` handlers) gains `injectionSpotId` (resolved base spot id, or `null`) | ✓ ADDITIVE (optional context field) |
+| §3 Function signatures | `hasInjectionWidgetsForSpotPrefix(prefix): boolean` and `INJECTION_FIELD_SPOT_SEGMENT` (`':field:'`) in `@open-mercato/shared/modules/widgets/injection-loader` (`prefix` is a field prefix ending with `:field:`, any other prefix answers `false`; a key counts when its part up to its first `:field:` equals or wildcard-matches the prefix; computed from the registered tables, `false` before registration, recomputed on every registration); `useHasInjectionWidgetsForSpotPrefix(prefix)` (reactive, `false` during SSR/hydration); type `CrudFormFieldInjectionContext` from `@open-mercato/ui/backend/CrudForm`. `loadInjectionWidgetsForSpot` / `loadInjectionDataWidgetsForSpot` skip wildcard keys without `:field:` for a spot id containing `:field:` (no spot rendered before this change contains it) | ✓ ADDITIVE; STABLE |
+| §4 Import paths | `@open-mercato/ui/backend/injection/useHasInjectionWidgetsForSpotPrefix` | ✓ ADDITIVE; STABLE |
+| §7 API routes | `GET /api/insights/explain/descriptors`: each field descriptor gains `currentPath` (`string \| null`, the record property the field is read from) | ✓ ADDITIVE |
+| Widget IDs | `insights.injection.field-why` (on `crud-form:<formEntityId>:field:*:after`) and `insights.injection.field-explain-toggle` (on `crud-form:<formEntityId>:header`) for the form entity ids `customers.deal`, `customers.customer_deal`, `customers.person`, `customers.company` (no global wildcard) | ✓ ADDITIVE; STABLE (override targets) |
+| Feature toggle | `insights_field_explain` (boolean, default `true`, category `insights`), created by `insights` `seedDefaults` only when the `feature_toggles` module is registered; the UI reads it fail-open (missing toggle or disabled module = enabled) | ✓ ADDITIVE; identifier FROZEN once shipped |
+| §14 Generated files | Module facts mark every CrudForm host's `fieldAfter` surface `bound: true`; the `factCoverage` row `CrudFormExtensionSurface.fieldAfter` becomes `emitted-example` (mirrored in both example `surface-inventory.json` files) | ✓ ADDITIVE |
+| Database schema, event IDs, ACL feature IDs, notification IDs, CLI commands | No change | ✓ n/a |
+---
+
+## Insights Process X-Ray Data Layer (Phase 5, 2026-10-08)
+
+Phase 5 of [`.ai/specs/2026-10-08-insights-process-xray.md`](.ai/specs/2026-10-08-insights-process-xray.md) projects audited changes into a process-event store. Every surface below is new; once shipped it follows the classification shown.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| §1 Auto-discovery convention `insights.process.ts` | New convention file (row added to the §1 table) discovered by the second insights generator plugin `insights.process`. Declarations are validated once the module registry is bootstrapped; a declaration with a field whose key or any snapshot-path / change-key segment names a column in the declared entity's map, the declaring module's `encryption.ts` maps or (for a milestone) the milestone entity's module maps is rejected as a whole and logged | ✓ ADDITIVE; FROZEN once shipped (`version` gates future shapes) |
+| §2 Types (`@open-mercato/shared/modules/insights/process`) | `ProcessModuleConfig`, `ProcessDescriptor`, `ProcessFieldDescriptor` (value kinds `enum`, `dictionary`, `uuid`, `user` — the last stored as a pseudonym, follow-up fields only), `ProcessMilestoneDescriptor` (`entityId` required, `<module>:<entity>`), `ProcessExitDescriptor`, `ProcessEndStateDescriptor`, `ProcessActorDimensionProvider`; `PROCESS_ENTITY_ID_PATTERN`; persisted value sets `PROCESS_ACTIVITY_KINDS`, `PROCESS_CASE_STATUSES`, `PROCESS_RESERVED_VALUES` (`other`, `none`), `PROCESS_LEGACY_CAUSE_KIND` (`legacy`) | ✓ ADDITIVE; STABLE (optional fields only; value sets additive-only) |
+| §2 Types (`@open-mercato/shared/modules/generators`, `@open-mercato/shared/lib/bootstrap`) | Optional `GeneratorPluginBootstrapRegistration.cli`; optional `BootstrapData.cliBootstrapRegistrations` (run by `createBootstrap` step 6h) | ✓ ADDITIVE (optional fields) |
+| §3 Function signatures (`ActionLogService`) | New `scanDecrypted({ tenantId, organizationId, after, until, limit, maxBytes?, resourceKinds? })` (ascending `(created_at, id)` keyset, probe-then-load byte budget, decrypted strictly: throws `ActionLogDecryptionUnavailableError` when tenant data encryption is on without a usable encryption service, leaves rows whose encrypted columns stay sealed out of `entries` and counts them in `undecryptable`) and `scanStateChanges({ tenantId, organizationId, after, until, limit, resourceKinds? })` (undone/redone rows by `(updated_at, id)`, plaintext only); both tenant + organization scoped under the 5 s statement timeout | ✓ ADDITIVE (existing methods unchanged) |
+| §4 Import paths | `@open-mercato/shared/modules/insights/process` | ✓ ADDITIVE; STABLE |
+| §5 Event subscriptions | `insights:xray-user-deleted` subscribes to `auth.user.deleted` (persistent; records the erasure ledger, fails for a retry while the pseudonym key is unavailable); `insights:xray-organization-created` subscribes to `directory.organization.created` (persistent; registers the organization's ingest schedule) | ✓ ADDITIVE |
+| §7 API routes | `GET /api/insights/xray/status`, `GET`/`PUT /api/insights/xray/settings` (optimistic lock, 409 `optimistic_lock_conflict`), `POST /api/insights/xray/backfill` (202 `{ progressJobId, scanId, scheduleRegistered }`, 409 with `code` `no_processes` / `disabled` / `rebuild_required` / `lease_busy`) — all `requireFeatures: ['insights.xray.manage']`, single resolved organization | ✓ ADDITIVE; STABLE |
+| §8 Database schema | New tables `insights_process_cursors`, `insights_process_events`, `insights_process_cases`, `insights_process_rollups`, `insights_process_settings`, `insights_automation_suggestions` (all `tenant_id`/`organization_id` NOT NULL) and the tenant-scoped erasure ledger `insights_process_erasures` (`tenant_id`, `user_id`, `replacement`; unique per tenant and user); new partial index `action_logs_state_change_idx` (built concurrently). The projection holds no encrypted audit column (no `command_id`, no snapshot values beyond declared identifiers) | ✓ ADDITIVE |
+| Commands | `insights.xray.settings.save` (audited, not undoable) | ✓ ADDITIVE |
+| §10 ACL feature IDs | `insights.xray.view`, `insights.xray.manage` and `insights.xray.view_individuals` (both depend on `insights.xray.view`) | ✓ ADDITIVE; FROZEN |
+| §13 CLI commands | `mercato insights xray:status`, `xray:backfill [--inline]`, `xray:rebuild [--inline]`, `xray:prune` (all `[--tenant <id>] [--org <id>]`) | ✓ ADDITIVE; STABLE |
+| §14 Generated files | `insights-process.generated.ts` (`processConfigEntries`), `bootstrap-registrations.cli.generated.ts` (`runCliBootstrapRegistrations`) | ✓ ADDITIVE; STABLE |
+| Queues / feature toggles | Queues `insights-xray-ingest` (concurrency 2) and `insights-xray-backfill` (concurrency 1); progress job type `insights.xray.backfill`; feature toggle `insights_xray_ingest` (kill switch, default on, fail-open) | ✓ ADDITIVE |
+| Event IDs, widget spot IDs, notification IDs, AI tool IDs | No change | ✓ n/a |
+
+**Migration path for existing modules**: none. A module opts in by adding `insights.process.ts` and running `yarn generate`. Operators run the migrations, `yarn mercato auth sync-role-acls`, and optionally `yarn mercato insights xray:backfill` (see UPGRADE_NOTES.md).
+
+### Insights Process X-Ray analytics API (Phase 6B-1, 2026-10-10)
+
+Phase 6B-1 of [`.ai/specs/2026-10-08-insights-process-xray.md`](.ai/specs/2026-10-08-insights-process-xray.md) exposes the X-Ray analytics. Every surface below is new or additive.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| §7 API routes | `GET /api/insights/xray/processes`; `GET /api/insights/xray/{processKey}/map`, `/variants`, `/bottlenecks`, `/rework`, `/conformance`, `/breakdown?groupBy=org\|role\|team\|user`, `/cases` (all `requireFeatures: ['insights.xray.view']` plus the process's `requiredFeatures`; unknown and invisible processes answer the same 404 `process_not_found`; errors `{ error, code, hint }`); `POST /api/insights/xray/{processKey}/variants/{hash}/workflow-draft` (validated disabled draft, persists nothing). `PUT /api/insights/xray/settings` accepts `timeZone` and may answer 422 `conformance_workflow_not_found` / `workflows_unavailable`; settings and status responses gain `timeZone` | ✓ ADDITIVE; STABLE |
+| §8 Database schema | `insights_process_settings.time_zone` (`text not null default 'UTC'`), added to the unreleased `Migration20261008180752_insights`; rollup marker rows `window_key = '__rollup_pass__'` in `insights_process_rollups` | ✓ ADDITIVE |
+| §9 DI service names | `workflowDraftService` (workflows module, request-scoped): `validateDraftDefinition(payload, { tenantId, organizationId })` (persists nothing; schema + draft policy: `enabled: false`, `lifecycle: 'draft'`, no execution grant, no credential-bearing activity, only catalogued workflow-safe UPDATE_ENTITY commands) and `getDefinitionForScope(id, { tenantId, organizationId })` (structure only) | ✓ ADDITIVE; STABLE |
+| §12 AI tool IDs | `insights.xray_summary`, `insights.xray_variants` (read-only, `requiredFeatures: ['insights.xray.view']`, not allowlisted for any agent) | ✓ ADDITIVE; FROZEN once shipped |
+| Queues | `insights-xray-rollup` (concurrency 1), fed by the existing system ingest tick | ✓ ADDITIVE |
+| Event IDs, widget spot IDs, ACL feature IDs, notification IDs, CLI commands, generated files | No change | ✓ n/a |
+
+**Migration path**: none for modules. Operators run the rollup worker queue (see UPGRADE_NOTES.md).
+
+### Insights Process X-Ray automation suggestions (Phase 6B-2, 2026-10-10)
+
+Phase 6B-2 of [`.ai/specs/2026-10-08-insights-process-xray.md`](.ai/specs/2026-10-08-insights-process-xray.md) mines automation suggestions. Every surface below is new or additive.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| §1 Auto-discovery (`insights.process.ts`) / §2 Types | Optional `ProcessDescriptor.automation` (`ProcessAutomationDescriptor`: `updateCommandId`, optional `recordIdInputKey`, optional `fieldInputKeys`); invalid hints reject the declaration like any invalid field; not part of the contract hash | ✓ ADDITIVE (optional field) |
+| §7 API routes | `GET /api/insights/xray/suggestions` and `GET …/suggestions/{id}/draft` (`insights.xray.view` + the process's features), `PATCH …/suggestions/{id}` (`insights.xray.manage`, optimistic lock, mutation guards `insights.xray_suggestion`), `POST …/suggestions/mine` (`insights.xray.manage`, mutation guards `insights.xray_suggestion_mining`; 409 `disabled` / `projection_incomplete` / `no_processes` / `busy` before enqueueing, 202 without a second job while a request is pending); unknown and invisible suggestions answer the same 404 `suggestion_not_found`. `PUT /api/insights/xray/settings` accepts `suggestionMinSupport`; settings and status responses gain it. Every X-Ray route's 500 body becomes `{ error, code: 'internal_error', hint: null }` (was `{ error: 'internal_error' }`) | ✓ ADDITIVE; STABLE |
+| §8 Database schema | `insights_automation_suggestions` (created empty in Phase 5, never written before) gains `trigger_activity_key`, `window_seconds`, `trigger_count`, NOT NULL `updated_at`, status index over `(tenant_id, organization_id, process_key, status)`; `insights_process_settings.suggestion_min_support` (nullable); all in the unreleased `Migration20261008180752_insights`. Pass marker rows `window_key = '__suggestion_pass__'` and request marker rows `window_key = '__suggestion_request__'` in `insights_process_rollups` | ✓ ADDITIVE |
+| §9 DI service names | `workflowDraftService.listAutomatedUpdates({ tenantId, organizationId })` (additive method; insights treats it as optional). `validateDraftDefinition` now applies allowlists: activities `UPDATE_ENTITY`, `WAIT`, `SET_VARIABLE` only (new issue code `activity_not_allowed`), steps `START`, `AUTOMATED`, `END`, `WAIT_FOR_TIMER` only (new issue code `step_not_allowed`), and no definition-level `errorHandler` (new issue code `error_handler_not_allowed`); its `commands` gain `enabled` (tenant enablement, tier 2); it was introduced unreleased in Phase 6B-1, so no shipped caller relied on the denylist | ✓ ADDITIVE; STABLE |
+| Commands | `insights.xray.suggestion.update` (audited, not undoable) | ✓ ADDITIVE |
+| Queues | `insights-xray-suggestions` (concurrency 1), fed by the existing system ingest tick | ✓ ADDITIVE |
+| Event IDs, widget spot IDs, ACL feature IDs, notification IDs, AI tool IDs, CLI commands, generated files | No change | ✓ n/a |
+
+**Migration path**: none for modules (the `automation` hint is opt-in). Operators run the suggestions worker queue (see UPGRADE_NOTES.md).
+
+### Insights Process X-Ray pages and dashboard widget (Phase 6C, 2026-10-10)
+
+Phase 6C of [`.ai/specs/2026-10-08-insights-process-xray.md`](.ai/specs/2026-10-08-insights-process-xray.md) adds the UI. Every surface below is new.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| §7 API routes | `GET /api/insights/xray/{processKey}/durations` (`insights.xray.view` + the process's features; same query, scope, error and `Cache-Control` rules as the other per-process routes; response = the analytics `durationsResultSchema`) | ✓ ADDITIVE |
+| Backend pages | `/backend/insights/process-xray`, `…/{processKey}`, `…/{processKey}/cases`, `…/settings` (`insights.xray.manage`, settings context), `…/suggestions` | ✓ ADDITIVE |
+| Dashboard widget IDs | `insights.dashboard.processHealth` (features `dashboards.view`, `insights.xray.view`; default off) | ✓ ADDITIVE |
+| §2 Types (`@open-mercato/shared/modules/insights/process`) | `ProcessFieldDescriptor` gains optional, display-only `referenceKind` (an explain reference resolver kind that labels the field's stored values) and `valueLabelKeys` (stored value → i18n key); validated by the registry, excluded from the contract hash (no re-projection) | ✓ ADDITIVE (optional fields) |
+| §7 API responses | Additive `activityLabels` (activity key → label) on `GET …/{processKey}/map`, `/variants`, `/bottlenecks`, `/rework`, `/conformance`, `/cases`, `POST …/variants/{hash}/workflow-draft`, and on the items of `GET /api/insights/xray/suggestions` and `PATCH …/suggestions/{id}` (optional in the suggestion schema); the `insights.xray_variants` AI tool result gains `activityLabels` next to its verbatim `facts`. `GET …/cases` gains `suppressed: boolean` (`caseListResultSchema`, re-exported as `xrayCasesResponseSchema`) — unlike the suppression-summary object of the analytics results, do not handle them generically | ✓ ADDITIVE |
+| §7 API query | `GET …/cases` accepts `variantHashes` (comma-separated stored variant hashes, at most 20; combined with `variantHash`) | ✓ ADDITIVE |
+| §7 API behavior | `GET …/cases` drill-downs (`activityKey` / `variantHash`) targeting a cell hidden by the k-anonymity / three-actor rule (complementary suppression included), by the display caps, or whose listed population fails that rule, now answer an empty page with `suppressed: true` and `n: 0` instead of case ids; such drill-downs may answer the map / variants 422s (`result_too_large`, `query_timeout`). Listings without a drill-down are unchanged | ⚠ BEHAVIOR (privacy fix, unreleased API) |
+| Explain reference resolver kinds | Sales registers `sales.status_value.order`, `.quote`, `.fulfillment`, `.payment`, `.shipment` (labels of stored status values) | ✓ ADDITIVE |
+| Event IDs, widget spot IDs, ACL feature IDs, DB schema, DI keys, notification IDs, AI tool IDs, CLI commands | No change | ✓ n/a |
+
+**Migration path**: none (run `yarn generate`).
+
+### Retained access-log resource kinds (Process X-Ray analytics, 2026-10-10)
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| §3 Function signatures / §4 import paths (`@open-mercato/core/modules/audit_logs/services/accessLogService`) | New exports `registerRetainedAccessLogResourceKinds(kinds: readonly string[]): void` (globalThis-backed, additive, idempotent; blank values ignored) and `listRetainedAccessLogResourceKinds(): string[]` (core kinds `auth.user`, `auth.role` plus every registered kind). `AccessLogService` rotation keeps the listed kinds under `AUDIT_LOGS_CORE_RETENTION_DAYS` and deletes every other kind after `AUDIT_LOGS_NON_CORE_RETENTION_HOURS`, as before; existing methods and env variables unchanged | ✓ ADDITIVE; STABLE |
+| Retention behavior | The `insights` module registers `insights.xray.individuals` from its DI `register`, so per-person X-Ray access rows follow the core retention (default 7 days) instead of 8 hours | ✓ ADDITIVE (rows kept longer, never shorter) |
+
+The `audit_logs` module does not import or know the registering modules (the dependency points from `insights` to `audit_logs`, which it already `requires`).

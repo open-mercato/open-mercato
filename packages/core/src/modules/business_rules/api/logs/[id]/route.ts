@@ -32,6 +32,7 @@ const logDetailSchema = z.object({
   tenantId: z.string().uuid(),
   organizationId: z.string().uuid().nullable(),
   executedBy: z.string().nullable(),
+  runId: z.string().uuid().nullable(),
 })
 
 const errorResponseSchema = z.object({
@@ -102,6 +103,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     tenantId: log.tenantId,
     organizationId: log.organizationId ?? null,
     executedBy: log.executedBy ?? null,
+    runId: log.runId ?? null,
   }
 
   return NextResponse.json(response)

@@ -1,5 +1,6 @@
 import { Entity, Index, PrimaryKey, Property } from '@mikro-orm/decorators/legacy'
 import type { ActionLogProjectionType, ActionLogSourceKey } from '@open-mercato/core/modules/audit_logs/lib/projections'
+import type { CauseKind } from '@open-mercato/shared/lib/causation/types'
 
 export type ActionLogExecutionState = 'done' | 'undoing' | 'undone' | 'failed' | 'redone'
 
@@ -14,6 +15,17 @@ export type ActionLogExecutionState = 'done' | 'undoing' | 'undone' | 'failed' |
 @Index({ name: 'action_logs_primary_changed_field_idx', properties: ['tenantId', 'organizationId', 'primaryChangedField', 'createdAt'] })
 @Index({ name: 'action_logs_changed_fields_idx', properties: ['changedFields'], type: 'gin' })
 @Index({ name: 'action_logs_related_resource_idx', properties: ['tenantId', 'relatedResourceKind', 'relatedResourceId', 'createdAt'] })
+@Index({ name: 'action_logs_cause_idx', properties: ['tenantId', 'causeKind', 'causeId', 'createdAt'] })
+@Index({ name: 'action_logs_correlation_idx', properties: ['tenantId', 'correlationId'] })
+@Index({ name: 'action_logs_caused_by_idx', properties: ['causedByLogId'] })
+@Index({
+  name: 'action_logs_state_change_idx',
+  expression: `create index "action_logs_state_change_idx" on "action_logs" ("tenant_id", "organization_id", "updated_at", "id") where "execution_state" in ('undone', 'redone')`,
+})
+@Index({
+  name: 'action_logs_scan_idx',
+  expression: `create index "action_logs_scan_idx" on "action_logs" ("tenant_id", "organization_id", "created_at", "id") where "deleted_at" is null`,
+})
 export class ActionLog {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -94,6 +106,24 @@ export class ActionLog {
 
   @Property({ name: 'related_resource_id', type: 'text', nullable: true })
   relatedResourceId: string | null = null
+
+  /**
+   * Primary cause of the write (innermost causation frame), stamped only by
+   * `ActionLogService` from the server-resolved causation envelope. Null for
+   * rows written before the causation foundation or with `OM_CAUSATION=off`.
+   * The full envelope lives in the encrypted `context_json.causation`.
+   */
+  @Property({ name: 'cause_kind', type: 'text', nullable: true })
+  causeKind: CauseKind | null = null
+
+  @Property({ name: 'cause_id', type: 'text', nullable: true })
+  causeId: string | null = null
+
+  @Property({ name: 'correlation_id', type: 'uuid', nullable: true })
+  correlationId: string | null = null
+
+  @Property({ name: 'caused_by_log_id', type: 'uuid', nullable: true })
+  causedByLogId: string | null = null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

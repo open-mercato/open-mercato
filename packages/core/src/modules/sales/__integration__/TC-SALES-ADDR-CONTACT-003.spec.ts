@@ -63,6 +63,7 @@ test('TC-SALES-ADDR-CONTACT-003: locked orders disable address contact fields', 
     await expect(page.getByRole('textbox', { name: 'Phone' })).toBeDisabled()
     await expect(page.getByRole('button', { name: 'Update addresses' })).toBeDisabled()
   } finally {
+    await page.unrouteAll({ behavior: 'ignoreErrors' })
     await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
   }
 })

@@ -70,6 +70,7 @@ import { getWorkflowSafeCommand } from './workflow-safe-commands'
 import { isWorkflowCommandEnabled } from './workflow-command-enablement'
 import { resolveWorkflowCommandPolicyForContainer } from './workflow-command-settings'
 import { resolveAgentReview, toAgentDispositionReview } from './agent-review'
+import { runInWorkflowCausationFrame } from './workflow-causation'
 import type { AgentDispositionReview } from './agent-disposition-task'
 
 export { isPrivateUrl } from '@open-mercato/shared/lib/network'
@@ -570,6 +571,18 @@ export async function enqueueConditionCheckJob(params: {
  * @returns Execution result
  */
 export async function executeActivity(
+  em: EntityManager,
+  container: AwilixContainer,
+  activity: ActivityDefinition,
+  context: ActivityContext
+): Promise<ActivityExecutionResult> {
+  return runInWorkflowCausationFrame(
+    { instance: context.workflowInstance, stepInstanceId: context.stepInstanceId },
+    () => executeActivityWithRetries(em, container, activity, context),
+  )
+}
+
+async function executeActivityWithRetries(
   em: EntityManager,
   container: AwilixContainer,
   activity: ActivityDefinition,

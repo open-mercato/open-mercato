@@ -1044,6 +1044,367 @@ and change nothing; undoing a `.delete` runs the same check as a precaution. Unl
 first; the same undo then works again. No schema, route or permission changes. Undoing a tag
 delete is not covered by this change.
 
+### Causation foundation: run the new migrations before rolling the app
+
+Every audited write now records **why** it happened (a user, an API key, a workflow, a business
+rule, an undo, …) next to a correlation id shared by the whole request, job or automation run.
+Spec: [`2026-10-08-insights-causation-and-explain`](.ai/specs/2026-10-08-insights-causation-and-explain.md).
+
+**Action for operators — migrate first.** The entities now map new nullable columns
+(`action_logs.cause_kind`/`cause_id`/`correlation_id`/`caused_by_log_id`,
+`rule_execution_logs.run_id`/`rule_version`/`rule_definition_hash`/`causation_json`,
+`api_keys.causation_json`), so the new application version fails on these tables until the
+migrations have run. Run `yarn db:migrate` (or your deployment's migration step) **before** new pods
+serve traffic.
+
+- The column migrations (`Migration20261008080137_*` in `audit_logs`, `business_rules`, `api_keys`)
+  are metadata-only `ALTER TABLE`s that run with `set local lock_timeout = '5s'`, so they give up
+  instead of queueing every write behind them. On a busy table a lock timeout is expected: retry the
+  migration.
+- The index migrations (`Migration20261008080138_*` in `audit_logs`, `business_rules`) are
+  non-transactional and use `CREATE INDEX CONCURRENTLY`, dropping a possibly INVALID index from an
+  interrupted build first, so a retried deploy is safe.
+- `yarn mercato auth sync-role-acls` is **not** needed for the causation foundation itself (Phase 1
+  adds no ACL features). The "Why?" explain core below adds features and **does** need it.
+
+**Action for standalone apps.** The API catch-all dispatcher must open the request's causation
+scope. If your app's `src/app/api/[...slug]/route.ts` predates this release, wrap the handler call
+(the create-app template already does):
+
+```ts
+import { runWithRequestCausation } from '@open-mercato/shared/lib/causation/server'
+
+const runHandler = () => runWithCacheTenant(
+  auth?.tenantId ?? null,
+  () => runWithRequestCausation(auth, () => handler(req, handlerContext)),
+)
+```
+
+Without it writes still succeed, but each command falls back to the authenticated principal as its
+cause and gets its own correlation id instead of sharing the request's.
+
+**Behavior changes:**
+
+- `rule_execution_logs.entity_id` for a rule triggered by a CRUD event is now the record id from
+  the event payload instead of `'unknown'`.
+- `startWorkflow` ignores `metadata.causation` supplied by the caller; the server sets it.
+- A caller-provided `context.causation` passed to the action log is always discarded, and the undo
+  trace row no longer inherits the undone entry's causation — it records the undo itself.
+- `ActionLogService.log` is now called as `log(payload, em, causation)` (the `em` may be
+  `undefined`), and `markUndone` accepts an optional fourth `causation` argument. **Action for module
+  authors:** a DI override or a test double of `actionLogService` must accept (and may ignore) the
+  optional extra argument.
+- Audit list responses gain `causeKind`, `causeId`, `correlationId` and `causedByLogId`, and the list
+  and CSV export accept `causeKind`/`causeId`/`correlationId` filters. Callers without
+  `audit_logs.view_tenant` receive `causeId`/`causedByLogId` as `null` for `user`/`agent` causes.
+
+**Kill switch.** Set `OM_CAUSATION=off` to stop capturing and propagating causation: new rows keep
+the cause columns `null` and the request, queue and workflow paths behave as before (a caller's
+`context.causation` and a client's workflow `metadata.causation` are still discarded).
+
+### Insights "Why?" explainer: regenerate and sync role ACLs
+
+The new `insights` module explains why a record value is what it is, from audit history and the
+recorded causation (`GET /api/insights/explain`, `/api/insights/explain/descriptors`,
+`/api/insights/explain/log`, CLI `yarn mercato insights explain:coverage`). Spec:
+[`2026-10-08-insights-causation-and-explain`](.ai/specs/2026-10-08-insights-causation-and-explain.md).
+
+**Action for operators.**
+
+- Run `yarn generate`. Modules contribute explain support through the new `insights.explain.ts`
+  convention file, aggregated into `insights-explain.generated.ts`; until the generator has run,
+  every explain request answers `404 not_found` because no resource is registered.
+- Run `yarn mercato auth sync-role-acls`. The module adds `insights.explain.view` (granted by default
+  to `superadmin`, `admin` and `employee`) and `insights.explain.access_detail` (granted through
+  `insights.*` to `superadmin` and `admin`). New tenants receive them from `setup.ts`; existing
+  tenants receive nothing until this command runs.
+- Optional: `OM_INSIGHTS_EXPLAIN_SCAN_MAX` (default `500`, capped at `5000`) bounds how many audit
+  rows one explain request reads.
+
+**Action for module authors.** To make a resource explainable, export
+`explainConfig = defineExplainConfig({ version: 1, ... })` from `insights.explain.ts`
+(`@open-mercato/shared/modules/insights/explain`) and run `yarn generate`. Every resource, cause
+resolver and reference resolver MUST declare a non-empty `requiredFeatures` list — declarations
+without one are skipped with a warning. A collection reads its child rows only when it declares
+`itemResourceKinds`. A DI override or test double of `actionLogService` used by explain must also
+provide the new read methods (`findFieldHistory`, `findHistoryEntryById`, `findLogScopes`, and for
+the coverage CLI `countHistoryByCause` and `findResourceIdsWithHistory`).
+
+**Behavior notes.** Explain never caches responses. Feature checks (resource, field, custom-field,
+audit visibility and resolver features) are evaluated at the organization of the explained record,
+so a feature granted by a role limited to another organization does not apply. Cause and reference
+resolvers are queried only within the record's organization; a tenant-level detail (no organization,
+other than a code identifier such as an AI tool id) is shown only to tenant-wide viewers. Past values
+and actor identities of other users stay hidden without `audit_logs.view_tenant`.
+
+**Action for API consumers.** In `GET /api/insights/explain/access`, `detail.rolesThatWouldGrant`
+(the tenant roles that would grant the requested features) is now included only for callers who
+also hold `auth.roles.list`; for other `insights.explain.access_detail` holders the field is
+omitted. Treat it as optional.
+
+### CrudForm renders the field spot family `crud-form:<entityId>:field:<fieldId>:after`
+
+`CrudForm` now renders the declared spot `crud-form:<entityId>:field:<fieldId>:after` at the end of
+every field of an **edit** form (a record id is present) when at least one widget is registered for
+that form's field-spot prefix: an exact key such as `crud-form:customers.deal:field:status:after` or a
+pattern that names the `:field:` segment such as `crud-form:customers.deal:field:*:after`. Widgets
+receive `{ entityId, recordId, fieldId, resourceKind? }` (`CrudFormFieldInjectionContext`). Spec:
+[`2026-10-08-insights-causation-and-explain`](.ai/specs/2026-10-08-insights-causation-and-explain.md)
+(Phase 4b).
+
+**Action for module authors.** A widget that was already registered on a
+`crud-form:…:field:…:after` key never rendered before this release and **starts rendering now**;
+remove the registration or gate the widget if that is not intended. Broad wildcards are unaffected:
+`crud-form:*` (for example the record-locks widget) keeps matching every form-level spot and never
+resolves into a field spot, and forms without field registrations render exactly as before. Hosts
+outside `CrudForm` can use `hasInjectionWidgetsForSpotPrefix(prefix)`
+(`@open-mercato/shared/modules/widgets/injection-loader`) or `useHasInjectionWidgetsForSpotPrefix`
+(`@open-mercato/ui/backend/injection/useHasInjectionWidgetsForSpotPrefix`) to apply the same rule. The
+context `CrudForm` passes to its form-level spots gains `injectionSpotId`.
+
+**Insights field "Why?".** The `insights` module adds an "Explain fields" switch to the header of the
+customers deal, person and company edit forms and a "?" button after each explainable field, shown only
+while the switch is on (remembered per browser and form). `GET /api/insights/explain/descriptors` field
+descriptors gain `currentPath`. The kill switch is the feature toggle `insights_field_explain` (default
+on), created by `seedDefaults` for new tenants when `feature_toggles` is enabled. Existing installations
+do not get the row automatically and the UI treats a missing toggle as enabled; to turn the feature off,
+create the global boolean toggle `insights_field_explain` with default `false` (or set a tenant override).
+
+**Action for operators.** Run `yarn generate` so the generated module facts mark the `fieldAfter`
+surface as bound.
+### Insights Process X-Ray: migrate, sync role ACLs, optionally backfill
+
+Process X-Ray (data layer) projects audited changes of declared processes — the deal lifecycle,
+the order and quote lifecycles with payment and shipment milestones — into new
+`insights_process_*` tables. Spec:
+[`2026-10-08-insights-process-xray`](.ai/specs/2026-10-08-insights-process-xray.md).
+
+**Action for operators.**
+
+- Run `yarn db:migrate` before the new version serves traffic. `Migration20261008180752_insights`
+  creates the seven empty X-Ray tables, including the erasure ledger (transactional, indexes
+  included).
+  `Migration20261008160939_audit_logs` adds the partial index `action_logs_state_change_idx` with
+  `CREATE INDEX CONCURRENTLY` (non-transactional, drops a possibly INVALID stub first), so a
+  retried deploy is safe; on a very large `action_logs` it takes a while but blocks no writes.
+  `Migration20261008213000_audit_logs` adds `action_logs_scan_idx` (`tenant_id, organization_id,
+  created_at, id`, partial) the same way; it adds one index entry per audited command.
+- Run `yarn generate`: the new `insights.process.ts` convention is aggregated into
+  `insights-process.generated.ts`, and the new `bootstrap-registrations.cli.generated.ts` lets
+  CLI and worker processes see the X-Ray (and "Why?") declarations. Until it has run, the X-Ray
+  workers find no process and project nothing.
+- Run `yarn mercato auth sync-role-acls`. New features: `insights.xray.view` and
+  `insights.xray.manage` (admin), `insights.xray.view_individuals` (super administrators only —
+  the `admin` default no longer uses `insights.*`, it lists the insights features explicitly; an
+  existing admin role that already holds `insights.*` keeps it, remove it by hand if per-person
+  breakdowns must stay restricted).
+- Ingest is driven by **one system-scoped scheduler schedule** ("Process X-Ray ingest", every
+  120 s, queue `insights-xray-ingest`). It carries no tenant, so it does not count against
+  `OM_SCHEDULER_MAX_ACTIVE_SCHEDULES_PER_TENANT`. Each tick enqueues one ingest job per
+  organization that has an X-Ray cursor. The schedule is registered by tenant setup, by organization
+  creation and by every backfill; an existing schedule is left as it is, so disabling it in the
+  scheduler (or changing its interval) sticks. Disable it, or use the kill switch, rather than deleting
+  it: a deleted schedule is registered again by the next backfill or new organization.
+- New tenants (`setup.ts`) and organizations created later (`directory.organization.created`)
+  get an X-Ray cursor and are ingested from then on. **Organizations that already exist are not
+  ingested until you run** `yarn mercato insights xray:backfill [--tenant <id> [--org <id>] | --all]`
+  once (or `POST /api/insights/xray/backfill` per organization): it creates their cursor and projects
+  the retention window (365 days by default). Add `--inline` to run the backfill in the CLI process
+  instead of the `insights-xray-backfill` worker. Workers must run for both queues.
+- Installations that ran an earlier pre-release build registered one schedule per organization.
+  They are removed automatically (through the scheduler service) the first time one of them fires or
+  the system schedule is registered; nothing to do unless the scheduler service lacks
+  `findByModule`/`unregister`, in which case delete the "Process X-Ray ingest" schedules of scope
+  "organization" in the scheduler UI.
+- Kill switch: the feature toggle `insights_xray_ingest` (default on; when the `feature_toggles`
+  module is absent ingest stays on). Per organization, `PUT /api/insights/xray/settings`
+  `{ "enabled": false }` stops ingest. In both cases retention pruning continues (once a day,
+  bounded).
+- When a module changes its `insights.process.ts` declarations, the changed processes of every
+  organization are cleared and re-projected automatically (`yarn mercato insights xray:status`
+  shows them as rebuilding); the other processes keep ingesting.
+- `xray:rebuild` and `xray:prune` require `--tenant <id>` (optionally `--org <id>`) or `--all`;
+  `--org` must belong to `--tenant`.
+- `POST /api/insights/xray/backfill` runs the registered mutation guards (resource kind
+  `insights.xray_backfill`, resource id = organization id). `GET /api/insights/xray/status` lists
+  only the processes whose required features (e.g. `sales.orders.view`) the caller holds.
+- Pseudonym key: with tenant data encryption on, actor pseudonyms are keyed by the tenant data
+  key; ingest fails (and retries) while the KMS is unhealthy, and an organization whose rows were
+  written under another key pauses with `last error` "…written under another key…". After a
+  deliberate key change (`entities rotate-encryption-key`) run `yarn mercato insights xray:rebuild`
+  for the tenant's organizations. With encryption off the installation `LOOKUP_HASH_PEPPER` keys
+  the pseudonyms; without encryption and without a pepper no actor is recorded at all.
+
+**Action for module authors.** To add a process, export
+`processConfig = defineProcessConfig({ version: 1, ... })` from `insights.process.ts`
+(`@open-mercato/shared/modules/insights/process`) and run `yarn generate`. Declare identifier-like
+fields only (enum/dictionary values, UUIDs; user ids as `valueKind: 'user'` follow-up fields, stored
+pseudonymized); a declaration touching a field listed in your module's `encryption.ts` is rejected
+at boot. A generator plugin whose registry is needed by workers or CLI commands may set
+`bootstrapRegistration.cli: true` (its entries must import no Next.js/React code). A DI override or
+test double of `actionLogService` used by X-Ray must provide `scanDecrypted` and `scanStateChanges`.
+
+**Behavior notes.** The projection stores identifiers only: values that are not UUIDs and do not
+match `^[a-z0-9_.:-]{1,64}$` become `other`, each field keeps at most 200 distinct values per
+organization, actors are per-tenant HMAC pseudonyms, and audit rows written before causation
+tracking are bucketed as cause `legacy`. Deleting a user (`auth.user.deleted`) records the user in
+the erasure ledger and re-pseudonymizes that user's projected rows with a random value; every later
+re-projection (backfill, reconciliation, rebuild) applies the ledger. Audit rows whose encrypted
+columns cannot be opened are skipped (logged), never projected as ciphertext. Retention removes
+cases inactive for longer than `retentionDays`.
+
+### Insights Process X-Ray analytics API, rollups and AI tools
+
+Phase 6B-1 of [`2026-10-08-insights-process-xray`](.ai/specs/2026-10-08-insights-process-xray.md)
+exposes the X-Ray analytics: `GET /api/insights/xray/processes` and
+`GET /api/insights/xray/{processKey}/map|variants|bottlenecks|rework|conformance|breakdown|cases`
+(all `insights.xray.view` plus the process's own view feature, e.g. `customers.deals.view`), and
+`POST /api/insights/xray/{processKey}/variants/{hash}/workflow-draft`, which returns a validated,
+disabled draft workflow payload and persists nothing (create it through
+`POST /api/workflows/definitions`). Read-only AI tools `insights.xray_summary` and
+`insights.xray_variants` are registered (not allowlisted for any agent).
+
+**Action for operators.**
+
+- Workers must also run the new queue `insights-xray-rollup` (concurrency 1). The existing system
+  ingest tick enqueues one rollup pass per enabled organization at most every 15 minutes (no new
+  schedule); without the worker every analytics read is computed live.
+- `insights_process_settings` gains `time_zone` (`text`, default `UTC`) in the X-Ray migration.
+  Development databases that applied a pre-release build of `Migration20261008180752_insights`
+  need `alter table insights_process_settings add column if not exists time_zone text not null default 'UTC';`
+  (or a fresh database); released installations get it with the migration.
+- Organizations whose X-Ray settings are disabled are now excluded from every analytics read
+  (their projected rows stay until retention prunes them).
+
+**Action for API consumers.** `PUT /api/insights/xray/settings` accepts `timeZone` (IANA zone,
+stored canonically; it sets the boundaries of the 7/30/90-day windows and their rollups) and
+answers 422 `conformance_workflow_not_found` when `conformanceWorkflowId` is not a workflow
+definition of the same tenant and organization (`workflows_unavailable` without the workflows
+module). Responses of the settings and status routes gain `timeZone`.
+
+`GET /api/insights/xray/{processKey}/conformance` discloses a configured workflow's identity only
+to callers holding `workflows.definitions.view` in every organization that configured it: for
+everyone else a workflow model's `source` is `null` (it was always an object) and its `key` is an
+opaque `workflow:hidden:<n>` instead of `workflow:<definitionId>`. Ad-hoc `sequence` models are
+unchanged. Clients must accept `models[].source === null`.
+
+**Action for module authors.** The workflows module registers the additive DI service
+`workflowDraftService` (`validateDraftDefinition(payload, scope)`, `getDefinitionForScope(id, scope)`).
+A module that proposes workflow drafts resolves it softly by name and must not import workflows
+internals.
+
+### Insights Process X-Ray automation suggestions
+
+Phase 6B-2 of [`2026-10-08-insights-process-xray`](.ai/specs/2026-10-08-insights-process-xray.md)
+mines repeated manual follow-ups ("after a deal is created, users set its status to X within
+10 minutes") into automation suggestions: `GET /api/insights/xray/suggestions`,
+`GET /api/insights/xray/suggestions/{id}/draft` (a validated, DISABLED draft workflow, persists
+nothing), `PATCH /api/insights/xray/suggestions/{id}` (dismissed / drafted / open, optimistic lock)
+and `POST /api/insights/xray/suggestions/mine` (on demand, `insights.xray.manage`).
+
+**Action for operators.**
+
+- Workers must also run the new queue `insights-xray-suggestions` (concurrency 1). The existing
+  system ingest tick enqueues one mining pass per enabled, completely projected organization at
+  most once a day (no new schedule). The tick no longer enqueues rollup (or mining) jobs for an
+  organization whose projection is incomplete (backfill, range scan or pending rebuild).
+- `insights_automation_suggestions` gains `trigger_activity_key`, `window_seconds`,
+  `trigger_count` (and a NOT NULL `updated_at`; the status index now covers `process_key`), and
+  `insights_process_settings` gains `suggestion_min_support` — all in the unreleased X-Ray
+  migration. A development database that applied a pre-release build of
+  `Migration20261008180752_insights` must recreate the (never written) suggestions table from the
+  migration's statements and add `suggestion_min_support int null` to `insights_process_settings`
+  (or use a fresh database); released installations get both with the migration.
+- `PUT /api/insights/xray/settings` accepts `suggestionMinSupport` (5 … 100000, `null` = 20).
+
+**Action for module authors.** A process can opt into draftable suggestions with the optional
+`automation: { updateCommandId, recordIdInputKey?, fieldInputKeys? }` key of its
+`insights.process.ts` declaration (a workflow-safe UPDATE_ENTITY command of the case root; the
+customers deal process declares `customers.deals.update`). It never changes the projection (not
+part of the contract hash). The workflows `workflowDraftService` gains
+`listAutomatedUpdates(scope)` (what enabled event triggers already automate) and its draft policy
+is now an allowlist: only `UPDATE_ENTITY`, `WAIT` and `SET_VARIABLE` activities may be generated
+(any other type is refused as `activity_not_allowed`; credential-bearing types stay
+`credential_activity`), only `START`, `AUTOMATED`, `END` and `WAIT_FOR_TIMER` steps
+(`step_not_allowed`), and no definition-level `errorHandler` (`error_handler_not_allowed`). Its validated `commands` gain `enabled` (whether the tenant enabled the
+command for workflows; a draft whose command is not enabled is still valid, its runs fail until an
+administrator ticks the command in Workflow settings).
+
+**Behavior notes.** A suggestion needs at least three distinct people behind its supporting
+follow-ups (the analytics three-actor rule). `POST /api/insights/xray/suggestions/mine` answers 409
+`disabled`, `projection_incomplete`, `no_processes` or `busy` before enqueueing, 202 without a second
+job while an earlier request is pending, and runs at most one forced pass per organization every
+15 minutes. Only manual (`cause_kind = 'user'`, not via a sync run) changes count;
+corrections and debounced intermediate values are collapsed first; a suggestion stores counts only
+(no actor id or pseudonym), so GDPR erasure needs nothing for it. Mining never reopens a dismissed
+or drafted suggestion; an open one that is no longer found (or whose process is rebuilt) becomes
+`superseded`. Every X-Ray route now answers its 500 in the standard shape
+`{ error, code: 'internal_error', hint: null }`. A per-person breakdown (`groupBy=user`) is limited
+to the organizations where the caller holds `insights.xray.view_individuals`.
+
+### Insights Process X-Ray pages and the "Process health" dashboard widget
+
+Phase 6C of [`2026-10-08-insights-process-xray`](.ai/specs/2026-10-08-insights-process-xray.md) adds
+the backend pages `/backend/insights/process-xray` (sidebar "Insights → Process X-Ray"), the process
+page with its analyses, the cases, suggestions and settings pages (settings also under Settings →
+Module Configs), the dashboard widget `insights.dashboard.processHealth` and the additive route
+`GET /api/insights/xray/{processKey}/durations` (`insights.xray.view`).
+
+**Action for operators.**
+
+- Run `yarn generate` (new pages, route and widget registrations). No new ACL feature: the pages use
+  `insights.xray.view` / `insights.xray.manage` from the X-Ray data layer, so roles that already
+  received them through `yarn mercato auth sync-role-acls` see the menu entry.
+- The widget is off by default; users with `dashboards.view` and `insights.xray.view` can add it to
+  their dashboard (or an administrator assigns it to roles).
+- Creating a draft workflow from a suggestion or a variant uses `POST /api/workflows/definitions` as
+  the signed-in user, so it needs `workflows.definitions.create`; marking the suggestion as drafted
+  needs `insights.xray.manage`. The settings page offers the conformance workflow picker only with
+  `workflows.definitions.view`, and the variant dialog lists workflow commands only with
+  `workflows.definitions.edit` (otherwise a disabled field / free text with a hint, no
+  access-denied banner).
+
+**Action for API consumers.** The analytics responses that disclose activity keys add
+`activityLabels` (activity key → human-readable label, resolved on the server; the raw keys stay
+authoritative): map (visible nodes and start / end only), variants, bottlenecks, rework,
+conformance, cases, variant workflow drafts, suggestion list / `PATCH` items and the
+`insights.xray_variants` AI tool. `GET …/cases` gains `suppressed: boolean`: a drill-down by
+`activityKey` / `variantHash` lists only a cell the map / variants show for the same window,
+filters and viewer, and only when the listed population itself passes the k / three-actor rule;
+otherwise it answers an empty page with `suppressed: true` and `n: 0` (a drill-down may also answer
+the map / variants 422s). Listings without a drill-down are unchanged. `GET …/cases` also accepts
+`variantHashes` (comma-separated, at most 20) to list every recorded path of a variant at once.
+
+**Action for module authors.** A process field may name an explain reference resolver with the
+optional `referenceKind` (dictionary values or record UUIDs → labels; batched, feature-checked with
+the resolver's `requiredFeatures`, scoped to the caller) and static value labels with
+`valueLabelKeys` (stored value → i18n key). Both are display-only and never change the contract
+hash. The customers deal process labels its status and pipeline stage this way; sales registers the
+reference kinds `sales.status_value.{order,quote,fulfillment,payment,shipment}`.
+
+### Access-log rotation keeps registered resource kinds under the core retention
+
+`AccessLogService` rotation used to keep only `auth.user` / `auth.role` rows for
+`AUDIT_LOGS_CORE_RETENTION_DAYS` (default 7 days) and delete every other `access_logs` row after
+`AUDIT_LOGS_NON_CORE_RETENTION_HOURS` (default 8 hours). Modules can now register additional
+resource kinds that rotate under the core retention with
+`registerRetainedAccessLogResourceKinds(kinds)` (and read the effective list with
+`listRetainedAccessLogResourceKinds()`), both exported from
+`@open-mercato/core/modules/audit_logs/services/accessLogService`. The registry lives on
+`globalThis` and is additive and idempotent. The `insights` module registers
+`insights.xray.individuals` (the access row written before every Process X-Ray per-person read)
+from its DI `register`, so those rows are no longer deleted after 8 hours.
+
+**Action for operators.** None required. Raise `AUDIT_LOGS_CORE_RETENTION_DAYS` if per-person
+analytics reads must stay auditable for longer than 7 days (the setting also governs the core
+`auth.user` / `auth.role` rows).
+
+**Action for module authors.** None unless your module writes `access_logs` rows that form an audit
+trail: call `registerRetainedAccessLogResourceKinds([...])` from your module's `di.ts` `register`
+(it runs in web, worker and CLI processes). A service created outside a request container (plain
+`new AccessLogService(em)` in a process that never registers the module) rotates without the
+registered kinds.
+
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
 Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).

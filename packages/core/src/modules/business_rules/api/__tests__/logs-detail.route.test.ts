@@ -91,6 +91,44 @@ describe('Business Rules API - Individual Log Operations', () => {
       expect(body.outputContext).toEqual({ allowed: true, changes: {} })
       expect(body.errorMessage).toBeNull()
       expect(body.executionTimeMs).toBe(150)
+      expect(body.runId).toBeNull()
+    })
+
+    test('should expose the run id of the logged execution', async () => {
+      const runId = '623e4567-e89b-12d3-a456-426614174099'
+      mockEm.findOne.mockResolvedValue({
+        id: validLogId,
+        rule: {
+          id: validRuleId,
+          ruleId: 'RULE-001',
+          ruleName: 'Test Rule',
+          ruleType: 'ACTION',
+          entityType: 'WorkOrder',
+        },
+        entityId: validEntityId,
+        entityType: 'WorkOrder',
+        executionResult: 'SUCCESS',
+        inputContext: null,
+        outputContext: null,
+        errorMessage: null,
+        executionTimeMs: 12,
+        executedAt: new Date('2024-01-01T10:00:00Z'),
+        tenantId: validTenantId,
+        organizationId: validOrgId,
+        executedBy: null,
+        runId,
+        causationJson: { correlationId: 'c', frames: [{ kind: 'user' }] },
+        ruleDefinitionHash: 'a'.repeat(64),
+      })
+
+      const request = new Request(`http://localhost:3000/api/business_rules/logs/${validLogId}`)
+      const response = await detailGET(request, { params: { id: validLogId } })
+
+      expect(response.status).toBe(200)
+      const body = await response.json()
+      expect(body.runId).toBe(runId)
+      expect(body).not.toHaveProperty('causationJson')
+      expect(body).not.toHaveProperty('ruleDefinitionHash')
     })
 
     test('should return log with error details', async () => {

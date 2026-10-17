@@ -12,6 +12,12 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { ACTION_LOG_FILTER_TYPES } from '@open-mercato/core/modules/audit_logs/lib/projections'
 import { resolveCanonicalAuthSubject } from '@open-mercato/core/modules/audit_logs/lib/actorSubject'
+import { parseActionLogCauseFilterParams } from '@open-mercato/core/modules/audit_logs/data/validators'
+import {
+  CAUSATION_CONTEXT_KEY,
+  CAUSATION_MAX_TEXT_LENGTH,
+  CAUSE_KINDS,
+} from '@open-mercato/shared/lib/causation/types'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['audit_logs.view_self'] },
@@ -66,6 +72,20 @@ const auditActionQuerySchema = z.object({
     .optional(),
   before: z.string().describe('Return actions created before this ISO-8601 timestamp').optional(),
   after: z.string().describe('Return actions created after this ISO-8601 timestamp').optional(),
+  causeKind: z
+    .enum(CAUSE_KINDS)
+    .describe('Filter by the primary cause of the write (e.g. `user`, `api_key`, `workflow`, `undo`).')
+    .optional(),
+  causeId: z
+    .string()
+    .max(CAUSATION_MAX_TEXT_LENGTH)
+    .describe('Filter by the primary cause identifier (workflow instance, API key, source log, ...). Requires `causeKind`.')
+    .optional(),
+  correlationId: z
+    .string()
+    .uuid()
+    .describe('Filter by the correlation id shared by every write of one request, job or automation run.')
+    .optional(),
 })
 
 const auditActionItemSchema = z.object({
@@ -90,6 +110,10 @@ const auditActionItemSchema = z.object({
   snapshotAfter: z.unknown().nullable(),
   changes: z.record(z.string(), z.unknown()).nullable(),
   context: z.record(z.string(), z.unknown()).nullable(),
+  causeKind: z.enum(CAUSE_KINDS).nullable().describe('Primary cause of the write; null for entries recorded before causation tracking.'),
+  causeId: z.string().nullable().describe('Identifier of the primary cause (e.g. API key id, workflow instance id, source log id for undo/redo). Null for `user`/`agent` causes when the caller lacks `audit_logs.view_tenant`.'),
+  correlationId: z.string().uuid().nullable().describe('Correlation id shared by writes from the same request, job or automation run.'),
+  causedByLogId: z.string().uuid().nullable().describe('Action log entry whose post-commit side effects triggered this write. Null for `user`/`agent` causes when the caller lacks `audit_logs.view_tenant`.'),
 })
 
 const auditActionResponseSchema = z.object({
@@ -140,6 +164,31 @@ function parseActionTypes(param: string | null) {
   )
 }
 
+const PRINCIPAL_CAUSE_KINDS: ReadonlySet<unknown> = new Set(['agent', 'user'])
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function withoutPrincipalFrameId(frame: unknown): unknown {
+  if (!isPlainRecord(frame) || !PRINCIPAL_CAUSE_KINDS.has(frame.kind) || !('id' in frame)) return frame
+  const redacted: Record<string, unknown> = { ...frame }
+  delete redacted.id
+  return redacted
+}
+
+function redactPrincipalCausationContext(context: unknown, redactCausedByLog: boolean): unknown {
+  if (!isPlainRecord(context)) return context
+  const envelope = context[CAUSATION_CONTEXT_KEY]
+  if (!isPlainRecord(envelope)) return context
+  const redactedEnvelope: Record<string, unknown> = {
+    ...envelope,
+    frames: Array.isArray(envelope.frames) ? envelope.frames.map(withoutPrincipalFrameId) : envelope.frames,
+  }
+  if (redactCausedByLog) delete redactedEnvelope.causedByLogId
+  return { ...context, [CAUSATION_CONTEXT_KEY]: redactedEnvelope }
+}
+
 function parseNumber(param: string | null, { min, max, fallback }: { min: number; max: number; fallback: number }) {
   if (!param) return fallback
   const value = Number(param)
@@ -172,6 +221,10 @@ export async function GET(req: Request) {
   )
 
   const url = new URL(req.url)
+  const causeFilters = parseActionLogCauseFilterParams(url.searchParams)
+  if (!causeFilters.success) {
+    return NextResponse.json({ error: 'Validation failed', details: causeFilters.error.issues }, { status: 400 })
+  }
   const queryOrgId = url.searchParams.get('organizationId')
   const actorQuery = url.searchParams.get('actorUserId')
   const resourceKind = url.searchParams.get('resourceKind') ?? undefined
@@ -230,6 +283,9 @@ export async function GET(req: Request) {
     pageSize,
     before,
     after,
+    causeKind: causeFilters.data.causeKind,
+    causeId: causeFilters.data.causeId,
+    correlationId: causeFilters.data.correlationId,
   }
 
   // includeTotal flag is retained for backward compatibility but page-based pagination
@@ -251,29 +307,36 @@ export async function GET(req: Request) {
     organizationIds: list.items.map((entry: any) => entry.organizationId).filter((value: any): value is string => !!value),
   })
 
-  const items = list.items.map((entry: any) => ({
-    id: entry.id,
-    commandId: entry.commandId,
-    actionLabel: entry.actionLabel,
-    executionState: entry.executionState,
-    actorUserId: entry.actorUserId,
-    actorUserName: entry.actorUserId ? displayMaps.users[entry.actorUserId] ?? null : null,
-    tenantId: entry.tenantId,
-    tenantName: entry.tenantId ? displayMaps.tenants[entry.tenantId] ?? null : null,
-    organizationId: entry.organizationId,
-    organizationName: entry.organizationId ? displayMaps.organizations[entry.organizationId] ?? null : null,
-    resourceKind: entry.resourceKind,
-    resourceId: entry.resourceId,
-    parentResourceKind: entry.parentResourceKind,
-    parentResourceId: entry.parentResourceId,
-    undoToken: entry.undoToken,
-    createdAt: entry.createdAt?.toISOString?.() ?? entry.createdAt,
-    updatedAt: entry.updatedAt?.toISOString?.() ?? entry.updatedAt,
-    snapshotBefore: entry.snapshotBefore,
-    snapshotAfter: entry.snapshotAfter,
-    changes: entry.changesJson,
-    context: entry.contextJson,
-  }))
+  const items = list.items.map((entry: any) => {
+    const hidePrincipalCause = !canViewTenant && PRINCIPAL_CAUSE_KINDS.has(entry.causeKind)
+    return {
+      id: entry.id,
+      commandId: entry.commandId,
+      actionLabel: entry.actionLabel,
+      executionState: entry.executionState,
+      actorUserId: entry.actorUserId,
+      actorUserName: entry.actorUserId ? displayMaps.users[entry.actorUserId] ?? null : null,
+      tenantId: entry.tenantId,
+      tenantName: entry.tenantId ? displayMaps.tenants[entry.tenantId] ?? null : null,
+      organizationId: entry.organizationId,
+      organizationName: entry.organizationId ? displayMaps.organizations[entry.organizationId] ?? null : null,
+      resourceKind: entry.resourceKind,
+      resourceId: entry.resourceId,
+      parentResourceKind: entry.parentResourceKind,
+      parentResourceId: entry.parentResourceId,
+      undoToken: entry.undoToken,
+      createdAt: entry.createdAt?.toISOString?.() ?? entry.createdAt,
+      updatedAt: entry.updatedAt?.toISOString?.() ?? entry.updatedAt,
+      snapshotBefore: entry.snapshotBefore,
+      snapshotAfter: entry.snapshotAfter,
+      changes: entry.changesJson,
+      context: canViewTenant ? entry.contextJson : redactPrincipalCausationContext(entry.contextJson, hidePrincipalCause),
+      causeKind: entry.causeKind ?? null,
+      causeId: hidePrincipalCause ? null : entry.causeId ?? null,
+      correlationId: entry.correlationId ?? null,
+      causedByLogId: hidePrincipalCause ? null : entry.causedByLogId ?? null,
+    }
+  })
 
   return NextResponse.json({
     items,

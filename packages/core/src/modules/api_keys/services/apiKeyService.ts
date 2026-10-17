@@ -10,6 +10,14 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import {
+  getAmbientCausation,
+  isCausationEnabled,
+  reportCausationDegradation,
+  toIdentifierOnlyCausation,
+  type CausationEnvelope,
+} from '@open-mercato/shared/lib/causation/server'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import {
   lockAuthorizationApiKeyRows,
   lockRoleWriterAuthorizationState,
 } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
@@ -136,10 +144,12 @@ export async function createApiKey(
   opts: {
     rbac?: RbacService
     authorizeRoles?: (roleIds: readonly string[]) => Promise<void> | void
+    causation?: CausationEnvelope | null
   } = {},
 ): Promise<ApiKeyWithSecret> {
   const { secret, prefix } = generateApiKeySecret()
   const keyHash = await hashApiKey(secret)
+  const causationJson = opts.causation ? toIdentifierOnlyCausation(opts.causation) : null
   const roleIds = Array.from(new Set((input.roles ?? []).filter(Boolean))).sort((left, right) => left.localeCompare(right))
   let record!: ApiKey
   await withAtomicFlush(em, [async () => {
@@ -155,6 +165,7 @@ export async function createApiKey(
       rolesJson: roleIds,
       createdBy: input.createdBy ?? null,
       expiresAt: input.expiresAt ?? null,
+      causationJson,
       createdAt: new Date(),
     })
     em.persist(record)
@@ -424,6 +435,13 @@ export async function deleteSessionApiKey(
  */
 const ONETIME_KEY_MAX_TTL_MS = 5 * 60 * 1000
 
+function resolveOnetimeKeyCausation(): CausationEnvelope | null {
+  if (!isCausationEnabled()) return null
+  const causation = toIdentifierOnlyCausation(getAmbientCausation())
+  if (!causation) reportCausationDegradation('onetime_key_no_ambient', {})
+  return causation
+}
+
 export async function withOnetimeApiKey<T>(
   em: EntityManager,
   input: CreateApiKeyInput,
@@ -439,7 +457,7 @@ export async function withOnetimeApiKey<T>(
     name: input.name || '__onetime__',
     description: input.description || 'One-time API key',
     expiresAt: safeExpiresAt,
-  })
+  }, { causation: resolveOnetimeKeyCausation() })
 
   try {
     const result = await fn(secret)
@@ -449,6 +467,11 @@ export async function withOnetimeApiKey<T>(
       await deleteApiKey(em, String(record.id))
     } catch (error) {
       logger.error('Failed to soft-delete one-time API key', { err: error })
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'api_keys',
+        code: 'api_keys.onetime_key_cleanup_failed',
+        attributes: { keyId: String(record.id) },
+      })
     }
   }
 }
