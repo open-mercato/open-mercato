@@ -192,11 +192,13 @@ export default function CampaignRunsPage({ params }: { params?: { id?: string } 
           && row.original.attempts > 0
           && Boolean(row.original.lastError)
         return (
-          <StatusBadge variant={retrying ? 'error' : RUN_STATUS_VARIANTS[row.original.status] ?? 'neutral'} dot>
-            {retrying
-              ? t('marketing_automation.runs.status.retrying', 'Retrying after an error')
-              : t(`marketing_automation.runs.status.${row.original.status}`, row.original.status)}
-          </StatusBadge>
+          <span title={retrying ? row.original.lastError ?? undefined : undefined}>
+            <StatusBadge variant={retrying ? 'error' : RUN_STATUS_VARIANTS[row.original.status] ?? 'neutral'} dot>
+              {retrying
+                ? t('marketing_automation.runs.status.retrying', 'Retrying after an error')
+                : t(`marketing_automation.runs.status.${row.original.status}`, row.original.status)}
+            </StatusBadge>
+          </span>
         )
       },
     },
@@ -300,7 +302,7 @@ export default function CampaignRunsPage({ params }: { params?: { id?: string } 
        * two operators can press it together — but the screen should not invite the race.
        */
       cell: ({ row }) => {
-        if (row.original.status !== 'dead') return null
+        if (row.original.stepEntry || row.original.status !== 'dead') return null
         const actions: RowActionItem[] = [
           {
             id: 'retry',
