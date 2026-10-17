@@ -26,6 +26,7 @@
   "communication_channels.errors.missingChannelId": "Ningún canal seleccionado.",
   "communication_channels.errors.pollNowPushDriven": "El canal funciona con push — el sondeo no aplica. Los mensajes entrantes llegan por la conexión push del proveedor.",
   "communication_channels.errors.reactionFailed": "La reacción falló",
+  "communication_channels.errors.threadNotFound": "Hilo no encontrado",
   "communication_channels.errors.undoBlockedPrimaryConflict": "Otro canal es ahora el principal para este usuario. Configúralo como no principal antes de restaurar el canal desconectado como principal.",
   "communication_channels.infoPanel.aria": "Información del canal",
   "communication_channels.infoPanel.assignedTo": "Asignado a",
