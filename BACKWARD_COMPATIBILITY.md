@@ -576,3 +576,17 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 ## Discord AI Proposals (2026-10-13)
 
 [Waiver](UPGRADE_NOTES.md#discord-proposals)
+
+## Causation Foundation (2026-10-08)
+
+[`.ai/specs/2026-10-08-insights-causation-and-explain.md`](.ai/specs/2026-10-08-insights-causation-and-explain.md) records why each audited write happened. Its one new persisted value set is `CAUSE_KINDS` (`@open-mercato/shared/lib/causation/types`), whose values are written to `action_logs.cause_kind` and into stored causation envelopes.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Persisted value set (`CAUSE_KINDS`) | Values are persisted and accepted by the audit `causeKind` filter, so they are frozen once shipped. New kinds MAY be appended; existing kinds MUST NOT be renamed or removed. A reader MUST reject an envelope whose innermost kind it does not know rather than promote an outer frame | ✓ ADDITIVE-ONLY (treat like §5/§10 IDs) |
+| Database schema | New nullable columns on `action_logs`, `rule_execution_logs` and `api_keys`, plus concurrently built indexes; nothing renamed, retyped or removed | ✓ ADDITIVE-ONLY |
+| `ActionLogService` method signatures | `log` and `markUndone` accept an optional trailing `causation` argument | ✓ ADDITIVE (optional parameter appended) |
+| API routes (`GET /api/audit_logs/audit-logs/actions`, `.../actions/export`) | New optional `causeKind`/`causeId`/`correlationId` filters on both; the list response gains `causeKind`/`causeId`/`correlationId`/`causedByLogId` | ✓ ADDITIVE |
+| Event IDs, ACL features, DI names, CLI commands, generated files | No change | ✓ n/a |
+
+**Migration path for existing modules**: none. DI overrides and test doubles of `actionLogService` must accept the optional extra argument (see UPGRADE_NOTES.md).

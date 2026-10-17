@@ -10,9 +10,14 @@ import {
   assertSchedulerSafeCommandAuthorized,
   SchedulerCommandAuthorizationError,
 } from '../lib/scheduler-safe-commands.js'
-import { buildScheduledCommandContext, resolveScheduledCommandActorUserId } from '../lib/commandContext.js'
+import {
+  buildScheduleCausationFrame,
+  buildScheduledCommandContext,
+  resolveScheduledCommandActorUserId,
+} from '../lib/commandContext.js'
 import { buildQueueTargetPayload, buildSchedulerIdempotencyKey } from '../lib/queueTargetPayload.js'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { withCausationFrame } from '@open-mercato/shared/lib/causation/server'
 import {
   canDispatchScheduleQueueTarget,
   getSchedulerQueueRequiredFeatures,
@@ -111,6 +116,17 @@ async function executeSchedule(
     throw new Error('scheduleId is required in job payload')
   }
 
+  return withCausationFrame(
+    buildScheduleCausationFrame(payload.scheduleId),
+    () => runScheduleExecution(payload, ctx, execution),
+  )
+}
+
+async function runScheduleExecution(
+  payload: ExecuteSchedulePayload,
+  ctx: JobContext & HandlerContext,
+  execution: ScheduleExecution,
+): Promise<void> {
   const { scheduleId } = payload
 
   const em = ctx.resolve<EntityManager>('em')

@@ -48,6 +48,7 @@ export type LogListItem = {
   executionResult: 'SUCCESS' | 'FAILURE' | 'ERROR'
   executedAt: string
   organizationId?: string | null
+  runId?: string | null
   outputContext?: {
     conditionResult?: boolean
     actionsExecuted?: Array<{ type?: string; success?: boolean; error?: string }>
