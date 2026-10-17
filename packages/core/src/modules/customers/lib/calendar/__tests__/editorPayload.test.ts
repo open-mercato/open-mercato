@@ -17,6 +17,7 @@ import type { CalendarInteractionPayload, CalendarItem } from '../../../componen
 function makeState(overrides: Partial<EditorFormState> = {}): EditorFormState {
   return {
     ...createDefaultFormState(new Date(2026, 5, 12, 0, 0, 0), new Date(2026, 5, 12, 14, 12, 0)),
+    timezone: undefined,
     title: 'Q2 Marketing Strategy Sync',
     relatedTo: { id: '11111111-1111-4111-8111-111111111111', kind: 'person', label: 'Sarah Mitchell' },
     ...overrides,
@@ -31,6 +32,7 @@ function itemFromPayload(payload: Record<string, unknown>, id = 'item-1'): Calen
       title: (payload.title as string) ?? null,
       status: (payload.status as string) ?? 'planned',
       scheduledAt: payload.scheduledAt as string,
+      timezone: typeof payload.timezone === 'string' ? payload.timezone : null,
       durationMinutes: (payload.durationMinutes as number | null) ?? null,
       allDay: (payload.allDay as boolean | null) ?? null,
       location: (payload.location as string | null) ?? null,
