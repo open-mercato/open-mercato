@@ -58,6 +58,33 @@ where s.started_by in (select id from customer_users)
 Nothing is rewritten automatically. Portal pages that legitimately started submissions on another
 subject type (for example `patient`) also match, so review the rows before revoking anything.
 
+<a id="staff-user-create-org-scope"></a>
+
+### Staff user create enforces the caller's organization scope (#7238)
+
+`POST /api/auth/users`, through the `auth.users.create` command, now applies the same destination
+check that `PUT /api/auth/users` already applied to an organization change. The organization must
+be within the caller's descendant-expanded organization scope, and any roles must belong to its
+tenant and be grantable by the caller. This holds whether or not the request sends `roles`. A caller
+restricted to some organizations who names another organization of the same tenant now gets `403`
+(`Cannot assign user to a destination organization outside actor scope.`) and no user is written.
+Before this release the user was created with `201`.
+
+An organization of another tenant still answers `404 Organization not found`, as before.
+Superadmins, system actors and callers without an organization restriction are unaffected.
+
+**Action for integrators:** a script or API key that creates staff users with an
+organization-restricted principal must either be granted the target organizations or use an
+unrestricted principal.
+
+**Backward compatibility** (recorded here because `BACKWARD_COMPATIBILITY.md` is at its agent-context
+byte budget): intentional security narrowing of the `auth.users.create` command and
+`POST /api/auth/users`, regression-tested in `users.create-destination-scope.test.ts` and
+`TC-AUTH-068`. One additive signature change: `targetUserId` of `resolveUserDestinationRoles`
+(`@open-mercato/core/modules/auth/lib/grantChecks`) becomes optional; without role tokens and without
+a target user it returns `[]`, and every existing call compiles and behaves the same. The route URL,
+request and response schemas, event IDs, ACL features, DI names and database schema are unchanged.
+
 ### Outbound webhook delivery timeout now covers the response body (#7226)
 
 A webhook's `timeoutMs` used to stop at the response headers; it now also covers reading the receiver's response body. A receiver that sends its status and headers but does not finish the body in time is classified by its status, with the body received so far: a cut-off 2xx is recorded as `delivered` with no error message, so its `responseBody` may be incomplete. The stored `responseBody` is now at most 4096 UTF-8 bytes (previously 4096 UTF-16 code units), cut on a character boundary, and the connection is closed once 4096 bytes have been read or the timeout fires. `responseStatus` and `responseHeaders` are recorded as soon as the headers arrive, so a connection that fails mid-body keeps them. `responseStatus`, `responseHeaders` and `responseBody` are cleared when an attempt starts, so the previous attempt's response is no longer shown once a new attempt begins.
