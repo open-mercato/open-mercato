@@ -22,7 +22,7 @@ Non-goals: MFA policy changes, public API/schema changes, new dependencies, unre
 
 ## Risks
 
-Independent review found a late queue-availability issue: awaiting a reconnecting enqueue could block bypass requests. Added a two-second fail-open deadline with hanging/late-rejection regressions; final focused validation and re-review are in progress. The notification write transaction owns strict per-recipient deduplication; the subscriber holds no outer transaction. Live verification exposed and fixed nested wildcard owning-module resolution so `security.mfa.*` is honored with the module registry active.
+Independent review found a late queue-availability issue: awaiting a reconnecting enqueue could block bypass requests. Commit `ff1fc9c043` adds a two-second fail-open deadline with hanging/late-rejection regressions. All 105 affected security tests, enterprise typecheck/build, and template parity passed. Fresh native `TC-SEC-015` passed against the rebuilt, exact committed application and test source (11.4s test; 2.1m Playwright run); compiled output was independently checked for the deadline. Independent source review has no remaining actionable findings. Final-head CI remains required for formal review and draft promotion. The notification write transaction owns strict per-recipient deduplication; the subscriber holds no outer transaction. Live verification exposed and fixed nested wildcard owning-module resolution so `security.mfa.*` is honored with the module registry active.
 
 Local runner: the complete ordered gate passed at production commit `3872e33641` in a clean temporary checkout using bundled Node24.19: package build, generation, second package build, translation sync/usage, typecheck, unit tests (48/48 tasks), and app production build. This isolated unrelated local tracker/WMS edits and a Homebrew sandbox-library failure; an isolated Expo worker crash passed on recheck and on the subsequent full gate.
 
@@ -44,4 +44,4 @@ PR: #7619
 ### Phase 2: Verification
 
 - [x] 2.1 Add coverage and documentation — 46b092ec0a
-- [ ] 2.2 Validate and review
+- [x] 2.2 Validate and review — ff1fc9c043; final-head CI and maintainer review remain pending
