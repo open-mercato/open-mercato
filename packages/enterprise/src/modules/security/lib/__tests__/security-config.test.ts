@@ -1,5 +1,9 @@
 const mockEmitSecurityEvent = jest.fn().mockResolvedValue(undefined)
 jest.mock('../../events', () => ({ emitSecurityEvent: mockEmitSecurityEvent }))
+const mockReportError = jest.fn()
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
 
 const mockLoggerWarn = jest.fn()
 
@@ -202,6 +206,12 @@ describe('MFA bypass notification requests', () => {
 
   test('keeps emergency access available if enqueueing fails', async () => {
     mockEmitSecurityEvent.mockRejectedValueOnce(new Error('queue unavailable'))
+    await expect(requestMfaEmergencyBypassNotification({ tenantId: 'tenant-1', organizationId: 'org-1' })).resolves.toBeUndefined()
+  })
+
+  test('keeps emergency access available if error reporting also fails', async () => {
+    mockEmitSecurityEvent.mockRejectedValueOnce(new Error('queue unavailable'))
+    mockReportError.mockImplementationOnce(() => { throw new Error('telemetry unavailable') })
     await expect(requestMfaEmergencyBypassNotification({ tenantId: 'tenant-1', organizationId: 'org-1' })).resolves.toBeUndefined()
   })
 })

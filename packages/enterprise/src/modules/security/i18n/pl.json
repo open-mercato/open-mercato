@@ -1,6 +1,4 @@
 {
-  "security.notifications.mfaEmergencyBypass.title": "Wykryto awaryjne pominięcie MFA",
-  "security.notifications.mfaEmergencyBypass.body": "W Twojej organizacji wykryto awaryjne pominięcie MFA. Ochrona MFA może być wyłączona. Poproś operatora systemu o wyłączenie OM_SECURITY_MFA_EMERGENCY_BYPASS po zakończeniu sytuacji awaryjnej.",
   "auth.changePassword.title": "Bezpieczeństwo i MFA",
   "security.admin.admin.sudo.actions.add": "Dodaj regułę",
   "security.admin.admin.sudo.challengeMethod.auto": "Automatycznie",
@@ -331,6 +329,8 @@
   "security.notifications.enforcementDeadline.bodyOverdue": "Twój termin rejestracji MFA minął {deadline}. Skonfiguruj MFA natychmiast, aby zachować dostęp do konta.",
   "security.notifications.enforcementDeadline.bodyWithDeadline": "Twoja organizacja wymaga teraz MFA. Skonfiguruj je w ciągu {days} dnia/dni przed {deadline}, aby zachować dostęp do konta.",
   "security.notifications.enforcementDeadline.title": "Wymagana rejestracja MFA",
+  "security.notifications.mfaEmergencyBypass.body": "W Twojej organizacji wykryto awaryjne pominięcie MFA. Ochrona MFA może być wyłączona. Poproś operatora systemu o wyłączenie OM_SECURITY_MFA_EMERGENCY_BYPASS po zakończeniu sytuacji awaryjnej.",
+  "security.notifications.mfaEmergencyBypass.title": "Wykryto awaryjne pominięcie MFA",
   "security.notifications.mfaEnrolled.body": "Metoda {method} została włączona dla Twojego konta.",
   "security.notifications.mfaEnrolled.title": "Metoda MFA włączona",
   "security.notifications.mfaReset.body": "Administrator zresetował Twoje metody MFA. Powód: {reason}",

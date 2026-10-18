@@ -11,10 +11,6 @@ const getRecipientUserIdsForFeatureMock = jest.fn()
 const getScopedNotificationRecipientUserIdsMock = jest.fn()
 const createBatchMock = jest.fn()
 const resolveNotificationServiceMock = jest.fn()
-const executeAdvisoryLockMock = jest.fn()
-const sqlMock = jest.fn((_strings: TemplateStringsArray, ..._parameters: unknown[]) => ({
-  execute: executeAdvisoryLockMock,
-}))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) => findOneWithDecryptionMock(...args),
@@ -26,10 +22,6 @@ jest.mock('@open-mercato/core/modules/notifications/lib/notificationRecipients',
 jest.mock('@open-mercato/core/modules/notifications/lib/notificationService', () => ({
   resolveNotificationService: (...args: unknown[]) => resolveNotificationServiceMock(...args),
 }))
-jest.mock('kysely', () => ({
-  sql: (strings: TemplateStringsArray, ...parameters: unknown[]) => sqlMock(strings, ...parameters),
-}))
-
 const scope = {
   tenantId: '11111111-1111-4111-8111-111111111111',
   organizationId: '22222222-2222-4222-8222-222222222222',
@@ -38,10 +30,10 @@ const payload = { ...scope, observedAt: '2026-10-18T23:59:00.000Z' }
 const dailyGroupKey = 'security.mfa.emergency_bypass_active:2026-10-18'
 
 function createContext(scopeOverrides: ScopeOverrides = {}) {
-  const database = { connection: Symbol('transaction connection') }
-  const transaction = { getKysely: jest.fn(() => database) }
-  const transactional = jest.fn(async (work: (manager: typeof transaction) => Promise<void>) => work(transaction))
-  const fork = jest.fn(() => ({ transactional }))
+  const database = { connection: Symbol('database connection') }
+  const transactional = jest.fn()
+  const emFork = { getKysely: jest.fn(() => database), transactional }
+  const fork = jest.fn(() => emFork)
   const userHasAllFeatures = jest.fn(async (_userId: string, _features: string[], _scope: Scope) => true)
   const resolve = jest.fn((name: string): unknown => {
     if (name === 'em') return { fork }
@@ -53,7 +45,7 @@ function createContext(scopeOverrides: ScopeOverrides = {}) {
     ...scopeOverrides,
     resolve: <T = unknown>(name: string): T => resolve(name) as T,
   }
-  return { ctx, database, transaction, transactional, fork, resolve, userHasAllFeatures }
+  return { ctx, database, emFork, transactional, fork, resolve, userHasAllFeatures }
 }
 
 describe('MFA emergency bypass notification subscriber', () => {
@@ -63,12 +55,11 @@ describe('MFA emergency bypass notification subscriber', () => {
     getRecipientUserIdsForFeatureMock.mockResolvedValue(['admin-1'])
     getScopedNotificationRecipientUserIdsMock.mockResolvedValue(['admin-1'])
     createBatchMock.mockResolvedValue([])
-    executeAdvisoryLockMock.mockResolvedValue(undefined)
     resolveNotificationServiceMock.mockReturnValue({ createBatch: createBatchMock })
   })
 
   it('registers persistent delivery and creates an in-app warning for the trusted scope', async () => {
-    const { ctx, database, transaction, transactional, userHasAllFeatures } = createContext()
+    const { ctx, database, emFork, transactional, userHasAllFeatures } = createContext()
 
     await emergencyBypassSubscriber(payload, ctx)
 
@@ -77,11 +68,8 @@ describe('MFA emergency bypass notification subscriber', () => {
       persistent: true,
       id: 'security:mfa-emergency-bypass-notification',
     })
-    expect(transactional).toHaveBeenCalledTimes(1)
-    expect(executeAdvisoryLockMock).toHaveBeenCalledWith(database)
-    expect(sqlMock.mock.calls[0][0].join('?')).toContain('pg_advisory_xact_lock(hashtext(?))')
-    expect(sqlMock.mock.calls[0].slice(1)).toEqual([`${scope.tenantId}:${scope.organizationId}:${dailyGroupKey}`])
-    expect(findOneWithDecryptionMock).toHaveBeenCalledWith(transaction, Notification, {
+    expect(transactional).not.toHaveBeenCalled()
+    expect(findOneWithDecryptionMock).toHaveBeenCalledWith(emFork, Notification, {
       ...scope,
       type: metadata.event,
       groupKey: dailyGroupKey,
@@ -96,7 +84,7 @@ describe('MFA emergency bypass notification subscriber', () => {
       bodyKey: 'security.notifications.mfaEmergencyBypass.body',
       severity: 'warning',
       groupKey: dailyGroupKey,
-    }), scope)
+    }), scope, { skipExistingGroup: true })
   })
 
   it.each<[string, ScopeOverrides]>([
@@ -162,42 +150,6 @@ describe('MFA emergency bypass notification subscriber', () => {
     ])
   })
 
-  it('waits for the database lock before checking the daily delivery marker', async () => {
-    const { ctx } = createContext()
-    let releaseLock: (() => void) | undefined
-    executeAdvisoryLockMock.mockImplementation(() => new Promise<void>((resolve) => { releaseLock = resolve }))
-
-    const delivery = emergencyBypassSubscriber(payload, ctx)
-
-    expect(executeAdvisoryLockMock).toHaveBeenCalledTimes(1)
-    expect(findOneWithDecryptionMock).not.toHaveBeenCalled()
-    releaseLock?.()
-    await delivery
-    expect(createBatchMock).toHaveBeenCalledTimes(1)
-  })
-
-  it('serializes concurrent events before looking up a notification and only delivers one batch', async () => {
-    const { ctx, transactional, transaction } = createContext()
-    let lockTail = Promise.resolve()
-    let notification: StoredNotification | null = null
-    transactional.mockImplementation((work) => {
-      const running = lockTail.then(() => work(transaction))
-      lockTail = running.catch(() => undefined)
-      return running
-    })
-    findOneWithDecryptionMock.mockImplementation(async () => notification)
-    createBatchMock.mockImplementation(async (input: CreateBatchNotificationInput) => {
-      notification = { ...scope, type: input.type, groupKey: input.groupKey ?? '', status: 'unread' }
-      return []
-    })
-
-    await Promise.all(Array.from({ length: 5 }, () => emergencyBypassSubscriber(payload, ctx)))
-
-    expect(executeAdvisoryLockMock).toHaveBeenCalledTimes(5)
-    expect(findOneWithDecryptionMock).toHaveBeenCalledTimes(5)
-    expect(createBatchMock).toHaveBeenCalledTimes(1)
-  })
-
   it('only checks scoped candidates and honors canonical RBAC denial of a role-derived candidate', async () => {
     const { ctx, userHasAllFeatures } = createContext()
     getRecipientUserIdsForFeatureMock.mockResolvedValue(['allowed-admin', 'user-override-denied', 'other-organization-admin'])
@@ -207,7 +159,7 @@ describe('MFA emergency bypass notification subscriber', () => {
     await emergencyBypassSubscriber(payload, ctx)
 
     expect(userHasAllFeatures.mock.calls.map(([userId]) => userId)).toEqual(['allowed-admin', 'user-override-denied'])
-    expect(createBatchMock).toHaveBeenCalledWith(expect.objectContaining({ recipientUserIds: ['allowed-admin'] }), scope)
+    expect(createBatchMock).toHaveBeenCalledWith(expect.objectContaining({ recipientUserIds: ['allowed-admin'] }), scope, { skipExistingGroup: true })
   })
 
   it.each(['no scoped candidates', 'no authorized candidates'])('does not resolve delivery services for %s', async (reason) => {
@@ -240,7 +192,7 @@ describe('MFA emergency bypass notification subscriber', () => {
 
     expect(userHasAllFeatures).toHaveBeenCalledTimes(235)
     expect(peakChecks).toBeLessThanOrEqual(10)
-    expect(createBatchMock).toHaveBeenCalledWith(expect.objectContaining({ recipientUserIds: candidates }), scope)
+    expect(createBatchMock).toHaveBeenCalledWith(expect.objectContaining({ recipientUserIds: candidates }), scope, { skipExistingGroup: true })
   })
 
   it('propagates failed batch delivery and retries without marking the day as delivered', async () => {

@@ -1,6 +1,4 @@
 {
-  "security.notifications.mfaEmergencyBypass.title": "MFA-Notfallumgehung erkannt",
-  "security.notifications.mfaEmergencyBypass.body": "In Ihrer Organisation wurde eine MFA-Notfallumgehung erkannt. Der MFA-Schutz ist möglicherweise deaktiviert. Bitten Sie Ihren Systembetreiber, OM_SECURITY_MFA_EMERGENCY_BYPASS nach dem Notfall zu deaktivieren.",
   "auth.changePassword.title": "Sicherheit & MFA",
   "security.admin.admin.sudo.actions.add": "Regel hinzufügen",
   "security.admin.admin.sudo.challengeMethod.auto": "Automatisch",
@@ -331,6 +329,8 @@
   "security.notifications.enforcementDeadline.bodyOverdue": "Deine MFA-Registrierungsfrist ist am {deadline} abgelaufen. Richte MFA sofort ein, um den Kontozugriff zu erhalten.",
   "security.notifications.enforcementDeadline.bodyWithDeadline": "Deine Organisation erfordert jetzt MFA. Richte es innerhalb von {days} Tag(en) vor {deadline} ein, um den Kontozugriff zu erhalten.",
   "security.notifications.enforcementDeadline.title": "MFA-Registrierung erforderlich",
+  "security.notifications.mfaEmergencyBypass.body": "In Ihrer Organisation wurde eine MFA-Notfallumgehung erkannt. Der MFA-Schutz ist möglicherweise deaktiviert. Bitten Sie Ihren Systembetreiber, OM_SECURITY_MFA_EMERGENCY_BYPASS nach dem Notfall zu deaktivieren.",
+  "security.notifications.mfaEmergencyBypass.title": "MFA-Notfallumgehung erkannt",
   "security.notifications.mfaEnrolled.body": "{method} wurde für dein Konto aktiviert.",
   "security.notifications.mfaEnrolled.title": "MFA-Methode aktiviert",
   "security.notifications.mfaReset.body": "Ein Administrator hat deine MFA-Methoden zurückgesetzt. Grund: {reason}",

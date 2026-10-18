@@ -197,8 +197,10 @@ export async function requestMfaEmergencyBypassNotification(scope: {
       observedAt: new Date().toISOString(),
     }, { persistent: true, tenantId, organizationId })
   } catch (error) {
-    securityBypassLogger.error('Unable to enqueue MFA emergency bypass notification', { err: error })
-    getTelemetryRuntime()?.reportError(error, { module: 'security', code: 'security.mfa_bypass_notification_failed' })
+    try {
+      securityBypassLogger.error('Unable to enqueue MFA emergency bypass notification', { err: error })
+      getTelemetryRuntime()?.reportError(error, { module: 'security', code: 'security.mfa_bypass_notification_failed' })
+    } catch {}
   }
 }
 
