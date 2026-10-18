@@ -22,9 +22,9 @@ A forgotten `OM_SECURITY_MFA_EMERGENCY_BYPASS` disables MFA while administrators
 
 Add `security.mfa.emergency_bypass_active` as an in-app warning type and an internal persistent security event. An additive asynchronous helper in `lib/security-config.ts` emits that event using server-authenticated tenant and organization IDs. Existing login, enrollment, and sudo bypass branches call it immediately after their unchanged warn call. Emission failures are reported and do not break emergency access.
 
-A persistent subscriber validates scope and observation time, serializes broadcasts using a PostgreSQL transaction advisory lock keyed by tenant/organization/day, and checks for an existing notification of this type and daily group key, regardless of read/dismissed state. If absent, it calls the existing notification service's `createForFeature` with `security.mfa.manage` and `restrictRecipientsToOrganization: true`. That path applies canonical RBAC, including wildcard grants, user overrides, and organization visibility.
+A persistent subscriber validates scope and observation time against trusted event context, serializes broadcasts using a PostgreSQL transaction advisory lock keyed by tenant/organization/day, and checks for an existing notification of this type and daily group key, regardless of read/dismissed state. If absent, it uses the existing notification feature-recipient resolver for `security.mfa.manage`, checks each candidate with `rbacService.userHasAllFeatures` in the trusted scope, then calls notification-service `createBatch`. This preserves wildcard grants, user overrides, and organization visibility without the existing `createForFeature` 200-candidate cap or its swallowed authorization errors. RBAC errors propagate for persistent retry.
 
-The notification service commits the complete recipient batch atomically. If a worker crashes after that commit, the persisted rows suppress replay. Zero recipients leave no marker and can be retried; newly granted administrators after a successful broadcast receive the next day's warning. Notification deletion permits a later broadcast within that day. No cache or new dependency is needed. A PostgreSQL lock failure propagates to the persistent worker for retry instead of falling back to unsafe deduplication.
+The notification service commits the complete recipient batch atomically. If a worker crashes after that commit, the persisted rows suppress replay. Zero recipients leave no marker and can be retried; newly granted administrators after a successful broadcast receive the next day's warning. Notification deletion permits a later broadcast within that day. No cache or new dependency is needed. Scope is passed through event emit options and must exactly match subscriber context. A PostgreSQL lock failure propagates to the persistent worker for retry instead of falling back to unsafe deduplication.
 
 ## Data Model and API Contracts
 
@@ -32,7 +32,7 @@ Reuse the existing notifications table, group key, and expiry. The event contain
 
 ## UI/UX
 
-Use the existing notification center and warning renderer with translated title/body in en/pl/de/es/ko. Explain that the operator must disable `OM_SECURITY_MFA_EMERGENCY_BYPASS`; link to the existing MFA administration page. No component, client boundary, bundle, layout, or design-system change is required. No custom mockup is needed; runtime visual evidence depends on an available enterprise test environment.
+Use the existing notification center and warning renderer with translated title/body in en/pl/de/es/ko. Explain that the operator must disable `OM_SECURITY_MFA_EMERGENCY_BYPASS`; omit navigation actions because MFA-management permission alone does not guarantee access to administrative pages. No component, client boundary, bundle, layout, or design-system change is required. No custom mockup is needed; runtime visual evidence depends on an available enterprise test environment.
 
 ## Edge Cases and Risks
 
@@ -76,4 +76,4 @@ Reviewed root, enterprise, core (events, notifications, ACL), shared (feature po
 
 ## Changelog
 
-- 2026-10-18: Initial design for issue #5523; daily scope deduplication and existing ACL-aware delivery selected as reversible defaults.
+- 2026-10-18: Initial design for issue #5523; independent review confirmed scope cohesion. Resolved delivery-cap and link-permission findings by using canonical recipient resolution plus explicit RBAC and batch delivery, and omitting inaccessible navigation.
