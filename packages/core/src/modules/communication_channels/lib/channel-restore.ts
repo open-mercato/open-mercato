@@ -9,6 +9,11 @@ function identifierOf(channel: CommunicationChannel): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
 }
 
+function connectedSinceDelete(restored: CommunicationChannel, candidate: CommunicationChannel): boolean {
+  if (!restored.deletedAt || !candidate.createdAt) return true
+  return candidate.createdAt.getTime() >= restored.deletedAt.getTime()
+}
+
 function holdsSameConnection(restored: CommunicationChannel, candidate: CommunicationChannel): boolean {
   if (restored.channelType === 'push' && (restored.userId ?? null) === null) {
     return candidate.channelType === 'push' && candidate.providerKey === restored.providerKey
@@ -19,7 +24,10 @@ function holdsSameConnection(restored: CommunicationChannel, candidate: Communic
     if (restoredIdentifier !== null && candidateIdentifier !== null) {
       return restoredIdentifier === candidateIdentifier
     }
-    return (candidate.organizationId ?? null) === (restored.organizationId ?? null)
+    return (
+      (candidate.organizationId ?? null) === (restored.organizationId ?? null) &&
+      connectedSinceDelete(restored, candidate)
+    )
   }
   return (
     restoredIdentifier !== null &&
@@ -35,11 +43,14 @@ function holdsSameConnection(restored: CommunicationChannel, candidate: Communic
  * and restoring the deleted one next to it leaves two channels on one account.
  *
  * The keys follow connect: tenant-wide push channels are one per provider; other
- * channels match on (owner, provider, identifier); an identifier-less row of a
- * provider is the same connection as any other row of that provider for the
- * owner in the same organization (credentials are stored once per provider,
- * owner and organization, which is why `adoptUnidentifiedChannel` folds them);
- * and one mailbox is never connected through two providers for one owner.
+ * channels match on (owner, provider, identifier), exactly as the heal key and the
+ * mailbox unique index compare them; an identifier-less row of a provider is the
+ * same connection as a row of that provider connected for the owner in the same
+ * organization after the delete (credentials are stored once per provider, owner
+ * and organization, which is why `adoptUnidentifiedChannel` folds them), while
+ * rows that already lived next to the deleted one before stay as they were; and
+ * one mailbox is never connected through two providers for one owner, compared
+ * case-insensitively like the cross-provider connect guard.
  */
 export async function findActiveDuplicateChannel(
   em: EntityManager,

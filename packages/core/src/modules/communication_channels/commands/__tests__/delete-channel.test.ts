@@ -189,13 +189,14 @@ describe('deleteChannelCommand undo against a newer connection', () => {
       channelType: 'chat',
       externalIdentifier: null as string | null,
       isPrimary: false,
-      deletedAt: new Date() as Date | null,
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      deletedAt: new Date('2026-02-01T00:00:00Z') as Date | null,
       ...overrides,
     }
   }
 
   function activeChannel(overrides: Record<string, unknown> = {}) {
-    return { ...deletedChannel(), id: OTHER_ID, deletedAt: null, ...overrides }
+    return { ...deletedChannel(), id: OTHER_ID, createdAt: new Date('2026-02-02T00:00:00Z'), deletedAt: null, ...overrides }
   }
 
   async function runUndo(channel: Record<string, unknown>, active: Array<Record<string, unknown>>) {
@@ -268,6 +269,20 @@ describe('deleteChannelCommand undo against a newer connection', () => {
     const channel = deletedChannel({ organizationId: ORG })
     const { outcome } = await runUndo(channel, [
       activeChannel({ organizationId: '66666666-6666-4666-8666-666666666666' }),
+    ])
+    expect(outcome).toBeNull()
+    expect(channel.deletedAt).toBeNull()
+  })
+
+  it('restores an identifier-less channel next to a row of the same provider that predates the delete', async () => {
+    const channel = deletedChannel()
+    const { outcome } = await runUndo(channel, [
+      activeChannel({
+        createdAt: new Date('2026-01-15T00:00:00Z'),
+        isActive: false,
+        status: 'disconnected',
+        lastError: 'superseded_by_reconnect',
+      }),
     ])
     expect(outcome).toBeNull()
     expect(channel.deletedAt).toBeNull()
