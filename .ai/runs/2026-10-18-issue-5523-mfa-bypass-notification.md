@@ -45,3 +45,13 @@ PR: #7619
 
 - [x] 2.1 Add coverage and documentation — 46b092ec0a
 - [x] 2.2 Validate and review — ff1fc9c043; final-head CI and maintainer review remain pending
+
+## CI follow-up — 2026-10-19
+
+The user explicitly requested fixing the failed CI/CD check. Shard14 failed in `TC-WF-006` because pointer traversal left the fixture row and a sibling workflow's hover menus open simultaneously. The global Delete locator then matched two items. This correction clicks the intended row's action trigger and waits for its expanded state and one unique Delete action before confirming removal. Existing UI creation/deletion and API cleanup assertions remain; no production behavior, timeout, retry, or skip changes are introduced. Runner: local managed ephemeral app/database, using bundled Node24.19 in an isolated checkout.
+
+- [x] Post-review CI fix: validate and independently review the workflow action-menu correction, then publish it — 1388633bca
+
+Fresh required CI results will be recorded in the PR review and CI-result comment after publication. The PR remains ready for review during validation; human QA and required checks continue to gate merge.
+
+Local verification for `1388633bca`: core typecheck passed; the native `TC-WF-006` passed on its first attempt (5.0s test, 2.3m Playwright run) against an isolated production app built from unchanged application source. The committed test matches the runtime test SHA256 `b1eae31c20681571d7bfaab6b57bbb745eff456fd7e6c71e39599ccc52c0b74f`. Independent review found no actionable issue. Pre-commit translation sync and template parity passed. A repeat native run and fresh published-head CI are reported on the PR; no pending check is recorded as passed here.
