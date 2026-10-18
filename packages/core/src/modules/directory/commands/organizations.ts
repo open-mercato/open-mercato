@@ -6,6 +6,7 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import { organizationCreateSchema, organizationUpdateSchema } from '@open-mercato/core/modules/directory/data/validators'
 import {
+  findOrganizationParentCycle,
   lockOrganizationHierarchyForTenant,
   rebuildHierarchyForTenant,
 } from '@open-mercato/core/modules/directory/lib/hierarchy'
@@ -291,6 +292,29 @@ async function restoreChildParents(em: EntityManager, tenantId: string, snapshot
   if (toPersist.length) await em.persist(toPersist).flush()
 }
 
+const REPLAY_CYCLE_ERROR_KEY = 'directory.organizations.errors.replayCycle'
+
+async function assertReplayKeepsHierarchyAcyclic(
+  em: EntityManager,
+  tenantId: string,
+  organizationIds: Iterable<string>,
+): Promise<void> {
+  const filter: FilterQuery<Organization> = {
+    tenant: tenantId,
+    deletedAt: null,
+  } as unknown as FilterQuery<Organization>
+  const organizations = await em.find(Organization, filter)
+  if (!findOrganizationParentCycle(organizations, organizationIds)) return
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(409, {
+    error: translate(
+      REPLAY_CYCLE_ERROR_KEY,
+      "The organization hierarchy changed since this action, so it can't be reverted without making an organization its own ancestor.",
+    ),
+    code: REPLAY_CYCLE_ERROR_KEY,
+  })
+}
+
 function normalizeChildIds(ids: readonly string[], exclude: string[]): string[] {
   const excludeSet = new Set(exclude)
   return Array.from(new Set(ids)).filter((id) => !excludeSet.has(id))
@@ -501,6 +525,11 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
           where: buildOrganizationMutationFilter(after.id, tenantId),
           soft: false,
         })
+        await assertReplayKeepsHierarchyAcyclic(
+          em,
+          tenantId,
+          childrenBefore.map((entry) => entry.childId).filter((childId) => childId !== after.id),
+        )
         await rebuildHierarchyForTenant(em, tenantId)
       },
     ], { transaction: true })
@@ -561,6 +590,10 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
         }
 
         await assignChildren(em, tenantId, after.id, after.childParents.map((entry) => entry.childId))
+        await assertReplayKeepsHierarchyAcyclic(em, tenantId, [
+          after.id,
+          ...after.childParents.map((entry) => entry.childId),
+        ])
         await rebuildHierarchyForTenant(em, tenantId)
       },
     ], { transaction: true })
@@ -797,6 +830,10 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
         }
         const childSnapshots = before.childParents
         await restoreChildParents(em, tenantId, childSnapshots)
+        await assertReplayKeepsHierarchyAcyclic(em, tenantId, [
+          before.id,
+          ...(childSnapshots ?? []).map((entry) => entry.childId),
+        ])
         await rebuildHierarchyForTenant(em, tenantId)
       },
     ], { transaction: true })
@@ -967,6 +1004,10 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
           }
         }
         await restoreChildParents(em, tenantId, before.childParents)
+        await assertReplayKeepsHierarchyAcyclic(em, tenantId, [
+          before.id,
+          ...(before.childParents ?? []).map((entry) => entry.childId),
+        ])
         await rebuildHierarchyForTenant(em, tenantId)
       },
     ], { transaction: true })
