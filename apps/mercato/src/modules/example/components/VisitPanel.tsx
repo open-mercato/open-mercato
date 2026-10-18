@@ -53,13 +53,13 @@ export function VisitPanel({ definition, values, errors, disabled, capabilities,
   }, [values, checkedParticipants, advisory, fields.people, fields.resources, fields.endTime, capabilities.resourcesEnabled, capabilities.staffEnabled])
   const [preview, setPreview] = React.useState<Preview>({ state: 'idle', subjects: [] })
   const [retry, setRetry] = React.useState(0)
-  const saveConflict = [errors.participants, errors.resources, errors.linkedEntities].filter(Boolean).join('\n')
+  const blockedSaveSignal = [errors.participants, errors.resources, errors.linkedEntities].filter(Boolean).join('\n')
 
   React.useEffect(() => {
-    if (!saveConflict) return
+    if (!blockedSaveSignal) return
     setPreview({ state: 'pending', subjects: [] })
     setRetry((value) => value + 1)
-  }, [saveConflict])
+  }, [blockedSaveSignal])
 
   React.useEffect(() => {
     if (!url) { setPreview({ state: 'idle', subjects: [] }); return }

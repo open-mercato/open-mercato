@@ -147,6 +147,24 @@ describe('VisitPanel optional availability modules', () => {
       expect(screen.getByTestId('standard-calendar-fields')).toBeInTheDocument()
     })
 
+    it('re-checks availability once when a save of another event type is blocked', async () => {
+      jest.mocked(apiCall).mockResolvedValue({ ok: true, status: 200, result: { warnings: [], subjects: [
+        { type: 'resource', id: '33333333-3333-4333-8333-333333333333', displayName: 'Room', status: 'available', reasonKey: null },
+      ] }, response: {} as Response, cacheStatus: null })
+      const view = render(<VisitPanel {...eventProps} advisory><div /></VisitPanel>)
+      await act(async () => { jest.advanceTimersByTime(250) })
+      const callsBeforeConflict = jest.mocked(apiCall).mock.calls.length
+
+      jest.mocked(apiCall).mockResolvedValue({ ok: true, status: 200, result: { warnings: [], subjects: [
+        { type: 'resource', id: '33333333-3333-4333-8333-333333333333', displayName: 'Room', status: 'unavailable', reasonKey: 'example.calendar.visitAvailability.booked' },
+      ] }, response: {} as Response, cacheStatus: null })
+      view.rerender(<VisitPanel {...eventProps} errors={{ resources: 'Room: Already booked at this time.' }} advisory><div /></VisitPanel>)
+      await act(async () => { jest.advanceTimersByTime(250) })
+
+      expect(jest.mocked(apiCall)).toHaveBeenCalledTimes(callsBeforeConflict + 1)
+      expect(screen.getByTestId('example-availability-panel')).toHaveTextContent('Room: Already booked at this time.')
+    })
+
     it('stays out of the way until staff or a resource is selected for a timed interval', async () => {
       const cases: Array<Partial<CalendarEventTypePanelProps['values']>> = [
         { participants: [], resources: [] },
