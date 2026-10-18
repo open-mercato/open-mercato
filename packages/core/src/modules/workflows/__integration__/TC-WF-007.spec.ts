@@ -7,6 +7,7 @@ import {
 } from '@open-mercato/core/modules/core/__integration__/helpers/workflowsFixtures'
 import {
   openWorkflowDetailsDrawer,
+  visualEditorHref,
   WORKFLOW_TRIGGER_CAP_TESTID,
   workflowInspector,
   workflowNodeByTitle,
@@ -96,6 +97,7 @@ test.describe('TC-WF-007: Visual editor renders a UI-created workflow', () => {
 
       await login(page, 'admin')
       await createDefinitionInStudio(page, workflowId, workflowName)
+      const definitionHref = visualEditorHref(new URL(page.url()).searchParams.get('id'))
 
       // Re-open from the list through the row action instead of URL-typing —
       // more UI-real, and it is the single Edit entry now that the form editor
@@ -112,10 +114,11 @@ test.describe('TC-WF-007: Visual editor renders a UI-created workflow', () => {
       // above still narrows by id, so the name resolves to our row alone.
       const row = page.getByRole('row').filter({ hasText: workflowName })
       await expect(row).toBeVisible({ timeout: 10_000 })
-      await row.getByRole('button', { name: /open actions/i }).hover()
-      await page.getByRole('menuitem', { name: /^edit$/i }).first().click()
+      await row.getByRole('button', { name: /open actions/i }).press('Enter')
+      const editAction = page.getByRole('menuitem', { name: /^edit$/i }).and(page.locator(`[href="${definitionHref}"]`))
+      await editAction.press('Enter')
 
-      await expect(page).toHaveURL(/\/backend\/definitions\/visual-editor\?id=/, { timeout: 15_000 })
+      await expect(page).toHaveURL(definitionHref, { timeout: 15_000 })
 
       // React Flow renders nodes with `.react-flow__node` and edges with
       // `.react-flow__edge`. Counts mirror `examples/templates/task-escalation.json`
