@@ -190,13 +190,20 @@ describe('security-config', () => {
 
 
 describe('MFA bypass notification requests', () => {
-  beforeEach(() => { mockEmitSecurityEvent.mockClear() })
+  beforeEach(() => {
+    mockEmitSecurityEvent.mockClear()
+    mockReportError.mockClear()
+  })
+
+  afterEach(() => { jest.useRealTimers() })
 
   test('queues persistent notification with explicit trusted scope', async () => {
+    jest.useFakeTimers()
     await requestMfaEmergencyBypassNotification({ tenantId: 'tenant-1', organizationId: 'org-1' })
     expect(mockEmitSecurityEvent).toHaveBeenCalledWith('security.mfa.emergency_bypass_detected', {
       tenantId: 'tenant-1', organizationId: 'org-1', observedAt: expect.any(String),
     }, { persistent: true, tenantId: 'tenant-1', organizationId: 'org-1' })
+    expect(jest.getTimerCount()).toBe(0)
   })
 
   test.each([{}, { tenantId: 'tenant-1' }, { organizationId: 'org-1' }])('does not broadcast without concrete scope: %p', async (scope) => {
@@ -207,6 +214,41 @@ describe('MFA bypass notification requests', () => {
   test('keeps emergency access available if enqueueing fails', async () => {
     mockEmitSecurityEvent.mockRejectedValueOnce(new Error('queue unavailable'))
     await expect(requestMfaEmergencyBypassNotification({ tenantId: 'tenant-1', organizationId: 'org-1' })).resolves.toBeUndefined()
+  })
+
+  test('releases emergency access within two seconds when enqueueing never settles', async () => {
+    jest.useFakeTimers()
+    mockEmitSecurityEvent.mockImplementationOnce(() => new Promise<void>(() => {}))
+    let settled = false
+    const request = requestMfaEmergencyBypassNotification({ tenantId: 'tenant-1', organizationId: 'org-1' })
+      .then(() => { settled = true })
+
+    await jest.advanceTimersByTimeAsync(2000)
+    expect(settled).toBe(true)
+    await request
+    expect(mockReportError).toHaveBeenCalledWith(expect.objectContaining({
+      message: '[internal] MFA bypass notification enqueue timed out',
+    }), expect.objectContaining({ code: 'security.mfa_bypass_notification_failed' }))
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
+  test('observes a late enqueue rejection after emergency access has resumed', async () => {
+    jest.useFakeTimers()
+    let rejectEnqueue: ((error: Error) => void) | undefined
+    mockEmitSecurityEvent.mockImplementationOnce(() => new Promise<void>((_resolve, reject) => {
+      rejectEnqueue = reject
+    }))
+    let settled = false
+    const request = requestMfaEmergencyBypassNotification({ tenantId: 'tenant-1', organizationId: 'org-1' })
+      .then(() => { settled = true })
+
+    await jest.advanceTimersByTimeAsync(2000)
+    expect(settled).toBe(true)
+    await request
+    expect(rejectEnqueue).toBeDefined()
+    rejectEnqueue?.(new Error('late queue failure'))
+    await jest.advanceTimersByTimeAsync(0)
+    expect(mockReportError).toHaveBeenCalledTimes(1)
   })
 
   test('keeps emergency access available if error reporting also fails', async () => {

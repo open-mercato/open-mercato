@@ -9,6 +9,7 @@ const DEFAULT_SETUP_TTL_MS = 10 * 60 * 1000
 const DEFAULT_WEBAUTHN_CHALLENGE_TTL_MS = 5 * 60 * 1000
 const DEFAULT_SUDO_PENDING_CHALLENGE_TTL_MS = 10 * 60 * 1000
 const MIN_SUDO_TTL_SECONDS = 30
+const MFA_BYPASS_NOTIFICATION_ENQUEUE_TIMEOUT_MS = 2_000
 
 const securityBypassLogger = createLogger('security').child({ component: 'mfa-emergency-bypass' })
 let startupBypassWarningEmitted = false
@@ -190,17 +191,25 @@ export async function requestMfaEmergencyBypassNotification(scope: {
 }): Promise<void> {
   if (!scope.tenantId || !scope.organizationId) return
   const { tenantId, organizationId } = scope
+  let timeout: ReturnType<typeof setTimeout> | undefined
   try {
-    await emitSecurityEvent('security.mfa.emergency_bypass_detected', {
-      tenantId,
-      organizationId,
-      observedAt: new Date().toISOString(),
-    }, { persistent: true, tenantId, organizationId })
+    await Promise.race([
+      emitSecurityEvent('security.mfa.emergency_bypass_detected', {
+        tenantId,
+        organizationId,
+        observedAt: new Date().toISOString(),
+      }, { persistent: true, tenantId, organizationId }),
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error('[internal] MFA bypass notification enqueue timed out')), MFA_BYPASS_NOTIFICATION_ENQUEUE_TIMEOUT_MS)
+      }),
+    ])
   } catch (error) {
     try {
       securityBypassLogger.error('Unable to enqueue MFA emergency bypass notification', { err: error })
       getTelemetryRuntime()?.reportError(error, { module: 'security', code: 'security.mfa_bypass_notification_failed' })
     } catch {}
+  } finally {
+    if (timeout) clearTimeout(timeout)
   }
 }
 
