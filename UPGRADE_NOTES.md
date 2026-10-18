@@ -85,6 +85,31 @@ byte budget): intentional security narrowing of the `auth.users.create` command 
 a target user it returns `[]`, and every existing call compiles and behaves the same. The route URL,
 request and response schemas, event IDs, ACL features, DI names and database schema are unchanged.
 
+### `AI_RUNTIME_BASEURL_ALLOWLIST` matches scheme and port, and saved base URLs are re-checked (#7228)
+
+An allowlist entry used to match only the hostname, so `api.openai.com` also admitted
+`http://api.openai.com` and any port. A base URL must now match an entry's scheme, hostname and
+effective port. This applies to the chat `?baseUrl=` parameter and to `PUT /api/ai_assistant/settings`;
+both keep answering `400 { code: "baseurl_not_allowlisted" }`. Saved tenant and per-agent base URLs
+are re-checked on every agent turn: a saved value that the current allowlist does not permit,
+including every saved value once the allowlist is empty, is ignored, and the turn uses the provider's
+default endpoint. Each ignored turn logs the warning
+`Stored AI runtime baseURL is not allowed by AI_RUNTIME_BASEURL_ALLOWLIST; ignoring it` until the
+override is re-saved or cleared. Routes, request and response shapes are unchanged.
+
+**Action for operators:** a bare host entry now means HTTPS on port 443. List any other origin
+explicitly as `scheme://host[:port]`:
+
+```env
+# before: admitted https and http on any port
+AI_RUNTIME_BASEURL_ALLOWLIST=openrouter.ai,localhost
+# after: https://openrouter.ai plus a local Ollama server over plain HTTP
+AI_RUNTIME_BASEURL_ALLOWLIST=openrouter.ai,http://localhost:11434
+```
+
+Update the allowlist before upgrading when tenants saved a local or self-hosted base URL: once that
+saved value is ignored, prompts go to the provider's default endpoint instead.
+
 ### Outbound webhook delivery timeout now covers the response body (#7226)
 
 A webhook's `timeoutMs` used to stop at the response headers; it now also covers reading the receiver's response body. A receiver that sends its status and headers but does not finish the body in time is classified by its status, with the body received so far: a cut-off 2xx is recorded as `delivered` with no error message, so its `responseBody` may be incomplete. The stored `responseBody` is now at most 4096 UTF-8 bytes (previously 4096 UTF-16 code units), cut on a character boundary, and the connection is closed once 4096 bytes have been read or the timeout fires. `responseStatus` and `responseHeaders` are recorded as soon as the headers arrive, so a connection that fails mid-body keeps them. `responseStatus`, `responseHeaders` and `responseBody` are cleared when an attempt starts, so the previous attempt's response is no longer shown once a new attempt begins.
