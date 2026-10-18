@@ -1,5 +1,7 @@
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { emitSecurityEvent } from '../events'
 
 const TOTP_PERIOD_SECONDS = 30
 const TOTP_DIGITS = 6
@@ -180,6 +182,24 @@ export function emitMfaEmergencyBypassActiveWarning(context: string, extra?: Rec
     context,
     ...extra,
   })
+}
+
+export async function requestMfaEmergencyBypassNotification(scope: {
+  tenantId?: string | null
+  organizationId?: string | null
+}): Promise<void> {
+  if (!scope.tenantId || !scope.organizationId) return
+  const { tenantId, organizationId } = scope
+  try {
+    await emitSecurityEvent('security.mfa.emergency_bypass_active', {
+      tenantId,
+      organizationId,
+      observedAt: new Date().toISOString(),
+    }, { persistent: true, tenantId, organizationId })
+  } catch (error) {
+    securityBypassLogger.error('Unable to enqueue MFA emergency bypass notification', { err: error })
+    getTelemetryRuntime()?.reportError(error, { module: 'security', code: 'security.mfa_bypass_notification_failed' })
+  }
 }
 
 export function emitMfaEmergencyBypassStartupWarningIfNeeded(env: NodeJS.ProcessEnv = process.env): void {

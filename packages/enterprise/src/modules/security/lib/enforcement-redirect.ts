@@ -1,7 +1,7 @@
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { isEnforcementDeadlineOverdue } from '../services/MfaEnforcementService'
-import { emitMfaEmergencyBypassActiveWarning, readSecurityModuleConfig } from './security-config'
+import { emitMfaEmergencyBypassActiveWarning, readSecurityModuleConfig, requestMfaEmergencyBypassNotification } from './security-config'
 
 const MFA_ENROLLMENT_PATH = '/backend/profile/security/mfa'
 const logger = createLogger('security').child({ component: 'mfa-enforcement-redirect' })
@@ -105,6 +105,7 @@ export async function resolveMfaEnrollmentRedirect(args: {
         pathname,
         reason: 'enforcement-service-unavailable',
       })
+      await requestMfaEmergencyBypassNotification({ tenantId: auth.tenantId, organizationId: auth.orgId })
       return null
     }
     logger.error('Unable to resolve MFA enforcement service; redirecting to enrollment', {
@@ -128,6 +129,7 @@ export async function resolveMfaEnrollmentRedirect(args: {
         compliant: compliance.compliant,
         overdue: deadlineState.overdue,
       })
+      await requestMfaEmergencyBypassNotification({ tenantId: auth.tenantId, organizationId: auth.orgId })
       return null
     }
 
@@ -140,6 +142,7 @@ export async function resolveMfaEnrollmentRedirect(args: {
           pathname,
           reason: 'compliance-check-failed',
         })
+        await requestMfaEmergencyBypassNotification({ tenantId: auth.tenantId, organizationId: auth.orgId })
         return null
       }
       logger.error('Unable to verify MFA enforcement compliance; redirecting to enrollment', { err: error })

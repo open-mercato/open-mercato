@@ -1,4 +1,6 @@
 {
+  "security.notifications.mfaEmergencyBypass.title": "MFA 긴급 우회 감지",
+  "security.notifications.mfaEmergencyBypass.body": "조직에서 MFA 긴급 우회가 감지되었습니다. MFA 보호가 비활성화되어 있을 수 있습니다. 긴급 상황이 끝나면 시스템 운영자에게 OM_SECURITY_MFA_EMERGENCY_BYPASS를 비활성화하도록 요청하세요.",
   "auth.changePassword.title": "보안 및 MFA",
   "security.admin.admin.sudo.actions.add": "규칙 추가",
   "security.admin.admin.sudo.challengeMethod.auto": "자동",

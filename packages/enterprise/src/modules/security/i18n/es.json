@@ -1,4 +1,6 @@
 {
+  "security.notifications.mfaEmergencyBypass.title": "Se detectó una omisión de emergencia de MFA",
+  "security.notifications.mfaEmergencyBypass.body": "Se detectó una omisión de emergencia de MFA en tu organización. La protección MFA puede estar desactivada. Pide al operador del sistema que desactive OM_SECURITY_MFA_EMERGENCY_BYPASS después de la emergencia.",
   "auth.changePassword.title": "Seguridad y MFA",
   "security.admin.admin.sudo.actions.add": "Añadir regla",
   "security.admin.admin.sudo.challengeMethod.auto": "Automático",

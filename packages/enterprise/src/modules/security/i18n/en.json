@@ -1,4 +1,6 @@
 {
+  "security.notifications.mfaEmergencyBypass.title": "MFA emergency bypass detected",
+  "security.notifications.mfaEmergencyBypass.body": "MFA emergency bypass was detected in your organization. MFA protections may be disabled. Ask your system operator to disable OM_SECURITY_MFA_EMERGENCY_BYPASS after the emergency.",
   "auth.changePassword.title": "Security & MFA",
   "security.admin.admin.sudo.actions.add": "Add rule",
   "security.admin.admin.sudo.challengeMethod.auto": "Auto",

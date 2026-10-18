@@ -1,4 +1,6 @@
 {
+  "security.notifications.mfaEmergencyBypass.title": "MFA-Notfallumgehung erkannt",
+  "security.notifications.mfaEmergencyBypass.body": "In Ihrer Organisation wurde eine MFA-Notfallumgehung erkannt. Der MFA-Schutz ist möglicherweise deaktiviert. Bitten Sie Ihren Systembetreiber, OM_SECURITY_MFA_EMERGENCY_BYPASS nach dem Notfall zu deaktivieren.",
   "auth.changePassword.title": "Sicherheit & MFA",
   "security.admin.admin.sudo.actions.add": "Regel hinzufügen",
   "security.admin.admin.sudo.challengeMethod.auto": "Automatisch",

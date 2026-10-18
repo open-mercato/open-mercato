@@ -1,4 +1,6 @@
 {
+  "security.notifications.mfaEmergencyBypass.title": "Wykryto awaryjne pominięcie MFA",
+  "security.notifications.mfaEmergencyBypass.body": "W Twojej organizacji wykryto awaryjne pominięcie MFA. Ochrona MFA może być wyłączona. Poproś operatora systemu o wyłączenie OM_SECURITY_MFA_EMERGENCY_BYPASS po zakończeniu sytuacji awaryjnej.",
   "auth.changePassword.title": "Bezpieczeństwo i MFA",
   "security.admin.admin.sudo.actions.add": "Dodaj regułę",
   "security.admin.admin.sudo.challengeMethod.auto": "Automatycznie",
