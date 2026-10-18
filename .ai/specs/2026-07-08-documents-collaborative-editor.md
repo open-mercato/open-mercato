@@ -535,6 +535,8 @@ Inserted peer values are **deliberate static snapshots**: later source-record ch
 
 The related-records rail gains a **"Referenced by"** section backed by the M6-shipped `entityType`/`entityId` relation filters, so visibility filtering, pagination, and safe labels are inherited. A user with no access to a referencing document never sees its title or existence — it is absent, not redacted-but-present.
 
+Document backlink targets are authorized locally with the same tenant/organization-scoped viewer check as the document detail, so the rail does not depend on an HTTP request back to `APP_URL`. Other record types retain their peer-module access verification. The offline editor notice links to the collaboration setup guide while preserving single-user save and read-only behavior.
+
 The `archived=exclude` default applies to the documents list, the related-documents injection widget, and the backlinks section (all three consume the list route). It does **not** apply to the exact-`id` verification lookup or the outgoing links rail, where a link to an archived target resolves with its normal label plus a localized "Archived" badge (the verification response additively carries `archivedAt`). Chips in content stay plain — they are static content, not live relation state.
 
 ### Archive lifecycle
@@ -711,6 +713,8 @@ Integration fixtures are created and cleaned up by each test and never rely on s
 - The `OMDF1` Redis generation envelope predates the module's first release, so any future wire-version change requires a coordinated, non-overlapping sidecar rollout.
 
 ## Changelog
+
+- **2026-10-18** — Fixed document backlinks failing when the application's self-HTTP lookup is unavailable, preserving scoped viewer authorization. Added localized realtime setup guidance and administrator troubleshooting steps; regression coverage extends the route, editor, and `TC-DOCUMENTS-017` fallback flow (#5596).
 
 - **2026-07-08** — Spec created from the approved design and hardened by a pre-implementation backward-compatibility audit: concrete sidecar auth handshake (collab-token mint and verify), post-connect write enforcement and revocation, document-tier-gated image proxy, `DocumentContentService` search-freshness contract, explicit encryption and search field policy, epoch-reset version-restore protocol, shared editor config, local entity-id constants, re-share upsert, and a real PDF export endpoint. **M1–M4 implemented and verified**: shared-docs core (11 entities across the milestone set, per-document sharing, folders, CRUD APIs, image proxy, TipTap editor), the Hocuspocus realtime sidecar with collab-token handshake and live cursors, comments/@mentions with version history, and docx/PDF export.
 - **2026-07-09** — **M5 implemented and verified**: TipTap keep-verdict recorded with sourced licensing and performance research; naked-GUID elimination via a shared `resolveUserLabels` and out-of-band comment mentions; Google-Docs UX (alignment, highlight, colour, undo/redo, outline, word count, inline rename); the `entityRef` chip node with an `@`-trigger EntityPicker; and `document_templates` with client-side instantiation and seeded defaults.

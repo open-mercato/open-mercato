@@ -86,6 +86,19 @@ describe('fallback editor mode transition', () => {
     surfaceRecordConflictMock.mockReturnValue(false)
   })
 
+  it('explains how to enable realtime without replacing the editable fallback', async () => {
+    let editor: Editor | null = null
+    render(<EditorHarness onEditorReady={(next) => { if (next) editor = next }} />)
+
+    await waitFor(() => expect(editor).not.toBeNull())
+    expect(screen.getByText('documents.editor.realtime.singleUserFallback')).toBeTruthy()
+    expect(screen.getByText('documents.editor.realtime.setupHint')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'documents.editor.realtime.setupGuide' }).getAttribute('href')).toBe(
+      'https://github.com/open-mercato/open-mercato/blob/develop/packages/documents/README.md#realtime-collaboration-sidecar-m2',
+    )
+    expect(editor!.isEditable).toBe(true)
+  })
+
   it('waits for persistence, keeps the editor instance, and saves the latest body after returning to edit', async () => {
     const firstSave = deferred<{ ok: boolean; status: number; result: { updatedAt: string } }>()
     apiCallMock

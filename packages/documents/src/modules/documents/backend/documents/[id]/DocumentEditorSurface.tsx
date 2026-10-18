@@ -79,6 +79,22 @@ export function DocumentEditorSurface(input: Props) {
       : input.mode === 'preview'
         ? t('documents.editor.mode.previewNotice')
         : null
+  const availabilityNotice = status === 'offline' ? (
+    <>
+      <p>{notice ?? t('documents.editor.realtime.offline')}</p>
+      <p className="mt-2">
+        {t('documents.editor.realtime.setupHint')}{' '}
+        <a
+          href="https://github.com/open-mercato/open-mercato/blob/develop/packages/documents/README.md#realtime-collaboration-sidecar-m2"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline underline-offset-4"
+        >
+          {t('documents.editor.realtime.setupGuide')}
+        </a>
+      </p>
+    </>
+  ) : notice
   const selectionCommentHandler = canCreateSelectionComment({
     permissionReadOnly: input.readOnly,
     mode: input.mode,
@@ -146,7 +162,7 @@ export function DocumentEditorSurface(input: Props) {
             </div>
           ) : null}
         </div>
-        <DocumentCanvas editor={editorModel.editor} title={title} readOnly={effectiveReadOnly} outlineOpen={outlineOpen} notice={notice} onOpenLink={insertions.openLink} onComment={selectionCommentHandler} />
+        <DocumentCanvas editor={editorModel.editor} title={title} readOnly={effectiveReadOnly} outlineOpen={outlineOpen} notice={availabilityNotice} onOpenLink={insertions.openLink} onComment={selectionCommentHandler} />
       </div>
       <EntityPicker open={insertions.entityPickerOpen} onOpenChange={insertions.setPickerOpen} onPick={(pick) => { void insertions.handleEntityPick(pick) }} />
       <RecordFieldsDialog
