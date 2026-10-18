@@ -20,7 +20,7 @@ A forgotten `OM_SECURITY_MFA_EMERGENCY_BYPASS` disables MFA while administrators
 
 ## Proposed Solution and Architecture
 
-Add `security.mfa.emergency_bypass_active` as an in-app warning type and an internal persistent security event. An additive asynchronous helper in `lib/security-config.ts` emits that event using server-authenticated tenant and organization IDs. Existing login, enrollment, and sudo bypass branches call it immediately after their unchanged warn call. Emission failures are reported and do not break emergency access.
+Add `security.mfa.emergency_bypass_detected` as an in-app warning type and an internal persistent security event. An additive asynchronous helper in `lib/security-config.ts` emits that event using server-authenticated tenant and organization IDs. Existing login, enrollment, and sudo bypass branches call it immediately after their unchanged warn call. Emission failures are reported and do not break emergency access.
 
 A persistent subscriber validates scope and observation time against trusted event context, checks for an existing notification of this type and daily group key in the scope, regardless of read/dismissed state, to avoid repeating daily audience work. If absent, it uses the existing notification feature-recipient resolver for `security.mfa.manage`, checks each candidate with `rbacService.userHasAllFeatures` in the trusted scope, then calls notification-service `createBatch`. This preserves wildcard grants, user overrides, and organization visibility without the existing `createForFeature` 200-candidate cap or its swallowed authorization errors. RBAC errors propagate for persistent retry.
 
