@@ -298,7 +298,7 @@ interface CustomerGroupsService {
   // Assortment scope resolves separately from the scalar terms above — §6.4.
   resolveAssortmentScope(input: BuyerIdentityInput): Promise<{
     scope: EffectiveAssortmentScope   // groups unioned; the customer's own grant unioned in and its restriction intersected over the result is Phase 5 (§6.4) — not shipped, so `sourceCustomerOverrideId` is always null today; nothing matching → null (unrestricted)
-    sourceGroupIds: string[]          // every matching group returned by resolveGroups(), for the explain-terms panel — not filtered to groups that contributed a non-null scope (customerGroupsService.ts:341)
+    sourceGroupIds: string[]          // every matching group returned by resolveGroups(), for the explain-terms panel — not filtered to groups that contributed a non-null scope (`resolveAssortmentScope` in `customerGroupsService.ts`)
     sourceCustomerOverrideId: string | null   // the customer's own §5.7 row, or null — the common case
   }>
 }
@@ -350,7 +350,7 @@ A storefront buyer is resolved as their person entity **and** their company enti
 - **Default group**: applied only when none of the ids has an effective membership, the same rule as shipped for one id.
 - **Terms** (§6.1) and **assortment** (§6.4) run over that ordered union without any other change. Scalar terms follow it per field; assortment unions every contributing group regardless of order.
 
-**`ResolvedTerms` above is the shipped shape (code = current behavior).** #6709 replaced the pre-implementation single `sourceGroupId` with a per-field `sources: Record<field, string | null>` map (`services/customerGroupsService.ts:25-43`), and `explain-terms` reads it per field.
+**`ResolvedTerms` above is the shipped shape (code = current behavior).** #6709 replaced the pre-implementation single `sourceGroupId` with a per-field `sources: Record<field, string | null>` map (`ResolvedTerms` in `services/customerGroupsService.ts`), and `explain-terms` reads it per field.
 
 ### 6.1 Terms inheritance
 
@@ -448,7 +448,7 @@ Adding the FK constraint is explicitly out of scope and requires its own spec on
 
 ## 9) API Contracts
 
-Every shipped route lives under `/api/customer_groups/customer-groups/`. The groups and memberships collections are `makeCrudRoute` instances that read the record id from the query string (`GET`, `DELETE`) or the body (`PUT`) — there is no `/:id` segment; the terms, reorder, reconcile, reconcile/adopt, explain-terms and price-kinds routes are hand-written. All routes export `openApi` and validate with Zod; the memberships and terms routes use optimistic locking via `updated_at`, per root `AGENTS.md`.
+Every shipped route lives under `/api/customer_groups/customer-groups/`. The groups and memberships collections are `makeCrudRoute` instances that read the record id from the query string (`GET`, `DELETE`) or the body (`PUT`) — there is no `/:id` segment; the terms, reorder, reconcile, reconcile/adopt, explain-terms and price-kinds routes are hand-written. All routes export `openApi` and validate with Zod; every writable resource uses optimistic locking via `updated_at`, per root `AGENTS.md`: groups and memberships through the `makeCrudRoute` factory (default on), terms through an explicit `enforceCommandOptimisticLock` call.
 
 | Status | Method | Path | Feature |
 |---|---|---|---|
