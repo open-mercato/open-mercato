@@ -1412,6 +1412,8 @@
   "sales.returns.quantityExceedsShipped": "Cannot return more than the shipped quantity. Ship the items before recording a return.",
   "sales.returns.reason": "Reason",
   "sales.returns.reason.placeholder": "Optional",
+  "sales.returns.restoreLineMissing": "This return cannot be restored: one of its order lines no longer exists.",
+  "sales.returns.restoreQuantityUnavailable": "This return cannot be restored: the order no longer has enough shipped quantity left to return.",
   "sales.returns.returnNumber": "Return",
   "sales.returns.returnedAt": "Returned at",
   "sales.returns.total": "Total",
