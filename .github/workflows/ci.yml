@@ -1127,6 +1127,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           pattern: integration-test-results-*
+          path: .ai/qa/test-results
           merge-multiple: true
 
       - name: Merge shard coverage reports

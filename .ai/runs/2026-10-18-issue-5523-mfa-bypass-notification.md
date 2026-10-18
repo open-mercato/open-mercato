@@ -65,3 +65,11 @@ The corrected condition uses `!cancelled()` and explicitly requires success from
 - [x] Verify and independently review the coverage job condition; publish it with this checkpoint. Independent review found no actionable issue.
 
 The new published-head CI result will be recorded on the PR. Previous-head passes do not substitute for that run. The PR stays ready, and human QA remains required.
+
+### Coverage artifact path correction
+
+Fresh CI at `4c8b5f9481` passed all 15 integration shards and scheduled the coverage job successfully. Its completed log nevertheless showed a no-files skip: the download step extracted reports into the workspace root, while the merge command reads `.ai/qa/test-results`. The correction explicitly downloads artifacts into the merge command's input directory.
+
+A regression creates 15 shard summaries under the configured download destination and invokes the actual merge command. It fails on the old path and passes with the correction, asserting all 15 summaries contribute to the result. Coverage/audit/cache focused tests pass (24/24). Independent review verified all 15 real CI archive members at `coverage-shard-N/code/coverage-summary.json` and replayed their reports at the corrected destination: the actual merge command exited successfully, merging all 15 summaries (461457/743829 lines, 62.04%). Source review found no actionable issue. The final published-head CI job must actually merge all 15 reports before approval.
+
+- [x] Verify the real CI artifact layout and merge, independently review, and publish the artifact path correction with this checkpoint.
