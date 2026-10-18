@@ -55,3 +55,13 @@ The user explicitly requested fixing the failed CI/CD check. Shard14 failed in `
 Fresh required CI results will be recorded in the PR review and CI-result comment after publication. The PR remains ready for review during validation; human QA and required checks continue to gate merge.
 
 Local verification for `1388633bca`: core typecheck passed; the native `TC-WF-006` passed on its first attempt (5.0s test, 2.3m Playwright run) against an isolated production app built from unchanged application source. The committed test matches the runtime test SHA256 `b1eae31c20681571d7bfaab6b57bbb745eff456fd7e6c71e39599ccc52c0b74f`. Independent review found no actionable issue. Pre-commit translation sync and template parity passed. A repeat native run and fresh published-head CI are reported on the PR; no pending check is recorded as passed here.
+
+### Coverage aggregation correction
+
+Fresh CI at `8be3d90766` passed all 15 integration shards, unit/typecheck, lint, build preparation, mutation tests, and Documents multi-instance. The final coverage job was skipped: its implicit `success()` condition propagated the intentionally skipped dependency audit through the successful test jobs. The executed merge-ref workflow was verified against the committed workflow; there is no intended fork exemption for coverage aggregation.
+
+The corrected condition uses `!cancelled()` and explicitly requires success from all four direct prerequisites while retaining the sharded-run condition. A regression reproduces the old audit-skip failure; focused coverage, audit, and workflow-cache tests now pass (23/23). Tests also deny coverage on failed, cancelled, or skipped direct prerequisites, workflow cancellation, and a non-sharded run. No production application source changes are needed.
+
+- [x] Verify and independently review the coverage job condition; publish it with this checkpoint. Independent review found no actionable issue.
+
+The new published-head CI result will be recorded on the PR. Previous-head passes do not substitute for that run. The PR stays ready, and human QA remains required.
