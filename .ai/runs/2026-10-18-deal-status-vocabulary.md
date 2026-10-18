@@ -22,6 +22,8 @@ Tenant/env/default vocabulary resolution, guarded settings API and editor, consi
 
 Legacy status exports and existing no-configuration results remain compatible. Scope-sensitive client and server caches must not retain prior config. Validation runner: local (no running compose app). The checkout contains unrelated user changes, excluded from all task commits.
 
+The full local gate is blocked by native Node/Jest worker SIGSEGV failures in unrelated search/UI tests, including retries in a clean checkout with supported Node 24 runtimes. Production app build, the first six ordered commands, all 341 affected customer suites (2373 tests), template parity and client boundaries passed. Current-head Linux CI still gates completion; do not mark step 2.2 complete from focused evidence alone.
+
 ## Progress
 
 PR: #7625
@@ -39,3 +41,5 @@ PR: #7625
 
 - [x] 2.1 Add integration coverage and operator documentation — c2001be897
 - [ ] 2.2 Run validation, independent review and UI verification
+
+Independent source review has no remaining confirmed findings. Browser state-matrix checks passed; evidence and manual QA instructions are attached to PR #7625. Resume at step 2.2 with `om-auto-continue-pr 7625` after resolving the full-gate runtime limitation or obtaining accepted complete CI evidence. Human QA remains required.
