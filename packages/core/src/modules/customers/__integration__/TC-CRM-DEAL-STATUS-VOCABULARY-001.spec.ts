@@ -15,6 +15,7 @@ import {
 import {
   createCompanyFixture,
   createDealFixture,
+  createPersonFixture,
   createPipelineFixture,
   createPipelineStageFixture,
   deleteEntityByBody,
@@ -245,6 +246,10 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
       await saveSettings(request, managerToken, DEFAULT_VOCABULARY)
       const companyId = await createCompanyFixture(request, managerToken, `Vocabulary ${randomUUID()}`)
       fixtures.push({ path: '/api/customers/companies', id: companyId })
+      const personId = await createPersonFixture(request, managerToken, {
+        firstName: 'Vocabulary', lastName: randomUUID(), displayName: `Vocabulary ${randomUUID()}`, companyEntityId: companyId,
+      })
+      fixtures.push({ path: '/api/customers/people', id: personId })
       const addressResponse = await apiRequest(request, 'POST', '/api/customers/addresses', {
         token: managerToken,
         data: { entityId: companyId, addressLine1: '1 Vocabulary Street', city: 'Warszawa', country: 'PL', latitude: 52.1875, longitude: 21, isPrimary: true },
@@ -254,8 +259,8 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
       const wonIds: string[] = []
       const closedIds: string[] = []
       let deliveredId = ''
-      for (const status of ['acquired', 'delivered', 'win', 'lost', 'finished', 'open']) {
-        const id = await createDealFixture(request, managerToken, { title: `Vocabulary ${status}`, companyIds: [companyId], status })
+      for (const status of ['acquired', 'delivered', 'win', 'lost', 'open', 'finished']) {
+        const id = await createDealFixture(request, managerToken, { title: `Vocabulary ${status}`, companyIds: [companyId], status, valueAmount: 100, valueCurrency: 'USD' })
         fixtures.push({ path: '/api/customers/deals', id })
         if (['acquired', 'delivered', 'win'].includes(status)) wonIds.push(id)
         if (status !== 'open') closedIds.push(id)
@@ -281,17 +286,35 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
         const body = await readJsonSafe<{ kpis: { activeDealsCount: number; completedDealsCount: number } }>(response)
         expect(body?.kpis).toMatchObject({ activeDealsCount, completedDealsCount })
       }
+      const expectSummaryMetrics = async (dealsClosed: number, winRate: number) => {
+        const response = await apiRequest(request, 'GET', '/api/customers/deals/summary', { token: managerToken })
+        expect(response.status()).toBe(200)
+        const body = await readJsonSafe<{ activeDeals: { value: number }; wonThisQuarter: { dealsClosed: number }; winRate: { value: number } }>(response)
+        expect(body).toMatchObject({ activeDeals: { value: 1 }, wonThisQuarter: { dealsClosed }, winRate: { value: winRate } })
+      }
+      const expectEnrichedCompanyMetrics = async (clvAmount: number, activeStatus: string) => {
+        const response = await apiRequest(request, 'GET', `/api/customers/people/${personId}/companies/enriched`, { token: managerToken })
+        expect(response.status()).toBe(200)
+        const body = await readJsonSafe<{ total: number; items: Array<{ companyId: string; activeDeal: { title: string } | null; clv: { amount: number; currency: string } | null }> }>(response)
+        expect(body?.total).toBe(1)
+        expect(body?.items).toHaveLength(1)
+        expect(body?.items[0]).toMatchObject({ companyId, activeDeal: { title: `Vocabulary ${activeStatus}` }, clv: { amount: clvAmount, currency: 'USD' } })
+      }
       const wonQuery = new URLSearchParams(baseQuery)
       wonQuery.set('status', 'delivered')
       await expectIds('/api/customers/deals', wonQuery, [deliveredId])
       await expectIds('/api/customers/deals/map', wonQuery, [deliveredId])
       await expectAggregateCount(1)
       await expectCompanyMetrics(4, 1)
+      await expectSummaryMetrics(1, 50)
+      await expectEnrichedCompanyMetrics(100, 'finished')
       await saveSettings(request, managerToken, VOCABULARY)
       await expectIds('/api/customers/deals', wonQuery, wonIds)
       await expectIds('/api/customers/deals/map', wonQuery, wonIds)
       await expectAggregateCount(wonIds.length)
       await expectCompanyMetrics(1, 3)
+      await expectSummaryMetrics(3, 75)
+      await expectEnrichedCompanyMetrics(300, 'open')
       const advancedQuery = new URLSearchParams(baseQuery)
       advancedQuery.set('filter[v]', '2')
       advancedQuery.set('filter[root][combinator]', 'and')
