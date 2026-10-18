@@ -21,7 +21,7 @@ export const integrationMeta = {
   dependsOnModules: ['security', 'notifications'],
 }
 
-const NOTIFICATION_TYPE = 'security.mfa.emergency_bypass_active'
+const NOTIFICATION_TYPE = 'security.mfa.emergency_bypass_detected'
 
 type Actor = {
   email: string

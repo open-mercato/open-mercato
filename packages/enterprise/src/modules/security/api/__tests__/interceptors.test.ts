@@ -148,7 +148,7 @@ describe('security auth/login api interceptor', () => {
 
     expect(result).toEqual({})
     expect(createChallenge).not.toHaveBeenCalled()
-    expect(mockEmitSecurityEvent).toHaveBeenCalledWith('security.mfa.emergency_bypass_active', expect.objectContaining({
+    expect(mockEmitSecurityEvent).toHaveBeenCalledWith('security.mfa.emergency_bypass_detected', expect.objectContaining({
       tenantId: 'tenant-1', organizationId: 'org-1',
     }), { persistent: true, tenantId: 'tenant-1', organizationId: 'org-1' })
     expect(mockLoggerWarn).toHaveBeenCalledWith(

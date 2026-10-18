@@ -191,7 +191,7 @@ export async function requestMfaEmergencyBypassNotification(scope: {
   if (!scope.tenantId || !scope.organizationId) return
   const { tenantId, organizationId } = scope
   try {
-    await emitSecurityEvent('security.mfa.emergency_bypass_active', {
+    await emitSecurityEvent('security.mfa.emergency_bypass_detected', {
       tenantId,
       organizationId,
       observedAt: new Date().toISOString(),

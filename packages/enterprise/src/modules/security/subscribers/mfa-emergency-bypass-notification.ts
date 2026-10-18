@@ -8,7 +8,7 @@ import { notificationTypes } from '../notifications'
 import { mfaEmergencyBypassEventSchema } from '../data/validators'
 
 export const metadata = {
-  event: 'security.mfa.emergency_bypass_active',
+  event: 'security.mfa.emergency_bypass_detected',
   persistent: true,
   id: 'security:mfa-emergency-bypass-notification',
 }

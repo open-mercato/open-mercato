@@ -216,7 +216,7 @@ describe('resolveMfaEnrollmentRedirect', () => {
     const redirect = await resolveMfaEnrollmentRedirect(buildArgs())
 
     expect(redirect).toBeNull()
-    expect(mockEmitSecurityEvent).toHaveBeenCalledWith('security.mfa.emergency_bypass_active', expect.objectContaining({
+    expect(mockEmitSecurityEvent).toHaveBeenCalledWith('security.mfa.emergency_bypass_detected', expect.objectContaining({
       tenantId: 'tenant-1', organizationId: 'org-1',
     }), { persistent: true, tenantId: 'tenant-1', organizationId: 'org-1' })
     expect(mockLoggerWarn).toHaveBeenCalledWith(

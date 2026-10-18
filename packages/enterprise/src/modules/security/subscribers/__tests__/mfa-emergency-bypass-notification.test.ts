@@ -27,7 +27,7 @@ const scope = {
   organizationId: '22222222-2222-4222-8222-222222222222',
 }
 const payload = { ...scope, observedAt: '2026-10-18T23:59:00.000Z' }
-const dailyGroupKey = 'security.mfa.emergency_bypass_active:2026-10-18'
+const dailyGroupKey = 'security.mfa.emergency_bypass_detected:2026-10-18'
 
 function createContext(scopeOverrides: ScopeOverrides = {}) {
   const database = { connection: Symbol('database connection') }
@@ -64,7 +64,7 @@ describe('MFA emergency bypass notification subscriber', () => {
     await emergencyBypassSubscriber(payload, ctx)
 
     expect(metadata).toEqual({
-      event: 'security.mfa.emergency_bypass_active',
+      event: 'security.mfa.emergency_bypass_detected',
       persistent: true,
       id: 'security:mfa-emergency-bypass-notification',
     })
@@ -146,7 +146,7 @@ describe('MFA emergency bypass notification subscriber', () => {
     expect(createBatchMock).toHaveBeenCalledTimes(2)
     expect(createBatchMock.mock.calls.map(([input]) => (input as CreateBatchNotificationInput).groupKey)).toEqual([
       dailyGroupKey,
-      'security.mfa.emergency_bypass_active:2026-10-19',
+      'security.mfa.emergency_bypass_detected:2026-10-19',
     ])
   })
 

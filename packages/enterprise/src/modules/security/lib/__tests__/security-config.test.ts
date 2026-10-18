@@ -194,7 +194,7 @@ describe('MFA bypass notification requests', () => {
 
   test('queues persistent notification with explicit trusted scope', async () => {
     await requestMfaEmergencyBypassNotification({ tenantId: 'tenant-1', organizationId: 'org-1' })
-    expect(mockEmitSecurityEvent).toHaveBeenCalledWith('security.mfa.emergency_bypass_active', {
+    expect(mockEmitSecurityEvent).toHaveBeenCalledWith('security.mfa.emergency_bypass_detected', {
       tenantId: 'tenant-1', organizationId: 'org-1', observedAt: expect.any(String),
     }, { persistent: true, tenantId: 'tenant-1', organizationId: 'org-1' })
   })
