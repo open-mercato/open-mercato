@@ -33,6 +33,7 @@ import {
   requireId,
   buildChanges,
 } from '@open-mercato/shared/lib/commands/helpers'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { toOptionalString } from '@open-mercato/shared/lib/string/coerce'
 import { slugify } from '@open-mercato/shared/lib/slugify'
@@ -303,7 +304,10 @@ async function assertReplayKeepsHierarchyAcyclic(
     tenant: tenantId,
     deletedAt: null,
   } as unknown as FilterQuery<Organization>
-  const organizations = await em.find(Organization, filter)
+  const organizations = await findWithDecryption(em, Organization, filter, undefined, {
+    tenantId,
+    organizationId: null,
+  })
   if (!findOrganizationParentCycle(organizations, organizationIds)) return
   const { translate } = await resolveTranslations()
   throw new CrudHttpError(409, {
