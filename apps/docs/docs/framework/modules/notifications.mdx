@@ -296,6 +296,14 @@ await notificationService.createBatch({
 })
 ```
 
+For idempotent server-side delivery, supply a nonblank `groupKey` and pass
+`{ skipExistingGroup: true }` as the third `createBatch` argument. The service
+locks each recipient's group inside the write transaction and skips existing
+notifications in every status, including dismissed notifications. Skipped rows
+are not changed or emitted again; the result contains only newly created rows.
+Existing calls without this option keep their refresh behavior. This option is
+available on the service API only.
+
 Or via API:
 
 ```typescript
@@ -700,12 +708,14 @@ When the user clicks "Approve" in the notification:
 ### NotificationService Interface
 
 ```typescript
+type CreateBatchNotificationOptions = { skipExistingGroup?: boolean }
+
 interface NotificationService {
   // Create single notification
   create(input: CreateNotificationInput, ctx: NotificationServiceContext): Promise<Notification>
 
   // Create notifications for multiple recipients
-  createBatch(input: CreateBatchNotificationInput, ctx: NotificationServiceContext): Promise<Notification[]>
+  createBatch(input: CreateBatchNotificationInput, ctx: NotificationServiceContext, options?: CreateBatchNotificationOptions): Promise<Notification[]>
 
   // Create notifications for all users in a role
   createForRole(input: CreateRoleNotificationInput, ctx: NotificationServiceContext): Promise<Notification[]>
