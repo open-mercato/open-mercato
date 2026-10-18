@@ -149,12 +149,14 @@ export class SearchService {
     }
 
     const strategyIds = options.strategies ?? this.defaultStrategies
-    const activeStrategies = await this.getAvailableStrategies(strategyIds)
+    const honorsFilter = (strategy: SearchStrategy) =>
+      !options.indexDocFilter || strategy.supportsIndexDocFilter === true
+    const activeStrategies = (await this.getAvailableStrategies(strategyIds)).filter(honorsFilter)
 
     if (activeStrategies.length === 0) {
       // Try fallback strategy if defined
       if (this.fallbackStrategy) {
-        const fallback = await this.getAvailableStrategies([this.fallbackStrategy])
+        const fallback = (await this.getAvailableStrategies([this.fallbackStrategy])).filter(honorsFilter)
         if (fallback.length > 0) {
           activeStrategies.push(...fallback)
         }
