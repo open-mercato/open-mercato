@@ -100,10 +100,18 @@ test.describe('TC-SEC-015: MFA emergency bypass notification', () => {
       await drainIntegrationQueue('events')
 
       await withCredentialIsolatedRequest(async (isolatedRequest) => {
+        let delivered: Awaited<ReturnType<typeof bypassNotifications>>[] = []
+        await expect.poll(async () => {
+          delivered = await Promise.all(actors.slice(0, 2).map((actor) =>
+            bypassNotifications(isolatedRequest, actor.token as string),
+          ))
+          return delivered.map((notifications) => notifications.total)
+        }, {
+          message: 'Both MFA managers should receive the asynchronously delivered bypass warning',
+        }).toEqual([1, 1])
         const originalIds = new Map<string, string>()
-        for (const actor of actors.slice(0, 2)) {
-          const notifications = await bypassNotifications(isolatedRequest, actor.token as string)
-          expect(notifications.total).toBe(1)
+        for (const [actorIndex, actor] of actors.slice(0, 2).entries()) {
+          const notifications = delivered[actorIndex]
           expect(notifications.items).toEqual([
             expect.objectContaining({
               id: expect.any(String),
