@@ -15,10 +15,10 @@ import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { listNotifications } from '@open-mercato/core/helpers/integration/notificationsFixtures'
 import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
-import { loginViaApi } from './helpers/securityFixtures'
+import { loginViaApi, setAuthCookie } from './helpers/securityFixtures'
 
 export const integrationMeta = {
-  dependsOnModules: ['security', 'notifications'],
+  dependsOnModules: ['security', 'notifications', 'dashboards'],
 }
 
 const NOTIFICATION_TYPE = 'security.mfa.emergency_bypass_detected'
@@ -44,7 +44,7 @@ async function bypassNotifications(request: APIRequestContext, token: string) {
 }
 
 test.describe('TC-SEC-015: MFA emergency bypass notification', () => {
-  test('warns MFA managers including wildcard grants, excludes ordinary users, and deduplicates repeated logins', async ({ request }) => {
+  test('warns MFA managers including wildcard grants, excludes ordinary users, and deduplicates repeated logins', async ({ request, page }, testInfo) => {
     test.skip(
       !parseBooleanWithDefault(process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS, false),
       'Requires an isolated app server and test runner both configured with OM_SECURITY_MFA_EMERGENCY_BYPASS=true.',
@@ -79,7 +79,7 @@ test.describe('TC-SEC-015: MFA emergency bypass notification', () => {
         roleIds.push(roleId)
         await setRoleAclFeatures(request, adminToken, {
           roleId,
-          features: ['notifications.view', ...(feature ? [feature] : [])],
+          features: ['notifications.view', 'dashboards.view', ...(feature ? [feature] : [])],
           organizations: label === 'other' ? [organizationId, otherOrganizationId] : [actorOrganizationId],
         })
         const email = `qa-sec-bypass-${label}-${stamp}@example.test`
@@ -139,6 +139,28 @@ test.describe('TC-SEC-015: MFA emergency bypass notification', () => {
         expect(await readOtherManagerNotifications()).toEqual([])
 
         const firstManager = actors[0]
+        await setAuthCookie(page, firstManager.token as string)
+        await page.setViewportSize({ width: 1440, height: 1000 })
+        await page.goto('/backend', { waitUntil: 'domcontentloaded' })
+        await page.getByRole('button', { name: /unread notifications/i }).click()
+        const panel = page.getByRole('dialog', { name: 'Notifications', exact: true })
+        const warningTitle = panel.getByText('MFA emergency bypass detected', { exact: true })
+        await expect(panel).toBeVisible()
+        await expect(warningTitle).toBeVisible()
+        await expect(panel.getByText(/OM_SECURITY_MFA_EMERGENCY_BYPASS/)).toBeVisible()
+        const desktopScreenshot = testInfo.outputPath('mfa-bypass-notification-desktop.png')
+        await page.screenshot({ path: desktopScreenshot, animations: 'disabled', fullPage: true })
+        await testInfo.attach('MFA bypass notification desktop', { path: desktopScreenshot, contentType: 'image/png' })
+
+        await page.setViewportSize({ width: 390, height: 844 })
+        await expect(warningTitle).toBeVisible()
+        await expect.poll(async () => (await panel.boundingBox())?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(390)
+        const mobileScreenshot = testInfo.outputPath('mfa-bypass-notification-mobile.png')
+        await page.screenshot({ path: mobileScreenshot, animations: 'disabled', fullPage: true })
+        await testInfo.attach('MFA bypass notification mobile', { path: mobileScreenshot, contentType: 'image/png' })
+        await panel.getByRole('button', { name: 'Close notifications', exact: true }).click()
+        await expect(panel).not.toBeVisible()
+
         const dismissedId = originalIds.get(firstManager.userId) as string
         const dismiss = await apiRequest(isolatedRequest, 'PUT', `/api/notifications/${encodeURIComponent(dismissedId)}/dismiss`, {
           token: firstManager.token as string,
