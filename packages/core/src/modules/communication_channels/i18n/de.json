@@ -27,6 +27,7 @@
   "communication_channels.errors.pollNowPushDriven": "Der Kanal ist Push-gesteuert — Abrufen ist nicht anwendbar. Eingehende Nachrichten kommen über die Push-Verbindung des Anbieters.",
   "communication_channels.errors.reactionFailed": "Reaktion fehlgeschlagen",
   "communication_channels.errors.undoBlockedPrimaryConflict": "Ein anderer Kanal ist jetzt für diesen Benutzer als primär festgelegt. Setze ihn auf nicht-primär, bevor du den getrennten Kanal wieder als primär festlegst.",
+  "communication_channels.errors.undoRestoreDuplicate": "Dieser Kanal wurde nach dem Löschen erneut verbunden. Lösche die neuere Verbindung, bevor du dieses Löschen rückgängig machst.",
   "communication_channels.infoPanel.aria": "Kanalinfo",
   "communication_channels.infoPanel.assignedTo": "Zugewiesen an",
   "communication_channels.infoPanel.contactPerson": "CRM-Kontakt",

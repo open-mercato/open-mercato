@@ -7,6 +7,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CommunicationChannel } from '../data/entities'
 import { channelOrgScopeWhere } from '../lib/access-control'
+import { assertChannelRestorable } from '../lib/channel-restore'
 import { pushUnregister } from './push-unregister'
 import { emitCommunicationChannelsEvent } from '../events'
 
@@ -55,7 +56,9 @@ export const COMMUNICATION_CHANNELS_ADMIN_DELETE_CHANNEL_COMMAND_ID =
  * credentials resolve where they were written (see push-register.ts /
  * connect-credential-channel.ts). Mirrors `delete-channel`'s teardown.
  *
- * Undoable: undo clears `deleted_at` to restore the row. Parity with
+ * Undoable: undo clears `deleted_at` to restore the row, and refuses with a 409
+ * when a live channel has taken the same connection since the delete (see
+ * `lib/channel-restore.ts`). Parity with
  * `delete-channel` — same event, payload, buildLog, and undo shape.
  */
 const adminDeleteChannelCommand: CommandHandler<
@@ -171,6 +174,7 @@ const adminDeleteChannelCommand: CommandHandler<
       { tenantId: snapshot.tenantId, organizationId: null },
     )
     if (!channel) return
+    await assertChannelRestorable(em, channel)
     channel.deletedAt = null
     await em.flush()
   },

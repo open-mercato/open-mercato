@@ -5,6 +5,7 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { extractUndoPayload as extractSharedUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CommunicationChannel } from '../data/entities'
+import { assertChannelRestorable } from '../lib/channel-restore'
 import { pushUnregister } from './push-unregister'
 import { emitCommunicationChannelsEvent } from '../events'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -51,7 +52,9 @@ export const COMMUNICATION_CHANNELS_DELETE_CHANNEL_COMMAND_ID =
  * Provider-side push delivery is torn down best-effort BEFORE the soft-delete,
  * while `credentialsRef` is still present — mirrors `disconnect-channel`.
  *
- * Undoable: undo clears `deleted_at` to restore the row. It intentionally does
+ * Undoable: undo clears `deleted_at` to restore the row, and refuses with a 409
+ * when a live channel has taken the same connection since the delete (see
+ * `lib/channel-restore.ts`). It intentionally does
  * NOT re-claim primary status (would risk the one-primary-per-user constraint);
  * the owner re-selects a primary after a restore.
  */
@@ -160,6 +163,7 @@ const deleteChannelCommand: CommandHandler<DeleteChannelInput, DeleteChannelResu
       { tenantId: snapshot.tenantId, organizationId: null },
     )
     if (!channel) return
+    await assertChannelRestorable(em, channel)
     channel.deletedAt = null
     await em.flush()
   },
