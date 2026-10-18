@@ -1,3 +1,6 @@
+const mockEmitSecurityEvent = jest.fn().mockResolvedValue(undefined)
+jest.mock('../../events', () => ({ emitSecurityEvent: mockEmitSecurityEvent }))
+
 const mockLoggerWarn = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/logger', () => ({
@@ -20,6 +23,7 @@ import {
   emitMfaEmergencyBypassActiveWarning,
   emitMfaEmergencyBypassStartupWarningIfNeeded,
   readSecurityModuleConfig,
+  requestMfaEmergencyBypassNotification,
   readSecuritySetupTokenSecret,
   resetMfaEmergencyBypassStartupWarningForTests,
   resolveSecurityModuleConfigForRequest,
@@ -177,5 +181,27 @@ describe('security-config', () => {
       emitMfaEmergencyBypassStartupWarningIfNeeded({ OM_SECURITY_MFA_EMERGENCY_BYPASS: 'true' })
       expect(mockLoggerWarn).toHaveBeenCalledTimes(1)
     })
+  })
+})
+
+
+describe('MFA bypass notification requests', () => {
+  beforeEach(() => { mockEmitSecurityEvent.mockClear() })
+
+  test('queues persistent notification with explicit trusted scope', async () => {
+    await requestMfaEmergencyBypassNotification({ tenantId: 'tenant-1', organizationId: 'org-1' })
+    expect(mockEmitSecurityEvent).toHaveBeenCalledWith('security.mfa.emergency_bypass_active', {
+      tenantId: 'tenant-1', organizationId: 'org-1', observedAt: expect.any(String),
+    }, { persistent: true, tenantId: 'tenant-1', organizationId: 'org-1' })
+  })
+
+  test.each([{}, { tenantId: 'tenant-1' }, { organizationId: 'org-1' }])('does not broadcast without concrete scope: %p', async (scope) => {
+    await requestMfaEmergencyBypassNotification(scope)
+    expect(mockEmitSecurityEvent).not.toHaveBeenCalled()
+  })
+
+  test('keeps emergency access available if enqueueing fails', async () => {
+    mockEmitSecurityEvent.mockRejectedValueOnce(new Error('queue unavailable'))
+    await expect(requestMfaEmergencyBypassNotification({ tenantId: 'tenant-1', organizationId: 'org-1' })).resolves.toBeUndefined()
   })
 })

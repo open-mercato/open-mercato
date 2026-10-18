@@ -1,3 +1,6 @@
+const mockEmitSecurityEvent = jest.fn().mockResolvedValue(undefined)
+jest.mock('../../events', () => ({ emitSecurityEvent: mockEmitSecurityEvent }))
+
 const mockLoggerError = jest.fn()
 const mockLoggerWarn = jest.fn()
 
@@ -44,6 +47,7 @@ function buildArgs(overrides?: Partial<ResolveArgs>): ResolveArgs {
 describe('resolveMfaEnrollmentRedirect', () => {
   beforeEach(() => {
     delete process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS
+    mockEmitSecurityEvent.mockClear()
     mockLoggerError.mockClear()
     mockLoggerWarn.mockClear()
   })
@@ -212,6 +216,9 @@ describe('resolveMfaEnrollmentRedirect', () => {
     const redirect = await resolveMfaEnrollmentRedirect(buildArgs())
 
     expect(redirect).toBeNull()
+    expect(mockEmitSecurityEvent).toHaveBeenCalledWith('security.mfa.emergency_bypass_active', expect.objectContaining({
+      tenantId: 'tenant-1', organizationId: 'org-1',
+    }), { persistent: true, tenantId: 'tenant-1', organizationId: 'org-1' })
     expect(mockLoggerWarn).toHaveBeenCalledWith(
       'MFA emergency bypass is active',
       expect.objectContaining({
@@ -240,6 +247,7 @@ describe('resolveMfaEnrollmentRedirect', () => {
     )
 
     expect(redirect).toBeNull()
+    expect(mockEmitSecurityEvent).not.toHaveBeenCalled()
     expect(mockLoggerWarn).not.toHaveBeenCalled()
   })
 
@@ -260,6 +268,7 @@ describe('resolveMfaEnrollmentRedirect', () => {
     )
 
     expect(redirect).toBeNull()
+    expect(mockEmitSecurityEvent).not.toHaveBeenCalled()
     expect(mockLoggerWarn).not.toHaveBeenCalled()
   })
 
@@ -281,6 +290,7 @@ describe('resolveMfaEnrollmentRedirect', () => {
     )
 
     expect(redirect).toBeNull()
+    expect(mockEmitSecurityEvent).not.toHaveBeenCalled()
     expect(mockLoggerWarn).not.toHaveBeenCalled()
   })
 
@@ -336,6 +346,7 @@ describe('resolveMfaEnrollmentRedirect', () => {
     const redirect = await resolveMfaEnrollmentRedirect(buildArgs())
 
     expect(redirect).toContain('reason=mfa_enrollment_required')
+    expect(mockEmitSecurityEvent).not.toHaveBeenCalled()
     expect(mockLoggerWarn).not.toHaveBeenCalled()
   })
 
@@ -347,6 +358,7 @@ describe('resolveMfaEnrollmentRedirect', () => {
     )
 
     expect(redirect).toBeNull()
+    expect(mockEmitSecurityEvent).not.toHaveBeenCalled()
     expect(mockLoggerWarn).not.toHaveBeenCalled()
   })
 })
