@@ -23,6 +23,7 @@ async function rowMenuItems(page: Page, displayName: string): Promise<string[]> 
   await expect(actionsButton).toBeEnabled({ timeout: 10_000 })
   const disconnectItem = page.getByRole('menuitem', { name: 'Disconnect' })
   for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (await disconnectItem.isVisible().catch(() => false)) break
     await actionsButton.click({ timeout: 5_000 }).catch(async () => {
       await actionsButton.focus()
       await actionsButton.press('Enter')
@@ -57,8 +58,14 @@ test.describe('TC-CHANNEL-EMAIL-HUB-007: set-primary row action follows channel 
         'OM_ENABLE_TEST_CHANNEL_SEEDING is not enabled in this environment; cannot seed channels.',
       )
 
-      liveChannel = await seedConnectedChannel(request, adminToken, { displayName: liveName })
-      disconnectedChannel = await seedConnectedChannel(request, adminToken, { displayName: disconnectedName })
+      liveChannel = await seedConnectedChannel(request, adminToken, {
+        displayName: liveName,
+        externalIdentifier: `hub-007-live-${stamp}@test-seed.local`,
+      })
+      disconnectedChannel = await seedConnectedChannel(request, adminToken, {
+        displayName: disconnectedName,
+        externalIdentifier: `hub-007-gone-${stamp}@test-seed.local`,
+      })
       await disconnectSeededChannel(request, adminToken, disconnectedChannel)
 
       await login(page, 'admin')

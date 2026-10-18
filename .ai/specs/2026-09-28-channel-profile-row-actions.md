@@ -77,7 +77,7 @@ is worse than a short menu.
 
 | Action | Included when | Notes |
 |---|---|---|
-| `set-primary` | `!isPrimary` | |
+| `set-primary` | `!isPrimary && status !== 'disconnected'` | The set-primary route refuses a disconnected channel with 409 `channel_disconnected` |
 | `share-with-team` / `make-private` | `channelType === 'email'` | Label flips on `visibility` |
 | `register-push` | `supportsPushRegistration && pushStatus !== 'active'` | Re-registering a healthy subscription is a no-op |
 | `import-history` | `isActive && status === 'connected' && channelType === 'email'` | Same rule the `History` column enforced |
@@ -138,7 +138,8 @@ Push · Last synced`, followed by DataTable's own right-aligned actions cell.
 | Push-driven channel | `poll-now` omitted; reason on the `Push-driven` tag's `title` |
 | Push already active | `register-push` omitted |
 | Channel in `error` | `poll-now` present, labelled `Retry` |
-| Channel in `requires_reauth` / `disconnected` | Only `set-primary`, share and `disconnect`; the `Status` column explains why |
+| Channel in `requires_reauth` | Only `set-primary`, share and `disconnect`; the `Status` column explains why |
+| Channel `disconnected` | Only share and `disconnect`; the `Status` column explains why |
 | Every optional action ineligible | `disconnect` still present, so the menu is never empty |
 
 ## 📝 Risks & Impact Review
@@ -248,3 +249,4 @@ backend table that uses it, not just this page. Both are strict improvements
 |---|---|
 | 2026-09-28 | Initial spec and implementation: per-row actions consolidated into a `RowActions` column. |
 | 2026-09-30 | QA follow-ups: pinned the actions cell (#6717); added arrow-key/Home/End navigation and a Tab trap to `RowActions` (#6718); made the panel size to its content and its items wrap (#6719). |
+| 2026-10-18 | `set-primary` omitted on a `disconnected` row, matching the route's new 409 refusal (#ISSUE). |
