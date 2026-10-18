@@ -24,7 +24,7 @@ import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { documentUpdateSchema } from '../../commands/documents'
 import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
-import { parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
+import { isUuidListParam, parseIdsParam, splitIdListParam } from '@open-mercato/shared/lib/crud/ids'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 
@@ -119,7 +119,10 @@ const listSchema = z
       .string()
       .optional()
       .describe('Orders only, ignored on quotes: matches orders whose due date (due_at) is on or before this bound. A date-only value (YYYY-MM-DD) includes the whole UTC day; a timestamp is used as given. Orders without a due date never match.'),
-    tagIds: z.string().optional(),
+    tagIds: z
+      .string()
+      .optional()
+      .refine(isUuidListParam, { message: 'tagIds must be a comma-separated list of UUIDs' }),
     tagIdsEmpty: z.string().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
@@ -212,11 +215,7 @@ function buildFilters(query: ListQuery, numberColumn: string, kind: DocumentKind
       filters.due_at = dueRange
     }
   }
-  const tagIdsRaw = typeof query.tagIds === 'string' ? query.tagIds : ''
-  const tagIds = tagIdsRaw
-    .split(',')
-    .map((value) => value.trim())
-    .filter((value) => value.length > 0)
+  const tagIds = splitIdListParam(query.tagIds)
   if (parseBooleanToken(query.tagIdsEmpty) === true) {
     filters.id = { $eq: '00000000-0000-0000-0000-000000000000' }
   } else if (tagIds.length) {
