@@ -225,8 +225,12 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
     })
     expect(denied.status()).toBe(403)
     const foreignTenantId = getTokenContext(otherTenantToken).tenantId
-    expect((await readSettings(request, managerToken, `?tenantId=${foreignTenantId}`)).vocabulary).toEqual(VOCABULARY)
-    expect(await readSettings(request, otherTenantToken, `?tenantId=${tenantId}`)).toEqual(otherBefore)
+    for (const [token, targetTenantId] of [[managerToken, foreignTenantId], [otherTenantToken, tenantId]]) {
+      const response = await apiRequest(request, 'GET', `${SETTINGS_PATH}?tenantId=${targetTenantId}`, { token: token! })
+      expect(response.status()).toBe(403)
+    }
+    expect((await readSettings(request, managerToken)).vocabulary).toEqual(VOCABULARY)
+    expect(await readSettings(request, otherTenantToken)).toEqual(otherBefore)
     try {
       await setViewerFeatures(request, ['customers.people.view'])
       expect((await apiRequest(request, 'GET', SETTINGS_PATH, { token: viewerToken })).status()).toBe(403)
