@@ -36,6 +36,7 @@ jest.mock('@open-mercato/shared/lib/crud/mutation-guard-store', () => ({ getAllM
 jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({ getTelemetryRuntime: () => ({ reportError: reportErrorMock }) }))
 jest.mock('@open-mercato/shared/lib/logger', () => ({ createLogger: () => ({ child: () => ({ error: jest.fn() }) }) }))
 jest.mock('../../../../lib/dealStatusVocabulary', () => ({
+  DEAL_STATUS_VOCABULARY_RESOURCE_KIND: 'customers.deal_status_vocabulary',
   resolveDealStatusVocabulary: (...args: unknown[]) => resolveVocabularyMock(...args),
 }))
 

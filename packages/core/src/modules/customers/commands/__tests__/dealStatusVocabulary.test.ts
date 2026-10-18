@@ -138,8 +138,7 @@ function seed(value: unknown, selectedTenantId = tenantId): void {
   })
 }
 
-async function executeWithSnapshots(ctx: CommandRuntimeContext) {
-  const input = { vocabulary: nextVocabulary }
+async function executeWithSnapshots(ctx: CommandRuntimeContext, input: Parameters<typeof command.execute>[0] = { vocabulary: nextVocabulary }) {
   let before: unknown
   ctx.beforeTransactionalWrite = async (em) => {
     before = (await command.prepare!(input, { ...ctx, transactionalEm: em }))?.before
@@ -153,6 +152,7 @@ async function executeWithSnapshots(ctx: CommandRuntimeContext) {
 describe('tenant deal status vocabulary command', () => {
   const previousEnvironment = process.env.OM_CUSTOMERS_DEAL_STATUS_VOCABULARY
   const previousLockEnvironment = process.env.OM_OPTIMISTIC_LOCK
+  const previousCrudCacheEnvironment = process.env.ENABLE_CRUD_API_CACHE
 
   beforeEach(() => {
     records.clear()
@@ -164,6 +164,7 @@ describe('tenant deal status vocabulary command', () => {
     hasFeature.mockResolvedValue(true)
     delete process.env.OM_CUSTOMERS_DEAL_STATUS_VOCABULARY
     delete process.env.OM_OPTIMISTIC_LOCK
+    process.env.ENABLE_CRUD_API_CACHE = 'true'
   })
 
   afterAll(() => {
@@ -171,6 +172,8 @@ describe('tenant deal status vocabulary command', () => {
     else process.env.OM_CUSTOMERS_DEAL_STATUS_VOCABULARY = previousEnvironment
     if (previousLockEnvironment === undefined) delete process.env.OM_OPTIMISTIC_LOCK
     else process.env.OM_OPTIMISTIC_LOCK = previousLockEnvironment
+    if (previousCrudCacheEnvironment === undefined) delete process.env.ENABLE_CRUD_API_CACHE
+    else process.env.ENABLE_CRUD_API_CACHE = previousCrudCacheEnvironment
   })
 
   it('writes only the authenticated tenant and invalidates after commit', async () => {
@@ -271,7 +274,7 @@ describe('tenant deal status vocabulary command', () => {
     expect(records.get(tenantId)?.valueJson).toBeNull()
   })
 
-  it('invalidates all organization deal lists only within the current tenant on save and undo', async () => {
+  it('invalidates deal lists and company metrics across tenant organizations on save, reset, and undo', async () => {
     const state = fixture()
     const fill = async () => {
       for (const selectedTenantId of [tenantId, otherTenantId]) {
@@ -279,6 +282,9 @@ describe('tenant deal status vocabulary command', () => {
           await state.cache.set('deals:org-a', { items: ['a'] }, { tags: ['crud:segment:deals', `org:${selectedTenantId}:a`] })
           await state.cache.set('deals:org-b', { items: ['b'] }, { tags: ['crud:segment:deals', `org:${selectedTenantId}:b`] })
           await state.cache.set('people:org-a', { items: ['person'] }, { tags: ['crud:segment:people'] })
+          const vocabularyTag = `crud:customers.deal.status.vocabulary:tenant:${selectedTenantId}:org:null:collection`
+          await state.cache.set('company-detail:org-a', { kpis: { wonDeals: 1 } }, { tags: [vocabularyTag, `crud:customers.company:tenant:${selectedTenantId}:org:org-a:collection`] })
+          await state.cache.set('company-detail:org-b', { kpis: { wonDeals: 2 } }, { tags: [vocabularyTag, `crud:customers.company:tenant:${selectedTenantId}:org:org-b:collection`] })
         })
       }
     }
@@ -287,10 +293,14 @@ describe('tenant deal status vocabulary command', () => {
         expect(await state.cache.get('deals:org-a')).toBeNull()
         expect(await state.cache.get('deals:org-b')).toBeNull()
         expect(await state.cache.get('people:org-a')).toEqual({ items: ['person'] })
+        expect(await state.cache.get('company-detail:org-a')).toBeNull()
+        expect(await state.cache.get('company-detail:org-b')).toBeNull()
       })
       await runWithCacheTenant(otherTenantId, async () => {
         expect(await state.cache.get('deals:org-a')).toEqual({ items: ['a'] })
         expect(await state.cache.get('deals:org-b')).toEqual({ items: ['b'] })
+        expect(await state.cache.get('company-detail:org-a')).toEqual({ kpis: { wonDeals: 1 } })
+        expect(await state.cache.get('company-detail:org-b')).toEqual({ kpis: { wonDeals: 2 } })
       })
     }
     await fill()
@@ -298,7 +308,10 @@ describe('tenant deal status vocabulary command', () => {
     const execution = await executeWithSnapshots(ctx)
     await assertIsolation()
     await fill()
-    await command.undo!({ input: execution.input, ctx, logEntry: execution.logEntry })
+    const reset = await executeWithSnapshots(context(state, execution.result.updatedAt ?? undefined), { vocabulary: null })
+    await assertIsolation()
+    await fill()
+    await command.undo!({ input: reset.input, ctx, logEntry: reset.logEntry })
     await assertIsolation()
   })
 

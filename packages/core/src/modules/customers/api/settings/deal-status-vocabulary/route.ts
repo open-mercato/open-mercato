@@ -57,8 +57,6 @@ function reportRouteError(error: unknown, code: string): void {
 
 async function handleError(error: unknown, operation: 'load' | 'save') {
   if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
-  const rejection = getCommandInterceptorHttpRejection(error)
-  if (rejection) return NextResponse.json(rejection.body, { status: rejection.status })
   const { translate } = await resolveTranslations()
   if (error instanceof z.ZodError) {
     return NextResponse.json({
@@ -125,6 +123,8 @@ export async function PUT(req: Request) {
     }
     return NextResponse.json(result)
   } catch (error) {
+    const rejection = getCommandInterceptorHttpRejection(error)
+    if (rejection) return NextResponse.json(rejection.body, { status: rejection.status })
     return handleError(error, 'save')
   }
 }

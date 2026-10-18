@@ -3,6 +3,7 @@ import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib
 import { DEFAULT_DEAL_STATUS_VOCABULARY, dealStatusVocabularySchema, type DealStatusVocabulary } from '../data/dealStatusVocabulary'
 
 export const DEAL_STATUS_VOCABULARY_CONFIG_KEY = 'dealStatusVocabulary'
+export const DEAL_STATUS_VOCABULARY_RESOURCE_KIND = 'customers.deal_status_vocabulary'
 
 export type ResolvedDealStatusVocabulary = {
   vocabulary: DealStatusVocabulary

@@ -6,7 +6,7 @@ import { registerCommand, type CommandHandler, type CommandRuntimeContext } from
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { enforceCommandOptimisticLockWithGuards, enforceRecordGoneIsConflict } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
-import { resolveCrudCache } from '@open-mercato/shared/lib/crud/cache'
+import { invalidateCrudCache, resolveCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { deriveCrudSegmentTag } from '@open-mercato/shared/lib/crud/cache-stats'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -14,9 +14,8 @@ import { createModuleConfigService, type ModuleConfigService } from '@open-merca
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { saveDealStatusVocabularySchema } from '../data/dealStatusVocabulary'
 export { saveDealStatusVocabularySchema } from '../data/dealStatusVocabulary'
-import { DEAL_STATUS_VOCABULARY_CONFIG_KEY, resolveDealStatusVocabulary } from '../lib/dealStatusVocabulary'
-
-export const DEAL_STATUS_VOCABULARY_RESOURCE_KIND = 'customers.deal_status_vocabulary'
+import { DEAL_STATUS_VOCABULARY_CONFIG_KEY, DEAL_STATUS_VOCABULARY_RESOURCE_KIND, resolveDealStatusVocabulary } from '../lib/dealStatusVocabulary'
+export { DEAL_STATUS_VOCABULARY_RESOURCE_KIND } from '../lib/dealStatusVocabulary'
 
 type SaveDealStatusVocabularyInput = z.infer<typeof saveDealStatusVocabularySchema>
 type VocabularySnapshot = { tenantId: string; value: unknown; updatedAt: string | null }
@@ -51,6 +50,7 @@ async function withVocabularyWrite<TResult>(
   if (cache) {
     const segment = deriveCrudSegmentTag('customers.deal', new Request('http://localhost/api/customers/deals'))
     await runWithCacheTenant(tenantId, () => cache.deleteByTags([`crud:segment:${segment}`]))
+    await invalidateCrudCache(ctx.container, DEAL_STATUS_VOCABULARY_RESOURCE_KIND, { tenantId }, tenantId, 'deal-status-vocabulary.changed')
   }
   return result
 }

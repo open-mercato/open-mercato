@@ -29,7 +29,7 @@ import {
 } from '../../../lib/customFieldRouting'
 import { isOpenInteractionStatus, TERMINAL_INTERACTION_STATUS_LIST } from '../../../lib/interactionStatus'
 import { isOpenDealStatus, isWonDealStatus } from '../../../lib/dealStatus'
-import { resolveDealStatusVocabulary } from '../../../lib/dealStatusVocabulary'
+import { DEAL_STATUS_VOCABULARY_RESOURCE_KIND, resolveDealStatusVocabulary } from '../../../lib/dealStatusVocabulary'
 import {
   CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
   EXAMPLE_TODO_SOURCE,
@@ -91,7 +91,8 @@ const COMPANY_DETAIL_CACHE_RESOURCE_KINDS = [
 ] as const
 
 function buildCompanyDetailCacheTags(tenantId: string | null, organizationId: string | null): string[] {
-  const tags = new Set<string>()
+  const vocabularyResource = canonicalizeResourceTag(DEAL_STATUS_VOCABULARY_RESOURCE_KIND) ?? DEAL_STATUS_VOCABULARY_RESOURCE_KIND
+  const tags = new Set<string>(buildCollectionTags(vocabularyResource, tenantId, [null]))
   for (const resourceKind of COMPANY_DETAIL_CACHE_RESOURCE_KINDS) {
     const resource = canonicalizeResourceTag(resourceKind) ?? resourceKind
     for (const tag of buildCollectionTags(resource, tenantId, [organizationId])) {

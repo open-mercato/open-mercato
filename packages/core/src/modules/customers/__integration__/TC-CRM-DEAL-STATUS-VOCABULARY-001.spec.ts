@@ -261,15 +261,23 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
         const body = await readJsonSafe<{ perStage: Array<{ count: number }> }>(response)
         expect(body?.perStage.reduce((total, stage) => total + stage.count, 0)).toBe(expected)
       }
+      const expectCompanyMetrics = async (activeDealsCount: number, completedDealsCount: number) => {
+        const response = await apiRequest(request, 'GET', `/api/customers/companies/${companyId}`, { token: managerToken })
+        expect(response.status()).toBe(200)
+        const body = await readJsonSafe<{ kpis: { activeDealsCount: number; completedDealsCount: number } }>(response)
+        expect(body?.kpis).toMatchObject({ activeDealsCount, completedDealsCount })
+      }
       const wonQuery = new URLSearchParams(baseQuery)
       wonQuery.set('status', 'delivered')
       await expectIds('/api/customers/deals', wonQuery, [deliveredId])
       await expectIds('/api/customers/deals/map', wonQuery, [deliveredId])
       await expectAggregateCount(1)
+      await expectCompanyMetrics(4, 1)
       await saveSettings(request, managerToken, VOCABULARY)
       await expectIds('/api/customers/deals', wonQuery, wonIds)
       await expectIds('/api/customers/deals/map', wonQuery, wonIds)
       await expectAggregateCount(wonIds.length)
+      await expectCompanyMetrics(1, 3)
       const advancedQuery = new URLSearchParams(baseQuery)
       advancedQuery.set('filter[v]', '2')
       advancedQuery.set('filter[root][combinator]', 'and')
