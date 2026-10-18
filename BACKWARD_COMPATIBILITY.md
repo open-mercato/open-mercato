@@ -576,3 +576,19 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 ## Discord AI Proposals (2026-10-13)
 
 [Waiver](UPGRADE_NOTES.md#discord-proposals)
+
+## Tenant Deal Status Vocabulary (2026-10-18)
+
+Spec: [Tenant Deal Status Vocabulary](.ai/specs/2026-10-18-deal-status-vocabulary.md), [design PR #7624](https://github.com/open-mercato/open-mercato/pull/7624).
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Deal status helper signatures | Optional resolved vocabulary argument; omitted arguments retain shipped behavior | ✓ Additive |
+| `DEAL_STATUS_*` and won/lost/closed list exports | Existing names, shapes and values remain default-only snapshots | ✓ Preserved |
+| Settings API | New GET/PUT `/api/customers/settings/deal-status-vocabulary`, guarded by existing deal view/manage features; tenant scope comes from authentication | ✓ Additive |
+| Configuration | New tenant `customers/dealStatusVocabulary` key and server-side `OM_CUSTOMERS_DEAL_STATUS_VOCABULARY` JSON default; instance rows ignored | ✓ Additive |
+| New deal status writes | Prefer each configured group's first value; defaults remain `win`, `lost`, `closed`, including normalization of new AI `won` writes to `win` | ⚠️ Canonical write behavior; existing persisted statuses remain unchanged |
+| Persisted status reads | Historical `win`/`won`, `lost`/`loose`, and `closed` retain their outcomes under overrides; unknown values remain active | ✓ Compatible |
+| Database schema, existing route URLs, event IDs, ACL features, DI keys, CLI commands | No changes | ✓ Preserved |
+
+**Migration path:** no database migration or data rewrite. Keep custom historical aliases in the configured vocabulary. Third-party tenant-aware readers should resolve the request's vocabulary and pass it to the shared helpers; consumers of exported constants or default helper calls keep the shipped semantics. See [UPGRADE_NOTES.md](UPGRADE_NOTES.md#tenant-configurable-deal-status-vocabulary-5546).

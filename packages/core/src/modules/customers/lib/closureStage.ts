@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerPipelineStage } from '../data/entities'
+import { DEFAULT_DEAL_STATUS_VOCABULARY, getDealStatusAliases, canonicalDealStatus, isWonDealStatus, isLostDealStatus, type DealStatusVocabulary } from './dealStatus'
 
 export type DealClosureOutcome = 'won' | 'lost'
 
@@ -24,10 +25,13 @@ export const TERMINAL_PIPELINE_STAGE_LABELS: Record<DealClosureOutcome, Readonly
  * outcome. Case-insensitive because callers such as the AI tool pass free-form model
  * text through, while every persisted status is lower-case.
  */
-export function dealClosureOutcomeFromStatus(status: string | null | undefined): DealClosureOutcome | null {
-  const normalized = typeof status === 'string' ? status.trim().toLowerCase() : status
-  if (normalized === 'win' || normalized === 'won') return 'won'
-  if (normalized === 'loose' || normalized === 'lost') return 'lost'
+export function dealClosureOutcomeFromStatus(
+  status: string | null | undefined,
+  vocabulary: DealStatusVocabulary = DEFAULT_DEAL_STATUS_VOCABULARY,
+): DealClosureOutcome | null {
+  const canonical = typeof status === 'string' ? canonicalDealStatus(status.trim(), vocabulary) : status
+  if (isWonDealStatus(canonical, vocabulary)) return 'won'
+  if (isLostDealStatus(canonical, vocabulary)) return 'lost'
   return null
 }
 
@@ -35,7 +39,7 @@ export function normalizePipelineStageLabel(value: string): string {
   return value
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim()
 }
 
@@ -50,6 +54,7 @@ export async function loadClosurePipelineStageSnapshot(
     closureOutcome: DealClosureOutcome
     tenantId: string
     organizationId: string
+    vocabulary?: DealStatusVocabulary
   },
 ): Promise<PipelineStageSnapshot | null> {
   if (!input.pipelineId) return null
@@ -65,7 +70,10 @@ export async function loadClosurePipelineStageSnapshot(
     { orderBy: { order: 'ASC' } },
     { tenantId: input.tenantId, organizationId: input.organizationId },
   )
-  const aliases = TERMINAL_PIPELINE_STAGE_LABELS[input.closureOutcome]
+  const aliases = new Set([
+    ...TERMINAL_PIPELINE_STAGE_LABELS[input.closureOutcome],
+    ...getDealStatusAliases(input.vocabulary)[input.closureOutcome].map(normalizePipelineStageLabel).filter(Boolean),
+  ])
   const stage = stages.find((candidate) => aliases.has(normalizePipelineStageLabel(candidate.label)))
   if (!stage) return null
   return {

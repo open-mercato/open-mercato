@@ -25,6 +25,7 @@ import { consumeAdvancedFilterState, mergeAdvancedFilterTree } from '@open-merca
 import type { FilterGroup, FilterRule } from '@open-mercato/shared/lib/query/advanced-filter-tree'
 import { fetchStuckDealIds } from '../../lib/stuckDeals'
 import { expandDealStatusAliases } from '../../lib/dealStatus'
+import { resolveDealStatusVocabulary } from '../../lib/dealStatusVocabulary'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -259,6 +260,7 @@ function normalizeUuidList(values: Array<unknown>): string[] {
 }
 
 export async function buildDealListFilters(query: DealListQuery, ctx?: import('@open-mercato/shared/lib/crud/factory').CrudCtx) {
+  const { vocabulary } = await resolveDealStatusVocabulary(ctx?.container, ctx?.organizationScope?.tenantId ?? ctx?.auth?.tenantId)
   const advancedFilterTree = consumeAdvancedFilterState(query)
   if (advancedFilterTree) {
     // Expand status aliases in the advanced-filter tree so List (tree path) and
@@ -274,7 +276,7 @@ export async function buildDealListFilters(query: DealListQuery, ctx?: import('@
             ? [node.value]
             : []
         if (rawValues.length === 0) return
-        const expanded = expandDealStatusAliases(rawValues)
+        const expanded = expandDealStatusAliases(rawValues, vocabulary)
         if (listOperators.has(node.operator)) {
           node.value = expanded
         } else if (expanded.length === 1) {
@@ -349,7 +351,7 @@ export async function buildDealListFilters(query: DealListQuery, ctx?: import('@
   }
 
   const rawStatusList = query.status ? normalizeStringList(query.status) : []
-  const statusList = expandDealStatusAliases(rawStatusList)
+  const statusList = expandDealStatusAliases(rawStatusList, vocabulary)
   if (statusList.length > 0) {
     filters.status = statusList.length === 1 ? { $eq: statusList[0] } : { $in: statusList }
   }

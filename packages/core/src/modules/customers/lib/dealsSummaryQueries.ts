@@ -1,6 +1,7 @@
 import type { EntityManager as CoreEntityManager } from '@mikro-orm/core'
 import type { EntityManager as PgEntityManager } from '@mikro-orm/postgresql'
 import { fetchStuckDealIds } from './stuckDeals'
+import { getDealStatusAliases, type DealStatusVocabulary } from './dealStatus'
 
 type DateWindow = {
   start: Date
@@ -53,11 +54,29 @@ export type DealsSummaryQueryInput = {
   currentQuarter: DateWindow
   previousQuarter: DateWindow
   seriesStart: Date
+  vocabulary?: DealStatusVocabulary
 }
 
 type SqlPredicate = {
   clause: string
   values: string[]
+}
+
+function buildOutcomeDealPredicate(outcome: 'won' | 'lost', vocabulary?: DealStatusVocabulary): SqlPredicate {
+  if (!vocabulary) {
+    return {
+      clause: outcome === 'won'
+        ? "status = 'win' OR closure_outcome = 'won'"
+        : "status IN ('lost', 'loose') OR closure_outcome = 'lost'",
+      values: [],
+    }
+  }
+  const aliases = Array.from(new Set(getDealStatusAliases(vocabulary)[outcome].map((alias) => alias.toLowerCase())))
+  const placeholders = aliases.map(() => '?').join(',')
+  return {
+    clause: `LOWER(TRIM(status)) IN (${placeholders}) OR closure_outcome = '${outcome}'`,
+    values: aliases,
+  }
 }
 
 export function buildOpenDealPredicate(statuses: readonly string[]): SqlPredicate {
@@ -82,6 +101,8 @@ export async function loadDealsSummaryQueryRows(input: DealsSummaryQueryInput): 
   const scopeWhere = `tenant_id = ? AND organization_id IN (${organizationPlaceholders}) AND deleted_at IS NULL`
   const scopeValues: Array<string | number | null> = [input.tenantId, ...input.organizationIds]
   const openDealsPredicate = buildOpenDealPredicate(['open', 'in_progress'])
+  const wonDealsPredicate = buildOutcomeDealPredicate('won', input.vocabulary)
+  const lostDealsPredicate = buildOutcomeDealPredicate('lost', input.vocabulary)
 
   const openRows = await connection.execute<OpenPipelineRow[]>(
     `SELECT
@@ -128,7 +149,7 @@ export async function loadDealsSummaryQueryRows(input: DealsSummaryQueryInput): 
         COALESCE(SUM(value_amount) FILTER (WHERE updated_at >= ? AND updated_at < ?), 0) AS previous_total,
         COUNT(*) FILTER (WHERE updated_at >= ? AND updated_at < ?) AS previous_count
       FROM customer_deals
-      WHERE ${scopeWhere} AND (status = 'win' OR closure_outcome = 'won')
+      WHERE ${scopeWhere} AND (${wonDealsPredicate.clause})
       GROUP BY UPPER(COALESCE(value_currency, ''))`,
     [
       input.currentQuarter.start.toISOString(),
@@ -140,24 +161,29 @@ export async function loadDealsSummaryQueryRows(input: DealsSummaryQueryInput): 
       input.previousQuarter.start.toISOString(),
       input.previousQuarter.end.toISOString(),
       ...scopeValues,
+      ...wonDealsPredicate.values,
     ],
   )
 
   const winLossRows = await connection.execute<WinLossRow[]>(
     `SELECT
-        COUNT(*) FILTER (WHERE (status = 'win' OR closure_outcome = 'won') AND updated_at >= ? AND updated_at < ?) AS current_won,
-        COUNT(*) FILTER (WHERE (status IN ('lost', 'loose') OR closure_outcome = 'lost') AND updated_at >= ? AND updated_at < ?) AS current_lost,
-        COUNT(*) FILTER (WHERE (status = 'win' OR closure_outcome = 'won') AND updated_at >= ? AND updated_at < ?) AS previous_won,
-        COUNT(*) FILTER (WHERE (status IN ('lost', 'loose') OR closure_outcome = 'lost') AND updated_at >= ? AND updated_at < ?) AS previous_lost
+        COUNT(*) FILTER (WHERE (${wonDealsPredicate.clause}) AND updated_at >= ? AND updated_at < ?) AS current_won,
+        COUNT(*) FILTER (WHERE (${lostDealsPredicate.clause}) AND updated_at >= ? AND updated_at < ?) AS current_lost,
+        COUNT(*) FILTER (WHERE (${wonDealsPredicate.clause}) AND updated_at >= ? AND updated_at < ?) AS previous_won,
+        COUNT(*) FILTER (WHERE (${lostDealsPredicate.clause}) AND updated_at >= ? AND updated_at < ?) AS previous_lost
       FROM customer_deals
       WHERE ${scopeWhere}`,
     [
+      ...wonDealsPredicate.values,
       input.currentQuarter.start.toISOString(),
       input.currentQuarter.end.toISOString(),
+      ...lostDealsPredicate.values,
       input.currentQuarter.start.toISOString(),
       input.currentQuarter.end.toISOString(),
+      ...wonDealsPredicate.values,
       input.previousQuarter.start.toISOString(),
       input.previousQuarter.end.toISOString(),
+      ...lostDealsPredicate.values,
       input.previousQuarter.start.toISOString(),
       input.previousQuarter.end.toISOString(),
       ...scopeValues,
@@ -167,12 +193,12 @@ export async function loadDealsSummaryQueryRows(input: DealsSummaryQueryInput): 
   const seriesRows = await connection.execute<WinRateMonthRow[]>(
     `SELECT
         to_char(date_trunc('month', updated_at AT TIME ZONE 'UTC'), 'YYYY-MM') AS period,
-        COUNT(*) FILTER (WHERE status = 'win' OR closure_outcome = 'won') AS won,
-        COUNT(*) FILTER (WHERE status IN ('lost', 'loose') OR closure_outcome = 'lost') AS lost
+        COUNT(*) FILTER (WHERE ${wonDealsPredicate.clause}) AS won,
+        COUNT(*) FILTER (WHERE ${lostDealsPredicate.clause}) AS lost
       FROM customer_deals
       WHERE ${scopeWhere} AND updated_at >= ?
       GROUP BY 1`,
-    [...scopeValues, input.seriesStart.toISOString()],
+    [...wonDealsPredicate.values, ...lostDealsPredicate.values, ...scopeValues, input.seriesStart.toISOString()],
   )
 
   const overdueDealsPredicate = buildOpenDealPredicate(['open'])

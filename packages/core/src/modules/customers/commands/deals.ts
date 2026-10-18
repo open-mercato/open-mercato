@@ -53,7 +53,8 @@ import {
   type DealClosureOutcome,
   type PipelineStageSnapshot,
 } from '../lib/closureStage'
-import { canonicalDealStatus, isClosedDealStatus } from '../lib/dealStatus'
+import { canonicalDealStatus, isClosedDealStatus, type DealStatusVocabulary } from '../lib/dealStatus'
+import { resolveDealStatusVocabulary } from '../lib/dealStatusVocabulary'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -120,14 +121,14 @@ async function loadPipelineStageSnapshot(
   }
 }
 
-function resolveRequestedClosureOutcome(input: DealUpdateInput): DealClosureOutcome | null {
+function resolveRequestedClosureOutcome(input: DealUpdateInput, vocabulary: DealStatusVocabulary): DealClosureOutcome | null {
   if (input.closureOutcome === 'won' || input.closureOutcome === 'lost') {
     return input.closureOutcome
   }
   // `win` / `lost` are what the UI closure flows persist; `won` / `lost` are the
   // spellings the AI stage tool persists (`loose` before 0.7.1). Both must derive the same
   // closure outcome so every closed deal lands in the pipeline's terminal stage (#5107).
-  return dealClosureOutcomeFromStatus(input.status)
+  return dealClosureOutcomeFromStatus(input.status, vocabulary)
 }
 
 async function resolvePipelineStageValue(
@@ -546,6 +547,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
     const { parsed, custom } = parseWithCustomFields(dealCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
+    const { vocabulary } = await resolveDealStatusVocabulary(ctx.container, parsed.tenantId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const normalizedTransitionAuthorUserId = normalizeAuthorUserId(null, ctx.auth)
@@ -581,7 +583,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
           tenantId: parsed.tenantId,
           title: parsed.title,
           description: parsed.description ?? null,
-          status: parsed.status ?? 'open',
+          status: canonicalDealStatus(parsed.status ?? 'open', vocabulary),
           pipelineStage: resolvedPipelineStageLabel,
           pipelineId: pipelineAssignment.pipelineId,
           pipelineStageId: pipelineAssignment.pipelineStageId,
@@ -761,6 +763,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
 
+    const { vocabulary } = await resolveDealStatusVocabulary(ctx.container, record.tenantId)
     const previousStatus = record.status
     const previousPipelineStageId = record.pipelineStageId ?? null
     const normalizedTransitionAuthorUserId = normalizeAuthorUserId(null, ctx.auth)
@@ -794,7 +797,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
       }),
       phases: [
         async () => {
-          requestedClosureOutcome = resolveRequestedClosureOutcome(parsed)
+          requestedClosureOutcome = resolveRequestedClosureOutcome(parsed, vocabulary)
           const requestedPipelineId =
             parsed.pipelineId !== undefined ? parsed.pipelineId ?? null : record.pipelineId ?? null
           const closureStageSnapshot =
@@ -802,6 +805,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
               ? await loadClosurePipelineStageSnapshot(em, {
                 pipelineId: requestedPipelineId,
                 closureOutcome: requestedClosureOutcome,
+                vocabulary,
                 tenantId: record.tenantId,
                 organizationId: record.organizationId,
               })
@@ -843,7 +847,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
         () => {
           if (parsed.title !== undefined) record.title = parsed.title
           if (parsed.description !== undefined) record.description = parsed.description ?? null
-          if (parsed.status !== undefined) record.status = parsed.status ?? record.status
+          if (parsed.status !== undefined) record.status = canonicalDealStatus(parsed.status ?? record.status, vocabulary)
           if (parsed.pipelineStage !== undefined) record.pipelineStage = parsed.pipelineStage ?? null
           if (parsed.pipelineId !== undefined || (pipelineStageAssignmentChanged && nextStageSnapshot)) {
             record.pipelineId = nextPipelineAssignment.pipelineId
@@ -877,7 +881,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
             // Canonicalize first: `dealClosureOutcomeFromStatus` above already matches
             // case-insensitively, so matching `closed` exactly would let `Closed` through
             // this guard and null the operator's loss notes.
-            !isClosedDealStatus(canonicalDealStatus(parsed.status)) &&
+            !isClosedDealStatus(canonicalDealStatus(parsed.status, vocabulary), vocabulary) &&
             record.closureOutcome !== null
           ) {
             record.closureOutcome = null
@@ -928,7 +932,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     // null-scoped event before trigger matching.
     const newStatus = record.status
     // `loose` stays mapped here for deals written before the 0.7.1 rename.
-    const normalizedStatus = newStatus === 'win' ? 'won' : newStatus === 'loose' ? 'lost' : newStatus
+    const normalizedStatus = dealClosureOutcomeFromStatus(newStatus, vocabulary)
     if (previousStatus !== newStatus && (normalizedStatus === 'won' || normalizedStatus === 'lost')) {
       const closureEvent = normalizedStatus === 'won' ? 'customers.deal.won' : 'customers.deal.lost'
       try {

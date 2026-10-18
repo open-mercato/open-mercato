@@ -25,6 +25,12 @@ jest.mock('../../../../../../components/detail/hooks/useCustomerDictionary', () 
   useCustomerDictionary: (...args: unknown[]) => mockUseCustomerDictionary(...args),
 }))
 
+const mockVocabulary = { won: ['win', 'won'], lost: ['lost', 'loose'], closed: ['closed'] }
+const mockUseDealStatusVocabulary = jest.fn(() => ({ vocabulary: mockVocabulary, isLoading: false, isError: false }))
+jest.mock('../../../../../../components/hooks/useDealStatusVocabulary', () => ({
+  useDealStatusVocabulary: () => mockUseDealStatusVocabulary(),
+}))
+
 import { StatusFilterPopover } from '../StatusFilterPopover'
 
 function setDictionaryEntries(entries: Array<{ value: string; label: string; color: string | null }>) {
@@ -39,6 +45,7 @@ describe('StatusFilterPopover', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockTranslateWithFallback.mockImplementation((_: unknown, __: string, fallback: string) => fallback)
+    mockUseDealStatusVocabulary.mockReturnValue({ vocabulary: mockVocabulary, isLoading: false, isError: false })
     setDictionaryEntries([])
   })
 
@@ -180,4 +187,43 @@ describe('StatusFilterPopover', () => {
     expect((chip.textContent?.match(/Win/g) ?? []).length).toBe(1)
     expect(chip.textContent).not.toContain(', ')
   })
+
+  it('canonicalizes configured aliases and historical selections to the preferred tenant spelling', async () => {
+    mockUseDealStatusVocabulary.mockReturnValue({
+      vocabulary: { won: ['contract_signed', 'accepted'], lost: ['declined'], closed: ['archived'] },
+      isLoading: false,
+      isError: false,
+    })
+    setDictionaryEntries([
+      { value: 'contract_signed', label: 'Signed contract', color: null },
+      { value: 'accepted', label: 'Accepted', color: null },
+      { value: 'won', label: 'Won', color: null },
+    ])
+    const onApply = jest.fn()
+    render(<StatusFilterPopover values={['won', 'accepted']} onApply={onApply} />)
+    fireEvent.click(screen.getByRole('button', { name: /Status/ }))
+
+    expect(await screen.findByRole('button', { name: 'Signed contract' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.queryByRole('button', { name: 'Accepted' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
+    expect(onApply).toHaveBeenCalledWith(['contract_signed'])
+  })
+
+  it.each(['loading', 'failed'])('blocks mouse and keyboard apply while vocabulary is %s', (state) => {
+    mockUseDealStatusVocabulary.mockReturnValue({
+      vocabulary: mockVocabulary,
+      isLoading: state === 'loading',
+      isError: state === 'failed',
+    })
+    const onApply = jest.fn()
+    render(<StatusFilterPopover values={['won']} onApply={onApply} />)
+    fireEvent.click(screen.getByRole('button', { name: /Status/ }))
+    const applyButton = screen.getByRole('button', { name: /Apply/ })
+
+    expect(applyButton).toBeDisabled()
+    fireEvent.click(applyButton)
+    fireEvent.keyDown(applyButton, { key: 'Enter', ctrlKey: true })
+    expect(onApply).not.toHaveBeenCalled()
+  })
+
 })

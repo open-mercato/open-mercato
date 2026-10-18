@@ -378,7 +378,7 @@ describe('customers.deals.update stage transitions', () => {
         ctx,
       )
 
-      expect(existingDeal.status).toBe(status)
+      expect(existingDeal.status).toBe(status === 'won' ? 'win' : status === 'loose' ? 'lost' : status)
       expect(existingDeal.closureOutcome).toBe(closureOutcome)
       expect(existingDeal.pipelineStageId).toBe(terminalStageId)
       expect(existingDeal.pipelineStage).toBe(terminalStageLabel)
@@ -505,7 +505,7 @@ describe('customers.deals.update stage transitions', () => {
         ctx,
       )
 
-      expect(existingDeal.status).toBe(status)
+      expect(existingDeal.status).toBe(status === 'won' ? 'win' : status === 'loose' ? 'lost' : status)
       expect(existingDeal.closureOutcome).toBe(closureOutcome)
       expect(existingDeal.pipelineStageId).toBe(terminalStageId)
       expect(existingDeal.pipelineStage).toBe(terminalStageLabel)
@@ -743,7 +743,7 @@ describe('customers.deals.update stage transitions', () => {
         ctx,
       )
 
-      expect(existingDeal.status).toBe(statusSpelling)
+      expect(existingDeal.status).toBe('closed')
       expect(existingDeal.closureOutcome).toBe('lost')
       expect(existingDeal.lossReasonId).toBe('550e8400-e29b-41d4-a716-446655440021')
       expect(existingDeal.lossNotes).toBe('Pricing objection')

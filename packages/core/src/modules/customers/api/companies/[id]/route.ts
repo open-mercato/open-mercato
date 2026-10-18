@@ -29,6 +29,7 @@ import {
 } from '../../../lib/customFieldRouting'
 import { isOpenInteractionStatus, TERMINAL_INTERACTION_STATUS_LIST } from '../../../lib/interactionStatus'
 import { isOpenDealStatus, isWonDealStatus } from '../../../lib/dealStatus'
+import { resolveDealStatusVocabulary } from '../../../lib/dealStatusVocabulary'
 import {
   CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
   EXAMPLE_TODO_SOURCE,
@@ -947,8 +948,9 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       .map((value) => (value instanceof Date ? value.toISOString() : typeof value === 'string' ? value : ''))
       .filter((value) => value.length > 0),
   )
-  const activeDeals = dealLinksForMetrics.filter((deal) => isOpenDealStatus(deal.status))
-  const wonDeals = dealLinksForMetrics.filter((deal) => isWonDealStatus(deal.status))
+  const { vocabulary } = await resolveDealStatusVocabulary(container, company.tenantId)
+  const activeDeals = dealLinksForMetrics.filter((deal) => isOpenDealStatus(deal.status, vocabulary))
+  const wonDeals = dealLinksForMetrics.filter((deal) => isWonDealStatus(deal.status, vocabulary))
   const activeDealsValue = activeDeals.reduce((sum, deal) => sum + (parseDealAmount(deal.valueAmount) ?? 0), 0)
   const ltvValue = wonDeals.length
     ? wonDeals.reduce((sum, deal) => sum + (parseDealAmount(deal.valueAmount) ?? 0), 0)

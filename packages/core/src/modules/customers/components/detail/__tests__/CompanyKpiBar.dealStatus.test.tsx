@@ -6,6 +6,15 @@ import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWith
 import { CompanyKpiBar } from '../CompanyKpiBar'
 import type { CompanyOverview, DealSummary } from '../../formConfig'
 
+const mockVocabulary = { won: ['win', 'won'], lost: ['lost', 'loose'], closed: ['closed'] }
+const mockUseDealStatusVocabulary = jest.fn(() => ({
+  vocabulary: mockVocabulary, isLoading: false, isError: false,
+}))
+jest.mock('../../hooks/useDealStatusVocabulary', () => ({
+  useDealStatusVocabulary: () => mockUseDealStatusVocabulary(),
+}))
+
+
 // Regression for issue #4667: a deal closed through useDealClosure persists
 // `status: 'win'`, but this bar tested for `won` / `lost` / `closed`. Every closed deal
 // therefore stayed in ACTIVE DEALS and the LTV fallback read 0 for a tenant that closes
@@ -93,6 +102,9 @@ function renderBar(deals: DealSummary[], locale = EN) {
 }
 
 describe('CompanyKpiBar — deal status vocabulary (#4667)', () => {
+  beforeEach(() => {
+    mockUseDealStatusVocabulary.mockReturnValue({ vocabulary: mockVocabulary, isLoading: false, isError: false })
+  })
   it('keeps a win deal out of the active total and counts it as won', () => {
     renderBar([CLOSED_WON_DEAL, OPEN_DEAL])
 
@@ -129,4 +141,21 @@ describe('CompanyKpiBar — deal status vocabulary (#4667)', () => {
     expect(within(tile(ACTIVE_DEALS)).getByText(/^1000\s+zł$/)).toBeInTheDocument()
     expect(within(tile(LTV)).getByText(/^4000\s+zł$/)).toBeInTheDocument()
   })
+
+  it('uses configured outcomes for active totals and lifetime value', () => {
+    mockUseDealStatusVocabulary.mockReturnValue({
+      vocabulary: { won: ['contract_signed'], lost: ['declined'], closed: ['archived'] },
+      isLoading: false,
+      isError: false,
+    })
+    renderBar([
+      { ...CLOSED_WON_DEAL, status: 'contract_signed' },
+      { ...CLOSED_LOST_DEAL, status: 'declined' },
+      OPEN_DEAL,
+    ])
+
+    expect(within(tile(ACTIVE_DEALS)).getByText('PLN 1,000')).toBeInTheDocument()
+    expect(within(tile(LTV)).getByText('PLN 4,000')).toBeInTheDocument()
+  })
+
 })

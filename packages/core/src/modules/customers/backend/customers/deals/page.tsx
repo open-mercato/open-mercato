@@ -30,6 +30,8 @@ import { Tag } from '@open-mercato/ui/primitives/tag'
 import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
 import { Briefcase, AlertTriangle, X } from 'lucide-react'
 import { isLostDealStatus, isWonDealStatus } from '../../../lib/dealStatus'
+import { useDealStatusVocabulary } from '../../../components/hooks/useDealStatusVocabulary'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail/ErrorMessage'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
 import {
@@ -218,6 +220,7 @@ export default function CustomersDealsPage() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const scopeVersion = useOrganizationScopeVersion()
+  const { vocabulary: dealStatusVocabulary, isLoading: vocabularyLoading, isError: vocabularyError } = useDealStatusVocabulary()
   const queryClient = useQueryClient()
 
   const [rows, setRows] = React.useState<DealRow[]>([])
@@ -976,11 +979,11 @@ export default function CustomersDealsPage() {
             subtitle = (
               <span className="text-xs text-status-error-text">{t('customers.deals.list.close.overdue')}</span>
             )
-          } else if (isWonDealStatus(row.original.status)) {
+          } else if (!vocabularyLoading && !vocabularyError && isWonDealStatus(row.original.status, dealStatusVocabulary)) {
             subtitle = (
               <span className="text-xs text-muted-foreground">{t('customers.deals.list.close.won')}</span>
             )
-          } else if (isLostDealStatus(row.original.status)) {
+          } else if (!vocabularyLoading && !vocabularyError && isLostDealStatus(row.original.status, dealStatusVocabulary)) {
             subtitle = (
               <span className="text-xs text-muted-foreground">{t('customers.deals.list.close.lost')}</span>
             )
@@ -1111,7 +1114,7 @@ export default function CustomersDealsPage() {
       },
       ...customColumns,
     ]
-  }, [customFieldDefs, dictionaryMaps, dictionaryOptions, isDealOverdue, loadOwnerFilterOptions, locale, ownerNames, pipelineNames, resolvedOwnerFilterOptions, t])
+  }, [customFieldDefs, dealStatusVocabulary, dictionaryMaps, dictionaryOptions, isDealOverdue, loadOwnerFilterOptions, locale, ownerNames, pipelineNames, resolvedOwnerFilterOptions, t, vocabularyError, vocabularyLoading])
 
   const { advancedFilterFields } = useAutoDiscoveredFields({ columns, customFieldDefs })
 
@@ -1185,6 +1188,9 @@ export default function CustomersDealsPage() {
     <Page>
       <PageBody>
         <DealsViewTabsRow active="list" className="mb-4" />
+        {vocabularyError ? (
+          <ErrorMessage label={t('customers.settings.dealStatusVocabulary.errorLoad', 'Failed to load deal status vocabulary.')} />
+        ) : null}
         <DealsKpiStrip
           ownerNames={ownerNames}
           stageDictionary={dictionaryMaps['pipeline-stages'] ?? {}}

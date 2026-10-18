@@ -11,24 +11,25 @@ import {
   writeVersionedIdSet,
   clearVersionedPreference,
 } from '@open-mercato/shared/lib/browser/versionedPreference'
-import { isOpenDealStatus, isWonDealStatus } from '../../lib/dealStatus'
+import { isOpenDealStatus, isWonDealStatus, type DealStatusVocabulary } from '../../lib/dealStatus'
+import { useDealStatusVocabulary } from '../hooks/useDealStatusVocabulary'
 import type { CompanyOverview, DealSummary, InteractionSummary } from '../formConfig'
 import { formatCurrency } from './utils'
 
 const STORAGE_KEY = 'om:company-detail-kpi-hidden'
 const STORAGE_VERSION = 1
 
-function sumActiveDeals(deals: DealSummary[]): number {
+function sumActiveDeals(deals: DealSummary[], vocabulary: DealStatusVocabulary): number {
   return deals
-    .filter((d) => isOpenDealStatus(d.status))
+    .filter((d) => isOpenDealStatus(d.status, vocabulary))
     .reduce((sum, d) => {
       const amount = typeof d.valueAmount === 'number' ? d.valueAmount : parseFloat(String(d.valueAmount ?? '0'))
       return sum + (Number.isFinite(amount) ? amount : 0)
     }, 0)
 }
 
-function getActiveDeals(deals: DealSummary[]): DealSummary[] {
-  return deals.filter((d) => isOpenDealStatus(d.status))
+function getActiveDeals(deals: DealSummary[], vocabulary: DealStatusVocabulary): DealSummary[] {
+  return deals.filter((d) => isOpenDealStatus(d.status, vocabulary))
 }
 
 function computeActivityTrend(interactions: InteractionSummary[]): KpiTrend | undefined {
@@ -51,8 +52,8 @@ function computeActivityTrend(interactions: InteractionSummary[]): KpiTrend | un
   return { value: Math.abs(pct), direction: pct > 0 ? 'up' : 'down' }
 }
 
-function computeDealTrend(deals: DealSummary[]): KpiTrend | undefined {
-  const active = deals.filter((d) => isOpenDealStatus(d.status))
+function computeDealTrend(deals: DealSummary[], vocabulary: DealStatusVocabulary): KpiTrend | undefined {
+  const active = deals.filter((d) => isOpenDealStatus(d.status, vocabulary))
   if (active.length === 0) return undefined
   const now = Date.now()
   const monthMs = 30 * 86_400_000
@@ -68,28 +69,29 @@ type CompanyKpiBarProps = {
 export function CompanyKpiBar({ data }: CompanyKpiBarProps) {
   const t = useT()
   const locale = useLocale()
+  const { vocabulary, isLoading: vocabularyLoading, isError: vocabularyError } = useDealStatusVocabulary()
 
-  const activeDeals = React.useMemo(() => getActiveDeals(data.deals), [data.deals])
+  const activeDeals = React.useMemo(() => getActiveDeals(data.deals, vocabulary), [data.deals, vocabulary])
   const activeDealsValue = React.useMemo(
-    () => data.kpis?.activeDealsValue ?? sumActiveDeals(data.deals),
-    [data.deals, data.kpis?.activeDealsValue],
+    () => data.kpis?.activeDealsValue ?? sumActiveDeals(data.deals, vocabulary),
+    [data.deals, data.kpis?.activeDealsValue, vocabulary],
   )
   const dealCurrency = data.kpis?.dealCurrency ?? activeDeals[0]?.valueCurrency ?? data.deals[0]?.valueCurrency ?? 'PLN'
   const activityTrend = React.useMemo(
     () => data.kpis?.activityTrend ?? computeActivityTrend(data.interactions),
     [data.interactions, data.kpis?.activityTrend],
   )
-  const dealTrend = React.useMemo(() => computeDealTrend(data.deals), [data.deals])
+  const dealTrend = React.useMemo(() => computeDealTrend(data.deals, vocabulary), [data.deals, vocabulary])
 
   const ltvValue = React.useMemo(() => {
     if (data.kpis?.ltvValue !== undefined) return data.kpis.ltvValue
-    const wonDeals = data.deals.filter((d) => isWonDealStatus(d.status))
+    const wonDeals = data.deals.filter((d) => isWonDealStatus(d.status, vocabulary))
     if (wonDeals.length === 0) return null
     return wonDeals.reduce((sum, d) => {
       const amt = typeof d.valueAmount === 'number' ? d.valueAmount : parseFloat(String(d.valueAmount ?? '0'))
       return sum + (Number.isFinite(amt) ? amt : 0)
     }, 0)
-  }, [data.deals, data.kpis?.ltvValue])
+  }, [data.deals, data.kpis?.ltvValue, vocabulary])
 
   const clientTenureYears = React.useMemo(() => {
     if (data.kpis?.clientTenureYears !== undefined) return data.kpis.clientTenureYears
@@ -155,11 +157,11 @@ export function CompanyKpiBar({ data }: CompanyKpiBarProps) {
           ? `< 1 ${t('customers.companies.dashboard.kpi.year', 'year')}`
           : `${v} ${v === 1 ? t('customers.companies.dashboard.kpi.year', 'year') : t('customers.companies.dashboard.kpi.years', 'years')}`
         : undefined,
-      comparisonLabel: clientTenureYears !== null
-        ? `${data.kpis?.completedDealsCount ?? data.deals.filter((d) => isWonDealStatus(d.status)).length} ${t('customers.companies.dashboard.kpi.completedDeals', 'completed deals')}`
+      comparisonLabel: vocabularyLoading || vocabularyError ? undefined : clientTenureYears !== null
+        ? `${data.kpis?.completedDealsCount ?? data.deals.filter((d) => isWonDealStatus(d.status, vocabulary)).length} ${t('customers.companies.dashboard.kpi.completedDeals', 'completed deals')}`
         : t('customers.companies.dashboard.kpi.noInteractions', 'No interactions yet'),
     },
-  ], [t, locale, activeDealsValue, dealTrend, dealCurrency, activeDeals.length, activityTrend, ltvValue, clientTenureYears, data.deals, data.interactions.length, data.kpis])
+  ], [t, locale, activeDealsValue, dealTrend, dealCurrency, activeDeals.length, activityTrend, ltvValue, clientTenureYears, data.deals, data.interactions.length, data.kpis, vocabulary, vocabularyError, vocabularyLoading])
 
   const visibleTiles = kpiTiles.filter((tile) => !hiddenTiles.has(tile.id))
 
@@ -174,6 +176,10 @@ export function CompanyKpiBar({ data }: CompanyKpiBarProps) {
               trend={tile.trend}
               formatValue={tile.formatValue}
               comparisonLabel={tile.comparisonLabel}
+              loading={(tile.id === 'activeDeals' || tile.id === 'ltv') && vocabularyLoading}
+              error={(tile.id === 'activeDeals' || tile.id === 'ltv') && vocabularyError
+                ? t('customers.settings.dealStatusVocabulary.errorLoad', 'Failed to load deal status vocabulary.')
+                : null}
             />
             <IconButton
               type="button"

@@ -13,7 +13,9 @@ import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { mapDictionaryColorToTone } from '@open-mercato/shared/lib/query/advanced-filter'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail/ErrorMessage'
 import { useCustomerDictionary } from '../../../../../components/detail/hooks/useCustomerDictionary'
+import { useDealStatusVocabulary } from '../../../../../components/hooks/useDealStatusVocabulary'
 import { canonicalDealStatus } from '../../../../../lib/dealStatus'
 import { toneToDotClass } from './toneClasses'
 import { ChipButton } from './ChipButton'
@@ -26,8 +28,8 @@ import { FilterPopoverShell } from './FilterPopoverShell'
  * carries five values (`open`, `closed`, `win`, `lost`, `in_progress`) plus any
  * tenant-custom entries. We render every dictionary entry de-duplicated by canonical
  * spelling so the kanban Status pill stays aligned with the list page's advanced filter
- * (which also uses the dictionary). A hard-coded fallback keeps the popover usable while
- * the dictionary is loading or when a tenant has no entries.
+ * (which also uses the dictionary). A fallback keeps the popover usable when a tenant has
+ * no dictionary entries; resolved vocabulary loading blocks selection.
  *
  * `won` / `loose` are accepted as aliases for `win` / `lost` at the API layer (see
  * `lib/dealStatus.ts:expandDealStatusAliases`, shared by the deals list route and the
@@ -84,14 +86,16 @@ type StatusFilterPopoverProps = {
 export function StatusFilterPopover({ values, onApply }: StatusFilterPopoverProps): React.ReactElement {
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
+  const { vocabulary, isLoading: vocabularyLoading, isError: vocabularyError } = useDealStatusVocabulary()
+  const selectionDisabled = vocabularyLoading || vocabularyError
   const { data: dictionaryData, isLoading: dictionaryLoading } = useCustomerDictionary(
     'deal-statuses',
     scopeVersion,
   )
   const [open, setOpen] = React.useState(false)
   const normalizedValues = React.useMemo(
-    () => Array.from(new Set(values.map(canonicalDealStatus))),
-    [values],
+    () => Array.from(new Set(values.map((value) => canonicalDealStatus(value, vocabulary)))),
+    [values, vocabulary],
   )
   const [draft, setDraft] = React.useState<string[]>(normalizedValues)
 
@@ -104,7 +108,7 @@ export function StatusFilterPopover({ values, onApply }: StatusFilterPopoverProp
     if (entries && entries.length > 0) {
       const byCanonical = new Map<string, { value: string; label: string; dotClass: string }>()
       for (const entry of entries) {
-        const canonical = canonicalDealStatus(entry.value)
+        const canonical = canonicalDealStatus(entry.value, vocabulary)
         if (byCanonical.has(canonical)) continue
         const tone = mapDictionaryColorToTone(entry.color ?? null)
         byCanonical.set(canonical, {
@@ -121,11 +125,11 @@ export function StatusFilterPopover({ values, onApply }: StatusFilterPopoverProp
       )
     }
     return FALLBACK_STATUS_OPTIONS.map((entry) => ({
-      value: entry.value,
+      value: canonicalDealStatus(entry.value, vocabulary),
       label: translateWithFallback(t, entry.labelKey, entry.labelFallback),
       dotClass: entry.dotClass,
     }))
-  }, [dictionaryData, t])
+  }, [dictionaryData, t, vocabulary])
 
   const labelByValue = React.useMemo(() => {
     const map = new Map<string, string>()
@@ -133,12 +137,13 @@ export function StatusFilterPopover({ values, onApply }: StatusFilterPopoverProp
       map.set(option.value, option.label)
     }
     for (const fallback of FALLBACK_STATUS_OPTIONS) {
-      if (!map.has(fallback.value)) {
-        map.set(fallback.value, translateWithFallback(t, fallback.labelKey, fallback.labelFallback))
+      const canonical = canonicalDealStatus(fallback.value, vocabulary)
+      if (!map.has(canonical)) {
+        map.set(canonical, translateWithFallback(t, fallback.labelKey, fallback.labelFallback))
       }
     }
     return map
-  }, [statusOptions, t])
+  }, [statusOptions, t, vocabulary])
 
   const chipLabel = translateWithFallback(t, 'customers.deals.kanban.filter.status', 'Status')
   const chipValue =
@@ -149,13 +154,15 @@ export function StatusFilterPopover({ values, onApply }: StatusFilterPopoverProp
           .join(', ')
 
   const toggleDraft = (value: string) => {
-    const normalized = canonicalDealStatus(value)
+    if (selectionDisabled) return
+    const normalized = canonicalDealStatus(value, vocabulary)
     setDraft((prev) =>
       prev.includes(normalized) ? prev.filter((entry) => entry !== normalized) : [...prev, normalized],
     )
   }
 
   const handleApply = () => {
+    if (selectionDisabled) return
     onApply(draft)
     setOpen(false)
   }
@@ -193,6 +200,7 @@ export function StatusFilterPopover({ values, onApply }: StatusFilterPopoverProp
           onClose={() => setOpen(false)}
           onCancel={() => setOpen(false)}
           onApply={handleApply}
+          applyDisabled={selectionDisabled}
           footerLeft={
             <span>
               {draft.length}{' '}
@@ -204,7 +212,9 @@ export function StatusFilterPopover({ values, onApply }: StatusFilterPopoverProp
             {translateWithFallback(t, 'customers.deals.kanban.filter.status', 'Status')}
           </span>
           <div className="flex flex-wrap items-center gap-x-1.5 gap-y-2">
-            {dictionaryLoading ? (
+            {vocabularyError ? (
+              <ErrorMessage label={t('customers.settings.dealStatusVocabulary.errorLoad', 'Failed to load deal status vocabulary.')} />
+            ) : dictionaryLoading || vocabularyLoading ? (
               <span className="flex items-center gap-2 text-xs text-muted-foreground" role="status" aria-live="polite">
                 <Spinner className="size-3" />
                 {translateWithFallback(

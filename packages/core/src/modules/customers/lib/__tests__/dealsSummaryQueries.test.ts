@@ -120,4 +120,49 @@ describe('loadDealsSummaryQueryRows', () => {
     ).rejects.toThrow('[internal] Deals summary query requires an organization scope')
     expect(executeMock).not.toHaveBeenCalled()
   })
+
+  it('binds configured outcomes in quarterly and monthly metrics without widening open metrics', async () => {
+    const executeMock = jest.fn().mockResolvedValue([])
+    const em = { getConnection: () => ({ execute: executeMock }) } as unknown as CoreEntityManager
+    const configuredWon = "signed' OR 1=1 --"
+    fetchStuckDealIdsMock.mockResolvedValue([stuckDealId])
+
+    await loadDealsSummaryQueryRows({
+      em,
+      tenantId,
+      organizationIds: [organizationId],
+      currentQuarter,
+      previousQuarter,
+      seriesStart: new Date('2025-09-01T00:00:00.000Z'),
+      vocabulary: { won: [configuredWon, 'Accepted'], lost: ['Declined'], closed: ['Archived'] },
+    })
+
+    const wonAliases = [configuredWon.toLowerCase(), 'accepted', 'win', 'won']
+    const lostAliases = ['declined', 'lost', 'loose']
+    const wonValues = executeMock.mock.calls[2][1] as string[]
+    expect(wonValues.slice(8)).toEqual([tenantId, organizationId, ...wonAliases])
+    expect(normalizedSql(executeMock.mock.calls[2])).toContain("LOWER(TRIM(status)) IN (?,?,?,?) OR closure_outcome = 'won'")
+    expect(executeMock.mock.calls[3][1]).toEqual([
+      ...wonAliases, currentQuarter.start.toISOString(), currentQuarter.end.toISOString(),
+      ...lostAliases, currentQuarter.start.toISOString(), currentQuarter.end.toISOString(),
+      ...wonAliases, previousQuarter.start.toISOString(), previousQuarter.end.toISOString(),
+      ...lostAliases, previousQuarter.start.toISOString(), previousQuarter.end.toISOString(),
+      tenantId, organizationId,
+    ])
+    expect(executeMock.mock.calls[4][1]).toEqual([
+      ...wonAliases, ...lostAliases, tenantId, organizationId, '2025-09-01T00:00:00.000Z',
+    ])
+    for (const queryCall of executeMock.mock.calls) {
+      const sql = normalizedSql(queryCall)
+      const values = queryCall[1] as string[]
+      expect(sql).not.toContain(configuredWon)
+      expect(sql).not.toContain('Declined')
+      expect(sql).toContain('tenant_id = ? AND organization_id IN (?) AND deleted_at IS NULL')
+      expect((sql.match(/\?/g) ?? []).length).toBe(values.length)
+      expect(values).toEqual(expect.arrayContaining([tenantId, organizationId]))
+    }
+    expect(executeMock.mock.calls[0][1]).toEqual([tenantId, organizationId, 'open', 'in_progress'])
+    expect(executeMock.mock.calls[5][1]).toEqual([tenantId, organizationId, 'open'])
+    expect(executeMock.mock.calls[6][1]).toEqual([tenantId, organizationId, 'open', 'in_progress', stuckDealId])
+  })
 })
