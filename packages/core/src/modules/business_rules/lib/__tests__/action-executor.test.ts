@@ -18,6 +18,7 @@ import {
   type EmitEventResult,
 } from '../action-executor'
 import { createTransactionalEntityManagerDouble } from '../../../../test-utils/transactionalEntityManagerDouble'
+import type { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 
 describe('Action Executor', () => {
   // Type-safe result extractors
@@ -490,8 +491,9 @@ describe('Action Executor', () => {
       const mockFetch = jest.fn() as jest.MockedFunction<typeof fetch>
       const apiKeyProfileId = '123e4567-e89b-42d3-a456-426614174010'
 
-      function createOpenMercatoContext(overrides: Partial<ActionContext> = {}) {
+      function createOpenMercatoContext(overrides: Partial<ActionContext> = {}, profileOverrides: Partial<ApiKey> = {}) {
         const createdApiKeys: any[] = []
+        const currentRoleIds = ['role-1']
         const apiKeyProfile = {
           id: apiKeyProfileId,
           tenantId: 'tenant-456',
@@ -499,6 +501,7 @@ describe('Action Executor', () => {
           rolesJson: ['role-1'],
           expiresAt: null,
           deletedAt: null,
+          ...profileOverrides,
         }
         const em = createTransactionalEntityManagerDouble({
           findOne: jest.fn(async (Entity: any, query: any) => {
@@ -515,6 +518,9 @@ describe('Action Executor', () => {
           persist: jest.fn(function persist(this: any) { return this }),
           flush: jest.fn(async () => undefined),
           find: jest.fn(async (Entity: any, query: any) => {
+            if (Entity?.name === 'UserRole') {
+              return currentRoleIds.map((roleId) => ({ role: { id: roleId } }))
+            }
             if (Entity?.name === 'ApiKey' && Array.isArray(query?.id?.$in)) {
               return createdApiKeys.filter((record) => query.id.$in.includes(record.id))
             }
@@ -551,6 +557,8 @@ describe('Action Executor', () => {
           } as ActionContext,
           em,
           createdApiKeys,
+          apiKeyProfile,
+          currentRoleIds,
         }
       }
 
@@ -606,6 +614,52 @@ describe('Action Executor', () => {
         expect(createdApiKeys).toHaveLength(1)
         expect(createdApiKeys[0].rolesJson).toEqual(['role-1'])
         expect(createdApiKeys[0].deletedAt).toBeInstanceOf(Date)
+      })
+
+      it.each([
+        { kind: 'session', sessionUserId: 'user-123', expectedRoles: ['role-1'] },
+        { kind: 'independent', sessionUserId: null, expectedRoles: ['role-1', 'role-revoked'] },
+      ])('mints only currently authorized roles from a $kind profile', async ({ sessionUserId, expectedRoles }) => {
+        mockFetch.mockResolvedValue(new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }))
+        const { context, createdApiKeys, apiKeyProfile, currentRoleIds } = createOpenMercatoContext({}, {
+          rolesJson: ['role-1', 'role-revoked'],
+          sessionUserId,
+        })
+        currentRoleIds.push('role-added-after-issuance')
+
+        const result = await executeAction({
+          type: 'CALL_OPEN_MERCATO',
+          config: { endpoint: '/api/business_rules/rules', method: 'GET', apiKeyId: apiKeyProfileId },
+        }, context)
+
+        expect(result.success).toBe(true)
+        expect(createdApiKeys).toHaveLength(1)
+        expect(createdApiKeys[0].rolesJson).toEqual(expectedRoles)
+        expect(apiKeyProfile.rolesJson).toEqual(['role-1', 'role-revoked'])
+      })
+
+      it('refuses to mint a one-time key when every session profile role has been revoked', async () => {
+        mockFetch.mockResolvedValue(new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }))
+        const { context, createdApiKeys, currentRoleIds } = createOpenMercatoContext({}, {
+          sessionUserId: 'user-123',
+        })
+        currentRoleIds.splice(0)
+
+        const result = await executeAction({
+          type: 'CALL_OPEN_MERCATO',
+          config: { endpoint: '/api/business_rules/rules', method: 'GET', apiKeyId: apiKeyProfileId },
+        }, context)
+
+        expect(result.success).toBe(false)
+        expect(result.error).toContain('at least one role')
+        expect(createdApiKeys).toHaveLength(0)
+        expect(mockFetch).not.toHaveBeenCalled()
       })
 
       it('should mint the one-time key without createdBy so a cross-org trigger still authenticates', async () => {

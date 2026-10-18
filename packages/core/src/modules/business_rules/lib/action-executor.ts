@@ -7,6 +7,7 @@ import {
   resolveOpenMercatoApiKeyProfile,
 } from './openmercato-call-options'
 import type { OpenMercatoEndpointOption } from './openmercato-call-options-types'
+import { resolveApiKeyRoleIds } from '@open-mercato/core/modules/api_keys/services/sessionKeyRoles'
 
 /**
  * Action definition
@@ -474,9 +475,7 @@ async function handleCallOpenMercato(
     throw new Error('CALL_OPEN_MERCATO action requires an active API key profile in scope')
   }
 
-  const roleIds = Array.isArray(apiKeyProfile.rolesJson)
-    ? apiKeyProfile.rolesJson.filter((roleId): roleId is string => typeof roleId === 'string' && roleId.length > 0)
-    : []
+  const roleIds = await resolveApiKeyRoleIds(em, apiKeyProfile, tenantId)
   if (roleIds.length === 0) {
     throw new Error('CALL_OPEN_MERCATO action requires an API key profile with at least one role')
   }
