@@ -76,7 +76,7 @@ storefront / POS / pay link / AI agent
         └────┬─────┘
              ├──► catalog       catalogPricingService — unit price for THIS buyer & quantity
              ├──► promotions    promotionsService.evaluate(cart) — resolved effects
-             ├──► availability  availabilityService.check() — advisory state + quantity rules
+             ├──► availability  resolveAvailability(query, { moduleConfig, container }) — advisory state
              ├──► sales         salesCalculationService.calculateDocumentTotals() — ALL arithmetic
              └──► customer_groups  resolveTerms() — tax mode, min order, approval threshold
 ```
@@ -249,7 +249,7 @@ A cart re-prices when, and only when:
 2. Buyer identity changes: login, logout, a group membership change, or a change to that customer's own assortment override (created, edited, deleted, or lapsing past its `valid_until`) altering `buyer_digest` — whole cart
 3. Currency or locale changes — whole cart
 4. A line snapshot is older than the staleness budget (default 30 minutes) and the cart is read — whole cart
-5. Checkout requests a lock (spec 7) — whole cart, mandatory, never skipped
+5. Checkout requests a lock (spec 7) — whole cart, mandatory, never skipped; when a tax provider is configured, the tax-providers roadmap proposes this re-price as the one that computes tax with the shipping address checkout holds (`2026-10-03-tax-providers-roadmap.md`, ADR-3, amendment 6a, §14 Q16); that is a proposal to the owners of this spec, and how the address reaches `cart.lock()` is for a later pointer, after this spec's lock amendment (whose lock input carries no address) merges
 6. A promotion is applied or removed — effects only, not unit prices
 7. An operator forces it through the admin cart view
 
@@ -838,12 +838,18 @@ Approval routing, bulk lines, admin cart list, abandonment events, **and the who
 
 ## 18) Changelog
 
+### 2026-10-12 (the lock's re-price and tax)
+- **§5.2 trigger 5 names the proposal for the lock's re-price when a tax provider is configured:** tax with the shipping address checkout holds, proposed in the tax-providers roadmap (`2026-10-03-tax-providers-roadmap.md`, ADR-3, amendment 6a, §14 Q16; in review as #6918) and not decided here; how the address reaches `cart.lock()` is for a later pointer, after the lock amendment (#7212, whose lock input carries no address) merges.
+
 ### 2026-10-11 (rev 9 — discount basis and order-scoped gross effects corrected)
 
 Post-merge review of #5384. Rev 5's §3.2 rule 1 was written against a `sales` API that does not exist — it denied the `discountAmountBasis` flag and mandated a per-unit division that makes the Phase 2 byte-identical-totals gate unreachable. `SalesLineDiscountBasis` (`packages/core/src/modules/sales/lib/types.ts:40`), the caller-only `discountAmountBasis` field (`:60-66`) and its honouring in `resolveLineDiscountTotal` (`packages/core/src/modules/sales/lib/calculations.ts:115`) shipped on 2026-08-28 (#5640), twelve days before rev 5 asserted the opposite.
 
 - §3.2 rule 1: replaced with the real contract — a `LINE_DISCOUNT` is mapped as the effect's line total, `discountAmount = |amount|` with `discountAmountBasis: 'line'`; the per-unit division, the residual paragraph and the §14 carve-out that depended on it are deleted.
 - §3.2 rule 2 and §14: an order-scoped gross-basis effect (`CART_DISCOUNT`, `DELIVERY_DISCOUNT`) must carry `metadata.taxRate` with `amountGross`, because the engine reduces tax only when the rate is present (`calculations.ts:246`) and otherwise reads `amountGross` as the net too (`calculations.ts:230`); the Phase 2 gate now asserts the net and tax components against independently computed expected values, not only the document total.
+
+### 2026-10-11 (availability entry point)
+- **§3.1 points at the real availability entry point.** The availability contract replaced its `availabilityService` DI key with `resolveAvailability()` in `packages/shared` (§4.1a of [Availability Contract](./2026-08-14-availability-contract.md)) plus the `availability.reserve`/`.release`/`.commit` commands; no such DI key exists, so the `cart → availability` edge now reads `resolveAvailability(query, { moduleConfig, container })`. The `+ quantity rules` annotation is dropped from that edge: the shared result carries no min/max/increment, and how the cart obtains them is tracked with the §5.5 gap. Recorded from the post-merge review of #5384.
 
 ### 2026-09-30 (§8.2 ordering clarified)
 - **§8.2 states that the idempotency lookup runs before the §8.1 optimistic-lock check.** §8.1's "every mutating command starts with" the lock check read, literally, as the opposite order, under which a retried mutation that had already landed gets a `409` instead of its original result. One sentence, no contract change: cart is unimplemented. Requested by [Offline Field Mode](./2026-09-22-offline-field-mode.md) §3.3, whose chunked replay depends on it; the storefront's own double-tap retry (storefront-app §5.2) depends on it too.
