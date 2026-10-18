@@ -11,7 +11,6 @@ import {
   deleteRoleIfExists,
   deleteUserIfExists,
   setRoleAclFeatures,
-  setUserAclVisibility,
 } from '@open-mercato/core/helpers/integration/authFixtures'
 import {
   createCompanyFixture,
@@ -86,6 +85,21 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
   let managerEmail = ''
   let fixturePassword = ''
 
+  async function setViewerFeatures(request: APIRequestContext, features: string[]): Promise<void> {
+    const response = await apiRequest(request, 'PUT', '/api/auth/users/acl', {
+      token: superToken,
+      data: { userId: viewerId, tenantId, organizations: [organizationId], features },
+    })
+    expect(response.status()).toBe(200)
+    expect((await readJsonSafe<{ ok: boolean }>(response))?.ok).toBe(true)
+    const storedResponse = await apiRequest(request, 'GET', `/api/auth/users/acl?userId=${viewerId}&tenantId=${tenantId}`, { token: superToken })
+    expect(storedResponse.status()).toBe(200)
+    const stored = await readJsonSafe<{ hasCustomAcl: boolean; features: string[]; organizations: string[] }>(storedResponse)
+    expect(stored?.hasCustomAcl).toBe(true)
+    expect(stored?.features).toEqual(features)
+    expect(stored?.organizations).toEqual([organizationId])
+  }
+
   test.beforeAll(async ({ request }) => {
     const stamp = randomUUID()
     fixturePassword = `Vocabulary-${randomUUID()}-9!`
@@ -108,12 +122,11 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
     viewerId = await createUserFixture(request, superToken, {
       email: viewerEmail, password: fixturePassword, organizationId, roles: [],
     })
-    await setUserAclVisibility(request, superToken, {
-      userId: viewerId, organizations: [organizationId], features: ['customers.people.view', 'customers.deals.view'],
-    })
+    await setViewerFeatures(request, ['customers.deals.view'])
     managerToken = await getAuthToken(request, managerEmail, fixturePassword)
     viewerToken = await getAuthToken(request, viewerEmail, fixturePassword)
     expect(getTokenContext(managerToken).tenantId).toBe(tenantId)
+    expect(getTokenContext(viewerToken)).toEqual(getTokenContext(managerToken))
     expect(getTokenContext(otherTenantToken).tenantId).not.toBe(tenantId)
   })
 
@@ -206,6 +219,7 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
     const otherBefore = await readSettings(request, otherTenantToken)
     await saveSettings(request, managerToken, VOCABULARY)
     expect((await readSettings(request, viewerToken)).vocabulary).toEqual(VOCABULARY)
+    expect((await apiRequest(request, 'GET', '/api/customers/people?pageSize=1', { token: viewerToken })).status()).toBe(403)
     const denied = await apiRequest(request, 'PUT', SETTINGS_PATH, {
       token: viewerToken, data: { vocabulary: null },
     })
@@ -214,14 +228,10 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
     expect((await readSettings(request, managerToken, `?tenantId=${foreignTenantId}`)).vocabulary).toEqual(VOCABULARY)
     expect(await readSettings(request, otherTenantToken, `?tenantId=${tenantId}`)).toEqual(otherBefore)
     try {
-      await setUserAclVisibility(request, superToken, {
-        userId: viewerId!, organizations: [organizationId!], features: ['customers.people.view'],
-      })
+      await setViewerFeatures(request, ['customers.people.view'])
       expect((await apiRequest(request, 'GET', SETTINGS_PATH, { token: viewerToken })).status()).toBe(403)
     } finally {
-      await setUserAclVisibility(request, superToken, {
-        userId: viewerId!, organizations: [organizationId!], features: ['customers.people.view', 'customers.deals.view'],
-      })
+      await setViewerFeatures(request, ['customers.deals.view'])
     }
   })
 
