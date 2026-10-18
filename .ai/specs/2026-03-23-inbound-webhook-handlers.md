@@ -435,23 +435,24 @@ export interface InboundWebhookRequest {
 
 | Status | Body | When |
 |--------|------|------|
-| 200 | `{ "received": true }` | Webhook accepted (processing async) |
-| 400 | `{ "error": "Unknown source" }` | `sourceKey` not registered |
-| 401 | `{ "error": "Signature verification failed" }` | Verifier returned false |
-| 409 | `{ "received": true, "duplicate": true }` | Duplicate message ID (idempotent) |
+| 200 | `{ "ok": true }` | Required intake dispatch stages are durable |
+| 200 | `{ "ok": true, "duplicate": true }` | The receipt's required stages are already complete |
+| 400 | `{ "error": "Verification failed" }` | Legacy verification failed; stale timestamps are also rejected with 400 |
+| 401 | `{ "error": "Signature verification failed" }` | Source verifier returned false |
+| 404 | `{ "error": "Webhook endpoint not found" }` | Neither source nor legacy adapter is registered |
+| 413 | `{ "error": "Webhook payload too large" }` | Payload exceeds the shared body limit |
 | 429 | `{ "error": "Rate limit exceeded" }` | Too many requests from source |
-| 500 | `{ "error": "Internal error" }` | Unexpected failure |
+| 503 | `{ "error": "Custom Webhooks integration is disabled" }` | Legacy integration or scope is unavailable |
+| 500 | `{ "error": "Internal error" }` | Unexpected failure; unfinished dispatch stages remain retryable |
 
 **Behavior**:
-1. Resolve `WebhookSourceConfig` by `sourceKey`
-2. Read raw body for signature verification
-3. Call `verifier(request, credentials)` — reject if false
-4. Call `eventTypeExtractor(body, headers)` — extract event type
-5. Call `messageIdExtractor(body, headers)` — check deduplication cache
-6. Resolve tenant scope (from config, payload, or header)
-7. Create `WebhookIngestion` record with status `received`
-8. Enqueue dispatch job to `webhook-inbound-dispatch` queue
-9. Return 200 immediately (async processing)
+1. Resolve the endpoint to a registered source, falling back to a legacy adapter.
+2. Read the bounded raw body and reject stale Standard Webhooks/Svix timestamps.
+3. Verify the source against credentials for a candidate configured scope, or verify through the legacy adapter and check integration availability.
+4. Extract the event type/message ID and use the verified tenant/organization scope.
+5. Atomically create the receipt and, for a source, its ingestion record; commit before external dispatch.
+6. Resume unfinished queue and persistent received-event stages under independent receipt row locks, checkpointing each durable success. Start local dispatch workers after releasing the queue-stage transaction.
+7. Return 200 accepted, or the established 200 duplicate response for completed intake. Propagate internal failures so provider retries can resume unfinished stages.
 
 ### 5.2 Ingestion Log API
 
@@ -804,8 +805,8 @@ Form for configuring encrypted credentials for a webhook source:
 |-----------|------|-------------|
 | TC-WH-IN-001 | `__integration__/TC-WH-IN-001.spec.ts` | Inbound webhook: valid signature accepted, handler executed, domain event emitted |
 | TC-WH-IN-002 | `__integration__/TC-WH-IN-002.spec.ts` | Inbound webhook: invalid signature → 401 |
-| TC-WH-IN-003 | `__integration__/TC-WH-IN-003.spec.ts` | Inbound webhook: unknown source → 400 |
-| TC-WH-IN-004 | `__integration__/TC-WH-IN-004.spec.ts` | Inbound webhook: duplicate message ID → 409 (idempotent) |
+| TC-WH-IN-003 | `__integration__/TC-WH-IN-003.spec.ts` | Inbound webhook: unknown endpoint → 404 |
+| TC-WH-IN-004 | `__integration__/TC-WH-IN-004.spec.ts` | Inbound webhook: completed duplicate message ID → 200 (idempotent) |
 | TC-WH-IN-005 | `__integration__/TC-WH-IN-005.spec.ts` | Inbound webhook: rate limiting → 429 |
 | TC-WH-IN-006 | `__integration__/TC-WH-IN-006.spec.ts` | Inbound webhook: multiple handlers for same event all execute |
 | TC-WH-IN-007 | `__integration__/TC-WH-IN-007.spec.ts` | Inbound webhook: wildcard handler matches |
