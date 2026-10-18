@@ -627,6 +627,35 @@ describe('attachments API', () => {
     )
   })
 
+  it('caps an unpaginated record list at the page-size ceiling (#3816)', async () => {
+    const { GET: list } = await loadHandlers()
+    mockEm.find.mockResolvedValue([])
+    const req = new Request('http://x/api/attachments?entityId=example:todo&recordId=r1')
+    const res = await list(req)
+    expect(res.status).toBe(200)
+    const payload = await res.json()
+    expect(payload).toEqual({ items: [] })
+    expect(mockEm.count).not.toHaveBeenCalled()
+    expect(mockEm.find).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({ entityId: 'example:todo', recordId: 'r1' }),
+      expect.objectContaining({ limit: 100, orderBy: { createdAt: 'DESC', id: 'DESC' } }),
+    )
+  })
+
+  it('caps the list when only one of page and pageSize is supplied (#3816)', async () => {
+    const { GET: list } = await loadHandlers()
+    mockEm.find.mockResolvedValue([])
+    for (const query of ['page=3', 'pageSize=5']) {
+      mockEm.find.mockClear()
+      const res = await list(new Request(`http://x/api/attachments?entityId=example:todo&recordId=r1&${query}`))
+      expect(res.status).toBe(200)
+      const options = mockEm.find.mock.calls[0]?.[2] as { limit?: number } | undefined
+      expect(typeof options?.limit).toBe('number')
+      expect(options!.limit!).toBeLessThanOrEqual(100)
+    }
+  })
+
   it('rejects superadmin uploads with no organization selected using a 400 with a clear message instead of a 401 (#3764)', async () => {
     mockGetAuthFromRequest.mockImplementation(() => ({
       orgId: null,
