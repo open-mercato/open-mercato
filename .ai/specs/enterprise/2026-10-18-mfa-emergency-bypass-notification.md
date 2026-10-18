@@ -20,7 +20,7 @@ A forgotten `OM_SECURITY_MFA_EMERGENCY_BYPASS` disables MFA while administrators
 
 ## Proposed Solution and Architecture
 
-Add `security.mfa.emergency_bypass_detected` as an in-app warning type and an internal persistent security event. An additive asynchronous helper in `lib/security-config.ts` emits that event using server-authenticated tenant and organization IDs. Existing login, enrollment, and sudo bypass branches call it immediately after their unchanged warn call. Emission failures are reported and do not break emergency access.
+Add `security.mfa.emergency_bypass_detected` as an in-app warning type and an internal persistent security event. An additive asynchronous helper in `lib/security-config.ts` emits that event using server-authenticated tenant and organization IDs. Existing login, enrollment, and sudo bypass branches call it immediately after their unchanged warn call. Emission failures are reported and do not break emergency access. Bound the request-side wait to two seconds, below the login interceptor timeout; an unavailable queue must not prevent login, enrollment bypass, or sudo. A timed-out enqueue may still complete later and remains protected by persistent deduplication; late rejections are observed.
 
 A persistent subscriber validates scope and observation time against trusted event context, checks for an existing notification of this type and daily group key in the scope, regardless of read/dismissed state, to avoid repeating daily audience work. If absent, it uses the existing notification feature-recipient resolver for `security.mfa.manage`, checks each candidate with `rbacService.userHasAllFeatures` in the trusted scope, then calls notification-service `createBatch`. This preserves wildcard grants, user overrides, and organization visibility without the existing `createForFeature` 200-candidate cap or its swallowed authorization errors. RBAC errors propagate for persistent retry.
 
@@ -81,3 +81,5 @@ Reviewed root, enterprise, core (events, notifications, ACL), shared (feature po
 - 2026-10-18: Initial design for issue #5523; independent review confirmed scope cohesion. Implementation review moved strict deduplication into the notification-service write transaction to prevent connection-pool starvation from nested service forks. Resolved delivery-cap and link-permission findings by using canonical recipient resolution plus explicit RBAC and batch delivery, and omitting inaccessible navigation.
 
 - 2026-10-18: Live exact-versus-nested-wildcard testing found an existing shared owning-module resolution defect; include its minimal correction and registered-module regression tests so the promised administrator audience is honored.
+
+- 2026-10-18: Failure-path review added a two-second enqueue deadline and hanging/late-rejection regressions so a reconnecting queue cannot block emergency access.
