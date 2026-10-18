@@ -176,6 +176,15 @@ export class WebhookInboundReceiptEntity {
   @Property({ name: 'event_type', type: 'text', nullable: true })
   eventType?: string | null
 
+  @Property({ name: 'ingestion_id', type: 'uuid', nullable: true })
+  ingestionId?: string | null
+
+  @Property({ name: 'dispatch_queued', type: 'boolean', default: true })
+  dispatchQueued: boolean = true
+
+  @Property({ name: 'received_event_published', type: 'boolean', default: true })
+  receivedEventPublished: boolean = true
+
   @Property({ name: 'organization_id', type: 'uuid', nullable: true })
   organizationId?: string | null
 
