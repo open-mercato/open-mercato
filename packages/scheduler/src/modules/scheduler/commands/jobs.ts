@@ -6,7 +6,7 @@ import { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from '../data/entities.js'
-import { calculateNextRunForWrite } from '../lib/nextRunCalculator.js'
+import { calculateNextRunForWrite, recalculateNextRun } from '../lib/nextRunCalculator.js'
 import { enforceTenantActiveScheduleLimit } from '../lib/activeScheduleLimits.js'
 import type {
   ScheduleCreateInput,
@@ -347,6 +347,9 @@ const createScheduleCommand: CommandHandler<ScheduleCreateInput, { id: string }>
     entityClass: ScheduledJob,
     getSnapshotId: (snapshot) => snapshot.id,
     seedFromSnapshot: scheduleSeedFromSnapshot,
+    beforeRestore: async ({ em, snapshot }) => {
+      if (snapshot.isEnabled) await enforceTenantActiveScheduleLimit(em, snapshot.tenantId)
+    },
     buildResult: (entity) => ({ id: entity.id }),
     afterRestore: async ({ ctx, entity }) => {
       await syncBullMQAfterUndo(ctx, entity)
@@ -535,6 +538,17 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
     const schedule = await em.findOne(ScheduledJob, { id: before.id })
 
     if (schedule) {
+      if (before.isEnabled && !schedule.isEnabled && !schedule.deletedAt) {
+        await enforceTenantActiveScheduleLimit(em, before.tenantId)
+      }
+      const scheduleDefinitionChanged =
+        schedule.scheduleType !== before.scheduleType
+        || schedule.scheduleValue !== before.scheduleValue
+        || schedule.timezone !== before.timezone
+      const restoredNextRunAt = scheduleDefinitionChanged
+        ? recalculateNextRun(before.scheduleType, before.scheduleValue, before.timezone)
+        : null
+
       // Restore all fields
       schedule.name = before.name
       schedule.description = before.description
@@ -552,8 +566,7 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
       schedule.isEnabled = before.isEnabled
       schedule.sourceType = before.sourceType
       schedule.sourceModule = before.sourceModule
-      schedule.nextRunAt = toDate(before.nextRunAt)
-      schedule.lastRunAt = toDate(before.lastRunAt)
+      if (restoredNextRunAt) schedule.nextRunAt = restoredNextRunAt
       schedule.updatedAt = new Date()
 
       await em.flush()
@@ -617,6 +630,12 @@ const deleteScheduleCommand: CommandHandler<{ id: string }, { ok: boolean }> = {
 
     const em = ctx.container.resolve<EntityManager>('em').fork()
     const existing = await em.findOne(ScheduledJob, { id: before.id })
+    const restoresActiveSchedule = existing
+      ? existing.isEnabled && Boolean(existing.deletedAt)
+      : before.isEnabled
+    if (restoresActiveSchedule) {
+      await enforceTenantActiveScheduleLimit(em, existing ? existing.tenantId : before.tenantId)
+    }
 
     // Soft-deleted rows are restored by clearing `deletedAt`. A hard-removed row
     // (no surviving record) is re-materialized from the snapshot so undo is

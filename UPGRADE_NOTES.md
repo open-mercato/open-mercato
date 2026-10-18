@@ -85,6 +85,31 @@ byte budget): intentional security narrowing of the `auth.users.create` command 
 a target user it returns `[]`, and every existing call compiles and behaves the same. The route URL,
 request and response schemas, event IDs, ACL features, DI names and database schema are unchanged.
 
+### Scheduler undo and redo respect the active-schedule cap and keep the run state (#ISSUE)
+
+Undoing a `scheduler.jobs.update` that disabled a schedule, undoing a `scheduler.jobs.delete` of an
+enabled schedule, and redoing an undone enabled `scheduler.jobs.create` all make a schedule active
+again. They now apply the tenant cap (`OM_SCHEDULER_MAX_ACTIVE_SCHEDULES_PER_TENANT`, default 100)
+that creating or enabling a schedule already applied. At the cap,
+`POST /api/audit_logs/audit-logs/actions/undo` and `.../actions/redo` answer
+`422 { error: "Active scheduled job limit reached for this tenant (<max>)." }` (translated) and the
+schedule is left unchanged. Before this release they answered `200` and the tenant went over its cap.
+
+Undoing a `scheduler.jobs.update` no longer copies `lastRunAt` and `nextRunAt` back from the snapshot.
+`lastRunAt` keeps the last recorded run. `nextRunAt` is kept when the undo leaves the schedule type,
+value and timezone unchanged, and is recomputed from the restored values otherwise. Before, a job
+that ran between the update and the undo got a past `nextRunAt` back and the local scheduler ran it
+again straight away.
+
+**Action for integrators:** none. A script that undoes or redoes schedule changes for a tenant at its
+cap must free a slot first (disable or delete another schedule).
+
+**Backward compatibility** (recorded here because `BACKWARD_COMPATIBILITY.md` is at its agent-context
+byte budget): intentional narrowing of the undo/redo handlers of the `scheduler.jobs.*` commands, to
+the limit their `execute` handlers already enforce, regression-tested in
+`jobs.undo-active-limit.test.ts`, `jobs.undo.test.ts` and `TC-SCHED-010`. Command IDs, route URLs,
+request and response schemas, event IDs, ACL features, DI names and database schema are unchanged.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
