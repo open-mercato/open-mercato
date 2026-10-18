@@ -24,14 +24,18 @@ Legacy status exports and existing no-configuration results remain compatible. S
 
 ## Progress
 
+PR: #7625
+
+> Convention: `- [ ]` pending, `- [x]` done. Append the implementation commit when a step lands.
+
 ### Phase 1: Configuration and consumers
 
-- [ ] 1.1 Define schema, pure semantics and resolver
-- [ ] 1.2 Add settings command/API and editor
-- [ ] 1.3 Integrate server filters and closure/AI writes
-- [ ] 1.4 Integrate browser consumers
+- [x] 1.1 Define schema, pure semantics and resolver — c2001be897
+- [x] 1.2 Add settings command/API and editor — c2001be897
+- [x] 1.3 Integrate server filters and closure/AI writes — c2001be897
+- [x] 1.4 Integrate browser consumers — c2001be897
 
 ### Phase 2: Verification
 
-- [ ] 2.1 Add integration coverage and operator documentation
+- [x] 2.1 Add integration coverage and operator documentation — c2001be897
 - [ ] 2.2 Run validation, independent review and UI verification
