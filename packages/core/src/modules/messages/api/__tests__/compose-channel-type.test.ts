@@ -82,6 +82,15 @@ function composeRequest(body: Record<string, unknown>) {
   })
 }
 
+/** A parent the caller sent, so the reply-parent read gate lets it through. */
+function givenOwnParent(threadId: string = messageId) {
+  em.findOne.mockImplementation(async (entity: { name?: string }) =>
+    entity?.name === 'Message'
+      ? { id: messageId, threadId, senderUserId: userId, visibility: 'public', organizationId, tenantId }
+      : null,
+  )
+}
+
 function composeInput(): Record<string, unknown> {
   const call = commandBusExecuteMock.mock.calls.find(
     (args: unknown[]) => args[0] === 'messages.messages.compose',
@@ -168,6 +177,7 @@ describe('POST /api/messages — source channel type resolution (#4975)', () => 
     // The mirror of the conversation hop, and the one the route actually reads
     // off an untrusted body for every threaded reply.
     resolveChannelTypeMock.mockResolvedValue('discord')
+    givenOwnParent()
 
     const response = await composeMessage(
       composeRequest({
@@ -246,6 +256,7 @@ describe('POST /api/messages — the channel-type lookup stays off the compose h
   // compose below carries a channel-ish hint and would have paid for a DI
   // resolve plus a `MessageChannelLink` query whose answer nothing could read.
   it('skips resolution for an internal threaded reply', async () => {
+    givenOwnParent()
     const response = await composeMessage(
       composeRequest({
         visibility: 'internal',
@@ -340,6 +351,7 @@ describe('POST /api/messages — channel conversation deliverability (#5535)', (
 
   it('leaves a caller-supplied parent message alone when the caller may act on its channel', async () => {
     resolveChannelTypeMock.mockResolvedValue('discord')
+    givenOwnParent(CHANNEL_THREAD_ID)
 
     const response = await composeMessage(
       composeRequest(publicComposeBody({ parentMessageId: messageId })),
@@ -415,6 +427,7 @@ describe('POST /api/messages — channel conversation deliverability (#5535)', (
 
     it('still lets a compose onto an internal thread through', async () => {
       resolveChannelThreadAccessMock.mockResolvedValue(null)
+      givenOwnParent()
 
       const response = await composeMessage(
         composeRequest(publicComposeBody({ parentMessageId: messageId })),
@@ -427,6 +440,7 @@ describe('POST /api/messages — channel conversation deliverability (#5535)', (
   it('leaves a caller-supplied parent on an internal thread alone', async () => {
     resolveChannelTypeMock.mockResolvedValue('discord')
     resolveChannelThreadAccessMock.mockResolvedValue(null)
+    givenOwnParent()
 
     const response = await composeMessage(
       composeRequest(publicComposeBody({ parentMessageId: messageId })),

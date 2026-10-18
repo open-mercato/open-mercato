@@ -10,7 +10,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
-import type { CompanyPersonSummary } from './CompanyPeopleSection'
+import type { LinkedPersonSummary } from './LinkedPeopleSection'
 import { formatDate, formatFallbackLabel } from './utils'
 
 const sourceColorMap: Record<string, string> = {
@@ -52,20 +52,28 @@ function splitSourceTags(source: string | null | undefined): string[] {
 }
 
 interface PersonCardProps {
-  person: CompanyPersonSummary
+  person: LinkedPersonSummary
   isStarred?: boolean
   onToggleStar?: (personId: string) => void
   onUnlink?: (personId: string) => void
+  /**
+   * Render the "Linked {date}" line. Defaults to `true`; a host whose `linkedAt` is not
+   * durable passes `false` rather than showing a date that is wrong after the first write.
+   */
+  showLinkedDate?: boolean
 }
 
-export function PersonCard({ person, isStarred, onToggleStar, onUnlink }: PersonCardProps) {
+export function PersonCard({ person, isStarred, onToggleStar, onUnlink, showLinkedDate = true }: PersonCardProps) {
   const t = useT()
   const sourceTags = React.useMemo(() => splitSourceTags(person.source), [person.source])
   const temperature = React.useMemo(() => {
     const value = typeof person.temperature === 'string' ? person.temperature.trim().toLowerCase() : ''
     return value in temperatureConfig ? temperatureConfig[value as keyof typeof temperatureConfig] : null
   }, [person.temperature])
-  const linkedDate = React.useMemo(() => formatDate(person.linkedAt ?? person.createdAt), [person.createdAt, person.linkedAt])
+  const linkedDate = React.useMemo(
+    () => (showLinkedDate ? formatDate(person.linkedAt ?? person.createdAt) : null),
+    [person.createdAt, person.linkedAt, showLinkedDate],
+  )
 
   return (
     <div className="min-w-0 overflow-hidden rounded-lg border bg-card p-4">

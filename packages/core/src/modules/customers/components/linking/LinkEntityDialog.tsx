@@ -26,6 +26,7 @@ import {
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('customers')
 
@@ -467,6 +468,13 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
         linkSettings,
       })
       onOpenChange(false)
+    } catch (error) {
+      try {
+        getTelemetryRuntime()?.reportError(error, { module: 'customers', code: 'customers.link_confirmation_failed' })
+      } catch (reportingError) {
+        logger.warn('Failed to report link confirmation error', { err: reportingError })
+      }
+      return
     } finally {
       setSaving(false)
     }

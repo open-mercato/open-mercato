@@ -27,6 +27,7 @@ import { StaffTimeReport, StaffTimeReportEvent } from '../../../../../data/entit
 import { loadReportProjectIds } from '../../../../../commands/timesheets-reports'
 import { buildReportSheet } from '../../../../../lib/timesheets-reports/buildReportSheet'
 import { buildReportRows } from '../../../../../lib/timesheets-reports/reportRows'
+import { formatReportPeriodDate } from '../../../../../lib/timesheets-reports/reportPeriod'
 import {
   normalizeReportExportFormat,
   serializeReportExport,
@@ -187,8 +188,8 @@ export async function GET(req: Request) {
       labels,
     })
 
-    const periodFrom = report.periodFrom instanceof Date ? report.periodFrom.toISOString().slice(0, 10) : ''
-    const periodTo = report.periodTo instanceof Date ? report.periodTo.toISOString().slice(0, 10) : ''
+    const periodFrom = formatReportPeriodDate(report.periodFrom) ?? ''
+    const periodTo = formatReportPeriodDate(report.periodTo) ?? ''
 
     const file = serializeReportExport(format, {
       reference: report.reference,
