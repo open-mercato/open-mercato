@@ -8,8 +8,29 @@ import { pushOperation } from '../operations/store'
 import { pushPartialIndexWarning } from '../indexes/store'
 import { createScopedHeaderStack } from './scopedHeaderStack'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import type { TranslateFn, TranslateParams } from '@open-mercato/shared/lib/i18n/context'
+import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
 const logger = createLogger('ui').child({ component: 'apiFetch' })
+
+const fallbackAuthNoticeTranslator: TranslateFn = (key) => key
+let authNoticeTranslator: TranslateFn | null = null
+
+/**
+ * Register the active i18n translator for the session-expired and
+ * access-denied flash banners, which fire outside React. Returns a cleanup
+ * that unregisters it unless another translator replaced it meanwhile.
+ */
+export function registerAuthNoticeTranslator(translate: TranslateFn): () => void {
+  authNoticeTranslator = translate
+  return () => {
+    if (authNoticeTranslator === translate) authNoticeTranslator = null
+  }
+}
+
+function translateAuthNotice(key: string, fallback: string, params?: TranslateParams): string {
+  return translateWithFallback(authNoticeTranslator ?? fallbackAuthNoticeTranslator, key, fallback, params)
+}
 
 const scopedHeaders = createScopedHeaderStack()
 
@@ -106,7 +127,7 @@ export function redirectToSessionRefresh() {
   if (recentlyAttemptedSessionRefresh(current)) return
   recordSessionRefreshAttempt(current)
   try {
-    flash('Session expired. Redirecting to sign in…', 'warning')
+    flash(translateAuthNotice('ui.auth.sessionExpired', 'Session expired. Redirecting to sign in…'), 'warning')
     setTimeout(() => {
       window.location.href = `/api/auth/session/refresh?redirect=${encodeURIComponent(current)}`
     }, 20)
@@ -144,12 +165,20 @@ function formatForbiddenAccessMessage(options?: { requiredRoles?: string[] | nul
   const roles = options?.requiredRoles?.filter(Boolean) ?? []
   const effectiveRoles = roles.length ? roles : DEFAULT_FORBIDDEN_ROLES.filter(Boolean)
   if (features.length) {
-    return `Access denied: you are missing the required permission "${features.join(', ')}". Contact your administrator.`
+    return translateAuthNotice(
+      'ui.auth.accessDenied.missingFeatures',
+      'Access denied: you are missing the required permission "{features}". Contact your administrator.',
+      { features: features.join(', ') },
+    )
   }
   if (effectiveRoles.length) {
-    return `Access denied: this area requires the role "${effectiveRoles.join(', ')}". Contact your administrator.`
+    return translateAuthNotice(
+      'ui.auth.accessDenied.requiredRoles',
+      'Access denied: this area requires the role "{roles}". Contact your administrator.',
+      { roles: effectiveRoles.join(', ') },
+    )
   }
-  return 'Access denied: you do not have permission to perform this action.'
+  return translateAuthNotice('ui.auth.accessDenied.generic', 'Access denied: you do not have permission to perform this action.')
 }
 
 /**
