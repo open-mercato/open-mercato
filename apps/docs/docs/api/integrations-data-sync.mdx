@@ -229,7 +229,9 @@ Body:
 
 - optional `fromBeginning` (default `false`)
 
-Returns `201` with a new run `{ id, progressJobId }`.
+Returns `201` with a new run `{ id, progressJobId }`. Returns `409` with
+`{ "error": "Integration is disabled", "code": "integrationDisabled" }` while the run's integration is
+disabled for the caller's organization, like the run endpoint.
 
 ```bash
 curl -X POST "$BASE_URL/data_sync/runs/$RUN_ID/retry" \

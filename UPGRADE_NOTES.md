@@ -110,6 +110,22 @@ AI_RUNTIME_BASEURL_ALLOWLIST=openrouter.ai,http://localhost:11434
 Update the allowlist before upgrading when tenants saved a local or self-hosted base URL: once that
 saved value is ignored, prompts go to the provider's default endpoint instead.
 
+### Retrying a data sync run refuses a disabled integration (#ISSUE)
+
+`POST /api/data_sync/runs/:id/retry` now answers `409 { error: "Integration is disabled", code: "integrationDisabled" }`
+for a failed or cancelled run whose integration is disabled for the caller's organization. Before this
+release the retry answered `201` and queued a new run. This is the same answer `POST /api/data_sync/run`
+and the scheduled sync worker already give. It also applies to provider-owned integrations that an
+operator explicitly disabled (for example a disabled `sync_excel`) and to integration ids that are no
+longer registered.
+
+**Action:** enable the integration before retrying the run.
+
+**Backward compatibility** (recorded here because `BACKWARD_COMPATIBILITY.md` is at its agent-context
+byte budget): a narrowing of a route status that matches the sibling run endpoint; the response gains
+an additive `code`. The route URL, request schema, event IDs, ACL features, DI names and database
+schema are unchanged.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
