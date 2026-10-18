@@ -92,9 +92,9 @@ request and response schemas, event IDs, ACL features, DI names and database sch
 Undo of `communication_channels.channel.delete` and `communication_channels.channel.admin_delete`
 (through `POST /api/audit_logs/audit-logs/actions/undo`) now checks whether a live channel has
 taken the same connection since the delete: the same owner and provider with the same identifier
-(an identifier-less row matches any row of that provider in the same organization), the same
-mailbox through another provider, or, for a tenant-wide push channel, the same provider. In that
-case the undo answers `409` with a translated `error`
+(an identifier-less row matches a row of that provider connected in the same organization after the
+delete), the same mailbox through another provider, or, for a tenant-wide push channel, the same
+provider. In that case the undo answers `409` with a translated `error`
 (`communication_channels.errors.undoRestoreDuplicate`) and restores nothing. Before this release
 it answered `200` and left two active channels for one connection, or a generic `400 Undo failed`
 when a unique index rejected the restore. The undo stays available: once the newer connection is
