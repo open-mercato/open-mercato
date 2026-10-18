@@ -85,6 +85,21 @@ byte budget): intentional security narrowing of the `auth.users.create` command 
 a target user it returns `[]`, and every existing call compiles and behaves the same. The route URL,
 request and response schemas, event IDs, ACL features, DI names and database schema are unchanged.
 
+### A disconnected communication channel can no longer be set as primary (#ISSUE)
+
+`POST /api/communication_channels/channels/{id}/set-primary` now answers
+`409 { error, code: "channel_disconnected" }` for a channel whose `status` is `disconnected`, and
+leaves the user's current primary unchanged. Before this release the channel was promoted with
+`200`. Channels in `connected`, `requires_reauth` or `error` are accepted as before. The profile
+channels table no longer offers "Set as primary" on a disconnected row.
+
+**Backward compatibility** (recorded here because `BACKWARD_COMPATIBILITY.md` is at its agent-context
+byte budget): intentional narrowing of the `communication_channels.channel.set_primary` command and
+its route, regression-tested in `set-primary-channel.test.ts` and `TC-CHANNEL-API-011`. The exported
+`SetPrimaryChannelResult` union gains a `{ status: 'disconnected'; reason: string }` member, so code
+that switches over it exhaustively needs a branch for it. The route URL, request shape, success
+response, event IDs, ACL features, DI names and database schema are unchanged.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)

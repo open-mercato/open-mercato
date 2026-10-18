@@ -21,6 +21,11 @@ import {
   type ConnectCredentialChannelInput,
   type ConnectCredentialChannelResult,
 } from '../../../commands/connect-credential-channel'
+import {
+  COMMUNICATION_CHANNELS_DISCONNECT_CHANNEL_COMMAND_ID,
+  type DisconnectChannelInput,
+  type DisconnectChannelResult,
+} from '../../../commands/disconnect-channel'
 import { emitCommunicationChannelsEvent } from '../../../events'
 import {
   TEST_SEED_CHAT_PROVIDER_KEY,
@@ -63,6 +68,9 @@ import {
  *     the inbound auto-link tests (TC-CRM-EMAIL-002..005). NOTE: this action
  *     deliberately bypasses `messages.messages.compose` — it can never prove that
  *     the hub accepts a message, only that downstream subscribers fire.
+ *   - `disconnect-channel`: run the REAL disconnect command on a channel the
+ *     caller owns. No HTTP route disconnects without deleting the row, so this is
+ *     the only way a test can reach a listed `disconnected` channel.
  */
 type RbacServiceLike = {
   loadAcl: (
@@ -148,6 +156,11 @@ const seedSystemChannelSchema = z.object({
   externalIdentifier: z.string().min(1).max(255).optional(),
 })
 
+const disconnectChannelSchema = z.object({
+  action: z.literal('disconnect-channel'),
+  channelId: z.string().uuid(),
+})
+
 const clearCaptureSchema = z.object({
   action: z.literal('clear-capture'),
   systemRecipient: z.string().email().max(320).optional(),
@@ -211,6 +224,7 @@ const bodySchema = z.discriminatedUnion('action', [
   ingestInboundSchema,
   emitInboundSchema,
   seedSystemChannelSchema,
+  disconnectChannelSchema,
   clearCaptureSchema,
   listCaptureSchema,
 ])
@@ -378,6 +392,30 @@ export async function POST(req: Request): Promise<Response> {
     }
 
     return NextResponse.json({ channelId: channel.id }, { status: 201 })
+  }
+
+  if (body.action === 'disconnect-channel') {
+    const commandBus = container.resolve('commandBus') as CommandBus
+    const { result } = await commandBus.execute<DisconnectChannelInput, DisconnectChannelResult>(
+      COMMUNICATION_CHANNELS_DISCONNECT_CHANNEL_COMMAND_ID,
+      {
+        input: { channelId: body.channelId, userId, scope: { tenantId, organizationId } },
+        ctx: {
+          container,
+          auth: auth as never,
+          organizationScope: null,
+          selectedOrganizationId: organizationId,
+          organizationIds: organizationId ? [organizationId] : null,
+        },
+      },
+    )
+    if (result.status !== 'disconnected') {
+      return NextResponse.json(
+        { error: '[internal] test-seed disconnect failed', detail: { status: result.status } },
+        { status: 500 },
+      )
+    }
+    return NextResponse.json({ channelId: result.channelId, status: result.status }, { status: 200 })
   }
 
   if (body.action === 'connect-channel') {
