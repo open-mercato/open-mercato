@@ -35,6 +35,12 @@ jest.mock('@open-mercato/shared/lib/http/readJsonSafe', () => ({
   readJsonSafe: jest.fn(async () => ({})),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({
+    translate: (_key: string, fallback: string) => fallback,
+  })),
+}))
+
 jest.mock('@open-mercato/shared/modules/integrations/types', () => ({
   getIntegration: jest.fn((id: string) => mockGetIntegration(id)),
 }))
@@ -127,6 +133,7 @@ describe('data_sync retry route — integration state', () => {
       organizationId: 'org-1',
       tenantId: 'tenant-1',
     })
+    expect(mockSyncRunService.findRunningOverlap).not.toHaveBeenCalled()
     expect(mockStartDataSyncRun).not.toHaveBeenCalled()
     expect(mockCrudMutationGuardService.validateMutation).not.toHaveBeenCalled()
   })

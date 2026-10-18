@@ -83,6 +83,7 @@
   "data_sync.dashboard.status.pending": "대기 중",
   "data_sync.dashboard.status.running": "실행 중",
   "data_sync.dashboard.title": "동기화 실행",
+  "data_sync.errors.integrationDisabled": "연동이 비활성화되어 있습니다",
   "data_sync.integrationTab.columns.actions": "작업",
   "data_sync.integrationTab.columns.lastRun": "마지막 실행",
   "data_sync.integrationTab.columns.value": "값",

@@ -83,6 +83,7 @@
   "data_sync.dashboard.status.pending": "Pending",
   "data_sync.dashboard.status.running": "Running",
   "data_sync.dashboard.title": "Sync Runs",
+  "data_sync.errors.integrationDisabled": "Integration is disabled",
   "data_sync.integrationTab.columns.actions": "Actions",
   "data_sync.integrationTab.columns.lastRun": "Last run",
   "data_sync.integrationTab.columns.value": "Value",

@@ -83,6 +83,7 @@
   "data_sync.dashboard.status.pending": "Oczekujący",
   "data_sync.dashboard.status.running": "W toku",
   "data_sync.dashboard.title": "Przebiegi synchronizacji",
+  "data_sync.errors.integrationDisabled": "Integracja jest wyłączona",
   "data_sync.integrationTab.columns.actions": "Akcje",
   "data_sync.integrationTab.columns.lastRun": "Ostatni przebieg",
   "data_sync.integrationTab.columns.value": "Wartość",
