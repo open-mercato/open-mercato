@@ -107,7 +107,7 @@ A buyer-initiated session is created from a cart token; `POST /sessions` returns
 | Direction | Mechanism |
 |---|---|
 | → `cart` | DI `cartService`: read, lock, reprice, extend, unlock, mark converted |
-| → `availability` | DI `availabilityService`: `reserve`, `release`, `commit` |
+| → `availability` | `commandBus`: `availability.reserve`, `availability.release`, `availability.commit` |
 | → `customer_groups` | DI `customerGroupsService`: `resolveTerms`, `checkCredit`, `reserveCredit`, `releaseCredit` |
 | → `shipping_carriers` | DI rate quoting; selected method snapshotted onto the session |
 | → `payment_gateways` | Phase A provider descriptor surface, unchanged |
@@ -151,7 +151,7 @@ Standard scoped columns.
 | `approval_id` | uuid, nullable | `customer_groups.CustomerPurchaseApproval.id` |
 | `workflow_instance_id` | uuid, nullable | `workflows.WorkflowInstance.id` for the approval sub-flow (§5.1 touch point 3). FK id only, no ORM relation; null for every session that never requested approval |
 | `credit_reservation_key` | text, nullable | Idempotency key used with `reserveCredit` |
-| `stock_reservation_key` | text, nullable | Idempotency key used with `availabilityService.reserve` |
+| `stock_reservation_key` | text, nullable | Idempotency key used with `availability.reserve` |
 | `submit_idempotency_key` | text, nullable | The current attempt's key; every attempt is recorded in `checkout_session_attempts` (§4.5). Not unique per session |
 | `outcome_kind` | text, nullable | `order \| quote` |
 | `sales_order_id` / `sales_quote_id` | uuid, nullable | |
@@ -306,7 +306,7 @@ contact ──► addresses ──► delivery ──► payment ──► revie
 
 Steps are skippable by configuration: a digital-only cart skips `delivery`; a known logged-in buyer with one address skips `contact` and `addresses`; purchase on account skips gateway selection in `payment` but not the step (PO number is captured there).
 
-Backward navigation is always allowed before submit. Changing an address after selecting delivery **invalidates the rate quote** and returns the buyer to `delivery` with the reason stated — a stale rate is a shipping cost the merchant absorbs.
+Backward navigation is always allowed before submit. Changing an address after selecting delivery **invalidates the rate quote** and returns the buyer to `delivery` with the reason stated — a stale rate is a shipping cost the merchant absorbs. When a tax provider is configured, tax can depend on the shipping address as well (`2026-10-03-tax-providers-roadmap.md`, ADR-3); under the default state `product-rate` (its ADR-5) nothing changes. That the lock's re-price (§6) computes with that address the figure the buyer confirms, and whether the funnel shows a tax estimate at the address step before it, are proposed to the owners of this spec in that roadmap (amendment 6a, §14 Q16) and are not decided here; how the address reaches the lock is for a later pointer, after this spec's lock amendment (whose lock input carries no address) merges.
 
 ---
 
@@ -357,8 +357,10 @@ Checked before any side effect; all failures are cheap and leave nothing to undo
     ├─ another session holds the cart → ABORT 409 { code: 'cart_locked', lockedBySessionId }
     ├─ the cart is not active → ABORT 409 cart_not_lockable
     └─ unchanged → continue
- 2. availabilityService.reserve(items, key = stock_reservation_key,
-       ttl within the payment window: intent TTL ≤ stock TTL ≤ lock timeout, §6)
+ 2. commandBus.execute('availability.reserve', {
+      items, tenantId, organizationId, sourceType: 'checkout',
+      sourceId: <CheckoutSession.id>, idempotencyKey: stock_reservation_key,
+      ttlSeconds: <within the payment window: intent TTL ≤ stock TTL ≤ lock timeout, §6> })
     └─ shortfall → unlock cart, ABORT 409 stock_shortfall (line detail)
  3. IF payment_method = on_account:
        customerGroupsService.reserveCredit(amount, key = credit_reservation_key)
@@ -394,6 +396,8 @@ Checked before any side effect; all failures are cheap and leave nothing to undo
        finalize block (§7.5), outcome_kind = 'order'; the credit reservation
        stands until settled by invoicing
 ```
+
+`availability.commit` (§7.5 step 1, reached from step 7 or step 8) must run before the sales order reaches a status that emits `sales.order.confirmed` — the `wms` auto-reservation on that event tops up only reservations already carrying `source_type = 'order'` and `source_id` = the order id, so a hold still on `'checkout'` is invisible to it (Availability Contract §4.4). Where the deployment cannot guarantee that ordering — the sales document is created at step 4, before payment confirmation reaches commit in the §7.5 finalize block — the conflict rule in that section applies: commit matches the order's active reservations for the variant (summed across warehouses, not by idempotency key, since the subscriber splits a variant across warehouse buckets), converts only the shortfall the order does not already hold and releases the part of the checkout hold the order already covers — a partial `wms.inventory.release` carrying the optional `quantity` input the Availability Contract adds (§4.4) — in the same transaction, so the order is never reserved twice.
 
 ### 7.3 Compensation
 
@@ -438,7 +442,7 @@ Concurrency is enforced by a conditional update `status = 'open' → 'submitting
 
 Steps 5 (quote), 7-success (gateway) and 8 (on-account) all end in the same block, run once:
 
-1. Stock: for an order, `availabilityService.commit(key, orderId)` re-reserves live when the original reservation has already expired; only if that re-reservation shortfalls is the payment refunded and the session failed (§7.3) — the one explicit exception to the rule below that a failing finalize write does not fail the submit. For a quote, `availabilityService.release(key)` — a quote commits no stock.
+1. Stock: for an order, `commandBus.execute('availability.commit', { idempotencyKey: stock_reservation_key, orderId })` re-reserves live when the original reservation has already expired; only if that re-reservation shortfalls is the payment refunded and the session failed (§7.3) — the one explicit exception to the rule below that a failing finalize write does not fail the submit. For a quote, `commandBus.execute('availability.release', …)` with the same `stock_reservation_key` — a quote commits no stock.
 2. Usage and codes: for an order outcome, `promotionsService.registerUsage(...)` for every applied promotion and `promotionsService.useCode({ codeString, cartId, orderId, customerId })` for every applied single-use code (SPEC-055 §A.2), keyed on the created sales document; `customerId` may be null. A quote outcome runs neither here — codes and usage are consumed when `sales.quotes.convert_to_order` turns the quote into an order.
 3. Cart: `cart.markConverted({ cartId, checkoutSessionId, salesOrderId | salesQuoteId, lineMap })` — exactly one of `salesOrderId` / `salesQuoteId` — carrying the document id and the `lineMap: Array<{ cartLineId, salesDocumentLineId }>` payload `cart.cart.converted` requires (cart §11), where `salesDocumentLineId` is an order line id for `salesOrderId` and a quote line id for `salesQuoteId`; a quote marks the cart converted against the quote, not against an order.
 4. `status = completed`, and `checkout.session.completed` is emitted with `outcome_kind`.
@@ -801,6 +805,14 @@ Named here so a later reader does not look for them: **R1** (payment captured wi
 ## 21) Changelog
 
 - **§20 user story map added.** The spec described a step machine, a submit sequence and a risk register but never stated who wanted what, so a prototype had to infer the flow from a numbered procedure. Five epics derived from §5.2, §6, §7, §8 and §15; no new scope. The four risks with no screen of their own are named as such rather than left to look missing. The changelog moves from §20 to §21.
+
+### 2026-10-12 — tax providers (pointer, no version change)
+
+Two sentences in §5.2: when a tax provider is configured, tax can depend on the shipping address as well; under the default state `product-rate` nothing changes. That the lock's re-price (§6) computes the confirmed figure with that address, and whether the funnel shows a tax estimate at the address step, are proposed to the owners of this spec in the tax-providers roadmap (`2026-10-03-tax-providers-roadmap.md`, in review as #6918; its amendment 6a and §14 Q16) and are not decided here; how the address reaches the lock is for a later pointer, after the lock amendment (#7212, whose lock input carries no address) merges.
+
+### 2026-10-11 — availability entry points
+
+- **§3.3, §4.1 and §7.2 call the real availability commands.** The `availabilityService` DI contract does not exist: the availability spec replaced it with the `availability.reserve` / `.release` / `.commit` commands (§4.1 and §15 of [Availability Contract](./2026-08-14-availability-contract.md)). The integration table, the `stock_reservation_key` note and the submit sequence now name those commands and pass the input object `reserve`/`commit` define. §7.2 also states that `availability.commit` runs before the order reaches a status emitting `sales.order.confirmed`, and that the Availability Contract §4.4 conflict rule applies otherwise — commit then matches the order's active reservations for the variant (summed across warehouses, not by idempotency key), converts only the shortfall the order does not already hold and releases the part of the checkout hold the order already covers via the partial `wms.inventory.release` the Availability Contract adds. Recorded from the post-merge review of #5384.
 
 ### 2026-10-11 — v2.3 (submit-path review fixes)
 
