@@ -4,6 +4,7 @@ import { buildChanges, requireId, parseWithCustomFields, setCustomFieldsIfAny, e
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
@@ -350,6 +351,24 @@ async function loadVariantPriceSnapshots(
     })
   }
   return snapshots
+}
+
+async function resetVariantPriceCustomFields(
+  dataEngine: DataEngine,
+  snapshots: VariantPriceSnapshot[]
+): Promise<void> {
+  for (const snapshot of snapshots) {
+    const resetValues = buildCustomFieldResetMap(snapshot.custom ?? undefined, undefined)
+    if (!Object.keys(resetValues).length) continue
+    await setCustomFieldsIfAny({
+      dataEngine,
+      entityId: E.catalog.catalog_product_price,
+      recordId: snapshot.id,
+      organizationId: snapshot.organizationId,
+      tenantId: snapshot.tenantId,
+      values: resetValues,
+    })
+  }
 }
 
 async function restoreVariantPricesFromSnapshots(
@@ -723,8 +742,39 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
-    em.remove(record)
-    await em.flush()
+    let priceSnapshots: VariantPriceSnapshot[] = []
+    await withAtomicFlush(
+      em,
+      [
+        async () => {
+          priceSnapshots = await loadVariantPriceSnapshots(em.fork({ keepTransactionContext: true }), record.id, {
+            tenantId: record.tenantId,
+            organizationId: record.organizationId,
+          })
+          if (priceSnapshots.length) {
+            await em.nativeDelete(CatalogProductPrice, { id: { $in: priceSnapshots.map((price) => price.id) } })
+          }
+        },
+        () => {
+          em.remove(record)
+        },
+      ],
+      { transaction: true }
+    )
+    await capturePriceHistoryEntries(em, priceSnapshots, 'delete', {
+      metadata: { undoneCommand: 'catalog.variants.create' },
+      cache: resolveOmnibusCache(ctx.container),
+    })
+    await resetVariantPriceCustomFields(ctx.container.resolve('dataEngine') as DataEngine, priceSnapshots)
+    for (const price of priceSnapshots) {
+      await invalidateCrudCache(
+        ctx.container,
+        'catalog.price',
+        { id: price.id, organizationId: price.organizationId, tenantId: price.tenantId },
+        price.tenantId,
+        'command:catalog.variants.create:undo'
+      )
+    }
     if (payload?.previousDefaultVariantId) {
       const previousDefault = await em.findOne(CatalogProductVariant, { id: payload.previousDefaultVariantId })
       if (previousDefault) {
@@ -1083,18 +1133,7 @@ const deleteVariantCommand: CommandHandler<
     em.remove(record)
     await em.flush()
     await capturePriceHistoryEntries(em, priceSnapshots, 'delete', { cache: resolveOmnibusCache(ctx.container) })
-    for (const priceSnapshot of priceSnapshots) {
-      const resetValues = buildCustomFieldResetMap(priceSnapshot.custom ?? undefined, undefined)
-      if (!Object.keys(resetValues).length) continue
-      await setCustomFieldsIfAny({
-        dataEngine,
-        entityId: E.catalog.catalog_product_price,
-        recordId: priceSnapshot.id,
-        organizationId: priceSnapshot.organizationId,
-        tenantId: priceSnapshot.tenantId,
-        values: resetValues,
-      })
-    }
+    await resetVariantPriceCustomFields(dataEngine, priceSnapshots)
     if (snapshot?.custom && Object.keys(snapshot.custom).length) {
       const resetValues = buildCustomFieldResetMap(snapshot.custom, undefined)
       if (Object.keys(resetValues).length) {
