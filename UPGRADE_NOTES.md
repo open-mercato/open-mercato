@@ -110,6 +110,24 @@ AI_RUNTIME_BASEURL_ALLOWLIST=openrouter.ai,http://localhost:11434
 Update the allowlist before upgrading when tenants saved a local or self-hosted base URL: once that
 saved value is ignored, prompts go to the provider's default endpoint instead.
 
+### `GET /api/attachments` without paging returns at most the newest 100 attachments (#3816)
+
+`GET /api/attachments?entityId=…&recordId=…` used to load, decrypt and return every attachment of the
+record when `page` or `pageSize` was omitted. That unpaginated form now returns only the newest `100`
+attachments (ordered by `createdAt` descending), the same ceiling as `pageSize`. The response shape is
+unchanged: the unpaginated form still returns only `items`, and passing both `page` and `pageSize`
+pages as before. Both forms now break `createdAt` ties by `id` descending, so page boundaries are
+stable.
+
+**Action for module authors:** a caller that needs every attachment of a record with more than 100
+attachments must pass `page` and `pageSize` (at most `100`) and request pages until `totalPages` is
+reached. This matters most for code that sends the loaded ids back to a save that removes the
+attachments missing from the list: page through the whole list first, as the message composer now
+does for draft attachments. Built-in display-only lists (the attachment form field, product and
+variant media, sales channel offer media, the warranty claim attachments tab and the warranty claim
+line picker for AI assessment) still use the unpaginated form, so they show at most the newest 100
+attachments of a record and any count derived from them stops at 100.
+
 ### Checkout pay-link undo/redo keeps the live usage counters; undoing a locked link's edit returns `422`
 
 `completionCount`, `activeReservationCount` and `isLocked` on a checkout link are owned by its
