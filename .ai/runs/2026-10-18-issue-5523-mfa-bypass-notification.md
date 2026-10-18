@@ -26,12 +26,14 @@ Notification enqueue failures must not disable emergency access; worker-side fai
 
 ## Progress
 
+PR: #7619
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Delivery
 
-- [ ] 1.1 Add type/translations/event/subscriber
-- [ ] 1.2 Connect existing bypass hooks
+- [x] 1.1 Add type/translations/event/subscriber — 91b3e2cd79
+- [x] 1.2 Connect existing bypass hooks — 91b3e2cd79
 
 ### Phase 2: Verification
 
