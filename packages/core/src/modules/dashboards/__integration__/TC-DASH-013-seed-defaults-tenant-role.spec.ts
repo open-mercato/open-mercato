@@ -112,6 +112,17 @@ async function readRoleWidgetRows(fixture: TenantFixture): Promise<RoleWidgetRow
   })
 }
 
+async function countRowsReferencingRolesOf(fixture: TenantFixture): Promise<number> {
+  return withClient(async (client) => {
+    const result = await client.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM dashboard_role_widgets
+        WHERE role_id IN (SELECT id FROM roles WHERE tenant_id = $1)`,
+      [fixture.tenantId],
+    )
+    return Number(result.rows[0]?.count ?? '-1')
+  })
+}
+
 async function readRoleId(fixture: TenantFixture, roleName: string): Promise<string> {
   return withClient(async (client) => {
     const result = await client.query<{ id: string }>(
@@ -164,7 +175,7 @@ test.describe('TC-DASH-013: dashboards tenant setup seeds widgets onto the tenan
       for (const row of seeded) {
         expect(row.roleTenantId, `the ${row.roleName} row must reference the new tenant's own role`).toBe(second.tenantId)
       }
-      expect(await readRoleWidgetRows(first), 'the other tenant receives nothing').toEqual([])
+      expect(await countRowsReferencingRolesOf(first), 'no row is attached to the other tenant\'s roles').toBe(0)
 
       await seedDefaults!({ em: em.fork(), tenantId: second.tenantId, organizationId: second.organizationId })
 
