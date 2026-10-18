@@ -118,7 +118,7 @@ const listSchema = z
     dueTo: z
       .string()
       .optional()
-      .describe('Orders only, ignored on quotes: matches orders whose due date (due_at) is on or before this date. Orders without a due date never match.'),
+      .describe('Orders only, ignored on quotes: matches orders whose due date (due_at) is on or before this bound. A date-only value (YYYY-MM-DD) includes the whole UTC day; a timestamp is used as given. Orders without a due date never match.'),
     tagIds: z.string().optional(),
     tagIdsEmpty: z.string().optional(),
     sortField: z.string().optional(),
@@ -128,6 +128,9 @@ const listSchema = z
   .passthrough()
 
 type ListQuery = z.infer<typeof listSchema>
+
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+const MS_PER_DAY = 24 * 60 * 60 * 1000
 
 function buildFilters(query: ListQuery, numberColumn: string, kind: DocumentKind) {
   const filters: Record<string, unknown> = {}
@@ -195,8 +198,15 @@ function buildFilters(query: ListQuery, numberColumn: string, kind: DocumentKind
       if (!Number.isNaN(from.getTime())) dueRange.$gte = from
     }
     if (query.dueTo) {
-      const to = new Date(query.dueTo)
-      if (!Number.isNaN(to.getTime())) dueRange.$lte = to
+      const dueTo = query.dueTo.trim()
+      const to = new Date(dueTo)
+      if (!Number.isNaN(to.getTime())) {
+        if (DATE_ONLY_PATTERN.test(dueTo)) {
+          dueRange.$lt = new Date(to.getTime() + MS_PER_DAY)
+        } else {
+          dueRange.$lte = to
+        }
+      }
     }
     if (Object.keys(dueRange).length) {
       filters.due_at = dueRange

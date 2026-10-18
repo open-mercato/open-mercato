@@ -258,7 +258,9 @@ describe('buildDocumentCrudOptions', () => {
     const resolveFields = (binding: typeof orderBinding | typeof quoteBinding, query: Record<string, unknown>) =>
       (buildDocumentCrudOptions(binding).list.fields as (q: unknown) => string[])(query)
 
-    it('bounds due_at with dueFrom and dueTo, both inclusive', async () => {
+    // Create accepts a full timestamp for dueAt, so a date-only dueTo must cover
+    // the whole UTC day, not stop at its midnight.
+    it('bounds due_at with date-only dueFrom and dueTo, covering both whole days', async () => {
       const filters = await buildDocumentCrudOptions(orderBinding).list.buildFilters({
         dueFrom: '2026-11-01',
         dueTo: '2026-11-30',
@@ -267,7 +269,7 @@ describe('buildDocumentCrudOptions', () => {
       expect(filters).toEqual({
         due_at: {
           $gte: new Date('2026-11-01T00:00:00.000Z'),
-          $lte: new Date('2026-11-30T00:00:00.000Z'),
+          $lt: new Date('2026-12-01T00:00:00.000Z'),
         },
       })
     })
@@ -275,7 +277,21 @@ describe('buildDocumentCrudOptions', () => {
     it('accepts a single bound', async () => {
       const filters = await buildDocumentCrudOptions(orderBinding).list.buildFilters({ dueTo: '2026-11-30' })
 
-      expect(filters).toEqual({ due_at: { $lte: new Date('2026-11-30T00:00:00.000Z') } })
+      expect(filters).toEqual({ due_at: { $lt: new Date('2026-12-01T00:00:00.000Z') } })
+    })
+
+    it('keeps explicit timestamp bounds exactly as given', async () => {
+      const filters = await buildDocumentCrudOptions(orderBinding).list.buildFilters({
+        dueFrom: '2026-11-01T08:00:00.000Z',
+        dueTo: '2026-11-30T15:00:00.000Z',
+      })
+
+      expect(filters).toEqual({
+        due_at: {
+          $gte: new Date('2026-11-01T08:00:00.000Z'),
+          $lte: new Date('2026-11-30T15:00:00.000Z'),
+        },
+      })
     })
 
     it('ignores an unparseable bound, like dateFrom and dateTo', async () => {

@@ -165,6 +165,25 @@ test.describe('TC-SALES-045: order due date', () => {
     expect(bothBounds).not.toContain(fixtures.noDueDate)
   })
 
+  // Create accepts a full timestamp, so a due date can fall later in the day
+  // than the midnight a date-only dueTo parses to.
+  test('a date-only dueTo includes an order due later that same day', async ({ request }) => {
+    let orderId: string | null = null
+    try {
+      orderId = await createOrder(request, token, '2031-01-25T15:00:00.000Z')
+      const ids = async (query: string) =>
+        (await listOrders(request, token, `ids=${orderId}&${query}`)).map((item) => item.id)
+
+      expect(await ids('dueTo=2031-01-25')).toEqual([orderId])
+      expect(await ids('dueFrom=2031-01-25&dueTo=2031-01-25')).toEqual([orderId])
+      expect(await ids('dueTo=2031-01-24')).toEqual([])
+      expect(await ids('dueTo=2031-01-25T14:59:59.000Z')).toEqual([])
+      expect(await ids('dueTo=2031-01-25T15:00:00.000Z')).toEqual([orderId])
+    } finally {
+      await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
+    }
+  })
+
   test('a quote update carrying dueAt is rejected', async ({ request }) => {
     let quoteId: string | null = null
     try {

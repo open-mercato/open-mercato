@@ -32,7 +32,7 @@ The reference for every step is `expectedDeliveryAt`, the order-only date column
 |---|---|
 | Reject `dueAt` on quotes rather than drop it as `expectedDeliveryAt` is dropped | `dueAt` satisfies the empty-payload refine on its own. Dropping it would let a payload carrying only `dueAt` reach execution, and `updateQuoteCommand` reverts a sent quote to draft and clears its acceptance link on any update that gets that far. |
 | Ignore `dueFrom` / `dueTo` / `sortField=dueAt` on the quotes list rather than reject them | No earlier order-only list parameter exists to copy; ignoring matches how the query engine already drops a sort on a column the table lacks, and list parsing elsewhere ignores unparseable values rather than failing. |
-| `dueFrom` / `dueTo` parse like `dateFrom` / `dateTo` | One parsing rule for the list's date bounds: inclusive `$gte` / `$lte`, an unparseable value is ignored. |
+| A date-only `dueTo` covers the whole UTC day | Order create accepts a full timestamp for `dueAt`, so an order can be due at 15:00. A date-only `dueTo=D` therefore becomes `due_at < D+1 00:00Z` rather than `<= D 00:00Z`, which would drop it. A timestamp `dueTo` is used as given (`$lte`). `dueFrom` needs no expansion: a date-only lower bound already starts at the day's midnight. An unparseable bound is ignored, like `dateFrom` / `dateTo`. |
 | Validate the update date as a real calendar day | `new Date("2026-02-31")` rolls over to 2026-03-03. The shared `dateOnlySchema` (also used by `placedAt` and `expectedDeliveryAt`) now round-trips the parsed date, so a nonexistent day is a 400 instead of a silently different day. |
 
 ## Architecture
@@ -67,7 +67,7 @@ Response gains `dueAt: string \| null` (ISO timestamp).
 |---|---|
 | `sortField=dueAt` | Orders by `due_at`, with `sortDir`. |
 | `dueFrom` | `due_at >= dueFrom`, inclusive. Unparseable → ignored. |
-| `dueTo` | `due_at <= dueTo`, inclusive. Unparseable → ignored. |
+| `dueTo` | Date-only `YYYY-MM-DD`: `due_at < dueTo + 1 day` (the whole UTC day). Timestamp: `due_at <= dueTo`. Unparseable → ignored. |
 
 An order with no due date never matches `dueFrom` / `dueTo`. Each item gains `dueAt: string \| null`, in both the grid projection and the `?id=` detail projection.
 
@@ -86,6 +86,7 @@ An order with no due date never matches `dueFrom` / `dueTo`. Each item gains `du
 | `PUT /api/sales/orders` | Set → move → untouched when omitted → clear |
 | `GET /api/sales/orders?sortField=dueAt` | Ascending and descending order |
 | `GET /api/sales/orders?dueFrom=&dueTo=` | Inclusive bounds; an order without a due date is excluded |
+| `POST` → `GET /api/sales/orders?dueTo=` | An order created with a non-midnight due timestamp matches a date-only `dueTo` on its day and a timestamp `dueTo` at or after its time, not before |
 | `PUT /api/sales/quotes` | `dueAt` returns 400 |
 
 No UI path changes.
@@ -105,7 +106,7 @@ No UI path changes.
 | A caller relied on `2026-02-31`-style input being accepted for `placedAt` / `expectedDeliveryAt` | Low | Order/quote update API | Such input already stored a different day than requested; a 400 surfaces the bug instead | Low |
 | A quote client sends `dueAt` alongside other fields and now gets a 400 | Low | Quote update API | Quotes never had the column; the error message names the field | Low |
 | `sortField=dueAt` on quotes | Low | Quote list | Not mapped; the query engine drops a sort on a column the table lacks | None |
-| Timezone of a date-only `dueTo` | Low | Order list filter | Both the stored value and the bound are midnight UTC, so `dueTo=D` includes orders due on `D` | Low |
+| Timezone of a date-only `dueTo` | Low | Order list filter | A date-only `dueTo=D` covers all of `D` in UTC, including due timestamps written by create; a caller in another zone passes an explicit timestamp bound | Low |
 
 ## Final Compliance Report — 2026-10-14
 
@@ -118,3 +119,4 @@ No UI path changes.
 ## Changelog
 
 - 2026-10-14 — Spec written alongside the implementation. Added the calendar-day check to `dateOnlySchema` after review found that nonexistent days were silently rolled over.
+- 2026-10-18 — A date-only `dueTo` now covers the whole UTC day (exclusive next-day bound); timestamp bounds are kept as given. Review found that an order created with a non-midnight due timestamp fell outside `dueTo` for its own day.
