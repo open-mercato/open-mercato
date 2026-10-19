@@ -317,7 +317,10 @@ export async function upsertEncryptionMapSpecs(
   return materializedScopes
 }
 
-async function upsertEncryptionMaps(
+// Exported so other modules (e.g. the directory subscriber that seeds maps for a
+// newly-created organization) can seed the default module encryption maps for one
+// (tenant, org) scope without duplicating the CLI's module-resolution logic.
+export async function upsertEncryptionMaps(
   em: EntityManager,
   tenantId: string,
   organizationId: string | null,
