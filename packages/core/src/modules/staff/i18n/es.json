@@ -269,6 +269,8 @@
   "staff.leaveRequests.errors.profileLoad": "No se pudo cargar tu perfil.",
   "staff.leaveRequests.errors.profileRequired": "Crea tu perfil primero.",
   "staff.leaveRequests.errors.reject": "No se pudo rechazar la solicitud de ausencia.",
+  "staff.leaveRequests.errors.undoAfterDecision": "Esta solicitud de ausencia ya fue aprobada o rechazada y ya no se puede deshacer. Deshaz primero la decisión.",
+  "staff.leaveRequests.errors.undoMemberMissing": "El miembro del equipo original de esta solicitud de ausencia ya no existe, por lo que el cambio no se puede deshacer.",
   "staff.leaveRequests.form.actions.create": "Crear",
   "staff.leaveRequests.form.actions.save": "Guardar",
   "staff.leaveRequests.form.createTitle": "Crear solicitud de ausencia",

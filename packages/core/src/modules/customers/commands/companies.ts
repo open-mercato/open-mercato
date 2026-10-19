@@ -27,6 +27,18 @@ import {
   CustomerTagAssignment,
 } from '../data/entities'
 import {
+  captureInteractionRestoreDetails,
+  omitInteractionRestoreDetails,
+  restoreInteractionRestoreDetails,
+  type InteractionRestoreDetails,
+} from './interactionRestoreDetails'
+import {
+  labelAssignmentIndexEntries,
+  removeEntityLabelAssignments,
+  restoreEntityLabelAssignments,
+  type LabelAssignmentRestoreSnapshot,
+} from './entityLabelAssignments'
+import {
   companyCreateSchema,
   companyUpdateSchema,
   type CompanyCreateInput,
@@ -189,7 +201,7 @@ type CompanyInteractionSnapshot = {
   updatedAt: Date
   deletedAt: Date | null
   custom?: Record<string, unknown>
-}
+} & InteractionRestoreDetails
 
 type CompanySnapshot = {
   entity: {
@@ -244,9 +256,14 @@ type CompanySnapshot = {
 type CompanyUndoPayload = {
   before?: CompanySnapshot | null
   after?: CompanySnapshot | null
+  labelAssignments?: LabelAssignmentRestoreSnapshot[]
 }
 
-async function loadCompanySnapshot(em: EntityManager, id: string): Promise<CompanySnapshot | null> {
+async function loadCompanySnapshot(
+  em: EntityManager,
+  id: string,
+  options: { includeInteractionRestoreDetails?: boolean } = {},
+): Promise<CompanySnapshot | null> {
   const entity = await em.findOne(CustomerEntity, { id, deletedAt: null })
   if (!entity || entity.kind !== 'company') return null
   const profile = await em.findOne(CustomerCompanyProfile, { entity })
@@ -408,6 +425,7 @@ async function loadCompanySnapshot(em: EntityManager, id: string): Promise<Compa
         createdAt: interaction.createdAt,
         updatedAt: interaction.updatedAt,
         deletedAt: interaction.deletedAt ?? null,
+        ...(options.includeInteractionRestoreDetails ? captureInteractionRestoreDetails(interaction) : {}),
         custom: await loadCustomFieldSnapshot(em, {
           entityId: INTERACTION_ENTITY_ID,
           recordId: interaction.id,
@@ -992,13 +1010,16 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
   },
 }
 
-const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, { entityId: string }> =
+const deleteCompanyCommand: CommandHandler<
+  { body?: Record<string, unknown>; query?: Record<string, unknown> },
+  { entityId: string; labelAssignments?: LabelAssignmentRestoreSnapshot[] }
+> =
   {
     id: 'customers.companies.delete',
     async prepare(input, ctx) {
       const id = requireId(input, 'Company id required')
       const em = (ctx.container.resolve('em') as EntityManager)
-      const snapshot = await loadCompanySnapshot(em, id)
+      const snapshot = await loadCompanySnapshot(em, id, { includeInteractionRestoreDetails: true })
       return snapshot ? { before: snapshot } : {}
     },
     async execute(input, ctx) {
@@ -1032,6 +1053,7 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
       }
 
       const profile = await baseEm.findOne(CustomerCompanyProfile, { entity: record })
+      let labelAssignments: LabelAssignmentRestoreSnapshot[] = []
 
       await baseEm.transactional(async (em) => {
         const recheckPersonLinks = await em.count(CustomerPersonCompanyLink, {
@@ -1076,6 +1098,7 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
           await em.nativeDelete(CustomFieldValue, { entityId: COMPANY_ENTITY_ID, recordId: profile.id })
         }
         await em.nativeDelete(CustomFieldValue, { entityId: CUSTOMER_ENTITY_ID, recordId: record.id })
+        labelAssignments = await removeEntityLabelAssignments(em, record)
         const txEntity = await findOneWithDecryption(
           em,
           CustomerEntity,
@@ -1168,11 +1191,12 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
 
       await emitQueryIndexDeleteEvents(ctx, [companyEntityIndexEntry(record)])
       await emitQueryIndexDeleteEvents(ctx, indexDeletes)
+      await emitQueryIndexDeleteEvents(ctx, labelAssignmentIndexEntries(record, labelAssignments))
       await emitQueryIndexUpsertEvents(ctx, memberUpserts)
       await emitQueryIndexUpsertEvents(ctx, dealUpserts)
-      return { entityId: record.id }
+      return { entityId: record.id, labelAssignments }
     },
-    buildLog: async ({ snapshots }) => {
+    buildLog: async ({ result, snapshots }) => {
       const before = snapshots.before as CompanySnapshot | undefined
       if (!before) return null
       const { translate } = await resolveTranslations()
@@ -1182,10 +1206,11 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
         resourceId: before.entity.id,
         tenantId: before.entity.tenantId,
         organizationId: before.entity.organizationId,
-        snapshotBefore: before,
+        snapshotBefore: omitInteractionRestoreDetails(before),
         payload: {
           undo: {
             before,
+            labelAssignments: result?.labelAssignments,
           } satisfies CompanyUndoPayload,
         },
       }
@@ -1275,6 +1300,7 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
       const beforeInteractions = (before as { interactions?: CompanyInteractionSnapshot[] }).interactions ?? []
 
       let dealMap = new Map<string, CustomerDeal>()
+      let restoredLabelAssignments: LabelAssignmentRestoreSnapshot[] = []
 
       await withAtomicFlush(em, [
         () => syncEntityTags(em, entity, before.tagIds),
@@ -1421,12 +1447,16 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
               source: interaction.source,
               appearanceIcon: interaction.appearanceIcon,
               appearanceColor: interaction.appearanceColor,
+              ...restoreInteractionRestoreDetails(interaction),
               createdAt: interaction.createdAt,
               updatedAt: interaction.updatedAt,
               deletedAt: interaction.deletedAt,
             })
             em.persist(restoredInteraction)
           }
+        },
+        async () => {
+          restoredLabelAssignments = await restoreEntityLabelAssignments(em, entity, payload?.labelAssignments)
         },
       ], { transaction: true })
 
@@ -1527,6 +1557,7 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
       }
       await emitQueryIndexUpsertEvents(ctx, [companyEntityIndexEntry(entity)])
       await emitQueryIndexUpsertEvents(ctx, childUpserts)
+      await emitQueryIndexUpsertEvents(ctx, labelAssignmentIndexEntries(entity, restoredLabelAssignments))
       await emitQueryIndexUpsertEvents(ctx, memberUpserts)
       await emitQueryIndexUpsertEvents(ctx, dealUpserts)
     },
