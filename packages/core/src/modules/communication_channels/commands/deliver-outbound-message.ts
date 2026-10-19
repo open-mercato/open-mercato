@@ -541,7 +541,7 @@ const deliverOutboundMessageCommand: CommandHandler<
         // (the RFC2822 id the recipient replies to) — fall back to that.
         // Store it bracket-stripped to match the inbound convention
         // (`normalizeMimeInbound` strips), so the JWZ matcher and sent-folder dedup —
-        // which compare against stripped ids — resolve it. `assembleRfc2822`
+        // which compare against stripped ids — resolve it. The MIME composer
         // re-applies brackets when this id is later used to build reply headers.
         messageId: stripBrackets(
           stringOrUndefined((converted.metadata as Record<string, unknown> | undefined)?.messageId) ??

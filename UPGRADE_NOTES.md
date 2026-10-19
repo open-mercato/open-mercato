@@ -237,10 +237,17 @@ whose capabilities advertise `fileSharing: true`. Each item carries the file byt
 therefore fold long encoded headers and quote a display name only when it needs quoting
 (`From: Alice <a@example.com>`).
 
+`channelMetadata.outboundAttachments` is now a hub-owned key: `send-as-user` drops any value a
+caller puts there. In the integration helpers, `CapturedTestSeedEmail.content.attachments` items now
+carry `fileName`, `mimeType`, `fileSize` and `sha256` (no `url` or `inline`), because the test-seed
+adapter records a digest of the bytes instead of the items it was handed.
+
 **Action for module authors:** a custom adapter that advertises `fileSharing: true` must send
 `attachment.content` when it is set (or use `resolveOutboundAttachmentBytes` from
 `communication_channels/lib/outbound-attachments`) and must not fetch `attachment.url`. Tests that
-assert the exact bytes of a Gmail outbound message may need the new header formatting.
+assert the exact bytes of a Gmail outbound message may need the new header formatting. An
+`attachmentService` override does not need the new optional `describeScoped`: without it the hub
+validates attachments through `readScoped`.
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
 

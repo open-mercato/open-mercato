@@ -239,7 +239,8 @@ function encodeBodyPart(content: string): { cte: string; body: string } {
  * single-part text or html body.
  *
  * @deprecated Use `composeEmailMessage`, which carries attachments and folds
- * long encoded headers. Kept unchanged for existing callers.
+ * long encoded headers. Kept unchanged for one minor release so existing
+ * callers can move, then removed per `BACKWARD_COMPATIBILITY.md`.
  */
 export function assembleRfc2822(input: AssembleRfc2822Input): Buffer {
   const boundary = `omc_${crypto.randomUUID()}`
