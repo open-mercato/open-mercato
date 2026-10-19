@@ -794,6 +794,28 @@ describe('sales.orders.update — crossing between the modes', () => {
     expect(order!.grandTotalGrossAmount).toBe(before)
   })
 
+  it.each([
+    ['computed', {}],
+    ['computed', SUPPLIED_TOTALS],
+    ['external', {}],
+  ] as const)(
+    'rejects a %s order update whose only content is its current mode as empty',
+    async (totalsMode, extra) => {
+      const { ctx, order } = harnessWith(totalsMode)
+      const before = order!.updatedAt
+
+      // Naming the mode the order already has is not an edit, and on a computed
+      // order header totals do nothing either; reaching execution would only
+      // rewrite the header and bump `updated_at` for no change.
+      await expect(
+        update().execute({ id: ORDER_ID, totalsMode, ...extra } as never, ctx),
+      ).rejects.toMatchObject({
+        issues: [expect.objectContaining({ message: 'update_payload_empty' })],
+      })
+      expect(order!.updatedAt).toBe(before)
+    },
+  )
+
   it('restates the header of an external order without naming the mode again', async () => {
     const { ctx, order } = harnessWith('external')
 

@@ -5922,7 +5922,7 @@ const updateOrderCommand: CommandHandler<
     const totalsModeChanged = nextTotalsMode !== currentTotalsMode;
     const externalHeaderSupplied =
       isExternalAmountsMode(nextTotalsMode) && hasAnySuppliedHeaderTotal(parsed);
-    if (parsed.totalsMode === undefined && !externalHeaderSupplied) {
+    if (!totalsModeChanged && !externalHeaderSupplied) {
       documentEditSchema.parse(rawInput ?? {});
     }
     if (isExternalAmountsMode(nextTotalsMode) && (totalsModeChanged || externalHeaderSupplied)) {
