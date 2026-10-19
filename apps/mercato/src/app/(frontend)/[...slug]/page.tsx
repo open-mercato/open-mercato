@@ -91,6 +91,10 @@ export default async function SiteCatchAll({ params }: FrontendParams) {
         { tenantId: customerAuth.tenantId, organizationId: customerAuth.orgId },
       )
       if (!ok) return renderAccessDenied()
+      if (typeof customerRbac.getUnavailableModuleIds === 'function') {
+        const unavailableModuleIds = await customerRbac.getUnavailableModuleIds(customerAuth.tenantId)
+        if (unavailableModuleIds.includes(match.route.moduleId)) return renderAccessDenied()
+      }
     }
     const Component = await match.route.load()
     return <Component params={match.params} />
@@ -121,6 +125,10 @@ export default async function SiteCatchAll({ params }: FrontendParams) {
       const rbac = scopeContainer.resolve('rbacService') as RbacService
       const ok = await rbac.userHasAllFeatures(auth.sub, features, { tenantId: auth.tenantId, organizationId: auth.orgId })
       if (!ok) return renderAccessDenied()
+      if (typeof rbac.getUnavailableModuleIds === 'function') {
+        const unavailableModuleIds = await rbac.getUnavailableModuleIds(auth.tenantId ?? null, auth.sub)
+        if (unavailableModuleIds.includes(match.route.moduleId)) return renderAccessDenied()
+      }
     }
   }
   const middlewareRedirect = await resolvePageMiddlewareRedirect({

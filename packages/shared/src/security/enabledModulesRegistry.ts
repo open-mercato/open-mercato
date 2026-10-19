@@ -44,6 +44,7 @@ function buildRegistry(modules: readonly Module[]): FeatureRegistry {
   const prefixToModule = new Map<string, string>()
   const concreteFeatureIds: string[] = []
   const concreteFeatureSet = new Set<string>()
+  const authoritativeFeatures = new Set<string>()
 
   const addConcreteFeature = (featureId: string, owningModule: string, authoritative: boolean) => {
     if (!featureId || featureId === '*' || featureId.endsWith('.*')) return
@@ -51,10 +52,17 @@ function buildRegistry(modules: readonly Module[]): FeatureRegistry {
       concreteFeatureSet.add(featureId)
       concreteFeatureIds.push(featureId)
     }
-    if (authoritative || !featureToModule.has(featureId)) {
+    const dot = featureId.indexOf('.')
+    const prefixModule = dot > 0 ? featureId.slice(0, dot) : featureId
+    const currentOwner = featureToModule.get(featureId)
+    if (
+      authoritative
+      || currentOwner === undefined
+      || (!authoritativeFeatures.has(featureId) && owningModule === prefixModule && currentOwner !== prefixModule)
+    ) {
       featureToModule.set(featureId, owningModule)
     }
-    const dot = featureId.indexOf('.')
+    if (authoritative) authoritativeFeatures.add(featureId)
     if (dot > 0) {
       const prefix = featureId.slice(0, dot)
       if (!prefixToModule.has(prefix)) prefixToModule.set(prefix, owningModule)
@@ -138,6 +146,11 @@ export function getEnabledModuleIds(): string[] {
 export function getConcreteFeatureIds(): string[] {
   const registry = getRegistry()
   return registry ? [...registry.concreteFeatureIds] : []
+}
+
+/** @internal Identity of the current feature catalog; changes whenever the registry is rebuilt. */
+export function getFeatureCatalogIdentity(): object | null {
+  return getRegistry()
 }
 
 /** @internal Distinguishes an empty registry from an unavailable bootstrap registry. */
