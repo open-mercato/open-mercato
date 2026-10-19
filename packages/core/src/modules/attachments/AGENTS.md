@@ -55,6 +55,78 @@ write time.
 - When copying/cloning attachments across records, **carry the source row's scope
   pair as a unit** (both columns together) rather than overriding one column with a
   possibly-null value.
+- A module that must store a vector image (a logo, a brand mark) MUST pass
+  `allowVectorImage: true` to `attachmentService.createScoped()` rather than
+  relaxing `lib/security.ts`. That flag routes SVG through `lib/vector-image.ts`
+  (DOMPurify SVG profile on a fresh `jsdom` window plus the reference/CSS
+  policy), stores only the sanitised bytes, and records
+  `storageMetadata.vectorImage` with the sanitiser, its version, the policy
+  version and the SHA-256 of the stored bytes. Files that would lose renderable
+  or active content are rejected with a `vector_image_*` code, never stored
+  silently altered. See
+  `.ai/specs/2026-10-05-attachments-sanitised-vector-images.md`.
+- Serve SVG inline **only** from `GET /api/attachments/file/{id}`, **only** when
+  `isTrustedVectorImage(attachment, bytes)` holds (record present, known policy
+  version, digest matches the bytes just read) **and** the raw request path is
+  the canonical `/api/attachments/file/<encodeURIComponent(id)>`, with
+  `VECTOR_IMAGE_CONTENT_SECURITY_POLICY` and `X-Content-Type-Options: nosniff`.
+  Next.js matches `headers()` sources against the undecoded path while the API
+  dispatcher decodes it, so an encoded spelling reaches the route under the app
+  CSP. Every other SVG-typed row, and every other spelling, stays a download.
+- `readScoped` (and any service read a module route serves) returns SVG as an
+  `application/octet-stream` download, never inline: a route outside the file
+  path gets the app-wide CSP from `next.config.ts`, which wins over its own.
+- `GET /api/attachments/file/{id}` MUST set a sandboxing `Content-Security-Policy`
+  on every response it produces, JSON errors included. In the app, `next.config.ts`
+  (and the create-app template) give responses whose raw path starts with
+  `/api/attachments/file/` the vector CSP and exclude that path from the app CSP
+  rule; a config header overrides a route handler header of the same name, and
+  only config reaches the dispatcher's own responses. Keep both configs in sync
+  (`yarn template:sync`).
+- Build attachment preview URLs with `resolveAttachmentThumbnailUrl`
+  (`lib/imageUrls.ts`): a sanitised vector row previews through the file route,
+  everything else through the image route. Client code reads the vector record
+  only through `lib/vector-image-record.ts`, never `lib/vector-image.ts` (which
+  loads `jsdom` and `dompurify`).
+- Keep every pass in `lib/vector-image.ts` linear: walk the DOM over
+  `firstChild`/`nextSibling`, never copy jsdom's live `children`/`childNodes`
+  collections, never remove scattered nodes one by one from a wide parent
+  (rebuild it), refuse at the first non-inert finding instead of removing more,
+  run DOMPurify on a copy (not `IN_PLACE`), and keep the markup, node, element,
+  depth, attribute and rendered-element bounds that the `bounded cost` test
+  enforces.
+- A `<style>` may contain only text: check its children, and inspect exactly the
+  concatenation of its direct text children (what browsers apply), never
+  `textContent`.
+- Read CSS only through `tokenizeCss` in `lib/vector-image.ts`: the CSS policy,
+  the stylesheet rules and every declaration's references consume its tokens,
+  once per stylesheet. Never add a second character-level CSS reader (for
+  comments, strings, braces or `url()`): two readers disagree, and the
+  disagreement hides rules from the policy and the rendered-size bound. Never
+  parse untrusted CSS with jsdom's CSSOM or rrweb-cssom: they are quadratic and
+  do not tokenise `url()` as browsers do.
+- Accept a fragment reference only as `#` and a plain ASCII id
+  (`PLAIN_ID_PATTERN`) and look ids up verbatim; keep non-plain `id`s (they are
+  unreachable) and keep refusing `xml:id`. Never decode, unescape or normalise a fragment to make it match:
+  browsers percent-decode fragments, so any second spelling lets a reference
+  escape the rendered-size bound.
+- Allow `url()` only in `URL_PROPERTIES`; never default an unknown property to
+  a multiplier. Change a declaration's property only at function depth 0.
+- Render cost is best effort (spec, Threat Model): prefer refusing a construct
+  logos do not need over modelling its cost. When a weight, primitive or cap
+  changes, time the largest accepted variant in Chrome on CPU canvas at 800 px
+  (target about 2 s) and record it in the spec. Never accept SMIL animation, CSS
+  functions beyond `url()` and the colour functions, filter primitives whose
+  cost grows with user units, blurs under scale-up, or rasters other than
+  single-frame PNG and JPEG.
+- Keep stylesheets to the exporter subset `parseStyleRules` accepts (flat rules,
+  simple selectors, no at-rules, custom properties or `var()`) and keep its
+  rule/selector/reference/work caps. Narrow what a stylesheet may contain rather
+  than model more CSS in the rendered-size bound.
+- Trim a reference only as its own syntax does: C0 controls and spaces for an
+  `href`, ASCII CSS whitespace for an unquoted `url()`, nothing for a quoted one.
+  Never use JavaScript `trim()` on a reference, and refuse a reference-bearing
+  attribute that DOMPurify's `trim()` would change.
 
 ## Never
 
@@ -64,6 +136,15 @@ write time.
 - **Never create a partial-null attachment** (one scope column set, the other null).
 - **Never read or expose attachment rows without `checkAttachmentAccess`** — bypassing
   it reintroduces the cross-tenant fail-open class.
+- Never accept SVG on the generic `POST /api/attachments` route, and never hand
+  vector input to Sharp (`api/image/...` keeps refusing `image/svg+xml`).
+- Never write `storageMetadata.vectorImage` from anywhere but the scoped upload
+  service's vector path.
+- Never inject a stored SVG's markup into a page DOM (`innerHTML`,
+  `dangerouslySetInnerHTML`, inline `<svg>` built from the file): show it with
+  `<img>` or link to the file route. The sanitiser keeps ids such as `title` or
+  `body` (`SANITIZE_DOM: false`), which are safe only in a document no page
+  script shares.
 
 ## Known cross-module creation paths
 
@@ -90,5 +171,6 @@ both-or-neither invariant (audited for #2109):
 
 ```bash
 yarn workspace @open-mercato/core test -- access
+yarn workspace @open-mercato/core test -- src/modules/attachments
 yarn workspace @open-mercato/core build
 ```
