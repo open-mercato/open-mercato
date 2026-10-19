@@ -7,8 +7,11 @@
  */
 
 import { describe, test, expect } from '@jest/globals'
+import { features } from '../../acl'
+import { notificationTypes } from '../../notifications'
 import {
   TASK_COMPLETE_COMMAND_ID,
+  TASK_COMPLETE_REQUIRED_FEATURE,
   TASK_QUICK_ACTION_COMPLETE_ID,
   TASK_QUICK_ACTION_VIEW_ID,
   buildTaskQuickActions,
@@ -108,5 +111,31 @@ describe('buildTaskQuickActions', () => {
   test('no action ever declares confirmRequired — no confirm dialog exists to honour it', () => {
     const actions = buildTaskQuickActions({ decisions: [{ id: 'approve' }] })
     expect(actions.every((action) => !action.confirmRequired)).toBe(true)
+  })
+})
+
+describe('workflows.task.assigned declares the quick completion action', () => {
+  const assignedType = notificationTypes.find((type) => type.type === 'workflows.task.assigned')
+
+  test('the declared optional action matches the stored one-click action id and command', () => {
+    const stored = buildTaskQuickActions({ decisions: [{ id: 'approve' }] }).find(
+      (action) => action.id === TASK_QUICK_ACTION_COMPLETE_ID
+    )
+    const declared = assignedType?.optionalActions?.find(
+      (action) => action.id === TASK_QUICK_ACTION_COMPLETE_ID
+    )
+
+    expect(stored).toBeDefined()
+    expect(declared).toBeDefined()
+    expect(declared?.commandId).toBe(stored?.commandId)
+    expect(declared?.labelKey).toBe(stored?.labelKey)
+    expect(declared?.requiredFeatures).toEqual([TASK_COMPLETE_REQUIRED_FEATURE])
+    expect(features.some((feature) => feature.id === TASK_COMPLETE_REQUIRED_FEATURE)).toBe(true)
+  })
+
+  test('the completion action is not a default button of any task notification type', () => {
+    for (const type of notificationTypes) {
+      expect(type.actions.some((action) => action.commandId)).toBe(false)
+    }
   })
 })

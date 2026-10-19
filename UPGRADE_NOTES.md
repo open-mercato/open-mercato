@@ -128,6 +128,45 @@ variant media, sales channel offer media, the warranty claim attachments tab and
 line picker for AI assessment) still use the unpaginated form, so they show at most the newest 100
 attachments of a record and any count derived from them stops at 100.
 
+### Notification actions run only commands their notification type declares (#7215)
+
+The notification create routes (`POST /api/notifications`, `/api/notifications/batch`,
+`/api/notifications/role` and `/api/notifications/feature`) now answer
+`400 { error, code: "notification_action_command_not_allowed" }` when any `actions[]` entry carries a
+`commandId`, and nothing is created. Actions that only link (`href`) are accepted as before.
+
+`POST /api/notifications/:id/action` now answers `403 { error, code: "notification_action_forbidden" }`,
+before the notification is claimed, when the stored action carries a `commandId` and the notification's
+registered type does not declare an action with the same `id` and the same `commandId` in `actions` or
+the new optional `optionalActions`, or when the clicking user lacks the declared action's new optional
+`requiredFeatures`. Actions without a `commandId` behave as before. The command input `id` is now always
+the notification's `sourceEntityId`; an `id` in the request `payload` no longer overrides it. Both codes
+are exported from `@open-mercato/shared/modules/notifications/types` as
+`NOTIFICATION_ACTION_COMMAND_NOT_ALLOWED_ERROR_CODE` and `NOTIFICATION_ACTION_FORBIDDEN_ERROR_CODE`.
+
+Built-in types: the approve and reject actions of `staff.leave_request.pending` now require
+`staff.leave_requests.manage`, the same feature as the leave request accept and reject routes.
+`workflows.task.assigned` declares the one-click `complete` action (`workflows.tasks.complete`,
+requiring `workflows.tasks.complete`) in `optionalActions`, so task quick actions keep working.
+
+**Action for integrators:** declare every command-backed action on the notification type definition
+(`actions`, or `optionalActions` for an action a producer attaches to a single notification), with
+`requiredFeatures` matching the route that normally runs the command, and create those notifications
+from server code through `notificationService`. API callers can no longer attach a command to an
+action.
+
+**Operator check:** pending notifications created before the upgrade with a command whose type does
+not declare it are refused automatically. A row created through the API that copies a declared action
+exactly cannot be told apart from a server-created one; review pending command actions with:
+
+```sql
+select id, type, recipient_user_id, created_at
+from notifications
+where action_data::text like '%commandId%'
+  and actioned_at is null
+  and status <> 'dismissed';
+```
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
