@@ -120,27 +120,40 @@ test.describe('TC-PROM-083: codes backend pages', () => {
       // already runs the app with its own lazy-shared worker armed (`yarn dev:app`),
       // which is the SAME documented dual-consumer race tracked in #6008 against
       // `catalog-product-bulk-create` (there it corrupts a per-row summary and is
-      // absorbed by Playwright's retry; here it reliably failed BOTH attempts instead,
-      // confirmed while stabilizing PR #7592's CI — a ~19s stall followed by every
-      // subsequent poll answering 401, `packages/shared/src/lib/auth/server.ts`'s own
-      // documented transient-DB-pressure path). The lazy worker alone, backed by the
-      // poll below's generous 30s timeout, is the single-consumer path that avoids the
-      // race entirely.
+      // absorbed by Playwright's retry). The lazy worker alone, backed by the poll
+      // below's generous 30s timeout, is the single-consumer path that avoids that race
+      // — a real improvement on its own, though it turned out NOT to be this spec's
+      // whole problem; see the poll's own comment just below for the actual fix.
 
-      // Poll the API directly (`page.request`, same cookie session, no page-level fetch
-      // involved) rather than repeatedly reloading the page and re-reading its DOM — a
-      // plain `fetch()` GET with no `Cache-Control` response header can be served from
-      // the browser's own HTTP cache across a `page.reload()` in this engine, which made
-      // an earlier version of this spec poll a stale "0 / 3" DOM forever even though the
-      // server-side row had already reached 3 / 3 (confirmed directly against this exact
-      // route with `curl` while debugging). Reload the real page only ONCE the API
-      // confirms the pool is full, to assert the UI itself reflects it.
+      // Poll the API directly rather than repeatedly reloading the page and re-reading
+      // its DOM — a plain `fetch()` GET with no `Cache-Control` response header can be
+      // served from the browser's own HTTP cache across a `page.reload()` in this
+      // engine, which made an earlier version of this spec poll a stale "0 / 3" DOM
+      // forever even though the server-side row had already reached 3 / 3 (confirmed
+      // directly against this exact route with `curl` while debugging). Reload the real
+      // page only ONCE the API confirms the pool is full, to assert the UI itself
+      // reflects it.
+      //
+      // Polls via `page.evaluate(() => fetch(...))` (in-page, browser-cookie-jar-backed),
+      // NOT `page.request.get(...)` — root-caused while stabilizing PR #7592's CI:
+      // `page.request`'s own APIRequestContext cookie jar does not apply the "treat
+      // 127.0.0.1 as a secure context" exemption browsers give `localhost`/`127.0.0.1`
+      // (this app always sets its auth cookies `Secure` under `NODE_ENV=production`,
+      // which `ephemeral-integration` runs under, over plain HTTP). The first few
+      // `page.request` polls still carried the cookies, then every later one sent none
+      // at all and got a bare 401 — confirmed via the Playwright trace's own captured
+      // request cookies. An in-page `fetch()` shares the real browser cookie jar instead
+      // (same-origin credentials are implicit), so it never loses the session. `cache:
+      // 'no-store'` keeps the no-stale-cache guarantee the original `page.request`
+      // approach also relied on.
       await expect
         .poll(
           async () => {
-            const response = await page.request.get(`/api/promotions/codes?ids=${dynamicCodeId}&page=1&pageSize=1`);
-            const body = (await response.json().catch(() => null)) as { items?: Array<{ generated?: number; amount?: number }> } | null;
-            const item = body?.items?.[0];
+            const item = await page.evaluate(async (id: string) => {
+              const response = await fetch(`/api/promotions/codes?ids=${id}&page=1&pageSize=1`, { cache: 'no-store' });
+              const body = (await response.json().catch(() => null)) as { items?: Array<{ generated?: number; amount?: number }> } | null;
+              return body?.items?.[0] ?? null;
+            }, dynamicCodeId as string);
             return typeof item?.generated === 'number' && item.generated === item.amount;
           },
           { timeout: 30_000, message: 'pool never reached amount via the API' },
