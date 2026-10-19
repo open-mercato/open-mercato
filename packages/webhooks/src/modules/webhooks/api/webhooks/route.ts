@@ -10,6 +10,8 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import type { WebhookCreateInput, WebhookUpdateInput } from '../../data/validators'
+import { invalidateWebhookSubscriptionCacheFor } from '../../lib/subscription-cache'
+import { applyWebhookActiveState } from '../../lib/activation'
 
 type WebhookCrudCtx = CrudCtx & {
   __webhookSecret?: string
@@ -67,6 +69,12 @@ const webhookDetailResponseSchema = webhookListItemSchema.extend({
 
 const deleteResponseSchema = z.object({ success: z.literal(true) })
 const errorSchema = z.object({ error: z.string() })
+
+function resolveTenantIdForInvalidation(entity: unknown, ctx: CrudCtx): string | null {
+  const entityTenantId = (entity as { tenantId?: unknown } | null)?.tenantId
+  if (typeof entityTenantId === 'string' && entityTenantId.length > 0) return entityTenantId
+  return ctx.auth?.tenantId ?? null
+}
 
 const crud = makeCrudRoute<WebhookCreateInput, WebhookUpdateInput, z.infer<typeof webhookListQuerySchema>>({
   metadata: {
@@ -128,7 +136,7 @@ const crud = makeCrudRoute<WebhookCreateInput, WebhookUpdateInput, z.infer<typeo
       if (input.rateLimitPerMinute !== undefined) entity.rateLimitPerMinute = input.rateLimitPerMinute
       if (input.autoDisableThreshold !== undefined) entity.autoDisableThreshold = input.autoDisableThreshold
       if (input.integrationId !== undefined) entity.integrationId = input.integrationId
-      if (input.isActive !== undefined) entity.isActive = input.isActive
+      if (input.isActive !== undefined) applyWebhookActiveState(entity, input.isActive)
     },
   },
   del: { idFrom: 'query' },
@@ -220,6 +228,13 @@ const crud = makeCrudRoute<WebhookCreateInput, WebhookUpdateInput, z.infer<typeo
       if (scopedCtx.__webhookSecret) {
         ;(entity as WebhookEntity & { __revealSecret?: string }).__revealSecret = scopedCtx.__webhookSecret
       }
+      await invalidateWebhookSubscriptionCacheFor(ctx.container, resolveTenantIdForInvalidation(entity, ctx))
+    },
+    afterUpdate: async (entity, ctx) => {
+      await invalidateWebhookSubscriptionCacheFor(ctx.container, resolveTenantIdForInvalidation(entity, ctx))
+    },
+    afterDelete: async (_id, ctx) => {
+      await invalidateWebhookSubscriptionCacheFor(ctx.container, ctx.auth?.tenantId ?? null)
     },
     beforeDelete: async (id, ctx) => {
       const auth = ctx.auth

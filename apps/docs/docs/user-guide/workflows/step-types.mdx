@@ -16,7 +16,14 @@ Steps are the building blocks of workflows. Each step type serves a specific pur
 | **USER_TASK** | Human decision/input | Waits for user action | Approvals, reviews, manual data entry |
 | **AUTOMATED** | Automated processing | Executes activities, then advances | API calls, calculations, data updates |
 | **WAIT_FOR_SIGNAL** | External trigger | Waits for signal from outside | Payment confirmations, webhook callbacks |
+| **WAIT_FOR_CONDITION** | Wait on the run's own data | Waits until a condition over the context holds | "Wait until the grid approval lands", "wait until the balance is paid" |
+| **IF_ELSE** | Two-way decision | Advances immediately, routes on conditions | Yes/no gates: qualified, approved, in budget |
+| **SWITCH** | Multi-way decision | Advances immediately, routes on one field's value | Routing on a status, a plan tier, a financing choice |
 | **SUB_WORKFLOW** | Call another workflow | Executes child workflow | Reusable processes, modular workflows |
+
+:::tip Changing your mind
+A step's type is not permanent. The step inspector's **Change type…** control converts a step in place, keeping its id, name, position and wiring; configuration the new type cannot execute is parked in a visible *Unmapped configuration* drawer rather than deleted, so converting back restores it. START and END are the exceptions — they define the shape of the workflow and cannot be converted.
+:::
 
 ## START
 
@@ -71,11 +78,11 @@ The END step marks completion of the workflow. When execution reaches an END ste
 USER_TASK steps require human intervention—someone needs to review data, make a decision, or provide input.
 
 **Characteristics:**
-- Creates a task in the user's task queue
+- Creates a task that appears in the [Work Inbox](./user-tasks#the-work-inbox)
 - Workflow pauses at this step until the task is completed
-- Can be assigned to specific users or roles
-- Supports custom forms for data collection
-- Tracks SLA (service level agreements) and escalation
+- Can be assigned to a user, a role queue, a context value, or a business rule
+- Supports custom forms for data collection, and decision buttons bound to outgoing routes
+- Tracks a deadline, reminders before it, and what happens when it passes
 
 **Configuration:**
 
@@ -113,10 +120,17 @@ Define fields users must fill when completing the task:
 }
 ```
 
-### SLA and Escalation
+### Deadline, reminders and breach
 
-- **SLA Duration**: Define how long the task should take (e.g., "2 days")
-- **Escalation Rules**: Automatically reassign or notify if the task is overdue
+- **Deadline**: an ISO 8601 duration from task creation (`P2D`, `PT30M`) that becomes the task's due date
+- **Reminders**: offsets before the deadline, each firing a notification to whoever the task is offered to
+- **When the deadline passes**: notify, reassign to a user or role, or follow a route out of the step
+
+The older `escalationRules` field is still accepted for existing definitions but nothing executes it — see [Deadlines, reminders and breach](./user-tasks#when).
+
+### Decisions
+
+Bind a button to each outgoing route so the assignee's choice is what routes the run, instead of a free-text field the next step has to interpret. See [Decisions](./user-tasks#decisions).
 
 **Use Cases:**
 - Approval workflows (purchase orders, expense reports)
@@ -260,6 +274,77 @@ When the child workflow completes, its final context is merged into the parent w
 - Modular approval chains
 - Multi-tenant processes (each tenant has their own workflow definition)
 - Complex processes that benefit from decomposition
+
+## WAIT_FOR_CONDITION
+
+Pause the workflow until something becomes true about the run's own data — no external signal needed. Use it when the thing you are waiting for arrives as a context update rather than as a named event.
+
+```json
+{
+  "stepId": "await_grid_approval",
+  "stepName": "Await grid approval",
+  "stepType": "WAIT_FOR_CONDITION",
+  "config": {
+    "condition": {
+      "operator": "AND",
+      "rules": [
+        { "field": "gridApproval.status", "operator": "==", "value": "APPROVED" }
+      ]
+    },
+    "timeout": "P30D",
+    "onTimeout": "FAIL",
+    "pollIntervalMs": 3600000
+  }
+}
+```
+
+**Parameters:**
+- `condition` (**required**): the predicate over the run context, built with the same condition editor as transition conditions
+- `timeout` (**required**): an ISO-8601 duration after which the wait gives up. It is mandatory on purpose — a condition that never becomes true must not be able to hang a run forever
+- `onTimeout` (**required**): `FAIL` to fail the step when the deadline passes, or `CONTINUE` to carry on anyway
+- `pollIntervalMs` (optional): how often to re-check as a backstop, between 5 seconds and 1 hour
+
+The condition is re-checked whenever the instance's context is written, so in practice the workflow wakes as soon as the data lands; the poll is only a safety net for updates that arrive some other way.
+
+## IF_ELSE and SWITCH
+
+These two are **decision steps**. They do no work of their own — they advance immediately, and the decision is made by their outgoing routes, evaluated in priority order. That means everything you already know about [transitions](./transitions) applies: each route carries a condition, the routes are ordered, and the last one should be an unconditioned *otherwise* route.
+
+- **IF_ELSE** is the two-way gate: one conditioned route plus an otherwise route.
+- **SWITCH** routes on a single field, one route per value, plus an otherwise route.
+
+```json
+{
+  "steps": [
+    { "stepId": "qualify_gate", "stepName": "Qualified?", "stepType": "IF_ELSE" }
+  ],
+  "transitions": [
+    {
+      "transitionId": "qualified",
+      "fromStepId": "qualify_gate",
+      "toStepId": "contact_attempted",
+      "trigger": "auto",
+      "priority": 100,
+      "transitionName": "Qualified",
+      "condition": { "operator": "AND", "rules": [{ "field": "leadScore", "operator": ">", "value": 60 }] }
+    },
+    {
+      "transitionId": "not_qualified",
+      "fromStepId": "qualify_gate",
+      "toStepId": "nurture_lead",
+      "trigger": "auto",
+      "priority": 0,
+      "transitionName": "Otherwise"
+    }
+  ]
+}
+```
+
+In the Studio these steps get a dedicated inspector: you edit the branches as a list of cases with their conditions, drag them to change which is tried first, and the editor warns you when a decision step has **no otherwise route** — that is the shape that silently stalls a run when nothing matches.
+
+:::note Older engines refuse these definitions
+`IF_ELSE`, `SWITCH` and `WAIT_FOR_CONDITION` were added after the first release. A definition that uses them is stamped with the engine version it needs, and an older engine refuses to start it rather than mis-executing a step type it does not understand.
+:::
 
 ## Choosing the Right Step Type
 

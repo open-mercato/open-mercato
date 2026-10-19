@@ -85,6 +85,27 @@ describe('ComboboxInput clearable behavior', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
+  // Display text that matches what the user typed is not proof the value was committed: an
+  // unselected query renders identically to a picked option's label until blur resolves it.
+  // Playwright helpers that assert only `toHaveValue(typedText)` before blur therefore report
+  // success on a field the form never received, so the blur-clear below is the observable
+  // signal they must key on.
+  it('leaves the value uncommitted and clears the input on blur when the typed text matches no option', () => {
+    const onChange = jest.fn()
+    render(<Harness allowCustomValues={false} onChange={onChange} />)
+
+    const input = screen.getByRole('combobox') as HTMLInputElement
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: 'Blue' } })
+    expect(input.value).toBe('Blue')
+
+    blurAndFlush(input)
+
+    expect(onChange).not.toHaveBeenCalled()
+    expect(screen.getByTestId('value')).toHaveTextContent('')
+    expect(input.value).toBe('')
+  })
+
   it('emits empty string on blur with empty input when clearable, regardless of allowCustomValues', () => {
     const onChange = jest.fn()
     render(

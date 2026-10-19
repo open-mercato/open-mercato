@@ -38,9 +38,15 @@ test.describe('TC-WF-026: instance retry API (#2462)', () => {
 
       // Let the minimal workflow finish, then force a FAILED state to retry from.
       await pollWorkflowInstance(request, token, instanceId, (i) => i.status === 'COMPLETED')
+      // `outcome` must be forced alongside `status`: the retry route refuses a
+      // run whose recorded verdict is not retryable BEFORE it looks at the
+      // status, and `resolveRunOutcome` gives every non-COMPLETED terminal
+      // status `failure`. Leaving the completed run's `success` behind would
+      // fabricate a pair the engine can never produce and get a 400
+      // `WORKFLOW_RUN_OUTCOME_NOT_RETRYABLE` instead of the FAILED path.
       await withClient(async (client) => {
         await client.query(
-          "update workflow_instances set status = 'FAILED', retry_count = 0, error_message = '[qa] forced failure', error_details = null, completed_at = null, updated_at = now() where id = $1",
+          "update workflow_instances set status = 'FAILED', outcome = 'failure', retry_count = 0, error_message = '[qa] forced failure', error_details = null, completed_at = null, updated_at = now() where id = $1",
           [instanceId],
         )
       })

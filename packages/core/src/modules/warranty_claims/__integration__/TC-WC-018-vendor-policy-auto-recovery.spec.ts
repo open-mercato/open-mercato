@@ -63,6 +63,10 @@ async function waitForVendorRecovery(
 
 test.describe('TC-WC-018: warranty vendor policy and automatic recovery', () => {
   test('auto-generates one VRC child for a resolved warranty claim matching an active policy', async ({ request }) => {
+    // waitForVendorRecovery spawns a fresh Node process per drainIntegrationQueue
+    // retry (up to 8), which under CI resource contention can exceed the default
+    // 20s test timeout on its own even though the flow completes correctly.
+    test.setTimeout(60_000)
     const adminToken = await getAuthToken(request, 'admin')
     const stamp = uniqueLabel('tc-wc-018')
     const vendorName = `QA Vendor ${stamp}`

@@ -1,5 +1,6 @@
 import * as React from 'react'
 import type { ActivityType } from './fieldConfig'
+import { isDateRequired } from './fieldConfig'
 
 export type RsvpStatus = 'pending' | 'accepted' | 'declined' | 'tentative'
 
@@ -21,6 +22,14 @@ export type ScheduleActivityEditData = {
   id: string
   /** Record version for the OSS optimistic-lock header on edit (#2055). */
   updatedAt?: string | null
+  /**
+   * The activity's own linked person/company id, captured at edit time. Callers
+   * that show activities from more than one entity (e.g. the deal detail page's
+   * multi-entity activity list) must set this so `ScheduleActivityDialog` keeps
+   * the edit payload's `entityId` pinned to the activity's actual record instead
+   * of whichever entity happens to be selected in the host page's picker (#6050).
+   */
+  entityId?: string | null
   interactionType?: string
   title?: string | null
   body?: string | null
@@ -158,21 +167,31 @@ export function useScheduleFormState({ open, editData }: UseScheduleFormStatePar
         const resolvedType = (editData.interactionType as ActivityType) ?? 'meeting'
         setActivityType(resolvedType)
         setTitle(editData.title ?? '')
-        // For historical activities the canonical timestamp is `occurredAt`; for
-        // planned/future ones it's `scheduledAt`. Without this fallback editing a
-        // past activity prefilled to "today" instead of its actual moment (#1807).
+        // `scheduledAt` is the canonical term of anything that was ever planned, so it
+        // wins whenever it is set: the save path recomputes `scheduledAt` from these
+        // seeded date/time fields, and seeding from `occurredAt` first silently
+        // overwrote a completed task's due date on unrelated edits (#5939).
+        // `occurredAt` stays the fallback for purely historical entries (a logged call
+        // or note) that never had a `scheduledAt`, so editing those still restores
+        // their actual moment instead of falling back to "today" (#1807).
         // Keep seed values in the user's local timezone, matching the cluster-E
         // local-day convention.
-        const sourceTimestamp = editData.occurredAt ?? editData.scheduledAt ?? null
+        const sourceTimestamp = editData.scheduledAt ?? editData.occurredAt ?? null
         const seedDate = sourceTimestamp ? new Date(sourceTimestamp) : null
-        // No usable timestamp means this is a preset create (or a corrupt row), so
-        // fall forward to the create-mode default instead of "now" (#5940).
-        const dateForForm =
-          seedDate && !Number.isNaN(seedDate.getTime())
-            ? seedDate
-            : resolveDefaultActivityStart(resolvedType, new Date())
-        setDate(formatLocalDateInput(dateForForm))
-        setStartTime(formatLocalTimeInput(dateForForm))
+        const seedDateValid = seedDate !== null && !Number.isNaN(seedDate.getTime())
+        // A real edit of an undated task must stay undated: falling back to a
+        // computed default here would silently give a backlog item a due date on
+        // the next save (#5941). Menu-driven "New Task" (no id yet, so `isEditing`
+        // is false) still gets the create-mode default so #5940's forward-seeded
+        // default keeps working.
+        if (isEditing && !seedDateValid && !isDateRequired(resolvedType)) {
+          setDate('')
+          setStartTime('')
+        } else {
+          const dateForForm = seedDateValid ? (seedDate as Date) : resolveDefaultActivityStart(resolvedType, new Date())
+          setDate(formatLocalDateInput(dateForForm))
+          setStartTime(formatLocalTimeInput(dateForForm))
+        }
         setDuration(editData.durationMinutes ?? 30)
         setAllDay(editData.allDay ?? false)
         setDescription(editData.body ?? '')
@@ -253,7 +272,7 @@ export function useScheduleFormState({ open, editData }: UseScheduleFormStatePar
       document.body.style.removeProperty('overflow')
       document.body.style.removeProperty('pointer-events')
     }
-  }, [open, editData])
+  }, [open, editData, isEditing])
 
   // Update the Reminder default when the activity type changes in create mode.
   // Skipped in edit mode (the persisted value wins), and gated by `open` to

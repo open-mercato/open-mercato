@@ -1,3 +1,4 @@
+import { asValue } from 'awilix'
 import type { BootstrapData } from './types'
 import type { AppDiRegistrar } from '../di/container'
 import { findAppRoot, type AppRoot } from './appResolver'
@@ -15,7 +16,7 @@ import { CLIENT_ONLY_STUB_NAMESPACE, createClientOnlyStubPlugin } from './client
 import path from 'node:path'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
-import { createRequire } from 'node:module'
+import { createRequire, isBuiltin } from 'node:module'
 import { pathToFileURL } from 'node:url'
 
 let activeBootstrapLoads = 0
@@ -76,6 +77,44 @@ class GeneratedFileNotFoundError extends Error {
   }
 }
 
+function splitBareSpecifier(specifier: string): { packageName: string; subpath: string } | null {
+  const segments = specifier.split('/')
+  const nameLength = specifier.startsWith('@') ? 2 : 1
+  if (segments.length <= nameLength || segments.slice(0, nameLength).some((segment) => !segment)) return null
+  return {
+    packageName: segments.slice(0, nameLength).join('/'),
+    subpath: segments.slice(nameLength).join('/'),
+  }
+}
+
+/**
+ * Rewrites an externalized `pkg/subpath` specifier to the file Node's ESM resolver can load
+ * when `pkg` publishes no `exports` map (#6993). Builtins, packages with `exports`, subpaths
+ * that already carry an extension and anything that fails to resolve keep the original
+ * specifier, so the bundle never gets worse than before.
+ */
+function rewriteLegacySubpathSpecifier(
+  specifier: string,
+  appRequire: NodeRequire,
+  onRewrite: (manifestPath: string) => void,
+): string {
+  if (isBuiltin(specifier)) return specifier
+  const parts = splitBareSpecifier(specifier)
+  if (!parts || path.posix.extname(parts.subpath)) return specifier
+  try {
+    const manifestPath = appRequire.resolve(`${parts.packageName}/package.json`)
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as { exports?: unknown }
+    if (manifest.exports != null) return specifier
+    const resolvedFile = appRequire.resolve(specifier)
+    const relativeFile = path.relative(path.dirname(manifestPath), resolvedFile)
+    if (!relativeFile || relativeFile.startsWith('..') || path.isAbsolute(relativeFile)) return specifier
+    onRewrite(manifestPath)
+    return `${parts.packageName}/${relativeFile.split(path.sep).join('/')}`
+  } catch {
+    return specifier
+  }
+}
+
 /**
  * esbuild plugins for the CLI bundle, in resolution order. The client-only stub must come
  * first so it wins over the alias and external plugins for `*.client` dynamic imports.
@@ -84,7 +123,10 @@ class GeneratedFileNotFoundError extends Error {
  * `createClientOnlyStubPlugin` in isolation stays green if the plugin is dropped from this
  * list, which would silently reintroduce #4623.
  */
-export function createCliBundlePlugins(appRoot: string): import('esbuild').Plugin[] {
+export function createCliBundlePlugins(
+  appRoot: string,
+  options: { onLegacySubpathRewrite?: (manifestPath: string) => void } = {},
+): import('esbuild').Plugin[] {
   // Plugin to resolve the @/ alias the way the app tsconfig maps it:
   // `@/.mercato/*` to the app root, every other `@/*` to the app's src/ directory.
   const aliasPlugin: import('esbuild').Plugin = {
@@ -112,6 +154,19 @@ export function createCliBundlePlugins(appRoot: string): import('esbuild').Plugi
     },
   }
 
+  // Node's ESM resolver only maps an extensionless package subpath (`next/link`) when the
+  // package publishes an `exports` map; legacy packages need the real file path instead.
+  const appRequire = createRequire(path.join(appRoot, 'package.json'))
+  const externalSpecifierCache = new Map<string, string>()
+  const onLegacySubpathRewrite = options.onLegacySubpathRewrite ?? (() => undefined)
+  const resolveExternalSpecifier = (specifier: string): string => {
+    const cached = externalSpecifierCache.get(specifier)
+    if (cached !== undefined) return cached
+    const resolved = rewriteLegacySubpathSpecifier(specifier, appRequire, onLegacySubpathRewrite)
+    externalSpecifierCache.set(specifier, resolved)
+    return resolved
+  }
+
   // Plugin to mark non-JSON package imports as external
   const externalNonJsonPlugin: import('esbuild').Plugin = {
     name: 'external-non-json',
@@ -128,7 +183,7 @@ export function createCliBundlePlugins(appRoot: string): import('esbuild').Plugi
           return null // Let esbuild handle it
         }
         // Otherwise mark as external
-        return { path: args.path, external: true }
+        return { path: resolveExternalSpecifier(args.path), external: true }
       })
     },
   }
@@ -136,7 +191,7 @@ export function createCliBundlePlugins(appRoot: string): import('esbuild').Plugi
   return [createClientOnlyStubPlugin(), aliasPlugin, externalNonJsonPlugin]
 }
 
-const DYNAMIC_LOADER_CACHE_VERSION = 4
+const DYNAMIC_LOADER_CACHE_VERSION = 5
 
 type DynamicLoaderCacheMetadata = {
   version: number
@@ -432,6 +487,7 @@ async function compileAppSourceFileWithActiveEsbuild(
   // Dynamically import esbuild only when needed
   const esbuild = await getEsbuildRuntime()
 
+  const rewrittenPackageManifests = new Set<string>()
   // Use esbuild.build with bundling to handle JSON imports
   const result = await esbuild.build({
     entryPoints: [tsPath],
@@ -443,7 +499,9 @@ async function compileAppSourceFileWithActiveEsbuild(
     platform: 'node',
     target: 'node18',
     tsconfig: appTsconfig,
-    plugins: createCliBundlePlugins(appRoot),
+    plugins: createCliBundlePlugins(appRoot, {
+      onLegacySubpathRewrite: (manifestPath) => rewrittenPackageManifests.add(manifestPath),
+    }),
     // Allow JSON imports
     loader: { '.json': 'json' },
   })
@@ -454,6 +512,7 @@ async function compileAppSourceFileWithActiveEsbuild(
     dependencies: {
       ...collectDependencyHashes(appRoot, result.metafile.inputs),
       ...hashFilesRelativeTo(appRoot, tsconfigPaths),
+      ...hashFilesRelativeTo(appRoot, [...rewrittenPackageManifests]),
     },
   }
   fs.writeFileSync(metadataPath, JSON.stringify(metadata))
@@ -496,6 +555,21 @@ async function compileAndImport(
   }
 }
 
+
+/**
+ * Registers an app-owned generated value on the request container.
+ *
+ * The app registers these statically from `src/di.ts`, which `createRequestContainer`
+ * reaches through the `@/` alias — and that alias only exists under the bundler.
+ * A CLI or MCP process runs plain Node, so the import fails, the failure is
+ * swallowed, and the value is simply absent with no diagnostic. Routing it through
+ * a registrar built from the same generated file keeps both processes in step.
+ */
+function appValueRegistrar(key: string, value: unknown): BootstrapData['diRegistrars'][number] {
+  return (container) => {
+    container.register({ [key]: asValue(value) })
+  }
+}
 
 /**
  * Load a generated registry that older apps may not have generated yet.
@@ -716,6 +790,7 @@ async function loadBootstrapDataWithActiveEsbuild(appRoot?: string): Promise<Boo
     diModule,
     searchModule,
     commandLoadersModule,
+    webResearchModule,
     commandInterceptorsModule,
     workflowsModule,
   ] = await Promise.all([
@@ -724,6 +799,9 @@ async function loadBootstrapDataWithActiveEsbuild(appRoot?: string): Promise<Boo
     compileAndImport(path.join(generatedDir, 'di.generated.ts')),
     loadOptionalGeneratedModule(path.join(generatedDir, 'search.generated.ts'), { searchModuleConfigs: [] }),
     loadOptionalGeneratedModule(path.join(generatedDir, 'command-loaders.generated.ts'), { commandLoaderEntries: [] }),
+    loadOptionalGeneratedModule(path.join(generatedDir, 'web-research-adapters.generated.ts'), {
+      webResearchAdapterEntries: [],
+    }),
     loadOptionalGeneratedModule(path.join(generatedDir, 'command-interceptors.generated.ts'), {
       commandInterceptorEntries: [],
     }),
@@ -733,7 +811,10 @@ async function loadBootstrapDataWithActiveEsbuild(appRoot?: string): Promise<Boo
   return {
     modules: modulesModule.modules as BootstrapData['modules'],
     entities: entitiesModule.entities as BootstrapData['entities'],
-    diRegistrars: diModule.diRegistrars as BootstrapData['diRegistrars'],
+    diRegistrars: [
+      ...(diModule.diRegistrars as BootstrapData['diRegistrars']),
+      appValueRegistrar('webResearchAdapterEntries', webResearchModule.webResearchAdapterEntries ?? []),
+    ],
     entityIds: entityIdsModule.E as BootstrapData['entityIds'],
     // Search configs are needed by workers for indexing
     searchModuleConfigs: (searchModule.searchModuleConfigs ?? []) as BootstrapData['searchModuleConfigs'],

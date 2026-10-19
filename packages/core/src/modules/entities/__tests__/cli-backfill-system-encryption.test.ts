@@ -67,7 +67,14 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   }),
 }))
 
-const ciphertext = (value: string) => `iv:${value}:tag:v1`
+// A shape-valid `<iv>:<ct>:<tag>:v1` envelope look-alike. The CLI guard
+// (`isEncryptedPayloadShape`) validates decoded byte lengths, not just segment count, so a
+// fixture must carry a real 12-byte IV / 16-byte tag to read as "already encrypted".
+const ciphertext = (value: string) => {
+  const iv = Buffer.alloc(12, 7).toString('base64')
+  const tag = Buffer.alloc(16, 9).toString('base64')
+  return `${iv}:${Buffer.from(value).toString('base64')}:${tag}:v1`
+}
 
 function queueSelects(...batches: Array<Array<Record<string, unknown>>>) {
   let index = 0
@@ -98,7 +105,10 @@ describe('entities backfill-system-encryption CLI', () => {
       const next: Record<string, unknown> = { ...payload }
       for (const rule of systemMaps[0]!.fields) {
         const value = payload[rule.field]
-        if (typeof value !== 'string' || value.endsWith(':v1')) continue
+        // The CLI's own guard (`isEncryptedPayloadShape`) is what decides "already encrypted"
+        // before a field ever reaches this call, so the mock always encrypts what it is given
+        // rather than re-deciding via a naive shape check of its own.
+        if (typeof value !== 'string') continue
         next[rule.field] = ciphertext(value)
         if (rule.hashField) next[rule.hashField] = `hash(${value})`
       }
@@ -142,6 +152,31 @@ describe('entities backfill-system-encryption CLI', () => {
 
     expect(encryptEntityPayload).not.toHaveBeenCalled()
     expect(execute.mock.calls.filter(([sql]) => String(sql).startsWith('update'))).toHaveLength(0)
+  })
+
+  // Regression: a real plaintext value that merely looks like an encrypted envelope (four
+  // colon-separated segments ending in "v1", e.g. user-supplied text with colons in it) must
+  // still be encrypted. The loose `isEncryptedPayload` check the backfill used to gate on only
+  // counted segments — it could not tell this apart from real ciphertext — so it silently
+  // dropped the field from the payload and the backfill reported the row as successfully
+  // encrypted while the column stayed plaintext at rest. The strict `isEncryptedPayloadShape`
+  // check (validated IV/tag byte lengths) tells them apart correctly.
+  it('encrypts a plaintext value that only looks like an encrypted envelope', async () => {
+    const looksEncryptedButIsnt = 'user:supplied:colon:v1'
+    queueSelects([{ id: 'row-1', email: null, email_hash: null, first_name: looksEncryptedButIsnt }])
+
+    await loadCommand().run([])
+
+    expect(encryptEntityPayload).toHaveBeenCalledWith(
+      'onboarding:onboarding_request',
+      expect.objectContaining({ first_name: looksEncryptedButIsnt }),
+      null,
+      null,
+      { createMissingDek: true },
+    )
+    const updateCalls = execute.mock.calls.filter(([sql]) => String(sql).startsWith('update'))
+    expect(updateCalls).toHaveLength(1)
+    expect(updateCalls[0]![1]).toContain(ciphertext(looksEncryptedButIsnt))
   })
 
   it('writes nothing in dry-run mode but still reports the rows it would encrypt', async () => {

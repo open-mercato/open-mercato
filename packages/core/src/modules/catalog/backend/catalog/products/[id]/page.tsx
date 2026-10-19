@@ -47,7 +47,7 @@ import {
   buildRecordInjectionContext,
   useSetCurrentRecordInjectionContext,
 } from "@open-mercato/ui/backend/injection/recordContext";
-import { useT } from "@open-mercato/shared/lib/i18n/context";
+import { useT, useLocale } from "@open-mercato/shared/lib/i18n/context";
 import { useConfirmDialog } from "@open-mercato/ui/backend/confirm-dialog";
 import { E } from "#generated/entities.ids.generated";
 import {
@@ -73,6 +73,7 @@ import {
   type ProductUnitPriceReferenceUnit,
   type ProductUnitRoundingMode,
   productFormSchema,
+  withCanonicalUomFields,
   BASE_INITIAL_VALUES,
   createLocalId,
   slugify,
@@ -119,6 +120,7 @@ import {
   toPositiveNumberOrNull,
   toIntegerInRangeOrDefault,
   normalizeProductConversionInputs,
+  pickEnrichmentNamespaces,
   type ProductUnitConversionInput,
 } from "@open-mercato/core/modules/catalog/components/products/productFormUtils";
 import {
@@ -323,6 +325,7 @@ export default function EditCatalogProductPage({
 }) {
   const productId = params?.id ? String(params.id) : null;
   const t = useT();
+  const locale = useLocale();
   const pathname = usePathname();
   const productSubpathPrefix = productId
     ? `/backend/catalog/products/${productId}/`
@@ -771,7 +774,11 @@ export default function EditCatalogProductPage({
                 : null,
         };
         if (!cancelled) {
-          setInitialValues({ ...initial, ...customValues });
+          setInitialValues({
+            ...initial,
+            ...customValues,
+            ...pickEnrichmentNamespaces(record),
+          });
           setCategorizeOptions({
             categories: categoryOptions,
             channels: channelOptionEntries,
@@ -829,6 +836,26 @@ export default function EditCatalogProductPage({
       cancelled = true;
     };
   }, []);
+
+  // The browser's default `history.scrollRestoration` ("auto") tries to restore the
+  // previous session's pixel scroll offset on a full reload. This page's form sections
+  // (variants, options, unit-of-measure, ...) mount progressively as data loads, so the
+  // restore fires before the page has grown to its final height, then that same pixel
+  // offset lines up with a different, further-down section once loading finishes —
+  // landing the reload mid-page instead of at the top (#6171). Opt this page out of
+  // native scroll restoration and start every load at the top unless a hash target
+  // (handled by the effect below) asks for a specific section.
+  React.useEffect(() => {
+    if (typeof window === "undefined" || !window.history) return
+    const previousScrollRestoration = window.history.scrollRestoration
+    window.history.scrollRestoration = "manual"
+    if (!window.location.hash) {
+      window.scrollTo(0, 0)
+    }
+    return () => {
+      window.history.scrollRestoration = previousScrollRestoration
+    }
+  }, [])
 
   // Next.js client-side navigation does not scroll to hash targets.
   // Runs without a dependency array intentionally: the target element is rendered
@@ -913,6 +940,7 @@ export default function EditCatalogProductPage({
             values={values as ProductFormValues}
             setValue={setValue}
             errors={errors}
+            variantCount={variants.length}
           />
         ),
       },
@@ -1029,7 +1057,9 @@ export default function EditCatalogProductPage({
           ),
         );
       }
-      const parsed = productFormSchema.safeParse(formValues);
+      const parsed = productFormSchema.safeParse(
+        withCanonicalUomFields(formValues, locale),
+      );
       if (!parsed.success) {
         const issues = parsed.error.issues;
         const fieldErrors: Record<string, string> = {};
@@ -1360,7 +1390,43 @@ export default function EditCatalogProductPage({
           );
         }
       }
-      await updateCrud("catalog/products", payload);
+      const updateResult = await updateCrud("catalog/products", payload);
+      // The update route echoes the server-bumped updatedAt, so refresh the
+      // optimistic-lock token from it — without this, a second consecutive save
+      // reuses the stale pre-edit updatedAt and the lock guard falsely reports a
+      // conflict (#5985).
+      const refreshedUpdatedAt =
+        typeof updateResult.result?.updatedAt === "string"
+          ? updateResult.result.updatedAt
+          : null;
+      // The update route does not echo response enrichments (`_wms`, …), so re-read
+      // them when the record carries any — otherwise CrudForm's post-save
+      // `transformDisplayData` resync restores the injected fields' pre-save values
+      // and the next save writes them back (#6142).
+      let refreshedEnrichments: Record<string, unknown> = {};
+      if (Object.keys(pickEnrichmentNamespaces(formValues as Record<string, unknown>)).length > 0) {
+        const refreshedProductRes = await apiCall<ProductResponse>(
+          `/api/catalog/products?id=${encodeURIComponent(productId)}&page=1&pageSize=1&withDeleted=false`,
+        );
+        refreshedEnrichments = pickEnrichmentNamespaces(
+          refreshedProductRes.ok ? refreshedProductRes.result?.items?.[0] : undefined,
+        );
+      }
+      // Merge the just-submitted `values` back into `initialValues` too, not only
+      // `updatedAt` — CrudForm re-syncs its visible fields from `initialValues`
+      // whenever that prop's identity changes, so leaving the other fields at
+      // their stale pre-edit snapshot here made a successful save visually
+      // revert the field the user just changed back to its old value (#6170).
+      setInitialValues((prev) =>
+        prev
+          ? {
+              ...prev,
+              ...values,
+              ...refreshedEnrichments,
+              updatedAt: refreshedUpdatedAt ?? prev.updatedAt,
+            }
+          : prev,
+      );
       const previousConversionIds = new Set(
         initialConversionsRef.current
           .map((entry) => toTrimmedOrNull(entry.id))
@@ -1534,6 +1600,7 @@ export default function EditCatalogProductPage({
           }}
           initialValues={initialValues ?? undefined}
           isLoading={loading}
+          disableInitialFocus
           loadingMessage={t("catalog.products.edit.loading", "Loading product")}
           submitLabel={t("catalog.products.edit.save", "Save changes")}
           cancelHref="/backend/catalog/products"
@@ -1573,6 +1640,10 @@ type ProductVariantsSectionProps = Omit<
 };
 
 type ProductDimensionsSectionProps = ProductFormGroupProps;
+
+type ProductOptionsSectionProps = ProductFormGroupProps & {
+  variantCount?: number;
+};
 
 function ProductDetailsSection({
   values,
@@ -1869,7 +1940,11 @@ function ProductMetadataSection({ values, setValue }: ProductFormGroupProps) {
   );
 }
 
-function ProductOptionsSection({ values, setValue }: ProductFormGroupProps) {
+function ProductOptionsSection({
+  values,
+  setValue,
+  variantCount = 0,
+}: ProductOptionsSectionProps) {
   const t = useT();
   const [schemaDialogOpen, setSchemaDialogOpen] = React.useState(false);
   const [schemaTemplates, setSchemaTemplates] = React.useState<
@@ -2132,10 +2207,15 @@ function ProductOptionsSection({ values, setValue }: ProductFormGroupProps) {
         ))}
         {!values.options?.length ? (
           <p className="text-sm text-muted-foreground">
-            {t(
-              "catalog.products.create.optionsBuilder.empty",
-              "No options yet. Add your first option to generate variants.",
-            )}
+            {variantCount > 0
+              ? t(
+                  "catalog.products.edit.optionsBuilder.emptyWithVariants",
+                  "This product has variants without an option schema. Options are optional.",
+                )
+              : t(
+                  "catalog.products.create.optionsBuilder.empty",
+                  "No options yet. Add your first option to generate variants.",
+                )}
           </p>
         ) : null}
       </div>

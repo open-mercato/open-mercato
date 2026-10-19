@@ -1,12 +1,13 @@
 "use client"
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { flexRender, type RowData, type SortingState, type ColumnVisibilityState as VisibilityState, type RowSelectionState } from '@tanstack/react-table'
-import { useLegacyTable, getCoreRowModel, getSortedRowModel, type LegacyColumnDef as ColumnDef, type LegacyColumn as TableColumn } from '@tanstack/react-table/legacy'
+import { flexRender, type RowData, type SortingState, type ColumnVisibilityState as VisibilityState, type RowSelectionState, type ExpandedState, type OnChangeFn } from '@tanstack/react-table'
+import { useLegacyTable, getCoreRowModel, getSortedRowModel, getExpandedRowModel, type LegacyColumnDef as ColumnDef, type LegacyColumn as TableColumn } from '@tanstack/react-table/legacy'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal, Circle, Filter, Columns3, ChevronUp, ChevronDown, ChevronsUpDown, Check, Inbox, Save } from 'lucide-react'
+import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal, Circle, Filter, Columns3, ChevronUp, ChevronDown, ChevronRight, ChevronsUpDown, Check, Inbox, Save } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../primitives/table'
 import { Button } from '../primitives/button'
+import { IconButton } from '../primitives/icon-button'
 import { Checkbox } from '../primitives/checkbox'
 import {
   Select,
@@ -62,8 +63,9 @@ import type {
   InjectionRowActionDefinition,
 } from '@open-mercato/shared/modules/widgets/injection'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
+import { useRegisteredComponent } from './injection/useRegisteredComponent'
 import { dataTableExtensionSpotId, extensionSpotChildId } from '@open-mercato/shared/modules/widgets/extension-points'
-import { insertByInjectionPlacement } from '@open-mercato/shared/modules/widgets/injection-position'
+import { insertByInjectionPlacement, InjectionPosition, type InjectionPlacement } from '@open-mercato/shared/modules/widgets/injection-position'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type {
   FilterFieldDef as AdvancedFilterFieldDef,
@@ -168,6 +170,49 @@ export function withDataTableNamespaces<T extends Record<string, unknown>>(
   }
 }
 
+// Columns register in waves (injected columns and custom fields load asynchronously), so a
+// stored order rarely names every column. A column the order does not know yet takes its
+// place from the column definitions — right after its nearest known predecessor — instead
+// of being appended, which would discard an injected column's `placement` (#7083). One that
+// follows every known column is still appended, keeping the user's arrangement intact. An
+// injected column anchored `Before`/`After` a column already in the order follows that anchor
+// wherever the user moved it.
+function reconcileColumnOrder(
+  prev: string[],
+  ids: string[],
+  placements: ReadonlyMap<string, InjectionPlacement | undefined> = new Map(),
+): string[] {
+  const allowed = new Set(ids)
+  const result = prev.filter((id) => allowed.has(id))
+  const known = new Set(result)
+  ids.forEach((id, index) => {
+    if (known.has(id)) return
+    const placement = placements.get(id)
+    const anchorIndex = placement?.relativeTo ? result.indexOf(placement.relativeTo) : -1
+    if (anchorIndex !== -1 && (placement?.position === InjectionPosition.Before || placement?.position === InjectionPosition.After)) {
+      result.splice(placement.position === InjectionPosition.Before ? anchorIndex : anchorIndex + 1, 0, id)
+      known.add(id)
+      return
+    }
+    const hasKnownSuccessor = ids.slice(index + 1).some((candidate) => known.has(candidate))
+    if (!hasKnownSuccessor) {
+      result.push(id)
+    } else {
+      let insertAt = 0
+      for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+        const predecessorIndex = result.indexOf(ids[cursor])
+        if (predecessorIndex !== -1) {
+          insertAt = predecessorIndex + 1
+          break
+        }
+      }
+      result.splice(insertAt, 0, id)
+    }
+    known.add(id)
+  })
+  return result
+}
+
 function resolveDataTableRowId<T>(row: T, index: number): string {
   if (row && typeof row === 'object') {
     const candidate = (row as Record<string, unknown>).id
@@ -222,6 +267,13 @@ export type DataTableExportConfig = {
 
 export type DataTablePerspectiveConfig = {
   tableId: string
+  /**
+   * Where to render the "Views" perspective switcher. Defaults to 'left'
+   * (inside the filter toolbar). When 'right', the switcher moves to the
+   * right-hand actions area and the redundant standalone "Customize columns"
+   * (•••) button is suppressed — the "Views" control already opens that panel.
+   */
+  align?: 'left' | 'right'
   initialState?: {
     response?: PerspectivesIndexResponse
     activePerspectiveId?: string | null
@@ -456,6 +508,23 @@ export type DataTableProps<T extends RowData> = {
     onClearAll: () => void
     onRemoveLast: () => void
   }
+  /**
+   * Opt-in expandable/nested rows (accordion). All expansion props are
+   * additive and default-off — when none are passed, the table renders and
+   * behaves exactly as before (no toggle column, no row model change).
+   *
+   * - `getSubRows`: derive child rows for a given row (TanStack hierarchy source).
+   * - `expandable`: whether a row shows an expand toggle. Pass a predicate to
+   *   show the toggle for rows whose children are not loaded yet (lazy loading);
+   *   defaults to "has sub-rows" when omitted but `getSubRows` is set.
+   * - `expanded` / `onExpandedChange`: controlled expansion state. Provide both
+   *   for lazy-loading hosts that fetch children when a row is expanded; omit
+   *   for self-managed expansion.
+   */
+  getSubRows?: (row: T) => T[] | undefined
+  expandable?: boolean | ((row: T) => boolean)
+  expanded?: ExpandedState
+  onExpandedChange?: OnChangeFn<ExpandedState>
 }
 
 const DEFAULT_EXPORT_FORMATS: DataTableExportFormat[] = ['csv', 'json', 'xml', 'markdown']
@@ -485,7 +554,7 @@ const STICKY_RIGHT_SHADOW_CLASS =
 const STICKY_LEFT_SHADOW_CLASS =
   'md:after:absolute md:after:inset-y-0 md:after:-right-2 md:after:w-2 md:after:bg-gradient-to-r md:after:from-foreground/8 md:after:to-transparent md:after:pointer-events-none'
 
-type BulkActionExecuteResult = {
+export type BulkActionExecuteResult = {
   ok: boolean
   message?: string
   affectedCount?: number
@@ -1227,7 +1296,7 @@ function ViewSwitcherDropdown({
   )
 }
 
-export function DataTable<T extends RowData>({
+function DataTableImpl<T extends RowData>({
   columns,
   data,
   toolbar,
@@ -1282,6 +1351,10 @@ export function DataTable<T extends RowData>({
   columnChooser,
   activeFilterChips,
   filterAwareEmptyState,
+  getSubRows,
+  expandable,
+  expanded: expandedProp,
+  onExpandedChange,
 }: DataTableProps<T>) {
   const t = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -1353,6 +1426,7 @@ export function DataTable<T extends RowData>({
   const queryClient = useQueryClient()
   const perspectiveConfig = perspective ?? null
   const perspectiveTableId = perspectiveConfig?.tableId ?? null
+  const perspectiveAlign: 'left' | 'right' = perspectiveConfig?.align ?? 'left'
   const perspectiveEnabled = Boolean(perspectiveTableId)
   // Snapshot from localStorage is read post-mount via useLayoutEffect to avoid SSR/CSR
   // hydration mismatch. Initial render uses only props-derived state (identical on both sides).
@@ -1366,6 +1440,11 @@ export function DataTable<T extends RowData>({
   // cannot serve here: applying a snapshot rewrites the stored copy with a
   // fresh `Date.now()`, which would make every server row look older than it is.
   const hydratedSnapshotRef = React.useRef<PerspectiveSnapshot | null>(null)
+  const hydratedAdvancedFilterRestoredRef = React.useRef(false)
+  const pendingPerspectiveFiltersRef = React.useRef<{ filters: PerspectiveSettings['filters'] } | null>(null)
+  React.useLayoutEffect(() => {
+    pendingPerspectiveFiltersRef.current = null
+  }, [advancedFilter?.value, perspectiveTableId])
   const initialSettingsSource = perspectiveConfig?.initialState?.initialSettings ?? null
   // Memoized on the host's own object: `sanitizePerspectiveSettings` returns a
   // fresh result on every call, so without this every effect keyed on the
@@ -1396,15 +1475,42 @@ export function DataTable<T extends RowData>({
   // changes once the user actually changes something after that point.
   const [viewBaseline, setViewBaselineState] = React.useState<PerspectiveSettings>(() => mergedInitialSettings ?? {})
   const viewBaselineInitializedRef = React.useRef(Boolean(mergedInitialSettings))
+  // What the `meta.hidden` pass below hid on its own, since a declared default is not a
+  // user edit and must reach the baseline too. `normalizeVisibility` keeps every `false`,
+  // so a default the stored view never named would otherwise read as a change nobody
+  // made and light the Save-view affordance the moment the table mounts (#5117).
+  const autoHiddenVisibilityRef = React.useRef<VisibilityState>({})
   const setViewBaseline = React.useCallback((settings: PerspectiveSettings) => {
     const initialized = viewBaselineInitializedRef.current
     viewBaselineInitializedRef.current = true
+    // Auto-hidden defaults win over `settings` for the keys they decided: this covers the
+    // baseline's first seeding, which closes over `currentViewSettings` from the render
+    // that *scheduled* the meta.hidden hide, not the render where it actually took effect
+    // — so `settings.columnVisibility` here is stale for exactly those keys. A real stored
+    // view never has a key in common with `autoHidden` (the meta.hidden pass skips every
+    // column `visibilityDecidedColumnIds` already seeded from that view), so this never
+    // overrides a genuine user/view decision.
+    const autoHidden = autoHiddenVisibilityRef.current
+    const next = Object.keys(autoHidden).length
+      ? { ...settings, columnVisibility: { ...(settings.columnVisibility ?? {}), ...autoHidden } }
+      : settings
     // Compared by value, not by identity: the callers hand over freshly
     // sanitized objects (a new one on every render), so storing them blindly
     // would let an effect keyed on those settings re-trigger itself forever.
     setViewBaselineState((previous) => (
-      initialized && diffPerspectiveSettings(previous, settings).length === 0 ? previous : settings
+      initialized && diffPerspectiveSettings(previous, next).length === 0 ? previous : next
     ))
+  }, [])
+  // Late arrivals hit this instead: the baseline already exists, so the entries are
+  // merged into it in place rather than waiting for the next `setViewBaseline` call.
+  const foldAutoHiddenIntoBaseline = React.useCallback((entries: VisibilityState) => {
+    autoHiddenVisibilityRef.current = { ...autoHiddenVisibilityRef.current, ...entries }
+    if (!viewBaselineInitializedRef.current) return
+    setViewBaselineState((previous) => {
+      const current = previous.columnVisibility ?? {}
+      if (Object.keys(entries).every((key) => key in current)) return previous
+      return { ...previous, columnVisibility: { ...entries, ...current } }
+    })
   }, [])
 
   const perspectiveFeatureQuery = useQuery<{ use: boolean; roleDefaults: boolean }>({
@@ -1783,14 +1889,36 @@ export function DataTable<T extends RowData>({
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({})
   const selectionScopeKeyRef = React.useRef<string | undefined>(selectionScopeKey)
   const enableClientSorting = sortable && !manualSorting
+  // Opt-in expansion: enabled only when the host passes any expansion prop, so
+  // existing tables keep their exact row model and rendering.
+  const expansionEnabled = getSubRows !== undefined || expandable !== undefined
+  const [internalExpanded, setInternalExpanded] = React.useState<ExpandedState>({})
+  const expandedState = expandedProp !== undefined ? expandedProp : internalExpanded
+  const handleExpandedChange = React.useCallback<OnChangeFn<ExpandedState>>((updater) => {
+    if (onExpandedChange) {
+      onExpandedChange(updater)
+      return
+    }
+    setInternalExpanded((prev) => (typeof updater === 'function' ? updater(prev) : updater))
+  }, [onExpandedChange])
   const table = useLegacyTable<T>({
     data: clientFilteredData,
     columns: mergedColumns,
     getCoreRowModel: getCoreRowModel(),
     ...(enableClientSorting ? { getSortedRowModel: getSortedRowModel() } : {}),
+    ...(expansionEnabled ? {
+      getSubRows: getSubRows as ((row: T) => T[] | undefined) | undefined,
+      getExpandedRowModel: getExpandedRowModel(),
+      getRowCanExpand: (row) => {
+        if (typeof expandable === 'function') return expandable(row.original as T)
+        if (expandable === true) return true
+        return (row.subRows?.length ?? 0) > 0
+      },
+      onExpandedChange: handleExpandedChange,
+    } : {}),
     manualSorting: manualSorting === true,
     getRowId: resolveDataTableRowId,
-    state: { sorting, columnVisibility, columnOrder, rowSelection },
+    state: { sorting, columnVisibility, columnOrder, rowSelection, ...(expansionEnabled ? { expanded: expandedState } : {}) },
     enableRowSelection: hasInjectedBulkActions,
     onSortingChange: (updater) => {
       const next = typeof updater === 'function' ? updater(sorting) : updater
@@ -1836,27 +1964,21 @@ export function DataTable<T extends RowData>({
     [baseInjectionContext, hasInjectedBulkActions, rowSelection],
   )
   React.useEffect(() => {
-    const ids = table.getAllLeafColumns().map((column) => column.id)
+    // `getAllLeafColumns()` is already sorted by `columnOrder`, which would hide where a new
+    // column sits in the definitions; flattening `getAllColumns()` keeps definition order.
+    const ids = table.getAllColumns().flatMap((column) => column.getLeafColumns()).map((column) => column.id)
     if (!ids.length) return
+    const placements = new Map(
+      injectedColumnDefs.map(({ def, placement }) => [(def as { id?: string }).id ?? '', placement] as const),
+    )
     setColumnOrder((prev) => {
       if (!prev.length) return ids
-      const allowed = ids
-      const filtered = prev.filter((id) => allowed.includes(id))
-      const seen = new Set(filtered)
-      for (const id of allowed) {
-        if (!seen.has(id)) {
-          filtered.push(id)
-          seen.add(id)
-        }
-      }
-      const changed = filtered.length !== prev.length || filtered.some((id, index) => id !== prev[index])
-      return changed ? filtered : prev
+      const next = reconcileColumnOrder(prev, ids, placements)
+      const changed = next.length !== prev.length || next.some((id, index) => id !== prev[index])
+      return changed ? next : prev
     })
-  }, [table, mergedColumns])
+  }, [table, mergedColumns, injectedColumnDefs])
 
-  // A stored perspective seeds `columnVisibility` at mount and wins outright over the
-  // `meta.hidden` defaults, so the auto-hide pass is skipped entirely in that case.
-  const visibilitySeededByStoredSettings = React.useRef(Boolean(mergedInitialSettings?.columnVisibility))
   // Auto-hiding is a per-column default, applied once per column — not an enforcement.
   // It cannot be latched by a single has-run boolean: columns arrive in waves, because
   // custom-field columns are built from definitions fetched asynchronously. The first
@@ -1867,26 +1989,51 @@ export function DataTable<T extends RowData>({
   // `handleColumnChooserToggle` *deletes* a column's entry when the user turns it back on,
   // so a re-shown column is indistinguishable from one never seen and would be hidden again
   // on the next wave. Hence an explicit per-column record of what this pass has applied.
-  const autoHiddenColumnIds = React.useRef<Set<string>>(new Set())
+  // Seeded from the stored view's own keys, because a view decides only the columns it
+  // actually names (#5117): latching the whole pass on "the view carried some visibility"
+  // left every later-registering column undecided, and undecided renders visible.
+  const visibilityDecidedColumnIds = React.useRef<Set<string>>(
+    new Set(Object.keys(mergedInitialSettings?.columnVisibility ?? {})),
+  )
+  // Bumped whenever the record is re-seeded, so switching views re-evaluates the defaults
+  // instead of waiting for the next wave of columns; the record itself is a ref, written
+  // from inside the pass, and so cannot trigger it.
+  const [visibilityDefaultsPass, setVisibilityDefaultsPass] = React.useState(0)
   React.useEffect(() => {
-    if (visibilitySeededByStoredSettings.current) return
     const hidden: VisibilityState = {}
     table.getAllLeafColumns().forEach((column) => {
+      if (visibilityDecidedColumnIds.current.has(column.id)) return
       const hiddenMeta = (column.columnDef as any)?.meta?.hidden
-      if (!hiddenMeta || autoHiddenColumnIds.current.has(column.id)) return
+      // Recorded only once it has actually applied a default. Marking a column decided
+      // merely for having been seen would strand a def whose `meta.hidden` resolves in a
+      // later wave — an injected column widget — as permanently undecided.
+      if (!hiddenMeta) return
+      visibilityDecidedColumnIds.current.add(column.id)
       hidden[column.id] = false
-      autoHiddenColumnIds.current.add(column.id)
     })
     if (!Object.keys(hidden).length) return
     setColumnVisibility((prev) => ({ ...hidden, ...prev }))
-  }, [table, mergedColumns])
+    foldAutoHiddenIntoBaseline(hidden)
+  }, [table, mergedColumns, visibilityDefaultsPass, foldAutoHiddenIntoBaseline])
 
   const getCurrentSettings = React.useCallback((): PerspectiveSettings => {
+    // A union, in this order, of two partial pictures (#5117). `columnVisibility` alone
+    // is sparse — it holds only what the user toggled plus what a view restored, and an
+    // absent key renders visible, so a saved view stored no decision for any column that
+    // registered later. The live column set alone is lossy in the other direction: it
+    // drops a stored decision for a column that has not registered yet, throwing away a
+    // hidden `cf_*` if the user saves during the custom-field hydration window. Taking
+    // the live columns second makes the map dense over everything on screen and records
+    // a column the user turned back *on* as an explicit `true` — which the sparse map
+    // could not express, since `handleColumnChooserToggle` deletes the entry — so the
+    // default pass above leaves it alone on reload. `perspectiveDirty` normalizes `true`
+    // away, so a dense map still compares equal to a sparse one stored on the server.
     const visibility: Record<string, boolean> = {}
     for (const [key, value] of Object.entries(columnVisibility)) {
-      if (typeof key === 'string' && typeof value === 'boolean') {
-        visibility[key] = value
-      }
+      if (typeof value === 'boolean') visibility[key] = value
+    }
+    for (const column of table.getAllLeafColumns()) {
+      visibility[column.id] = column.getIsVisible()
     }
     // When the host page wires an advanced-filter tree, persist that as the
     // single source of truth for `filters`. The tree wins over legacy
@@ -1915,7 +2062,7 @@ export function DataTable<T extends RowData>({
       searchValue,
     }
     return sanitizePerspectiveSettings(candidate) ?? {}
-  }, [columnOrder, columnVisibility, columnSizing, sorting, filterValues, searchValue, advancedFilter])
+  }, [table, columnOrder, columnVisibility, columnSizing, sorting, filterValues, searchValue, advancedFilter])
 
   const applyPerspectiveSettings = React.useCallback((
     settings: PerspectiveSettings,
@@ -1931,13 +2078,28 @@ export function DataTable<T extends RowData>({
     },
   ) => {
     const normalized = sanitizePerspectiveSettings(settings) ?? {}
+    if (!options?.preserveAdvancedFilter && advancedFilter?.onApplyTree) {
+      hydratedAdvancedFilterRestoredRef.current = false
+      pendingPerspectiveFiltersRef.current = {
+        filters: isPersistedFilterTree(normalized.filters) ? normalized.filters : undefined,
+      }
+    }
+    // The applied settings replace the baseline outright, so the defaults hidden under
+    // the *previous* view must not leak into it. The pass below re-runs and re-folds
+    // whatever this view leaves undecided.
+    autoHiddenVisibilityRef.current = {}
     // `preserveAdvancedFilter` leaves the host's filter state untouched, so the
     // applied settings' `filters` never become the live ones — keeping the live
     // payload here is what stops the mount-time restore from reporting a
     // filter change the user never made.
     setViewBaseline(
       options?.preserveAdvancedFilter
-        ? { ...normalized, filters: getCurrentSettings().filters }
+        ? {
+            ...normalized,
+            filters: pendingPerspectiveFiltersRef.current
+              ? pendingPerspectiveFiltersRef.current.filters
+              : getCurrentSettings().filters,
+          }
         : normalized,
     )
     if (normalized.columnOrder && normalized.columnOrder.length) {
@@ -1946,6 +2108,12 @@ export function DataTable<T extends RowData>({
       const ids = table.getAllLeafColumns().map((column) => column.id)
       if (ids.length) setColumnOrder(ids)
     }
+    // Re-seed the per-column record so the newly applied view decides exactly the
+    // columns it names and nothing else (#5117). Clearing to "No view" empties it, which
+    // is what lets the `meta.hidden` defaults come back instead of staying suppressed for
+    // the rest of the session by a view the user has since dismissed.
+    visibilityDecidedColumnIds.current = new Set(Object.keys(normalized.columnVisibility ?? {}))
+    setVisibilityDefaultsPass((pass) => pass + 1)
     if (normalized.columnVisibility) setColumnVisibility(normalized.columnVisibility)
     else setColumnVisibility({})
     if (normalized.sorting) {
@@ -1999,7 +2167,14 @@ export function DataTable<T extends RowData>({
     if (perspectiveTableId) {
       writePerspectiveCookie(perspectiveTableId, nextId)
       if (nextId) {
-        const snapshot: PerspectiveSnapshot = { perspectiveId: nextId, settings: normalized, updatedAt: Date.now() }
+        const previousSnapshot = readPerspectiveSnapshot(perspectiveTableId) ?? initialSnapshotRef.current
+        const preserveClearedFilter = options?.preserveAdvancedFilter
+          && !getCurrentSettings().filters
+          && !previousSnapshot?.settings.filters
+        const snapshotSettings = preserveClearedFilter
+          ? { ...normalized, filters: undefined }
+          : normalized
+        const snapshot: PerspectiveSnapshot = { perspectiveId: nextId, settings: snapshotSettings, updatedAt: Date.now() }
         writePerspectiveSnapshot(perspectiveTableId, snapshot)
         initialSnapshotRef.current = snapshot
       } else if (normalized.columnSizing && Object.keys(normalized.columnSizing).length) {
@@ -2064,28 +2239,44 @@ export function DataTable<T extends RowData>({
     if (!perspectiveTableId) return
     if (snapshotHydratedTableRef.current === perspectiveTableId) return
     snapshotHydratedTableRef.current = perspectiveTableId
+    hydratedAdvancedFilterRestoredRef.current = false
     const snapshot = readPerspectiveSnapshot(perspectiveTableId)
     if (!snapshot) return
     initialSnapshotRef.current = snapshot
     hydratedSnapshotRef.current = snapshot
-    // When the host page wired an advanced-filter tree (`advancedFilter.onApplyTree`),
-    // the host owns filter persistence — typically by hydrating from / writing to the
-    // URL (see CRM People/Companies/Deals lazy useState initializers + URL writer
-    // effects). The mount-time snapshot from a prior session can be arbitrarily
-    // stale and MUST NOT override the host's filter — including the empty case
-    // (Clear all → refresh would otherwise resurrect the previously-saved rules).
-    // The snapshot still drives non-filter settings: column order, visibility,
-    // sorting, search. Explicit perspective selection and "No view" go through
-    // a different applyPerspectiveSettings call without this option, so they
-    // still update the host filter as expected.
-    const preserveAdvancedFilter = !!advancedFilter?.onApplyTree
+    const restoredTree = isPersistedFilterTree(snapshot.settings.filters)
+      ? deserializeTreeFromPersist(snapshot.settings.filters)
+      : null
+    const preserveAdvancedFilter = !!advancedFilter?.onApplyTree && (
+      advancedFilter.value.root.children.length > 0 || !restoredTree?.root.children.length
+    )
     applyPerspectiveSettings(
       snapshot.settings,
       snapshot.perspectiveId ?? null,
       { preserveAdvancedFilter },
     )
+    hydratedAdvancedFilterRestoredRef.current = !!advancedFilter?.onApplyTree && !preserveAdvancedFilter
     initialPerspectiveAppliedRef.current = true
   }, [perspectiveTableId, applyPerspectiveSettings, advancedFilter])
+
+  const previousAdvancedFilterRef = React.useRef<{
+    tableId: string | null
+    hasRules: boolean
+  } | null>(null)
+  const advancedFilterHasRules = !!advancedFilter?.value.root.children.length
+  React.useEffect(() => {
+    const previous = previousAdvancedFilterRef.current
+    previousAdvancedFilterRef.current = { tableId: perspectiveTableId, hasRules: advancedFilterHasRules }
+    if (!perspectiveTableId || !advancedFilter?.onApplyTree) return
+    if (previous?.tableId !== perspectiveTableId || !previous.hasRules || advancedFilterHasRules) return
+    const snapshot = readPerspectiveSnapshot(perspectiveTableId) ?? initialSnapshotRef.current
+    if (!snapshot) return
+    const settings = { ...snapshot.settings }
+    delete settings.filters
+    const clearedSnapshot: PerspectiveSnapshot = { ...snapshot, settings, updatedAt: Date.now() }
+    writePerspectiveSnapshot(perspectiveTableId, clearedSnapshot)
+    initialSnapshotRef.current = clearedSnapshot
+  }, [perspectiveTableId, advancedFilterHasRules, advancedFilter?.onApplyTree])
 
   type SavePerspectivePayload = {
     name: string
@@ -2605,11 +2796,23 @@ export function DataTable<T extends RowData>({
   React.useLayoutEffect(() => {
     if (!canUsePerspectives) return
     if (!perspectiveTableId) return
+    if (
+      (initialSnapshotRef.current || initialPerspectiveAppliedRef.current)
+      && serverReconciledTableRef.current === perspectiveTableId
+    ) return
 
     const source = perspectiveData ?? perspectiveConfig?.initialState?.response
     if (!source) return
 
     let orphanedSnapshotDropped = false
+    const currentFilters = pendingPerspectiveFiltersRef.current
+      ? pendingPerspectiveFiltersRef.current.filters
+      : getCurrentSettings().filters
+    const restoredFilterStillActive = hydratedAdvancedFilterRestoredRef.current && diffPerspectiveSettings(
+      { filters: currentFilters },
+      { filters: hydratedSnapshotRef.current?.settings.filters },
+    ).length === 0
+    const preserveAdvancedFilter = !!advancedFilter?.onApplyTree && !restoredFilterStillActive
 
     const tryResolve = (id: string | null | undefined): PerspectiveDto | RolePerspectiveDto | undefined => {
       if (!id) return undefined
@@ -2625,7 +2828,6 @@ export function DataTable<T extends RowData>({
     // localStorage entry (#5113). One-shot matters as much as reconciling at
     // all — a later refetch must not clobber edits made after mount.
     if (initialSnapshotRef.current || initialPerspectiveAppliedRef.current) {
-      if (serverReconciledTableRef.current === perspectiveTableId) return
       serverReconciledTableRef.current = perspectiveTableId
       // A snapshot only speaks for the active perspective: once the user has
       // picked a different view, reconciling the mount-time one would undo that
@@ -2657,7 +2859,7 @@ export function DataTable<T extends RowData>({
           // selection: on a host that owns filter persistence through the URL,
           // it must not overwrite the filter currently on screen.
           applyPerspectiveSettings(local.settings, local.id, {
-            preserveAdvancedFilter: !!advancedFilter?.onApplyTree,
+            preserveAdvancedFilter,
           })
           initialPerspectiveAppliedRef.current = true
         }
@@ -2697,7 +2899,7 @@ export function DataTable<T extends RowData>({
       applyPerspectiveSettings(
         target.settings,
         target.id,
-        orphanedSnapshotDropped ? { preserveAdvancedFilter: !!advancedFilter?.onApplyTree } : undefined,
+        orphanedSnapshotDropped ? { preserveAdvancedFilter } : undefined,
       )
     } else if (orphanedSnapshotDropped) {
       // Nothing is left to fall back to — the deleted view was the only one. The
@@ -2709,11 +2911,11 @@ export function DataTable<T extends RowData>({
       // another session — so it must not clear the filter a host that owns
       // filter persistence through the URL currently has on screen.
       applyPerspectiveSettings({}, null, {
-        preserveAdvancedFilter: !!advancedFilter?.onApplyTree,
+        preserveAdvancedFilter,
       })
     }
     initialPerspectiveAppliedRef.current = true
-  }, [canUsePerspectives, perspectiveData, perspectiveTableId, perspectiveConfig, applyPerspectiveSettings, activePerspectiveId, advancedFilter?.onApplyTree])
+  }, [canUsePerspectives, perspectiveData, perspectiveTableId, perspectiveConfig, applyPerspectiveSettings, activePerspectiveId, advancedFilter?.onApplyTree, getCurrentSettings])
 
   const scrollTableIntoView = React.useCallback(() => {
     const rect = containerRef.current?.getBoundingClientRect()
@@ -3074,14 +3276,61 @@ export function DataTable<T extends RowData>({
     [confirm, extensionTableId, refreshButton, resolvedInjectionContext, router, selectedRows, t],
   )
 
+  /**
+   * Host-owned bulk actions (the `bulkActions` prop) used to DISCARD whatever
+   * they returned. An action that queued server-side work and returned
+   * `{ ok: true, progressJobId }` — the contract `progress/AGENTS.md` requires
+   * — was answered with silence: no toast, no top-bar tracking, and a rejected
+   * promise surfaced as an unhandled rejection instead of an error flash.
+   *
+   * The `void` / `true` / `false` returns keep their exact previous behaviour,
+   * because the callers that use them (customers, messages) already flash from
+   * their own `runBulkMutation` and a second toast would be a regression. Only
+   * a RESULT OBJECT is now acted on.
+   */
   const runPropBulkAction = React.useCallback(
     async (action: BulkAction<T>) => {
-      const result = await action.onExecute(selectedRows)
-      if (result !== false) {
+      try {
+        const result = await action.onExecute(selectedRows)
+        if (result === false) return
+        if (!result || typeof result !== 'object') {
+          setRowSelection({})
+          return
+        }
+
+        if (result.ok === false) {
+          if (result.message === undefined) return
+          flash(result.message, 'error')
+          return
+        }
+
         setRowSelection({})
+        if (result.progressJobId) {
+          trackedBulkProgressJobIdsRef.current.add(result.progressJobId)
+          flash(
+            result.message
+              ?? t('ui.dataTable.bulkAction.started', 'Bulk action started. Track progress in the top bar.'),
+            'success',
+          )
+          return
+        }
+        flash(
+          result.message ?? t('ui.dataTable.bulkAction.success', 'Bulk action completed.'),
+          'success',
+        )
+        if (refreshButton?.onRefresh) {
+          refreshButton.onRefresh()
+        } else {
+          scheduleRouterRefresh(router)
+        }
+      } catch (error) {
+        flash(
+          error instanceof Error ? error.message : t('ui.dataTable.bulkAction.error', 'Bulk action failed.'),
+          'error',
+        )
       }
     },
-    [selectedRows],
+    [refreshButton, router, selectedRows, t],
   )
 
   const builtToolbar = React.useMemo(() => {
@@ -3180,6 +3429,7 @@ export function DataTable<T extends RowData>({
           </div>
         )
         : null
+    const perspectiveButtonLeading = perspectiveAlign === 'right' ? null : perspectiveButton
     const saveViewButton = showSaveViewButton && canUsePerspectives ? (
       <Button
         type="button"
@@ -3203,10 +3453,10 @@ export function DataTable<T extends RowData>({
         ) : null}
       </Button>
     ) : null
-    const leadingItems = advancedFilterButton || perspectiveButton || saveViewButton ? (
+    const leadingItems = advancedFilterButton || perspectiveButtonLeading || saveViewButton ? (
       <div className="flex items-center gap-2">
         {advancedFilterButton}
-        {perspectiveButton}
+        {perspectiveButtonLeading}
         {saveViewButton}
       </div>
     ) : null
@@ -3255,6 +3505,9 @@ export function DataTable<T extends RowData>({
     const searchTrailingNode = searchTrailingInjectionSpotId && onSearchChange ? (
       <InjectionSpot spotId={searchTrailingInjectionSpotId} context={resolvedInjectionContext} />
     ) : null
+    // With the Views switcher moved to the right-hand actions area, the filter
+    // toolbar has nothing left to render — drop it so no empty band appears.
+    if (perspectiveAlign === 'right' && !anySearch && combined.length === 0 && !advancedFilterButton && !saveViewButton && !trailingItems && !fieldsetSelector) return null
     return (
       <FilterBar
         searchValue={searchValue}
@@ -3286,6 +3539,7 @@ export function DataTable<T extends RowData>({
     onFiltersApply,
     onFiltersClear,
     canUsePerspectives,
+    perspectiveAlign,
     embedded,
     supportsCustomFieldFilterFieldsets,
     resolvedEntityIds,
@@ -3334,7 +3588,9 @@ export function DataTable<T extends RowData>({
   // the wrapped action buttons rendered over it on narrow layouts.
   const headerContentClassName = 'flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between'
   const toolbarWrapperClassName = embedded ? 'mt-2' : 'mt-3 pt-3 border-t'
-  const tableScrollWrapperClassName = embedded ? '' : 'overflow-auto'
+  // `isolate` keeps the z-index of pinned cells local to the table so they
+  // scroll beneath the sticky app top bar instead of over it.
+  const tableScrollWrapperClassName = embedded ? 'isolate' : 'isolate overflow-auto'
 
   const virtualScrollRef = React.useRef<HTMLDivElement>(null)
   // Measure the horizontal scroll viewport so the empty state can center within
@@ -3415,17 +3671,29 @@ export function DataTable<T extends RowData>({
                     </Button>
                   ) : null}
                   {canUsePerspectives ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setPerspectiveOpen(true)}
-                      aria-label={t('ui.dataTable.customizeColumns.ariaLabel', 'Customize columns')}
-                      title={t('ui.dataTable.customizeColumns.title', 'Customize columns')}
-                    >
-                      <MoreHorizontal className="h-4 w-4" />
-                      <span className="sr-only">{t('ui.dataTable.customizeColumns.srOnly', 'Customize columns')}</span>
-                    </Button>
+                    perspectiveAlign === 'right' ? (
+                      <ViewSwitcherDropdown
+                        activePerspectiveId={activePerspectiveId}
+                        perspectives={perspectiveData?.perspectives ?? []}
+                        rolePerspectives={perspectiveData?.rolePerspectives ?? []}
+                        onClear={() => applyPerspectiveSettings({}, null)}
+                        onActivate={handlePerspectiveActivate}
+                        onOpenSidebar={() => setPerspectiveOpen(true)}
+                        t={t}
+                      />
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setPerspectiveOpen(true)}
+                        aria-label={t('ui.dataTable.customizeColumns.ariaLabel', 'Customize columns')}
+                        title={t('ui.dataTable.customizeColumns.title', 'Customize columns')}
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                        <span className="sr-only">{t('ui.dataTable.customizeColumns.srOnly', 'Customize columns')}</span>
+                      </Button>
+                    )
                   ) : null}
                   {exportConfig && hasExport ? <ExportMenu config={exportConfig} sections={resolvedExportSections} /> : null}
                   {toolbarInjectionSpotId ? (
@@ -3677,13 +3945,51 @@ export function DataTable<T extends RowData>({
                         </TruncatedCell>
                       ) : content
 
+                      // Expansion affordance: only on the first data cell when
+                      // expansion is enabled. Indent by nesting depth so children
+                      // read as nested under their parent; render a fixed-width
+                      // spacer for non-expandable rows to keep columns aligned.
+                      const expandAffordance = expansionEnabled && cellIndex === 0 ? (
+                        <span
+                          className="inline-flex shrink-0 items-center"
+                          style={{ paddingLeft: `${row.depth * 1.25}rem` }}
+                        >
+                          {row.getCanExpand() ? (
+                            <IconButton
+                              type="button"
+                              variant="ghost"
+                              size="xs"
+                              aria-label={row.getIsExpanded()
+                                ? t('ui.dataTable.expand.collapseRow', 'Collapse row')
+                                : t('ui.dataTable.expand.expandRow', 'Expand row')}
+                              aria-expanded={row.getIsExpanded()}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                row.toggleExpanded()
+                              }}
+                            >
+                              {row.getIsExpanded()
+                                ? <ChevronDown className="size-4" aria-hidden="true" />
+                                : <ChevronRight className="size-4" aria-hidden="true" />}
+                            </IconButton>
+                          ) : (
+                            <span className="inline-block size-6" aria-hidden="true" />
+                          )}
+                        </span>
+                      ) : null
+
                       return (
                         <TableCell
                           key={cell.id}
                           className={responsiveClass(priority, columnMeta?.hidden) + (isStickyCell ? ` md:sticky md:left-0 md:z-10 md:bg-background ${STICKY_LEFT_SHADOW_CLASS}` : '')}
                           style={typeof sizedWidth === 'number' ? { width: sizedWidth, minWidth: sizedWidth, maxWidth: sizedWidth } : undefined}
                         >
-                          {wrappedContent}
+                          {expandAffordance ? (
+                            <span className="flex items-center gap-1.5">
+                              {expandAffordance}
+                              <span className="min-w-0 flex-1">{wrappedContent}</span>
+                            </span>
+                          ) : wrappedContent}
                         </TableCell>
                       )
                     })}
@@ -3790,4 +4096,26 @@ export function DataTable<T extends RowData>({
     </div>
     </TooltipProvider>
   )
+}
+
+const DataTableFallback = DataTableImpl as unknown as React.ComponentType<DataTableProps<RowData>>
+
+/**
+ * Resolves the public DataTable component handle before mounting the table so
+ * registered props transforms, wrappers, and replacements execute at the real
+ * host boundary rather than being exposed only as a diagnostic DOM attribute.
+ */
+export function DataTable<T extends RowData>(props: DataTableProps<T>) {
+  const extensionTableId = props.perspective?.tableId
+    ?? props.extensionTableId
+    ?? (props.injectionSpotId?.startsWith('data-table:')
+      ? props.injectionSpotId.slice('data-table:'.length)
+      : null)
+  const handle = props.replacementHandle
+    ?? ComponentReplacementHandles.dataTable(extensionTableId ?? 'unknown')
+  const Resolved = useRegisteredComponent<DataTableProps<T>>(
+    handle,
+    DataTableFallback as unknown as React.ComponentType<DataTableProps<T>>,
+  )
+  return <Resolved {...props} />
 }
