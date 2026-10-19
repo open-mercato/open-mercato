@@ -243,10 +243,16 @@ invariant already holding, since it never wrote the invoice and
 `sales` enforces no such identity. Resolution:
 `postSalesInvoiceToLedger` validates
 `grandTotalGrossAmount === Σ(line.totalNetAmount) + Σ(line.taxAmount)`
-immediately before posting — compared as decimals (the repo's
-decimal/`toNumber` helper), never with a bare `===` on the
-numeric-string columns, since Postgres returns e.g. `'0.0000'` — and
-rejects with a readable error on any mismatch. This replaces, and is
+immediately before posting — compared exactly, with both sides
+converted to integer minor units (scale 4, `BigInt`), the technique
+`ledger` already uses in `toMinorUnits`. Never with a bare `===` on the
+numeric-string columns, since Postgres returns e.g. `'0.0000'`, and
+never through `toNumber`: the `toNumber` functions in `sales` are
+private, per-file helpers that return a JS `number`, not a shared
+decimal helper, so a float comparison would reintroduce the
+rounding problem. A shared decimal library is proposed in #7324 and is
+not merged, so this module does not depend on it. The check rejects
+with a readable error on any mismatch. This replaces, and is
 strictly stronger than, an earlier `discountTotalAmount === 0` guard:
 that guard caught only header discounts, while the real precondition
 is the line/header identity itself, whatever its cause. Apportioning
@@ -727,7 +733,8 @@ before the first posting (see Migration & Deployment).
   readable error on the first failure: `issueDate` is not null (see
   Design decisions, "`operationDate` requires a non-null `issueDate`");
   `grandTotalGrossAmount === Σ(line.totalNetAmount) + Σ(line.taxAmount)`,
-  compared as decimals, not `===` on the raw numeric-string columns
+  compared exactly in integer minor units (not `===` on the raw
+  numeric-string columns, not `toNumber`)
   (see Design decisions, "Header-level discounts are out of scope");
   every `SalesInvoiceLine.kind` is `'product'`, `'service'`, or
   `'shipping'` (see Design decisions, "Line-kind scope");
@@ -1602,3 +1609,14 @@ decision 15) asks of `sales` — the owner-side exchange-rate backfill command,
 draft re-resolution in `sales.invoices.update`, and the freeze after posting —
 and states that this module only consumes the stored `currencyId`. No change
 to this module's behaviour. Not yet reviewed by a maintainer.
+
+### 2026-10-19 (precision of the line/header check)
+
+The "Header-level discounts are out of scope" decision said the
+`grandTotalGrossAmount` check is compared with "the repo's decimal/`toNumber`
+helper". No such shared helper exists: `toNumber` is declared separately in
+several `sales` files and returns a JS `number`. The decision and the posting
+precondition now say the comparison is exact, in integer minor units (scale 4,
+`BigInt`, as `ledger`'s `toMinorUnits`), and name #7324 as a shared decimal
+library that is not merged and not depended on. No change to the module's
+behaviour. Not yet reviewed by a maintainer.
