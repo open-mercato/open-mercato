@@ -152,6 +152,7 @@ No URL, method, input or successful response field is removed.
 | `GET /api/attachments/file/:id` | `read` for download, `render` for inline; before bytes. |
 | `GET /api/attachments/image/:id/...` | `render`, before cache/storage. |
 | `attachmentService.readScoped` | `read`, retaining expected owner/assignment, partition and scope checks. |
+| `attachmentService.describeScoped` | `metadata`, through the same lookup as `readScoped` (used by `send-as-user` to validate outbound attachments). |
 | `attachmentTargetAccessService.canAccessLinkedTarget` | `read`, preserving expected link membership; policy denial returns false. |
 | `GET /api/attachments/library` | `metadata` before enrichment, with authorized pagination/count/facets. |
 | `GET /api/attachments/library/:id` | `metadata` before content/custom fields. |

@@ -795,6 +795,8 @@ Routes that mutate (everything except the OAuth callback, which is GET-with-side
 
 ### `AttachmentRef` type (Zod discriminated union)
 
+> Superseded for implementation by § Amendment — Outbound Attachments: the shipped `OutboundAttachmentRef` lives in `lib/outbound-attachments.ts`, accepts only `kind: 'attachment'`, and requires `owner`. The `inline` kind below is not implemented.
+
 Defined in `packages/core/src/modules/communication_channels/data/validators.ts` (hub-side, shared by all providers):
 
 ```ts
@@ -905,7 +907,23 @@ Setup raises a clear error at module boot if a provider is enabled but neither t
 
 No deprecations. No data migration of existing rows. Existing hub tests untouched.
 
-Outbound attachments (§ Amendment — Outbound Attachments) add only optional fields and methods: `SendAsUserInput.attachments`, `SendAsUserResult.code`, `NormalizedAttachment.content`, `AttachmentService.describeScoped`. `assembleRfc2822` is deprecated in favor of `composeEmailMessage` and stays exported, unchanged, for one minor release. `channelMetadata.outboundAttachments` becomes a hub-owned key that callers cannot set.
+Outbound attachments (§ Amendment — Outbound Attachments):
+
+| Surface | Change | Impact |
+|---|---|---|
+| `SendAsUserInput`, `SendAsUserResult`, `NormalizedAttachment`, `AttachmentService` | Optional `attachments`, `code`, `content`, `describeScoped` | Additive |
+| `ChannelCapabilities` | Optional `maxTotalBytes` (largest raw attachment total per message; 25 MB when unset) | Additive |
+| `MessageContent.attachments` | Retyped to `NormalizedAttachment[]` (same fields plus optional `content`) | Additive |
+| `POST /api/communication_channels/send-as-user` | Optional `attachments` field; error bodies may carry `code`; `openApi` declares the request body | Additive. A request that carried `attachments` used to be accepted and the field silently dropped; it is now validated and can be refused with 422 |
+| `channelMetadata.outboundAttachments` | Hub-owned; a caller-supplied value is dropped | Behavior change, documented |
+| `assembleRfc2822` | Deprecated in 0.9.1 in favor of the async `composeEmailMessage`; unchanged; removal no earlier than 0.11.0 | Deprecation protocol |
+| IMAP/SMTP and Gmail `fileSharing` | `false` → `true`; only the hub's attachment path reads it | Capability; stored per-channel capability snapshots keep `false` until reconnect (display only) |
+| `baseEmailCapabilities.supportedMimeTypes` | Adds xlsx, docx, pptx, xls, doc | Additive; read only by the outbound attachment check |
+| Gmail outbound bytes | MailComposer output: display name quoted only when needed, folded headers | Wire format, documented |
+| Direct adapter callers | IMAP sends `content`/`data:` attachments and reports a size rejection as `failed` / `message_too_large` instead of throwing; Gmail refuses a URL-only attachment instead of dropping it | Behavior change, documented |
+| `CapturedTestSeedEmail` (integration helper), `TestSeedCapturedMessage` (`lib/test-seed`) | Attachment items carry `fileSize` and `sha256`; `url` / `inline` kept as deprecated optional fields (never populated) | Test helper |
+| `@open-mercato/core` dependencies | Adds `nodemailer` and `@types/nodemailer` (already used by `channel-imap` / `channel-ses`) | New production dependency |
+| Database, events, DI keys, ACL, notifications, CLI, generated files | None | — |
 
 After enabling: `yarn mercato configs cache structural --all-tenants` (root `AGENTS.md` mandate).
 
@@ -1256,6 +1274,8 @@ None.
 - `SendAsUserInput.attachments` (and the `/send-as-user` body) accept `AttachmentRef[]` with `kind: 'attachment'` only; each ref names the attachment's owning record (`owner`). `kind: 'inline'` stays deferred. See § Amendment — Outbound Attachments.
 - IMAP/SMTP and Gmail advertise `fileSharing: true`; `baseEmailCapabilities` keeps `false` so an email provider opts in only once it ships the bytes.
 - Gmail builds the MIME body with nodemailer's `MailComposer` through the new core `composeEmailMessage`; `assembleRfc2822` stays exported and is deprecated. Large Gmail messages go through the media-upload endpoint with a timeout scaled to their size; the client's retry policy is unchanged.
+- `baseEmailCapabilities.supportedMimeTypes` adds xlsx, docx, pptx, xls and doc.
+- A display-name override follows the attachments module's upload rules (no executable extension, no control or bidirectional characters) and must keep the stored file's extension.
 - Integration coverage: `TC-CHANNEL-EMAIL-HUB-007` (delivery) and `TC-CHANNEL-EMAIL-HUB-008` (refusals). `HUB-005` / `HUB-006` keep their Testing Strategy meaning.
 
 ### 2026-09-27 — OAuth connect result travels in `?oauth=`, not `?flash=` (#6402)
@@ -1471,14 +1491,15 @@ type OutboundAttachmentRef = {
 ```
 
 - Up to 10 refs per message, no duplicates. `kind: 'inline'` (base64 in the request) is not accepted yet: it would put file bytes into `MessageChannelLink.channel_metadata`.
-- `owner` is mandatory. The caller vouches that the actor may read that record, the same rule `parentMessageId` already follows: the facade serves several surfaces and each owns its record-level read rule. The hub verifies everything below that line.
+- `owner` is mandatory. The caller vouches that the actor may read that record, the same rule `parentMessageId` already follows: the facade serves several surfaces and each owns its record-level read rule. The hub verifies everything below that line. The HTTP route vouches for nothing itself, so over HTTP the effective rule is `communication_channels.manage` plus a file in the sender's tenant and organization whose id and owner the caller knows — narrower than `GET /api/attachments/file/[id]`, which any authenticated user in that scope can call. Owner-scoped resolvers (#6726) are where both paths tighten.
+- `filename` is the name the recipient sees. It follows the attachments module's upload rules — no executable extension (`hasDangerousExecutableExtension`), no control or bidirectional-override characters, not blank — and must keep the stored file's extension, else 422 `attachment_type_not_allowed`; it renames a file but never changes its type.
 
 ### Checks at send time (`sendAsUser`, actor auth available)
 
-1. The resolved adapter advertises `fileSharing: true`, otherwise 422 with `code: 'attachments_unsupported'`.
+1. The resolved adapter advertises `fileSharing: true`, otherwise 422 with `code: 'attachments_unsupported'` (also returned when the attachments module is not enabled).
 2. Each ref is read through `attachmentService.describeScoped` (new, metadata only; a service override without it falls back to `readScoped`): the row is in the actor's tenant and organization, passes `checkAttachmentAccess`, its partition matches the scope, and its primary owner equals `ref.owner`. A 401/403/404 from the service is 422 `attachment_not_found` and never says whether the id exists elsewhere; any other error (database, configuration) is not a verdict on the file and propagates. The organization is the one the mailbox lives in (the route uses the token's organization, as it already does for the channel lookup), so a file uploaded under another selected organization is refused.
 3. The stored MIME type is in the adapter's `supportedMimeTypes`, else 422 `attachment_type_not_allowed`. The attachments module sets that type from the file's magic bytes, then its extension, then the uploader's claim; `application/octet-stream` (the type of an unrecognized file) is in the email allowlist, so the check stops known types the mailbox does not send rather than every unknown binary.
-4. Each file fits `capabilities.maxFileSize` and all files together fit 25 MB (`OUTBOUND_ATTACHMENTS_MAX_TOTAL_BYTES`), else 422 `attachments_too_large`. The limit counts raw bytes; base64 makes the sent message about a third larger, so a server with a limit below ~35 MB can still refuse a message near the cap, which the adapters report as `message_too_large`.
+4. Each file fits `capabilities.maxFileSize` and all files together fit `capabilities.maxTotalBytes`, 25 MB when the adapter does not declare it (`OUTBOUND_ATTACHMENTS_MAX_TOTAL_BYTES`), else 422 `attachments_too_large`. The limit counts raw bytes; base64 makes the sent message about a third larger, so a server with a limit below ~35 MB can still refuse a message near the cap, which the adapters report as `message_too_large`.
 
 Only `{ attachmentId, owner, filename? }` is persisted, under the hub-owned `channelMetadata.outboundAttachments` key. The facade always overwrites that key, so a caller cannot smuggle refs past the checks through free-form `channelMetadata`.
 
@@ -1491,7 +1512,7 @@ Only `{ attachmentId, owner, filename? }` is persisted, under the hub-owned `cha
 ### Adapters
 
 - IMAP/SMTP: passes the bytes to nodemailer (file and URL access disabled). A size rejection (`552`/`554` with a size status) is reported as `message_too_large`.
-- Gmail: `composeEmailMessage` (MailComposer, Bcc kept because Gmail reads recipients from the headers) builds the message. Messages above 4 MB use `POST /upload/gmail/v1/users/me/messages/send?uploadType=multipart` (Gmail accepts up to 35 MB there), with the request timeout extended by one second per 512 KiB. A `413` is reported as `message_too_large`. The client's retry policy is unchanged: a timeout or `5xx` can follow a send Gmail already accepted, so a retry can deliver twice, as it can today; closing that needs a "was it sent?" check before a retry and is left for a follow-up.
+- Gmail: `composeEmailMessage` (MailComposer, Bcc kept because Gmail reads recipients from the headers) builds the message. When the base64url `raw` exceeds 4 MiB (a message of about 3 MiB) the send uses `POST /upload/gmail/v1/users/me/messages/send?uploadType=multipart` (Gmail accepts up to 35 MB there), with the request timeout extended by one second per 512 KiB. A `413` is reported as `message_too_large`. The client's retry policy is unchanged: a timeout or `5xx` can follow a send Gmail already accepted, so a retry can deliver twice, as it can today; closing that needs a "was it sent?" check before a retry and is left for a follow-up.
 - Memory: a 25 MB delivery holds the file bytes, the composed message (twice for Gmail, because the hub's `convertOutbound` and the adapter's `sendMessage` each compose it) and the base64url string; removing the double conversion touches Gmail's `sendMessage` (#7188) and is left for a follow-up.
 
 ### Not in scope
@@ -1510,6 +1531,6 @@ Only `{ attachmentId, owner, filename? }` is persisted, under the hub-owned `cha
 | `AttachmentService.describeScoped` | Done | 2026-10-19 | Optional method; shares every check with `readScoped` |
 | `send-as-user` attachments + delivery-time read | Done | 2026-10-19 | `lib/outbound-attachments.ts`, `lib/send-as-user.ts`, `commands/deliver-outbound-message.ts`, route schema + 422 codes, i18n (en, pl, de, es, ko) |
 | IMAP/SMTP adapter | Done | 2026-10-19 | Bytes to nodemailer, `message_too_large`, `fileSharing: true` |
-| Gmail adapter | Done | 2026-10-19 | MailComposer body, media upload above 4 MB, no client retry after timeout/5xx, `fileSharing: true` |
+| Gmail adapter | Done | 2026-10-19 | MailComposer body, media upload above ~3 MiB of message, size-scaled upload timeout, client retry policy unchanged (timeout/5xx retried; duplicate-send risk left for a follow-up), `fileSharing: true` |
 | Tests | Done | 2026-10-19 | Unit: compose, describeScoped, outbound-attachments (incl. database errors propagated, `readScoped` fallback), send-as-user (incl. malformed in-process refs), delivery (incl. transient database error), IMAP adapter + SMTP size classifier, Gmail convert + send (incl. upload timeout). Integration: `TC-CHANNEL-EMAIL-HUB-007` (bytes delivered with matching SHA-256; caller-written refs never sent) and `TC-CHANNEL-EMAIL-HUB-008` (chat channel, wrong owner, other organization, type not allowed) |
 | Composer wiring on the mailbox path | Not started | — | Out of scope, see § Not in scope |

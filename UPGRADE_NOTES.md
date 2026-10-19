@@ -238,16 +238,35 @@ therefore fold long encoded headers and quote a display name only when it needs 
 (`From: Alice <a@example.com>`).
 
 `channelMetadata.outboundAttachments` is now a hub-owned key: `send-as-user` drops any value a
-caller puts there. In the integration helpers, `CapturedTestSeedEmail.content.attachments` items now
-carry `fileName`, `mimeType`, `fileSize` and `sha256` (no `url` or `inline`), because the test-seed
-adapter records a digest of the bytes instead of the items it was handed.
+caller puts there. In the integration helpers, `CapturedTestSeedEmail.content.attachments` items (and
+`TestSeedCapturedMessage.content.attachments` in `communication_channels/lib/test-seed`) now carry
+`fileName`, `mimeType`, `fileSize` and `sha256`, because the test-seed adapter records a digest of the
+bytes instead of the items it was handed; `url` and `inline` stay as deprecated optional fields, never
+populated, with removal no earlier than 0.11.0.
+
+A `send-as-user` request that carried an `attachments` field used to be accepted with the field
+silently dropped; the field is now validated, and the request is refused with 422 when it is malformed
+or the mailbox cannot send it. A refusal carries a stable `code` next to `error`. A display-name
+`filename` must keep the stored file's extension and follow the upload rules (no executable
+extension, no control or bidirectional characters). `baseEmailCapabilities.supportedMimeTypes` gains
+xlsx, docx, pptx, xls and doc. A channel connected before the upgrade keeps `fileSharing: false` in
+its stored capability snapshot until it is reconnected; the hub reads the live adapter, so sending
+works either way.
+
+Adapters called directly (not through the hub): IMAP/SMTP now sends `attachment.content` and `data:`
+URLs, and reports a server size rejection as `{ status: 'failed', error: '…message_too_large…' }`
+instead of throwing; Gmail refuses an attachment that only has a remote `url` instead of dropping it.
+
+`assembleRfc2822` is deprecated since 0.9.1 and kept unchanged; removal no earlier than 0.11.0.
 
 **Action for module authors:** a custom adapter that advertises `fileSharing: true` must send
 `attachment.content` when it is set (or use `resolveOutboundAttachmentBytes` from
 `communication_channels/lib/outbound-attachments`) and must not fetch `attachment.url`. Tests that
 assert the exact bytes of a Gmail outbound message may need the new header formatting. An
 `attachmentService` override does not need the new optional `describeScoped`: without it the hub
-validates attachments through `readScoped`.
+validates attachments through `readScoped`. An adapter whose provider allows a different total per
+message declares it in the new optional `ChannelCapabilities.maxTotalBytes` (raw bytes; 25 MB when
+unset); `maxFileSize` stays the per-file limit.
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
