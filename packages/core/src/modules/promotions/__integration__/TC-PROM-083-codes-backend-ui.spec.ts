@@ -1,10 +1,7 @@
 import { type Page, expect, test } from '@playwright/test';
 import { login } from '@open-mercato/core/helpers/integration/auth';
 import { getAuthToken } from '@open-mercato/core/helpers/integration/api';
-import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue';
 import { deleteCodeIfExists, uniqueStamp } from './helpers';
-
-const PROMOTIONS_CODE_GENERATE_QUEUE = 'promotions-code-generate';
 
 // `CrudForm` field labels are plain sibling text nodes next to the control, never a
 // semantic `<label for>`/`aria-labelledby` association — `getByLabel` hangs forever
@@ -114,7 +111,21 @@ test.describe('TC-PROM-083: codes backend pages', () => {
       if (await generateButton.isVisible().catch(() => false)) {
         await generateButton.click();
       }
-      await drainIntegrationQueue(PROMOTIONS_CODE_GENERATE_QUEUE).catch(() => 0);
+      // Deliberately NOT draining the queue from a second, spawned process here (unlike
+      // this suite's other `drainIntegrationQueue` call sites) — `packages/queue/src/
+      // strategies/local.ts`'s own header comment states the local queue strategy is
+      // "NOT safe — concurrent consumers. `process()` deliberately runs job handlers
+      // outside the lock, so two worker processes polling the same queue would both
+      // claim the same pending jobs and execute them twice." `ephemeral-integration`
+      // already runs the app with its own lazy-shared worker armed (`yarn dev:app`),
+      // which is the SAME documented dual-consumer race tracked in #6008 against
+      // `catalog-product-bulk-create` (there it corrupts a per-row summary and is
+      // absorbed by Playwright's retry; here it reliably failed BOTH attempts instead,
+      // confirmed while stabilizing PR #7592's CI — a ~19s stall followed by every
+      // subsequent poll answering 401, `packages/shared/src/lib/auth/server.ts`'s own
+      // documented transient-DB-pressure path). The lazy worker alone, backed by the
+      // poll below's generous 30s timeout, is the single-consumer path that avoids the
+      // race entirely.
 
       // Poll the API directly (`page.request`, same cookie session, no page-level fetch
       // involved) rather than repeatedly reloading the page and re-reading its DOM — a
