@@ -29,8 +29,8 @@ export function isShipmentCancelNotAllowedError(error: unknown): error is Shipme
 }
 
 const VALID_SHIPPING_TRANSITIONS: Record<string, UnifiedShipmentStatus[]> = {
-  label_created: ['picked_up', 'in_transit', 'cancelled'],
-  picked_up: ['in_transit', 'cancelled'],
+  label_created: ['picked_up', 'in_transit', 'out_for_delivery', 'delivered', 'failed_delivery', 'returned', 'cancelled'],
+  picked_up: ['in_transit', 'out_for_delivery', 'delivered', 'failed_delivery', 'returned', 'cancelled'],
   in_transit: ['out_for_delivery', 'delivered', 'returned', 'failed_delivery'],
   out_for_delivery: ['delivered', 'returned', 'failed_delivery'],
   failed_delivery: ['in_transit', 'out_for_delivery', 'delivered', 'returned', 'cancelled'],
