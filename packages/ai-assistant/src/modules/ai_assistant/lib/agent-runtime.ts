@@ -29,6 +29,7 @@ import {
 import type { StopCondition } from 'ai'
 import type { ZodTypeAny } from 'zod'
 import { createModelFactory, resolveAllowRuntimeOverride } from './model-factory'
+import { resolveAllowlistedBaseurl } from './baseurl-allowlist'
 import { computeEndUserIdentifier } from '@open-mercato/shared/lib/ai/safety-identifier'
 import { llmProviderRegistry } from './llm-registry'
 import type { EnvLookup } from '@open-mercato/shared/lib/ai/llm-provider'
@@ -1361,10 +1362,18 @@ async function resolveRuntimeModelOverride(
       agentId,
     })
     if (!row) return null
+    const baseURL = resolveAllowlistedBaseurl(row.baseUrl)
+    if (!baseURL && row.baseUrl?.trim()) {
+      logger.warn('Stored AI runtime baseURL is not allowed by AI_RUNTIME_BASEURL_ALLOWLIST; ignoring it', {
+        agentId,
+        tenantId,
+        organizationId,
+      })
+    }
     return {
       providerId: row.providerId ?? null,
       modelId: row.modelId ?? null,
-      baseURL: row.baseUrl ?? null,
+      baseURL,
     }
   } catch (error) {
     logger.warn('Runtime model override lookup failed; falling back to lower-priority sources', { agentId, err: error })
