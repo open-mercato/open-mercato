@@ -15,6 +15,8 @@ export {
   type AttachmentService,
   type CreatedScopedAttachment,
   type CreateScopedAttachmentInput,
+  type DescribedScopedAttachment,
+  type DescribeScopedAttachmentInput,
   type ReadScopedAttachmentInput,
   type ReadScopedAttachmentResult,
   type ReleaseScopedAttachmentInput,

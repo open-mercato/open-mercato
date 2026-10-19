@@ -440,6 +440,47 @@ describe('DefaultAttachmentService', () => {
     expect(factory.resolveForPartition).not.toHaveBeenCalled()
   })
 
+  it('describes a readable attachment without reading its bytes', async () => {
+    const { service, factory } = createHarness()
+
+    await expect(service.describeScoped({
+      attachmentId: 'attachment-1',
+      auth: scopedAuth,
+      expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+    })).resolves.toEqual({
+      id: 'attachment-1',
+      fileName: 'file.txt',
+      mimeType: 'text/plain',
+      fileSize: 4,
+      partitionCode: 'privateAttachments',
+    })
+    expect(factory.resolveForPartition).not.toHaveBeenCalled()
+  })
+
+  it('applies the readScoped checks when describing an attachment', async () => {
+    const foreign = createHarness({ attachment: attachment({ tenantId: 'tenant-2', organizationId: 'org-2' }) })
+    await expectStatus(foreign.service.describeScoped({
+      attachmentId: 'attachment-1',
+      auth: scopedAuth,
+      expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+    }), 404)
+
+    const otherOwner = createHarness()
+    await expectStatus(otherOwner.service.describeScoped({
+      attachmentId: 'attachment-1',
+      auth: scopedAuth,
+      expectedOwner: { entityId: 'documents:document', recordId: 'document-2' },
+    }), 404)
+
+    const publicPartition = createHarness({ partition: partition({ isPublic: true }) })
+    await expectStatus(publicPartition.service.describeScoped({
+      attachmentId: 'attachment-1',
+      auth: scopedAuth,
+      expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+      requirePrivatePartition: true,
+    }), 403)
+  })
+
   it('maps storage read failures to a not-found response', async () => {
     const { service } = createHarness({ readError: new Error('provider unavailable') })
 

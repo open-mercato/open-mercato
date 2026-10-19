@@ -144,6 +144,16 @@ export type ReadScopedAttachmentResult = {
   mimeType: string
 }
 
+export type DescribeScopedAttachmentInput = Omit<ReadScopedAttachmentInput, 'forceDownload'>
+
+export type DescribedScopedAttachment = {
+  id: string
+  fileName: string
+  mimeType: string
+  fileSize: number
+  partitionCode: string
+}
+
 export type ReleaseScopedAttachmentInput = {
   attachmentId: string
   tenantId: string
@@ -169,6 +179,12 @@ export interface AttachmentService {
   readUploadForm?(request: Request): Promise<FormData>
   createScoped(input: CreateScopedAttachmentInput): Promise<CreatedScopedAttachment>
   readScoped(input: ReadScopedAttachmentInput): Promise<ReadScopedAttachmentResult>
+  /**
+   * Runs every check `readScoped` runs and returns the attachment's metadata
+   * without reading its bytes, so a caller can validate a file before it is
+   * read later (for example at delivery time).
+   */
+  describeScoped?(input: DescribeScopedAttachmentInput): Promise<DescribedScopedAttachment>
   releaseScoped?(
     input: ReleaseScopedAttachmentInput,
     options?: { em?: EntityManager; flush?: boolean },
@@ -325,6 +341,44 @@ export class DefaultAttachmentService implements AttachmentService {
   }
 
   async readScoped(input: ReadScopedAttachmentInput): Promise<ReadScopedAttachmentResult> {
+    const attachment = await this.findReadableScoped(input)
+    const driver = await this.storageDriverFactory.resolveForPartition(attachment.partitionCode, {
+      tenantId: attachment.tenantId ?? '',
+      organizationId: attachment.organizationId ?? '',
+    })
+    let result: Awaited<ReturnType<typeof driver.read>>
+    try {
+      result = await driver.read(attachment.partitionCode, attachment.storagePath)
+    } catch {
+      throw new CrudHttpError(404, { error: 'File not available' })
+    }
+
+    const mimeType = attachment.mimeType || 'application/octet-stream'
+    const renderInline = !input.forceDownload && canRenderInlineAttachment(mimeType)
+    return {
+      buffer: result.buffer,
+      contentType: renderInline ? result.contentType ?? mimeType : 'application/octet-stream',
+      contentDisposition: buildAttachmentContentDisposition(
+        attachment.fileName,
+        renderInline ? 'inline' : 'attachment',
+      ),
+      fileName: attachment.fileName,
+      mimeType,
+    }
+  }
+
+  async describeScoped(input: DescribeScopedAttachmentInput): Promise<DescribedScopedAttachment> {
+    const attachment = await this.findReadableScoped(input)
+    return {
+      id: attachment.id,
+      fileName: attachment.fileName,
+      mimeType: attachment.mimeType || 'application/octet-stream',
+      fileSize: attachment.fileSize,
+      partitionCode: attachment.partitionCode,
+    }
+  }
+
+  private async findReadableScoped(input: DescribeScopedAttachmentInput): Promise<Attachment> {
     // Scope the lookup at the database boundary so a foreign-tenant row is
     // never materialized, then keep checkAttachmentAccess below as defense in
     // depth. This service only ever stores fully scoped rows, so global rows
@@ -377,30 +431,7 @@ export class DefaultAttachmentService implements AttachmentService {
         throw new CrudHttpError(404, { error: 'Attachment not found' })
       }
     }
-
-    const driver = await this.storageDriverFactory.resolveForPartition(attachment.partitionCode, {
-      tenantId: attachment.tenantId ?? '',
-      organizationId: attachment.organizationId ?? '',
-    })
-    let result: Awaited<ReturnType<typeof driver.read>>
-    try {
-      result = await driver.read(attachment.partitionCode, attachment.storagePath)
-    } catch {
-      throw new CrudHttpError(404, { error: 'File not available' })
-    }
-
-    const mimeType = attachment.mimeType || 'application/octet-stream'
-    const renderInline = !input.forceDownload && canRenderInlineAttachment(mimeType)
-    return {
-      buffer: result.buffer,
-      contentType: renderInline ? result.contentType ?? mimeType : 'application/octet-stream',
-      contentDisposition: buildAttachmentContentDisposition(
-        attachment.fileName,
-        renderInline ? 'inline' : 'attachment',
-      ),
-      fileName: attachment.fileName,
-      mimeType,
-    }
+    return attachment
   }
 
   async releaseScoped(
