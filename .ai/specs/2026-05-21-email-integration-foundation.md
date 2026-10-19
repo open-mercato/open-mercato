@@ -1249,6 +1249,12 @@ None.
 
 ## Changelog
 
+### 2026-10-19 — Outbound attachments through `send-as-user`, IMAP/SMTP and Gmail (#7098, #6261)
+
+- `SendAsUserInput.attachments` (and the `/send-as-user` body) accept `AttachmentRef[]` with `kind: 'attachment'` only; each ref names the attachment's owning record (`owner`). `kind: 'inline'` stays deferred. See § Amendment — Outbound Attachments.
+- IMAP/SMTP and Gmail advertise `fileSharing: true`; `baseEmailCapabilities` keeps `false` so an email provider opts in only once it ships the bytes.
+- Gmail builds the MIME body with nodemailer's `MailComposer` through the new core `composeEmailMessage`; `assembleRfc2822` stays exported and is deprecated. Large Gmail messages go through the media-upload endpoint, and the send POST is no longer retried inside the client after a timeout or 5xx.
+
 ### 2026-09-27 — OAuth connect result travels in `?oauth=`, not `?flash=` (#6402)
 
 - The callback redirected with `?flash=<connected|error>`, but the global `<FlashMessages>` host reads `?flash=` as the message text (the `ui/backend/utils/flash.ts` convention), so users saw a green toast reading `error`/`connected`, or nothing after a cross-origin return from the provider. The outcome now travels in `?oauth=` (plus the unchanged `code` / `provider` / `channelId`), and the profile page maps it to its translated message.
@@ -1445,3 +1451,48 @@ Adds a fourth security control to the state-cookie design described in § Hub De
 | `state_store_unavailable` | Cache unavailable at callback time; fail-closed rather than skipping single-use protection |
 
 Both codes are i18n-mapped in the profile page (`communication_channels.profile.flash.replayedState`, `communication_channels.profile.flash.stateStoreUnavailable`).
+
+## Amendment — Outbound Attachments (2026-10-19)
+
+Implements the `attachments?: AttachmentRef[]` field of § API Contracts → `POST /api/communication_channels/send-as-user` for the `attachment` kind, and turns on `fileSharing` for the two per-user email providers.
+
+### Contract
+
+```ts
+type OutboundAttachmentRef = {
+  kind: 'attachment'
+  attachmentId: string                          // attachments module id
+  owner: { entityId: string; recordId: string } // the record the file belongs to
+  filename?: string                             // optional display-name override
+}
+```
+
+- Up to 10 refs per message, no duplicates. `kind: 'inline'` (base64 in the request) is not accepted yet: it would put file bytes into `MessageChannelLink.channel_metadata`.
+- `owner` is mandatory. The caller vouches that the actor may read that record, the same rule `parentMessageId` already follows: the facade serves several surfaces and each owns its record-level read rule. The hub verifies everything below that line.
+
+### Checks at send time (`sendAsUser`, actor auth available)
+
+1. The resolved adapter advertises `fileSharing: true`, otherwise 422 with `code: 'attachments_unsupported'`.
+2. Each ref is read through `attachmentService.describeScoped` (new, metadata only): the row is in the actor's tenant and organization, passes `checkAttachmentAccess`, its partition matches the scope, and its primary owner equals `ref.owner`. A miss is 422 `attachment_not_found` and never says whether the id exists elsewhere.
+3. The stored MIME type (sniffed from content at upload) is in the adapter's `supportedMimeTypes`, else 422 `attachment_type_not_allowed`.
+4. Each file fits `capabilities.maxFileSize` and all files together fit 25 MB (`OUTBOUND_ATTACHMENTS_MAX_TOTAL_BYTES`), else 422 `attachments_too_large`.
+
+Only `{ attachmentId, owner, filename? }` is persisted, under the hub-owned `channelMetadata.outboundAttachments` key. The facade always overwrites that key, so a caller cannot smuggle refs past the checks through free-form `channelMetadata`.
+
+### Delivery (`deliver-outbound-message`, worker)
+
+- The bytes are read at delivery time with `attachmentService.readScoped` for the channel owner (the actor the facade authorized), pinned to the stored `owner`, so a retry re-reads instead of keeping bytes in the queue or the database. Count, size and type are checked again against the bytes.
+- A file that is gone, re-parented or now too large fails the delivery permanently (`transient: false`); it is never sent without the attachment.
+- The refs are stripped from the metadata handed to the adapter; adapters receive `NormalizedAttachment` items with the new optional `content` bytes. Adapters never fetch a remote `url`.
+
+### Adapters
+
+- IMAP/SMTP: passes the bytes to nodemailer (file and URL access disabled). A size rejection (`552`/`554` with a size status) is reported as `message_too_large`.
+- Gmail: `composeEmailMessage` (MailComposer, Bcc kept because Gmail reads recipients from the headers) builds the message. Messages above 4 MB use `POST /upload/gmail/v1/users/me/messages/send?uploadType=multipart` (Gmail accepts up to 35 MB there). The send POST is retried inside the client only for `429` / rate-limit `403`, which Gmail returns before accepting a message; a timeout or `5xx` may follow an accepted send, so it is left to the delivery worker, which already treats delivery as at-least-once. A `413` is reported as `message_too_large`.
+
+### Not in scope
+
+- The messages composer keeps refusing attachments on the mailbox path (`composeSenderDelegation`): it would need the composer's upload owner and the decision whether a mailbox send re-parents the files to the message (#6261 follow-up).
+- Replies routed by the outbound bridge still carry no attachments.
+- The platform `Message` that `send-as-user` creates does not list the files it sent: the refs live only in `MessageChannelLink.channel_metadata`, so the thread in Open Mercato shows the message without them. Linking them to the message is part of the same #6261 decision.
+- Owner-scoped access resolvers (#6726) will replace the scope-level check in `describeScoped` / `readScoped` when they land; the facade needs no change.
