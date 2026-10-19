@@ -1,11 +1,13 @@
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import { FeatureToggle } from '../data/entities'
 import { ProcessedChangeOverrideStateInput, processedChangeOverrideStateSchema } from '../data/validators'
 import { FeatureToggleOverride } from '../data/entities'
 import { buildChanges } from '@open-mercato/shared/lib/commands/helpers'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { FeatureTogglesService } from '../lib/feature-flag-check'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -136,30 +138,36 @@ const changeOverrideStateCommand: CommandHandler<ProcessedChangeOverrideStateInp
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
-    const existing = await em.findOne(FeatureToggleOverride, { toggle: before.toggleId, tenantId: before.tenantId })
-    const currentId = existing?.id ?? null
-    const currentUpdatedAt = existing?.updatedAt ? existing.updatedAt.toISOString() : null
-    const expectedId = after?.id ?? null
-    const expectedUpdatedAt = after?.updatedAt ?? null
-    if (currentId !== expectedId || currentUpdatedAt !== expectedUpdatedAt) {
-      await throwOverrideUndoConflict()
-    }
+    await withAtomicFlush(em, [
+      async () => {
+        const existing = await em.findOne(
+          FeatureToggleOverride,
+          { toggle: before.toggleId, tenantId: before.tenantId },
+          { lockMode: LockMode.PESSIMISTIC_WRITE },
+        )
+        const currentId = existing?.id ?? null
+        const currentUpdatedAt = existing?.updatedAt ? existing.updatedAt.toISOString() : null
+        const expectedId = after?.id ?? null
+        const expectedUpdatedAt = after?.updatedAt ?? null
+        if (currentId !== expectedId || currentUpdatedAt !== expectedUpdatedAt) {
+          await throwOverrideUndoConflict()
+        }
 
-    if (!before.id) {
-      await em.nativeDelete(FeatureToggleOverride, { toggle: before.toggleId, tenantId: before.tenantId })
-    } else {
-      if (existing) {
-        existing.value = before.value
-      } else {
-        em.create(FeatureToggleOverride, {
-          id: before.id,
-          toggle: before.toggleId,
-          tenantId: before.tenantId,
-          value: before.value ?? {},
-        })
-      }
-    }
-    await em.flush()
+        if (!before.id) {
+          await em.nativeDelete(FeatureToggleOverride, { toggle: before.toggleId, tenantId: before.tenantId })
+        } else if (existing) {
+          existing.value = before.value
+        } else {
+          em.create(FeatureToggleOverride, {
+            id: before.id,
+            toggle: before.toggleId,
+            tenantId: before.tenantId,
+            value: before.value ?? {},
+          })
+        }
+      },
+    ], { transaction: true, label: 'feature_toggles.overrides.changeState.undo' })
+
     const toggle = await findOneWithDecryption(em, FeatureToggle, { id: before.toggleId })
     if (toggle) {
       const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService

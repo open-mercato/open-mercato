@@ -222,6 +222,10 @@ describe('feature_toggles.overrides commands', () => {
                 create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data, toggle: { id: toggleId } })),
                 nativeDelete: jest.fn().mockResolvedValue(1),
                 flush: jest.fn().mockResolvedValue(undefined),
+                begin: jest.fn().mockResolvedValue(undefined),
+                commit: jest.fn().mockResolvedValue(undefined),
+                rollback: jest.fn().mockResolvedValue(undefined),
+                isInTransaction: jest.fn().mockReturnValue(false),
             }
             const container = {
                 resolve: jest.fn((token: string) => {
@@ -356,6 +360,31 @@ describe('feature_toggles.overrides commands', () => {
             expect(existingOverride.value).toBe('enabled')
             expect(em.flush).toHaveBeenCalled()
             expect(invalidateIsEnabledCacheByKey).toHaveBeenCalledWith('test_feature', tenantId)
+        })
+
+        it('reads the live override under a pessimistic write lock inside a transaction', async () => {
+            const changeStateCommand = loadCommand()
+            const existingOverride: Record<string, unknown> = {
+                id: overrideId,
+                toggle: { id: toggleId },
+                tenantId,
+                value: 'disabled',
+                updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+            }
+            const { em, ctx } = buildContext(existingOverride)
+            const before = { id: overrideId, toggleId, tenantId, value: 'enabled' }
+            const after = { id: overrideId, toggleId, tenantId, value: 'disabled', updatedAt: '2026-01-01T00:00:00.000Z' }
+
+            await changeStateCommand.undo({ logEntry: undoLogEntry(before, after), ctx })
+
+            expect(em.findOne).toHaveBeenCalledWith(
+                expect.any(Function),
+                { toggle: toggleId, tenantId },
+                { lockMode: expect.anything() },
+            )
+            expect(em.begin).toHaveBeenCalled()
+            expect(em.commit).toHaveBeenCalled()
+            expect(em.rollback).not.toHaveBeenCalled()
         })
     })
 
