@@ -10,6 +10,7 @@ import { llmProviderRegistry } from '../../../../../lib/llm-registry'
 import { getAgent, loadAgentRegistry } from '../../../../../lib/agent-registry'
 import { hasRequiredFeatures } from '../../../../../lib/auth'
 import { createModelFactory, resolveAllowRuntimeOverride } from '../../../../../lib/model-factory'
+import { resolveAllowlistedBaseurl } from '../../../../../lib/baseurl-allowlist'
 import {
   hasAllowlistSnapshotRestrictions,
   intersectEffectiveAllowlistWithSnapshot,
@@ -164,7 +165,7 @@ export async function GET(
           ? {
               providerId: runtimeOverrideDefaultRow.providerId ?? null,
               modelId: runtimeOverrideDefaultRow.modelId ?? null,
-              baseURL: runtimeOverrideDefaultRow.baseUrl ?? null,
+              baseURL: resolveAllowlistedBaseurl(runtimeOverrideDefaultRow.baseUrl),
             }
           : null
         const runtimeOverrideRow = await runtimeOverrideRepo.getExact({

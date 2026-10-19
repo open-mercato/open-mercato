@@ -1412,6 +1412,8 @@
   "sales.returns.quantityExceedsShipped": "No se puede devolver más que la cantidad enviada. Envíe los artículos antes de registrar una devolución.",
   "sales.returns.reason": "Motivo",
   "sales.returns.reason.placeholder": "Opcional",
+  "sales.returns.restoreLineMissing": "Esta devolución no se puede restaurar: una de sus líneas de pedido ya no existe.",
+  "sales.returns.restoreQuantityUnavailable": "Esta devolución no se puede restaurar: el pedido ya no tiene suficiente cantidad enviada pendiente de devolver.",
   "sales.returns.returnNumber": "Devolución",
   "sales.returns.returnedAt": "Devuelto el",
   "sales.returns.total": "Total",
