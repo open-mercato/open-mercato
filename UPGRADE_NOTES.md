@@ -143,6 +143,52 @@ the same check, for at most three hops. Any other redirect fails with
 **Action for operators:** fix any workflow definition whose `CALL_API` endpoint hard-codes a
 different scheme (for example `http://` while `APP_URL` is `https://`) or a non-`/api/` path. Use a
 relative `/api/...` path or `{{env.APP_URL}}/api/...` instead.
+### Catalog write commands treat records outside the caller's scope as not found (#3825)
+
+`catalog.products.update|delete`, `catalog.variants.update|delete`, `catalog.prices.update|delete`
+and `catalog.offers.update|delete` now load their target only inside the caller's tenant and allowed
+organizations. `PUT` / `DELETE` on `/api/catalog/products`, `/api/catalog/variants`,
+`/api/catalog/prices` and `/api/catalog/offers` with the id of another tenant's or another
+organization's record now answer `404` instead of `403`, exactly like an unknown id. The same
+applies to `POST /api/catalog/variants` with another tenant's `productId`. Commands run
+with `auth: null` and an `organizationScope` (the Akeneo importer, for example) now also match the
+record against `organizationScope.tenantId`. Catalog product bulk-delete jobs (#3826, 0.9.0) now
+report a product from another tenant or organization as not found (`404`) instead of `403`. Request and response shapes
+are unchanged.
+
+**Action for module authors:** none, unless you branch on `403` for these routes or commands; treat
+`404` as the answer for records the caller cannot reach.
+### Catalog price kind PUTs keep `displayMode` when it is omitted (#7555)
+
+`PUT /api/catalog/price-kinds` (the `catalog.priceKinds.update` command) used to reset an omitted
+`displayMode` to `excluding-tax`. The update schema (`priceKindUpdateSchema`) inherited the
+create-time default, so renaming an `including-tax` price kind or toggling its `isActive` switched it
+back to `excluding-tax`. An omitted `displayMode` is now left untouched, and the generated OpenAPI document no
+longer shows a default for it on the PUT body. `priceKindCreateSchema` keeps its `excluding-tax`
+default.
+
+- A caller that relied on omission to reset the display mode must send `displayMode: 'excluding-tax'`
+  explicitly.
+- Price kinds already changed by a partial update are not repaired. Check the display mode in the
+  catalog price kind settings and set it again where needed.
+### Reaction routes answer 404 for messages outside your personal mailbox (#3833)
+
+`POST /api/communication_channels/messages/:messageId/reactions` now answers
+`404 { error: "Message not found" }` (localized) both for a message linked to another user's
+personal mailbox (was `403`) and for a message that does not exist in the caller's scope (was
+`409`). `DELETE /api/communication_channels/messages/:messageId/reactions/:reactionId` answers
+`404 { error: "Reaction not found" }` (now localized) for a reaction on another user's personal
+mailbox (was `403`) and for a message removed while the request runs (was `409`); its other 404
+refusals now carry the same fixed text instead of the command's reason. A message linked to another
+user's deleted personal mailbox (was `409`) is refused the same way on both routes. `409` stays for
+an existing message in the caller's organization that is not channel-linked (or whose channel cannot
+be resolved), and for a duplicate reaction. URLs and success responses are unchanged.
+
+**Action for module authors:** the exported `ToggleOutboundReactionResult` of the
+`communication_channels.reaction.toggle_outbound` command gains a `not_found` member, returned when
+the message does not resolve in scope (previously `no_channel_link` with reason
+`message not found`). Code that switches exhaustively over the result, or treated
+`no_channel_link` as "message missing", should handle `not_found` alongside it.
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
