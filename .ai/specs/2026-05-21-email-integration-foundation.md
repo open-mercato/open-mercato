@@ -1496,3 +1496,16 @@ Only `{ attachmentId, owner, filename? }` is persisted, under the hub-owned `cha
 - Replies routed by the outbound bridge still carry no attachments.
 - The platform `Message` that `send-as-user` creates does not list the files it sent: the refs live only in `MessageChannelLink.channel_metadata`, so the thread in Open Mercato shows the message without them. Linking them to the message is part of the same #6261 decision.
 - Owner-scoped access resolvers (#6726) will replace the scope-level check in `describeScoped` / `readScoped` when they land; the facade needs no change.
+
+### Implementation Status
+
+| Step | Status | Date | Notes |
+|---|---|---|---|
+| Spec amendment + changelog | Done | 2026-10-19 | This section |
+| `composeEmailMessage` (MailComposer) in core | Done | 2026-10-19 | `lib/email-mime.ts`; `assembleRfc2822` deprecated, unchanged |
+| `AttachmentService.describeScoped` | Done | 2026-10-19 | Optional method; shares every check with `readScoped` |
+| `send-as-user` attachments + delivery-time read | Done | 2026-10-19 | `lib/outbound-attachments.ts`, `lib/send-as-user.ts`, `commands/deliver-outbound-message.ts`, route schema + 422 codes, i18n (en, pl, de, es, ko) |
+| IMAP/SMTP adapter | Done | 2026-10-19 | Bytes to nodemailer, `message_too_large`, `fileSharing: true` |
+| Gmail adapter | Done | 2026-10-19 | MailComposer body, media upload above 4 MB, no client retry after timeout/5xx, `fileSharing: true` |
+| Tests | Done | 2026-10-19 | Unit: compose, describeScoped, outbound-attachments, send-as-user, delivery, IMAP adapter + SMTP size classifier, Gmail convert + send. Integration: `TC-CHANNEL-EMAIL-HUB-005` (bytes delivered with matching SHA-256, chat channel refused, wrong owner refused) |
+| Composer wiring on the mailbox path | Not started | — | Out of scope, see § Not in scope |
