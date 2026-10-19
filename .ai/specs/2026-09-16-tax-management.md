@@ -3,7 +3,7 @@
 > **Split 2026-09-28.** This document used to also carry the
 > `financial_pl` half (VAT/CIT/PIT engines, mikrorachunek podatkowy,
 > `generateTaxPaymentInstruction`) staged here temporarily, the same
-> reason `2026-09-11-jpk-kr-pd-financial-pl.md` (SPEC-010) was
+> reason `2026-09-11-jpk-kr-pd-financial-pl.md` (the JPK_KR_PD spec) was
 > originally staged here before its own move. Following that same
 > precedent, the `financial_pl` half has now moved permanently to
 > `official-modules` as its own document:
@@ -64,7 +64,7 @@ The 2026-09-05 Event Storming session (facylitator Mariusz Gil, ekspert
 domenowy Mateusz Duda) named a "ścieżka podatkowa" as part of period
 close, distinct from anything AP/AR/GL account balances/Posting Rules
 Engine cover. Two of its six steps already have a home (JPK_KR_PD is
-SPEC-010); the remaining four — calculate the tax, post it as a journal
+the JPK_KR_PD spec); the remaining four — calculate the tax, post it as a journal
 entry, compute the payment account, produce something an accountant can
 actually pay — had no home. Checked and ruled out against Posting Rules
 Engine (#6015, unrelated scope: zespół 4→5 cost reclassification) and
@@ -481,7 +481,7 @@ decisions; doesn't fit VAT or PIT-4.
 - **Any tax type for any country other than Poland** — this framework
   is country-agnostic by construction (SPEC-024 §10); its only concrete
   consumer today is `financial_pl` (`official-modules#55`).
-- **JPK_KR_PD / JPK_V7 report generation.** Already SPEC-010 and
+- **JPK_KR_PD / JPK_V7 report generation.** Already the JPK_KR_PD spec and
   existing `financial_pl` capability respectively.
 
 ## Implementation Plan
