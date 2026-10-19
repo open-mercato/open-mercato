@@ -119,7 +119,7 @@ export function toMoneyString(value: string | number | null | undefined): string
   return numeric == null ? null : numeric.toFixed(2)
 }
 
-export { normalizeOptionalString, buildCheckoutAttachmentPreviewUrl } from './client-utils'
+export { normalizeOptionalString, buildCheckoutAttachmentPreviewUrl, buildCheckoutPublicLogoUrl } from './client-utils'
 
 function normalizeJsonRecord(value: unknown): Record<string, unknown> {
   if (!value) return {}

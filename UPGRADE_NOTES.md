@@ -128,6 +128,28 @@ variant media, sales channel offer media, the warranty claim attachments tab and
 line picker for AI assessment) still use the unpaginated form, so they show at most the newest 100
 attachments of a record and any count derived from them stops at 100.
 
+### Pay link logos load for anonymous visitors; `attachmentService.readScopedForOwner` (no action required)
+
+The public pay payload (`GET /api/checkout/pay/{slug}`) used to set `logoPreviewUrl` to
+`/api/attachments/image/{id}`, which refuses anonymous reads of tenant-scoped files, so an uploaded
+logo never showed on a published pay page. When a logo attachment is set, `logoPreviewUrl` is now
+`/api/checkout/pay/{slug}/logo` (with `?preview=true` on a preview), a new public route that serves the
+640×240 raster rendition of the link's own logo; a preview of it is limited to the caller's tenant
+and organization. The payload's shape is unchanged; a custom pay page that renders `logoPreviewUrl` gets
+the fix without changes. One that built the image-route URL itself from `logoAttachmentId` should
+switch to `logoPreviewUrl`.
+
+`AttachmentService` gained an optional `readScopedForOwner(input)` method and the exported
+`ReadScopedAttachmentForOwnerInput` type, for module code that publishes its own files without a
+signed-in user. It is pinned to `expectedPartitionCode`, or, when that is omitted, to the
+partition the upload route uses by default for the owner entity. Its optional `rendition` returns a
+resized raster through the same pipeline as
+`GET /api/attachments/image/{id}`, which now lives in `attachments/lib/imageRendition`. The image
+route behaves as before except for a stored image Sharp cannot decode, which is now `422` instead of
+`500`; other rendering failures are still `500` and are now reported to telemetry. A third-party `AttachmentService` implementation does not need to add it; the pay
+link logo route returns `404` when the method is absent. See
+[the spec](.ai/specs/2026-10-06-attachments-owner-scoped-reads.md).
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)

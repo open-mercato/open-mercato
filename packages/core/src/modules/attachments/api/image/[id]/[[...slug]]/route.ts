@@ -1,24 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import sharp, { type ResizeOptions } from 'sharp'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { Attachment, AttachmentPartition } from '@open-mercato/core/modules/attachments/data/entities'
-import {
-  buildThumbnailCacheKey,
-  readThumbnailCache,
-  writeThumbnailCache,
-} from '@open-mercato/core/modules/attachments/lib/thumbnailCache'
+import { renderImageRendition } from '@open-mercato/core/modules/attachments/lib/imageRendition'
 import { canRenderInlineAttachment } from '@open-mercato/core/modules/attachments/lib/security'
 import { checkAttachmentAccess, isSuperAdminAuth } from '@open-mercato/core/modules/attachments/lib/access'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { attachmentsTag, imageQuerySchema, attachmentErrorSchema } from '../../../openapi'
-import {
-  MAX_IMAGE_SOURCE_PIXELS,
-  validateImageDimensions,
-  validateImageMagicBytes,
-} from '@open-mercato/core/modules/attachments/lib/imageSafety'
 import { StorageDriverFactory } from '../../../../lib/drivers'
 import { resolveAttachmentRequestScope } from '@open-mercato/core/modules/attachments/lib/requestScope'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -88,50 +78,16 @@ export async function GET(
     tenantId: attachment.tenantId ?? '',
     organizationId: attachment.organizationId ?? '',
   })
-  const cacheKey = buildThumbnailCacheKey(width, height, cropType)
   try {
-    let buffer: Buffer | null = null
-    if (cacheKey) {
-      buffer = await readThumbnailCache(attachment.partitionCode, attachment.id, cacheKey)
+    const rendition = await renderImageRendition({
+      attachment,
+      readSource: async () => (await driver.read(attachment.partitionCode, attachment.storagePath)).buffer,
+      size: { width, height, cropType },
+    })
+    if (!rendition.ok) {
+      return NextResponse.json({ error: rendition.error }, { status: rendition.status })
     }
-    if (!buffer) {
-      const { buffer: input } = await driver.read(attachment.partitionCode, attachment.storagePath)
-      const magicBytesValidation = validateImageMagicBytes(input, attachment.mimeType)
-      if (!magicBytesValidation.ok) {
-        return NextResponse.json({ error: magicBytesValidation.error }, { status: magicBytesValidation.status })
-      }
-
-      const dimensionsValidation = await validateImageDimensions(input)
-      if (!dimensionsValidation.ok) {
-        return NextResponse.json({ error: dimensionsValidation.error }, { status: dimensionsValidation.status })
-      }
-
-      let transformer = sharp(input, {
-        failOn: 'error',
-        limitInputPixels: MAX_IMAGE_SOURCE_PIXELS,
-      })
-      if (width || height) {
-        const resizeOptions: ResizeOptions = {
-          width: width || undefined,
-          height: height || undefined,
-          fit: cropType === 'contain' ? 'contain' : 'cover',
-        }
-        if (cropType === 'contain') {
-          resizeOptions.background = { r: 0, g: 0, b: 0, alpha: 0 }
-        }
-        transformer = transformer.resize(resizeOptions)
-      }
-      buffer = await transformer.toBuffer()
-      if (cacheKey) {
-        void writeThumbnailCache(attachment.partitionCode, attachment.id, cacheKey, buffer).catch((cacheError) => {
-          logger.error('Thumbnail cache write failed', { err: cacheError })
-        })
-      }
-    }
-    if (!buffer) {
-      return NextResponse.json({ error: 'Failed to render image' }, { status: 500 })
-    }
-    const responseBody = new Uint8Array(buffer)
+    const responseBody = new Uint8Array(rendition.buffer)
 
     return new NextResponse(responseBody, {
       headers: {
@@ -165,6 +121,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 401, description: 'Unauthorized - authentication required for private partitions', schema: attachmentErrorSchema },
         { status: 403, description: 'Forbidden - insufficient permissions', schema: attachmentErrorSchema },
         { status: 404, description: 'Image not found', schema: attachmentErrorSchema },
+        { status: 422, description: 'Stored image cannot be decoded', schema: attachmentErrorSchema },
         { status: 500, description: 'Partition misconfigured or image rendering failed', schema: attachmentErrorSchema },
       ],
     },

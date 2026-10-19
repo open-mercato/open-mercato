@@ -325,6 +325,7 @@
   "checkout.payPage.errors.embeddedUnavailable": "The payment form is unavailable right now. Please try again or use the hosted payment page.",
   "checkout.payPage.errors.loadMessage": "We couldn't load this payment page. Please try again.",
   "checkout.payPage.errors.loadTitle": "Unable to load payment link",
+  "checkout.payPage.errors.logoNotFound": "Logo not found.",
   "checkout.payPage.errors.password": "Unable to verify password. Please try again.",
   "checkout.payPage.errors.sessionStart": "Unable to start the payment session. Please try again.",
   "checkout.payPage.errors.submit": "Unable to start the payment. Please try again.",
