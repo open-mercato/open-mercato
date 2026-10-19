@@ -81,6 +81,27 @@ When the Tpay integration is enabled for an organization, Open Mercato registers
 - Each run checks up to 100 open transactions (pending, authorized, or partially captured), starting with the ones checked least recently, so every open payment is checked in turn.
 - It needs the scheduler module. Without it, notifications and the return-page check still work.
 
+## Testing with the Tpay sandbox
+
+Tpay signs every notification with its own certificate, so notifications cannot be simulated locally. To test the whole flow, use a Tpay sandbox account and a public HTTPS address that reaches your local application.
+
+1. In the Tpay sandbox panel, copy the API Client ID and Secret and the notification security code. Configure the integration with **Environment** set to `Sandbox`.
+2. Expose only the notification endpoint, not the whole application. For example, a Cloudflare named tunnel whose ingress allows only the webhook path:
+
+   ```yaml
+   ingress:
+     - hostname: <your-test-host>
+       path: ^/api/payment_gateways/webhook/tpay$
+       service: http://127.0.0.1:<app-port>
+     - service: http_status:404
+   ```
+
+   Set **Notification URL** to `https://<your-test-host>/api/payment_gateways/webhook/tpay`.
+3. Create a published PLN checkout link with Tpay and pay on the sandbox page. To test notifications, close the Tpay tab after paying instead of returning to the checkout page: the success page reads the status from Tpay and would capture the payment before the notification arrives.
+4. To test the scheduled status check, make the endpoint unreachable (for example, stop the tunnel) before paying. The payment stays pending until the next run of **Tpay payment status reconciliation** captures it. The scheduler must be running.
+
+Tpay e-mails the merchant when the endpoint does not answer `TRUE`. These e-mails are expected while you test a missing notification. The sandbox payment page may block automated (headless) browsers, so complete test payments in a regular browser. Remove the tunnel and its DNS record when you finish.
+
 ## Limitations
 
 - **PLN only.** Sessions in any other currency are rejected.
