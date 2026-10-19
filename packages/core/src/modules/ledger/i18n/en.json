@@ -112,6 +112,7 @@
   "ledger.errors.journalEntryLineNotOneSided": "Each journal entry line must have exactly one side (debit or credit) greater than zero.",
   "ledger.errors.journalEntryNotBalanced": "Journal entry is not balanced: total debits must equal total credits.",
   "ledger.errors.journalEntryNotFound": "Journal entry not found.",
+  "ledger.errors.journalEntryTooFewLines": "A journal entry requires at least two lines.",
   "ledger.errors.ledgerAccountNotFound": "Ledger account not found.",
   "ledger.errors.noFiscalPeriodForOperationDate": "No fiscal period covers this operation date. Create one before posting.",
   "ledger.errors.organizationRequired": "Organization context is required",

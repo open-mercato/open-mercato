@@ -112,6 +112,7 @@
   "ledger.errors.journalEntryLineNotOneSided": "Każda pozycja zapisu księgowego musi mieć dokładnie jedną stronę (Winien lub Ma) większą od zera.",
   "ledger.errors.journalEntryNotBalanced": "Zapis księgowy nie jest zbilansowany: suma Winien musi równać się sumie Ma.",
   "ledger.errors.journalEntryNotFound": "Nie znaleziono zapisu księgowego.",
+  "ledger.errors.journalEntryTooFewLines": "Zapis księgowy wymaga co najmniej dwóch pozycji.",
   "ledger.errors.ledgerAccountNotFound": "Nie znaleziono konta księgowego.",
   "ledger.errors.noFiscalPeriodForOperationDate": "Żaden okres fiskalny nie obejmuje tej daty operacji. Utwórz go przed zaksięgowaniem.",
   "ledger.errors.organizationRequired": "Wymagany jest kontekst organizacji",

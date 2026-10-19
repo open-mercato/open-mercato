@@ -112,7 +112,15 @@ export const postJournalEntrySchema = z
     // relying on this check alone.
     referenceType: z.string().max(100).nullable().optional(),
     referenceId: z.uuid().nullable().optional(),
-    lines: z.array(journalEntryLineInputSchema).min(2, 'A journal entry requires at least two lines.'),
+    // `.min(n, 'message')` is a built-in length check with no `params` hook for
+    // `translateZodIssues`, so the rule is a `.refine()` — same as `moneyStringSchema`.
+    lines: z.array(journalEntryLineInputSchema).refine((lines) => lines.length >= 2, {
+      message: 'A journal entry requires at least two lines.',
+      params: {
+        i18nKey: 'ledger.errors.journalEntryTooFewLines',
+        i18nFallback: 'A journal entry requires at least two lines.',
+      },
+    }),
   })
   .refine(
     (data) => {
