@@ -9,14 +9,54 @@
  *   - listHistory      → gmail.users.history.list
  *   - listMessages     → gmail.users.messages.list (fallback when historyId expired)
  *   - getMessageRaw    → gmail.users.messages.get?format=raw
- *   - sendRawMessage   → gmail.users.messages.send
+ *   - sendRawMessage   → gmail.users.messages.send (media upload above the simple-send size)
  *   - getProfile       → gmail.users.getProfile (health + initial historyId)
  *   - deleteMessage    → gmail.users.messages.trash (move to trash; matches `deleteMessage: true` capability)
  */
 
+import { randomUUID } from 'node:crypto'
 import { fetchWithTimeout, FetchTimeoutError } from '@open-mercato/shared/lib/http/fetchWithTimeout'
 
 const GMAIL_API_BASE = 'https://gmail.googleapis.com/gmail/v1'
+const GMAIL_UPLOAD_BASE = 'https://gmail.googleapis.com/upload/gmail/v1'
+
+/**
+ * Above this size of the base64url `raw` field a send goes through the media
+ * upload endpoint (messages up to 35 MB); the simple JSON endpoint rejects
+ * large request bodies.
+ */
+export const GMAIL_SIMPLE_SEND_MAX_RAW_CHARS = 4 * 1024 * 1024
+
+type GmailRequestOptions = {
+  rawBody?: { body: Uint8Array; contentType: string }
+  /**
+   * Whether a timeout or 5xx may be retried. Defaults to true; a send passes
+   * false because Gmail can answer that way after it accepted the message.
+   */
+  retryAmbiguous?: boolean
+}
+
+function buildMultipartSendBody(input: GmailSendRawInput): { body: Uint8Array; contentType: string } {
+  const boundary = `om_gmail_${randomUUID()}`
+  const metadata = JSON.stringify(input.threadId ? { threadId: input.threadId } : {})
+  const head = Buffer.from(
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n` +
+      `--${boundary}\r\nContent-Type: message/rfc822\r\n\r\n`,
+    'utf-8',
+  )
+  const tail = Buffer.from(`\r\n--${boundary}--`, 'utf-8')
+  return {
+    body: Buffer.concat([head, decodeBase64Url(input.rawBase64Url), tail]),
+    contentType: `multipart/related; boundary=${boundary}`,
+  }
+}
+
+function asMessageTooLarge(error: unknown): unknown {
+  if (!(error instanceof GmailApiError)) return error
+  const tooLarge = error.status === 413 || (error.status === 400 && /too large|size exceeds|payload size/i.test(error.message))
+  if (!tooLarge) return error
+  return new GmailApiError('[internal] Gmail rejected the message as too large (message_too_large)', error.status, 'message_too_large')
+}
 
 export interface GmailApiAuth {
   accessToken: string
@@ -151,11 +191,29 @@ class FetchGmailApiClient implements GmailApiClient {
   }
 
   async sendRawMessage(auth: GmailApiAuth, input: GmailSendRawInput): Promise<GmailSendResponse> {
-    const url = new URL(`${GMAIL_API_BASE}/users/me/messages/send`)
-    return this.requestJson<GmailSendResponse>(auth, url, 'POST', {
-      raw: input.rawBase64Url,
-      threadId: input.threadId,
-    })
+    // A send is not idempotent: a timeout or 5xx can follow a message Gmail
+    // already accepted, so only the rate-limit answers Gmail returns before
+    // accepting are retried here. The delivery worker owns any further retry.
+    try {
+      if (input.rawBase64Url.length <= GMAIL_SIMPLE_SEND_MAX_RAW_CHARS) {
+        const url = new URL(`${GMAIL_API_BASE}/users/me/messages/send`)
+        return await this.requestJson<GmailSendResponse>(
+          auth,
+          url,
+          'POST',
+          { raw: input.rawBase64Url, threadId: input.threadId },
+          { retryAmbiguous: false },
+        )
+      }
+      const url = new URL(`${GMAIL_UPLOAD_BASE}/users/me/messages/send`)
+      url.searchParams.set('uploadType', 'multipart')
+      return await this.requestJson<GmailSendResponse>(auth, url, 'POST', undefined, {
+        rawBody: buildMultipartSendBody(input),
+        retryAmbiguous: false,
+      })
+    } catch (error) {
+      throw asMessageTooLarge(error)
+    }
   }
 
   async getProfile(auth: GmailApiAuth): Promise<GmailProfileResponse> {
@@ -182,15 +240,25 @@ class FetchGmailApiClient implements GmailApiClient {
     await this.requestJson(auth, url, 'POST')
   }
 
-  private async requestJson<T>(auth: GmailApiAuth, url: URL, method: 'GET' | 'POST', body?: unknown): Promise<T> {
+  private async requestJson<T>(
+    auth: GmailApiAuth,
+    url: URL,
+    method: 'GET' | 'POST',
+    body?: unknown,
+    options?: GmailRequestOptions,
+  ): Promise<T> {
     const headers: Record<string, string> = {
       Authorization: `Bearer ${auth.accessToken}`,
     }
     let payload: BodyInit | undefined
-    if (body !== undefined) {
+    if (options?.rawBody) {
+      headers['Content-Type'] = options.rawBody.contentType
+      payload = options.rawBody.body as BodyInit
+    } else if (body !== undefined) {
       headers['Content-Type'] = 'application/json'
       payload = JSON.stringify(body)
     }
+    const retryAmbiguous = options?.retryAmbiguous !== false
     // Retry transient failures (429, 5xx) with exponential backoff + jitter,
     // honoring `Retry-After` when present. Per Gmail API docs at
     // https://developers.google.com/gmail/api/guides/handle-errors this is the
@@ -223,7 +291,7 @@ class FetchGmailApiClient implements GmailApiClient {
           599,
           'request timed out',
         )
-        if (attempt === GMAIL_MAX_RETRIES) throw timeoutError
+        if (attempt === GMAIL_MAX_RETRIES || !retryAmbiguous) throw timeoutError
         lastError = timeoutError
         await sleep(computeBackoff(attempt))
         attempt += 1
@@ -246,7 +314,7 @@ class FetchGmailApiClient implements GmailApiClient {
         // Gmail signals per-user/project quota exhaustion with HTTP 403 +
         // `rateLimitExceeded`/`userRateLimitExceeded` (not only 429).
         (res.status === 403 && isRateLimit403(text))
-      if (!transient || attempt === GMAIL_MAX_RETRIES) {
+      if (!transient || attempt === GMAIL_MAX_RETRIES || (res.status >= 500 && !retryAmbiguous)) {
         throw apiError
       }
       lastError = apiError
