@@ -25,13 +25,15 @@ Add `packages/core/src/modules/directory/__integration__/TC-UNDO-001-organizatio
 
 ## Architecture
 
-Reuse `apiRequest`, authentication/fixture helpers, and `undoHarness`. Playwright's isolated `request` fixture owns HTTP state per test, following its [fixture guidance](https://playwright.dev/docs/test-fixtures). Use `withClient` only for read-only, tenant-and-record-scoped lifecycle observations that public GET intentionally excludes. Every fixture is created through the API and cleaned up in `finally`, children before parents.
+Reuse `apiRequest`, authentication/fixture helpers, and `undoHarness`. Playwright's isolated `request` fixture owns HTTP state per test, following its [fixture guidance](https://playwright.dev/docs/test-fixtures). Use `withClient` only for read-only, tenant-and-record-scoped lifecycle and persisted hierarchy observations; the manage API computes hierarchy for display. Every fixture is created through the API and cleaned up in `finally`, children before parents.
+
+Generate unique custom-field keys and use the existing supported `customFields` API input. The data engine validates unknown keys using its existing fallback and infers storage from their values. No custom-field definition fixture is needed: organization ids are server-generated, and definitions scoped to a different organization would not apply to these record-scoped values. Include changing and clearing a value, then restoring/reapplying both states.
 
 Send organization mutations with `om_selected_org=__all__`, then find the returned operation log in public action history and assert `organizationId === null`. Undo from a concrete, test-created selected organization to cover #2398/#2417's caller-scope mismatch.
 
 ## Data Model
 
-Reuse Organization, Tenant, and custom-field definitions without schema changes. Organization snapshots include `id`, `name`, `slug`, `logoUrl`, `logoPreserveAspectRatio`, `isActive`, `parentId`, `rootId`, `treePath`, `depth`, `ancestorIds`, `childIds`, `descendantIds`, custom fields, and lifecycle timestamps. Identity remains stable; update/delete preserve creation time and undo advances `updatedAt`. Create redo currently recreates the row with a new creation timestamp: lifecycle retention needs a linked quarantined assertion alongside tombstone retention. Custom fields are scoped to `directory:organization` and deleted during cleanup.
+Reuse Organization, Tenant, and custom-field values without schema changes. Organization snapshots include `id`, `name`, `slug`, `logoUrl`, `logoPreserveAspectRatio`, `isActive`, `parentId`, `rootId`, `treePath`, `depth`, `ancestorIds`, `childIds`, `descendantIds`, custom fields, and lifecycle timestamps. Identity remains stable; update/delete preserve creation time and undo advances `updatedAt`. Create redo currently recreates the row with a new creation timestamp: lifecycle retention needs a linked quarantined assertion alongside tombstone retention. Custom-field values are scoped to the fixture's tenant and organization record, with unique keys per test.
 
 ## API Contracts
 
@@ -44,7 +46,6 @@ Reuse Organization, Tenant, and custom-field definitions without schema changes.
 | `GET /api/audit_logs/audit-logs/actions` | Assert the matching action's null organization scope. |
 | `POST /api/audit_logs/audit-logs/actions/undo` | Exercise public undo; second use of each consumed token returns 400 and `Undo token not available`. |
 | `POST /api/audit_logs/audit-logs/actions/redo` | Reproduce command after-state, including stable identity. |
-| `POST/DELETE /api/entities/definitions` | Create/remove per-test custom-field fixtures. |
 | `POST/PUT/DELETE /api/directory/tenants` | Assert successful non-undoable mutations return `extractOperation(response) === null`. |
 
 ## UI/UX
@@ -93,3 +94,4 @@ Reviewed root `AGENTS.md`, `packages/core/AGENTS.md`, and `.ai/qa/AGENTS.md`. Mo
 
 - 2026-10-19: Specified directory-only undo/redo integration coverage for #2580.
 - Review — 2026-10-19: Scope cohesion passed independently. Security, performance, cache, commands, and risks reviewed for this test-only scope; approved for implementation with explicit lifecycle quarantines.
+- 2026-10-19 implementation review: Compare persisted hierarchy in addition to computed API snapshots; exercise custom-field values directly without unrelated definition-scope fixtures.
