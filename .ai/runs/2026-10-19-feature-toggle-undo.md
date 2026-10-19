@@ -32,8 +32,8 @@ Add module-local tests using the existing undo harness and disable gate. Preserv
 
 ### Phase 1: Test coverage
 
-- [ ] 1.1 Add global CRUD undo/redo, scalar/version, related-override and permission coverage.
-- [ ] 1.2 Add override lifecycle, token consumption and identity coverage.
+- [x] 1.1 Add global CRUD undo/redo, scalar/version, related-override and permission coverage. — 489dd432a1
+- [x] 1.2 Add override lifecycle, token consumption and identity coverage. — 489dd432a1
 
 ### Phase 2: Validation and review
 
