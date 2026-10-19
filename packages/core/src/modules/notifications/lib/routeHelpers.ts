@@ -7,6 +7,7 @@ import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-muta
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { NOTIFICATION_ACTION_COMMAND_NOT_ALLOWED_ERROR_CODE } from '@open-mercato/shared/modules/notifications/types'
 import { resolveNotificationService, type NotificationService } from './notificationService'
+import { actionConflictResponseSchema } from '../api/openapi'
 
 /**
  * Mutation-guard resource kind for notification rows.
@@ -331,10 +332,7 @@ export function createBulkNotificationOpenApi<TSchema extends z.ZodTypeAny>(
           description: `Invalid payload, or an action carries a \`commandId\` (code: ${NOTIFICATION_ACTION_COMMAND_NOT_ALLOWED_ERROR_CODE})`,
           content: {
             'application/json': {
-              schema: z.object({
-                error: z.string(),
-                code: z.string().optional(),
-              }),
+              schema: actionConflictResponseSchema,
             },
           },
         },

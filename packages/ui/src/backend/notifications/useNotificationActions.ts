@@ -104,8 +104,9 @@ export function useNotificationActions(
       }
     } else {
       const serverError = result.result?.error
+      const hasCodedError = typeof result.result?.code === 'string' && result.result.code.length > 0
       flash(
-        typeof serverError === 'string' && serverError.length > 0
+        hasCodedError && typeof serverError === 'string' && serverError.length > 0
           ? serverError
           : t('notifications.error.action', 'Failed to execute action'),
         'error',

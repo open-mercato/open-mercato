@@ -8,7 +8,10 @@ import {
   deleteUserIfExists,
   setRoleAclFeatures,
 } from '@open-mercato/core/helpers/integration/authFixtures'
-import { listNotifications } from '@open-mercato/core/helpers/integration/notificationsFixtures'
+import {
+  dismissNotificationIfExists,
+  listNotifications,
+} from '@open-mercato/core/helpers/integration/notificationsFixtures'
 import {
   createStaffTeamMemberFixture,
   deleteStaffEntityIfExists,
@@ -103,6 +106,21 @@ async function findPendingNotificationId(
   return notificationId!
 }
 
+async function dismissPendingLeaveNotifications(
+  request: APIRequestContext,
+  tokens: string[],
+  leaveRequestId: string | null,
+): Promise<void> {
+  if (!leaveRequestId) return
+  for (const token of tokens) {
+    const listed = await listNotifications(request, token, { type: PENDING_TYPE, pageSize: 100 }).catch(() => null)
+    for (const item of listed?.items ?? []) {
+      if (item.sourceEntityId !== leaveRequestId || typeof item.id !== 'string') continue
+      await dismissNotificationIfExists(request, token, item.id)
+    }
+  }
+}
+
 async function executeApprove(request: APIRequestContext, token: string, notificationId: string) {
   return apiRequest(request, 'POST', `/api/notifications/${encodeURIComponent(notificationId)}/action`, {
     token,
@@ -132,6 +150,7 @@ test.describe('TC-NOTIF-019: notification actions keep the target command author
     let actor: Actor | null = null
     let warehouseId: string | null = null
     let locationId: string | null = null
+    let linkOnlyId: string | null = null
 
     try {
       const warehouse = await apiRequest(request, 'POST', '/api/wms/warehouses', {
@@ -210,12 +229,14 @@ test.describe('TC-NOTIF-019: notification actions keep the target command author
         },
       })
       expect(linkOnly.status(), 'link-only actions are still accepted').toBe(201)
+      linkOnlyId = (await readJsonSafe<{ id?: string }>(linkOnly))?.id ?? null
 
       const stillThere = await apiRequest(request, 'GET', `/api/wms/locations?ids=${encodeURIComponent(locationId!)}`, { token: adminToken })
       expect(stillThere.status()).toBe(200)
       const stillThereBody = await readJsonSafe<{ items?: Array<{ id?: string }> }>(stillThere)
       expect((stillThereBody?.items ?? []).some((item) => item.id === locationId), 'the location must survive').toBe(true)
     } finally {
+      await dismissNotificationIfExists(request, actor?.token ?? null, linkOnlyId)
       if (locationId) {
         await apiRequest(request, 'DELETE', `/api/wms/locations?id=${encodeURIComponent(locationId)}`, { token: adminToken }).catch(() => undefined)
       }
@@ -263,6 +284,7 @@ test.describe('TC-NOTIF-019: notification actions keep the target command author
       expect(approved.status(), 'approving with the feature should succeed').toBe(200)
       expect(await readLeaveStatus(request, adminToken, leaveRequestId)).toBe('approved')
     } finally {
+      await dismissPendingLeaveNotifications(request, [adminToken, superadminToken], leaveRequestId)
       await deleteStaffEntityIfExists(request, adminToken, LEAVE_REQUESTS_PATH, leaveRequestId)
       await deleteStaffEntityIfExists(request, adminToken, MEMBERS_PATH, memberId)
       await deleteUserIfExists(request, superadminToken, actor?.userId ?? null)
@@ -301,6 +323,7 @@ test.describe('TC-NOTIF-019: notification actions keep the target command author
       await expect(page.getByText('You are not allowed to run this notification action')).toBeVisible()
       expect(await readLeaveStatus(request, adminToken, leaveRequestId)).toBe('pending')
     } finally {
+      await dismissPendingLeaveNotifications(request, [adminToken, superadminToken], leaveRequestId)
       await deleteStaffEntityIfExists(request, adminToken, LEAVE_REQUESTS_PATH, leaveRequestId)
       await deleteStaffEntityIfExists(request, adminToken, MEMBERS_PATH, memberId)
       await deleteUserIfExists(request, superadminToken, actor?.userId ?? null)

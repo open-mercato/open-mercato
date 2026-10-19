@@ -263,6 +263,17 @@ describe('useNotificationActions guarded mutations', () => {
     expect(flashMock).toHaveBeenCalledWith('Failed to execute action', 'error')
   })
 
+  it('flashes the generic error instead of an uncoded server message', async () => {
+    apiCallMock.mockResolvedValue({ ok: false, status: 400, result: { error: 'Action not found' } })
+    const { result } = renderActions([makeNotification('n1')])
+    await act(async () => {
+      await result.current.executeAction('n1', 'approve')
+    })
+
+    expect(flashMock).toHaveBeenCalledWith('Failed to execute action', 'error')
+    expect(flashMock).not.toHaveBeenCalledWith('Action not found', 'error')
+  })
+
   it('does not flash when the server reports the action already ran', async () => {
     apiCallMock.mockResolvedValue({
       ok: false,
