@@ -18,7 +18,7 @@ import {
 } from '@open-mercato/core/helpers/integration/staffFixtures'
 
 /**
- * TC-NOTIF-019: notification actions keep the target command's authorization boundary (#7215)
+ * TC-NOTIF-020: notification actions keep the target command's authorization boundary (#7215)
  *
  * Covers:
  * - POST /api/notifications (and the shared bulk handler) refuses an action carrying a `commandId`:
@@ -58,7 +58,7 @@ async function createActor(
     password: PASSWORD,
     organizationId,
     roles: [roleId],
-    name: `QA TC-NOTIF-019 ${label}`,
+    name: `QA TC-NOTIF-020 ${label}`,
   })
   const token = await getAuthToken(request, email, PASSWORD)
   return { roleId, userId, email, token }
@@ -141,7 +141,7 @@ async function loginAs(page: Page, email: string): Promise<void> {
   await page.waitForURL(/\/backend(?:\/.*)?$/)
 }
 
-test.describe('TC-NOTIF-019: notification actions keep the target command authorization boundary', () => {
+test.describe('TC-NOTIF-020: notification actions keep the target command authorization boundary', () => {
   test('a notifications.create holder cannot plant a command action, and the target record survives', async ({ request }) => {
     const superadminToken = await getAuthToken(request, 'superadmin')
     const adminToken = await getAuthToken(request, 'admin')
@@ -158,7 +158,7 @@ test.describe('TC-NOTIF-019: notification actions keep the target command author
         data: {
           organizationId: scope.organizationId,
           tenantId: scope.tenantId,
-          name: `QA TC-NOTIF-019 Warehouse ${stamp}`,
+          name: `QA TC-NOTIF-020 Warehouse ${stamp}`,
           code: `QA-N19-WH-${stamp}`,
           isActive: true,
           timezone: 'UTC',
@@ -193,7 +193,7 @@ test.describe('TC-NOTIF-019: notification actions keep the target command author
         data: {
           recipientUserId: actor.userId,
           type: `qa.notifications.tc019.${stamp}`,
-          title: 'QA TC-NOTIF-019 planted action',
+          title: 'QA TC-NOTIF-020 planted action',
           sourceEntityId: locationId,
           actions: [{ id: 'run', label: 'Run', commandId: 'wms.locations.delete' }],
         },
@@ -208,7 +208,7 @@ test.describe('TC-NOTIF-019: notification actions keep the target command author
         data: {
           requiredFeature: 'notifications.create',
           type: `qa.notifications.tc019.${stamp}`,
-          title: 'QA TC-NOTIF-019 planted action',
+          title: 'QA TC-NOTIF-020 planted action',
           sourceEntityId: locationId,
           actions: [{ id: 'run', label: 'Run', commandId: 'wms.locations.delete' }],
         },
@@ -224,7 +224,7 @@ test.describe('TC-NOTIF-019: notification actions keep the target command author
         data: {
           recipientUserId: actor.userId,
           type: `qa.notifications.tc019.link.${stamp}`,
-          title: 'QA TC-NOTIF-019 link action',
+          title: 'QA TC-NOTIF-020 link action',
           actions: [{ id: 'view', label: 'View', href: '/backend/notifications' }],
         },
       })
@@ -261,7 +261,7 @@ test.describe('TC-NOTIF-019: notification actions keep the target command author
         ...BASE_FEATURES,
         LEAVE_MANAGE_FEATURE,
       ])
-      memberId = await createStaffTeamMemberFixture(request, adminToken, { displayName: `QA TC-NOTIF-019 ${Date.now()}` })
+      memberId = await createStaffTeamMemberFixture(request, adminToken, { displayName: `QA TC-NOTIF-020 ${Date.now()}` })
       leaveRequestId = await createPendingLeaveRequest(request, adminToken, memberId)
       const notificationId = await findPendingNotificationId(request, actor.token, leaveRequestId)
 
@@ -305,7 +305,7 @@ test.describe('TC-NOTIF-019: notification actions keep the target command author
         ...BASE_FEATURES,
         LEAVE_MANAGE_FEATURE,
       ])
-      memberId = await createStaffTeamMemberFixture(request, adminToken, { displayName: `QA TC-NOTIF-019 UI ${Date.now()}` })
+      memberId = await createStaffTeamMemberFixture(request, adminToken, { displayName: `QA TC-NOTIF-020 UI ${Date.now()}` })
       leaveRequestId = await createPendingLeaveRequest(request, adminToken, memberId)
       await findPendingNotificationId(request, actor.token, leaveRequestId)
 
