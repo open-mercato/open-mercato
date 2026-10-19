@@ -117,12 +117,12 @@ const ATLAS_CLOUD_PRESET: OpenAICompatiblePreset = {
   baseURL: 'https://api.atlascloud.ai/v1',
   baseURLEnvKeys: ['ATLASCLOUD_BASE_URL'],
   envKeys: ['ATLASCLOUD_API_KEY'],
-  defaultModel: 'Qwen/Qwen3-235B-A22B-Instruct-2507',
+  defaultModel: 'qwen/qwen3.7-plus',
   defaultModels: [
     {
-      id: 'Qwen/Qwen3-235B-A22B-Instruct-2507',
-      name: 'Qwen3 235B Instruct',
-      contextWindow: 131072,
+      id: 'qwen/qwen3.7-plus',
+      name: 'Qwen3.7 Plus',
+      contextWindow: 1000000,
       tags: ['flagship'],
     },
   ],

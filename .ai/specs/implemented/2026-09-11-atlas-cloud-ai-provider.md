@@ -13,7 +13,7 @@ The AI Assistant already registers OpenAI-compatible services from data-only pre
 - Register `atlas-cloud` as an optional built-in provider.
 - Read credentials from `ATLASCLOUD_API_KEY` and an optional endpoint override from `ATLASCLOUD_BASE_URL`.
 - Use `https://api.atlascloud.ai/v1` as the default endpoint.
-- Seed the catalog with `Qwen/Qwen3-235B-A22B-Instruct-2507`, whose live Atlas catalog entry supports tools and a 131072-token context window.
+- Seed the catalog with `qwen/qwen3.7-plus`, which is listed in the live Atlas `/v1/models` catalog, completes tool calls, and has a 1000000-token context window.
 - Preserve the existing provider order and default-selection behavior; Atlas Cloud is selected only when configured or explicitly requested.
 
 ## Verification

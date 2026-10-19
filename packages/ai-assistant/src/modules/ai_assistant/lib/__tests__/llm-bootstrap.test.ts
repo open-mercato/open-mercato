@@ -77,7 +77,7 @@ describe('llm-bootstrap — built-in provider registration', () => {
     const atlasCloud = llmProviderRegistry.get('atlas-cloud')
     expect(atlasCloud).not.toBeNull()
     expect(atlasCloud?.envKeys).toEqual(['ATLASCLOUD_API_KEY'])
-    expect(atlasCloud?.defaultModel).toBe('Qwen/Qwen3-235B-A22B-Instruct-2507')
+    expect(atlasCloud?.defaultModel).toBe('qwen/qwen3.7-plus')
   })
 
   it('resolveFirstConfigured picks a configured provider from the registry', () => {

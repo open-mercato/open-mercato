@@ -166,7 +166,7 @@ OpenAI-compatible presets (all share one protocol adapter with different
 |-------------|----------|---------------|---------|
 | `openai` | `api.openai.com` | `gpt-5-mini` | 128K |
 | `deepinfra` | `api.deepinfra.com/v1/openai` | `zai-org/GLM-5.1` | 202K |
-| `atlas-cloud` | `api.atlascloud.ai/v1` | `Qwen/Qwen3-235B-A22B-Instruct-2507` | 131K |
+| `atlas-cloud` | `api.atlascloud.ai/v1` | `qwen/qwen3.7-plus` | 1M |
 | `groq` | `api.groq.com/openai/v1` | `llama-3.3-70b-versatile` | 131K |
 | `together` | `api.together.xyz/v1` | `meta-llama/Llama-3.3-70B-Instruct-Turbo` | 131K |
 | `fireworks` | `api.fireworks.ai/inference/v1` | `llama-v3p3-70b-instruct` | 131K |
