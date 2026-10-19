@@ -34,8 +34,14 @@ Add module-local tests using the existing undo harness and disable gate. Preserv
 - Live probes confirmed #7664 (no retained row after create undo) and #7665 (changed override ID after redo).
 - Passed: `yarn build:packages`, `yarn generate`, second `yarn build:packages`, `yarn i18n:check-sync`, `yarn i18n:check-usage`, `yarn typecheck`, `yarn build:app`, and `yarn template:sync`.
 - Blocked: `yarn test` exits 1 in the unrelated create-app harness suite. Its sandboxed child Node cannot load libuv; a tracker-mirroring assertion also detects pre-existing local descriptor edits. Core (22,739 tests), UI (2,662), CLI (2,075), and enterprise (2,005) passed.
-- Independent code review: one partial JSON assertion was corrected; re-review found no remaining code findings. The required validation failure prevents final approval/merge.
-- The disposable environment was stopped after enabled/disabled validation. PR #7661 is ready for review under the user's no-drafts rule; the full-gate failure remains a documented merge blocker.
+- Internal agent check: one partial JSON assertion was corrected; re-checks found no remaining code findings. This is author-side verification, not formal GitHub approval or a changes-requested review.
+- The disposable environment was stopped after enabled/disabled validation. PR #7661 is non-draft and in `review`, awaiting a reviewer decision. Current-head GitHub CI is the validation authority under the CI-first override; the local full-suite failure above remains an environment limitation.
+
+## Workflow audit — 2026-10-19
+
+- The initial run mixed companion skills from the explicitly invoked collection with a different global installation. This audit follows the invoked collection and repository overrides.
+- The only GitHub review record was the author's `COMMENTED` validation note. Its `REVISE` heading and the resulting `changes-requested` label were incorrect; the note is corrected and the PR returns to `review`.
+- A fresh read-only audit found no actionable code findings. Existing passing local evidence is retained; running GitHub checks are not treated as failures or replaced with another broad local gate.
 
 ## Progress
 
