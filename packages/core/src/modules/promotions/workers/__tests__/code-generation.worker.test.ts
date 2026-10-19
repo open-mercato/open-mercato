@@ -34,12 +34,13 @@ function matchesWhere(row: Row, where: Row): boolean {
 }
 
 type FakeEm = {
-  findOne: (entity: Function, where: Row) => Promise<Row | null>
+  findOne: (entity: Function, where: Row, options?: Record<string, unknown>) => Promise<Row | null>
   count: (entity: Function, where: Row) => Promise<number>
   create: (entity: Function, data: Row) => Row
   persist: (row: Row) => void
   flush: () => Promise<void>
   fork: () => FakeEm
+  transactional: <T>(work: (em: FakeEm) => Promise<T>) => Promise<T>
 }
 
 function createFakeEm(): { em: FakeEm; tables: Map<Function, Row[]> } {
@@ -70,6 +71,11 @@ function createFakeEm(): { em: FakeEm; tables: Map<Function, Row[]> } {
       for (const { entity, row } of toApply) tableFor(entity).push(row)
     },
     fork: () => em,
+    // No real locking semantics in this fake — the worker's own PESSIMISTIC_WRITE lock
+    // is only meaningful against a real database. The fake just runs the work against
+    // the same table-backed `em`, matching MikroORM's `EntityManager#transactional`
+    // shape closely enough for this unit test's own concerns (insert/reconcile logic).
+    transactional: async (work) => work(em),
   }
   return { em, tables }
 }
