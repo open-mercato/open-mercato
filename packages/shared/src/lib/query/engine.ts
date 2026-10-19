@@ -1613,8 +1613,7 @@ export class BasicQueryEngine implements QueryEngine {
           : builder.where(column as any, 'in', inValues)
       }
       case 'nin': {
-        // Mirrors 'in': an empty exclusion list means "exclude nothing", so every
-        // row matches — `not in ()` is likewise invalid SQL under Kysely/Postgres.
+        // Mirrors 'in' above: empty means "exclude nothing".
         const ninValues = Array.isArray(value) ? value : [value]
         return ninValues.length === 0
           ? builder.where(sql<boolean>`true`)
@@ -1788,8 +1787,7 @@ export class BasicQueryEngine implements QueryEngine {
       case 'lt': return eb(column, '<', value)
       case 'lte': return eb(column, '<=', value)
       case 'in': {
-        // See the matching guard in applyColumnOp above — an empty list is
-        // invalid SQL under Kysely/Postgres, not "match nothing" (#7502).
+        // Mirrors the guard in applyColumnOp above (#7502).
         const inValues = Array.isArray(value) ? value : [value]
         return inValues.length === 0 ? eb.val(false) : eb(column, 'in', inValues)
       }

@@ -41,6 +41,18 @@ maybe('HybridQueryEngine empty $in/$nin filter against PostgreSQL', () => {
       entity_id text not null,
       is_active boolean not null default true
     )`.execute(db)
+    // HybridQueryEngine's base-table path left-joins `entity_indexes` unconditionally.
+    await sql`create table if not exists entity_indexes (
+      id uuid primary key default gen_random_uuid(),
+      entity_type text not null,
+      entity_id text not null,
+      organization_id uuid,
+      tenant_id uuid,
+      doc jsonb not null default '{}'::jsonb,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now(),
+      deleted_at timestamptz
+    )`.execute(db)
     await sql`drop table if exists om_emptyids_hybrid_orders`.execute(db)
     await sql`create table om_emptyids_hybrid_orders (
       id uuid primary key,
@@ -56,6 +68,8 @@ maybe('HybridQueryEngine empty $in/$nin filter against PostgreSQL', () => {
 
   afterAll(async () => {
     await sql`drop table if exists om_emptyids_hybrid_orders`.execute(db)
+    await sql`drop table if exists entity_indexes`.execute(db)
+    await sql`drop table if exists custom_entities`.execute(db)
     await db.destroy()
   })
 

@@ -2111,8 +2111,7 @@ export class HybridQueryEngine implements QueryEngine {
         return inValues.length === 0 ? sql<boolean>`false` : eb(column, 'in', inValues)
       }
       case 'nin': {
-        // Mirrors 'in': an empty exclusion list means "exclude nothing", so every
-        // row matches — `not in ()` is likewise invalid SQL under Kysely/Postgres.
+        // Mirrors 'in' above: empty means "exclude nothing".
         const ninValues = this.toArray(value)
         return ninValues.length === 0 ? sql<boolean>`true` : eb(column, 'not in', ninValues)
       }
@@ -2944,15 +2943,12 @@ export class HybridQueryEngine implements QueryEngine {
         return q.where(col, operator, filter.value as any)
       }
       case 'in': {
-        // An empty list ("no id survived validation", #7502) compiles to invalid
-        // SQL (`in ()`) under Kysely/Postgres — short-circuit to a predicate that
-        // never matches instead of letting the driver reject the query.
+        // Mirrors the guard in applyColumnFilter above (#7502).
         const inValues = this.toArray(filter.value)
         return inValues.length === 0 ? q.where(sql<boolean>`false`) : q.where(col, 'in', inValues)
       }
       case 'nin': {
-        // Mirrors 'in': an empty exclusion list means "exclude nothing", so every
-        // row matches — `not in ()` is likewise invalid SQL under Kysely/Postgres.
+        // Mirrors 'in' above: empty means "exclude nothing".
         const ninValues = this.toArray(filter.value)
         return ninValues.length === 0 ? q.where(sql<boolean>`true`) : q.where(col, 'not in', ninValues)
       }
