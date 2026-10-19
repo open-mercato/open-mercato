@@ -9,7 +9,6 @@ export const integrationMeta = { dependsOnModules: ['directory', 'audit_logs', '
 
 const ORGANIZATIONS = '/api/directory/organizations'
 const TENANTS = '/api/directory/tenants'
-const DEFINITIONS = '/api/entities/definitions'
 const ALL_ORGANIZATIONS = { Cookie: 'om_selected_org=__all__' }
 
 type Organization = Record<string, unknown> & {
@@ -27,7 +26,7 @@ type DirectoryFixture = {
   rootId: string
   selectedRequest: APIRequestContext
   create: (data?: Record<string, unknown>) => Promise<{ id: string; operation: Operation }>
-  defineField: () => Promise<string>
+  customFieldKey: () => string
   read: (ids: string[]) => Promise<Record<string, Organization>>
 }
 
@@ -37,7 +36,6 @@ const test = base.extend<{ directory: DirectoryFixture }>({
     const tenantId = expectId(getTokenContext(token).tenantId, 'superadmin has a tenant')
     const stamp = randomUUID().replaceAll('-', '')
     const organizationIds: string[] = []
-    const fieldKeys: string[] = []
     let selectedRequest: APIRequestContext | undefined
 
     const create: DirectoryFixture['create'] = async (data = {}) => {
@@ -76,35 +74,19 @@ const test = base.extend<{ directory: DirectoryFixture }>({
         rootId,
         selectedRequest,
         create,
-        defineField: async () => {
-          const key = `undo_${stamp}_${fieldKeys.length}`
-          const response = await apiRequest(request, 'POST', DEFINITIONS, {
-            token,
-            headers: ALL_ORGANIZATIONS,
-            data: {
-              entityId: 'directory:organization', key, kind: 'integer',
-              configJson: { label: `Undo ${stamp}`, formEditable: true, listVisible: true },
-            },
-          })
-          expect(response.ok(), 'custom-field definition created').toBe(true)
-          fieldKeys.push(key)
-          return key
-        },
+        customFieldKey: () => `undo_${randomUUID().replaceAll('-', '')}`,
         read,
       })
     } finally {
-      const remaining = organizationIds.length ? await read(organizationIds).catch(() => ({} as Record<string, Organization>)) : {}
-      const cleanupIds = [...organizationIds].sort((left, right) => Number(remaining[right]?.depth ?? 0) - Number(remaining[left]?.depth ?? 0))
-      for (const id of cleanupIds) {
-        await deleteGeneralEntityIfExists(request, token, ORGANIZATIONS, id)
+      try {
+        const remaining = organizationIds.length ? await read(organizationIds).catch(() => ({} as Record<string, Organization>)) : {}
+        const cleanupIds = [...organizationIds].sort((left, right) => Number(remaining[right]?.depth ?? 0) - Number(remaining[left]?.depth ?? 0))
+        for (const id of cleanupIds) {
+          await deleteGeneralEntityIfExists(request, token, ORGANIZATIONS, id)
+        }
+      } finally {
+        await selectedRequest?.dispose()
       }
-      for (const key of fieldKeys) {
-        const response = await apiRequest(request, 'DELETE', DEFINITIONS, {
-          token, headers: ALL_ORGANIZATIONS, data: { entityId: 'directory:organization', key },
-        })
-        expect(response.ok(), 'custom-field definition cleaned up').toBe(true)
-      }
-      await selectedRequest?.dispose()
     }
   },
 })
@@ -168,7 +150,7 @@ test.describe('TC-UNDO-001 directory organizations', () => {
   })
 
   test('create → undo → redo restores identity, fields, custom fields, and child links', async ({ request, directory }) => {
-    const field = await directory.defineField()
+    const field = directory.customFieldKey()
     const child = await directory.create({ parentId: directory.rootId })
     const before = await directory.read([directory.rootId, child.id])
     const beforeStored = await persistedState(directory.tenantId, [directory.rootId, child.id])
@@ -196,8 +178,8 @@ test.describe('TC-UNDO-001 directory organizations', () => {
   })
 
   test('update → undo → redo restores all scalars, hierarchy collections, and custom fields (I1/I4/I6)', async ({ request, directory }) => {
-    const field = await directory.defineField()
-    const removedField = await directory.defineField()
+    const field = directory.customFieldKey()
+    const removedField = directory.customFieldKey()
     const parent = await directory.create({ parentId: directory.rootId })
     const subject = await directory.create({
       name: `Before ${randomUUID()}`, slug: `before-${randomUUID()}`,
@@ -246,7 +228,7 @@ test.describe('TC-UNDO-001 directory organizations', () => {
   })
 
   test('delete → undo → redo restores tombstone, scalars, custom fields, and child parents (I2/I6)', async ({ request, directory }) => {
-    const field = await directory.defineField()
+    const field = directory.customFieldKey()
     const subject = await directory.create({
       parentId: directory.rootId, logoUrl: 'https://example.com/undo-delete.svg',
       logoPreserveAspectRatio: true, isActive: true, customFields: { [field]: 7 },
