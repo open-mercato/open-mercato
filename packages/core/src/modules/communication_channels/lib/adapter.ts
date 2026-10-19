@@ -99,7 +99,7 @@ export interface MessageContent {
   text?: string
   html?: string
   bodyFormat?: 'text' | 'markdown' | 'html'
-  attachments?: Array<{ url: string; mimeType: string; fileName: string; fileSize?: number; inline?: boolean }>
+  attachments?: NormalizedAttachment[]
   raw?: Record<string, unknown>
 }
 
@@ -188,6 +188,12 @@ export interface NormalizedAttachment {
   fileName: string
   fileSize?: number
   inline?: boolean
+  /**
+   * The file bytes, set by the hub for outbound attachments it read from the
+   * attachments module. Adapters prefer it over `url`, decode `data:` URLs
+   * otherwise, and never fetch a remote URL.
+   */
+  content?: Uint8Array
 }
 
 export interface InboundReaction {

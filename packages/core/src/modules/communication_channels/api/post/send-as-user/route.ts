@@ -5,6 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { sendAsUser } from '../../../lib/send-as-user'
 import { validateRouteMutationGuard } from '../../../lib/route-mutation-guard'
+import { outboundAttachmentRefsSchema } from '../../../lib/outbound-attachments'
 
 export const metadata = {
   path: '/communication_channels/send-as-user',
@@ -38,6 +39,11 @@ const bodySchema = z.object({
    * not interpret them.
    */
   channelMetadata: z.record(z.string(), z.unknown()).optional(),
+  /**
+   * Files from the attachments module, by id and owning record. Sent only
+   * through a channel whose adapter advertises `fileSharing`.
+   */
+  attachments: outboundAttachmentRefsSchema.optional(),
 })
 
 /**
@@ -87,7 +93,11 @@ export async function POST(req: Request): Promise<Response> {
 
   if (!result.ok) {
     return NextResponse.json(
-      result.fieldErrors ? { error: result.error, fieldErrors: result.fieldErrors } : { error: result.error },
+      {
+        error: result.error,
+        ...(result.code ? { code: result.code } : {}),
+        ...(result.fieldErrors ? { fieldErrors: result.fieldErrors } : {}),
+      },
       { status: result.status },
     )
   }
@@ -117,7 +127,11 @@ export const openApi = {
         { status: 403, description: 'Cannot send through a channel you don\'t own' },
         { status: 404, description: 'Channel not found' },
         { status: 409, description: 'Channel in a non-deliverable transitional status' },
-        { status: 422, description: 'Invalid body, or channel requires_reauth / disconnected' },
+        {
+          status: 422,
+          description:
+            'Invalid body, channel requires_reauth / disconnected, or attachments rejected (`code`: attachments_unsupported, too_many_attachments, duplicate_attachment, attachment_not_found, attachment_type_not_allowed, attachments_too_large)',
+        },
       ],
     },
   },

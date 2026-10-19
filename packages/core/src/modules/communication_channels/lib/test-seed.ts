@@ -1,5 +1,5 @@
 import { appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { timingSafeEqual } from 'node:crypto'
+import { createHash, timingSafeEqual } from 'node:crypto'
 import path from 'node:path'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type {
@@ -9,6 +9,7 @@ import type {
   ConvertOutboundInput,
   GetMessageStatusInput,
   InboundMessage,
+  MessageContent,
   MessageStatus,
   NormalizedInboundMessage,
   SendMessageInput,
@@ -18,6 +19,7 @@ import type {
   VerifyWebhookInput,
 } from './adapter'
 import { baseEmailCapabilities } from './email-capabilities'
+import { resolveOutboundAttachmentBytes } from './outbound-attachments'
 import { hasChannelAdapter, registerChannelAdapter } from './adapter-registry-singleton'
 import { registerSystemEmailProviderConfigResolver } from './system-email-provider-config'
 
@@ -85,11 +87,18 @@ export function isTestChannelSeedingEnabled(): boolean {
   return ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase())
 }
 
+export type TestSeedCapturedAttachment = {
+  fileName: string
+  mimeType: string
+  fileSize: number
+  sha256: string
+}
+
 export type TestSeedCapturedMessage = {
   capturedAt: string
   externalMessageId: string
   conversationId?: string
-  content: SendMessageInput['content']
+  content: Omit<MessageContent, 'attachments'> & { attachments?: TestSeedCapturedAttachment[] }
   scope: SendMessageInput['scope']
   metadata?: SendMessageInput['metadata']
   captureCorrelationToken?: string
@@ -259,8 +268,26 @@ async function captureTestSeedMessage(record: TestSeedCapturedMessage): Promise<
  */
 const testSeedCapabilities: ChannelCapabilities = {
   ...baseEmailCapabilities,
+  fileSharing: true,
   conversationHistory: false,
   realtimePush: false,
+}
+
+/**
+ * Record what an attachment carried without writing its bytes to the capture
+ * file: tests compare the digest with the file they uploaded.
+ */
+function captureAttachments(content: MessageContent): TestSeedCapturedAttachment[] | undefined {
+  if (!content.attachments?.length) return undefined
+  return content.attachments.map((attachment) => {
+    const bytes = resolveOutboundAttachmentBytes(attachment)
+    return {
+      fileName: attachment.fileName,
+      mimeType: attachment.mimeType,
+      fileSize: bytes.byteLength,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+    }
+  })
 }
 
 /**
@@ -283,7 +310,7 @@ class TestSeedChannelAdapter implements ChannelAdapter {
       capturedAt: new Date().toISOString(),
       externalMessageId,
       conversationId: input.conversationId,
-      content: input.content,
+      content: { ...input.content, attachments: captureAttachments(input.content) },
       scope: input.scope,
       metadata: input.metadata,
       captureCorrelationToken: resolveTestEmailCaptureCorrelationToken() ?? undefined,
@@ -311,6 +338,7 @@ class TestSeedChannelAdapter implements ChannelAdapter {
       content: {
         text: input.body,
         bodyFormat: input.bodyFormat,
+        ...(input.attachments?.length ? { attachments: input.attachments } : {}),
       },
       metadata: input.channelMetadata ?? {},
     }
@@ -344,6 +372,7 @@ class TestSeedChannelAdapter implements ChannelAdapter {
  */
 const testSeedChatCapabilities: ChannelCapabilities = {
   ...testSeedCapabilities,
+  fileSharing: false,
   recipientFormat: 'provider-native',
 }
 

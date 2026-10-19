@@ -1,0 +1,246 @@
+import type { AttachmentService } from '@open-mercato/core/modules/attachments'
+import type { ChannelCapabilities } from '../adapter'
+import { baseEmailCapabilities } from '../email-capabilities'
+import {
+  OUTBOUND_ATTACHMENTS_MAX_COUNT,
+  OUTBOUND_ATTACHMENTS_METADATA_KEY,
+  OutboundAttachmentDeliveryError,
+  loadOutboundAttachments,
+  omitOutboundAttachments,
+  outboundAttachmentRefsSchema,
+  readStoredOutboundAttachments,
+  resolveOutboundAttachmentBytes,
+  validateOutboundAttachments,
+  type OutboundAttachmentRef,
+} from '../outbound-attachments'
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({
+    t: (_key: string, fallback: string, params?: Record<string, unknown>) =>
+      fallback.replace(/\{(\w+)\}/g, (_match, name: string) => String(params?.[name] ?? '')),
+  }),
+}))
+
+const scope = { userId: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' }
+const owner = { entityId: 'purchase_orders:purchase_order', recordId: 'record-1' }
+const fileSharingCapabilities: ChannelCapabilities = { ...baseEmailCapabilities, fileSharing: true }
+
+function ref(attachmentId: string, extra: Partial<OutboundAttachmentRef> = {}): OutboundAttachmentRef {
+  return { kind: 'attachment', attachmentId, owner, ...extra }
+}
+
+function uuid(n: number): string {
+  return `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
+}
+
+type FileRecord = { fileName: string; mimeType: string; fileSize: number; bytes?: Buffer }
+
+function createContainer(files: Record<string, FileRecord>) {
+  const describeScoped = jest.fn(async ({ attachmentId, expectedOwner }: { attachmentId: string; expectedOwner: typeof owner }) => {
+    const file = files[attachmentId]
+    if (!file || expectedOwner.recordId !== owner.recordId) throw new Error('not found')
+    return { id: attachmentId, fileName: file.fileName, mimeType: file.mimeType, fileSize: file.fileSize, partitionCode: 'privateAttachments' }
+  })
+  const readScoped = jest.fn(async ({ attachmentId }: { attachmentId: string }) => {
+    const file = files[attachmentId]
+    if (!file) throw new Error('not found')
+    return {
+      buffer: file.bytes ?? Buffer.alloc(file.fileSize),
+      contentType: 'application/octet-stream',
+      contentDisposition: 'attachment',
+      fileName: file.fileName,
+      mimeType: file.mimeType,
+    }
+  })
+  const service = { describeScoped, readScoped } as unknown as AttachmentService
+  return {
+    container: { resolve: (name: string) => (name === 'attachmentService' ? service : undefined) },
+    describeScoped,
+    readScoped,
+  }
+}
+
+describe('outboundAttachmentRefsSchema', () => {
+  it('requires an owner and refuses inline refs and CR/LF in filenames', () => {
+    expect(outboundAttachmentRefsSchema.safeParse([ref(uuid(1))]).success).toBe(true)
+    expect(outboundAttachmentRefsSchema.safeParse([{ kind: 'attachment', attachmentId: uuid(1) }]).success).toBe(false)
+    expect(
+      outboundAttachmentRefsSchema.safeParse([{ kind: 'inline', filename: 'a.txt', mimeType: 'text/plain', contentBase64: 'YQ==' }]).success,
+    ).toBe(false)
+    expect(outboundAttachmentRefsSchema.safeParse([ref(uuid(1), { filename: 'a\r\nBcc: x' })]).success).toBe(false)
+  })
+})
+
+describe('validateOutboundAttachments', () => {
+  it('stores only the reference, owner and filename of readable files', async () => {
+    const { container, describeScoped } = createContainer({
+      [uuid(1)]: { fileName: 'order.pdf', mimeType: 'application/pdf', fileSize: 1000 },
+    })
+    const result = await validateOutboundAttachments({
+      container,
+      scope,
+      refs: [ref(uuid(1), { filename: 'Order 42.pdf' })],
+      capabilities: fileSharingCapabilities,
+    })
+    expect(result).toEqual({ ok: true, stored: [{ attachmentId: uuid(1), owner, filename: 'Order 42.pdf' }] })
+    expect(describeScoped).toHaveBeenCalledWith({
+      attachmentId: uuid(1),
+      auth: { sub: 'user-1', userId: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' },
+      expectedOwner: owner,
+    })
+  })
+
+  it('refuses attachments when the adapter does not share files, before reading anything', async () => {
+    const { container, describeScoped } = createContainer({})
+    const result = await validateOutboundAttachments({
+      container,
+      scope,
+      refs: [ref(uuid(1))],
+      capabilities: { ...baseEmailCapabilities, fileSharing: false },
+    })
+    expect(result).toMatchObject({ ok: false, status: 422, code: 'attachments_unsupported' })
+    expect(describeScoped).not.toHaveBeenCalled()
+  })
+
+  it('refuses too many and duplicate refs', async () => {
+    const { container } = createContainer({})
+    const many = Array.from({ length: OUTBOUND_ATTACHMENTS_MAX_COUNT + 1 }, (_value, index) => ref(uuid(index + 1)))
+    await expect(
+      validateOutboundAttachments({ container, scope, refs: many, capabilities: fileSharingCapabilities }),
+    ).resolves.toMatchObject({ ok: false, code: 'too_many_attachments' })
+    await expect(
+      validateOutboundAttachments({ container, scope, refs: [ref(uuid(1)), ref(uuid(1))], capabilities: fileSharingCapabilities }),
+    ).resolves.toMatchObject({ ok: false, code: 'duplicate_attachment' })
+  })
+
+  it('reports an unreadable or foreign-owned file as not found', async () => {
+    const { container } = createContainer({ [uuid(1)]: { fileName: 'a.pdf', mimeType: 'application/pdf', fileSize: 10 } })
+    await expect(
+      validateOutboundAttachments({ container, scope, refs: [ref(uuid(2))], capabilities: fileSharingCapabilities }),
+    ).resolves.toMatchObject({ ok: false, code: 'attachment_not_found' })
+    await expect(
+      validateOutboundAttachments({
+        container,
+        scope,
+        refs: [ref(uuid(1), { owner: { entityId: owner.entityId, recordId: 'record-2' } })],
+        capabilities: fileSharingCapabilities,
+      }),
+    ).resolves.toMatchObject({ ok: false, code: 'attachment_not_found' })
+  })
+
+  it('refuses a type the adapter does not send', async () => {
+    const { container } = createContainer({ [uuid(1)]: { fileName: 'run.exe', mimeType: 'application/x-msdownload', fileSize: 10 } })
+    await expect(
+      validateOutboundAttachments({ container, scope, refs: [ref(uuid(1))], capabilities: fileSharingCapabilities }),
+    ).resolves.toMatchObject({ ok: false, code: 'attachment_type_not_allowed' })
+  })
+
+  it('refuses files above the per-file or total limit and names the limit', async () => {
+    const { container } = createContainer({
+      [uuid(1)]: { fileName: 'a.pdf', mimeType: 'application/pdf', fileSize: 15_000_000 },
+      [uuid(2)]: { fileName: 'b.pdf', mimeType: 'application/pdf', fileSize: 15_000_000 },
+    })
+    const result = await validateOutboundAttachments({
+      container,
+      scope,
+      refs: [ref(uuid(1)), ref(uuid(2))],
+      capabilities: fileSharingCapabilities,
+    })
+    expect(result).toMatchObject({ ok: false, code: 'attachments_too_large' })
+    expect(result.ok ? '' : result.error).toContain('25 MB')
+    const perFile = await validateOutboundAttachments({
+      container,
+      scope,
+      refs: [ref(uuid(1))],
+      capabilities: { ...fileSharingCapabilities, maxFileSize: 10_000_000 },
+    })
+    expect(perFile).toMatchObject({ ok: false, code: 'attachments_too_large' })
+    expect(perFile.ok ? '' : perFile.error).toContain('10 MB')
+  })
+
+  it('caps the total at 25 MB, not at a lower per-file limit', async () => {
+    const { container } = createContainer({
+      [uuid(1)]: { fileName: 'a.pdf', mimeType: 'application/pdf', fileSize: 8_000_000 },
+      [uuid(2)]: { fileName: 'b.pdf', mimeType: 'application/pdf', fileSize: 8_000_000 },
+    })
+    const capabilities = { ...fileSharingCapabilities, maxFileSize: 10_000_000 }
+    await expect(
+      validateOutboundAttachments({ container, scope, refs: [ref(uuid(1)), ref(uuid(2))], capabilities }),
+    ).resolves.toMatchObject({ ok: true })
+    await expect(
+      loadOutboundAttachments({
+        container,
+        scope,
+        stored: [
+          { attachmentId: uuid(1), owner },
+          { attachmentId: uuid(2), owner },
+        ],
+        capabilities,
+      }),
+    ).resolves.toHaveLength(2)
+  })
+})
+
+describe('stored outbound attachment metadata', () => {
+  it('reads valid refs back and treats a malformed value as unavailable', () => {
+    const stored = [{ attachmentId: uuid(1), owner }]
+    expect(readStoredOutboundAttachments({ [OUTBOUND_ATTACHMENTS_METADATA_KEY]: stored })).toEqual(stored)
+    expect(readStoredOutboundAttachments({})).toEqual([])
+    expect(() => readStoredOutboundAttachments({ [OUTBOUND_ATTACHMENTS_METADATA_KEY]: [{ attachmentId: 'nope' }] })).toThrow(
+      OutboundAttachmentDeliveryError,
+    )
+  })
+
+  it('drops the hub-owned key and keeps everything else', () => {
+    expect(omitOutboundAttachments({ [OUTBOUND_ATTACHMENTS_METADATA_KEY]: [], crmVisibility: 'private' })).toEqual({
+      crmVisibility: 'private',
+    })
+  })
+})
+
+describe('loadOutboundAttachments', () => {
+  it('reads the bytes as the channel owner, pinned to the stored owner', async () => {
+    const bytes = Buffer.from('%PDF-1.7 order')
+    const { container, readScoped } = createContainer({
+      [uuid(1)]: { fileName: 'order.pdf', mimeType: 'application/pdf', fileSize: bytes.byteLength, bytes },
+    })
+    const attachments = await loadOutboundAttachments({
+      container,
+      scope,
+      stored: [{ attachmentId: uuid(1), owner, filename: 'Order 42.pdf' }],
+      capabilities: fileSharingCapabilities,
+    })
+    expect(readScoped).toHaveBeenCalledWith(
+      expect.objectContaining({ attachmentId: uuid(1), expectedOwner: owner, auth: expect.objectContaining({ tenantId: 'tenant-1', orgId: 'org-1' }) }),
+    )
+    expect(attachments).toHaveLength(1)
+    expect(attachments[0]).toMatchObject({ fileName: 'Order 42.pdf', mimeType: 'application/pdf', fileSize: bytes.byteLength })
+    expect(Buffer.from(attachments[0].content as Uint8Array).equals(bytes)).toBe(true)
+  })
+
+  it('fails permanently when a file is gone or now too large', async () => {
+    const { container } = createContainer({
+      [uuid(2)]: { fileName: 'big.pdf', mimeType: 'application/pdf', fileSize: 30_000_000 },
+    })
+    const missing = loadOutboundAttachments({
+      container,
+      scope,
+      stored: [{ attachmentId: uuid(1), owner }],
+      capabilities: fileSharingCapabilities,
+    })
+    await expect(missing).rejects.toMatchObject({ code: 'attachment_unavailable', transient: false })
+    await expect(
+      loadOutboundAttachments({ container, scope, stored: [{ attachmentId: uuid(2), owner }], capabilities: fileSharingCapabilities }),
+    ).rejects.toMatchObject({ code: 'attachments_too_large', transient: false })
+  })
+})
+
+describe('resolveOutboundAttachmentBytes', () => {
+  it('prefers the hub bytes, decodes data URLs and refuses remote URLs', () => {
+    const content = Buffer.from('bytes')
+    expect(resolveOutboundAttachmentBytes({ url: 'https://evil.example/x', mimeType: 'text/plain', fileName: 'a', content })).toBe(content)
+    expect(Buffer.from(resolveOutboundAttachmentBytes({ url: 'data:text/plain;base64,aGk=', mimeType: 'text/plain', fileName: 'a' })).toString()).toBe('hi')
+    expect(Buffer.from(resolveOutboundAttachmentBytes({ url: 'data:text/plain,a%20b', mimeType: 'text/plain', fileName: 'a' })).toString()).toBe('a b')
+    expect(() => resolveOutboundAttachmentBytes({ url: 'https://evil.example/x', mimeType: 'text/plain', fileName: 'a' })).toThrow()
+  })
+})

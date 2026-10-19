@@ -24,7 +24,7 @@ export type CapturedTestSeedEmail = {
     text?: string;
     html?: string;
     bodyFormat?: 'text' | 'markdown' | 'html';
-    attachments?: Array<{ url: string; mimeType: string; fileName: string; fileSize?: number; inline?: boolean }>;
+    attachments?: Array<{ fileName: string; mimeType: string; fileSize: number; sha256: string }>;
     raw?: Record<string, unknown>;
   };
   credentials: Record<string, unknown>;
