@@ -46,6 +46,9 @@ import {
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { AttachmentQuotaService } from '../lib/quota-service'
+import { resolveAttachmentsUploadRateLimitConfig } from '../lib/ocrLimits'
+import { checkRateLimit, RATE_LIMIT_ERROR_FALLBACK, RATE_LIMIT_ERROR_KEY } from '@open-mercato/shared/lib/ratelimit/helpers'
+import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 
 const logger = createLogger('attachments')
 
@@ -55,11 +58,13 @@ export const metadata = {
   DELETE: { requireAuth: true, requireFeatures: ['attachments.manage'] },
 }
 
+const ATTACHMENT_LIST_MAX_PAGE_SIZE = 100
+
 const attachmentQuerySchema = z.object({
   entityId: z.string().min(1).describe('Entity identifier that owns the attachments'),
   recordId: z.string().min(1).describe('Record identifier within the entity'),
   page: z.coerce.number().min(1).optional(),
-  pageSize: z.coerce.number().min(1).max(100).optional(),
+  pageSize: z.coerce.number().min(1).max(ATTACHMENT_LIST_MAX_PAGE_SIZE).optional(),
 })
 
 const attachmentAssignmentSchema = z.object({
@@ -209,7 +214,7 @@ export async function GET(req: Request) {
   const orgId = requestScope.organizationId
   const filter: Record<string, unknown> = { entityId, recordId, tenantId: auth.tenantId! }
   if (orgId) filter.organizationId = orgId
-  const orderBy: Record<string, 'ASC' | 'DESC'> = { createdAt: 'DESC' }
+  const orderBy: Record<string, 'ASC' | 'DESC'> = { createdAt: 'DESC', id: 'DESC' }
   const usePaging = typeof page === 'number' && typeof pageSize === 'number'
   const total = usePaging ? await em.count(Attachment, filter) : null
   const currentPage = usePaging ? Math.max(1, page) : null
@@ -227,7 +232,7 @@ export async function GET(req: Request) {
             limit: currentPageSize!,
             offset: pageOffset,
           }
-        : {}),
+        : { limit: ATTACHMENT_LIST_MAX_PAGE_SIZE }),
     },
     {
       tenantId: auth.tenantId ?? null,
@@ -283,6 +288,33 @@ export async function POST(req: Request) {
   }
   const tenantId = auth.tenantId
 
+  const container = await createRequestContainer()
+  let rateLimiterService: RateLimiterService | null = null
+  try {
+    rateLimiterService = container.resolve('rateLimiterService') as RateLimiterService | null
+  } catch (error) {
+    // Fail-open: uploads proceed when the limiter cannot be resolved (minimal/test containers).
+    logger.warn('Attachment upload rate limiter unavailable; throttle skipped', { err: error })
+  }
+  if (rateLimiterService) {
+    const principal = typeof auth.sub === 'string' && auth.sub.length > 0
+      ? auth.sub
+      : (typeof auth.userId === 'string' && auth.userId.length > 0 ? auth.userId : null)
+    if (!principal) {
+      logger.warn('Attachment upload rate limit skipped: missing authenticated principal')
+    } else {
+      const rateLimitResponse = await checkRateLimit(
+        rateLimiterService,
+        resolveAttachmentsUploadRateLimitConfig(),
+        `${tenantId}:${principal}`,
+        t(RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK),
+      )
+      if (rateLimitResponse) return rateLimitResponse
+    }
+  } else {
+    logger.warn('Attachment upload rate limiter not registered; throttle skipped')
+  }
+
   const contentType = req.headers.get('content-type') || ''
   if (!contentType.toLowerCase().includes('multipart/form-data')) {
     return NextResponse.json({ error: 'Expected multipart/form-data' }, { status: 400 })
@@ -319,7 +351,6 @@ export async function POST(req: Request) {
   const tags = parseFormTags(form.get('tags'))
   const assignmentsFromForm = parseFormAssignments(form.get('assignments'))
 
-  const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
   const dataEngine = container.resolve('dataEngine')
   let attachmentQuotaService: AttachmentQuotaService | null = null
@@ -603,9 +634,13 @@ export async function POST(req: Request) {
   }
 
   if (useLlmOcr) {
-    requestOcrProcessing(em, att, uploadDriver, storedPath).catch((error) => {
+    // Await so wait-queue overflow can finish the inline text fallback before
+    // the response returns (background LLM OCR still schedules via setImmediate).
+    try {
+      await requestOcrProcessing(em, att, uploadDriver, storedPath)
+    } catch (error) {
       logger.error('Failed to queue OCR processing', { err: error })
-    })
+    }
   } else if (wantsLlmOcr) {
     logger.warn('OCR requested but OPENAI_API_KEY not configured, falling back to text extraction when available')
   }
@@ -725,7 +760,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'List attachments for a record',
-      description: 'Returns uploaded attachments for the given entity record, ordered by newest first.',
+      description: 'Returns uploaded attachments for the given entity record, ordered by newest first. Without both page and pageSize, only the newest 100 attachments are returned; pass page and pageSize to page through the rest.',
       query: attachmentQuerySchema,
       responses: [
         { status: 200, description: 'Attachments found for the record', schema: attachmentListResponseSchema },
