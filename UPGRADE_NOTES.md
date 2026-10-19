@@ -85,6 +85,49 @@ byte budget): intentional security narrowing of the `auth.users.create` command 
 a target user it returns `[]`, and every existing call compiles and behaves the same. The route URL,
 request and response schemas, event IDs, ACL features, DI names and database schema are unchanged.
 
+### `AI_RUNTIME_BASEURL_ALLOWLIST` matches scheme and port, and saved base URLs are re-checked (#7228)
+
+An allowlist entry used to match only the hostname, so `api.openai.com` also admitted
+`http://api.openai.com` and any port. A base URL must now match an entry's scheme, hostname and
+effective port. This applies to the chat `?baseUrl=` parameter and to `PUT /api/ai_assistant/settings`;
+both keep answering `400 { code: "baseurl_not_allowlisted" }`. Saved tenant and per-agent base URLs
+are re-checked on every agent turn: a saved value that the current allowlist does not permit,
+including every saved value once the allowlist is empty, is ignored, and the turn uses the provider's
+default endpoint. Each ignored turn logs the warning
+`Stored AI runtime baseURL is not allowed by AI_RUNTIME_BASEURL_ALLOWLIST; ignoring it` until the
+override is re-saved or cleared. Routes, request and response shapes are unchanged.
+
+**Action for operators:** a bare host entry now means HTTPS on port 443. List any other origin
+explicitly as `scheme://host[:port]`:
+
+```env
+# before: admitted https and http on any port
+AI_RUNTIME_BASEURL_ALLOWLIST=openrouter.ai,localhost
+# after: https://openrouter.ai plus a local Ollama server over plain HTTP
+AI_RUNTIME_BASEURL_ALLOWLIST=openrouter.ai,http://localhost:11434
+```
+
+Update the allowlist before upgrading when tenants saved a local or self-hosted base URL: once that
+saved value is ignored, prompts go to the provider's default endpoint instead.
+
+### `GET /api/attachments` without paging returns at most the newest 100 attachments (#3816)
+
+`GET /api/attachments?entityId=…&recordId=…` used to load, decrypt and return every attachment of the
+record when `page` or `pageSize` was omitted. That unpaginated form now returns only the newest `100`
+attachments (ordered by `createdAt` descending), the same ceiling as `pageSize`. The response shape is
+unchanged: the unpaginated form still returns only `items`, and passing both `page` and `pageSize`
+pages as before. Both forms now break `createdAt` ties by `id` descending, so page boundaries are
+stable.
+
+**Action for module authors:** a caller that needs every attachment of a record with more than 100
+attachments must pass `page` and `pageSize` (at most `100`) and request pages until `totalPages` is
+reached. This matters most for code that sends the loaded ids back to a save that removes the
+attachments missing from the list: page through the whole list first, as the message composer now
+does for draft attachments. Built-in display-only lists (the attachment form field, product and
+variant media, sales channel offer media, the warranty claim attachments tab and the warranty claim
+line picker for AI assessment) still use the unpaginated form, so they show at most the newest 100
+attachments of a record and any count derived from them stops at 100.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
