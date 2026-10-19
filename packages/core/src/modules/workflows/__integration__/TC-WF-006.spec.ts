@@ -81,6 +81,8 @@ test.describe('TC-WF-006: Create and delete workflow definition via UI', () => {
       // the drawer footer Save share an accessible name.
       await drawer.getByRole('button', { name: /^save$/i }).click()
       await expect(page).toHaveURL(/\/backend\/definitions\/visual-editor\?id=[0-9a-f-]{36}/i, { timeout: 15_000 })
+      const savedEditorUrl = new URL(page.url())
+      const definitionEditorHref = `${savedEditorUrl.pathname}${savedEditorUrl.search}`
 
       // Back to the list — the entry should be visible
       await page.goto('/backend/definitions')
@@ -114,7 +116,10 @@ test.describe('TC-WF-006: Create and delete workflow definition via UI', () => {
       const triggerBtn = row.getByRole('button', { name: /open actions/i })
       await triggerBtn.evaluate((el) => el.scrollIntoView({ block: 'end' }))
       await triggerBtn.hover()
-      await page.getByRole('menuitem', { name: /^delete$/i }).click()
+      const definitionMenu = page.getByRole('menu').filter({
+        has: page.locator(`a[href="${definitionEditorHref}"]`),
+      })
+      await definitionMenu.getByRole('menuitem', { name: /^delete$/i }).click()
 
       // The definition list no longer hand-rolls its delete confirmation as a
       // Radix `Dialog`: it goes through the shared `ConfirmDialog`, which is a
