@@ -159,6 +159,61 @@ describe('AppShell', () => {
     }
   })
 
+  it.each([
+    ['versioned', { v: 1, data: { core: false } }],
+    ['legacy', { Core: false }],
+  ])('preserves %s sidebar preferences while navigation hydrates', async (variant, preference) => {
+    mockPathname = '/backend'
+    const storageKey = 'om:sidebarOpenGroups'
+    const stored = JSON.stringify(preference)
+    window.localStorage.setItem(storageKey, stored)
+    const previousFetch = global.fetch
+    const previousWindowFetch = window.fetch
+    const previousOriginalFetch = (window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch
+    const adminNavApi = `/api/auth/admin/nav-storage-${variant}`
+    let resolveChrome: (response: Response) => void = () => {}
+    const chromeResponse = new Promise<Response>((resolve) => { resolveChrome = resolve })
+    const fetchMock: typeof fetch = jest.fn((input: RequestInfo | URL) =>
+      String(input) === adminNavApi
+        ? chromeResponse
+        : Promise.resolve(new Response('[]', { status: 200 })),
+    )
+    global.fetch = fetchMock
+    window.fetch = fetchMock
+    ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = fetchMock
+
+    try {
+      renderWithProviders(
+        <AppShell groups={[]} adminNavApi={adminNavApi}><div>Body</div></AppShell>,
+        { dict },
+      )
+      expect(window.localStorage.getItem(storageKey)).toBe(stored)
+
+      await act(async () => {
+        resolveChrome(new Response(JSON.stringify({
+          groups,
+          settingsSections: [],
+          settingsPathPrefixes: [],
+          profileSections: [],
+          profilePathPrefixes: [],
+          grantedFeatures: [],
+          roles: [],
+        }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      })
+
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Core' })).toHaveAttribute('aria-expanded', 'false'))
+      expect(screen.queryByText('Users List')).not.toBeInTheDocument()
+      await waitFor(() => {
+        expect(JSON.parse(window.localStorage.getItem(storageKey) ?? 'null')).toEqual({ v: 1, data: { core: false } })
+      })
+    } finally {
+      window.localStorage.removeItem(storageKey)
+      global.fetch = previousFetch
+      window.fetch = previousWindowFetch
+      ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = previousOriginalFetch
+    }
+  })
+
   it('renders navigation and breadcrumbs with translations applied via ApplyBreadcrumb', async () => {
     renderWithProviders(
       <AppShell

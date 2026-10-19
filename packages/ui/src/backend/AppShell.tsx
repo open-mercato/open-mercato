@@ -645,6 +645,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
   const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>(() =>
     Object.fromEntries(resolvedGroups.map((g) => [resolveGroupKey(g), true])) as Record<string, boolean>
   )
+  const [openGroupsLoaded, setOpenGroupsLoaded] = React.useState(false)
   const [headerTitle, setHeaderTitle] = React.useState<string | undefined>(currentTitle)
   const [headerBreadcrumb, setHeaderBreadcrumb] = React.useState<Breadcrumb | undefined>(breadcrumb)
   const [navQuery, setNavQuery] = React.useState('')
@@ -809,6 +810,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
   }, [mobileOpen])
 
   React.useEffect(() => {
+    if (!isChromeReady && resolvedGroups.length === 0) return
     const parsed = readVersionedPreference<Record<string, boolean>>(
       SIDEBAR_OPEN_GROUPS_KEY,
       SIDEBAR_OPEN_GROUPS_VERSION,
@@ -816,6 +818,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
       {},
       { legacyIsValid: isBooleanRecord },
     )
+    setOpenGroupsLoaded(true)
     if (Object.keys(parsed).length === 0) return
     setOpenGroups((prev) => {
       const next = { ...prev }
@@ -826,7 +829,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
       }
       return next
     })
-  }, [resolvedGroups])
+  }, [isChromeReady, resolvedGroups])
 
   const toggleGroup = (groupId: string) => setOpenGroups((prev) => ({ ...prev, [groupId]: prev[groupId] === false }))
 
@@ -867,8 +870,9 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
     previousSidebarModeRef.current = sidebarMode
   }, [sidebarMode, collapsed])
   React.useEffect(() => {
+    if (!openGroupsLoaded) return
     writeVersionedPreference(SIDEBAR_OPEN_GROUPS_KEY, SIDEBAR_OPEN_GROUPS_VERSION, openGroups)
-  }, [openGroups])
+  }, [openGroups, openGroupsLoaded])
 
   // Ensure current route's group is expanded on load
   React.useEffect(() => {
