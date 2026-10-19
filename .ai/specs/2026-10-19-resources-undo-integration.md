@@ -27,7 +27,7 @@ Use existing `Resource`, `ResourceType`, `ResourceActivity`, `ResourceComment`, 
 | API | Coverage |
 | --- | --- |
 | `/api/resources/resources` POST/PUT/DELETE | Full scalar snapshots, I1/I2/I3/I5/I6, same-ID redo, I4 custom-field restore, related tags/comments/activities after parent delete undo |
-| `/api/resources/resource-types` POST/PUT/DELETE | Full scalar snapshots, I1/I2/I3/I5/I6 and same-ID redo |
+| `/api/resources/resource-types` POST/PUT/DELETE | Full scalar snapshots, I1/I2/I3/I5/I6, same-ID redo, I4 custom-field restore on create/update/delete |
 | `/api/resources/activities` POST/PUT/DELETE | Relation and scalar snapshots including dates, I1/I2/I3/I5/I6 |
 | `/api/resources/comments` POST/PUT/DELETE | Relation and scalar snapshots, I1/I2/I3/I5/I6 |
 | `/api/resources/resources/tags/assign` and `/unassign` POST | Membership restoration and redo, I5, preserve unrelated membership |
@@ -74,3 +74,5 @@ Reviewed root `AGENTS.md`, `packages/core/AGENTS.md`, `.ai/qa/AGENTS.md`, and `.
 ## Changelog
 
 - 2026-10-19: Specify resources TC-UNDO-001 integration coverage for #2577.
+
+- 2026-10-19: Correct the coverage matrix to include resource-type custom-field create/update/delete undo and redo (I4), required by #2577.
