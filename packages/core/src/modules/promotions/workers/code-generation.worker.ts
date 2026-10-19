@@ -1,5 +1,4 @@
 import type { AwilixContainer } from 'awilix'
-import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -80,8 +79,6 @@ async function mintUniqueCandidate(
 
 type HandlerContext = JobContext & { resolve: <T = unknown>(name: string) => T }
 
-type GenerationRunResult = { code: Code; actualCountAfter: number }
-
 export default async function handle(
   job: QueuedJob<CodeGenerationJobPayload>,
   ctx: HandlerContext,
@@ -96,86 +93,66 @@ export default async function handle(
   const em = (ctx.resolve('em') as EntityManager).fork()
   const scope: PromotionsCodeScope = { tenantId, organizationId }
 
-  // The whole read-count-mint-reconcile run happens under one row lock, held for the
-  // duration of the transaction: the queue runs this worker with concurrency 2
-  // (`lib/queues.ts`), and two concurrent generation jobs for the same pool (e.g. a
-  // manual "Generate" click racing the auto-trigger) would otherwise both read the same
-  // unlocked `remaining` and each insert a full batch, overfilling the pool to 2x `amount`.
-  //
-  // The result is returned from the transactional callback rather than assigned to an
-  // outer `let` — TypeScript's control-flow narrowing cannot see an assignment made
-  // inside a nested closure, so `if (!code) return` below would otherwise narrow `code`
-  // to `never` for the rest of the function (a real TS2339 the CI build caught).
-  const run = await em.transactional(async (tem): Promise<GenerationRunResult | null> => {
-    const lockedCode = await tem.findOne(
-      Code,
-      { id: codeId, tenantId, organizationId, deletedAt: null },
-      { lockMode: LockMode.PESSIMISTIC_WRITE },
-    )
-    if (!lockedCode) {
-      logger.warn('promotions:code-generation code not found (deleted or wrong tenant/org)', { codeId, tenantId, organizationId })
-      return null
-    }
-    if (lockedCode.type !== 'dynamic' || !lockedCode.amount) {
-      logger.warn('promotions:code-generation code is not a dynamic pool with a target amount — nothing to generate', {
-        codeId,
-        type: lockedCode.type,
-        amount: lockedCode.amount,
-      })
-      return null
-    }
+  const code = await em.findOne(Code, { id: codeId, tenantId, organizationId, deletedAt: null })
+  if (!code) {
+    logger.warn('promotions:code-generation code not found (deleted or wrong tenant/org)', { codeId, tenantId, organizationId })
+    return
+  }
+  if (code.type !== 'dynamic' || !code.amount) {
+    logger.warn('promotions:code-generation code is not a dynamic pool with a target amount — nothing to generate', {
+      codeId,
+      type: code.type,
+      amount: code.amount,
+    })
+    return
+  }
 
-    // §Operational Risks "Dynamic Code Generation Stall": idempotent on restart — the
-    // authoritative generated count is a fresh COUNT(*) against
-    // `promotion_generated_codes`, never the possibly-stale `Code.generated` counter. This
-    // also makes an at-least-once queue redelivery of an already-finished job a safe no-op.
-    const actualCountBefore = await tem.count(GeneratedCode, { codeId: lockedCode.id, tenantId, organizationId })
-    let remaining = Math.max(0, lockedCode.amount - actualCountBefore)
+  // §Operational Risks "Dynamic Code Generation Stall": idempotent on restart — the
+  // authoritative generated count is a fresh COUNT(*) against
+  // `promotion_generated_codes`, never the possibly-stale `Code.generated` counter. This
+  // also makes an at-least-once queue redelivery of an already-finished job a safe no-op.
+  const actualCountBefore = await em.count(GeneratedCode, { codeId: code.id, tenantId, organizationId })
+  let remaining = Math.max(0, code.amount - actualCountBefore)
 
-    if (remaining > 0) {
-      const localGenerated = new Set<string>()
-      let batch: GeneratedCode[] = []
+  if (remaining > 0) {
+    const localGenerated = new Set<string>()
+    let batch: GeneratedCode[] = []
 
-      while (remaining > 0) {
-        const candidate = await mintUniqueCandidate(tem, lockedCode, scope, localGenerated)
-        localGenerated.add(candidate)
+    while (remaining > 0) {
+      const candidate = await mintUniqueCandidate(em, code, scope, localGenerated)
+      localGenerated.add(candidate)
 
-        batch.push(
-          tem.create(GeneratedCode, {
-            codeId: lockedCode.id,
-            organizationId,
-            tenantId,
-            code: candidate,
-            active: true,
-          }),
-        )
-        remaining -= 1
+      batch.push(
+        em.create(GeneratedCode, {
+          codeId: code.id,
+          organizationId,
+          tenantId,
+          code: candidate,
+          active: true,
+        }),
+      )
+      remaining -= 1
 
-        if (batch.length >= BATCH_SIZE || remaining === 0) {
-          for (const generated of batch) tem.persist(generated)
-          await tem.flush()
-          batch = []
-        }
+      if (batch.length >= BATCH_SIZE || remaining === 0) {
+        for (const generated of batch) em.persist(generated)
+        await em.flush()
+        batch = []
       }
     }
+  }
 
-    // `Code.generated` is reconciled to the ACTUAL count on completion, never incremented
-    // speculatively per insert (§Operational Risks) — re-counted fresh here too, so a
-    // concurrent writer touching the same code between the loop and this point still
-    // leaves the counter correct.
-    const actualCountAfter = await tem.count(GeneratedCode, { codeId: lockedCode.id, tenantId, organizationId })
-    lockedCode.generated = actualCountAfter
-    await tem.flush()
-    return { code: lockedCode, actualCountAfter }
-  })
-
-  if (!run) return
-  const { code, actualCountAfter } = run
+  // `Code.generated` is reconciled to the ACTUAL count on completion, never incremented
+  // speculatively per insert (§Operational Risks) — re-counted fresh here too, so a
+  // concurrent writer touching the same code between the loop and this point still
+  // leaves the counter correct.
+  const actualCountAfter = await em.count(GeneratedCode, { codeId: code.id, tenantId, organizationId })
+  code.generated = actualCountAfter
+  await em.flush()
 
   // The CRUD list cache (ENABLE_CRUD_API_CACHE) never invalidates on its own for a
   // worker-side write — without this the admin UI's generated-codes counter can stay
   // stale at its pre-reconcile value indefinitely (no TTL on the cache entry). Invalidated
-  // after the transaction commits, never inside it.
+  // after the reconcile flush commits, never before it.
   const cacheContainer = { resolve: ctx.resolve } as unknown as AwilixContainer
   await invalidateCrudCache(
     cacheContainer,
