@@ -473,6 +473,9 @@ export const priceKindUpdateSchema = z
     id: uuid(),
   })
   .merge(priceKindCreateSchema.partial())
+  .extend({
+    displayMode: priceDisplayModeSchema.optional(),
+  })
 
 // Base schema without refinements (used for .partial() in the update schema).
 const priceBaseSchema = scoped.extend({
