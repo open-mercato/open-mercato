@@ -90,7 +90,7 @@ class ImapChannelAdapter implements ChannelAdapter {
     let attachments: SmtpMessage['attachments']
     try {
       attachments = native.content.attachments?.map((attachment) => ({
-        filename: sanitizeHeaderValue(attachment.fileName),
+        filename: sanitizeHeaderValue(attachment.fileName) || 'attachment',
         content: asBuffer(resolveOutboundAttachmentBytes(attachment)),
         contentType: attachment.mimeType,
         inline: attachment.inline,

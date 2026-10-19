@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import {
   apiRequestWithSelectedOrg,
@@ -21,7 +22,9 @@ import {
  * Every refusal happens before a message is composed and answers 422 with a
  * stable `code`: a channel whose adapter does not share files, a file named
  * with the wrong owner, a file from another organization (reported exactly
- * like a missing one) and a file type the mailbox does not send.
+ * like a missing one), a file type the mailbox does not send, a display name
+ * that breaks the upload rules or would change the file's type, and more files
+ * than a message carries.
  *
  * A connected channel can only be provisioned through the env-gated test-seed
  * fixture, so the suite skips when `OM_ENABLE_TEST_CHANNEL_SEEDING` is off.
@@ -29,7 +32,12 @@ import {
 
 const OWNER_ENTITY_ID = 'attachments:library'
 
-type AttachmentRef = { kind: 'attachment'; attachmentId: string; owner: { entityId: string; recordId: string } }
+type AttachmentRef = {
+  kind: 'attachment'
+  attachmentId: string
+  owner: { entityId: string; recordId: string }
+  filename?: string
+}
 
 async function sendWithAttachments(
   request: APIRequestContext,
@@ -202,6 +210,84 @@ test.describe('TC-CHANNEL-EMAIL-HUB-008: send-as-user refuses attachments it may
     } finally {
       await deleteChannelIfExists(request, token, channelId)
       await deleteAttachmentIfExists(request, token, attachmentId)
+    }
+  })
+
+  test('refuses a display name that is executable, mirrored or would change the file type', async ({ request }) => {
+    const stamp = Date.now()
+    let token: string | null = null
+    let channelId: string | null = null
+    let attachmentId: string | null = null
+
+    try {
+      token = await getAuthToken(request)
+      test.skip(!(await isChannelSeedingAvailable(request, token)), 'OM_ENABLE_TEST_CHANNEL_SEEDING is not enabled.')
+
+      channelId = await seedConnectedChannel(request, token, {
+        displayName: `Name check ${stamp}`,
+        externalIdentifier: `name-${stamp}@example.com`,
+      })
+      const recordId = `hub-008-name-${stamp}`
+      const uploaded = await uploadAttachmentFixture(request, token, {
+        entityId: OWNER_ENTITY_ID,
+        recordId,
+        fileName: `notes-${stamp}.txt`,
+        mimeType: 'text/plain',
+        buffer: Buffer.from('notes'),
+      })
+      attachmentId = uploaded.id
+      const owner = { entityId: OWNER_ENTITY_ID, recordId }
+
+      const executable = await sendWithAttachments(request, token, {
+        channelId,
+        stamp,
+        attachments: [{ kind: 'attachment', attachmentId, owner, filename: `Invoice ${stamp}.pdf.vbs` }],
+      })
+      expect(executable).toEqual({ status: 422, code: 'attachment_type_not_allowed' })
+
+      const mirrored = await sendWithAttachments(request, token, {
+        channelId,
+        stamp,
+        attachments: [{ kind: 'attachment', attachmentId, owner, filename: `Invoice ${stamp}\u202Efdp.txt` }],
+      })
+      expect(mirrored).toEqual({ status: 422, code: 'attachment_type_not_allowed' })
+
+      const disguised = await sendWithAttachments(request, token, {
+        channelId,
+        stamp,
+        attachments: [{ kind: 'attachment', attachmentId, owner, filename: `Invoice ${stamp}.pdf` }],
+      })
+      expect(disguised).toEqual({ status: 422, code: 'attachment_type_not_allowed' })
+    } finally {
+      await deleteChannelIfExists(request, token, channelId)
+      await deleteAttachmentIfExists(request, token, attachmentId)
+    }
+  })
+
+  test('reports more files than a message carries with its code', async ({ request }) => {
+    const stamp = Date.now()
+    let token: string | null = null
+    let channelId: string | null = null
+
+    try {
+      token = await getAuthToken(request)
+      test.skip(!(await isChannelSeedingAvailable(request, token)), 'OM_ENABLE_TEST_CHANNEL_SEEDING is not enabled.')
+
+      channelId = await seedConnectedChannel(request, token, {
+        displayName: `Count check ${stamp}`,
+        externalIdentifier: `count-${stamp}@example.com`,
+      })
+      const owner = { entityId: OWNER_ENTITY_ID, recordId: `hub-008-count-${stamp}` }
+      const attachments: AttachmentRef[] = Array.from({ length: 11 }, () => ({
+        kind: 'attachment',
+        attachmentId: randomUUID(),
+        owner,
+      }))
+
+      const result = await sendWithAttachments(request, token, { channelId, stamp, attachments })
+      expect(result).toEqual({ status: 422, code: 'too_many_attachments' })
+    } finally {
+      await deleteChannelIfExists(request, token, channelId)
     }
   })
 })

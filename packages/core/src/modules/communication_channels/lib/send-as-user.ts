@@ -58,7 +58,8 @@ export type SendAsUserInput = {
    * Free-form metadata persisted on the resulting MessageChannelLink. Used by
    * downstream subscribers (e.g. the customers module's link-channel-message
    * subscriber) to anchor the sent message back to a CRM Person or honor a
-   * caller-specified visibility flag. The hub does not interpret these keys.
+   * caller-specified visibility flag. The hub does not interpret these keys,
+   * except that it owns `outboundAttachments` and drops a caller-supplied value.
    */
   channelMetadata?: Record<string, unknown>
   /**

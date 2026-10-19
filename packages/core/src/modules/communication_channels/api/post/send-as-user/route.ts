@@ -5,7 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { sendAsUser } from '../../../lib/send-as-user'
 import { validateRouteMutationGuard } from '../../../lib/route-mutation-guard'
-import { outboundAttachmentRefsSchema } from '../../../lib/outbound-attachments'
+import { outboundAttachmentRefSchema } from '../../../lib/outbound-attachments'
 
 export const metadata = {
   path: '/communication_channels/send-as-user',
@@ -36,14 +36,16 @@ const bodySchema = z.object({
    * downstream subscribers (e.g. the customers module's link-channel-message
    * subscriber) to anchor the sent message back to a CRM Person or honor a
    * caller-specified visibility flag. Keys are caller-defined; the hub does
-   * not interpret them.
+   * not interpret them, except that it owns `outboundAttachments` and drops a
+   * caller-supplied value.
    */
   channelMetadata: z.record(z.string(), z.unknown()).optional(),
   /**
    * Files from the attachments module, by id and owning record. Sent only
-   * through a channel whose adapter advertises `fileSharing`.
+   * through a channel whose adapter advertises `fileSharing`. The count is
+   * checked by the facade so the refusal carries its `code`.
    */
-  attachments: outboundAttachmentRefsSchema.optional(),
+  attachments: z.array(outboundAttachmentRefSchema).optional(),
 })
 
 /**

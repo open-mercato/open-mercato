@@ -2,7 +2,11 @@ import { z } from 'zod'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import type { AttachmentService } from '@open-mercato/core/modules/attachments'
+import {
+  getAttachmentExtension,
+  hasDangerousExecutableExtension,
+  type AttachmentService,
+} from '@open-mercato/core/modules/attachments'
 import type { ChannelCapabilities, NormalizedAttachment } from './adapter'
 import { EMAIL_MAX_ATTACHMENT_BYTES } from './email-capabilities'
 
@@ -20,6 +24,25 @@ export const OUTBOUND_ATTACHMENTS_METADATA_KEY = 'outboundAttachments'
 export const OUTBOUND_ATTACHMENTS_MAX_COUNT = 10
 export const OUTBOUND_ATTACHMENTS_MAX_TOTAL_BYTES = EMAIL_MAX_ATTACHMENT_BYTES
 
+// Control and bidirectional-override characters let a name display as
+// something it is not (e.g. "Invoice\u202Efdp.vbs" renders as "Invoicesbv.pdf").
+const UNSAFE_FILENAME_CHARACTERS = /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/
+
+/**
+ * The display name the recipient sees. It is held to the attachments module's
+ * upload rules, so an override cannot turn a stored file into an executable or
+ * a name that renders as a different one. The request schema bounds only its
+ * length; `validateOutboundAttachments` applies these rules so a refusal
+ * carries the `attachment_type_not_allowed` code.
+ */
+const attachmentFilenameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(255)
+  .refine((value) => !UNSAFE_FILENAME_CHARACTERS.test(value), { message: 'Filename contains control characters' })
+  .refine((value) => !hasDangerousExecutableExtension(value), { message: 'Filename has a blocked extension' })
+
 const attachmentOwnerSchema = z.object({
   entityId: z.string().min(1).max(200),
   recordId: z.string().min(1).max(200),
@@ -30,7 +53,7 @@ export const outboundAttachmentRefSchema = z.discriminatedUnion('kind', [
     kind: z.literal('attachment'),
     attachmentId: z.string().uuid(),
     owner: attachmentOwnerSchema,
-    filename: z.string().min(1).max(255).regex(/^[^\r\n]*$/).optional(),
+    filename: z.string().max(255).optional(),
   }),
 ])
 
@@ -51,7 +74,7 @@ export function parseOutboundAttachmentRefs(value: unknown): OutboundAttachmentR
 const storedOutboundAttachmentSchema = z.object({
   attachmentId: z.string().uuid(),
   owner: attachmentOwnerSchema,
-  filename: z.string().min(1).max(255).regex(/^[^\r\n]*$/).optional(),
+  filename: attachmentFilenameSchema.optional(),
 })
 
 export type StoredOutboundAttachment = z.infer<typeof storedOutboundAttachmentSchema>
@@ -127,6 +150,10 @@ function buildActorAuth(scope: OutboundAttachmentScope): NonNullable<AuthContext
   return { sub: scope.userId, userId: scope.userId, tenantId: scope.tenantId, orgId: scope.organizationId }
 }
 
+function totalLimitBytes(capabilities: ChannelCapabilities): number {
+  return capabilities.maxTotalBytes ?? OUTBOUND_ATTACHMENTS_MAX_TOTAL_BYTES
+}
+
 function isAllowedMimeType(capabilities: ChannelCapabilities, mimeType: string): boolean {
   const allowed = capabilities.supportedMimeTypes
   if (!allowed || allowed.length === 0) return true
@@ -182,7 +209,7 @@ export async function validateOutboundAttachments(input: {
   const auth = buildActorAuth(input.scope)
   // `describeScoped` is optional on the service contract; an override that
   // only implements `readScoped` still works, at the cost of reading the bytes.
-  const describe = async (ref: OutboundAttachmentRef): Promise<{ mimeType: string; fileSize: number }> => {
+  const describe = async (ref: OutboundAttachmentRef): Promise<{ fileName: string; mimeType: string; fileSize: number }> => {
     if (attachmentService.describeScoped) {
       return attachmentService.describeScoped({ attachmentId: ref.attachmentId, auth, expectedOwner: ref.owner })
     }
@@ -192,12 +219,18 @@ export async function validateOutboundAttachments(input: {
       expectedOwner: ref.owner,
       forceDownload: true,
     })
-    return { mimeType: file.mimeType, fileSize: file.buffer.byteLength }
+    return { fileName: file.fileName, mimeType: file.mimeType, fileSize: file.buffer.byteLength }
   }
-  const perFileLimit = capabilities.maxFileSize ?? OUTBOUND_ATTACHMENTS_MAX_TOTAL_BYTES
+  const perFileLimit = capabilities.maxFileSize ?? totalLimitBytes(capabilities)
   let totalBytes = 0
   const stored: StoredOutboundAttachment[] = []
   for (const ref of refs) {
+    let filename: string | undefined
+    if (ref.filename !== undefined) {
+      const parsedName = attachmentFilenameSchema.safeParse(ref.filename)
+      if (!parsedName.success) return fail('attachment_type_not_allowed')
+      filename = parsedName.data
+    }
     let described
     try {
       described = await describe(ref)
@@ -206,15 +239,19 @@ export async function validateOutboundAttachments(input: {
       throw error
     }
     if (!isAllowedMimeType(capabilities, described.mimeType)) return fail('attachment_type_not_allowed')
+    // A display-name override renames the file but never changes its type.
+    if (filename && getAttachmentExtension(filename) !== getAttachmentExtension(described.fileName)) {
+      return fail('attachment_type_not_allowed')
+    }
     if (described.fileSize > perFileLimit) return fail('attachments_too_large', perFileLimit)
     totalBytes += described.fileSize
-    if (totalBytes > OUTBOUND_ATTACHMENTS_MAX_TOTAL_BYTES) {
-      return fail('attachments_too_large', OUTBOUND_ATTACHMENTS_MAX_TOTAL_BYTES)
+    if (totalBytes > totalLimitBytes(capabilities)) {
+      return fail('attachments_too_large', totalLimitBytes(capabilities))
     }
     stored.push({
       attachmentId: ref.attachmentId,
       owner: { entityId: ref.owner.entityId, recordId: ref.owner.recordId },
-      ...(ref.filename ? { filename: ref.filename } : {}),
+      ...(filename ? { filename } : {}),
     })
   }
   return { ok: true, stored }
@@ -252,7 +289,7 @@ export async function loadOutboundAttachments(input: {
   if (!attachmentService) throw new OutboundAttachmentDeliveryError('attachment_unavailable')
 
   const auth = buildActorAuth(input.scope)
-  const perFileLimit = capabilities.maxFileSize ?? OUTBOUND_ATTACHMENTS_MAX_TOTAL_BYTES
+  const perFileLimit = capabilities.maxFileSize ?? totalLimitBytes(capabilities)
   let totalBytes = 0
   const out: NormalizedAttachment[] = []
   for (const ref of stored) {
@@ -273,7 +310,7 @@ export async function loadOutboundAttachments(input: {
     }
     const byteLength = file.buffer.byteLength
     totalBytes += byteLength
-    if (byteLength > perFileLimit || totalBytes > OUTBOUND_ATTACHMENTS_MAX_TOTAL_BYTES) {
+    if (byteLength > perFileLimit || totalBytes > totalLimitBytes(capabilities)) {
       throw new OutboundAttachmentDeliveryError('attachments_too_large')
     }
     out.push({

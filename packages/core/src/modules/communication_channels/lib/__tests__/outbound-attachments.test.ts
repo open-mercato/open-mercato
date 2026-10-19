@@ -63,20 +63,55 @@ function createContainer(files: Record<string, FileRecord>) {
 }
 
 describe('outboundAttachmentRefsSchema', () => {
-  it('requires an owner and refuses inline refs and CR/LF in filenames', () => {
+  it('requires an owner and refuses inline refs', () => {
     expect(outboundAttachmentRefsSchema.safeParse([ref(uuid(1))]).success).toBe(true)
     expect(outboundAttachmentRefsSchema.safeParse([{ kind: 'attachment', attachmentId: uuid(1) }]).success).toBe(false)
     expect(
       outboundAttachmentRefsSchema.safeParse([{ kind: 'inline', filename: 'a.txt', mimeType: 'text/plain', contentBase64: 'YQ==' }]).success,
     ).toBe(false)
-    expect(outboundAttachmentRefsSchema.safeParse([ref(uuid(1), { filename: 'a\r\nBcc: x' })]).success).toBe(false)
+    expect(outboundAttachmentRefsSchema.safeParse([ref(uuid(1), { filename: 'x'.repeat(256) })]).success).toBe(false)
+  })
+
+  it('refuses display names that break the upload rules with attachment_type_not_allowed', async () => {
+    const { container, describeScoped } = createContainer({
+      [uuid(1)]: { fileName: 'stored.pdf', mimeType: 'application/pdf', fileSize: 10 },
+    })
+    const validate = (filename: string) =>
+      validateOutboundAttachments({ container, scope, refs: [ref(uuid(1), { filename })], capabilities: fileSharingCapabilities })
+    await expect(validate('  Faktura 2026-10.pdf ')).resolves.toEqual({
+      ok: true,
+      stored: [{ attachmentId: uuid(1), owner, filename: 'Faktura 2026-10.pdf' }],
+    })
+    describeScoped.mockClear()
+    for (const filename of [
+      'Invoice 2026-10.pdf.vbs',
+      'Invoice.exe.pdf',
+      'setup.EXE',
+      'Invoice\u202Efdp.vbs',
+      'Invoice\u202Efdp.pdf',
+      'tab\tname.pdf',
+      'line\u2028break.pdf',
+      'c1\u0085control.pdf',
+      'a\r\nBcc: x.pdf',
+      '   ',
+    ]) {
+      await expect(validate(filename)).resolves.toMatchObject({ ok: false, status: 422, code: 'attachment_type_not_allowed' })
+    }
+    expect(describeScoped).not.toHaveBeenCalled()
+  })
+
+  it('applies the upload rules to stored display names at delivery', () => {
+    expect(readStoredOutboundAttachments({ [OUTBOUND_ATTACHMENTS_METADATA_KEY]: [{ attachmentId: uuid(1), owner, filename: 'a.pdf' }] })).toHaveLength(1)
+    expect(() =>
+      readStoredOutboundAttachments({ [OUTBOUND_ATTACHMENTS_METADATA_KEY]: [{ attachmentId: uuid(1), owner, filename: 'a.pdf.js' }] }),
+    ).toThrow(OutboundAttachmentDeliveryError)
   })
 
   it('parses refs passed in-process and leaves the count to the validator', () => {
     const refs = Array.from({ length: OUTBOUND_ATTACHMENTS_MAX_COUNT + 1 }, (_value, index) => ref(uuid(index + 1)))
     expect(parseOutboundAttachmentRefs(refs)).toHaveLength(OUTBOUND_ATTACHMENTS_MAX_COUNT + 1)
     expect(parseOutboundAttachmentRefs([{ ...ref(uuid(1)), attachmentId: 'not-a-uuid' }])).toBeNull()
-    expect(parseOutboundAttachmentRefs([ref(uuid(1), { filename: 'a\nb.pdf' })])).toBeNull()
+    expect(parseOutboundAttachmentRefs([ref(uuid(1), { filename: 'a\nb.pdf' })])).toHaveLength(1)
     expect(parseOutboundAttachmentRefs('nope')).toBeNull()
   })
 })
@@ -159,6 +194,26 @@ describe('validateOutboundAttachments', () => {
     expect(readScoped).toHaveBeenCalledWith(expect.objectContaining({ attachmentId: uuid(1), expectedOwner: owner }))
   })
 
+  it('refuses a display name that changes the file extension', async () => {
+    const { container } = createContainer({ [uuid(1)]: { fileName: 'notes.txt', mimeType: 'text/plain', fileSize: 10 } })
+    await expect(
+      validateOutboundAttachments({
+        container,
+        scope,
+        refs: [ref(uuid(1), { filename: 'Invoice.pdf' })],
+        capabilities: fileSharingCapabilities,
+      }),
+    ).resolves.toMatchObject({ ok: false, code: 'attachment_type_not_allowed' })
+    await expect(
+      validateOutboundAttachments({
+        container,
+        scope,
+        refs: [ref(uuid(1), { filename: 'Meeting notes.TXT' })],
+        capabilities: fileSharingCapabilities,
+      }),
+    ).resolves.toMatchObject({ ok: true })
+  })
+
   it('refuses a type the adapter does not send', async () => {
     const { container } = createContainer({ [uuid(1)]: { fileName: 'run.exe', mimeType: 'application/x-msdownload', fileSize: 10 } })
     await expect(
@@ -187,6 +242,43 @@ describe('validateOutboundAttachments', () => {
     })
     expect(perFile).toMatchObject({ ok: false, code: 'attachments_too_large' })
     expect(perFile.ok ? '' : perFile.error).toContain('10 MB')
+  })
+
+  it('uses the adapter total limit when it declares one', async () => {
+    const { container } = createContainer({
+      [uuid(1)]: { fileName: 'a.pdf', mimeType: 'application/pdf', fileSize: 6_000_000 },
+      [uuid(2)]: { fileName: 'b.pdf', mimeType: 'application/pdf', fileSize: 6_000_000 },
+      [uuid(3)]: { fileName: 'c.pdf', mimeType: 'application/pdf', fileSize: 15_000_000 },
+      [uuid(4)]: { fileName: 'd.pdf', mimeType: 'application/pdf', fileSize: 15_000_000 },
+    })
+    const { maxFileSize: _maxFileSize, ...withoutPerFile } = fileSharingCapabilities
+    const smaller = await validateOutboundAttachments({
+      container,
+      scope,
+      refs: [ref(uuid(1)), ref(uuid(2))],
+      capabilities: { ...withoutPerFile, maxTotalBytes: 10_000_000 },
+    })
+    expect(smaller).toMatchObject({ ok: false, code: 'attachments_too_large' })
+    expect(smaller.ok ? '' : smaller.error).toContain('10 MB')
+    await expect(
+      validateOutboundAttachments({
+        container,
+        scope,
+        refs: [ref(uuid(3)), ref(uuid(4))],
+        capabilities: { ...fileSharingCapabilities, maxTotalBytes: 40_000_000 },
+      }),
+    ).resolves.toMatchObject({ ok: true })
+    await expect(
+      loadOutboundAttachments({
+        container,
+        scope,
+        stored: [
+          { attachmentId: uuid(1), owner },
+          { attachmentId: uuid(2), owner },
+        ],
+        capabilities: { ...withoutPerFile, maxTotalBytes: 10_000_000 },
+      }),
+    ).rejects.toMatchObject({ code: 'attachments_too_large', transient: false })
   })
 
   it('caps the total at 25 MB, not at a lower per-file limit', async () => {

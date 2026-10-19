@@ -97,6 +97,20 @@ describe('sendAsUser — attachments', () => {
     expect(describeScoped).not.toHaveBeenCalled()
   })
 
+  it('refuses a display name that breaks the upload rules when passed in-process', async () => {
+    const { container, commandBus, describeScoped } = makeContainer({ fileSharing: true })
+    primeChannel()
+
+    const result = await sendAsUser(container, actor, {
+      ...baseInput,
+      attachments: [{ kind: 'attachment', attachmentId: ATTACHMENT_ID, owner: OWNER, filename: 'a\r\nBcc: x.pdf' }],
+    })
+
+    expect(result).toMatchObject({ ok: false, status: 422, code: 'attachment_type_not_allowed' })
+    expect(describeScoped).not.toHaveBeenCalled()
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
   it('refuses malformed refs passed in-process before reading anything', async () => {
     const { container, commandBus, describeScoped } = makeContainer({ fileSharing: true })
     primeChannel()

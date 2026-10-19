@@ -29,6 +29,12 @@ export interface ChannelCapabilities {
   richText: boolean
   fileSharing: boolean
   maxFileSize?: number
+  /**
+   * Largest total of raw attachment bytes in one outbound message, as a
+   * positive number of bytes. When unset the hub caps a message at 25 MB
+   * (`OUTBOUND_ATTACHMENTS_MAX_TOTAL_BYTES`).
+   */
+  maxTotalBytes?: number
   supportedMimeTypes?: string[]
   readReceipts: boolean
   deliveryReceipts: boolean

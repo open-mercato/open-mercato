@@ -21,3 +21,5 @@ export {
   type ReadScopedAttachmentResult,
   type ReleaseScopedAttachmentInput,
 } from './lib/attachment-service'
+
+export { getAttachmentExtension, hasDangerousExecutableExtension } from './lib/security'

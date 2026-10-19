@@ -170,6 +170,21 @@ describe('deliverOutboundMessageCommand — outbound attachments', () => {
     expect(adapter.sendMessage).not.toHaveBeenCalled()
   })
 
+  it('fails permanently, without reading anything, when the channel has no owner to read the files as', async () => {
+    const link = pendingLink()
+    const { ctx, adapter, readScoped } = makeCtx({})
+    primeFinds(link, null)
+
+    const result = await deliverOutboundMessageCommand.execute(
+      { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+      ctx,
+    )
+
+    expect(result).toMatchObject({ status: 'failed', transient: false })
+    expect(readScoped).not.toHaveBeenCalled()
+    expect(adapter.sendMessage).not.toHaveBeenCalled()
+  })
+
   it('fails permanently when the adapter stopped sharing files after the message was queued', async () => {
     const link = pendingLink()
     const { ctx, adapter, readScoped } = makeCtx({ fileSharing: false })
