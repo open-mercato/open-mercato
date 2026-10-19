@@ -406,18 +406,19 @@ describe('PromotionCodeService.reserveCode', () => {
     expect(tables.get(CodeReservation)![0].id).toBe(winningId)
   })
 
-  it('rejects with the standard code_invalid 422 when a losing race hits the per-customer unique index, instead of surfacing the raw DB error', async () => {
+  it('rejects with the standard code_invalid 422 when a losing race hits the per-customer unique index on a per-customer-limited code, instead of surfacing the raw DB error', async () => {
     const { em, tables } = createFakeEm()
-    const code = seedCode(tables, { code: 'SAVE10' })
+    const code = seedCode(tables, { code: 'SAVE10', usagePerCustomer: 1 })
     const service = new PromotionCodeService(fakeContainer())
 
-    // Two concurrent carts for the SAME customer: `evaluateCodeEligibility`'s pre-check
-    // (count of other carts' active reservations) passes for both before either inserts —
-    // the exact race the pre-check alone cannot close (review finding). THIS call's own
-    // insert loses to the other cart's reservation landing first on
-    // `promotion_code_reservations_code_customer_unique` (`code_id`, `customer_id`), a
-    // DIFFERENT constraint than the `(code_id, cart_id)` idempotent-extend case above — so
-    // re-querying by this call's own `cartId` finds nothing to "extend".
+    // Two concurrent carts for the SAME customer against a code that DOES limit reuse per
+    // customer: `evaluateCodeEligibility`'s pre-check (count of other carts' active
+    // reservations) passes for both before either inserts — the exact race the pre-check
+    // alone cannot close (review finding). THIS call's own insert loses to the other
+    // cart's reservation landing first on `promotion_code_reservations_code_customer_unique`
+    // (`code_id`, `customer_id`), a DIFFERENT constraint than the `(code_id, cart_id)`
+    // idempotent-extend case above — so re-querying by this call's own `cartId` finds
+    // nothing to "extend", and the limit makes this a genuine eligibility failure.
     em.flushImpl = async () => {
       seedReservation(tables, { codeId: code.id, cartId: 'other-cart', customerId: 'cust-1' })
       const err = Object.assign(
@@ -439,6 +440,40 @@ describe('PromotionCodeService.reserveCode', () => {
     // The losing cart never gets a reservation row of its own; only the winner's remains.
     expect(tables.get(CodeReservation)).toHaveLength(1)
     expect(tables.get(CodeReservation)![0].cartId).toBe('other-cart')
+  })
+
+  it('moves the stale reservation onto this cart, rather than rejecting, when the per-customer unique index fires on an UNLIMITED-per-customer code', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { code: 'SAVE10', usagePerCustomer: null })
+    const service = new PromotionCodeService(fakeContainer())
+
+    // Same race as above, but the code has NO per-customer limit — review finding: the
+    // unique index has no `usagePerCustomer`-aware WHERE clause, so it fires regardless.
+    // An unlimited code must not block an eligible customer; the stale row on the OTHER
+    // cart moves onto this one instead, the same idempotent-extend treatment the
+    // `(code_id, cart_id)` race gets. One-shot throw (mirrors the `(code_id, cart_id)`
+    // race test above) — the recovery path's own `em.flush()` must succeed.
+    let raced = false
+    em.flushImpl = async () => {
+      if (raced) return
+      raced = true
+      seedReservation(tables, { codeId: code.id, cartId: 'other-cart', customerId: 'cust-1' })
+      const err = Object.assign(
+        new Error('duplicate key value violates unique constraint "promotion_code_reservations_code_customer_unique"'),
+        { code: '23505', constraint: 'promotion_code_reservations_code_customer_unique' },
+      )
+      throw err
+    }
+
+    const result = await service.reserveCode(
+      em as unknown as import('@mikro-orm/postgresql').EntityManager,
+      { codeString: 'SAVE10', cartId: 'cart-1', customerId: 'cust-1' },
+      SCOPE,
+    )
+
+    expect(result).toEqual({ ok: true, codeId: code.id, type: 'static' })
+    expect(tables.get(CodeReservation)).toHaveLength(1)
+    expect(tables.get(CodeReservation)![0].cartId).toBe('cart-1')
   })
 
   it('rejects a guest cart against a per-customer-limited code with the distinct named reason', async () => {

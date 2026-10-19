@@ -213,7 +213,7 @@ export const upgradeActions: UpgradeActionDefinition[] = [
   },
   {
     id: 'cart.register-sweeper-schedules',
-    version: '0.9.2',
+    version: '0.9.1',
     messageKey: 'configs.upgrades.cartSweeperSchedules.message',
     ctaKey: 'configs.upgrades.cartSweeperSchedules.cta',
     successKey: 'configs.upgrades.cartSweeperSchedules.success',
@@ -226,7 +226,7 @@ export const upgradeActions: UpgradeActionDefinition[] = [
   },
   {
     id: 'promotions.register-code-reservation-sweep-schedule',
-    version: '0.9.3',
+    version: '0.9.1',
     messageKey: 'configs.upgrades.promotionsCodeReservationSweepSchedule.message',
     ctaKey: 'configs.upgrades.promotionsCodeReservationSweepSchedule.cta',
     successKey: 'configs.upgrades.promotionsCodeReservationSweepSchedule.success',

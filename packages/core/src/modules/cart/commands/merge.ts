@@ -5,7 +5,7 @@ import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { ensureSameScope } from '@open-mercato/shared/lib/commands/scope'
-import { CrudHttpError, badRequest, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, badRequest, isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -709,7 +709,18 @@ const mergeCartCommand: CommandHandler<CartMergeInput, CartMergeResult> = {
     // throwing when its target data is gone. `cart.mergeUndo` (below) is the path that
     // DOES throw, for the buyer-facing route that can actually show the error.
     if (!isWithinMergeUndoWindow(mergeLog, new Date())) return
-    const restored = await restoreCartMerge(em, { tenantId: mergeLog.tenantId, organizationId: mergeLog.organizationId }, mergeLog)
+    let restored: RestoredMerge
+    try {
+      restored = await restoreCartMerge(em, { tenantId: mergeLog.tenantId, organizationId: mergeLog.organizationId }, mergeLog)
+    } catch (err) {
+      // Same no-HTTP-consumer convention as the window check above: an already-undone
+      // log or a survivor cart that is locked/no-longer-active is a no-op here, not an
+      // error to surface — `cart.mergeUndo` (buyer-facing) is the path that throws these.
+      if (isCrudHttpError(err) && (err.body?.code === 'merge_already_undone' || err.body?.code === 'cart_not_active')) {
+        return
+      }
+      throw err
+    }
     await emitMergeUndoSideEffects(ctx.container, restored)
     await dispatchPostUndoReprice(ctx, restored.survivorCart, undefined)
   },
@@ -764,6 +775,14 @@ type RestoredMerge = {
  * adopted cart), documented here per the task brief rather than silently shipped.
  */
 async function restoreCartMerge(em: EntityManager, scope: CartMergeScope, mergeLog: CartMergeLog): Promise<RestoredMerge> {
+  // Review finding: this log could otherwise be restored repeatedly within the 15-minute
+  // window — a second call would re-apply `previousTargetQuantity`, wiping any edit made
+  // after the first undo. `undoneAt` is set once, at the end of this function's own
+  // transaction, and checked here on every call.
+  if (mergeLog.undoneAt) {
+    throw new CrudHttpError(409, { error: '[internal] merge_already_undone', code: 'merge_already_undone' })
+  }
+
   const survivorCart = await findOneWithDecryption(
     em,
     Cart,
@@ -772,6 +791,14 @@ async function restoreCartMerge(em: EntityManager, scope: CartMergeScope, mergeL
     scope,
   )
   if (!survivorCart) throw notFound('[internal] merged cart no longer exists')
+  // Review finding: neither cart's state was ever checked — a buyer who merges, locks and
+  // converts within the window could still undo-merge, soft-deleting lines from the
+  // locked/converted cart and bringing the absorbed cart back `active` with lines that are
+  // already in the order. Mirrors `commands/lines.ts`'s `loadMutableCart` convention.
+  assertCartNotLocked(survivorCart)
+  if (survivorCart.status !== 'active') {
+    throw new CrudHttpError(409, { error: '[internal] cart_not_active', code: 'cart_not_active', status: survivorCart.status })
+  }
   const absorbedCart = await findOneWithDecryption(
     em,
     Cart,
@@ -824,6 +851,8 @@ async function restoreCartMerge(em: EntityManager, scope: CartMergeScope, mergeL
         absorbedCart.status = absorbedExpired ? 'expired' : 'active'
         absorbedCart.mergedIntoCartId = null
         absorbedCart.resolvedAt = absorbedExpired ? now : null
+
+        mergeLog.undoneAt = now
       },
     ],
     { transaction: true, label: 'cart.mergeUndo' },

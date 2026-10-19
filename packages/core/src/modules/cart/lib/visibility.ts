@@ -141,8 +141,11 @@ export async function evaluateCartVisibility(
 
   for (const line of lines) {
     const record = scopedProducts.get(line.productId) ?? null
+    // Review finding: a draft/deactivated product still matching the buyer's assortment
+    // scope must not read as `'visible'` — `catalogScopedProductService` already resolves
+    // `isActive`, this just stops ignoring it.
     const outcome: CartVisibilityOutcome =
-      record && matchesScope({ id: record.id, categoryIds: record.categoryIds, tagIds: record.tagIds }, scope)
+      record && record.isActive && matchesScope({ id: record.id, categoryIds: record.categoryIds, tagIds: record.tagIds }, scope)
         ? 'visible'
         : 'unavailable'
     result.set(cartVisibilityKey(line), outcome)

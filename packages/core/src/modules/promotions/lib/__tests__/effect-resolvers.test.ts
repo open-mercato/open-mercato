@@ -394,7 +394,10 @@ describe('delivery_discount and unrecognized types', () => {
 describe('rounding — true half-up, not Math.round half-away-from-zero-for-positives-only', () => {
   it('a raw amount of exactly -2.50 at 0 fraction digits rounds to -3, not -2', () => {
     const b = benefit('cart_discount', 'order', { discountType: 'fixed', value: '2.5', maxDiscount: null, labels })
-    const ctx = context({ items: [], currencyFractionDigits: 0 })
+    // A non-empty cart with a base well above the discount value — the base-amount clamp
+    // (review finding: a fixed discount must never exceed its base) must not interfere
+    // with this test's own concern, the half-up rounding boundary.
+    const ctx = context({ items: [item()], currencyFractionDigits: 0 })
     const [effect] = resolveEffects([b], ctx, 'promo-1') as CartDiscountEffect[]
     expect(effect.amountNet).toBe('-3')
   })

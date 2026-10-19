@@ -107,8 +107,14 @@ function roundHalfUpToMinorUnits(amount: number, fractionDigits: number): string
 // `value` reads as a per-unit fixed amount off each covered unit — a judgment call neither
 // config table spells out explicitly, resolved the same way for both for consistency.
 function computeDiscountAmount(discountType: DiscountType, value: string, baseAmount: number, quantity: number): number {
-  if (discountType === 'percentage') return -(baseAmount * Number(value) / 100)
-  return -(Number(value) * quantity)
+  const raw = discountType === 'percentage' ? -(baseAmount * Number(value) / 100) : -(Number(value) * quantity)
+  // A percentage value is capped at 100 at the validation boundary (`data/validators.ts`),
+  // but a `fixed` value has no such ceiling there — it is a plain amount the admin typed,
+  // and nothing stops it from exceeding the line/cart total it discounts. Clamp the
+  // magnitude to `baseAmount` here so one benefit invocation can never discount more than
+  // its own base is worth (review finding — a review found no clamp on this side).
+  const clampedMagnitude = Math.min(Math.abs(raw), Math.abs(baseAmount))
+  return raw < 0 ? -clampedMagnitude : clampedMagnitude
 }
 
 type RawAmountPair = { rawNet: number; rawGross: number }

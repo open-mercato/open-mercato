@@ -119,6 +119,7 @@ function makeProductFixture(overrides: Row = {}): Row {
     maxOrderQty: null,
     orderQtyIncrement: null,
     deletedAt: null,
+    isActive: true,
     ...overrides,
   }
 }

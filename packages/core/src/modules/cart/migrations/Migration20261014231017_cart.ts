@@ -23,7 +23,7 @@ export class Migration20261014231017_cart extends Migration {
     this.addSql(`create index "cart_lines_cart_idx" on "cart_lines" ("cart_id");`);
     this.addSql(`create index "cart_lines_tenant_org_idx" on "cart_lines" ("tenant_id", "organization_id");`);
 
-    this.addSql(`create table "cart_merge_logs" ("id" uuid not null default gen_random_uuid(), "organization_id" uuid not null, "tenant_id" uuid not null, "source_cart_id" uuid not null, "target_cart_id" uuid not null, "strategy" text not null, "source_snapshot" jsonb not null, "outcome" jsonb not null, "merged_by_actor_type" text not null, "merged_by_actor_id" uuid null, "proposal_cart_id" uuid null, "created_at" timestamptz not null, primary key ("id"));`);
+    this.addSql(`create table "cart_merge_logs" ("id" uuid not null default gen_random_uuid(), "organization_id" uuid not null, "tenant_id" uuid not null, "source_cart_id" uuid not null, "target_cart_id" uuid not null, "strategy" text not null, "source_snapshot" jsonb not null, "outcome" jsonb not null, "merged_by_actor_type" text not null, "merged_by_actor_id" uuid null, "proposal_cart_id" uuid null, "created_at" timestamptz not null, "undone_at" timestamptz null, primary key ("id"));`);
     this.addSql(`create index "cart_merge_logs_target_idx" on "cart_merge_logs" ("target_cart_id");`);
     this.addSql(`create index "cart_merge_logs_source_idx" on "cart_merge_logs" ("source_cart_id");`);
     this.addSql(`create index "cart_merge_logs_tenant_org_idx" on "cart_merge_logs" ("tenant_id", "organization_id");`);

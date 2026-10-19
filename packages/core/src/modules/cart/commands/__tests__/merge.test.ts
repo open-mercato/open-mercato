@@ -874,4 +874,118 @@ describe('cart.mergeUndo', () => {
     expect(isCrudHttpError(captured)).toBe(true)
     expect((captured as { status: number }).status).toBe(404)
   })
+
+  // Review finding: the same merge log could be undone repeatedly within the 15-minute
+  // window, re-applying `previousTargetQuantity` and wiping any edit made after the first
+  // undo.
+  it('rejects a second undo of the same merge log with a distinct 409, instead of re-applying previousTargetQuantity', async () => {
+    seededCarts = [
+      makeCartFixture({ id: 'cart-target', tokenHash: 'target-token-hash' }),
+      makeCartFixture({ id: 'cart-guest', tokenHash: hashCartToken('guest-plain-token'), status: 'merged', mergedIntoCartId: 'cart-target' }),
+    ]
+    seededCartLines = [makeLineFixture({ id: 'line-target-1', cartId: 'cart-target', productId: 'product-1', quantity: '5' })]
+    seededMergeLogs = [
+      makeMergeLogFixture({
+        id: 'merge-log-5',
+        sourceCartId: 'cart-guest',
+        targetCartId: 'cart-target',
+        strategy: 'sum',
+        outcome: [{ sourceLineId: 'line-guest-1', targetLineId: 'line-target-1', disposition: 'summed', previousTargetQuantity: '2' }],
+        createdAt: new Date(Date.now() - 5 * 60 * 1000),
+      }),
+    ]
+
+    const handler = getUndoHandler()
+    await handler.execute(
+      { cartId: 'cart-target', tenantId: TENANT_ID, organizationId: ORG_ID, routeContext: makeRouteContext() },
+      makeCtx({ em: makeEm() }),
+    )
+
+    // The buyer edits the restored line after the first undo — a second undo call must
+    // not wipe this.
+    const line = seededCartLines.find((row) => row.id === 'line-target-1')!
+    line.quantity = '9'
+
+    let captured: unknown
+    try {
+      await handler.execute(
+        { cartId: 'cart-target', tenantId: TENANT_ID, organizationId: ORG_ID, routeContext: makeRouteContext() },
+        makeCtx({ em: makeEm() }),
+      )
+    } catch (err) {
+      captured = err
+    }
+    expect(isCrudHttpError(captured)).toBe(true)
+    expect((captured as { status: number }).status).toBe(409)
+    expect((captured as { body: FakeRow }).body.code).toBe('merge_already_undone')
+    expect(seededCartLines.find((row) => row.id === 'line-target-1')!.quantity).toBe('9')
+  })
+
+  // Review finding: the survivor cart's state was never checked — a buyer who merges,
+  // locks and converts within the window could still undo-merge, soft-deleting lines from
+  // the locked/converted cart.
+  it('refuses to undo-merge when the current (survivor) cart is locked', async () => {
+    seededCarts = [
+      makeCartFixture({ id: 'cart-target', tokenHash: 'target-token-hash', status: 'locked', checkoutSessionId: 'checkout-session-1' }),
+      makeCartFixture({ id: 'cart-guest', tokenHash: hashCartToken('guest-plain-token'), status: 'merged', mergedIntoCartId: 'cart-target' }),
+    ]
+    seededMergeLogs = [
+      makeMergeLogFixture({
+        id: 'merge-log-6',
+        sourceCartId: 'cart-guest',
+        targetCartId: 'cart-target',
+        strategy: 'keep_target',
+        outcome: [],
+        createdAt: new Date(Date.now() - 1 * 60 * 1000),
+      }),
+    ]
+
+    const handler = getUndoHandler()
+    const em = makeEm()
+    const ctx = makeCtx({ em })
+
+    let captured: unknown
+    try {
+      await handler.execute({ cartId: 'cart-target', tenantId: TENANT_ID, organizationId: ORG_ID, routeContext: makeRouteContext() }, ctx)
+    } catch (err) {
+      captured = err
+    }
+    expect(isCrudHttpError(captured)).toBe(true)
+    expect((captured as { status: number }).status).toBe(423)
+    const guestCart = seededCarts.find((row) => row.id === 'cart-guest')!
+    expect(guestCart.status).toBe('merged')
+  })
+
+  it('refuses to undo-merge when the current (survivor) cart has already converted', async () => {
+    seededCarts = [
+      makeCartFixture({ id: 'cart-target', tokenHash: 'target-token-hash', status: 'converted' }),
+      makeCartFixture({ id: 'cart-guest', tokenHash: hashCartToken('guest-plain-token'), status: 'merged', mergedIntoCartId: 'cart-target' }),
+    ]
+    seededMergeLogs = [
+      makeMergeLogFixture({
+        id: 'merge-log-7',
+        sourceCartId: 'cart-guest',
+        targetCartId: 'cart-target',
+        strategy: 'keep_target',
+        outcome: [],
+        createdAt: new Date(Date.now() - 1 * 60 * 1000),
+      }),
+    ]
+
+    const handler = getUndoHandler()
+    const em = makeEm()
+    const ctx = makeCtx({ em })
+
+    let captured: unknown
+    try {
+      await handler.execute({ cartId: 'cart-target', tenantId: TENANT_ID, organizationId: ORG_ID, routeContext: makeRouteContext() }, ctx)
+    } catch (err) {
+      captured = err
+    }
+    expect(isCrudHttpError(captured)).toBe(true)
+    expect((captured as { status: number }).status).toBe(409)
+    expect((captured as { body: FakeRow }).body.code).toBe('cart_not_active')
+    const guestCart = seededCarts.find((row) => row.id === 'cart-guest')!
+    expect(guestCart.status).toBe('merged')
+  })
 })

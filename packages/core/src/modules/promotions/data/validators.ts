@@ -80,10 +80,32 @@ const clearableUuidSchema = z.preprocess(emptyStringToNull, uuid().nullable().op
 
 // Decimal amounts travel as strings end-to-end (§Data Models: "value decimal string") so
 // a caller never loses precision to IEEE-754 float rounding before this module's own
-// half-up integer-minor-units rounding (Phase 2, D-R4-10) ever runs.
-const decimalStringSchema = z.string().regex(/^-?\d+(\.\d+)?$/, 'Must be a decimal string')
+// half-up integer-minor-units rounding (Phase 2, D-R4-10) ever runs. Every field using
+// this schema — rule thresholds, benefit discount values, cart/line amounts — is a
+// non-negative magnitude; a resolved effect's own sign (a discount subtracts) is applied
+// downstream in `lib/effect-resolvers.ts`, never carried in the input itself.
+const decimalStringSchema = z.string().regex(/^\d+(\.\d+)?$/, 'Must be a non-negative decimal string')
 
 const clearableDecimalStringSchema = z.preprocess(emptyStringToNull, decimalStringSchema.nullable().optional())
+
+// A percentage discount value is additionally capped at 100 — this module's shared
+// `decimalStringSchema` only rules out negative values (a `-10` turning a discount into a
+// surcharge); a `150`-percent discount would otherwise still discount more than a line is
+// worth. Fixed-amount benefit values are deliberately NOT capped here — they are clamped
+// to their base at resolution time in `lib/effect-resolvers.ts`, since that cap depends on
+// the line/order total the discount applies to, not a fixed ceiling.
+function rejectPercentageOver100(
+  config: { discountType: 'percentage' | 'fixed'; value: string },
+  ctx: z.RefinementCtx,
+) {
+  if (config.discountType === 'percentage' && Number(config.value) > 100) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'A percentage discount value cannot exceed 100',
+      path: ['value'],
+    })
+  }
+}
 
 const currencyCodeSchema = z
   .string()
@@ -430,6 +452,7 @@ const tierElementSchema = z
     value: decimalStringSchema,
   })
   .strict()
+  .superRefine(rejectPercentageOver100)
 
 // §Data Models: "Tiers must be sorted ascending by threshold."
 const tiersSchema = z
@@ -458,6 +481,7 @@ const productDiscountConfigSchema = z
     ...quantityCapShape,
   })
   .strict()
+  .superRefine(rejectPercentageOver100)
 
 const cartDiscountConfigSchema = z
   .object({
@@ -468,6 +492,7 @@ const cartDiscountConfigSchema = z
     ...quantityCapShape,
   })
   .strict()
+  .superRefine(rejectPercentageOver100)
 
 // Hidden from the admin tree builder in Release 4 (D-R4-14); the type and its config
 // schema stay in the model per §Data Models.
@@ -480,6 +505,7 @@ const deliveryDiscountConfigSchema = z
     ...quantityCapShape,
   })
   .strict()
+  .superRefine(rejectPercentageOver100)
 
 const freeProductConfigSchema = z
   .object({
@@ -507,6 +533,7 @@ const buyXGetYConfigSchema = z
     ...quantityCapShape,
   })
   .strict()
+  .superRefine(rejectPercentageOver100)
 
 const tieredDiscountConfigSchema = z
   .object({

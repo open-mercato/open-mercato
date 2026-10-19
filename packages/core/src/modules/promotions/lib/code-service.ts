@@ -1,6 +1,8 @@
+import type { AwilixContainer } from 'awilix'
 import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { CrudHttpError, isCrudHttpError, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
@@ -217,19 +219,40 @@ async function upsertReservation(
     em.persist(reservation)
     await em.flush()
   } catch (err) {
-    // `promotion_code_reservations_code_customer_unique` — a second cart for the SAME
-    // customer losing the race on this partial index (two concurrent `reserve` calls both
-    // passing `evaluateCodeEligibility`'s pre-check before either inserts) is a genuine
-    // eligibility failure, not an idempotent retry: the eligibility check would have
-    // rejected this exact call had it run a moment later, so surface the same clean 422
-    // instead of an unhandled 500.
+    if (!isUniqueViolation(err)) throw err
+
+    // `promotion_code_reservations_code_customer_unique` has no `usagePerCustomer`-aware
+    // WHERE clause (§Data Models) — it fires for ANY second reservation by the same
+    // customer, even on a code that enforces no per-customer limit at all (review
+    // finding: a logged-in customer who abandoned a cart was refused the same code on a
+    // new cart, and so was a customer with the code on a second cart, even though the
+    // code is unlimited per customer). Only a code that actually limits per-customer
+    // reuse treats this as a genuine eligibility failure — two concurrent `reserve` calls
+    // both passing `evaluateCodeEligibility`'s pre-check before either inserts, where the
+    // check would have rejected this exact call a moment later. An unlimited code instead
+    // moves the stale row onto THIS cart, the same idempotent-extend treatment the
+    // `(code_id, cart_id)` race gets below.
     if (input.customerId != null && isUniqueViolation(err, 'promotion_code_reservations_code_customer_unique')) {
-      throw eligibilityFailureError(CODE_INVALID_REASON)
+      if (resolved.code.usagePerCustomer != null) {
+        throw eligibilityFailureError(CODE_INVALID_REASON)
+      }
+      const racedByCustomer = await em.findOne(CodeReservation, {
+        codeId: resolved.code.id,
+        customerId: input.customerId,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      })
+      if (!racedByCustomer) throw err
+      racedByCustomer.cartId = input.cartId
+      racedByCustomer.expiresAt = expiresAt
+      racedByCustomer.codeString = input.codeString
+      await em.flush()
+      return
     }
+
     // §Data Models: `UNIQUE (code_id, cart_id)` — a losing concurrent insert for the
     // exact same (code, cart) pair is the idempotent-extend case, not an error: treat it
     // the same as the `existing` branch above instead of surfacing the DB error.
-    if (!isUniqueViolation(err)) throw err
     const raced = await em.findOne(CodeReservation, {
       codeId: resolved.code.id,
       cartId: input.cartId,
@@ -429,6 +452,18 @@ export class PromotionCodeService {
         },
       ],
       { transaction: true, label: 'promotions.code.use' },
+    )
+
+    // `useCode` runs outside the command bus's own post-execute cache hook (this service
+    // is called directly, not via a `CommandHandler.buildLog`), so the CRUD list cache
+    // (ENABLE_CRUD_API_CACHE) never sees `code.used`/`active`/the generated code's
+    // `active` flip without an explicit invalidation here.
+    await invalidateCrudCache(
+      this.container as unknown as AwilixContainer,
+      'promotions.code',
+      { id: code.id, organizationId: scope.organizationId, tenantId: scope.tenantId },
+      scope.tenantId,
+      'promotions.code.use',
     )
 
     return { ok: true }

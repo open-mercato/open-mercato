@@ -552,7 +552,7 @@ export class CartIdempotencyKey {
 @Index({ name: 'cart_merge_logs_source_idx', properties: ['sourceCartId'] })
 @Index({ name: 'cart_merge_logs_target_idx', properties: ['targetCartId'] })
 export class CartMergeLog {
-  [OptionalProps]?: 'mergedByActorId' | 'proposalCartId' | 'createdAt'
+  [OptionalProps]?: 'mergedByActorId' | 'proposalCartId' | 'createdAt' | 'undoneAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -594,4 +594,10 @@ export class CartMergeLog {
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
+
+  // Review finding: without this, the same merge log could be undone repeatedly within
+  // the 15-minute window, re-applying `previousTargetQuantity` and wiping any edits made
+  // after an earlier undo. Set once by `restoreCartMerge`; checked before a second restore.
+  @Property({ name: 'undone_at', type: Date, nullable: true })
+  undoneAt?: Date | null
 }

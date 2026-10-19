@@ -4,7 +4,7 @@ import type { CommandBus, CommandHandler, CommandRuntimeContext } from '@open-me
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
-import { badRequest, forbidden, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { badRequest, CrudHttpError, forbidden, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -17,6 +17,7 @@ import { Cart, CartLine } from '../data/entities'
 import type { CartChannel, CartKind, CartStatus, CartTaxMode } from '../data/entities'
 import { cartCreateInputSchema, type CartCreateInput as CartCreateTrustedInput } from '../data/validators'
 import { generateCartToken, hashCartToken } from '../lib/token'
+import { assertCartNotLocked } from '../lib/lockGuard'
 import { shouldEnforceAssortmentScope } from '../lib/routeContext'
 import type { ResolvedCartRouteContext } from '../lib/routeContext'
 import { emitCartEvent } from '../events'
@@ -652,6 +653,17 @@ const repriceCartCommand: CommandHandler<CartRepriceInput, CartRepriceResult> = 
       scope,
     )
     if (!cart) throw notFound('[internal] cart not found')
+    // Review finding: this command never checked cart status at all — every internal
+    // dispatcher (`cart.get`'s trigger 2-4, `cart.lock` pre-checking `active` before
+    // dispatching `trigger: 'lock'`, `cart.merge`/`cart.mergeUndo` repricing the survivor,
+    // `cart.promotions.apply`/`.remove` now requiring `active` before they ever reach here)
+    // already only reprices an active, unlocked cart by convention — this enforces that
+    // invariant here too, so a stale token cannot reprice a converted/merged/expired/locked
+    // cart directly and drift its stored totals away from the order it became.
+    assertCartNotLocked(cart)
+    if (cart.status !== 'active') {
+      throw new CrudHttpError(409, { error: '[internal] cart_not_active', code: 'cart_not_active', status: cart.status })
+    }
 
     const lines = (await findWithDecryption(
       em,

@@ -897,12 +897,12 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
 
     const variantId = input.variantId ?? null
 
-    const product = await findOneWithDecryption(em, CatalogProduct, { id: input.productId, tenantId, organizationId, deletedAt: null }, {}, scope)
+    const product = await findOneWithDecryption(em, CatalogProduct, { id: input.productId, tenantId, organizationId, deletedAt: null, isActive: true }, {}, scope)
     if (!product) return { status: 'rejected', reason: 'product_unavailable' }
 
     let variant: CatalogProductVariant | null = null
     if (variantId) {
-      variant = await findOneWithDecryption(em, CatalogProductVariant, { id: variantId, product: input.productId, tenantId, organizationId, deletedAt: null }, {}, scope)
+      variant = await findOneWithDecryption(em, CatalogProductVariant, { id: variantId, product: input.productId, tenantId, organizationId, deletedAt: null, isActive: true }, {}, scope)
       if (!variant) return { status: 'rejected', reason: 'product_unavailable' }
     }
 
@@ -1464,12 +1464,12 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
     const visibility = await evaluateCartVisibility({ lines: visibilityRefs, scope: assortmentScope, tenantScope: scope, em, container: ctx.container })
 
     const productIds = Array.from(new Set(input.lines.map((entry) => entry.productId)))
-    const products = await findWithDecryption(em, CatalogProduct, { id: { $in: productIds }, tenantId, organizationId, deletedAt: null }, {}, scope)
+    const products = await findWithDecryption(em, CatalogProduct, { id: { $in: productIds }, tenantId, organizationId, deletedAt: null, isActive: true }, {}, scope)
     const productsById = new Map((products as CatalogProduct[]).map((product) => [product.id, product]))
 
     const variantIds = Array.from(new Set(input.lines.map((entry) => entry.variantId).filter((id): id is string => !!id)))
     const variants = variantIds.length
-      ? await findWithDecryption(em, CatalogProductVariant, { id: { $in: variantIds }, tenantId, organizationId, deletedAt: null }, {}, scope)
+      ? await findWithDecryption(em, CatalogProductVariant, { id: { $in: variantIds }, tenantId, organizationId, deletedAt: null, isActive: true }, {}, scope)
       : []
     const variantsById = new Map((variants as CatalogProductVariant[]).map((variant) => [variant.id, variant]))
 

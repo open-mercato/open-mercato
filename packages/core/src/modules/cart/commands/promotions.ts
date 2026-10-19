@@ -43,13 +43,20 @@ function codeReservationUnavailableError(): CrudHttpError {
 
 // Step 7.5 — adds the SAME 423-for-locked distinction every other command file in this
 // module now applies (`commands/lines.ts`'s `loadMutableCart`, `commands/merge.ts`'s inline
-// target-cart check), via the shared `assertCartNotLocked` helper. Documented judgment
-// call, left deliberately narrow: this function still has NO `requireActive`-shaped generic
-// check for any OTHER non-active status (converted/merged/expired/abandoned) — that gap
-// predates this step (`cart.promotions.apply`/`.remove` have never rejected a non-active,
-// non-locked cart) and is left as-is rather than folded into this change, since widening it
-// is a separate, non-lock-related behavior change this step's own scope does not ask for.
-async function loadMutableCart(em: EntityManager, scope: CartPromotionsScope, cartId: string): Promise<Cart> {
+// target-cart check), via the shared `assertCartNotLocked` helper.
+//
+// Also mirrors `commands/lines.ts`'s `loadMutableCart` `requireActive` check (review
+// finding): both `cart.promotions.apply` and `.remove` are public write paths that a stale
+// token for a converted/merged/expired cart could otherwise still reach — reserving a
+// single-use/capacity-limited code against a dead cart, or repricing it, drifts its stored
+// totals away from the order it became, breaking this release's own cart-equals-order
+// invariant. Both call sites below require `active`.
+async function loadMutableCart(
+  em: EntityManager,
+  scope: CartPromotionsScope,
+  cartId: string,
+  options: { requireActive: boolean },
+): Promise<Cart> {
   const cart = await findOneWithDecryption(
     em,
     Cart,
@@ -59,6 +66,9 @@ async function loadMutableCart(em: EntityManager, scope: CartPromotionsScope, ca
   )
   if (!cart) throw notFound('[internal] cart not found')
   assertCartNotLocked(cart)
+  if (options.requireActive && cart.status !== 'active') {
+    throw new CrudHttpError(409, { error: '[internal] cart_not_active', code: 'cart_not_active', status: cart.status })
+  }
   return cart
 }
 
@@ -160,7 +170,7 @@ const applyPromotionCommand: CommandHandler<CartPromotionsApplyInput, CartPromot
     const scope: CartPromotionsScope = { tenantId: input.tenantId, organizationId: input.organizationId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
-    const cart = await loadMutableCart(em, scope, input.cartId)
+    const cart = await loadMutableCart(em, scope, input.cartId, { requireActive: true })
 
     // Step 7.1's own convention (`commands/cart.ts`'s `cart.reprice`): register BEFORE
     // resolving `promotionsService`, since `reserveCode()`/`extendReservation()` resolve
@@ -302,7 +312,7 @@ const removePromotionCommand: CommandHandler<CartPromotionsRemoveInput, CartProm
     const scope: CartPromotionsScope = { tenantId: input.tenantId, organizationId: input.organizationId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
-    const cart = await loadMutableCart(em, scope, input.cartId)
+    const cart = await loadMutableCart(em, scope, input.cartId, { requireActive: true })
 
     const applications = (await findWithDecryption(
       em,
