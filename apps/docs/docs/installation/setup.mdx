@@ -677,20 +677,21 @@ docker compose --project-directory . -f starters/docker/compose.fullapp.yml rest
 
 ### Data Persistence
 
-Data is stored in named Docker volumes:
-- `mercato-postgres-data` - PostgreSQL database
-- `mercato-redis-data` - Redis cache and events
-- `mercato-meilisearch-data` - Meilisearch indexes
+Data is stored in named Docker volumes. Volume names end with your `DEPLOY_ENV` value (`local` by default):
+- `mercato-postgres-data-local` - PostgreSQL database
+- `mercato-redis-data-local` - Redis cache and events
+- `mercato-meilisearch-data-local` - Meilisearch indexes
+- `mercato-attachments-storage-local` - Uploaded attachments
 
 Volumes persist between container restarts unless explicitly removed with `docker compose down -v`.
 
 **Backup volumes:**
 ```bash
 # Backup PostgreSQL
-docker exec mercato-postgres pg_dump -U postgres open-mercato > backup.sql
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml exec -T postgres pg_dump -U postgres open-mercato > backup.sql
 
 # Restore PostgreSQL
-cat backup.sql | docker exec -i mercato-postgres psql -U postgres -d open-mercato
+cat backup.sql | docker compose --project-directory . -f starters/docker/compose.fullapp.yml exec -T postgres psql -U postgres -d open-mercato
 ```
 
 ### Production Deployment Tips
@@ -745,7 +746,7 @@ lsof -i :6379
 docker compose --project-directory . -f starters/docker/compose.fullapp.yml ps postgres
 
 # Check if database exists
-docker exec mercato-postgres psql -U postgres -c "\l"
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml exec postgres psql -U postgres -c "\l"
 
 # Verify DATABASE_URL matches container configuration
 grep DATABASE_URL apps/mercato/.env
