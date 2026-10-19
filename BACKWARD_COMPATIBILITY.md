@@ -212,6 +212,7 @@ Module code resolves services by name from the Awilix container. Renaming a DI r
 - MUST NOT change the interface of a resolved service in a breaking way
 - MAY add new DI registrations freely
 - MAY add optional methods to existing service interfaces
+- `calendarEventTypeRegistry` (Customers): the registration key and the `upsert`, `replace`, `patch`, `remove`, `removeSource`, and `snapshot` operations are STABLE additive contracts. Contributor modules may resolve it softly when Customers is optional.
 
 ### 10. ACL Feature IDs (FROZEN)
 
@@ -571,3 +572,22 @@ The raster pipeline behind `GET /api/attachments/image/{id}` moved into `attachm
 | Event IDs, ACL features, DI names, database schema, CLI commands | No change | ✓ n/a |
 
 **Migration path for existing modules**: no action required. A client that branched on `5xx` for a broken stored image should treat `422` as the same condition.
+
+---
+
+## Staff Logout Runs Without A Valid Access Token (2026-10-13)
+
+`POST /api/auth/logout` answered `401` before its handler ran once the access token expired, so the remember-me session was never revoked ([#7225](https://github.com/open-mercato/open-mercato/issues/7225)). It now declares `requireAuth: false`, like the portal logout:
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| API route gating | `requireAuth` `true` → `false`; the handler revokes only the sessions its own cookies identify | ⚠️ Narrow relaxation: missing/unverifiable token or no cookie got `401`, now `307` (UPGRADE_NOTES.md) |
+| URL, method, response shape | Unchanged | ✓ n/a |
+| `auth.logout` event | Emitted only for a verified staff `auth_token` (now incl. MFA-pending); `session_token`-only revocation emits none | ✓ No ID or payload change |
+| Database schema, ACL features, DI names, CLI commands | No change | ✓ n/a |
+
+**Migration path for existing modules**: none. A client that read a logout `401` as "already signed out" gets the redirect instead.
+
+## Discord AI Proposals (2026-10-13)
+
+[Waiver](UPGRADE_NOTES.md#discord-proposals)
