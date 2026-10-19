@@ -242,6 +242,12 @@ describe('useNotificationActions guarded mutations', () => {
     })
 
     expect(flashMock).toHaveBeenCalledWith('You are not allowed to run this notification action', 'error')
+    expect(apiCallMock).toHaveBeenCalledWith(
+      '/api/notifications/n1/action',
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'x-om-forbidden-redirect': '0' }),
+      }),
+    )
     expect(setNotifications).not.toHaveBeenCalled()
     expect(setUnreadCount).not.toHaveBeenCalled()
     expect(returned.href).toBeUndefined()

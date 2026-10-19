@@ -76,7 +76,7 @@ export function useNotificationActions(
           `/api/notifications/${id}/action`,
           {
             method: 'POST',
-            headers: { 'content-type': 'application/json' },
+            headers: { 'content-type': 'application/json', 'x-om-forbidden-redirect': '0' },
             body: JSON.stringify({ actionId }),
           },
         ),
