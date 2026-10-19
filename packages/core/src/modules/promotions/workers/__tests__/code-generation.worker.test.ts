@@ -46,6 +46,13 @@ type FakeEm = {
 function createFakeEm(): { em: FakeEm; tables: Map<Function, Row[]> } {
   const tables = new Map<Function, Row[]>()
   let pendingCreates: Array<{ entity: Function; row: Row }> = []
+  // Serializes concurrent `transactional(...)` calls on this fake, one at a time, in
+  // call order — a stand-in for the real PESSIMISTIC_WRITE row lock the worker takes on
+  // `Code` for the whole run: two queue-concurrency-2 jobs racing the same `codeId`
+  // (review major #3) must never see each other's in-flight `remaining` computation.
+  // Not per-row (this fake only ever contends on one row per test), but accurate enough
+  // to prove the worker's own lock usage prevents the overfill it's meant to prevent.
+  let lockQueue: Promise<void> = Promise.resolve()
 
   function tableFor(entity: Function): Row[] {
     let rows = tables.get(entity)
@@ -71,11 +78,19 @@ function createFakeEm(): { em: FakeEm; tables: Map<Function, Row[]> } {
       for (const { entity, row } of toApply) tableFor(entity).push(row)
     },
     fork: () => em,
-    // No real locking semantics in this fake — the worker's own PESSIMISTIC_WRITE lock
-    // is only meaningful against a real database. The fake just runs the work against
-    // the same table-backed `em`, matching MikroORM's `EntityManager#transactional`
-    // shape closely enough for this unit test's own concerns (insert/reconcile logic).
-    transactional: async (work) => work(em),
+    transactional: async (work) => {
+      const previous = lockQueue
+      let release: () => void = () => {}
+      lockQueue = new Promise((resolve) => {
+        release = resolve
+      })
+      await previous
+      try {
+        return await work(em)
+      } finally {
+        release()
+      }
+    },
   }
   return { em, tables }
 }
@@ -229,6 +244,25 @@ describe('promotions:code-generation worker', () => {
     expect(ownRows[0].code).toBe(charAt(0.5))
     expect(ownRows[0].code).not.toBe(charAt(0))
     expect(code.generated).toBe(1)
+  })
+
+  it('serializes two concurrent generation runs for the same code, so the pool is never overfilled (review major #3)', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { amount: 5, length: 6 })
+
+    // Mirrors the real trigger: a manual "Generate" click racing the auto-trigger,
+    // both landing on the queue's two concurrent workers for the SAME code. Without the
+    // worker's PESSIMISTIC_WRITE lock, both runs would read `actualCountBefore: 0` and
+    // each mint a full batch of 5, overfilling the pool to 10.
+    await Promise.all([
+      handle(makeJob({ codeId: code.id as string, tenantId: TENANT, organizationId: ORG }), fakeCtx(em) as any),
+      handle(makeJob({ codeId: code.id as string, tenantId: TENANT, organizationId: ORG }), fakeCtx(em) as any),
+    ])
+
+    const generatedRows = (tables.get(GeneratedCode) ?? []).filter((row) => row.codeId === code.id)
+    expect(generatedRows).toHaveLength(5)
+    expect(new Set(generatedRows.map((row) => row.code)).size).toBe(5)
+    expect(code.generated).toBe(5)
   })
 
   it('skips a code that is not a dynamic pool with a target amount', async () => {
