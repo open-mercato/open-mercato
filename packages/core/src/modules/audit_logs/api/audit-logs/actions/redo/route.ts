@@ -15,7 +15,10 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
-import { authorizeAuditReplayWithEntityManager } from '@open-mercato/core/modules/audit_logs/lib/replayAuthorization'
+import {
+  authorizeAuditReplayWithEntityManager,
+  isReplayCommandModuleAvailable,
+} from '@open-mercato/core/modules/audit_logs/lib/replayAuthorization'
 import {
   actionLogBelongsToAuth,
   resolveCanonicalAuthSubject,
@@ -129,6 +132,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Redo target not available' }, { status: 400 })
   }
   if (!rbac) return NextResponse.json({ error: 'Redo target not available' }, { status: 400 })
+  if (!(await isReplayCommandModuleAvailable(rbac, log.commandId, auth))) {
+    return NextResponse.json({ error: 'Redo target not available' }, { status: 400 })
+  }
   const replayRbac = rbac
 
   try {

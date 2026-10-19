@@ -128,6 +128,33 @@ variant media, sales channel offer media, the warranty claim attachments tab and
 line picker for AI assessment) still use the unpaginated form, so they show at most the newest 100
 attachments of a record and any count derived from them stops at 100.
 
+### Per-tenant module availability (new, opt-in)
+
+An app can register a provider under the new DI key `tenantModuleAvailabilityProvider` (contract in
+`@open-mercato/shared/security/tenantModuleAvailability`) to deny, per tenant, the features of modules it
+marks unavailable: in page and API route guards (including a module's own routes and pages guarded by
+another module's feature), navigation, the feature-check endpoints and the realm RBAC services,
+audit-log undo/redo, including for super admins and wildcard grants. It is
+feature-guard enforcement, not data isolation. Without a provider nothing changes. See
+`apps/docs/docs/framework/rbac/tenant-module-availability.mdx`.
+
+Additive surfaces, no action required:
+
+- New DI keys `tenantModuleAvailabilityProvider` (registered by apps) and `tenantModuleAvailability`
+  (registered by `auth`; resolves to `null` without a provider). `customerRbacService` keeps its key and
+  lifetime; it uses `tenantModuleAvailability` when registered and works without it.
+- Widened types and signatures: `FeaturePolicySubject.unavailableModuleIds?`; `resolveEffectiveFeatures(grants,
+  options?)`; new `filterGrantsByModuleAvailability`; optional trailing constructor parameters and
+  `getUnavailableModuleIds` on `RbacService` and `CustomerRbacService`; the app's `checkAuthorization` gains an
+  optional `routeModuleId` parameter.
+- Server code that authorizes from a loaded ACL snapshot with `authorizeFeatures` should pass
+  `unavailableModuleIds: await rbacService.getUnavailableModuleIds(tenantId, userId)` (or call
+  `rbacService.userHasAllFeatures`) to honour a registered provider.
+- The cached admin navigation key gains an `:unavailable=<ids>` suffix only while modules are unavailable to
+  the tenant.
+- The reference app and the create-app template gain the test-only module `module_availability_probe`
+  (three routes that answer 404 outside `OM_TEST_MODE` and an undoable command that persists nothing), like `ratelimit_probe`.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)

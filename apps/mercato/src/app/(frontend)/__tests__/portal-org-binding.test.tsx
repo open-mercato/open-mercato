@@ -21,6 +21,7 @@ const routeLoad = jest.fn(async () => (props: any) => (
 jest.mock('@open-mercato/shared/modules/registry', () => ({
   findRouteManifestMatch: jest.fn(() => ({
     route: {
+      moduleId: 'customer_accounts',
       requireCustomerAuth: true,
       requireCustomerFeatures: ['portal.dashboard.view'],
       title: 'Dashboard',
@@ -112,6 +113,12 @@ const mockEm = {
 
 const mockCustomerRbac = {
   userHasAllFeatures: jest.fn(async () => true),
+  getUnavailableModuleIds: jest.fn(async (_tenantId: string | null): Promise<string[]> => []),
+}
+
+const mockStaffRbac = {
+  userHasAllFeatures: jest.fn(async () => true),
+  getUnavailableModuleIds: jest.fn(async (_tenantId: string | null, _userId?: string | null): Promise<string[]> => []),
 }
 
 const mockFeatureToggles = {
@@ -123,6 +130,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
     resolve: (key: string) => {
       if (key === 'em') return mockEm
       if (key === 'customerRbacService') return mockCustomerRbac
+      if (key === 'rbacService') return mockStaffRbac
       if (key === 'featureTogglesService') return mockFeatureToggles
       return null
     },
@@ -164,6 +172,43 @@ describe('frontend customer portal org binding', () => {
       slug: 'org-b',
       deletedAt: null,
     })
+  })
+
+  it('denies a portal page of a module unavailable to the customer tenant', async () => {
+    mockCustomerRbac.getUnavailableModuleIds.mockResolvedValueOnce(['customer_accounts'])
+
+    await SiteCatchAll({
+      params: Promise.resolve({ slug: ['org-a', 'portal', 'dashboard'] }),
+    })
+
+    expect(routeLoad).not.toHaveBeenCalled()
+    expect(mockCustomerRbac.getUnavailableModuleIds).toHaveBeenCalledWith('tenant-1')
+  })
+
+  it('denies a staff frontend page of a module unavailable to the staff tenant', async () => {
+    const { findRouteManifestMatch } = await import('@open-mercato/shared/modules/registry')
+    const { getAuthFromCookies } = await import('@open-mercato/shared/lib/auth/server')
+    const staffPage = () => ({
+      route: {
+        moduleId: 'sync_akeneo',
+        requireAuth: true,
+        requireFeatures: ['data_sync.configure'],
+        title: 'Akeneo',
+        load: routeLoad,
+      },
+      params: {},
+    })
+    jest.mocked(getAuthFromCookies).mockResolvedValue({ sub: 'staff-1', tenantId: 'tenant-1', orgId: 'org-a-id' })
+
+    jest.mocked(findRouteManifestMatch).mockReturnValueOnce(staffPage() as never)
+    mockStaffRbac.getUnavailableModuleIds.mockResolvedValueOnce(['sync_akeneo'])
+    await SiteCatchAll({ params: Promise.resolve({ slug: ['akeneo'] }) })
+    expect(routeLoad).not.toHaveBeenCalled()
+    expect(mockStaffRbac.getUnavailableModuleIds).toHaveBeenCalledWith('tenant-1', 'staff-1')
+
+    jest.mocked(findRouteManifestMatch).mockReturnValueOnce(staffPage() as never)
+    await SiteCatchAll({ params: Promise.resolve({ slug: ['akeneo'] }) })
+    expect(routeLoad).toHaveBeenCalled()
   })
 
   it('allows protected portal page access when URL org matches the customer JWT org', async () => {
