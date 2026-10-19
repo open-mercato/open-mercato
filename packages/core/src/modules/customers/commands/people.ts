@@ -53,6 +53,7 @@ import {
   syncEntityTags,
   loadEntityTagIds,
   ensureDictionaryEntry,
+  invalidateDictionaryKindCaches,
   emitQueryIndexDeleteEvents,
   emitQueryIndexUpsertEvents,
   type QueryIndexEventEntry,
@@ -667,6 +668,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
 
     let entity!: CustomerEntity
     let profile!: CustomerPersonProfile
+    const createdDictionaryKinds = new Set<string>()
     await withAtomicFlush(em, [
       () => {
         const graph = buildPersonGraph(em, {
@@ -706,7 +708,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
             organizationId: parsed.organizationId,
             kind: 'status',
             value: status,
-          })
+          }, createdDictionaryKinds)
         }
         if (jobTitle) {
           await ensureDictionaryEntry(em, {
@@ -714,7 +716,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
             organizationId: parsed.organizationId,
             kind: 'job_title',
             value: jobTitle,
-          })
+          }, createdDictionaryKinds)
         }
         if (source) {
           await ensureDictionaryEntry(em, {
@@ -722,7 +724,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
             organizationId: parsed.organizationId,
             kind: 'source',
             value: source,
-          })
+          }, createdDictionaryKinds)
         }
       },
       () => syncLegacyPrimaryCompanyLink(em, entity, profile, parsed.companyEntityId ?? null),
@@ -731,6 +733,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
 
     const tenantId = entity.tenantId
     const organizationId = entity.organizationId
+    await invalidateDictionaryKindCaches(ctx, { tenantId, organizationId }, createdDictionaryKinds)
     await setCustomFieldsForPerson(ctx, entity.id, profile.id, organizationId, tenantId, custom)
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
@@ -975,6 +978,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       if (derived.length > 0) parsed.displayName = derived
     }
 
+    const createdDictionaryKinds = new Set<string>()
     await withAtomicFlush(em, [
       () => {
         if (parsed.description !== undefined) record.description = normalizeOptionalString(parsed.description)
@@ -1037,7 +1041,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
               organizationId: record.organizationId,
               kind: 'status',
               value: normalizedStatus,
-            })
+            }, createdDictionaryKinds)
           }
         }
         if (parsed.source !== undefined) {
@@ -1048,7 +1052,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
               organizationId: record.organizationId,
               kind: 'source',
               value: normalizedSource,
-            })
+            }, createdDictionaryKinds)
           }
         }
         if (parsed.jobTitle !== undefined) {
@@ -1059,7 +1063,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
               organizationId: record.organizationId,
               kind: 'job_title',
               value: normalizedJobTitle,
-            })
+            }, createdDictionaryKinds)
           }
         }
       },
@@ -1071,6 +1075,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       () => syncEntityTags(em, record, parsed.tags),
     ], { transaction: true })
 
+    await invalidateDictionaryKindCaches(ctx, record, createdDictionaryKinds)
     await setCustomFieldsForPerson(ctx, record.id, profile.id, record.organizationId, record.tenantId, custom)
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
