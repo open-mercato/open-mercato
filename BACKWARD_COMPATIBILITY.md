@@ -212,6 +212,7 @@ Module code resolves services by name from the Awilix container. Renaming a DI r
 - MUST NOT change the interface of a resolved service in a breaking way
 - MAY add new DI registrations freely
 - MAY add optional methods to existing service interfaces
+- `calendarEventTypeRegistry` (Customers): the registration key and the `upsert`, `replace`, `patch`, `remove`, `removeSource`, and `snapshot` operations are STABLE additive contracts. Contributor modules may resolve it softly when Customers is optional.
 
 ### 10. ACL Feature IDs (FROZEN)
 
@@ -575,3 +576,22 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 **Contract commitments**: the features of a module the provider marks unavailable for the tenant in scope are denied before super-admin, portal-admin and wildcard grants wherever the realm RBAC services, the route and page guards, or the feature-check endpoints evaluate them. This is feature-guard enforcement, not data isolation: the spec lists the readers, routes without feature guards, subscribers and workers it does not cover. A provider failure fails closed only for the modules listed in its `governedModuleIds`.
 
 **Migration path**: none required. ACL-snapshot consumers that want to honour a provider pass `unavailableModuleIds: await rbacService.getUnavailableModuleIds(tenantId, userId)` to `authorizeFeatures`.
+
+---
+
+## Staff Logout Runs Without A Valid Access Token (2026-10-13)
+
+`POST /api/auth/logout` answered `401` before its handler ran once the access token expired, so the remember-me session was never revoked ([#7225](https://github.com/open-mercato/open-mercato/issues/7225)). It now declares `requireAuth: false`, like the portal logout:
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| API route gating | `requireAuth` `true` → `false`; the handler revokes only the sessions its own cookies identify | ⚠️ Narrow relaxation: missing/unverifiable token or no cookie got `401`, now `307` (UPGRADE_NOTES.md) |
+| URL, method, response shape | Unchanged | ✓ n/a |
+| `auth.logout` event | Emitted only for a verified staff `auth_token` (now incl. MFA-pending); `session_token`-only revocation emits none | ✓ No ID or payload change |
+| Database schema, ACL features, DI names, CLI commands | No change | ✓ n/a |
+
+**Migration path for existing modules**: none. A client that read a logout `401` as "already signed out" gets the redirect instead.
+
+## Discord AI Proposals (2026-10-13)
+
+[Waiver](UPGRADE_NOTES.md#discord-proposals)

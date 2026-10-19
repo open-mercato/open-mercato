@@ -104,6 +104,12 @@ export const enabledModules: ModuleEntry[] = [
   // case'). Run the om-refresh-standalone-harness skill to add that coverage,
   // then enable it in the template.
   // { id: 'availability', from: '@open-mercato/core' },
+  // Ecommerce store module (.ai/specs/SPEC-029-2026-02-17-ecommerce-storefront-module.md).
+  // Stays commented out with customer_groups, which it requires, and availability, which it
+  // integrates with when enabled, until
+  // the module-sets `commerce` preset (.ai/specs/2026-09-29-module-sets-for-standalone-apps.md
+  // Phase 3) enables the suite together with its standalone-harness coverage.
+  // { id: 'ecommerce', from: '@open-mercato/core' },
   { id: 'api_keys', from: '@open-mercato/core' },
   { id: 'devices', from: '@open-mercato/core' },
   { id: 'dictionaries', from: '@open-mercato/core' },
@@ -143,6 +149,12 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'checkout', from: '@open-mercato/checkout' },
   { id: 'documents', from: '@open-mercato/documents' },
   { id: 'gateway_stripe', from: '@open-mercato/gateway-stripe' },
+  // Tpay payment gateway (.ai/specs/2026-08-01-tpay-hosted-pln-payment-sessions.md).
+  // The package ships with the scaffold as an opt-in provider. Enabling it by
+  // default makes the scaffold ship the module's fact-sheet, which then needs an
+  // AI-harness evaluation case (packages/create-app/src/lib/module-facts-build.test.ts),
+  // so enabling is a maintainer call, not a one-line edit.
+  // { id: 'gateway_tpay', from: '@open-mercato/gateway-tpay' },
   // Per-user email channels for the Communications Hub (SPEC-045d / email
   // integration spec). Each provider package registers its `ChannelAdapter`
   // at import time via `setup.ts`; the hub picks them up by `providerKey`.

@@ -269,6 +269,8 @@
   "staff.leaveRequests.errors.profileLoad": "Profil konnte nicht geladen werden.",
   "staff.leaveRequests.errors.profileRequired": "Bitte zuerst dein Profil erstellen.",
   "staff.leaveRequests.errors.reject": "Urlaubsantrag konnte nicht abgelehnt werden.",
+  "staff.leaveRequests.errors.undoAfterDecision": "Dieser Urlaubsantrag wurde bereits genehmigt oder abgelehnt und kann nicht mehr rückgängig gemacht werden. Mache zuerst die Entscheidung rückgängig.",
+  "staff.leaveRequests.errors.undoMemberMissing": "Das ursprüngliche Teammitglied dieses Urlaubsantrags existiert nicht mehr, daher kann die Änderung nicht rückgängig gemacht werden.",
   "staff.leaveRequests.form.actions.create": "Erstellen",
   "staff.leaveRequests.form.actions.save": "Speichern",
   "staff.leaveRequests.form.createTitle": "Urlaubsantrag erstellen",
