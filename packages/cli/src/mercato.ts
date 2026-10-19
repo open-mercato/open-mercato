@@ -1207,10 +1207,10 @@ export async function run(argv = process.argv) {
       const derivedSecrets = resolveInitDerivedSecrets({ email, env: process.env })
       const adminEmailDerived = derivedSecrets.adminEmail
       const employeeEmailDerived = derivedSecrets.employeeEmail
-      if (adminEmailDerived && derivedSecrets.adminPassword) {
+      if (!skipDemoUsers && adminEmailDerived && derivedSecrets.adminPassword) {
         process.env.OM_INIT_ADMIN_PASSWORD = derivedSecrets.adminPassword
       }
-      if (employeeEmailDerived && derivedSecrets.employeePassword) {
+      if (!skipDemoUsers && employeeEmailDerived && derivedSecrets.employeePassword) {
         process.env.OM_INIT_EMPLOYEE_PASSWORD = derivedSecrets.employeePassword
       }
       const roles = findArgValue(['--roles='], 'superadmin,admin,employee')
@@ -1393,8 +1393,10 @@ export async function run(argv = process.argv) {
         createdPasswords.set(value.toLowerCase(), passwordValue)
       }
       pushUser('Superadmin', '👑', email, password)
-      pushUser('Admin', '🧰', adminEmailDerived, adminPasswordOverride ?? password)
-      pushUser('Employee', '👷', employeeEmailDerived, employeePasswordOverride ?? password)
+      if (!skipDemoUsers) {
+        pushUser('Admin', '🧰', adminEmailDerived, adminPasswordOverride ?? password)
+        pushUser('Employee', '👷', employeeEmailDerived, employeePasswordOverride ?? password)
+      }
       // Simplified success message: we know which users were created
       console.log('🎉 App initialization complete!\n')
       console.log('╔══════════════════════════════════════════════════════════════╗')

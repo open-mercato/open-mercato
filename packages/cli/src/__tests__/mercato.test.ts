@@ -875,6 +875,9 @@ describe('init command failure output', () => {
     expect(exitCode).toBe(0)
     expect(authSetup).toHaveBeenCalledWith(expect.arrayContaining(['--include-demo-users']))
     expect(consoleLogSpy).toHaveBeenCalledWith('👤 Demo accounts (admin@/employee@): enabled')
+    const loggedLines = consoleLogSpy.mock.calls.map((args) => args.join(' '))
+    expect(loggedLines.some((line) => line.includes('🧰 Admin:'))).toBe(true)
+    expect(loggedLines.some((line) => line.includes('👷 Employee:'))).toBe(true)
 
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
@@ -895,6 +898,9 @@ describe('init command failure output', () => {
     expect(consoleLogSpy).toHaveBeenCalledWith(
       '👤 Demo accounts (admin@/employee@): skipped (--no-demo-users)',
     )
+    const loggedLines = consoleLogSpy.mock.calls.map((args) => args.join(' '))
+    expect(loggedLines.some((line) => line.includes('🧰 Admin:'))).toBe(false)
+    expect(loggedLines.some((line) => line.includes('👷 Employee:'))).toBe(false)
 
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
