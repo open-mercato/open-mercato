@@ -576,3 +576,7 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 ## Discord AI Proposals (2026-10-13)
 
 [Waiver](UPGRADE_NOTES.md#discord-proposals)
+
+## Notification Action Commands (2026-10-20)
+
+[Waiver](UPGRADE_NOTES.md#notification-action-commands)

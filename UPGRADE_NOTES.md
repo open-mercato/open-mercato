@@ -224,6 +224,8 @@ the message does not resolve in scope (previously `no_channel_link` with reason
 `message not found`). Code that switches exhaustively over the result, or treated
 `no_channel_link` as "message missing", should handle `not_found` alongside it.
 
+<a id="notification-action-commands"></a>
+
 ### Notification actions run only commands their notification type declares (#7215)
 
 The notification create routes (`POST /api/notifications`, `/api/notifications/batch`,
@@ -245,13 +247,24 @@ Built-in types: the approve and reject actions of `staff.leave_request.pending` 
 `workflows.task.assigned` declares the one-click `complete` action (`workflows.tasks.complete`,
 requiring `workflows.tasks.complete`) in `optionalActions`, so task quick actions keep working.
 
+**Emergency security waiver:** the surfaces are the create-route request shape (`actions[].commandId`)
+and the action route's dispatch of stored commands; the classification is a STABLE API narrowing.
+Route URLs, success response shapes, schemas, event IDs, ACL features and the database are unchanged.
+Accepting a caller-supplied command, or dispatching an undeclared stored one, is itself the exploit: a
+planted row cannot be told apart from a server-built one, so a bridge, flag or warn-first mode would
+keep it executable, and none exists. The PR must carry `security` and a named human maintainer
+approval acknowledging this waiver before merge. The spec
+[`2026-10-20-notification-action-command-authorization.md`](.ai/specs/2026-10-20-notification-action-command-authorization.md)
+contains the "Migration & Backward Compatibility" section.
+
 **Action for integrators:** declare every command-backed action on the notification type definition
 (`actions`, or `optionalActions` for an action a producer attaches to a single notification), with
 `requiredFeatures` matching the route that normally runs the command, and create those notifications
 from server code through `notificationService`. API callers can no longer attach a command to an
 action.
 
-**Operator check:** pending notifications created before the upgrade with a command whose type does
+**Operators:** upgrade all app and worker processes together; no configuration or database migration
+is needed. Pending notifications created before the upgrade with a command whose type does
 not declare it are refused automatically. A row created through the API that copies a declared action
 exactly cannot be told apart from a server-created one; review pending command actions with:
 
