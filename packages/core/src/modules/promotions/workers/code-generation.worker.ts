@@ -80,6 +80,8 @@ async function mintUniqueCandidate(
 
 type HandlerContext = JobContext & { resolve: <T = unknown>(name: string) => T }
 
+type GenerationRunResult = { code: Code; actualCountAfter: number }
+
 export default async function handle(
   job: QueuedJob<CodeGenerationJobPayload>,
   ctx: HandlerContext,
@@ -94,15 +96,17 @@ export default async function handle(
   const em = (ctx.resolve('em') as EntityManager).fork()
   const scope: PromotionsCodeScope = { tenantId, organizationId }
 
-  let code: Code | null = null
-  let actualCountAfter = 0
-
   // The whole read-count-mint-reconcile run happens under one row lock, held for the
   // duration of the transaction: the queue runs this worker with concurrency 2
   // (`lib/queues.ts`), and two concurrent generation jobs for the same pool (e.g. a
   // manual "Generate" click racing the auto-trigger) would otherwise both read the same
   // unlocked `remaining` and each insert a full batch, overfilling the pool to 2x `amount`.
-  await em.transactional(async (tem) => {
+  //
+  // The result is returned from the transactional callback rather than assigned to an
+  // outer `let` — TypeScript's control-flow narrowing cannot see an assignment made
+  // inside a nested closure, so `if (!code) return` below would otherwise narrow `code`
+  // to `never` for the rest of the function (a real TS2339 the CI build caught).
+  const run = await em.transactional(async (tem): Promise<GenerationRunResult | null> => {
     const lockedCode = await tem.findOne(
       Code,
       { id: codeId, tenantId, organizationId, deletedAt: null },
@@ -110,7 +114,7 @@ export default async function handle(
     )
     if (!lockedCode) {
       logger.warn('promotions:code-generation code not found (deleted or wrong tenant/org)', { codeId, tenantId, organizationId })
-      return
+      return null
     }
     if (lockedCode.type !== 'dynamic' || !lockedCode.amount) {
       logger.warn('promotions:code-generation code is not a dynamic pool with a target amount — nothing to generate', {
@@ -118,9 +122,8 @@ export default async function handle(
         type: lockedCode.type,
         amount: lockedCode.amount,
       })
-      return
+      return null
     }
-    code = lockedCode
 
     // §Operational Risks "Dynamic Code Generation Stall": idempotent on restart — the
     // authoritative generated count is a fresh COUNT(*) against
@@ -160,12 +163,14 @@ export default async function handle(
     // speculatively per insert (§Operational Risks) — re-counted fresh here too, so a
     // concurrent writer touching the same code between the loop and this point still
     // leaves the counter correct.
-    actualCountAfter = await tem.count(GeneratedCode, { codeId: lockedCode.id, tenantId, organizationId })
+    const actualCountAfter = await tem.count(GeneratedCode, { codeId: lockedCode.id, tenantId, organizationId })
     lockedCode.generated = actualCountAfter
     await tem.flush()
+    return { code: lockedCode, actualCountAfter }
   })
 
-  if (!code) return
+  if (!run) return
+  const { code, actualCountAfter } = run
 
   // The CRUD list cache (ENABLE_CRUD_API_CACHE) never invalidates on its own for a
   // worker-side write — without this the admin UI's generated-codes counter can stay
