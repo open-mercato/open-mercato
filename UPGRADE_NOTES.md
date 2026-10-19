@@ -128,18 +128,55 @@ variant media, sales channel offer media, the warranty claim attachments tab and
 line picker for AI assessment) still use the unpaginated form, so they show at most the newest 100
 attachments of a record and any count derived from them stops at 100.
 
-### Forms: the participant PDF holds only the answers the participant's role can read (#7229)
+### Login and portal session routes reject cross-site browser requests with `403` (#7239)
 
-`GET /api/forms/public/submissions/:id/pdf` (access token or portal session) now applies the same
-role slice as the JSON read of the submission, and every response carries
-`cache-control: private, no-store`. A participant whose role can read every field still gets the
-canonical stored snapshot; any other participant gets an uncached, role-filtered copy
-(`submission-<id>-v<n>-participant.pdf`) that is never stored or linked. The staff route
-`GET /api/forms/submissions/:id/pdf` is unchanged.
+`POST /api/auth/login`, `POST /api/auth/session/refresh`, `POST /api/customer_accounts/login`,
+`POST /api/customer_accounts/magic-link/verify` and `POST /api/customer_accounts/invitations/accept`
+used to issue session cookies to any request, so a form on another site could sign a visitor's
+browser into the attacker's account. They now answer `403 { ok: false, error }` before reading the
+body when the browser marks the request as cross-site:
 
-**Action for module authors:** code that serves `PdfSnapshotService.ensureSnapshot(...)` to a request
-principal should call `readSnapshotForViewer({ organizationId, tenantId, submissionId, viewerRole })`
-instead. `ensureSnapshot` / `readSnapshot` still return the full canonical snapshot.
+- `Sec-Fetch-Site: cross-site` is always rejected. `same-origin` and `none` are accepted.
+- Otherwise the `Origin` header decides. A request without `Origin` and without `Sec-Fetch-Site`
+  (CLI, scripts, server-to-server and mobile clients) is accepted unchanged. `Origin: null` and an
+  unparsable `Origin` are rejected. Any other `Origin` must equal `APP_URL`,
+  `NEXT_PUBLIC_APP_URL`, an entry of `APP_ALLOWED_ORIGINS`, or the request's own
+  `X-Forwarded-Host` / `Host` (scheme from `X-Forwarded-Proto` when present). Outside production a
+  loopback `Origin` is accepted when a configured origin is loopback too.
+
+URLs, request bodies and success responses are unchanged. The policy is described in
+[`apps/docs/docs/framework/security/cross-site-login.mdx`](apps/docs/docs/framework/security/cross-site-login.mdx).
+
+**Action for operators:** only browsers that send no Fetch Metadata, and requests from a sibling
+subdomain (`Sec-Fetch-Site: same-site`), reach the `Origin` check. If they report a `403` on
+sign-in, set `APP_URL` to the public origin, list the extra origin in `APP_ALLOWED_ORIGINS`, or make
+the reverse proxy forward `X-Forwarded-Host`. An `Origin` that matches none of these is logged as a
+`Cross-site request rejected` warning with the `origin`, `host` and `forwardedHost` values.
+
+**Action for integrators:** an HTML form or browser app on a different site can no longer sign in
+through these routes, and `APP_ALLOWED_ORIGINS` does not re-enable it. A browser marks such a
+request `Sec-Fetch-Site: cross-site`, and that is always rejected. Sign in on the application's own
+origin, or call the API from a server. A sign-in form on a sibling subdomain of the same site keeps
+working once its origin is listed in `APP_ALLOWED_ORIGINS`.
+### Browser web research: all egress is now restricted to public addresses (#7218)
+
+The `@open-mercato/web-research-browser` sidecar used to vet only the top-level navigation. A
+rendered page's images, scripts, fetches, WebSockets, redirect hops and WebRTC traffic could still
+reach loopback, private-network and cloud-metadata addresses. Some of those responses were returned
+to the model. Chromium now sends every connection through a loopback egress proxy that vets each
+connection and pins it to the vetted public address. Subresources are always filtered, service
+workers are blocked, and non-proxied WebRTC UDP and QUIC are disabled. A render that ends on a non-public URL
+now returns a `navigation` error instead of the page.
+
+`OM_WEB_RESEARCH_BROWSER_FILTER_SUBRESOURCES` is ignored; when it is set, the sidecar logs a
+warning each time it launches Chromium. `LAUNCH_ARGS` now also carries the WebRTC proxy-only policy
+and `--disable-quic`. The `filterSubresources` field of `SidecarState` and option of
+`installNavigationGuard` are `@deprecated` and have no effect. `installNavigationGuard` now throws a
+`SidecarError` of kind `init` instead of warning when `context.route()` is unavailable.
+
+**Action for operators:** nothing to configure. Remove `OM_WEB_RESEARCH_BROWSER_FILTER_SUBRESOURCES`
+from your environment. Intranet assets referenced by rendered pages (images, scripts, APIs on
+private addresses) no longer load; public pages render as before.
 ### Catalog write commands treat records outside the caller's scope as not found (#3825)
 
 `catalog.products.update|delete`, `catalog.variants.update|delete`, `catalog.prices.update|delete`
@@ -186,6 +223,19 @@ be resolved), and for a duplicate reaction. URLs and success responses are uncha
 the message does not resolve in scope (previously `no_channel_link` with reason
 `message not found`). Code that switches exhaustively over the result, or treated
 `no_channel_link` as "message missing", should handle `not_found` alongside it.
+
+### Forms: the participant PDF holds only the answers the participant's role can read (#7229)
+
+`GET /api/forms/public/submissions/:id/pdf` (access token or portal session) now applies the same
+role slice as the JSON read of the submission, and every response carries
+`cache-control: private, no-store`. A participant whose role can read every field still gets the
+canonical stored snapshot; any other participant gets an uncached, role-filtered copy
+(`submission-<id>-v<n>-participant.pdf`) that is never stored or linked. The staff route
+`GET /api/forms/submissions/:id/pdf` is unchanged.
+
+**Action for module authors:** code that serves `PdfSnapshotService.ensureSnapshot(...)` to a request
+principal should call `readSnapshotForViewer({ organizationId, tenantId, submissionId, viewerRole })`
+instead. `ensureSnapshot` / `readSnapshot` still return the full canonical snapshot.
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
