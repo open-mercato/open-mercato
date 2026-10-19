@@ -258,11 +258,11 @@ const addField: ModuleCli = {
   },
 }
 
-function resolveEncryptionMapModules(): Module[] {
+async function resolveEncryptionMapModules(): Promise<Module[]> {
   const cliModules = getCliModules()
   if (cliModules.length > 0) return cliModules
   try {
-    const { getModules } = require('@open-mercato/shared/lib/modules/registry')
+    const { getModules } = await import('@open-mercato/shared/lib/modules/registry')
     return getModules()
   } catch {
     return []
@@ -277,9 +277,9 @@ function resolveEncryptionMapModules(): Module[] {
  * DEK produces a payload runtime decryption can never read again. `backfill-system-encryption`
  * is the one command that handles them.
  */
-function getSystemScopedEntityIds(): Set<string> {
+async function getSystemScopedEntityIds(): Promise<Set<string>> {
   return new Set(
-    getDefaultEncryptionMaps(resolveEncryptionMapModules())
+    getDefaultEncryptionMaps(await resolveEncryptionMapModules())
       .filter((map) => map.keyScope === 'system')
       .map((map) => map.entityId),
   )
@@ -331,7 +331,7 @@ export async function upsertEncryptionMaps(
     em,
     tenantId,
     organizationId,
-    getDefaultEncryptionMaps(resolveEncryptionMapModules()),
+    getDefaultEncryptionMaps(await resolveEncryptionMapModules()),
     logger,
     onMaterializedScope,
   )
@@ -545,7 +545,7 @@ const rotateEncryptionKey: ModuleCli = {
     if (tenantIdArg) where.tenantId = tenantIdArg
     if (organizationIdArg) where.organizationId = organizationIdArg
     const allMaps = await em.find(EncryptionMap, where)
-    const systemScopedEntityIds = getSystemScopedEntityIds()
+    const systemScopedEntityIds = await getSystemScopedEntityIds()
     const maps = allMaps.filter((map: EncryptionMap) => {
       if (!systemScopedEntityIds.has(String(map.entityId))) return true
       console.warn(
@@ -839,7 +839,7 @@ const decryptDatabase: ModuleCli = {
     if (organizationIdArg) mapWhere.organizationId = organizationIdArg
     if (entityIdArg) mapWhere.entityId = entityIdArg
     const allMaps = await em.find(EncryptionMap, mapWhere)
-    const systemScopedEntityIds = getSystemScopedEntityIds()
+    const systemScopedEntityIds = await getSystemScopedEntityIds()
     const maps = allMaps.filter((map: EncryptionMap) => {
       if (!systemScopedEntityIds.has(String(map.entityId))) return true
       console.warn(
@@ -1163,7 +1163,7 @@ const backfillSystemEncryption: ModuleCli = {
       return
     }
 
-    const systemMaps = getDefaultEncryptionMaps(resolveEncryptionMapModules()).filter((map) => map.keyScope === 'system')
+    const systemMaps = getDefaultEncryptionMaps(await resolveEncryptionMapModules()).filter((map) => map.keyScope === 'system')
     if (!systemMaps.length) {
       console.log('No system-scoped encryption maps are declared by the installed modules. Nothing to backfill.')
       return
