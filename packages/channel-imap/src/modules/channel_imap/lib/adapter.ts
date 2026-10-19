@@ -27,12 +27,16 @@ import {
 import {
   credentialsToSmtpConnection,
   getSmtpClient,
+  isSmtpMessageTooLarge,
+  type SmtpMessage,
+  type SmtpSendResult,
 } from './smtp-client'
 import { convertOutboundForEmail } from './convert-outbound'
 import { normalizeInboundImapMessage } from './normalize-inbound'
 import { validateImapCredentials } from './validate-credentials'
 import { emailResolveContact } from '@open-mercato/core/modules/communication_channels/lib/email-contact'
 import { decodeCursor, encodeCursor } from '@open-mercato/core/modules/communication_channels/lib/email-mime'
+import { resolveOutboundAttachmentBytes } from '@open-mercato/core/modules/communication_channels/lib/outbound-attachments'
 import { getImportHistoryLimits } from '@open-mercato/core/modules/communication_channels/lib/import-history-limits'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -59,22 +63,6 @@ class ImapChannelAdapter implements ChannelAdapter {
   async sendMessage(input: SendMessageInput): Promise<SendMessageResult> {
     const credentials = parseCredentialsOrThrow(input.credentials)
 
-    // Reject attachments at the boundary BEFORE building the MIME body. The hub
-    // passes attachments as URL pointers; until the IMAP/SMTP adapter wires a
-    // fetcher (with size + content-type validation), inlining them is unsafe —
-    // a 0-byte attachment looks "delivered" but conveys nothing. Checking here
-    // (rather than after conversion) avoids wasted MIME-build work and surfaces
-    // the clearer "attachments unsupported" error even when recipients are also
-    // missing. Documented in review M2 (2026-05-26) and tracked as a follow-up.
-    if (Array.isArray(input.content.attachments) && input.content.attachments.length > 0) {
-      return {
-        externalMessageId: '',
-        status: 'failed',
-        error:
-          '[internal] IMAP/SMTP adapter does not yet support attachments. Send the message without attachments or use a provider that supports them (Gmail).',
-      }
-    }
-
     let native: ChannelNativeContent
     try {
       native = await convertOutboundForEmail({
@@ -93,19 +81,47 @@ class ImapChannelAdapter implements ChannelAdapter {
       return { externalMessageId: '', status: 'failed', error: '[internal] Email send requires at least one recipient' }
     }
 
+    // Attachments arrive as bytes the hub read from the attachments module (or
+    // as `data:` URLs); a remote URL is refused rather than fetched.
+    let attachments: SmtpMessage['attachments']
+    try {
+      attachments = native.content.attachments?.map((attachment) => ({
+        filename: attachment.fileName,
+        content: Buffer.from(resolveOutboundAttachmentBytes(attachment)),
+        contentType: attachment.mimeType,
+        inline: attachment.inline,
+      }))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '[internal] Outbound attachment is not readable'
+      return { externalMessageId: '', status: 'failed', error: message }
+    }
+
     const smtp = getSmtpClient()
-    const result = await smtp.send(credentialsToSmtpConnection(credentials), {
-      from: credentials.fromAddress,
-      to,
-      cc: Array.isArray(meta.cc) ? (meta.cc as string[]) : undefined,
-      bcc: Array.isArray(meta.bcc) ? (meta.bcc as string[]) : undefined,
-      subject: typeof meta.subject === 'string' ? (meta.subject as string) : undefined,
-      text: native.content.text,
-      html: native.content.html,
-      inReplyTo: typeof meta.inReplyTo === 'string' ? (meta.inReplyTo as string) : undefined,
-      references: Array.isArray(meta.references) ? (meta.references as string[]) : undefined,
-      messageId: typeof meta.messageId === 'string' ? (meta.messageId as string) : undefined,
-    })
+    let result: SmtpSendResult
+    try {
+      result = await smtp.send(credentialsToSmtpConnection(credentials), {
+        from: credentials.fromAddress,
+        to,
+        cc: Array.isArray(meta.cc) ? (meta.cc as string[]) : undefined,
+        bcc: Array.isArray(meta.bcc) ? (meta.bcc as string[]) : undefined,
+        subject: typeof meta.subject === 'string' ? (meta.subject as string) : undefined,
+        text: native.content.text,
+        html: native.content.html,
+        inReplyTo: typeof meta.inReplyTo === 'string' ? (meta.inReplyTo as string) : undefined,
+        references: Array.isArray(meta.references) ? (meta.references as string[]) : undefined,
+        messageId: typeof meta.messageId === 'string' ? (meta.messageId as string) : undefined,
+        attachments,
+      })
+    } catch (error) {
+      if (isSmtpMessageTooLarge(error)) {
+        return {
+          externalMessageId: '',
+          status: 'failed',
+          error: '[internal] The mail server rejected the message as too large (message_too_large)',
+        }
+      }
+      throw error
+    }
 
     // Best-effort append to Sent — many servers auto-store via "Submission" but not all do.
     const imap = getImapClient()
