@@ -421,6 +421,84 @@ describe('sales.orders.lines.* — external amounts', () => {
     expect(rejection.error).toContain('grandTotalGrossAmount')
   })
 
+  // `resolveUpsertCalculatedAmounts` is the only thing that puts tax and gross on
+  // the upsert snapshot, and it nulls them once a pricing input changes. The
+  // completeness check therefore has to run after it: before it, every external
+  // write would look incomplete; without it, a repriced line would store zeros.
+  it('accepts a fully restated external line after the stale-amount pass', async () => {
+    const { ctx, persisted } = harnessWithExternalOrder()
+
+    await upsert().execute(
+      {
+        body: {
+          organizationId: ORG_ID,
+          tenantId: TENANT_ID,
+          orderId: ORDER_ID,
+          id: LINE_ONE_ID,
+          ...externalLineInput({ quantity: 4, totalNetAmount: 17.3, taxAmount: 3.98, totalGrossAmount: 21.28 }),
+          orderTotals: SUPPLIED_TOTALS,
+        },
+      } as never,
+      ctx,
+    )
+
+    const written = persistedLines(persisted).find((line) => line.id === LINE_ONE_ID)
+    expect(num(written!.taxAmount)).toBeCloseTo(3.98, 4)
+    expect(num(written!.totalGrossAmount)).toBeCloseTo(21.28, 4)
+  })
+
+  it('keeps stored tax and gross when an external line changes no pricing input', async () => {
+    const { ctx, persisted } = harnessWithExternalOrder()
+
+    await upsert().execute(
+      {
+        body: {
+          organizationId: ORG_ID,
+          tenantId: TENANT_ID,
+          orderId: ORDER_ID,
+          id: LINE_ONE_ID,
+          currencyCode: 'USD',
+          quantity: 3,
+          name: 'Renamed line',
+          orderTotals: SUPPLIED_TOTALS,
+        },
+      } as never,
+      ctx,
+    )
+
+    const written = persistedLines(persisted).find((line) => line.id === LINE_ONE_ID)
+    expect(written!.name).toBe('Renamed line')
+    expect(num(written!.taxAmount)).toBeCloseTo(2.99, 4)
+    expect(num(written!.totalGrossAmount)).toBeCloseTo(15.97, 4)
+    expect(num(written!.totalNetAmount)).toBeCloseTo(12.98, 4)
+  })
+
+  it('rejects a repriced external line that does not restate tax and gross', async () => {
+    const { ctx, persisted } = harnessWithExternalOrder()
+
+    const rejection = await expectRejection(
+      upsert().execute(
+        {
+          body: {
+            organizationId: ORG_ID,
+            tenantId: TENANT_ID,
+            orderId: ORDER_ID,
+            id: LINE_ONE_ID,
+            currencyCode: 'USD',
+            quantity: 4,
+            orderTotals: SUPPLIED_TOTALS,
+          },
+        } as never,
+        ctx,
+      ),
+    )
+
+    expect(rejection.status).toBe(400)
+    expect(rejection.error).toContain('taxAmount')
+    expect(rejection.error).toContain('totalGrossAmount')
+    expect(persistedLines(persisted)).toHaveLength(0)
+  })
+
   it('leaves every sibling line byte-identical when one line is written', async () => {
     const { ctx, persisted, order } = harnessWithExternalOrder()
 
