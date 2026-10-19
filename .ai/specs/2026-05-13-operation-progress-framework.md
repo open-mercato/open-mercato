@@ -76,6 +76,12 @@ For server-side bulk work:
 7. Support `isCancellationRequested` for cancellable jobs.
 8. Scope all reads and writes by `tenantId` and `organizationId`.
 
+Progress HTTP routes resolve the current tenant and organization access through the request-scoped public `OrganizationScopeService`; nullable token organization fields are not authorization scope. Every resolution pins the service's supported `tenantId` input to the normalized authenticated tenant and fails closed unless the normalized returned tenant matches it. A finite `filterIds` list is applied to list, detail, update, cancellation, active/recent, and stale-sweep queries. An explicit empty list denies all access and must never be normalized to an omitted organization predicate. `filterIds: null` remains the canonical unrestricted scope for superadmins and explicitly unrestricted principals. Trusted worker/system callers that omit the finite list retain their exact `organizationId` or intentional tenant-wide behavior.
+
+Creating a job requires a concrete resolved `selectedId` whenever the caller has finite organization access. A rejected explicit selection or finite scope without a concrete write target fails closed. Detail and mutation routes return non-disclosing not-found responses for inaccessible jobs; collection/active reads return empty payloads for deny-all scope.
+
+`ProgressService.createJob` enforces an explicitly supplied finite `organizationIds` set before entity construction or persistence: an empty set denies creation, and a non-empty set requires a concrete `organizationId` contained in it. An omitted `organizationIds` preserves legacy single-organization callers, while explicit `null` preserves canonical unrestricted/system callers.
+
 ### Multi-Instance Concurrency Rules
 
 Progress lifecycle and count updates must remain correct when app and worker processes use independent entity managers:
@@ -88,6 +94,7 @@ Progress lifecycle and count updates must remain correct when app and worker pro
 6. Cancellation checks bypass the entity-manager identity map so workers observe requests written by another process.
 7. Stale-job sweeps re-check status and timestamps in each conditional update. Running jobs use the configured heartbeat timeout; pending jobs that never start fail after 15 minutes. A later queue delivery may recover the latter through `failed → running`.
 8. Heartbeat persistence is independent of progress-event broadcast coalescing and occurs at least every five seconds while updates continue.
+9. A service-local throttled update entry may be reused only when its cached job still satisfies the current tenant and organization scope. Tenant mismatch, a finite organization set that excludes the job, and an explicit empty set fail before returning or mutating the cached snapshot; omitted legacy scope and explicit-null unrestricted/system scope retain their established behavior.
 
 ### Client-Local Progress Rules
 
@@ -121,12 +128,14 @@ Use stable `jobType` values:
 - `customers.deals.bulk_delete`
 - Future format: `<module>.<resource>.<operation>`, where `resource` is plural only when it names a list surface and `operation` is snake_case.
 
-### Backward Compatibility
+### Migration & Backward Compatibility
 
 - Additive only: existing `ProgressJob` API contracts remain unchanged.
 - Additive only: `ProgressUpdateDetail` may gain optional fields, but existing required fields remain stable.
 - Existing DataTable `bulkActions` that return `void` or `boolean` continue to work, but new mutating bulk actions MUST use progress.
 - Existing injected bulk actions returning `progressJobId` remain valid.
+- `ProgressServiceContext.organizationIds` and the trailing organization-id-set parameters on cancellation polling/stale sweeping are additive and optional. Existing workers keep their exact organization or intentional system-wide behavior without migration; HTTP adapters pass the canonical resolved set explicitly.
+- Clients may now receive the already-documented empty/not-found/forbidden response families where a nullable session organization previously widened access. No successful in-scope request or response shape changes.
 
 ## Implementation Plan
 
@@ -202,6 +211,11 @@ Optional display fields may include `description`, `meta`, `etaSeconds`, `starte
 - Unit: an atomic increment from a stale detached snapshot returns and emits the shared database aggregate, including the final count used by completion gates.
 - Unit: a lifecycle CAS loser reloads the winning terminal row and emits no duplicate event.
 - Unit: concurrent stale sweepers emit one failure event and a fresh heartbeat defeats the stale predicate.
+- Unit: explicit finite empty organization access remains an `$in: []` predicate across progress detail, update, cancellation, active/recent, cancellation polling, and stale-sweep queries.
+- Unit: job creation rejects empty, missing-target, and out-of-set finite scopes before persistence while allowing in-set, omitted legacy, and explicit-null unrestricted contexts.
+- Unit: same-service `updateProgress` and `incrementProgress` calls inside one throttle window reject tenant mismatch, out-of-set finite organization scope, and explicit empty scope without returning foreign data, writing, or emitting; omitted legacy and explicit-null unrestricted reuse remain functional.
+- Route: orgless non-superadmins use the request-resolved selected/multi-organization scope; disallowed or freshly revoked access returns empty/not-found responses, while same-organization and canonical superadmin access remain functional.
+- Route: a request-scope result whose normalized tenant differs from the authenticated tenant returns only empty/non-disclosing responses and performs no progress ORM/service data calls.
 - Unit: `runBulkDelete` emits start, step, and terminal progress events.
 - Unit: future `runBulkOperation` handles success, partial failure, full failure, and empty input.
 - Unit: `ProgressTopBar` hooks retain `client:*` jobs while merging `/api/progress/active` results.
@@ -218,6 +232,7 @@ Optional display fields may include `description`, `meta`, `etaSeconds`, `starte
 | Progress top bar becomes noisy | Medium | Backoffice shell | Hide only system/internal jobs with `meta.hiddenFromTopBar`; user-initiated bulk jobs must remain visible. | High-volume operators may see several recent jobs. |
 | Queue worker retries duplicate mutations | High | Data integrity | Workers must be idempotent; commands should tolerate already-mutated records or record failures per item. | Some legacy commands may need hardening. |
 | Progress ACLs block cancellation | Low | Cancellable jobs | Grant `progress.cancel` where modules expose cancellable jobs or provide module-specific cancel routes. | Existing roles may need sync. |
+| Nullable session organization widens reads or mutations | Critical | Progress APIs and service queries | Resolve request scope through `OrganizationScopeService`, preserve explicit finite/empty filters, and reserve omitted predicates for canonical unrestricted/system contexts. | Trusted non-HTTP callers must continue passing their concrete job organization. |
 
 ## Final Compliance Report
 
@@ -225,7 +240,7 @@ Optional display fields may include `description`, `meta`, `etaSeconds`, `starte
 |------|--------|-------|
 | Backward compatibility | Pass | All contracts are additive; no existing bulk action return type is removed. |
 | Module isolation | Pass | Server work uses queue + command bus + DI; no cross-module ORM relationships. |
-| Tenant security | Pass | Progress jobs and worker payloads carry `tenantId` and `organizationId`. |
+| Tenant security | Pass | Progress jobs and worker payloads carry tenant/organization scope; HTTP reads and mutations use canonical request-resolved organization access, including deny-all empty scopes. |
 | UI consistency | Pass | `ProgressTopBar` remains the single progress surface. |
 | Undo contract | Watch | Server-side bulk mutations must preserve command audit logs; bulk undo coalescing is module-specific. |
 | Testability | Pass | Unit and integration coverage points are explicit. |
@@ -234,5 +249,6 @@ Optional display fields may include `description`, `meta`, `etaSeconds`, `starte
 
 | Date | Change |
 |------|--------|
+| 2026-10-04 | Defined fail-closed request-resolved organization scoping for every progress API/service query and service-local throttle cache reuse, including explicit empty, finite multi-org, tenant mismatch, and canonical unrestricted behavior. |
 | 2026-07-27 | Documented multi-instance CAS transitions, post-increment winner reloads, stale-pending recovery, and concurrency regression coverage. |
 | 2026-05-13 | Created framework spec to make progress mandatory for bulk and future long-running operations. |

@@ -11,6 +11,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { ACTION_LOG_FILTER_TYPES } from '@open-mercato/core/modules/audit_logs/lib/projections'
+import { resolveCanonicalAuthSubject } from '@open-mercato/core/modules/audit_logs/lib/actorSubject'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['audit_logs.view_self'] },
@@ -151,6 +152,8 @@ function parseNumber(param: string | null, { min, max, fallback }: { min: number
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const canonicalAuthSubject = resolveCanonicalAuthSubject(auth)
+  if (!canonicalAuthSubject) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const tenantScopeGuard = requireResolvedTenantScope(auth)
   if (tenantScopeGuard) return tenantScopeGuard
@@ -194,7 +197,8 @@ export async function GET(req: Request) {
     }
   }
 
-  let actorUserId: string | undefined = canViewTenant ? undefined : auth.sub
+  const actorSubject = canViewTenant ? undefined : canonicalAuthSubject.subject
+  let actorUserId: string | undefined
   let actorUserIds: string[] | undefined
   if (canViewTenant && actorQuery) {
     const parsedActorUserIds = splitCsv(actorQuery)
@@ -209,6 +213,7 @@ export async function GET(req: Request) {
   const listQuery = {
     tenantId: auth.tenantId ?? undefined,
     organizationId: organizationId ?? undefined,
+    actorSubject,
     actorUserId,
     actorUserIds,
     resourceKind,

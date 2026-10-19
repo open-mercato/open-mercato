@@ -348,7 +348,7 @@ const updateActivityCommand: CommandHandler<ResourcesResourceActivityUpdateInput
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<ActivityUndoPayload>(logEntry)
+    const payload = extractUndoPayload<ActivityUndoPayload>(logEntry, { datePaths: ['before.activity.occurredAt'] })
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -468,7 +468,7 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<ActivityUndoPayload>(logEntry)
+    const payload = extractUndoPayload<ActivityUndoPayload>(logEntry, { datePaths: ['before.activity.occurredAt'] })
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()

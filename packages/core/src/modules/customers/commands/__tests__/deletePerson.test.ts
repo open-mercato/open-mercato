@@ -29,6 +29,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
   CustomerDealPersonLink,
   CustomerEntity,
+  CustomerLabelAssignment,
 } from '../../data/entities'
 
 const ORG_ID = 'org-p-1'
@@ -72,6 +73,9 @@ function makeEm(entity: CustomerEntity, dealLinks: number) {
     flush: jest.fn().mockResolvedValue(undefined),
     persist: jest.fn(),
     getReference: jest.fn((_ctor: any, id: string) => ({ id })),
+    begin: jest.fn(async () => undefined),
+    commit: jest.fn(async () => undefined),
+    rollback: jest.fn(async () => undefined),
   }
   em.fork.mockReturnValue(em)
   return em as jest.Mocked<Pick<EntityManager, 'fork' | 'findOne' | 'find' | 'count' | 'nativeDelete' | 'remove' | 'flush'>>
@@ -101,7 +105,10 @@ function makeCtx(em: any): CommandRuntimeContext {
 }
 
 describe('customers.people.delete — dependent guard', () => {
-  afterEach(() => jest.clearAllMocks())
+  afterEach(() => {
+    jest.clearAllMocks()
+    mockFindWithDecryption.mockImplementation(async () => [])
+  })
 
   it('throws 422 with PERSON_HAS_DEPENDENTS when the person is referenced by deals', async () => {
     const entity = makePersonEntity()
@@ -146,5 +153,29 @@ describe('customers.people.delete — dependent guard', () => {
       expect(captured.body).not.toMatchObject({ code: 'PERSON_HAS_DEPENDENTS' })
     }
     expect(em.count).toHaveBeenCalledWith(CustomerDealPersonLink, { person: entity })
+  })
+
+  it('removes the person\'s label assignments with the person and returns them for undo', async () => {
+    const entity = makePersonEntity()
+    const em = makeEm(entity, 0)
+    const ctx = makeCtx(em)
+    const handler = commandRegistry.get('customers.people.delete') as CommandHandler
+    const createdAt = new Date('2026-01-01T00:00:00.000Z')
+    mockFindWithDecryption.mockImplementation((async (_em: unknown, ctor: unknown) =>
+      ctor === CustomerLabelAssignment
+        ? [{ id: 'la-1', label: { id: 'label-1' }, userId: 'user-2', createdAt }]
+        : []) as unknown as () => Promise<never[]>)
+
+    const result = await handler.execute({ body: { id: PERSON_ID } }, ctx)
+
+    expect(em.nativeDelete).toHaveBeenCalledWith(CustomerLabelAssignment, {
+      id: { $in: ['la-1'] },
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+    })
+    expect(result).toEqual({
+      entityId: PERSON_ID,
+      labelAssignments: [{ id: 'la-1', labelId: 'label-1', userId: 'user-2', createdAt }],
+    })
   })
 })

@@ -120,6 +120,7 @@ import {
   toPositiveNumberOrNull,
   toIntegerInRangeOrDefault,
   normalizeProductConversionInputs,
+  pickEnrichmentNamespaces,
   type ProductUnitConversionInput,
 } from "@open-mercato/core/modules/catalog/components/products/productFormUtils";
 import {
@@ -773,7 +774,11 @@ export default function EditCatalogProductPage({
                 : null,
         };
         if (!cancelled) {
-          setInitialValues({ ...initial, ...customValues });
+          setInitialValues({
+            ...initial,
+            ...customValues,
+            ...pickEnrichmentNamespaces(record),
+          });
           setCategorizeOptions({
             categories: categoryOptions,
             channels: channelOptionEntries,
@@ -1385,23 +1390,28 @@ export default function EditCatalogProductPage({
           );
         }
       }
-      await updateCrud("catalog/products", payload);
-      // The update route only returns `{ ok: true }`, so re-fetch the record to pick
-      // up the server-bumped updatedAt and refresh the optimistic-lock token — without
-      // this, a second consecutive save reuses the stale pre-edit updatedAt and the
-      // lock guard falsely reports a conflict (#5985).
-      const refreshedProductRes = await apiCall<ProductResponse>(
-        `/api/catalog/products?id=${encodeURIComponent(productId)}&page=1&pageSize=1&withDeleted=false`,
-      );
-      const refreshedRecord = Array.isArray(refreshedProductRes.result?.items)
-        ? refreshedProductRes.result?.items?.[0]
-        : undefined;
+      const updateResult = await updateCrud("catalog/products", payload);
+      // The update route echoes the server-bumped updatedAt, so refresh the
+      // optimistic-lock token from it — without this, a second consecutive save
+      // reuses the stale pre-edit updatedAt and the lock guard falsely reports a
+      // conflict (#5985).
       const refreshedUpdatedAt =
-        typeof refreshedRecord?.updatedAt === "string"
-          ? refreshedRecord.updatedAt
-          : typeof refreshedRecord?.updated_at === "string"
-            ? refreshedRecord.updated_at
-            : null;
+        typeof updateResult.result?.updatedAt === "string"
+          ? updateResult.result.updatedAt
+          : null;
+      // The update route does not echo response enrichments (`_wms`, …), so re-read
+      // them when the record carries any — otherwise CrudForm's post-save
+      // `transformDisplayData` resync restores the injected fields' pre-save values
+      // and the next save writes them back (#6142).
+      let refreshedEnrichments: Record<string, unknown> = {};
+      if (Object.keys(pickEnrichmentNamespaces(formValues as Record<string, unknown>)).length > 0) {
+        const refreshedProductRes = await apiCall<ProductResponse>(
+          `/api/catalog/products?id=${encodeURIComponent(productId)}&page=1&pageSize=1&withDeleted=false`,
+        );
+        refreshedEnrichments = pickEnrichmentNamespaces(
+          refreshedProductRes.ok ? refreshedProductRes.result?.items?.[0] : undefined,
+        );
+      }
       // Merge the just-submitted `values` back into `initialValues` too, not only
       // `updatedAt` — CrudForm re-syncs its visible fields from `initialValues`
       // whenever that prop's identity changes, so leaving the other fields at
@@ -1412,6 +1422,7 @@ export default function EditCatalogProductPage({
           ? {
               ...prev,
               ...values,
+              ...refreshedEnrichments,
               updatedAt: refreshedUpdatedAt ?? prev.updatedAt,
             }
           : prev,
@@ -1589,6 +1600,7 @@ export default function EditCatalogProductPage({
           }}
           initialValues={initialValues ?? undefined}
           isLoading={loading}
+          disableInitialFocus
           loadingMessage={t("catalog.products.edit.loading", "Loading product")}
           submitLabel={t("catalog.products.edit.save", "Save changes")}
           cancelHref="/backend/catalog/products"

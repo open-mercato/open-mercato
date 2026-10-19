@@ -46,6 +46,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => encryptionMocks)
 
 jest.mock('@open-mercato/shared/lib/commands/helpers', () => ({
   emitCrudSideEffects: jest.fn(async () => undefined),
+  emitCrudUndoSideEffects: jest.fn(async () => undefined),
 }))
 
 jest.mock('@open-mercato/core/modules/notifications/lib/notificationService', () => ({
@@ -119,6 +120,8 @@ function buildHarness(options: { orders?: Row[]; lines?: Row[]; adjustments?: Ro
     nativeDelete: async () => 0,
     flush: async () => undefined,
     begin: async () => undefined,
+    transactional: async (work: (tx: Row) => Promise<unknown>) => work(em),
+    clear: () => undefined,
     commit: async () => undefined,
     rollback: async () => undefined,
     getReference: (_entity: unknown, id: unknown) => ({ id }),
@@ -654,9 +657,16 @@ describe('undo — the mode and the amounts move together', () => {
       orders: [switched],
       lines: [storedExternalLine(LINE_ONE_ID, 1, { amountsMode: 'computed' })],
     })
+    // The real log entry carries `after` too, which sends the undo through the
+    // staleness check before it restores. It compares structure, not amounts, so
+    // a switch that rewrote every amount must still be undoable.
+    const switchedSnapshot = (await commandRegistry.get('sales.orders.update')!.prepare?.(
+      { id: ORDER_ID, totalsMode: 'computed' } as never,
+      restore.ctx,
+    )) as { before?: unknown }
 
     await commandRegistry.get('sales.orders.update')!.undo?.({
-      logEntry: { payload: { undo: { before: prepared.before } } },
+      logEntry: { payload: { undo: { before: prepared.before, after: switchedSnapshot.before } } },
       ctx: restore.ctx,
     } as never)
 
