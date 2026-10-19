@@ -77,10 +77,6 @@ async function loadMailComposer(): Promise<MailComposerCtor | undefined> {
   }
 }
 
-// send() composes the message twice (MailComposer for the Sent-folder bytes, then
-// transporter.sendMail), and each composition would generate its own Message-ID.
-// Pinning one up front keeps the Sent copy, the delivered message and the
-// returned id identical so replies thread with the Sent copy.
 /**
  * Whether an SMTP send failed because the message is too large: a local
  * `SIZE` pre-check, or a server answer of 552 / 554 with a size status
@@ -97,6 +93,10 @@ export function isSmtpMessageTooLarge(error: unknown): boolean {
   return /5\.3\.4|5\.2\.3|too (large|big)|message size|size exceeds/i.test(text)
 }
 
+// send() composes the message twice (MailComposer for the Sent-folder bytes, then
+// transporter.sendMail), and each composition would generate its own Message-ID.
+// Pinning one up front keeps the Sent copy, the delivered message and the
+// returned id identical so replies thread with the Sent copy.
 export function generateMessageId(from: string): string {
   const domain = /@([^\s<>@]+)>?\s*$/.exec(from)?.[1] ?? 'localhost'
   return `<${randomUUID()}@${domain}>`

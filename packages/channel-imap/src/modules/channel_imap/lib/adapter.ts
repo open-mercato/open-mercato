@@ -35,7 +35,11 @@ import { convertOutboundForEmail } from './convert-outbound'
 import { normalizeInboundImapMessage } from './normalize-inbound'
 import { validateImapCredentials } from './validate-credentials'
 import { emailResolveContact } from '@open-mercato/core/modules/communication_channels/lib/email-contact'
-import { decodeCursor, encodeCursor } from '@open-mercato/core/modules/communication_channels/lib/email-mime'
+import {
+  decodeCursor,
+  encodeCursor,
+  sanitizeHeaderValue,
+} from '@open-mercato/core/modules/communication_channels/lib/email-mime'
 import { resolveOutboundAttachmentBytes } from '@open-mercato/core/modules/communication_channels/lib/outbound-attachments'
 import { getImportHistoryLimits } from '@open-mercato/core/modules/communication_channels/lib/import-history-limits'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -86,8 +90,8 @@ class ImapChannelAdapter implements ChannelAdapter {
     let attachments: SmtpMessage['attachments']
     try {
       attachments = native.content.attachments?.map((attachment) => ({
-        filename: attachment.fileName,
-        content: Buffer.from(resolveOutboundAttachmentBytes(attachment)),
+        filename: sanitizeHeaderValue(attachment.fileName),
+        content: asBuffer(resolveOutboundAttachmentBytes(attachment)),
         contentType: attachment.mimeType,
         inline: attachment.inline,
       }))
@@ -399,6 +403,10 @@ function parseCredentialsOrThrow(value: unknown): ImapCredentials {
     throw new Error(`Invalid IMAP credentials: ${first?.message ?? 'unknown validation error'}`)
   }
   return parsed.data
+}
+
+function asBuffer(bytes: Uint8Array): Buffer {
+  return Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
 }
 
 function pickRawMimeBuffer(raw: InboundMessage): Buffer {
