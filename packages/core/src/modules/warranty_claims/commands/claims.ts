@@ -269,7 +269,7 @@ function hasOwn(input: object, key: string): boolean {
 }
 
 function resolveScope(ctx: CommandRuntimeContext, input: ScopeInput): WarrantyClaimScope {
-  const tenantId = input.tenantId ?? ctx.auth?.tenantId ?? null
+  const tenantId = input.tenantId ?? ctx.auth?.tenantId ?? ctx.organizationScope?.tenantId ?? null
   const organizationId = input.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
   if (!tenantId) throw new CrudHttpError(400, { error: '[internal] tenant scope required for warranty claim command' })
   if (!organizationId) throw new CrudHttpError(400, { error: '[internal] organization scope required for warranty claim command' })
