@@ -224,6 +224,24 @@ the message does not resolve in scope (previously `no_channel_link` with reason
 `message not found`). Code that switches exhaustively over the result, or treated
 `no_channel_link` as "message missing", should handle `not_found` alongside it.
 
+### Outbound email attachments: the hub fills `attachments` with bytes; `assembleRfc2822` is deprecated (#7098)
+
+`send-as-user` accepts `attachments` (attachments-module ids with their owning record), and the
+delivery command now passes them to `ChannelAdapter.convertOutbound({ attachments })` for adapters
+whose capabilities advertise `fileSharing: true`. Each item carries the file bytes in the new optional
+`NormalizedAttachment.content` and an empty `url`. The IMAP/SMTP and Gmail adapters now advertise
+`fileSharing: true`; `baseEmailCapabilities` keeps `false`.
+
+`assembleRfc2822` from `communication_channels/lib/email-mime` is deprecated in favor of the async
+`composeEmailMessage` (nodemailer `MailComposer`), which the Gmail adapter now uses. Gmail messages
+therefore fold long encoded headers and quote a display name only when it needs quoting
+(`From: Alice <a@example.com>`).
+
+**Action for module authors:** a custom adapter that advertises `fileSharing: true` must send
+`attachment.content` when it is set (or use `resolveOutboundAttachmentBytes` from
+`communication_channels/lib/outbound-attachments`) and must not fetch `attachment.url`. Tests that
+assert the exact bytes of a Gmail outbound message may need the new header formatting.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
