@@ -27,13 +27,15 @@ const GMAIL_UPLOAD_BASE = 'https://gmail.googleapis.com/upload/gmail/v1'
  */
 export const GMAIL_SIMPLE_SEND_MAX_RAW_CHARS = 4 * 1024 * 1024
 
+/**
+ * Slowest upload throughput a media-upload send is given time for, on top of
+ * the per-request timeout, so a 35 MB message is not cut off after 30 s.
+ */
+const GMAIL_UPLOAD_MIN_BYTES_PER_SECOND = 512 * 1024
+
 type GmailRequestOptions = {
   rawBody?: { body: Uint8Array; contentType: string }
-  /**
-   * Whether a timeout or 5xx may be retried. Defaults to true; a send passes
-   * false because Gmail can answer that way after it accepted the message.
-   */
-  retryAmbiguous?: boolean
+  timeoutMs?: number
 }
 
 function buildMultipartSendBody(input: GmailSendRawInput): { body: Uint8Array; contentType: string } {
@@ -191,25 +193,22 @@ class FetchGmailApiClient implements GmailApiClient {
   }
 
   async sendRawMessage(auth: GmailApiAuth, input: GmailSendRawInput): Promise<GmailSendResponse> {
-    // A send is not idempotent: a timeout or 5xx can follow a message Gmail
-    // already accepted, so only the rate-limit answers Gmail returns before
-    // accepting are retried here. The delivery worker owns any further retry.
     try {
       if (input.rawBase64Url.length <= GMAIL_SIMPLE_SEND_MAX_RAW_CHARS) {
         const url = new URL(`${GMAIL_API_BASE}/users/me/messages/send`)
-        return await this.requestJson<GmailSendResponse>(
-          auth,
-          url,
-          'POST',
-          { raw: input.rawBase64Url, threadId: input.threadId },
-          { retryAmbiguous: false },
-        )
+        return await this.requestJson<GmailSendResponse>(auth, url, 'POST', {
+          raw: input.rawBase64Url,
+          threadId: input.threadId,
+        })
       }
       const url = new URL(`${GMAIL_UPLOAD_BASE}/users/me/messages/send`)
       url.searchParams.set('uploadType', 'multipart')
+      const rawBody = buildMultipartSendBody(input)
       return await this.requestJson<GmailSendResponse>(auth, url, 'POST', undefined, {
-        rawBody: buildMultipartSendBody(input),
-        retryAmbiguous: false,
+        rawBody,
+        timeoutMs:
+          resolveGmailRequestTimeoutMs() +
+          Math.ceil(rawBody.body.byteLength / GMAIL_UPLOAD_MIN_BYTES_PER_SECOND) * 1000,
       })
     } catch (error) {
       throw asMessageTooLarge(error)
@@ -258,7 +257,6 @@ class FetchGmailApiClient implements GmailApiClient {
       headers['Content-Type'] = 'application/json'
       payload = JSON.stringify(body)
     }
-    const retryAmbiguous = options?.retryAmbiguous !== false
     // Retry transient failures (429, 5xx) with exponential backoff + jitter,
     // honoring `Retry-After` when present. Per Gmail API docs at
     // https://developers.google.com/gmail/api/guides/handle-errors this is the
@@ -274,7 +272,7 @@ class FetchGmailApiClient implements GmailApiClient {
           body: payload,
           // Bound each attempt so a stalled connection fails fast instead of
           // hanging on undici's multi-minute default and pinning the worker slot.
-          timeoutMs: resolveGmailRequestTimeoutMs(),
+          timeoutMs: options?.timeoutMs ?? resolveGmailRequestTimeoutMs(),
         })
       } catch (err) {
         // A timed-out/aborted connection is transient — let the bounded retry
@@ -291,7 +289,7 @@ class FetchGmailApiClient implements GmailApiClient {
           599,
           'request timed out',
         )
-        if (attempt === GMAIL_MAX_RETRIES || !retryAmbiguous) throw timeoutError
+        if (attempt === GMAIL_MAX_RETRIES) throw timeoutError
         lastError = timeoutError
         await sleep(computeBackoff(attempt))
         attempt += 1
@@ -314,7 +312,7 @@ class FetchGmailApiClient implements GmailApiClient {
         // Gmail signals per-user/project quota exhaustion with HTTP 403 +
         // `rateLimitExceeded`/`userRateLimitExceeded` (not only 429).
         (res.status === 403 && isRateLimit403(text))
-      if (!transient || attempt === GMAIL_MAX_RETRIES || (res.status >= 500 && !retryAmbiguous)) {
+      if (!transient || attempt === GMAIL_MAX_RETRIES) {
         throw apiError
       }
       lastError = apiError

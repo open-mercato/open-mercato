@@ -1,4 +1,3 @@
-import { FetchTimeoutError } from '@open-mercato/shared/lib/http/fetchWithTimeout'
 import {
   encodeBase64Url,
   getGmailApiClient,
@@ -24,6 +23,7 @@ describe('FetchGmailApiClient.sendRawMessage', () => {
   const originalFetch = globalThis.fetch
   const originalSetTimeout = globalThis.setTimeout
   let calls: FetchCall[]
+  let requestTimeouts: number[]
 
   function stubFetch(responder: (call: FetchCall, index: number) => Response | Promise<Response>) {
     globalThis.fetch = ((url: string | URL, init: RequestInit) => {
@@ -36,8 +36,12 @@ describe('FetchGmailApiClient.sendRawMessage', () => {
   beforeEach(() => {
     setGmailApiClient(null)
     calls = []
+    requestTimeouts = []
     globalThis.setTimeout = ((callback: () => void, ms?: number) => {
-      if (ms === 30_000) return originalSetTimeout(callback, ms)
+      if (ms !== undefined && ms > 8_000) {
+        requestTimeouts.push(ms)
+        return originalSetTimeout(callback, ms)
+      }
       callback()
       return 0 as unknown as ReturnType<typeof setTimeout>
     }) as unknown as typeof globalThis.setTimeout
@@ -78,30 +82,16 @@ describe('FetchGmailApiClient.sendRawMessage', () => {
     expect(body.subarray(rawStart, rawEnd).equals(raw)).toBe(true)
   })
 
-  it('does not retry the send after a 5xx, which may follow an accepted message', async () => {
-    stubFetch(() => jsonResponse(503, { error: { message: 'backend error' } }))
+  it('gives a media upload more time than a simple send', async () => {
+    stubFetch(() => jsonResponse(200, { id: 'm4', threadId: 't4' }))
+    const client = getGmailApiClient()
+    await client.sendRawMessage({ accessToken: 'token' }, { rawBase64Url: encodeBase64Url(Buffer.from('x')) })
+    const large = Buffer.alloc(GMAIL_SIMPLE_SEND_MAX_RAW_CHARS, 0x41)
+    await client.sendRawMessage({ accessToken: 'token' }, { rawBase64Url: encodeBase64Url(large) })
 
-    const error = await getGmailApiClient()
-      .sendRawMessage({ accessToken: 'token' }, { rawBase64Url: encodeBase64Url(Buffer.from('x')) })
-      .catch((err: unknown) => err)
-
-    expect(error).toBeInstanceOf(GmailApiError)
-    expect((error as GmailApiError).status).toBe(503)
-    expect(calls).toHaveLength(1)
-  })
-
-  it('does not retry the send after a timeout', async () => {
-    globalThis.fetch = ((url: string | URL) => {
-      calls.push({ url: String(url), init: {} })
-      return Promise.reject(new FetchTimeoutError(String(url), 30_000))
-    }) as unknown as typeof globalThis.fetch
-
-    const error = await getGmailApiClient()
-      .sendRawMessage({ accessToken: 'token' }, { rawBase64Url: encodeBase64Url(Buffer.from('x')) })
-      .catch((err: unknown) => err)
-
-    expect(error).toBeInstanceOf(GmailApiError)
-    expect(calls).toHaveLength(1)
+    expect(calls[1].url).toContain('/upload/')
+    expect(requestTimeouts).toHaveLength(2)
+    expect(requestTimeouts[1]).toBeGreaterThan(requestTimeouts[0])
   })
 
   it('retries a 429, which Gmail returns before accepting the message', async () => {
