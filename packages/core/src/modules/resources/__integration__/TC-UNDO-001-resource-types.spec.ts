@@ -1,8 +1,19 @@
-import { test } from '@playwright/test'
-import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { expect, test } from '@playwright/test'
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { resourceUndoStamp, runResourceUndoLifecycle } from '@open-mercato/core/helpers/integration/resourcesUndoFixtures'
-import { skipIfUndoTestsDisabled } from '@open-mercato/core/helpers/integration/undoHarness'
+import {
+  createResourceUndoFixture,
+  deleteResourceUndoFixture,
+  expectResourceUndoTokenConsumed,
+  readResourceUndoRecord,
+  resourceUndoStamp,
+  runResourceUndoLifecycle,
+} from '@open-mercato/core/helpers/integration/resourcesUndoFixtures'
+import { expectOperation, redoOk, skipIfUndoTestsDisabled, undoOk } from '@open-mercato/core/helpers/integration/undoHarness'
+
+export const integrationMeta = {
+  dependsOnModules: ['resources', 'entities', 'audit_logs'],
+}
 
 test.describe('TC-UNDO-001: resource-type scalar restoration', () => {
   test.beforeAll(() => {
@@ -58,4 +69,65 @@ test.describe('TC-UNDO-001: resource-type scalar restoration', () => {
       })
     })
   }
+
+  test('custom-field values restore on create/update/delete undo and redo (I4)', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const key = `undo_resource_type_${resourceUndoStamp().replace(/-/g, '_')}`
+    const entityId = 'resources:resources_resource_type'
+    const resourceTypesPath = '/api/resources/resource-types'
+    const definitionsPath = '/api/entities/definitions'
+    let resourceTypeId: string | null = null
+    let definitionCreated = false
+    try {
+      const definition = await apiRequest(request, 'POST', definitionsPath, {
+        token,
+        data: { entityId, key, kind: 'integer', label: `Undo resource type ${key}`, formEditable: true, listVisible: true },
+      })
+      expect(definition.status()).toBe(200)
+      definitionCreated = true
+      const fixture = await createResourceUndoFixture(request, token, resourceTypesPath, {
+        name: `CF resource type ${key}`, [`cf_${key}`]: 5,
+      })
+      resourceTypeId = fixture.id
+      const readValue = async () => (await readResourceUndoRecord(request, token, resourceTypesPath, fixture.id))?.[`cf_${key}`]
+      expect(await readValue()).toBe(5)
+      const createOperation = expectOperation(fixture.response, 'resource type custom fields create')
+      expect(createOperation.resourceId).toBe(resourceTypeId)
+      await undoOk(request, token, createOperation.undoToken, 'resource type custom field create')
+      expect(await readResourceUndoRecord(request, token, resourceTypesPath, resourceTypeId)).toBeNull()
+      await expectResourceUndoTokenConsumed(request, token, createOperation.undoToken)
+      await redoOk(request, token, createOperation.logId, 'resource type custom field create')
+      expect(await readValue()).toBe(5)
+
+      const updated = await apiRequest(request, 'PUT', resourceTypesPath, {
+        token, data: { id: resourceTypeId, [`cf_${key}`]: 10 },
+      })
+      expect(updated.status()).toBe(200)
+      const updateOperation = expectOperation(updated, 'resource type custom fields update')
+      expect(updateOperation.resourceId).toBe(resourceTypeId)
+      expect(await readValue()).toBe(10)
+      await undoOk(request, token, updateOperation.undoToken, 'resource type custom field update')
+      expect(await readValue()).toBe(5)
+      await expectResourceUndoTokenConsumed(request, token, updateOperation.undoToken)
+      await redoOk(request, token, updateOperation.logId, 'resource type custom field update')
+      expect(await readValue()).toBe(10)
+
+      const deleted = await apiRequest(request, 'DELETE', `${resourceTypesPath}?id=${resourceTypeId}`, { token })
+      expect(deleted.status()).toBe(200)
+      const deleteOperation = expectOperation(deleted, 'resource type custom fields delete')
+      expect(deleteOperation.resourceId).toBe(resourceTypeId)
+      expect(await readResourceUndoRecord(request, token, resourceTypesPath, resourceTypeId)).toBeNull()
+      await undoOk(request, token, deleteOperation.undoToken, 'resource type custom field delete')
+      expect(await readValue()).toBe(10)
+      await expectResourceUndoTokenConsumed(request, token, deleteOperation.undoToken)
+      await redoOk(request, token, deleteOperation.logId, 'resource type custom field delete')
+      expect(await readResourceUndoRecord(request, token, resourceTypesPath, resourceTypeId)).toBeNull()
+    } finally {
+      await deleteResourceUndoFixture(request, token, resourceTypesPath, resourceTypeId)
+      if (definitionCreated) {
+        const cleanup = await apiRequest(request, 'DELETE', definitionsPath, { token, data: { entityId, key } })
+        expect(cleanup.ok(), 'Resource-type custom-field definition cleanup succeeds').toBe(true)
+      }
+    }
+  })
 })
