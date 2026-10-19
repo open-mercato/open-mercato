@@ -89,8 +89,8 @@ test.describe('TC-WEBHOOK-001: Webhook configuration CRUD', () => {
         data: { id: created.id, name: renamedName },
       });
       expect(aliasUpdateResponse.status()).toBe(200);
-      const aliasUpdated = await readJsonSafe<Awaited<ReturnType<typeof getWebhookDetail>>>(aliasUpdateResponse);
-      expect(aliasUpdated?.name).toBe(renamedName);
+      const aliasUpdated = await readJsonSafe<{ success: true }>(aliasUpdateResponse);
+      expect(aliasUpdated).toEqual({ success: true });
 
       const detail = await getWebhookDetail(request, token, created.id);
       expect(detail.name).toBe(renamedName);
