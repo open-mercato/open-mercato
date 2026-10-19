@@ -242,6 +242,7 @@
     "@mikro-orm/postgresql": "^7.1.14",
     "@types/leaflet": "^1.9.12",
     "@types/leaflet.markercluster": "^1.5.5",
+    "@types/nodemailer": "^8.0.1",
     "@types/sanitize-html": "^2.13.0",
     "@types/semver": "^7.8.0",
     "@xyflow/react": "^12.11.5",

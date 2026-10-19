@@ -92,6 +92,10 @@ export type TestSeedCapturedAttachment = {
   mimeType: string
   fileSize: number
   sha256: string
+  /** @deprecated Never populated: the test-seed adapter records a digest, not the URL. Removal no earlier than 0.11.0. */
+  url?: string
+  /** @deprecated Never populated. Removal no earlier than 0.11.0. */
+  inline?: boolean
 }
 
 export type TestSeedCapturedMessage = {

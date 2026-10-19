@@ -9049,6 +9049,7 @@ __metadata:
     "@types/jest": "npm:^30.0.0"
     "@types/leaflet": "npm:^1.9.12"
     "@types/leaflet.markercluster": "npm:^1.5.5"
+    "@types/nodemailer": "npm:^8.0.1"
     "@types/react": "npm:^19.2.18"
     "@types/react-dom": "npm:^19.2.5"
     "@types/sanitize-html": "npm:^2.13.0"

@@ -238,9 +238,10 @@ function encodeBodyPart(content: string): { cte: string; body: string } {
  * `multipart/alternative` body when both html and text are present, otherwise a
  * single-part text or html body.
  *
- * @deprecated Use `composeEmailMessage`, which carries attachments and folds
- * long encoded headers. Kept unchanged for one minor release so existing
- * callers can move, then removed per `BACKWARD_COMPATIBILITY.md`.
+ * @deprecated Since 0.9.1. Use the async `composeEmailMessage`, which carries
+ * attachments and folds long encoded headers. Kept unchanged through the next
+ * minor release; removal no earlier than 0.11.0 (`AssembleRfc2822Input` stays,
+ * because `ComposeEmailMessageInput` extends it).
  */
 export function assembleRfc2822(input: AssembleRfc2822Input): Buffer {
   const boundary = `omc_${crypto.randomUUID()}`
