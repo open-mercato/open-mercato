@@ -1,3 +1,5 @@
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
   findWithDecryption: jest.fn(),
@@ -136,7 +138,7 @@ describe('deliverOutboundMessageCommand — outbound attachments', () => {
   it('fails the delivery permanently, without sending, when an attachment is no longer readable', async () => {
     const link = pendingLink()
     const readScoped = jest.fn(async () => {
-      throw new Error('Attachment not found')
+      throw new CrudHttpError(404, { error: 'Attachment not found' })
     })
     const { ctx, adapter } = makeCtx({ readScoped })
     primeFinds(link)
@@ -149,6 +151,23 @@ describe('deliverOutboundMessageCommand — outbound attachments', () => {
     expect(result).toMatchObject({ status: 'failed', transient: false })
     expect(adapter.sendMessage).not.toHaveBeenCalled()
     expect(link.deliveryStatus).toBe('failed')
+  })
+
+  it('keeps a database failure while reading an attachment transient so the worker retries', async () => {
+    const link = pendingLink()
+    const readScoped = jest.fn(async () => {
+      throw Object.assign(new Error('could not serialize access due to concurrent update'), { code: '40001' })
+    })
+    const { ctx, adapter } = makeCtx({ readScoped })
+    primeFinds(link)
+
+    const result = await deliverOutboundMessageCommand.execute(
+      { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+      ctx,
+    )
+
+    expect(result).toMatchObject({ status: 'failed', transient: true })
+    expect(adapter.sendMessage).not.toHaveBeenCalled()
   })
 
   it('fails permanently when the adapter stopped sharing files after the message was queued', async () => {

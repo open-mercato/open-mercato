@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { AttachmentService } from '@open-mercato/core/modules/attachments'
 import type { ChannelCapabilities, NormalizedAttachment } from './adapter'
@@ -37,10 +38,20 @@ export const outboundAttachmentRefsSchema = z.array(outboundAttachmentRefSchema)
 
 export type OutboundAttachmentRef = z.infer<typeof outboundAttachmentRefSchema>
 
+/**
+ * Parse refs handed to the facade in-process, where the HTTP route's schema
+ * did not run. The count is left to `validateOutboundAttachments`, which
+ * reports it with its own code.
+ */
+export function parseOutboundAttachmentRefs(value: unknown): OutboundAttachmentRef[] | null {
+  const parsed = z.array(outboundAttachmentRefSchema).safeParse(value)
+  return parsed.success ? parsed.data : null
+}
+
 const storedOutboundAttachmentSchema = z.object({
   attachmentId: z.string().uuid(),
   owner: attachmentOwnerSchema,
-  filename: z.string().min(1).max(255).optional(),
+  filename: z.string().min(1).max(255).regex(/^[^\r\n]*$/).optional(),
 })
 
 export type StoredOutboundAttachment = z.infer<typeof storedOutboundAttachmentSchema>
@@ -103,6 +114,15 @@ export class OutboundAttachmentDeliveryError extends Error {
   }
 }
 
+/**
+ * The attachments service answers 401/403/404 when the actor may not read the
+ * file or it is gone; anything else (a database or configuration failure) is
+ * not a verdict on the file and must reach the caller unchanged.
+ */
+function isAttachmentRefused(error: unknown): boolean {
+  return isCrudHttpError(error) && (error.status === 401 || error.status === 403 || error.status === 404)
+}
+
 function buildActorAuth(scope: OutboundAttachmentScope): NonNullable<AuthContext> {
   return { sub: scope.userId, userId: scope.userId, tenantId: scope.tenantId, orgId: scope.organizationId }
 }
@@ -157,22 +177,33 @@ export async function validateOutboundAttachments(input: {
   if (new Set(refs.map((ref) => ref.attachmentId)).size !== refs.length) return fail('duplicate_attachment')
 
   const attachmentService = resolveAttachmentService(input.container)
-  if (!attachmentService?.describeScoped) return fail('attachments_unsupported')
+  if (!attachmentService) return fail('attachments_unsupported')
 
   const auth = buildActorAuth(input.scope)
+  // `describeScoped` is optional on the service contract; an override that
+  // only implements `readScoped` still works, at the cost of reading the bytes.
+  const describe = async (ref: OutboundAttachmentRef): Promise<{ mimeType: string; fileSize: number }> => {
+    if (attachmentService.describeScoped) {
+      return attachmentService.describeScoped({ attachmentId: ref.attachmentId, auth, expectedOwner: ref.owner })
+    }
+    const file = await attachmentService.readScoped({
+      attachmentId: ref.attachmentId,
+      auth,
+      expectedOwner: ref.owner,
+      forceDownload: true,
+    })
+    return { mimeType: file.mimeType, fileSize: file.buffer.byteLength }
+  }
   const perFileLimit = capabilities.maxFileSize ?? OUTBOUND_ATTACHMENTS_MAX_TOTAL_BYTES
   let totalBytes = 0
   const stored: StoredOutboundAttachment[] = []
   for (const ref of refs) {
     let described
     try {
-      described = await attachmentService.describeScoped({
-        attachmentId: ref.attachmentId,
-        auth,
-        expectedOwner: ref.owner,
-      })
-    } catch {
-      return fail('attachment_not_found')
+      described = await describe(ref)
+    } catch (error) {
+      if (isAttachmentRefused(error)) return fail('attachment_not_found')
+      throw error
     }
     if (!isAllowedMimeType(capabilities, described.mimeType)) return fail('attachment_type_not_allowed')
     if (described.fileSize > perFileLimit) return fail('attachments_too_large', perFileLimit)
@@ -233,8 +264,9 @@ export async function loadOutboundAttachments(input: {
         expectedOwner: ref.owner,
         forceDownload: true,
       })
-    } catch {
-      throw new OutboundAttachmentDeliveryError('attachment_unavailable')
+    } catch (error) {
+      if (isAttachmentRefused(error)) throw new OutboundAttachmentDeliveryError('attachment_unavailable')
+      throw error
     }
     if (!isAllowedMimeType(capabilities, file.mimeType)) {
       throw new OutboundAttachmentDeliveryError('attachment_unavailable')

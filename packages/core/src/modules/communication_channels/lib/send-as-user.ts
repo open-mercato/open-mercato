@@ -16,6 +16,7 @@ import type { ChannelAdapterRegistry } from './registry'
 import {
   OUTBOUND_ATTACHMENTS_METADATA_KEY,
   omitOutboundAttachments,
+  parseOutboundAttachmentRefs,
   validateOutboundAttachments,
   type OutboundAttachmentRef,
   type StoredOutboundAttachment,
@@ -142,15 +143,21 @@ export async function sendAsUser(
     }
   }
 
+  // Re-parsed for the same reason as `to`: DI callers skip the route's schema.
+  const attachmentRefs = input.attachments === undefined ? [] : parseOutboundAttachmentRefs(input.attachments)
+  if (!attachmentRefs) {
+    return { ok: false, status: 422, error: '[internal] attachments must be attachment references' }
+  }
+
   let storedAttachments: StoredOutboundAttachment[] = []
-  if (input.attachments?.length) {
+  if (attachmentRefs.length) {
     const adapterRegistry = container.resolve('channelAdapterRegistry') as ChannelAdapterRegistry
     const adapter = adapterRegistry.get(channel.providerKey)
     if (!adapter) return { ok: false, status: 409, error: '[internal] No channel adapter registered for this provider' }
     const validation = await validateOutboundAttachments({
       container,
       scope: { userId: actor.userId, tenantId, organizationId },
-      refs: input.attachments,
+      refs: attachmentRefs,
       capabilities: adapter.capabilities,
     })
     if (!validation.ok) {

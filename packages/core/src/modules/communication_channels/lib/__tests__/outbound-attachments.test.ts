@@ -1,4 +1,5 @@
 import type { AttachmentService } from '@open-mercato/core/modules/attachments'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { ChannelCapabilities } from '../adapter'
 import { baseEmailCapabilities } from '../email-capabilities'
 import {
@@ -8,6 +9,7 @@ import {
   loadOutboundAttachments,
   omitOutboundAttachments,
   outboundAttachmentRefsSchema,
+  parseOutboundAttachmentRefs,
   readStoredOutboundAttachments,
   resolveOutboundAttachmentBytes,
   validateOutboundAttachments,
@@ -38,12 +40,12 @@ type FileRecord = { fileName: string; mimeType: string; fileSize: number; bytes?
 function createContainer(files: Record<string, FileRecord>) {
   const describeScoped = jest.fn(async ({ attachmentId, expectedOwner }: { attachmentId: string; expectedOwner: typeof owner }) => {
     const file = files[attachmentId]
-    if (!file || expectedOwner.recordId !== owner.recordId) throw new Error('not found')
+    if (!file || expectedOwner.recordId !== owner.recordId) throw new CrudHttpError(404, { error: 'Attachment not found' })
     return { id: attachmentId, fileName: file.fileName, mimeType: file.mimeType, fileSize: file.fileSize, partitionCode: 'privateAttachments' }
   })
   const readScoped = jest.fn(async ({ attachmentId }: { attachmentId: string }) => {
     const file = files[attachmentId]
-    if (!file) throw new Error('not found')
+    if (!file) throw new CrudHttpError(404, { error: 'Attachment not found' })
     return {
       buffer: file.bytes ?? Buffer.alloc(file.fileSize),
       contentType: 'application/octet-stream',
@@ -68,6 +70,14 @@ describe('outboundAttachmentRefsSchema', () => {
       outboundAttachmentRefsSchema.safeParse([{ kind: 'inline', filename: 'a.txt', mimeType: 'text/plain', contentBase64: 'YQ==' }]).success,
     ).toBe(false)
     expect(outboundAttachmentRefsSchema.safeParse([ref(uuid(1), { filename: 'a\r\nBcc: x' })]).success).toBe(false)
+  })
+
+  it('parses refs passed in-process and leaves the count to the validator', () => {
+    const refs = Array.from({ length: OUTBOUND_ATTACHMENTS_MAX_COUNT + 1 }, (_value, index) => ref(uuid(index + 1)))
+    expect(parseOutboundAttachmentRefs(refs)).toHaveLength(OUTBOUND_ATTACHMENTS_MAX_COUNT + 1)
+    expect(parseOutboundAttachmentRefs([{ ...ref(uuid(1)), attachmentId: 'not-a-uuid' }])).toBeNull()
+    expect(parseOutboundAttachmentRefs([ref(uuid(1), { filename: 'a\nb.pdf' })])).toBeNull()
+    expect(parseOutboundAttachmentRefs('nope')).toBeNull()
   })
 })
 
@@ -126,6 +136,27 @@ describe('validateOutboundAttachments', () => {
         capabilities: fileSharingCapabilities,
       }),
     ).resolves.toMatchObject({ ok: false, code: 'attachment_not_found' })
+  })
+
+  it('surfaces a failure that is not a verdict on the file instead of reporting it as not found', async () => {
+    const { container, describeScoped } = createContainer({})
+    describeScoped.mockRejectedValueOnce(Object.assign(new Error('could not serialize access'), { code: '40001' }))
+    await expect(
+      validateOutboundAttachments({ container, scope, refs: [ref(uuid(1))], capabilities: fileSharingCapabilities }),
+    ).rejects.toMatchObject({ code: '40001' })
+  })
+
+  it('falls back to readScoped when the service does not describe files', async () => {
+    const { readScoped } = createContainer({ [uuid(1)]: { fileName: 'a.pdf', mimeType: 'application/pdf', fileSize: 10 } })
+    const service = { readScoped } as unknown as AttachmentService
+    const result = await validateOutboundAttachments({
+      container: { resolve: () => service },
+      scope,
+      refs: [ref(uuid(1))],
+      capabilities: fileSharingCapabilities,
+    })
+    expect(result).toEqual({ ok: true, stored: [{ attachmentId: uuid(1), owner }] })
+    expect(readScoped).toHaveBeenCalledWith(expect.objectContaining({ attachmentId: uuid(1), expectedOwner: owner }))
   })
 
   it('refuses a type the adapter does not send', async () => {
@@ -232,6 +263,14 @@ describe('loadOutboundAttachments', () => {
     await expect(
       loadOutboundAttachments({ container, scope, stored: [{ attachmentId: uuid(2), owner }], capabilities: fileSharingCapabilities }),
     ).rejects.toMatchObject({ code: 'attachments_too_large', transient: false })
+  })
+
+  it('lets a database failure through so the delivery is retried', async () => {
+    const { container, readScoped } = createContainer({})
+    readScoped.mockRejectedValueOnce(Object.assign(new Error('deadlock detected'), { code: '40P01' }))
+    await expect(
+      loadOutboundAttachments({ container, scope, stored: [{ attachmentId: uuid(1), owner }], capabilities: fileSharingCapabilities }),
+    ).rejects.toMatchObject({ code: '40P01' })
   })
 })
 

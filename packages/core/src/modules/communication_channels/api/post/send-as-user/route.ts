@@ -121,6 +121,7 @@ export const openApi = {
     POST: {
       summary: 'Send a message through the current user\'s own channel',
       tags: ['CommunicationChannels'],
+      requestBody: { required: true, contentType: 'application/json', schema: bodySchema },
       responses: [
         { status: 202, description: 'Message persisted; outbound delivery enqueued' },
         { status: 401, description: 'Unauthorized' },

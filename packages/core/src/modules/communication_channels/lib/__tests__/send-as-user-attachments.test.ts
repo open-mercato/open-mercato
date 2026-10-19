@@ -97,6 +97,20 @@ describe('sendAsUser — attachments', () => {
     expect(describeScoped).not.toHaveBeenCalled()
   })
 
+  it('refuses malformed refs passed in-process before reading anything', async () => {
+    const { container, commandBus, describeScoped } = makeContainer({ fileSharing: true })
+    primeChannel()
+
+    const result = await sendAsUser(container, actor, {
+      ...baseInput,
+      attachments: [{ kind: 'attachment', attachmentId: 'not-a-uuid', owner: OWNER, filename: 'a\r\nBcc: x' }],
+    })
+
+    expect(result).toMatchObject({ ok: false, status: 422 })
+    expect(describeScoped).not.toHaveBeenCalled()
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
   it('stores only the validated refs under the hub key and drops a caller-supplied value', async () => {
     const { container, describeScoped, created } = makeContainer({ fileSharing: true })
     primeChannel()
