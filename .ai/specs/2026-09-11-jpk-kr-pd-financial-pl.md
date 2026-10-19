@@ -1,6 +1,6 @@
-# SPEC-010 — JPK_KR_PD (Statutory Accounting Books e-Filing) for `financial_pl`
+# JPK_KR_PD (Statutory Accounting Books e-Filing) for `financial_pl`
 
-> **Moved from `official-modules`.** Originally opened as open-mercato/official-modules#54 by @mikoajp. `official-modules` is deprecated and being archived, and `financial_pl` will not live there: the financial work continues in Core, with KSeF coming later as a separate PR (see open-mercato/official-modules#29). Content is unchanged apart from this block and the Prerequisites section below; the `SPEC-0xx` numbers inside refer to the `official-modules` numbering (Core already uses `SPEC-010` to `SPEC-013` for unrelated, implemented specs under `.ai/specs/implemented/`). Code references to `official-modules` (for example branch `feat/financial-pl-invoice-ux`) point to that archived repository. 
+> **Moved from `official-modules`.** Originally opened as open-mercato/official-modules#54 by @mikoajp. `official-modules` is deprecated and being archived, and `financial_pl` will not live there: the financial work continues in Core, with KSeF coming later as a separate PR (see open-mercato/official-modules#29). Content is unchanged apart from this block, the Prerequisites section below, and the spec numbers: `official-modules` numbered the four `financial_pl` specs `SPEC-010` to `SPEC-013`, but Core already uses those numbers for unrelated, implemented specs under `.ai/specs/implemented/` and names new specs `{date}-{title}` only, so cross-references here use short names (see the table in Prerequisites). Dated history entries keep the original numbers. Code references to `official-modules` (for example branch `feat/financial-pl-invoice-ux`) point to that archived repository. 
 
 ## Prerequisites
 
@@ -9,15 +9,15 @@
 | Reference | Source |
 |-----------|--------|
 | `financial_pl` code (branch `feat/financial-pl-invoice-ux`) | [`packages/financial-pl` @ `17c575c`](https://github.com/open-mercato/official-modules/tree/17c575c9eb94893c9fc3da4036f5d19dc2b9369b/packages/financial-pl) |
-| SPEC-010 JPK_KR_PD (`official-modules#54`) | `2026-09-11-jpk-kr-pd-financial-pl.md` (this repository; original at [`6b5dfb9`](https://github.com/open-mercato/official-modules/blob/6b5dfb9a67f66a35e791bce2e2ef998e305d8488/.ai/specs/SPEC-010-2026-09-11-jpk-kr-pd-financial-pl.md)) |
-| SPEC-011 tax engines (`official-modules#55`) | `2026-09-16-tax-management-financial-pl.md` (this repository; original at [`79aa0b9`](https://github.com/open-mercato/official-modules/blob/79aa0b9d3724affa35bdc54d4944c07defbeb716/.ai/specs/SPEC-011-2026-09-16-tax-management-financial-pl.md)) |
-| SPEC-012 integration contracts, SPEC-013 `financial_pl_accounting` | `2026-10-08-financial-pl-integration-contracts.md` and `2026-10-08-financial-pl-accounting-package.md` (this repository once open-mercato#7070 is merged) |
+| JPK_KR_PD spec (`official-modules#54`, SPEC-010 there) | `2026-09-11-jpk-kr-pd-financial-pl.md` (this repository; original at [`6b5dfb9`](https://github.com/open-mercato/official-modules/blob/6b5dfb9a67f66a35e791bce2e2ef998e305d8488/.ai/specs/SPEC-010-2026-09-11-jpk-kr-pd-financial-pl.md)) |
+| tax engines spec (`official-modules#55`, SPEC-011 there) | `2026-09-16-tax-management-financial-pl.md` (this repository; original at [`79aa0b9`](https://github.com/open-mercato/official-modules/blob/79aa0b9d3724affa35bdc54d4944c07defbeb716/.ai/specs/SPEC-011-2026-09-16-tax-management-financial-pl.md)) |
+| integration contracts spec (SPEC-012 there), `financial_pl_accounting` accounting package spec (SPEC-013 there) | `2026-10-08-financial-pl-integration-contracts.md` and `2026-10-08-financial-pl-accounting-package.md` (this repository once open-mercato#7070 is merged) |
 
 Open work this document waits on:
 
 | Phase | Waits on |
 |-------|----------|
-| All phases | `financial_pl` and `financial_pl_accounting` brought into Core (SPEC-013), and `jpkTransportService` released in `financial_pl` (SPEC-012, A1) |
+| All phases | `financial_pl` and `financial_pl_accounting` brought into Core (accounting package spec), and `jpkTransportService` released in `financial_pl` (integration contracts spec, A1) |
 | Phase 1 | General ledger (#6340) and its bulk read service (#6038); this document's own Implementation Plan says no work starts before #6038 merges |
 | Phase 1, vendored XSD | The raw `Schemat_JPK_KR_PD(1)_v1-0.xsd`, to confirm the `RPD` field list and `S_12_1` values (Implementation Plan, step 2) |
 | Phase 3 | Fixed Assets (#6014), for `JPK_ST_KR` |
@@ -108,11 +108,11 @@ module), not in `financial_pl`.
   must not require a general ledger. The Polish features that read the
   ledger (this document, Bilans/RZiS, the tax engines) go to the sibling
   package, which declares a hard `requires` on `financial_pl`, `ledger`,
-  `tax_management` and `financial_statements` (package overview: SPEC-013).
+  `tax_management` and `financial_statements` (package overview: the accounting package spec).
   This feature itself needs `financial_pl` and `ledger`.
 - **Transport.** The new package does not import `financial_pl` code. It
   calls `financial_pl`'s DI service `jpkTransportService` (`submit`,
-  `pollStatus`; SPEC-012). The signing certificate and private key stay
+  `pollStatus`; the integration contracts spec). The signing certificate and private key stay
   inside `financial_pl`. The service takes the XML as a string, so the
   in-memory buffering concern in Open Questions Q6 is unchanged.
 - **Identifiers.** Commands are `financial_pl_accounting.jpk_kr.*`, tables
@@ -226,7 +226,7 @@ separately, see Architecture): a bulk, in-process read surface.
   (`jpkGenerateSchema`/`jpkSubmitSchema` → `resolveJpkFiling` →
   `buildJpkXml` → `submitJpk`/`pollJpkStatus`).
 - The submission transport, used through `financial_pl`'s DI service
-  `jpkTransportService` (SPEC-012), not imported: `lib/jpk/jpk-submission-client.ts`
+  `jpkTransportService` (integration contracts spec), not imported: `lib/jpk/jpk-submission-client.ts`
   implements the MF gateway protocol generically (AES-256-CBC envelope
   encryption with an RSA-wrapped key against the MF public certificate,
   XAdES signing via `lib/xades.ts`, in-memory ZIP packaging, chunked PUT
@@ -261,7 +261,7 @@ separately, see Architecture): a bulk, in-process read surface.
 **What's new:**
 
 - The package `financial_pl_accounting`, whose `requires` (package-level,
-  declared in SPEC-013) include `financial_pl` and `ledger`. `financial_pl`
+  declared in the accounting package spec) include `financial_pl` and `ledger`. `financial_pl`
   declares no `requires` today (confirmed by reading
   `packages/financial_pl/src/modules/financial_pl/index.ts`) and keeps
   none; the hard dependency on `ledger` sits in the new package, declared
@@ -832,7 +832,7 @@ original single `jpk-kr.generate` command was replaced):
 
 - `financial_pl_accounting.jpk_kr.upsert_filing` — `{ id?, tenantId?, organizationId?, fiscalYear, celZlozenia, ... }`. `tenantId`/`organizationId` are accepted-but-ignored fields (schema compatibility only, matching `jpkFilingUpsertSchema`'s own optional-but-unused fields) — the handler derives real scope via `resolveCommandScope(ctx)` and uses that for every lookup/create and for `ensureTenantScope`/`ensureOrganizationScope`. Rejects editing a filing whose `status` is `submitted` or `submitting`, matching `commands/jpk.ts`'s own guard. **Undoable** (see Architecture → Undo Contract).
 - `financial_pl_accounting.jpk_kr.generate` — `{ filingId }` only, no scope fields at all (mirrors `jpkGenerateSchema` exactly — it only ever acts on a filing already scoped at creation, looked up by `resolveCommandScope(ctx)` + `filingId`). Calls the builder chain, sets `status: draft → generated`. **Not undoable.**
-- `financial_pl_accounting.jpk_kr.submit` — `{ filingId }` only. Sets `status: generated → submitting`, calls `jpkTransportService.submit` (SPEC-012; the signing certificate and key stay inside `financial_pl`) and — matching `commands/jpk.ts`'s real behavior — **polls inline within the same command execution** (`jpkTransportService.pollStatus`, for the resume-an-in-flight-submission case), rather than through a separate exposed `.poll-status` command. A prior pass on this document proposed `jpk-kr.poll-status` as its own command; the real sibling has no such command — polling is either inline in `submit`'s own retry/resume path or driven by a background worker, never its own top-level command. Corrected. **Not undoable.**
+- `financial_pl_accounting.jpk_kr.submit` — `{ filingId }` only. Sets `status: generated → submitting`, calls `jpkTransportService.submit` (integration contracts spec; the signing certificate and key stay inside `financial_pl`) and — matching `commands/jpk.ts`'s real behavior — **polls inline within the same command execution** (`jpkTransportService.pollStatus`, for the resume-an-in-flight-submission case), rather than through a separate exposed `.poll-status` command. A prior pass on this document proposed `jpk-kr.poll-status` as its own command; the real sibling has no such command — polling is either inline in `submit`'s own retry/resume path or driven by a background worker, never its own top-level command. Corrected. **Not undoable.**
 
 ## 📝 UI/UX
 
@@ -906,7 +906,7 @@ backend exists. Left for a follow-up once Phase 1 (backend) is agreed.
   module map needs a corresponding update once this ships (noted, not
   actioned here).
 - **Compatibility.** The only change in `financial_pl` is the new DI
-  transport service (SPEC-012, additive); everything else in this document
+  transport service (integration contracts spec, additive); everything else in this document
   is a new package with new entities and commands.
 
 ## 📋 Phasing
@@ -949,8 +949,8 @@ backend exists. Left for a follow-up once Phase 1 (backend) is agreed.
    enumeration for the `ZOiS7` variant against the raw schema, not
    summaries of it.
 3. Create the package `financial_pl_accounting` with its manifest and
-   `requires` (SPEC-013); release `financial_pl` with
-   `jpkTransportService` (SPEC-012) before it.
+   `requires` (accounting package spec); release `financial_pl` with
+   `jpkTransportService` (integration contracts spec) before it.
 4. `JpkKrFiling` + `JpkKrDeclarationInputs` entities + migration
    (table names corrected 2026-09-18, see Data Model).
 5. `build-zois.ts` / `build-dziennik.ts` / `build-konto-zapis.ts`, each
@@ -1114,7 +1114,7 @@ not rounded up to Compliant.
 | spec-writing SKILL.md | Undo Contract as detailed as Execute | Compliant (corrected 2026-09-18) | Previously entirely absent; now `upsert_filing` (undoable) vs. `generate`/`submit` (not undoable, matching real code) is explicit — see Architecture |
 | spec-writing SKILL.md | Module Isolation — DI usage specified for service wiring (Awilix) | Compliant | `container.resolve('ledgerBulkReadService')`, named explicitly |
 | spec-writing checklist §3 | Write operations define atomicity/transaction boundaries | Compliant (corrected 2026-09-18) | Previously absent; the compare-and-swap `nativeUpdate` claim pattern for `.submit` is now specified (Edge Cases), matching `commands/jpk.ts`'s real double-submit protection |
-| spec-writing checklist §5 | Migration/backward compatibility strategy is explicit | Compliant | Additive only — a new package with its own `requires`; the only change in `financial_pl` is the added DI transport service (SPEC-012) (Risks & Impact Review) |
+| spec-writing checklist §5 | Migration/backward compatibility strategy is explicit | Compliant | Additive only — a new package with its own `requires`; the only change in `financial_pl` is the added DI transport service (integration contracts spec) (Risks & Impact Review) |
 | spec-writing checklist §6 | Performance/cache/pagination items | N/A | No list/search HTTP API proposed in this pass — all reads happen server-side, in a worker, against `LedgerBulkReadService`'s own `AsyncIterable` streams |
 | spec-writing checklist §7 | Risk Register uses the required Scenario/Severity/Affected area/Mitigation/Residual risk format | Non-compliant | This document's Risks & Impact Review predates that format (written under `om-spec-writing`'s own risk convention) — not reformatted in this pass; flagged rather than mechanically reformatted without re-checking each risk's substance |
 
@@ -1192,7 +1192,7 @@ not rounded up to Compliant.
 
 ### 2026-10-08 (target layout)
 - The feature moves to the separate package `financial_pl_accounting` (new Target layout section) so that `financial_pl` keeps no dependency on `ledger`. Command ids, table names and the encryption entry are renamed accordingly; the three existing `financial_pl.*` features are still the only ACL.
-- Submission goes through `financial_pl`'s DI service `jpkTransportService` (SPEC-012) instead of reusing `submitJpk`/`pollJpkStatus` inside one module; the certificate and key stay in `financial_pl`.
+- Submission goes through `financial_pl`'s DI service `jpkTransportService` (integration contracts spec) instead of reusing `submitJpk`/`pollJpkStatus` inside one module; the certificate and key stay in `financial_pl`.
 - `LedgerBulkReadService` now has seven methods (#6038 added `getFiscalPeriod` and `findClosingEntries`).
 - Updated TLDR, Proposed Solution, Architecture, API Contracts, Risks, Implementation Plan and Final Compliance Report to match.
 

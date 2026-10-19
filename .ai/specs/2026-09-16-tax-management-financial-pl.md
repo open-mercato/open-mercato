@@ -1,6 +1,6 @@
-# SPEC-011 — Tax Payment (VAT/CIT/PIT) for `financial_pl`
+# Tax Payment (VAT/CIT/PIT) for `financial_pl`
 
-> **Moved from `official-modules`.** Originally opened as open-mercato/official-modules#55 by @mikoajp. `official-modules` is deprecated and being archived, and `financial_pl` will not live there: the financial work continues in Core, with KSeF coming later as a separate PR (see open-mercato/official-modules#29). Content is unchanged apart from this block and the Prerequisites section below; the `SPEC-0xx` numbers inside refer to the `official-modules` numbering (Core already uses `SPEC-010` to `SPEC-013` for unrelated, implemented specs under `.ai/specs/implemented/`). Code references to `official-modules` (for example branch `feat/financial-pl-invoice-ux`) point to that archived repository. 
+> **Moved from `official-modules`.** Originally opened as open-mercato/official-modules#55 by @mikoajp. `official-modules` is deprecated and being archived, and `financial_pl` will not live there: the financial work continues in Core, with KSeF coming later as a separate PR (see open-mercato/official-modules#29). Content is unchanged apart from this block, the Prerequisites section below, and the spec numbers: `official-modules` numbered the four `financial_pl` specs `SPEC-010` to `SPEC-013`, but Core already uses those numbers for unrelated, implemented specs under `.ai/specs/implemented/` and names new specs `{date}-{title}` only, so cross-references here use short names (see the table in Prerequisites). Dated history entries keep the original numbers. Code references to `official-modules` (for example branch `feat/financial-pl-invoice-ux`) point to that archived repository. 
 
 ## Prerequisites
 
@@ -9,17 +9,17 @@
 | Reference | Source |
 |-----------|--------|
 | `financial_pl` code (branch `feat/financial-pl-invoice-ux`) | [`packages/financial-pl` @ `17c575c`](https://github.com/open-mercato/official-modules/tree/17c575c9eb94893c9fc3da4036f5d19dc2b9369b/packages/financial-pl) |
-| SPEC-010 JPK_KR_PD (`official-modules#54`) | `2026-09-11-jpk-kr-pd-financial-pl.md` (this repository; original at [`6b5dfb9`](https://github.com/open-mercato/official-modules/blob/6b5dfb9a67f66a35e791bce2e2ef998e305d8488/.ai/specs/SPEC-010-2026-09-11-jpk-kr-pd-financial-pl.md)) |
-| SPEC-011 tax engines (`official-modules#55`) | `2026-09-16-tax-management-financial-pl.md` (this repository; original at [`79aa0b9`](https://github.com/open-mercato/official-modules/blob/79aa0b9d3724affa35bdc54d4944c07defbeb716/.ai/specs/SPEC-011-2026-09-16-tax-management-financial-pl.md)) |
-| SPEC-012 integration contracts, SPEC-013 `financial_pl_accounting` | `2026-10-08-financial-pl-integration-contracts.md` and `2026-10-08-financial-pl-accounting-package.md` (this repository once open-mercato#7070 is merged) |
+| JPK_KR_PD spec (`official-modules#54`, SPEC-010 there) | `2026-09-11-jpk-kr-pd-financial-pl.md` (this repository; original at [`6b5dfb9`](https://github.com/open-mercato/official-modules/blob/6b5dfb9a67f66a35e791bce2e2ef998e305d8488/.ai/specs/SPEC-010-2026-09-11-jpk-kr-pd-financial-pl.md)) |
+| tax engines spec (`official-modules#55`, SPEC-011 there) | `2026-09-16-tax-management-financial-pl.md` (this repository; original at [`79aa0b9`](https://github.com/open-mercato/official-modules/blob/79aa0b9d3724affa35bdc54d4944c07defbeb716/.ai/specs/SPEC-011-2026-09-16-tax-management-financial-pl.md)) |
+| integration contracts spec (SPEC-012 there), `financial_pl_accounting` accounting package spec (SPEC-013 there) | `2026-10-08-financial-pl-integration-contracts.md` and `2026-10-08-financial-pl-accounting-package.md` (this repository once open-mercato#7070 is merged) |
 | `tax_management` Core framework (split from this document) | `2026-09-16-tax-management.md`, `open-mercato#6168` |
 
 Open work this document waits on:
 
 | Phase | Waits on |
 |-------|----------|
-| All phases | `financial_pl` and `financial_pl_accounting` brought into Core (SPEC-013) |
-| VAT engine | `vatRegisterReadService` from `financial_pl` (SPEC-012, A3) |
+| All phases | `financial_pl` and `financial_pl_accounting` brought into Core (accounting package spec) |
+| VAT engine | `vatRegisterReadService` from `financial_pl` (integration contracts spec, A3) |
 | All phases | General ledger (#6340) and `tax_management` (#6168), whose `ITaxEngine`/`ITaxReporting` tokens the engines register against |
 | CIT and PIT engines | GL balances read service (#6013) |
 | Phase 2 | Cash & Bank Management (#6055), for reconciliation against imported statements |
@@ -30,8 +30,8 @@ Open work this document waits on:
 > `open-mercato/.ai/specs/2026-09-16-tax-management.md`, staged
 > temporarily in `open-mercato` alongside its `tax_management` Core
 > framework half for the same reason `2026-09-11-jpk-kr-pd-financial-pl.md`
-> (SPEC-010) was — the two had to be designed and reviewed together.
-> Following the precedent SPEC-010 itself set (`official-modules#54`),
+> (JPK_KR_PD spec) was — the two had to be designed and reviewed together.
+> Following the precedent the JPK_KR_PD spec itself set (`official-modules#54`),
 > this half now moves here permanently; `tax_management` (the Core
 > framework module: `TaxCode`/`TaxCodeAccountMapping`/`TaxLiabilityRecord`,
 > the `ITaxEngine`/`ITaxReporting` DI tokens, and the
@@ -58,7 +58,7 @@ Open work this document waits on:
 >    registrations resolve against its DI tokens/registry, and
 >    `generateTaxPaymentInstruction` reads `TaxLiabilityRecord` it owns.
 > 3. `official-modules` — nothing internal to this repo; `financial_pl`
->    itself must already exist (it does — JPK_V7/KSeF, per SPEC-010's
+>    itself must already exist (it does — JPK_V7/KSeF, per the JPK_KR_PD spec's
 >    own Overview).
 >
 > This document follows `official-modules/.ai/specs/AGENTS.md`'s
@@ -74,13 +74,13 @@ The Polish half of Tax Management lives in a new package,
 (KSeF and JPK_V7 do not need one).
 
 - **Dependencies.** Hard `requires` on `financial_pl`, `ledger`,
-  `tax_management` and `financial_statements` (package overview: SPEC-013).
+  `tax_management` and `financial_statements` (package overview: the accounting package spec).
   `financial_pl` declares no `requires`.
 - **VAT input.** The VAT engine reads `financial_pl`'s VAT register through
-  a read-only DI service, `vatRegisterReadService` (SPEC-012), not through
+  a read-only DI service, `vatRegisterReadService` (integration contracts spec), not through
   its entities. It posts only the settlement through `tax_management`. The
   CIT and PIT engines read GL balances (#6013). GL balances also reconcile
-  the register (SPEC-013). This matches `open-mercato#6168`.
+  the register (accounting package spec). This matches `open-mercato#6168`.
 - **Identifiers.** Command `financial_pl_accounting.tax.generate_payment_instruction`,
   routes under `/api/financial-pl-accounting/tax/`, feature
   `financial_pl_accounting.tax.pay`, files under
@@ -104,7 +104,7 @@ instruction; sending the transfer is a human action, confirmed back via
 ## Overview
 
 `financial_pl` (`@open-mercato/financial-pl`) already covers KSeF 2.0
-e-invoicing, JPK_V7 VAT filing, and (per SPEC-010) JPK_KR_PD annual books
+e-invoicing, JPK_V7 VAT filing, and (per the JPK_KR_PD spec) JPK_KR_PD annual books
 filing. This document adds its first *payment*-side surface: turning a
 `tax_management`-calculated tax liability (VAT, CIT, or PIT-4 withholding)
 into the exact bank transfer an accountant needs to execute, using
@@ -134,7 +134,7 @@ are genuinely Poland-specific and belong here, not in the framework:
 ## 📝 Proposed Solution
 
 `financial_pl_accounting` (declares `requires` on `financial_pl`,
-`ledger`, `tax_management` and `financial_statements`, see SPEC-013):
+`ledger`, `tax_management` and `financial_statements`, see the accounting package spec):
 
 1. Registers `ITaxEngine`/`ITaxReporting` implementations for `VAT`,
    `CIT`, and `PIT` (PIT-4 withholding) against `tax_management`'s
@@ -378,7 +378,7 @@ call in this family.
 ## UI/UX
 
 Within `financial_pl`'s existing period-close screen (wherever
-JPK_KR_PD's own trigger lives, per SPEC-010): a copyable IBAN/amount/title
+JPK_KR_PD's own trigger lives, per the JPK_KR_PD spec): a copyable IBAN/amount/title
 block calling `POST /api/financial-pl-accounting/tax/payment-instruction`, plus a
 "Mark as paid" button calling `POST /api/financial-pl-accounting/tax/mark-paid`.
 Both hidden (not merely disabled) for a viewer without
@@ -470,7 +470,7 @@ payment-confirmation half, which lives here now.)
 - **Tax calculation logic's numeric inputs** — how much VAT/CIT/PIT is
   actually owed. `ITaxEngine.calculate`'s real implementation reads the
   VAT register through `financial_pl`'s read-only DI service
-  `vatRegisterReadService` (SPEC-012) for VAT, and GL account balances
+  `vatRegisterReadService` (integration contracts spec) for VAT, and GL account balances
   (`open-mercato#6013`) for CIT and PIT; this document defines the posting
   *shape* (Design decisions) but not the balance-reading logic itself.
 - **VAT refund handling** (Edge Cases).
@@ -500,7 +500,7 @@ against Cash & Bank Management's imported statements.
 5. Integration tests (Testing Strategy).
 6. Record this split and its findings in
    `financial-module-knowledge-base.md` §3/§1 (matching the pointer
-   already added for SPEC-010's own move).
+   already added for the JPK_KR_PD spec's own move).
 
 ## Testing Strategy
 
@@ -625,16 +625,16 @@ data source, not a redesign.
 
 | Rule Source | Rule | Status | Notes |
 |---|---|---|---|
-| root AGENTS.md | Module is an external extension; MUST NOT modify core packages | Compliant | No core package touched; `tax_management` (in `open-mercato`) consumed via `requires` + DI resolution, same pattern SPEC-010 already established for `ledger` |
+| root AGENTS.md | Module is an external extension; MUST NOT modify core packages | Compliant | No core package touched; `tax_management` (in `open-mercato`) consumed via `requires` + DI resolution, same pattern the JPK_KR_PD spec already established for `ledger` |
 | root AGENTS.md | No cross-module `@ManyToOne` ORM relationships | Compliant | No new entities; `TaxLiabilityRecord` is read via a cross-module query, not an ORM relation |
-| root AGENTS.md | MUST filter every query by `organization_id` | Compliant | Both new routes derive scope server-side, matching `resolveCommandScope(ctx)` precedent from SPEC-010 — real implementation must call it, not accept scope from the request body |
+| root AGENTS.md | MUST filter every query by `organization_id` | Compliant | Both new routes derive scope server-side, matching `resolveCommandScope(ctx)` precedent from the JPK_KR_PD spec — real implementation must call it, not accept scope from the request body |
 | root AGENTS.md | MUST validate all inputs with zod in `data/validators.ts` | Non-compliant | Schema shapes are named in prose, not written as zod literals — real `data/validators.ts` needs `taxPaymentInstructionSchema`/`taxMarkPaidSchema` before implementation |
 | root AGENTS.md | MUST use `findWithDecryption`/`findOneWithDecryption` for PII | Compliant | Explicitly named for the PESEL read path (Design decisions, m3) |
 | root AGENTS.md | MUST use declarative guards (`requireAuth`, `requireFeatures`) | Compliant | `financial_pl_accounting.tax.pay` named and applied to both routes (API Contracts) |
 | root AGENTS.md | MUST NOT return sensitive data in error messages | Non-compliant | Not audited — real route error paths (malformed NIP, missing mapping) must be checked before implementation to confirm no PESEL/NIP fragment leaks into a 4xx body |
 | root AGENTS.md naming | Command ID `<moduleId>.<feature>.<action>` | Compliant | `financial_pl_accounting.tax.generate_payment_instruction` |
 | spec-writing SKILL.md | Undo Contract as detailed as Execute | Compliant (N/A) | The one command in this document is non-mutating; explicitly marked N/A with reasoning, not silently omitted |
-| spec-writing SKILL.md | Module Isolation — DI usage specified | Compliant | the package's `requires` include `tax_management` and `ledger` (SPEC-013); registration mechanism named (`taxEngine.ts`, setup-time) |
+| spec-writing SKILL.md | Module Isolation — DI usage specified | Compliant | the package's `requires` include `tax_management` and `ledger` (accounting package spec); registration mechanism named (`taxEngine.ts`, setup-time) |
 | spec-writing checklist §7 | Risk Register required format | Compliant | Risks & Impact Review above uses Scenario/Severity/Affected area/Mitigation/Residual risk throughout — written fresh in this format, not carried over from the parent document's prose-style Risks section |
 
 ### Internal Consistency Check
@@ -675,7 +675,7 @@ KIS-integration correction and its two verification passes).
 
 ### 2026-09-28 — Split from `open-mercato#6168`, PR #6168 review findings applied
 
-Split out per the same reasoning SPEC-010 used, at the user's explicit
+Split out per the same reasoning the JPK_KR_PD spec used, at the user's explicit
 request after PR #6168's automated review. Findings from that review
 addressed in this document specifically:
 
@@ -719,5 +719,5 @@ implementation exists yet.
 
 ### 2026-10-08 — target layout, VAT input
 - The engines, mikrorachunek and payment-instruction flow move to the package `financial_pl_accounting` (Target layout section). Command, route, feature and file-path identifiers are renamed; the engines and ACL logic are unchanged.
-- The VAT engine's input is the VAT register read through `vatRegisterReadService` (SPEC-012), no longer GL balances; CIT and PIT still read GL balances. Matches the 2026-10-08 change in `open-mercato#6168`.
-- Dependencies: the package `requires` `financial_pl`, `ledger`, `tax_management` and `financial_statements` (SPEC-013), instead of adding `requires` to `financial_pl`.
+- The VAT engine's input is the VAT register read through `vatRegisterReadService` (integration contracts spec), no longer GL balances; CIT and PIT still read GL balances. Matches the 2026-10-08 change in `open-mercato#6168`.
+- Dependencies: the package `requires` `financial_pl`, `ledger`, `tax_management` and `financial_statements` (accounting package spec), instead of adding `requires` to `financial_pl`.
