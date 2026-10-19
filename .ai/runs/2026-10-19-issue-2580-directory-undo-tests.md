@@ -26,11 +26,11 @@ Create undo currently hard-deletes and redo resets creation time; lifecycle asse
 
 ## Evidence so far
 
-Both package builds, generation, i18n sync/usage, workspace/core typechecking, application build, and template parity passed. The final live suite passed four active cases with two lifecycle quarantines; the disable flag skipped all six. Temporarily enabling the quarantines reproduced physical row removal and changed creation time, and the exact committed file was restored. Independent review found no remaining code defects after persisted-state, active-state, and custom-field fixture corrections.
+Both package builds, generation, i18n sync/usage, workspace/core typechecking, application build, and template parity passed. The final live suite passed four active cases with two lifecycle quarantines; the disable flag skipped all six. Temporarily enabling the quarantines reproduced physical row removal and changed creation time, and the exact committed file was restored. Bounded implementation feedback led to persisted-state, active-state, and custom-field fixture corrections; this feedback does not complete the authoritative PR review.
 
-The full `yarn test` gate failed in `create-mercato-app`: macOS sandbox policy blocks Homebrew's `libuv.1.dylib`, and tracker-copy equality sees pre-existing local tracker modifications. Core passed 2,376 suites / 22,739 tests; 47 of 48 workspace tasks succeeded. The failing harness/tracker files are outside this PR. Main CI was pending at the original handoff. On 2026-10-19 the maintainer clarified that this repository accepts ready PRs only, so #7662 was marked ready for review while retaining the validation evidence and merge gates. No approval or merge was requested.
+The full `yarn test` gate failed in `create-mercato-app`: macOS sandbox policy blocks Homebrew's `libuv.1.dylib`, and tracker-copy equality sees pre-existing local tracker modifications. Core passed 2,376 suites / 22,739 tests; 47 of 48 workspace tasks succeeded. The failing harness/tracker files are outside this PR. These local environment diagnostics establish neither a changed-code defect nor a failed current-head CI check. Under the repository's CI-first review policy, pending CI is reported as incomplete evidence without running local substitutes or requesting changes.
 
-Review evidence: `2026-10-19-issue-2580-directory-undo-tests.review.json` and `.review-policy.json` beside this plan. Resume with `om-auto-continue-pr 7662` once the host harness failures or accepted CI evidence resolve the required gate. No production source changes are needed for the test suite.
+Publication: #7662 is ready under the maintainer's no-drafts policy and carries `review`. The unsupported author-side `REVISE` verdict was withdrawn; the two ad hoc review JSON files were removed because they did not use the shared schema and renderer. Independent PR review and required current-head CI remain pending. Keep `Status: in-progress` until the remaining validation and authoritative review steps finish; resume through `om-auto-continue-pr 7662`, which owns the review handoff. No approval, QA sign-off, or merge is implied by publication.
 
 ## Progress
 
@@ -45,5 +45,5 @@ PR: #7662
 
 ### Phase 2: Verification
 
-- [ ] 2.1 Prove enabled/disabled runs and validation gate — suite/disable checks passed; full gate blocked by create-app host/local harness failures
-- [x] 2.2 Independently review and publish evidence — code review clean at 5ae42fc1e0; approval withheld for required validation
+- [ ] 2.1 Prove enabled/disabled runs and validation gate — suite/disable checks passed; local harness limitations recorded; required current-head CI pending
+- [ ] 2.2 Independently review and publish evidence — implementation feedback addressed; authoritative PR review and required current-head CI pending

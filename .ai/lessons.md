@@ -200,7 +200,7 @@ This catalog indexes 153 focused lessons. Route the task first, then read only r
 
 ### spec-pr
 
-- [Publish ready PRs under the maintainer's no-drafts policy](lessons/publish-ready-prs-under-maintainer-no-drafts-policy.md) — area:spec-pr,ai-workflow; module:platform; topic:pull-request-publication,validation-gates,user-preferences
+- [Publish ready PRs under the maintainer's no-drafts policy](lessons/publish-ready-prs-under-maintainer-no-drafts-policy.md) — area:spec-pr,ai-workflow; module:platform; topic:pull-request-publication,validation-gates,user-preferences,review-transitions
 
 - [Credit the author, not the merger, when generating a changelog](lessons/credit-the-author-not-the-merger-in-a-changelog.md) — area:spec-pr,ai-workflow; module:platform; topic:data-integrity,generated-files
 - [Write Open Mercato specifications in English](lessons/write-open-mercato-specifications-in-english.md) — area:spec-pr,ai-workflow; module:platform; topic:specifications,documentation-language
