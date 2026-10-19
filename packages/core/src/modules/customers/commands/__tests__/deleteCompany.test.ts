@@ -186,7 +186,10 @@ describe('customers.companies.delete — dependent guard', () => {
 
     mockFindOneWithDecryption.mockResolvedValueOnce(entity as unknown as null)
 
-    await expect(handler.execute({ body: { id: COMPANY_ID } }, ctx)).resolves.toEqual({ entityId: COMPANY_ID })
+    await expect(handler.execute({ body: { id: COMPANY_ID } }, ctx)).resolves.toEqual({
+      entityId: COMPANY_ID,
+      labelAssignments: [],
+    })
 
     expect(em.nativeDelete).toHaveBeenCalledWith(CustomerPersonCompanyLink, {
       company: entity,
