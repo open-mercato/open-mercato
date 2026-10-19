@@ -72,7 +72,7 @@ The default `yarn install-skills` ships the **core** tier plus the entire extern
 | `design` | opt-in | 1 | Figma-side design workflow skills. Opt-in — presumes Figma tooling. |
 | `automation` | opt-in | 2 | PR/issue automation skills. Opt-in; agent-driven workflows. |
 | `security` | opt-in | 2 | Security audit skills. Opt-in. |
-| `analysis` | opt-in | 2 | Business/engagement analysis skills (app specs, platform gap analysis). Opt-in. |
+| `analysis` | opt-in | 3 | Business/engagement analysis skills (app specs, platform gap analysis) and the draft accessibility review. Opt-in. |
 | `migration` | opt-in | 3 | One-shot, version-pinned migrations. Install only when needed. |
 | `infra` | opt-in | 2 | Rare, special-case skills. |
 | external | always | 26 | Shared pipeline skills from [open-mercato/skills](https://github.com/open-mercato/skills), installed via `npx skills add` and refreshed via `npx skills update` (skip with `--no-external`). |
@@ -240,6 +240,7 @@ Moved here from [open-mercato/skills](https://github.com/open-mercato/skills) �
 |-------|-------------|
 | `om-app-spec-writing` | Write and review a business-level App Spec — domain model, workflows with ROI, user stories with failure paths, platform gap analysis in atomic commits, and a phased rollout — BEFORE any feature spec or code exists. One level above `om-spec-writing`, which decomposes the finished App Spec into feature specs. Use when the user says "create an app spec", "define business requirements", "what should we build". |
 | `om-gap-analysis` | Grounded platform gap analysis at engagement scale — turn a folder of client docs into an Epic/Story tree where every coverage verdict is re-run by executable gates against a validated checkout of the platform, scored in atomic commits, license-tier-tagged, and synthesized into a client-facing summary + backlog. Verifies coverage against the platform's code; it does not author requirements or specs. |
+| `om-wcag-guardian` | **DRAFT, not for PR enforcement — run only when explicitly asked.** Designs accessibility contracts and reviews UI-impacting changes against WCAG 2.2 AA and the EN 301 549 supplement with verified evidence (components, flows, styles, themes, accessible text, frontend dependencies, message or document templates, sanitizers, importers or exporters). |
 
 ### migration
 
@@ -249,6 +250,7 @@ Moved here from [open-mercato/skills](https://github.com/open-mercato/skills) �
 | `om-auto-upgrade-0.6.6-to-0.6.7` | Migrate downstream Open Mercato user code from 0.6.6 to 0.6.7. Applies the pg-errors import move, safely unwraps proven scheduler queue payload consumers, audits query-index callbacks and removed scheduler metadata, then typechecks and reports manual follow-up. Triggers on "upgrade Open Mercato to 0.6.7", "migrate 0.6.6 to 0.6.7", or "apply the 0.6.7 upgrade notes". |
 | `om-auto-upgrade-0.6.7-to-0.7.0` | Migrate downstream Open Mercato user code from 0.6.7 to 0.7.0. Applies exact TanStack, settings-group, and removed-env edits; audits auth, search, workflow, facts, Redis, webhook, and security-header changes; validates the app; and reports manual follow-up. Triggers on "upgrade Open Mercato to 0.7.0", "migrate 0.6.7 to 0.7.0", or "apply the 0.7.0 upgrade notes". |
 | `om-auto-upgrade-0.7.0-to-0.8.0` | Migrate downstream Open Mercato user code from 0.7.0 to 0.8.0. Audits entry.overrides CLI/worker/scheduler dispatch, sales line discount_amount semantics, AlertDescription ref types, devices API camelCase, deal-status "lost" spelling and canonical vocabulary, the outbound-email Communications Hub provider module, interaction participant userId, makeCrudRoute repeated query params, and createTimeProjectFixture's customerId; validates the app; and reports manual follow-up. Triggers on "upgrade Open Mercato to 0.8.0", "migrate 0.7.0 to 0.8.0", or "apply the 0.8.0 upgrade notes". |
+| `om-auto-upgrade-0.8.0-to-0.9.0` | Migrate downstream Open Mercato user code from 0.8.0 to 0.9.0. Enables `progress` before `customers` in src/modules.ts; audits catalog bulk-delete job scope, redoInput for secret-bearing commands, thrown CrudHttpError statuses, attachment request scope, directory organization hierarchy omission, SUB_WORKFLOW output ports, accent-insensitive search helpers, OpenAI-compatible preset apiMode, snapshot date revival, Gmail oauthClient, host locale overrides, CrudForm injected field ids, ChannelScope null organizations, duplicate ai_assistant encryption maps, WRONG_KEY encryption errors, the telemetry bootstrap, SSE API-key consumers, empty organization scopes, and the route-identity header; validates the app; and reports manual follow-up. Triggers on "upgrade Open Mercato to 0.9.0", "migrate 0.8.0 to 0.9.0", or "apply the 0.9.0 upgrade notes". |
 
 ### infra
 
