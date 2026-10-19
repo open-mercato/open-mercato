@@ -38,7 +38,7 @@ PR: #7659
 
 ### Phase 2: Verification
 
-- [ ] 2.1 Verify enabled execution and disabled skips; track confirmed defects.
+- [x] 2.1 Verify enabled execution and disabled skips; track confirmed defects. — cc71346547
 - [ ] 2.2 Complete validation and independent review; publish evidence.
 
 ## Verification Notes
@@ -46,4 +46,6 @@ PR: #7659
 - Runner: local, with the repository-managed isolated app/database. The linked worktree's unrelated untracked WMS migration duplicates existing columns, so validation uses a clean temporary source snapshot. Resource command sources match this branch; GitHub checks remain authoritative for the exact published head.
 - Initial enabled run: 20 cases, 14 passed and 6 failed. Both attempts reproduced comment/activity creation timestamp loss and physical row deletion during create undo. Follow-ups: #7666 (creation timestamps) and #7667 (soft deletion).
 - Keep normal child lifecycle/scalar/date/same-ID checks active. Only four isolated timestamp cases and two I3 row-retention cases are quarantined with linked `test.fixme` calls.
-- The existing disable-flag harness passed all 14 unit tests. Package builds, generation, translation sync/usage, and workspace typechecking passed in the clean snapshot. Final enabled/disabled run and remaining full gate results are pending.
+- Final enabled run: 18 passed, 6 narrowly quarantined; disabled run: all 24 skipped before authentication. The existing disable-flag harness passed all 14 unit tests. Package builds, generation, translation sync/usage, workspace typechecking, and application build passed in the clean snapshot.
+- Full-gate blocker: workspace unit runs fail when unrelated Jest workers terminate with SIGSEGV in varying CLI/core suites. Two core suites passed an isolated retry (29 tests), and both affected CLI suites passed in isolation (23 tests). Homebrew Node also fails the create-app sandbox because its libuv library is outside the sandbox read roots; standalone Node 24.18 and bundled Node 24.19 pass the isolated sandbox case, but full runs still encounter worker crashes. No test or production configuration was weakened.
+- Keep PR #7659 as a draft with Status: in-progress until the full validation gate is green. Linux CI for the published code head is queued. Resume with `om-auto-continue-pr 7659` when usable CI evidence or a stable full-test runner is available. The run releases its claims and does not schedule an unattended follow-up.
