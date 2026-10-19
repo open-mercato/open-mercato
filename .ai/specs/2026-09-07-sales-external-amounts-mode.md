@@ -1068,8 +1068,10 @@ Contract-surface classification: see § Migration & Backward Compatibility.
 
 ## Decision Requested
 
-Three questions need a maintainer answer before an implementation PR exists. Each changes what the code has
-to do; none can be deferred to review.
+Three questions need a maintainer answer before the implementation in
+[#6092](https://github.com/open-mercato/open-mercato/pull/6092) merges. Each changes what the code has to
+do; none can be deferred to review. Merging #6092 as it stands adopts the answers listed under *What #6092
+assumes* below, so the answers belong in § Decision Record in the same PR or immediately after it.
 
 | # | decision | if rejected |
 |---|---|---|
@@ -1134,6 +1136,16 @@ the #5707 warning's suppression is asserted **against the logger**, because § O
 positional rather than gated.
 
 ## Changelog
+
+### 2026-10-19
+
+- § Decision Requested no longer reads as if no implementation exists: the questions now gate #6092's
+  merge, and it says that merging #6092 as-is adopts the assumed answers.
+- Implementation detail worth recording for whoever answers question 1: on a line upsert, an external
+  line's completeness is checked *after* the step that decides whether a line's stored tax and gross are
+  still valid. That step clears them once a pricing input (quantity, unit price, tax rate, discount)
+  changes, so an external line repriced without restating tax and gross is rejected rather than stored
+  with zeros — consistent with § 4's "partial specification is not a mode".
 
 ### 2026-09-14 (implementation)
 
