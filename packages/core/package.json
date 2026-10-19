@@ -253,6 +253,7 @@
     "leaflet": "^1.9.4",
     "leaflet.markercluster": "^1.5.3",
     "mammoth": "^1.9.0",
+    "nodemailer": "^10.0.10",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.2.108",
     "resend": "^6.24.0",

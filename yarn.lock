@@ -9065,6 +9065,7 @@ __metadata:
     leaflet: "npm:^1.9.4"
     leaflet.markercluster: "npm:^1.5.3"
     mammoth: "npm:^1.9.0"
+    nodemailer: "npm:^10.0.10"
     pdf-lib: "npm:^1.17.1"
     pdfjs-dist: "npm:^6.2.108"
     react: "npm:19.2.8"
