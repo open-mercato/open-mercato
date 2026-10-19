@@ -26,6 +26,10 @@ const scalarFields = [
   'organization_id', 'tenant_id', 'created_at',
 ]
 
+export const integrationMeta = {
+  dependsOnModules: ['resources', 'planner', 'dictionaries', 'entities', 'audit_logs'],
+}
+
 test.describe('TC-UNDO-001 resources lifecycle and related state (#2577)', () => {
   test.beforeAll(() => {
     skipIfUndoTestsDisabled()
@@ -150,6 +154,12 @@ test.describe('TC-UNDO-001 resources lifecycle and related state (#2577)', () =>
       const fixture = await createResourceUndoFixture(request, token, RESOURCES, { name: `CF resource ${key}`, [`cf_${key}`]: 5 })
       resourceId = fixture.id
       const readValue = async () => (await readResourceUndoRecord(request, token, RESOURCES, fixture.id))?.[`cf_${key}`]
+      expect(await readValue()).toBe(5)
+      const createOperation = expectOperation(fixture.response, 'resources custom fields create')
+      await undoOk(request, token, createOperation.undoToken, 'resource custom field create')
+      expect(await readResourceUndoRecord(request, token, RESOURCES, resourceId)).toBeNull()
+      await expectResourceUndoTokenConsumed(request, token, createOperation.undoToken)
+      await redoOk(request, token, createOperation.logId, 'resource custom field create')
       expect(await readValue()).toBe(5)
 
       const updated = await apiRequest(request, 'PUT', RESOURCES, { token, data: { id: resourceId, [`cf_${key}`]: 10 } })

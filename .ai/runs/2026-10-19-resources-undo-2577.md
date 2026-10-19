@@ -27,14 +27,23 @@ Child-row removal and activity date serialization may reveal existing command de
 
 ## Progress
 
+PR: #7659
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Coverage
 
-- [ ] 1.1 Add resource-type, activity, and comment lifecycle coverage.
-- [ ] 1.2 Add resource, custom-field, relation, and tag coverage.
+- [x] 1.1 Add resource-type, activity, and comment lifecycle coverage. — 49eedb8c37
+- [x] 1.2 Add resource, custom-field, relation, and tag coverage. — 5a60b3906e
 
 ### Phase 2: Verification
 
 - [ ] 2.1 Verify enabled execution and disabled skips; track confirmed defects.
 - [ ] 2.2 Complete validation and independent review; publish evidence.
+
+## Verification Notes
+
+- Runner: local, with the repository-managed isolated app/database. The linked worktree's unrelated untracked WMS migration duplicates existing columns, so validation uses a clean temporary source snapshot. Resource command sources match this branch; GitHub checks remain authoritative for the exact published head.
+- Initial enabled run: 20 cases, 14 passed and 6 failed. Both attempts reproduced comment/activity creation timestamp loss and physical row deletion during create undo. Follow-ups: #7666 (creation timestamps) and #7667 (soft deletion).
+- Keep normal child lifecycle/scalar/date/same-ID checks active. Only four isolated timestamp cases and two I3 row-retention cases are quarantined with linked `test.fixme` calls.
+- The existing disable-flag harness passed all 14 unit tests. Package builds, generation, translation sync/usage, and workspace typechecking passed in the clean snapshot. Final enabled/disabled run and remaining full gate results are pending.
