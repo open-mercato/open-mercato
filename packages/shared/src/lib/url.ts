@@ -267,6 +267,36 @@ export function toSecurityEmailUrl(input: RequestInput, path: string, env: EnvLi
   return `${base}/${path.replace(/^\/+/, '')}`
 }
 
+export function isCrossSiteBrowserRequest(req: Request, env: EnvLike = process.env): boolean {
+  const rawFetchSite = req.headers.get('sec-fetch-site')
+  const fetchSite = rawFetchSite?.trim().toLowerCase() ?? null
+  if (fetchSite === 'cross-site') return true
+  if (fetchSite === 'same-origin' || fetchSite === 'none') return false
+
+  const rawOrigin = req.headers.get('origin')
+  if (rawOrigin === null) return rawFetchSite !== null
+  const origin = normalizeOrigin(rawOrigin)
+  if (!origin) return true
+
+  const allowedOrigins = readAllowedOrigins(env)
+  if (allowedOrigins.has(origin)) return false
+  if (shouldAllowLoopbackOrigin(origin, allowedOrigins, env)) return false
+
+  const forwardedProto = readFirstHeaderValue(req.headers.get('x-forwarded-proto'))
+  const protocol = forwardedProto
+    ? (forwardedProto.endsWith(':') ? forwardedProto : `${forwardedProto}:`)
+    : new URL(origin).protocol
+  const host = req.headers.get('host')
+  const forwardedHost = req.headers.get('x-forwarded-host')
+  if (originFromHost(protocol, forwardedHost) === origin) return false
+  if (originFromHost(protocol, host) === origin) return false
+
+  if (env.NODE_ENV !== 'test') {
+    logger.warn('Cross-site request rejected', { origin, host, forwardedHost })
+  }
+  return true
+}
+
 export function mapSecurityEmailUrlError(
   error: unknown,
   mapping: SecurityEmailUrlErrorMapping,
