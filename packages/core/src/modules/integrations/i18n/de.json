@@ -53,6 +53,7 @@
   "integrations.detail.logs.level.error": "Fehler",
   "integrations.detail.logs.level.info": "Info",
   "integrations.detail.logs.level.warn": "Warnung",
+  "integrations.detail.logs.noPermission": "Sie haben keine Berechtigung, die Protokolle dieser Integration anzuzeigen.",
   "integrations.detail.logs.title": "Betriebsprotokolle",
   "integrations.detail.notFound": "Integration nicht gefunden.",
   "integrations.detail.runActivity.lastRefreshed": "Zuletzt aktualisiert",
