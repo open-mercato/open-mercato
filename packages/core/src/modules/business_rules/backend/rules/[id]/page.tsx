@@ -24,6 +24,7 @@ import {
 import { ConditionBuilder } from '../../../components/ConditionBuilder'
 import { ActionBuilder } from '../../../components/ActionBuilder'
 import { buildRulePayload, parseRuleToFormValues } from '../../../components/utils/formHelpers'
+import { BUSINESS_RULE_FORM_SPOT_ID } from '../../../components/formSpots'
 
 export default function EditBusinessRulePage({ params }: { params?: { id?: string } }) {
   const router = useRouter()
@@ -48,10 +49,10 @@ export default function EditBusinessRulePage({ params }: { params?: { id?: strin
 
   const initialValues = React.useMemo(() => {
     if (rule) {
-      return parseRuleToFormValues(rule)
+      return { ...parseRuleToFormValues(rule), id: ruleId }
     }
     return null
-  }, [rule])
+  }, [rule, ruleId])
 
   const handleSubmit = async (values: BusinessRuleFormValues) => {
     // Use tenant/org from the loaded rule if available, otherwise from context
@@ -155,6 +156,7 @@ export default function EditBusinessRulePage({ params }: { params?: { id?: strin
           fields={fields}
           initialValues={initialValues}
           optimisticLockUpdatedAt={rule?.updatedAt ?? rule?.updated_at ?? null}
+          injectionSpotId={BUSINESS_RULE_FORM_SPOT_ID}
           onSubmit={handleSubmit}
           cancelHref="/backend/rules"
           groups={formGroups}

@@ -39,6 +39,12 @@ export interface EvaluationContext {
   }
   now?: Date
   today?: Date
+  /**
+   * Historical clock: the instant the evaluation is replayed at (simulations only).
+   * Drives rule effective-window checks and is the fallback for `{{now}}` / `{{today}}`
+   * when `now` / `today` are not set. Production callers leave it unset (current time).
+   */
+  evaluatedAt?: Date
   [key: string]: any
 }
 
@@ -60,7 +66,7 @@ export function evaluateExpression(
 /**
  * Check if expression is a group condition
  */
-function isGroupCondition(expression: ConditionExpression): expression is GroupCondition {
+export function isGroupCondition(expression: ConditionExpression): expression is GroupCondition {
   return 'rules' in expression && Array.isArray(expression.rules)
 }
 
@@ -154,7 +160,7 @@ function resolveFieldPath(path: string, data: any): any {
 /**
  * Resolve a static value or special template value
  */
-function resolveStaticOrSpecialValue(value: any, context: EvaluationContext): any {
+export function resolveStaticOrSpecialValue(value: any, context: EvaluationContext): any {
   // If not a string, return as-is (already a value)
   if (typeof value !== 'string') {
     return value
@@ -172,7 +178,7 @@ function resolveStaticOrSpecialValue(value: any, context: EvaluationContext): an
 /**
  * Apply a comparison operator
  */
-function applyOperator(left: any, operator: ComparisonOperator, right: any): boolean {
+export function applyOperator(left: any, operator: ComparisonOperator, right: any): boolean {
   switch (operator) {
     case '=':
     case '==':
@@ -326,43 +332,70 @@ const MAX_REGEX_LENGTH = 200
 const MAX_REGEX_INPUT_LENGTH = 10_000
 
 /**
- * Check if string matches regex pattern (with ReDoS protection)
+ * Outcome of a guarded regex test. `rejected` is true when the ReDoS / RE2 guard refused
+ * to run the pattern (too long, dangerous shape, oversized input, unsupported or invalid
+ * pattern, or a thrown error); production treats a rejected test as "no match".
  */
-function matches(str: any, pattern: any): boolean {
-  if (str == null || pattern == null) return false
+export type RegexMatchOutcome = { matched: boolean; rejected: boolean }
+
+function runGuardedRegexMatch(
+  str: unknown,
+  pattern: unknown,
+  onError?: (error: unknown) => void,
+): RegexMatchOutcome {
+  if (str == null || pattern == null) return { matched: false, rejected: false }
 
   try {
     const patternStr = String(pattern)
 
     // Prevent overly long patterns
     if (patternStr.length > MAX_REGEX_LENGTH) {
-      return false
+      return { matched: false, rejected: true }
     }
 
     // Check for dangerous patterns that can cause exponential backtracking
     // Patterns like (a+)+, (a*)*, (a+)*, etc.
     if (/(\(.*[+*]\).*[+*])/.test(patternStr)) {
-      return false
+      return { matched: false, rejected: true }
     }
 
     const testStr = String(str)
     if (testStr.length > MAX_REGEX_INPUT_LENGTH) {
-      return false
+      return { matched: false, rejected: true }
     }
 
     const result = testLinearRegex(patternStr, testStr, {
       maxPatternLength: MAX_REGEX_LENGTH,
       maxInputLength: MAX_REGEX_INPUT_LENGTH,
     })
-    return result.ok ? result.matched : false
+    return result.ok ? { matched: result.matched, rejected: false } : { matched: false, rejected: true }
   } catch (error) {
-    // Log the error for debugging but don't expose to user
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    if (process.env.NODE_ENV !== 'test') {
-      logger.error('Regex matching failed', { message })
-    }
-    return false
+    onError?.(error)
+    return { matched: false, rejected: true }
   }
+}
+
+/**
+ * The exact guard logic of the `MATCHES` operator, reporting whether the guard rejected
+ * the test instead of folding a rejection into "no match". Never logs.
+ */
+export function evaluateRegexMatch(str: unknown, pattern: unknown): RegexMatchOutcome {
+  return runGuardedRegexMatch(str, pattern)
+}
+
+function logRegexMatchFailure(error: unknown): void {
+  // Log the error for debugging but don't expose to user
+  const message = error instanceof Error ? error.message : 'Unknown error'
+  if (process.env.NODE_ENV !== 'test') {
+    logger.error('Regex matching failed', { message })
+  }
+}
+
+/**
+ * Check if string matches regex pattern (with ReDoS protection)
+ */
+function matches(str: any, pattern: any): boolean {
+  return runGuardedRegexMatch(str, pattern, logRegexMatchFailure).matched
 }
 
 /**

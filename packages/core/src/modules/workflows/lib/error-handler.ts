@@ -25,6 +25,7 @@ import { WorkflowInstance } from '../data/entities'
 import { logWorkflowEvent } from './event-logger'
 import { readWorkflowErrorHandler } from './error-routing'
 import { findDefinitionForInstance } from './find-definition'
+import { runInWorkflowCausationFrame } from './workflow-causation'
 import type { WorkflowActivityJob, WorkflowActivityJobErrorHandler } from './activity-queue-types'
 import { WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -151,27 +152,31 @@ export async function runWorkflowErrorHandler(
 
   const { startWorkflow, executeWorkflow } = await import('./workflow-executor')
 
-  const handlerInstance = await startWorkflow(em, {
-    workflowId: payload.handlerWorkflowId,
-    version: payload.handlerVersion,
-    initialContext: {
-      failedStepId: payload.failedStepId,
-      error: payload.error,
-      contextSnapshot: payload.contextSnapshot,
-    },
-    metadata: {
-      labels: {
-        errorHandlerForInstanceId: payload.workflowInstanceId,
+  const failedInstanceCausationTarget = { instance: failedInstance }
+
+  const handlerInstance = await runInWorkflowCausationFrame(failedInstanceCausationTarget, () =>
+    startWorkflow(em, {
+      workflowId: payload.handlerWorkflowId,
+      version: payload.handlerVersion,
+      initialContext: {
+        failedStepId: payload.failedStepId,
+        error: payload.error,
+        contextSnapshot: payload.contextSnapshot,
       },
-      errorHandler: {
-        depth: payload.depth,
-        forInstanceId: payload.workflowInstanceId,
-        forStepId: payload.failedStepId ?? undefined,
+      metadata: {
+        labels: {
+          errorHandlerForInstanceId: payload.workflowInstanceId,
+        },
+        errorHandler: {
+          depth: payload.depth,
+          forInstanceId: payload.workflowInstanceId,
+          forStepId: payload.failedStepId ?? undefined,
+        },
       },
-    },
-    tenantId: payload.tenantId,
-    organizationId: payload.organizationId,
-  })
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId,
+    }),
+  )
 
   await logWorkflowEvent(em, {
     workflowInstanceId: payload.workflowInstanceId,
@@ -186,7 +191,9 @@ export async function runWorkflowErrorHandler(
     organizationId: payload.organizationId,
   })
 
-  await executeWorkflow(em, container, handlerInstance.id)
+  await runInWorkflowCausationFrame(failedInstanceCausationTarget, () =>
+    executeWorkflow(em, container, handlerInstance.id),
+  )
 
   return handlerInstance.id
 }

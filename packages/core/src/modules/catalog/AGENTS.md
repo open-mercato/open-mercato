@@ -101,6 +101,12 @@ Key events follow the standard pattern in `events.ts`:
 - `catalog.product.created/updated/deleted` — CRUD events
 - `catalog.pricing.resolve.before/after` — pricing lifecycle (excluded from workflow triggers)
 
+## Change Simulator (price backtest)
+
+- `insights.simulate.ts` → `catalog.price_backtest` (`lib/simulation/price-backtest.ts`): a proposal is new net/gross amounts of an EXISTING row only (`catalogPriceBacktestProposalSchema`). Evaluate, never execute: no commands, no `taxCalculationService`, no writes (zero-side-effect test).
+- Lines come only from sources registered with `registerCatalogPriceLineSource` (`lib/simulation/priceLineSources.ts`; sales registers orders and quotes) — never import sales from catalog for this.
+- The amount timeline (`priceTimeline.ts`) reads the row's own audit history (`catalog.price`, ≤ 200 entries); keep the price snapshot fields `unitPriceNet` / `unitPriceGross` / `currencyCode` stable. Bump `PRICE_BACKTEST_VERSION` when the semantics change.
+
 ## AI Agents in This Module
 
 Two typed AI agents ship from `ai-agents.ts`. See `/framework/ai-assistant/agents` for the full guide. Copy `packages/core/src/modules/customers/ai-agents.ts` + `ai-tools.ts` first; use this module's agents as the catalog-specific reference.

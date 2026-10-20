@@ -20,7 +20,7 @@ jest.mock('../../lib/event-trigger-service', () => ({
 }))
 
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import handle from '../event-trigger'
+import handle, { WORKFLOW_TRIGGER_EXCLUDED_EVENT_PREFIXES, isWorkflowTriggerExcludedEvent } from '../event-trigger'
 import { processEventTriggers } from '../../lib/event-trigger-service'
 
 const processEventTriggersMock = jest.mocked(processEventTriggers)
@@ -99,6 +99,29 @@ describe('workflow event-trigger subscriber', () => {
     )
 
     expect(processEventTriggersMock).not.toHaveBeenCalled()
+  })
+
+  it('skips every exported excluded prefix (the list the trigger backtest mirrors) and nothing else', async () => {
+    expect(WORKFLOW_TRIGGER_EXCLUDED_EVENT_PREFIXES).toEqual(['query_index.', 'search.', 'workflows.', 'cache.', 'queue.'])
+    for (const prefix of WORKFLOW_TRIGGER_EXCLUDED_EVENT_PREFIXES) {
+      const eventName = `${prefix}entity.updated`
+      expect(isWorkflowTriggerExcludedEvent(eventName)).toBe(true)
+      await handle(
+        { id: 'record-1' },
+        {
+          eventName,
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          resolve: jest.fn((name: string) => {
+            if (name === 'em') return {}
+            throw new Error(`Unexpected dependency: ${name}`)
+          }),
+        }
+      )
+    }
+    expect(processEventTriggersMock).not.toHaveBeenCalled()
+    expect(isWorkflowTriggerExcludedEvent('workflow.instance.updated')).toBe(false)
+    expect(isWorkflowTriggerExcludedEvent('searching.index.updated')).toBe(false)
   })
 
   it('emits trigger evaluation diagnostics at debug level', async () => {

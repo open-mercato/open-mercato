@@ -5,6 +5,8 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { Queue, QueuedJob, JobHandler, LocalQueueOptions, ProcessOptions, ProcessResult, EnqueueOptions, QueueJobScope } from '../types'
 import { attachTraceMetadata, runJobInTrace } from '../tracing'
+import { attachCausationMetadata, runJobInCausation } from '../causation'
+import { runOutsideCausation } from '@open-mercato/shared/lib/causation/server'
 
 const packageLogger = createLogger('queue')
 
@@ -448,7 +450,7 @@ export function createLocalQueue<T = unknown>(
     const availableAt = options?.delayMs && options.delayMs > 0
       ? new Date(Date.now() + options.delayMs).toISOString()
       : undefined
-    const metadata = attachTraceMetadata(undefined)
+    const metadata = attachCausationMetadata(attachTraceMetadata(undefined))
     const job: StoredJob<T> = {
       id: generateId(),
       payload: data,
@@ -501,13 +503,15 @@ export function createLocalQueue<T = unknown>(
       for (const job of jobsToProcess) {
         const attemptNumber = (job.attemptCount ?? 0) + 1
         try {
-          await runJobInTrace(name, job.metadata, () =>
-            Promise.resolve(
-              handler(job, {
-                jobId: job.id,
-                attemptNumber,
-                queueName: name,
-              })
+          await runJobInCausation(name, job.metadata, () =>
+            runJobInTrace(name, job.metadata, () =>
+              Promise.resolve(
+                handler(job, {
+                  jobId: job.id,
+                  attemptNumber,
+                  queueName: name,
+                })
+              )
             )
           )
           processed++
@@ -606,10 +610,10 @@ export function createLocalQueue<T = unknown>(
       return
     }
     if (queuedPollTimer) return
-    queuedPollTimer = setTimeout(() => {
+    queuedPollTimer = runOutsideCausation(() => setTimeout(() => {
       queuedPollTimer = null
       void pollAndProcess()
-    }, pollInterval)
+    }, pollInterval))
   }
 
   function closeQueueWatcher(): void {
@@ -636,13 +640,13 @@ export function createLocalQueue<T = unknown>(
         }
 
         closeQueueWatcher()
-        const watcher = fs.watch(queueFile, (eventType) => {
+        const watcher = runOutsideCausation(() => fs.watch(queueFile, (eventType) => {
           if (eventType === 'rename') {
             queueWatcherIdentity = null
             void refreshQueueWatcher()
           }
           void pollAndProcess()
-        })
+        }))
         watcher.on('error', (err) => {
           logger.error('Queue watch error; fallback polling remains active', { err })
           if (queueWatcher === watcher) {
@@ -687,11 +691,11 @@ export function createLocalQueue<T = unknown>(
       throw error
     }
 
-    pollingTimer = setInterval(() => {
+    pollingTimer = runOutsideCausation(() => setInterval(() => {
       refreshQueueWatcher().then(() => pollAndProcess()).catch((err) => {
         logger.error('Poll cycle error', { err })
       })
-    }, fallbackPollInterval)
+    }, fallbackPollInterval))
 
     logger.info('Worker started', { concurrency })
 

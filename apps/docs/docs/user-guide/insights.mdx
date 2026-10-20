@@ -1,0 +1,257 @@
+---
+title: Insights
+description: Ask "Why?" about any explainable value, see how work actually flows with Process X-Ray, and test configuration changes against history with the Change Simulator.
+sidebar_label: Insights
+---
+
+# Insights
+
+The **Insights** module answers three questions from the audit history Open Mercato already records:
+
+- **"Why?"** — why does this field have this value, and who or what set it?
+- **Process X-Ray** — how do deals, orders and quotes actually move through their stages, where do they wait, and which manual follow-ups are repeated often enough to automate?
+- **Change Simulator** — what would happen if I saved this business rule, workflow trigger, role permission or price change?
+
+All three read history; none of them changes your data on its own. Their design rule is that **a wrong cause is worse than "unknown"**: when the history cannot prove something, Insights says so instead of guessing.
+
+The sidebar group **Insights** contains **Process X-Ray** and **My simulations**. "Why?" has no menu entry: it appears on the records it can explain.
+
+## Permissions
+
+| Feature | What it allows | Granted by default to |
+|---|---|---|
+| `insights.explain.view` | "Why?" on records, fields and audit entries | `superadmin`, `admin`, `employee` |
+| `insights.explain.access_detail` | Detailed access explanations (roles, personal permissions, roles that would grant access — also needs `auth.roles.list` —, recent permission changes) | `superadmin`, `admin` |
+| `insights.xray.view` | Process X-Ray pages, the "Process health" dashboard widget | `superadmin`, `admin` |
+| `insights.xray.manage` | Process X-Ray settings, history backfill, dismissing suggestions, on-demand mining | `superadmin`, `admin` |
+| `insights.xray.view_individuals` | Per-person X-Ray breakdowns (also needs the organization setting, see below) | `superadmin` only |
+| `insights.simulator.view` | Your own simulation runs and results | `superadmin`, `admin` |
+| `insights.simulator.run` | Starting, cancelling and deciding simulations | `superadmin`, `admin` |
+
+`superadmin` receives these through `insights.*`. The `admin` role lists the features one by one, so per-person analytics stay with super administrators unless you grant `insights.xray.view_individuals` explicitly. Nested wildcards such as `insights.xray.*` are **not** honoured — grant the individual features or `insights.*`. After upgrading an existing installation, run `yarn mercato auth sync-role-acls` so existing roles receive the new features.
+
+Insights never widens access: every explanation, process and simulation also requires the permission to read the underlying records (for example `customers.deals.view` for deals, `sales.orders.view` for orders).
+
+## "Why?" — explain a value
+
+### Where to find it
+
+| Entry point | Where | What it shows |
+|---|---|---|
+| **Why?** button | Detail pages of deals, people, companies, sales orders and sales quotes | A drawer with the record's **explainable fields**; pick one to see its history. **Open as page** opens the same explanation on its own page. |
+| **Why this status?** | Next to the status badge on a deal's detail page | The explanation of the deal status. |
+| **Why did this happen?** | Each entry of a record's version history | The recorded cause of that one change, with a link to explain the whole record. |
+| **Explain fields** switch | Header of the deal, person and company **edit** forms | While the switch is on, a "?" button appears after each explainable field ("Why does … have this value?"). The switch is remembered per browser and form. |
+| **Why can't I open this?** | The access-denied page | Which required permissions you are missing and why (see [Access explanations](#access-explanations)). |
+| Deep link | `/backend/insights/why?resourceKind=…&resourceId=…&field=…` | The explanation as a page. For a field of an order or quote line, add the line: `field=lines.unitPriceNet&itemId=<line id>`. |
+
+Which records and fields are explainable is decided by the module that owns them. Out of the box: deals (status, pipeline stage, value amount and currency, owner, custom fields), people and companies (display name, status, lifecycle stage, custom fields), and sales orders and quotes (status, currency, net and gross totals — calculated from the lines — and, per line, unit price and quantity). Order and quote **line** fields are not listed in the drawer; open them through the deep link (or the API / AI tool) with the line's id.
+
+### Reading an explanation
+
+An explanation shows:
+
+- the **current value**;
+- a **verdict** and a **confidence** (below);
+- a one-sentence **summary**;
+- **Recorded changes** — newest first, each with the old and new value, who made it, and its **cause**. Expand an entry (**Change details**) to see the cause chain, what triggered it ("Triggered by", "Started by"), the correlation id shared by everything that happened in the same request or job, and "On behalf of" for delegated actions;
+- **gaps** (for example "A change between these entries was not recorded") and **notes**;
+- **Load older changes** when the history is longer than one page.
+
+The cause of a change is one of:
+
+| Cause | Meaning |
+|---|---|
+| User | A person saved the change in the UI or through the API with their session. |
+| API key | An integration called the API with an API key. |
+| Agent | An agent running under its own identity (for example an orchestrated AI agent), possibly on behalf of a person ("On behalf of"). |
+| Workflow | A workflow step (the workflow instance is linked when you may see it). |
+| Business rule | A business rule action, including rules that call the Open Mercato API. |
+| AI action | An AI assistant action you or a colleague confirmed. |
+| AI tool | A tool an AI assistant ran. |
+| Data sync | An import or export run of a data sync integration. |
+| Scheduled job | A schedule of the scheduler. |
+| Event handler | A module reacting to an event (for example a subscriber that updates related records). |
+| Undo / Redo | An undo or redo of an earlier change. |
+| System | A system process, such as a CLI command or a resumed workflow. |
+| Unknown cause | Nothing reliable was recorded. |
+
+Changes recorded **before cause tracking** existed are shown as "Recorded as a user action — may have been automation": older history cannot tell a person from an automation that used their account.
+
+Causes link to the workflow, rule, schedule, API key or other source only when you may open it; otherwise you see the kind of cause with "details not available".
+
+### Verdicts
+
+| Verdict | Meaning |
+|---|---|
+| **Explained** | The recorded history accounts for the current value. |
+| **Partially explained** | The history explains the value, but there are gaps (an unrecorded change between two entries, a recorded entry without this value, or only part of the history was read). |
+| **No history record found** | The current value differs from the last recorded value. Something changed it without writing an audit entry — for example a process that writes directly to the database. If the owning module knows such a writer, a note names it. |
+| **No history** | No recorded change touches this value: the history has no entry that sets it, for example because the record was written by a process that records no history. Some modules record no history at all (customer groups, for example) and the explanation says so: "This module does not record history for this value". |
+| **Pending** | The value changed less than two minutes ago and its history entry may not be written yet. Check again shortly. |
+
+"No history record found" and "No history" are statements about the audit trail, not accusations: they say the platform has no evidence, not that someone bypassed it.
+
+### Confidence
+
+| Confidence | When |
+|---|---|
+| **Proven** | The change was recorded with its cause, and the value at that point is consistent with the neighbouring entries and the current value. |
+| **Inferred** | The answer is probably right but rests on weaker evidence: an entry from before cause tracking, a value taken from the change list instead of a full snapshot, a calculated field (such as order totals), a cause derived from the recorded actor, changes recorded within a few milliseconds of each other, a link to another change that is not available, or a history that was only partly scanned. Line price notes ("matched the catalog price row") are never better than inferred. |
+| **Unknown** | The history cannot support an answer. |
+
+Confidence is always shown with an icon and text, never by colour alone.
+
+### What you can see
+
+- Without `audit_logs.view_tenant`, other people appear as "Another user", and the past values of their changes are hidden ("Hidden"). With `audit_logs.view_self` you still see the past values of your own changes. The current value is always shown — you can already read it on the record.
+- Records you cannot open, and records of other organizations, answer "Nothing to explain" — exactly as if they did not exist.
+- Only the most recent 500 history entries are read per request (configurable, see below). When more exist the explanation says "Only the most recent history was scanned", and its confidence is at most **Inferred**.
+
+### Access explanations
+
+On the access-denied page, **Why can't I open this?** lists the permissions the page requires, which of them you are missing, and the reason, for example:
+
+- a required permission is not granted to you;
+- it is granted only in other organizations than the selected one;
+- your personal permission settings replace the permissions of your roles;
+- the module providing it is disabled, or the permission no longer exists;
+- every permission is granted, so access was denied by a rule that cannot be explained here.
+
+Any signed-in user can ask for their own explanation. With `insights.explain.access_detail` the panel also shows where your permissions come from (roles, personal permissions, super administrator, API key), the roles that would grant the missing permissions (only if you may also list roles, `auth.roles.list`) and recent permission changes. Explaining another user's access additionally requires `auth.users.list`.
+
+## Process X-Ray
+
+Process X-Ray turns the audit history of declared processes into process-mining analytics. Out of the box it covers:
+
+- **Deals** (`customers.deal`): creation, status and pipeline-stage changes, owner hand-overs; a deal ends when it reaches a closed status;
+- **Sales orders** (`sales.order`): status, fulfillment and payment status, with payments and shipments as milestones;
+- **Sales quotes** (`sales.quote`): status, ending when a quote is converted to an order.
+
+Breakdowns by **role** and **team** come from the auth and staff modules.
+
+### Getting started (administrators)
+
+1. Open **Settings → Module Configs → Process X-Ray settings** (`insights.xray.manage`).
+2. Check the settings (below) and click **Backfill history**. Organizations created after Insights was installed are projected automatically from their creation; organizations that already existed need one backfill, which reads their history within the retention period. Progress appears in the top bar.
+3. The **Projection status** panel shows whether the organization is up to date, from when its history is covered, and any errors.
+
+A system schedule ("Process X-Ray ingest", every 120 seconds) keeps the projection current. It does not count against a tenant's schedule quota.
+
+### The pages
+
+**Insights → Process X-Ray** lists the processes you may analyse with their number of cases, open cases and **Data through** (or **Catching up** while the projection is behind). Choose a period: 7, 30 or 90 days, or a custom range of at most 180 days.
+
+A process page shows key figures (cases, open cases, median and 90th-percentile cycle time of completed cases) and a filter bar (**Caused by** — people, automation kinds or "Recorded before cause tracking"; roles; teams; whether data sync steps count towards waiting times). Its tabs:
+
+| Tab | Shows |
+|---|---|
+| **Map** | Steps and transitions. Edge width is the number of transitions; colour shows who performs the steps (mostly people, mostly automated, mostly before tracking, mixed). Switch between **Raw** and **Collapsed** counting (collapsed merges quick successive changes and corrections). Select a step or transition for details and **View cases with this step**. A transitions table lists the same data accessibly. |
+| **Variants** | The distinct paths cases take, with cases, share and median cycle time. **View cases** lists them; **Create workflow draft** turns a path into a disabled workflow draft. |
+| **Bottlenecks** | Median, 90th-percentile and total waiting time per transition. |
+| **Rework** | How often a step happens again in the same case, with a 95 % lower bound. Corrections (a change undone shortly after by the same person) and quick successive changes are not counted as rework. |
+| **Conformance** | How observed cases compare with a designed process: a workflow configured in the settings (with an activity → step mapping) or an expected sequence you type in. The workflow's version is shown only if you may view workflow definitions (`workflows.definitions.view`). |
+| **Breakdown** | Cases, steps and waiting times by organization, role, team or — when allowed — person. |
+| **Suggestions** | Automation suggestions for this process (see below). |
+
+**Cases** lists case and organization ids only. The **Process health** dashboard widget (off by default) shows the three busiest processes of the last 30 days.
+
+### Statistics you can trust
+
+- Every figure comes with its number of cases (`n`). Medians need at least 5 cases, the 90th percentile at least 20; below 30 cases a result is marked **Low confidence**.
+- Cycle times count completed cases only; open cases are reported separately.
+- Steps written by data sync runs are left out of waiting times unless you include them.
+- Results show **Data through** a point in time; when the projection is still catching up a banner says so.
+
+### Privacy
+
+- **k-anonymity.** Any group with fewer than *k* cases (default 10, at least 5) or fewer than three distinct people is hidden ("Hidden (privacy)"), and totals only count what is shown. When hiding one small group would let you work it out from the total, neighbouring groups are hidden too. On the map a hidden step is a dashed "Hidden step" placeholder; dashed lines mean exactly this and nothing else.
+- **No names.** People are stored as keyed pseudonyms, never as user ids. Breakdowns show roles, teams and organizations; a per-person breakdown shows "Person 1", "Person 2", … — never who.
+- **Per-person breakdowns** need both the `insights.xray.view_individuals` permission **and** the organization setting **Allow per-person analytics** (off by default; with several organizations in scope, every one must allow it). Every per-person read is written to the access log **before** any data is shown; if that write fails, nothing is shown. These access-log rows are kept for the core retention period (`AUDIT_LOGS_CORE_RETENTION_DAYS`, default 7 days).
+- Only identifiers and status values are copied into the X-Ray tables; free text and encrypted fields never are. Deleting a user replaces their pseudonym in the projection with a random token that is never linked back.
+
+:::caution
+Per-person analytics can be used to monitor employees. Enable them only with a lawful basis, after informing the people concerned and, where required, the works council.
+:::
+
+### Settings
+
+| Setting | Default | Notes |
+|---|---|---|
+| Project this organization's history | on | When off, nothing new is projected and analyses exclude the organization; old data is still pruned. |
+| Keep cases for (days) | 365 | 7–3650. |
+| Minimum cases per group (*k*) | 10 | 5–1000. Also used by the Change Simulator. |
+| Collapse quick changes within (seconds) | 120 | 0–86400. |
+| Time zone | UTC | Day boundaries of the 7/30/90-day windows. |
+| Allow per-person analytics | off | See Privacy. |
+| Minimum support of automation suggestions | 20 | At least 5; empty = default. |
+| Conformance workflow and activity → step mapping | — | Choosing a workflow needs `workflows.definitions.view`. |
+
+Settings are saved with a conflict check: if someone else saved them meanwhile, you are asked to reload.
+
+### Automation suggestions
+
+Once a day (and on demand with **Look for suggestions now**, at most once every 15 minutes per organization) X-Ray looks for manual follow-ups that people repeat after a trigger — for example "when a deal is created, someone sets its pipeline stage within 10 minutes". Only changes made by people, after cause tracking, outside data sync runs count. A suggestion needs at least 20 occurrences in 30 days (the organization's minimum support), a 95 % Wilson lower bound of at least 0.6, a lift of at least 2, at least three different people and at least *k* supporting cases. Suggestions show counts only — never who. Follow-ups an enabled workflow already performs are not suggested.
+
+**Review** shows the draft workflow it would create — an event trigger and one update step per follow-up — and, after you confirm, creates it **disabled** through the normal workflow API as you, so your permissions and the audit trail apply; the suggestion is then marked **Drafted** with a link to the definition. Nothing runs until someone reviews and enables the workflow in the workflow editor. A suggestion is marked not draftable, with the reason, when its trigger cannot be expressed as a workflow event (today only the creation of the case record can), when the process declares no workflow-safe update command (the deal process does; the order and quote processes do not), or when you lack the command's permissions. Managers can dismiss and reopen suggestions.
+
+## Change Simulator
+
+The Change Simulator answers "what would this change have done to recorded history?" before you save it. It **evaluates, never executes**: no rule action, workflow, command or event runs.
+
+### The four simulations
+
+| Simulation | Where | Needs (besides `insights.simulator.run`) | Outcomes |
+|---|---|---|---|
+| **Business rule backtest** | **Simulate impact** on the business rule create and edit form | `business_rules.view`, `business_rules.view_logs` and the view permission of the rule's record type | Fires (runs success actions) · Does not fire · Runs failure actions · Cannot tell |
+| **Workflow trigger backtest** | **Simulate impact** in the workflow visual editor toolbar | `workflows.definitions.view` and the view permission of every record type the triggers listen to | Would start the workflow · Would not start · Skipped by debounce · Cannot tell |
+| **Role permission preview** | **Simulate impact** on a role's edit page | `auth.acl.manage`, `auth.users.list` (API keys only with `api_keys.view`) | Gain permissions · Lose permissions · Gain and lose permissions · Unchanged |
+| **Price-row backtest** | **Simulate impact** on the edit form of an existing price row (**Catalog → Price rules**) | `catalog.pricing.manage`; order lines with `sales.orders.view`, quote lines with `sales.quotes.view` | Priced from this row · Price changed by hand (excluded) · Cannot tell (excluded) |
+
+Each dialog simulates what is in the form or editor **now** — unsaved changes included. Backtests let you choose a history window of 30, 90 (default), 180 or 365 days.
+
+- **Rule backtest** replays rule execution logs where they exist ("Observed") and otherwise rebuilds events from the audit history ("Reconstructed"); the result says which. It also warns when the rule would never fire on these events (for example because its event type is missing or different, it is disabled, or it is not effective in the window), when it would run its failure actions on every event, and when more than 100 rules would match an event (which stops every rule for that event).
+- **Trigger backtest** honours filters, debounce windows and the definition's enabled/published state. Triggers with a concurrency limit or required start conditions are "Cannot tell". Code-defined workflows must be customized before they can be simulated.
+- **Role permission preview** is computed at once from the current users, roles and API keys, per organization. It lists the pages, menu entries and API routes gained or lost, warns you when you would lock yourself out, and shows the affected users (and API keys) resolved live with your current permissions — never stored. It covers only the selected organization and the organizations below it where you hold the preview's permissions, even if you can open other organizations. Super administrators are never counted or listed. Every preview, and every look at its affected list, is written to the access log first; if that is not possible the preview is refused.
+- **Price-row backtest** finds order and quote lines recorded with this price row and compares the line price with the row's amount at the time the line was created. Orders and quotes, currencies, and net and gross amounts are reported separately, never summed or converted, with current revenue, simulated revenue and the difference. Lines created through the API or by AI tools carry no link to the price row and are not found; the coverage section counts them.
+
+### Results and privacy
+
+**Insights → My simulations** lists your runs in the selected organization (an organization must be selected). A result page shows the outcome counts per group, sample records you may open, warnings, coverage and caveats.
+
+- **Private.** Runs are visible only to the person who requested them. Anyone else — administrators included — is told the simulation does not exist. Your permissions are checked again every time you open a result.
+- **Small groups are hidden.** Counts below the organization's *k* (from the Process X-Ray settings, default 10, at least 5) read "Fewer than *k*"; a group with fewer than *k* records is hidden entirely, and so are coverage counts that would reveal its size. Amounts are shown only for visible counts.
+- **Counts, not data.** Results store counts and a few confirmed record ids; record values are never stored.
+- **Partial results.** A backtest reads at most 50,000 records in 120 seconds. When it hits that budget the result is marked **Partial result** and covers only part of the window. The **Coverage** section says what was read and what had to be left out.
+- **Fidelity.** "Observed" (from rule execution logs), "Reconstructed" (rebuilt from the audit history by the module that emits the events), "Mixed", or "No events".
+- **Limits.** You can have two simulations running at once (five per tenant) and request twenty per hour. Backtests expire after 30 days, role previews after 24 hours. You can cancel a running backtest.
+- Conditions on past record values need `audit_logs.view_tenant`; without it they are reported as "Cannot tell".
+
+### Applying a simulated change
+
+The simulator never applies anything itself. To apply:
+
+1. On the result page click **Apply in the editor** (or simply save the form where you started the simulation).
+2. The owning editor opens with an **Applying a simulation** banner; **Load the simulated proposal** puts the simulated values back into the form.
+3. Save as usual. The editor's normal conflict check applies: if someone else changed the rule, workflow, role or price row since you loaded it, the save is refused and you reload and simulate again.
+4. Saving records your decision. The server then compares what was saved with what was simulated and marks the decision **Applied — matches the simulation**, **Applied — differs from the simulation** (simulate the saved version again) or **Applied — not verified**.
+
+You can also **Discard** a simulation from its result page.
+
+## Configuration reference
+
+| Setting | Default | Effect |
+|---|---|---|
+| `OM_CAUSATION` | on | Records the cause of every audited write and carries it across events, queued jobs and automations. `off` is a kill switch: new audit entries carry no cause, so "Why?" treats them like history recorded before cause tracking (at most **Inferred**). |
+| `OM_INSIGHTS_EXPLAIN_SCAN_MAX` | 500 | History entries one "Why?" request reads (at most 5000). |
+| `RATE_LIMIT_INSIGHTS_SIMULATION_REQUEST_POINTS` / `_DURATION` | 20 / 3600 s | Simulation requests per user and period. |
+| `AUDIT_LOGS_CORE_RETENTION_DAYS` | 7 | Retention of the access-log rows written by per-person X-Ray reads and role permission previews. |
+| `LOOKUP_HASH_PEPPER` | — | When tenant data encryption is off, X-Ray pseudonyms are keyed with the installation lookup pepper (falling back to the tenant data encryption keys); with no key at all, X-Ray records no people. With tenant data encryption on, a per-tenant key is used. |
+| Feature toggle `insights_field_explain` | on | Kill switch for the **Explain fields** switch and the per-field "?" buttons. |
+| Feature toggle `insights_xray_ingest` | on | Kill switch for Process X-Ray projection (retention pruning continues). |
+
+Both feature toggles are created for new tenants when the feature toggles module is enabled; a missing toggle counts as on. To turn a feature off on an existing installation, create the global boolean toggle with default `false` (see [Feature Toggles](./feature-toggles.mdx)).
+
+Workers must run the queues `insights-xray-ingest`, `insights-xray-backfill`, `insights-xray-rollup`, `insights-xray-suggestions` and `insights-simulation`. Administrators can also use the CLI: `yarn mercato insights explain:coverage`, `xray:status`, `xray:backfill`, `xray:rebuild` and `xray:prune`.
+
+For developers — how modules contribute explainable records, processes and simulators — see [Insights contracts](../framework/modules/insights.mdx).

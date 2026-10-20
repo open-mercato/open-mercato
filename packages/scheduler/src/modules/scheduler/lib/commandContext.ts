@@ -1,8 +1,35 @@
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import {
+  createCausationEnvelope,
+  getAmbientCausation,
+  isCausationEnabled,
+  primaryCause,
+  type CausationEnvelope,
+  type CausationFrame,
+} from '@open-mercato/shared/lib/causation/server'
 
 const SCHEDULER_SYSTEM_ACTOR_ID = '00000000-0000-0000-0000-000000000000'
+
+export function buildScheduleCausationFrame(scheduleId: string): CausationFrame {
+  return { kind: 'schedule', id: scheduleId }
+}
+
+/**
+ * The causation a scheduled run's command executes under. Inside the run's own
+ * `schedule` frame (stacked by the worker on the envelope restored from the job,
+ * or seeded as the entry frame by the local poller) the ambient envelope is
+ * reused, so the command, the scheduler's lifecycle events and any enqueued
+ * follow-up jobs share one correlation id. Outside it, a fresh `schedule` entry
+ * envelope is created rather than inheriting unrelated context.
+ */
+export function resolveScheduledCommandCausation(scheduleId: string): CausationEnvelope {
+  const ambient = getAmbientCausation()
+  const primary = primaryCause(ambient)
+  if (ambient && primary.kind === 'schedule' && primary.id === scheduleId) return ambient
+  return createCausationEnvelope([buildScheduleCausationFrame(scheduleId)])
+}
 
 type ScheduledCommandContextSchedule = {
   id: string
@@ -87,5 +114,6 @@ export function buildScheduledCommandContext(
     selectedOrganizationId: organizationId,
     organizationIds,
     request: undefined,
+    ...(isCausationEnabled() ? { causation: resolveScheduledCommandCausation(schedule.id) } : {}),
   }
 }

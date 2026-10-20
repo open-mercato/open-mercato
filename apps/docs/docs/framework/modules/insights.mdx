@@ -1,0 +1,408 @@
+---
+title: Insights Contracts
+description: The causation envelope recorded on every audited write, and the three convention files (insights.explain.ts, insights.process.ts, insights.simulate.ts) through which modules contribute "Why?" explanations, Process X-Ray processes and Change Simulator kinds.
+sidebar_label: Insights Contracts
+---
+
+# Insights Contracts
+
+The `insights` module (`packages/core/src/modules/insights/`) owns no knowledge of other modules' records. It builds three features on top of two foundations:
+
+| Foundation | Package path | Purpose |
+|---|---|---|
+| **Causation envelope** | `@open-mercato/shared/lib/causation` (isomorphic types) and `@open-mercato/shared/lib/causation/server` (AsyncLocalStorage helpers) | Records *why* each audited write happened — a user, an API key, a workflow step, a business rule, an AI action, a schedule … — and carries that cause across the command bus, queues, events and automations. |
+| **Owner-module contracts** | `@open-mercato/shared/modules/insights/{explain,process,simulate,helpers}` | Convention files a module adds to make its records explainable (`insights.explain.ts`), project its processes (`insights.process.ts`) and simulate changes to its configuration (`insights.simulate.ts`). |
+
+The design rule throughout is that **a false cause is worse than "unknown"**. For the end-user view of the three features see the [Insights user guide](../../user-guide/insights.mdx).
+
+## Causation envelope
+
+### Types
+
+```typescript
+import type { CausationEnvelope, CausationFrame, CauseKind } from '@open-mercato/shared/lib/causation'
+
+type CauseKind = 'user' | 'api_key' | 'agent' | 'workflow' | 'business_rule' | 'ai_action' | 'ai_tool'
+  | 'sync_run' | 'schedule' | 'subscriber' | 'undo' | 'redo' | 'system' | 'unknown'
+
+type CausationFrame = {
+  kind: CauseKind
+  id?: string | null
+  ref?: string | null
+  meta?: Record<string, string | number | boolean | null>
+}
+
+type CausationEnvelope = {
+  correlationId: string
+  frames: CausationFrame[]
+  causedByLogId?: string | null
+  truncated?: boolean
+}
+```
+
+An envelope is a **stack of frames**. The first frame is the entry point (the HTTP request, the job, the CLI command); the **innermost (last) frame is the primary cause** (`primaryCause(envelope)`). `correlationId` is shared by every write of one request, job or automation run; `causedByLogId` points at the `action_logs` entry whose post-commit side effects triggered the write.
+
+`sanitizeCausation` enforces the limits on every boundary: at most 8 frames (the entry frame plus the 7 innermost; `truncated: true` when frames are dropped), at most 2 KB serialized, text values at most 200 characters with control characters removed, at most 8 scalar `meta` keys. An envelope whose innermost frame kind is unknown to the running process is rejected rather than silently promoting an outer frame. `CAUSE_KINDS` values are persisted, so the set is **additive-only**; third-party automations are represented by the generic frames they run in (`subscriber`, `schedule`, `system`) with their identifiers in `id` / `ref`.
+
+### Who stamps which frame
+
+| Kind | Stamped by | `id` / `ref` / `meta` |
+|---|---|---|
+| `user` | HTTP dispatcher (`runWithRequestCausation`) or the command bus from `ctx.auth` | none — the person is the log row's `actor_user_id` |
+| `api_key` | same, when `auth.isApiKey` | `id` = API key id |
+| (loopback) | a one-time API key created by `withOnetimeApiKey` stores the caller's envelope in `api_keys.causation_json`; `resolveApiKeyAuth` exposes it as `auth.originCausation`, and the request continues the **original** envelope | innermost frame gains `meta.viaKeyId` |
+| `agent` | command bus, appended when `ctx.runAs` is set (agent principal) | `id` = agent principal user id |
+| `subscriber` | event bus, around every subscriber delivery | `id` = subscriber id (else `<module>:<event>`), `ref` = event id |
+| `workflow` | workflow activity executor | `id` = workflow instance, `ref` = step instance, `meta.workflowId` |
+| `business_rule` | rule engine, around a rule's actions | `id` = rule id, `ref` = run id (also written to `rule_execution_logs.run_id`) |
+| `ai_action` | AI pending-action executor (confirmed mutation) | `id` = pending action id, `meta.agentId`, `meta.toolName` |
+| `ai_tool` | AI tool executor | `id` = tool name, `meta.agentId` |
+| `schedule` | scheduler worker (stacked on the job's envelope) and the local poller (entry frame) | `id` = schedule id |
+| `sync_run` | data sync engine (import / export runs) | `id` = run id, `meta.direction` |
+| `undo` / `redo` | command bus, appended for undo and redo replays | `id` = the undone / replayed log id |
+| `system` | CLI commands (`ref` = `cli:<module>:<command>`); the entry frame of a workflow resumed without an ambient envelope (the `workflow` frame stays innermost) | — |
+| `unknown` | a queue job without a stored envelope (`ref` = `queue:missing_causation` / `queue:invalid_causation`) | — |
+
+Queues: the ambient envelope is attached to the job metadata under `_causation` at enqueue time (both strategies, independent of telemetry) and restored at dispatch, so a job continues the cause that enqueued it. Workflows: `startWorkflow` writes `metadata.causation` itself (identifiers only) and drops any value a client supplied.
+
+### Server-only trust
+
+A cause is never accepted from a caller:
+
+- `ActionLogService.log(input, em?, causation?)` writes the cause columns only from its **server-only third argument** or the ambient envelope; `ActionLogCreateInput` has no cause fields. A `causation` key in a caller's log context (`metadata.context`, interceptor `logContext`, `buildLog().context`) is stripped and replaced by the server envelope.
+- No request header (`x-request-id` included) feeds the correlation id; it is created by the entry point.
+- `api_keys.causation_json` is stamped server-side and is not part of the API key HTTP schema.
+- Undo trace rows strip the inherited `context.causation` of the undone entry and record the undo itself.
+- Plaintext copies (`api_keys.causation_json`, `rule_execution_logs.causation_json`, `workflow_instances.metadata.causation`) are reduced with `toIdentifierOnlyCausation` (kinds, ids, UUID refs — no `meta`, no free-text refs).
+
+### What is stored on `action_logs`
+
+| Column | Content |
+|---|---|
+| `cause_kind` | Kind of the innermost frame; `NULL` for rows written before causation existed (shown as "legacy") or while it is switched off |
+| `cause_id` | Its `id` |
+| `correlation_id` | `correlationId` when it is a UUID |
+| `caused_by_log_id` | `causedByLogId` |
+| `context_json.causation` | The full sanitized envelope (`context_json` is covered by the audit log encryption map) |
+
+Indexes `action_logs_cause_idx`, `action_logs_correlation_idx` and `action_logs_caused_by_idx` serve the audit filters: `GET /api/audit_logs/audit-logs/actions` accepts `causeKind`, `causeId` (requires `causeKind`) and `correlationId`, and returns the four fields per item. For viewers without `audit_logs.view_tenant`, `causeId` and `causedByLogId` are `null` on `user` / `agent` causes.
+
+When no ambient envelope exists at log time, `ActionLogService` derives a frame from the recorded actor with `meta.derivedFrom = 'actor'`; "Why?" never reports such a cause as `proven`. Degradations (`queue_missing_envelope`, `api_key_origin_invalid`, `onetime_key_no_ambient`, `log_fallback_actor`, `workflow_frame_no_instance`, `rule_entity_id_unresolved`, …) are logged once per process through `reportCausationDegradation`.
+
+### Using causation in your module
+
+Most code needs nothing: commands, subscribers, queue jobs, workflow activities, rules, AI tools, schedules and CLI commands are already wrapped. Wrap your own entry points when you run commands outside them, for example a long-running loop started by your module:
+
+```typescript
+import { runEntryWithCausation, withCausationFrame, runOutsideCausation } from '@open-mercato/shared/lib/causation/server'
+
+// A new entry point: fresh correlation id, generic frame with your identifier
+await runEntryWithCausation({ kind: 'system', ref: 'my_module:nightly-reconcile' }, () => reconcile())
+
+// Inside an existing cause: stack a frame on the ambient envelope
+await withCausationFrame({ kind: 'subscriber', id: 'my_module:recalculate', ref: 'my_module.thing.updated' }, () => recalc())
+
+// Timers or pools that must not inherit the current cause
+runOutsideCausation(() => startBackgroundPoller())
+```
+
+Other helpers: `getAmbientCausation()`, `runWithCausation(envelope, fn)`, `resolveCausationForCommand(...)`, `buildEntryCausationForAuth(auth)`, `stripCausationFromContext(context)`, `isCausationEnabled()`. A standalone app's API catch-all dispatcher must wrap the handler with `runWithRequestCausation(auth, () => handler(req, ctx))`; without it the command bus still derives the cause, only the correlation across one request is lost.
+
+The kill switch `OM_CAUSATION=off` stops resolution, propagation and stamping (new rows keep the cause columns `NULL`); caller-supplied causation is still discarded.
+
+## Convention files
+
+Each convention file is discovered by a generator plugin in `insights/generators.ts`. `yarn generate` aggregates them into the app's `.mercato/generated/` directory; the registrations also run in CLI and worker processes (`cli: true`), because the X-Ray workers, the simulation worker and the `mercato insights` CLI commands read them. Every registry lives on `globalThis`, validates declarations when they register and keeps the first registration of a duplicate (with a warning).
+
+| File | Export (or `default`) | Generated registry | Entries export |
+|---|---|---|---|
+| `insights.explain.ts` | `explainConfig` (`defineExplainConfig`) | `insights-explain.generated.ts` | `explainConfigEntries` |
+| `insights.process.ts` | `processConfig` (`defineProcessConfig`) | `insights-process.generated.ts` | `processConfigEntries` |
+| `insights.simulate.ts` | `simulateConfig` (`defineSimulateConfig`) | `insights-simulate.generated.ts` | `simulateConfigEntries` |
+
+All three are `version: 1` contracts (frozen once shipped; optional fields may be added). Declarations without a non-empty `requiredFeatures` are skipped — **fail closed**.
+
+### `insights.explain.ts` — "Why?"
+
+A module declares which of its records and fields can be explained, and how causes and references it owns are labelled.
+
+| Key | Purpose |
+|---|---|
+| `resources[]` | `resourceKind`, `logResourceKinds?` (the `action_logs.resource_kind` values to read), `labelKey`, `formEntityIds?` (CrudForm entity ids for the per-field buttons), `requiredFeatures`, `loadCurrent(ctx, id)`, `fields[]`, `customFields?`, `collections?` (line items; `itemResourceKinds` only when items write their own audit rows), `noHistory?` (module writes no history), `recordHref?`, `listRecordIds?` (coverage CLI) |
+| `fields[]` | `key`, `labelKey`, `valueKind`, `snapshotPaths` (paths in `snapshot_before` / `snapshot_after`), `changeKeys?`, `currentPath?`, `requiredFeatures?`, `derived?: { dependsOn }`, `provider?`, `referenceKind?`, `unloggedWriters?` (known writers that bypass the audit log) |
+| `causeResolvers[]` | Label and link causes of one `CauseKind` (workflow instances, rules, schedules, API keys …) |
+| `referenceResolvers[]` | Label referenced ids (dictionary entries, pipeline stages, price rows …) |
+| `providers[]` | `{ id, explain(ctx) }` field providers that add facts (e.g. `sales.line_price`) |
+
+Rules: `loadCurrent` and every resolver scope by `ctx.scope.tenantId` and `ctx.scope.organizationIds` (`null` = tenant-wide, `[]` = nothing) and read through the decryption helpers; return `null` from `loadCurrent` for anything the caller may not see (the route answers the same 404 as for a missing record). `@open-mercato/shared/modules/insights/helpers` provides `resolveExplainOrganizationWhere`, `resolveExplainDecryptionScope`, `normalizeExplainIds`, `isExplainRecordId`, `flattenExplainCustomFields`, `toExplainTimestamp` and `runExplainResolverSafely`. Snapshot paths and change keys must match what the module's commands actually record.
+
+Example — a resource, trimmed from `customers/insights.explain.ts`:
+
+```typescript
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { defineExplainConfig } from '@open-mercato/shared/modules/insights/explain'
+import type { ExplainLoadContext } from '@open-mercato/shared/modules/insights/explain'
+import {
+  isExplainRecordId,
+  resolveExplainDecryptionScope,
+  resolveExplainOrganizationWhere,
+  toExplainTimestamp,
+} from '@open-mercato/shared/modules/insights/helpers'
+import { CustomerDeal } from './data/entities'
+
+async function loadDealCurrent(ctx: ExplainLoadContext, id: string): Promise<Record<string, unknown> | null> {
+  const organizationWhere = resolveExplainOrganizationWhere(ctx.scope)
+  if (!organizationWhere || !isExplainRecordId(id)) return null
+  const deal = await findOneWithDecryption(
+    ctx.em,
+    CustomerDeal,
+    { id, tenantId: ctx.scope.tenantId, deletedAt: null, ...organizationWhere },
+    undefined,
+    resolveExplainDecryptionScope(ctx.scope),
+  )
+  if (!deal) return null
+  return {
+    id: deal.id,
+    organizationId: deal.organizationId,
+    updatedAt: toExplainTimestamp(deal.updatedAt),
+    status: deal.status ?? null,
+  }
+}
+
+export const explainConfig = defineExplainConfig({
+  version: 1,
+  resources: [
+    {
+      resourceKind: 'customers.deal',
+      logResourceKinds: ['customers.deal'],
+      labelKey: 'customers.insights.resources.deal',
+      formEntityIds: ['customers.deal', 'customers.customer_deal'],
+      requiredFeatures: ['customers.deals.view'],
+      loadCurrent: loadDealCurrent,
+      fields: [
+        {
+          key: 'status',
+          labelKey: 'customers.insights.fields.status',
+          valueKind: 'dictionary',
+          snapshotPaths: ['deal.status'],
+          changeKeys: ['deal.status'],
+          currentPath: 'status',
+        },
+      ],
+      recordHref: (id) => `/backend/customers/deals/${encodeURIComponent(id)}`,
+    },
+  ],
+})
+
+export default explainConfig
+```
+
+Example — a cause resolver, from `business_rules/insights.explain.ts`:
+
+```typescript
+async function resolveBusinessRuleCauses(ctx: ExplainLoadContext, ids: string[]): Promise<ExplainCauseDetail[]> {
+  const organizationWhere = resolveExplainOrganizationWhere(ctx.scope)
+  const ruleIds = normalizeExplainIds(ids, { uuidOnly: true })
+  if (!organizationWhere || ruleIds.length === 0) return []
+  const rules = await findWithDecryption(
+    ctx.em,
+    BusinessRule,
+    { id: { $in: ruleIds }, tenantId: ctx.scope.tenantId, ...organizationWhere },
+    undefined,
+    resolveExplainDecryptionScope(ctx.scope),
+  )
+  return rules.map((rule) => ({
+    kind: 'business_rule',
+    id: rule.id,
+    label: rule.ruleName || rule.ruleId,
+    href: rule.deletedAt ? null : `/backend/rules/${encodeURIComponent(rule.id)}`,
+    organizationId: rule.organizationId,
+  }))
+}
+
+export const explainConfig = defineExplainConfig({
+  version: 1,
+  causeResolvers: [
+    {
+      kind: 'business_rule',
+      requiredFeatures: ['business_rules.view'],
+      resolve: (ctx, ids) =>
+        runExplainResolverSafely(
+          { module: 'business_rules', code: 'business_rules.insights_cause_failed', kind: 'business_rule' },
+          () => resolveBusinessRuleCauses(ctx, ids),
+        ),
+    },
+  ],
+})
+```
+
+Shipped declarations: resources in `customers` (deal, person, company), `sales` (order, quote with a `lines` collection and the `sales.line_price` provider) and `customer_groups` (`noHistory`); cause resolvers in `workflows`, `business_rules`, `ai_assistant`, `data_sync`, `scheduler` and `api_keys`; reference resolvers in `catalog` (`catalog.price`), `dictionaries`, `customers`, `sales` and `auth`.
+
+Per-field buttons: a resource listing `formEntityIds` must also be added to the static `insights/widgets/injection-table.ts` (one header switch and one `crud-form:<entityId>:field:*:after` registration per form; a test keeps both lists in sync). The field spot family itself is described in [Widget Injection](../widget-injection.md#field-level-spots).
+
+### `insights.process.ts` — Process X-Ray
+
+A module declares processes (case roots and their stage fields) and actor dimensions for breakdowns.
+
+| Key | Purpose |
+|---|---|
+| `processes[]` | `processKey` (`<module>.<name>`), `labelKey`, `resourceKind`, `logResourceKinds?`, `entityId` (`module:entity`), `requiredFeatures`, `stageFields`, `followupFields?`, `milestones?` (child records naming the case as `parent_resource_kind`), `exits?` (another resource's command that ends the case, e.g. quote → order), `endStates?`, `automation?` |
+| field descriptors | `key`, `labelKey`, `valueKind` (`enum`, `dictionary`, `uuid`, `user`), `snapshotPaths`, `changeKeys?`, display-only `referenceKind?` / `valueLabelKeys?` |
+| `automation?` | `{ updateCommandId, recordIdInputKey?, fieldInputKeys? }`: the workflow-safe update command suggestions may draft; without it suggestions of the process are not draftable |
+| `actorDimensions[]` | `{ kind: 'role' \| 'team', resolve(ctx, userIds) }` → dimension ids per user, one query per batch |
+
+Projection rules enforced by the registry and the ingest:
+
+- Only identifiers are projected: a value that is neither a UUID nor matches `^[a-z0-9_.:-]{1,64}$` is stored as `other`, a missing one as `none`, and each field keeps at most 200 distinct values per organization.
+- A declaration whose field key or any snapshot-path / change-key segment is in an encryption map of the owning module, the declared entity or (milestones) the milestone entity is rejected at boot; fields a tenant encrypts through its own maps are stored as `other`.
+- `user` values are allowed in `followupFields` only and are stored as the per-tenant actor pseudonym, never as user ids.
+- Every process has a contract hash (derivation version + declaration, excluding `referenceKind`, `valueLabelKeys` and `automation`). Changing a declaration clears and re-projects that process automatically; bump `PROCESS_DERIVATION_VERSION` when derivation rules change.
+
+Example — `customers/insights.process.ts`:
+
+```typescript
+import { defineProcessConfig } from '@open-mercato/shared/modules/insights/process'
+import { E } from '#generated/entities.ids.generated'
+import { CLOSED_DEAL_STATUS_LIST } from './lib/dealStatus'
+import { CUSTOMERS_EXPLAIN_REFERENCE_KINDS } from './insights.explain'
+
+export const processConfig = defineProcessConfig({
+  version: 1,
+  processes: [
+    {
+      processKey: 'customers.deal',
+      labelKey: 'customers.insights.process.deal',
+      resourceKind: 'customers.deal',
+      logResourceKinds: ['customers.deal'],
+      entityId: E.customers.customer_deal,
+      requiredFeatures: ['customers.deals.view'],
+      stageFields: [
+        {
+          key: 'status',
+          labelKey: 'customers.insights.fields.status',
+          valueKind: 'dictionary',
+          snapshotPaths: ['deal.status'],
+          changeKeys: ['deal.status'],
+          referenceKind: CUSTOMERS_EXPLAIN_REFERENCE_KINDS.dealStatus,
+        },
+        {
+          key: 'pipelineStageId',
+          labelKey: 'customers.insights.fields.pipelineStage',
+          valueKind: 'uuid',
+          snapshotPaths: ['deal.pipelineStageId'],
+          changeKeys: ['deal.pipelineStageId'],
+          referenceKind: CUSTOMERS_EXPLAIN_REFERENCE_KINDS.pipelineStage,
+        },
+      ],
+      followupFields: [
+        {
+          key: 'ownerUserId',
+          labelKey: 'customers.insights.fields.owner',
+          valueKind: 'user',
+          snapshotPaths: ['deal.ownerUserId'],
+          changeKeys: ['deal.ownerUserId'],
+        },
+      ],
+      endStates: [{ field: 'status', values: [...CLOSED_DEAL_STATUS_LIST] }],
+      automation: { updateCommandId: 'customers.deals.update' },
+    },
+  ],
+})
+
+export default processConfig
+```
+
+`sales` declares the order process (status, fulfillment and payment status; payment and shipment milestones) and the quote process (exit `converted`); `auth` contributes the `role` dimension and `staff` the `team` dimension. Verify snapshot paths and change keys against the real command output, as `customers/__tests__/insights.process.test.ts` does with a captured `CommandBus` log.
+
+### `insights.simulate.ts` — Change Simulator
+
+A module contributes simulation **kinds** for configuration it owns and **event adapters** for events it emits. Kinds evaluate, never execute: no commands, action executors or event emitters — each slice runs in a read-only transaction with a statement timeout.
+
+```typescript
+// business_rules/insights.simulate.ts
+import { defineSimulateConfig } from '@open-mercato/shared/modules/insights/simulate'
+import { ruleBacktestKind } from './lib/simulation/rule-backtest'
+
+export const simulateConfig = defineSimulateConfig({
+  version: 1,
+  kinds: [ruleBacktestKind],
+})
+
+export default simulateConfig
+```
+
+A kind (`SimulationKindDefinition`, typed with `defineSimulationKind<TInput, TState>`) declares:
+
+| Member | Purpose |
+|---|---|
+| `kind` | `<module>.<name>`, e.g. `business_rules.rule_backtest` |
+| `artifactKind`, `labelKey` | What is being changed; display label |
+| `requiredFeatures` | Non-empty; must cover every source the kind reads. Checked at request, before every slice and on every read |
+| `inputFeatures?(input, ctx)` | Features a particular proposal reads (e.g. the view feature of the rule's record type) |
+| `inputSchema` | The owning module's zod schema of the proposal |
+| `version` | Part of every run's inputs hash; bump when semantics change |
+| `cellKeys` | Outcome cells of every group, e.g. `fires`, `does_not_fire`, `runs_failure_actions`, `cannot_tell` |
+| `readArtifactVersion(ctx, ref)` | Live `{ artifactId, updatedAt, fingerprint }` of the artifact, scoped to the run's organization |
+| `fingerprintProposal(input)` | Fingerprint compared with the saved artifact when the user records "applied" |
+| `validate?(input, ctx)` | `invalid_proposal`, `unsupported_event_payload`, `not_customized`, `artifact_unavailable` (404), `forbidden` (403) … |
+| `run(input, ctx)` | One slice: returns `{ status: 'continue', state, recordsProcessed }` or `{ status: 'done', result, recordsProcessed }` |
+| `ttlHours?`, `execution?` (`queued` / `inline`), `accessLogResourceKind?`, `liveRecords?`, `applyHref?` | Expiry, inline runs (computed in the request, e.g. `auth.role_acl_preview`; `ctx.inline.organizationIds` and a live-records read cover only the run organization and its descendants where the requester holds the run's features), fail-closed access logging, records resolved live on read, link to the owning editor |
+
+The slice context provides `scanAuditLog` (decrypted, organization-scoped audit entries of the window), `readRecordHistory` (one record's own history), `hasFeatures`, the registered `eventAdapters`, the budget and the previous slice's `state`. A result (`SimulationKindResult`) holds `groups` of count `cells` (with candidate `sampleIds`, optional decimal `measures`, `warnings`, `flags` and per-group `requiredFeatures`), `coverage` counts, `caveats` (i18n keys), `fidelity` and `truncated`. Insights applies k-suppression (the organization's X-Ray `k`), keeps only sample ids the owning module's explain `loadCurrent` confirms, and stores ids and aggregates only. Outcome labels come from `<module>.simulation.cells.<cell>`; a module may override result wording with `<module>.simulation.groupTotal`, `.groupSuppressed`, `.result.title`, `.result.privacyNote`, `.result.emptyTitle`, `.result.emptyDescription` and `.fidelity.<value>`.
+
+**Event adapters** rebuild, from an audit entry, the exact payload the module's event carried — so a backtest evaluates what production evaluated. List paths the entry cannot tell in `unknownPaths` (a condition on them is "cannot tell") and snapshot-derived values in `valuePaths` (unknown for requesters without `audit_logs.view_tenant`); never claim an event your commands do not emit. For generated CRUD payloads use `createCrudEventAdapters`. Trimmed from `sales/insights.simulate.ts`:
+
+```typescript
+import { createCrudEventAdapters, defineSimulateConfig } from '@open-mercato/shared/modules/insights/simulate'
+import './events'
+
+export const simulateConfig = defineSimulateConfig({
+  version: 1,
+  eventAdapters: [
+    ...createCrudEventAdapters({
+      eventPrefix: 'sales.order',
+      logResourceKinds: ['sales.order'],
+      requiredFeatures: ['sales.orders.view'],
+      actions: ['created'],
+      commandIds: { created: ['sales.orders.create'] },
+      syncOrigin: false,
+      extraPayload: actingUserPayload,
+    }),
+  ],
+})
+```
+
+Import your module's `events.ts` from `insights.simulate.ts` (as `customers` and `sales` do): worker processes do not load the app's event registry, and the workflow trigger backtest uses the declared events to tell whether a trigger pattern selects events no adapter can rebuild.
+
+Shipped kinds: `business_rules.rule_backtest`, `workflows.trigger_backtest`, `auth.role_acl_preview` (inline) and `catalog.price_backtest` (document lines contributed by `sales` through `registerCatalogPriceLineSource`). Event adapters: `customers` (people, companies, deals) and `sales` (`sales.order.created`, `sales.quote.created`).
+
+**Apply** always happens in the owning module's own UI and API, as the user, with that module's optimistic lock. The owning editor publishes a spot for the "Simulate impact" dialog and a banner spot whose widgets receive `onAfterSave`; after the save the browser records the `applied` decision and the server compares the live `readArtifactVersion` fingerprint with the simulated one. Spots used today: `crud-form:business_rules.rule` (+ `:header`), `workflows.definition.editor:toolbar` / `:banner`, `auth.role.acl:toolbar` / `:banner`, `crud-form:catalog.catalog_product_price` (+ `:header`).
+
+## APIs, services and AI tools
+
+| Surface | Details |
+|---|---|
+| "Why?" routes | `GET /api/insights/explain`, `/explain/descriptors`, `/explain/log` (`insights.explain.view` + the resource's features), `/explain/access` (signed-in user; detail with `insights.explain.access_detail`). Never cached. |
+| X-Ray routes | `GET /api/insights/xray/processes`, `/xray/{processKey}/map`, `/variants`, `/durations`, `/bottlenecks`, `/rework`, `/conformance`, `/breakdown`, `/cases`, `POST /xray/{processKey}/variants/{hash}/workflow-draft` (`insights.xray.view`); `/xray/settings`, `/xray/status`, `POST /xray/backfill` (`insights.xray.manage`); `/xray/suggestions/**` (`insights.xray.view` to list and draft, `insights.xray.manage` to dismiss, reopen and mine) |
+| Simulator routes | `GET /api/insights/simulations/capabilities`, `GET`/`POST /api/insights/simulations`, `GET /simulations/{id}`, `POST /simulations/{id}/cancel`, `POST /simulations/{id}/decision`, `GET /simulations/{id}/records` |
+| DI services | `explainService`, `accessExplainService`; additive `ActionLogService` reads (`findFieldHistory`, `findHistoryEntryById`, `findLogScopes`, `scanDecrypted`, `scanStateChanges`); `RbacService.explainAccess` and `RbacService.previewRoleAclChange`; the soft-optional `workflowDraftService` owned by `workflows` |
+| CLI | `mercato insights explain:coverage`, `xray:status`, `xray:backfill [--inline]`, `xray:rebuild`, `xray:prune` (`--tenant` / `--org` or `--all`) |
+| Queues | `insights-xray-ingest`, `insights-xray-backfill`, `insights-xray-rollup`, `insights-xray-suggestions`, `insights-simulation` |
+
+AI tools (read-only, `isMutation: false`; registered but **not allowlisted for any agent by default** — add them to an agent's allowlist to use them):
+
+| Tool | Requires | Returns |
+|---|---|---|
+| `insights.explain_record` | `insights.explain.view` (+ the resource's features) | Engine facts verbatim (verdict, confidence, chain, gaps, hints) and a deterministic i18n summary; record values stay in the facts as untrusted data |
+| `insights.xray_summary` | `insights.xray.view` | Visible processes with headline counts for a 7/30/90-day window |
+| `insights.xray_variants` | `insights.xray.view` | Top variants of one process with server-resolved `activityLabels`; suppressed cells stay hidden |
+| `insights.simulation_result` | `insights.simulator.view` | The caller's **own** runs and results (counts, measures, coverage, caveats); never starts, cancels or applies a run |
+
+## Related
+
+- [Commands](../commands/overview.mdx) — the command bus that resolves and stamps causation
+- [Queue workers](../events/queue-workers.mdx) — job metadata and workers
+- [Widget Injection](../widget-injection.md) — field-level CrudForm spots
+- [Concurrency locking](../data-integrity/concurrency-locking.mdx) — the optimistic lock "apply" relies on
+- [RBAC](../rbac/overview.mdx) — feature checks and wildcards
+- Specs: `.ai/specs/2026-10-08-insights-causation-and-explain.md`, `.ai/specs/2026-10-08-insights-process-xray.md`, `.ai/specs/2026-10-08-insights-change-simulator.md`

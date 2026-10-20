@@ -11,7 +11,6 @@ import type { AwilixContainer } from 'awilix'
 import type { CacheService } from '@open-mercato/cache'
 import { matchEventPattern } from '@open-mercato/shared/lib/events/patterns'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { testLinearRegex } from '@open-mercato/shared/lib/regex/linear'
 import {
   WorkflowEventTrigger,
   WorkflowDefinition,
@@ -24,6 +23,7 @@ import {
 import { startWorkflow, executeWorkflow } from './workflow-executor'
 import { getAllCodeWorkflows } from './code-registry'
 import { codeWorkflowUuid } from './find-definition'
+import { evaluateTriggerFilterConditions, getTriggerPayloadValue } from './trigger-filter'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows').child({ component: 'event-trigger' })
@@ -89,216 +89,16 @@ function readEventActorUserId(payload: Record<string, unknown>): string | null {
 // Filter Evaluation
 // ============================================================================
 
-const MAX_WORKFLOW_REGEX_PATTERN_LENGTH = 200
-const MAX_WORKFLOW_REGEX_INPUT_LENGTH = 10_000
-
-/**
- * Get a nested value from an object using dot notation.
- */
-function getNestedValue(obj: unknown, path: string): unknown {
-  if (obj === null || obj === undefined) return undefined
-
-  const parts = path.split('.')
-  let current: unknown = obj
-
-  for (const part of parts) {
-    if (current === null || current === undefined) return undefined
-    if (typeof current !== 'object') return undefined
-    current = (current as Record<string, unknown>)[part]
-  }
-
-  return current
-}
-
-function getQuantifierEnd(pattern: string, index: number): number | null {
-  const char = pattern[index]
-  if (char === '*' || char === '+' || char === '?') return index
-  if (char !== '{') return null
-
-  const closeIndex = pattern.indexOf('}', index + 1)
-  if (closeIndex === -1) return null
-
-  const body = pattern.slice(index + 1, closeIndex)
-  return /^[0-9]+(?:,[0-9]*)?$/.test(body) ? closeIndex : null
-}
-
-interface RegexGroupFrame {
-  hasAlternation: boolean
-  hasQuantifier: boolean
-}
-
-function isSafeWorkflowRegexPattern(pattern: string): boolean {
-  if (pattern.length > MAX_WORKFLOW_REGEX_PATTERN_LENGTH) return false
-
-  const groupStack: RegexGroupFrame[] = [{ hasAlternation: false, hasQuantifier: false }]
-  let inCharClass = false
-  let lastClosedGroup: RegexGroupFrame | null = null
-  let lastAtomWasQuantified = false
-
-  // Hand-written single-pass lexer: `index` is intentionally advanced inside the
-  // loop body (escape pairs, `(?:` prefixes, multi-char quantifiers, lazy `?`) on
-  // top of the `index += 1` update clause. Do not "simplify" these in-body writes.
-  for (let index = 0; index < pattern.length; index += 1) {
-    const char = pattern[index]
-
-    if (char === '\\') {
-      const next = pattern[index + 1]
-      if (!inCharClass && (/[1-9]/.test(next ?? '') || (next === 'k' && pattern[index + 2] === '<'))) {
-        return false
-      }
-      index += 1
-      lastClosedGroup = null
-      lastAtomWasQuantified = false
-      continue
-    }
-
-    if (inCharClass) {
-      if (char === ']') {
-        inCharClass = false
-        lastAtomWasQuantified = false
-      }
-      lastClosedGroup = null
-      continue
-    }
-
-    if (char === '[') {
-      inCharClass = true
-      lastClosedGroup = null
-      lastAtomWasQuantified = false
-      continue
-    }
-
-    if (char === '(') {
-      if (pattern[index + 1] === '?') {
-        if (pattern[index + 2] !== ':') return false
-        index += 2
-      }
-
-      groupStack.push({ hasAlternation: false, hasQuantifier: false })
-      lastClosedGroup = null
-      lastAtomWasQuantified = false
-      continue
-    }
-
-    if (char === ')') {
-      if (groupStack.length === 1) return false
-      lastClosedGroup = groupStack.pop()!
-      lastAtomWasQuantified = false
-      continue
-    }
-
-    if (char === '|') {
-      groupStack[groupStack.length - 1].hasAlternation = true
-      lastClosedGroup = null
-      lastAtomWasQuantified = false
-      continue
-    }
-
-    const quantifierEnd = getQuantifierEnd(pattern, index)
-    if (quantifierEnd !== null) {
-      if (lastAtomWasQuantified) return false
-      if (lastClosedGroup?.hasAlternation || lastClosedGroup?.hasQuantifier) return false
-
-      groupStack[groupStack.length - 1].hasQuantifier = true
-      lastClosedGroup = null
-      lastAtomWasQuantified = true
-      index = quantifierEnd
-
-      if (pattern[index + 1] === '?') {
-        index += 1
-      }
-
-      continue
-    }
-
-    lastClosedGroup = null
-    lastAtomWasQuantified = false
-  }
-
-  return groupStack.length === 1 && !inCharClass
-}
-
-/**
- * Evaluate a single filter condition against the event payload.
- */
-function evaluateCondition(condition: TriggerFilterCondition, payload: Record<string, unknown>): boolean {
-  const value = getNestedValue(payload, condition.field)
-  const expected = condition.value
-
-  switch (condition.operator) {
-    case 'eq':
-      return value === expected
-
-    case 'neq':
-      return value !== expected
-
-    case 'gt':
-      return typeof value === 'number' && typeof expected === 'number' && value > expected
-
-    case 'gte':
-      return typeof value === 'number' && typeof expected === 'number' && value >= expected
-
-    case 'lt':
-      return typeof value === 'number' && typeof expected === 'number' && value < expected
-
-    case 'lte':
-      return typeof value === 'number' && typeof expected === 'number' && value <= expected
-
-    case 'contains':
-      if (typeof value === 'string' && typeof expected === 'string') {
-        return value.includes(expected)
-      }
-      if (Array.isArray(value)) {
-        return value.includes(expected)
-      }
-      return false
-
-    case 'startsWith':
-      return typeof value === 'string' && typeof expected === 'string' && value.startsWith(expected)
-
-    case 'endsWith':
-      return typeof value === 'string' && typeof expected === 'string' && value.endsWith(expected)
-
-    case 'in':
-      return Array.isArray(expected) && expected.includes(value)
-
-    case 'notIn':
-      return Array.isArray(expected) && !expected.includes(value)
-
-    case 'exists':
-      return value !== undefined && value !== null
-
-    case 'notExists':
-      return value === undefined || value === null
-
-    case 'regex':
-      if (typeof value !== 'string' || typeof expected !== 'string') return false
-      if (value.length > MAX_WORKFLOW_REGEX_INPUT_LENGTH) return false
-      if (!isSafeWorkflowRegexPattern(expected)) return false
-      {
-        const result = testLinearRegex(expected, value, {
-          maxPatternLength: MAX_WORKFLOW_REGEX_PATTERN_LENGTH,
-          maxInputLength: MAX_WORKFLOW_REGEX_INPUT_LENGTH,
-        })
-        return result.ok ? result.matched : false
-      }
-
-    default:
-      return false
-  }
-}
-
 /**
  * Evaluate all filter conditions against the event payload.
- * All conditions must pass (AND logic).
+ * All conditions must pass (AND logic). The comparison itself lives in the pure
+ * `lib/trigger-filter.ts`, shared with the change simulator's trigger backtest.
  */
 export function evaluateFilterConditions(
   conditions: TriggerFilterCondition[] | undefined,
   payload: Record<string, unknown>
 ): boolean {
-  if (!conditions || conditions.length === 0) return true
-
-  return conditions.every(condition => evaluateCondition(condition, payload))
+  return evaluateTriggerFilterConditions(conditions, payload)
 }
 
 // ============================================================================
@@ -317,7 +117,7 @@ export function mapEventToContext(
   if (!mapping || mapping.length === 0) return context
 
   for (const item of mapping) {
-    const value = getNestedValue(payload, item.sourceExpression)
+    const value = getTriggerPayloadValue(payload, item.sourceExpression)
     context[item.targetKey] = value !== undefined ? value : item.defaultValue
   }
 

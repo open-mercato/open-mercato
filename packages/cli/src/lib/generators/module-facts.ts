@@ -3983,7 +3983,7 @@ const CRUD_FORM_SURFACE_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>
   sidebar: { value: 'sidebar', status: 'currently-unbound', note: 'catalog-declared CrudForm surface has no runtime host' },
   group: { value: 'group', status: 'currently-unbound', note: 'catalog-declared CrudForm surface has no runtime host' },
   fieldBefore: { value: 'fieldBefore', status: 'currently-unbound', note: 'catalog-declared CrudForm surface has no runtime host' },
-  fieldAfter: { value: 'fieldAfter', status: 'currently-unbound', note: 'catalog-declared CrudForm surface has no runtime host' },
+  fieldAfter: { value: 'fieldAfter', status: 'emitted-example', note: 'bound Todo form field-after spot family' },
 }
 
 const CRUD_FORM_LIFECYCLE_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
