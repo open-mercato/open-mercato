@@ -521,6 +521,7 @@
   "auth.email.resetPassword.subject": "Passwort zurücksetzen",
   "auth.email.resetPassword.title": "Passwort zurücksetzen",
   "auth.login.brandName": "Open Mercato",
+  "auth.login.errors.crossSiteRequest": "Diese Anmeldeanfrage stammt nicht von dieser Anwendung. Öffne die Anmeldeseite und versuche es erneut.",
   "auth.login.errors.generic": "Es ist ein Fehler aufgetreten. Bitte versuche es erneut.",
   "auth.login.errors.invalidCredentials": "Ungültige E-Mail oder ungültiges Passwort",
   "auth.login.errors.permissionDenied": "Du hast keine Berechtigung, auf diesen Bereich zuzugreifen. Bitte wende dich an deine Administration.",
