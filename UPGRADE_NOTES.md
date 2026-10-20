@@ -229,18 +229,18 @@ the message does not resolve in scope (previously `no_channel_link` with reason
 Deleting a dictionary (`DELETE /api/dictionaries/:id`, or `PATCH` with `isActive: false`) soft-deletes
 it, but the database kept the key reserved, so creating a dictionary with that key, or renaming one
 onto it, failed with `500`. The `dictionaries_scope_key_unique` table constraint is replaced by a
-unique index of the same name that covers live rows only (`where "deleted_at" is null`). These
-requests now succeed and create a new, empty dictionary; the deleted dictionary and its entries stay
-archived. Two requests that create or rename onto the same key at the same time now get the existing
-`409` duplicate-key response instead of `500`.
+unique index of the same name that covers live rows only (`where "deleted_at" is null`). Creating
+now makes a new, empty dictionary and renaming now succeeds; the deleted dictionary keeps its entries.
+When requests race to create or rename onto the same key, one succeeds and the others now get the
+existing `409` duplicate-key response instead of `500`.
 
 - Module helpers that look a dictionary up by key and create it when it is missing (sales statuses
   and adjustment kinds, the planner and resources pages, the module seeders) now re-create a deleted
   dictionary as an empty one instead of failing.
 - Raw SQL that targets the old constraint with `ON CONFLICT ON CONSTRAINT dictionaries_scope_key_unique`
   no longer works; use `ON CONFLICT ("organization_id", "tenant_id", "key") WHERE "deleted_at" IS NULL`.
-- Rolling back the migration fails while a deleted dictionary shares its key with a live one; delete or
-  rename such rows first.
+- Rolling back the migration fails while two dictionaries in the same organization and tenant share a
+  key, deleted or not; remove or rename the extra rows first.
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
