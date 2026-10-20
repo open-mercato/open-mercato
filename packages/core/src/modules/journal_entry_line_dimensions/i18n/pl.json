@@ -1,7 +1,9 @@
 {
   "journal_entry_line_dimensions.audit.set": "Ustawiono wymiar pozycji zapisu księgowego",
+  "journal_entry_line_dimensions.errors.duplicateDimensionIds": "Ten sam wymiar nie może występować więcej niż raz.",
   "journal_entry_line_dimensions.errors.fiscalPeriodLocked": "Okres obrotowy obejmujący ten zapis księgowy jest zablokowany. Zaksięguj zapis korygujący z własnymi wymiarami.",
   "journal_entry_line_dimensions.errors.lineNotFound": "Nie znaleziono pozycji zapisu księgowego.",
   "journal_entry_line_dimensions.errors.noFiscalPeriodForOperationDate": "Żaden okres obrotowy nie obejmuje daty operacji tego zapisu księgowego, więc nie można zmienić jego wymiarów.",
+  "journal_entry_line_dimensions.errors.scopeRequired": "Do zmiany wymiarów pozycji zapisu księgowego wymagany jest kontekst najemcy i organizacji.",
   "journal_entry_line_dimensions.errors.writtenByAnotherWriter": "Ten wymiar pozycji zapisu księgowego jest już ustawiony przez inny moduł ({writer})."
 }

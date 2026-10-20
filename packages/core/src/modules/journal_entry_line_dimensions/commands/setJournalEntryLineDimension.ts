@@ -60,14 +60,23 @@ type PairWrite = {
  * organization falls back to `ctx.selectedOrganizationId` there, and
  * `ensureOrganizationScope` rejects an input organization that differs from it.
  */
-function resolveScope(ctx: CommandRuntimeContext, input: { tenantId?: string; organizationId?: string }): Scope {
+function resolveScope(
+  ctx: CommandRuntimeContext,
+  input: { tenantId?: string; organizationId?: string },
+  translate: TranslateWithFallbackFn,
+): Scope {
   const auth = ctx.auth
   const tenantId = auth ? auth.tenantId ?? null : input.tenantId ?? null
   const organizationId = auth
     ? ctx.selectedOrganizationId ?? auth.orgId ?? null
     : input.organizationId ?? ctx.selectedOrganizationId ?? null
   if (!tenantId || !organizationId) {
-    throw notFound('journal_entry_line_dimensions: tenant/organization scope required')
+    throw notFound(
+      translate(
+        'journal_entry_line_dimensions.errors.scopeRequired',
+        'Tenant and organization context is required to change journal entry line dimensions.',
+      ),
+    )
   }
   if (auth) {
     const tenantDiffers = input.tenantId !== undefined && input.tenantId !== tenantId
@@ -293,7 +302,8 @@ const setJournalEntryLineDimensionCommand: CommandHandler<SetJournalEntryLineDim
 
   async prepare(rawInput, ctx) {
     const parsed = setJournalEntryLineDimensionSchema.parse(rawInput)
-    const scope = resolveScope(ctx, parsed)
+    const { translate } = await resolveTranslations()
+    const scope = resolveScope(ctx, parsed, translate)
     const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager)
     const rows = await loadPairRows(em, parsed.journalEntryLineId, parsed.dimensionType, scope)
     return { before: rows.map((row) => row.dimensionId) }
@@ -301,10 +311,10 @@ const setJournalEntryLineDimensionCommand: CommandHandler<SetJournalEntryLineDim
 
   async execute(rawInput, ctx) {
     const parsed = setJournalEntryLineDimensionSchema.parse(rawInput)
-    const scope = resolveScope(ctx, parsed)
+    const { translate } = await resolveTranslations()
+    const scope = resolveScope(ctx, parsed, translate)
     ensureTenantScope(ctx, scope.tenantId)
     ensureOrganizationScope(ctx, scope.organizationId)
-    const { translate } = await resolveTranslations()
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     await withAtomicFlush(
@@ -329,7 +339,7 @@ const setJournalEntryLineDimensionCommand: CommandHandler<SetJournalEntryLineDim
 
   buildLog: async ({ input, result, snapshots, ctx }) => {
     const { translate } = await resolveTranslations()
-    const scope = resolveScope(ctx, input)
+    const scope = resolveScope(ctx, input, translate)
     const before = (snapshots.before as string[] | undefined) ?? []
     return {
       actionLabel: translate('journal_entry_line_dimensions.audit.set', 'Set journal entry line dimension'),

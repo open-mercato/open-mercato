@@ -1,7 +1,9 @@
 {
   "journal_entry_line_dimensions.audit.set": "Set journal entry line dimension",
+  "journal_entry_line_dimensions.errors.duplicateDimensionIds": "The same dimension cannot be listed more than once.",
   "journal_entry_line_dimensions.errors.fiscalPeriodLocked": "The fiscal period covering this journal entry is locked. Post a correcting entry with its own dimensions instead.",
   "journal_entry_line_dimensions.errors.lineNotFound": "Journal entry line not found.",
   "journal_entry_line_dimensions.errors.noFiscalPeriodForOperationDate": "No fiscal period covers the operation date of this journal entry, so its dimensions cannot be changed.",
+  "journal_entry_line_dimensions.errors.scopeRequired": "Tenant and organization context is required to change journal entry line dimensions.",
   "journal_entry_line_dimensions.errors.writtenByAnotherWriter": "This dimension on the journal entry line is already set by another module ({writer})."
 }

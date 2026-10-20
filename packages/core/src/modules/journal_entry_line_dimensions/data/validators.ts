@@ -50,8 +50,12 @@ export const setJournalEntryLineDimensionSchema = z
     organizationId: z.string().uuid().optional(),
   })
   .refine((v) => new Set(v.dimensionIds).size === v.dimensionIds.length, {
-    message: 'dimensionIds must not contain duplicates',
+    message: 'The same dimension cannot be listed more than once.',
     path: ['dimensionIds'],
+    params: {
+      i18nKey: 'journal_entry_line_dimensions.errors.duplicateDimensionIds',
+      i18nFallback: 'The same dimension cannot be listed more than once.',
+    },
   })
 
 export type SetJournalEntryLineDimensionInput = z.infer<typeof setJournalEntryLineDimensionSchema>

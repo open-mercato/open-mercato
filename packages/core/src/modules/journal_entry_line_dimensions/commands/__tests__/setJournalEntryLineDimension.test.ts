@@ -13,6 +13,8 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
     em.findOne(entity, where, options),
 }))
 
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import { LockMode } from '@mikro-orm/core'
 import { asValue, createContainer, InjectionMode } from 'awilix'
 import '../setJournalEntryLineDimension'
@@ -443,10 +445,13 @@ describe('journal_entry_line_dimensions.dimensions.set', () => {
       expect(dimensionRows.map((r) => [r.dimensionId, r.tenantId, r.organizationId])).toEqual([['cc-new', TENANT_A, ORG_A]])
     })
 
-    it('rejects a call that has neither ctx auth nor an input scope', async () => {
+    it('rejects a call that has neither ctx auth nor an input scope with a translated message', async () => {
       const { em, dimensionRows } = makeFakeEm({})
 
-      await expect(getHandler().execute(baseInput, systemCtx(em))).rejects.toMatchObject({ status: 404 })
+      await expect(getHandler().execute(baseInput, systemCtx(em))).rejects.toMatchObject({
+        status: 404,
+        body: { error: 'Tenant and organization context is required to change journal entry line dimensions.' },
+      })
       expect(dimensionRows).toEqual([])
     })
 
@@ -630,7 +635,29 @@ describe('setJournalEntryLineDimensionSchema', () => {
     expect(setJournalEntryLineDimensionSchema.safeParse({ ...base, dimensionIds: ['cc-1', 'cc-1'] }).success).toBe(false)
   })
 
+  it('marks the duplicate dimensionIds issue with an i18nKey for translateZodIssues', () => {
+    const result = setJournalEntryLineDimensionSchema.safeParse({ ...base, dimensionIds: ['cc-1', 'cc-1'] })
+    const issue = result.success ? undefined : result.error.issues[0]
+
+    expect(issue).toMatchObject({
+      path: ['dimensionIds'],
+      params: {
+        i18nKey: 'journal_entry_line_dimensions.errors.duplicateDimensionIds',
+        i18nFallback: 'The same dimension cannot be listed more than once.',
+      },
+    })
+  })
+
   it('accepts a non-UUID dimensionId (dimension_id is an opaque reference)', () => {
     expect(setJournalEntryLineDimensionSchema.safeParse({ ...base, dimensionIds: ['opaque-ref'] }).success).toBe(true)
+  })
+})
+
+describe('journal_entry_line_dimensions i18n', () => {
+  it.each(['en', 'pl', 'de', 'es', 'ko'])('%s carries the duplicate-ids and scope-required messages', (locale) => {
+    const messages = JSON.parse(readFileSync(join(__dirname, '..', '..', 'i18n', `${locale}.json`), 'utf8')) as Record<string, string>
+
+    expect(messages['journal_entry_line_dimensions.errors.duplicateDimensionIds']).toEqual(expect.any(String))
+    expect(messages['journal_entry_line_dimensions.errors.scopeRequired']).toEqual(expect.any(String))
   })
 })
