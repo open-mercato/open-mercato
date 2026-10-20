@@ -640,7 +640,9 @@ actually checked (see Data Models).
   for this entity; it has no `updatedAt` and no `deletedAt`, a deliberate
   departure from the standard column contract, because evidence that can
   be edited or soft-deleted is not evidence. It is not user-editable, so
-  optimistic locking does not apply.
+  optimistic locking does not apply. One exception, decided later the
+  same day: retention may clear the account digits and hash to `null`
+  (see "Retention of the verification history").
 - **Written outside the caller's transaction.** The row is inserted in
   its own short transaction (a forked entity manager), so a payment
   confirmation in AP that rolls back still leaves the record that the
@@ -905,6 +907,52 @@ with no whitelist check, the exact case this module exists to stop.
   satisfies these rules (`422` with the same codes otherwise), so a
   Polish contractor cannot be moved abroad to escape the check without
   its NIP rule still holding.
+
+**Retention of the verification history: after a tenant-set period, or
+on request, the account digits and hash are cleared; the rest of the
+row stays.** The history keeps, per whitelist row, the last four digits
+and the lookup hash of a bank account number, which is personal data for
+a sole proprietor. Keeping them forever has no legal basis; deleting the
+rows would destroy the evidence that a payment was checked.
+- **Setting `verificationHistoryRetentionYears`** (tenant scope, through
+  `ModuleConfigService` as `contractors.verificationHistoryRetentionYears`),
+  an integer of at least 6, default **6**, counted from each row's
+  `checkedAt`.
+- **Why 6 by default.** Two five-year periods apply to the payment the
+  check supports, and both start at a year boundary after the event, so
+  the evidence must outlive the event by more than five calendar years:
+  - Ordynacja podatkowa, art. 70 § 1 (Dz. U. z 2026 r. poz. 622, tekst
+    jednolity): "Zobowiązanie podatkowe przedawnia się z upływem 5 lat,
+    licząc od końca roku kalendarzowego, w którym upłynął termin
+    płatności podatku." The tax that the check protects (the cost
+    deduction, the payer's joint liability) can be assessed until then.
+  - Ustawa o rachunkowości, art. 74 ust. 2 pkt 8 and ust. 3 (Dz. U. z
+    2026 r. poz. 522, tekst jednolity): "pozostałe dowody księgowe i
+    sprawozdania, których obowiązek sporządzenia wynika z ustawy – 5 lat",
+    and "Okresy przechowywania ustalone w ust. 2 oblicza się od początku
+    roku następującego po roku obrotowym, którego dane zbiory dotyczą."
+  Six years from the check covers a check made late in a year whose tax
+  is due early the next one; a tenant with a longer horizon (an open tax
+  proceeding, a fiscal year that is not the calendar year) raises the
+  setting. A value below 6 is rejected.
+- **What is cleared:** `accountNumberLast4` and `accountNumberHash` are
+  set to `null`. `requestId`, `kind`, `status` and `checkedAt` stay, so
+  the history still shows that, when and with which Ministry request id
+  a check was made.
+- **When:** a daily worker `workers/expireVerificationHistory.ts` clears
+  rows older than the setting; the command `anonymizeContractorHistory`
+  clears all rows of one contractor at once, regardless of age (an
+  erasure request). The command requires a new feature,
+  `contractors.erase`, granted by default to `admin` only, and is
+  recorded in the command audit log like any other command.
+- **The only update the history ever receives.** Both paths only turn
+  the two columns from a value to `null`; no path writes any other
+  column or deletes a row, so the append-only rule above still holds for
+  everything that carries evidential weight.
+- **Out of scope:** the snapshots kept by other modules —
+  `PaymentBatchLine.whitelistCheckResult.accountNumberLast4` in AP and
+  `JournalEntryLine.contractorSnapshot` in GL — follow those modules'
+  own rules; this module does not reach into them.
 
 ### Alternatives considered
 
@@ -1199,8 +1247,12 @@ export const features = [
   { id: 'contractors.view', title: 'View contractors', module: 'contractors' },
   { id: 'contractors.manage', title: 'Manage contractors', module: 'contractors', dependsOn: ['contractors.view'] },
   { id: 'contractors.approve', title: 'Approve contractors', module: 'contractors', dependsOn: ['contractors.view'] },
+  { id: 'contractors.erase', title: 'Anonymize contractor verification history', module: 'contractors', dependsOn: ['contractors.view'] },
 ]
 ```
+
+`contractors.erase` (added 2026-10-20) guards `anonymizeContractorHistory`
+(see Design decisions, "Retention of the verification history").
 
 `createContractor`/`updateContractor`/`createContractorBankAccount`/
 `updateContractorBankAccount` require `contractors.manage` at the
@@ -1229,7 +1281,8 @@ approve one. This is the concrete wiring the `contractors.approve`
 feature (see Access Control, Design decisions) depends on; declaring
 the feature without this split would ship the four-eyes fix granted to
 nobody, or worse, silently re-bundled onto the same role as
-`contractors.manage`. Mirrors GL's `acl.ts` sync pattern otherwise. No
+`contractors.manage`. Added 2026-10-20: `admin` also gets
+`contractors.erase`; `employee` does not. Mirrors GL's `acl.ts` sync pattern otherwise. No
 `seedDefaults` hook — unlike GL's jurisdiction dictionaries, there is
 no system reference data to seed here;
 contractors are entirely tenant-authored.
@@ -1390,6 +1443,14 @@ input that does not validate returns `[]`, not an error.
   `lockFiscalPeriod`/`unlockFiscalPeriod` pattern), `409` when the row is
   already in the target state; deactivating the primary account clears
   `isPrimary`. Require `contractors.manage`.
+- `anonymizeContractorHistory` (added 2026-10-20) — sets
+  `accountNumberLast4` and `accountNumberHash` to `null` on every
+  `ContractorVerificationCheck` row of one contractor, whatever their
+  age; leaves `requestId`, `kind`, `status` and `checkedAt`. Requires
+  `contractors.erase`; idempotent (a second call changes nothing). The
+  daily `workers/expireVerificationHistory.ts` does the same for rows
+  whose `checkedAt` is older than `verificationHistoryRetentionYears`
+  (see Design decisions, 2026-10-20).
 - `applyContractorApprovalDecision` — **confirmed in scope,
   see Design decisions.** Called **only** from inside the
   `contractors.vendor-approval` workflow (not directly from the UI),
@@ -1730,6 +1791,12 @@ never updated or deleted.
   value as `contractor_bank_account.account_number_hash` for that number
 - `created_at`: timestamptz
 
+`account_number_last4` and `account_number_hash` are the only columns
+ever changed after insert, and only to `null`, by retention or by
+`anonymizeContractorHistory` (added 2026-10-20). Supporting index for
+the daily retention worker: `(tenant_id, checked_at) where
+account_number_hash is not null`.
+
 Supporting index: `(tenant_id, organization_id, contractor_id,
 checked_at)` for the history list on the contractor's page;
 `(contractor_bank_account_id, checked_at)` for one account's history.
@@ -1847,6 +1914,18 @@ to `update`) for the four deactivation commands.
   the row is already in the target state.
 - **Response 403**: caller lacks `contractors.manage`.
 
+### `POST /api/contractors/:id/anonymize-history`
+
+Added 2026-10-20. Custom write route (mutation guard registry, mapped to
+`update`) invoking `anonymizeContractorHistory`.
+
+- **Response 200**: `{ contractorId, clearedRows: number }`.
+- **Response 403**: caller lacks `contractors.erase`.
+
+The retention setting `contractors.verificationHistoryRetentionYears` is
+edited in the module's configuration screen; a value below 6 is
+rejected with `400`.
+
 ### Contractor approval — no dedicated route
 
 **Removed 2026-09-08** (see Design decisions, Workflow definition): an
@@ -1942,8 +2021,8 @@ exactly as `sales.order-approval` and
 | `packages/shared/src/lib/bank-accounts/accountNumber.ts` | Create | `validateBankAccountNumber` — IBAN/NRB format, ISO 13616 length, MOD 97-10 checksum, normalization to the IBAN form; shared so Cash & Bank can reuse it (added 2026-10-20) |
 | `encryption.ts` | Create | `defaultEncryptionMaps` for `contractors:contractor` (incl. `nip` → `nip_hash`, `eu_vat_number` → `eu_vat_number_hash`) and `contractors:contractor_bank_account` |
 | `di.ts` | Create | Registers `contractorBankWhitelistCheck` (`checkBankAccountWhitelist`), `contractorLookupByNip` (read-only, `nipHash` lookup, no PII) and `contractorLookupByBankAccount` (read-only, `accountNumberHash` lookup, no PII, added 2026-10-20) for cross-module resolution — see DI Registrar |
-| `acl.ts` | Create | Three `contractors.*` features (`.view`/`.manage`/`.approve`) |
-| `setup.ts` | Create | `defaultRoleFeatures` for `admin`/`employee`; no `seedDefaults` |
+| `acl.ts` | Create | Four `contractors.*` features (`.view`/`.manage`/`.approve`, and `.erase` added 2026-10-20) |
+| `setup.ts` | Create | `defaultRoleFeatures` for `admin`/`employee` (`.erase` admin only); no `seedDefaults`; the default `verificationHistoryRetentionYears` of 6 applies when the tenant has no value (added 2026-10-20) |
 | `commands/contractors.ts` | Create | `createContractor` / `updateContractor` / `checkContractorVies` (on-demand VIES, added 2026-10-20) |
 | `api/contractors/[id]/verify-vies/route.ts` | Create | On-demand VIES check, 10-second timeout (added 2026-10-20) |
 | `api/contractors/[id]/{deactivate,reactivate}/route.ts`, `api/contractors/[id]/bank-accounts/[bankAccountId]/{deactivate,reactivate}/route.ts` | Create | Reversible deactivation, guarded write routes (added 2026-10-20) |
@@ -1951,6 +2030,9 @@ exactly as `sales.order-approval` and
 | `commands/contractorBankAccounts.ts` | Create | `createContractorBankAccount` / `updateContractorBankAccount` / `checkBankAccountWhitelist` |
 | `workers/verifyContractorRegistry.ts` | Create | Async GUS/VIES lookup, updates `verificationStatus` |
 | `workers/verifyContractorBankAccount.ts` | Create | Background whitelist check of a new or changed bank account; writes the history row and the warning status, never rejects the account (added 2026-10-20) |
+| `workers/expireVerificationHistory.ts` | Create | Daily: clears `accountNumberLast4`/`accountNumberHash` on history rows older than `verificationHistoryRetentionYears` (added 2026-10-20) |
+| `commands/verificationHistory.ts` | Create | `anonymizeContractorHistory` (`contractors.erase`) (added 2026-10-20) |
+| `api/contractors/[id]/anonymize-history/route.ts` | Create | Guarded write route for `anonymizeContractorHistory` (added 2026-10-20) |
 | `api/contractors/route.ts` | Create | `Contractor` CRUD (`makeCrudRoute`) |
 | `api/contractors/[id]/bank-accounts/route.ts` | Create | `ContractorBankAccount` CRUD (`makeCrudRoute`) |
 | `api/contractors/[id]/bank-accounts/[bankAccountId]/verify/route.ts` | Create | Live Biała Lista check |
@@ -2030,6 +2112,21 @@ exactly as `sales.order-approval` and
   the wrong length fails with `COUNTRY_LENGTH`; a number that is neither
   fails with `FORMAT`; `createContractorBankAccount` returns `400` with a
   field error for each.
+- History retention (added 2026-10-20), acceptance:
+  - with the default (6), a row with `checkedAt` 6 years and 1 day ago
+    has `accountNumberLast4`/`accountNumberHash` `null` after the worker
+    runs, and a row 5 years 364 days old is untouched;
+  - with the setting at 8, the 6-year-old row is untouched;
+  - setting the value to 5 → 400;
+  - after clearing, `requestId`, `kind`, `status` and `checkedAt` are
+    unchanged and the row still appears in the history list;
+  - `anonymizeContractorHistory` clears every row of that contractor,
+    including today's, and no row of another contractor; a second call
+    returns `clearedRows: 0`; without `contractors.erase` → 403;
+    `employee` lacks the feature by default;
+  - no code path deletes a history row or changes any other column;
+  - AP's `whitelistCheckResult` and GL's `contractorSnapshot` are not
+    touched by either path.
 - Verification history (added 2026-10-20): every live whitelist call,
   GUS/VIES lookup and on-demand VIES check writes exactly one
   `ContractorVerificationCheck` row with `requestId` and `checkedAt` from
@@ -2159,6 +2256,20 @@ is required"):
 - **Lower-case or three-letter country code.** `400`; the value is
   stored as given, two upper-case letters, never guessed.
 
+**History retention** (see Design decisions, "Retention of the
+verification history"):
+
+- **Account soft-deleted long ago, history still within the period.**
+  Rows keep their digits and hash until their own `checkedAt` passes the
+  retention period; deleting the account does not shorten it.
+- **Erasure request for one contractor.** `anonymizeContractorHistory`
+  clears every row of that contractor at once; dates, statuses and
+  request ids remain, so the list still shows each check.
+- **Retention setting raised.** Rows already cleared stay cleared;
+  nothing can restore them. Rows not yet cleared follow the new value.
+- **Non-whitelist rows (`GUS`, `VIES`).** They never had digits or a
+  hash; retention leaves them as they are.
+
 ## Risks & Impact Review
 
 ### Data integrity failures
@@ -2242,6 +2353,28 @@ is required"):
   shared by every tenant of the installation, so anyone holding the
   pepper and a copy of the database can recover them by enumeration,
   and the same value hashes identically in every tenant.
+- **Scenario (added 2026-10-20)**: `anonymizeContractorHistory` is run
+  for a contractor while a tax period its payments affect can still be
+  examined. **Severity**: Medium. **Affected area**: the evidence of
+  which account was checked. **Mitigation**: the command needs a
+  separate feature (`contractors.erase`, admin only by default), is in
+  the command audit log, and leaves `requestId`, status and date, so
+  the Ministry's own record of the request can still be referred to;
+  AP keeps its own last four digits on the payment line. **Residual
+  risk**: after anonymization the registry alone can no longer show
+  which number was checked; accepted, because an erasure request is the
+  case where that is the intended outcome.
+- **Scenario (added 2026-10-20)**: the retention worker does not run for
+  a while (queue down). **Severity**: Low. **Affected area**: personal
+  data kept longer than the setting. **Mitigation**: the worker selects
+  by `checkedAt`, so the next run catches up with every overdue row.
+  **Residual risk**: data kept for the length of the outage.
+- **Scenario (added 2026-10-20)**: a tenant needs the evidence longer
+  than 6 years (an open tax proceeding, a non-calendar fiscal year).
+  **Severity**: Medium. **Affected area**: history retention.
+  **Mitigation**: the setting can be raised, never lowered below 6.
+  **Residual risk**: a tenant who does not raise it in time loses the
+  digits and hash of older rows; `requestId` and dates remain.
 
 ### Cascading failures & side effects
 
@@ -3019,3 +3152,23 @@ New section Design decisions (2026-10-20); every item below is decided.
   constraint), API Contracts, a new Edge Cases & Failure Scenarios
   section, Testing Strategy (acceptance cases) and every
   `NOT_APPLICABLE` reference updated.
+
+### 2026-10-20 (cont. — verification history retention)
+
+- **Decided.** Tenant setting `verificationHistoryRetentionYears`
+  (default 6, at least 6, counted from `checkedAt`). After the period, a
+  daily worker sets `accountNumberLast4` and `accountNumberHash` to
+  `null`; the command `anonymizeContractorHistory` (new feature
+  `contractors.erase`, admin by default) does the same for one
+  contractor on request. `requestId`, `kind`, `status` and `checkedAt`
+  stay. AP and GL snapshots are out of scope.
+- **Legal basis checked** in the consolidated texts on eli.gov.pl:
+  Ordynacja podatkowa art. 70 § 1 (Dz. U. z 2026 r. poz. 622) — 5 years
+  from the end of the calendar year in which the tax payment deadline
+  passed; ustawa o rachunkowości art. 74 ust. 2 pkt 8 and ust. 3 (Dz. U.
+  z 2026 r. poz. 522) — 5 years from the beginning of the year following
+  the fiscal year. Both quoted in Design decisions as the basis of the
+  default of 6.
+- Design decisions, Access Control, Module Setup, Commands, Data Models,
+  API Contracts, File Manifest, Edge Cases, Risks and Testing Strategy
+  updated.
