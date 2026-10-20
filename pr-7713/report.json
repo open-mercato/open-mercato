@@ -18,7 +18,7 @@
     {
       "step": 1,
       "priority": "P1",
-      "action": "People: filter20 synthetic records, select100 per page, scroll rows300px",
+      "action": "People: filter20 synthetic records, select100 per page, scroll rows 300px",
       "expected": "Header remains at viewport top and opaque",
       "observed": "Header y234 equals scroll viewport y234;20/20 filtered records; Name sort returns200",
       "result": "PASS",
@@ -27,7 +27,7 @@
     {
       "step": 2,
       "priority": "P1",
-      "action": "Companies: filter20 synthetic records, select100 per page, scroll rows300px",
+      "action": "Companies: filter20 synthetic records, select100 per page, scroll rows 300px",
       "expected": "Header remains at viewport top and opaque",
       "observed": "Header y233 equals scroll viewport y233;20/20 filtered records; Name sort returns200",
       "result": "PASS",
@@ -38,7 +38,7 @@
       "priority": "P1",
       "action": "Scroll actual pages vertically and horizontally180px, then sort",
       "expected": "Header/body remain aligned; Name and Actions remain pinned",
-      "observed": "Both pages scroll83px; header remains visible at y151; pinned columns and sort work",
+      "observed": "Both pages scroll 83px; header remains visible at y151; pinned columns and sort work",
       "result": "PASS",
       "screenshot": "people-full-app.png"
     },
@@ -54,7 +54,7 @@
     {
       "step": 5,
       "priority": "P1",
-      "action": "Component fixture: dark theme and390px viewport",
+      "action": "Component fixture: dark theme and 390px viewport",
       "expected": "Readable opaque header; narrow viewport columns remain reachable",
       "observed": "6/6 dark/narrow observations pass; desktop pinning and narrow ordinary horizontal scroll retained",
       "result": "PASS",
@@ -63,16 +63,16 @@
     {
       "step": 6,
       "priority": "P1",
-      "action": "Observe normal initial table loading on actual routes",
-      "expected": "Table loading state renders while data resolves",
-      "observed": "Initial accessibility snapshots captured Loading data and column headers before the settled view",
+      "action": "Observe initial loaded table rendering on actual routes",
+      "expected": "Columns and seeded rows render normally",
+      "observed": "Initial accessibility snapshots contain column headers and loaded People/Companies records",
       "result": "PASS",
       "screenshot": null
     },
     {
       "step": 7,
       "priority": "P1",
-      "action": "Exercise empty, forced-error and no-permission route states",
+      "action": "Dedicated loading, empty, forced-error and no-permission route states",
       "expected": "Existing route/table boundary states remain usable",
       "observed": "Not exercised in this scoped run",
       "result": "not exercised",
@@ -82,8 +82,8 @@
   "hasUiTest": false,
   "notes": [
     "All changed-behavior checks passed on the real component and both actual routes. Complete route-state matrix remains unexercised; no QA approval granted.",
-    "Actual pages allow only83px outer scroll; clipping beneath the61px app bar is proved by the component fixture.",
-    "Two earlier QA harness attempts failed on hydration timing and an omitted bearer token in a supplemental read; each deleted40/40 fixtures. Final run deleted40/40. No fixtures remain.",
+    "Actual pages allow only 83px outer scroll; clipping beneath the 61px app bar is proved by the component fixture.",
+    "Two earlier QA harness attempts failed on hydration timing and an omitted bearer token in a supplemental read; each deleted 40/40 fixtures. Final run deleted 40/40. No fixtures remain.",
     "Disposable environment passed cold and warm readiness and was stopped after verification.",
     "Full local monorepo test gate remains red for the disclosed create-app harness limits; required GitHub CI is pending."
   ]
