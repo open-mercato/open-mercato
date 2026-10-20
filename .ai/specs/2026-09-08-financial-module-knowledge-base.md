@@ -2818,7 +2818,11 @@ Decisions were then written into Contractor Registry (Design decisions
    reversible `isActive` on `ContractorBankAccount`; the IBAN/NRB
    validator lives in `shared` so Cash & Bank can reuse it.
 
-**Not resolved here, recorded:** AP checks the whitelist at
-`confirmPaymentBatch` and posts at `markPaymentBatchSent`, possibly on a
-later day; neither spec says what happens when the two dates differ,
-while the legal test is the day the transfer is ordered.
+**Resolved: re-check at `markPaymentBatchSent`.** AP checks the
+whitelist at `confirmPaymentBatch` and posts at `markPaymentBatchSent`,
+possibly on a later day, while the legal test is the day the transfer is
+ordered. #5962 (Design decisions 2026-10-20) now repeats the eligibility
+check at `markPaymentBatchSent` when the stored one is from an earlier
+calendar day in `Europe/Warsaw`; the new result replaces
+`whitelistCheck` in `contractorSnapshot`, and a failure blocks the send
+with `422 PAYMENT_BATCH_NOT_ELIGIBLE`.
