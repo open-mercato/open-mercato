@@ -598,6 +598,47 @@ the next decision) and updates `lastVerifiedAt`/`lastVerificationStatus`.
   is history and a UX signal, exactly like the cache (see the 2026-09-07
   decision on `lastVerifiedAt`).
 
+**Verification history: an append-only `ContractorVerificationCheck`
+table, whose rows survive edits and soft deletes of the bank account.**
+Until now the registry kept only the latest result (`lastCheck*` on
+`Contractor`, `lastVerified*` on the account), so the evidence of a
+check disappeared with the next one, and a changed or soft-deleted
+account left nothing to show which number had been checked. One row is
+written for every registry call this module makes: each live call of
+`checkBankAccountWhitelist` (payment time and "verify now"), the
+registration check above, each GUS/VIES lookup of
+`verifyContractorRegistry` and each on-demand VIES check. Columns: the
+contractor, the bank account (optional — `null` for GUS/VIES), `kind`
+(`WHITELIST`/`GUS`/`VIES`), `status`, `checkedAt`, `requestId`, and for
+whitelist rows the last four digits and the lookup hash of the number
+actually checked (see Data Models).
+- **Why the number is stored as last four digits plus a hash, not
+  copied.** The full number stays encrypted only on
+  `ContractorBankAccount`; the history must not become a second,
+  plaintext copy (the same reasoning as AP's `whitelistCheckResult`). The
+  last four digits let a person recognise the account; the hash proves
+  which exact number was checked and matches `accountNumberHash` (see
+  "Lookup hashes" below) even after the account row was edited or
+  soft-deleted.
+- **The hash is the platform's lookup hash, `hashForLookup`**
+  (`packages/shared/src/lib/encryption/aes.ts`): HMAC-SHA256 keyed with
+  the installation's lookup pepper (`LOOKUP_HASH_PEPPER`, falling back to
+  the tenant-data encryption keys), with a `v2:` prefix. Without any
+  configured key it falls back to an unkeyed SHA-256 (see Risks).
+- **Append-only.** No update or delete command and no write route exist
+  for this entity; it has no `updatedAt` and no `deletedAt`, a deliberate
+  departure from the standard column contract, because evidence that can
+  be edited or soft-deleted is not evidence. It is not user-editable, so
+  optimistic locking does not apply.
+- **Written outside the caller's transaction.** The row is inserted in
+  its own short transaction (a forked entity manager), so a payment
+  confirmation in AP that rolls back still leaves the record that the
+  Ministry was queried.
+- **What it does not do.** It does not link a check to a payment; AP
+  stores `requestId` on its own `PaymentBatchLine` (see Out of scope).
+  The `lastCheck*` fields on `Contractor` stay as the latest GUS/VIES
+  result for the list view, copied from the newest history row.
+
 ### Alternatives considered
 
 | Alternative | Why Rejected |
@@ -812,6 +853,12 @@ own instruction — no open questions remain.
   `JournalEntryLine`/`SalesInvoiceLine` precedent — see Design
   decisions), `updatedAt`, `deletedAt` (soft "deactivate" rather than
   actual deletion — account history has audit value).
+- `ContractorVerificationCheck` (added 2026-10-20) — append-only history
+  of every GUS, VIES and Biała Lista call: `contractorId`,
+  `contractorBankAccountId` (nullable), `kind`, `status`, `checkedAt`,
+  `requestId`, `accountNumberLast4`, `accountNumberHash`, own
+  `organizationId`/`tenantId`, `createdAt`; no `updatedAt`/`deletedAt`
+  (see Design decisions, 2026-10-20).
 
 ### Access Control (`acl.ts`)
 
@@ -1090,6 +1137,9 @@ triggers on `sales.order.created`.
   returning the live result. This route backs only this module's own
   backend UI (the per-row "verify now" button) — it is **not** the
   integration path for AP. See Cross-module integration below.
+- `api/contractors/[id]/verification-checks/route.ts` (added
+  2026-10-20) — read-only list of the verification history (see API
+  Contracts); no write route.
 - **Removed 2026-09-08**: no dedicated approve route. See API
   Contracts, "Contractor approval — no dedicated route" — approval
   (confirmed in scope, 2026-09-08) completes through the generic
@@ -1159,6 +1209,10 @@ to such a consumer; the dependency direction stays one-way
   showing the UX-only "last checked: N days ago" badge, plus a
   "Verify now" button per row that calls the live-check route above
   and refreshes the badge.
+- `contractors/[id]/page.tsx` also shows the verification history
+  (added 2026-10-20): a read-only `DataTable` of
+  `ContractorVerificationCheck` rows (kind, status, date, request id,
+  last four digits of the account).
 - Confirmed in scope, 2026-09-08: an injected approval-task widget at a
   `contractors.contractor.detail:details` spot ID, visible when
   `approvalStatus === 'PENDING_APPROVAL'` and there's a task assigned
@@ -1225,6 +1279,39 @@ Supporting index: `(tenant_id, organization_id, contractor_id)` on
 contractor's detail page and the primary-account uniqueness check in
 `createContractorBankAccount`/`updateContractorBankAccount`.
 
+### ContractorVerificationCheck
+
+Added 2026-10-20 (see Design decisions). One row per registry call,
+never updated or deleted.
+
+- `id`: uuid (PK)
+- `tenant_id`, `organization_id`: uuid (own)
+- `contractor_id`: uuid (FK → `contractor`)
+- `contractor_bank_account_id`: uuid, nullable (FK →
+  `contractor_bank_account`; set for `WHITELIST` rows, `null` for
+  `GUS`/`VIES`). The row stays valid after the account is edited or
+  soft-deleted, because it carries its own copy of what was checked.
+- `kind`: text (`WHITELIST` / `GUS` / `VIES`)
+- `status`: text — `WHITELIST`: `WHITELISTED` / `NOT_WHITELISTED` /
+  `NOT_CHECKED`; `GUS`: `FOUND` / `NOT_FOUND` / `NOT_CHECKED`; `VIES`:
+  `VALID` / `INVALID` / `NOT_CHECKED`. `NOT_CHECKED` means the call was
+  made and no answer arrived.
+- `checked_at`: timestamptz — the registry's own timestamp when it
+  returns one (the Ministry's `requestDateTime`), otherwise the time of
+  the call
+- `request_id`: text, nullable — the registry's identifier of the query
+  (the Ministry's `requestId`); `null` when the registry returned none
+- `account_number_last4`: text, nullable — last four digits of the
+  normalized number that was checked (`WHITELIST` rows only)
+- `account_number_hash`: text, nullable — `hashForLookup` of the
+  normalized number that was checked (`WHITELIST` rows only), the same
+  value as `contractor_bank_account.account_number_hash` for that number
+- `created_at`: timestamptz
+
+Supporting index: `(tenant_id, organization_id, contractor_id,
+checked_at)` for the history list on the contractor's page;
+`(contractor_bank_account_id, checked_at)` for one account's history.
+
 ## API Contracts
 
 ### `GET /api/contractors` / `POST /api/contractors`
@@ -1275,6 +1362,19 @@ Custom write route (mutation guard registry, mapped to `update`).
   (`WHITELIST_UNAVAILABLE`) are reported in `reasons` with `200`.
   **Changed 2026-10-20:** this replaces the earlier
   `422 CONTRACTOR_NOT_APPROVED` and `502` responses.
+- **Response 403**: caller lacks `contractors.view`.
+
+### `GET /api/contractors/:id/verification-checks`
+
+Added 2026-10-20. Read-only list of `ContractorVerificationCheck` rows
+for one contractor, newest first; no create, update or delete route
+exists.
+
+- **Query**: `page?`, `pageSize?` (≤100), `kind?`,
+  `contractorBankAccountId?`.
+- **Response** (per row): `{ id, kind, status, checkedAt, requestId,
+  contractorBankAccountId, accountNumberLast4 }` — never
+  `accountNumberHash`.
 - **Response 403**: caller lacks `contractors.view`.
 
 ### Contractor approval — no dedicated route
@@ -1347,8 +1447,9 @@ exactly as `sales.order-approval` and
 
 | File | Action | Purpose |
 | --- | --- | --- |
-| `data/entities.ts` | Create | `Contractor`, `ContractorBankAccount` |
-| `migrations/MigrationXXXXXXXXXXXXXX.ts` | Create | Tables for both entities above, plus the partial indexes `contractor_bank_account_one_primary_uq` and the `nip_hash` uniqueness index scoped `where deleted_at is null` (see Design decisions) |
+| `data/entities.ts` | Create | `Contractor`, `ContractorBankAccount`, `ContractorVerificationCheck` (append-only history, added 2026-10-20) |
+| `migrations/MigrationXXXXXXXXXXXXXX.ts` | Create | Tables for the three entities above, plus the partial indexes `contractor_bank_account_one_primary_uq` and the `nip_hash` uniqueness index scoped `where deleted_at is null` (see Design decisions) and the history indexes (see Data Models) |
+| `api/contractors/[id]/verification-checks/route.ts` | Create | Read-only verification history list (added 2026-10-20) |
 | `encryption.ts` | Create | `defaultEncryptionMaps` for `contractors:contractor` (incl. `nip` → `nip_hash`) and `contractors:contractor_bank_account` |
 | `di.ts` | Create | Registers `contractorBankWhitelistCheck` (`checkBankAccountWhitelist`) and `contractorLookupByNip` (read-only, `nipHash` lookup, no PII) for cross-module resolution — see DI Registrar |
 | `acl.ts` | Create | Three `contractors.*` features (`.view`/`.manage`/`.approve`) |
@@ -1421,6 +1522,15 @@ exactly as `sales.order-approval` and
   `NOT_APPROVED` — never reaching the live API client — when
   `approvalStatus` is `PENDING_APPROVAL` or `REJECTED`, and proceeds
   normally once `APPROVED`.
+- Verification history (added 2026-10-20): every live whitelist call,
+  GUS/VIES lookup and on-demand VIES check writes exactly one
+  `ContractorVerificationCheck` row with `requestId` and `checkedAt` from
+  the registry; a whitelist row carries the last four digits and the
+  hash of the number checked, never the number; editing the account's
+  number or soft-deleting the account leaves earlier rows unchanged and
+  their hash still equal to the old number's hash; a payment
+  confirmation whose transaction rolls back still leaves the row; no
+  route or command updates or deletes a row.
 - Registration check (added 2026-10-20): creating an account, and
   changing its `accountNumber`, enqueues `verifyContractorBankAccount`;
   a negative Ministry answer leaves the account saved with
@@ -1529,6 +1639,20 @@ exactly as `sales.order-approval` and
   identified — every payment path already goes through this single choke
   point.
 
+- **Scenario (added 2026-10-20)**: the installation has no lookup
+  pepper configured, so `hashForLookup` falls back to an unkeyed
+  SHA-256 for `nip_hash`, `account_number_hash` and the history's
+  `account_number_hash`. **Severity**: Medium. **Affected area**: the
+  hash columns of `contractor`, `contractor_bank_account` and
+  `contractor_verification_check`. **Mitigation**: deployment sets
+  `LOOKUP_HASH_PEPPER` (or one of the tenant-data encryption keys the
+  helper falls back to); the platform's own `lookupHashCandidates`
+  matches both formats until a backfill rewrites old values.
+  **Residual risk**: with no key at all, a NIP (ten digits with a
+  checksum) can be recovered from its hash by trying every value; an
+  account number is harder but not safe. Accepted as a deployment
+  requirement shared with every other hashed column in the platform.
+
 ### Cascading failures & side effects
 
 - **Scenario**: GUS or VIES API is down when `verifyContractorRegistry`
@@ -1578,8 +1702,9 @@ exactly as `sales.order-approval` and
 
 ### Tenant & data isolation
 
-`Contractor` and `ContractorBankAccount` are both tenant/organization
-scoped, with `ContractorBankAccount` carrying its own scope columns
+`Contractor`, `ContractorBankAccount` and `ContractorVerificationCheck`
+are all tenant/organization scoped, with `ContractorBankAccount` and
+`ContractorVerificationCheck` carrying their own scope columns
 rather than relying only on a join through `contractorId` (matching
 the `JournalEntryLine`/`SalesInvoiceLine` precedent — see Design
 decisions). No cross-organization sharing exists in Phase 1 (YAGNI,
@@ -1588,7 +1713,7 @@ noisy-neighbor scenario to exploit.
 
 ### Migration & deployment
 
-Additive only — two new tables (with the indexes named in Data
+Additive only — three new tables (the history table added 2026-10-20; with the indexes named in Data
 Models), no changes to existing schema (except the
 `JournalEntryLine.contractorSnapshot` (`json`, nullable) addition
 already specified in #5663's own design — see Implementation Plan
@@ -1604,7 +1729,10 @@ independently of AP, which does not yet exist.
   `checkBankAccountWhitelist` as a callable, live check — persisting
   its result against a particular payment/invoice record is Accounts
   Payable's concern (AP owns the "payment" concept; this module does
-  not know what a payment is).
+  not know what a payment is). **Updated 2026-10-20:** this module now
+  keeps its own append-only history of every check, with the Ministry's
+  `requestId` (see Design decisions, 2026-10-20); AP links a payment to a
+  check by storing that `requestId` on `PaymentBatchLine`.
 - **Multi-step or threshold-based vendor approval.** Phase 2,
   deferred unless the team later decides the Phase 1 one-step version
   (confirmed in scope, 2026-09-08) isn't sufficient — see Design
@@ -1663,7 +1791,7 @@ independently of AP, which does not yet exist.
 | `packages/queue/AGENTS.md` | Workers MUST be idempotent; MUST export `metadata: { queue, id?, concurrency? }` | Compliant | `verifyContractorRegistry.ts` follows the exact shape verified against `customers/workers/*.ts` |
 | `packages/ui/AGENTS.md` | `CrudForm`/`DataTable`; guarded row actions via `useGuardedMutation` | Compliant | Contractor list/create/edit use `CrudForm`+`DataTable`. **Resolved 2026-09-08** (superseding the 2026-09-07 correction, which only removed a false citation without replacing the design): the approval step (confirmed in scope, 2026-09-08) now uses the `workflows` engine (`defineWorkflow`/`USER_TASK`), 1:1 with `sales.order-approval`/`accounts_payable.invoice-approval`, not `useGuardedMutation` — consistent with the same principle already settled for `accounts_payable.invoice-approval`: a guarded row action is a real pattern only for a simple, reversible toggle (GL's fiscal-period lock/unlock), not a one-time approve/reject decision. See Design decisions, Workflow definition |
 | `packages/core/AGENTS.md` → Command Side Effects | The workflow's own transition calls a command dedicated to that transition, not the entity's general-purpose update command | **Compliant (fixed this round)** | Carried over from AP's own fix to the identical latent issue in `sales.order-approval` (which reuses `sales.orders.update` for its transition): `applyContractorApprovalDecision` is a separate, narrow command, not `updateContractor` — see Design decisions |
-| `BACKWARD_COMPATIBILITY.md` | Database schema additive-only | Compliant | Two new tables only |
+| `BACKWARD_COMPATIBILITY.md` | Database schema additive-only | Compliant | New tables only (three since 2026-10-20) |
 | `packages/core/AGENTS.md` → Cross-Module Coupling | Optional-peer sync calls resolve via a local `tryResolve` in `try/catch`; never a hard `requires`; upstream MUST NOT resolve the consumer | **Compliant (fixed this round)** | Originally designed as a plain HTTP route AP would call — an independent review caught this as the wrong mechanism (no degrade path if `contractors` is disabled). Corrected: `checkBankAccountWhitelist` is now also registered in `di.ts`; AP resolves it via `tryResolve`; the HTTP route is now scoped to this module's own UI only. See DI Registrar, Cross-module integration, Risks & Impact Review. |
 | Checklist § Performance | Every query pattern names its supporting index | **Compliant (fixed this round)** | Missing from the first draft of this expansion; added to Data Models for both entities' list/lookup filters. |
 
@@ -2201,3 +2329,13 @@ New section Design decisions (2026-10-20); every item below is decided.
   verification history; a negative answer keeps the account with the
   `NOT_WHITELISTED` warning status. Commands, File Manifest, Testing
   Strategy updated.
+- **Verification history.** New append-only entity
+  `ContractorVerificationCheck` (table `contractor_verification_check`):
+  contractor, optional bank account, kind (`WHITELIST`/`GUS`/`VIES`),
+  status, `checkedAt`, `requestId`, last four digits and `hashForLookup`
+  HMAC of the checked number; written in its own transaction; no
+  `updatedAt`/`deletedAt`, no write route. Read-only
+  `GET /api/contractors/:id/verification-checks`. Entities, Data Models,
+  Queries / API, API Contracts, Backend Pages, File Manifest, Testing
+  Strategy, Risks (unkeyed hash without a pepper), Tenant isolation,
+  Migration, Compliance Matrix and Out of scope updated.
