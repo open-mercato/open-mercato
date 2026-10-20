@@ -1,8 +1,13 @@
-import { reindexEntity } from '../lib/reindexer'
+import { reindexEntity, type ReindexJobOptions } from '../lib/reindexer'
 import { upsertIndexBatch, type UpsertIndexBatchResult } from '../lib/batch'
-import { applyCoverageAdjustments, refreshCoverageSnapshot, writeCoverageCounts } from '../lib/coverage'
+import {
+  applyCoverageAdjustments,
+  deleteScopedCoverageForEntity,
+  refreshCoverageSnapshot,
+  writeCoverageCounts,
+} from '../lib/coverage'
 import { finalizeJob, prepareJob, updateJobProgress } from '../lib/jobs'
-import { purgeOrphans } from '../lib/stale'
+import { purgeOrphans, retireScopedCatalogueRows } from '../lib/stale'
 import { registerTenantGlobalEntityTypes, resetTenantGlobalEntityTypes } from '../lib/tenant-global'
 
 jest.mock('../lib/batch', () => {
@@ -14,6 +19,7 @@ jest.mock('../lib/coverage', () => ({
   applyCoverageAdjustments: jest.fn(async () => undefined),
   refreshCoverageSnapshot: jest.fn(async () => undefined),
   writeCoverageCounts: jest.fn(async () => undefined),
+  deleteScopedCoverageForEntity: jest.fn(async () => undefined),
 }))
 
 jest.mock('../lib/jobs', () => ({
@@ -24,6 +30,7 @@ jest.mock('../lib/jobs', () => ({
 
 jest.mock('../lib/stale', () => ({
   purgeOrphans: jest.fn(async () => undefined),
+  retireScopedCatalogueRows: jest.fn(async () => undefined),
 }))
 
 /**
@@ -56,6 +63,8 @@ const mockWriteCoverageCounts = writeCoverageCounts as jest.MockedFunction<typeo
 const mockPrepareJob = prepareJob as jest.MockedFunction<typeof prepareJob>
 const mockFinalizeJob = finalizeJob as jest.MockedFunction<typeof finalizeJob>
 const mockPurgeOrphans = purgeOrphans as jest.MockedFunction<typeof purgeOrphans>
+const mockRetireScopedCatalogueRows = retireScopedCatalogueRows as jest.MockedFunction<typeof retireScopedCatalogueRows>
+const mockDeleteScopedCoverageForEntity = deleteScopedCoverageForEntity as jest.MockedFunction<typeof deleteScopedCoverageForEntity>
 
 const TENANT = '0e40f2bf-a7ab-465c-8040-20abbd8ad398'
 /**
@@ -348,6 +357,109 @@ describe('a tenant-scoped sweep of a declared platform-wide catalogue', () => {
       expect(purge!.predicates.join('|')).not.toContain(ORG)
     })
 
+    // `entity_indexes` is unique on (entity_type, entity_id, organization_id_coalesced), so the
+    // rows earlier sweeps stamped with a caller's organization are other keys of the same
+    // records: the upsert never rewrites them and the null-scoped purge never selects them.
+    it('retires the rows earlier sweeps stamped with a caller scope, after writing the canonical ones', async () => {
+      const { em } = makeEm(CATALOGUE, 'feature_toggles', TENANT_LESS_COLUMNS, [{ id: 'toggle-1' }])
+
+      await reindexEntity(em, { entityType: CATALOGUE, tenantId: TENANT, organizationId: ORG })
+
+      expect(mockRetireScopedCatalogueRows).toHaveBeenCalledWith(
+        expect.anything(),
+        { entityType: CATALOGUE, partitionIndex: null, partitionCount: null, excludeRecordIds: [] },
+      )
+      expect(mockDeleteScopedCoverageForEntity).toHaveBeenCalledWith(expect.anything(), CATALOGUE)
+      expect(mockUpsertIndexBatch.mock.invocationCallOrder[0])
+        .toBeLessThan(mockRetireScopedCatalogueRows.mock.invocationCallOrder[0])
+    })
+
+    it('leaves the old row of a record this run failed to rebuild', async () => {
+      mockUpsertIndexBatch.mockResolvedValueOnce(
+        batchResult({ attempted: 2, written: 1, failedRecordIds: ['toggle-2'] }),
+      )
+      const { em } = makeEm(
+        CATALOGUE,
+        'feature_toggles',
+        TENANT_LESS_COLUMNS,
+        [{ id: 'toggle-1' }, { id: 'toggle-2' }],
+      )
+
+      await reindexEntity(em, { entityType: CATALOGUE, tenantId: TENANT, organizationId: ORG }).catch(() => undefined)
+
+      expect(mockRetireScopedCatalogueRows).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ excludeRecordIds: ['toggle-2'] }),
+      )
+    })
+
+    it('retires each partition\'s own slice and resets coverage only once', async () => {
+      const { em } = makeEm(CATALOGUE, 'feature_toggles', TENANT_LESS_COLUMNS, [{ id: 'toggle-1' }])
+
+      await reindexEntity(em, {
+        entityType: CATALOGUE,
+        tenantId: TENANT,
+        organizationId: ORG,
+        partitionCount: 2,
+        partitionIndex: 1,
+      })
+
+      expect(mockRetireScopedCatalogueRows).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ partitionIndex: 1, partitionCount: 2 }),
+      )
+      expect(mockDeleteScopedCoverageForEntity).not.toHaveBeenCalled()
+    })
+
+    // The vector consumers need a real tenant: `vector_upsert` returns before enqueueing
+    // without one, and `vector_purge` returns at once. Nothing defines a shared vector, so
+    // vector work stays filed under the caller even though the projection moved.
+    it('dispatches vectorize_one under the caller\'s scope, not the projection\'s', async () => {
+      const eventBus = { emitEvent: jest.fn(async () => undefined) }
+      const { em } = makeEm(CATALOGUE, 'feature_toggles', TENANT_LESS_COLUMNS, [{ id: 'toggle-1' }])
+
+      await reindexEntity(em, {
+        entityType: CATALOGUE,
+        tenantId: TENANT,
+        organizationId: ORG,
+        emitVectorizeEvents: true,
+        eventBus,
+      })
+
+      expect(eventBus.emitEvent).toHaveBeenCalledWith('query_index.vectorize_one', {
+        entityType: CATALOGUE,
+        recordId: 'toggle-1',
+        tenantId: TENANT,
+        organizationId: ORG,
+      })
+    })
+
+    it('queues the force vector purge and prunes vector orphans under the caller\'s scope', async () => {
+      const eventBus = { emitEvent: jest.fn(async () => undefined) }
+      const removeOrphans = jest.fn(async () => undefined)
+      const { em } = makeEm(CATALOGUE, 'feature_toggles', TENANT_LESS_COLUMNS, [{ id: 'toggle-1' }])
+
+      await reindexEntity(em, {
+        entityType: CATALOGUE,
+        tenantId: TENANT,
+        organizationId: ORG,
+        force: true,
+        resetCoverage: true,
+        emitVectorizeEvents: true,
+        eventBus,
+        vectorService: { removeOrphans } as unknown as ReindexJobOptions['vectorService'],
+      })
+
+      expect(eventBus.emitEvent).toHaveBeenCalledWith('query_index.vectorize_purge', {
+        entityType: CATALOGUE,
+        tenantId: TENANT,
+        organizationId: ORG,
+      })
+      expect(removeOrphans).toHaveBeenCalledWith(
+        expect.objectContaining({ entityId: CATALOGUE, tenantId: TENANT, organizationId: ORG }),
+      )
+    })
+
     it('keeps the JOB under the caller\'s organization, which records who ran it', async () => {
       const { em } = makeEm(CATALOGUE, 'feature_toggles', TENANT_LESS_COLUMNS, [{ id: 'toggle-1' }])
 
@@ -403,6 +515,15 @@ describe('an ordinary tenant-scoped entity is untouched', () => {
       expect.anything(),
       expect.objectContaining({ tenantId: TENANT }),
     )
+  })
+
+  it('retires nothing, since only a declared catalogue has a canonical null scope', async () => {
+    const { em } = makeEm(SCOPED, 'todos', TENANT_SCOPED_COLUMNS, [{ id: 'todo-1' }])
+
+    await reindexEntity(em, { entityType: SCOPED, tenantId: TENANT, organizationId: 'org-1' })
+
+    expect(mockRetireScopedCatalogueRows).not.toHaveBeenCalled()
+    expect(mockDeleteScopedCoverageForEntity).not.toHaveBeenCalled()
   })
 
   it('is unaffected by a catalogue declaration for a different entity type', async () => {

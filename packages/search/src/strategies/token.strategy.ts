@@ -177,8 +177,21 @@ export class TokenSearchStrategy implements SearchStrategy {
       .orderBy(sql`count(distinct token_hash) desc`)
       .limit(limit)
 
+    // A declared catalogue's canonical tokens carry no organization either, so the
+    // organization filter takes the same declaration-gated branch, narrowed to the fully
+    // unscoped row: `SearchService` passes the selected organization even for a superadmin,
+    // and an organization-only predicate would drop every catalogue hit.
     if (organizationIds) {
-      queryBuilder = queryBuilder.where('organization_id' as any, 'in', organizationIds)
+      queryBuilder = queryBuilder.where((eb) => (globalEntityTypes.length === 0
+        ? eb('organization_id' as any, 'in', organizationIds)
+        : eb.or([
+          eb('organization_id' as any, 'in', organizationIds),
+          eb.and([
+            eb('organization_id' as any, 'is', null),
+            eb('tenant_id' as any, 'is', null),
+            eb('entity_type' as any, 'in', globalEntityTypes),
+          ]),
+        ])))
     }
 
     if (requestedEntityTypes?.length) {

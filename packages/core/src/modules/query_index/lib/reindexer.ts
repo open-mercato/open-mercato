@@ -11,13 +11,19 @@ import {
   QueryIndexBatchWriteError,
   type AnyRow,
 } from './batch'
-import { refreshCoverageSnapshot, writeCoverageCounts, applyCoverageAdjustments } from './coverage'
+import {
+  refreshCoverageSnapshot,
+  writeCoverageCounts,
+  applyCoverageAdjustments,
+  deleteScopedCoverageForEntity,
+} from './coverage'
 import { prepareJob, updateJobProgress, finalizeJob, type JobScope } from './jobs'
-import { purgeOrphans } from './stale'
+import { purgeOrphans, retireScopedCatalogueRows } from './stale'
 import type { VectorIndexService } from '@open-mercato/search/vector'
 import { isSearchDebugEnabled } from './search-tokens'
 import { isTenantGlobalEntityType } from './tenant-global'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('query_index').child({ component: 'reindexer' })
 
@@ -157,7 +163,27 @@ async function getColumnSet(db: Kysely<any>, tableName: string): Promise<Set<str
       table: tableName,
       error: error instanceof Error ? error.message : String(error),
     })
+    reportColumnProbeFailure(error, tableName)
     return null
+  }
+}
+
+/**
+ * The probe's caller refuses the sweep whatever happens here, so a telemetry backend that
+ * throws must not turn that refusal into a failed job.
+ */
+function reportColumnProbeFailure(error: unknown, tableName: string): void {
+  try {
+    getTelemetryRuntime()?.reportError(error, {
+      module: 'query_index',
+      code: 'query_index.column_probe_failed',
+      attributes: { table: tableName },
+    })
+  } catch (telemetryError) {
+    logger.warn('Failed to report a column probe failure', {
+      table: tableName,
+      error: telemetryError instanceof Error ? telemetryError.message : String(telemetryError),
+    })
   }
 }
 
@@ -283,6 +309,13 @@ export async function reindexEntity(
     !hasTenantCol && !hasOrgCol && isTenantGlobalEntityType(entityType)
   const projectionTenantId = writesGlobalProjection ? null : tenantId
   const projectionOrganizationId = writesGlobalProjection ? null : organizationId
+  // Vector work keeps the caller's scope even where the projection moves. Its consumers -
+  // the `query_index.vectorize_one` and `query_index.vectorize_purge` subscribers and
+  // `removeOrphans` - need a real tenant, and nothing defines a shared vector across
+  // dispatch, storage and reads, so a declared catalogue's vectors stay filed per tenant
+  // exactly as they were before its projection moved to the null scope.
+  const vectorTenantId = writesGlobalProjection ? tenantId : projectionTenantId
+  const vectorOrganizationId = writesGlobalProjection ? organizationId : projectionOrganizationId
 
   // Refuse anything tenant-less that is not writing a global projection. That is the
   // no-tenant-column case, and also a declaration this module cannot honour: a declared
@@ -485,12 +518,12 @@ export async function reindexEntity(
   // leaves it to the caller that owns the fan-out (`api/reindex.ts` queues it once, before
   // dispatching any partition).
   if (force && resetCoverage && !usingPartitions && emitVectorize && eventBus) {
-    if (projectionTenantId !== undefined) {
+    if (vectorTenantId !== undefined) {
       const payload: Record<string, unknown> = {
         entityType,
-        tenantId: projectionTenantId ?? null,
+        tenantId: vectorTenantId ?? null,
       }
-      if (projectionOrganizationId !== undefined) payload.organizationId = projectionOrganizationId ?? null
+      if (vectorOrganizationId !== undefined) payload.organizationId = vectorOrganizationId ?? null
       try {
         await eventBus.emitEvent('query_index.vectorize_purge', payload)
       } catch (err) {
@@ -627,13 +660,13 @@ export async function reindexEntity(
       if (emitVectorize && eventBus) {
         await Promise.all(
           writtenRows.map((row) => {
-            const scopeOrg = projectionOrganizationId !== undefined
-              ? projectionOrganizationId ?? null
+            const scopeOrg = vectorOrganizationId !== undefined
+              ? vectorOrganizationId ?? null
               : hasOrgCol
                 ? ((row as AnyRow).organization_id ?? null)
                 : (deriveOrg ? deriveOrg(row) ?? null : null)
-            const scopeTenant = projectionTenantId !== undefined
-              ? projectionTenantId ?? null
+            const scopeTenant = vectorTenantId !== undefined
+              ? vectorTenantId ?? null
               : (hasTenantCol ? ((row as AnyRow).tenant_id ?? null) : null)
             return eventBus
               .emitEvent('query_index.vectorize_one', {
@@ -672,14 +705,27 @@ export async function reindexEntity(
         startedAt: jobStartedAt,
         excludeRecordIds: purgeExclusions,
       })
+      // The purge above only sees the canonical null scope. Rows earlier sweeps stamped with
+      // a caller's tenant and organization are other keys of the same records, so a sweep of
+      // a declared catalogue also retires them - after the canonical rows are written, so the
+      // catalogue never goes unserved in between.
+      if (writesGlobalProjection) {
+        await retireScopedCatalogueRows(db, {
+          entityType,
+          partitionIndex: usingPartitions ? partitionIndex : null,
+          partitionCount: usingPartitions ? partitionCountRaw : null,
+          excludeRecordIds: purgeExclusions,
+        })
+        if (resetCoverage) await deleteScopedCoverageForEntity(db, entityType)
+      }
     }
 
     if (force && vectorService && (!usingPartitions || partitionIndex === null)) {
       try {
         await vectorService.removeOrphans({
           entityId: entityType,
-          tenantId: projectionTenantId,
-          organizationId: projectionOrganizationId,
+          tenantId: vectorTenantId,
+          organizationId: vectorOrganizationId,
           olderThan: jobStartedAt,
         })
       } catch (error) {

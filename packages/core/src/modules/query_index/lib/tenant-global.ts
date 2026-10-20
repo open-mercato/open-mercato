@@ -3,13 +3,17 @@
  * source table has no `tenant_id` column BECAUSE the rows are one platform-wide
  * catalogue that every tenant is meant to read.
  *
- * For these, sweeping the whole table and stamping the result with the caller's
- * tenant is the intended behaviour, and it is also the only thing that makes
- * them findable at all. Both readers filter on an exact tenant with no NULL
- * branch — `TokenSearchStrategy.search()` and `createPresenterEnricher()`'s
- * `fetchDocsBatch()` in `@open-mercato/search`. The enricher does have
- * `organization_id = X OR organization_id IS NULL`; there is no tenant
- * counterpart anywhere, so a NULL tenant stamp is invisible, not global.
+ * A declared type whose table has neither scope column is swept whole and its
+ * projection is written once, under `tenant_id = NULL, organization_id = NULL` -
+ * where the event path files it too - and every reader widens for exactly this
+ * set: `TokenSearchStrategy.search()` on both the tenant and the organization
+ * axis, `createPresenterEnricher()`'s `fetchDocsBatch()` on the tenant axis, and
+ * `SearchService`'s organization filter. A sweep also retires the rows earlier
+ * sweeps stamped with a caller's tenant and organization. Vector work is the one
+ * exception: it keeps the caller's scope, because its consumers need a real
+ * tenant. The null scope alone is never the signal - it is also how every
+ * private table with neither scope column is stored - which is why each branch
+ * is gated on this declaration.
  *
  * Everything else with no `tenant_id` column fails closed, INCLUDING entity
  * types nobody has classified yet. That is the point of expressing this as an

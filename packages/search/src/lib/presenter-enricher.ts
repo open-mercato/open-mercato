@@ -160,7 +160,7 @@ async function fetchDocsBatch(
     let query = db
       .selectFrom('entity_indexes' as any)
       .select(['entity_type' as any, 'entity_id' as any, 'doc' as any])
-      .where((eb: any) => (globalEntityTypes.length === 0
+      .where((eb) => (globalEntityTypes.length === 0
         ? eb('tenant_id' as any, '=', tenantId)
         : eb.or([
           eb('tenant_id' as any, '=', tenantId),

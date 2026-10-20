@@ -446,6 +446,21 @@ export async function deleteCoverageForEntity(db: Kysely<any>, entityType: strin
     .execute()
 }
 
+/**
+ * Drop every coverage row of `entityType` outside the global scope (no tenant, and the
+ * organization placeholder or no organization). A declared platform-wide catalogue keeps its
+ * coverage there only; rows an earlier sweep wrote under the caller's scope are never
+ * refreshed again and would keep reporting stale counts.
+ */
+export async function deleteScopedCoverageForEntity(db: Kysely<any>, entityType: string): Promise<void> {
+  if (!entityType) return
+  await db
+    .deleteFrom('entity_index_coverage')
+    .where('entity_type', '=', entityType)
+    .where(sql<boolean>`(tenant_id is not null or (organization_id is not null and organization_id <> ${GLOBAL_ORGANIZATION_PLACEHOLDER}))`)
+    .execute()
+}
+
 async function deleteCoverageScope(db: Kysely<any>, scope: CoverageScope): Promise<void> {
   const { entityType, tenantId, organizationId, withDeleted } = scope
   if (!entityType) return

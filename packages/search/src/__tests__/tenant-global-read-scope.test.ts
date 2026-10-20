@@ -213,6 +213,63 @@ describe('TokenSearchStrategy widens the tenant predicate for declared global en
   })
 })
 
+/** The one predicate in the recorded tree that constrains `organization_id`. */
+function organizationPredicate(predicates: Predicate[]): Predicate | undefined {
+  const mentionsOrganization = (predicate: Predicate): boolean => (
+    predicate.kind === 'cmp'
+      ? predicate.column === 'organization_id'
+      : predicate.items.some(mentionsOrganization)
+  )
+  return predicates.find(mentionsOrganization)
+}
+
+/**
+ * `SearchService` passes the selected organization down even for a superadmin, and a
+ * declared catalogue's canonical tokens carry no organization, so an organization-only
+ * predicate drops every catalogue hit on a selected-organization search.
+ */
+describe('TokenSearchStrategy keeps declared catalogue hits under a selected organization', () => {
+  it('adds a fully unscoped branch for the declared types to the organization filter', async () => {
+    const { db, predicates } = createRecordingDb()
+    const strategy = new TokenSearchStrategy(db as never)
+
+    await strategy.search('unified interactions', { tenantId: 'tenant-1', organizationId: 'org-1' })
+
+    expect(organizationPredicate(predicates)).toEqual({
+      kind: 'or',
+      items: [
+        { kind: 'cmp', column: 'organization_id', op: 'in', value: ['org-1'] },
+        {
+          kind: 'and',
+          items: [
+            { kind: 'cmp', column: 'organization_id', op: 'is', value: null },
+            { kind: 'cmp', column: 'tenant_id', op: 'is', value: null },
+            { kind: 'cmp', column: 'entity_type', op: 'in', value: [GLOBAL_TYPE] },
+          ],
+        },
+      ],
+    })
+  })
+
+  it('keeps the plain organization filter when no requested type is a declared catalogue', async () => {
+    const { db, predicates } = createRecordingDb()
+    const strategy = new TokenSearchStrategy(db as never)
+
+    await strategy.search('ada lovelace', {
+      tenantId: 'tenant-1',
+      organizationIds: ['org-1', 'org-2'],
+      entityTypes: [SCOPED_TYPE, PRIVATE_TENANT_LESS_TYPE],
+    })
+
+    expect(organizationPredicate(predicates)).toEqual({
+      kind: 'cmp',
+      column: 'organization_id',
+      op: 'in',
+      value: ['org-1', 'org-2'],
+    })
+  })
+})
+
 describe('fetchDocsBatch widens the tenant predicate for declared global entity types', () => {
   const queryEngine = { query: jest.fn() } as unknown as QueryEngine
 
