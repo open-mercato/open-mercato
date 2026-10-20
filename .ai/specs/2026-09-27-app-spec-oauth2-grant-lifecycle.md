@@ -121,6 +121,7 @@ Open Mercato is an open-source commerce/ERP platform; the maintainers' revenue d
 | `clientId` / `grantedScopes` | text / text, multi | yes / no |
 | `obtainedAt` / `refreshedAt` / `refreshCount` / `revisedAt` | datetime / datetime / integer / datetime (UTC) | yes / no / yes / yes |
 | `lastFailureClass` / `lastFailureAt` | `transient` \| `client_misconfigured` / datetime (UTC) | no |
+| `lastFailureProviderErrorCode` | string: the token endpoint's `error` code of a `client_misconfigured` diagnosis, when it names one | no |
 | `providerData` / `previousProviderData` | json / json | no |
 
 Field rules: `providerData` is provider-owned and non-secret, cleared by every Connect (a non-empty value moves to `previousProviderData`) and set with `updateProviderData`, which also clears `previousProviderData`; the core reads it only as empty or not (`hasExternalAccount`). `expiresAt` is `expires_in`, else the descriptor's `defaultAccessTokenTtlSec`, clamped to 1 s – 1 year, on Connect and Refresh. A Refresh without `refresh_token` keeps the stored one, and without `scope` keeps `grantedScopes`. `lastFailureClass`/`lastFailureAt` are diagnostics, written only under the lock, never authoritative, cleared by the next successful Refresh or Connect (so after the admin fixes the Client Configuration, an idle grant keeps `oauth.client_misconfigured` until its next Refresh). Per-field notes: Phase 1 feature spec.
@@ -731,6 +732,7 @@ Repository evidence: file references in §1.4.1 (line-level in the Phase 1 featu
 ## Changelog
 
 ### 2026-10-20
+- The grant stores the provider error code of a `client_misconfigured` diagnosis, so a caller that waited behind that refresh gets the same reason and code (§1.4.2).
 - The default `minValidityMs` is capped at half the token's lifetime, so tokens that live shorter than `refreshSkewMs` are not refreshed on every call (§1.3).
 - A Refresh whose commit outcome is unknown is checked under the lock and its issued tokens are written again when the commit did not happen, which narrows the persist window to crashes and repeated commit failures (§1.4.6).
 

@@ -810,11 +810,37 @@ describeWithPostgres('integrationOAuthGrantService.getAccessToken against real P
         ...expired,
         lastFailureClass: 'client_misconfigured',
         lastFailureAt: expect.any(Date),
+        lastFailureProviderErrorCode: providerErrorCode,
       })
       expect(refreshCalls()).toBe(1)
       expect(reportedCodes()).toEqual([CLIENT_MISCONFIGURED])
     }, CASE_TIMEOUT_MS)
 
+    it('gives a caller that waited behind a client_misconfigured refresh the recorded reason and provider error code', async () => {
+      const owner = createOwner()
+      await connectOwner(owner)
+      await expireStoredGrant(owner)
+      injectRefresh({ status: 400, body: { error: 'invalid_scope' } })
+      const gate = createGate()
+      const gated = createGatedTokenClient(gate)
+      mockWithAdvisoryXactLock.mockClear()
+
+      const leader = outcomeOf(getToken(owner, { deps: { tokenClient: gated.client } }))
+      await gated.entered
+      const follower = outcomeOf(getToken(owner, { deps: { tokenClient: gated.client } }))
+      try {
+        await waitFor(() => mockWithAdvisoryXactLock.mock.calls.length === 2, 'the follower behind the Grant Lock')
+      } finally {
+        gate.open()
+      }
+
+      for (const error of [await leader, await follower]) {
+        expect(error).toBeInstanceOf(OAuthGrantError)
+        expect(error).toMatchObject({ code: 'client_misconfigured', reason: 'token_endpoint_rejected', providerErrorCode: 'invalid_scope' })
+      }
+      expect(gated.stats.calls).toBe(1)
+      expect(reportedCodes()).toEqual([CLIENT_MISCONFIGURED])
+    }, CASE_TIMEOUT_MS)
 
     it('answers client_changed and client_not_configured from the read, with no lock and no token call', async () => {
       const changed = createOwner()

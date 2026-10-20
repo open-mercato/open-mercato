@@ -27,6 +27,7 @@ function activeGrant(overrides: Partial<OAuthGrantRecord> = {}): OAuthGrantRecor
     revisedAt: OBTAINED_AT,
     lastFailureClass: null,
     lastFailureAt: null,
+    lastFailureProviderErrorCode: null,
     providerData: null,
     previousProviderData: { externalAccountId: 'acct-1' },
     ...overrides,
@@ -82,6 +83,16 @@ describe('grant blob encoding', () => {
     expect(parseOAuthGrantBlob(withoutReason)).toBeNull()
   })
 
+  it('round-trips the provider error code of a client_misconfigured diagnosis', () => {
+    const grant = activeGrant({
+      lastFailureClass: 'client_misconfigured',
+      lastFailureAt: new Date('2026-10-01T10:45:00.000Z'),
+      lastFailureProviderErrorCode: 'invalid_scope',
+    })
+
+    expect(parseOAuthGrantBlob(serializeOAuthGrantBlob(grant))).toEqual(grant)
+  })
+
   it('accepts a missing refresh token and missing optional fields, and strips unknown keys', () => {
     const parsed = parseOAuthGrantBlob({
       version: 1,
@@ -96,7 +107,13 @@ describe('grant blob encoding', () => {
       unexpected: 'dropped',
     })
 
-    expect(parsed).toMatchObject({ refreshToken: null, grantedScopes: [], providerData: null, previousProviderData: null })
+    expect(parsed).toMatchObject({
+      refreshToken: null,
+      grantedScopes: [],
+      lastFailureProviderErrorCode: null,
+      providerData: null,
+      previousProviderData: null,
+    })
     expect(parsed).not.toHaveProperty('unexpected')
   })
 

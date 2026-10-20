@@ -569,6 +569,11 @@ function failureRecordedSinceCallStart(grant: OAuthGrantRecord, call: TokenCall)
   return grant.lastFailureAt.getTime() >= call.callStart.getTime() ? grant.lastFailureClass : null
 }
 
+function recordedClientMisconfiguration(grant: OAuthGrantRecord): TokenFailureOutcome {
+  const providerErrorCode = grant.lastFailureProviderErrorCode
+  return tokenFailure('client_misconfigured', providerErrorCode === null ? null : 'token_endpoint_rejected', providerErrorCode)
+}
+
 function isSameGrantWrite(stored: OAuthGrantRecord, expected: OAuthGrantRecord): boolean {
   return stored.accessToken === expected.accessToken
     && stored.refreshToken === expected.refreshToken
@@ -814,6 +819,7 @@ export function createIntegrationOAuthGrantService(deps: IntegrationOAuthGrantSe
       revisedAt: connectedAt,
       lastFailureClass: null,
       lastFailureAt: null,
+      lastFailureProviderErrorCode: null,
       providerData: null,
       previousProviderData,
     }
@@ -939,7 +945,12 @@ export function createIntegrationOAuthGrantService(deps: IntegrationOAuthGrantSe
         REPORT_CODES.clientMisconfigured,
         call.owner,
       )
-      const diagnosed: OAuthGrantRecord = { ...grant, lastFailureClass: 'client_misconfigured', lastFailureAt: now() }
+      const diagnosed: OAuthGrantRecord = {
+        ...grant,
+        lastFailureClass: 'client_misconfigured',
+        lastFailureAt: now(),
+        lastFailureProviderErrorCode: classification.providerErrorCode,
+      }
       await saveGrant(txEm, call.owner, diagnosed, call.pin, call.afterCommit)
       return failure
     }
@@ -949,6 +960,7 @@ export function createIntegrationOAuthGrantService(deps: IntegrationOAuthGrantSe
       refreshToken: classification.salvagedRefreshToken ?? grant.refreshToken,
       lastFailureClass: 'transient',
       lastFailureAt: now(),
+      lastFailureProviderErrorCode: null,
     }
     const outcome = transientOutcome(diagnosed, call)
     if (classification.salvagedRefreshToken !== null) call.pendingWrite = { previous: grant, written: diagnosed, outcome }
@@ -968,6 +980,7 @@ export function createIntegrationOAuthGrantService(deps: IntegrationOAuthGrantSe
       refreshCount: grant.refreshCount + 1,
       lastFailureClass: null,
       lastFailureAt: null,
+      lastFailureProviderErrorCode: null,
     }
   }
 
@@ -978,7 +991,7 @@ export function createIntegrationOAuthGrantService(deps: IntegrationOAuthGrantSe
     if (refreshedSinceCallStart(grant, call)) return answerAlreadyRefreshed(grant, call)
     const recordedFailure = failureRecordedSinceCallStart(grant, call)
     if (recordedFailure === 'transient') return transientOutcome(grant, call)
-    if (recordedFailure === 'client_misconfigured') return tokenFailure('client_misconfigured')
+    if (recordedFailure === 'client_misconfigured') return recordedClientMisconfiguration(grant)
     const refreshToken = grant.refreshToken
     if (refreshToken === null) return answerWithoutRefreshToken(txEm, grant, call)
 

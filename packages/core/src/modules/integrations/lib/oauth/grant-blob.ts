@@ -34,6 +34,7 @@ export type OAuthGrantRecord = {
   revisedAt: Date
   lastFailureClass: OAuthLastFailureClass | null
   lastFailureAt: Date | null
+  lastFailureProviderErrorCode: string | null
   providerData: Record<string, unknown> | null
   previousProviderData: Record<string, unknown> | null
 }
@@ -55,6 +56,7 @@ const grantBlobFields = {
   revisedAt: utcDateTimeSchema,
   lastFailureClass: z.enum(['transient', 'client_misconfigured']).nullish(),
   lastFailureAt: utcDateTimeSchema.nullish(),
+  lastFailureProviderErrorCode: z.string().min(1).nullish(),
   providerData: jsonRecordSchema.nullish(),
   previousProviderData: jsonRecordSchema.nullish(),
 }
@@ -98,6 +100,7 @@ export function parseOAuthGrantBlob(value: Record<string, unknown>): OAuthGrantR
     revisedAt: new Date(blob.revisedAt),
     lastFailureClass: blob.lastFailureClass ?? null,
     lastFailureAt: toDateOrNull(blob.lastFailureAt),
+    lastFailureProviderErrorCode: blob.lastFailureProviderErrorCode ?? null,
     providerData: blob.providerData ?? null,
     previousProviderData: blob.previousProviderData ?? null,
   }
@@ -120,6 +123,7 @@ export function serializeOAuthGrantBlob(grant: OAuthGrantRecord): Record<string,
     revisedAt: grant.revisedAt.toISOString(),
     lastFailureClass: grant.lastFailureClass,
     lastFailureAt: grant.lastFailureAt?.toISOString() ?? null,
+    lastFailureProviderErrorCode: grant.lastFailureProviderErrorCode,
     providerData: grant.providerData,
     previousProviderData: grant.previousProviderData,
   }
