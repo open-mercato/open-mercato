@@ -180,4 +180,83 @@ test.describe('TC-WF-013: WAIT_FOR_TIMER step fires and completes', () => {
       await deleteWorkflowDefinitionIfExists(request, token, definitionId)
     }
   })
+
+  test('resolves a {{context.*}} duration from the run context when the timer is scheduled', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const timestamp = Date.now()
+    const workflowId = `qa-wf-013-template-${timestamp}`
+    const oneHourMs = 60 * 60 * 1000
+
+    let definitionId: string | null = null
+    let instanceId: string | null = null
+
+    try {
+      definitionId = await createWorkflowDefinitionFixture(request, token, {
+        workflowId,
+        workflowName: `QA TC-WF-013 template ${timestamp}`,
+        description: 'Integration test: WAIT_FOR_TIMER resolves a templated duration',
+        version: 1,
+        enabled: true,
+        definition: {
+          steps: [
+            { stepId: 'start', stepName: 'Start', stepType: 'START' },
+            {
+              stepId: 'wait_for_timer',
+              stepName: 'Wait for the reminder delay',
+              stepType: 'WAIT_FOR_TIMER',
+              config: { duration: '{{context.reminderDelay}}' },
+            },
+            { stepId: 'end', stepName: 'End', stepType: 'END' },
+          ],
+          transitions: [
+            { transitionId: 'start-to-timer', fromStepId: 'start', toStepId: 'wait_for_timer', trigger: 'auto' },
+            { transitionId: 'timer-to-end', fromStepId: 'wait_for_timer', toStepId: 'end', trigger: 'auto' },
+          ],
+        },
+      })
+      const startedAt = Date.now()
+      instanceId = await startWorkflowInstanceFixture(request, token, {
+        workflowId,
+        initialContext: { reminderDelay: 'PT1H' },
+      })
+
+      const settleDeadline = Date.now() + 10_000
+      let state: { status?: string; currentStepId?: string; errorMessage?: string } | undefined
+      while (Date.now() < settleDeadline) {
+        const response = await apiRequest(
+          request,
+          'GET',
+          `/api/workflows/instances/${encodeURIComponent(instanceId)}`,
+          { token },
+        )
+        expect(response.status()).toBe(200)
+        const body = await readJsonSafe<{ data?: { status?: string; currentStepId?: string; errorMessage?: string } }>(response)
+        state = body?.data
+        if (state?.status === 'PAUSED' || state?.status === 'FAILED' || state?.status === 'COMPLETED') break
+        await new Promise((resolve) => setTimeout(resolve, 150))
+      }
+
+      expect(state?.status, `Instance should wait on the templated timer (state=${JSON.stringify(state)})`).toBe('PAUSED')
+      expect(state?.currentStepId).toBe('wait_for_timer')
+
+      const eventsResponse = await apiRequest(
+        request,
+        'GET',
+        `/api/workflows/instances/${encodeURIComponent(instanceId)}/events?eventType=TIMER_AWAITING`,
+        { token },
+      )
+      expect(eventsResponse.status()).toBe(200)
+      const eventsBody = await readJsonSafe<{
+        data?: Array<{ eventData?: { duration?: string; fireAt?: string } }>
+      }>(eventsResponse)
+      const timerAwaiting = eventsBody?.data?.[0]?.eventData
+      expect(timerAwaiting?.duration, 'TIMER_AWAITING should record the resolved duration').toBe('PT1H')
+      const fireAtMs = Date.parse(timerAwaiting?.fireAt ?? '')
+      expect(fireAtMs).toBeGreaterThanOrEqual(startedAt + oneHourMs - 1_000)
+      expect(fireAtMs).toBeLessThanOrEqual(Date.now() + oneHourMs + 1_000)
+    } finally {
+      await cancelWorkflowInstanceIfExists(request, token, instanceId)
+      await deleteWorkflowDefinitionIfExists(request, token, definitionId)
+    }
+  })
 })
