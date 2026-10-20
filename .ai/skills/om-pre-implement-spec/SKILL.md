@@ -36,4 +36,4 @@ Check the proposed implementation against these mandatory mechanisms — each vi
 ## Step 8 — report and next action (add)
 
 - Write the report in English (lesson: `.ai/lessons/write-open-mercato-specifications-in-english.md`).
-- After a `go` / `conditional` verdict, hand off to the repo-local `om-implement-spec` skill (`.ai/skills/om-implement-spec/SKILL.md`) — `om-auto-implement-spec` is not installed in this repository. After `no-go`, revise the spec with `om-spec-writing`.
+- After a `go` / `conditional` verdict, hand off to the repo-local `om-implement-spec` skill (`.ai/skills/om-implement-spec/SKILL.md`), this repo's spec-execution skill (root `AGENTS.md` → Workflow Orchestration), instead of the base `om-auto-implement-spec`. After `no-go`, revise the spec with `om-spec-writing`.

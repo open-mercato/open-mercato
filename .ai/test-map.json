@@ -8,7 +8,9 @@
     ".ai/analysis/**",
     ".ai/runs/**",
     ".ai/lessons/**",
-    ".ai/skills/**"
+    ".ai/skills/**",
+    ".ai/mockups/**",
+    ".ai/prototypes/**"
   ],
   "wide": [
     "packages/shared/**",
@@ -29,6 +31,10 @@
     {
       "name": "ui-primitives",
       "paths": ["packages/ui/src/primitives/**"]
+    },
+    {
+      "name": "styles",
+      "paths": ["**/*.css"]
     }
   ],
   "declarations": [
