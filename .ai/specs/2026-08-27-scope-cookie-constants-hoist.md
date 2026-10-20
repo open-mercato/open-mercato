@@ -80,8 +80,11 @@ export function parseSelectedTenantCookie(header: string | null | undefined): st
 ```
 
 `lib/scope/cookies.ts` is pure string handling with no imports, so it is safe in a browser
-bundle, in a server component and in a worker alike. `@open-mercato/shared`'s wildcard
-`exports` entries already resolve `./lib/scope/cookies`; no `package.json` change is needed.
+bundle, in a server component and in a worker alike. `packages/shared/package.json` gives
+`./lib/scope/cookies` an explicit `exports` entry, as
+`.ai/lessons/new-shared-deep-import-paths-should-get-explicit-export.md` requires for a new
+cross-package subpath. Node already resolves it through the `./*/*/*` wildcard; the entry is
+for the workspace tools that do not treat broad wildcards the same way.
 
 ### The blank-value semantic, chosen deliberately
 
@@ -183,8 +186,9 @@ runtime behaviour changes for any consumer, inside the monorepo or out.
   resolution runs on every authenticated backend request. That is precisely why the change is
   a mechanical move plus tests that pin the wire values, and why the two semantics are written
   down at the module rather than left implicit.
-- **No migration, no config, no ops step.** `packages/shared`'s existing `./*/*/*` export
-  wildcard already resolves `./lib/scope/cookies`; nothing to add to a deploy.
+- **No migration, no config, no ops step.** The one packaging change is the explicit
+  `./lib/scope/cookies` entry in `packages/shared/package.json`'s `exports`, which ships with
+  the package; nothing to add to a deploy.
 
 ### Risk Register
 
@@ -261,6 +265,7 @@ runtime behaviour changes for any consumer, inside the monorepo or out.
 - `packages/core/AGENTS.md` (module boundaries)
 - `.ai/specs/AGENTS.md` (spec content checklist)
 - `BACKWARD_COMPATIBILITY.md` §4 (Import Paths)
+- `.ai/lessons/new-shared-deep-import-paths-should-get-explicit-export.md`
 
 ### Compliance Matrix
 
@@ -272,6 +277,7 @@ runtime behaviour changes for any consumer, inside the monorepo or out.
 | root AGENTS.md | No `any`, no one-letter names, no inline comments on untouched code | Compliant | One import plus one identifier substituted |
 | root AGENTS.md | Prefer package-level imports over deep relative paths | Compliant | `@open-mercato/shared/lib/scope/cookies` everywhere |
 | packages/shared/AGENTS.md | Library directory documents the routing surface | Compliant | `scope/` row added |
+| .ai/lessons | A new cross-package `@open-mercato/shared` subpath gets an explicit `exports` entry | Compliant | `./lib/scope/cookies` added to `packages/shared/package.json` (2026-10-20) |
 | BACKWARD_COMPATIBILITY.md §4 | A moved implementation keeps its old import path working | Compliant | Both `core` paths are permanent re-export bridges; no export removed or renamed |
 | BACKWARD_COMPATIBILITY.md §4 | `@deprecated` on a re-exported old path | Deviation, declared | See *Migration & Backward Compatibility*: these paths are not being retired, so the annotation would be false. Matches existing practice (`inbox_ops/lib/htmlToPlainText.ts`, `planner/api/helpers.ts`, `registry.ts`'s `resolvePageRouteMetadata`). Raised for the record at the maintainer's request |
 | .ai/specs/AGENTS.md | Risks & Impact Review, Final Compliance Report, Changelog | Compliant | Added in this revision |
@@ -291,6 +297,13 @@ None. One declared deviation (`@deprecated`), reasoned above and awaiting a main
 note on the record.
 
 ## Changelog
+
+### 2026-10-20
+
+- Added an explicit `./lib/scope/cookies` entry to `packages/shared/package.json`'s
+  `exports`, per `.ai/lessons/new-shared-deep-import-paths-should-get-explicit-export.md`
+  (review on #5715). Corrected the two statements that said the wildcard made a
+  `package.json` change unnecessary, and added the lesson to the Compliance Matrix.
 
 ### 2026-10-11
 
