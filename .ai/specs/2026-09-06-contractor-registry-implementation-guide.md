@@ -13,24 +13,32 @@ this module calls into AP, AR, or any other module — it's a shared
 service other modules resolve by FK-id or by DI token, not a consumer
 of them.
 
-## The two entities, one sentence each
+## The three entities, one sentence each
 
 - **`Contractor`** — `isVendor`/`isCustomer` (bool, not exclusive),
-  `nip`/`nipHash` (unique per organization while `deletedAt` is null,
-  immutable once set), `name`, `address`, `contactEmail`/`contactPhone`,
-  `verificationStatus` (`PENDING`/`VERIFIED`/`FAILED`),
+  `nip`/`nipHash` (nullable, unique per organization while `deletedAt` is null,
+  immutable once set), `euVatNumber`/`euVatNumberHash` (same rules,
+  added 2026-10-20), `name`, `address`, `contactEmail`/`contactPhone`,
+  `isActive` (reversible deactivation),
+  `verificationStatus` (`PENDING`/`VERIFIED`/`FAILED`/`NOT_APPLICABLE`),
   `lastCheckStatus`/`lastCheckedAt`/`lastCheckRequestId` (typed,
   non-PII diagnostic fields — **not** the raw GUS/VIES response, see
   the pitfall below), `approvalStatus`
   (`PENDING_APPROVAL`/`APPROVED`/`REJECTED`), `createdByUserId` (backs
   the self-approval guard).
 - **`ContractorBankAccount`** — `contractorId` (FK), `accountNumber`
-  (encrypted), `isPrimary` (exactly one `true` per contractor,
+  (encrypted, validated IBAN/NRB, stored in IBAN form) +
+  `accountNumberHash`, `purpose` (`SETTLEMENT`/`VAT`), `currencyCode`
+  (informational), `isActive`, `isPrimary` (exactly one `true` per contractor,
   enforced by both the command and a partial unique index — see the
   pitfall below, this one changed), `lastVerifiedAt`/
   `lastVerificationStatus` (UX cache only — see the pitfall below, this
   one matters most), its own `organizationId`/`tenantId` (not just
   inherited via `contractorId`).
+- **`ContractorVerificationCheck`** (added 2026-10-20) — append-only
+  history of every GUS, VIES and whitelist call, with `requestId` and
+  the last four digits plus hash of the checked number; never updated
+  or deleted.
 
 For exact fields/types, see the full spec's Architecture → Entities
 and Data Models. Don't re-derive them here — copy from there.
@@ -43,13 +51,18 @@ Registering a new vendor and paying them for the first time:
    uniqueness for `(tenant, organization)`, persists the contractor
    with `verificationStatus: 'PENDING'`, and enqueues
    `workers/verifyContractorRegistry.ts`.
-2. The worker calls GUS (and VIES, if applicable), fills in
-   `name`/`address` if missing, sets `verificationStatus` to
-   `VERIFIED` or `FAILED`. This never blocks step 1 — GUS/VIES being
-   down does not stop a contractor from being created.
-3. AP staff adds a bank account via `createContractorBankAccount`.
-   `isPrimary: true` on this call automatically unsets any other
-   primary for the same contractor, inside the same transaction.
+2. The worker calls GUS for the NIP and VIES for the VAT-UE number,
+   fills in `name`/`address` if missing, sets `verificationStatus` to
+   `VERIFIED` or `FAILED` (only on a negative answer — an outage leaves
+   `PENDING` and retries), and writes one history row per call. This
+   never blocks step 1 — GUS/VIES being down does not stop a contractor
+   from being created.
+3. AP staff adds a bank account via `createContractorBankAccount`. The
+   number is validated (IBAN/NRB checksum). `isPrimary: true` on this
+   call automatically unsets any other primary for the same contractor,
+   inside the same transaction. A background job checks the account
+   against the whitelist; a negative answer only sets the warning
+   status.
 4. `createContractor` (step 1) also emitted
    `contractors.contractor.created`, triggering the
    `contractors.vendor-approval` workflow — a `USER_TASK` sitting on
@@ -62,18 +75,22 @@ Registering a new vendor and paying them for the first time:
    after them — but not before what comes next.
 5. Before the first payment, AP resolves `contractorBankWhitelistCheck`
    from this module's `di.ts` (via its own local `tryResolve` wrapper —
-   **not** an HTTP call to this module's own API) and invokes it. **This
-   command now rejects outright, before making any network call, if
-   `approvalStatus` isn't `APPROVED`** — step 4 above is a hard
-   prerequisite, not a parallel nice-to-have. Once past that check, it
+   **not** an HTTP call to this module's own API) and invokes it. It
+   returns `{ eligible, reasons, status, checkedAt, requestId,
+   accountNumberLast4, currencyCode }`. **The local reasons —
+   `NOT_APPROVED`, `VERIFICATION_FAILED`, `ACCOUNT_INACTIVE` — are
+   evaluated before any network call**, so step 4 above is a hard
+   prerequisite, not a parallel nice-to-have. With none of them, it
    performs a **live** call to the Ministry of Finance's Biała Lista
    API for the exact `accountNumber`/`nip` pair, returns the fresh
-   result, and — only as a side effect — updates
+   result with the Ministry's `requestId`, writes a history row, and —
+   only as a side effect — updates
    `lastVerifiedAt`/`lastVerificationStatus` for the UX badge. AP
-   blocks the payment on anything other than a fresh `WHITELISTED`
-   result.
+   blocks the payment unless `eligible` is `true`, and stores
+   `status`/`checkedAt`/`requestId` as its evidence.
 6. AP posts the payment in GL and writes a `contractorSnapshot` (name,
-   NIP, account, verification status *at that exact moment*) onto the
+   tax id, masked account paid to, the whitelist check it stored — keys
+   defined in #5663) onto the
    `JournalEntryLine` it creates — that snapshot, not a live join to
    `Contractor`, is what an accountant sees when reopening this
    invoice six months later, even if the vendor's account changes
@@ -103,9 +120,10 @@ before anything else compiles or is reachable. High-level shape:
 3. `createContractor` / `updateContractor`
 4. `createContractorBankAccount` / `updateContractorBankAccount`
 5. `workers/verifyContractorRegistry.ts` (queue-backed, idempotent)
-6. `checkBankAccountWhitelist` command — **gate this on
-   `approvalStatus === 'APPROVED'` from the start** (see the approval
-   pitfall below), not as an afterthought once step 7 below exists
+6. `checkBankAccountWhitelist` command — **return the eligibility
+   result from the start, with `NOT_APPROVED` evaluated before any
+   network call** (see the approval pitfall below), not as an
+   afterthought once step 7 below exists
 7. `workflows.ts` (`contractors.vendor-approval` definition,
    `registerWorkflowSafeCommands` on `applyContractorApprovalDecision`)
    + `events.ts` (`contractors.contractor.created`) + the injected
@@ -115,7 +133,7 @@ before anything else compiles or is reachable. High-level shape:
 9. Backend pages (list/create/edit + inline bank-account sub-list +
    "verify now" row action)
 10. `i18n/` — every status label, the "last checked" badge, the
-    "verify now" button, and 400/409/502 error copy; don't leave these
+    "verify now" button, the eligibility reasons, and 400/409/422 error copy; don't leave these
     for a cleanup pass, `yarn i18n:check-hardcoded` will catch them
     later anyway
 11. GL side: add `contractorSnapshot` to `JournalEntryLine` per #5663
@@ -144,8 +162,9 @@ before anything else compiles or is reachable. High-level shape:
 - **`nip` is unconditionally immutable, with no "unlocks if nothing
   posted yet" exception.** This is stricter than GL's own
   posted-entries-gated guards (e.g. `LedgerAccountType.normalBalance`)
-  — don't copy that pattern here. `updateContractor` rejects any `nip`
-  change outright; changing it means creating a new contractor.
+  — don't copy that pattern here. `updateContractor` rejects any change
+  to a set `nip` (or `euVatNumber`) outright; changing it means creating
+  a new contractor. Since 2026-10-20 a missing one may be added once.
 - **`isPrimary` uniqueness needs both the command AND a partial
   unique index — this changed 2026-09-08.** An earlier draft relied on
   the command alone (`createContractorBankAccount`/
@@ -182,9 +201,21 @@ before anything else compiles or is reachable. High-level shape:
   wanting to persist the raw response for real diagnostic need, it
   must go through `encryption.ts` like every other PII field, with a
   stated retention policy — it is not a shortcut around that.
-- **`ContractorBankAccount.deletedAt` is a soft "deactivate," not a
-  real delete.** Account history has audit value — don't hard-delete
-  rows here even if the UI action is labeled "remove."
+- **`ContractorBankAccount.deletedAt` is a soft delete, not a real
+  delete — and not the deactivation either.** Account history has audit
+  value — don't hard-delete rows here even if the UI action is labeled
+  "remove." Pausing an account is `isActive` (deactivate/reactivate
+  commands with `enforceCommandOptimisticLock`, added 2026-10-20), which
+  is reversible; a soft delete is not.
+- **The verification history is append-only and holds no full account
+  number** (added 2026-10-20). Write the row in its own transaction so
+  an AP rollback keeps it; store the last four digits and
+  `hashForLookup` of the normalized number, never the number; no update
+  or delete path.
+- **A `VAT`-purpose account is never a payment target** (added
+  2026-10-20). `checkBankAccountWhitelist` refuses it with `422
+  CONTRACTOR_BANK_ACCOUNT_NOT_SETTLEMENT`, the registration check skips
+  it, and it cannot be primary.
 - **`Contractor`'s delete guard checks `ContractorBankAccount` only —
   never `ledger`'s `JournalEntryLine`.** An earlier draft also blocked
   deletion on posted `JournalEntryLine` references; a maintainer

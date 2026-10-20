@@ -1852,6 +1852,16 @@ exactly as `sales.order-approval` and
     Design decisions' own resolution that it belongs to Phase 1's
     implementation cycle once confirmed, not a separate follow-up —
     moved here.
+12. **Added 2026-10-20** (Design decisions, 2026-10-20), built into the
+    steps above rather than after them: `validateBankAccountNumber` in
+    `shared` before step 4; `euVatNumber`, `isActive`, `currencyCode`,
+    `purpose`, `account_number_hash` and the `ContractorVerificationCheck`
+    table in step 1's migration and encryption map; the eligibility
+    result in step 6; `verifyContractorBankAccount`, VIES in
+    `verifyContractorRegistry` and `checkContractorVies` next to step 5;
+    the deactivation commands and routes, `verify-vies`,
+    `verification-checks` and `contractorLookupByBankAccount` with steps
+    3, 4 and 7; their UI with step 8 and their tests with step 10.
 
 ### Phase 2 (deferred)
 
@@ -2880,3 +2890,7 @@ New section Design decisions (2026-10-20); every item below is decided.
   `res.partner.bank`/`base_iban`, ERPNext Bank Account, Comarch Optima's
   verification history (Confirmed), Comarch XL (Unverified); Fowler, Hay
   and Kieso not re-read (PDFs unreadable in this session).
+- **Implementation Plan step 12** lists where the 2026-10-20 pieces fit
+  into steps 1–10; the implementation guide is synced (three entities,
+  the flow's eligibility result, deactivation versus soft delete,
+  history and VAT-account pitfalls).
