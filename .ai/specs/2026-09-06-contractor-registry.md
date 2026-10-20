@@ -433,7 +433,10 @@ with a typed error when the contractor's `approvalStatus` is not
 human-approval gate into the same call site AP already depends on,
 rather than requiring AP to separately read and interpret
 `approvalStatus` itself. This closes the Out of scope item below of
-the same name.
+the same name. **Updated 2026-10-20:** the gate stays at the same call
+site, but a non-approved contractor is reported as the `NOT_APPROVED`
+reason of the eligibility result instead of a typed error (see Design
+decisions, 2026-10-20, "Payment eligibility").
 
 **Four-eyes needs its own permission: `contractors.approve`
 (2026-09-08, maintainer review).** The original ACL required
@@ -512,6 +515,58 @@ answer arrived (see the eligibility decision below).
 `accounts_payable_payments` already stores exactly these three fields on
 `PaymentBatchLine.whitelistCheckResult`; until now this module did not
 return `requestId`, so that field had no source.
+
+**Payment eligibility: the check returns `eligible` and `reasons[]`
+instead of throwing.** The full result of `checkBankAccountWhitelist`
+(and of the `contractorBankWhitelistCheck` DI service, which is the same
+command) is:
+
+```ts
+type ContractorBankAccountPaymentCheck = {
+  eligible: boolean
+  reasons: Array<
+    | 'NOT_APPROVED'
+    | 'VERIFICATION_FAILED'
+    | 'ACCOUNT_INACTIVE'
+    | 'WHITELIST_NEGATIVE'
+    | 'WHITELIST_UNAVAILABLE'
+  >
+  status: 'WHITELISTED' | 'NOT_WHITELISTED' | 'NOT_CHECKED'
+  checkedAt: string | null
+  requestId: string | null
+}
+```
+
+- `eligible` is `true` exactly when `reasons` is empty.
+- **Local reasons, evaluated first, without a network call:**
+  `NOT_APPROVED` (`approvalStatus` is not `APPROVED`),
+  `VERIFICATION_FAILED` (`verificationStatus` is `FAILED`),
+  `ACCOUNT_INACTIVE` (the bank account or the contractor that owns it is
+  deactivated or soft-deleted, see "Reversible deactivation" below). All
+  local reasons that apply are listed; the live call is then skipped and
+  `status` is `NOT_CHECKED`, the same "no network call before the gate"
+  property the 2026-09-08 approval decision introduced.
+- **Only `FAILED` blocks; `PENDING` and `NOT_APPLICABLE` do not.**
+  Registration is asynchronous and a registry outage must not stop
+  payments to a contractor a person has already approved; the live
+  whitelist check still runs for every payment. For the rule to mean
+  something, `FAILED` now means that a registry answered negatively (the
+  NIP is not in GUS, the VAT-UE number is not valid in VIES). A registry
+  that does not answer leaves the status `PENDING` and the worker retries
+  (see Risks & Impact Review); it no longer sets `FAILED`.
+- **Live reasons:** the Ministry answers that the account is not
+  assigned to the NIP (`accountAssigned` is `NIE`) → `WHITELIST_NEGATIVE`,
+  `status: 'NOT_WHITELISTED'`; no answer (timeout, HTTP error, malformed
+  body) → `WHITELIST_UNAVAILABLE`, `status: 'NOT_CHECKED'`,
+  `checkedAt`/`requestId` `null`.
+- **It blocks Accounts Payable Payments.** `accounts_payable_payments`
+  confirms a payment batch only when every line is `eligible`, and maps
+  each reason to its own error code (see #5962). This replaces the
+  earlier `422 CONTRACTOR_NOT_APPROVED` rejection: a non-approved
+  contractor is now one reason among five, returned in the same shape as
+  the others, so the consumer can show all of them at once instead of
+  learning them one failed call at a time. The HTTP "verify now" route
+  returns the same result with `200`.
 
 ### Alternatives considered
 
@@ -849,15 +904,18 @@ contractorLookupByNip(params: {
   standard CRUD; `isPrimary: true` on one account automatically
   unsets it on any other account for the same contractor (single
   invariant enforced in the command, not left to the client).
-- `checkBankAccountWhitelist` — **not a plain query**: first rejects
-  with `{ code: 'CONTRACTOR_NOT_APPROVED', approvalStatus }` (`422`,
-  see API Contracts), before any network call, if the contractor's
-  `approvalStatus` is not `APPROVED` (see Design decisions,
-  2026-09-08) — otherwise performs a live call to the Ministry of
+- `checkBankAccountWhitelist` — **not a plain query**: returns the
+  payment-eligibility result `{ eligible, reasons, status, checkedAt,
+  requestId }` (see Design decisions, 2026-10-20, "Payment eligibility").
+  It first evaluates the local reasons (`NOT_APPROVED`,
+  `VERIFICATION_FAILED`, `ACCOUNT_INACTIVE`); if any applies it returns
+  `eligible: false` with `status: 'NOT_CHECKED'` before any network
+  call — otherwise performs a live call to the Ministry of
   Finance's Biała Lista API for the given `accountNumber` and `nip`,
-  returns the fresh result to the caller as `{ status, checkedAt,
-  requestId }` (the Ministry's own `requestDateTime` and `requestId`,
-  see Design decisions, 2026-10-20), and — as a side effect
+  returns the fresh result to the caller (the Ministry's own
+  `requestDateTime` and `requestId`, see Design decisions, 2026-10-20),
+  with `WHITELIST_NEGATIVE` or `WHITELIST_UNAVAILABLE` as the reason when
+  it fails, and — as a side effect
   only — updates `lastVerifiedAt`/`lastVerificationStatus` on the
   matching `ContractorBankAccount` for UX display. Never reads
   `lastVerifiedAt` to short-circuit the live call (see Design
@@ -1037,9 +1095,10 @@ Impact Review):
   missing whitelist-check service as "cannot verify," and blocks the
   payment.
 - **`contractors` module present, but the live Biała Lista API call
-  itself fails** — `checkBankAccountWhitelist` throws or returns an
-  error result; `accounts_payable_payments` catches it and blocks the
-  payment the same way.
+  itself fails** — `checkBankAccountWhitelist` returns `eligible:
+  false` with `WHITELIST_UNAVAILABLE` (an unexpected exception is
+  treated the same way by the consumer); `accounts_payable_payments`
+  blocks the payment the same way.
 This module never imports or resolves anything belonging to
 `accounts_payable_payments` — the dependency direction is one-way
 (`accounts_payable_payments` → `contractors`), matching
@@ -1173,18 +1232,16 @@ same rationale as `GET /api/contractors` above.
 
 Custom write route (mutation guard registry, mapped to `update`).
 
-- **Response 200**: `{ status: 'WHITELISTED' | 'NOT_WHITELISTED', checkedAt: string, requestId: string }` —
-  always the result of a live call made during this request, never a
-  cached value; `checkedAt` and `requestId` are the Ministry's
-  `requestDateTime` and `requestId`.
+- **Response 200**: the eligibility result `{ eligible, reasons,
+  status, checkedAt, requestId }` (see Design decisions, 2026-10-20,
+  "Payment eligibility"). When the live call is made, it is made during
+  this request, never served from the cache; `checkedAt` and `requestId`
+  are the Ministry's `requestDateTime` and `requestId`. A non-approved
+  contractor (`NOT_APPROVED`) and an unavailable Biała Lista API
+  (`WHITELIST_UNAVAILABLE`) are reported in `reasons` with `200`.
+  **Changed 2026-10-20:** this replaces the earlier
+  `422 CONTRACTOR_NOT_APPROVED` and `502` responses.
 - **Response 403**: caller lacks `contractors.view`.
-- **Response 422 `CONTRACTOR_NOT_APPROVED`** (added 2026-09-08, second
-  review pass): `{ code: 'CONTRACTOR_NOT_APPROVED', approvalStatus }` —
-  `checkBankAccountWhitelist` rejected before making the live call
-  because the contractor's `approvalStatus` isn't `APPROVED` (see
-  Design decisions, Commands). Same shape convention as AP's
-  `FISCAL_PERIOD_LOCKED` (`2026-09-06-accounts-payable.md`).
-- **Response 502**: Biała Lista API unavailable — see Risks.
 
 ### Contractor approval — no dedicated route
 
@@ -1321,13 +1378,22 @@ exactly as `sales.order-approval` and
   `updateContractorBankAccount` with a stale `updated_at`.
 - Integration: `GET /api/contractors` filters and 403s without
   `contractors.view`; the verify route returns 200 with a fresh
-  `checkedAt` on each call (not a cached timestamp) and 502 when the
-  Biała Lista API is unavailable.
-- **Confirmed 2026-09-08 (maintainer review):** assert
-  `checkBankAccountWhitelist` rejects with a typed error — never
-  reaching the live API client — when `approvalStatus` is
-  `PENDING_APPROVAL` or `REJECTED`, and proceeds normally once
-  `APPROVED`.
+  `checkedAt` on each call (not a cached timestamp), and 200 with
+  `eligible: false`, `reasons: ['WHITELIST_UNAVAILABLE']` and
+  `status: 'NOT_CHECKED'` when the Biała Lista API is unavailable.
+- **Confirmed 2026-09-08 (maintainer review), updated 2026-10-20:** assert
+  `checkBankAccountWhitelist` returns `eligible: false` with
+  `NOT_APPROVED` — never reaching the live API client — when
+  `approvalStatus` is `PENDING_APPROVAL` or `REJECTED`, and proceeds
+  normally once `APPROVED`.
+- Eligibility (added 2026-10-20): `verificationStatus` `FAILED` yields
+  `VERIFICATION_FAILED` without a live call; `PENDING` and
+  `NOT_APPLICABLE` yield no reason; a contractor that is both not
+  approved and `FAILED` gets both reasons in one result; a negative
+  Ministry answer yields `WHITELIST_NEGATIVE` with
+  `status: 'NOT_WHITELISTED'`; `eligible` is `true` only with an empty
+  `reasons`; a GUS/VIES outage leaves `verificationStatus` `PENDING`,
+  not `FAILED`.
 - Assert `applyContractorApprovalDecision` rejects a decision where
   the acting user equals `createdByUserId`, even when that user holds
   both `contractors.manage` and `contractors.approve`.
@@ -1413,26 +1479,30 @@ exactly as `sales.order-approval` and
   acts on the approval task. **Severity**: High — defeats the entire
   fraud-prevention rationale for the gate. **Affected area**:
   `checkBankAccountWhitelist`, `accounts_payable_payments`'s payment
-  flow. **Mitigation**: `checkBankAccountWhitelist` rejects with a
-  typed error before making the live Biała Lista call whenever
-  `approvalStatus !== 'APPROVED'` (see Design decisions, Commands) —
-  `accounts_payable_payments` already treats any error from this call
-  as "block the payment" (see Cross-module integration), so no change
-  is needed on AP's side. **Residual risk**: none identified — every
-  payment path already goes through this single choke point.
+  flow. **Mitigation**: `checkBankAccountWhitelist` returns
+  `eligible: false` with `NOT_APPROVED`, before making the live Biała
+  Lista call, whenever `approvalStatus !== 'APPROVED'` (see Design
+  decisions, 2026-10-20, Commands) — `accounts_payable_payments` blocks
+  every line that is not `eligible` (see #5962). **Residual risk**: none
+  identified — every payment path already goes through this single choke
+  point.
 
 ### Cascading failures & side effects
 
 - **Scenario**: GUS or VIES API is down when `verifyContractorRegistry`
   runs. **Severity**: Low. **Affected area**: `Contractor.verificationStatus`.
-  **Mitigation**: worker sets `verificationStatus: 'FAILED'`, queue
-  retry policy (per `@open-mercato/queue`) re-attempts later; contractor
-  remains usable (registration is never blocked on this — see Design
-  decisions) but AP's own workflow should surface unverified
-  contractors before payment. **Residual risk**: a contractor could
-  stay `FAILED` indefinitely if GUS/VIES are down long-term — no
-  automatic re-enqueue beyond the queue's own retry window; manual
-  re-trigger needed (out of scope for this document's Phase 1 UI).
+  **Mitigation** (**changed 2026-10-20**): the worker leaves
+  `verificationStatus` `PENDING` and the queue retry policy (per
+  `@open-mercato/queue`) re-attempts later; `FAILED` is set only when a
+  registry answers negatively (see Design decisions, 2026-10-20,
+  "Payment eligibility"), because `FAILED` now blocks payments and an
+  outage must not. The contractor remains usable (registration is never
+  blocked on this) and `PENDING` does not block payments. **Residual
+  risk**: a contractor could stay `PENDING` for a long time if GUS/VIES
+  are down long-term — no automatic re-enqueue beyond the queue's own
+  retry window; manual re-trigger needed (out of scope for this
+  document's Phase 1 UI). Accepted: the live whitelist check still runs
+  for every payment.
 - **Scenario**: Biała Lista API is down at the exact moment
   `accounts_payable_payments` needs to execute a payment
   (`accounts_payable_payments` has resolved `checkBankAccountWhitelist`
@@ -1441,7 +1511,9 @@ exactly as `sales.order-approval` and
   before AP's own split into invoices/payments). **Severity**: High
   (business-blocking, not data-corrupting). **Affected area**:
   `accounts_payable_payments`'s payment execution flow. **Mitigation**:
-  `checkBankAccountWhitelist` throws/returns an error result;
+  `checkBankAccountWhitelist` returns `eligible: false` with
+  `WHITELIST_UNAVAILABLE` (changed 2026-10-20 from "throws/returns an
+  error result");
   `accounts_payable_payments` is expected to block the payment rather
   than proceed without a live check (this module cannot make that
   policy decision for its consumer — noted explicitly as
@@ -1509,10 +1581,11 @@ independently of AP, which does not yet exist.
   field change.
 - ~~Whether Accounts Payable should block using a contractor still
   in `PENDING_APPROVAL` status.~~ **Resolved 2026-09-08, no longer out
-  of scope** — `checkBankAccountWhitelist` itself now rejects a
-  non-`APPROVED` contractor before AP's payment flow ever reaches the
-  live check (see Design decisions, Commands). AP does not need to
-  separately read or interpret `approvalStatus`.
+  of scope** — `checkBankAccountWhitelist` itself now reports a
+  non-`APPROVED` contractor as `NOT_APPROVED` (not eligible) before AP's
+  payment flow ever reaches the live check (see Design decisions,
+  2026-10-20, Commands). AP does not need to separately read or
+  interpret `approvalStatus`.
 
 ## Final Compliance Report — 2026-09-07
 
@@ -1543,7 +1616,7 @@ independently of AP, which does not yet exist.
 | `packages/core/AGENTS.md` → Encryption | GDPR/PII fields declared in `<module>/encryption.ts`, read via `findWithDecryption` | **Compliant (fixed 2026-09-08, maintainer review)** | `contractors:contractor` (name, address, contact, `nip`+`nipHash`) and `contractors:contractor_bank_account` (`account_number`) both declared. Originally, `gusData`/`viesData` stored the raw GUS/VIES payload — which duplicates the same PII in plaintext for a JDG contractor — outside this map entirely; narrowed to typed, non-PII diagnostic fields instead (see Design decisions) |
 | `packages/core/AGENTS.md` → Cross-Module Coupling | Upstream module MUST NOT import, resolve, or hard-require its own consumer | **Compliant (fixed 2026-09-08, maintainer review)** | The `Contractor` delete guard originally checked `ledger`'s `JournalEntryLine` from inside this (upstream) module — the exact inverted direction this same rule forbids, and a `module-decoupling.test.ts` failure waiting to happen. Dropped; `contractorSnapshot` already makes this unnecessary (see Design decisions) |
 | Problem Statement / fraud-prevention rationale (four-eyes) | The approval gate must actually separate "who registers" from "who approves" | **Compliant (fixed 2026-09-08, maintainer review)** | Both were gated on the same `contractors.manage` feature, permitting self-approval. Split into `contractors.manage` / `contractors.approve`, plus an explicit `createdByUserId` self-approval check (see Design decisions, Access Control) |
-| Problem Statement / fraud-prevention rationale (approval enforcement) | A control must have an actual enforcement point, not just a status field | **Compliant (fixed 2026-09-08, maintainer review)** | `approvalStatus` was previously read by nothing — `checkBankAccountWhitelist` now rejects a non-`APPROVED` contractor before any payment can reach the live check (see Design decisions, Commands, Out of scope) |
+| Problem Statement / fraud-prevention rationale (approval enforcement) | A control must have an actual enforcement point, not just a status field | **Compliant (fixed 2026-09-08, maintainer review)** | `approvalStatus` was previously read by nothing — `checkBankAccountWhitelist` now reports a non-`APPROVED` contractor as not eligible (`NOT_APPROVED`, 2026-10-20) before any payment can reach the live check (see Design decisions, Commands, Out of scope) |
 | Root `AGENTS.md` | Never hard-code user-facing strings — use locale files | **Compliant (fixed 2026-09-08, maintainer review)** | File Manifest was missing an `i18n/` entry entirely, unlike every other core module; added |
 | `packages/queue/AGENTS.md` | Workers MUST be idempotent; MUST export `metadata: { queue, id?, concurrency? }` | Compliant | `verifyContractorRegistry.ts` follows the exact shape verified against `customers/workers/*.ts` |
 | `packages/ui/AGENTS.md` | `CrudForm`/`DataTable`; guarded row actions via `useGuardedMutation` | Compliant | Contractor list/create/edit use `CrudForm`+`DataTable`. **Resolved 2026-09-08** (superseding the 2026-09-07 correction, which only removed a false citation without replacing the design): the approval step (confirmed in scope, 2026-09-08) now uses the `workflows` engine (`defineWorkflow`/`USER_TASK`), 1:1 with `sales.order-approval`/`accounts_payable.invoice-approval`, not `useGuardedMutation` — consistent with the same principle already settled for `accounts_payable.invoice-approval`: a guarded row action is a real pattern only for a simple, reversible toggle (GL's fiscal-period lock/unlock), not a one-time approve/reject decision. See Design decisions, Workflow definition |
@@ -2071,3 +2144,12 @@ New section Design decisions (2026-10-20); every item below is decided.
   `wl-api.mf.gov.pl` documentation). Commands, API Contracts and Testing
   Strategy updated. Closes the mismatch with
   `PaymentBatchLine.whitelistCheckResult` in #5962.
+- **Payment eligibility.** The result gains `eligible` and `reasons[]`
+  (`NOT_APPROVED`, `VERIFICATION_FAILED`, `ACCOUNT_INACTIVE`,
+  `WHITELIST_NEGATIVE`, `WHITELIST_UNAVAILABLE`); only
+  `verificationStatus` `FAILED` blocks, `PENDING` and `NOT_APPLICABLE` do
+  not; `FAILED` now means a negative registry answer, an outage leaves
+  `PENDING`. Replaces `422 CONTRACTOR_NOT_APPROVED` and `502` on the
+  verify route. Commands, API Contracts, Cross-module integration,
+  Testing Strategy, Risks and Out of scope updated. Consumed by #5962,
+  which maps each reason to its own error code.
