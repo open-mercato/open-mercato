@@ -128,6 +128,18 @@ variant media, sales channel offer media, the warranty claim attachments tab and
 line picker for AI assessment) still use the unpaginated form, so they show at most the newest 100
 attachments of a record and any count derived from them stops at 100.
 
+### `POST /api/attachments/transfer` accepts at most 100 `attachmentIds` (#7672)
+
+`POST /api/attachments/transfer` used to accept an `attachmentIds` array of any length and load every
+listed attachment in one request. The array is now limited to `100` ids, the same ceiling as the
+attachment list. A request with more ids answers `400 { error: "Invalid payload" }` and transfers
+nothing. The URL and the response shape are unchanged.
+
+**Action for module authors:** a caller that moves more than 100 attachments at once must split the
+ids into chunks of at most `100` and send one request per chunk. The built-in callers (product and
+variant media on create, the checkout link template logo) send ids taken from the attachment list,
+which is itself capped at 100, so they are not affected.
+
 ### Login and portal session routes reject cross-site browser requests with `403` (#7239)
 
 `POST /api/auth/login`, `POST /api/auth/session/refresh`, `POST /api/customer_accounts/login`,

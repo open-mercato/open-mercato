@@ -115,7 +115,7 @@ export const partitionResponseSchema = z.object({
 
 export const transferAttachmentsRequestSchema = z.object({
   entityId: z.string().min(1).describe('Entity type identifier'),
-  attachmentIds: z.array(z.string().uuid()).min(1).describe('Array of attachment IDs to transfer'),
+  attachmentIds: z.array(z.string().uuid()).min(1).max(100).describe('Array of attachment IDs to transfer (max 100)'),
   fromRecordId: z.string().min(1).optional().describe('Optional source record ID'),
   toRecordId: z.string().min(1).describe('Target record ID'),
 })
