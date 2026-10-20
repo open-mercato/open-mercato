@@ -144,24 +144,36 @@ export class AiPendingActionRepository {
       // succeeded. Return the existing row instead of inserting; the
       // caller (`prepareMutation`) uses `reused` to tell the model the
       // operation already ran rather than re-queuing it.
+      //
+      // This only holds within the row's own dedupe/TTL window
+      // (`now < expiresAt`, per the spec's "within the TTL" dedupe
+      // promise). Outside it, treat the row as stale: a legitimate repeat
+      // of the same arguments later on would otherwise be refused forever,
+      // and a process that died mid-execution would leave every retry
+      // stuck reading a dead `executing` row.
       if (
         existing &&
-        (existing.status === 'confirmed' || existing.status === 'executing')
+        (existing.status === 'confirmed' || existing.status === 'executing') &&
+        now.getTime() < existing.expiresAt.getTime()
       ) {
         return { row: existing, reused: true }
       }
-      // A terminal (`failed`/`cancelled`/`expired`) stale row would also
+      // A terminal (`failed`/`cancelled`/`expired`) row, or a stale
+      // `confirmed`/`executing` row past its dedupe window, would also
       // collide on the same unique index when we insert a fresh one with
       // the same key — which happens whenever the operator clicks "Fix
-      // with AI" and the model retries the SAME tool with the SAME args.
-      // Re-key the stale row (instead of deleting it) so a retry can
-      // always proceed: the stale row's own card keeps resolving to its
-      // terminal state via a GET by id, rather than 404ing.
+      // with AI" and the model retries the SAME tool with the SAME args,
+      // or simply repeats the same arguments later. Re-key the stale row
+      // (instead of deleting it) so a retry can always proceed: the stale
+      // row's own card keeps resolving to its terminal/prior state via a
+      // GET by id, rather than 404ing.
       if (
         existing &&
         (existing.status === 'failed' ||
           existing.status === 'cancelled' ||
-          existing.status === 'expired')
+          existing.status === 'expired' ||
+          existing.status === 'confirmed' ||
+          existing.status === 'executing')
       ) {
         existing.idempotencyKey = `${existing.idempotencyKey}:superseded:${existing.id}`
         await tx.persist(existing).flush()
