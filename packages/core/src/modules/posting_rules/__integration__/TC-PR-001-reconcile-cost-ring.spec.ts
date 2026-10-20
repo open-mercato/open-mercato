@@ -140,7 +140,7 @@ async function createAccountTypeWithGroup(
   input: {
     organizationId: string;
     tenantId: string;
-    slug: string;
+    number: string;
     name: string;
     normalBalance: 'DEBIT' | 'CREDIT';
     accountGroupId: string | null;
@@ -152,7 +152,7 @@ async function createAccountTypeWithGroup(
     data: {
       organizationId: input.organizationId,
       tenantId: input.tenantId,
-      slug: input.slug,
+      number: input.number,
       name: input.name,
       normalBalance: input.normalBalance,
       accountGroupId: input.accountGroupId,
@@ -315,7 +315,7 @@ test.describe('TC-PR-001: POST /api/posting_rules/reconcile', () => {
       const zespol4TypeId = await createAccountTypeWithGroup(request, superadminToken, {
         organizationId,
         tenantId,
-        slug: randomSlug('qa-pr-001-zesp4-type'),
+        number: '401',
         name: 'QA TC-PR-001 Zespół 4 Type',
         normalBalance: 'DEBIT',
         accountGroupId: zespol4GroupId,
@@ -324,7 +324,7 @@ test.describe('TC-PR-001: POST /api/posting_rules/reconcile', () => {
       const zespol5TypeId = await createAccountTypeWithGroup(request, superadminToken, {
         organizationId,
         tenantId,
-        slug: randomSlug('qa-pr-001-zesp5-type'),
+        number: '501',
         name: 'QA TC-PR-001 Zespół 5 Type',
         normalBalance: 'DEBIT',
         accountGroupId: zespol5GroupId,
@@ -336,7 +336,7 @@ test.describe('TC-PR-001: POST /api/posting_rules/reconcile', () => {
       const plainTypeId = await createAccountTypeWithGroup(request, superadminToken, {
         organizationId,
         tenantId,
-        slug: randomSlug('qa-pr-001-plain-type'),
+        number: '900',
         name: 'QA TC-PR-001 Plain Type',
         normalBalance: 'CREDIT',
         accountGroupId: null,
@@ -346,25 +346,25 @@ test.describe('TC-PR-001: POST /api/posting_rules/reconcile', () => {
       const sourceAccountId = await createAccountFixture(
         request,
         superadminToken,
-        { organizationId, tenantId, slug: randomSlug('qa-pr-001-source'), accountTypeId: zespol4TypeId },
+        { organizationId, tenantId, number: '401-001', accountTypeId: zespol4TypeId },
         { headers },
       );
       const targetAccountId = await createAccountFixture(
         request,
         superadminToken,
-        { organizationId, tenantId, slug: randomSlug('qa-pr-001-target'), accountTypeId: zespol5TypeId },
+        { organizationId, tenantId, number: '501-001', accountTypeId: zespol5TypeId },
         { headers },
       );
       const clearingAccountId = await createAccountFixture(
         request,
         superadminToken,
-        { organizationId, tenantId, slug: randomSlug('qa-pr-001-clearing'), accountTypeId: plainTypeId },
+        { organizationId, tenantId, number: '900-001', accountTypeId: plainTypeId },
         { headers },
       );
       const balancingAccountId = await createAccountFixture(
         request,
         superadminToken,
-        { organizationId, tenantId, slug: randomSlug('qa-pr-001-cash'), accountTypeId: plainTypeId },
+        { organizationId, tenantId, number: '900-002', accountTypeId: plainTypeId },
         { headers },
       );
 
