@@ -212,6 +212,7 @@ Module code resolves services by name from the Awilix container. Renaming a DI r
 - MUST NOT change the interface of a resolved service in a breaking way
 - MAY add new DI registrations freely
 - MAY add optional methods to existing service interfaces
+- `calendarEventTypeRegistry` (Customers): the registration key and the `upsert`, `replace`, `patch`, `remove`, `removeSource`, and `snapshot` operations are STABLE additive contracts. Contributor modules may resolve it softly when Customers is optional.
 
 ### 10. ACL Feature IDs (FROZEN)
 
@@ -489,7 +490,7 @@ admit an entity type by default that is not a platform-wide catalogue. A `tenant
 
 **Migration path for existing modules**: none required unless a module owns a
 tenant-less catalogue table, which registers itself as above. See
-[`UPGRADE_NOTES.md`](UPGRADE_NOTES.md) `0.8.0 → 0.8.1` for both the module-author and
+[`UPGRADE_NOTES.md`](UPGRADE_NOTES.md) `0.9.0 → 0.9.1` for both the module-author and
 the operator action, including the index residue this change does not clean up.
 
 ## Tenant-Global Entity Types in the Search Index (2026-08-28)
@@ -530,7 +531,7 @@ change makes catalogues unfindable for everyone.
 **Migration path**: reindex each declared catalogue once. `entity_indexes` self-heals
 through the upsert; leftover per-tenant `search_tokens` rows are duplicates of public
 catalogue text and can be deleted. See [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md)
-`0.8.0 → 0.8.1`.
+`0.9.0 → 0.9.1`.
 
 ## Data Sync Start Control Applicability (2026-09-02)
 
@@ -629,3 +630,22 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 | Database schema, event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
 
 **Migration path for existing modules**: send `parentId: null` / `childIds: []` where clearing is intended. Trees flattened before the upgrade are not repaired (see UPGRADE_NOTES.md).
+
+---
+
+## Staff Logout Runs Without A Valid Access Token (2026-10-13)
+
+`POST /api/auth/logout` answered `401` before its handler ran once the access token expired, so the remember-me session was never revoked ([#7225](https://github.com/open-mercato/open-mercato/issues/7225)). It now declares `requireAuth: false`, like the portal logout:
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| API route gating | `requireAuth` `true` → `false`; the handler revokes only the sessions its own cookies identify | ⚠️ Narrow relaxation: missing/unverifiable token or no cookie got `401`, now `307` (UPGRADE_NOTES.md) |
+| URL, method, response shape | Unchanged | ✓ n/a |
+| `auth.logout` event | Emitted only for a verified staff `auth_token` (now incl. MFA-pending); `session_token`-only revocation emits none | ✓ No ID or payload change |
+| Database schema, ACL features, DI names, CLI commands | No change | ✓ n/a |
+
+**Migration path for existing modules**: none. A client that read a logout `401` as "already signed out" gets the redirect instead.
+
+## Discord AI Proposals (2026-10-13)
+
+[Waiver](UPGRADE_NOTES.md#discord-proposals)
