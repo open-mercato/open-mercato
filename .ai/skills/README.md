@@ -75,7 +75,7 @@ The default `yarn install-skills` ships the **core** tier plus the entire extern
 | `analysis` | opt-in | 3 | Business/engagement analysis skills (app specs, platform gap analysis) and the draft accessibility review. Opt-in. |
 | `migration` | opt-in | 3 | One-shot, version-pinned migrations. Install only when needed. |
 | `infra` | opt-in | 2 | Rare, special-case skills. |
-| external | always | 26 | Shared pipeline skills from [open-mercato/skills](https://github.com/open-mercato/skills), installed via `npx skills add` and refreshed via `npx skills update` (skip with `--no-external`). |
+| external | always | 27 | Shared pipeline skills from [open-mercato/skills](https://github.com/open-mercato/skills), installed via `npx skills add` and refreshed via `npx skills update` (skip with `--no-external`). |
 
 Run `yarn install-skills --list` at any time to see tier definitions, current memberships, and which tiers are installed locally.
 
@@ -160,9 +160,10 @@ claude
 > /skills
 # With the default install you should see the core tier (e.g. ds-guardian,
 # backend-ui-design, implement-spec, pre-implement-spec, smart-test,
-# create-agents-md, skill-creator, fix-specs, migrate-mikro-orm,
+# create-agents-md, fix-specs, migrate-mikro-orm,
 # create-ai-agent, help, refresh-standalone-harness, share-this-session) plus the external collection (code-review,
-# check-and-commit, spec-writing, integration-tests, auto-create-pr, ...).
+# check-and-commit, spec-writing, integration-tests, auto-create-pr,
+# create-skill, ...).
 
 # Codex
 codex
@@ -198,7 +199,6 @@ Skills below are grouped by tier in the same order as `.ai/skills/tiers.json`. E
 | `om-pre-implement-spec` | Analyze a spec before implementation: BC audit, risk assessment, gap analysis. Produces a readiness report with BC violations, missing sections, and suggested improvements. Triggers on "analyze spec", "pre-implement", "spec readiness", "BC analysis", "spec gap analysis". |
 | `om-smart-test` | Run only the tests affected by changed code. Use when the user says "run affected tests", "run smart tests", "test only what changed", "run tests for this PR", "run tests for my changes", "selective tests", or asks to run tests without running the full suite. |
 | `om-create-agents-md` | Create or rewrite AGENTS.md files for Open Mercato packages and modules. Use this skill when adding a new package, creating a new module, or when an existing AGENTS.md needs to be created or refactored. Ensures prescriptive tone, MUST rules, checklists, and consistent structure across all agent guidelines. |
-| `om-skill-creator` | Guide for creating effective skills. This skill should be used when users want to create a new skill (or update an existing skill) that extends Claude's capabilities with specialized knowledge, workflows, or tool integrations. |
 | `om-fix-specs` | Normalize spec filenames in .ai/specs and .ai/specs/enterprise to the date+slug convention. Use this when legacy `SPEC-*` / `SPEC-ENT-*` names need to be cleaned up, when filename collisions appear after dropping numeric prefixes, or when links must be updated after normalization. |
 | `om-migrate-mikro-orm` | Migrate custom module code from MikroORM v6 to v7. Fixes v7 type errors (FilterQuery, RequiredEntityData), replaces Knex raw queries with Kysely, migrates persistAndFlush/removeAndFlush, updates decorator imports. Triggers on "mikro-orm v7", "persistAndFlush deprecated", "knex to kysely". |
 | `om-create-ai-agent` | Scaffold AI agents (`ai-agents.ts`) and MCP tools (`ai-tools.ts`) for Open Mercato modules. Use when adding a new AI agent definition, configuring tool allowlists, mutation policies, or model selection. Triggers on "add ai agent", "create ai tool", "ai-agents.ts", "ai-tools.ts". |
@@ -223,7 +223,7 @@ Skills below are grouped by tier in the same order as `.ai/skills/tiers.json`. E
 
 These skills are installed from [open-mercato/skills](https://github.com/open-mercato/skills) into `.agents/skills/`; their descriptions are maintained upstream. They read `.ai/agentic.config.json`, `.ai/trackers/github.md`, the root docs, and any repo-local override under `.ai/skills/<name>/`.
 
-`om-approve-merge-pr`, `om-auto-continue-pr`, `om-auto-continue-pr-loop`, `om-auto-create-pr`, `om-auto-create-pr-loop`, `om-auto-fix-issue`, `om-auto-review-pr`, `om-auto-update-changelog`, `om-auto-qa-pr`, `om-check-and-commit`, `om-code-review`, `om-fix`, `om-followup-issue-from-pr`, `om-integration-tests`, `om-merge-buddy`, `om-open-pr`, `om-prepare-issue`, `om-prepare-test-env`, `om-review-prs`, `om-root-cause`, `om-setup-agent-pipeline`, `om-spec-writing`, `om-auto-fix-pr`, `om-close-fixed-issues`, `om-verify-in-repo`, `om-pr-autopilot`
+`om-approve-merge-pr`, `om-auto-continue-pr`, `om-auto-continue-pr-loop`, `om-auto-create-pr`, `om-auto-create-pr-loop`, `om-auto-fix-issue`, `om-auto-review-pr`, `om-auto-update-changelog`, `om-auto-qa-pr`, `om-check-and-commit`, `om-code-review`, `om-fix`, `om-followup-issue-from-pr`, `om-integration-tests`, `om-merge-buddy`, `om-open-pr`, `om-prepare-issue`, `om-prepare-test-env`, `om-review-prs`, `om-root-cause`, `om-setup-agent-pipeline`, `om-spec-writing`, `om-auto-fix-pr`, `om-close-fixed-issues`, `om-verify-in-repo`, `om-pr-autopilot`, `om-create-skill`
 
 ### security
 
@@ -263,7 +263,7 @@ Moved here from [open-mercato/skills](https://github.com/open-mercato/skills) â€
 
 ## Creating a New Skill
 
-1. Use the `om-skill-creator` skill interactively, or create manually:
+1. Use the `om-create-skill` skill interactively (it also registers the skill in `tiers.json` and this README), or create manually:
 
 ```bash
 mkdir -p .ai/skills/my-skill
@@ -271,7 +271,8 @@ mkdir -p .ai/skills/my-skill
 
 2. Create `SKILL.md` with frontmatter and instructions
 3. Add optional `scripts/`, `references/`, `assets/` as needed
-4. Test the skill by invoking it
+4. Register it in one tier of `tiers.json`, add its row to the tier table above, and run `node scripts/validate-skills-tiers.mjs`
+5. Test the skill by invoking it
 
 ### Writing Effective Descriptions
 

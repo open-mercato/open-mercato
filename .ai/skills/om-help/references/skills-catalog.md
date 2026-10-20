@@ -32,7 +32,7 @@ Default tier — installed by `yarn install-skills`.
 | `om-integration-tests` | Create or run Playwright integration tests after implementation | `om-implement-spec` | `om-code-review` |
 | `om-fix-specs` | Normalize legacy `SPEC-*` filenames to date+slug convention | — | `om-implement-spec` |
 | `om-create-agents-md` | Create or rewrite AGENTS.md for a new package or module | `om-implement-spec` | — |
-| `om-skill-creator` | Create a new skill or update an existing one | — | — |
+| `om-create-skill` | Create a new skill, split an oversized one into `references/`, or write a repo-local override | — | — |
 | `om-create-ai-agent` | Add AI agents (`ai-agents.ts`) or MCP tools (`ai-tools.ts`) to a module | `om-spec-writing` | `om-implement-spec` |
 | `om-migrate-mikro-orm` | Migrate module code from MikroORM v6 → v7 (decorators, Knex→Kysely) | — | `om-smart-test` |
 | `om-share-this-session` | Publicly report this agent run with a sanitized full session and generated-files ZIP | completed harness run | upstream harness triage |
