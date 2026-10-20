@@ -28,6 +28,7 @@
   "communication_channels.errors.pollNowPushDriven": "Channel is push-driven — polling does not apply. Inbound messages arrive through the provider push connection.",
   "communication_channels.errors.reactionFailed": "Reaction failed",
   "communication_channels.errors.reactionNotFound": "Reaction not found",
+  "communication_channels.errors.threadNotFound": "Thread not found",
   "communication_channels.errors.undoBlockedPrimaryConflict": "Another channel is now primary for this user. Set it as non-primary before restoring the disconnected channel as primary.",
   "communication_channels.errors.undoRestoreDuplicate": "This channel was connected again after it was deleted. Delete the newer connection before undoing this delete.",
   "communication_channels.infoPanel.aria": "Channel info",

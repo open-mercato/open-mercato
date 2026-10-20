@@ -121,3 +121,35 @@ describe('notifications delivery config sender resolution', () => {
     expect(STORED_DEFAULT_NOTIFICATION_DELIVERY_CONFIG.strategies.email.replyTo).toBeUndefined()
   })
 })
+
+describe('notifications delivery config stored panelPath', () => {
+  it('drops only a stored panelPath that resolves to another origin and keeps the rest of the config', async () => {
+    const { resolveNotificationDeliveryConfig, DEFAULT_NOTIFICATION_DELIVERY_CONFIG } = loadDeliveryConfig({})
+    const { resolver } = createResolver({
+      appUrl: 'https://app.acme.test',
+      panelPath: '/\\evil.example',
+      strategies: { email: { enabled: false, replyTo: 'help@acme.test' } },
+    })
+
+    const config = await resolveNotificationDeliveryConfig(resolver)
+
+    expect(config.panelPath).toBe(DEFAULT_NOTIFICATION_DELIVERY_CONFIG.panelPath)
+    expect(config.appUrl).toBe('https://app.acme.test')
+    expect(config.strategies.email.enabled).toBe(false)
+    expect(config.strategies.email.replyTo).toBe('help@acme.test')
+  })
+
+  it('still falls back to the defaults when another field is invalid', async () => {
+    const { resolveNotificationDeliveryConfig, DEFAULT_NOTIFICATION_DELIVERY_CONFIG } = loadDeliveryConfig({})
+    const { resolver } = createResolver({
+      appUrl: 'not a url',
+      panelPath: '/\\evil.example',
+      strategies: { email: { enabled: false } },
+    })
+
+    const config = await resolveNotificationDeliveryConfig(resolver)
+
+    expect(config.appUrl).toBe(DEFAULT_NOTIFICATION_DELIVERY_CONFIG.appUrl)
+    expect(config.strategies.email.enabled).toBe(DEFAULT_NOTIFICATION_DELIVERY_CONFIG.strategies.email.enabled)
+  })
+})

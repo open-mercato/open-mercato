@@ -28,6 +28,7 @@
   "communication_channels.errors.pollNowPushDriven": "El canal funciona con push — el sondeo no aplica. Los mensajes entrantes llegan por la conexión push del proveedor.",
   "communication_channels.errors.reactionFailed": "La reacción falló",
   "communication_channels.errors.reactionNotFound": "Reacción no encontrada",
+  "communication_channels.errors.threadNotFound": "Hilo no encontrado",
   "communication_channels.errors.undoBlockedPrimaryConflict": "Otro canal es ahora el principal para este usuario. Configúralo como no principal antes de restaurar el canal desconectado como principal.",
   "communication_channels.errors.undoRestoreDuplicate": "Este canal se volvió a conectar después de eliminarlo. Elimina la conexión más reciente antes de deshacer esta eliminación.",
   "communication_channels.infoPanel.aria": "Información del canal",
