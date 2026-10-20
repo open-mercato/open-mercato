@@ -709,8 +709,9 @@ intra-Community supplies; until now the registry modelled only `nip`.
   `FAILED` when any of them answered negatively; `VERIFIED` when every
   applicable one answered positively; `PENDING` while any answer is
   still missing; `NOT_APPLICABLE` when the contractor has neither
-  identifier, so no registry applies. `NOT_APPLICABLE` does not block a
-  payment (see "Payment eligibility").
+  identifier, so no registry applies — possible only when `countryCode`
+  is not `PL` (see "`Contractor.countryCode` is required" below).
+  `NOT_APPLICABLE` does not block a payment (see "Payment eligibility").
 - **Background check at registration.** `createContractor`, and
   `updateContractor` when it adds an `euVatNumber`, enqueue
   `verifyContractorRegistry`, which now runs VIES for `euVatNumber` next
@@ -745,7 +746,9 @@ not a NIP.
   `euVatNumberHash` is used only for duplicate detection.
 - **Whitelist status `NOT_APPLICABLE`.** The Ministry's list is searched
   by NIP or REGON (its check and search endpoints take one of them), so a
-  contractor without a `nip` cannot be checked. `checkBankAccountWhitelist`
+  contractor without a `nip` cannot be checked — which, since
+  `countryCode` is required and `PL` requires a NIP, happens only for a
+  contractor outside Poland. `checkBankAccountWhitelist`
   then makes no call and returns `status: 'NOT_APPLICABLE'`,
   `checkedAt`/`requestId` `null`, with only the local reasons; the
   registration check is skipped and no history row is written. A foreign
@@ -874,6 +877,34 @@ notes that this module has no draft state; this decision makes it final.
 accounts from the Ministry's list, by NIP, is deferred to Phase 2 (see
 Implementation Plan → Phase 2): Polish NIPs only, and the first imported
 account becomes the primary one when the contractor has none.
+
+**`Contractor.countryCode` is required, and a Polish contractor always
+has a NIP and is always checked against the whitelist.** With `nip`
+optional and no country on the contractor, a Polish company could be
+saved with only a `PL…` VAT-UE number or with no identifier at all, and
+its accounts would then get `NOT_APPLICABLE` — a Polish supplier paid
+with no whitelist check, the exact case this module exists to stop.
+- **`countryCode`:** required at creation, ISO 3166-1 alpha-2,
+  upper-case, no default (a default of `PL` would silently mislabel a
+  foreign supplier, and the reverse would skip the whitelist).
+- **`countryCode: 'PL'` requires `nip` at creation**, normalized and
+  checksum-validated by `normalizeNip` (`400` with a field error for an
+  invalid NIP, `422 CONTRACTOR_NIP_REQUIRED` when it is missing). Since
+  `nip` is set-once, a Polish contractor never loses it.
+- **A `PL`-prefixed `euVatNumber` requires `countryCode: 'PL'` and must
+  equal `"PL"` + `nip`**, otherwise `422 CONTRACTOR_EU_VAT_NUMBER_MISMATCH`.
+  The Polish VAT-UE number is the NIP with the prefix, so a different
+  value is a typing error or a wrong contractor.
+- **Whitelist `NOT_APPLICABLE` only for `countryCode` other than `PL`**
+  and no `nip`. A Polish contractor is always checked (it always has a
+  NIP); a contractor from another country with a Polish NIP (registered
+  for Polish VAT) is checked too.
+- **`verificationStatus: 'NOT_APPLICABLE'`** (no identifier at all) is
+  therefore possible only outside Poland.
+- **Changing `countryCode`** later is allowed only when the result still
+  satisfies these rules (`422` with the same codes otherwise), so a
+  Polish contractor cannot be moved abroad to escape the check without
+  its NIP rule still holding.
 
 ### Alternatives considered
 
@@ -1102,6 +1133,8 @@ own instruction — no open questions remain.
 ### Entities (`data/entities.ts`)
 
 - `Contractor` — `isVendor` (bool), `isCustomer` (bool), `name`,
+  `countryCode` (required ISO 3166-1 alpha-2, no default, added
+  2026-10-20 — `PL` requires `nip`, see Design decisions),
   `nip` (nullable since 2026-10-20, set-once; + `nipHash` for lookup on the encrypted column, unique per
   `(tenant_id, organization_id)` while `deletedAt` is null — a partial
   index, see Design decisions — duplicate detection), `euVatNumber`
@@ -1294,10 +1327,16 @@ input that does not validate returns `[]`, not an error.
 
 - `createContractor` — validates NIP uniqueness (via `nipHash` lookup)
   and VAT-UE number uniqueness (via `euVatNumberHash`, added 2026-10-20)
-  per `(tenant, organization)`, persists with `verificationStatus:
-  'PENDING'` (`'NOT_APPLICABLE'` when it has neither identifier),
+  per `(tenant, organization)`, enforces the country rules (added
+  2026-10-20: `countryCode: 'PL'` requires a valid `nip`, `422
+  CONTRACTOR_NIP_REQUIRED` when missing; a `PL`-prefixed `euVatNumber`
+  requires `countryCode: 'PL'` and must equal `"PL"` + `nip`, `422
+  CONTRACTOR_EU_VAT_NUMBER_MISMATCH` otherwise), persists with
+  `verificationStatus: 'PENDING'` (`'NOT_APPLICABLE'` when it has
+  neither identifier, possible only outside Poland),
   enqueues `verifyContractorRegistry` worker (GUS for `nip`, VIES for
-  `euVatNumber`).
+  `euVatNumber`). `updateContractor` applies the same country rules to
+  a changed `countryCode`.
 - `updateContractor` — rejects any change to a set `nip` or
   `euVatNumber` (adding a missing one is allowed and enqueues the
   matching check, 2026-10-20; see Design decisions); everything else editable; enforces
@@ -1603,8 +1642,12 @@ NIP for re-registration. `nip` is nullable (2026-10-20); a `null`
 `nip_hash` is outside the index. `euVatNumber`/`euVatNumberHash` (added
 2026-10-20) carries the same partial unique index on
 `(tenant_id, organization_id, eu_vat_number_hash) where deleted_at is null`.
+`country_code` (added 2026-10-20): text, not null, `^[A-Z]{2}$`
+(ISO 3166-1 alpha-2), no default; a row with `country_code = 'PL'`
+always has a `nip` (enforced by the commands, and by a check constraint
+`country_code <> 'PL' or nip_hash is not null`).
 `verificationStatus` starts `PENDING` (`NOT_APPLICABLE` with neither
-identifier), moves
+identifier, only outside Poland), moves
 to `VERIFIED`/`FAILED` asynchronously via the `verifyContractorRegistry`
 worker (GUS for `nip`, VIES for `euVatNumber`; derivation rule in
 Design decisions, 2026-10-20) or through `checkContractorVies`.
@@ -1700,10 +1743,18 @@ Standard `makeCrudRoute` list + create.
 - **Query**: `page?`, `pageSize?` (≤100), `isVendor?`, `isCustomer?`,
   `verificationStatus?`, `isActive?` (added 2026-10-20; the backend list
   sends `isActive=true` unless the user turns the filter off).
-- **Create body**: `{ isVendor, isCustomer, name, nip?, euVatNumber?,
-  address, contactEmail, contactPhone }` (`nip` optional and
-  `euVatNumber` added 2026-10-20). `verificationStatus` not settable —
-  starts `PENDING`, or `NOT_APPLICABLE` with neither identifier.
+- **Create body**: `{ isVendor, isCustomer, name, countryCode, nip?,
+  euVatNumber?, address, contactEmail, contactPhone }` (`nip` optional
+  and `euVatNumber` added 2026-10-20; `countryCode` required, added
+  2026-10-20 — `nip` is required when it is `PL`). `verificationStatus` not settable —
+  starts `PENDING`, or `NOT_APPLICABLE` with neither identifier (only
+  outside Poland).
+- **Response 400** (create/update, added 2026-10-20): `countryCode` is
+  not two upper-case letters; `nip` fails the NIP checksum.
+- **Response 422** (create/update, added 2026-10-20):
+  `CONTRACTOR_NIP_REQUIRED` — `countryCode: 'PL'` without `nip`;
+  `CONTRACTOR_EU_VAT_NUMBER_MISMATCH` — a `PL`-prefixed `euVatNumber`
+  with another `countryCode`, or not equal to `"PL"` + `nip`.
 - **Response shape** (list/detail): includes `updatedAt` on every
   row, per root `AGENTS.md`'s requirement so `CrudForm` can
   auto-derive the optimistic-lock header for `PUT` below.
@@ -1932,7 +1983,7 @@ exactly as `sales.order-approval` and
   `euVatNumber` is created and enqueues a VIES check; a duplicate
   `euVatNumber` in one organization returns 409; adding a missing `nip`
   or `euVatNumber` succeeds and changing a set one returns 400; a
-  contractor with neither identifier gets `verificationStatus:
+  contractor outside Poland with neither identifier gets `verificationStatus:
   'NOT_APPLICABLE'`; `verify-vies` returns `VALID`/`INVALID` and updates
   `verificationStatus`; a mocked VIES that answers after more than 10
   seconds yields `NOT_CHECKED`, leaves `verificationStatus` unchanged and
@@ -1995,11 +2046,31 @@ exactly as `sales.order-approval` and
   `NOT_CHECKED` history row and leaves the cached status unchanged; a
   retried job for the same number makes no second Ministry call; an
   account of a `PENDING_APPROVAL` contractor is checked too.
-- Contractor without a NIP (added 2026-10-20): `checkBankAccountWhitelist`
+- Contractor outside Poland without a NIP (added 2026-10-20): `checkBankAccountWhitelist`
   makes no Ministry call and returns `status: 'NOT_APPLICABLE'` with
   `checkedAt`/`requestId` `null`; an approved, active such contractor is
   `eligible`; creating its bank account enqueues no registration check
   and writes no history row.
+- Country rules (added 2026-10-20), acceptance:
+  - create without `countryCode` → 400; `countryCode: 'pl'` → 400;
+  - `countryCode: 'PL'` without `nip` → `422 CONTRACTOR_NIP_REQUIRED`;
+    with a NIP that fails the checksum → 400;
+  - `countryCode: 'PL'`, `nip: '1234563218'`, `euVatNumber:
+    'PL1234563218'` → created; the same with `euVatNumber:
+    'PL9999999999'` → `422 CONTRACTOR_EU_VAT_NUMBER_MISMATCH`;
+  - `countryCode: 'DE'` with `euVatNumber: 'PL1234563218'` →
+    `422 CONTRACTOR_EU_VAT_NUMBER_MISMATCH`;
+  - `countryCode: 'DE'` with only a `DE…` number → created; its account
+    gets whitelist status `NOT_APPLICABLE`;
+  - `countryCode: 'DE'` with a Polish `nip` → its account is checked
+    against the whitelist (never `NOT_APPLICABLE`);
+  - every account of a `PL` contractor gets a real Ministry check — no
+    `PL` contractor ever yields `NOT_APPLICABLE`;
+  - changing a `PL` contractor to `DE` keeps its `nip` (set-once) and
+    its accounts are still checked; changing a `DE` contractor without a
+    `nip` to `PL` → `422 CONTRACTOR_NIP_REQUIRED`;
+  - a raw insert of a `PL` row without `nip_hash` fails on the check
+    constraint.
 - Eligibility (added 2026-10-20): `verificationStatus` `FAILED` yields
   `VERIFICATION_FAILED` without a live call; `PENDING` and
   `NOT_APPLICABLE` yield no reason; a contractor that is both not
@@ -2062,6 +2133,31 @@ exactly as `sales.order-approval` and
   `Contractor` create/update `CrudForm` flow end to end (list → create
   → edit → optimistic-lock conflict), per `.ai/qa/AGENTS.md`'s
   mandatory CRUDFORM convention for every module shipping one.
+
+## Edge Cases & Failure Scenarios
+
+Added 2026-10-20.
+
+**Country and identifiers** (see Design decisions, "`Contractor.countryCode`
+is required"):
+
+- **Polish contractor without a NIP.** Rejected at creation with
+  `422 CONTRACTOR_NIP_REQUIRED`; it can never reach the whitelist check
+  without a NIP, so it never gets `NOT_APPLICABLE`.
+- **Polish VAT-UE number that does not match the NIP** (`PL` +
+  different digits), or a `PL…` VAT-UE number on a contractor from
+  another country. `422 CONTRACTOR_EU_VAT_NUMBER_MISMATCH`.
+- **Foreign contractor registered for Polish VAT** (`countryCode: 'DE'`
+  with a Polish `nip`). Checked against the whitelist like a Polish one;
+  `NOT_APPLICABLE` needs both a non-`PL` country and no NIP.
+- **Foreign contractor without any identifier** (e.g. a US supplier).
+  Allowed; `verificationStatus` and whitelist status `NOT_APPLICABLE`;
+  payment eligibility depends on approval and active status only.
+- **Country changed after creation.** Allowed only if the new
+  combination satisfies the same rules; a set `nip` never disappears, so
+  moving a Polish contractor abroad does not stop the whitelist check.
+- **Lower-case or three-letter country code.** `400`; the value is
+  stored as given, two upper-case letters, never guessed.
 
 ## Risks & Impact Review
 
@@ -2908,3 +3004,18 @@ New section Design decisions (2026-10-20); every item below is decided.
   shared by all tenants of an installation (enumeration with the pepper
   and a database copy; identical hashes across tenants). No design
   change.
+
+### 2026-10-20 (cont. — required `countryCode`; Polish contractors always checked)
+
+- **Decided.** `Contractor.countryCode` is required (ISO 3166-1
+  alpha-2, no default). `PL` requires a checksum-valid `nip` at creation
+  (`422 CONTRACTOR_NIP_REQUIRED`); a `PL`-prefixed `euVatNumber` requires
+  `PL` and must equal `"PL"` + `nip` (`422
+  CONTRACTOR_EU_VAT_NUMBER_MISMATCH`). Whitelist `NOT_APPLICABLE` only
+  for a contractor outside Poland without a NIP; a Polish contractor is
+  always checked. Closes the gap where a Polish supplier saved without a
+  NIP would have been paid without a whitelist check.
+- Design decisions, Entities, Commands, Data Models (column and check
+  constraint), API Contracts, a new Edge Cases & Failure Scenarios
+  section, Testing Strategy (acceptance cases) and every
+  `NOT_APPLICABLE` reference updated.
