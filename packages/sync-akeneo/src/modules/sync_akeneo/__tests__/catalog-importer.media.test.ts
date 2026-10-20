@@ -1,4 +1,5 @@
 import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CatalogProduct, CatalogProductVariant } from '@open-mercato/core/modules/catalog/data/entities'
 import { createAkeneoImporter } from '../lib/catalog-importer'
 import { buildDefaultAkeneoMapping, type AkeneoDataMapping, type AkeneoProduct } from '../lib/shared'
@@ -6,7 +7,7 @@ import { buildDefaultAkeneoMapping, type AkeneoDataMapping, type AkeneoProduct }
 const mockContainerResolve = jest.fn()
 const mockFindOneWithDecryption = jest.fn()
 const mockFindWithDecryption = jest.fn()
-const mockRemoveAttachmentRecord = jest.fn()
+const mockReleaseScoped = jest.fn()
 const mockDeletePartitionFile = jest.fn()
 const mockEmitCrudSideEffects = jest.fn()
 
@@ -19,10 +20,6 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) => mockFindOneWithDecryption(...args),
   findWithDecryption: (...args: unknown[]) => mockFindWithDecryption(...args),
-}))
-
-jest.mock('@open-mercato/core/modules/attachments/lib/storageReferences', () => ({
-  removeAttachmentRecord: (...args: unknown[]) => mockRemoveAttachmentRecord(...args),
 }))
 
 jest.mock('@open-mercato/core/modules/attachments/lib/storage', () => ({
@@ -85,6 +82,7 @@ function createMediaWorld(attachments: Attachment[]) {
 
   mockContainerResolve.mockImplementation((key: string) => {
     if (key === 'em') return { remove: () => ({ flush: async () => undefined }) }
+    if (key === 'attachmentService') return { releaseScoped: mockReleaseScoped }
     if (key === 'commandBus') return commandBus
     if (key === 'dataEngine') return dataEngine
     if (key === 'externalIdMappingService') return externalIdMappingService
@@ -154,46 +152,41 @@ describe('akeneo catalog importer media reconciliation', () => {
     mockContainerResolve.mockReset()
     mockFindOneWithDecryption.mockReset()
     mockFindWithDecryption.mockReset()
-    mockRemoveAttachmentRecord.mockReset()
+    mockReleaseScoped.mockReset()
     mockDeletePartitionFile.mockReset()
     mockEmitCrudSideEffects.mockReset()
   })
 
-  it('removes a stale media row but keeps the stored file another attachment row still references', async () => {
+  it('releases a stale media row through the attachment service and leaves the stored file to it', async () => {
     const stale = storedAttachment('attachment-stale', 'product:image:main_image:old.png:0')
     const world = createMediaWorld([storedAttachment('attachment-kept', KEPT_EXTERNAL_ID), stale])
-    mockRemoveAttachmentRecord.mockResolvedValue({ removed: true, releaseStorage: false })
+    mockReleaseScoped.mockResolvedValue(undefined)
     const importer = await createAkeneoImporter(world.client as never, scope)
 
     await importer.upsertProduct(product, buildMediaMapping())
 
-    expect(mockRemoveAttachmentRecord).toHaveBeenCalledTimes(1)
-    expect(mockRemoveAttachmentRecord).toHaveBeenCalledWith(expect.anything(), stale)
+    expect(mockReleaseScoped).toHaveBeenCalledTimes(1)
+    expect(mockReleaseScoped).toHaveBeenCalledWith({
+      attachmentId: 'attachment-stale',
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      expectedOwner: { entityId: 'catalog:catalog_product', recordId: PRODUCT_ID },
+      expectedAssignment: { type: 'catalog:catalog_product', id: PRODUCT_ID },
+      expectedPartitionCode: 'productsMedia',
+    })
     expect(mockDeletePartitionFile).not.toHaveBeenCalled()
     expect(mockEmitCrudSideEffects).toHaveBeenCalledWith(expect.objectContaining({ action: 'deleted', entity: stale }))
   })
 
-  it('deletes the stored file after the row only when it was the last reference', async () => {
+  it('skips the deleted event without failing the product when a concurrent delete already removed the row', async () => {
     const stale = storedAttachment('attachment-stale', 'product:image:main_image:old.png:0')
     const world = createMediaWorld([stale])
-    mockRemoveAttachmentRecord.mockResolvedValue({ removed: true, releaseStorage: true })
+    mockReleaseScoped.mockRejectedValue(new CrudHttpError(404, { error: 'Attachment not found' }))
     const importer = await createAkeneoImporter(world.client as never, scope)
 
-    await importer.upsertProduct(product, buildMediaMapping())
+    await expect(importer.upsertProduct(product, buildMediaMapping())).resolves.toBeDefined()
 
-    expect(mockDeletePartitionFile).toHaveBeenCalledWith('productsMedia', SHARED_STORAGE_PATH, 'local')
-    expect(mockRemoveAttachmentRecord.mock.invocationCallOrder[0])
-      .toBeLessThan(mockDeletePartitionFile.mock.invocationCallOrder[0])
-  })
-
-  it('skips the file and the deleted event when a concurrent delete already removed the row', async () => {
-    const stale = storedAttachment('attachment-stale', 'product:image:main_image:old.png:0')
-    const world = createMediaWorld([stale])
-    mockRemoveAttachmentRecord.mockResolvedValue({ removed: false, releaseStorage: false })
-    const importer = await createAkeneoImporter(world.client as never, scope)
-
-    await importer.upsertProduct(product, buildMediaMapping())
-
+    expect(mockReleaseScoped).toHaveBeenCalledTimes(1)
     expect(mockDeletePartitionFile).not.toHaveBeenCalled()
     expect(mockEmitCrudSideEffects).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'deleted' }))
   })
