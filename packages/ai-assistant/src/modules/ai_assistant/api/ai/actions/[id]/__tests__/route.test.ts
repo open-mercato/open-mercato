@@ -19,8 +19,12 @@ jest.mock('../../../../../data/repositories/AiPendingActionRepository', () => ({
 
 import { GET } from '../route'
 
+const PENDING_ACTION_ID = '3b7e1f2a-6c4d-4a9e-8f1b-2c3d4e5f6a7b'
+const MISSING_PENDING_ACTION_ID = '5e2b8c71-9d4a-4f3e-8b6c-7a1d2e3f4b5c'
+const OTHER_TENANT_PENDING_ACTION_ID = '7f3c9a40-2b1d-4e6f-9a8b-1c2d3e4f5a6b'
+
 function buildRequest(): Request {
-  return new Request('http://localhost/api/ai_assistant/ai/actions/pa_123', {
+  return new Request(`http://localhost/api/ai_assistant/ai/actions/${PENDING_ACTION_ID}`, {
     method: 'GET',
     headers: { 'content-type': 'application/json' },
   })
@@ -32,7 +36,7 @@ function buildContext(id: string) {
 
 function makeRow(overrides: Record<string, unknown> = {}) {
   return {
-    id: 'pa_123',
+    id: PENDING_ACTION_ID,
     agentId: 'catalog.merchandising_assistant',
     toolName: 'catalog.update_product',
     status: 'pending',
@@ -99,7 +103,7 @@ describe('GET /api/ai/actions/:id route (Step 5.7)', () => {
   it('returns 401 when unauthenticated', async () => {
     authMock.mockResolvedValueOnce(null)
 
-    const response = await GET(buildRequest() as any, buildContext('pa_123'))
+    const response = await GET(buildRequest() as any, buildContext(PENDING_ACTION_ID))
 
     expect(response.status).toBe(401)
     // 401 envelope does include `code: 'unauthenticated'` in this module's
@@ -113,11 +117,11 @@ describe('GET /api/ai/actions/:id route (Step 5.7)', () => {
   it('happy path: tenant-matching id returns 200 + serialized row', async () => {
     repoGetByIdMock.mockResolvedValueOnce(makeRow())
 
-    const response = await GET(buildRequest() as any, buildContext('pa_123'))
+    const response = await GET(buildRequest() as any, buildContext(PENDING_ACTION_ID))
 
     expect(response.status).toBe(200)
     const body = await response.json()
-    expect(body.id).toBe('pa_123')
+    expect(body.id).toBe(PENDING_ACTION_ID)
     expect(body.agentId).toBe('catalog.merchandising_assistant')
     expect(body.status).toBe('pending')
     expect(body.toolName).toBe('catalog.update_product')
@@ -130,7 +134,7 @@ describe('GET /api/ai/actions/:id route (Step 5.7)', () => {
 
     // Repository was called with the tenant/org scope from the auth context.
     expect(repoGetByIdMock).toHaveBeenCalledTimes(1)
-    expect(repoGetByIdMock).toHaveBeenCalledWith('pa_123', {
+    expect(repoGetByIdMock).toHaveBeenCalledWith(PENDING_ACTION_ID, {
       tenantId: 'tenant-1',
       organizationId: 'org-1',
       userId: 'user-1',
@@ -142,7 +146,7 @@ describe('GET /api/ai/actions/:id route (Step 5.7)', () => {
     // to a different tenant/org.
     repoGetByIdMock.mockResolvedValueOnce(null)
 
-    const response = await GET(buildRequest() as any, buildContext('pa_from_other_tenant'))
+    const response = await GET(buildRequest() as any, buildContext(OTHER_TENANT_PENDING_ACTION_ID))
 
     expect(response.status).toBe(404)
     const body = await response.json()
@@ -152,7 +156,7 @@ describe('GET /api/ai/actions/:id route (Step 5.7)', () => {
   it('returns 404 when the id is unknown (no row)', async () => {
     repoGetByIdMock.mockResolvedValueOnce(null)
 
-    const response = await GET(buildRequest() as any, buildContext('pa_missing'))
+    const response = await GET(buildRequest() as any, buildContext(MISSING_PENDING_ACTION_ID))
 
     expect(response.status).toBe(404)
     const body = await response.json()
@@ -165,7 +169,7 @@ describe('GET /api/ai/actions/:id route (Step 5.7)', () => {
       isSuperAdmin: false,
     })
 
-    const response = await GET(buildRequest() as any, buildContext('pa_123'))
+    const response = await GET(buildRequest() as any, buildContext(PENDING_ACTION_ID))
 
     expect(response.status).toBe(403)
     const body = await response.json()
@@ -176,7 +180,7 @@ describe('GET /api/ai/actions/:id route (Step 5.7)', () => {
   it('internal fields are never present in the response body', async () => {
     repoGetByIdMock.mockResolvedValueOnce(makeRow())
 
-    const response = await GET(buildRequest() as any, buildContext('pa_123'))
+    const response = await GET(buildRequest() as any, buildContext(PENDING_ACTION_ID))
 
     expect(response.status).toBe(200)
     const body = await response.json()
@@ -195,6 +199,19 @@ describe('GET /api/ai/actions/:id route (Step 5.7)', () => {
     expect(body.code).toBe('validation_error')
   })
 
+  it.each([
+    ['a non-UUID string', 'not-a-uuid'],
+    ['a 128-character string', 'a'.repeat(128)],
+  ])('returns 400 validation_error without querying the database for %s', async (_label, id) => {
+    const response = await GET(buildRequest() as any, buildContext(id))
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body.code).toBe('validation_error')
+    expect(JSON.stringify(body)).not.toContain('invalid input syntax')
+    expect(repoGetByIdMock).not.toHaveBeenCalled()
+  })
+
   it('returns 404 when the caller has no tenant scope', async () => {
     authMock.mockResolvedValueOnce({
       sub: 'user-1',
@@ -202,7 +219,7 @@ describe('GET /api/ai/actions/:id route (Step 5.7)', () => {
       orgId: null,
     })
 
-    const response = await GET(buildRequest() as any, buildContext('pa_123'))
+    const response = await GET(buildRequest() as any, buildContext(PENDING_ACTION_ID))
 
     expect(response.status).toBe(404)
     const body = await response.json()
@@ -213,7 +230,7 @@ describe('GET /api/ai/actions/:id route (Step 5.7)', () => {
   it('returns 500 when the repository throws', async () => {
     repoGetByIdMock.mockRejectedValueOnce(new Error('db down'))
 
-    const response = await GET(buildRequest() as any, buildContext('pa_123'))
+    const response = await GET(buildRequest() as any, buildContext(PENDING_ACTION_ID))
 
     expect(response.status).toBe(500)
     const body = await response.json()

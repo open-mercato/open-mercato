@@ -14,7 +14,7 @@ import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/
 import { checkAuthRateLimit, resetAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
 import { runCustomRouteAfterInterceptors } from '@open-mercato/shared/lib/crud/custom-route-interceptor'
 import { sanitizeRedirectPath } from '@open-mercato/core/modules/auth/lib/safeRedirect'
-import { getAppBaseUrl } from '@open-mercato/shared/lib/url'
+import { getAppBaseUrl, isCrossSiteBrowserRequest } from '@open-mercato/shared/lib/url'
 import { handleAuthRouteError } from '@open-mercato/core/modules/auth/api/routeError'
 
 const loginRateLimitConfig = readEndpointRateLimitConfig('LOGIN', {
@@ -109,6 +109,9 @@ export async function POST(req: Request) {
 
 async function handleLoginRequest(req: Request) {
   const { translate } = await resolveTranslations()
+  if (isCrossSiteBrowserRequest(req)) {
+    return NextResponse.json({ ok: false, error: translate('auth.login.errors.crossSiteRequest', 'This sign-in request did not come from this application. Open the sign-in page and try again.') }, { status: 403 })
+  }
   const { email, password, remember, tenantIdRaw, requiredRoles, redirectTo } = await parseLoginForm(req)
   // Rate limit — two layers, both checked before validation and DB work
   const { error: rateLimitError, compoundKey: rateLimitCompoundKey } = await checkAuthRateLimit({
@@ -293,7 +296,7 @@ const loginMethodDoc: OpenApiMethodDoc = {
   errors: [
     { status: 400, description: 'Validation failed', schema: loginErrorSchema },
     { status: 401, description: 'Invalid credentials', schema: loginErrorSchema },
-    { status: 403, description: 'User lacks required role', schema: loginErrorSchema },
+    { status: 403, description: 'User lacks required role, or the request was submitted cross-site', schema: loginErrorSchema },
     { status: 429, description: 'Too many login attempts', schema: rateLimitErrorSchema },
   ],
 }

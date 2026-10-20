@@ -1412,6 +1412,8 @@
   "sales.returns.quantityExceedsShipped": "발송된 수량보다 많이 반품할 수 없습니다. 반품을 등록하기 전에 먼저 항목을 발송하세요.",
   "sales.returns.reason": "사유",
   "sales.returns.reason.placeholder": "선택 사항",
+  "sales.returns.restoreLineMissing": "이 반품을 복원할 수 없습니다: 반품의 주문 항목 중 하나가 더 이상 존재하지 않습니다.",
+  "sales.returns.restoreQuantityUnavailable": "이 반품을 복원할 수 없습니다: 주문에 반품 가능한 발송 수량이 더 이상 충분하지 않습니다.",
   "sales.returns.returnNumber": "반품",
   "sales.returns.returnedAt": "반품일",
   "sales.returns.total": "합계",
