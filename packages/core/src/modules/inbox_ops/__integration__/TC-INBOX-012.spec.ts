@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { withClient } from '@open-mercato/core/modules/core/__integration__/helpers/dbFixtures'
-import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
+import { getTokenScope, readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 
 /**
  * TC-INBOX-012: Completing an action externally claims it exactly once.
@@ -19,17 +19,6 @@ const CONCURRENT_COMPLETIONS = 8
 const ROUNDS = 3
 
 type Scope = { tenantId: string; organizationId: string }
-
-function decodeScope(token: string): Scope {
-  const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8')) as {
-    tenantId?: unknown
-    orgId?: unknown
-  }
-  if (typeof payload.tenantId !== 'string' || typeof payload.orgId !== 'string') {
-    throw new Error('[internal] Integration token does not contain a tenant and organization scope')
-  }
-  return { tenantId: payload.tenantId, organizationId: payload.orgId }
-}
 
 type Fixture = { emailId: string; proposalId: string; actionId: string }
 
@@ -91,7 +80,7 @@ function completePath(fixture: Fixture): string {
 test.describe('TC-INBOX-012: complete action claims the transition exactly once', () => {
   test('a failed action can be completed externally', async ({ request }) => {
     const token = await getAuthToken(request)
-    const scope = decodeScope(token)
+    const scope = getTokenScope(token)
     const fixtures: Fixture[] = []
     try {
       const fixture = await seedPendingAction(scope, 'failed')
@@ -126,7 +115,7 @@ test.describe('TC-INBOX-012: complete action claims the transition exactly once'
   test('concurrent completions of one pending action produce one winner and 409s', async ({ request }) => {
     test.setTimeout(120_000)
     const token = await getAuthToken(request)
-    const scope = decodeScope(token)
+    const scope = getTokenScope(token)
     const fixtures: Fixture[] = []
     try {
       for (let round = 0; round < ROUNDS; round += 1) {
@@ -160,6 +149,7 @@ test.describe('TC-INBOX-012: complete action claims the transition exactly once'
         expect(stored.status).toBe('executed')
         expect(stored.created_entity_id).toBe(winners[0])
         expect(stored.executed_by_user_id).toBeTruthy()
+        expect(stored.executed_by_user_id).toBe(scope.userId)
       }
     } finally {
       await deleteFixtures(fixtures)
