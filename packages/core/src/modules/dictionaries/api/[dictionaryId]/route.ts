@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { Dictionary } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { resolveDictionariesRouteContext, resolveDictionaryActorId } from '@open-mercato/core/modules/dictionaries/api/context'
-import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import {
   runCrudMutationGuardAfterSuccess,
@@ -191,7 +191,14 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
     }
 
     dictionary.updatedAt = new Date()
-    await context.em.flush()
+    try {
+      await context.em.flush()
+    } catch (err) {
+      if (isUniqueViolation(err, 'dictionaries_scope_key_unique')) {
+        throw new CrudHttpError(409, { error: context.translate('dictionaries.errors.duplicate', 'A dictionary with this key already exists') })
+      }
+      throw err
+    }
 
     if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
       await runCrudMutationGuardAfterSuccess(context.container, {
