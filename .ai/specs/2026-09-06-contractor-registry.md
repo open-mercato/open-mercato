@@ -253,7 +253,8 @@ snapshotting.
 **Bank account verification against the Biała Lista: at account
 registration + mandatory, live, on every payment.** A direct
 consequence of art. 15d CIT / art. 22p PIT (the register itself is Art. 96b
-of the VAT Act).
+of the VAT Act). The registration half is a background check that only
+warns (see Design decisions, 2026-10-20).
 
 **Resolved (2026-09-08): a light, one-step new-vendor approval gate
 is confirmed in scope for Phase 1.** This started as an unconfirmed
@@ -567,6 +568,35 @@ type ContractorBankAccountPaymentCheck = {
   the others, so the consumer can show all of them at once instead of
   learning them one failed call at a time. The HTTP "verify now" route
   returns the same result with `200`.
+
+**A new bank account is checked against the whitelist in the background,
+and a negative answer only warns.** The 2026-09-07 decision already said
+"at account registration + mandatory, live, on every payment", but no
+command did the registration half. Now `createContractorBankAccount`,
+and `updateContractorBankAccount` when `accountNumber` changes, enqueue
+`workers/verifyContractorBankAccount.ts` after the account is saved. The
+worker makes the same live Ministry call as `checkBankAccountWhitelist`
+(without the eligibility gate: an account of a contractor still waiting
+for approval is checked too, because the answer is useful to the person
+who approves it), writes the result to the verification history (see
+the next decision) and updates `lastVerifiedAt`/`lastVerificationStatus`.
+- **A negative answer does not reject the account.** The account stays
+  saved, and `lastVerificationStatus: 'NOT_WHITELISTED'` is its warning
+  flag, shown as a warning badge on the contractor's page ("not on the
+  whitelist as of <date>"). There is no separate flag column: the badge
+  reads the cached status, which stays informational. Rejecting would be
+  wrong, because a payment may still go to that account legally (the
+  7-day notification or split payment, see Legal context) and because the
+  answer can change the next business day; the payment-time check
+  decides.
+- **An unavailable registry** writes a `NOT_CHECKED` history row, leaves
+  the cached status unchanged and lets the queue retry.
+- **Idempotent:** the job key is the bank account id plus the hash of
+  the number being checked (see "Lookup hashes" below), so a retried job
+  for an unchanged number does not query the Ministry twice.
+- **The registration check never replaces the payment-time check**: it
+  is history and a UX signal, exactly like the cache (see the 2026-09-07
+  decision on `lastVerifiedAt`).
 
 ### Alternatives considered
 
@@ -903,7 +933,11 @@ contractorLookupByNip(params: {
 - `createContractorBankAccount` / `updateContractorBankAccount` —
   standard CRUD; `isPrimary: true` on one account automatically
   unsets it on any other account for the same contractor (single
-  invariant enforced in the command, not left to the client).
+  invariant enforced in the command, not left to the client). After
+  saving a new account, or a changed `accountNumber`, the command
+  enqueues `workers/verifyContractorBankAccount.ts` (background whitelist
+  check; a negative answer only sets the warning status, see Design
+  decisions, 2026-10-20).
 - `checkBankAccountWhitelist` — **not a plain query**: returns the
   payment-eligibility result `{ eligible, reasons, status, checkedAt,
   requestId }` (see Design decisions, 2026-10-20, "Payment eligibility").
@@ -1322,6 +1356,7 @@ exactly as `sales.order-approval` and
 | `commands/contractors.ts` | Create | `createContractor` / `updateContractor` |
 | `commands/contractorBankAccounts.ts` | Create | `createContractorBankAccount` / `updateContractorBankAccount` / `checkBankAccountWhitelist` |
 | `workers/verifyContractorRegistry.ts` | Create | Async GUS/VIES lookup, updates `verificationStatus` |
+| `workers/verifyContractorBankAccount.ts` | Create | Background whitelist check of a new or changed bank account; writes the history row and the warning status, never rejects the account (added 2026-10-20) |
 | `api/contractors/route.ts` | Create | `Contractor` CRUD (`makeCrudRoute`) |
 | `api/contractors/[id]/bank-accounts/route.ts` | Create | `ContractorBankAccount` CRUD (`makeCrudRoute`) |
 | `api/contractors/[id]/bank-accounts/[bankAccountId]/verify/route.ts` | Create | Live Biała Lista check |
@@ -1386,6 +1421,13 @@ exactly as `sales.order-approval` and
   `NOT_APPROVED` — never reaching the live API client — when
   `approvalStatus` is `PENDING_APPROVAL` or `REJECTED`, and proceeds
   normally once `APPROVED`.
+- Registration check (added 2026-10-20): creating an account, and
+  changing its `accountNumber`, enqueues `verifyContractorBankAccount`;
+  a negative Ministry answer leaves the account saved with
+  `lastVerificationStatus: 'NOT_WHITELISTED'`; an unavailable API writes a
+  `NOT_CHECKED` history row and leaves the cached status unchanged; a
+  retried job for the same number makes no second Ministry call; an
+  account of a `PENDING_APPROVAL` contractor is checked too.
 - Eligibility (added 2026-10-20): `verificationStatus` `FAILED` yields
   `VERIFICATION_FAILED` without a live call; `PENDING` and
   `NOT_APPLICABLE` yield no reason; a contractor that is both not
@@ -2153,3 +2195,9 @@ New section Design decisions (2026-10-20); every item below is decided.
   verify route. Commands, API Contracts, Cross-module integration,
   Testing Strategy, Risks and Out of scope updated. Consumed by #5962,
   which maps each reason to its own error code.
+- **Whitelist check at account registration.** `createContractorBankAccount`
+  (and a changed `accountNumber`) enqueues
+  `workers/verifyContractorBankAccount.ts`; the result goes to the
+  verification history; a negative answer keeps the account with the
+  `NOT_WHITELISTED` warning status. Commands, File Manifest, Testing
+  Strategy updated.
