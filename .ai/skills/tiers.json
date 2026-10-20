@@ -30,7 +30,10 @@
       "om-auto-fix-pr",
       "om-close-fixed-issues",
       "om-verify-in-repo",
-      "om-pr-autopilot"
+      "om-pr-autopilot",
+      "om-pre-implement-spec",
+      "om-smart-test",
+      "om-create-agents-md"
     ]
   },
   "tiers": {
@@ -41,9 +44,6 @@
         "om-backend-ui-design",
         "om-mockup-prototype",
         "om-implement-spec",
-        "om-pre-implement-spec",
-        "om-smart-test",
-        "om-create-agents-md",
         "om-skill-creator",
         "om-fix-specs",
         "om-migrate-mikro-orm",

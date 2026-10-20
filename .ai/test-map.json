@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "ignore": [
+    "**/*.md",
+    "**/*.mdx",
+    "apps/docs/**",
+    ".ai/specs/**",
+    ".ai/analysis/**",
+    ".ai/runs/**",
+    ".ai/lessons/**",
+    ".ai/skills/**"
+  ],
+  "wide": [
+    "packages/shared/**",
+    "packages/events/**",
+    "packages/queue/**",
+    "packages/cache/**",
+    "packages/ui/src/backend/**",
+    "jest.config.*",
+    "jest.setup.*",
+    "tsconfig*",
+    "package.json",
+    "yarn.lock",
+    "turbo.json",
+    ".ai/qa/tests/**"
+  ],
+  "unitPattern": "**/src/modules/{unit}/**",
+  "units": [
+    {
+      "name": "ui-primitives",
+      "paths": ["packages/ui/src/primitives/**"]
+    }
+  ],
+  "declarations": [
+    { "glob": "**/__integration__/meta.ts", "keys": ["dependsOnModules", "requiredModules", "requiresModules"] },
+    { "glob": "**/__integration__/**/index.ts", "keys": ["dependsOnModules", "requiredModules", "requiresModules"] },
+    { "glob": "**/__integration__/**/*.meta.ts", "keys": ["dependsOnModules", "requiredModules", "requiresModules"] }
+  ],
+  "layers": [
+    {
+      "name": "style",
+      "paths": ["**/*.css", "packages/ui/src/primitives/**"],
+      "skipSuites": ["integration"]
+    },
+    {
+      "name": "ui-component",
+      "paths": ["**/components/**", "**/widgets/**", "**/frontend/**", "**/backend/**/*.tsx"],
+      "followDependents": false
+    }
+  ]
+}
