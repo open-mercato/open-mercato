@@ -112,6 +112,7 @@
   "ledger.errors.journalEntryLineNotOneSided": "각 전표 항목은 차변 또는 대변 중 정확히 한쪽만 0보다 커야 합니다.",
   "ledger.errors.journalEntryNotBalanced": "전표가 차대변 균형이 맞지 않습니다: 차변 합계는 대변 합계와 같아야 합니다.",
   "ledger.errors.journalEntryNotFound": "전표를 찾을 수 없습니다.",
+  "ledger.errors.journalEntryTooFewLines": "전표에는 최소 두 개의 항목이 필요합니다.",
   "ledger.errors.ledgerAccountNotFound": "계정을 찾을 수 없습니다.",
   "ledger.errors.noFiscalPeriodForOperationDate": "이 거래일자를 포함하는 회계기간이 없습니다. 전기하기 전에 하나를 생성하세요.",
   "ledger.errors.organizationRequired": "조직 컨텍스트가 필요합니다",
