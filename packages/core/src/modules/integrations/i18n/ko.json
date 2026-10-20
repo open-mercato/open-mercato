@@ -53,6 +53,7 @@
   "integrations.detail.logs.level.error": "오류",
   "integrations.detail.logs.level.info": "정보",
   "integrations.detail.logs.level.warn": "경고",
+  "integrations.detail.logs.noPermission": "이 통합의 로그를 볼 권한이 없습니다.",
   "integrations.detail.logs.title": "작업 로그",
   "integrations.detail.notFound": "통합을 찾을 수 없습니다.",
   "integrations.detail.runActivity.lastRefreshed": "마지막 새로고침",
