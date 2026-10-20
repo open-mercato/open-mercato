@@ -215,6 +215,8 @@ async function refreshThroughFakeServer(input: {
   } catch (error) {
     if (error instanceof OAuthGrantError && isTokenFailure(error.code)) return { result: error.code, degraded: false }
     throw error
+  } finally {
+    server.takePendingInjections()
   }
 }
 

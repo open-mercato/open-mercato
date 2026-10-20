@@ -616,6 +616,7 @@ export type FakeAuthorizationServer = {
   readonly clientId: string; readonly clientSecret: string
   issueAuthorizationCode(input: { redirectUri: string; scope?: readonly string[]; codeChallenge?: string }): string
   inject(injection: FakeInjection): void
+  takePendingInjections(): FakeInjection[] // returns and drops the injections no request consumed
   revokeAuthorization(): void            // every refresh then answers invalid_grant
   reset(): void
   counters(): { token: { authorizationCode: number; refreshToken: number }; revoke: number }
@@ -986,6 +987,7 @@ Implemented; App Spec Q3 (surfaces, CI steps) and Q7 (consumer gate) were approv
 ## Changelog
 
 ### 2026-10-20
+- The fake authorization server gains `takePendingInjections()`; the grant-service suites fail on an injection no request consumed, and the test-only route drops one its `refresh` left behind (Fake authorization server, Route).
 - The publish-shape check also fails a resolved `dist` file without a source in `src`, and has a self-test (Publish-shape check).
 - A `client_misconfigured` diagnosis stores `lastFailureProviderErrorCode`; a caller that waited behind it answers with the same `reason` and `providerErrorCode` (`getAccessToken` 5.3).
 - The default `minValidityMs` is capped at half the stored token's lifetime, so a token shorter-lived than `refreshSkewMs` is not refreshed on every call (`getAccessToken`).

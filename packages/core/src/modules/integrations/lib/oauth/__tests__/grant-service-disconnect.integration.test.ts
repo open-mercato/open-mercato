@@ -393,6 +393,10 @@ describeWithPostgres('integrationOAuthGrantService disconnect against real Postg
     unregisterTelemetry = registerTelemetryRuntime(telemetry)
   }, 120_000)
 
+  afterEach(() => {
+    expect(server().takePendingInjections()).toEqual([])
+  })
+
   beforeEach(() => {
     process.env.TENANT_DATA_ENCRYPTION = 'yes'
     failing.grantUpdates = false

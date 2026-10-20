@@ -263,6 +263,10 @@ describeWithPostgres('integrationOAuthGrantService.completeConnect against real 
     unregisterTelemetry = registerTelemetryRuntime(telemetry)
   }, 120_000)
 
+  afterEach(() => {
+    expect(server().takePendingInjections()).toEqual([])
+  })
+
   beforeEach(() => {
     process.env.TENANT_DATA_ENCRYPTION = 'yes'
     failingLogWrites.code = null

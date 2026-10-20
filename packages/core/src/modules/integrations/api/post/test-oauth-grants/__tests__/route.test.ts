@@ -122,6 +122,7 @@ function createFakeServer() {
     ...FAKE_CLIENT,
     issueAuthorizationCode: jest.fn(() => 'authorization-code-1'),
     inject: jest.fn(),
+    takePendingInjections: jest.fn(() => []),
     reset: jest.fn(),
   }
 }
@@ -413,6 +414,19 @@ describe('POST /api/integrations/test-oauth-grants', () => {
     expect(server.inject).toHaveBeenCalledTimes(1)
     expect(server.inject).toHaveBeenCalledWith(injection)
     expect(mockGetAccessToken).toHaveBeenCalledTimes(1)
+    expect(server.takePendingInjections).toHaveBeenCalledTimes(1)
+    expect(server.takePendingInjections.mock.invocationCallOrder[0]).toBeGreaterThan(mockGetAccessToken.mock.invocationCallOrder[0])
+  })
+
+  it('refresh drops an injected outcome the refresh did not consume, also when it fails', async () => {
+    const server = createFakeServer()
+    mockStartFakeAuthorizationServer.mockResolvedValue(server)
+    mockGetAccessToken.mockRejectedValue(new OAuthGrantError('grant_invalidated'))
+
+    const response = await postAction({ action: 'refresh', integrationId: 'test_oauth_grant', outcome: 'invalid_client' })
+
+    expect(await readBody(response)).toEqual({ result: 'grant_invalidated', degraded: false })
+    expect(server.takePendingInjections).toHaveBeenCalledTimes(1)
   })
 
   it.each(['transient', 'grant_invalidated', 'client_misconfigured', 'not_connected', 'platform_unavailable'] as const)(

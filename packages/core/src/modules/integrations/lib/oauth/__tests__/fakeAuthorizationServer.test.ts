@@ -651,6 +651,19 @@ describe('injections', () => {
     ).resolves.toMatchObject({ tokenType: 'Bearer' })
   })
 
+  it('hands back and drops the injections no request consumed', async () => {
+    const server = await start({ rotation: 'non_revoking' })
+    const token = requireRefreshToken(await connect(server))
+    server.inject({ endpoint: 'token', grantType: 'refresh_token', status: 503, body: { error: 'temporarily_unavailable' } })
+    server.inject({ endpoint: 'revoke', status: 503, body: { error: 'temporarily_unavailable' } })
+
+    await captureTokenError(refresh(server, token))
+
+    expect(server.takePendingInjections()).toEqual([{ endpoint: 'revoke', status: 503, body: { error: 'temporarily_unavailable' } }])
+    expect(server.takePendingInjections()).toEqual([])
+    await expect(refresh(server, token)).resolves.toMatchObject({ tokenType: 'Bearer' })
+  })
+
   it('injects a revoke failure that a later revoke recovers from', async () => {
     const server = await start()
     const token = requireRefreshToken(await connect(server))

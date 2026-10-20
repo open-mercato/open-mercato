@@ -47,6 +47,8 @@ export type FakeAuthorizationServer = {
   readonly clientSecret: string
   issueAuthorizationCode(input: { redirectUri: string; scope?: readonly string[]; codeChallenge?: string }): string
   inject(injection: FakeInjection): void
+  /** Returns and drops the injections no request has consumed yet, so a test can fail on an unused one. */
+  takePendingInjections(): FakeInjection[]
   /** Every refresh of an authorization granted so far then answers `invalid_grant`; later authorizations work. */
   revokeAuthorization(): void
   /** Drops injections, codes, tokens, requests and counters; the client identity and endpoints stay. */
@@ -486,6 +488,11 @@ export async function startFakeAuthorizationServer(options: FakeAuthorizationSer
     issueAuthorizationCode,
     inject(injection) {
       state.injections.push({ injection: { ...injection }, remaining: validateInjection(injection) })
+    },
+    takePendingInjections() {
+      const pending = state.injections.map(({ injection }) => ({ ...injection }))
+      state.injections = []
+      return pending
     },
     revokeAuthorization() {
       for (const authorization of state.authorizations) authorization.revoked = true
