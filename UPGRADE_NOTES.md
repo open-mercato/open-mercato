@@ -22,7 +22,228 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
+## 0.9.0 → 0.9.1 (unreleased)
+
+### Portal form submissions are limited to the caller's own `customer` subject (#7224)
+
+`POST /api/forms/form-submissions` now answers `403 { error: "SUBJECT_FORBIDDEN" }` unless
+`subject_type` is `customer` and `subject_id` is the signed-in portal customer's own id. Nothing is
+persisted on a refusal. Both submit routes (`POST /api/forms/form-submissions/:id/submit` and the
+customer-session branch of `POST /api/forms/public/submissions/:id/submit`) apply the same rule to a
+submission the caller started themselves, so a draft started for another subject before this
+release can no longer be submitted. A portal customer that staff assigned as an actor through
+`POST /api/forms/submissions/:id/actors` can still submit on that submission's subject, and invitation
+(token) submissions are unchanged. The URL, request and response shapes are unchanged.
+
+**Action for module authors:** portal pages that pass any other `subjectType` (for example `patient`)
+to `EmbeddedForm` / `FormRunner`, or through the `subjectType` query parameter of the portal
+continue page, now get 403 when a submission starts. Start on the caller's own `customer` subject,
+or have staff create the actor assignment for other subjects.
+
+**Operator check:** submissions that a portal customer started before the upgrade on a subject that
+was not their own, together with any consent records projected from them, can be listed with:
+
+```sql
+select s.id as submission_id, s.subject_type, s.subject_id, s.started_by, s.status,
+       c.id as consent_record_id, c.status as consent_status
+from forms_form_submission s
+left join forms_consent_record c on c.submission_id = s.id
+where s.started_by in (select id from customer_users)
+  and (
+    (s.subject_type = 'customer' and s.subject_id <> s.started_by)
+    or s.subject_type <> 'customer'
+  );
+```
+
+Nothing is rewritten automatically. Portal pages that legitimately started submissions on another
+subject type (for example `patient`) also match, so review the rows before revoking anything.
+
+<a id="staff-user-create-org-scope"></a>
+
+### Staff user create enforces the caller's organization scope (#7238)
+
+`POST /api/auth/users`, through the `auth.users.create` command, now applies the same destination
+check that `PUT /api/auth/users` already applied to an organization change. The organization must
+be within the caller's descendant-expanded organization scope, and any roles must belong to its
+tenant and be grantable by the caller. This holds whether or not the request sends `roles`. A caller
+restricted to some organizations who names another organization of the same tenant now gets `403`
+(`Cannot assign user to a destination organization outside actor scope.`) and no user is written.
+Before this release the user was created with `201`.
+
+An organization of another tenant still answers `404 Organization not found`, as before.
+Superadmins, system actors and callers without an organization restriction are unaffected.
+
+**Action for integrators:** a script or API key that creates staff users with an
+organization-restricted principal must either be granted the target organizations or use an
+unrestricted principal.
+
+**Backward compatibility** (recorded here because `BACKWARD_COMPATIBILITY.md` is at its agent-context
+byte budget): intentional security narrowing of the `auth.users.create` command and
+`POST /api/auth/users`, regression-tested in `users.create-destination-scope.test.ts` and
+`TC-AUTH-068`. One additive signature change: `targetUserId` of `resolveUserDestinationRoles`
+(`@open-mercato/core/modules/auth/lib/grantChecks`) becomes optional; without role tokens and without
+a target user it returns `[]`, and every existing call compiles and behaves the same. The route URL,
+request and response schemas, event IDs, ACL features, DI names and database schema are unchanged.
+
+### `AI_RUNTIME_BASEURL_ALLOWLIST` matches scheme and port, and saved base URLs are re-checked (#7228)
+
+An allowlist entry used to match only the hostname, so `api.openai.com` also admitted
+`http://api.openai.com` and any port. A base URL must now match an entry's scheme, hostname and
+effective port. This applies to the chat `?baseUrl=` parameter and to `PUT /api/ai_assistant/settings`;
+both keep answering `400 { code: "baseurl_not_allowlisted" }`. Saved tenant and per-agent base URLs
+are re-checked on every agent turn: a saved value that the current allowlist does not permit,
+including every saved value once the allowlist is empty, is ignored, and the turn uses the provider's
+default endpoint. Each ignored turn logs the warning
+`Stored AI runtime baseURL is not allowed by AI_RUNTIME_BASEURL_ALLOWLIST; ignoring it` until the
+override is re-saved or cleared. Routes, request and response shapes are unchanged.
+
+**Action for operators:** a bare host entry now means HTTPS on port 443. List any other origin
+explicitly as `scheme://host[:port]`:
+
+```env
+# before: admitted https and http on any port
+AI_RUNTIME_BASEURL_ALLOWLIST=openrouter.ai,localhost
+# after: https://openrouter.ai plus a local Ollama server over plain HTTP
+AI_RUNTIME_BASEURL_ALLOWLIST=openrouter.ai,http://localhost:11434
+```
+
+Update the allowlist before upgrading when tenants saved a local or self-hosted base URL: once that
+saved value is ignored, prompts go to the provider's default endpoint instead.
+
+### `GET /api/attachments` without paging returns at most the newest 100 attachments (#3816)
+
+`GET /api/attachments?entityId=…&recordId=…` used to load, decrypt and return every attachment of the
+record when `page` or `pageSize` was omitted. That unpaginated form now returns only the newest `100`
+attachments (ordered by `createdAt` descending), the same ceiling as `pageSize`. The response shape is
+unchanged: the unpaginated form still returns only `items`, and passing both `page` and `pageSize`
+pages as before. Both forms now break `createdAt` ties by `id` descending, so page boundaries are
+stable.
+
+**Action for module authors:** a caller that needs every attachment of a record with more than 100
+attachments must pass `page` and `pageSize` (at most `100`) and request pages until `totalPages` is
+reached. This matters most for code that sends the loaded ids back to a save that removes the
+attachments missing from the list: page through the whole list first, as the message composer now
+does for draft attachments. Built-in display-only lists (the attachment form field, product and
+variant media, sales channel offer media, the warranty claim attachments tab and the warranty claim
+line picker for AI assessment) still use the unpaginated form, so they show at most the newest 100
+attachments of a record and any count derived from them stops at 100.
+
+### Login and portal session routes reject cross-site browser requests with `403` (#7239)
+
+`POST /api/auth/login`, `POST /api/auth/session/refresh`, `POST /api/customer_accounts/login`,
+`POST /api/customer_accounts/magic-link/verify` and `POST /api/customer_accounts/invitations/accept`
+used to issue session cookies to any request, so a form on another site could sign a visitor's
+browser into the attacker's account. They now answer `403 { ok: false, error }` before reading the
+body when the browser marks the request as cross-site:
+
+- `Sec-Fetch-Site: cross-site` is always rejected. `same-origin` and `none` are accepted.
+- Otherwise the `Origin` header decides. A request without `Origin` and without `Sec-Fetch-Site`
+  (CLI, scripts, server-to-server and mobile clients) is accepted unchanged. `Origin: null` and an
+  unparsable `Origin` are rejected. Any other `Origin` must equal `APP_URL`,
+  `NEXT_PUBLIC_APP_URL`, an entry of `APP_ALLOWED_ORIGINS`, or the request's own
+  `X-Forwarded-Host` / `Host` (scheme from `X-Forwarded-Proto` when present). Outside production a
+  loopback `Origin` is accepted when a configured origin is loopback too.
+
+URLs, request bodies and success responses are unchanged. The policy is described in
+[`apps/docs/docs/framework/security/cross-site-login.mdx`](apps/docs/docs/framework/security/cross-site-login.mdx).
+
+**Action for operators:** only browsers that send no Fetch Metadata, and requests from a sibling
+subdomain (`Sec-Fetch-Site: same-site`), reach the `Origin` check. If they report a `403` on
+sign-in, set `APP_URL` to the public origin, list the extra origin in `APP_ALLOWED_ORIGINS`, or make
+the reverse proxy forward `X-Forwarded-Host`. An `Origin` that matches none of these is logged as a
+`Cross-site request rejected` warning with the `origin`, `host` and `forwardedHost` values.
+
+**Action for integrators:** an HTML form or browser app on a different site can no longer sign in
+through these routes, and `APP_ALLOWED_ORIGINS` does not re-enable it. A browser marks such a
+request `Sec-Fetch-Site: cross-site`, and that is always rejected. Sign in on the application's own
+origin, or call the API from a server. A sign-in form on a sibling subdomain of the same site keeps
+working once its origin is listed in `APP_ALLOWED_ORIGINS`.
+### Browser web research: all egress is now restricted to public addresses (#7218)
+
+The `@open-mercato/web-research-browser` sidecar used to vet only the top-level navigation. A
+rendered page's images, scripts, fetches, WebSockets, redirect hops and WebRTC traffic could still
+reach loopback, private-network and cloud-metadata addresses. Some of those responses were returned
+to the model. Chromium now sends every connection through a loopback egress proxy that vets each
+connection and pins it to the vetted public address. Subresources are always filtered, service
+workers are blocked, and non-proxied WebRTC UDP and QUIC are disabled. A render that ends on a non-public URL
+now returns a `navigation` error instead of the page.
+
+`OM_WEB_RESEARCH_BROWSER_FILTER_SUBRESOURCES` is ignored; when it is set, the sidecar logs a
+warning each time it launches Chromium. `LAUNCH_ARGS` now also carries the WebRTC proxy-only policy
+and `--disable-quic`. The `filterSubresources` field of `SidecarState` and option of
+`installNavigationGuard` are `@deprecated` and have no effect. `installNavigationGuard` now throws a
+`SidecarError` of kind `init` instead of warning when `context.route()` is unavailable.
+
+**Action for operators:** nothing to configure. Remove `OM_WEB_RESEARCH_BROWSER_FILTER_SUBRESOURCES`
+from your environment. Intranet assets referenced by rendered pages (images, scripts, APIs on
+private addresses) no longer load; public pages render as before.
+### Catalog write commands treat records outside the caller's scope as not found (#3825)
+
+`catalog.products.update|delete`, `catalog.variants.update|delete`, `catalog.prices.update|delete`
+and `catalog.offers.update|delete` now load their target only inside the caller's tenant and allowed
+organizations. `PUT` / `DELETE` on `/api/catalog/products`, `/api/catalog/variants`,
+`/api/catalog/prices` and `/api/catalog/offers` with the id of another tenant's or another
+organization's record now answer `404` instead of `403`, exactly like an unknown id. The same
+applies to `POST /api/catalog/variants` with another tenant's `productId`. Commands run
+with `auth: null` and an `organizationScope` (the Akeneo importer, for example) now also match the
+record against `organizationScope.tenantId`. Catalog product bulk-delete jobs (#3826, 0.9.0) now
+report a product from another tenant or organization as not found (`404`) instead of `403`. Request and response shapes
+are unchanged.
+
+**Action for module authors:** none, unless you branch on `403` for these routes or commands; treat
+`404` as the answer for records the caller cannot reach.
+### Catalog price kind PUTs keep `displayMode` when it is omitted (#7555)
+
+`PUT /api/catalog/price-kinds` (the `catalog.priceKinds.update` command) used to reset an omitted
+`displayMode` to `excluding-tax`. The update schema (`priceKindUpdateSchema`) inherited the
+create-time default, so renaming an `including-tax` price kind or toggling its `isActive` switched it
+back to `excluding-tax`. An omitted `displayMode` is now left untouched, and the generated OpenAPI document no
+longer shows a default for it on the PUT body. `priceKindCreateSchema` keeps its `excluding-tax`
+default.
+
+- A caller that relied on omission to reset the display mode must send `displayMode: 'excluding-tax'`
+  explicitly.
+- Price kinds already changed by a partial update are not repaired. Check the display mode in the
+  catalog price kind settings and set it again where needed.
+### Reaction routes answer 404 for messages outside your personal mailbox (#3833)
+
+`POST /api/communication_channels/messages/:messageId/reactions` now answers
+`404 { error: "Message not found" }` (localized) both for a message linked to another user's
+personal mailbox (was `403`) and for a message that does not exist in the caller's scope (was
+`409`). `DELETE /api/communication_channels/messages/:messageId/reactions/:reactionId` answers
+`404 { error: "Reaction not found" }` (now localized) for a reaction on another user's personal
+mailbox (was `403`) and for a message removed while the request runs (was `409`); its other 404
+refusals now carry the same fixed text instead of the command's reason. A message linked to another
+user's deleted personal mailbox (was `409`) is refused the same way on both routes. `409` stays for
+an existing message in the caller's organization that is not channel-linked (or whose channel cannot
+be resolved), and for a duplicate reaction. URLs and success responses are unchanged.
+
+**Action for module authors:** the exported `ToggleOutboundReactionResult` of the
+`communication_channels.reaction.toggle_outbound` command gains a `not_found` member, returned when
+the message does not resolve in scope (previously `no_channel_link` with reason
+`message not found`). Code that switches exhaustively over the result, or treated
+`no_channel_link` as "message missing", should handle `not_found` alongside it.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
+
+### `POST /api/auth/logout` no longer requires a valid access token (#7225)
+
+The staff logout route is now declared `requireAuth: false`. Its handler already revoked the
+session named by the `auth_token` JWT's `sid` claim and the one behind the `session_token` cookie,
+but the dispatcher used to answer `401` before the handler ran whenever the access token was
+missing or no longer verified, and that `401` cleared no cookie. A logout from a tab whose 8-hour
+access token had lapsed therefore left the remember-me `session_token` (`REMEMBER_ME_DAYS`, default
+30 days) valid in the database and in the browser, so the next visit signed the user straight back
+in.
+
+A `POST /api/auth/logout` that carries an `auth_token` or `session_token` cookie, valid or not,
+now revokes whatever session those cookies identify, clears both cookies and redirects to `/login`
+(`307`). A request that carries neither cookie is only redirected, with no `Set-Cookie`. Every
+staff session cookie is `SameSite=Lax`, so a cross-site form POST carries neither cookie: it can
+neither revoke a session nor clear the user's cookies. The route stays POST-only.
+
+**Action for integrators:** none, unless a client treated a `401` from logout as "already signed
+out". It now receives the `307` redirect instead.
 
 ### Warranty claim undo refusals return a localized `error` plus a `code`; claim-line undos refuse stale state
 
@@ -89,6 +310,55 @@ Registrations that use none of these options keep their current request handling
 One behavior is hardened for every provider. The route now verifies every located candidate, up to 10. When more than one stored transaction verifies the same notification, it rejects the request with the existing `401` instead of accepting the first match. If a candidate cannot be checked (its credentials fail to resolve or its verifier reports `WebhookVerificationUnavailableError`) while another verifies, the route also fails closed, because ambiguity cannot be ruled out; the provider's retry settles it once every candidate can be checked. A locator that throws no longer escapes as an unhandled `500`: it is reported and answered with the legacy `401`.
 
 **Action for provider authors:** none unless you want the new options. If your provider can legitimately store several transactions with the same provider session id under credentials that verify each other's signatures, return a more specific locator so a single transaction matches. A provider that locates transactions only by payment id must reject candidates whose `providerSessionId` or `amount` differ from the signed notification, because a retried checkout can leave several transactions for one payment.
+
+<a id="currencies-one-base"></a>
+
+### Currencies keep exactly one base currency through undo, redo and concurrent writes
+
+- `PUT /api/currencies/currencies` with `isBase: false` on the current base currency now answers
+  `400`. To change the base, promote another currency with `isBase: true`; the previous base is
+  demoted in the same transaction.
+- Undoing a create or update that made a currency the base restores the previous base while the
+  undone currency is still the base; if another currency has become the base since, the base is left
+  unchanged. When no previous base is still live (it was deleted since, there was none, or the
+  action-log entry predates this release), the undo answers `409` and changes nothing while the
+  undone currency is still the base. Undoing a create is also refused
+  when that currency is the live base and the create did not replace a base that is still live (for
+  example, a currency promoted after it was created).
+- Undoing a currency create while active exchange rates reference it answers `409`. Delete or
+  deactivate those rates first, as `DELETE` already required.
+- Currency writes in one organization are serialized by a transaction-scoped advisory lock.
+- `seedExampleCurrencies` (used by `seedDefaults` and `mercato currencies seed`) inserts USD as
+  the base only when the organization has no live base, so re-seeding no longer adds a second base.
+
+**Action for module authors:** none unless a client clears `isBase` to change the base. Existing
+data is not repaired: list `GET /api/currencies/currencies?isBase=true` per organization. If it
+returns zero rows, promote the intended base currency. If it returns two, promote any non-base
+currency first (this demotes both), then promote the intended base. If the organization has no
+non-base currency, create one with `isBase: true` instead (this also demotes both).
+
+**Backward compatibility** (recorded here because `BACKWARD_COMPATIBILITY.md` is at its agent-context
+byte budget):
+
+- `PUT /api/currencies/currencies`: behaviour change on a previously-corrupting path. `{ isBase: false }`
+  on the base answers `400` (`currencies.errors.baseCurrencyUnset`) instead of `200` with no base left,
+  matching the rule `DELETE` already applied. Sending `isBase: false` for a non-base currency or
+  `isBase: true` for the base is unchanged. Response shapes are unchanged.
+- `currencies.currencies.create` / `update` undo: behaviour change. The `409` codes are
+  `currencies.errors.undoWouldClearBase` and `currencies.errors.undoHasRates`. Undoing an update that
+  did not change the base flag no longer rewrites `isBase`. For action-log entries written before the
+  upgrade, undoing an old update that cleared the base flag restores it only when the organization has
+  no base. Undoing a delete revives a row still flagged as base (legacy data only) as non-base when
+  another base is live. Undos that kept one base still succeed, except a create undo while active
+  exchange rates reference the currency.
+- `create` / `update` redo: redo of a create restores the logged base flag and demotes the current
+  base, recording it so the redo can be undone. Redo of an update replays `isBase` only when the
+  original update made the currency the base.
+- Command results: additive optional `base: { promoted, demotedBaseCurrencyIds }` when the command made
+  the currency the base. HTTP response bodies are unchanged.
+- The advisory lock is keyed by tenant and organization; writes in different organizations do not wait
+  for each other. No contract change.
+- Database schema, event IDs, ACL features, DI names and generated files are unchanged.
 
 ### The communication-channels OAuth callback reports its result in `?oauth=`, not `?flash=` (#6402)
 
@@ -187,6 +457,18 @@ answer; an uncaught one reached Next.js as an unhandled throw, and the caller sa
 `notFound()` / `conflict()` without wiring its own `isCrudHttpError` catch. Review any code that
 treated a 500 from your route as the expected outcome of a guard; it now receives the real status.
 Routes that already catch `CrudHttpError` are unchanged.
+
+### Stripe webhook bodies over 1 MiB are rejected with `413` before they are read (#7222)
+
+`POST /api/payment_gateways/webhook/stripe` used to buffer the whole request body before verifying
+the signature, with no size limit. The Stripe webhook handler now registers a `maxBodyBytes` limit of
+1 MiB (`DEFAULT_WEBHOOK_BODY_LIMIT_BYTES`), or `OM_WEBHOOK_MAX_BODY_BYTES` when that is set lower, so
+a body over the limit, by its `Content-Length` or by the bytes actually streamed, is answered
+with `413 {"error":"Webhook payload too large"}` before signature verification or the transaction
+lookup runs.
+
+**Action for operators:** none, unless your Stripe account sends webhook events larger than 1 MiB;
+those are now refused with `413` and Stripe retries them.
 
 ### `resolveAttachmentOrganizationId` is deprecated in favour of `resolveAttachmentRequestScope`
 
@@ -888,6 +1170,18 @@ index `encryption_maps_entity_scope_live_unique`. Saving an encryption map now u
 new application version serves traffic. Until it has run, saving an encryption map in the admin UI
 or through `upsertCanonicalEncryptionMap` fails. Rolling deploys that start new pods before
 migrating must migrate first.
+
+### Timesheet undos respect the closed-report lock (#7507)
+
+A time entry a closed report has locked (`locked_report_id` set) already refused forward
+writes with `409 time_entry_locked`. Undoing an earlier `staff.timesheets.time_entries.create`,
+`.start_timer` or `.update`, or an earlier `staff.timesheets.tags.assign_entry` /
+`.unassign_entry`, through `POST /api/audit_logs/audit-logs/actions/undo` used to remove or
+rewrite that entry, or change its tags, anyway. These undos now answer with the same
+`409 { "code": "time_entry_locked", "error": "<localized message>", "lockedReportId": "…" }`
+and change nothing; undoing a `.delete` runs the same check as a precaution. Unlock the report
+first; the same undo then works again. No schema, route or permission changes. Undoing a tag
+delete is not covered by this change.
 
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
