@@ -17,6 +17,8 @@ import {
   readJsonSafe,
 } from '@open-mercato/core/helpers/integration/crmFixtures'
 
+export const integrationMeta = { dependsOnModules: ['customers', 'documents'] }
+
 type CardOverflow = { text: string; right: number; cardRight: number }
 
 async function collectCardOverflow(page: Page, labels: string[]): Promise<CardOverflow[]> {
