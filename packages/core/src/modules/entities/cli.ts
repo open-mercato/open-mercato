@@ -1,10 +1,9 @@
-import { getDefaultEncryptionMaps, type ModuleCli } from '@open-mercato/shared/modules/registry'
+import { getCliModules, getDefaultEncryptionMaps, type Module, type ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CacheStrategy } from '@open-mercato/cache/types'
 import { CustomEntity, CustomFieldDef, EncryptionMap } from './data/entities'
 import {
   upsertCanonicalEncryptionMap,
-  resolveEncryptionMapModules,
   upsertEncryptionMapSpecs,
   upsertEncryptionMaps,
   invalidateEncryptionMapScopes,
@@ -264,9 +263,24 @@ const addField: ModuleCli = {
 }
 
 // Re-exported for backward compatibility: callers importing these from `./cli` keep working.
-// The canonical definitions live in `./lib/encryption-maps` (kept lean so the subscriber that
-// seeds a new organization's maps does not pull in this whole CLI module's dependency graph).
+// `upsertEncryptionMapSpecs`/`upsertEncryptionMaps`/`invalidateEncryptionMapScopes` live in
+// `./lib/encryption-maps` (kept lean so the subscriber that seeds a new organization's maps does
+// not pull in this whole CLI module's dependency graph). `resolveEncryptionMapModules` stays
+// defined here: it reads `getCliModules()`, and `cli-registry-boundary.test.ts` in
+// @open-mercato/shared only allows that from `packages/cli/**` or a file literally named
+// `cli.ts` — a lib file could not host it.
 export { upsertEncryptionMapSpecs, upsertEncryptionMaps, invalidateEncryptionMapScopes }
+
+async function resolveEncryptionMapModules(): Promise<Module[]> {
+  const cliModules = getCliModules()
+  if (cliModules.length > 0) return cliModules
+  try {
+    const { getModules } = await import('@open-mercato/shared/lib/modules/registry')
+    return getModules()
+  } catch {
+    return []
+  }
+}
 
 /**
  * Entity ids whose encryption map is declared in module code with `keyScope: 'system'`.
@@ -304,7 +318,7 @@ const seedEncryptionMaps: ModuleCli = {
     const em = resolve('em') as EntityManager
     const logger = (msg: string) => console.log(msg)
     const encryptionService = resolve('tenantEncryptionService') as Pick<TenantDataEncryptionService, 'invalidateMap'>
-    await upsertEncryptionMaps(em, tenantId, organizationId, logger, async (scope) => {
+    await upsertEncryptionMaps(em, tenantId, organizationId, await resolveEncryptionMapModules(), logger, async (scope) => {
       await invalidateEncryptionMapScopes(encryptionService, [scope])
     })
     console.log('✅ Encryption maps seeded')

@@ -19,6 +19,7 @@ import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encrypti
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { getModules } from '@open-mercato/shared/lib/modules/registry'
 import { upsertEncryptionMaps, invalidateEncryptionMapScopes } from '@open-mercato/core/modules/entities/lib/encryption-maps'
 
 const logger = createLogger('entities')
@@ -42,7 +43,7 @@ export default async function handle(payload: unknown, ctx: ResolverContext): Pr
   if (!tenantId || !organizationId) return
 
   const em = ctx.resolve<EntityManager>('em').fork()
-  await upsertEncryptionMaps(em, tenantId, organizationId, () => {}, async (scope) => {
+  await upsertEncryptionMaps(em, tenantId, organizationId, getModules(), () => {}, async (scope) => {
     try {
       const encryptionService = ctx.resolve<Pick<TenantDataEncryptionService, 'invalidateMap'>>('tenantEncryptionService')
       await invalidateEncryptionMapScopes(encryptionService, [scope])

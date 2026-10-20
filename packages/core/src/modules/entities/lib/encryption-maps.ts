@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { ModuleEncryptionFieldRule, ModuleEncryptionMap } from '@open-mercato/shared/modules/encryption'
 import { forgetEncryptionPolicyMemo } from '@open-mercato/shared/lib/encryption/policyMemo'
-import { getCliModules, getDefaultEncryptionMaps, type Module } from '@open-mercato/shared/modules/registry'
+import { getDefaultEncryptionMaps, type Module } from '@open-mercato/shared/modules/registry'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 
 export type EncryptionMapLike = {
@@ -165,20 +165,6 @@ async function readLiveEncryptionMapVersion(
   return current ? toDate(current) : null
 }
 
-// Resolves the module list used to derive default encryption maps. `getCliModules()` is
-// populated only by the `mercato` bin, so any runtime caller (the app server, a subscriber)
-// always falls through to the app module registry.
-export async function resolveEncryptionMapModules(): Promise<Module[]> {
-  const cliModules = getCliModules()
-  if (cliModules.length > 0) return cliModules
-  try {
-    const { getModules } = await import('@open-mercato/shared/lib/modules/registry')
-    return getModules()
-  } catch {
-    return []
-  }
-}
-
 // Idempotently upsert a specific set of encryption-map specs for one (tenant, org) scope. Exported so
 // upgrade actions can backfill a newly-added encrypted entity for pre-existing tenants (whose maps were
 // seeded once at tenant creation and never re-run) without depending on the full CLI module registry.
@@ -213,11 +199,16 @@ export async function upsertEncryptionMapSpecs(
 
 // Exported so other modules (e.g. the directory subscribers that seed maps for a
 // newly-created organization) can seed the default module encryption maps for one
-// (tenant, org) scope without duplicating the CLI's module-resolution logic.
+// (tenant, org) scope. Callers resolve their own module list: a CLI command uses
+// `getCliModules()`/`getModules()` (cli.ts is an allowed CLI-registry entrypoint), a runtime
+// subscriber MUST use the app registry (`getModules()`) directly — this lib never reads the
+// CLI-only registry itself (`cli-registry-boundary.test.ts` in @open-mercato/shared enforces
+// that only `packages/cli/**` or a file literally named `cli.ts` may call `getCliModules()`).
 export async function upsertEncryptionMaps(
   em: EntityManager,
   tenantId: string,
   organizationId: string | null,
+  modules: Module[],
   logger: (msg: string) => void,
   onMaterializedScope?: (scope: { entityId: string; tenantId: string; organizationId: string | null }) => void | Promise<void>,
 ) {
@@ -225,7 +216,7 @@ export async function upsertEncryptionMaps(
     em,
     tenantId,
     organizationId,
-    getDefaultEncryptionMaps(await resolveEncryptionMapModules()),
+    getDefaultEncryptionMaps(modules),
     logger,
     onMaterializedScope,
   )
