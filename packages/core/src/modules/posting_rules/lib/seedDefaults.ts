@@ -24,7 +24,9 @@ export const UNALLOCATED_COST_CENTER_CODE = 'UNALLOCATED'
  *
  * Idempotent and safe to re-run, the same `seedPolishAccountGroups`
  * lifecycle point (`setup.ts`'s `seedDefaults`, at module-enable time):
- * the sentinel `CostCenter` is upserted by its well-known `code`, and the
+ * the sentinel `CostCenter` is looked up by its well-known `code` among
+ * non-deleted rows and created only when absent (spec, Design Decisions,
+ * "The sentinel `CostCenter` is protected by the commands"), and the
  * `PostingRulesSettings` row is upserted by `organizationId` — neither is
  * ever duplicated.
  */
@@ -38,6 +40,7 @@ export async function seedPostingRulesDefaults(
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
     code: UNALLOCATED_COST_CENTER_CODE,
+    deletedAt: null,
   })
   if (!existingSentinel) {
     const now = new Date()
