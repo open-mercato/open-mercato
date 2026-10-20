@@ -746,6 +746,42 @@ not a NIP.
   supplier registered for Polish VAT has a NIP and is checked like any
   other.
 
+**Reversible deactivation of a contractor and of a bank account, on the
+pattern of `lockFiscalPeriod`/`unlockFiscalPeriod`.** Soft delete
+(`deletedAt`) removes a row for good from the UI's point of view; what
+was missing is a way to stop using a contractor or an account for a
+while and bring it back — a vendor relationship paused, an account the
+vendor asked not to use until further notice.
+- **`isActive` (boolean, default `true`)** on `Contractor` and on
+  `ContractorBankAccount`.
+- **Commands** `deactivateContractor`/`reactivateContractor` and
+  `deactivateContractorBankAccount`/`reactivateContractorBankAccount`
+  toggle `isActive` and enforce `enforceCommandOptimisticLock` against
+  the caller's `x-om-ext-optimistic-lock-expected-updated-at` header,
+  exactly as `lockFiscalPeriod`/`unlockFiscalPeriod` do in
+  `2026-08-18-general-ledger-core-engine.md` (Commands). A call that would
+  not change the state (deactivating an inactive row) returns `409`.
+  Requires `contractors.manage`.
+- **Routes:** custom write routes `POST /api/contractors/:id/deactivate`,
+  `.../reactivate`, `POST /api/contractors/:id/bank-accounts/:bankAccountId/deactivate`
+  and `.../reactivate`, wired through the mutation guard registry
+  (mapped to `update`), because toggling is not a field edit — the same
+  reasoning as GL's lock/unlock routes. The UI uses `RowActions` +
+  `useGuardedMutation` with `retryLastMutation` and surfaces 409s via
+  `surfaceRecordConflict`, like GL's fiscal-period list.
+- **Effects.** An inactive contractor or account makes every payment
+  check return `ACCOUNT_INACTIVE` (see "Payment eligibility").
+  Deactivating the primary account clears its `isPrimary`; reactivating
+  does not restore it. Lists hide inactive rows by default and offer an
+  `isActive` filter. `contractorLookupByNip` still finds an inactive
+  contractor and returns `isActive`, so an importing module can tell the
+  user the supplier exists but is paused instead of registering it
+  twice.
+- **Not a substitute for approval or deletion.** Reactivation does not
+  reopen the approval decision (`approvalStatus` stays as it is), and a
+  soft-deleted row cannot be reactivated. The delete guard still counts
+  every bank account that is not soft-deleted, active or not.
+
 ### Alternatives considered
 
 | Alternative | Why Rejected |
@@ -937,9 +973,10 @@ own instruction — no open questions remain.
   see Design decisions; **not** the raw GUS/VIES response),
   `createdByUserId` (see Design decisions — backs the self-approval
   guard on `applyContractorApprovalDecision`), tenant/org scoped,
-  `updatedAt` (user-editable → optimistic lock), `deletedAt` (soft
+  `updatedAt` (user-editable → optimistic lock), `isActive` (added
+  2026-10-20 — reversible deactivation, see Design decisions), `deletedAt` (soft
   delete — per the standard column contract; deletion blocked only
-  while an active `ContractorBankAccount` exists — a `JournalEntryLine`
+  while a not-deleted `ContractorBankAccount` exists — a `JournalEntryLine`
   check was considered and dropped, see Design decisions).
   Confirmed in scope, 2026-09-08 (see Design decisions):
   `approvalStatus`
@@ -961,8 +998,10 @@ own instruction — no open questions remain.
   (`WHITELISTED`/`NOT_WHITELISTED`/`UNKNOWN`, UX cache), its own
   `organizationId`/`tenantId` (own scope columns, matching the
   `JournalEntryLine`/`SalesInvoiceLine` precedent — see Design
-  decisions), `updatedAt`, `deletedAt` (soft "deactivate" rather than
-  actual deletion — account history has audit value).
+  decisions), `updatedAt`, `isActive` (added 2026-10-20 — reversible
+  deactivation, distinct from deletion), `deletedAt` (soft delete rather than
+  actual deletion — account history has audit value; not reversible
+  from the UI, unlike `isActive`).
 - `ContractorVerificationCheck` (added 2026-10-20) — append-only history
   of every GUS, VIES and Biała Lista call: `contractorId`,
   `contractorBankAccountId` (nullable), `kind`, `status`, `checkedAt`,
@@ -1043,6 +1082,7 @@ contractorLookupByNip(params: {
   isCustomer: boolean
   approvalStatus: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED'
   verificationStatus: 'PENDING' | 'VERIFIED' | 'FAILED' | 'NOT_APPLICABLE'
+  isActive: boolean
 } | null>
 ```
 
@@ -1130,6 +1170,14 @@ contractorLookupByNip(params: {
   `VALID`/`INVALID` answer, and on `NOT_CHECKED` enqueues a VIES-only
   `verifyContractorRegistry` retry (see Design decisions, 2026-10-20).
   Rejects with `422` when the contractor has no `euVatNumber`.
+- `deactivateContractor` / `reactivateContractor` and
+  `deactivateContractorBankAccount` / `reactivateContractorBankAccount`
+  (added 2026-10-20) — toggle `isActive`, enforce
+  `enforceCommandOptimisticLock` against the caller's
+  `x-om-ext-optimistic-lock-expected-updated-at` header (the
+  `lockFiscalPeriod`/`unlockFiscalPeriod` pattern), `409` when the row is
+  already in the target state; deactivating the primary account clears
+  `isPrimary`. Require `contractors.manage`.
 - `applyContractorApprovalDecision` — **confirmed in scope,
   see Design decisions.** Called **only** from inside the
   `contractors.vendor-approval` workflow (not directly from the UI),
@@ -1262,6 +1310,11 @@ triggers on `sales.order.created`.
   returning the live result. This route backs only this module's own
   backend UI (the per-row "verify now" button) — it is **not** the
   integration path for AP. See Cross-module integration below.
+- `api/contractors/[id]/deactivate/route.ts`, `.../reactivate/route.ts`,
+  `api/contractors/[id]/bank-accounts/[bankAccountId]/deactivate/route.ts`,
+  `.../reactivate/route.ts` (added 2026-10-20) — custom write routes
+  (mapped to `update` in the mutation guard registry) for the
+  deactivation commands, like GL's fiscal-period lock/unlock routes.
 - `api/contractors/[id]/verification-checks/route.ts` (added
   2026-10-20) — read-only list of the verification history (see API
   Contracts); no write route.
@@ -1332,7 +1385,10 @@ to such a consumer; the dependency direction stays one-way
   decisions); a "Check in VIES" button next to `euVatNumber` calls
   `POST /api/contractors/:id/verify-vies` (added 2026-10-20).
 - `contractors/[id]/page.tsx` also lists the contractor's
-  `ContractorBankAccount` rows inline (own mini `DataTable`), each
+  `ContractorBankAccount` rows inline (own mini `DataTable`; added
+  2026-10-20: a Deactivate/Reactivate row action per account, and the
+  same action on the contractor list, through `RowActions` +
+  `useGuardedMutation`, like GL's fiscal-period lock/unlock), each
   showing the UX-only "last checked: N days ago" badge, plus a
   "Verify now" button per row that calls the live-check route above
   and refreshes the badge.
@@ -1406,7 +1462,8 @@ Design decisions), closing the concurrent-race gap a command-only
 invariant would leave open. `lastVerifiedAt`/`lastVerificationStatus` — UX cache only,
 written only as a side effect of `checkBankAccountWhitelist`, never
 read by any command to skip the live check (see Design decisions).
-Own `organizationId`/`tenantId` (see Design decisions).
+Own `organizationId`/`tenantId` (see Design decisions). `is_active`:
+boolean, default `true` (added 2026-10-20), also on `contractor`.
 
 Supporting index: `(tenant_id, organization_id, contractor_id)` on
 `contractor_bank_account` backs the inline-list lookup from a
@@ -1453,7 +1510,8 @@ checked_at)` for the history list on the contractor's page;
 Standard `makeCrudRoute` list + create.
 
 - **Query**: `page?`, `pageSize?` (≤100), `isVendor?`, `isCustomer?`,
-  `verificationStatus?`.
+  `verificationStatus?`, `isActive?` (added 2026-10-20; the backend list
+  sends `isActive=true` unless the user turns the filter off).
 - **Create body**: `{ isVendor, isCustomer, name, nip?, euVatNumber?,
   address, contactEmail, contactPhone }` (`nip` optional and
   `euVatNumber` added 2026-10-20). `verificationStatus` not settable —
@@ -1531,6 +1589,17 @@ exists.
   contractorBankAccountId, accountNumberLast4 }` — never
   `accountNumberHash`.
 - **Response 403**: caller lacks `contractors.view`.
+
+### `POST /api/contractors/:id/deactivate` / `.../reactivate` and `POST /api/contractors/:id/bank-accounts/:bankAccountId/deactivate` / `.../reactivate`
+
+Added 2026-10-20. Custom write routes (mutation guard registry, mapped
+to `update`) for the four deactivation commands.
+
+- **Request header**: `x-om-ext-optimistic-lock-expected-updated-at`.
+- **Response 200**: `{ id, isActive, updatedAt }`.
+- **Response 409**: stale `updatedAt` (`OptimisticLockConflictBody`), or
+  the row is already in the target state.
+- **Response 403**: caller lacks `contractors.manage`.
 
 ### Contractor approval — no dedicated route
 
@@ -1612,6 +1681,8 @@ exactly as `sales.order-approval` and
 | `setup.ts` | Create | `defaultRoleFeatures` for `admin`/`employee`; no `seedDefaults` |
 | `commands/contractors.ts` | Create | `createContractor` / `updateContractor` / `checkContractorVies` (on-demand VIES, added 2026-10-20) |
 | `api/contractors/[id]/verify-vies/route.ts` | Create | On-demand VIES check, 10-second timeout (added 2026-10-20) |
+| `api/contractors/[id]/{deactivate,reactivate}/route.ts`, `api/contractors/[id]/bank-accounts/[bankAccountId]/{deactivate,reactivate}/route.ts` | Create | Reversible deactivation, guarded write routes (added 2026-10-20) |
+| `commands/contractorActivation.ts` | Create | `deactivateContractor`/`reactivateContractor`/`deactivateContractorBankAccount`/`reactivateContractorBankAccount` with `enforceCommandOptimisticLock` (added 2026-10-20) |
 | `commands/contractorBankAccounts.ts` | Create | `createContractorBankAccount` / `updateContractorBankAccount` / `checkBankAccountWhitelist` |
 | `workers/verifyContractorRegistry.ts` | Create | Async GUS/VIES lookup, updates `verificationStatus` |
 | `workers/verifyContractorBankAccount.ts` | Create | Background whitelist check of a new or changed bank account; writes the history row and the warning status, never rejects the account (added 2026-10-20) |
@@ -1729,7 +1800,16 @@ exactly as `sales.order-approval` and
 - Assert `Contractor.lastCheckStatus`/`lastCheckedAt`/
   `lastCheckRequestId` never contain the raw GUS/VIES response, and
   that no `gusData`/`viesData` column exists.
-- Assert deleting a contractor with an active `ContractorBankAccount`
+- Deactivation (added 2026-10-20): deactivating and reactivating a
+  contractor and an account toggles `isActive`; a stale header returns
+  409; deactivating an inactive row returns 409; an inactive contractor
+  or account makes `checkBankAccountWhitelist` return `ACCOUNT_INACTIVE`
+  without a Ministry call; deactivating the primary account clears
+  `isPrimary` and reactivating does not restore it; reactivation leaves
+  `approvalStatus` unchanged; `contractorLookupByNip` returns an inactive
+  contractor with `isActive: false`.
+- Assert deleting a contractor with a not-deleted `ContractorBankAccount`
+  (active or inactive)
   is blocked; assert deleting a contractor with `JournalEntryLine`
   history but no active bank accounts succeeds — the corrected
   behavior after the ledger-side guard was dropped (see Design
@@ -2541,3 +2621,12 @@ New section Design decisions (2026-10-20); every item below is decided.
   `vendorSnapshot.taxId` as printed. A contractor without a NIP gets
   whitelist status `NOT_APPLICABLE` (no Ministry call, no history row).
   DI Registrar and Testing Strategy updated.
+- **Reversible deactivation.** `isActive` on `Contractor` and
+  `ContractorBankAccount`; four commands
+  (`deactivate`/`reactivate` × contractor/account) with
+  `enforceCommandOptimisticLock`, guarded custom routes mapped to
+  `update` and `RowActions` + `useGuardedMutation` in the UI — the
+  `lockFiscalPeriod`/`unlockFiscalPeriod` pattern from #5663. Inactive
+  means `ACCOUNT_INACTIVE` at payment time. Entities, DI Registrar,
+  Commands, Queries / API, Data Models, API Contracts, Backend Pages,
+  File Manifest, Testing Strategy updated.
