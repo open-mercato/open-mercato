@@ -462,6 +462,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   const {
     isLoading: isLoadingCredentialsAccess,
     canManageCredentials,
+    canManageIntegration,
   } = useIntegrationCredentialsFeatureAccess()
 
   const loadDetail = React.useCallback(async (options?: { showLoading?: boolean }) => {
@@ -528,7 +529,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   }, [integrationId])
 
   const loadLogs = React.useCallback(async () => {
-    if (!integrationId) return
+    if (!integrationId || isLoadingCredentialsAccess || !canManageIntegration) return
     setIsLoadingLogs(true)
     const params = new URLSearchParams({ integrationId, pageSize: '50' })
     if (logLevel) params.set('level', logLevel)
@@ -541,7 +542,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       setLogs(call.result.items)
     }
     setIsLoadingLogs(false)
-  }, [logLevel, integrationId])
+  }, [logLevel, integrationId, isLoadingCredentialsAccess, canManageIntegration])
 
   const detailWidgetSpotId = React.useMemo(
     () => resolveIntegrationDetailWidgetSpotId(detail?.integration ?? null, extensionPoints.hosts.legacyDetailTabs.spotId),
@@ -1185,7 +1186,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
             </div>
             <Switch
               checked={resolvedState.isEnabled}
-              disabled={isTogglingState}
+              disabled={isTogglingState || !canManageIntegration}
               onCheckedChange={(checked) => void handleToggleState(checked)}
             />
           </div>
@@ -1323,8 +1324,11 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                     return (
                       <div
                         key={version.id}
-                        className={`flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-colors ${isSelected ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'}`}
-                        onClick={() => void handleVersionChange(version.id)}
+                        className={`flex items-center justify-between rounded-lg border p-3 transition-colors ${canManageIntegration ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'} ${isSelected ? 'border-primary bg-primary/5' : canManageIntegration ? 'hover:bg-muted/50' : ''}`}
+                        onClick={() => {
+                          if (canManageIntegration) void handleVersionChange(version.id)
+                        }}
+                        aria-disabled={!canManageIntegration}
                       >
                         <div>
                           <span className="text-sm font-medium">{version.label ?? version.id}</span>
@@ -1388,7 +1392,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                         variant="outline"
                         size="sm"
                         onClick={() => void handleHealthCheck()}
-                        disabled={isCheckingHealth}
+                        disabled={isCheckingHealth || !canManageIntegration}
                       >
                         {isCheckingHealth ? <Spinner className="mr-2 h-4 w-4" /> : <Zap className="mr-2 h-4 w-4" />}
                         {isCheckingHealth ? t('integrations.detail.health.checking') : t('integrations.detail.health.check')}
@@ -1453,6 +1457,14 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
 
           {showLogsTab ? (
             <TabsContent value="logs" className="mt-0 space-y-4">
+            {!isLoadingCredentialsAccess && !canManageIntegration ? (
+              <EmptyState
+                size="sm"
+                icon={<FileText className="h-8 w-8" aria-hidden="true" />}
+                title={t('integrations.detail.logs.noPermission', 'You do not have permission to view the logs of this integration.')}
+              />
+            ) : (
+            <>
             <RunActivityStrip
               run={activeRunDetail}
               refreshedAt={activeRunRefreshedAt}
@@ -1590,6 +1602,8 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                 })}
                 emptyMessage={t('integrations.detail.logs.empty')}
               />
+            )}
+            </>
             )}
             </TabsContent>
           ) : null}

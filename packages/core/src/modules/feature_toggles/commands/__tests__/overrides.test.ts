@@ -222,6 +222,10 @@ describe('feature_toggles.overrides commands', () => {
                 create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data, toggle: { id: toggleId } })),
                 nativeDelete: jest.fn().mockResolvedValue(1),
                 flush: jest.fn().mockResolvedValue(undefined),
+                begin: jest.fn().mockResolvedValue(undefined),
+                commit: jest.fn().mockResolvedValue(undefined),
+                rollback: jest.fn().mockResolvedValue(undefined),
+                isInTransaction: jest.fn().mockReturnValue(false),
             }
             const container = {
                 resolve: jest.fn((token: string) => {
@@ -284,6 +288,144 @@ describe('feature_toggles.overrides commands', () => {
             expect(em.nativeDelete).toHaveBeenCalledWith(expect.any(Function), { toggle: toggleId, tenantId })
             expect(em.create).not.toHaveBeenCalled()
             expect(invalidateIsEnabledCacheByKey).toHaveBeenCalledWith('test_feature', tenantId)
+        })
+
+        it('refuses to undo when another admin changed the override afterwards', async () => {
+            const changeStateCommand = loadCommand()
+            // Admin A's command logged `after` at T1; admin B has since updated the
+            // override again, so its live updatedAt no longer matches T1 (T2).
+            const t1 = '2026-01-01T00:00:00.000Z'
+            const t2 = '2026-01-01T00:05:00.000Z'
+            const existingOverride: Record<string, unknown> = {
+                id: overrideId,
+                toggle: { id: toggleId },
+                tenantId,
+                value: 'disabled-by-admin-b',
+                updatedAt: new Date(t2),
+            }
+            const { em, ctx } = buildContext(existingOverride)
+            const before = { id: overrideId, toggleId, tenantId, value: 'enabled' }
+            const after = { id: overrideId, toggleId, tenantId, value: 'disabled-by-admin-a', updatedAt: t1 }
+
+            await expect(
+                changeStateCommand.undo({ logEntry: undoLogEntry(before, after), ctx }),
+            ).rejects.toMatchObject({ status: 409 })
+
+            expect(existingOverride.value).toBe('disabled-by-admin-b')
+            expect(em.create).not.toHaveBeenCalled()
+            expect(em.nativeDelete).not.toHaveBeenCalled()
+            expect(em.flush).not.toHaveBeenCalled()
+            expect(invalidateIsEnabledCacheByKey).not.toHaveBeenCalled()
+        })
+
+        it('refuses to undo a create when the override was changed since creation', async () => {
+            const changeStateCommand = loadCommand()
+            const t1 = '2026-01-01T00:00:00.000Z'
+            const t2 = '2026-01-01T00:05:00.000Z'
+            const existingOverride: Record<string, unknown> = {
+                id: overrideId,
+                toggle: { id: toggleId },
+                tenantId,
+                value: 'changed-by-admin-b',
+                updatedAt: new Date(t2),
+            }
+            const { em, ctx } = buildContext(existingOverride)
+            const before = { id: null, toggleId, tenantId }
+            const after = { id: overrideId, toggleId, tenantId, value: 'enabled', updatedAt: t1 }
+
+            await expect(
+                changeStateCommand.undo({ logEntry: undoLogEntry(before, after), ctx }),
+            ).rejects.toMatchObject({ status: 409 })
+
+            expect(em.nativeDelete).not.toHaveBeenCalled()
+            expect(invalidateIsEnabledCacheByKey).not.toHaveBeenCalled()
+        })
+
+        it('still undoes when the live override matches the logged after state', async () => {
+            const changeStateCommand = loadCommand()
+            const t1 = '2026-01-01T00:00:00.000Z'
+            const existingOverride: Record<string, unknown> = {
+                id: overrideId,
+                toggle: { id: toggleId },
+                tenantId,
+                value: 'disabled',
+                updatedAt: new Date(t1),
+            }
+            const { em, ctx } = buildContext(existingOverride)
+            const before = { id: overrideId, toggleId, tenantId, value: 'enabled' }
+            const after = { id: overrideId, toggleId, tenantId, value: 'disabled', updatedAt: t1 }
+
+            await changeStateCommand.undo({ logEntry: undoLogEntry(before, after), ctx })
+
+            expect(existingOverride.value).toBe('enabled')
+            expect(em.flush).toHaveBeenCalled()
+            expect(invalidateIsEnabledCacheByKey).toHaveBeenCalledWith('test_feature', tenantId)
+        })
+
+        it('reads the live override under a pessimistic write lock inside a transaction', async () => {
+            const changeStateCommand = loadCommand()
+            const existingOverride: Record<string, unknown> = {
+                id: overrideId,
+                toggle: { id: toggleId },
+                tenantId,
+                value: 'disabled',
+                updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+            }
+            const { em, ctx } = buildContext(existingOverride)
+            const before = { id: overrideId, toggleId, tenantId, value: 'enabled' }
+            const after = { id: overrideId, toggleId, tenantId, value: 'disabled', updatedAt: '2026-01-01T00:00:00.000Z' }
+
+            await changeStateCommand.undo({ logEntry: undoLogEntry(before, after), ctx })
+
+            expect(em.findOne).toHaveBeenCalledWith(
+                expect.any(Function),
+                { toggle: toggleId, tenantId },
+                { lockMode: expect.anything() },
+            )
+            expect(em.begin).toHaveBeenCalled()
+            expect(em.commit).toHaveBeenCalled()
+            expect(em.rollback).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('changeOverrideStateCommand buildLog', () => {
+        it('uses the after snapshot id as resourceId when the command created a new override', async () => {
+            let changeStateCommand: any
+            jest.isolateModules(() => {
+                require('../overrides')
+                changeStateCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'feature_toggles.overrides.changeState')?.[0]
+            })
+            expect(changeStateCommand).toBeDefined()
+
+            const toggleId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'
+            const tenantId = 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22'
+            const createdOverrideId = 'c0eebc99-9c0b-4ef8-bb6d-6bb9bd380a33'
+            const createdOverride: Record<string, unknown> = {
+                id: createdOverrideId,
+                toggle: { id: toggleId },
+                tenantId,
+                value: 'enabled',
+                updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+            }
+            const em = {
+                fork: jest.fn().mockReturnThis(),
+                findOne: jest.fn((entity: { name: string }, query: Record<string, unknown>) => {
+                    if (entity.name === 'FeatureToggleOverride' && query.toggle === toggleId && query.tenantId === tenantId) {
+                        return Promise.resolve(createdOverride)
+                    }
+                    return Promise.resolve(null)
+                }),
+            }
+            const container = {
+                resolve: jest.fn((token: string) => (token === 'em' ? em : undefined)),
+            }
+            const ctx: any = { container }
+            // No prior override existed, so `prepare` captured a null-id snapshot.
+            const before = { id: null, toggleId, tenantId, value: undefined, updatedAt: null }
+
+            const log = await changeStateCommand.buildLog({ snapshots: { before }, ctx })
+
+            expect(log.resourceId).toBe(createdOverrideId)
         })
     })
 })

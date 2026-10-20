@@ -53,6 +53,7 @@
   "integrations.detail.logs.level.error": "Błąd",
   "integrations.detail.logs.level.info": "Info",
   "integrations.detail.logs.level.warn": "Ostrzeżenie",
+  "integrations.detail.logs.noPermission": "Nie masz uprawnień do przeglądania logów tej integracji.",
   "integrations.detail.logs.title": "Logi operacji",
   "integrations.detail.notFound": "Nie znaleziono integracji.",
   "integrations.detail.oauthGrant.askAdmin": "Poproś administratora o ponowne połączenie.",
