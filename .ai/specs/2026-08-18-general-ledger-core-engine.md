@@ -287,7 +287,9 @@ type ContractorSnapshot =
     (`'****'` + its last four digits), never the full number.
   - **`whitelistCheck` is the check result as of posting**: the live
     Biała Lista check the payment module holds when it posts (taken at
-    `confirmPaymentBatch` and stored on the batch line), with the
+    `confirmPaymentBatch`, or at `markPaymentBatchSent` when it repeats
+    the check because the stored one is from an earlier day, and stored
+    on the batch line), with the
     Ministry's `requestId` and `requestDateTime` as `checkedAt`. It is
     not the contractor's GUS/VIES `verificationStatus`, and not the
     registry's UX cache (`lastVerificationStatus`). `NOT_APPLICABLE`
@@ -2813,3 +2815,9 @@ code. Not yet reviewed by a maintainer.
   `markPaymentBatchSent` (#5962).
 - Data Models and the Compliance Matrix row updated. No schema change:
   the column stays a nullable `json`.
+
+### 2026-10-20 (cont. — source of `whitelistCheck`)
+
+- `contractorSnapshot.whitelistCheck` comes from `confirmPaymentBatch`
+  or, after AP's same-day re-check (#5962), from `markPaymentBatchSent`.
+  Wording only.
