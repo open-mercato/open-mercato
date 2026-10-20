@@ -10,14 +10,20 @@ import {
   CatalogProductPrice,
   CatalogProductVariant,
 } from '@open-mercato/core/modules/catalog/data/entities'
+import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
+import { SalesOrder } from '@open-mercato/core/modules/sales/data/entities'
+import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
+import { normalizeDictionaryValue } from '@open-mercato/core/modules/dictionaries/lib/utils'
 import type { ImportItem } from '@open-mercato/core/modules/data_sync/lib/adapter'
 import {
   buildOrderCommandInput,
+  mapShopifyPaymentStatusValue,
   primaryVariant,
   productIsActive,
   sanitizeHandle,
   sanitizeSku,
   shopifyNumericId,
+  shopifyOrderIsFullyPaid,
   splitPersonName,
   variantPriceAmount,
   type CatalogLink,
@@ -28,6 +34,7 @@ const PRODUCT_ENTITY = 'catalog_product'
 const VARIANT_ENTITY = 'catalog_product_variant'
 const PERSON_ENTITY = 'customer_person'
 const ORDER_ENTITY = 'sales_order'
+const PAYMENT_STATUS_DICTIONARY_KEY = 'sales.payment_status'
 
 type CommandExecutor = {
   execute(id: string, options: { input: Record<string, unknown>; ctx: CommandRuntimeContext }): Promise<{ result: unknown }>
@@ -74,6 +81,7 @@ export async function createShopifyImporter(scope: TenantScope): Promise<Shopify
   const commandBus = container.resolve('commandBus') as CommandExecutor
   const ctx = commandContext(container, scope)
   let priceKind: CatalogPriceKind | null | undefined
+  const paymentStatusEntryCache = new Map<string, string | null>()
 
   async function resolvePriceKind(): Promise<CatalogPriceKind | null> {
     if (priceKind !== undefined) return priceKind
@@ -86,6 +94,30 @@ export async function createShopifyImporter(scope: TenantScope): Promise<Shopify
     )
     priceKind = kinds.find((kind) => kind.code === 'regular' || kind.code === 'base') ?? kinds[0] ?? null
     return priceKind
+  }
+
+  async function resolvePaymentStatusEntryId(value: string): Promise<string | null> {
+    const normalized = normalizeDictionaryValue(value)
+    if (paymentStatusEntryCache.has(normalized)) return paymentStatusEntryCache.get(normalized) ?? null
+    const dictionary = await em.findOne(Dictionary, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      key: PAYMENT_STATUS_DICTIONARY_KEY,
+      deletedAt: null,
+    })
+    if (!dictionary) {
+      paymentStatusEntryCache.set(normalized, null)
+      return null
+    }
+    const entry = await em.findOne(DictionaryEntry, {
+      dictionary,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      normalizedValue: normalized,
+    })
+    const id = entry?.id ?? null
+    paymentStatusEntryCache.set(normalized, id)
+    return id
   }
 
   async function upsertPrice(variantId: string, productId: string, amount: number, currencyCode: string): Promise<void> {
@@ -129,6 +161,51 @@ export async function createShopifyImporter(scope: TenantScope): Promise<Shopify
       },
       ctx,
     })
+  }
+
+  async function recordPaidPayment(orderId: string, order: ShopifyOrderNode): Promise<void> {
+    const amount = order.total ? Number(order.total.amount) : NaN
+    if (!Number.isFinite(amount) || amount <= 0) return
+    const currencyCode = order.currencyCode.trim().toUpperCase()
+    if (!/^[A-Z]{3}$/.test(currencyCode)) return
+    const statusEntryId = await resolvePaymentStatusEntryId('received')
+    const placedAt = order.createdAt ? new Date(order.createdAt) : new Date()
+    await commandBus.execute('sales.payments.create', {
+      input: {
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        orderId,
+        amount,
+        capturedAmount: amount,
+        currencyCode,
+        ...(statusEntryId ? { statusEntryId } : {}),
+        receivedAt: placedAt,
+        capturedAt: placedAt,
+        paymentReference: order.name,
+        metadata: {
+          shopifyOrderId: order.id,
+          shopifyFinancialStatus: order.displayFinancialStatus,
+          source: SHOPIFY_INTEGRATION_ID,
+        },
+      },
+      ctx,
+    })
+  }
+
+  async function backfillOrderCustomer(
+    orderId: string,
+    customerEntityId: string,
+  ): Promise<boolean> {
+    await commandBus.execute('sales.orders.update', {
+      input: {
+        id: orderId,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        customerEntityId,
+      },
+      ctx,
+    })
+    return true
   }
 
   return {
@@ -250,6 +327,15 @@ export async function createShopifyImporter(scope: TenantScope): Promise<Shopify
       try {
         const name = splitPersonName(customer)
         const localId = await mapping.lookupLocalId(SHOPIFY_INTEGRATION_ID, PERSON_ENTITY, customer.id, scope)
+        // Ignore soft-deleted persons so a deleted CRM row can be recreated (#7397).
+        const existing = localId
+          ? await findOneWithDecryption(em, CustomerEntity, {
+              id: localId,
+              tenantId: scope.tenantId,
+              organizationId: scope.organizationId,
+              deletedAt: null,
+            }, undefined, scope)
+          : null
         const input = {
           organizationId: scope.organizationId,
           tenantId: scope.tenantId,
@@ -261,17 +347,17 @@ export async function createShopifyImporter(scope: TenantScope): Promise<Shopify
           source: 'shopify',
           isActive: true,
         }
-        const commandId = localId ? 'customers.people.update' : 'customers.people.create'
+        const commandId = existing ? 'customers.people.update' : 'customers.people.create'
         const { result } = await commandBus.execute(commandId, {
-          input: localId ? { ...input, id: localId } : input,
+          input: existing ? { ...input, id: existing.id } : input,
           ctx,
         })
-        const entityId = localId ?? readResultId(result, 'entityId')
+        const entityId = existing?.id ?? readResultId(result, 'entityId')
         if (!entityId) throw new Error('Customer command did not return an id.')
         await mapping.storeExternalIdMapping(SHOPIFY_INTEGRATION_ID, PERSON_ENTITY, entityId, customer.id, scope)
         return {
           externalId: customer.id,
-          action: localId ? 'update' : 'create',
+          action: existing ? 'update' : 'create',
           data: { localId: entityId, email: customer.email },
         }
       } catch (error) {
@@ -282,16 +368,70 @@ export async function createShopifyImporter(scope: TenantScope): Promise<Shopify
     async upsertOrder(order) {
       try {
         const existingId = await mapping.lookupLocalId(SHOPIFY_INTEGRATION_ID, ORDER_ENTITY, order.id, scope)
-        if (existingId) {
+        const existingOrder = existingId
+          ? await findOneWithDecryption(em, SalesOrder, {
+              id: existingId,
+              tenantId: scope.tenantId,
+              organizationId: scope.organizationId,
+              deletedAt: null,
+            }, undefined, scope)
+          : null
+
+        if (existingOrder) {
+          // Backfill customer when missing, or when the linked person was deleted (#7398 / #7397).
+          if (order.customerId) {
+            const linkedPerson = existingOrder.customerEntityId
+              ? await findOneWithDecryption(em, CustomerEntity, {
+                  id: existingOrder.customerEntityId,
+                  tenantId: scope.tenantId,
+                  organizationId: scope.organizationId,
+                  deletedAt: null,
+                }, undefined, scope)
+              : null
+            if (!linkedPerson) {
+              const customerEntityId = await mapping.lookupLocalId(
+                SHOPIFY_INTEGRATION_ID,
+                PERSON_ENTITY,
+                order.customerId,
+                scope,
+              )
+              if (customerEntityId) {
+                const person = await findOneWithDecryption(em, CustomerEntity, {
+                  id: customerEntityId,
+                  tenantId: scope.tenantId,
+                  organizationId: scope.organizationId,
+                  deletedAt: null,
+                }, undefined, scope)
+                if (person && person.id !== existingOrder.customerEntityId) {
+                  await backfillOrderCustomer(existingOrder.id, customerEntityId)
+                  return {
+                    externalId: order.id,
+                    action: 'update',
+                    data: { localId: existingOrder.id, reason: 'customer_backfill' },
+                  }
+                }
+              }
+            }
+          }
           return {
             externalId: order.id,
             action: 'skip',
-            data: { localId: existingId, reason: 'already_imported' },
+            data: { localId: existingOrder.id, reason: 'already_imported' },
           }
         }
+
         const customerEntityId = order.customerId
           ? await mapping.lookupLocalId(SHOPIFY_INTEGRATION_ID, PERSON_ENTITY, order.customerId, scope)
           : null
+        const liveCustomerId = customerEntityId
+          ? await findOneWithDecryption(em, CustomerEntity, {
+              id: customerEntityId,
+              tenantId: scope.tenantId,
+              organizationId: scope.organizationId,
+              deletedAt: null,
+            }, undefined, scope).then((row) => row?.id ?? null)
+          : null
+
         const catalogByVariantId = new Map<string, CatalogLink>()
         for (const line of order.lines) {
           if (!line.variantId || catalogByVariantId.has(line.variantId)) continue
@@ -305,18 +445,45 @@ export async function createShopifyImporter(scope: TenantScope): Promise<Shopify
           const productId = variant?.product?.id
           if (productId) catalogByVariantId.set(line.variantId, { productId, variantId })
         }
+
+        const paymentStatusValue = mapShopifyPaymentStatusValue(order.displayFinancialStatus)
+        const paymentStatusEntryId = paymentStatusValue
+          ? await resolvePaymentStatusEntryId(paymentStatusValue)
+          : null
+
         const { result } = await commandBus.execute('sales.orders.create', {
           input: buildOrderCommandInput({
             scope,
             order,
-            customerEntityId,
+            customerEntityId: liveCustomerId,
             catalogByVariantId,
+            paymentStatusEntryId,
           }),
           ctx,
         })
         const orderId = readResultId(result, 'orderId')
         if (!orderId) throw new Error('Order command did not return an id.')
         await mapping.storeExternalIdMapping(SHOPIFY_INTEGRATION_ID, ORDER_ENTITY, orderId, order.id, scope)
+
+        if (shopifyOrderIsFullyPaid(order.displayFinancialStatus)) {
+          try {
+            await recordPaidPayment(orderId, order)
+          } catch (paymentError) {
+            // Order is already mapped; surface payment failure without failing the import item.
+            return {
+              externalId: order.id,
+              action: 'create',
+              data: {
+                localId: orderId,
+                name: order.name,
+                lineCount: order.lines.length,
+                shopifyTotal: order.total,
+                paymentWarning: paymentError instanceof Error ? paymentError.message : 'payment_failed',
+              },
+            }
+          }
+        }
+
         return {
           externalId: order.id,
           action: 'create',

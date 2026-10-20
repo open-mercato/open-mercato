@@ -109,11 +109,15 @@ Executable Playwright coverage lives in `packages/sync-shopify/src/modules/sync_
 | Product/variant persistence (including >100 variants via nested pagination) | yes |
 | Customer persistence | yes |
 | Order persistence with discounts/shipping and line counts >50 | yes |
+| Tax-inclusive order nets (`taxRate` / #7395) and taxed shipping (#7396) | yes |
+| PAID Shopify orders recorded as paid (outstanding 0 / #7399) | yes |
+| Recreate after local delete of person/order (#7397) | yes |
+| Customer backfill on re-run when orders imported first (#7398) | yes |
 | Repeat order run / idempotent skip | yes |
 | Marketplace detail UI reachability | yes |
 | Tenant/organization scoping smoke | yes |
 
-Unit tests cover nested pagination fixtures, order financial mapping, client-credentials exchange, preset failure reporting (`sync_shopify.preset_failed`), and adapter cancellation. Fixture data is created per run and cleaned up in `finally`.
+Unit tests cover nested pagination fixtures, order financial mapping (tax-inclusive rates, shipping tax, free-shipping discount), client-credentials exchange, preset failure reporting (`sync_shopify.preset_failed`), and adapter cancellation. Fixture data is created per run and cleaned up in `finally`.
 
 ## Final Compliance Report
 
@@ -132,3 +136,4 @@ Unit tests cover nested pagination fixtures, order financial mapping, client-cre
 - 2026-10-06 — Credentials are a Dev Dashboard Client ID and client secret. The client exchanges them for a short-lived Admin API token.
 - 2026-10-06 — Follow-ups recorded for inventory, metafields, webhooks, export, and OAuth. A Shopify App Store listing stays a later product decision, not the next slice.
 - 2026-10-08 — Nested pagination, catalog command writes, order discounts/shipping/tax mapping, i18n credential keys, preset error reporting, and fake-API integration coverage.
+- 2026-10-20 — Tax-inclusive `taxRate` mapping (#7395), shipping tax (#7396), recreate after local delete (#7397), customer backfill (#7398), PAID → payment record (#7399). Polish health label `Nieprawidłowy`.

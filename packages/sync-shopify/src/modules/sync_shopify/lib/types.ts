@@ -57,6 +57,8 @@ export type ShopifyOrderLineNode = {
   discountedUnitPrice: ShopifyMoney | null
   discountTotal: ShopifyMoney | null
   taxTotal: ShopifyMoney | null
+  /** Percent, e.g. 23 for 23% VAT. Derived from Shopify taxLines.ratePercentage / rate. */
+  taxRate: number | null
   totalPrice: ShopifyMoney | null
 }
 
@@ -65,6 +67,9 @@ export type ShopifyShippingLineNode = {
   title: string
   originalPrice: ShopifyMoney | null
   discountedPrice: ShopifyMoney | null
+  taxTotal: ShopifyMoney | null
+  /** Percent, e.g. 8 for 8% shipping tax. */
+  taxRate: number | null
 }
 
 export type ShopifyOrderNode = {

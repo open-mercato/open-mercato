@@ -248,6 +248,37 @@ function sumMoney(values: Array<ShopifyMoney | null>): ShopifyMoney | null {
   return { amount: total.toFixed(2), currencyCode }
 }
 
+/** Prefer ratePercentage (23); fall back to rate (0.23 → 23). */
+function taxRatePercent(taxLines: unknown[]): number | null {
+  let weightedAmount = 0
+  let weightedRateSum = 0
+  for (const raw of taxLines) {
+    const taxLine = asRecord(raw)
+    if (!taxLine) continue
+    const money = asMoney(taxLine.priceSet)
+    const amount = money ? Number(money.amount) : NaN
+    const ratePercentage = typeof taxLine.ratePercentage === 'number'
+      ? taxLine.ratePercentage
+      : Number(taxLine.ratePercentage)
+    const rate = typeof taxLine.rate === 'number' ? taxLine.rate : Number(taxLine.rate)
+    let percent: number | null = null
+    if (Number.isFinite(ratePercentage) && ratePercentage >= 0) {
+      percent = ratePercentage
+    } else if (Number.isFinite(rate) && rate >= 0) {
+      percent = rate <= 1 ? rate * 100 : rate
+    }
+    if (percent === null) continue
+    if (Number.isFinite(amount) && amount > 0) {
+      weightedAmount += amount
+      weightedRateSum += amount * percent
+    } else if (weightedAmount === 0) {
+      return percent
+    }
+  }
+  if (weightedAmount > 0) return weightedRateSum / weightedAmount
+  return null
+}
+
 function mapOrderLine(value: unknown): ShopifyOrderLineNode | null {
   const record = asRecord(value)
   const id = asString(record?.id)
@@ -256,9 +287,8 @@ function mapOrderLine(value: unknown): ShopifyOrderLineNode | null {
   const discountAllocations = Array.isArray(record.discountAllocations)
     ? record.discountAllocations.map((allocation) => asMoney(asRecord(allocation)?.allocatedAmountSet))
     : []
-  const taxLines = Array.isArray(record.taxLines)
-    ? record.taxLines.map((taxLine) => asMoney(asRecord(taxLine)?.priceSet))
-    : []
+  const rawTaxLines = Array.isArray(record.taxLines) ? record.taxLines : []
+  const taxLines = rawTaxLines.map((taxLine) => asMoney(asRecord(taxLine)?.priceSet))
   return {
     id,
     title: asString(record.title) ?? 'Line',
@@ -269,6 +299,7 @@ function mapOrderLine(value: unknown): ShopifyOrderLineNode | null {
     discountedUnitPrice: asMoney(record.discountedUnitPriceSet),
     discountTotal: sumMoney(discountAllocations),
     taxTotal: sumMoney(taxLines),
+    taxRate: taxRatePercent(rawTaxLines),
     totalPrice: asMoney(record.discountedTotalSet) ?? asMoney(record.originalTotalSet),
   }
 }
@@ -277,11 +308,15 @@ function mapShippingLine(value: unknown): ShopifyShippingLineNode | null {
   const record = asRecord(value)
   const id = asString(record?.id)
   if (!record || !id) return null
+  const rawTaxLines = Array.isArray(record.taxLines) ? record.taxLines : []
+  const taxLines = rawTaxLines.map((taxLine) => asMoney(asRecord(taxLine)?.priceSet))
   return {
     id,
     title: asString(record.title) ?? 'Shipping',
     originalPrice: asMoney(record.originalPriceSet),
     discountedPrice: asMoney(record.discountedPriceSet),
+    taxTotal: sumMoney(taxLines),
+    taxRate: taxRatePercent(rawTaxLines),
   }
 }
 
@@ -343,6 +378,8 @@ const LINE_ITEM_FIELDS = `
     allocatedAmountSet { shopMoney { amount currencyCode } }
   }
   taxLines {
+    rate
+    ratePercentage
     priceSet { shopMoney { amount currencyCode } }
   }
 `
@@ -414,6 +451,11 @@ const ORDERS_QUERY = `
             title
             originalPriceSet { shopMoney { amount currencyCode } }
             discountedPriceSet { shopMoney { amount currencyCode } }
+            taxLines {
+              rate
+              ratePercentage
+              priceSet { shopMoney { amount currencyCode } }
+            }
           }
         }
         lineItems(first: $lineFirst) {

@@ -215,6 +215,8 @@ test.describe('TC-SS-001: Shopify import via fake Admin API', () => {
       const staleOrderIds = [
         await findMappedLocalId('sales_order', 'gid://shopify/Order/9001', scope),
         await findMappedLocalId('sales_order', 'gid://shopify/Order/9002', scope),
+        await findMappedLocalId('sales_order', 'gid://shopify/Order/9003', scope),
+        await findMappedLocalId('sales_order', 'gid://shopify/Order/9004', scope),
       ]
       for (const orderId of staleOrderIds) {
         if (orderId) await deleteEntityIfExists(request, token, '/api/sales/orders', orderId)
@@ -318,13 +320,62 @@ test.describe('TC-SS-001: Shopify import via fake Admin API', () => {
       expect(Number(discountedOrder?.grandTotalGrossAmount ?? 0)).toBeCloseTo(88, 1)
       expect(Number(discountedOrder?.discountTotalAmount ?? 0)).toBeGreaterThan(0)
       expect(Number(discountedOrder?.shippingGrossAmount ?? discountedOrder?.shippingNetAmount ?? 0)).toBeCloseTo(8, 1)
+      // PAID Shopify orders should not show the full total as outstanding (#7399).
+      expect(Number(discountedOrder?.outstandingAmount ?? discountedOrder?.grandTotalGrossAmount ?? 0)).toBeCloseTo(0, 1)
 
+      const taxInclusiveOrderId = await findMappedLocalId('sales_order', 'gid://shopify/Order/9003', scope)
+      expect(taxInclusiveOrderId).toMatch(/^[0-9a-f-]{36}$/i)
+      createdOrderIds.push(taxInclusiveOrderId!)
+      const taxInclusiveOrder = await fetchListItem(request, token, '/api/sales/orders', taxInclusiveOrderId!)
+      expect(taxInclusiveOrder).not.toBeNull()
+      expect(Number(taxInclusiveOrder?.grandTotalGrossAmount ?? 0)).toBeCloseTo(123, 1)
+      expect(Number(taxInclusiveOrder?.taxTotalAmount ?? 0)).toBeCloseTo(23, 1)
+      expect(Number(taxInclusiveOrder?.grandTotalNetAmount ?? taxInclusiveOrder?.subtotalNetAmount ?? 0)).toBeCloseTo(100, 1)
+
+      const taxedShippingOrderId = await findMappedLocalId('sales_order', 'gid://shopify/Order/9004', scope)
+      expect(taxedShippingOrderId).toMatch(/^[0-9a-f-]{36}$/i)
+      createdOrderIds.push(taxedShippingOrderId!)
+      const taxedShippingOrder = await fetchListItem(request, token, '/api/sales/orders', taxedShippingOrderId!)
+      expect(taxedShippingOrder).not.toBeNull()
+      expect(Number(taxedShippingOrder?.grandTotalGrossAmount ?? 0)).toBeCloseTo(118.8, 1)
+      expect(Number(taxedShippingOrder?.taxTotalAmount ?? 0)).toBeCloseTo(8.8, 1)
+
+      // Delete person + one order, then re-import — must recreate instead of fail/skip (#7397).
+      await deleteEntityIfExists(request, token, '/api/sales/orders', discountedOrderId!)
+      await deleteEntityIfExists(request, token, '/api/customers/people', personId!)
+      const recreateCustomersRunId = await startImport(request, token, 'customers')
+      runIds.push(recreateCustomersRunId)
+      const recreateCustomersSummary = await waitForCompletedRun(request, token, recreateCustomersRunId)
+      expect(Number(recreateCustomersSummary.failedCount ?? 0)).toBe(0)
+      expect(Number(recreateCustomersSummary.createdCount ?? 0)).toBeGreaterThanOrEqual(1)
+      const recreatedPersonId = await findMappedLocalId('customer_person', 'gid://shopify/Customer/9001', scope)
+      expect(recreatedPersonId).toMatch(/^[0-9a-f-]{36}$/i)
+      expect(recreatedPersonId).not.toBe(personId)
+      createdPersonIds.push(recreatedPersonId!)
+
+      const recreateOrdersRunId = await startImport(request, token, 'orders')
+      runIds.push(recreateOrdersRunId)
+      const recreateOrdersSummary = await waitForCompletedRun(request, token, recreateOrdersRunId)
+      expect(Number(recreateOrdersSummary.failedCount ?? 0)).toBe(0)
+      expect(Number(recreateOrdersSummary.createdCount ?? 0)).toBeGreaterThanOrEqual(1)
+      const recreatedDiscountedId = await findMappedLocalId('sales_order', 'gid://shopify/Order/9002', scope)
+      expect(recreatedDiscountedId).toMatch(/^[0-9a-f-]{36}$/i)
+      expect(recreatedDiscountedId).not.toBe(discountedOrderId)
+      createdOrderIds.push(recreatedDiscountedId!)
+
+      // Re-run should backfill customer on surviving orders that were imported without one (#7398),
+      // and skip intact mappings.
       const secondOrdersRunId = await startImport(request, token, 'orders')
       runIds.push(secondOrdersRunId)
       const secondSummary = await waitForCompletedRun(request, token, secondOrdersRunId)
       expect(Number(secondSummary.createdCount ?? 0)).toBe(0)
-      expect(Number(secondSummary.skippedCount ?? 0)).toBeGreaterThanOrEqual(2)
+      expect(
+        Number(secondSummary.skippedCount ?? 0) + Number(secondSummary.updatedCount ?? 0),
+      ).toBeGreaterThanOrEqual(4)
       expect(Number(secondSummary.failedCount ?? 0)).toBe(0)
+
+      const linkedOrder = await fetchListItem(request, token, '/api/sales/orders', orderId!)
+      expect(String(linkedOrder?.customerEntityId ?? '')).toBe(recreatedPersonId!)
 
       const employeeToken = await getAuthToken(request, 'employee')
       const employeeProducts = await apiRequest(

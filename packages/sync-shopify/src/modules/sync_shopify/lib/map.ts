@@ -4,6 +4,7 @@ import type {
   ShopifyOrderLineNode,
   ShopifyOrderNode,
   ShopifyProductNode,
+  ShopifyShippingLineNode,
   ShopifyVariantNode,
 } from './types'
 
@@ -92,6 +93,10 @@ function moneyAmount(value: ShopifyMoney | null | undefined): number | null {
   return amount
 }
 
+function roundMoney(value: number): number {
+  return Math.round(value * 100) / 100
+}
+
 function lineDiscountTotal(line: ShopifyOrderLineNode): number {
   const allocated = moneyAmount(line.discountTotal)
   if (allocated !== null) return allocated
@@ -99,6 +104,27 @@ function lineDiscountTotal(line: ShopifyOrderLineNode): number {
   const discountedUnit = moneyAmount(line.discountedUnitPrice)
   if (discountedUnit === null || !(line.quantity > 0)) return 0
   return Math.max((originalUnit - discountedUnit) * line.quantity, 0)
+}
+
+/**
+ * Resolve a percent tax rate for a line. Prefer Shopify's rate; otherwise derive
+ * from tax and (discounted) line total so sales.orders.create can compute net.
+ */
+export function resolveLineTaxRate(line: ShopifyOrderLineNode, taxesIncluded: boolean): number | null {
+  if (typeof line.taxRate === 'number' && Number.isFinite(line.taxRate) && line.taxRate >= 0) {
+    return line.taxRate
+  }
+  const taxAmount = moneyAmount(line.taxTotal) ?? 0
+  if (taxAmount <= 0) return null
+  const lineGross = moneyAmount(line.totalPrice)
+  if (lineGross === null || lineGross <= 0) return null
+  if (taxesIncluded) {
+    const net = lineGross - taxAmount
+    if (net <= 0) return null
+    return roundMoney((taxAmount / net) * 100)
+  }
+  // Tax-exclusive: totalPrice is net; tax sits on top.
+  return roundMoney((taxAmount / lineGross) * 100)
 }
 
 function buildOrderLineInput(
@@ -114,6 +140,7 @@ function buildOrderLineInput(
   const discountAmount = lineDiscountTotal(line)
   const taxAmount = moneyAmount(line.taxTotal) ?? 0
   const totalPrice = moneyAmount(line.totalPrice)
+  const taxRate = resolveLineTaxRate(line, taxesIncluded)
   const quantity = String(line.quantity)
   const pricing = taxesIncluded
     ? {
@@ -121,7 +148,8 @@ function buildOrderLineInput(
         unitPriceGross: originalUnit,
         discountAmount,
         discountAmountBasis: 'line' as const,
-        taxAmount,
+        ...(taxRate !== null ? { taxRate } : {}),
+        ...(taxAmount > 0 ? { taxAmount } : {}),
         ...(totalPrice !== null ? { totalGrossAmount: totalPrice } : {}),
       }
     : {
@@ -129,7 +157,8 @@ function buildOrderLineInput(
         unitPriceNet: originalUnit,
         discountAmount,
         discountAmountBasis: 'line' as const,
-        taxAmount,
+        ...(taxRate !== null ? { taxRate } : {}),
+        ...(taxAmount > 0 ? { taxAmount } : {}),
         ...(totalPrice !== null
           ? { totalGrossAmount: totalPrice + taxAmount }
           : {}),
@@ -149,6 +178,7 @@ function buildOrderLineInput(
       sku: line.sku,
       shopifyOriginalUnitPrice: line.originalUnitPrice,
       shopifyDiscountedUnitPrice: line.discountedUnitPrice,
+      shopifyTaxRate: taxRate,
     },
     uomSnapshot: {
       version: 1 as const,
@@ -165,11 +195,92 @@ function buildOrderLineInput(
   }
 }
 
+function shippingDiscountAmount(shipping: ShopifyShippingLineNode): number {
+  const original = moneyAmount(shipping.originalPrice) ?? 0
+  const discounted = moneyAmount(shipping.discountedPrice)
+  if (discounted === null) return 0
+  return Math.max(original - discounted, 0)
+}
+
+function buildShippingAdjustment(
+  shipping: ShopifyShippingLineNode,
+  position: number,
+  currencyCode: string,
+  taxesIncluded: boolean,
+): Record<string, unknown> | null {
+  const amount = moneyAmount(shipping.discountedPrice) ?? moneyAmount(shipping.originalPrice) ?? 0
+  if (amount <= 0) return null
+  const taxAmount = moneyAmount(shipping.taxTotal) ?? 0
+  let taxRate = typeof shipping.taxRate === 'number' && Number.isFinite(shipping.taxRate) && shipping.taxRate >= 0
+    ? shipping.taxRate
+    : null
+  if (taxRate === null && taxAmount > 0 && amount > 0) {
+    if (taxesIncluded) {
+      const net = amount - taxAmount
+      if (net > 0) taxRate = roundMoney((taxAmount / net) * 100)
+    } else {
+      taxRate = roundMoney((taxAmount / amount) * 100)
+    }
+  }
+
+  let amountNet: number
+  let amountGross: number
+  if (taxesIncluded) {
+    amountGross = amount
+    amountNet = taxAmount > 0 ? roundMoney(amount - taxAmount) : amount
+  } else {
+    amountNet = amount
+    amountGross = taxAmount > 0 ? roundMoney(amount + taxAmount) : amount
+  }
+
+  return {
+    scope: 'order',
+    kind: 'shipping',
+    label: clip(shipping.title, 255),
+    position,
+    currencyCode,
+    amountNet,
+    amountGross,
+    metadata: {
+      shopifyShippingLineId: shipping.id,
+      ...(taxRate !== null ? { taxRate } : {}),
+      ...(taxAmount > 0 ? { shopifyTaxAmount: taxAmount } : {}),
+    },
+  }
+}
+
+/** Map Shopify displayFinancialStatus → sales.payment_status dictionary value. */
+export function mapShopifyPaymentStatusValue(status: string | null | undefined): string | null {
+  if (!status) return null
+  switch (status.trim().toUpperCase()) {
+    case 'PAID':
+      return 'received'
+    case 'AUTHORIZED':
+      return 'authorized'
+    case 'PARTIALLY_PAID':
+      return 'pending'
+    case 'PARTIALLY_REFUNDED':
+    case 'REFUNDED':
+      return 'refunded'
+    case 'VOIDED':
+      return 'canceled'
+    case 'PENDING':
+      return 'pending'
+    default:
+      return null
+  }
+}
+
+export function shopifyOrderIsFullyPaid(status: string | null | undefined): boolean {
+  return status?.trim().toUpperCase() === 'PAID'
+}
+
 export function buildOrderCommandInput(input: {
   scope: { organizationId: string; tenantId: string }
   order: ShopifyOrderNode
   customerEntityId: string | null
   catalogByVariantId: ReadonlyMap<string, CatalogLink>
+  paymentStatusEntryId?: string | null
 }): Record<string, unknown> {
   const currencyCode = input.order.currencyCode.trim().toUpperCase()
   if (!ISO_CURRENCY.test(currencyCode)) {
@@ -197,25 +308,30 @@ export function buildOrderCommandInput(input: {
     const amount = typeof line.discountAmount === 'number' ? line.discountAmount : 0
     return sum + amount
   }, 0)
+  const shippingDiscountTotal = input.order.shippingLines.reduce(
+    (sum, shipping) => sum + shippingDiscountAmount(shipping),
+    0,
+  )
   const sourceDiscountTotal = moneyAmount(input.order.totalDiscounts) ?? 0
-  const remainingOrderDiscount = Math.max(sourceDiscountTotal - lineDiscountTotalAmount, 0)
+  // Exclude shipping-line discounts already reflected in discounted shipping amounts
+  // so a free-shipping voucher is not subtracted again as an order-level discount.
+  const remainingOrderDiscount = Math.max(
+    sourceDiscountTotal - lineDiscountTotalAmount - shippingDiscountTotal,
+    0,
+  )
 
   const adjustments: Array<Record<string, unknown>> = []
   let position = 0
   for (const shipping of input.order.shippingLines) {
-    const amount = moneyAmount(shipping.discountedPrice) ?? moneyAmount(shipping.originalPrice) ?? 0
-    if (amount <= 0) continue
-    adjustments.push({
-      scope: 'order',
-      kind: 'shipping',
-      label: clip(shipping.title, 255),
-      position: position++,
+    const adjustment = buildShippingAdjustment(
+      shipping,
+      position,
       currencyCode,
-      ...(input.order.taxesIncluded
-        ? { amountGross: amount, amountNet: amount }
-        : { amountNet: amount, amountGross: amount }),
-      metadata: { shopifyShippingLineId: shipping.id },
-    })
+      input.order.taxesIncluded,
+    )
+    if (!adjustment) continue
+    adjustments.push(adjustment)
+    position++
   }
   if (remainingOrderDiscount > 0) {
     adjustments.push({
@@ -244,6 +360,9 @@ export function buildOrderCommandInput(input: {
       input.order.displayFinancialStatus ? `Payment: ${input.order.displayFinancialStatus}` : null,
       input.order.displayFulfillmentStatus ? `Fulfillment: ${input.order.displayFulfillmentStatus}` : null,
     ].filter((part): part is string => Boolean(part)).join('. ') || undefined,
+    ...(input.paymentStatusEntryId
+      ? { paymentStatusEntryId: input.paymentStatusEntryId }
+      : {}),
     metadata: {
       shopifyOrderId: input.order.id,
       shopifyTotal: input.order.total,
@@ -252,6 +371,7 @@ export function buildOrderCommandInput(input: {
       shopifyTotalShipping: input.order.totalShipping,
       shopifyTotalTax: input.order.totalTax,
       shopifyTaxesIncluded: input.order.taxesIncluded,
+      shopifyFinancialStatus: input.order.displayFinancialStatus,
     },
     lines,
     adjustments: adjustments.length > 0 ? adjustments : undefined,
