@@ -9,10 +9,11 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { PostingRulesSettings } from '../../data/entities'
 import { updatePostingRulesSettingsSchema, type UpdatePostingRulesSettingsInput } from '../../data/validators'
-import type { UpdatePostingRulesSettingsResult } from '../../commands/postingRulesSettings'
+import { POSTING_RULES_SETTINGS_RESOURCE_KIND, type UpdatePostingRulesSettingsResult } from '../../commands/postingRulesSettings'
 
 // `/api/posting_rules/settings` — thin wrapper around
 // `updatePostingRulesSettings` (see the spec's API Contracts).
@@ -86,10 +87,27 @@ export async function PATCH(req: Request) {
     const { ctx, tenantId, organizationId } = await resolveSettingsContext(req)
     const { translate } = await resolveTranslations()
     const body = patchBodySchema.parse(await readJsonSafe(req, {}))
+
+    const guardResult = await runRouteMutationGuards({
+      container: ctx.container,
+      req,
+      auth: { userId: ctx.auth?.sub ?? '', tenantId, organizationId },
+      input: {
+        resourceKind: POSTING_RULES_SETTINGS_RESOURCE_KIND,
+        resourceId: `${organizationId}:${tenantId}`,
+        operation: 'update',
+        mutationPayload: body,
+      },
+    })
+    if (!guardResult.ok) return guardResult.response
+    const guardedBody = guardResult.modifiedPayload
+      ? patchBodySchema.parse({ ...body, ...guardResult.modifiedPayload })
+      : body
+
     const commandInput: UpdatePostingRulesSettingsInput = updatePostingRulesSettingsSchema.parse({
       organizationId,
       tenantId,
-      ...body,
+      ...guardedBody,
     })
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
     // `commandBus.execute` resolves `CommandExecuteResult<TResult>`
@@ -99,6 +117,7 @@ export async function PATCH(req: Request) {
       'posting_rules.updatePostingRulesSettings',
       { input: commandInput, ctx },
     )
+    await guardResult.runAfterSuccess()
     return NextResponse.json({ ok: true, result: executed.result })
   } catch (err) {
     const { translate } = await resolveTranslations()
@@ -141,6 +160,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Invalid payload', schema: settingsErrorSchema },
         { status: 401, description: 'Unauthorized', schema: settingsErrorSchema },
         { status: 409, description: 'Optimistic lock conflict', schema: settingsErrorSchema },
+        { status: 422, description: 'Blocked by a mutation guard', schema: settingsErrorSchema },
       ],
     },
   },

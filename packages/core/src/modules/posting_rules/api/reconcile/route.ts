@@ -7,6 +7,7 @@ import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { reconcileCostRingSchema, type ReconcileCostRingInput } from '../../data/validators'
 import type { ReconcileCostRingResult } from '../../commands/reconcileCostRing'
@@ -18,6 +19,8 @@ import type { ReconcileCostRingResult } from '../../commands/reconcileCostRing'
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['posting_rules.reconcile.run'] },
 }
+
+const RECONCILE_RUN_RESOURCE_KIND = 'posting_rules.reconcile_run'
 
 const postBodySchema = z.object({
   periodId: z.uuid().nullable().optional(),
@@ -46,10 +49,27 @@ export async function POST(req: Request) {
     }
 
     const body = postBodySchema.parse(await readJsonSafe(req, {}))
+
+    const guardResult = await runRouteMutationGuards({
+      container,
+      req,
+      auth: { userId: auth.sub ?? '', tenantId: auth.tenantId, organizationId },
+      input: {
+        resourceKind: RECONCILE_RUN_RESOURCE_KIND,
+        resourceId: `${organizationId}:${auth.tenantId}`,
+        operation: 'update',
+        mutationPayload: body,
+      },
+    })
+    if (!guardResult.ok) return guardResult.response
+    const guardedBody = guardResult.modifiedPayload
+      ? postBodySchema.parse({ ...body, ...guardResult.modifiedPayload })
+      : body
+
     const commandInput: ReconcileCostRingInput = reconcileCostRingSchema.parse({
       organizationId,
       tenantId: auth.tenantId,
-      periodId: body.periodId ?? null,
+      periodId: guardedBody.periodId ?? null,
     })
 
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
@@ -60,6 +80,7 @@ export async function POST(req: Request) {
       'posting_rules.reconcileCostRing',
       { input: commandInput, ctx },
     )
+    await guardResult.runAfterSuccess()
     return NextResponse.json({ ok: true, result: executed.result })
   } catch (err) {
     const { translate } = await resolveTranslations()
@@ -91,7 +112,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Invalid payload', schema: reconcileErrorSchema },
         { status: 401, description: 'Unauthorized', schema: reconcileErrorSchema },
         { status: 404, description: 'periodId does not name a fiscal period of this organization', schema: reconcileErrorSchema },
-        { status: 422, description: 'PostingRulesSettings.clearingAccountId is not configured', schema: reconcileErrorSchema },
+        { status: 422, description: 'PostingRulesSettings.clearingAccountId is not configured, or blocked by a mutation guard', schema: reconcileErrorSchema },
       ],
     },
   },
