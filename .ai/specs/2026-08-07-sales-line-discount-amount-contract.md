@@ -1,8 +1,11 @@
 # Sales line `discount_amount` — a single, idempotent contract
 
-Status: draft — design decision requested
+Status: approved — implementation in progress
 Scope: `packages/core/src/modules/sales/{lib/calculations.ts,lib/types.ts,commands/documents.ts,commands/returns.ts,data/validators.ts}`
-Tracking: [#5019](https://github.com/open-mercato/open-mercato/issues/5019); related display-only PR [#5006](https://github.com/open-mercato/open-mercato/pull/5006)
+Tracking: [#3757](https://github.com/open-mercato/open-mercato/issues/3757) — the de facto tracker now that
+[#5019](https://github.com/open-mercato/open-mercato/issues/5019) is closed; related display-only PR
+[#5006](https://github.com/open-mercato/open-mercato/pull/5006). Approved by @wojciechszyjka on 2026-08-26 —
+see § Decision Record for what was decided and what follows from it.
 Verified against: `develop` @ `33a7d00c4` (2026-08-21). Line numbers are a convenience pinned to that
 commit and drift; the symbol or command id beside each is the durable identifier.
 
@@ -492,6 +495,14 @@ must not touch rows it cannot prove wrong.
 in core at all. It is the one piece of scope that is arguably a deployment concern rather than a
 platform one.
 
+**Answered 2026-08-26 (D5): a follow-up, tracked in
+[#5641](https://github.com/open-mercato/open-mercato/issues/5641).** It does not ship with the
+implementation of §§ 1–4 — it is opt-in, operator-facing, and touches no contract surface, so bundling
+it into an already-large behaviour change would add risk without adding correctness. The narrower
+question that issue still carries is whether the tool belongs in core at all or as an operator
+runbook. Until it is answered and built, rows in the third bucket above stay wrong, which is why the
+implementation PR references #3757 rather than closing it.
+
 ## Out of Scope
 
 ### Adjacent: `totalNetAmount` is accepted, validated, then ignored
@@ -695,8 +706,171 @@ the first draft implied: the returns-local mapper duplicate means the implementa
 `commands/returns.ts` as well, and § Proposed Solution 3 recommends extracting the shared mapper
 rather than tagging two copies.
 
+**Answered on 2026-08-26 — see § Decision Record below.** The gate this section holds is released;
+the section is kept as written because it is the question the decisions answer.
+
+## Decision Record
+
+Recorded by @wojciechszyjka on 2026-08-26. The two decisions § Decision Requested reserved for a
+maintainer are approved; four further calls that follow from them are resolved here rather than left
+to be rediscovered at implementation time, because each one changes what the code has to do.
+
+### D1 — the column means a line total — **approved**
+
+§ Proposed Solution 1 stands as written. `sales_order_lines.discount_amount` and
+`sales_quote_lines.discount_amount` hold the discount for the whole line: net, in the line's
+`currency_code`, quantity-inclusive; a derived cache of `discount_percent` when a percentage is set,
+an authoritative override when it is not. `SalesLineCalculationResult.discountAmount` carries the same
+meaning.
+
+This is the meaning the write path and the document rollup already assume and the one every existing
+correct row already holds, so it is the only option that does not require rewriting stored data.
+§ Alternatives B and C are rejected on the grounds the table already gives.
+
+`sales_invoice_lines.discount_amount` stays **outside** this contract — caller-asserted and
+unenforced — exactly as § Proposed Solution 1 states. Nothing in core derives it, recalculates it, or
+validates it, and declaring a contract the platform does not enforce would be decoration.
+
+### D2 — percentage-first precedence — **approved**
+
+§ Proposed Solution 2 stands as written, including treating a stored `0` as absent. The percentage is
+the operator's intent and the amount is its cached result; making intent win is the only rule that is
+stable across a round trip, and the column being `numeric NOT NULL DEFAULT '0'` means a stored `0` can
+never be a reliable presence signal on the read-back path.
+
+**The documented cost is accepted, both shapes of it.** A caller that sends a percent together with a
+deliberately different amount loses the amount; and — the larger population — a caller that sends only
+`discountAmount` on `PUT /api/sales/order-lines`, onto a row that already carries a non-zero
+`discount_percent`, also loses it, because the upsert path inherits the stored percent. The documented
+escape is to send `discountPercent: 0` alongside the explicit amount. § Migration & Backward
+Compatibility carries this to `UPGRADE_NOTES.md`, which is what makes the cost visible to the callers
+who pay it.
+
+### D3 — `discountAmount: 0` alongside a non-zero percent **applies** the percentage
+
+The third question § Decision Requested raises is answered in the direction § Proposed Solution 2
+already implies: the percentage is applied. Today `0` counts as a supplied amount and suppresses the
+discount, so this **inverts** existing behaviour rather than dropping a value, and it is the sharpest
+of the three upgrade cases: an integration that used `discountAmount: 0` to work around this very
+defect — on a unit price it had already discounted itself — starts double-discounting silently.
+
+Two consequences are binding on the implementation. It must be covered by an explicit test rather
+than left as incidental behaviour (acceptance criterion 8), and `UPGRADE_NOTES.md` must call it out
+distinctly from the two "you lose your amount" cases, because gaining a discount you did not ask for
+is a different severity from losing one you did.
+
+### D4 — § Alternatives E is **not** adopted
+
+Ship § Proposed Solution 2's simpler value-only rule. E is the stronger alternative on paper — it
+removes both of D2's cost cases at no migration cost — but it makes precedence key off a field's
+*presence* rather than its value, which is subtler to document and to test, and it turns the § 3
+invariant from tidy into load-bearing.
+
+The deciding factor is that this is reversible in the cheap direction. § 3's two-field type shape is
+identical whichever way this goes — that was deliberate in the 2026-08-21 revision — so E remains
+adoptable later as a **purely additive** change: a caller opts in by sending `discountAmountBasis`,
+and one that never sends it sees no difference either way. Shipping the simpler rule first and adding
+E if the cost proves real is strictly safer than shipping the subtler rule and discovering its guard
+test was the only thing holding it up.
+
+Acceptance criterion 10 is therefore **out of scope** for this implementation. Criterion 9's
+invariant is **in scope** and must be tested — it is what keeps E adoptable.
+
+### D5 — the operator repair CLI is **deferred**
+
+`yarn mercato sales recompute-line-discounts --dry-run [--tenant <id>]`, the opt-in tool for the
+third § Row reconciliation bucket (amount-only, no percent, re-inflated — the one that cannot
+self-heal), does not ship in the implementation of §§ 1–4. It is opt-in, operator-facing, and touches
+no contract surface, so bundling it into an already-large behaviour change adds risk without adding
+correctness. It is filed as its own follow-up issue.
+
+Note what this leaves open: rows in that third bucket stay wrong until an operator runs a repair. That
+is why the implementation PR references #3757 rather than closing it.
+
+### D6 — extract the shared mapper rather than tagging two copies
+
+§ Proposed Solution 3 offers a fallback — keep `documents.ts` and `returns.ts` with their own copies
+of `mapOrderLineEntityToSnapshot` and add a test asserting they produce identical snapshots. That
+fallback is declined. The duplication is the mechanical reason the return flows were missed in this
+spec's own first draft, and an equivalence test preserves the trap while merely alarming on it. One
+shared mapper in module-local `lib/`, imported by both command files, removes it.
+
+## Implementation Plan
+
+Added 2026-08-26, when the decisions above released the gate. Until then this spec deliberately had no
+breakdown, which is also why no automation could implement it: the tooling requires this section to
+treat a spec as implementable.
+
+Phases are ordered so that nothing depends on a later phase. Every step is one commit. The live run
+executing it is `.ai/runs/2026-08-26-sales-line-discount-amount-contract/`.
+
+### Phase 1 — types and the calculation engine
+
+1. **The discount-basis types** in `lib/types.ts`: `SalesLineDiscountBasis`, the caller-only
+   `discountAmountBasis`, and the mapper-only `discountAmountFromStoredRow`, per § Proposed Solution 3.
+   Both fields optional, in-memory only, never persisted and never accepted from a request payload.
+2. **Percentage-first, basis-aware resolution** in `buildBaseLineResult`, per § Proposed Solution 2 and
+   D3. Compute the undiscounted subtotal first; take the percent when it is set and non-zero; otherwise
+   take the amount interpreted per its origin; otherwise zero. The existing clamp bounds are preserved
+   and only the unconditional `× quantity` goes away.
+3. **Unit tests** per § Testing Strategy, including the idempotency property table and the D3 case.
+
+### Phase 2 — one shared mapper (D6)
+
+4. **Extract** the order-line entity→snapshot mapper into module-local `lib/`, tagging
+   `discountAmountFromStoredRow: true`.
+5. **Point `commands/documents.ts`** at it and drop its local copy.
+6. **Point `commands/returns.ts`** at it and delete the duplicate — the copy whose three persisting
+   consumers write recomputed order header totals.
+7. **Tag the quote mapper** the same way; it stays a separate function because it maps a different
+   entity type.
+
+### Phase 3 — request schema and the upsert sites
+
+8. **`discountAmountBasis` in the shared `linePricingSchema`** only, per § API Contracts. One edit
+   reaches every order and quote line surface; `invoiceCreateSchema` is deliberately not touched.
+9. **Decompose the coalescing chain** at `sales.orders.lines.upsert` per § Proposed Solution 4 — origin
+   decided per operand, `?? 0` becoming `?? null`.
+10. **The same at `sales.quotes.lines.upsert`.** Both, or the quote path silently keeps the defect.
+11. **Carry the caller basis through `createLineSnapshotFromInput`**, defaulting to `'unit'`.
+
+### Phase 4 — command tests
+
+12. Order and quote upsert idempotency at `quantity > 1`.
+13. Upsert-existing without re-sending the amount — the case that fails if step 9's chain is left
+    merged.
+14. Return create then delete leaves the order header totals byte-identical (acceptance criteria 4–6).
+15. The § 3 producer invariant (acceptance criterion 9).
+
+### Phase 5 — the display site and the upgrade note
+
+16. Resolve the second per-unit reading in `components/documents/SalesOrderDraftLines.tsx`.
+17. The `UPGRADE_NOTES.md` entry covering all three § Migration & Backward Compatibility rows.
+
+### Phase 6 — integration
+
+18. `__integration__/TC-SALES-5019-line-discount-idempotency.spec.ts`, self-contained with API-created
+    fixtures and teardown cleanup.
+
+### Phase 7 — follow-ups
+
+19. The deferred operator repair CLI (D5).
+20. The adjacent `totalNetAmount` finding from § Out of Scope, which has no upstream issue.
+
 ## Changelog
 
+- 2026-08-26 — **Approved.** @wojciechszyjka signed off § Proposed Solution 1 (the column is a line
+  total) and § Proposed Solution 2 (percentage-first precedence, a stored `0` treated as absent),
+  releasing the gate this spec had held since 2026-08-07. Four dependent calls were resolved in the
+  same pass and written up in the new § Decision Record: the third question this spec raised is
+  answered as **apply** (`discountAmount: 0` alongside a non-zero percent now applies the percentage,
+  which inverts rather than drops existing integration behaviour and gets its own upgrade note and
+  test); § Alternatives E is **not** adopted, since the § 3 type shape is identical either way and E
+  therefore stays additively adoptable later; the operator repair CLI is deferred to
+  [#5641](https://github.com/open-mercato/open-mercato/issues/5641); and § Proposed Solution 3's
+  mapper de-duplication takes the extraction route rather than the two-copies-plus-equivalence-test
+  fallback. Added the § Implementation Plan the spec had never carried — its absence was what made the
+  spec unimplementable by automation — and re-pointed § Tracking at #3757 now that #5019 is closed.
 - 2026-08-07 — Initial draft.
 - 2026-08-11 — Grounded the severity argument in the create-vs-upsert asymmetry in the code, stated
   as a deterministic worked example plus a detection recipe operators can run against their own data.

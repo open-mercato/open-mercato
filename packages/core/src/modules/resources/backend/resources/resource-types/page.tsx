@@ -289,6 +289,7 @@ export default function ResourcesResourceTypesPage() {
       <PageBody>
         <DataTable<ResourceTypeRow>
           title={translations.title}
+          titleHeadingLevel={1}
           data={rows}
           columns={columns}
           isLoading={isLoading}

@@ -146,7 +146,7 @@ async function assertQueueTargetPayloadAllowed(queue: string, targetPayload: Rec
   if (reason) throw new CrudHttpError(422, { error: `Invalid target payload for queue ${queue}: ${reason}` })
 }
 
-function resolveCommandActorUserId(ctx: CommandRuntimeContext): string | null {
+export function resolveCommandActorUserId(ctx: CommandRuntimeContext): string | null {
   const auth = ctx.auth
   if (!auth) return null
   if (typeof auth.userId === 'string' && auth.userId.trim().length > 0) return auth.userId.trim()

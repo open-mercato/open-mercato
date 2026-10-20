@@ -42,6 +42,7 @@ import {
   seedAgentRegistryForTests,
 } from '../agent-registry'
 import { registerMcpTool, toolRegistry } from '../tool-registry'
+import { ensureModuleToolsLoaded } from '../tool-loader'
 import type {
   AiPendingActionStatus,
   AiPendingActionQueueMode,
@@ -284,6 +285,86 @@ describe('prepareMutation', () => {
     expect(pendingAction.organizationId).toBe('org-alpha')
   })
 
+  it('fallback patch from flat args: untouched snapshot fields and envelope keys do not surface as cleared (regression #7349)', async () => {
+    const em = mockEm()
+    const container = makeContainer(em)
+    const tool = makeTool({
+      name: 'catalog.update_product',
+      isMutation: true,
+      loadBeforeRecord: async () => ({
+        recordId: 'p-1',
+        entityType: 'catalog.product',
+        recordVersion: 'v-1',
+        before: {
+          title: 'Old title',
+          subtitle: null,
+          description: 'Old description',
+          sku: 'SKU-1',
+          handle: null,
+          isActive: true,
+          primaryCurrencyCode: null,
+        },
+      }),
+    })
+    const agent = makeAgent({ id: 'catalog.merch' })
+
+    const { uiPart } = await prepareMutation(
+      {
+        agent,
+        tool,
+        toolCallArgs: { productId: 'p-1', title: 'New title' },
+      },
+      { ...baseCtx, container },
+    )
+
+    expect(uiPart.props.fieldDiff).toEqual([
+      { field: 'title', before: 'Old title', after: 'New title' },
+    ])
+  })
+
+  it('batch fallback patch from flat args: untouched snapshot fields do not surface as cleared (regression #7349)', async () => {
+    const em = mockEm()
+    const container = makeContainer(em)
+    const tool = makeTool({
+      name: 'catalog.bulk_update_products',
+      isMutation: true,
+      isBulk: true,
+      loadBeforeRecords: async () => [
+        {
+          recordId: 'p-1',
+          entityType: 'catalog.product',
+          label: 'Widget',
+          recordVersion: 'v-1',
+          before: {
+            title: 'Old title',
+            subtitle: null,
+            description: 'Old description',
+            sku: 'SKU-1',
+          },
+        },
+      ],
+    })
+    const agent = makeAgent({ id: 'catalog.merch' })
+
+    const { pendingAction } = await prepareMutation(
+      {
+        agent,
+        tool,
+        toolCallArgs: {
+          records: [{ recordId: 'p-1', title: 'New title' }],
+        },
+      },
+      { ...baseCtx, container },
+    )
+
+    const records = pendingAction.records as Array<{
+      fieldDiff: Array<{ field: string; before: unknown; after: unknown }>
+    }>
+    expect(records[0].fieldDiff).toEqual([
+      { field: 'title', before: 'Old title', after: 'New title' },
+    ])
+  })
+
   it('uses resolver-provided after snapshots and display labels for operator previews', async () => {
     const em = mockEm()
     const container = makeContainer(em)
@@ -378,11 +459,9 @@ describe('prepareMutation', () => {
     expect(records).toHaveLength(2)
     expect(records[0].recordId).toBe('p-1')
     expect(records[0].label).toBe('Widget')
-    // Patch only carries `name` — keys present in `before` but not in `after`
-    // still surface as diff entries with after=undefined (they are "cleared").
-    expect(records[0].fieldDiff).toEqual(
-      expect.arrayContaining([{ field: 'name', before: 'old', after: 'new-1' }]),
-    )
+    expect(records[0].fieldDiff).toEqual([
+      { field: 'name', before: 'old', after: 'new-1' },
+    ])
     expect(records[1].fieldDiff).toEqual(
       expect.arrayContaining([
         { field: 'name', before: 'gadget-old', after: 'new-2' },
@@ -557,6 +636,15 @@ describe('prepareMutation', () => {
 
 describe('resolveAiAgentTools mutation interception (Step 5.6)', () => {
   let warnSpy: jest.Mock
+
+  // `resolveAiAgentTools` populates the tool registry on first use, which
+  // compiles and imports the generated ai-tools registry. On a cold CI runner
+  // that one-time cost lands inside whichever test happens to run first and
+  // blows the default 5s per-test budget; the loader memoizes, so paying it
+  // here keeps every test below on the default timeout.
+  beforeAll(async () => {
+    await ensureModuleToolsLoaded()
+  }, 120_000)
 
   beforeEach(() => {
     resetAgentRegistryForTests()

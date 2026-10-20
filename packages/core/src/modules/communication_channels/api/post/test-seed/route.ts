@@ -6,6 +6,9 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   ChannelThreadMapping,
   CommunicationChannel,
@@ -22,8 +25,12 @@ import { emitCommunicationChannelsEvent } from '../../../events'
 import {
   TEST_SEED_CHAT_PROVIDER_KEY,
   TEST_SEED_PROVIDER_KEY,
+  clearTestSeedCapturedMessages,
+  createTestSeedPlatformMessage,
   ensureTestSeedAdapterRegistered,
+  isTestEmailCaptureAccessAuthorized,
   isTestChannelSeedingEnabled,
+  listTestSeedCapturedMessages,
 } from '../../../lib/test-seed'
 import {
   COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID,
@@ -43,7 +50,9 @@ import {
  *     (delegates to the real connect-credential command so the channel persists
  *     credentials + lands in `status='connected'`). Enables the outbound
  *     compose → deliver → `.sent` chain to complete in CI. `providerFlavor: 'chat'`
- *     connects the non-email stub instead, for tests about sender identity.
+ *     connects the non-email stub instead, for tests about sender identity, and
+ *     `labelAsProviderKey` relabels the connected row so a provider-scoped
+ *     listing has something to list without a live credential probe.
  *   - `ingest-inbound`: run the REAL `ingest_inbound_message` command over an
  *     adapter-normalized chat frame, so the platform compose path — and every
  *     validation rule on it — actually executes. Use this for anything that
@@ -88,6 +97,27 @@ const connectChannelSchema = z.object({
    * without inventing one (#4975).
    */
   providerFlavor: z.enum(['email', 'chat']).optional(),
+  /**
+   * TEST-ONLY: rewrite the connected stub channel's `provider_key` to this value.
+   *
+   * Routes that a provider package owns filter on their own `provider_key`, and
+   * a real channel for those providers cannot be connected in CI — the Discord
+   * adapter's `validateCredentials` performs a live API call against a bot token
+   * no test environment has. Without this, a provider-scoped listing has nothing
+   * to list and can only be asserted against an empty result, which is exactly
+   * the assertion that would have stayed green through #5602.
+   *
+   * It relabels a row; it registers nothing. The stub adapter is still the only
+   * adapter present, so the channel remains network-free — but no test should
+   * drive an outbound send through a relabelled channel, because delivery would
+   * then resolve the real provider's adapter.
+   */
+  labelAsProviderKey: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[a-z0-9_-]+$/)
+    .optional(),
 })
 
 /**
@@ -110,6 +140,24 @@ const ingestInboundSchema = z.object({
   body: z.string().max(50_000).optional(),
   externalMessageId: z.string().min(1).max(255),
   externalConversationId: z.string().min(1).max(255),
+})
+
+const seedSystemChannelSchema = z.object({
+  action: z.literal('seed-system-channel'),
+  displayName: z.string().min(1).max(255).optional(),
+  externalIdentifier: z.string().min(1).max(255).optional(),
+})
+
+const clearCaptureSchema = z.object({
+  action: z.literal('clear-capture'),
+  systemRecipient: z.string().email().max(320).optional(),
+  captureCorrelationToken: z.string().min(32).max(512).optional(),
+})
+
+const listCaptureSchema = z.object({
+  action: z.literal('list-capture'),
+  systemRecipient: z.string().email().max(320).optional(),
+  captureCorrelationToken: z.string().min(32).max(512).optional(),
 })
 
 const emitInboundSchema = z.object({
@@ -145,11 +193,43 @@ const emitInboundSchema = z.object({
   createThreadMapping: z.boolean().optional(),
 })
 
+/**
+ * Read-only: report the channel-side rows a platform message carries.
+ *
+ * The threading contract lives in rows no API exposes — an integration test
+ * asserting that a composer send really was routed through the hub can only
+ * observe them here.
+ */
+const inspectMessageLinksSchema = z.object({
+  action: z.literal('inspect-message-links'),
+  messageId: z.string().uuid(),
+})
+
 const bodySchema = z.discriminatedUnion('action', [
   connectChannelSchema,
+  inspectMessageLinksSchema,
   ingestInboundSchema,
   emitInboundSchema,
+  seedSystemChannelSchema,
+  clearCaptureSchema,
+  listCaptureSchema,
 ])
+
+const logger = createLogger('communication_channels').child({ component: 'test-seed' })
+
+function ingestFailureResponse(err: unknown): Response {
+  if (err instanceof z.ZodError) {
+    return NextResponse.json({ error: err.message, issues: err.issues }, { status: 422 })
+  }
+  if (isCrudHttpError(err)) {
+    return NextResponse.json(err.body, { status: err.status })
+  }
+  logger.error('ingest-inbound failed', { err })
+  return NextResponse.json(
+    { error: err instanceof Error ? err.message : '[internal] ingest-inbound failed' },
+    { status: 500 },
+  )
+}
 
 export async function POST(req: Request): Promise<Response> {
   // Fail-closed: invisible in production. Mirrors an unknown route (404) rather
@@ -173,14 +253,132 @@ export async function POST(req: Request): Promise<Response> {
     )
   }
 
+  const tenantId = auth.tenantId as string
+  const organizationId = (auth as { orgId?: string | null }).orgId ?? null
+  const userId = auth.sub as string
+  const captureScope = { tenantId, organizationId }
+
+  if (
+    (body.action === 'clear-capture' || body.action === 'list-capture')
+    && body.systemRecipient
+    && (
+      !body.captureCorrelationToken
+      || !isTestEmailCaptureAccessAuthorized(req.headers.get('x-om-test-email-capture-access-token'))
+    )
+  ) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  if (body.action === 'clear-capture') {
+    await clearTestSeedCapturedMessages(captureScope, {
+      systemRecipient: body.systemRecipient,
+      captureCorrelationToken: body.captureCorrelationToken,
+    })
+    return NextResponse.json({ ok: true })
+  }
+
+  if (body.action === 'list-capture') {
+    return NextResponse.json({
+      items: (await listTestSeedCapturedMessages(captureScope, {
+        systemRecipient: body.systemRecipient,
+        captureCorrelationToken: body.captureCorrelationToken,
+      })).map(({ captureCorrelationToken: _captureCorrelationToken, ...message }) => message),
+    })
+  }
+
   const container = await createRequestContainer()
   // Defensive: make sure the stub adapter is registered for this process even if
   // a worker-only node skipped module di registration.
   ensureTestSeedAdapterRegistered()
 
-  const tenantId = auth.tenantId as string
-  const organizationId = (auth as { orgId?: string | null }).orgId ?? null
-  const userId = auth.sub as string
+  if (body.action === 'inspect-message-links') {
+    const em = (container.resolve('em') as EntityManager).fork()
+    const links = await em.find(MessageChannelLink, {
+      messageId: body.messageId,
+      tenantId,
+      organizationId,
+    })
+    const conversationIds = links
+      .map((link) => link.externalConversationId)
+      .filter((id): id is string => Boolean(id))
+    const mappings = conversationIds.length
+      ? await em.find(ChannelThreadMapping, {
+          externalConversationId: { $in: conversationIds },
+          tenantId,
+          organizationId,
+        })
+      : []
+    return NextResponse.json({
+      links: links.map((link) => ({
+        id: link.id,
+        direction: link.direction,
+        providerKey: link.providerKey,
+        channelType: link.channelType,
+        deliveryStatus: link.deliveryStatus,
+        externalConversationId: link.externalConversationId,
+      })),
+      threadMappings: mappings.map((mapping) => ({
+        id: mapping.id,
+        messageThreadId: mapping.messageThreadId,
+        channelId: mapping.channelId,
+        externalConversationId: mapping.externalConversationId,
+      })),
+    })
+  }
+
+  if (body.action === 'seed-system-channel') {
+    const em = (container.resolve('em') as EntityManager).fork()
+    const credentialsService = container.resolve('integrationCredentialsService') as {
+      save: (
+        integrationId: string,
+        credentials: Record<string, unknown>,
+        scope: { organizationId: string; tenantId: string; userId?: string | null },
+      ) => Promise<void>
+    }
+    await credentialsService.save(
+      `channel_${TEST_SEED_PROVIDER_KEY}`,
+      { testSeed: true },
+      { tenantId, organizationId: organizationId ?? tenantId, userId: null },
+    )
+    let channel = await findOneWithDecryption(
+      em,
+      CommunicationChannel,
+      {
+        providerKey: TEST_SEED_PROVIDER_KEY,
+        channelType: 'email',
+        tenantId,
+        organizationId,
+        userId: null,
+        deletedAt: null,
+      },
+      undefined,
+      { tenantId, organizationId },
+    )
+    if (!channel) {
+      const stamp = Date.now()
+      channel = em.create(CommunicationChannel, {
+        providerKey: TEST_SEED_PROVIDER_KEY,
+        channelType: 'email',
+        displayName: body.displayName ?? `Test Seed System Email ${stamp}`,
+        externalIdentifier: body.externalIdentifier ?? `system-${stamp}@test-seed.local`,
+        userId: null,
+        isPrimary: false,
+        isActive: true,
+        status: 'connected',
+        tenantId,
+        organizationId,
+      })
+      em.persist(channel)
+      await em.flush()
+    } else if (!channel.isActive || channel.status !== 'connected') {
+      channel.isActive = true
+      channel.status = 'connected'
+      channel.lastError = null
+      await em.flush()
+    }
+
+    return NextResponse.json({ channelId: channel.id }, { status: 201 })
+  }
 
   if (body.action === 'connect-channel') {
     const stamp = Date.now()
@@ -224,8 +422,30 @@ export async function POST(req: Request): Promise<Response> {
         { status: 500 },
       )
     }
+    if (body.labelAsProviderKey && body.labelAsProviderKey !== input.providerKey) {
+      const seedEm = (container.resolve('em') as EntityManager).fork()
+      const connected = await findOneWithDecryption(
+        seedEm,
+        CommunicationChannel,
+        { id: result.channelId, tenantId },
+        undefined,
+        { tenantId, organizationId },
+      )
+      if (!connected) {
+        return NextResponse.json(
+          { error: '[internal] test-seed could not reload the channel it just connected' },
+          { status: 500 },
+        )
+      }
+      connected.providerKey = body.labelAsProviderKey
+      await seedEm.flush()
+    }
     return NextResponse.json(
-      { channelId: result.channelId, externalIdentifier: result.externalIdentifier },
+      {
+        channelId: result.channelId,
+        externalIdentifier: result.externalIdentifier,
+        providerKey: body.labelAsProviderKey ?? input.providerKey,
+      },
       { status: 201 },
     )
   }
@@ -319,17 +539,25 @@ export async function POST(req: Request): Promise<Response> {
       )
     }
 
-    const normalized = await adapter.normalizeInbound({
-      raw: {
-        externalMessageId: body.externalMessageId,
-        externalConversationId: body.externalConversationId,
-        senderIdentifier: body.senderIdentifier,
-        senderDisplayName: body.senderDisplayName,
-        body: body.body ?? '',
-      },
-      eventType: 'message',
-      metadata: {},
-    })
+    let normalized: unknown
+    try {
+      normalized = await adapter.normalizeInbound({
+        raw: {
+          externalMessageId: body.externalMessageId,
+          externalConversationId: body.externalConversationId,
+          senderIdentifier: body.senderIdentifier,
+          senderDisplayName: body.senderDisplayName,
+          body: body.body ?? '',
+        },
+        eventType: 'message',
+        metadata: {},
+      })
+    } catch (err) {
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : '[internal] adapter rejected the inbound frame' },
+        { status: 422 },
+      )
+    }
 
     const ingestInput = {
       channelId: body.channelId,
@@ -339,19 +567,29 @@ export async function POST(req: Request): Promise<Response> {
       message: normalized,
     } as IngestInboundMessageInput
 
-    const { result } = await commandBus.execute<
-      IngestInboundMessageInput,
-      IngestInboundMessageResult
-    >(COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID, {
-      input: ingestInput,
-      ctx: {
-        container,
-        auth: auth as never,
-        organizationScope: null,
-        selectedOrganizationId: organizationId,
-        organizationIds: organizationId ? [organizationId] : null,
-      },
-    })
+    let result: IngestInboundMessageResult
+    try {
+      const execution = await commandBus.execute<
+        IngestInboundMessageInput,
+        IngestInboundMessageResult
+      >(COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID, {
+        input: ingestInput,
+        ctx: {
+          container,
+          auth: auth as never,
+          organizationScope: null,
+          selectedOrganizationId: organizationId,
+          organizationIds: organizationId ? [organizationId] : null,
+        },
+      })
+      result = execution.result
+    } catch (err) {
+      const interceptorRejection = getCommandInterceptorHttpRejection(err)
+      if (interceptorRejection) {
+        return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+      }
+      return ingestFailureResponse(err)
+    }
 
     return NextResponse.json(
       {
@@ -379,32 +617,16 @@ export async function POST(req: Request): Promise<Response> {
   em.persist(conversation)
   await em.flush()
 
-  // Insert the platform `messages.message` row via raw SQL rather than importing
-  // the messages module's entity class (cross-module ORM coupling rule). Only
-  // `thread_id` matters for the hub-thread inheritance join (TC-CRM-EMAIL-005);
-  // the rest satisfy NOT NULL constraints.
-  const messageRows = (await em.getConnection().execute(
-    `INSERT INTO messages
-       (type, thread_id, sender_user_id, subject, body, body_format, priority, status,
-        is_draft, sent_at, visibility, source_entity_type, source_entity_id,
-        tenant_id, organization_id, created_at, updated_at)
-     VALUES
-       (?, ?, ?, ?, ?, 'text', 'normal', 'sent',
-        false, now(), 'public', 'communication_channels.test_seed_inbound', ?,
-        ?, ?, now(), now())
-     RETURNING id`,
-    [
-      `channel.${providerKey}`,
-      body.messageThreadId ?? null,
-      userId,
-      body.subject ?? '(no subject)',
-      body.bodyText ?? '',
-      body.channelId,
-      tenantId,
-      organizationId,
-    ],
-  )) as Array<{ id: string }>
-  const messageId = messageRows[0]?.id
+  const messageId = await createTestSeedPlatformMessage(em, {
+    providerKey,
+    threadId: body.messageThreadId,
+    senderUserId: userId,
+    subject: body.subject,
+    bodyText: body.bodyText,
+    channelId: body.channelId,
+    tenantId,
+    organizationId,
+  })
   if (!messageId) {
     return NextResponse.json({ error: '[internal] failed to seed message row' }, { status: 500 })
   }

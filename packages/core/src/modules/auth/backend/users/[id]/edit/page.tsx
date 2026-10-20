@@ -535,6 +535,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
       <PageBody>
         <CrudForm<EditUserFormValues>
           title={t('auth.users.form.title.edit', 'Edit User')}
+          titleHeadingLevel={1}
           backHref="/backend/users"
           versionHistory={{ resourceKind: 'auth.user', resourceId: id ? String(id) : '' }}
           fields={fields}

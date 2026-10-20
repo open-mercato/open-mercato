@@ -4,6 +4,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'eudr.statement.submitted',
     module: 'eudr',
+    channels: ['in_app', 'email'],
     titleKey: 'eudr.notifications.statement.submitted.title',
     bodyKey: 'eudr.notifications.statement.submitted.body',
     icon: 'file-check',
@@ -14,6 +15,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'eudr.statement.reference_issued',
     module: 'eudr',
+    channels: ['in_app', 'email'],
     titleKey: 'eudr.notifications.statement.referenceIssued.title',
     bodyKey: 'eudr.notifications.statement.referenceIssued.body',
     icon: 'badge-check',
@@ -24,6 +26,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'eudr.statement.withdrawn',
     module: 'eudr',
+    channels: ['in_app', 'email'],
     titleKey: 'eudr.notifications.statement.withdrawn.title',
     bodyKey: 'eudr.notifications.statement.withdrawn.body',
     icon: 'undo',
@@ -34,6 +37,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'eudr.risk.non_negligible',
     module: 'eudr',
+    channels: ['in_app', 'email'],
     titleKey: 'eudr.notifications.risk.nonNegligible.title',
     bodyKey: 'eudr.notifications.risk.nonNegligible.body',
     icon: 'alert-triangle',
@@ -44,6 +48,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'eudr.mitigation.completed',
     module: 'eudr',
+    channels: ['in_app', 'email'],
     titleKey: 'eudr.notifications.mitigation.completed.title',
     bodyKey: 'eudr.notifications.mitigation.completed.body',
     icon: 'check-circle',

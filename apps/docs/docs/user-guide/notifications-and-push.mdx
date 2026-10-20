@@ -44,9 +44,9 @@ Open **Settings → Module Configs → Notification Delivery** (`/backend/config
 This is a matrix of every notification type against every channel. Each row is a kind of message — "Order created", "Account locked" — and each cell says whether that type may use that channel **at all** in your tenant. It sits above user preferences: a channel switched off here is off for everyone, including for messages users cannot normally opt out of.
 
 :::warning A type that ships without an explicit channel list is push-eligible
-Many notification types do not declare which channels they may use, and the platform reads that as "no restriction" rather than "none". The practical effect: the moment you complete Step 1, those types start pushing.
+When a notification type does not declare which channels it may use, the platform reads that as "no restriction" rather than "none" — so completing Step 1 makes such a type start pushing. Built-in types are not affected: every one of them now declares its channels explicitly, and the business and actionable ones ship in-app and email only ([#5495](https://github.com/open-mercato/open-mercato/issues/5495)). Types added by third-party modules can still omit the list.
 
-Review this matrix immediately after connecting a provider, and switch push off for anything you do not want on a phone. This default is under discussion upstream ([#5495](https://github.com/open-mercato/open-mercato/issues/5495)).
+Review this matrix immediately after connecting a provider, and switch push off for anything you do not want on a phone.
 :::
 
 You can also mark a type non-opt-out here, for alerts that must always reach the recipient.

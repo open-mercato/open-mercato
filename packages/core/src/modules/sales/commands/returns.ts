@@ -16,6 +16,7 @@ import type { SalesAdjustmentDraft, SalesLineSnapshot, SalesDocumentCalculationR
 import { cloneJson, deriveLineNetFromGross, ensureOrganizationScope, ensureSameScope, ensureTenantScope, extractUndoPayload, toNumericString, enforceSalesDocumentOptimisticLock, SALES_RESOURCE_KIND_ORDER, SALES_RESOURCE_KIND_RETURN } from './shared'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { SalesOrder, SalesOrderAdjustment, SalesOrderLine, SalesReturn, SalesReturnLine } from '../data/entities'
+import { mapOrderLineEntityToSnapshot } from '../lib/lineSnapshots'
 import { loadShippedQuantityByLine } from '../lib/shipments/snapshots'
 import { computeAvailableReturnQuantity } from '../lib/returnQuantity'
 import {
@@ -132,37 +133,6 @@ function applyOrderTotals(order: SalesOrder, totals: SalesDocumentCalculationRes
   order.outstandingAmount = toNumericString(totals.outstandingAmount) ?? '0'
   order.totalsSnapshot = cloneJson(totals)
   order.lineItemCount = lineCount
-}
-
-function mapOrderLineEntityToSnapshot(line: SalesOrderLine): SalesLineSnapshot {
-  return {
-    id: line.id,
-    lineNumber: line.lineNumber,
-    kind: line.kind,
-    productId: line.productId ?? null,
-    productVariantId: line.productVariantId ?? null,
-    name: line.name ?? null,
-    description: line.description ?? null,
-    comment: line.comment ?? null,
-    quantity: toNumeric(line.quantity),
-    quantityUnit: line.quantityUnit ?? null,
-    normalizedQuantity: toNumeric(line.normalizedQuantity ?? line.quantity),
-    normalizedUnit: line.normalizedUnit ?? line.quantityUnit ?? null,
-    uomSnapshot: line.uomSnapshot ? cloneJson(line.uomSnapshot) : null,
-    currencyCode: line.currencyCode,
-    unitPriceNet: toNumeric(line.unitPriceNet),
-    unitPriceGross: toNumeric(line.unitPriceGross),
-    discountAmount: toNumeric(line.discountAmount),
-    discountPercent: toNumeric(line.discountPercent),
-    taxRate: toNumeric(line.taxRate),
-    taxAmount: toNumeric(line.taxAmount),
-    totalNetAmount: toNumeric(line.totalNetAmount),
-    totalGrossAmount: toNumeric(line.totalGrossAmount),
-    configuration: line.configuration ? cloneJson(line.configuration) : null,
-    promotionCode: line.promotionCode ?? null,
-    metadata: line.metadata ? cloneJson(line.metadata) : null,
-    customFieldSetId: line.customFieldSetId ?? null,
-  }
 }
 
 function mapOrderAdjustmentToDraft(adjustment: SalesOrderAdjustment): SalesAdjustmentDraft {
@@ -437,6 +407,13 @@ async function reverseReturnEffects(
  * recalculate the order totals. Shared by the create command's redo and the
  * delete command's undo. Returns the recreated return lines so callers can emit
  * index side effects. Throws a 404 when the order is gone.
+ *
+ * The order may have changed since the snapshot was taken (another return
+ * consumed the shipped quantity, a shipment was removed, an order line was
+ * deleted), so the snapshot quantities are re-checked against the currently
+ * returnable quantity — the same rule `sales.returns.create` enforces — under
+ * the order-line lock and before any write. A stale restore is refused with a
+ * 409 instead of returning and crediting the same shipped units twice.
  */
 async function restoreReturnEffects(
   em: EntityManager,
@@ -445,6 +422,7 @@ async function restoreReturnEffects(
 ): Promise<SalesReturnLine[]> {
   const returnId = snapshot.id
   const createdLines: SalesReturnLine[] = []
+  const { translate } = await resolveTranslations()
 
   await withAtomicFlush(
     em,
@@ -458,7 +436,7 @@ async function restoreReturnEffects(
           { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
         )
         if (!order) {
-          throw notFound('sales.returns.orderMissing')
+          throw notFound(translate('sales.returns.orderMissing', 'Order not found.'))
         }
         ensureSameScope(order, snapshot.organizationId, snapshot.tenantId)
 
@@ -470,6 +448,34 @@ async function restoreReturnEffects(
           { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
         )
         const lineMap = new Map(orderLines.map((line) => [line.id, line]))
+
+        const shippedByLine = await loadShippedQuantityByLine(em, order.id, {
+          tenantId: snapshot.tenantId,
+          organizationId: snapshot.organizationId,
+        })
+        const restoredByLine = new Map<string, { line: SalesOrderLine; quantity: number }>()
+        snapshot.lines.forEach((lineSnapshot) => {
+          const line = lineSnapshot.orderLineId ? lineMap.get(lineSnapshot.orderLineId) : undefined
+          if (!line) {
+            throw new CrudHttpError(409, {
+              error: translate('sales.returns.restoreLineMissing', 'This return cannot be restored: one of its order lines no longer exists.'),
+            })
+          }
+          const restored = restoredByLine.get(line.id)
+          restoredByLine.set(line.id, { line, quantity: (restored?.quantity ?? 0) + lineSnapshot.quantityReturned })
+        })
+        restoredByLine.forEach(({ line, quantity }, orderLineId) => {
+          const available = computeAvailableReturnQuantity({
+            quantity: toNumeric(line.quantity),
+            returnedQuantity: toNumeric(line.returnedQuantity),
+            shippedQuantity: shippedByLine.get(orderLineId) ?? 0,
+          })
+          if (quantity - 1e-6 > available) {
+            throw new CrudHttpError(409, {
+              error: translate('sales.returns.restoreQuantityUnavailable', 'This return cannot be restored: the order no longer has enough shipped quantity left to return.'),
+            })
+          }
+        })
 
         const existingAdjustments = await findWithDecryption(
           em,
@@ -848,7 +854,8 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
       { tenantId: after.tenantId, organizationId: after.organizationId },
     )
     if (!header) {
-      throw notFound('sales.returns.orderMissing')
+      const { translate } = await resolveTranslations()
+      throw notFound(translate('sales.returns.orderMissing', 'Order not found.'))
     }
 
     await invalidateOrderCache(ctx.container, {

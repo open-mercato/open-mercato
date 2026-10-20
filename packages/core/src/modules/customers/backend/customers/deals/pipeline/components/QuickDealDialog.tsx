@@ -21,11 +21,11 @@ import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { registerComponent } from '@open-mercato/shared/modules/widgets/component-registry'
 
 // Deal status values written by the kanban flow. These intentionally do NOT include 'closed'
-// because the rest of the app only persists 'loose' for lost deals (see StatusFilterPopover
+// because the rest of the app only persists 'lost' for lost deals (see StatusFilterPopover
 // notes). 'in_progress' is kept for backwards compatibility with quick-deals created from
-// the previous version of this dialog. The labels are looked up via i18n at render time so
-// the historic typo 'loose' doesn't leak to operators — the storage value stays unchanged.
-const STATUS_OPTIONS = ['open', 'in_progress', 'win', 'loose'] as const
+// the previous version of this dialog. Deals written before 0.7.1 carry the misspelled
+// 'loose'; readers still match it through `lib/dealStatus.ts`, but no writer produces it.
+const STATUS_OPTIONS = ['open', 'in_progress', 'win', 'lost'] as const
 
 /**
  * Tenant currency option. The page resolves these from the currencies module (see
@@ -266,7 +266,7 @@ export function QuickDealDialog({
           id: 'status',
           label: translateWithFallback(t, 'customers.deals.kanban.quickDeal.status', 'Status'),
           type: 'select',
-          // Storage value is preserved (`loose` etc.) — only the displayed label is
+          // Storage value is preserved (`lost` etc.), only the displayed label is
           // translated, so we never write a localised string back to the DB.
           options: STATUS_OPTIONS.map((statusValue) => ({
             value: statusValue,

@@ -170,7 +170,29 @@ describe('GET /api/audit_logs/audit-logs/actions', () => {
 
     await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
     expect(mockActionLogs.list).toHaveBeenCalledWith(expect.objectContaining({
-      actorUserId: 'user-1',
+      actorSubject: 'user-1',
+      actorUserId: undefined,
+    }))
+  })
+
+  it('scopes API-key self views to the canonical subject', async () => {
+    const keyId = '11111111-1111-4111-8111-111111111111'
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: `api_key:${keyId}`,
+      keyId,
+      isApiKey: true,
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    mockRbac.userHasAllFeatures.mockResolvedValue(false)
+
+    const response = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+
+    expect(response.status).toBe(200)
+    expect(mockActionLogs.list).toHaveBeenCalledWith(expect.objectContaining({
+      actorSubject: `api_key:${keyId}`,
+      actorUserId: undefined,
     }))
   })
 

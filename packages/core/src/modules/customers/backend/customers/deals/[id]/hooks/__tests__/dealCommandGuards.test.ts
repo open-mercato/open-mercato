@@ -233,7 +233,7 @@ describe('useDealClosure — Won/Lost closure command guard', () => {
     expect(mockedUpdateCrud).toHaveBeenCalledWith('customers/deals', {
       id: 'deal-1',
       closureOutcome: 'lost',
-      status: 'loose',
+      status: 'lost',
       lossReasonId: 'reason-1',
       lossNotes: 'nope',
     })

@@ -3,6 +3,7 @@ jest.mock('next/navigation', () => ({
 }))
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (_key: string, fallback: string) => fallback,
+  useOptionalLocale: () => undefined,
 }))
 
 import * as React from 'react'

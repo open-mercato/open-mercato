@@ -27,6 +27,7 @@
   "portal.invite.confirmPassword.placeholder": "••••••••",
   "portal.invite.description": "이 초대를 수락하려면 포털 계정을 만드세요.",
   "portal.invite.displayName": "표시 이름",
+  "portal.invite.error.accountExists": "이 이메일 주소에는 이미 포털 계정이 있습니다. 초대를 수락하는 대신 아래에서 로그인하세요.",
   "portal.invite.error.displayNameRequired": "표시 이름이 필요합니다.",
   "portal.invite.error.generic": "초대 수락에 실패했습니다. 다시 시도해 주세요.",
   "portal.invite.error.invalidToken": "초대가 유효하지 않거나 만료되었습니다.",

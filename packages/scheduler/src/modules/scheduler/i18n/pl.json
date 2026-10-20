@@ -7,6 +7,7 @@
   "scheduler.action.view": "Podgląd",
   "scheduler.audit.create": "Utwórz harmonogram",
   "scheduler.audit.delete": "Usuń harmonogram",
+  "scheduler.audit.trigger": "Uruchom harmonogram",
   "scheduler.audit.update": "Zaktualizuj harmonogram",
   "scheduler.confirm.delete": "Czy na pewno chcesz usunąć ten harmonogram?",
   "scheduler.confirm.trigger": "Czy na pewno chcesz uruchomić \"{name}\" teraz?\n\nSpowoduje to natychmiastowe wykonanie {targetType}.",

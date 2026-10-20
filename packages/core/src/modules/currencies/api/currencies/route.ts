@@ -57,11 +57,17 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
     delete: {
       commandId: 'currencies.currencies.delete',
       schema: rawBodySchema,
-      mapInput: ({ raw, ctx }) => ({
-        id: ((raw as Record<string, unknown>).query as Record<string, unknown> | undefined)?.id as string | undefined,
-        organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? undefined,
-        tenantId: ctx.auth?.tenantId ?? undefined,
-      }),
+      mapInput: ({ raw, ctx }) => {
+        const rawRecord = raw as Record<string, unknown>
+        const body = rawRecord.body as Record<string, unknown> | undefined
+        const query = rawRecord.query as Record<string, unknown> | undefined
+        const candidate = body?.id ?? query?.id
+        return {
+          id: typeof candidate === 'string' ? candidate : undefined,
+          organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? undefined,
+          tenantId: ctx.auth?.tenantId ?? undefined,
+        }
+      },
       response: () => ({ ok: true }),
     },
   },

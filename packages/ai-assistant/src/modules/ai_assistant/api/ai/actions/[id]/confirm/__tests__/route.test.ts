@@ -60,8 +60,11 @@ jest.mock('../../../../../../lib/tool-loader', () => ({
 
 import { POST } from '../route'
 
+const PENDING_ACTION_ID = '3b7e1f2a-6c4d-4a9e-8f1b-2c3d4e5f6a7b'
+const MISSING_PENDING_ACTION_ID = '5e2b8c71-9d4a-4f3e-8b6c-7a1d2e3f4b5c'
+
 function buildRequest(): Request {
-  return new Request('http://localhost/api/ai_assistant/ai/actions/pa_123/confirm', {
+  return new Request(`http://localhost/api/ai_assistant/ai/actions/${PENDING_ACTION_ID}/confirm`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
   })
@@ -73,7 +76,7 @@ function buildContext(id: string) {
 
 function makeRow(overrides: Record<string, unknown> = {}) {
   return {
-    id: 'pa_123',
+    id: PENDING_ACTION_ID,
     tenantId: 'tenant-1',
     organizationId: 'org-1',
     agentId: 'catalog.merchandising_assistant',
@@ -183,14 +186,14 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
 
   it('returns 401 when unauthenticated', async () => {
     authMock.mockResolvedValueOnce(null)
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(401)
   })
 
   it('happy path: returns 200 with pendingAction.status === confirmed', async () => {
     repoGetByIdMock.mockResolvedValueOnce(makeRow())
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(200)
     const body = await response.json()
     expect(body.ok).toBe(true)
@@ -201,7 +204,7 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
   it('409 invalid_status: already cancelled', async () => {
     repoGetByIdMock.mockResolvedValueOnce(makeRow({ status: 'cancelled' }))
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(409)
     const body = await response.json()
     expect(body.code).toBe('invalid_status')
@@ -212,7 +215,7 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
       makeRow({ expiresAt: new Date('2020-01-01T00:00:00.000Z') }),
     )
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(409)
     const body = await response.json()
     expect(body.code).toBe('expired')
@@ -231,7 +234,7 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
       }),
     )
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(412)
     const body = await response.json()
     expect(body.code).toBe('stale_version')
@@ -241,7 +244,7 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
     repoGetByIdMock.mockResolvedValueOnce(makeRow())
     policyOverrideGetMock.mockResolvedValueOnce({ mutationPolicy: 'read-only' })
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(403)
     const body = await response.json()
     expect(body.code).toBe('read_only_agent')
@@ -251,7 +254,7 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
     repoGetByIdMock.mockResolvedValueOnce(makeRow())
     getAgentMock.mockReturnValueOnce(makeAgent({ allowedTools: [] }))
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(403)
     const body = await response.json()
     expect(body.code).toBe('tool_not_whitelisted')
@@ -261,7 +264,7 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
     repoGetByIdMock.mockResolvedValueOnce(makeRow())
     getAgentMock.mockReturnValueOnce(makeAgent({ requiredFeatures: ['catalog.restricted.manage'] }))
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(403)
     const body = await response.json()
     expect(body.code).toBe('agent_features_denied')
@@ -273,7 +276,7 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
       { id: 'a-1', tenantId: 'tenant-OTHER', organizationId: 'org-OTHER' },
     ])
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(403)
     const body = await response.json()
     expect(body.code).toBe('attachment_cross_tenant')
@@ -283,16 +286,29 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
     repoGetByIdMock.mockResolvedValueOnce(makeRow())
     getAgentMock.mockReturnValueOnce(undefined)
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(404)
     const body = await response.json()
     expect(body.code).toBe('agent_unknown')
   })
 
+  it.each([
+    ['a non-UUID string', 'not-a-uuid'],
+    ['a 128-character string', 'a'.repeat(128)],
+  ])('returns 400 validation_error without querying the database for %s', async (_label, id) => {
+    const response = await POST(buildRequest() as any, buildContext(id))
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body.code).toBe('validation_error')
+    expect(JSON.stringify(body)).not.toContain('invalid input syntax')
+    expect(repoGetByIdMock).not.toHaveBeenCalled()
+  })
+
   it('404 pending_action_not_found when the row does not exist for the caller', async () => {
     repoGetByIdMock.mockResolvedValueOnce(null)
 
-    const response = await POST(buildRequest() as any, buildContext('pa_missing'))
+    const response = await POST(buildRequest() as any, buildContext(MISSING_PENDING_ACTION_ID))
     expect(response.status).toBe(404)
     const body = await response.json()
     expect(body.code).toBe('pending_action_not_found')
@@ -301,7 +317,7 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
   it('403 forbidden when caller lacks ai_assistant.view', async () => {
     loadAclMock.mockResolvedValueOnce({ features: ['catalog.view'], isSuperAdmin: false })
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(403)
     const body = await response.json()
     expect(body.code).toBe('forbidden')
@@ -319,7 +335,7 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
     const handlerSpy = jest.fn()
     getToolMock.mockReturnValueOnce(makeTool({ handler: handlerSpy }))
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(200)
     const body = await response.json()
     expect(body.ok).toBe(true)
@@ -331,7 +347,7 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
   it('500 confirm_internal_error when the repo throws unexpectedly', async () => {
     repoGetByIdMock.mockRejectedValueOnce(new Error('db down'))
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(500)
     const body = await response.json()
     expect(body.code).toBe('confirm_internal_error')

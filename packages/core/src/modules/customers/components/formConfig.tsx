@@ -30,7 +30,7 @@ import {
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
-import { PhoneNumberField } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
+import { PhoneNumberField, type PhoneCountry } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
 import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
 import type {
   CrudCustomFieldRenderProps,
@@ -59,7 +59,11 @@ import {
   type CustomerDictionaryKind,
 } from '../lib/dictionaries'
 import { normalizeCustomFieldSubmitValue } from './detail/customFieldUtils'
-import { CUSTOMER_PHONE_INVALID_MESSAGE_KEY } from '../data/validators'
+import {
+  CUSTOMER_EMAIL_INVALID_MESSAGE_KEY,
+  CUSTOMER_PHONE_INVALID_MESSAGE_KEY,
+  CUSTOMER_URL_INVALID_MESSAGE_KEY,
+} from '../data/validators'
 
 export const metadata = {
   navHidden: true,
@@ -74,6 +78,17 @@ export type Translator = (
   fallback?: string,
   params?: Record<string, string | number>,
 ) => string
+
+export type CustomerFormFieldOptions = {
+  /** Country pre-selected in the phone field when the value is empty. */
+  defaultCountryIso2?: string
+  /**
+   * Country list for the phone field's selector. Supply it to limit the picker
+   * to specific markets or to name the countries yourself; omitted, the field
+   * localizes its built-in list for the active locale.
+   */
+  phoneCountries?: PhoneCountry[]
+}
 
 export type PersonFormValues = {
   displayName: string
@@ -109,6 +124,7 @@ export type CompanyFormValues = {
 } & Record<string, unknown>
 
 type DictionarySelectFieldProps = {
+  id?: string
   kind: CustomerDictionaryKind
   value?: string
   onChange: (value: string | undefined) => void
@@ -120,11 +136,19 @@ type DictionarySelectFieldProps = {
   showManage?: boolean
   showLabelInput?: boolean
   showActiveAppearance?: boolean
+  organizationId?: string | null
 }
 
 export { CUSTOMER_DICTIONARIES_MANAGE_HREF, getCustomerDictionaryManageHref }
 
-const emailValidationSchema = z.string().email()
+// An edit form loads the dictionaries of the record's own organization, so they still
+// resolve while the scope picker is set to "All organizations" (issue #3593).
+function readRecordOrganizationId(values: Record<string, unknown> | undefined): string | null {
+  const organizationId = values?.organizationId
+  return typeof organizationId === 'string' && organizationId.length > 0 ? organizationId : null
+}
+
+const emailValidationSchema = z.string().email(CUSTOMER_EMAIL_INVALID_MESSAGE_KEY)
 const EMAIL_CHECK_DEBOUNCE_MS = 350
 
 const createSectionHeadingField = (id: string, title: string): CrudField => ({
@@ -140,6 +164,7 @@ const createSectionHeadingField = (id: string, title: string): CrudField => ({
 })
 
 export function DictionarySelectField({
+  id,
   kind,
   value,
   onChange,
@@ -151,6 +176,7 @@ export function DictionarySelectField({
   showManage = false,
   showLabelInput = true,
   showActiveAppearance = true,
+  organizationId = null,
 }: DictionarySelectFieldProps) {
   const t = useT()
   const queryClient = useQueryClient()
@@ -191,7 +217,7 @@ export function DictionarySelectField({
 
   const fetchOptions = React.useCallback(async () => {
     try {
-      const data = await ensureCustomerDictionary(queryClient, kind, scopeVersion)
+      const data = await ensureCustomerDictionary(queryClient, kind, scopeVersion, organizationId)
       return data.entries.map((entry) => ({
         value: entry.value,
         label: entry.label,
@@ -213,7 +239,7 @@ export function DictionarySelectField({
       }
       throw err
     }
-  }, [kind, queryClient, scopeVersion, translate])
+  }, [kind, organizationId, queryClient, scopeVersion, translate])
 
   const createOption = React.useCallback(
     async (input: { value: string; label?: string; color?: string | null; icon?: string | null }) => {
@@ -252,6 +278,7 @@ export function DictionarySelectField({
 
   return (
     <DictionaryEntrySelect
+      id={id}
       value={value}
       onChange={onChange}
       fetchOptions={fetchOptions}
@@ -418,7 +445,11 @@ const companyDictionaryFieldDefinitions: DictionaryFieldDefinition[] = [
   },
 ]
 
-const createPrimaryPhoneField = (t: Translator, defaultCountryIso2?: string): CrudField => ({
+const createPrimaryPhoneField = (
+  t: Translator,
+  defaultCountryIso2?: string,
+  phoneCountries?: PhoneCountry[],
+): CrudField => ({
   id: 'primaryPhone',
   label: t('customers.people.form.primaryPhone'),
   type: 'custom',
@@ -449,6 +480,7 @@ const createPrimaryPhoneField = (t: Translator, defaultCountryIso2?: string): Cr
         minDigits={7}
         onDuplicateLookup={!disabled && !error ? duplicateLookup : undefined}
         defaultCountryIso2={defaultCountryIso2}
+        countries={phoneCountries}
       />
     )
   },
@@ -723,7 +755,7 @@ export const createPersonFormSchema = () =>
       primaryEmail: z
         .string()
         .trim()
-        .email()
+        .email(CUSTOMER_EMAIL_INVALID_MESSAGE_KEY)
         .optional()
         .or(z.literal(''))
         .transform((val) => (val === '' ? undefined : val)),
@@ -871,8 +903,9 @@ export const createDisplayNameSection = (t: Translator) =>
     )
   }
 
-export const createPersonFormFields = (t: Translator, options?: { defaultCountryIso2?: string }): CrudField[] => {
+export const createPersonFormFields = (t: Translator, options?: CustomerFormFieldOptions): CrudField[] => {
   const defaultCountryIso2 = options?.defaultCountryIso2
+  const phoneCountries = options?.phoneCountries
   const contactSection = createSectionHeadingField('__contactInformationSection', t('customers.people.form.sections.contactInformation'))
   const companySection = createSectionHeadingField('__companyInformationSection', t('customers.people.form.sections.companyInformation'))
   const dictionaryFields: CrudField[] = dictionaryFieldDefinitions.map((definition) => ({
@@ -880,8 +913,9 @@ export const createPersonFormFields = (t: Translator, options?: { defaultCountry
     label: t(definition.labelKey),
     type: 'custom',
     layout: definition.layout ?? 'third',
-    component: ({ value, setValue }: CrudCustomFieldRenderProps) => (
+    component: ({ value, setValue, values }: CrudCustomFieldRenderProps) => (
       <DictionarySelectField
+        organizationId={readRecordOrganizationId(values)}
         kind={definition.kind}
         value={typeof value === 'string' ? value : undefined}
         onChange={(next) => setValue(next)}
@@ -902,8 +936,9 @@ export const createPersonFormFields = (t: Translator, options?: { defaultCountry
       label: t('customers.people.form.jobTitle', 'Job title'),
       type: 'custom',
       layout: 'half',
-      component: ({ value, setValue }: CrudCustomFieldRenderProps) => (
+      component: ({ value, setValue, values }: CrudCustomFieldRenderProps) => (
         <DictionarySelectField
+          organizationId={readRecordOrganizationId(values)}
           kind="job-titles"
           value={typeof value === 'string' ? value : undefined}
           onChange={(next) => setValue(next)}
@@ -933,7 +968,7 @@ export const createPersonFormFields = (t: Translator, options?: { defaultCountry
     },
     contactSection,
     createPrimaryEmailField(t),
-    createPrimaryPhoneField(t, defaultCountryIso2),
+    createPrimaryPhoneField(t, defaultCountryIso2, phoneCountries),
     companySection,
     {
       id: 'companyEntityId',
@@ -1141,7 +1176,7 @@ export const createCompanyFormSchema = () =>
       primaryEmail: z
         .string()
         .trim()
-        .email()
+        .email(CUSTOMER_EMAIL_INVALID_MESSAGE_KEY)
         .optional()
         .or(z.literal(''))
         .transform((val) => (val === '' ? undefined : val)),
@@ -1199,7 +1234,7 @@ export const createCompanyFormSchema = () =>
       websiteUrl: z
         .string()
         .trim()
-        .url()
+        .url(CUSTOMER_URL_INVALID_MESSAGE_KEY)
         .optional()
         .or(z.literal(''))
         .transform((val) => (val === '' ? undefined : val))
@@ -1228,15 +1263,17 @@ export const createCompanyFormSchema = () =>
     })
     .passthrough()
 
-export const createCompanyFormFields = (t: Translator, options?: { defaultCountryIso2?: string }): CrudField[] => {
+export const createCompanyFormFields = (t: Translator, options?: CustomerFormFieldOptions): CrudField[] => {
   const defaultCountryIso2 = options?.defaultCountryIso2
+  const phoneCountries = options?.phoneCountries
   const dictionaryFields: CrudField[] = companyDictionaryFieldDefinitions.map((definition) => ({
     id: definition.id,
     label: t(definition.labelKey),
     type: 'custom',
     layout: definition.layout ?? 'third',
-    component: ({ value, setValue }: CrudCustomFieldRenderProps) => (
+    component: ({ value, setValue, values }: CrudCustomFieldRenderProps) => (
       <DictionarySelectField
+        organizationId={readRecordOrganizationId(values)}
         kind={definition.kind}
         value={typeof value === 'string' ? value : undefined}
         onChange={(next) => setValue(next)}
@@ -1276,6 +1313,7 @@ export const createCompanyFormFields = (t: Translator, options?: { defaultCountr
           invalidLabel={t('customers.people.form.primaryPhone.invalid', 'Enter a valid phone number with country code (e.g. +1 212 555 1234)')}
           minDigits={7}
           defaultCountryIso2={defaultCountryIso2}
+          countries={phoneCountries}
         />
       ),
     } as CrudField,
@@ -1518,6 +1556,7 @@ export type CompanyEditFormValues = Omit<
   | 'description'
 > & {
   id: string
+  organizationId?: string | null
   primaryEmail?: string | null
   primaryPhone?: string | null
   websiteUrl?: string | null
@@ -1531,6 +1570,7 @@ export type CompanyEditFormValues = Omit<
 
 export type PersonEditFormValues = Omit<PersonFormValues, 'addresses' | 'primaryEmail' | 'primaryPhone'> & {
   id: string
+  organizationId?: string | null
   department?: string
   primaryEmail?: string | null
   primaryPhone?: string | null
@@ -1559,7 +1599,7 @@ const clearableUrlField = () =>
   z
     .string()
     .trim()
-    .url()
+    .url(CUSTOMER_URL_INVALID_MESSAGE_KEY)
     .optional()
     .or(z.literal(''))
     .transform((val) => (val === '' ? null : val))
@@ -1569,7 +1609,7 @@ const clearableEmailField = () =>
   z
     .string()
     .trim()
-    .email()
+    .email(CUSTOMER_EMAIL_INVALID_MESSAGE_KEY)
     .optional()
     .or(z.literal(''))
     .transform((val) => (val === '' ? null : val))
@@ -1657,7 +1697,7 @@ const buildIndustryLabels = (t: Translator): DictionarySelectLabels => ({
   manageTitle: t('customers.people.form.dictionary.manage'),
 })
 
-export const createCompanyEditFields = (t: Translator, options?: { defaultCountryIso2?: string }): CrudField[] => {
+export const createCompanyEditFields = (t: Translator, options?: CustomerFormFieldOptions): CrudField[] => {
   const baseFields = createCompanyFormFields(t, options)
   const industryLabels = buildIndustryLabels(t)
 
@@ -1668,8 +1708,9 @@ export const createCompanyEditFields = (t: Translator, options?: { defaultCountr
         label: t('customers.companies.detail.fields.industry', 'Industry'),
         type: 'custom',
         layout: 'half',
-        component: ({ value, setValue }: CrudCustomFieldRenderProps) => (
+        component: ({ value, setValue, values }: CrudCustomFieldRenderProps) => (
           <DictionarySelectField
+            organizationId={readRecordOrganizationId(values)}
             kind={'industries' as CustomerDictionaryKind}
             value={typeof value === 'string' ? value : undefined}
             onChange={(next) => setValue(next)}
@@ -1682,7 +1723,7 @@ export const createCompanyEditFields = (t: Translator, options?: { defaultCountr
   })
 }
 
-export const createPersonEditFields = (t: Translator, options?: { defaultCountryIso2?: string }): CrudField[] => {
+export const createPersonEditFields = (t: Translator, options?: CustomerFormFieldOptions): CrudField[] => {
   const baseFields = createPersonFormFields(t, options)
   return [
     ...baseFields,
@@ -2149,6 +2190,7 @@ export function mapCompanyOverviewToFormValues(overview: CompanyOverview): Parti
   const phoneValue = rawPhone == null ? '' : String(rawPhone)
   return {
     id: overview.company.id,
+    organizationId: overview.company.organizationId ?? null,
     displayName: coerceDisplayName(overview.company.displayName),
     primaryEmail: overview.company.primaryEmail ?? '',
     primaryPhone: phoneValue,
@@ -2172,6 +2214,7 @@ export function mapPersonOverviewToFormValues(overview: PersonOverview): Partial
   const phoneValue = rawPhone == null ? '' : String(rawPhone)
   return {
     id: overview.person.id,
+    organizationId: overview.person.organizationId ?? null,
     displayName: coerceDisplayName(overview.person.displayName),
     firstName: overview.profile?.firstName ?? '',
     lastName: overview.profile?.lastName ?? '',

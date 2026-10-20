@@ -31,6 +31,8 @@ test.describe('TC-MSG-002: Inbox Open Mark Read And Mark Unread', () => {
       await messageRowBySubject(page, fixture.subject).click();
 
       await expect(page).toHaveURL(new RegExp(`/backend/messages/${messageId}$`, 'i'));
+      await expect(page.getByRole('heading', { name: fixture.subject, level: 1 })).toBeVisible();
+      await expect(page.locator('main h1')).toHaveCount(1);
 
       // Use the stable conversation-level actions menu; installations may render either
       // "Mark unread/read" or "Mark all unread/read" labels depending on configuration.

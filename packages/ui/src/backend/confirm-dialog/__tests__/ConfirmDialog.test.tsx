@@ -61,6 +61,35 @@ describe('ConfirmDialog', () => {
     expect(dialog.parentElement).toBe(document.body)
   })
 
+  it('stays exposed to assistive technology when a modal underneath hid its siblings', () => {
+    const renderDialog = (open: boolean) => (
+      <ConfirmDialog
+        open={open}
+        onOpenChange={() => undefined}
+        onConfirm={() => undefined}
+        title="Discard unsaved changes?"
+        confirmText="Discard"
+        cancelText="Cancel"
+      />
+    )
+    const { rerender } = renderWithProviders(renderDialog(false))
+    const dialog = document.body.querySelector('dialog')!
+    dialog.setAttribute('aria-hidden', 'true')
+    dialog.setAttribute('data-aria-hidden', 'true')
+
+    rerender(renderDialog(true))
+    expect(dialog).not.toHaveAttribute('aria-hidden')
+    expect(screen.getByRole('alertdialog')).toBe(dialog)
+
+    rerender(renderDialog(false))
+    expect(dialog).toHaveAttribute('aria-hidden', 'true')
+
+    rerender(renderDialog(true))
+    dialog.removeAttribute('data-aria-hidden')
+    rerender(renderDialog(false))
+    expect(dialog).not.toHaveAttribute('aria-hidden')
+  })
+
   it('renders the destructive confirmation as the solid variant', () => {
     renderWithProviders(
       <ConfirmDialog
@@ -75,8 +104,8 @@ describe('ConfirmDialog', () => {
     )
 
     const classNames = screen.getByRole('button', { name: 'Delete' }).className.split(/\s+/)
-    expect(classNames).toContain('bg-destructive')
-    expect(classNames).toContain('text-white')
+    expect(classNames).toContain('bg-status-error-solid')
+    expect(classNames).toContain('text-status-error-solid-foreground')
   })
 
   it('keeps the default confirmation on the primary variant', () => {
@@ -93,7 +122,7 @@ describe('ConfirmDialog', () => {
 
     const classNames = screen.getByRole('button', { name: 'Publish' }).className.split(/\s+/)
     expect(classNames).toContain('bg-primary')
-    expect(classNames).not.toContain('bg-destructive')
+    expect(classNames).not.toContain('bg-status-error-solid')
   })
 
   it('closes only the confirmation that owns an Escape event', () => {
