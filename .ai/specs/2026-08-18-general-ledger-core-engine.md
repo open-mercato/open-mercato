@@ -248,6 +248,59 @@ already does the same point-in-time-copy job elsewhere in the
 codebase. Added now on the same empty-table logic as the two decisions
 above; nothing in this phase populates or reads it.
 
+**`contractorSnapshot` keys are defined here, explicitly (2026-10-20).**
+Until now the snapshot was described only in prose ("name, NIP, bank
+account and Biała Lista verification status"), which left open which
+account and which status, and its writers in Accounts Payable did not
+list it. `ledger` stores the value as given and never interprets it;
+the shape below is the contract its writers follow:
+
+```ts
+type ContractorSnapshot =
+  | {
+      source: 'vendor_invoice'
+      contractorId: string | null
+      name: string | null
+      taxId: string | null
+    }
+  | {
+      source: 'payment'
+      contractorId: string | null
+      name: string | null
+      taxId: string | null
+      bankAccountMasked: string
+      whitelistCheck: {
+        status: 'WHITELISTED' | 'NOT_APPLICABLE'
+        checkedAt: string | null
+        requestId: string | null
+      }
+    }
+```
+
+- **`source: 'vendor_invoice'`** — written by `accounts_payable`'s
+  `postVendorInvoice` on the liability (CR) line: the vendor's name and
+  tax id as on the invoice, no bank account (nothing is paid yet).
+- **`source: 'payment'`** — written by `accounts_payable_payments`'
+  `markPaymentBatchSent` on each liability (DR) line.
+  - **The bank account is the one paid to**: the batch line's
+    `contractorBankAccountId`, stored masked as `bankAccountMasked`
+    (`'****'` + its last four digits), never the full number.
+  - **`whitelistCheck` is the check result as of posting**: the live
+    Biała Lista check the payment module holds when it posts (taken at
+    `confirmPaymentBatch` and stored on the batch line), with the
+    Ministry's `requestId` and `requestDateTime` as `checkedAt`. It is
+    not the contractor's GUS/VIES `verificationStatus`, and not the
+    registry's UX cache (`lastVerificationStatus`). `NOT_APPLICABLE`
+    marks a vendor without a Polish NIP, which the Ministry's list
+    cannot contain.
+- **`taxId`, not `nip`**, in both variants: the value is the tax id
+  from the invoice, which for a Polish vendor is its NIP and for a
+  foreign one is the printed VAT-UE or local id. One key avoids two
+  fields of which one is always empty.
+- **`contractorId`** is the registry's id (`VendorInvoice.vendorId`),
+  so an auditor can find today's record, while the rest stays as it was.
+- Lines that do not concern a counterparty carry `null`.
+
 **`JournalEntryLine` gets its own `organizationId`/`tenantId` columns,
 not just inherited scope through `journalEntryId`.** An earlier draft
 of this spec left `JournalEntryLine` without its own tenant/org
@@ -260,9 +313,12 @@ line/detail tables get their own scope columns, not just a derivable
 one through the parent; `JournalEntryLine` now matches it.
 
 **`contractorSnapshot` carries PII and MUST be declared in `ledger`'s
-own `encryption.ts`.** It duplicates the same NIP/name/bank-account
+own `encryption.ts`.** It duplicates the same tax id/name/bank-account
 data that `.ai/specs/2026-09-06-contractor-registry.md` already
-requires encrypting on the `Contractor` entity — denormalizing it onto
+requires encrypting in that module — the name and NIP on `Contractor`,
+the account number on `ContractorBankAccount` (corrected 2026-10-20: an
+earlier wording put all of it on `Contractor`; the snapshot itself holds
+only the masked account) — denormalizing it onto
 `JournalEntryLine` doesn't reduce the sensitivity, so it needs its own
 `defaultEncryptionMaps` entry: `{ entityId: 'ledger:journal_entry_line',
 fields: [contractor_snapshot] }`. Whole-`json`-column encryption is
@@ -1289,11 +1345,14 @@ by the Act's own "only when it differs" condition. Distinct from
 a source document.
 
 `JournalEntryLine.contractorSnapshot` (nullable `json`) captures a
-point-in-time copy of the counterparty's name, NIP, bank account and
-Biała Lista verification status at posting time — see Design decisions
-and `.ai/specs/2026-09-06-contractor-registry.md`. Not populated by
+point-in-time copy of the counterparty's name and tax id and, on a
+payment, the masked account paid to and the Biała Lista check result as
+of posting — keys defined in Design decisions ("`contractorSnapshot`
+keys are defined here, explicitly", 2026-10-20); see also
+`.ai/specs/2026-09-06-contractor-registry.md`. Not populated by
 anything in this phase; it exists so Accounts Payable can write to it
-without a follow-up migration.
+without a follow-up migration (`postVendorInvoice` and
+`markPaymentBatchSent` are its writers, #5962).
 
 `JournalEntryLine` carries its own `organizationId`/`tenantId`
 (matching `sales.SalesInvoiceLine`'s precedent — see Design decisions),
@@ -1835,7 +1894,7 @@ spec — see Design decisions and Changelog.
 | Root `AGENTS.md:164` / `.ai/qa/AGENTS.md` | New feature MUST list integration coverage for affected API paths, shipped in the same change | Compliant | Implementation Plan step 10 + Testing Strategy cover `journal-entries` list and `fiscal-periods` lock/unlock as integration tests |
 | `currencies/AGENTS.md` | MUST NOT reinvent currency/exchange-rate storage | Compliant | No `Currency` entity in this module; `currencyId` is an FK-id to the existing `currencies.Currency` |
 | `BACKWARD_COMPATIBILITY.md` | Database schema additive-only | Compliant | New tables only; no existing schema touched |
-| `packages/core/AGENTS.md` → Encryption | GDPR-relevant fields declared in `<module>/encryption.ts`, read via `findWithDecryption` | Compliant | `contractorSnapshot` (PII: name/NIP/bank account) declared in new `ledger/encryption.ts` — see Design decisions and File Manifest |
+| `packages/core/AGENTS.md` → Encryption | GDPR-relevant fields declared in `<module>/encryption.ts`, read via `findWithDecryption` | Compliant | `contractorSnapshot` (PII: name/tax id/masked bank account, keys defined 2026-10-20) declared in new `ledger/encryption.ts` — see Design decisions and File Manifest |
 | `packages/events/AGENTS.md` | Cross-module side effects only via declared events + subscribers; upstream module MUST NOT import/resolve a downstream consumer | Compliant | `ledger.journal_entry.posted` declared in new `events.ts` — persistence is the *subscriber's* choice (`metadata.persistent`), not the event's (**corrected 2026-09-23**: this row previously said "ephemeral", stale since the 2026-09-18 M2 fix); `ledger` has no subscribers of its own and no knowledge of any consumer (e.g. Posting Rules Engine) — see Architecture → Events |
 | `packages/core/AGENTS.md` → API Routes | All API route files MUST export `openApi` | Compliant (fixed 2026-09-07) | `api/openapi.ts` added to File Manifest and Implementation Plan step 7; every route, including the read-only `journal-entries` list and the custom lock/unlock routes, exports `openApi` — gap found by an independent review, absent from every earlier draft/round |
 | `packages/core/AGENTS.md` → Database Entities | Standard column contract includes `deleted_at` for soft delete | Compliant (fixed 2026-09-07) | `deletedAt` added to `FiscalPeriod`/`LedgerAccount`/`LedgerAccountType`; `LedgerAccount`/`LedgerAccountType` delete is now specified as a soft delete via `makeCrudRoute`, blocked once posted — gap found by an independent review |
@@ -2737,3 +2796,20 @@ code. Not yet reviewed by a maintainer.
   multi-currency paragraph now says a rate with more than 8 decimal
   places is rejected on posting. Where a rate gets rounded before it
   reaches the ledger is still open and is not decided here.
+
+### 2026-10-20 — `contractorSnapshot` keys and encryption wording (aligned with #5955 and #5962)
+
+- **Encryption wording corrected.** The registry encrypts the name and
+  NIP on `Contractor` and the account number on `ContractorBankAccount`;
+  the earlier sentence put all of it on `Contractor`. The snapshot holds
+  only a masked account. No change to `ledger`'s own encryption map.
+- **Snapshot keys defined explicitly** (new Design decision): two
+  variants, `source: 'vendor_invoice'` (`contractorId`, `name`, `taxId`)
+  and `source: 'payment'` (the same plus `bankAccountMasked` and
+  `whitelistCheck { status, checkedAt, requestId }`). The status is the
+  Biała Lista check result as of posting (the live check the payment
+  module holds), not the registry's GUS/VIES status or its UX cache; the
+  account is the one paid to. Writers: `postVendorInvoice` and
+  `markPaymentBatchSent` (#5962).
+- Data Models and the Compliance Matrix row updated. No schema change:
+  the column stays a nullable `json`.
