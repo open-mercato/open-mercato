@@ -366,10 +366,14 @@ const setJournalEntryLineDimensionCommand: CommandHandler<SetJournalEntryLineDim
    * the change, re-running the same checks as `execute`: an undo for a line
    * in a locked (or missing) period, or over rows another writer has since
    * claimed, is rejected — the freeze applies to undo exactly as to a write.
+   * The payload's scope must be one the undoing context may act in, checked
+   * with the same `ensureTenantScope`/`ensureOrganizationScope` as `execute`.
    */
   undo: async ({ ctx, logEntry }) => {
     const payload = extractUndoPayload<SetDimensionUndoPayload>(logEntry)
     if (!payload) return
+    ensureTenantScope(ctx, payload.tenantId)
+    ensureOrganizationScope(ctx, payload.organizationId)
     const { translate } = await resolveTranslations()
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const scope: Scope = { tenantId: payload.tenantId, organizationId: payload.organizationId }

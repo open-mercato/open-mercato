@@ -320,6 +320,47 @@ describe('journal_entry_line_dimensions.dimensions.set', () => {
     expect(prepared?.before).toEqual(['cc-tenant-a'])
   })
 
+  describe('undo scope', () => {
+    async function setAndLog(em: ReturnType<typeof makeFakeEm>['em']) {
+      const handler = getHandler()
+      const ctx = makeCtx(em, TENANT_A, ORG_A)
+      const prepared = await handler.prepare!(baseInput, ctx)
+      const result = await handler.execute(baseInput, ctx)
+      const log = await handler.buildLog!({ input: baseInput, result, snapshots: { before: prepared?.before }, ctx })
+      return { logEntry: { payload: log!.payload } as unknown as CommandUndoLogEntry }
+    }
+
+    it('rejects an undo from a context in another organization, leaving the rows untouched', async () => {
+      const { em, dimensionRows } = makeFakeEm({ dimensionRows: [dimRow('CostCenter', 'cc-old', 'posting_rules')] })
+      const { logEntry } = await setAndLog(em)
+
+      await expect(
+        getHandler().undo!({ input: baseInput, ctx: makeCtx(em, TENANT_A, ORG_B), logEntry }),
+      ).rejects.toMatchObject({ status: 403 })
+      expect(dimensionRows.map((r) => r.dimensionId)).toEqual(['cc-new'])
+    })
+
+    it('rejects an undo from a context in another tenant, leaving the rows untouched', async () => {
+      const { em, dimensionRows } = makeFakeEm({ dimensionRows: [dimRow('CostCenter', 'cc-old', 'posting_rules')] })
+      const { logEntry } = await setAndLog(em)
+
+      await expect(
+        getHandler().undo!({ input: baseInput, ctx: makeCtx(em, TENANT_B, ORG_A), logEntry }),
+      ).rejects.toMatchObject({ status: 403 })
+      expect(dimensionRows.map((r) => r.dimensionId)).toEqual(['cc-new'])
+    })
+
+    it('lets a system actor whose ctx selects the payload organization undo', async () => {
+      const { em, dimensionRows } = makeFakeEm({ dimensionRows: [dimRow('CostCenter', 'cc-old', 'posting_rules')] })
+      const { logEntry } = await setAndLog(em)
+      const ctx: CommandRuntimeContext = { ...makeCtx(em, TENANT_A, ORG_A), auth: null }
+
+      await getHandler().undo!({ input: baseInput, ctx, logEntry })
+
+      expect(dimensionRows.map((r) => r.dimensionId)).toEqual(['cc-old'])
+    })
+  })
+
   describe('line existence', () => {
     it('rejects a journal entry line that does not exist or belongs to another tenant, writing nothing', async () => {
       const { em, dimensionRows } = makeFakeEm({
