@@ -197,6 +197,10 @@ contractor already has linked documents (unlike GL's guards, which
 unlock editing as long as there are no posted entries — here the block
 is unconditional, because `nip` is identity, not an operational
 attribute). Changing the NIP requires creating a new contractor.
+**Updated 2026-10-20:** `nip` is now nullable (a foreign supplier may
+have only a VAT-UE number), so the rule reads "immutable once set": a
+missing NIP may be added, a set one never changes; `euVatNumber`
+follows the same rule (see Design decisions, 2026-10-20).
 
 **Contractor bank accounts: a separate `ContractorBankAccount` entity,
 not a field/array on `Contractor` (resolved after discussion on
@@ -367,6 +371,7 @@ deferred (YAGNI) until it actually emerges as a requirement.
 
 **Encryption maps: two declarations, one per entity.**
 `contractors:contractor` encrypts `name`, `address`, `contact_email`,
+`eu_vat_number` (added 2026-10-20, with `hashField: 'eu_vat_number_hash'`),
 `contact_phone`; `nip` additionally gets `hashField: 'nip_hash'`
 (pattern: `messages:message.external_email` → `external_email_hash`,
 verified in `packages/core/src/modules/messages/encryption.ts`) —
@@ -676,6 +681,47 @@ validateBankAccountNumber(raw: string):
   `shared`. Whether it does is that spec's decision; this document only
   places the validator where both can reach it.
 
+**EU VAT number on the contractor, checked in VIES in the background at
+registration and on demand, synchronously, with a 10-second timeout.**
+A supplier from another member state has a VAT-UE number and no Polish
+NIP, and a Polish contractor's VAT-UE status matters for
+intra-Community supplies; until now the registry modelled only `nip`.
+- **New field `euVatNumber`** (nullable): normalized to the two-letter
+  VIES country prefix plus the number, upper-case, without spaces (a
+  Polish one is `PL` + the NIP). Encrypted like `nip`, with a lookup hash
+  `eu_vat_number_hash` and a partial unique index per `(tenant_id,
+  organization_id)` while `deleted_at` is null, the same shape as
+  `nip_hash`.
+- **`nip` becomes nullable.** A contractor may have a `nip`, an
+  `euVatNumber`, both, or neither (a supplier from outside the EU).
+  Each of the two identifiers is set-once: it may be added while it is
+  `null`, and once set it cannot change (the 2026-09-07 immutability
+  rule, which assumed a NIP was always present at creation, now reads
+  "once set"). Changing a set identifier still means a new contractor.
+- **`verificationStatus` gains `NOT_APPLICABLE`** and is derived from
+  the registries that apply: GUS for `nip`, VIES for `euVatNumber`.
+  `FAILED` when any of them answered negatively; `VERIFIED` when every
+  applicable one answered positively; `PENDING` while any answer is
+  still missing; `NOT_APPLICABLE` when the contractor has neither
+  identifier, so no registry applies. `NOT_APPLICABLE` does not block a
+  payment (see "Payment eligibility").
+- **Background check at registration.** `createContractor`, and
+  `updateContractor` when it adds an `euVatNumber`, enqueue
+  `verifyContractorRegistry`, which now runs VIES for `euVatNumber` next
+  to GUS for `nip`. Neither blocks registration.
+- **On demand:** `checkContractorVies` behind
+  `POST /api/contractors/:id/verify-vies` calls VIES synchronously with a
+  10-second timeout and returns `{ status: 'VALID' | 'INVALID' |
+  'NOT_CHECKED', checkedAt, requestId }`. A `VALID`/`INVALID` answer
+  updates `verificationStatus` by the rule above. After the timeout, or
+  on any VIES error, the result is `NOT_CHECKED`, the status is left as
+  it was, and a `verifyContractorRegistry` job (VIES only) is enqueued to
+  retry. Ten seconds keeps the request inside what a person will wait for
+  in a form; the retry covers the slow case without a second click.
+- **History.** Every VIES call, background or on demand, writes a `VIES`
+  row to `ContractorVerificationCheck`; `requestId` is stored when VIES
+  returns a request identifier and is `null` otherwise.
+
 ### Alternatives considered
 
 | Alternative | Why Rejected |
@@ -855,11 +901,14 @@ own instruction — no open questions remain.
 ### Entities (`data/entities.ts`)
 
 - `Contractor` — `isVendor` (bool), `isCustomer` (bool), `name`,
-  `nip` (+ `nipHash` for lookup on the encrypted column, unique per
+  `nip` (nullable since 2026-10-20, set-once; + `nipHash` for lookup on the encrypted column, unique per
   `(tenant_id, organization_id)` while `deletedAt` is null — a partial
-  index, see Design decisions — duplicate detection), `address`,
+  index, see Design decisions — duplicate detection), `euVatNumber`
+  (added 2026-10-20 — nullable, set-once, encrypted, + `euVatNumberHash`
+  with the same partial uniqueness), `address`,
   `contactEmail`, `contactPhone`, `verificationStatus`
-  (`PENDING`/`VERIFIED`/`FAILED`), `lastCheckStatus`/`lastCheckedAt`/
+  (`PENDING`/`VERIFIED`/`FAILED`/`NOT_APPLICABLE`, derived from GUS and
+  VIES, see Design decisions, 2026-10-20), `lastCheckStatus`/`lastCheckedAt`/
   `lastCheckRequestId` (typed, non-PII registry-check diagnostics —
   see Design decisions; **not** the raw GUS/VIES response),
   `createdByUserId` (see Design decisions — backs the self-approval
@@ -969,7 +1018,7 @@ contractorLookupByNip(params: {
   isVendor: boolean
   isCustomer: boolean
   approvalStatus: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED'
-  verificationStatus: 'PENDING' | 'VERIFIED' | 'FAILED'
+  verificationStatus: 'PENDING' | 'VERIFIED' | 'FAILED' | 'NOT_APPLICABLE'
 } | null>
 ```
 
@@ -1009,10 +1058,14 @@ contractorLookupByNip(params: {
 ### Commands (Command Pattern, `commands/`)
 
 - `createContractor` — validates NIP uniqueness (via `nipHash` lookup)
+  and VAT-UE number uniqueness (via `euVatNumberHash`, added 2026-10-20)
   per `(tenant, organization)`, persists with `verificationStatus:
-  'PENDING'`, enqueues `verifyContractorRegistry` worker.
-- `updateContractor` — rejects any change to `nip` unconditionally
-  (see Design decisions); everything else editable; enforces
+  'PENDING'` (`'NOT_APPLICABLE'` when it has neither identifier),
+  enqueues `verifyContractorRegistry` worker (GUS for `nip`, VIES for
+  `euVatNumber`).
+- `updateContractor` — rejects any change to a set `nip` or
+  `euVatNumber` (adding a missing one is allowed and enqueues the
+  matching check, 2026-10-20; see Design decisions); everything else editable; enforces
   optimistic lock via `updated_at`.
 - `createContractorBankAccount` / `updateContractorBankAccount` —
   standard CRUD; `isPrimary: true` on one account automatically
@@ -1045,6 +1098,13 @@ contractorLookupByNip(params: {
   sanctioned entry point for another module to call it synchronously
   in the same request; the HTTP route below wraps the same command
   only for this module's own backend UI.
+- `checkContractorVies` (added 2026-10-20) — on-demand VIES check of
+  `euVatNumber`, synchronous with a 10-second timeout; returns
+  `{ status: 'VALID' | 'INVALID' | 'NOT_CHECKED', checkedAt, requestId }`,
+  writes a `VIES` history row, updates `verificationStatus` on a
+  `VALID`/`INVALID` answer, and on `NOT_CHECKED` enqueues a VIES-only
+  `verifyContractorRegistry` retry (see Design decisions, 2026-10-20).
+  Rejects with `422` when the contractor has no `euVatNumber`.
 - `applyContractorApprovalDecision` — **confirmed in scope,
   see Design decisions.** Called **only** from inside the
   `contractors.vendor-approval` workflow (not directly from the UI),
@@ -1242,8 +1302,10 @@ to such a consumer; the dependency direction stays one-way
 ### Backend Pages (`backend/contractors/`)
 
 - `contractors/page.tsx` (+ `create/page.tsx`, `[id]/page.tsx`) —
-  `DataTable` + `CrudForm` for `Contractor`; `nip` field disabled on
-  edit (immutable, see Design decisions).
+  `DataTable` + `CrudForm` for `Contractor`; `nip` and `euVatNumber`
+  fields disabled on edit once set (immutable once set, see Design
+  decisions); a "Check in VIES" button next to `euVatNumber` calls
+  `POST /api/contractors/:id/verify-vies` (added 2026-10-20).
 - `contractors/[id]/page.tsx` also lists the contractor's
   `ContractorBankAccount` rows inline (own mini `DataTable`), each
   showing the UX-only "last checked: N days ago" badge, plus a
@@ -1276,9 +1338,16 @@ One row per contractor. `nip`/`nipHash` unique per
 index, see Design decisions — enforces one registration per tax
 identity within an organization and backs duplicate detection at
 `createContractor`, while letting a soft-deleted registration free its
-NIP for re-registration. `verificationStatus` starts `PENDING`, moves
+NIP for re-registration. `nip` is nullable (2026-10-20); a `null`
+`nip_hash` is outside the index. `euVatNumber`/`euVatNumberHash` (added
+2026-10-20) carries the same partial unique index on
+`(tenant_id, organization_id, eu_vat_number_hash) where deleted_at is null`.
+`verificationStatus` starts `PENDING` (`NOT_APPLICABLE` with neither
+identifier), moves
 to `VERIFIED`/`FAILED` asynchronously via the `verifyContractorRegistry`
-worker. `lastCheckStatus`/`lastCheckedAt`/`lastCheckRequestId` —
+worker (GUS for `nip`, VIES for `euVatNumber`; derivation rule in
+Design decisions, 2026-10-20) or through `checkContractorVies`.
+`lastCheckStatus`/`lastCheckedAt`/`lastCheckRequestId` —
 typed, non-PII diagnostics only, never the raw GUS/VIES payload (see
 Design decisions) — never read as a source of truth by any command,
 only surfaced in the UI. `deletedAt` blocks deletion only while an
@@ -1360,24 +1429,28 @@ Standard `makeCrudRoute` list + create.
 
 - **Query**: `page?`, `pageSize?` (≤100), `isVendor?`, `isCustomer?`,
   `verificationStatus?`.
-- **Create body**: `{ isVendor, isCustomer, name, nip, address,
-  contactEmail, contactPhone }`. `verificationStatus` not settable —
-  always starts `PENDING`.
+- **Create body**: `{ isVendor, isCustomer, name, nip?, euVatNumber?,
+  address, contactEmail, contactPhone }` (`nip` optional and
+  `euVatNumber` added 2026-10-20). `verificationStatus` not settable —
+  starts `PENDING`, or `NOT_APPLICABLE` with neither identifier.
 - **Response shape** (list/detail): includes `updatedAt` on every
   row, per root `AGENTS.md`'s requirement so `CrudForm` can
   auto-derive the optimistic-lock header for `PUT` below.
 - **Response 403**: caller lacks `contractors.view` (list) or
   `contractors.manage` (create).
 - **Response 409** (create): `nip` already registered for this
-  organization (duplicate, detected via `nipHash`).
+  organization (duplicate, detected via `nipHash`), or `euVatNumber`
+  already registered (via `euVatNumberHash`, added 2026-10-20).
 
 ### `PUT /api/contractors/:id`
 
 Standard `makeCrudRoute` update.
 
-- **Response 400**: attempted change to `nip` — rejected
+- **Response 400**: attempted change to a set `nip` (or, since
+  2026-10-20, a set `euVatNumber`) — rejected
   unconditionally (see Design decisions), distinct from GL's
-  posted-entries-gated immutability guards.
+  posted-entries-gated immutability guards. Adding a missing one is
+  accepted.
 - **Response 409**: `OptimisticLockConflictBody` on a stale
   `updated_at`.
 
@@ -1406,6 +1479,20 @@ Custom write route (mutation guard registry, mapped to `update`).
   **Changed 2026-10-20:** this replaces the earlier
   `422 CONTRACTOR_NOT_APPROVED` and `502` responses.
 - **Response 403**: caller lacks `contractors.view`.
+
+### `POST /api/contractors/:id/verify-vies`
+
+Added 2026-10-20. Custom write route (mutation guard registry, mapped to
+`update`, because it writes a history row and may change
+`verificationStatus`), invoking `checkContractorVies`.
+
+- **Response 200**: `{ status: 'VALID' | 'INVALID' | 'NOT_CHECKED',
+  checkedAt: string, requestId: string | null }`. `NOT_CHECKED` after
+  the 10-second timeout or a VIES error; a background retry is already
+  enqueued.
+- **Response 422**: the contractor has no `euVatNumber`.
+- **Response 403**: caller lacks `contractors.view` (the same feature as
+  the whitelist "verify now" route).
 
 ### `GET /api/contractors/:id/verification-checks`
 
@@ -1494,11 +1581,12 @@ exactly as `sales.order-approval` and
 | `migrations/MigrationXXXXXXXXXXXXXX.ts` | Create | Tables for the three entities above, plus the partial indexes `contractor_bank_account_one_primary_uq` and the `nip_hash` uniqueness index scoped `where deleted_at is null` (see Design decisions) and the history indexes (see Data Models) |
 | `api/contractors/[id]/verification-checks/route.ts` | Create | Read-only verification history list (added 2026-10-20) |
 | `packages/shared/src/lib/bank-accounts/accountNumber.ts` | Create | `validateBankAccountNumber` — IBAN/NRB format, ISO 13616 length, MOD 97-10 checksum, normalization to the IBAN form; shared so Cash & Bank can reuse it (added 2026-10-20) |
-| `encryption.ts` | Create | `defaultEncryptionMaps` for `contractors:contractor` (incl. `nip` → `nip_hash`) and `contractors:contractor_bank_account` |
+| `encryption.ts` | Create | `defaultEncryptionMaps` for `contractors:contractor` (incl. `nip` → `nip_hash`, `eu_vat_number` → `eu_vat_number_hash`) and `contractors:contractor_bank_account` |
 | `di.ts` | Create | Registers `contractorBankWhitelistCheck` (`checkBankAccountWhitelist`) and `contractorLookupByNip` (read-only, `nipHash` lookup, no PII) for cross-module resolution — see DI Registrar |
 | `acl.ts` | Create | Three `contractors.*` features (`.view`/`.manage`/`.approve`) |
 | `setup.ts` | Create | `defaultRoleFeatures` for `admin`/`employee`; no `seedDefaults` |
-| `commands/contractors.ts` | Create | `createContractor` / `updateContractor` |
+| `commands/contractors.ts` | Create | `createContractor` / `updateContractor` / `checkContractorVies` (on-demand VIES, added 2026-10-20) |
+| `api/contractors/[id]/verify-vies/route.ts` | Create | On-demand VIES check, 10-second timeout (added 2026-10-20) |
 | `commands/contractorBankAccounts.ts` | Create | `createContractorBankAccount` / `updateContractorBankAccount` / `checkBankAccountWhitelist` |
 | `workers/verifyContractorRegistry.ts` | Create | Async GUS/VIES lookup, updates `verificationStatus` |
 | `workers/verifyContractorBankAccount.ts` | Create | Background whitelist check of a new or changed bank account; writes the history row and the warning status, never rejects the account (added 2026-10-20) |
@@ -1509,7 +1597,7 @@ exactly as `sales.order-approval` and
 | `events.ts` | Create | **Confirmed in scope, 2026-09-08** — `contractors.contractor.created`, the workflow's sole trigger |
 | `widgets/injection/vendor-approval/` | Create | **In `workflows`, not this module** — approval-task widget injected into `contractors.contractor.detail:details`, mirroring `workflows/widgets/injection/order-approval/` |
 | `commands/contractors.ts` | Update | Adds `applyContractorApprovalDecision`, called only from inside the workflow |
-| `i18n/` | Create | Locale keys for status labels (`PENDING`/`VERIFIED`/`FAILED`, `WHITELISTED`/`NOT_WHITELISTED`/`UNKNOWN`, `PENDING_APPROVAL`/`APPROVED`/`REJECTED`), the "last checked: N days ago" badge, the "Verify now" button, and 400/409/502 error copy — per root `AGENTS.md`'s "never hard-code user-facing strings" rule |
+| `i18n/` | Create | Locale keys for status labels (`PENDING`/`VERIFIED`/`FAILED`/`NOT_APPLICABLE`, `WHITELISTED`/`NOT_WHITELISTED`/`UNKNOWN`, `PENDING_APPROVAL`/`APPROVED`/`REJECTED`), the "last checked: N days ago" badge, the "Verify now" button, and 400/409/422 error copy — per root `AGENTS.md`'s "never hard-code user-facing strings" rule. **Added 2026-10-20:** the eligibility reasons, the history kinds and statuses (`FOUND`/`NOT_FOUND`, `VALID`/`INVALID`, `NOT_CHECKED`), the "not on the whitelist" warning badge, the "Check in VIES" button and the account-number validation errors |
 | `api/openapi.ts` | Create | `openApi` exports for every route above |
 | `backend/contractors/page.tsx` (+ create/[id]) | Create | List/create/edit UI with inline bank-account sub-list |
 | `commands/__tests__/*` | Create | Regression coverage |
@@ -1528,8 +1616,17 @@ exactly as `sales.order-approval` and
 - Assert `createContractor` rejects a duplicate `nip` within the same
   `(tenant, organization)` (via `nipHash` lookup), and allows the same
   `nip` across different organizations.
-- Assert `updateContractor` rejects any `nip` change, unconditionally
+- Assert `updateContractor` rejects any change to a set `nip`, unconditionally
   (not gated on any related data existing — unlike GL's guards).
+- EU VAT number and VIES (added 2026-10-20): a contractor with only an
+  `euVatNumber` is created and enqueues a VIES check; a duplicate
+  `euVatNumber` in one organization returns 409; adding a missing `nip`
+  or `euVatNumber` succeeds and changing a set one returns 400; a
+  contractor with neither identifier gets `verificationStatus:
+  'NOT_APPLICABLE'`; `verify-vies` returns `VALID`/`INVALID` and updates
+  `verificationStatus`; a mocked VIES that answers after more than 10
+  seconds yields `NOT_CHECKED`, leaves `verificationStatus` unchanged and
+  enqueues one retry; every VIES call writes one `VIES` history row.
 - Assert `createContractorBankAccount`/`updateContractorBankAccount`
   enforce exactly one `isPrimary: true` per contractor.
 - **Assert `checkBankAccountWhitelist` always performs a live call and
@@ -2399,3 +2496,12 @@ New section Design decisions (2026-10-20); every item below is decided.
   Cash & Bank's `BankAccount.accountNumber` (#6055). Non-IBAN accounts
   out of scope. Commands, API Contracts, File Manifest, Testing Strategy,
   Out of scope updated.
+- **EU VAT number and VIES.** New `euVatNumber` (encrypted,
+  `eu_vat_number_hash`, partial unique); `nip` nullable; both set-once;
+  `verificationStatus` gains `NOT_APPLICABLE` and is derived from GUS and
+  VIES; VIES runs in the background at registration and on demand through
+  `checkContractorVies` / `POST /api/contractors/:id/verify-vies`
+  (synchronous, 10-second timeout, `NOT_CHECKED` plus a worker retry
+  after it). Earlier NIP-immutability decision, Encryption, Entities, DI
+  Registrar, Commands, Data Models, API Contracts, Backend Pages, File
+  Manifest (incl. `i18n/`), Testing Strategy updated.
