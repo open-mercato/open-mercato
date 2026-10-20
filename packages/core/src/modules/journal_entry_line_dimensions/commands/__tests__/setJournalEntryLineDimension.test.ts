@@ -13,8 +13,12 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
     em.findOne(entity, where, options),
 }))
 
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import { LockMode } from '@mikro-orm/core'
+import { asValue, createContainer, InjectionMode } from 'awilix'
 import '../setJournalEntryLineDimension'
+import { CommandBus } from '@open-mercato/shared/lib/commands'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandHandler, CommandRuntimeContext, CommandUndoLogEntry } from '@open-mercato/shared/lib/commands'
 import { JournalEntryLineDimension } from '../../data/entities'
@@ -231,6 +235,17 @@ function makeCtx(em: any, tenantId: string, organizationId: string): CommandRunt
   }
 }
 
+async function withStrictOrganizationScope<T>(run: () => Promise<T>): Promise<T> {
+  const previous = process.env.OM_ENFORCE_ORG_SCOPE_STRICT
+  process.env.OM_ENFORCE_ORG_SCOPE_STRICT = 'true'
+  try {
+    return await run()
+  } finally {
+    if (previous === undefined) delete process.env.OM_ENFORCE_ORG_SCOPE_STRICT
+    else process.env.OM_ENFORCE_ORG_SCOPE_STRICT = previous
+  }
+}
+
 function getHandler(): CommandHandler {
   const handler = commandRegistry.get('journal_entry_line_dimensions.dimensions.set')
   if (!handler) throw new Error('command not registered')
@@ -303,6 +318,47 @@ describe('journal_entry_line_dimensions.dimensions.set', () => {
     const prepared = await getHandler().prepare!(baseInput, makeCtx(em, TENANT_A, ORG_A))
 
     expect(prepared?.before).toEqual(['cc-tenant-a'])
+  })
+
+  describe('undo scope', () => {
+    async function setAndLog(em: ReturnType<typeof makeFakeEm>['em']) {
+      const handler = getHandler()
+      const ctx = makeCtx(em, TENANT_A, ORG_A)
+      const prepared = await handler.prepare!(baseInput, ctx)
+      const result = await handler.execute(baseInput, ctx)
+      const log = await handler.buildLog!({ input: baseInput, result, snapshots: { before: prepared?.before }, ctx })
+      return { logEntry: { payload: log!.payload } as unknown as CommandUndoLogEntry }
+    }
+
+    it('rejects an undo from a context in another organization, leaving the rows untouched', async () => {
+      const { em, dimensionRows } = makeFakeEm({ dimensionRows: [dimRow('CostCenter', 'cc-old', 'posting_rules')] })
+      const { logEntry } = await setAndLog(em)
+
+      await expect(
+        getHandler().undo!({ input: baseInput, ctx: makeCtx(em, TENANT_A, ORG_B), logEntry }),
+      ).rejects.toMatchObject({ status: 403 })
+      expect(dimensionRows.map((r) => r.dimensionId)).toEqual(['cc-new'])
+    })
+
+    it('rejects an undo from a context in another tenant, leaving the rows untouched', async () => {
+      const { em, dimensionRows } = makeFakeEm({ dimensionRows: [dimRow('CostCenter', 'cc-old', 'posting_rules')] })
+      const { logEntry } = await setAndLog(em)
+
+      await expect(
+        getHandler().undo!({ input: baseInput, ctx: makeCtx(em, TENANT_B, ORG_A), logEntry }),
+      ).rejects.toMatchObject({ status: 403 })
+      expect(dimensionRows.map((r) => r.dimensionId)).toEqual(['cc-new'])
+    })
+
+    it('lets a system actor whose ctx selects the payload organization undo', async () => {
+      const { em, dimensionRows } = makeFakeEm({ dimensionRows: [dimRow('CostCenter', 'cc-old', 'posting_rules')] })
+      const { logEntry } = await setAndLog(em)
+      const ctx: CommandRuntimeContext = { ...makeCtx(em, TENANT_A, ORG_A), auth: null }
+
+      await getHandler().undo!({ input: baseInput, ctx, logEntry })
+
+      expect(dimensionRows.map((r) => r.dimensionId)).toEqual(['cc-old'])
+    })
   })
 
   describe('line existence', () => {
@@ -430,22 +486,137 @@ describe('journal_entry_line_dimensions.dimensions.set', () => {
       expect(dimensionRows.map((r) => [r.dimensionId, r.tenantId, r.organizationId])).toEqual([['cc-new', TENANT_A, ORG_A]])
     })
 
-    it('rejects a call that has neither ctx auth nor an input scope', async () => {
+    it('rejects a call that has neither ctx auth nor an input scope with a translated message', async () => {
       const { em, dimensionRows } = makeFakeEm({})
 
-      await expect(getHandler().execute(baseInput, systemCtx(em))).rejects.toMatchObject({ status: 404 })
+      await expect(getHandler().execute(baseInput, systemCtx(em))).rejects.toMatchObject({
+        status: 404,
+        body: { error: 'Tenant and organization context is required to change journal entry line dimensions.' },
+      })
       expect(dimensionRows).toEqual([])
     })
 
-    it('prefers the ctx scope over a different scope smuggled in through the input', async () => {
+    it('lets a system actor whose ctx selects the same organization pass OM_ENFORCE_ORG_SCOPE_STRICT', async () => {
       const { em, dimensionRows } = makeFakeEm({})
+      const ctx: CommandRuntimeContext = { ...systemCtx(em), selectedOrganizationId: ORG_A }
 
-      await getHandler().execute(
-        { ...baseInput, tenantId: TENANT_B, organizationId: ORG_B },
-        makeCtx(em, TENANT_A, ORG_A),
+      await withStrictOrganizationScope(() =>
+        getHandler().execute({ ...baseInput, tenantId: TENANT_A, organizationId: ORG_A }, ctx),
       )
 
       expect(dimensionRows.map((r) => [r.tenantId, r.organizationId])).toEqual([[TENANT_A, ORG_A]])
+    })
+
+    it('rejects a system actor whose input organization differs from the ctx-selected one, writing nothing', async () => {
+      const { em, dimensionRows } = makeFakeEm({})
+      const ctx: CommandRuntimeContext = { ...systemCtx(em), selectedOrganizationId: ORG_B }
+
+      await expect(
+        getHandler().execute({ ...baseInput, tenantId: TENANT_A, organizationId: ORG_A }, ctx),
+      ).rejects.toMatchObject({ status: 403 })
+      expect(dimensionRows).toEqual([])
+    })
+
+    it('under OM_ENFORCE_ORG_SCOPE_STRICT rejects a system actor that selects no organization in ctx', async () => {
+      const { em, dimensionRows } = makeFakeEm({})
+
+      await expect(
+        withStrictOrganizationScope(() =>
+          getHandler().execute({ ...baseInput, tenantId: TENANT_A, organizationId: ORG_A }, systemCtx(em)),
+        ),
+      ).rejects.toMatchObject({ status: 403 })
+      expect(dimensionRows).toEqual([])
+    })
+  })
+
+  describe('authenticated scope (ctx.auth present)', () => {
+    it('accepts an input scope equal to the ctx scope', async () => {
+      const { em, dimensionRows } = makeFakeEm({})
+
+      await getHandler().execute({ ...baseInput, tenantId: TENANT_A, organizationId: ORG_A }, makeCtx(em, TENANT_A, ORG_A))
+
+      expect(dimensionRows.map((r) => [r.tenantId, r.organizationId])).toEqual([[TENANT_A, ORG_A]])
+    })
+
+    it('rejects an input organizationId other than the ctx organization, writing nothing', async () => {
+      const { em, dimensionRows } = makeFakeEm({})
+
+      await expect(
+        getHandler().execute({ ...baseInput, organizationId: ORG_B }, makeCtx(em, TENANT_A, ORG_A)),
+      ).rejects.toMatchObject({ status: 403 })
+      expect(dimensionRows).toEqual([])
+    })
+
+    it('rejects an input tenantId other than the ctx tenant, writing nothing', async () => {
+      const { em, dimensionRows } = makeFakeEm({})
+
+      await expect(
+        getHandler().execute({ ...baseInput, tenantId: TENANT_B }, makeCtx(em, TENANT_A, ORG_A)),
+      ).rejects.toMatchObject({ status: 403 })
+      expect(dimensionRows).toEqual([])
+    })
+
+    it('does not complete a ctx without an organization from the input organizationId', async () => {
+      const { em, dimensionRows } = makeFakeEm({})
+      const ctx: CommandRuntimeContext = {
+        ...makeCtx(em, TENANT_A, ORG_A),
+        auth: { sub: 'user-1', tenantId: TENANT_A, orgId: null },
+        selectedOrganizationId: null,
+      }
+
+      await expect(
+        getHandler().execute({ ...baseInput, tenantId: TENANT_A, organizationId: ORG_A }, ctx),
+      ).rejects.toMatchObject({ status: 404 })
+      expect(dimensionRows).toEqual([])
+    })
+
+    it('does not complete a ctx without a tenant from the input tenantId', async () => {
+      const { em, dimensionRows } = makeFakeEm({})
+      const ctx: CommandRuntimeContext = {
+        ...makeCtx(em, TENANT_A, ORG_A),
+        auth: { sub: 'user-1', tenantId: null, orgId: ORG_A },
+      }
+
+      await expect(
+        getHandler().execute({ ...baseInput, tenantId: TENANT_A, organizationId: ORG_A }, ctx),
+      ).rejects.toMatchObject({ status: 404 })
+      expect(dimensionRows).toEqual([])
+    })
+
+    it('passes OM_ENFORCE_ORG_SCOPE_STRICT for a caller writing into its own organization', async () => {
+      const { em, dimensionRows } = makeFakeEm({})
+
+      await withStrictOrganizationScope(() => getHandler().execute(baseInput, makeCtx(em, TENANT_A, ORG_A)))
+
+      expect(dimensionRows.map((r) => r.dimensionId)).toEqual(['cc-new'])
+    })
+  })
+
+  describe('undo state captured under the pair lock', () => {
+    it('restores the rows a concurrent write left between the bus prepare step and the pair lock, not the earlier ones', async () => {
+      const { em, dimensionRows } = makeFakeEm({ dimensionRows: [dimRow('CostCenter', 'cc-old', 'posting_rules')] })
+      const findOne = em.findOne.getMockImplementation()
+      let concurrentWriteLanded = false
+      em.findOne.mockImplementation(async (ctor: unknown, where: unknown, options: unknown) => {
+        if (ctor === JournalEntryLine && !concurrentWriteLanded) {
+          concurrentWriteLanded = true
+          dimensionRows.length = 0
+          dimensionRows.push(dimRow('CostCenter', 'cc-concurrent', 'posting_rules'))
+        }
+        return findOne(ctor, where, options)
+      })
+      const log = jest.fn(async (entry: Record<string, unknown>) => ({ id: 'log-1', ...entry }))
+      const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+      container.register({ em: asValue(em), actionLogService: asValue({ log }) })
+      const ctx: CommandRuntimeContext = { ...makeCtx(em, TENANT_A, ORG_A), container }
+
+      await new CommandBus().execute('journal_entry_line_dimensions.dimensions.set', { input: baseInput, ctx })
+      expect(dimensionRows.map((r) => r.dimensionId)).toEqual(['cc-new'])
+
+      const logEntry = log.mock.calls[0][0] as unknown as CommandUndoLogEntry
+      await getHandler().undo!({ input: baseInput, ctx, logEntry })
+
+      expect(dimensionRows.map((r) => r.dimensionId)).toEqual(['cc-concurrent'])
     })
   })
 
@@ -505,7 +676,29 @@ describe('setJournalEntryLineDimensionSchema', () => {
     expect(setJournalEntryLineDimensionSchema.safeParse({ ...base, dimensionIds: ['cc-1', 'cc-1'] }).success).toBe(false)
   })
 
+  it('marks the duplicate dimensionIds issue with an i18nKey for translateZodIssues', () => {
+    const result = setJournalEntryLineDimensionSchema.safeParse({ ...base, dimensionIds: ['cc-1', 'cc-1'] })
+    const issue = result.success ? undefined : result.error.issues[0]
+
+    expect(issue).toMatchObject({
+      path: ['dimensionIds'],
+      params: {
+        i18nKey: 'journal_entry_line_dimensions.errors.duplicateDimensionIds',
+        i18nFallback: 'The same dimension cannot be listed more than once.',
+      },
+    })
+  })
+
   it('accepts a non-UUID dimensionId (dimension_id is an opaque reference)', () => {
     expect(setJournalEntryLineDimensionSchema.safeParse({ ...base, dimensionIds: ['opaque-ref'] }).success).toBe(true)
+  })
+})
+
+describe('journal_entry_line_dimensions i18n', () => {
+  it.each(['en', 'pl', 'de', 'es', 'ko'])('%s carries the duplicate-ids and scope-required messages', (locale) => {
+    const messages = JSON.parse(readFileSync(join(__dirname, '..', '..', 'i18n', `${locale}.json`), 'utf8')) as Record<string, string>
+
+    expect(messages['journal_entry_line_dimensions.errors.duplicateDimensionIds']).toEqual(expect.any(String))
+    expect(messages['journal_entry_line_dimensions.errors.scopeRequired']).toEqual(expect.any(String))
   })
 })

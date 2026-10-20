@@ -5,7 +5,7 @@ import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
-import { CrudHttpError, conflict, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, conflict, forbidden, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/translate'
@@ -44,27 +44,44 @@ type PairWrite = {
 }
 
 /**
- * Resolves the acting scope from the runtime context, falling back to the
- * input's explicit `tenantId`/`organizationId` only when `ctx.auth` carries
- * none. This command is only ever called in-process by a trusted
- * hard-dependency consumer (`posting_rules`, `fixed_assets`), never through an
- * HTTP route, so there is no end-user-facing "target org" a caller could
- * smuggle in through the input.
+ * Resolves the acting scope. With `ctx.auth` the scope is the context's own:
+ * the tenant from `ctx.auth.tenantId` and the SELECTED organization
+ * (`ctx.selectedOrganizationId`, else `ctx.auth.orgId` — see
+ * `financial-command-implementation-checklist` item 3). An input
+ * `tenantId`/`organizationId` is never used then: one that names a different
+ * scope is rejected, and a context missing either part is rejected rather
+ * than completed from the input.
  *
- * The fallback is needed because a `systemActor` caller — `posting_rules`'
- * `reclassify.ts` engine "posts on nobody's behalf" — runs with
- * `ctx.auth: null`, so a ctx-only scope would 404 every real call. It follows
- * the precedent of `warranty_claims`' systemActor subscriber, which passes its
- * own already-resolved scope as an explicit input field.
- *
- * Honors the SELECTED organization (`ctx.selectedOrganizationId`), not just
- * `ctx.auth.orgId` — see `financial-command-implementation-checklist` item 3.
+ * The input scope is read only when `ctx.auth` is absent: a `systemActor`
+ * caller — `posting_rules`' `reclassify.ts` engine "posts on nobody's behalf"
+ * — runs with `ctx.auth: null`, so a ctx-only scope would 404 every real call.
+ * It follows the precedent of `warranty_claims`' systemActor subscriber, which
+ * passes its own already-resolved scope as an explicit input field. The
+ * organization falls back to `ctx.selectedOrganizationId` there, and
+ * `ensureOrganizationScope` rejects an input organization that differs from it.
  */
-function resolveScope(ctx: CommandRuntimeContext, input: { tenantId?: string; organizationId?: string }): Scope {
-  const tenantId = ctx.auth?.tenantId ?? input.tenantId ?? null
-  const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? input.organizationId ?? null
+function resolveScope(
+  ctx: CommandRuntimeContext,
+  input: { tenantId?: string; organizationId?: string },
+  translate: TranslateWithFallbackFn,
+): Scope {
+  const auth = ctx.auth
+  const tenantId = auth ? auth.tenantId ?? null : input.tenantId ?? null
+  const organizationId = auth
+    ? ctx.selectedOrganizationId ?? auth.orgId ?? null
+    : input.organizationId ?? ctx.selectedOrganizationId ?? null
   if (!tenantId || !organizationId) {
-    throw notFound('journal_entry_line_dimensions: tenant/organization scope required')
+    throw notFound(
+      translate(
+        'journal_entry_line_dimensions.errors.scopeRequired',
+        'Tenant and organization context is required to change journal entry line dimensions.',
+      ),
+    )
+  }
+  if (auth) {
+    const tenantDiffers = input.tenantId !== undefined && input.tenantId !== tenantId
+    const organizationDiffers = input.organizationId !== undefined && input.organizationId !== organizationId
+    if (tenantDiffers || organizationDiffers) throw forbidden()
   }
   return { tenantId, organizationId }
 }
@@ -256,16 +273,24 @@ async function replacePairRows(em: EntityManager, write: PairWrite, scope: Scope
  * ownership check and delete-then-insert (4). Both callers run it inside
  * `withAtomicFlush(..., { transaction: true })`, so a failed insert rolls the
  * delete back and a rejected check leaves the rows untouched.
+ *
+ * `afterPairLocked` runs right after the advisory lock, on the transaction's
+ * own `em`. `execute` passes `ctx.beforeTransactionalWrite` there, which the
+ * command bus uses (`prepareSnapshotInsideTransaction`) to run `prepare`, so
+ * the undo `before` state is read under the lock and cannot be overtaken by a
+ * concurrent write to the same pair.
  */
 async function applyPairWrite(
   em: EntityManager,
   write: PairWrite,
   scope: Scope,
   translate: TranslateWithFallbackFn,
+  afterPairLocked?: (em: EntityManager) => Promise<void>,
 ): Promise<void> {
   const line = await requireJournalEntryLine(em, write.journalEntryLineId, scope, translate)
   await requireUnlockedPeriodForLine(em, line, scope, translate)
   await lockPair(em, write.journalEntryLineId, write.dimensionType, scope)
+  await afterPairLocked?.(em)
   const existing = await loadPairRows(em, write.journalEntryLineId, write.dimensionType, scope)
   assertWriterOwnsPair(existing, write.writer, translate)
   await replacePairRows(em, write, scope)
@@ -273,28 +298,32 @@ async function applyPairWrite(
 
 const setJournalEntryLineDimensionCommand: CommandHandler<SetJournalEntryLineDimensionInput, SetDimensionResult> = {
   id: 'journal_entry_line_dimensions.dimensions.set',
+  prepareSnapshotInsideTransaction: true,
 
   async prepare(rawInput, ctx) {
     const parsed = setJournalEntryLineDimensionSchema.parse(rawInput)
-    const scope = resolveScope(ctx, parsed)
-    const em = ctx.container.resolve('em') as EntityManager
+    const { translate } = await resolveTranslations()
+    const scope = resolveScope(ctx, parsed, translate)
+    const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager)
     const rows = await loadPairRows(em, parsed.journalEntryLineId, parsed.dimensionType, scope)
     return { before: rows.map((row) => row.dimensionId) }
   },
 
   async execute(rawInput, ctx) {
     const parsed = setJournalEntryLineDimensionSchema.parse(rawInput)
-    const scope = resolveScope(ctx, parsed)
+    const { translate } = await resolveTranslations()
+    const scope = resolveScope(ctx, parsed, translate)
     ensureTenantScope(ctx, scope.tenantId)
     ensureOrganizationScope(ctx, scope.organizationId)
-    const { translate } = await resolveTranslations()
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     await withAtomicFlush(
       em,
       [
         async () => {
-          await applyPairWrite(em, parsed, scope, translate)
+          await applyPairWrite(em, parsed, scope, translate, async (lockedEm) => {
+            await ctx.beforeTransactionalWrite?.(lockedEm, rawInput)
+          })
         },
       ],
       { transaction: true },
@@ -310,7 +339,7 @@ const setJournalEntryLineDimensionCommand: CommandHandler<SetJournalEntryLineDim
 
   buildLog: async ({ input, result, snapshots, ctx }) => {
     const { translate } = await resolveTranslations()
-    const scope = resolveScope(ctx, input)
+    const scope = resolveScope(ctx, input, translate)
     const before = (snapshots.before as string[] | undefined) ?? []
     return {
       actionLabel: translate('journal_entry_line_dimensions.audit.set', 'Set journal entry line dimension'),
@@ -337,10 +366,14 @@ const setJournalEntryLineDimensionCommand: CommandHandler<SetJournalEntryLineDim
    * the change, re-running the same checks as `execute`: an undo for a line
    * in a locked (or missing) period, or over rows another writer has since
    * claimed, is rejected — the freeze applies to undo exactly as to a write.
+   * The payload's scope must be one the undoing context may act in, checked
+   * with the same `ensureTenantScope`/`ensureOrganizationScope` as `execute`.
    */
   undo: async ({ ctx, logEntry }) => {
     const payload = extractUndoPayload<SetDimensionUndoPayload>(logEntry)
     if (!payload) return
+    ensureTenantScope(ctx, payload.tenantId)
+    ensureOrganizationScope(ctx, payload.organizationId)
     const { translate } = await resolveTranslations()
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const scope: Scope = { tenantId: payload.tenantId, organizationId: payload.organizationId }
