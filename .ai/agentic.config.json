@@ -33,5 +33,10 @@
     "scripts": ".ai/scripts",
     "qa": ".ai/qa"
   },
-  "reviewChecklist": ".ai/review-checklist.md"
+  "reviewChecklist": ".ai/review-checklist.md",
+  "securityChecklist": ".ai/security-checklist.md",
+  "securityReport": {
+    "publish": "pr",
+    "disclosure": "withhold-live"
+  }
 }
