@@ -239,12 +239,12 @@ therefore fold long encoded headers and quote a display name only when it needs 
 
 `channelMetadata.outboundAttachments` is now a hub-owned key: `send-as-user` drops any value a
 caller puts there. The integration helper `CapturedTestSeedEmail` (and `TestSeedCapturedMessage` in
-`communication_channels/lib/test-seed`) keeps `content.attachments` unchanged: it lists the attachments
-handed to the adapter with a URL, remote URLs included, as before. The new `content.attachmentDigests`
-holds a version 1 digest (`version`, `fileName`, `mimeType`, `fileSize`, `sha256`) for every
-attachment whose bytes the adapter holds — the files the hub read from the attachments module, which
-have no URL, and `data:` URLs; a remote URL is never fetched or digested. Assert on the digests to
-check what was sent.
+`communication_channels/lib/test-seed`) keeps `content.attachments` unchanged: it records the
+attachments handed to the adapter as before. The only items left out are the files the hub read from
+the attachments module, which carry bytes and no URL. The new `content.attachmentDigests` holds a
+version 1 digest (`version`, `fileName`, `mimeType`, `fileSize`, `sha256`) for every attachment
+whose bytes the adapter holds — those hub-read files and decodable `data:` URLs; a remote URL is never
+fetched or digested. Assert on the digests to check what was sent.
 
 A `send-as-user` request that carried an `attachments` field used to be accepted with the field
 silently dropped; the field is now validated, and the request is refused with 422 when it is malformed

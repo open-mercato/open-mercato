@@ -289,7 +289,8 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "ts-jest": "^29.4.12",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "typescript-js": "npm:typescript@6.0.3"
   },
   "publishConfig": {
     "access": "public"

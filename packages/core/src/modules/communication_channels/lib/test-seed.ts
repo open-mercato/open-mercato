@@ -106,9 +106,9 @@ export type TestSeedCapturedMessage = {
   content: SendMessageInput['content'] & {
     /**
      * One digest per attachment whose bytes the adapter holds: the bytes the
-     * hub read from the attachments module, or a `data:` URL. `attachments`
-     * keeps its original shape and lists the items that carry a URL, remote
-     * URLs included.
+     * hub read from the attachments module, or a decodable `data:` URL.
+     * `attachments` keeps its original shape and records the items as before,
+     * except those hub-read files, which have no URL.
      */
     attachmentDigests?: TestSeedCapturedAttachmentDigest[]
   }
@@ -287,13 +287,14 @@ const testSeedCapabilities: ChannelCapabilities = {
 }
 
 /**
- * The attachments as the capture always recorded them: the items that carry a
- * URL, without the hub-read bytes, which have no URL to record.
+ * The attachments as the capture always recorded them. Only the files the hub
+ * read from the attachments module are left out: they carry bytes and no URL,
+ * so they appear in `attachmentDigests` alone.
  */
 function captureUrlAttachments(content: MessageContent): MessageContent['attachments'] {
-  const withUrl = (content.attachments ?? []).filter((attachment) => attachment.url)
-  if (!withUrl.length) return undefined
-  return withUrl.map(({ url, mimeType, fileName, fileSize, inline }) => ({
+  if (!content.attachments) return undefined
+  const recorded = content.attachments.filter((attachment) => attachment.url || !attachment.content)
+  return recorded.map(({ url, mimeType, fileName, fileSize, inline }) => ({
     url,
     mimeType,
     fileName,
@@ -305,13 +306,18 @@ function captureUrlAttachments(content: MessageContent): MessageContent['attachm
 /**
  * Record what an attachment carried without writing its bytes to the capture
  * file: tests compare the digest with the file they uploaded. Only bytes the
- * adapter already holds are digested; a remote URL is never fetched and stays
- * in `attachments` alone.
+ * adapter already holds are digested; a remote URL is never fetched, and it
+ * stays in `attachments` alone, as does a `data:` URL that does not decode.
  */
 function captureAttachmentDigests(content: MessageContent): TestSeedCapturedAttachmentDigest[] | undefined {
   const digests = (content.attachments ?? []).flatMap((attachment): TestSeedCapturedAttachmentDigest[] => {
     if (!attachment.content && !attachment.url?.startsWith('data:')) return []
-    const bytes = resolveOutboundAttachmentBytes(attachment)
+    let bytes: Uint8Array
+    try {
+      bytes = resolveOutboundAttachmentBytes(attachment)
+    } catch {
+      return []
+    }
     return [
       {
         version: 1,

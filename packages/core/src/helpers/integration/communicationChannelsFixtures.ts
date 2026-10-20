@@ -37,7 +37,7 @@ export type CapturedTestSeedEmail = {
     text?: string;
     html?: string;
     bodyFormat?: 'text' | 'markdown' | 'html';
-    /** The attachments handed to the adapter with a URL, as before. Files the hub read from the attachments module have no URL and appear only in `attachmentDigests`. */
+    /** The attachments handed to the adapter, recorded as before. Files the hub read from the attachments module carry bytes and no URL, so they appear only in `attachmentDigests`. */
     attachments?: Array<{ url: string; mimeType: string; fileName: string; fileSize?: number; inline?: boolean }>;
     attachmentDigests?: CapturedTestSeedAttachmentDigest[];
     raw?: Record<string, unknown>;

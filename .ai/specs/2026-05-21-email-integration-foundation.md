@@ -921,7 +921,7 @@ Outbound attachments (§ Amendment — Outbound Attachments):
 | `baseEmailCapabilities.supportedMimeTypes` | Adds xlsx, docx, pptx, xls, doc | Additive; read only by the outbound attachment check |
 | Gmail outbound bytes | MailComposer output: display name quoted only when needed, folded headers | Wire format, documented |
 | Direct adapter callers | IMAP sends `content`/`data:` attachments and reports a size rejection as `failed` / `message_too_large` instead of throwing; Gmail refuses a URL-only attachment instead of dropping it | Behavior change, documented |
-| `CapturedTestSeedEmail` (integration helper), `TestSeedCapturedMessage` (`lib/test-seed`) | `content.attachments` unchanged (attachments handed over with a URL); new optional `content.attachmentDigests` with version 1 digests (`version`, `fileName`, `mimeType`, `fileSize`, `sha256`) for every attachment whose bytes the adapter holds (hub-read or `data:` URL; a remote URL is not fetched) | Additive |
+| `CapturedTestSeedEmail` (integration helper), `TestSeedCapturedMessage` (`lib/test-seed`) | `content.attachments` unchanged (records the attachments handed over as before, except hub-read files, which carry bytes and no URL); new optional `content.attachmentDigests` with version 1 digests (`version`, `fileName`, `mimeType`, `fileSize`, `sha256`) for every attachment whose bytes the adapter holds (hub-read or `data:` URL; a remote URL is not fetched) | Additive |
 | `@open-mercato/core` dependencies | Adds `nodemailer` and `@types/nodemailer` (already used by `channel-imap` / `channel-ses`) | New production dependency |
 | Database, events, DI keys, ACL, notifications, CLI, generated files | None | — |
 

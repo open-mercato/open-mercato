@@ -9079,6 +9079,7 @@ __metadata:
     ts-jest: "npm:^29.4.12"
     ts-pattern: "npm:^5.0.0"
     typescript: "npm:7.0.2"
+    typescript-js: "npm:typescript@6.0.3"
     zod: "npm:^4.4.3"
   peerDependencies:
     "@open-mercato/ai-assistant": "workspace:*"
