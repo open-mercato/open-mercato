@@ -254,6 +254,19 @@ the message does not resolve in scope (previously `no_channel_link` with reason
 `message not found`). Code that switches exhaustively over the result, or treated
 `no_channel_link` as "message missing", should handle `not_found` alongside it.
 
+### Completing an inbox action externally claims it once; a losing race answers `409` (#ISSUE)
+
+`PATCH /api/inbox_ops/proposals/:id/actions/:actionId/complete` now moves the action out of
+`pending`/`failed` with a single conditional update. When the action changes status after the
+route's first check (another completion, an accept, or a reject), the request answers
+`409 { error: "Action already processed" }` and writes nothing; it used to answer `200` and
+overwrite the status and the `createdEntityId`/`createdEntityType` link. An action deleted in the
+same window also answers `409` (was `404`). Both statuses were already documented for the route;
+URLs and the success response are unchanged.
+
+- Scripts or integrations calling this route should treat `409` as "the action was already
+  processed elsewhere" and re-read the proposal instead of retrying.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
