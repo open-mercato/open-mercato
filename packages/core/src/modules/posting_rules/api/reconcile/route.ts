@@ -90,6 +90,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'Reconciliation completed', schema: reconcileResponseSchema },
         { status: 400, description: 'Invalid payload', schema: reconcileErrorSchema },
         { status: 401, description: 'Unauthorized', schema: reconcileErrorSchema },
+        { status: 404, description: 'periodId does not name a fiscal period of this organization', schema: reconcileErrorSchema },
         { status: 422, description: 'PostingRulesSettings.clearingAccountId is not configured', schema: reconcileErrorSchema },
       ],
     },

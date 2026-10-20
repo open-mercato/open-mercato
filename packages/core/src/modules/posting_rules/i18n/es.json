@@ -66,6 +66,7 @@
   "posting_rules.errors.defaultAccountPostingRuleNotFound": "Regla de contabilización por defecto de cuentas no encontrada.",
   "posting_rules.errors.defaultAccountPostingRuleSourceTaken": "Ya existe una regla de contabilización por defecto para esta cuenta de origen.",
   "posting_rules.errors.defaultCostCenterNotFoundForOrg": "El centro de costes por defecto indicado no existe en esta organización.",
+  "posting_rules.errors.fiscalPeriodNotFound": "Periodo fiscal no encontrado.",
   "posting_rules.errors.invalidInput": "Datos no válidos",
   "posting_rules.errors.loadFailed": "No se pudo cargar la configuración de las reglas de contabilización.",
   "posting_rules.errors.noPriorReclassificationForReversal": "No se encontró ninguna reclasificación previa del asiento al que apunta esta reversión.",

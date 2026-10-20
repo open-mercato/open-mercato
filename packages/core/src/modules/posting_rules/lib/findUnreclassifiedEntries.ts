@@ -6,6 +6,8 @@
 // =============================================================================
 
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { notFound } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { FiscalPeriod, JournalEntry, JournalEntryLine, LedgerAccount, LedgerAccountGroup, LedgerAccountType } from '../../ledger/data/entities'
 import { PostingRulesSettings } from '../data/entities'
 import { RECLASSIFICATION_REFERENCE_TYPE, TRIGGER_ENTRY_TYPES } from './reclassify'
@@ -28,6 +30,11 @@ export type UnreclassifiedLine = { entryId: string; lineId: string }
  * carry the engine's own marker, on a zespół 4 account that is not the
  * clearing account. The subscriber applies the same definition
  * (`reclassifyLine`).
+ *
+ * A `periodId` that does not name a live fiscal period of this
+ * tenant/organization is rejected with a 404 (the same status `ledger`
+ * answers for a missing period), never ignored: ignoring it would widen a
+ * period-scoped sweep or guard to the whole organization.
  */
 export async function findUnreclassifiedEntries(
   em: EntityManager,
@@ -60,9 +67,11 @@ export async function findUnreclassifiedEntries(
       tenantId: scope.tenantId,
       deletedAt: null,
     })
-    if (period) {
-      entryFilter.operationDate = { $gte: period.startDate, $lte: period.endDate }
+    if (!period) {
+      const { translate } = await resolveTranslations()
+      throw notFound(translate('posting_rules.errors.fiscalPeriodNotFound', 'Fiscal period not found.'))
     }
+    entryFilter.operationDate = { $gte: period.startDate, $lte: period.endDate }
   }
 
   const entries = await em.find(JournalEntry, entryFilter as never)

@@ -66,6 +66,7 @@
   "posting_rules.errors.defaultAccountPostingRuleNotFound": "Standard-Kontierungsregel für Konten nicht gefunden.",
   "posting_rules.errors.defaultAccountPostingRuleSourceTaken": "Für dieses Quellkonto existiert bereits eine Standard-Kontierungsregel.",
   "posting_rules.errors.defaultCostCenterNotFoundForOrg": "Die angegebene Standard-Kostenstelle existiert in dieser Organisation nicht.",
+  "posting_rules.errors.fiscalPeriodNotFound": "Buchungsperiode nicht gefunden.",
   "posting_rules.errors.invalidInput": "Ungültige Eingabe",
   "posting_rules.errors.loadFailed": "Die Einstellungen der Kontierungsregeln konnten nicht geladen werden.",
   "posting_rules.errors.noPriorReclassificationForReversal": "Für die Buchung, auf die dieses Storno verweist, wurde keine vorherige Umgliederung gefunden.",

@@ -66,6 +66,7 @@
   "posting_rules.errors.defaultAccountPostingRuleNotFound": "Default account posting rule not found.",
   "posting_rules.errors.defaultAccountPostingRuleSourceTaken": "A default account posting rule already exists for this source account.",
   "posting_rules.errors.defaultCostCenterNotFoundForOrg": "The specified default cost centre does not exist for this organization.",
+  "posting_rules.errors.fiscalPeriodNotFound": "Fiscal period not found.",
   "posting_rules.errors.invalidInput": "Invalid input",
   "posting_rules.errors.loadFailed": "Failed to load posting rules settings.",
   "posting_rules.errors.noPriorReclassificationForReversal": "No prior reclassification was found for the entry this reversal points back to.",

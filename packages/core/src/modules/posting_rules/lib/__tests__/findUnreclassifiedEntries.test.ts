@@ -4,6 +4,12 @@
 // is keyed on its id.
 export {}
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn().mockResolvedValue({
+    translate: (_key: string, fallback?: string) => fallback ?? _key,
+  }),
+}))
+
 import { FiscalPeriod } from '../../../ledger/data/entities'
 import { findUnreclassifiedEntries } from '../findUnreclassifiedEntries'
 import { RECLASSIFICATION_REFERENCE_TYPE } from '../reclassify'
@@ -108,5 +114,48 @@ describe('findUnreclassifiedEntries', () => {
 
     expect(await find(em, 'period-sep')).toEqual([{ entryId: 'entry-sep', lineId: 'l-sep' }])
     expect((await find(em)).map((row) => row.lineId).sort()).toEqual(['l-oct', 'l-sep'])
+  })
+
+  describe('rejects a period id that does not name a live period of this tenant/organization', () => {
+    function seedPeriod(em: ReturnType<typeof buildFakeEm>, overrides: Record<string, unknown>) {
+      em.seed(FiscalPeriod, {
+        id: 'period-x',
+        organizationId: ORG,
+        tenantId: TENANT,
+        startDate: new Date('2026-09-01'),
+        endDate: new Date('2026-09-30'),
+        deletedAt: null,
+        ...overrides,
+      })
+    }
+
+    function setupWithEntry() {
+      const em = setup()
+      seedEntry(em, 'entry-sep', [{ id: 'l-sep', accountId: SOURCE_ACCOUNT_ID, debit: '10.00' }], { operationDate: '2026-09-15' })
+      return em
+    }
+
+    it('rejects an unknown period id with 404 instead of sweeping the whole organization', async () => {
+      const em = setupWithEntry()
+      await expect(find(em, 'period-missing')).rejects.toMatchObject({ status: 404, body: { error: 'Fiscal period not found.' } })
+    })
+
+    it('rejects a soft-deleted period with 404', async () => {
+      const em = setupWithEntry()
+      seedPeriod(em, { deletedAt: new Date('2026-10-01') })
+      await expect(find(em, 'period-x')).rejects.toMatchObject({ status: 404 })
+    })
+
+    it('rejects another organization\'s period with 404', async () => {
+      const em = setupWithEntry()
+      seedPeriod(em, { organizationId: '99999999-9999-4999-8999-999999999999' })
+      await expect(find(em, 'period-x')).rejects.toMatchObject({ status: 404 })
+    })
+
+    it('rejects another tenant\'s period with 404', async () => {
+      const em = setupWithEntry()
+      seedPeriod(em, { tenantId: '88888888-8888-4888-8888-888888888888' })
+      await expect(find(em, 'period-x')).rejects.toMatchObject({ status: 404 })
+    })
   })
 })

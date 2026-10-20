@@ -66,6 +66,7 @@
   "posting_rules.errors.defaultAccountPostingRuleNotFound": "Nie znaleziono domyślnej reguły przeksięgowania konta.",
   "posting_rules.errors.defaultAccountPostingRuleSourceTaken": "Domyślna reguła przeksięgowania dla tego konta źródłowego już istnieje.",
   "posting_rules.errors.defaultCostCenterNotFoundForOrg": "Wskazany domyślny MPK nie istnieje dla tej organizacji.",
+  "posting_rules.errors.fiscalPeriodNotFound": "Nie znaleziono okresu obrachunkowego.",
   "posting_rules.errors.invalidInput": "Nieprawidłowe dane wejściowe",
   "posting_rules.errors.loadFailed": "Nie udało się wczytać ustawień reguł księgowania.",
   "posting_rules.errors.noPriorReclassificationForReversal": "Nie znaleziono wcześniejszego przeksięgowania dla zapisu, do którego odnosi się ta korekta.",

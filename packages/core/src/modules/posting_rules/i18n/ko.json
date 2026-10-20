@@ -66,6 +66,7 @@
   "posting_rules.errors.defaultAccountPostingRuleNotFound": "기본 계정 전기 규칙을 찾을 수 없습니다.",
   "posting_rules.errors.defaultAccountPostingRuleSourceTaken": "이 원천 계정에 대한 기본 계정 전기 규칙이 이미 있습니다.",
   "posting_rules.errors.defaultCostCenterNotFoundForOrg": "지정한 기본 원가 센터가 이 조직에 없습니다.",
+  "posting_rules.errors.fiscalPeriodNotFound": "회계기간을 찾을 수 없습니다.",
   "posting_rules.errors.invalidInput": "잘못된 입력입니다",
   "posting_rules.errors.loadFailed": "전기 규칙 설정을 불러오지 못했습니다.",
   "posting_rules.errors.noPriorReclassificationForReversal": "이 취소가 가리키는 분개에 대한 이전 재분류를 찾을 수 없습니다.",
