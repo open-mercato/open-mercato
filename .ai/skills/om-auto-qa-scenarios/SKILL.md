@@ -19,6 +19,7 @@ Name areas the way the product does. Preferred area names, from the merged-PR hi
 - Workflows, Webhooks, Events, Notifications, Scheduler, Queue
 - Customers, Customer Accounts, Custom Fields, Business Rules
 - Catalog, Attachments, Shared Backend UI, Visual Regressions
+- Search, AI Assistant
 - No direct manual QA — broad smoke only (docs, tooling, tests, CI, DX)
 
 Path → area hints (refine from titles; the root `AGENTS.md` Task Router stays the first lookup):
@@ -30,6 +31,7 @@ Path → area hints (refine from titles; the root `AGENTS.md` Task Router stays 
 | `packages/core/src/modules/workflows/`, `packages/{events,queue,scheduler,webhooks}/`, `packages/core/src/modules/notifications/` | Workflows / Events / Webhooks / Queue |
 | `packages/core/src/modules/{customers,customer_accounts,customer_groups,entities,business_rules,portal}/` | Customers / Custom Fields / Portal |
 | `packages/core/src/modules/{catalog,attachments}/`, `packages/ui/` | Catalog / Attachments / Shared Backend UI |
+| `packages/search/`, `packages/ai-assistant/`, `packages/web-research*/` | Search / AI Assistant |
 | `packages/enterprise/` | the base area the overlay extends, flagged "enterprise" |
 | `packages/create-app/`, `apps/docs/`, `.ai/`, `scripts/`, `.github/` | broad smoke only |
 
