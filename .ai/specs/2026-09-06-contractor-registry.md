@@ -917,10 +917,15 @@ rows would destroy the evidence that a payment was checked.
 - **Setting `verificationHistoryRetentionYears`** (tenant scope, through
   `ModuleConfigService` as `contractors.verificationHistoryRetentionYears`),
   an integer of at least 6, default **6**, counted from each row's
-  `checkedAt`.
-- **Why 6 by default.** Two five-year periods apply to the payment the
-  check supports, and both start at a year boundary after the event, so
-  the evidence must outlive the event by more than five calendar years:
+  `checkedAt`, with no upper limit.
+- **Why 6 by default — a cautious default, not a statutory duty.**
+  Neither provision below requires keeping a whitelist-verification
+  history as such; they set how long a tax liability can be assessed and
+  how long accounting evidence must be kept, and the history is the
+  evidence that would be needed within those periods. Two five-year
+  periods apply to the payment the check supports, and both start at a
+  year boundary after the event, so the evidence should outlive the
+  event by more than five calendar years:
   - Ordynacja podatkowa, art. 70 § 1 (Dz. U. z 2026 r. poz. 622, tekst
     jednolity): "Zobowiązanie podatkowe przedawnia się z upływem 5 lat,
     licząc od końca roku kalendarzowego, w którym upłynął termin
@@ -932,9 +937,14 @@ rows would destroy the evidence that a payment was checked.
     and "Okresy przechowywania ustalone w ust. 2 oblicza się od początku
     roku następującego po roku obrotowym, którego dane zbiory dotyczą."
   Six years from the check covers a check made late in a year whose tax
-  is due early the next one; a tenant with a longer horizon (an open tax
-  proceeding, a fiscal year that is not the calendar year) raises the
-  setting. A value below 6 is rejected.
+  is due early the next one. The limitation period can also last longer:
+  art. 70 § 2 Ordynacji podatkowej lists cases in which it does not start
+  or is suspended ("ulega zawieszeniu") and § 3 a case that interrupts it
+  ("przerywa"), so no fixed number of years is safe for every tenant.
+  That is why the setting has no upper limit; a tenant with a longer
+  horizon (a suspended or interrupted limitation period, an open tax
+  proceeding, a fiscal year that is not the calendar year) raises it. A
+  value below 6 is rejected.
 - **What is cleared:** `accountNumberLast4` and `accountNumberHash` are
   set to `null`. `requestId`, `kind`, `status` and `checkedAt` stay, so
   the history still shows that, when and with which Ministry request id
@@ -943,8 +953,20 @@ rows would destroy the evidence that a payment was checked.
   rows older than the setting; the command `anonymizeContractorHistory`
   clears all rows of one contractor at once, regardless of age (an
   erasure request). The command requires a new feature,
-  `contractors.erase`, granted by default to `admin` only, and is
-  recorded in the command audit log like any other command.
+  `contractors.erase`, granted by default to `admin` only.
+- **Clearing rows still inside the retention period needs an explicit
+  confirmation.** If any row of the contractor has `checkedAt` younger
+  than `verificationHistoryRetentionYears`, the command requires
+  `confirmWithinRetention: true`; without it, it changes nothing and
+  returns `422 CONTRACTOR_HISTORY_WITHIN_RETENTION` with the number of
+  such rows. The flag makes the person acknowledge that evidence still
+  inside the default period is being destroyed; rows already past the
+  period need no flag.
+- **Every anonymization is audited.** Each successful call writes an
+  entry to the command audit log with the acting user, the contractor,
+  the number of rows cleared and the value of `confirmWithinRetention` —
+  also when no row was cleared. A call rejected with `422` changes
+  nothing and is not an anonymization.
 - **The only update the history ever receives.** Both paths only turn
   the two columns from a value to `null`; no path writes any other
   column or deletes a row, so the append-only rule above still holds for
@@ -1447,7 +1469,12 @@ input that does not validate returns `[]`, not an error.
   `accountNumberLast4` and `accountNumberHash` to `null` on every
   `ContractorVerificationCheck` row of one contractor, whatever their
   age; leaves `requestId`, `kind`, `status` and `checkedAt`. Requires
-  `contractors.erase`; idempotent (a second call changes nothing). The
+  `contractors.erase`; idempotent (a second call changes nothing). Rows
+  younger than `verificationHistoryRetentionYears` require
+  `confirmWithinRetention: true` (`422
+  CONTRACTOR_HISTORY_WITHIN_RETENTION` otherwise, nothing changed); every
+  successful call writes an audit entry (acting user, contractor, rows
+  cleared, the flag). The
   daily `workers/expireVerificationHistory.ts` does the same for rows
   whose `checkedAt` is older than `verificationHistoryRetentionYears`
   (see Design decisions, 2026-10-20).
@@ -1919,7 +1946,16 @@ to `update`) for the four deactivation commands.
 Added 2026-10-20. Custom write route (mutation guard registry, mapped to
 `update`) invoking `anonymizeContractorHistory`.
 
-- **Response 200**: `{ contractorId, clearedRows: number }`.
+- **Request body**: `{ confirmWithinRetention?: boolean }` (default
+  `false`).
+- **Response 200**: `{ contractorId, clearedRows: number,
+  confirmWithinRetention: boolean }`. An audit entry with the acting
+  user, the contractor, `clearedRows` and the flag is written for every
+  `200`.
+- **Response 422 `CONTRACTOR_HISTORY_WITHIN_RETENTION`**: `{ code,
+  rowsWithinRetention: number }` — at least one row is younger than
+  `verificationHistoryRetentionYears` and `confirmWithinRetention` is not
+  `true`. Nothing is changed.
 - **Response 403**: caller lacks `contractors.erase`.
 
 The retention setting `contractors.verificationHistoryRetentionYears` is
@@ -2120,10 +2156,21 @@ exactly as `sales.order-approval` and
   - setting the value to 5 → 400;
   - after clearing, `requestId`, `kind`, `status` and `checkedAt` are
     unchanged and the row still appears in the history list;
-  - `anonymizeContractorHistory` clears every row of that contractor,
+  - `anonymizeContractorHistory` with `confirmWithinRetention: true`
+    clears every row of that contractor,
     including today's, and no row of another contractor; a second call
     returns `clearedRows: 0`; without `contractors.erase` → 403;
     `employee` lacks the feature by default;
+  - a contractor with a row from today and no flag (or
+    `confirmWithinRetention: false`) → `422
+    CONTRACTOR_HISTORY_WITHIN_RETENTION` with `rowsWithinRetention`, and
+    every row still has its digits and hash;
+  - a contractor whose rows are all older than the period → cleared
+    without the flag;
+  - every `200` writes exactly one audit entry with the acting user, the
+    contractor id, `clearedRows` and the flag value, including a call
+    with `clearedRows: 0`; a `422` writes none and changes nothing;
+  - the setting accepts 30 (no upper limit) and rejects 5;
   - no code path deletes a history row or changes any other column;
   - AP's `whitelistCheckResult` and GL's `contractorSnapshot` are not
     touched by either path.
@@ -2356,7 +2403,10 @@ verification history"):
 - **Scenario (added 2026-10-20)**: `anonymizeContractorHistory` is run
   for a contractor while a tax period its payments affect can still be
   examined. **Severity**: Medium. **Affected area**: the evidence of
-  which account was checked. **Mitigation**: the command needs a
+  which account was checked. **Mitigation**: rows still inside the
+  retention period are cleared only with an explicit
+  `confirmWithinRetention: true`, and every anonymization is audited
+  (who, contractor, rows, flag); the command needs a
   separate feature (`contractors.erase`, admin only by default), is in
   the command audit log, and leaves `requestId`, status and date, so
   the Ministry's own record of the request can still be referred to;
@@ -3172,3 +3222,18 @@ New section Design decisions (2026-10-20); every item below is decided.
 - Design decisions, Access Control, Module Setup, Commands, Data Models,
   API Contracts, File Manifest, Edge Cases, Risks and Testing Strategy
   updated.
+
+### 2026-10-20 (cont. — anonymization guard; wording of the retention basis)
+
+- **`anonymizeContractorHistory`** requires `confirmWithinRetention:
+  true` when any row is younger than `verificationHistoryRetentionYears`
+  (`422 CONTRACTOR_HISTORY_WITHIN_RETENTION` otherwise, nothing changed),
+  and every successful call writes an audit entry (acting user,
+  contractor, rows cleared, flag). Design decisions, Commands, API
+  Contracts, Risks and Testing Strategy updated.
+- **Retention basis reworded.** Art. 70 § 1 Ordynacji podatkowej and
+  art. 74 ust. 2 pkt 8 with ust. 3 ustawy o rachunkowości justify a
+  cautious default; they do not directly require keeping a verification
+  history. Art. 70 § 2 (suspension) and § 3 (interruption), checked in
+  the same consolidated text (Dz. U. z 2026 r. poz. 622), can extend the
+  limitation period, which is why the setting has no upper limit.
