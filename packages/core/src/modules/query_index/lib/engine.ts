@@ -2103,8 +2103,18 @@ export class HybridQueryEngine implements QueryEngine {
       case 'gte': return eb(column, '>=', value)
       case 'lt': return eb(column, '<', value)
       case 'lte': return eb(column, '<=', value)
-      case 'in': return eb(column, 'in', this.toArray(value))
-      case 'nin': return eb(column, 'not in', this.toArray(value))
+      case 'in': {
+        // An empty list ("no id survived validation", #7502) compiles to invalid
+        // SQL (`in ()`) under Kysely/Postgres — short-circuit to a predicate that
+        // never matches instead of letting the driver reject the query.
+        const inValues = this.toArray(value)
+        return inValues.length === 0 ? sql<boolean>`false` : eb(column, 'in', inValues)
+      }
+      case 'nin': {
+        // Mirrors 'in' above: empty means "exclude nothing".
+        const ninValues = this.toArray(value)
+        return ninValues.length === 0 ? sql<boolean>`true` : eb(column, 'not in', ninValues)
+      }
       case 'like': return eb(column, 'like', value)
       case 'ilike': return eb(column, 'ilike', value)
       case 'exists': return eb(column, value ? 'is not' : 'is', null)
@@ -2932,10 +2942,16 @@ export class HybridQueryEngine implements QueryEngine {
         const operator = filter.op === 'gt' ? '>' : filter.op === 'gte' ? '>=' : filter.op === 'lt' ? '<' : '<='
         return q.where(col, operator, filter.value as any)
       }
-      case 'in':
-        return q.where(col, 'in', this.toArray(filter.value))
-      case 'nin':
-        return q.where(col, 'not in', this.toArray(filter.value))
+      case 'in': {
+        // Mirrors the guard in applyColumnFilter above (#7502).
+        const inValues = this.toArray(filter.value)
+        return inValues.length === 0 ? q.where(sql<boolean>`false`) : q.where(col, 'in', inValues)
+      }
+      case 'nin': {
+        // Mirrors 'in' above: empty means "exclude nothing".
+        const ninValues = this.toArray(filter.value)
+        return ninValues.length === 0 ? q.where(sql<boolean>`true`) : q.where(col, 'not in', ninValues)
+      }
       case 'like':
         return q.where(col, 'like', filter.value as any)
       case 'ilike':
