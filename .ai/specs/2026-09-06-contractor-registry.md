@@ -1037,6 +1037,54 @@ Optima/XL, enova365.**
   practice, backed by evidence, not an assumption that "everyone
   already does this."
 
+**Bank accounts and verification evidence (2026-10-20), for Design
+decisions 2026-10-20.**
+
+- **Ministry of Finance whitelist API** (`wl-api.mf.gov.pl`, checked
+  2026-10-20): the check endpoints
+  (`/api/check/nip/{nip}/bank-account/{bank-account}`, and the REGON
+  variant) return `accountAssigned` ("Czy rachunek przypisany do
+  podmiotu czynnego"), `requestDateTime` and `requestId`; the search
+  endpoints (`/api/search/nip/{nip}`, `/api/search/bank-accounts/{…}`
+  and the plural NIP/REGON searches, at most 30 identifiers per call)
+  return `requestDateTime` and `requestId` too. **Confirmed** — the
+  basis of the `{ status, checkedAt, requestId }` contract.
+- **Odoo 18** (`odoo/addons/base/models/res_bank.py`,
+  `addons/base_iban/models/res_partner_bank.py`, read 2026-10-20):
+  `res.partner.bank` has `acc_number`, a stored `sanitized_acc_number`,
+  an optional `currency_id`, `active` (default `True`),
+  `allow_out_payment`, and the constraint `unique(sanitized_acc_number,
+  partner_id)`. `base_iban` validates the length per country template and
+  the mod-97 rule (`digits % 97 != 1` fails), and only for accounts whose
+  type is IBAN. Directly comparable to this document's normalized number
+  + per-contractor uniqueness, optional currency and reversible
+  `isActive`; Odoo has no whitelist or VIES evidence on the bank account
+  itself. **Partially comparable.**
+- **ERPNext** (docs.frappe.io, "Bank Account", read 2026-10-20): a bank
+  account can belong to a Customer or Supplier; IBAN is a separate
+  field ("Leave it empty when the country does not use IBAN"); "Is
+  Default" — "Maintain only one intended default". The page does not
+  state an IBAN checksum rule. **Comparable** for party-owned accounts
+  and one default; checksum **Unverified** from the documentation.
+- **Comarch ERP Optima** (pomoc.comarch.pl, version 2025, "Ogólne i
+  Kasa/Bank", read 2026-10-20): the "Historia weryfikacji rachunków
+  bankowych" table stores "Data sprawdzenia", "NIP", "W Wykazie" and
+  "Identyfikator wyszukiwania – unikalny identyfikator otrzymany po
+  sprawdzeniu", and a serial operation "Zweryfikuj status VAT i rachunki
+  bankowe" runs on the contractor list. **Confirmed** as the closest
+  real-system precedent for `ContractorVerificationCheck`. An "import
+  accounts from the VAT list" button appears in search-result summaries
+  of the same help site but was not on the page read — **Unverified**.
+- **Comarch ERP XL:** no public help page on contractor bank-account
+  verification was found this pass — **Unverified**.
+- **Fowler, Hay, Kieso:** not re-read this pass (the PDFs were not
+  readable in this session). From the passages already verified on
+  2026-09-12 and quoted above, Fowler's Party says only that parties
+  "have bank accounts" — no account structure, validation or
+  verification. Whether any of the three books covers account
+  validation or registry verification is **Unverified**; recorded as
+  such in `financial-module-knowledge-base.md`.
+
 **Structure (Step 4) — already compliant, no gaps.** Checked against
 `om-spec-writing`'s required sections (TLDR, Overview, Problem
 Statement, Proposed Solution, Architecture, Data Models, API Contracts,
@@ -2827,3 +2875,8 @@ New section Design decisions (2026-10-20); every item below is decided.
   is `approvalStatus`. Phase 2 gains `importBankAccountsFromWhitelist`
   (by NIP, Polish NIPs only, first imported account primary when there
   is none). Implementation Plan → Phase 2 updated.
+- **Literature & Prior Art** gains a 2026-10-20 block: the Ministry API
+  (`requestId`, `requestDateTime` — Confirmed), Odoo 18
+  `res.partner.bank`/`base_iban`, ERPNext Bank Account, Comarch Optima's
+  verification history (Confirmed), Comarch XL (Unverified); Fowler, Hay
+  and Kieso not re-read (PDFs unreadable in this session).
