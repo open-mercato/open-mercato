@@ -5,12 +5,13 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { parseWithCustomFields } from '@open-mercato/shared/lib/commands/helpers'
 import { runCrudCommandWrite } from '@open-mercato/shared/lib/commands/runCrudCommandWrite'
 import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
-import { conflict, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, conflict, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '#generated/entities.ids.generated'
 import { LedgerAccount } from '../../ledger/data/entities'
 import { CostCenter, DefaultAccountPostingRule } from '../data/entities'
+import { isAccountInPolishGroup } from '../lib/reclassify'
 import {
   defaultAccountPostingRuleCreateSchema,
   defaultAccountPostingRuleUpdateSchema,
@@ -66,6 +67,29 @@ async function requireExistingLedgerAccount(
   }
 }
 
+/** The spec's Data Models define `sourceAccountId` as a zespół 4 account and
+ * `targetAccountId` as a zespół 5 account; a rule outside those groups would
+ * never be matched by the engine (source) or would post the
+ * reclassification to the wrong side of the P&L (target). */
+async function requireAccountInPolishGroup(
+  em: EntityManager,
+  accountId: string,
+  scope: Scope,
+  groupCode: '4' | '5',
+  translate: (key: string, fallback: string) => string,
+  errorKey: string,
+  errorFallback: string,
+): Promise<void> {
+  if (!(await isAccountInPolishGroup(em, accountId, scope, groupCode))) {
+    throw new CrudHttpError(422, { error: translate(errorKey, errorFallback) })
+  }
+}
+
+const SOURCE_NOT_ZESPOL_4_KEY = 'posting_rules.errors.sourceAccountNotClass4'
+const SOURCE_NOT_ZESPOL_4_FALLBACK = 'The source account must be an account class 4 (costs by nature) account.'
+const TARGET_NOT_ZESPOL_5_KEY = 'posting_rules.errors.targetAccountNotClass5'
+const TARGET_NOT_ZESPOL_5_FALLBACK = 'The target account must be an account class 5 (costs by function) account.'
+
 async function requireExistingCostCenter(
   em: EntityManager,
   costCenterId: string,
@@ -119,6 +143,8 @@ const createDefaultAccountPostingRuleCommand: CommandHandler<
       em, parsed.targetAccountId, scope, translate,
       'posting_rules.errors.targetAccountNotFoundForOrg', 'The specified target account does not exist for this organization.',
     )
+    await requireAccountInPolishGroup(em, parsed.sourceAccountId, scope, '4', translate, SOURCE_NOT_ZESPOL_4_KEY, SOURCE_NOT_ZESPOL_4_FALLBACK)
+    await requireAccountInPolishGroup(em, parsed.targetAccountId, scope, '5', translate, TARGET_NOT_ZESPOL_5_KEY, TARGET_NOT_ZESPOL_5_FALLBACK)
     if (parsed.defaultCostCenterId) {
       await requireExistingCostCenter(em, parsed.defaultCostCenterId, scope, translate)
     }
@@ -191,6 +217,7 @@ const updateDefaultAccountPostingRuleCommand: CommandHandler<
         em, parsed.targetAccountId, scope, translate,
         'posting_rules.errors.targetAccountNotFoundForOrg', 'The specified target account does not exist for this organization.',
       )
+      await requireAccountInPolishGroup(em, parsed.targetAccountId, scope, '5', translate, TARGET_NOT_ZESPOL_5_KEY, TARGET_NOT_ZESPOL_5_FALLBACK)
     }
     if (parsed.defaultCostCenterId !== undefined && parsed.defaultCostCenterId !== null) {
       await requireExistingCostCenter(em, parsed.defaultCostCenterId, scope, translate)
