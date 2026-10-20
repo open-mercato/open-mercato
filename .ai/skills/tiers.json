@@ -30,7 +30,9 @@
       "om-auto-fix-pr",
       "om-close-fixed-issues",
       "om-verify-in-repo",
-      "om-pr-autopilot"
+      "om-pr-autopilot",
+      "om-app-spec-writing",
+      "om-gap-analysis"
     ]
   },
   "tiers": {
@@ -73,8 +75,8 @@
       "skills": ["om-auto-sec-report", "om-auto-sec-report-pr"]
     },
     "analysis": {
-      "description": "Business/engagement analysis skills (app specs, platform gap analysis) and the draft accessibility review. Opt-in.",
-      "skills": ["om-app-spec-writing", "om-gap-analysis", "om-wcag-guardian"]
+      "description": "Draft accessibility review (WCAG 2.2 AA). Opt-in.",
+      "skills": ["om-wcag-guardian"]
     },
     "migration": {
       "description": "One-shot, version-pinned migrations. Install only when needed.",
