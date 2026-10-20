@@ -859,6 +859,22 @@ extend that mechanism, not to add a parallel `nipHash`/HMAC design:
   `JournalEntryLine.contractorSnapshot` and the second for its currency
   warning (see #5962, #5663).
 
+**A contractor draft does not enter the registry.** A half-filled
+contractor is form state on the consumer's side (an unsaved `CrudForm`,
+or an AP draft invoice that names a supplier not registered yet), not a
+row here. The registry already has its own "exists but not usable yet"
+state, `approvalStatus: 'PENDING_APPROVAL'`, which blocks payments (see
+"Payment eligibility"). A `DRAFT` row would occupy the NIP's unique slot
+before anyone committed to it, start GUS/VIES calls and the approval
+workflow for data nobody confirmed, and add a second meaning of "not
+usable" next to approval. The 2026-09-08 Workflow definition already
+notes that this module has no draft state; this decision makes it final.
+
+**Phase 2: `importBankAccountsFromWhitelist`.** Importing a contractor's
+accounts from the Ministry's list, by NIP, is deferred to Phase 2 (see
+Implementation Plan → Phase 2): Polish NIPs only, and the first imported
+account becomes the primary one when the contractor has none.
+
 ### Alternatives considered
 
 | Alternative | Why Rejected |
@@ -1797,6 +1813,15 @@ exactly as `sales.order-approval` and
   approval).
 - Cross-organization contractor sharing, if a real business need
   emerges (currently YAGNI — see Design decisions).
+- **`importBankAccountsFromWhitelist`** (decided 2026-10-20, see Design
+  decisions): a command that searches the Ministry's list by the
+  contractor's NIP and creates a `SETTLEMENT` account for every listed
+  account number the contractor does not hold yet, each validated with
+  `validateBankAccountNumber` and recorded in the verification history
+  with the search's `requestId`. Polish NIPs only (a contractor without
+  a `nip` is refused). The first imported account becomes primary when
+  the contractor has no primary account; otherwise the primary is left
+  alone.
 
 ### File Manifest
 
@@ -2797,3 +2822,8 @@ New section Design decisions (2026-10-20); every item below is decided.
   gains `accountNumberLast4` and `currencyCode` for AP's snapshot and
   currency warning. Entities, Commands, Data Models, API Contracts,
   Testing Strategy updated.
+- **No contractor draft in the registry; Phase 2 import.** A draft is
+  form state on the consumer's side; the registry's not-yet-usable state
+  is `approvalStatus`. Phase 2 gains `importBankAccountsFromWhitelist`
+  (by NIP, Polish NIPs only, first imported account primary when there
+  is none). Implementation Plan → Phase 2 updated.
