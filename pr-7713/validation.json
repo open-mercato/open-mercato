@@ -1,0 +1,23 @@
+{
+  "runner": "local",
+  "headSha": "38f2b5b0a0a12a8b3eee718e7990daa0d2885037",
+  "sourceSha256": "79b21806e323b6abc3a138ebe7f068296a50a1703670247f754ce2cb65e6f195",
+  "checks": [
+    {"command": "yarn build:packages", "result": "PASS"},
+    {"command": "yarn generate", "result": "PASS"},
+    {"command": "yarn build:packages", "result": "PASS"},
+    {"command": "yarn i18n:check-sync", "result": "PASS"},
+    {"command": "yarn i18n:check-usage", "result": "PASS", "note": "Unused-key warnings are advisory."},
+    {"command": "yarn typecheck", "result": "PASS"},
+    {"command": "yarn test", "result": "FAIL", "note": "create-app: 81 harness failures including sandbox subprocess SIGABRT and target validation; tracker-parity fails because of pre-existing local edits. Core interrupted. Not a green full gate."},
+    {"command": "yarn build:app", "result": "PASS"},
+    {"command": "yarn workspace @open-mercato/ui test DataTable --runInBand", "result": "PASS", "testsPassed": 137},
+    {"command": "UI package tests within yarn test", "result": "PASS", "suitesPassed": 300, "testsPassed": 2671},
+    {"command": "yarn workspace @open-mercato/ui typecheck", "result": "PASS"},
+    {"command": "yarn workspace @open-mercato/ui build", "result": "PASS"},
+    {"command": "yarn template:sync", "result": "PASS"},
+    {"command": "Chromium real-component fixture", "result": "PASS", "observationsPassed": 43}
+  ],
+  "independentCodeReview": {"actionableFindings": []},
+  "formalReview": "INCOMPLETE: CI pending; no self-approval or QA sign-off."
+}
