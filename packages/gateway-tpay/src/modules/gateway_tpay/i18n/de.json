@@ -1,0 +1,16 @@
+{
+  "gateway_tpay.description": "Akzeptieren Sie gehostete PLN-Zahlungen, BLIK, Karten und Banküberweisungen über Tpay.",
+  "gateway_tpay.description.fallback": "Zahlung über Tpay",
+  "gateway_tpay.errors.currencyNotSupported": "Tpay unterstützt nur Zahlungen in PLN.",
+  "gateway_tpay.errors.invalidAmount": "Der Zahlungsbetrag ist ungültig.",
+  "gateway_tpay.errors.invalidNotificationUrl": "Die Benachrichtigungs-URL ist ungültig.",
+  "gateway_tpay.errors.payerEmailRequired": "Die E-Mail-Adresse des Zahlers ist erforderlich.",
+  "gateway_tpay.errors.payerNameRequired": "Der Name des Zahlers ist erforderlich.",
+  "gateway_tpay.errors.providerUnavailable": "Tpay ist vorübergehend nicht verfügbar. Versuchen Sie es später erneut.",
+  "gateway_tpay.errors.unsupportedOperation": "Dieser Vorgang wird von Tpay nicht unterstützt.",
+  "gateway_tpay.feature.configure": "Tpay-Einstellungen konfigurieren",
+  "gateway_tpay.feature.view": "Tpay-Konfiguration anzeigen",
+  "gateway_tpay.health.healthy": "Die Tpay-Verbindung ist in Ordnung.",
+  "gateway_tpay.health.unhealthy": "Die Tpay-Verbindung ist fehlgeschlagen. Prüfen Sie die Zugangsdaten.",
+  "gateway_tpay.title": "Tpay"
+}

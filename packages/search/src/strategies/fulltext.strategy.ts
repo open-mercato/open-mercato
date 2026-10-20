@@ -35,6 +35,7 @@ export class FullTextSearchStrategy implements SearchStrategy {
   }
 
   async search(query: string, options: SearchOptions): Promise<SearchResult[]> {
+    if (options.indexDocFilter) return []
     if (Array.isArray(options.organizationIds)) {
       const organizationIds = options.organizationIds
         .map((value) => (typeof value === 'string' ? value.trim() : ''))

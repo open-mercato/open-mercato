@@ -945,6 +945,90 @@
       "owner": ".ai/skills/om-integration-builder/references/security-and-reliability.md",
       "requirement": "retained-normative-snippet",
       "evidence": "Health checks and OAuth refresh retries redact credentials and provider details"
+    },
+    {
+      "topicId": "guides/extensions:.ai/guides/customers-calendar.md",
+      "owner": ".ai/guides/extensions.md",
+      "requirement": "source-required",
+      "href": "customers-calendar.md",
+      "resolvedPath": ".ai/guides/customers-calendar.md"
+    },
+    {
+      "topicId": "guides/customers-calendar:node_modules/@open-mercato/core/src/modules/customers/calendar-event-types.ts",
+      "owner": ".ai/guides/customers-calendar.md",
+      "requirement": "source-required",
+      "href": "../../node_modules/@open-mercato/core/src/modules/customers/calendar-event-types.ts",
+      "resolvedPath": "node_modules/@open-mercato/core/src/modules/customers/calendar-event-types.ts"
+    },
+    {
+      "topicId": "guides/customers-calendar:node_modules/@open-mercato/core/src/modules/customers/lib/calendar/eventTypeResolver.ts",
+      "owner": ".ai/guides/customers-calendar.md",
+      "requirement": "source-required",
+      "href": "../../node_modules/@open-mercato/core/src/modules/customers/lib/calendar/eventTypeResolver.ts",
+      "resolvedPath": "node_modules/@open-mercato/core/src/modules/customers/lib/calendar/eventTypeResolver.ts"
+    },
+    {
+      "topicId": "guides/customers-calendar:node_modules/@open-mercato/core/src/modules/customers/components/calendar/CalendarEventEditor.tsx",
+      "owner": ".ai/guides/customers-calendar.md",
+      "requirement": "source-required",
+      "href": "../../node_modules/@open-mercato/core/src/modules/customers/components/calendar/CalendarEventEditor.tsx",
+      "resolvedPath": "node_modules/@open-mercato/core/src/modules/customers/components/calendar/CalendarEventEditor.tsx"
+    },
+    {
+      "topicId": "guides/customers-calendar:widgets/injection/calendar-visit/widget.ts",
+      "owner": ".ai/guides/customers-calendar.md",
+      "requirement": "source-required",
+      "href": "../../src/modules/example/widgets/injection/calendar-visit/widget.ts",
+      "resolvedPath": "src/modules/example/widgets/injection/calendar-visit/widget.ts"
+    },
+    {
+      "topicId": "guides/customers-calendar:widgets/injection-table.ts",
+      "owner": ".ai/guides/customers-calendar.md",
+      "requirement": "source-required",
+      "href": "../../src/modules/example/widgets/injection-table.ts",
+      "resolvedPath": "src/modules/example/widgets/injection-table.ts"
+    },
+    {
+      "topicId": "guides/customers-calendar:widgets/injection/visit-availability/widget.ts",
+      "owner": ".ai/guides/customers-calendar.md",
+      "requirement": "source-required",
+      "href": "../../src/modules/example/widgets/injection/visit-availability/widget.ts",
+      "resolvedPath": "src/modules/example/widgets/injection/visit-availability/widget.ts"
+    },
+    {
+      "topicId": "guides/customers-calendar:lib/visitAvailability.ts",
+      "owner": ".ai/guides/customers-calendar.md",
+      "requirement": "source-required",
+      "href": "../../src/modules/example/lib/visitAvailability.ts",
+      "resolvedPath": "src/modules/example/lib/visitAvailability.ts"
+    },
+    {
+      "topicId": "guides/customers-calendar:components/VisitPanel.tsx",
+      "owner": ".ai/guides/customers-calendar.md",
+      "requirement": "source-required",
+      "href": "../../src/modules/example/components/VisitPanel.tsx",
+      "resolvedPath": "src/modules/example/components/VisitPanel.tsx"
+    },
+    {
+      "topicId": "guides/customers-calendar:commands/interceptors.ts",
+      "owner": ".ai/guides/customers-calendar.md",
+      "requirement": "source-required",
+      "href": "../../src/modules/example/commands/interceptors.ts",
+      "resolvedPath": "src/modules/example/commands/interceptors.ts"
+    },
+    {
+      "topicId": "guides/customers-calendar:lib/visitAvailabilityGuard.ts",
+      "owner": ".ai/guides/customers-calendar.md",
+      "requirement": "source-required",
+      "href": "../../src/modules/example/lib/visitAvailabilityGuard.ts",
+      "resolvedPath": "src/modules/example/lib/visitAvailabilityGuard.ts"
+    },
+    {
+      "topicId": "guides/customers-calendar:di.ts",
+      "owner": ".ai/guides/customers-calendar.md",
+      "requirement": "source-required",
+      "href": "../../src/modules/example/di.ts",
+      "resolvedPath": "src/modules/example/di.ts"
     }
   ]
 }
