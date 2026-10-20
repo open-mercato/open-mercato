@@ -138,7 +138,8 @@ export type OAuthDisconnectResult =
  */
 export type IntegrationOAuthGrantService = {
   /**
-   * Returns an access token valid for at least `minValidityMs` (default `descriptor.refreshSkewMs`),
+   * Returns an access token valid for at least `minValidityMs` (default `descriptor.refreshSkewMs`,
+   * capped at half the stored token's lifetime so a short-lived token is not refreshed on every call),
    * refreshing it under the Grant Lock with `forceRefresh`, when the stored token equals
    * `rejectedAccessToken` (a resource server rejected it) or when it expires within `minValidityMs`.
    * At most one refresh per call window and Grant Owner, cluster-wide; Refresh never sends `scope` and
@@ -262,7 +263,7 @@ type TokenCall = {
   scope: GrantScope
   pin: TenantDekPin
   callStart: Date
-  minValidityMs: number
+  minValidityMs: number | null
   rejectedAccessToken: string | null
   forceRefresh: boolean
   lastRead: OAuthGrantRecord | null
@@ -844,8 +845,14 @@ export function createIntegrationOAuthGrantService(deps: IntegrationOAuthGrantSe
     return grant.status === 'active' && grant.expiresAt.getTime() > now().getTime()
   }
 
+  function minValidityMsFor(grant: OAuthGrantRecord, call: TokenCall): number {
+    if (call.minValidityMs !== null) return call.minValidityMs
+    const lifetimeMs = grant.expiresAt.getTime() - (grant.refreshedAt ?? grant.obtainedAt).getTime()
+    return Math.min(call.descriptor.refreshSkewMs, Math.max(lifetimeMs, 0) / 2)
+  }
+
   function isBelowMinValidity(grant: OAuthGrantRecord, call: TokenCall): boolean {
-    return grant.expiresAt.getTime() - now().getTime() < call.minValidityMs
+    return grant.expiresAt.getTime() - now().getTime() < minValidityMsFor(grant, call)
   }
 
   function needsRefresh(grant: OAuthGrantRecord, call: TokenCall): boolean {
@@ -1316,7 +1323,7 @@ export function createIntegrationOAuthGrantService(deps: IntegrationOAuthGrantSe
         scope: grantScope(owner),
         pin,
         callStart,
-        minValidityMs: tokenOptions.minValidityMs ?? resolved.refreshSkewMs,
+        minValidityMs: tokenOptions.minValidityMs ?? null,
         rejectedAccessToken: tokenOptions.rejectedAccessToken ?? null,
         forceRefresh: tokenOptions.forceRefresh === true,
         lastRead: null,

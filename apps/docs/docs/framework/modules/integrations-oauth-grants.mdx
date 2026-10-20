@@ -76,7 +76,7 @@ export const myProviderDescriptor: OAuthProviderDescriptor = {
 | `extraAuthorizeParams` | `{}` | Appended to the authorization URL; never overrides a protocol parameter. |
 | `requiresRefreshToken` | `true` | Checked at Connect only. |
 | `defaultAccessTokenTtlSec` | `3600` | Used when the token response has no `expires_in`. Either value is clamped to 1 s – 1 year. |
-| `refreshSkewMs` | `120000` | The default `minValidityMs` of `getAccessToken`. Keep it below the access-token lifetime. |
+| `refreshSkewMs` | `120000` | The default `minValidityMs` of `getAccessToken`, capped at half of each token's lifetime, so tokens that live shorter than the skew are not refreshed on every call. An explicit `minValidityMs` is not capped. |
 
 Every descriptor-taking call validates the whole descriptor and the owner before any I/O and throws `OAuthDescriptorError` (a programming error, not a Connect Failure) when either is malformed.
 

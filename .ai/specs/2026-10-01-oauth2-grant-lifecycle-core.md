@@ -469,7 +469,7 @@ The "envelope only" `no_dek('sealed-while-disabled')` case is reachable in tests
 
 ### `getAccessToken` (P4c)
 
-`callStart = now()` is taken before the first read; `minValidityMs` defaults to `descriptor.refreshSkewMs`. "Usable" means `status = active` and `expiresAt > now()`.
+`callStart = now()` is taken before the first read; `minValidityMs` defaults to `descriptor.refreshSkewMs`, capped at half the stored token's lifetime (`expiresAt − (refreshedAt ?? obtainedAt)`), so a provider whose tokens live shorter than the skew is not refreshed on every call; an explicit `minValidityMs` is not capped. "Usable" means `status = active` and `expiresAt > now()`.
 
 1. Validate the descriptor and owner; resolve the pin.
 2. **Fast path** on a detached fork (lock-fork options, no lock): layered read → mapping table; `invalidated` → `grant_invalidated`. Read the Client Configuration layered with the same pin (Credentials and logs, above): not configured → `client_misconfigured` (`client_not_configured`); unreadable → `platform_unavailable`; grant `clientId` ≠ configured → `client_misconfigured` (`client_changed`). If no refresh is needed (below), return the stored token.
@@ -986,6 +986,7 @@ Implemented; App Spec Q3 (surfaces, CI steps) and Q7 (consumer gate) were approv
 ## Changelog
 
 ### 2026-10-20
+- The default `minValidityMs` is capped at half the stored token's lifetime, so a token shorter-lived than `refreshSkewMs` is not refreshed on every call (`getAccessToken`).
 - A refresh whose commit outcome is unknown re-reads the row under the lock and writes the issued tokens again when they did not commit, so a rotated refresh token is not lost (`getAccessToken` step 6).
 
 ### 2026-10-15

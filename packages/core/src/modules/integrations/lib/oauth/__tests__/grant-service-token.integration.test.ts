@@ -1141,7 +1141,7 @@ describeWithPostgres('integrationOAuthGrantService.getAccessToken against real P
       expect(stored.expiresAt.getTime() - (stored.refreshedAt?.getTime() ?? 0)).toBe(600_000)
     }, CASE_TIMEOUT_MS)
 
-    it('clamps an expires_in of 0 to one second and answers the refreshed token degraded', async () => {
+    it('clamps an expires_in of 0 to one second and answers the refreshed token within half its lifetime', async () => {
       const owner = createOwner()
       await connectOwner(owner)
       await expireStoredGrant(owner)
@@ -1152,13 +1152,32 @@ describeWithPostgres('integrationOAuthGrantService.getAccessToken against real P
       const token = await getToken(owner)
 
       const stored = await readStoredGrant(owner)
-      expect(token).toMatchObject({ accessToken: injectedAccessToken, expiresAt: stored.expiresAt, degraded: true })
+      expect(token).toMatchObject({ accessToken: injectedAccessToken, expiresAt: stored.expiresAt, degraded: false })
       expect(token.expiresAt.getTime()).toBeGreaterThan(startedAt)
       expect(stored.expiresAt.getTime() - (stored.refreshedAt?.getTime() ?? 0)).toBe(1000)
       expect(refreshCalls()).toBe(1)
       expect(reportError).not.toHaveBeenCalled()
     }, CASE_TIMEOUT_MS)
 
+    it('caps the default refresh margin at half the token lifetime, so a short-lived token is not refreshed on every call', async () => {
+      const owner = createOwner()
+      await connectOwner(owner)
+      await expireStoredGrant(owner)
+      const injectedAccessToken = hexToken('fake_at_injected_')
+      injectRefresh({ status: 200, body: { access_token: injectedAccessToken, token_type: 'Bearer', expires_in: 60 } })
+      const descriptor = { refreshSkewMs: 120_000 }
+
+      const tokens = [
+        await getToken(owner, { descriptor }),
+        await getToken(owner, { descriptor }),
+        await getToken(owner, { descriptor }),
+      ]
+
+      expect(tokens.map((token) => token.accessToken)).toEqual([injectedAccessToken, injectedAccessToken, injectedAccessToken])
+      expect(tokens.every((token) => !token.degraded)).toBe(true)
+      expect(refreshCalls()).toBe(1)
+      expect(reportError).not.toHaveBeenCalled()
+    }, CASE_TIMEOUT_MS)
 
     it('clamps a huge expires_in to one year and keeps the rotated refresh token', async () => {
       const owner = createOwner()
