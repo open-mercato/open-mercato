@@ -378,7 +378,8 @@ verified in `packages/core/src/modules/messages/encryption.ts`) —
 registration must detect a duplicate by NIP, and searching an
 encrypted column without a hash doesn't work.
 `contractors:contractor_bank_account` encrypts `account_number`
-(financial data, PII). Reads go through
+(financial data, PII), with `hashField: 'account_number_hash'` since
+2026-10-20 (see Design decisions, "Lookup hashes"). Reads go through
 `findWithDecryption`/`findOneWithDecryption`, never hand-rolled crypto.
 
 **Delete guard: drop the `JournalEntryLine` half (2026-09-08,
@@ -782,6 +783,47 @@ vendor asked not to use until further notice.
   soft-deleted row cannot be reactivated. The delete guard still counts
   every bank account that is not soft-deleted, active or not.
 
+**Lookup hashes: the existing `nipHash` mechanism is reused for the
+account number (`accountNumberHash`), not a new one.** Checked first:
+this document already has a deterministic hash of the NIP for
+uniqueness under encryption — the encryption map declares `nip` with
+`hashField: 'nip_hash'`, the encryption service writes
+`hashForLookup(value)` into that column on every write, and the partial
+unique index `(tenant_id, organization_id, nip_hash) where deleted_at is
+null` and `contractorLookupByNip` both use it. So the path taken is to
+extend that mechanism, not to add a parallel `nipHash`/HMAC design:
+- **`account_number` gets `hashField: 'account_number_hash'`** in the
+  `contractors:contractor_bank_account` encryption map. The value
+  hashed is the normalized IBAN form (see "Bank account numbers are
+  validated"), so `"61 1090 1014 0000 0712 1981 2874"` and
+  `"PL61109010140000071219812874"` give the same hash. The same
+  function writes the history's `account_number_hash`, which is what
+  lets a history row be matched to an account after edits.
+- **Uniqueness:** a partial unique index `(contractor_id,
+  account_number_hash) where deleted_at is null` — one contractor
+  cannot hold the same account twice, which would also break the
+  one-primary rule. The same number under two different contractors is
+  allowed (a factoring company and its client, a group's shared
+  account), the same choice Odoo makes with `unique(sanitized_acc_number,
+  partner_id)` (see Literature & Prior Art).
+- **Search by full value:** a third read-only DI service,
+  `contractorLookupByBankAccount({ tenantId, organizationId,
+  accountNumber })`, normalizes the input with
+  `validateBankAccountNumber`, matches `account_number_hash` (through
+  the platform's `lookupHashCandidates`, so values written before a
+  pepper was configured still match) among rows with `deleted_at` null,
+  and returns `Array<{ contractorId, contractorBankAccountId, purpose,
+  isActive }>` — an array, because one number may belong to several
+  contractors; `[]` for no match or input that does not validate. No
+  PII, unguarded by design like the other two services. The intended
+  consumer is rule-based statement matching in Cash & Bank (#6055,
+  deferred to its Phase 2), which needs to find the contractor behind a
+  counterparty account. There is still no REST filter by number or NIP,
+  for the same reason as the 2026-10-08 decision.
+- **What the hash is:** HMAC-SHA256 with the installation's lookup
+  pepper (see "Verification history" and Risks); `nipHash` is the same
+  kind of value, not a plain digest.
+
 ### Alternatives considered
 
 | Alternative | Why Rejected |
@@ -991,7 +1033,8 @@ own instruction — no open questions remain.
   contractor's bank account can never pass the live whitelist call a
   payment depends on.
 - `ContractorBankAccount` — `contractorId` (FK to `Contractor`),
-  `accountNumber` (encrypted), `isPrimary` (bool — exactly one primary
+  `accountNumber` (encrypted, stored in normalized IBAN form) +
+  `accountNumberHash` (lookup hash, added 2026-10-20), `isPrimary` (bool — exactly one primary
   per contractor, enforced by both the command and a partial unique
   index, see Design decisions), `lastVerifiedAt` (nullable,
   UX cache — see Design decisions), `lastVerificationStatus`
@@ -1119,6 +1162,29 @@ contractorLookupByNip(params: {
   the command bus), which starts `PENDING_APPROVAL` and triggers the
   `contractors.vendor-approval` workflow exactly as a manual registration
   does.
+
+**Added 2026-10-20 — `contractorLookupByBankAccount`, a third
+DI-resolvable, read-only service** (see Design decisions, 2026-10-20,
+"Lookup hashes"):
+
+```ts
+contractorLookupByBankAccount(params: {
+  tenantId: string
+  organizationId: string
+  accountNumber: string
+}): Promise<Array<{
+  contractorId: string
+  contractorBankAccountId: string
+  purpose: 'SETTLEMENT' | 'VAT'
+  isActive: boolean
+}>>
+```
+
+Normalizes the input with `validateBankAccountNumber`, matches
+`account_number_hash` among rows with `deleted_at` null in the caller's
+tenant and organization, returns no PII, writes nothing, calls no
+registry, and is unguarded by design like the other two services. An
+input that does not validate returns `[]`, not an error.
 
 ### Commands (Command Pattern, `commands/`)
 
@@ -1377,6 +1443,13 @@ not an error. This module never imports or resolves anything belonging
 to such a consumer; the dependency direction stays one-way
 (consumer → `contractors`).
 
+**Added 2026-10-20 — third consumer shape: lookup by bank account
+number.** A module that sees a counterparty account and needs the
+contractor behind it (Cash & Bank's deferred rule-based statement
+matching, #6055) resolves `contractorLookupByBankAccount` through its own
+`tryResolve` wrapper, with the same "module absent means cannot match"
+rule. An empty array is a normal answer.
+
 ### Backend Pages (`backend/contractors/`)
 
 - `contractors/page.tsx` (+ `create/page.tsx`, `[id]/page.tsx`) —
@@ -1468,7 +1541,11 @@ boolean, default `true` (added 2026-10-20), also on `contractor`.
 Supporting index: `(tenant_id, organization_id, contractor_id)` on
 `contractor_bank_account` backs the inline-list lookup from a
 contractor's detail page and the primary-account uniqueness check in
-`createContractorBankAccount`/`updateContractorBankAccount`.
+`createContractorBankAccount`/`updateContractorBankAccount`. Added
+2026-10-20: a partial unique index `(contractor_id, account_number_hash)
+where deleted_at is null` (one contractor cannot hold the same account
+twice), and `(tenant_id, organization_id, account_number_hash)` backing
+`contractorLookupByBankAccount`.
 
 ### ContractorVerificationCheck
 
@@ -1676,7 +1753,7 @@ exactly as `sales.order-approval` and
 | `api/contractors/[id]/verification-checks/route.ts` | Create | Read-only verification history list (added 2026-10-20) |
 | `packages/shared/src/lib/bank-accounts/accountNumber.ts` | Create | `validateBankAccountNumber` — IBAN/NRB format, ISO 13616 length, MOD 97-10 checksum, normalization to the IBAN form; shared so Cash & Bank can reuse it (added 2026-10-20) |
 | `encryption.ts` | Create | `defaultEncryptionMaps` for `contractors:contractor` (incl. `nip` → `nip_hash`, `eu_vat_number` → `eu_vat_number_hash`) and `contractors:contractor_bank_account` |
-| `di.ts` | Create | Registers `contractorBankWhitelistCheck` (`checkBankAccountWhitelist`) and `contractorLookupByNip` (read-only, `nipHash` lookup, no PII) for cross-module resolution — see DI Registrar |
+| `di.ts` | Create | Registers `contractorBankWhitelistCheck` (`checkBankAccountWhitelist`), `contractorLookupByNip` (read-only, `nipHash` lookup, no PII) and `contractorLookupByBankAccount` (read-only, `accountNumberHash` lookup, no PII, added 2026-10-20) for cross-module resolution — see DI Registrar |
 | `acl.ts` | Create | Three `contractors.*` features (`.view`/`.manage`/`.approve`) |
 | `setup.ts` | Create | `defaultRoleFeatures` for `admin`/`employee`; no `seedDefaults` |
 | `commands/contractors.ts` | Create | `createContractor` / `updateContractor` / `checkContractorVies` (on-demand VIES, added 2026-10-20) |
@@ -1827,6 +1904,14 @@ exactly as `sales.order-approval` and
   another tenant; the returned object has exactly the documented keys and
   never `nip`, name, address, contact or bank data; calling it twice
   writes nothing.
+- Account number hash (added 2026-10-20): `account_number_hash` is equal
+  for the NRB and IBAN spellings of one account; adding the same number
+  twice to one contractor fails at the database (partial unique index)
+  and succeeds for a second contractor; `contractorLookupByBankAccount`
+  returns both contractors for a shared number, `[]` for an unknown or
+  invalid number and for a soft-deleted account, nothing from another
+  organization or tenant, and never the number itself; a value hashed
+  before a pepper was configured still matches.
 - Reserved integration test category: `TC-CONTRACTOR-*`, including a
   `__integration__/TC-CONTRACTOR-CRUDFORM-001.spec.ts` covering the
   `Contractor` create/update `CrudForm` flow end to end (list → create
@@ -2630,3 +2715,14 @@ New section Design decisions (2026-10-20); every item below is decided.
   means `ACCOUNT_INACTIVE` at payment time. Entities, DI Registrar,
   Commands, Queries / API, Data Models, API Contracts, Backend Pages,
   File Manifest, Testing Strategy updated.
+- **Lookup hashes — path chosen: the existing mechanism.** The document
+  already had a deterministic NIP hash for uniqueness under encryption
+  (`nip` → `hashField: 'nip_hash'`, written with `hashForLookup`, an
+  HMAC-SHA256 with the installation pepper). Extended to the account
+  number: `account_number` → `hashField: 'account_number_hash'` over the
+  normalized IBAN form, a partial unique index per contractor, and a
+  third read-only DI service `contractorLookupByBankAccount` for search
+  by full value (consumer: Cash & Bank's deferred statement matching).
+  No new `nipHash` was added. Encryption, Entities, DI Registrar,
+  Cross-module integration, Data Models, File Manifest, Testing
+  Strategy updated.
