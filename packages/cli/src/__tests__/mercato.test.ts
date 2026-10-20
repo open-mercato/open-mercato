@@ -789,6 +789,122 @@ describe('init command failure output', () => {
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
   })
+
+  function mockInitDependencies({
+    authSetup,
+  }: {
+    authSetup: jest.Mock
+  }) {
+    jest.doMock('child_process', () => ({
+      execSync: jest.fn(),
+    }))
+    jest.doMock('pg', () => ({
+      Client: jest.fn().mockImplementation(() => ({
+        connect: jest.fn().mockResolvedValue(undefined),
+        query: jest.fn().mockResolvedValue({
+          rows: [{ org_id: 'org-1', tenant_id: 'tenant-1' }],
+        }),
+        end: jest.fn().mockResolvedValue(undefined),
+      })),
+    }))
+    jest.doMock('../lib/generators', () => ({
+      generateEntityIds: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistries: jest.fn().mockResolvedValue(undefined),
+      generateModuleEntities: jest.fn().mockResolvedValue(undefined),
+      generateModuleDi: jest.fn().mockResolvedValue(undefined),
+      generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateOpenApi: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/db', () => ({
+      dbMigrate: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      createResolver: () => ({
+        getAppDir: () => '/tmp/test-app',
+      }),
+    }))
+    jest.doMock('@open-mercato/shared/lib/bootstrap/dynamicLoader', () => ({
+      bootstrapFromAppRoot: jest.fn().mockResolvedValue({
+        modules: [
+          {
+            id: 'configs',
+            cli: [{ command: 'restore-defaults', run: jest.fn().mockResolvedValue(undefined) }],
+          },
+          {
+            id: 'auth',
+            cli: [
+              { command: 'setup', run: authSetup },
+              { command: 'seed-roles', run: jest.fn().mockResolvedValue(undefined) },
+            ],
+          },
+          {
+            id: 'entities',
+            cli: [{ command: 'seed-encryption', run: jest.fn().mockResolvedValue(undefined) }],
+          },
+          {
+            id: 'query_index',
+            cli: [{ command: 'reindex', run: jest.fn().mockResolvedValue(undefined) }],
+          },
+        ],
+      }),
+    }))
+    jest.doMock('@open-mercato/shared/lib/di/container', () => ({
+      createRequestContainer: jest.fn().mockResolvedValue({
+        resolve: jest.fn().mockReturnValue({}),
+      }),
+    }))
+    jest.doMock(
+      '@open-mercato/core/modules/auth/lib/setup-app',
+      () => ({
+        ensureCustomRoleAcls: jest.fn().mockResolvedValue(undefined),
+      }),
+      { virtual: true },
+    )
+  }
+
+  it('passes --include-demo-users to auth setup by default', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    const authSetup = jest.fn().mockResolvedValue(undefined)
+    mockInitDependencies({ authSetup })
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'init'])
+
+    expect(exitCode).toBe(0)
+    expect(authSetup).toHaveBeenCalledWith(expect.arrayContaining(['--include-demo-users']))
+    expect(consoleLogSpy).toHaveBeenCalledWith('👤 Demo accounts (admin@/employee@): enabled')
+    const loggedLines = consoleLogSpy.mock.calls.map((args) => args.join(' '))
+    expect(loggedLines.some((line) => line.includes('🧰 Admin:'))).toBe(true)
+    expect(loggedLines.some((line) => line.includes('👷 Employee:'))).toBe(true)
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
+  it('skips --include-demo-users when --no-demo-users is passed', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    const authSetup = jest.fn().mockResolvedValue(undefined)
+    mockInitDependencies({ authSetup })
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'init', '--no-demo-users'])
+
+    expect(exitCode).toBe(0)
+    expect(authSetup).toHaveBeenCalled()
+    expect(authSetup.mock.calls[0][0]).not.toContain('--include-demo-users')
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      '👤 Demo accounts (admin@/employee@): skipped (--no-demo-users)',
+    )
+    const loggedLines = consoleLogSpy.mock.calls.map((args) => args.join(' '))
+    expect(loggedLines.some((line) => line.includes('🧰 Admin:'))).toBe(false)
+    expect(loggedLines.some((line) => line.includes('👷 Employee:'))).toBe(false)
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
 })
 
 describe('seed:defaults command', () => {
