@@ -537,7 +537,7 @@ type ContractorBankAccountPaymentCheck = {
     | 'WHITELIST_NEGATIVE'
     | 'WHITELIST_UNAVAILABLE'
   >
-  status: 'WHITELISTED' | 'NOT_WHITELISTED' | 'NOT_CHECKED'
+  status: 'WHITELISTED' | 'NOT_WHITELISTED' | 'NOT_CHECKED' | 'NOT_APPLICABLE'
   checkedAt: string | null
   requestId: string | null
 }
@@ -721,6 +721,30 @@ intra-Community supplies; until now the registry modelled only `nip`.
 - **History.** Every VIES call, background or on demand, writes a `VIES`
   row to `ContractorVerificationCheck`; `requestId` is stored when VIES
   returns a request identifier and is `null` otherwise.
+
+**A foreign tax id finds no contractor through the NIP lookup, without
+an error, and a contractor without a NIP is outside the whitelist.**
+A module importing a supplier document passes the seller's tax id as
+printed; for a foreign seller that is a VAT-UE number or a local tax id,
+not a NIP.
+- **`contractorLookupByNip` returns `null`** for any input that does not
+  normalize to a valid Polish NIP (a German `DE…` number, a US EIN, a
+  ten-digit string with a wrong checksum), exactly as the 2026-10-08
+  normalization note already says; it never throws for such input, and
+  it never tries to interpret the value as a VAT-UE number. The caller
+  treats `null` as "no match" and decides what to do (for AP: keep the
+  printed tax id in `vendorSnapshot.taxId` unchanged and let the user
+  pick or register the contractor).
+- **No lookup by VAT-UE number in Phase 1.** No consumer needs it yet;
+  `euVatNumberHash` is used only for duplicate detection.
+- **Whitelist status `NOT_APPLICABLE`.** The Ministry's list is searched
+  by NIP or REGON (its check and search endpoints take one of them), so a
+  contractor without a `nip` cannot be checked. `checkBankAccountWhitelist`
+  then makes no call and returns `status: 'NOT_APPLICABLE'`,
+  `checkedAt`/`requestId` `null`, with only the local reasons; the
+  registration check is skipped and no history row is written. A foreign
+  supplier registered for Polish VAT has a NIP and is checked like any
+  other.
 
 ### Alternatives considered
 
@@ -1046,7 +1070,8 @@ contractorLookupByNip(params: {
   of 10 is invalid). `contractorLookupByNip` returns `null`, without an
   error, for input that does not normalize (a malformed or non-Polish tax
   id): Phase 1 matches Polish NIPs only, and the caller decides what to do
-  with a supplier it cannot match. This note does not change what
+  with a supplier it cannot match (confirmed for foreign tax ids,
+  2026-10-20, see Design decisions). This note does not change what
   `createContractor` already accepts or rejects; it only fixes the form
   that is hashed.
 - **Not found returns `null`.** The caller decides what to do next; if
@@ -1685,6 +1710,11 @@ exactly as `sales.order-approval` and
   `NOT_CHECKED` history row and leaves the cached status unchanged; a
   retried job for the same number makes no second Ministry call; an
   account of a `PENDING_APPROVAL` contractor is checked too.
+- Contractor without a NIP (added 2026-10-20): `checkBankAccountWhitelist`
+  makes no Ministry call and returns `status: 'NOT_APPLICABLE'` with
+  `checkedAt`/`requestId` `null`; an approved, active such contractor is
+  `eligible`; creating its bank account enqueues no registration check
+  and writes no history row.
 - Eligibility (added 2026-10-20): `verificationStatus` `FAILED` yields
   `VERIFICATION_FAILED` without a live call; `PENDING` and
   `NOT_APPLICABLE` yield no reason; a contractor that is both not
@@ -1711,7 +1741,8 @@ exactly as `sales.order-approval` and
 - `contractorLookupByNip` (added 2026-10-08): returns the contractor for
   the same NIP written as `"1234567890"` and `"PL 123-456-78-90"`; returns
   `null` for a ten-digit string with a wrong checksum and for a non-Polish
-  tax id; returns
+  tax id (a `DE…` VAT-UE number and a US EIN, added 2026-10-20 — without
+  throwing); returns
   `null` for a soft-deleted contractor, for another organization and for
   another tenant; the returned object has exactly the documented keys and
   never `nip`, name, address, contact or bank data; calling it twice
@@ -2505,3 +2536,8 @@ New section Design decisions (2026-10-20); every item below is decided.
   after it). Earlier NIP-immutability decision, Encryption, Entities, DI
   Registrar, Commands, Data Models, API Contracts, Backend Pages, File
   Manifest (incl. `i18n/`), Testing Strategy updated.
+- **Foreign tax id.** `contractorLookupByNip` returns `null` without an
+  error for any input that is not a valid Polish NIP; AP keeps such a
+  `vendorSnapshot.taxId` as printed. A contractor without a NIP gets
+  whitelist status `NOT_APPLICABLE` (no Ministry call, no history row).
+  DI Registrar and Testing Strategy updated.
