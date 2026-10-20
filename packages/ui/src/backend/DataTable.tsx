@@ -3609,6 +3609,49 @@ function DataTableImpl<T extends RowData>({
     observer.observe(tableScrollEl)
     return () => observer.disconnect()
   }, [tableScrollEl])
+  React.useEffect(() => {
+    const header = tableScrollEl?.querySelector('thead')
+    if (!tableScrollEl || !header) return
+    const scrollAncestors: HTMLElement[] = []
+    let ancestor = header.parentElement
+    while (ancestor && ancestor !== document.body && ancestor !== document.documentElement) {
+      if (/(auto|scroll|hidden|overlay)/.test(getComputedStyle(ancestor).overflowY)) {
+        scrollAncestors.push(ancestor)
+      }
+      ancestor = ancestor.parentElement
+    }
+    const scrollParent = scrollAncestors[0]
+    let frame: number | undefined
+    const update = () => {
+      frame = undefined
+      const topbarHeight = Number.parseFloat(getComputedStyle(tableScrollEl).getPropertyValue('--topbar-height')) || 0
+      const visibleTop = scrollAncestors.reduce(
+        (top, element) => Math.max(top, element.getBoundingClientRect().top + element.clientTop),
+        topbarHeight,
+      )
+      const scrollParentTop = scrollParent
+        ? scrollParent.getBoundingClientRect().top + scrollParent.clientTop
+        : 0
+      const scrollParentPadding = scrollParent ? Number.parseFloat(getComputedStyle(scrollParent).paddingTop) || 0 : 0
+      header.style.top = `${Math.max(0, visibleTop - scrollParentTop) - scrollParentPadding}px`
+    }
+    const scheduleUpdate = () => {
+      if (frame === undefined) frame = requestAnimationFrame(update)
+    }
+    update()
+    window.addEventListener('scroll', scheduleUpdate, { capture: true, passive: true })
+    window.addEventListener('resize', scheduleUpdate)
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(scheduleUpdate)
+    if (containerRef.current) observer?.observe(containerRef.current)
+    scrollAncestors.forEach((element) => observer?.observe(element))
+    return () => {
+      window.removeEventListener('scroll', scheduleUpdate, true)
+      window.removeEventListener('resize', scheduleUpdate)
+      observer?.disconnect()
+      if (frame !== undefined) cancelAnimationFrame(frame)
+      header.style.removeProperty('top')
+    }
+  }, [tableScrollEl])
   const allRows = table.getRowModel().rows
   // Hooks must run on every render regardless of props (Rules of Hooks). Call
   // useVirtualizer unconditionally and keep it inert when virtualization is off
@@ -3746,7 +3789,7 @@ function DataTableImpl<T extends RowData>({
       >
       <div ref={setTableScrollWrapperRef} className={tableScrollWrapperClassName} style={virtualMaxHeightStyle}>
         <Table className="min-w-[640px] md:min-w-0">
-          <TableHeader>
+          <TableHeader className="sticky top-0 z-30 bg-background [&_tr]:bg-muted/40">
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id}>
                 {hasInjectedBulkActions ? (
