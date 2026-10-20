@@ -1,0 +1,501 @@
+{
+  "marker": "QA7702179250729189619fff9",
+  "results": [
+    {
+      "kind": "people",
+      "phase": "internal",
+      "ok": true,
+      "metrics": {
+        "header": {
+          "top": 234,
+          "bottom": 270,
+          "left": 273,
+          "right": 1925.078125,
+          "height": 36,
+          "width": 1652.078125
+        },
+        "table": {
+          "top": -66,
+          "bottom": 949,
+          "left": 273,
+          "right": 1925.078125,
+          "height": 1015,
+          "width": 1652.078125
+        },
+        "scroll": {
+          "top": 234,
+          "bottom": 734,
+          "left": 273,
+          "right": 1247,
+          "height": 500,
+          "width": 974
+        },
+        "scrollTop": 300,
+        "scrollLeft": 0,
+        "scrollHeight": 1015,
+        "clientHeight": 500,
+        "scrollWidth": 1652,
+        "clientWidth": 974,
+        "topbar": 61,
+        "background": "lab(100 0 0)",
+        "foreground": true
+      }
+    },
+    {
+      "kind": "people",
+      "phase": "outer-scroll-exercised",
+      "ok": true,
+      "exercised": true,
+      "before": {
+        "scrollY": 0,
+        "scrollHeight": 883,
+        "viewport": 800
+      },
+      "after": {
+        "scrollY": 83,
+        "scrollHeight": 883,
+        "viewport": 800
+      }
+    },
+    {
+      "kind": "people",
+      "phase": "outer-horizontal-sort",
+      "ok": true,
+      "metrics": {
+        "header": {
+          "top": 151,
+          "bottom": 187,
+          "left": 93,
+          "right": 1745.078125,
+          "height": 36,
+          "width": 1652.078125
+        },
+        "table": {
+          "top": 151,
+          "bottom": 1166,
+          "left": 93,
+          "right": 1745.078125,
+          "height": 1015,
+          "width": 1652.078125
+        },
+        "scroll": {
+          "top": 151,
+          "bottom": 651,
+          "left": 273,
+          "right": 1247,
+          "height": 500,
+          "width": 974
+        },
+        "scrollTop": 0,
+        "scrollLeft": 180,
+        "scrollHeight": 1015,
+        "clientHeight": 500,
+        "scrollWidth": 1652,
+        "clientWidth": 974,
+        "topbar": 61,
+        "background": "lab(100 0 0)",
+        "foreground": true
+      }
+    },
+    {
+      "kind": "companies",
+      "phase": "internal",
+      "ok": true,
+      "metrics": {
+        "header": {
+          "top": 233,
+          "bottom": 269,
+          "left": 273,
+          "right": 1903.875,
+          "height": 36,
+          "width": 1630.875
+        },
+        "table": {
+          "top": -67,
+          "bottom": 948,
+          "left": 273,
+          "right": 1903.875,
+          "height": 1015,
+          "width": 1630.875
+        },
+        "scroll": {
+          "top": 233,
+          "bottom": 733,
+          "left": 273,
+          "right": 1247,
+          "height": 500,
+          "width": 974
+        },
+        "scrollTop": 300,
+        "scrollLeft": 0,
+        "scrollHeight": 1015,
+        "clientHeight": 500,
+        "scrollWidth": 1631,
+        "clientWidth": 974,
+        "topbar": 61,
+        "background": "lab(100 0 0)",
+        "foreground": true
+      }
+    },
+    {
+      "kind": "companies",
+      "phase": "outer-scroll-exercised",
+      "ok": true,
+      "exercised": true,
+      "before": {
+        "scrollY": 1,
+        "scrollHeight": 883,
+        "viewport": 800
+      },
+      "after": {
+        "scrollY": 83,
+        "scrollHeight": 883,
+        "viewport": 800
+      }
+    },
+    {
+      "kind": "companies",
+      "phase": "outer-horizontal-sort",
+      "ok": true,
+      "metrics": {
+        "header": {
+          "top": 151,
+          "bottom": 187,
+          "left": 93,
+          "right": 1723.875,
+          "height": 36,
+          "width": 1630.875
+        },
+        "table": {
+          "top": 151,
+          "bottom": 1166,
+          "left": 93,
+          "right": 1723.875,
+          "height": 1015,
+          "width": 1630.875
+        },
+        "scroll": {
+          "top": 151,
+          "bottom": 651,
+          "left": 273,
+          "right": 1247,
+          "height": 500,
+          "width": 974
+        },
+        "scrollTop": 0,
+        "scrollLeft": 180,
+        "scrollHeight": 1015,
+        "clientHeight": 500,
+        "scrollWidth": 1631,
+        "clientWidth": 974,
+        "topbar": 61,
+        "background": "lab(100 0 0)",
+        "foreground": true
+      }
+    }
+  ],
+  "cleanup": [
+    {
+      "kind": "companies",
+      "id": "c05384ee-cdae-442d-9d94-409a19be2e6a",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "companies",
+      "id": "48fc9e51-fee1-45a6-bb51-c1d5d00f5b26",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "companies",
+      "id": "d3ba5e6d-2d1d-4708-ae5a-100c2c7f1d38",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "companies",
+      "id": "79afa17b-6d0b-465c-8fcd-ff06e980941f",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "companies",
+      "id": "64efe599-37c9-4adb-993c-df6f70909148",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "companies",
+      "id": "898b44ec-4cef-48e1-a015-e8a69a6bd357",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "companies",
+      "id": "bd16804f-a6da-4750-bd55-8cdb55e9d5e6",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "companies",
+      "id": "b00cf817-ba42-4465-8172-fe4331f4dba0",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "companies",
+      "id": "990b1c8b-94c9-4c1c-9b3f-ba80418547ca",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "companies",
+      "id": "f8c1ef02-f805-44e4-afd1-9afb5656d564",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "companies",
+      "id": "211ff0d7-f02a-4efa-aef0-d828a76634cc",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "companies",
+      "id": "4ca34bb5-d707-4df7-9eb1-fbf37bc7f4c2",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "companies",
+      "id": "71e635ba-a219-45bf-acbb-b03c83323c96",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "companies",
+      "id": "f26a559c-85b5-460d-b8f1-b8ed27da807d",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "companies",
+      "id": "b84bb2e0-0799-4793-8b24-02a3a4f9abd8",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "companies",
+      "id": "35c8138e-19d1-49b4-9bec-3700d74a0ba4",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "companies",
+      "id": "3a963499-b1d6-4b06-9054-d06f257c25e9",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "companies",
+      "id": "3c1343df-21cd-4405-8442-233b5ecabcc3",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "companies",
+      "id": "3b55d5f5-0792-416a-8a5d-03f41afef7ad",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "companies",
+      "id": "e322b664-ed8c-4172-b029-c05b7d683ef1",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "people",
+      "id": "f57c3eda-122d-41b0-8e4c-b7c2c0527edb",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "people",
+      "id": "b9ab05c6-5887-4250-bbdb-770e1d6db39f",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "people",
+      "id": "2a396c9f-32f5-44d1-a3a1-47b9e9b0c1b0",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "people",
+      "id": "fc9925b2-7cfd-484a-9f8d-bede3d8e7616",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "people",
+      "id": "5b1521fc-e2b7-4d22-854b-b770e59ed58f",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "people",
+      "id": "630a21b8-adf6-4599-ba02-7f14837ec498",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "people",
+      "id": "ac1ae066-7f2b-4540-b953-8fdcd89a5947",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "people",
+      "id": "36839cca-ab85-4a3b-ae0c-90a7c6d81525",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "people",
+      "id": "00c0b8f0-011d-4a44-9c17-99b67ffaa666",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "people",
+      "id": "43d38de9-81a1-466b-9ecf-061801f58f7a",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "people",
+      "id": "d593ad57-02fd-42ec-bc16-7a19de9e3c70",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "people",
+      "id": "d1a1c854-da46-4332-88f5-7ad24d8baffa",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "people",
+      "id": "41c80cc6-0424-4652-adb3-57caf9642a02",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "people",
+      "id": "a468b341-f82c-421c-87c4-4e280b923716",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "people",
+      "id": "0c1a461a-ce19-4f00-9f02-cd83df55bae0",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "people",
+      "id": "f2c8a979-f09c-4a68-846a-d15ee738e0c6",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "people",
+      "id": "784a4224-792c-4a34-bb4b-011c75d2b9e7",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "people",
+      "id": "43468e81-cf30-4c26-b457-60a93cc2f252",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "people",
+      "id": "23eaabd4-b211-495c-84d3-034335cc4c79",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "kind": "people",
+      "id": "b53d6b83-6b37-4691-aea7-5560b97fff0f",
+      "status": 200,
+      "ok": true
+    }
+  ],
+  "network": [
+    {
+      "path": "/api/customers/people",
+      "query": "?page=1&pageSize=20",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/customers/people",
+      "query": "?page=1&pageSize=100",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/customers/people",
+      "query": "?page=1&pageSize=100",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/customers/people",
+      "query": "?page=1&pageSize=100&search=QA7702179250729189619fff9",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/customers/people",
+      "query": "?page=1&pageSize=100&sortField=name&sortDir=asc&search=QA7702179250729189619fff9",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/customers/companies",
+      "query": "?page=1&pageSize=20",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/customers/companies",
+      "query": "?page=1&pageSize=20",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/customers/companies",
+      "query": "?page=1&pageSize=100",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/customers/companies",
+      "query": "?page=1&pageSize=100&search=QA7702179250729189619fff9",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/customers/companies",
+      "query": "?page=1&pageSize=100&sortField=name&sortDir=asc&search=QA7702179250729189619fff9",
+      "method": "GET",
+      "status": 200
+    }
+  ]
+}
