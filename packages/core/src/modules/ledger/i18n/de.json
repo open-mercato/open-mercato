@@ -112,6 +112,7 @@
   "ledger.errors.journalEntryLineNotOneSided": "Jede Buchungszeile muss genau eine Seite (Soll oder Haben) größer als null haben.",
   "ledger.errors.journalEntryNotBalanced": "Der Buchungssatz ist nicht ausgeglichen: die Summe von Soll muss der Summe von Haben entsprechen.",
   "ledger.errors.journalEntryNotFound": "Buchungssatz nicht gefunden.",
+  "ledger.errors.journalEntryTooFewLines": "Ein Buchungssatz erfordert mindestens zwei Buchungszeilen.",
   "ledger.errors.ledgerAccountNotFound": "Konto nicht gefunden.",
   "ledger.errors.noFiscalPeriodForOperationDate": "Keine Buchungsperiode deckt dieses Buchungsdatum ab. Erstellen Sie eine, bevor Sie buchen.",
   "ledger.errors.organizationRequired": "Organisationskontext ist erforderlich",
