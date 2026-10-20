@@ -23,6 +23,7 @@ import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorato
 @Unique({
   name: 'posting_rules_cost_centers_scope_code_unique',
   properties: ['organizationId', 'tenantId', 'code'],
+  where: `"deleted_at" is null`,
 })
 export class CostCenter {
   [OptionalProps]?: 'isActive' | 'createdAt' | 'updatedAt'
