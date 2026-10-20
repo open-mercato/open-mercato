@@ -34,6 +34,9 @@
     "qa": ".ai/qa"
   },
   "reviewChecklist": ".ai/review-checklist.md",
+  "help": {
+    "data": [".ai/skills/om-help/references/workflow-sequences.md"]
+  },
   "sessionShare": {
     "enabled": true,
     "issueRepo": "open-mercato/open-mercato",
