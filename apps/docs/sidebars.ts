@@ -509,6 +509,7 @@ const sidebars: SidebarsConfig = {
           label: "Security",
           items: [
             "framework/security/rate-limiting",
+            "framework/security/cross-site-login",
           ],
         },
         {
