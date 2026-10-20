@@ -15,7 +15,8 @@ import { createContainer, asValue, InjectionMode } from 'awilix'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { CustomerEntity, CustomerPersonProfile } from '@open-mercato/core/modules/customers/data/entities'
 import { SalesOrder, SalesQuote } from '../../data/entities'
-import { documentUpdateSchema, type DocumentUpdateInput } from '../documents'
+import '../documents'
+import type { DocumentUpdateInput } from '../documents'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -44,6 +45,8 @@ const ORG_ID = '33333333-3333-4333-8333-333333333333'
 const TENANT_ID = '44444444-4444-4444-8444-444444444444'
 const BILLING_ADDRESS_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const SHIPPING_ADDRESS_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+const OTHER_BILLING_ADDRESS_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+const OTHER_SHIPPING_ADDRESS_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 
 const CUSTOMERS: Record<string, Record<string, unknown>> = {
   [CUSTOMER_ID]: { id: CUSTOMER_ID, kind: 'person', displayName: 'Customer One', primaryEmail: 'one@example.com' },
@@ -130,9 +133,13 @@ function makeCtx(em: unknown) {
   } as any
 }
 
-async function updateDocument(kind: 'order' | 'quote', input: Record<string, unknown>) {
-  expect(documentUpdateSchema).toBeDefined()
+async function updateDocument(
+  kind: 'order' | 'quote',
+  input: Record<string, unknown>,
+  prepare: (document: Record<string, unknown>) => void = () => {},
+) {
   const document = makeDocument(kind)
+  prepare(document)
   const em = makeEm(document, kind === 'order' ? SalesOrder : SalesQuote)
   const handler = commandRegistry.get<DocumentUpdateInput, unknown>(
     kind === 'order' ? 'sales.orders.update' : 'sales.quotes.update',
@@ -191,6 +198,28 @@ describe.each(['order', 'quote'] as const)('sales %s update — customer assignm
     expect((document.customerSnapshot as any)?.contact?.id).toBe(OTHER_CONTACT_ID)
   })
 
+  it('clears only the contact when the unchanged customer is sent with a null contact', async () => {
+    const document = await updateDocument(kind, { customerEntityId: CUSTOMER_ID, customerContactId: null })
+
+    expect(document).toMatchObject({ customerEntityId: CUSTOMER_ID, customerContactId: null, ...KEPT_ADDRESSES })
+    expect((document.customerSnapshot as any)?.contact).toBeNull()
+  })
+
+  it('applies explicit address ids sent together with a new customer', async () => {
+    const document = await updateDocument(kind, {
+      customerEntityId: OTHER_CUSTOMER_ID,
+      billingAddressId: OTHER_BILLING_ADDRESS_ID,
+      shippingAddressId: OTHER_SHIPPING_ADDRESS_ID,
+    })
+
+    expect(document).toMatchObject({
+      customerEntityId: OTHER_CUSTOMER_ID,
+      customerContactId: null,
+      billingAddressId: OTHER_BILLING_ADDRESS_ID,
+      shippingAddressId: OTHER_SHIPPING_ADDRESS_ID,
+    })
+  })
+
   it('clears the contact and both addresses when the customer changes', async () => {
     const document = await updateDocument(kind, { customerEntityId: OTHER_CUSTOMER_ID })
 
@@ -218,15 +247,11 @@ describe.each(['order', 'quote'] as const)('sales %s update — customer assignm
   })
 
   it('keeps both addresses when a document without a customer is detached again', async () => {
-    const document = makeDocument(kind)
-    document.customerEntityId = null
-    document.customerContactId = null
-    document.customerSnapshot = null
-    const em = makeEm(document, kind === 'order' ? SalesOrder : SalesQuote)
-    const handler = commandRegistry.get<DocumentUpdateInput, unknown>(
-      kind === 'order' ? 'sales.orders.update' : 'sales.quotes.update',
-    )
-    await handler!.execute({ id: document.id, customerEntityId: null } as never, makeCtx(em))
+    const document = await updateDocument(kind, { customerEntityId: null }, (stored) => {
+      stored.customerEntityId = null
+      stored.customerContactId = null
+      stored.customerSnapshot = null
+    })
 
     expect(document).toMatchObject({ customerEntityId: null, customerSnapshot: null, ...KEPT_ADDRESSES })
   })

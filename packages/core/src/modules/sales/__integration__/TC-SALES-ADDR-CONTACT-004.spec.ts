@@ -117,6 +117,8 @@ test.describe('TC-SALES-ADDR-CONTACT-004: re-saving the assigned customer keeps 
           billingAddressId,
           shippingAddressId,
         })
+        expect(before.billingAddressSnapshot).toMatchObject({ addressLine1: '1 Billing Street' })
+        expect(before.shippingAddressSnapshot).toMatchObject({ addressLine1: '2 Shipping Street' })
 
         await updateDocument(request, token, kind, documentId, {
           customerEntityId: current.entityId,
