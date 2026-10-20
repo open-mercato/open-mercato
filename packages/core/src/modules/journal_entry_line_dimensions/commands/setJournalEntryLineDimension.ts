@@ -256,16 +256,24 @@ async function replacePairRows(em: EntityManager, write: PairWrite, scope: Scope
  * ownership check and delete-then-insert (4). Both callers run it inside
  * `withAtomicFlush(..., { transaction: true })`, so a failed insert rolls the
  * delete back and a rejected check leaves the rows untouched.
+ *
+ * `afterPairLocked` runs right after the advisory lock, on the transaction's
+ * own `em`. `execute` passes `ctx.beforeTransactionalWrite` there, which the
+ * command bus uses (`prepareSnapshotInsideTransaction`) to run `prepare`, so
+ * the undo `before` state is read under the lock and cannot be overtaken by a
+ * concurrent write to the same pair.
  */
 async function applyPairWrite(
   em: EntityManager,
   write: PairWrite,
   scope: Scope,
   translate: TranslateWithFallbackFn,
+  afterPairLocked?: (em: EntityManager) => Promise<void>,
 ): Promise<void> {
   const line = await requireJournalEntryLine(em, write.journalEntryLineId, scope, translate)
   await requireUnlockedPeriodForLine(em, line, scope, translate)
   await lockPair(em, write.journalEntryLineId, write.dimensionType, scope)
+  await afterPairLocked?.(em)
   const existing = await loadPairRows(em, write.journalEntryLineId, write.dimensionType, scope)
   assertWriterOwnsPair(existing, write.writer, translate)
   await replacePairRows(em, write, scope)
@@ -273,11 +281,12 @@ async function applyPairWrite(
 
 const setJournalEntryLineDimensionCommand: CommandHandler<SetJournalEntryLineDimensionInput, SetDimensionResult> = {
   id: 'journal_entry_line_dimensions.dimensions.set',
+  prepareSnapshotInsideTransaction: true,
 
   async prepare(rawInput, ctx) {
     const parsed = setJournalEntryLineDimensionSchema.parse(rawInput)
     const scope = resolveScope(ctx, parsed)
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager)
     const rows = await loadPairRows(em, parsed.journalEntryLineId, parsed.dimensionType, scope)
     return { before: rows.map((row) => row.dimensionId) }
   },
@@ -294,7 +303,9 @@ const setJournalEntryLineDimensionCommand: CommandHandler<SetJournalEntryLineDim
       em,
       [
         async () => {
-          await applyPairWrite(em, parsed, scope, translate)
+          await applyPairWrite(em, parsed, scope, translate, async (lockedEm) => {
+            await ctx.beforeTransactionalWrite?.(lockedEm, rawInput)
+          })
         },
       ],
       { transaction: true },

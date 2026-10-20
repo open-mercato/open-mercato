@@ -14,7 +14,9 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 
 import { LockMode } from '@mikro-orm/core'
+import { asValue, createContainer, InjectionMode } from 'awilix'
 import '../setJournalEntryLineDimension'
+import { CommandBus } from '@open-mercato/shared/lib/commands'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandHandler, CommandRuntimeContext, CommandUndoLogEntry } from '@open-mercato/shared/lib/commands'
 import { JournalEntryLineDimension } from '../../data/entities'
@@ -446,6 +448,34 @@ describe('journal_entry_line_dimensions.dimensions.set', () => {
       )
 
       expect(dimensionRows.map((r) => [r.tenantId, r.organizationId])).toEqual([[TENANT_A, ORG_A]])
+    })
+  })
+
+  describe('undo state captured under the pair lock', () => {
+    it('restores the rows a concurrent write left between the bus prepare step and the pair lock, not the earlier ones', async () => {
+      const { em, dimensionRows } = makeFakeEm({ dimensionRows: [dimRow('CostCenter', 'cc-old', 'posting_rules')] })
+      const findOne = em.findOne.getMockImplementation()
+      let concurrentWriteLanded = false
+      em.findOne.mockImplementation(async (ctor: unknown, where: unknown, options: unknown) => {
+        if (ctor === JournalEntryLine && !concurrentWriteLanded) {
+          concurrentWriteLanded = true
+          dimensionRows.length = 0
+          dimensionRows.push(dimRow('CostCenter', 'cc-concurrent', 'posting_rules'))
+        }
+        return findOne(ctor, where, options)
+      })
+      const log = jest.fn(async (entry: Record<string, unknown>) => ({ id: 'log-1', ...entry }))
+      const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+      container.register({ em: asValue(em), actionLogService: asValue({ log }) })
+      const ctx: CommandRuntimeContext = { ...makeCtx(em, TENANT_A, ORG_A), container }
+
+      await new CommandBus().execute('journal_entry_line_dimensions.dimensions.set', { input: baseInput, ctx })
+      expect(dimensionRows.map((r) => r.dimensionId)).toEqual(['cc-new'])
+
+      const logEntry = log.mock.calls[0][0] as unknown as CommandUndoLogEntry
+      await getHandler().undo!({ input: baseInput, ctx, logEntry })
+
+      expect(dimensionRows.map((r) => r.dimensionId)).toEqual(['cc-concurrent'])
     })
   })
 
