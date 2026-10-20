@@ -1,6 +1,6 @@
 ---
 title: "The decryption `scope` argument is not a WHERE filter"
-modules: ["warranty_claims","shared","customers"]
+modules: ["warranty_claims","shared","customers","resources"]
 areas: ["module-data","architecture","testing"]
 topics: ["data-scoping","access-control","command-pattern"]
 ---
@@ -14,3 +14,5 @@ topics: ["data-scoping","access-control","command-pattern"]
 **Rule**: Put `tenantId`, `organizationId`, and `deletedAt: null` in the `where` object of every hand-written loader, including child-collection loads by FK; treat the `scope` argument as decryption-only. Add a tenant-isolation integration assertion that exercises a command action endpoint (transition/comment/assign), not just the list route, and run it against a second organization inside the seeded tenant rather than a fresh API-created tenant whose user JWT is rejected by RBAC routes.
 
 **Applies to**: Command handlers, action endpoints, subscribers, enrichers, and any loader that reads an entity by id or FK outside a `makeCrudRoute` factory.
+
+**Replay lookup correction (#7667)**: Create undo/redo intentionally needs retained rows, so its lookup must include soft-deleted records and validate their tenant/organization before mutation. When the existing scope policy permits All organizations or a tenant-less system context, omit the absent query key with a conditional property spread: MikroORM treats an explicitly present `undefined` predicate as SQL `IS NULL`, which silently misses non-nullable scoped records. Retain the scope guards and test the actual query shape; a mock that ignores query predicates hides this failure.
