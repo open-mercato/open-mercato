@@ -100,6 +100,40 @@ describe('Queue - async strategy', () => {
     )
   })
 
+  it('aborts ctx.signal at the start of close(), before waiting for running jobs', async () => {
+    const queue = createQueue<{ value: number }>('test-queue', 'async')
+    let seenSignal: AbortSignal | undefined
+    let finishJob!: () => void
+    await queue.process(async (_job, ctx) => {
+      seenSignal = ctx.signal
+      await new Promise<void>((resolve) => {
+        finishJob = resolve
+      })
+    })
+    const processor = workerCtor.mock.calls[0][1] as (job: {
+      id?: string
+      data: { id: string; payload: { value: number }; createdAt: string }
+      attemptsMade: number
+    }) => Promise<void>
+    const running = processor({
+      id: 'bull-job-id',
+      data: { id: 'job-1', payload: { value: 1 }, createdAt: new Date().toISOString() },
+      attemptsMade: 0,
+    })
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(seenSignal?.aborted).toBe(false)
+
+    let abortedWhenWorkerClosed: boolean | undefined
+    workerClose.mockImplementationOnce(async () => {
+      abortedWhenWorkerClosed = seenSignal?.aborted
+    })
+    await queue.close()
+    finishJob()
+    await running
+
+    expect(abortedWhenWorkerClosed).toBe(true)
+  })
+
   it('preserves URL connection semantics when converting to BullMQ fields', async () => {
     const queue = createQueue<{ value: number }>('test-queue', 'async', {
       connection: {

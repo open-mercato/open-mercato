@@ -143,6 +143,7 @@ type JobContext = {
   jobId: string
   attemptNumber: number  // 1-based attempt count
   queueName: string
+  signal?: AbortSignal   // aborted when the worker starts shutting down
 }
 ```
 

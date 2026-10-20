@@ -33,6 +33,13 @@ export type JobContext = {
   attemptNumber: number
   /** Name of the queue being processed */
   queueName: string
+  /**
+   * Aborted as soon as the queue starts closing (worker shutdown on SIGTERM/SIGINT).
+   * `close()` waits for running jobs, so a long-running handler should watch this
+   * signal, stop taking new work, finish what is in flight and return — otherwise
+   * it holds the shutdown until the process is killed and is cut off mid-run.
+   */
+  signal?: AbortSignal
 }
 
 /**

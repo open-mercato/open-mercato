@@ -102,6 +102,7 @@ type JobContext = {
   jobId: string        // Same as job.id
   attemptNumber: number // 1-based retry count
   queueName: string    // Queue being processed
+  signal?: AbortSignal // Aborted when the worker starts shutting down
   resolve: <T>(name: string) => T // DI container access
 }
 ```
@@ -446,6 +447,25 @@ export default async function handle(job, ctx) {
   console.log(`[${ctx.queueName}] Completed job ${ctx.jobId}`)
 }
 ```
+
+### 5. Stop Long-Running Jobs on Shutdown
+
+On SIGTERM/SIGINT the worker closes its queues, and closing waits for the jobs that are still
+running. A job that takes minutes therefore holds every deploy or restart until the process is
+killed, and is then cut off mid-run. `ctx.signal` is aborted the moment closing starts: check it
+between units of work, finish what is in flight, and return.
+
+```typescript
+export default async function handle(job, ctx) {
+  for (const item of await loadItems(job.payload)) {
+    if (ctx.signal?.aborted) return // the rest is picked up by the next run
+    await processItem(item)
+  }
+}
+```
+
+Return normally rather than throwing: the job completes, so it is not redelivered as stalled to
+the next worker. Make sure the next run can continue where this one stopped.
 
 ## Built-in Workers
 

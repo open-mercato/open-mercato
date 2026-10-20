@@ -162,6 +162,7 @@ export function createLocalQueue<T = unknown>(
   let isProcessing = false
   let pollRequested = false
   let activeHandler: JobHandler<T> | null = null
+  let shutdownController = new AbortController()
   const inFlightJobIds = new Set<string>()
 
   // Per-queue mutex. Serializes read-modify-write segments so async fs calls
@@ -507,6 +508,7 @@ export function createLocalQueue<T = unknown>(
                 jobId: job.id,
                 attemptNumber,
                 queueName: name,
+                signal: shutdownController.signal,
               })
             )
           )
@@ -677,6 +679,7 @@ export function createLocalQueue<T = unknown>(
     }
 
     // Start continuous polling mode (like BullMQ Worker)
+    if (shutdownController.signal.aborted) shutdownController = new AbortController()
     activeHandler = handler
 
     try {
@@ -732,6 +735,7 @@ export function createLocalQueue<T = unknown>(
 
   async function close(): Promise<void> {
     activeHandler = null
+    shutdownController.abort()
     if (queuedPollTimer) {
       clearTimeout(queuedPollTimer)
       queuedPollTimer = null

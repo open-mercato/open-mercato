@@ -14,6 +14,7 @@ Use `@open-mercato/queue` for all background job processing. MUST NOT implement 
 1. **MUST make workers idempotent** — jobs may be retried on failure; duplicate execution MUST NOT corrupt data
 2. **MUST export `metadata`** with `{ queue, id?, concurrency? }` from every worker file
 3. **MUST test with both strategies** — verify workers process correctly with `local` and `async`
+4. **Long-running handlers (minutes) MUST watch `ctx.signal`** — it aborts when the worker starts shutting down; stop taking new work, finish what is in flight and return. `close()` waits for running jobs, so a handler that ignores it holds every shutdown until the process is killed and is then cut off mid-run
 
 ## Ask First
 

@@ -669,6 +669,60 @@ describe('Queue - local strategy', () => {
     }
   })
 
+  test('close aborts ctx.signal so a long-running handler can stop instead of holding the shutdown', async () => {
+    const baseDir = path.join(tmp, 'shutdown-signal')
+    const producer = createQueue<{ value: number }>('shutdown-signal', 'local', { baseDir })
+    const consumer = createQueue<{ value: number }>('shutdown-signal', 'local', { baseDir })
+    let markStarted!: () => void
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve
+    })
+    let abortedInHandler = false
+
+    try {
+      await consumer.process(async (_job, ctx) => {
+        markStarted()
+        await new Promise<void>((resolve) => {
+          ctx.signal?.addEventListener('abort', () => resolve(), { once: true })
+        })
+        abortedInHandler = ctx.signal?.aborted === true
+      })
+      await producer.enqueue({ value: 1 })
+      await within(started, 800)
+
+      await within(consumer.close(), 1000)
+
+      expect(abortedInHandler).toBe(true)
+    } finally {
+      await consumer.close()
+      await producer.close()
+    }
+  })
+
+  test('restarted continuous processing hands jobs a fresh, unaborted signal', async () => {
+    const baseDir = path.join(tmp, 'shutdown-signal-restart')
+    const producer = createQueue<{ value: number }>('shutdown-signal-restart', 'local', { baseDir })
+    const consumer = createQueue<{ value: number }>('shutdown-signal-restart', 'local', { baseDir })
+    let resolveSeen!: (aborted: boolean | undefined) => void
+    const seen = new Promise<boolean | undefined>((resolve) => {
+      resolveSeen = resolve
+    })
+
+    try {
+      await consumer.process(() => {})
+      await consumer.close()
+      await consumer.process((_job, ctx) => {
+        resolveSeen(ctx.signal?.aborted)
+      })
+      await producer.enqueue({ value: 1 })
+
+      await expect(within(seen, 800)).resolves.toBe(false)
+    } finally {
+      await consumer.close()
+      await producer.close()
+    }
+  })
+
   test('idle continuous workers do not poll at the queued-work default interval', async () => {
     jest.useFakeTimers()
     const baseDir = path.join(tmp, 'idle-default')

@@ -223,6 +223,7 @@ export function createAsyncQueue<T = unknown>(
   let bullmqModule: BullMQModule | null = null
   let abandonedSweepTimer: ReturnType<typeof setInterval> | null = null
   let closing = false
+  const shutdownController = new AbortController()
 
   // In-flight `onJobAbandoned` calls. Detached from the caller that started them (the 'failed'
   // listener or the sweep), so `close()` drains them rather than letting a deploy truncate a repair
@@ -418,6 +419,7 @@ export function createAsyncQueue<T = unknown>(
           jobId: job.id ?? jobData.id,
           attemptNumber: job.attemptsMade + 1,
           queueName: name,
+          signal: shutdownController.signal,
         }
         // With bullmq-otel active, BullMQ owns the process span and active
         // context (the handler's pg/undici spans nest under it). Otherwise
@@ -549,6 +551,7 @@ export function createAsyncQueue<T = unknown>(
 
   async function close(): Promise<void> {
     closing = true
+    shutdownController.abort()
     if (abandonedSweepTimer) {
       clearInterval(abandonedSweepTimer)
       abandonedSweepTimer = null
