@@ -353,9 +353,38 @@ is its NIP), `bankAccountMasked` (`'****'` + the line's
 `whitelistCheckResult.accountNumberLast4` — the account actually paid
 to) and `whitelistCheck` (`{ status, checkedAt, requestId }` from the
 line's `whitelistCheckResult`, i.e. the live check this module holds when
-it posts). The invoice entry's snapshot (`source: 'vendor_invoice'`,
+it posts — after the same-day re-check below). The invoice entry's snapshot (`source: 'vendor_invoice'`,
 name and tax id, no account) is written by `postVendorInvoice` in the
 sibling document.
+
+**`markPaymentBatchSent` repeats the eligibility check when the last
+one is from an earlier calendar day (Europe/Warsaw).** The legal test
+is the list "na dzień zlecenia przelewu" (art. 15d ust. 1 pkt 2 CIT,
+art. 22p ust. 1 pkt 2 PIT, art. 117ba Ordynacji podatkowej — see
+#5955's Legal context), and a batch confirmed on Monday can be sent on
+Wednesday; the Monday check then proves nothing about Wednesday.
+- **When.** For each line, before anything is posted, the command
+  compares the calendar date of `whitelistCheckResult.checkedAt` with
+  today's date, both in `Europe/Warsaw` (the Ministry's list is
+  published per Polish business day). An earlier date, or a `null`
+  `checkedAt` (a `NOT_APPLICABLE` line, for which only the local reasons
+  can change), triggers a new `contractorBankWhitelistCheck` call for
+  that line. A check from today is reused. "Today" is the moment the
+  command runs, not `sentOn`: `sentOn` is the accounting date of the
+  entry and may lie in the past, while the transfer is ordered now.
+- **Result replaces the stored one.** An eligible result overwrites the
+  line's `whitelistCheckResult` and is what `contractorSnapshot.whitelistCheck`
+  carries; the earlier check stays in the registry's own append-only
+  history (#5955), so nothing is lost.
+- **Failure blocks.** If any line is not eligible, or the service is
+  missing, the command posts nothing, leaves the batch `CONFIRMED` and
+  returns `422 PAYMENT_BATCH_NOT_ELIGIBLE` with the same body and the
+  same reason-to-code mapping as `confirmPaymentBatch`. The clerk can
+  cancel the batch or fix the cause and send again.
+- **Order inside the command.** Re-check first, then the idempotency
+  guard on `postedJournalEntryId` and the posting; a repeated call on an
+  already `SENT` batch stays a no-op and does not query the Ministry
+  again.
 
 ### Alternatives considered
 
@@ -561,7 +590,12 @@ async seedDefaults({ em, tenantId, organizationId }) {
   checkedAt, requestId, accountNumberLast4 }`; a currency mismatch
   between the batch and the account's `currencyCode` produces a
   `CURRENCY_MISMATCH` warning, not a block.
-- `markPaymentBatchSent` — `CONFIRMED` → `SENT`. Resolves `commandBus`
+- `markPaymentBatchSent` — `CONFIRMED` → `SENT`. **First (added
+  2026-10-20)** it repeats `contractorBankWhitelistCheck` for every line
+  whose stored check is from an earlier calendar day in `Europe/Warsaw`
+  (or has no `checkedAt`), stores the new result on the line, and stops
+  with `422 PAYMENT_BATCH_NOT_ELIGIBLE` if any line is not eligible (see
+  Design decisions, 2026-10-20). Then it resolves `commandBus`
   from the container and calls `ledger.postJournalEntry` with one DR
   line **per invoice in the batch** (resolved 2026-09-08, maintainer
   review — an earlier draft left this as an unresolved "per
@@ -834,6 +868,10 @@ Custom write route (mapped to `update`).
 - **Response 200**: `{ id, status: 'SENT', sentOn, postedJournalEntryId }`.
 - **Response 409**: `status !== 'CONFIRMED'`.
 - **Response 422**: `sentOn` is later than today.
+- **Response 422 `PAYMENT_BATCH_NOT_ELIGIBLE`** (added 2026-10-20): the
+  same-day re-check (see Design decisions, 2026-10-20) found a line not
+  eligible; same body as on `.../confirm`. Nothing is posted; the batch
+  stays `CONFIRMED`.
 - **Response 403**: caller lacks `accounts_payable_payments.payments.execute`.
 
 ### `POST /api/accounts_payable_payments/payments/:id/cancel`
@@ -963,6 +1001,60 @@ through the module configuration screen.
   both equal it. Send with a future `sentOn`; assert 422 and the batch
   stays `CONFIRMED`. Send with `sentOn` in a locked period; assert the
   ledger's error is returned and the batch stays `CONFIRMED`.
+- Same-day re-check at send (added 2026-10-20), acceptance:
+  - confirmed and sent on the same Warsaw calendar day → no second
+    `contractorBankWhitelistCheck` call; the snapshot's `whitelistCheck`
+    equals the confirmation's;
+  - confirmed on day D, sent on D+1 → one new call per line; the line's
+    `whitelistCheckResult` and the snapshot's `whitelistCheck` carry the
+    new `requestId`/`checkedAt`;
+  - confirmed at 23:30 Europe/Warsaw (22:30 UTC in winter) and sent at
+    00:10 Europe/Warsaw → re-checked, although both instants fall on the
+    same UTC date;
+  - the re-check returns `WHITELIST_NEGATIVE` for one line → `422
+    PAYMENT_BATCH_NOT_ELIGIBLE` with `VENDOR_ACCOUNT_NOT_WHITELISTED`,
+    no journal entry, batch stays `CONFIRMED`, `sentOn` and
+    `postedJournalEntryId` stay `null`;
+  - the contractor was deactivated between confirmation and sending →
+    `VENDOR_ACCOUNT_INACTIVE`, blocked;
+  - `contractors` disabled at send time → `CONTRACTORS_UNAVAILABLE`,
+    blocked;
+  - a `NOT_APPLICABLE` line (no `checkedAt`) → re-evaluated on every
+    send, no Ministry call made by the registry;
+  - `sentOn` set to yesterday, sent today after a confirmation from
+    yesterday → re-checked (the comparison uses the time the command
+    runs, not `sentOn`);
+  - a repeated send of an already `SENT` batch → no-op, no re-check.
+
+## Edge Cases & Failure Scenarios
+
+Added 2026-10-20, for the same-day re-check at `markPaymentBatchSent`
+(see Design decisions, 2026-10-20).
+
+- **Batch confirmed on one day, sent on a later one.** The stored check
+  is from an earlier Warsaw calendar day; every such line is checked
+  again before posting. The result replaces the stored one; the old one
+  remains in the registry's history.
+- **Day boundary.** Dates are compared in `Europe/Warsaw`, not UTC: a
+  check at 23:30 Warsaw time and a send at 00:10 the next morning are on
+  different days even when the UTC date is the same, and the reverse
+  across midnight UTC.
+- **Re-check fails for one line.** The whole batch stays `CONFIRMED` and
+  nothing is posted (`422 PAYMENT_BATCH_NOT_ELIGIBLE`); partial sending
+  of a batch does not exist. The clerk removes the cause or cancels the
+  batch.
+- **Ministry API down at send time.** `WHITELIST_UNAVAILABLE`; blocked,
+  as at confirmation. A check already made today is reused, so a batch
+  confirmed today can still be sent while the API is down.
+- **Back-dated `sentOn`.** `sentOn` only sets the entry's accounting
+  date; the re-check compares with the day the command runs, because
+  that is when the transfer is ordered.
+- **Vendor without a Polish NIP (`NOT_APPLICABLE`).** No `checkedAt`, so
+  the line is always re-evaluated; only approval and active status can
+  change the outcome; the registry makes no Ministry call.
+- **Retry of a send.** A batch already `SENT` returns the existing
+  result without a re-check, so a retry never queries the Ministry or
+  changes the evidence after posting.
 
 ## Risks & Impact Review
 
@@ -1432,3 +1524,17 @@ change to behaviour or schema. Not yet reviewed by a maintainer.
 - Entities, Encryption, Commands, Cross-module integration, Backend
   Pages, API Contracts and Testing Strategy updated. The sibling
   document writes the invoice-side snapshot.
+
+### 2026-10-20 (cont. — same-day re-check at `markPaymentBatchSent`)
+
+- **Decided.** `markPaymentBatchSent` repeats the eligibility check for
+  every line whose stored check is from an earlier calendar day in
+  `Europe/Warsaw` (or has no `checkedAt`); the new result replaces the
+  line's `whitelistCheckResult` and the snapshot's `whitelistCheck`; a
+  line that is not eligible blocks the send with
+  `422 PAYMENT_BATCH_NOT_ELIGIBLE` and the batch stays `CONFIRMED`.
+  Closes the gap between the day of confirmation and the day the
+  transfer is ordered.
+- Design decisions (2026-10-20), Commands, API Contracts (send route),
+  Testing Strategy (acceptance cases) and a new Edge Cases & Failure
+  Scenarios section updated.
