@@ -8,6 +8,8 @@
  * Resolution uses Node's own ESM resolver, not Jest's module mapper (which
  * resolves directory indexes that Node never does), and every resolved file is
  * `stat`ed, because resolving a specifier does not prove that its target exists.
+ * Each resolved file must also have its source in the package's `src`, so a
+ * `dist` file left over from an earlier build after a rename or delete fails.
  *
  * Requires `yarn build:packages` first; a missing dist is a failure rather than
  * a skip, so the gate cannot report green without having inspected anything.
@@ -53,6 +55,8 @@ function resolveToPath(specifier) {
   return fileURLToPath(url)
 }
 
+const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.js', '.mjs']
+
 function existingFileRealPath(filePath) {
   try {
     if (!fs.statSync(filePath).isFile()) return null
@@ -70,6 +74,22 @@ function resolveDistDir(packageName) {
   return path.dirname(realEntryPath)
 }
 
+export function sourceCandidatesFor(distFile, distDir) {
+  const relative = path.relative(distDir, distFile).replace(/\.m?js$/, '')
+  const sourceDir = path.join(path.dirname(distDir), 'src')
+  return SOURCE_EXTENSIONS.map((extension) => path.join(sourceDir, `${relative}${extension}`))
+}
+
+export function checkResolvedFile(resolvedPath, distDir) {
+  const realPath = existingFileRealPath(resolvedPath)
+  if (!realPath) return `resolves to a missing file: ${resolvedPath}`
+  if (!realPath.startsWith(`${distDir}${path.sep}`)) return `resolves outside the built dist (${distDir}): ${realPath}`
+  if (!sourceCandidatesFor(realPath, distDir).some((candidate) => existingFileRealPath(candidate) !== null)) {
+    return `resolves to a stale dist file with no source in src (run yarn build:packages): ${realPath}`
+  }
+  return null
+}
+
 function checkImportPath(specifier, distDirs) {
   const distDir = distDirs.get(packageNameOf(specifier))
   if (distDir instanceof Error) return `package not built: ${distDir.message}`
@@ -79,10 +99,7 @@ function checkImportPath(specifier, distDirs) {
   } catch (error) {
     return `does not resolve: ${error instanceof Error ? error.message : String(error)}`
   }
-  const realPath = existingFileRealPath(resolvedPath)
-  if (!realPath) return `resolves to a missing file: ${resolvedPath}`
-  if (!realPath.startsWith(`${distDir}${path.sep}`)) return `resolves outside the built dist (${distDir}): ${realPath}`
-  return null
+  return checkResolvedFile(resolvedPath, distDir)
 }
 
 function main() {
@@ -109,4 +126,4 @@ function main() {
   console.log(`${LOG_PREFIX} all ${PUBLISHED_IMPORT_PATHS.length} published import paths resolve to built files.`)
 }
 
-main()
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main()

@@ -673,7 +673,7 @@ export function startPgTestOrm(options?: { poolMax?: number; acquireTimeoutMs?: 
 
 ### Publish-shape check (P6)
 
-`scripts/check-oauth-publish-shape.mjs` resolves each subpath below through Node `exports` against the built `dist` of `packages/shared` and `packages/core` (not through Jest's module mapper, which resolves directory indexes), then `stat`s the resolved file, because resolution alone (`import.meta.resolve`) does not prove the file exists. Exit code 1 lists the broken paths.
+`scripts/check-oauth-publish-shape.mjs` resolves each subpath below through Node `exports` against the built `dist` of `packages/shared` and `packages/core` (not through Jest's module mapper, which resolves directory indexes), then `stat`s the resolved file, because resolution alone (`import.meta.resolve`) does not prove the file exists, and requires its source in the package's `src`, so a `dist` file left over after a rename or delete fails. Exit code 1 lists the broken paths; `scripts/__tests__/check-oauth-publish-shape.test.mjs` covers the stale, missing and outside-`dist` cases.
 - `@open-mercato/shared/lib/db/advisoryLock` (explicit `exports` entry, like `./lib/db/duplicateEntityClassNames`, `packages/shared/package.json:63-66`; optional, since shared's `./*` export at `:91-97` resolves it too, so the check can't prove the entry);
 - `@open-mercato/core/modules/integrations/lib/oauth/{token-endpoint,pkce,authorization,redirect,resource-challenge,descriptor,grant-service,health}`, `…/lib/oauth/testing/fakeAuthorizationServer`, `…/lib/credentials-service`, `…/lib/log-service`;
 - `@open-mercato/core/modules/communication_channels/lib/oauth-state` (the hub-owned STABLE import of App Spec §10.1).
@@ -986,6 +986,7 @@ Implemented; App Spec Q3 (surfaces, CI steps) and Q7 (consumer gate) were approv
 ## Changelog
 
 ### 2026-10-20
+- The publish-shape check also fails a resolved `dist` file without a source in `src`, and has a self-test (Publish-shape check).
 - A `client_misconfigured` diagnosis stores `lastFailureProviderErrorCode`; a caller that waited behind it answers with the same `reason` and `providerErrorCode` (`getAccessToken` 5.3).
 - The default `minValidityMs` is capped at half the stored token's lifetime, so a token shorter-lived than `refreshSkewMs` is not refreshed on every call (`getAccessToken`).
 - A refresh whose commit outcome is unknown re-reads the row under the lock and writes the issued tokens again when they did not commit, so a rotated refresh token is not lost (`getAccessToken` step 6).
