@@ -84,6 +84,7 @@
   "posting_rules.errors.targetAccountNotFoundForOrg": "La cuenta de destino indicada no existe en esta organización.",
   "posting_rules.errors.unallocatedCostAccountNotFoundForOrg": "La cuenta de costes no asignados indicada no existe en esta organización.",
   "posting_rules.errors.unauthorized": "No autorizado",
+  "posting_rules.nav.group": "Motor de reglas de contabilización",
   "posting_rules.reclassification.description": "Reclasificación automática de costes zespół 4→5 del asiento #{entryId}",
   "posting_rules.settings.action.save": "Guardar cambios",
   "posting_rules.settings.error.load": "No se pudo cargar la configuración de las reglas de contabilización",

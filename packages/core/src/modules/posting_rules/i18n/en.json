@@ -84,6 +84,7 @@
   "posting_rules.errors.targetAccountNotFoundForOrg": "The specified target account does not exist for this organization.",
   "posting_rules.errors.unallocatedCostAccountNotFoundForOrg": "The specified unallocated-cost account does not exist for this organization.",
   "posting_rules.errors.unauthorized": "Unauthorized",
+  "posting_rules.nav.group": "Posting Rules Engine",
   "posting_rules.reclassification.description": "Automatic zespół 4→5 cost reclassification of entry #{entryId}",
   "posting_rules.settings.action.save": "Save changes",
   "posting_rules.settings.error.load": "Failed to load posting rules settings",

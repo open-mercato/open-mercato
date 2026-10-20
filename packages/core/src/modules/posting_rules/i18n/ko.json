@@ -84,6 +84,7 @@
   "posting_rules.errors.targetAccountNotFoundForOrg": "지정한 대상 계정이 이 조직에 없습니다.",
   "posting_rules.errors.unallocatedCostAccountNotFoundForOrg": "지정한 미배분 원가 계정이 이 조직에 없습니다.",
   "posting_rules.errors.unauthorized": "권한이 없습니다",
+  "posting_rules.nav.group": "전기 규칙 엔진",
   "posting_rules.reclassification.description": "분개 #{entryId}의 zespół 4→5 원가 자동 재분류",
   "posting_rules.settings.action.save": "변경 사항 저장",
   "posting_rules.settings.error.load": "전기 규칙 설정을 불러오지 못했습니다",

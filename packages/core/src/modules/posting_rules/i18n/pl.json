@@ -84,6 +84,7 @@
   "posting_rules.errors.targetAccountNotFoundForOrg": "Wskazane konto docelowe nie istnieje dla tej organizacji.",
   "posting_rules.errors.unallocatedCostAccountNotFoundForOrg": "Wskazane konto kosztów nieprzypisanych nie istnieje dla tej organizacji.",
   "posting_rules.errors.unauthorized": "Brak autoryzacji",
+  "posting_rules.nav.group": "Silnik reguł księgowania",
   "posting_rules.reclassification.description": "Automatyczne przeksięgowanie kosztu zespół 4→5 zapisu #{entryId}",
   "posting_rules.settings.action.save": "Zapisz zmiany",
   "posting_rules.settings.error.load": "Nie udało się wczytać ustawień reguł księgowania",

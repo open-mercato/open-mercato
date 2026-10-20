@@ -84,6 +84,7 @@
   "posting_rules.errors.targetAccountNotFoundForOrg": "Das angegebene Zielkonto existiert in dieser Organisation nicht.",
   "posting_rules.errors.unallocatedCostAccountNotFoundForOrg": "Das angegebene Konto für nicht zugeordnete Kosten existiert in dieser Organisation nicht.",
   "posting_rules.errors.unauthorized": "Nicht autorisiert",
+  "posting_rules.nav.group": "Kontierungsregel-Engine",
   "posting_rules.reclassification.description": "Automatische Kostenumgliederung zespół 4→5 für Buchung #{entryId}",
   "posting_rules.settings.action.save": "Änderungen speichern",
   "posting_rules.settings.error.load": "Die Einstellungen der Kontierungsregeln konnten nicht geladen werden",
