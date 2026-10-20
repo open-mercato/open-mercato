@@ -1833,14 +1833,20 @@ function DataTableImpl<T extends RowData>({
     const accessors = mergedColumns.map((c) => {
       const key = (c as any).accessorKey as string | undefined
       const id = (c as any).id as string | undefined
-      return { id: id || key || '', key }
+      // Read the raw column def the caller passed in, not the table's merged
+      // columnDef — react-table's defaultColumn merge backfills a fallback
+      // `cell` renderer onto every column, so checking the merged columnDef
+      // at render time would make this always true.
+      const hasCustomCell = Boolean((c as any).cell)
+      return { id: id || key || '', key, hasCustomCell }
     })
     const guessed = new Set<string>()
     accessors.forEach((a) => {
       if (!a.id) return
       const name = a.id
-      // Name-based guess: snake_case '_at' suffix
-      if (name.endsWith('_at')) {
+      // Name-based guess: snake_case '_at' suffix. An explicit `cell` renderer
+      // always wins over the heuristic (#7640).
+      if (name.endsWith('_at') && !a.hasCustomCell) {
         guessed.add(name)
         return
       }

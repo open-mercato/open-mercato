@@ -84,4 +84,36 @@ describe('DataTable date cells', () => {
 
     expect(screen.getByText('01.07.2026')).toBeInTheDocument()
   })
+
+  // Regression for #7640: a column id ending in `_at` is guessed as a date column, but an
+  // explicit `cell` renderer must still win over that heuristic rather than being swallowed by
+  // the date formatter (which would render blank, since this column has no `accessorKey`).
+  it('renders a custom cell renderer even when the column id ends in _at', () => {
+    type CustomRow = { id: string; issued_at: string }
+    const columns: ColumnDef<CustomRow>[] = [
+      {
+        id: 'issued_at',
+        header: 'Issued',
+        cell: ({ row }) => React.createElement('span', null, `CUSTOM-${row.original.id}`),
+      },
+    ]
+    const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: 0 } } })
+    render(
+      React.createElement(
+        QueryClientProvider as any,
+        { client: queryClient },
+        React.createElement(
+          I18nProvider as any,
+          { locale: 'en', dict: {} },
+          React.createElement(DataTable as any, {
+            columns,
+            data: [{ id: '1', issued_at: '2026-07-01' }],
+            title: 'Test',
+          }),
+        ),
+      ),
+    )
+
+    expect(screen.getByText('CUSTOM-1')).toBeInTheDocument()
+  })
 })
