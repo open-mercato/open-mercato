@@ -102,14 +102,16 @@ test.describe('TC-CHANNEL-EMAIL-HUB-007: send-as-user delivers attachments', () 
 
       const captured = await waitForCapture(request, token, subject)
       expect(captured, 'the test-seed adapter should have captured the delivery').toBeTruthy()
-      expect(captured!.content.attachments).toEqual([
+      expect(captured!.content.attachmentDigests).toEqual([
         {
+          version: 1,
           fileName: `Order ${stamp}.pdf`,
           mimeType: 'application/pdf',
           fileSize: bytes.byteLength,
           sha256: createHash('sha256').update(bytes).digest('hex'),
         },
       ])
+      expect(captured!.content.attachments ?? []).toEqual([])
       expect(captured!.metadata ?? {}).not.toHaveProperty('outboundAttachments')
     } finally {
       await deleteChannelIfExists(request, token, channelId)
@@ -160,6 +162,7 @@ test.describe('TC-CHANNEL-EMAIL-HUB-007: send-as-user delivers attachments', () 
       const captured = await waitForCapture(request, token, subject)
       expect(captured, 'the test-seed adapter should have captured the delivery').toBeTruthy()
       expect(captured!.content.attachments ?? []).toEqual([])
+      expect(captured!.content.attachmentDigests ?? []).toEqual([])
       expect(captured!.metadata ?? {}).not.toHaveProperty('outboundAttachments')
     } finally {
       await deleteChannelIfExists(request, token, channelId)

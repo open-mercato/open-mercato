@@ -87,22 +87,31 @@ export function isTestChannelSeedingEnabled(): boolean {
   return ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase())
 }
 
-export type TestSeedCapturedAttachment = {
+/**
+ * Version 1 of the attachment digest the test-seed adapter records. A later
+ * shape gets a new `version` instead of changing this one.
+ */
+export type TestSeedCapturedAttachmentDigest = {
+  version: 1
   fileName: string
   mimeType: string
   fileSize: number
   sha256: string
-  /** @deprecated Never populated: the test-seed adapter records a digest, not the URL. Removal no earlier than 0.11.0. */
-  url?: string
-  /** @deprecated Never populated. Removal no earlier than 0.11.0. */
-  inline?: boolean
 }
 
 export type TestSeedCapturedMessage = {
   capturedAt: string
   externalMessageId: string
   conversationId?: string
-  content: Omit<MessageContent, 'attachments'> & { attachments?: TestSeedCapturedAttachment[] }
+  content: SendMessageInput['content'] & {
+    /**
+     * One digest per attachment whose bytes the adapter holds: the bytes the
+     * hub read from the attachments module, or a `data:` URL. `attachments`
+     * keeps its original shape and lists the items that carry a URL, remote
+     * URLs included.
+     */
+    attachmentDigests?: TestSeedCapturedAttachmentDigest[]
+  }
   scope: SendMessageInput['scope']
   metadata?: SendMessageInput['metadata']
   captureCorrelationToken?: string
@@ -278,20 +287,42 @@ const testSeedCapabilities: ChannelCapabilities = {
 }
 
 /**
- * Record what an attachment carried without writing its bytes to the capture
- * file: tests compare the digest with the file they uploaded.
+ * The attachments as the capture always recorded them: the items that carry a
+ * URL, without the hub-read bytes, which have no URL to record.
  */
-function captureAttachments(content: MessageContent): TestSeedCapturedAttachment[] | undefined {
-  if (!content.attachments?.length) return undefined
-  return content.attachments.map((attachment) => {
+function captureUrlAttachments(content: MessageContent): MessageContent['attachments'] {
+  const withUrl = (content.attachments ?? []).filter((attachment) => attachment.url)
+  if (!withUrl.length) return undefined
+  return withUrl.map(({ url, mimeType, fileName, fileSize, inline }) => ({
+    url,
+    mimeType,
+    fileName,
+    ...(fileSize !== undefined ? { fileSize } : {}),
+    ...(inline !== undefined ? { inline } : {}),
+  }))
+}
+
+/**
+ * Record what an attachment carried without writing its bytes to the capture
+ * file: tests compare the digest with the file they uploaded. Only bytes the
+ * adapter already holds are digested; a remote URL is never fetched and stays
+ * in `attachments` alone.
+ */
+function captureAttachmentDigests(content: MessageContent): TestSeedCapturedAttachmentDigest[] | undefined {
+  const digests = (content.attachments ?? []).flatMap((attachment): TestSeedCapturedAttachmentDigest[] => {
+    if (!attachment.content && !attachment.url?.startsWith('data:')) return []
     const bytes = resolveOutboundAttachmentBytes(attachment)
-    return {
-      fileName: attachment.fileName,
-      mimeType: attachment.mimeType,
-      fileSize: bytes.byteLength,
-      sha256: createHash('sha256').update(bytes).digest('hex'),
-    }
+    return [
+      {
+        version: 1,
+        fileName: attachment.fileName,
+        mimeType: attachment.mimeType,
+        fileSize: bytes.byteLength,
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+      },
+    ]
   })
+  return digests.length ? digests : undefined
 }
 
 /**
@@ -314,7 +345,11 @@ class TestSeedChannelAdapter implements ChannelAdapter {
       capturedAt: new Date().toISOString(),
       externalMessageId,
       conversationId: input.conversationId,
-      content: { ...input.content, attachments: captureAttachments(input.content) },
+      content: {
+        ...input.content,
+        attachments: captureUrlAttachments(input.content),
+        attachmentDigests: captureAttachmentDigests(input.content),
+      },
       scope: input.scope,
       metadata: input.metadata,
       captureCorrelationToken: resolveTestEmailCaptureCorrelationToken() ?? undefined,
