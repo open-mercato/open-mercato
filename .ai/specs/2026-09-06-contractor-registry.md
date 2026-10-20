@@ -491,6 +491,28 @@ partial index scoped `where "deleted_at" is null`, the same shape as
 `communication_channels_one_primary_per_user_uq`: a soft-deleted
 registration frees its NIP for re-registration.
 
+### Design decisions (2026-10-20 — requirements from a customer implementation)
+
+These decisions close gaps found when the registry was compared with a
+customer's requirements and with the sibling specs (Accounts Payable
+#5962, GL #5663). Each one is decided; none is open.
+
+**The whitelist check returns the Ministry's request identifier:
+`{ status, checkedAt, requestId }`.** The Ministry of Finance API
+(`wl-api.mf.gov.pl`, checked 2026-10-20) returns `requestId` and
+`requestDateTime` in every search and check response
+(`EntityCheckResponse` for `/api/check/nip/{nip}/bank-account/{bank-account}`,
+`EntityResponse` for `/api/search/nip/{nip}`, `EntryListResponse` for the
+batch searches). The `requestId` is the Ministry's own identifier of that
+query, so it is the piece of evidence that ties a payment to the list as it
+stood on the day the transfer was ordered. `checkBankAccountWhitelist`
+passes it through unchanged, and `checkedAt` is the Ministry's
+`requestDateTime`, not the server clock. Both are `null` only when no
+answer arrived (see the eligibility decision below).
+`accounts_payable_payments` already stores exactly these three fields on
+`PaymentBatchLine.whitelistCheckResult`; until now this module did not
+return `requestId`, so that field had no source.
+
 ### Alternatives considered
 
 | Alternative | Why Rejected |
@@ -833,7 +855,9 @@ contractorLookupByNip(params: {
   `approvalStatus` is not `APPROVED` (see Design decisions,
   2026-09-08) — otherwise performs a live call to the Ministry of
   Finance's Biała Lista API for the given `accountNumber` and `nip`,
-  returns the fresh result to the caller, and — as a side effect
+  returns the fresh result to the caller as `{ status, checkedAt,
+  requestId }` (the Ministry's own `requestDateTime` and `requestId`,
+  see Design decisions, 2026-10-20), and — as a side effect
   only — updates `lastVerifiedAt`/`lastVerificationStatus` on the
   matching `ContractorBankAccount` for UX display. Never reads
   `lastVerifiedAt` to short-circuit the live call (see Design
@@ -1149,9 +1173,10 @@ same rationale as `GET /api/contractors` above.
 
 Custom write route (mutation guard registry, mapped to `update`).
 
-- **Response 200**: `{ status: 'WHITELISTED' | 'NOT_WHITELISTED', checkedAt: string }` —
+- **Response 200**: `{ status: 'WHITELISTED' | 'NOT_WHITELISTED', checkedAt: string, requestId: string }` —
   always the result of a live call made during this request, never a
-  cached value.
+  cached value; `checkedAt` and `requestId` are the Ministry's
+  `requestDateTime` and `requestId`.
 - **Response 403**: caller lacks `contractors.view`.
 - **Response 422 `CONTRACTOR_NOT_APPROVED`** (added 2026-09-08, second
   review pass): `{ code: 'CONTRACTOR_NOT_APPROVED', approvalStatus }` —
@@ -1277,6 +1302,9 @@ exactly as `sales.order-approval` and
   Regression test: seed a `ContractorBankAccount` with
   `lastVerifiedAt: now()`, call `checkBankAccountWhitelist`, assert the
   live API client was actually invoked.
+- Assert `checkBankAccountWhitelist` returns the `requestId` and the
+  `requestDateTime` (as `checkedAt`) of the mocked Ministry response
+  unchanged, and that two calls return two different `requestId`s.
 - Confirmed in scope, 2026-09-08: assert
   `applyContractorApprovalDecision` is only reachable through the
   `contractors.vendor-approval` workflow (via `registerWorkflowSafeCommands`),
@@ -2032,3 +2060,14 @@ time on this document:
   notification or split payment. The design (live check on every payment) is
   unchanged; the other two routes are not modelled and are noted as such. Not
   yet reviewed by a maintainer.
+
+### 2026-10-20 — Requirements from a customer implementation, aligned with AP (#5962) and GL (#5663)
+
+New section Design decisions (2026-10-20); every item below is decided.
+
+- **Whitelist check returns `requestId`.** `checkBankAccountWhitelist`
+  returns `{ status, checkedAt, requestId }`, taken from the Ministry's
+  response (`requestId`, `requestDateTime`; confirmed in the
+  `wl-api.mf.gov.pl` documentation). Commands, API Contracts and Testing
+  Strategy updated. Closes the mismatch with
+  `PaymentBatchLine.whitelistCheckResult` in #5962.
