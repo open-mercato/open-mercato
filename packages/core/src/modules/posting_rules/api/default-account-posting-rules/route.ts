@@ -32,9 +32,11 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
     orgField: 'organizationId',
     tenantField: 'tenantId',
     // No `deletedAt` on this entity (see Design Decisions, "4→5 rules") —
-    // `deleteDefaultAccountPostingRule` hard-deletes; omitted here so the
-    // shared CRUD factory's own soft-delete assumptions never apply to
-    // this route's underlying entity metadata.
+    // `deleteDefaultAccountPostingRule` hard-deletes. `null`, not omitted:
+    // an omitted field defaults to 'deletedAt', and the factory's generic
+    // optimistic-lock reader then filters on a column this table lacks,
+    // fails, and silently disables the 409 for this entity.
+    softDeleteField: null,
   },
   events: {
     module: 'posting_rules',
