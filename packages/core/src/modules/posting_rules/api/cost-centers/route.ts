@@ -9,6 +9,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { isIdsParamProvided, mergeIdFilter, parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
 import { readQueryParamList } from '@open-mercato/shared/lib/crud/query-params'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { CostCenter } from '../../data/entities'
 import { costCenterCreateSchema, costCenterUpdateSchema } from '../../data/validators'
 import { createPostingRulesCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../openapi'
@@ -77,7 +78,7 @@ const listQuerySchema = z.object({
   search: z.string().optional(),
   sortField: z.enum(['code', 'name', 'createdAt', 'updatedAt']).optional(),
   sortDir: z.enum(['asc', 'desc']).optional(),
-  isActive: z.coerce.boolean().optional(),
+  isActive: z.string().optional().refine((value) => !value?.trim() || parseBooleanToken(value) !== null),
 }).loose()
 
 type CostCenterRow = {
@@ -140,7 +141,8 @@ export async function GET(req: Request) {
   if (isIdsParamProvided(rawIds)) {
     filter = mergeIdFilter(filter, parseIdsParam(rawIds), { idsParamProvided: true })
   }
-  if (isActive !== undefined) filter.isActive = isActive
+  const isActiveFilter = parseBooleanToken(isActive)
+  if (isActiveFilter !== null) filter.isActive = isActiveFilter
   if (search) {
     filter.$or = [
       { code: { $ilike: `%${escapeLikePattern(search)}%` } },
