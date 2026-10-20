@@ -209,8 +209,9 @@ tag exists", whether or not step (2) posted anything. **Checked against #6340 on
 0))` through `trx.execute`, the primitive `ledger/commands/fiscalPeriods.ts`
 already uses. Because the call is composed, `ledger.postJournalEntry`
 does not emit `ledger.journal_entry.posted` itself (`isComposedPostingCall`);
-the engine emits it for its own entry after its commit, with the
-`emitPostedEvent` helper `ledger` exports for composing callers, and the
+the engine emits it for its own entry after its commit, with the same
+payload as the `emitPostedEvent` helper `ledger` exports for composing
+callers, and the
 subscriber ignores that event by the marker. The tag cannot join the
 transaction: `journal_entry_line_dimensions.dimensions.set`
 opens its own and does not honour `transactionalEm`, so tagging is a
@@ -965,9 +966,14 @@ stay `null` until an admin configures them, exactly like
 
   **The payload contract is no longer an open gap.** #5663 specifies it
   (core engine → Events, added 2026-09-18) and this section follows it.
-- Declares no events of its own in Phase 1 — nothing downstream
+- Declares no domain events of its own in Phase 1 — nothing downstream
   reacts to a reclassification today (Fixed Assets Phase 2 reacts to
   `journal_entry_line_dimensions` writes directly, not to this module).
+  The standard CRUD events its `CostCenter` and
+  `DefaultAccountPostingRule` commands emit
+  (`posting_rules.cost_center.created|updated|deleted`,
+  `posting_rules.default_account_posting_rule.created|updated|deleted`)
+  are declared in `events.ts`.
 
 ### Cross-module integration
 
@@ -1190,7 +1196,7 @@ already configured `PostingRulesSettings` and at least one
 |------|--------|-------|
 | `data/entities.ts` | Create | `CostCenter`, `DefaultAccountPostingRule`, `PostingRulesSettings` |
 | `data/validators.ts` | Create | Zod schemas for all three entities' commands |
-| `data/migrations/*.ts` | Create | `posting_rules_cost_centers`, `posting_rules_default_account_posting_rules`, `posting_rules_settings` tables (**added 2026-09-14** — previously unlisted despite Implementation Plan step 1) |
+| `migrations/*.ts` (+ `.snapshot-open-mercato.json`) | Create | `posting_rules_cost_centers`, `posting_rules_default_account_posting_rules`, `posting_rules_settings` tables (**added 2026-09-14** — previously unlisted despite Implementation Plan step 1) |
 | `commands/costCenters.ts` | Create | `createCostCenter`/`updateCostCenter` |
 | `commands/defaultAccountPostingRules.ts` | Create | `createDefaultAccountPostingRule`/`updateDefaultAccountPostingRule` (Phase 1, **corrected 2026-09-14**) |
 | `commands/postingRulesSettings.ts` | Create | `updatePostingRulesSettings` |
@@ -1200,6 +1206,8 @@ already configured `PostingRulesSettings` and at least one
 | `lib/findUnreclassifiedEntries.ts` | Create | The shared finder behind the sweeper and the guard, at source-line granularity (**added 2026-10-09**) |
 | `subscribers/postingRulesEngineSubscriber.ts` | Create | Reacts to `ledger.journal_entry.posted`, ignoring its own `'PostingRulesEngineReclassification'`-marked output |
 | `lib/seedDefaults.ts` | Create | Seeds the sentinel `CostCenter` and an empty `PostingRulesSettings` row (**corrected 2026-09-14** — no 4→5 template) |
+| `events.ts` | Create | Declares the standard CRUD events of `CostCenter` and `DefaultAccountPostingRule` (no domain events) |
+| `cli.ts` | Create | `reconcile-cost-ring --tenant --org [--period]` and `lock-fiscal-period --tenant --org --period`, running the two commands as a system actor scoped to `--org` |
 | `acl.ts` | Create | Four features (see Architecture) |
 | `setup.ts` | Create | `defaultRoleFeatures` + calls `seedDefaults` |
 | `index.ts` | Create | `requires: ['ledger', 'journal_entry_line_dimensions']` |
@@ -1209,8 +1217,8 @@ already configured `PostingRulesSettings` and at least one
 | `api/reconcile/route.ts` | Create | Triggers `reconcileCostRing`, with `openApi` |
 | `backend/cost-centers/page.tsx` | Create | Minimal list/create/edit UI |
 | `backend/default-account-posting-rules/page.tsx` | Create | Minimal list/create/edit UI (Phase 1) |
-| `backend/settings/page.tsx` | Create | Single-row settings edit UI |
-| `i18n/en.json` (+ `pl.json`) | Create | User-facing rejection messages (missing settings, missing rule, locked period, etc.) — **added 2026-09-14**, previously unlisted despite root `AGENTS.md`'s "never hard-code user-facing strings" |
+| `backend/posting_rules/settings/page.tsx` | Create | Single-row settings edit UI, served at `/backend/posting_rules/settings` |
+| `i18n/en.json` (+ `pl.json`, `de.json`, `es.json`, `ko.json`) | Create | User-facing rejection messages (missing settings, missing rule, locked period, etc.) — **added 2026-09-14**, previously unlisted despite root `AGENTS.md`'s "never hard-code user-facing strings" |
 
 ## Testing Strategy
 
@@ -1360,6 +1368,10 @@ already configured `PostingRulesSettings` and at least one
   contra-side mirror), and that the engine emits
   `ledger.journal_entry.posted` for its own composed posting after its
   commit and not before, and that the subscriber ignores that event.
+- **CLI (added 2026-10-20).** Assert `reconcile-cost-ring` and
+  `lock-fiscal-period` validate their arguments with the commands'
+  schemas, run the commands through the command bus scoped to `--org`,
+  print the result and exit non-zero on a rejection.
 
 ## Risks & Impact Review
 
@@ -1448,10 +1460,10 @@ or residual risk.
   payload lacks `currencyId`, `exchangeRate` and `amountCurrency`; the
   engine loads them with the same loader as the sweeper, and #5663 is not
   asked to change. Severity: low. Affected area: #6711's
-  `reclassifyLine`, which still declares `persistent: false`, keys on the
-  source entry and copies only `currencyId`, and must be aligned with
-  this text before either PR merges (see the 2026-10-09 Changelog
-  entry). Mitigation: that alignment. Residual risk: none once aligned.
+  `reclassifyLine`, now aligned with this text (`persistent: true`, keyed
+  on the source line, copying `currencyId`, `exchangeRate` and
+  `amountCurrency`; see the 2026-10-20 Changelog entry). Mitigation: that
+  alignment. Residual risk: none.
 - **The period-close guard doesn't protect the existing UI button**
   (see Known integration gap, Cross-module integration) — a real,
   named gap until #5663's Fiscal Periods page is updated separately.
@@ -1815,3 +1827,19 @@ to a JS number (the string-only rule of #5663's implementation guide). The
 implementation (#6711) had one `Number(line.debit) > 0` sign check and one in the
 dev CLI; both now inspect the string. No behaviour change. Not yet reviewed by a
 maintainer.
+
+### 2026-10-20 — aligned with the #6711 implementation
+
+The seven "Divergences still open in #6711" listed on 2026-10-09 are
+closed in code: the subscriber is `persistent: true`, `referenceId` is the
+source line, the finder works per line, the trigger set is restricted, the
+sentinel `CostCenter` is protected, `exchangeRate` and `amountCurrency` are
+copied, and the posting is composed under the per-line lock with the
+engine's own posting event emitted after commit. The Risks entry on the
+event contract says so. File Manifest: `migrations/` with the module
+snapshot, the settings page at `backend/posting_rules/settings`, five
+locales, `events.ts` (standard CRUD events only) and `cli.ts` (the CLI the
+sweeper and the guard already name), with a Testing Strategy bullet for the
+CLI. The engine's own posting event carries the same payload as
+`emitPostedEvent` rather than calling it. No behaviour change. Not yet
+reviewed by a maintainer.
