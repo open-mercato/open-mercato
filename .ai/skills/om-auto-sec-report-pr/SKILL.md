@@ -1,4 +1,4 @@
-> **Repo-local override.** Adds Open Mercato's security hotspot checklist, review baseline, severity mapping, and spec-target cross-checks to the shared `om-auto-sec-report-pr` analysis passes, and records the repo's publishing settings.
+> **Repo-local override.** Adds Open Mercato's security hotspot checklist, review baseline, severity mapping, and spec-target cross-checks to the shared `om-auto-sec-report-pr` analysis passes.
 
 ## Step 3 — repository security knowledge (add)
 
@@ -14,7 +14,3 @@ When a finding comes from `.ai/review-checklist.md`, map that file's Critical / 
 - A spec target is any `.md` under `.ai/specs/`, including `.ai/specs/enterprise/`.
 - Also apply section 3 "Data Integrity & Security" of `.ai/skills/om-spec-writing/references/spec-checklist.md` and the compliance matrix in `.ai/skills/om-spec-writing/references/compliance-review.md`.
 - Cross-check backward-compatibility risk against the contract surface categories in `BACKWARD_COMPATIBILITY.md` the way `om-pre-implement-spec` does, when the spec is about to be implemented.
-
-## Step 9 — emit: publish settings (add)
-
-This repo sets `securityReport.publish: "pr"` and `securityReport.disclosure: "withhold-live"` in `.ai/agentic.config.json`: a standalone run ships a docs-only PR against `develop` with the report copied into `.ai/analysis/`, and withheld findings are disclosed privately through the channel in `SECURITY.md`. Never merge.

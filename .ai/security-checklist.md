@@ -60,6 +60,7 @@ Sections follow the order of the shared deep-vector checklist so each item maps 
 - Double credit on concurrent return → credit memo.
 - Double charge on repeated payment submit or refund.
 - Workflow failures halt the workflow by default, and failed activities surface in the list and detail views; compensation sagas are correct on partial failure.
+- Background jobs and workflow activities: a retry never amplifies a side effect (email, charge, stock move, outbound call runs once per logical job), and a cancelled job or workflow stops before its next side effect. No path ignores the cancellation signal.
 - Money: half-even rounding applied consistently; never `number` for money (`Decimal`, `bigint`, or string); cross-currency totals require FX.
 
 ## API hygiene
@@ -77,6 +78,7 @@ Sections follow the order of the shared deep-vector checklist so each item maps 
 
 - Internal `@open-mercato/*` package names cannot be shadowed by public registry packages.
 - Transitive `vm2` and other deprecated sandbox packages removed.
+- Unused dependencies removed: a package nothing imports but the lockfile still resolves is attack surface with no owner.
 - Dependency audit: the CI `audit` job (`scripts/audit-ci.mjs`, allowlist `scripts/audit-ci-allowlist.json`) is the repo's documented audit — read its result as data.
 
 ## Observability and forensics
