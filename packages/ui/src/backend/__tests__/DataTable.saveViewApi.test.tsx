@@ -455,6 +455,31 @@ describe('DataTable public save-view API', () => {
     await waitFor(() => expect(screen.getByTestId('perspective-sidebar').getAttribute('data-open')).toBe('true'))
   })
 
+  it('lets the view switcher wrap and shrink instead of widening the page', async () => {
+    // At 320 CSS px the switcher did not fit next to the filter button: its row
+    // could not wrap and the switcher could not shrink, so the whole page
+    // scrolled sideways (101 px with the Polish labels).
+    const apiRef = React.createRef<DataTableViewApi | null>() as React.MutableRefObject<DataTableViewApi | null>
+    renderTable({ apiRef, showSaveViewButton: true })
+    await waitFor(() => expect(apiRef.current).not.toBeNull())
+
+    const openButton = screen.getByTestId('data-table-open-views-sidebar')
+    const switcher = openButton.parentElement as HTMLElement
+    const activeViewTrigger = switcher.querySelector('button:last-of-type') as HTMLElement
+    const row = switcher.parentElement as HTMLElement
+    const controls = row.parentElement as HTMLElement
+    const classesOf = (element: HTMLElement) => element.className.split(/\s+/)
+
+    expect(classesOf(controls)).toEqual(expect.arrayContaining(['flex', 'flex-wrap', 'min-w-0', 'max-w-full']))
+    expect(classesOf(row)).toEqual(expect.arrayContaining(['flex', 'flex-wrap', 'min-w-0', 'max-w-full']))
+    expect(classesOf(switcher)).toEqual(expect.arrayContaining(['inline-flex', 'min-w-0', 'max-w-full']))
+    // The Button primitive defaults to `shrink-0`; the trigger has to override
+    // it or its nowrap label keeps the switcher at full width.
+    expect(classesOf(activeViewTrigger)).toEqual(expect.arrayContaining(['min-w-0', 'shrink']))
+    expect(classesOf(activeViewTrigger)).not.toContain('shrink-0')
+    expect(activeViewTrigger.querySelector('.truncate')).not.toBeNull()
+  })
+
   it('keeps the built-in save button opt-in and disabled until something changes', async () => {
     const { unmount } = renderTable({})
     await waitFor(() => expect(screen.getByTestId('perspective-sidebar')).toBeTruthy())

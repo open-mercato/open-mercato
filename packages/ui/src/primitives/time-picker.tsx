@@ -728,7 +728,7 @@ function TimePickerCard({
           </span>
           <p className="flex-1 min-w-0 truncate text-base font-medium text-muted-foreground">
             <span>{headerDisplay.main}</span>
-            {headerDisplay.suffix ? <span className="ml-1 text-muted-foreground/60">{headerDisplay.suffix}</span> : null}
+            {headerDisplay.suffix ? <span className="ml-1 text-muted-foreground">{headerDisplay.suffix}</span> : null}
           </p>
           {onClose ? (
             <button

@@ -250,6 +250,12 @@ export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
                 role="menuitem"
                 onClick={(event) => {
                   event.stopPropagation()
+                  // The focused item is about to unmount with the menu. Hand
+                  // focus back to the trigger first — only when it was in the
+                  // menu to begin with (#6771) — so it does not fall to <body>,
+                  // and so a dialog the action opens can restore it on close.
+                  // Done before `onSelect`, which may move focus itself.
+                  if (menuRef.current?.contains(document.activeElement)) btnRef.current?.focus()
                   setOpen(false)
                   it.onSelect?.()
                 }}

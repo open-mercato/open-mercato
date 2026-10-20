@@ -103,3 +103,40 @@ describe('SectionHeader', () => {
     expect(screen.getByRole('heading', { level: 3 }).className).not.toContain('min-w-0')
   })
 })
+
+// A header with a long title or several actions used to stay on one line and
+// push its actions past the card edge, which made the page scroll sideways at
+// 320 CSS px (the related-documents section on a person record: 158 px).
+describe('section header layout at narrow widths', () => {
+  const classesOf = (element: Element | null) => (element?.className ?? '').split(/\s+/)
+
+  it('lets SectionHeader wrap its actions under the title', () => {
+    const { container } = render(
+      <SectionHeader
+        title="Related documents"
+        count={0}
+        action={<><button type="button">Link existing</button><button type="button">New from template</button></>}
+      />,
+    )
+    const row = container.firstElementChild
+    const actions = row?.lastElementChild ?? null
+
+    expect(classesOf(row)).toEqual(expect.arrayContaining(['flex', 'flex-wrap', 'justify-between']))
+    expect(classesOf(actions)).toEqual(expect.arrayContaining(['flex', 'flex-wrap', 'min-w-0']))
+    expect(actions?.querySelectorAll('button')).toHaveLength(2)
+  })
+
+  it('lets CollapsibleSection wrap its actions under the toggle', () => {
+    const { container } = render(
+      <CollapsibleSection title="Notes" action={<button type="button">Add note</button>}>
+        <p>Content</p>
+      </CollapsibleSection>,
+    )
+    const row = container.firstElementChild?.firstElementChild ?? null
+    const actions = row?.lastElementChild ?? null
+
+    expect(classesOf(row)).toEqual(expect.arrayContaining(['flex', 'flex-wrap', 'justify-between']))
+    expect(classesOf(actions)).toEqual(expect.arrayContaining(['flex', 'flex-wrap', 'min-w-0']))
+  })
+})
+

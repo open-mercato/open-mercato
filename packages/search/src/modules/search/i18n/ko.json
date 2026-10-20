@@ -38,6 +38,7 @@
   "search.dialog.instructions": "인덱싱된 레코드를 검색하려면 입력하세요. 화살표 키로 결과를 탐색하세요.",
   "search.dialog.noLink": "링크 없음",
   "search.dialog.noLinkHint": "이 엔터티 유형에 대한 search.ts 구성이 없습니다",
+  "search.dialog.results.label": "검색 결과",
   "search.dialog.score.title": "관련성 점수",
   "search.dialog.shortcuts.hint": "Cmd+K를 눌러 전환하세요. Enter로 엽니다",
   "search.dialog.strategies.exact": "정확히 일치",

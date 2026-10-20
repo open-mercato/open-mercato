@@ -38,6 +38,7 @@
   "search.dialog.instructions": "Type to search across indexed records. Use arrow keys to navigate results.",
   "search.dialog.noLink": "No link",
   "search.dialog.noLinkHint": "No search.ts config for this entity type",
+  "search.dialog.results.label": "Search results",
   "search.dialog.score.title": "Relevance score",
   "search.dialog.shortcuts.hint": "Press Cmd+K to toggle. Enter to open",
   "search.dialog.strategies.exact": "Exact",

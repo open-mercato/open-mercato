@@ -38,6 +38,7 @@
   "search.dialog.instructions": "Tippe, um in indizierten Datensätzen zu suchen. Verwende die Pfeiltasten, um Ergebnisse zu navigieren.",
   "search.dialog.noLink": "Kein Link",
   "search.dialog.noLinkHint": "Keine search.ts Konfiguration für diesen Entitätstyp",
+  "search.dialog.results.label": "Suchergebnisse",
   "search.dialog.score.title": "Relevanz-Score",
   "search.dialog.shortcuts.hint": "Drücke Cmd+K zum Umschalten. Enter zum Öffnen",
   "search.dialog.strategies.exact": "Exakt",
