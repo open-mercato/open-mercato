@@ -88,8 +88,13 @@ const mockNativeUpdate = jest.fn(async (entity: unknown, where: ActionWhere, dat
   return 1
 })
 
+const mockFlushWithUpdatedAtHook = jest.fn(async () => {
+  store.action.updatedAt = new Date()
+})
+
 const mockForkedEm = {
   nativeUpdate: mockNativeUpdate,
+  flush: mockFlushWithUpdatedAtHook,
 }
 
 const mockRequestEm = {
