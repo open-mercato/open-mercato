@@ -166,13 +166,13 @@ async function createAccountTypeWithGroup(
 
 async function getJournalEntryLines(
   entryId: string,
-): Promise<Array<{ accountId: string; debit: string; credit: string }>> {
+): Promise<Array<{ id: string; accountId: string; debit: string; credit: string }>> {
   return withClient(async (client) => {
     const result = await client.query(
-      `select account_id as "accountId", debit, credit from journal_entry_lines where journal_entry_id = $1`,
+      `select id, account_id as "accountId", debit, credit from journal_entry_lines where journal_entry_id = $1`,
       [entryId],
     );
-    return result.rows as Array<{ accountId: string; debit: string; credit: string }>;
+    return result.rows as Array<{ id: string; accountId: string; debit: string; credit: string }>;
   });
 }
 
@@ -428,17 +428,22 @@ test.describe('TC-PR-001: POST /api/posting_rules/reconcile', () => {
       expect(reconcileBody.result.entriesInspected, 'exactly the one seeded entry should be inspected').toBe(1);
       expect(reconcileBody.result.linesReclassified, 'its one zespół 4 line should be reclassified').toBe(1);
 
-      // The reclassification entry references the original by id, per
-      // `RECLASSIFICATION_REFERENCE_TYPE`/`referenceId` (see reclassify.ts).
+      // The reclassification entry references the source *line* by id
+      // (`RECLASSIFICATION_REFERENCE_TYPE`/`referenceId` = the zespół 4
+      // line's id, see reclassify.ts and the spec's per-line marker), not
+      // the source entry.
+      const sourceLine = (await getJournalEntryLines(entryId)).find((line) => line.accountId === sourceAccountId);
+      expect(sourceLine, 'the seeded entry should have its zespół 4 source line').toBeTruthy();
+      const sourceLineId = sourceLine?.id as string;
       const listRes = await apiRequest(
         request,
         'GET',
-        `/api/ledger/journal-entries?referenceType=${encodeURIComponent('PostingRulesEngineReclassification')}&referenceId=${encodeURIComponent(entryId)}`,
+        `/api/ledger/journal-entries?referenceType=${encodeURIComponent('PostingRulesEngineReclassification')}&referenceId=${encodeURIComponent(sourceLineId)}`,
         { token: superadminToken, headers },
       );
       expect(listRes.status(), 'GET journal-entries filtered by referenceType/referenceId should return 200').toBe(200);
       const listBody = (await listRes.json()) as { items: Array<{ id: string }> };
-      expect(listBody.items.length, 'exactly one reclassification entry should reference the seeded entry').toBe(1);
+      expect(listBody.items.length, 'exactly one reclassification entry should reference the seeded source line').toBe(1);
       const reclassificationEntryId = listBody.items[0].id;
 
       // Mirrors the spec's own forward-path shape (see reclassify.ts's
