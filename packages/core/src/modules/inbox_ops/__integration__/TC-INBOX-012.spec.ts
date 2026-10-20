@@ -134,9 +134,7 @@ test.describe('TC-INBOX-012: complete action claims the transition exactly once'
         )
 
         const statuses = responses.map((response) => response.status())
-        const winners = statuses
-          .map((status, index) => (status === 200 ? candidateIds[index] : null))
-          .filter((value): value is string => value !== null)
+        const winners = statuses.flatMap((status, index) => (status === 200 ? [candidateIds[index]] : []))
         expect(winners, `round ${round} statuses: ${statuses.join(',')}`).toHaveLength(1)
         expect(statuses.filter((status) => status === 409)).toHaveLength(CONCURRENT_COMPLETIONS - 1)
         for (const [index, response] of responses.entries()) {
