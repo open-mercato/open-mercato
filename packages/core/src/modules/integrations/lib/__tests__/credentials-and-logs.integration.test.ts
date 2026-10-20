@@ -347,6 +347,34 @@ describeWithPostgres('integrations credentials and logs against real PostgreSQL'
     }, CASE_TIMEOUT_MS)
   })
 
+  describe('tenant isolation', () => {
+    it("never reads, erases or lists another tenant's credentials or logs, even under the same organization id", async () => {
+      const kms = createTestKms()
+      setKms(kms)
+      const tenantA = createScope()
+      const tenantB = { tenantId: randomUUID(), organizationId: tenantA.organizationId }
+      await createCredentialsService(fork()).save(INTEGRATION_ID, { secret: 'tenant-b' }, tenantB)
+      await createIntegrationLogService(fork()).write({
+        integrationId: INTEGRATION_ID,
+        level: 'info',
+        message: DISCONNECTED,
+        code: DISCONNECTED,
+        payload: { disconnectId: randomUUID() },
+      }, tenantB)
+
+      await expect(readCredentialRowLayered(fork(), INTEGRATION_ID, tenantA, { kms, validate: validateSecret }))
+        .resolves.toEqual({ kind: 'none' })
+      await expect(createCredentialsService(fork()).getRaw(INTEGRATION_ID, tenantA)).resolves.toBeNull()
+      await expect(eraseIntegrationCredentials(fork(), INTEGRATION_ID, tenantA)).resolves.toBe(false)
+      await expect(findLatestIntegrationLogsByCodes(fork(), INTEGRATION_ID, [DISCONNECTED], tenantA)).resolves.toEqual([])
+
+      await expect(readCredentialRowLayered(fork(), INTEGRATION_ID, tenantB, { kms, validate: validateSecret }))
+        .resolves.toMatchObject({ kind: 'ok', value: { secret: 'tenant-b' } })
+      expect((await readStoredRows(INTEGRATION_ID, tenantB)).map((row) => row.deleted_at)).toEqual([null])
+      expect(await findLatestIntegrationLogsByCodes(fork(), INTEGRATION_ID, [DISCONNECTED], tenantB)).toHaveLength(1)
+    }, CASE_TIMEOUT_MS)
+  })
+
   describe('findLatestIntegrationLogsByCodes', () => {
     it('returns the newest rows of one integration and scope matching the codes and the disconnectId', async () => {
       const scope = createScope()
