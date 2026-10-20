@@ -266,8 +266,11 @@ type TokenCall = {
   rejectedAccessToken: string | null
   forceRefresh: boolean
   lastRead: OAuthGrantRecord | null
+  pendingWrite: PendingGrantWrite | null
   afterCommit: AfterCommitCallback[]
 }
+
+type PendingGrantWrite = { previous: OAuthGrantRecord; written: OAuthGrantRecord; outcome: TokenOutcome }
 
 type TokenFailureOutcome = {
   kind: 'failure'
@@ -563,6 +566,14 @@ function refreshedSinceCallStart(grant: OAuthGrantRecord, call: TokenCall): bool
 function failureRecordedSinceCallStart(grant: OAuthGrantRecord, call: TokenCall): OAuthGrantRecord['lastFailureClass'] {
   if (grant.lastFailureClass === null || grant.lastFailureAt === null) return null
   return grant.lastFailureAt.getTime() >= call.callStart.getTime() ? grant.lastFailureClass : null
+}
+
+function isSameGrantWrite(stored: OAuthGrantRecord, expected: OAuthGrantRecord): boolean {
+  return stored.accessToken === expected.accessToken
+    && stored.refreshToken === expected.refreshToken
+    && stored.refreshCount === expected.refreshCount
+    && stored.status === expected.status
+    && (stored.lastFailureAt?.getTime() ?? null) === (expected.lastFailureAt?.getTime() ?? null)
 }
 
 function classifyTokenEndpointError(error: OAuthTokenEndpointError): TokenEndpointClassification {
@@ -932,8 +943,10 @@ export function createIntegrationOAuthGrantService(deps: IntegrationOAuthGrantSe
       lastFailureClass: 'transient',
       lastFailureAt: now(),
     }
+    const outcome = transientOutcome(diagnosed, call)
+    if (classification.salvagedRefreshToken !== null) call.pendingWrite = { previous: grant, written: diagnosed, outcome }
     await saveGrant(txEm, call.owner, diagnosed, call.pin, call.afterCommit)
-    return transientOutcome(diagnosed, call)
+    return outcome
   }
 
   function applyRefresh(grant: OAuthGrantRecord, response: OAuthTokenEndpointResponse, call: TokenCall): OAuthGrantRecord {
@@ -974,8 +987,46 @@ export function createIntegrationOAuthGrantService(deps: IntegrationOAuthGrantSe
       return recordTokenEndpointFailure(txEm, grant, error, call)
     }
     const refreshed = applyRefresh(grant, response, call)
+    const outcome: TokenOutcome = { kind: 'token', grant: refreshed, degraded: isBelowMinValidity(refreshed, call) }
+    call.pendingWrite = { previous: grant, written: refreshed, outcome }
     await saveGrant(txEm, call.owner, refreshed, call.pin, call.afterCommit)
-    return { kind: 'token', grant: refreshed, degraded: isBelowMinValidity(refreshed, call) }
+    return outcome
+  }
+
+  function outcomeAfterConcurrentWrite(stored: OAuthGrantRecord, call: TokenCall): TokenOutcome {
+    if (stored.status === 'invalidated') return tokenFailure('grant_invalidated', stored.invalidatedReason)
+    if (!isUsable(stored)) return tokenFailure('transient')
+    return { kind: 'token', grant: stored, degraded: isBelowMinValidity(stored, call) }
+  }
+
+  async function reconcilePendingWrite(txEm: EntityManager, call: TokenCall, pending: PendingGrantWrite): Promise<TokenOutcome> {
+    const read = await readCredentialRowLayered(txEm, oauthGrantRowId(call.owner.integrationId), call.scope, {
+      kms: call.pin,
+      validate: parseOAuthGrantBlob,
+    })
+    if (read.kind === 'none') return tokenFailure('not_connected')
+    if (read.kind !== 'ok') return tokenFailure('platform_unavailable')
+    if (isSameGrantWrite(read.value, pending.written)) return pending.outcome
+    if (!isSameGrantWrite(read.value, pending.previous)) return outcomeAfterConcurrentWrite(read.value, call)
+    await saveGrant(txEm, call.owner, pending.written, call.pin, call.afterCommit)
+    return pending.outcome
+  }
+
+  async function resolveUnknownCommit(call: TokenCall, pending: PendingGrantWrite): Promise<OAuthAccessToken> {
+    call.lastRead = pending.written
+    let outcome: TokenOutcome
+    try {
+      outcome = await withAdvisoryXactLock(
+        deps.em,
+        oauthGrantLockKey(call.owner),
+        (txEm) => reconcilePendingWrite(txEm, call, pending),
+        { waitDeadlineMs: GRANT_WRITE_WAIT_DEADLINE_MS, maxConcurrentHolders: GRANT_LOCK_MAX_CONCURRENT_HOLDERS },
+      )
+    } catch (error) {
+      return settleTokenError(error, call)
+    }
+    await runAfterCommit(call.afterCommit, call.owner)
+    return settleTokenOutcome(outcome, call.owner)
   }
 
   function settleTokenOutcome(outcome: TokenOutcome, owner: OAuthGrantOwner): OAuthAccessToken {
@@ -1269,6 +1320,7 @@ export function createIntegrationOAuthGrantService(deps: IntegrationOAuthGrantSe
         rejectedAccessToken: tokenOptions.rejectedAccessToken ?? null,
         forceRefresh: tokenOptions.forceRefresh === true,
         lastRead: null,
+        pendingWrite: null,
         afterCommit: [],
       }
 
@@ -1288,6 +1340,7 @@ export function createIntegrationOAuthGrantService(deps: IntegrationOAuthGrantSe
           onWait: () => awaitConcurrentRefresh(call),
         })
       } catch (error) {
+        if (isCommitOutcomeUnknown(error) && call.pendingWrite !== null) return resolveUnknownCommit(call, call.pendingWrite)
         return settleTokenError(error, call)
       }
       await runAfterCommit(call.afterCommit, owner)

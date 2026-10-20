@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { createServer } from 'node:http'
 import type { EventSubscriber } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { withAdvisoryXactLock } from '@open-mercato/shared/lib/db/advisoryLock'
+import { AdvisoryLockUnavailableError, withAdvisoryXactLock } from '@open-mercato/shared/lib/db/advisoryLock'
 import { isTransientLockDbError } from '@open-mercato/shared/lib/db/pg-errors'
 import type { KmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { registerTelemetryRuntime, type TelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
@@ -815,6 +815,7 @@ describeWithPostgres('integrationOAuthGrantService.getAccessToken against real P
       expect(reportedCodes()).toEqual([CLIENT_MISCONFIGURED])
     }, CASE_TIMEOUT_MS)
 
+
     it('answers client_changed and client_not_configured from the read, with no lock and no token call', async () => {
       const changed = createOwner()
       const missing = createOwner()
@@ -1158,6 +1159,7 @@ describeWithPostgres('integrationOAuthGrantService.getAccessToken against real P
       expect(reportError).not.toHaveBeenCalled()
     }, CASE_TIMEOUT_MS)
 
+
     it('clamps a huge expires_in to one year and keeps the rotated refresh token', async () => {
       const owner = createOwner()
       await connectOwner(owner)
@@ -1202,6 +1204,105 @@ describeWithPostgres('integrationOAuthGrantService.getAccessToken against real P
       expect(reportedCodes()).toEqual([REFRESH_TRANSIENT])
       expectNoIssuedToken(reportError.mock.calls, [salvaged])
       expectNoIssuedToken(await readRawGrantRows(owner), [salvaged])
+    }, CASE_TIMEOUT_MS)
+  })
+
+  describe('commit outcome unknown after a token call', () => {
+    function failCommitOnce(committed: boolean, beforeAnswer: () => Promise<unknown> = async () => undefined): void {
+      const rolledBack = new Error('[internal] simulated failed commit')
+      mockWithAdvisoryXactLock.mockImplementationOnce(async (em, key, fn, options) => {
+        if (committed) {
+          await actualLock.withAdvisoryXactLock(em, key, fn, options)
+        } else {
+          await actualLock.withAdvisoryXactLock(em, key, async (txEm) => {
+            await fn(txEm)
+            throw rolledBack
+          }, options).catch((error: unknown) => {
+            if (error !== rolledBack) throw error
+          })
+        }
+        await beforeAnswer()
+        throw new AdvisoryLockUnavailableError('commit_unknown', key, simulatedLockTimeout())
+      })
+    }
+
+    it('answers the refreshed token when the refresh committed, with one token call', async () => {
+      const owner = createOwner()
+      await connectOwner(owner)
+      await expireStoredGrant(owner)
+      failCommitOnce(true)
+
+      const token = await getToken(owner)
+
+      const stored = await readStoredGrant(owner)
+      expect(token).toMatchObject({ accessToken: stored.accessToken, degraded: false })
+      expect(stored).toMatchObject({ status: 'active', refreshCount: 1 })
+      expect(refreshCalls()).toBe(1)
+      expect(reportError).not.toHaveBeenCalled()
+    }, CASE_TIMEOUT_MS)
+
+    it('stores the rotated tokens again when the refresh rolled back, so a strict provider accepts the next refresh', async () => {
+      const rotating = await startFakeAuthorizationServer({ rotation: 'strict' })
+      try {
+        const owner = createOwner()
+        const connected = await connectOwner(owner, { authorizationServer: rotating })
+        await expireStoredGrant(owner)
+        failCommitOnce(false)
+
+        const token = await getToken(owner, { authorizationServer: rotating })
+
+        const stored = await readStoredGrant(owner)
+        const issued = rotating.issuedTokens().refreshTokens
+        expect(token).toMatchObject({ accessToken: stored.accessToken, degraded: false })
+        expect(stored).toMatchObject({ status: 'active', refreshCount: 1, refreshToken: issued[issued.length - 1] })
+        expect(stored.refreshToken).not.toBe(connected.refreshToken)
+
+        await getToken(owner, { authorizationServer: rotating, options: { forceRefresh: true } })
+
+        expect(await readStoredGrant(owner)).toMatchObject({ status: 'active', refreshCount: 2 })
+        expect(await readLogs(owner, INVALIDATED)).toEqual([])
+        expect(reportError).not.toHaveBeenCalled()
+      } finally {
+        await rotating.close()
+      }
+    }, CASE_TIMEOUT_MS)
+
+    it('stores a salvaged refresh token again when its transient answer rolled back', async () => {
+      const owner = createOwner()
+      await connectOwner(owner)
+      const expired = await expireStoredGrant(owner)
+      const salvaged = hexToken('fake_rt_salvaged_')
+      injectRefresh({ status: 200, body: { refresh_token: salvaged, token_type: 'Bearer', expires_in: 3600 } })
+      failCommitOnce(false)
+
+      await expectGrantError(getToken(owner), 'transient')
+
+      expect(await readStoredGrant(owner)).toEqual({
+        ...expired,
+        refreshToken: salvaged,
+        lastFailureClass: 'transient',
+        lastFailureAt: expect.any(Date),
+      })
+      expect(reportedCodes()).toEqual([REFRESH_TRANSIENT])
+    }, CASE_TIMEOUT_MS)
+
+    it('answers the grant another writer stored before the outcome was resolved', async () => {
+      const owner = createOwner()
+      await connectOwner(owner)
+      const expired = await expireStoredGrant(owner)
+      const reconnectedAccessToken = hexToken('fake_at_reconnected_')
+      failCommitOnce(false, () => writeStoredGrant(owner, {
+        ...expired,
+        accessToken: reconnectedAccessToken,
+        expiresAt: new Date(Date.now() + HOUR_MS),
+      }))
+
+      const token = await getToken(owner)
+
+      expect(token).toMatchObject({ accessToken: reconnectedAccessToken, degraded: false })
+      expect(await readStoredGrant(owner)).toMatchObject({ accessToken: reconnectedAccessToken, refreshCount: 0 })
+      expect(refreshCalls()).toBe(1)
+      expect(reportError).not.toHaveBeenCalled()
     }, CASE_TIMEOUT_MS)
   })
 

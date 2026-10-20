@@ -483,7 +483,8 @@ The "envelope only" `no_dek('sealed-while-disabled')` case is reachable in tests
    5. **token call** (`grant_type=refresh_token`, never `scope`), the only external call under the lock;
    6. classify (App Spec §1.4.5): success → store tokens (keep the stored refresh token when none is returned, keep `grantedScopes` when no `scope`, `expiresAt` clamped as in Data Models), `refreshedAt = now()`, `refreshCount + 1`, clear `lastFailure*`, and return the new token, `degraded` when it is already below `minValidityMs`; `invalid_grant` → `invalidated` (`grant_rejected`) + `oauth_invalidated`; `invalid_client`/`unauthorized_client` → `lastFailureClass = client_misconfigured`; another 4xx `protocol` error (`invalid_request`, `unsupported_grant_type`, `invalid_scope`, an unknown code) → the same, reason `token_endpoint_rejected` with `providerErrorCode`; `network`, `timeout`, 5xx, 429, `temporarily_unavailable`, `server_error`, `invalid_response` → `lastFailureClass = transient`, and a non-null `salvagedRefreshToken` is stored as the only token change;
    7. flush on `txEm`, return the outcome.
-6. **Outside the lock:** `AdvisoryLockUnavailableError` (any `reason`; after `commit_unknown` the refresh may have committed), or an error from `fn`, from the fast-path read or from `onWait` that `isTransientLockDbError` accepts, → `transient` (with a `degraded` token from the last read when usable and no `rejectedAccessToken`); `CredentialsEncryptionUnavailableError` from `fn` → `platform_unavailable`; an error thrown inside `fn` while writing an invalidation (the grant flush or the `oauth_invalidated` entry, 5.4 and 5.6) → reported and `transient`, and the rollback means neither the status nor the entry commits (App Spec US-3.1); anything else is reported (`reportError`, no token in the context) and rethrown.
+6. **Commit outcome unknown:** when the lock call throws `commit_unknown` after 5.6 stored new tokens (a success, or a salvaged refresh token), the service takes the lock again (15 s) and re-reads the row: if it holds those tokens the commit happened and the outcome stands; if it still holds the tokens read in 5.1 the commit did not happen, and the same record is written again and the outcome stands; any other row was written by another caller and answers like 5.2 (`grant_invalidated` when it is invalidated). This keeps a rotated refresh token that the provider already issued. A failure of this second section falls through to 7, with the new tokens as the last read.
+7. **Outside the lock:** `AdvisoryLockUnavailableError` (any other case), or an error from `fn`, from the fast-path read or from `onWait` that `isTransientLockDbError` accepts, → `transient` (with a `degraded` token from the last read when usable and no `rejectedAccessToken`); `CredentialsEncryptionUnavailableError` from `fn` → `platform_unavailable`; an error thrown inside `fn` while writing an invalidation (the grant flush or the `oauth_invalidated` entry, 5.4 and 5.6) → reported and `transient`, and the rollback means neither the status nor the entry commits (App Spec US-3.1); anything else is reported (`reportError`, no token in the context) and rethrown.
 
 ### `completeConnect` (P4b)
 
@@ -983,6 +984,9 @@ No migration or deprecation; the only narrowings are the `__oauth_grant` reserva
 Implemented; App Spec Q3 (surfaces, CI steps) and Q7 (consumer gate) were approved on 2026-10-15, and the merge waits for the agreed gate.
 
 ## Changelog
+
+### 2026-10-20
+- A refresh whose commit outcome is unknown re-reads the row under the lock and writes the issued tokens again when they did not commit, so a rotated refresh token is not lost (`getAccessToken` step 6).
 
 ### 2026-10-15
 - App Spec Q3 and Q7 decided by the maintainers (surface and CI steps approved as proposed; Option B with the consumer gate on #7337); the compliance rows that waited for Q3 are accepted.
