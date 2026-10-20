@@ -492,6 +492,40 @@ describe('PersonCompaniesSection', () => {
     expect(screen.getByText('Alpha Corp')).toBeInTheDocument()
   })
 
+  it('scopes dictionary lookups to the person\'s own organization under "All organizations"', async () => {
+    readApiResultOrThrowMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/customers/people/person-1/companies/enriched')) {
+        return { items: [], totalPages: 1 }
+      }
+      if (url.startsWith('/api/customers/dictionaries/')) {
+        return { items: [] }
+      }
+      throw new Error(`Unexpected read: ${url}`)
+    })
+
+    renderWithProviders(
+      <PersonCompaniesSection
+        personId="person-1"
+        personName="Lena Ortiz"
+        personOrganizationId="org-person-1"
+        initialLinkedCompanies={[]}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(readApiResultOrThrowMock).toHaveBeenCalledWith(
+        '/api/customers/dictionaries/statuses?organizationId=org-person-1',
+        undefined,
+        expect.any(Object),
+      )
+    })
+    expect(readApiResultOrThrowMock).toHaveBeenCalledWith(
+      '/api/customers/dictionaries/person-company-roles?organizationId=org-person-1',
+      undefined,
+      expect.any(Object),
+    )
+  })
+
   // Mirror of the company-side live refresh. A legacy profile-only detach has no link row, so
   // it broadcasts `customers.person.company_assignment.detached` rather than the link event
   // this tab already listened to (#5114); both must reload the person's companies.
