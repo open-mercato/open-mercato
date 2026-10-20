@@ -533,9 +533,15 @@ no structural change needed.
   command context (`ctx.auth.tenantId`, the selected organization); the
   optional input `tenantId`/`organizationId` are read only when the
   context carries no `auth`, i.e. for a trusted in-process `systemActor`
-  caller such as the Posting Rules engine (`ctx.auth: null`), and never
-  override a context that has one — the same shape `warranty_claims`'
-  system-actor subscriber uses for `create_vendor_recovery`. Implementation: the handler sets
+  caller such as the Posting Rules engine (`ctx.auth: null`) — the same
+  shape `warranty_claims`' system-actor subscriber uses for
+  `create_vendor_recovery`. With `ctx.auth`, an input
+  `tenantId`/`organizationId` that differs from the context's scope is
+  rejected (`403`) and nothing is written, and a context that lacks its
+  tenant or organization is rejected, never completed from the input. A
+  system-actor caller also sets `ctx.selectedOrganizationId` to the target
+  organization: under `OM_ENFORCE_ORG_SCOPE_STRICT` the shared
+  `ensureOrganizationScope` rejects a system actor without one. Implementation: the handler sets
   `prepareSnapshotInsideTransaction`, so the command bus runs `prepare()`
   inside the write transaction, right after the pair's advisory lock
   (step 4), on the transaction's own EntityManager; it loads the existing
@@ -752,10 +758,12 @@ packages/core/src/modules/journal_entry_line_dimensions/
   `'Currency'`, an empty string — the closed `DIMENSION_TYPES` boundary,
   not merely a non-empty check), an empty `dimensionIds` array, and a
   `dimensionIds` array containing a duplicate.
-- Scope: with `ctx.auth` the context scope wins over any input
-  `tenantId`/`organizationId`; with `ctx.auth: null` (system actor) the
-  input scope is used; with neither the call is rejected and writes
-  nothing.
+- Scope: with `ctx.auth` the context scope is used, and an input
+  `tenantId`/`organizationId` that differs from it is rejected with `403`
+  and writes nothing; with `ctx.auth: null` (system actor) the input
+  scope is used; with neither the call is rejected and writes nothing.
+  Under `OM_ENFORCE_ORG_SCOPE_STRICT`, a system actor without
+  `ctx.selectedOrganizationId` is rejected.
 - The command rejects a `journalEntryLineId` that does not exist, and one
   that belongs to another tenant/organization — no row is written in
   either case.
@@ -1320,3 +1328,7 @@ heads (#5663, #6015, #6014) before editing:
 - Commands and Risks: `prepare()` runs inside the write transaction
   under the pair's advisory lock (`prepareSnapshotInsideTransaction`), so
   undo cannot restore a set a concurrent call wrote in between.
+- Commands and Testing Strategy: with `ctx.auth`, an input scope that
+  differs from the context's is rejected (`403`) instead of being
+  ignored; a system-actor caller sets `ctx.selectedOrganizationId`, which
+  `OM_ENFORCE_ORG_SCOPE_STRICT` requires.
