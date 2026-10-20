@@ -224,6 +224,15 @@ describe('catalog.products.update undo — offers', () => {
     expect(created.map((row) => [row.id, row.channelId, row.title])).toEqual([['offer-a', 'web', 'Restore me']])
   })
 
+  it('keeps an offer the update removed when an offer undo already recreated it', async () => {
+    const removedByUpdate = offer('offer-a', 'web', { title: 'Edited' })
+    const recreated = { ...removedByUpdate, title: 'Original' }
+    const { byId, created, removed } = await undoUpdate([removedByUpdate], [], [recreated])
+    expect(byId('offer-a')?.title).toBe('Original')
+    expect(created).toHaveLength(0)
+    expect(removed).toHaveLength(0)
+  })
+
   it('keeps a newer offer that took the channel of an offer the update removed', async () => {
     const removedByUpdate = offer('offer-a', 'web')
     const newer = offer('offer-d', 'web')

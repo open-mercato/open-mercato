@@ -254,15 +254,16 @@ the message does not resolve in scope (previously `no_channel_link` with reason
 `message not found`). Code that switches exhaustively over the result, or treated
 `no_channel_link` as "message missing", should handle `not_found` alongside it.
 
-### Undoing a catalog product update only reverts the offers that update changed (#ISSUE)
+### Undoing a catalog product update only reverts the offers that update changed (#7679)
 
 Undo of `catalog.products.update` used to make the product's offers match the snapshot taken before
 the update. Offers created afterwards through `/api/catalog/offers` were hard-deleted, and later
 offer edits or deletions were reverted. Undo now compares the update's before and after snapshots
 with the current rows. It removes, recreates or reverts only the offers that update changed, and only
-while each one is still as the update left it. An offer is not recreated or moved back when another
-offer now holds its sales channel. In that case the rest of the undo still applies and no error is
-returned.
+while each one is still as the update left it. An offer the update removed is recreated only while it
+is still absent, so a copy restored since then (for example by undoing an offer update) is kept. An
+offer is not recreated or moved back when another offer now holds its sales channel. In that case
+the rest of the undo still applies and no error is returned.
 
 **Backward compatibility:** no API, schema, event or status-code change. The undo payload format is
 unchanged, and log entries written before this release undo with the new rules.

@@ -777,8 +777,9 @@ async function restoreOffersFromSnapshot(
 ): Promise<void> {
   const existing = await em.find(CatalogOffer, { product });
   const list = Array.isArray(snapshot) ? snapshot : [];
+  const hasBaseline = Array.isArray(baseline);
   const baselineById = new Map(
-    (Array.isArray(baseline) ? baseline : []).map((snap) => [snap.id, snap]),
+    (hasBaseline ? baseline : []).map((snap) => [snap.id, snap]),
   );
   const listIds = new Set(list.map((snap) => snap.id));
   const isUnchangedSince = (
@@ -799,7 +800,7 @@ async function restoreOffersFromSnapshot(
     remaining.find((entry) => entry.id === id);
   const restorable = list.filter((snap) => {
     const expected = baselineById.get(snap.id);
-    if (!expected) return true;
+    if (!expected) return !hasBaseline || !findRemaining(snap.id);
     if (offerSnapshotsEqual(snap, expected)) return false;
     return isUnchangedSince(findRemaining(snap.id), expected);
   });
