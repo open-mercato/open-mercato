@@ -541,8 +541,13 @@ type ContractorBankAccountPaymentCheck = {
   status: 'WHITELISTED' | 'NOT_WHITELISTED' | 'NOT_CHECKED' | 'NOT_APPLICABLE'
   checkedAt: string | null
   requestId: string | null
+  accountNumberLast4: string
+  currencyCode: string | null
 }
 ```
+
+(`accountNumberLast4` and `currencyCode` added with `purpose`/`currencyCode`
+below.)
 
 - `eligible` is `true` exactly when `reasons` is empty.
 - **Local reasons, evaluated first, without a network call:**
@@ -824,6 +829,36 @@ extend that mechanism, not to add a parallel `nipHash`/HMAC design:
   pepper (see "Verification history" and Risks); `nipHash` is the same
   kind of value, not a plain digest.
 
+**`ContractorBankAccount` gains `currencyCode` (informational) and
+`purpose` (`SETTLEMENT` | `VAT`, default `SETTLEMENT`).**
+- **`currencyCode`:** optional text, an ISO 4217 alphabetic code
+  (three upper-case letters, checked for shape only), with no FK to
+  `currencies`. It records the currency the vendor says the account is
+  held in. Nothing is converted or blocked on it; Accounts Payable
+  Payments uses it to warn when a payment batch's currency differs (see
+  #5962). No FK because the registry must not depend on `currencies`
+  being enabled and because the value is the vendor's statement, not a
+  reference to the tenant's own currency table.
+- **`purpose: 'VAT'` marks the contractor's VAT account** (the account
+  the bank keeps for split-payment VAT amounts). Such an account gets
+  only the format validation (`validateBankAccountNumber`); it is never
+  checked against the whitelist (the registration check skips it, the
+  "verify now" button is not shown), it can never be `isPrimary`, and it
+  is never a payment target for Accounts Payable: `checkBankAccountWhitelist`
+  refuses it with a typed error `{ code:
+  'CONTRACTOR_BANK_ACCOUNT_NOT_SETTLEMENT' }` (`422`) before any
+  evaluation, and the bank-account list offers a `purpose` filter so AP's
+  account picker lists only `SETTLEMENT` accounts. Recording it at all is
+  useful because a customer's master data contains it and a person
+  comparing documents needs to see it; split payment itself is still not
+  modelled (see Legal context).
+- **Two more fields in the payment-check result,** so the consumer never
+  has to read the encrypted number: `accountNumberLast4` (the last four
+  digits of the number checked) and `currencyCode` (the account's, or
+  `null`). Accounts Payable uses the first for the masked account in
+  `JournalEntryLine.contractorSnapshot` and the second for its currency
+  warning (see #5962, #5663).
+
 ### Alternatives considered
 
 | Alternative | Why Rejected |
@@ -1034,7 +1069,12 @@ own instruction — no open questions remain.
   payment depends on.
 - `ContractorBankAccount` — `contractorId` (FK to `Contractor`),
   `accountNumber` (encrypted, stored in normalized IBAN form) +
-  `accountNumberHash` (lookup hash, added 2026-10-20), `isPrimary` (bool — exactly one primary
+  `accountNumberHash` (lookup hash, added 2026-10-20), `currencyCode`
+  (optional ISO 4217 text, informational, no FK, added 2026-10-20),
+  `purpose` (`SETTLEMENT`/`VAT`, default `SETTLEMENT`, added 2026-10-20 —
+  a `VAT` account is format-validated only, never whitelist-checked,
+  never primary, never a payment target), `isPrimary` (bool — exactly one primary
+  among `SETTLEMENT` accounts
   per contractor, enforced by both the command and a partial unique
   index, see Design decisions), `lastVerifiedAt` (nullable,
   UX cache — see Design decisions), `lastVerificationStatus`
@@ -1206,13 +1246,16 @@ input that does not validate returns `[]`, not an error.
   `validateBankAccountNumber` (IBAN/NRB, checksum; `400` otherwise, see
   Design decisions, 2026-10-20). After
   saving a new account, or a changed `accountNumber`, the command
-  enqueues `workers/verifyContractorBankAccount.ts` (background whitelist
+  enqueues, for a `SETTLEMENT` account of a contractor with a `nip`,
+  `workers/verifyContractorBankAccount.ts` (background whitelist
   check; a negative answer only sets the warning status, see Design
   decisions, 2026-10-20).
 - `checkBankAccountWhitelist` — **not a plain query**: returns the
   payment-eligibility result `{ eligible, reasons, status, checkedAt,
-  requestId }` (see Design decisions, 2026-10-20, "Payment eligibility").
-  It first evaluates the local reasons (`NOT_APPROVED`,
+  requestId, accountNumberLast4, currencyCode }` (see Design decisions,
+  2026-10-20, "Payment eligibility"). A `VAT`-purpose account is refused
+  before anything else, with `422 CONTRACTOR_BANK_ACCOUNT_NOT_SETTLEMENT`.
+  It then evaluates the local reasons (`NOT_APPROVED`,
   `VERIFICATION_FAILED`, `ACCOUNT_INACTIVE`); if any applies it returns
   `eligible: false` with `status: 'NOT_CHECKED'` before any network
   call — otherwise performs a live call to the Ministry of
@@ -1537,6 +1580,10 @@ written only as a side effect of `checkBankAccountWhitelist`, never
 read by any command to skip the live check (see Design decisions).
 Own `organizationId`/`tenantId` (see Design decisions). `is_active`:
 boolean, default `true` (added 2026-10-20), also on `contractor`.
+`currency_code`: text, nullable, `^[A-Z]{3}$` (added 2026-10-20).
+`purpose`: text, `SETTLEMENT` | `VAT`, not null, default `SETTLEMENT`
+(added 2026-10-20); `contractor_bank_account_one_primary_uq` is unchanged
+and the command rejects `isPrimary: true` on a `VAT` account.
 
 Supporting index: `(tenant_id, organization_id, contractor_id)` on
 `contractor_bank_account` backs the inline-list lookup from a
@@ -1620,10 +1667,14 @@ Standard `makeCrudRoute` list + create, scoped to the parent
 contractor. **Response shape** (list): includes `updatedAt` per row,
 same rationale as `GET /api/contractors` above.
 
-- **Create body**: `{ accountNumber, isPrimary? }`.
+- **Query** (list, added 2026-10-20): `purpose?`, `isActive?`.
+- **Create body**: `{ accountNumber, isPrimary?, currencyCode?, purpose? }`
+  (`currencyCode` and `purpose` added 2026-10-20; `purpose` defaults to
+  `SETTLEMENT`).
 - **Response 400** (create/update, added 2026-10-20): `accountNumber`
   fails `validateBankAccountNumber` — a field error with `FORMAT`,
-  `COUNTRY_LENGTH` or `CHECKSUM`.
+  `COUNTRY_LENGTH` or `CHECKSUM`; `currencyCode` is not three upper-case
+  letters; `isPrimary: true` on a `VAT` account.
 
 ### `POST /api/contractors/:id/bank-accounts/:bankAccountId/verify`
 
@@ -1638,6 +1689,9 @@ Custom write route (mutation guard registry, mapped to `update`).
   (`WHITELIST_UNAVAILABLE`) are reported in `reasons` with `200`.
   **Changed 2026-10-20:** this replaces the earlier
   `422 CONTRACTOR_NOT_APPROVED` and `502` responses.
+- **Response 422 `CONTRACTOR_BANK_ACCOUNT_NOT_SETTLEMENT`** (added
+  2026-10-20): the account's `purpose` is `VAT`; it is never checked
+  against the whitelist.
 - **Response 403**: caller lacks `contractors.view`.
 
 ### `POST /api/contractors/:id/verify-vies`
@@ -1904,6 +1958,14 @@ exactly as `sales.order-approval` and
   another tenant; the returned object has exactly the documented keys and
   never `nip`, name, address, contact or bank data; calling it twice
   writes nothing.
+- `purpose` and `currencyCode` (added 2026-10-20): an account created
+  without `purpose` is `SETTLEMENT`; a `VAT` account passes the format
+  validation, enqueues no registration check, is refused by
+  `checkBankAccountWhitelist` with `CONTRACTOR_BANK_ACCOUNT_NOT_SETTLEMENT`
+  and cannot be set primary; the list filter `purpose=SETTLEMENT`
+  excludes it; `currencyCode: 'eur'` returns 400 and `'EUR'` is stored;
+  the payment-check result carries `accountNumberLast4` and the
+  account's `currencyCode`.
 - Account number hash (added 2026-10-20): `account_number_hash` is equal
   for the NRB and IBAN spellings of one account; adding the same number
   twice to one contractor fails at the database (partial unique index)
@@ -2726,3 +2788,12 @@ New section Design decisions (2026-10-20); every item below is decided.
   No new `nipHash` was added. Encryption, Entities, DI Registrar,
   Cross-module integration, Data Models, File Manifest, Testing
   Strategy updated.
+- **`currencyCode` and `purpose` on the bank account.** `currencyCode`
+  optional ISO 4217 text, informational, no FK; `purpose`
+  `SETTLEMENT`/`VAT` (default `SETTLEMENT`). A VAT account is
+  format-validated only, never whitelist-checked, never primary, and
+  refused as a payment target (`422
+  CONTRACTOR_BANK_ACCOUNT_NOT_SETTLEMENT`). The payment-check result
+  gains `accountNumberLast4` and `currencyCode` for AP's snapshot and
+  currency warning. Entities, Commands, Data Models, API Contracts,
+  Testing Strategy updated.
