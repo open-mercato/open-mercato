@@ -24,6 +24,36 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### `customers`, `portal`, and `workflows` now declare their full runtime module dependencies (#7587)
+
+`customers`'s `setup.ts` imports `FeatureToggle` from `feature_toggles` and `./cli` seeds customer
+and currency dictionaries via `Dictionary`/`DictionaryEntry` from `dictionaries`; `portal`'s
+`setup.ts` imports `FeatureToggle` from `feature_toggles`; `workflows`'s `setup.ts` resolves the
+business-rule discovery cache and `lib/seeds.ts` imports `BusinessRule`, both from
+`business_rules`. None of these modules declared the dependency in `requires`, so an app enabling
+one of them without its undeclared dependencies previously passed `yarn generate` and the
+migrations cleanly and only failed during tenant setup (`mercato init` / `yarn reinstall`) with an
+opaque MikroORM error such as `Metadata for entity Dictionary not found` — the same silent-failure
+class as `catalog` (#6517) and `auth` → `api_keys` (#7444).
+
+`customers` now declares `requires: ['progress', 'dictionaries', 'feature_toggles']`, `portal` now
+declares `requires: ['customer_accounts', 'feature_toggles']`, and `workflows` now declares
+`requires: ['business_rules']`. The existing generator-enforced dependency check now covers all
+three. If your `src/modules.ts` enables one of them without its new dependencies, `yarn generate`
+now fails fast instead of shipping the silent setup failure:
+
+```
+Module dependency check failed:
+- Module "customers" requires: dictionaries, feature_toggles
+```
+
+**Action for module authors:** add the missing module ids to `src/modules.ts` (e.g.
+`{ id: 'dictionaries', from: '@open-mercato/core' }`, `{ id: 'feature_toggles', from:
+'@open-mercato/core' }`, `{ id: 'business_rules', from: '@open-mercato/core' }` as applicable),
+then re-run `yarn generate`. `apps/mercato/src/modules.ts` and the `create-app` template already
+enable the full default module set, so this repo's own apps and freshly scaffolded apps are
+unaffected.
+
 ### Portal form submissions are limited to the caller's own `customer` subject (#7224)
 
 `POST /api/forms/form-submissions` now answers `403 { error: "SUBJECT_FORBIDDEN" }` unless
