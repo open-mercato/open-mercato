@@ -1,0 +1,762 @@
+{
+  "scrolling": [
+    {
+      "name": "virtual initial geometry",
+      "header": {
+        "top": 182,
+        "bottom": 218,
+        "left": 39,
+        "right": 1434.90625,
+        "width": 1395.90625,
+        "height": 36
+      },
+      "table": {
+        "top": 182,
+        "bottom": 4819.5,
+        "left": 39,
+        "right": 1434.90625,
+        "width": 1395.90625,
+        "height": 4637.5
+      },
+      "wrapper": {
+        "top": 182,
+        "bottom": 542,
+        "left": 39,
+        "right": 1241,
+        "width": 1202,
+        "height": 360
+      },
+      "first": {
+        "top": 182,
+        "bottom": 218,
+        "left": 39,
+        "right": 301,
+        "width": 262,
+        "height": 36
+      },
+      "last": {
+        "top": 182,
+        "bottom": 218,
+        "left": 1155.09375,
+        "right": 1241,
+        "width": 85.90625,
+        "height": 36
+      },
+      "scrollTop": 0,
+      "scrollLeft": 0,
+      "scrollHeight": 4638,
+      "clientHeight": 360,
+      "scrollWidth": 1396,
+      "clientWidth": 1202,
+      "styleTop": "0px",
+      "background": "oklch(1 0 0)",
+      "foreground": true,
+      "rendered": 19,
+      "ok": true
+    },
+    {
+      "name": "virtual internal header top",
+      "actual": 182,
+      "expected": 182,
+      "ok": true
+    },
+    {
+      "name": "virtual rows scroll",
+      "actual": 800,
+      "expected": 800,
+      "ok": true
+    },
+    {
+      "name": "virtual header hit test opaque foreground",
+      "ok": true,
+      "background": "oklch(1 0 0)"
+    },
+    {
+      "name": "virtual outer page topbar clearance",
+      "actual": 61,
+      "expected": 61,
+      "ok": true
+    },
+    {
+      "name": "virtual pinned first header",
+      "actual": 39,
+      "expected": 39,
+      "ok": true
+    },
+    {
+      "name": "virtual pinned actions header",
+      "actual": 1241,
+      "expected": 1241,
+      "ok": true
+    },
+    {
+      "name": "horizontal scroll works",
+      "ok": true,
+      "scrollLeft": 180,
+      "scrollWidth": 1398,
+      "clientWidth": 1202
+    },
+    {
+      "name": "virtual bottom header visible",
+      "ok": true,
+      "geometry": {
+        "header": {
+          "top": 61,
+          "bottom": 97,
+          "left": -141,
+          "right": 1257.359375,
+          "width": 1398.359375,
+          "height": 36
+        },
+        "table": {
+          "top": -4225,
+          "bottom": 346,
+          "left": -141,
+          "right": 1257.359375,
+          "width": 1398.359375,
+          "height": 4571
+        },
+        "wrapper": {
+          "top": -68,
+          "bottom": 292,
+          "left": 39,
+          "right": 1241,
+          "width": 1202,
+          "height": 360
+        },
+        "first": {
+          "top": 61,
+          "bottom": 97,
+          "left": 39,
+          "right": 301,
+          "width": 262,
+          "height": 36
+        },
+        "last": {
+          "top": 61,
+          "bottom": 97,
+          "left": 1152.640625,
+          "right": 1241,
+          "width": 88.359375,
+          "height": 36
+        },
+        "scrollTop": 4157,
+        "scrollLeft": 180,
+        "scrollHeight": 4571,
+        "clientHeight": 360,
+        "scrollWidth": 1398,
+        "clientWidth": 1202,
+        "styleTop": "129px",
+        "background": "oklch(1 0 0)",
+        "foreground": true,
+        "rendered": 25
+      }
+    },
+    {
+      "name": "normal initial geometry",
+      "header": {
+        "top": 342,
+        "bottom": 378,
+        "left": 39,
+        "right": 1437.421875,
+        "width": 1398.421875,
+        "height": 36
+      },
+      "table": {
+        "top": 342,
+        "bottom": 4077,
+        "left": 39,
+        "right": 1437.421875,
+        "width": 1398.421875,
+        "height": 3735
+      },
+      "wrapper": {
+        "top": 342,
+        "bottom": 4077,
+        "left": 39,
+        "right": 1241,
+        "width": 1202,
+        "height": 3735
+      },
+      "first": {
+        "top": 342,
+        "bottom": 378,
+        "left": 39,
+        "right": 301,
+        "width": 262,
+        "height": 36
+      },
+      "last": {
+        "top": 342,
+        "bottom": 378,
+        "left": 1152.578125,
+        "right": 1241,
+        "width": 88.421875,
+        "height": 36
+      },
+      "scrollTop": 0,
+      "scrollLeft": 0,
+      "scrollHeight": 3735,
+      "clientHeight": 3735,
+      "scrollWidth": 1398,
+      "clientWidth": 1202,
+      "styleTop": "0px",
+      "background": "oklch(1 0 0)",
+      "foreground": true,
+      "rendered": 100,
+      "ok": true
+    },
+    {
+      "name": "normal page scroll topbar clearance",
+      "actual": 61,
+      "expected": 61,
+      "ok": true
+    },
+    {
+      "name": "normal header hit test",
+      "ok": true
+    },
+    {
+      "name": "normal pinned first header",
+      "actual": 39,
+      "expected": 39,
+      "ok": true
+    },
+    {
+      "name": "normal pinned actions header",
+      "actual": 1241,
+      "expected": 1241,
+      "ok": true
+    },
+    {
+      "name": "normal sort while sticky",
+      "ok": true,
+      "sorting": "[{\"id\":\"name\",\"desc\":false}]"
+    },
+    {
+      "name": "normal bottom clamp",
+      "ok": true,
+      "geometry": {
+        "header": {
+          "top": -116,
+          "bottom": -80,
+          "left": -141,
+          "right": 1257.421875,
+          "width": 1398.421875,
+          "height": 36
+        },
+        "table": {
+          "top": -3815,
+          "bottom": -80,
+          "left": -141,
+          "right": 1257.421875,
+          "width": 1398.421875,
+          "height": 3735
+        },
+        "wrapper": {
+          "top": -3815,
+          "bottom": -80,
+          "left": 39,
+          "right": 1241,
+          "width": 1202,
+          "height": 3735
+        },
+        "first": {
+          "top": -116,
+          "bottom": -80,
+          "left": 39,
+          "right": 301,
+          "width": 262,
+          "height": 36
+        },
+        "last": {
+          "top": -116,
+          "bottom": -80,
+          "left": 1152.578125,
+          "right": 1241,
+          "width": 88.421875,
+          "height": 36
+        },
+        "scrollTop": 0,
+        "scrollLeft": 180,
+        "scrollHeight": 3735,
+        "clientHeight": 3735,
+        "scrollWidth": 1398,
+        "clientWidth": 1202,
+        "styleTop": "3876px",
+        "background": "oklch(1 0 0)",
+        "foreground": false,
+        "rendered": 100
+      }
+    },
+    {
+      "name": "embedded initial geometry",
+      "header": {
+        "top": 328,
+        "bottom": 364,
+        "left": 30,
+        "right": 1428.421875,
+        "width": 1398.421875,
+        "height": 36
+      },
+      "table": {
+        "top": 328,
+        "bottom": 4063,
+        "left": 30,
+        "right": 1428.421875,
+        "width": 1398.421875,
+        "height": 3735
+      },
+      "wrapper": {
+        "top": 328,
+        "bottom": 4063,
+        "left": 30,
+        "right": 1250,
+        "width": 1220,
+        "height": 3735
+      },
+      "first": {
+        "top": 328,
+        "bottom": 364,
+        "left": 30,
+        "right": 292,
+        "width": 262,
+        "height": 36
+      },
+      "last": {
+        "top": 328,
+        "bottom": 364,
+        "left": 1191.578125,
+        "right": 1280,
+        "width": 88.421875,
+        "height": 36
+      },
+      "scrollTop": 0,
+      "scrollLeft": 0,
+      "scrollHeight": 3735,
+      "clientHeight": 3735,
+      "scrollWidth": 1398,
+      "clientWidth": 1220,
+      "styleTop": "61px",
+      "background": "oklch(1 0 0)",
+      "foreground": true,
+      "rendered": 100,
+      "ok": true
+    },
+    {
+      "name": "embedded page scroll topbar clearance",
+      "actual": 61,
+      "expected": 61,
+      "ok": true
+    },
+    {
+      "name": "embedded header hit test",
+      "ok": true
+    },
+    {
+      "name": "embedded sort while sticky",
+      "ok": true,
+      "sorting": "[{\"id\":\"name\",\"desc\":false}]"
+    },
+    {
+      "name": "embedded bottom clamp",
+      "ok": true,
+      "geometry": {
+        "header": {
+          "top": -116,
+          "bottom": -80,
+          "left": 30,
+          "right": 1428.421875,
+          "width": 1398.421875,
+          "height": 36
+        },
+        "table": {
+          "top": -3815,
+          "bottom": -80,
+          "left": 30,
+          "right": 1428.421875,
+          "width": 1398.421875,
+          "height": 3735
+        },
+        "wrapper": {
+          "top": -3815,
+          "bottom": -80,
+          "left": 30,
+          "right": 1250,
+          "width": 1220,
+          "height": 3735
+        },
+        "first": {
+          "top": -116,
+          "bottom": -80,
+          "left": 30,
+          "right": 292,
+          "width": 262,
+          "height": 36
+        },
+        "last": {
+          "top": -116,
+          "bottom": -80,
+          "left": 1191.578125,
+          "right": 1280,
+          "width": 88.421875,
+          "height": 36
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 3735,
+        "clientHeight": 3735,
+        "scrollWidth": 1398,
+        "clientWidth": 1220,
+        "styleTop": "61px",
+        "background": "oklch(1 0 0)",
+        "foreground": false,
+        "rendered": 100
+      }
+    },
+    {
+      "name": "embedded-panel initial geometry",
+      "header": {
+        "top": 446,
+        "bottom": 482,
+        "left": 48,
+        "right": 1446.421875,
+        "width": 1398.421875,
+        "height": 36
+      },
+      "table": {
+        "top": 446,
+        "bottom": 4181,
+        "left": 48,
+        "right": 1446.421875,
+        "width": 1398.421875,
+        "height": 3735
+      },
+      "wrapper": {
+        "top": 446,
+        "bottom": 4181,
+        "left": 48,
+        "right": 1232,
+        "width": 1184,
+        "height": 3735
+      },
+      "first": {
+        "top": 446,
+        "bottom": 482,
+        "left": 48,
+        "right": 310,
+        "width": 262,
+        "height": 36
+      },
+      "last": {
+        "top": 446,
+        "bottom": 482,
+        "left": 1143.578125,
+        "right": 1232,
+        "width": 88.421875,
+        "height": 36
+      },
+      "scrollTop": 0,
+      "scrollLeft": 0,
+      "scrollHeight": 3735,
+      "clientHeight": 3735,
+      "scrollWidth": 1398,
+      "clientWidth": 1184,
+      "styleTop": "-16px",
+      "background": "oklch(1 0 0)",
+      "foreground": true,
+      "rendered": 100,
+      "ok": true
+    },
+    {
+      "name": "embedded panel internal sticky header",
+      "actual": 282,
+      "expected": 282,
+      "ok": true
+    },
+    {
+      "name": "embedded-panel page scroll topbar clearance",
+      "actual": 61,
+      "expected": 61,
+      "ok": true
+    },
+    {
+      "name": "embedded-panel header hit test",
+      "ok": true
+    },
+    {
+      "name": "embedded-panel sort while sticky",
+      "ok": true,
+      "sorting": "[{\"id\":\"name\",\"desc\":false}]"
+    },
+    {
+      "name": "embedded-panel bottom clamp",
+      "ok": true,
+      "geometry": {
+        "header": {
+          "top": -174,
+          "bottom": -138,
+          "left": 48,
+          "right": 1446.421875,
+          "width": 1398.421875,
+          "height": 36
+        },
+        "table": {
+          "top": -3873,
+          "bottom": -138,
+          "left": 48,
+          "right": 1446.421875,
+          "width": 1398.421875,
+          "height": 3735
+        },
+        "wrapper": {
+          "top": -3873,
+          "bottom": -138,
+          "left": 48,
+          "right": 1232,
+          "width": 1184,
+          "height": 3735
+        },
+        "first": {
+          "top": -174,
+          "bottom": -138,
+          "left": 48,
+          "right": 310,
+          "width": 262,
+          "height": 36
+        },
+        "last": {
+          "top": -174,
+          "bottom": -138,
+          "left": 1143.578125,
+          "right": 1232,
+          "width": 88.421875,
+          "height": 36
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 3735,
+        "clientHeight": 3735,
+        "scrollWidth": 1398,
+        "clientWidth": 1184,
+        "styleTop": "113px",
+        "background": "oklch(1 0 0)",
+        "foreground": false,
+        "rendered": 100
+      }
+    },
+    {
+      "name": "normal-panel initial geometry",
+      "header": {
+        "top": 460,
+        "bottom": 496,
+        "left": 57,
+        "right": 1455.421875,
+        "width": 1398.421875,
+        "height": 36
+      },
+      "table": {
+        "top": 460,
+        "bottom": 4195,
+        "left": 57,
+        "right": 1455.421875,
+        "width": 1398.421875,
+        "height": 3735
+      },
+      "wrapper": {
+        "top": 460,
+        "bottom": 4195,
+        "left": 57,
+        "right": 1223,
+        "width": 1166,
+        "height": 3735
+      },
+      "first": {
+        "top": 460,
+        "bottom": 496,
+        "left": 57,
+        "right": 319,
+        "width": 262,
+        "height": 36
+      },
+      "last": {
+        "top": 460,
+        "bottom": 496,
+        "left": 1134.578125,
+        "right": 1223,
+        "width": 88.421875,
+        "height": 36
+      },
+      "scrollTop": 0,
+      "scrollLeft": 0,
+      "scrollHeight": 3735,
+      "clientHeight": 3735,
+      "scrollWidth": 1398,
+      "clientWidth": 1166,
+      "styleTop": "0px",
+      "background": "oklch(1 0 0)",
+      "foreground": true,
+      "rendered": 100,
+      "ok": true
+    },
+    {
+      "name": "embedded panel internal sticky header",
+      "actual": 282,
+      "expected": 282,
+      "ok": true
+    },
+    {
+      "name": "normal-panel page scroll topbar clearance",
+      "actual": 61,
+      "expected": 61,
+      "ok": true
+    },
+    {
+      "name": "normal-panel header hit test",
+      "ok": true
+    },
+    {
+      "name": "normal-panel sort while sticky",
+      "ok": true,
+      "sorting": "[{\"id\":\"name\",\"desc\":false}]"
+    },
+    {
+      "name": "normal-panel bottom clamp",
+      "ok": true,
+      "geometry": {
+        "header": {
+          "top": -175,
+          "bottom": -139,
+          "left": 57,
+          "right": 1455.421875,
+          "width": 1398.421875,
+          "height": 36
+        },
+        "table": {
+          "top": -3874,
+          "bottom": -139,
+          "left": 57,
+          "right": 1455.421875,
+          "width": 1398.421875,
+          "height": 3735
+        },
+        "wrapper": {
+          "top": -3874,
+          "bottom": -139,
+          "left": 57,
+          "right": 1223,
+          "width": 1166,
+          "height": 3735
+        },
+        "first": {
+          "top": -175,
+          "bottom": -139,
+          "left": 57,
+          "right": 319,
+          "width": 262,
+          "height": 36
+        },
+        "last": {
+          "top": -175,
+          "bottom": -139,
+          "left": 1134.578125,
+          "right": 1223,
+          "width": 88.421875,
+          "height": 36
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 3735,
+        "clientHeight": 3735,
+        "scrollWidth": 1398,
+        "clientWidth": 1166,
+        "styleTop": "3935px",
+        "background": "oklch(1 0 0)",
+        "foreground": false,
+        "rendered": 100
+      }
+    }
+  ],
+  "controls": {
+    "sorting": {
+      "ok": true,
+      "sorting": "[{\"id\":\"name\",\"desc\":false}]",
+      "row": "Hotel 001\n\t\nperson-99@example.test\n\t\nCountry 99\n\t\nCity 99\n\t\nDescription 99 with information\n\tOpen 99"
+    },
+    "resize": {
+      "ok": true,
+      "before": 262,
+      "after": 352
+    },
+    "reorder": {
+      "ok": true,
+      "before": [
+        "Name",
+        "Email",
+        "Country",
+        "City",
+        "Description",
+        "Actions"
+      ],
+      "after": [
+        "Name",
+        "Country",
+        "Email",
+        "City",
+        "Description",
+        "Actions"
+      ]
+    },
+    "headerTop": {
+      "ok": true,
+      "actual": 61
+    },
+    "pageerrors": []
+  },
+  "responsive": [
+    {
+      "name": "dark sticky topbar clearance",
+      "ok": true,
+      "top": 61,
+      "bottom": 97,
+      "styleTop": "129px",
+      "background": "oklch(0.145 0 0)",
+      "rowBackground": "oklab(0.269 0 0 / 0.4)",
+      "firstPosition": "sticky",
+      "firstLeft": 39,
+      "wrapperLeft": 39,
+      "scrollLeft": 180,
+      "foreground": true
+    },
+    {
+      "name": "dark opaque header foreground",
+      "ok": true
+    },
+    {
+      "name": "dark horizontal behavior",
+      "ok": true
+    },
+    {
+      "name": "narrow sticky topbar clearance",
+      "ok": true,
+      "top": 61,
+      "bottom": 97,
+      "styleTop": "129px",
+      "background": "oklch(1 0 0)",
+      "rowBackground": "oklab(0.97 0 0 / 0.4)",
+      "firstPosition": "sticky",
+      "firstLeft": -145,
+      "wrapperLeft": 35,
+      "scrollLeft": 180,
+      "foreground": true
+    },
+    {
+      "name": "narrow opaque header foreground",
+      "ok": true
+    },
+    {
+      "name": "narrow horizontal behavior",
+      "ok": true
+    }
+  ]
+}
