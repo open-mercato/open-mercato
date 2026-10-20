@@ -9,6 +9,7 @@ import {
   TENANT,
   buildFakeEm,
   seedEntry,
+  seedReclassification,
   seedNonZespol4Account,
   seedSettings,
   seedZespol4Account,
@@ -93,5 +94,53 @@ describe('posting_rules.lockFiscalPeriod', () => {
     seedPeriod(em, { tenantId: FOREIGN_TENANT })
     await expect(loadHandler().execute(lockInput, ctx)).rejects.toMatchObject({ status: 404 })
     expect(execute).not.toHaveBeenCalled()
+  })
+
+  it('refuses with 422 and the offending entry and line ids while a line in the period is unreclassified, without locking', async () => {
+    const { em, execute, ctx } = setup()
+    seedPeriod(em)
+    seedEntry(em, 'entry-sep', [
+      { id: 'l-done', accountId: SOURCE_ACCOUNT_ID, debit: '60.00' },
+      { id: 'l-missing', accountId: SOURCE_ACCOUNT_ID, debit: '40.00' },
+      { id: 'l-counter', accountId: OTHER_ACCOUNT_ID, credit: '100.00' },
+    ], { operationDate: '2026-09-15' })
+    seedReclassification(em, 'l-done', { amount: '60.00' })
+
+    await expect(loadHandler().execute(lockInput, ctx)).rejects.toMatchObject({
+      status: 422,
+      body: {
+        unreclassifiedEntryIds: ['entry-sep'],
+        unreclassifiedLines: [{ entryId: 'entry-sep', lineId: 'l-missing' }],
+      },
+    })
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it('delegates to ledger.lockFiscalPeriod with the same ctx once every line in the period is reclassified', async () => {
+    const { em, execute, ctx } = setup()
+    seedPeriod(em)
+    seedEntry(em, 'entry-sep', [
+      { id: 'l-done', accountId: SOURCE_ACCOUNT_ID, debit: '100.00' },
+      { id: 'l-counter', accountId: OTHER_ACCOUNT_ID, credit: '100.00' },
+    ], { operationDate: '2026-09-15' })
+    seedReclassification(em, 'l-done')
+    seedEntry(em, 'entry-oct', [{ id: 'l-oct', accountId: SOURCE_ACCOUNT_ID, debit: '10.00' }], { operationDate: '2026-10-02' })
+
+    const result = await loadHandler().execute(lockInput, ctx)
+
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(execute).toHaveBeenCalledWith('ledger.lockFiscalPeriod', {
+      input: { id: PERIOD_ID, organizationId: ORG, tenantId: TENANT },
+      ctx,
+    })
+    expect(result).toEqual({ fiscalPeriodId: PERIOD_ID, isLocked: true, updatedAt: '2026-10-01T00:00:00.000Z' })
+  })
+
+  it('propagates a ledger refusal unchanged', async () => {
+    const { em, execute, ctx } = setup()
+    seedPeriod(em)
+    const ledgerRefusal = Object.assign(new Error('Fiscal period not found.'), { status: 409 })
+    execute.mockRejectedValueOnce(ledgerRefusal)
+    await expect(loadHandler().execute(lockInput, ctx)).rejects.toBe(ledgerRefusal)
   })
 })
