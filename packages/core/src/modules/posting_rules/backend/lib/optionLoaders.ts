@@ -19,9 +19,9 @@ function normalizeAccountOption(item: unknown, fallbackLabel: string): CrudField
   if (!isRecord(item)) return null
   const id = toStringOrNull(item.id)
   if (!id) return null
-  const slug = toStringOrNull(item.slug)
+  const number = toStringOrNull(item.number)
   const description = toStringOrNull(item.description)
-  const label = slug && description ? `${slug} — ${description}` : slug ?? description ?? fallbackLabel
+  const label = number && description ? `${number} — ${description}` : number ?? description ?? fallbackLabel
   return { value: id, label }
 }
 
