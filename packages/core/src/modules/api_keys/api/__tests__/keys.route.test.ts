@@ -3,6 +3,7 @@
 import { features } from '../../acl'
 import { RoleAcl } from '@open-mercato/core/modules/auth/data/entities'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { createApiKeySchema, updateApiKeySchema } from '../../data/validators'
 
 const secretFixture = { secret: 'omk_test.secret', prefix: 'omk_testpref' }
 
@@ -268,6 +269,54 @@ describe('API Keys route', () => {
         }),
       }),
     )
+  })
+
+  it('ignores causation fields supplied in the create body', async () => {
+    const spoofedEnvelope = {
+      correlationId: '0d9c8b7a-6f5e-4d3c-8b2a-1f0e9d8c7b6a',
+      frames: [{ kind: 'workflow', id: 'spoofed-instance' }],
+    }
+    const res = await postHandler(
+      new Request('http://localhost/api/api_keys/keys', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Spoofing key',
+          roles: ['manager'],
+          causationJson: spoofedEnvelope,
+          causation: spoofedEnvelope,
+          originCausation: spoofedEnvelope,
+        }),
+      }),
+    )
+
+    expect(res.status).toBe(201)
+    const payload = await res.json()
+    expect(payload).not.toHaveProperty('causationJson')
+    expect(payload).not.toHaveProperty('causation')
+    expect(payload).not.toHaveProperty('originCausation')
+    expect(mockCommandBus.execute).toHaveBeenCalledTimes(1)
+    const [, options] = mockCommandBus.execute.mock.calls[0]
+    const commandInput = options.input as Record<string, unknown>
+    expect(commandInput).toMatchObject({ name: 'Spoofing key', roleIds: ['role-123'] })
+    expect(commandInput).not.toHaveProperty('causationJson')
+    expect(commandInput).not.toHaveProperty('causation')
+    expect(commandInput).not.toHaveProperty('originCausation')
+  })
+
+  it('strips causation fields in the create and update schemas', () => {
+    const spoofed = { correlationId: 'c', frames: [{ kind: 'user' }] }
+    const created = createApiKeySchema.parse({ name: 'Key', causationJson: spoofed, causation: spoofed })
+    const updated = updateApiKeySchema.parse({
+      id: '11111111-1111-4111-8111-111111111111',
+      causationJson: spoofed,
+      causation: spoofed,
+    })
+
+    expect(created).not.toHaveProperty('causationJson')
+    expect(created).not.toHaveProperty('causation')
+    expect(updated).not.toHaveProperty('causationJson')
+    expect(updated).not.toHaveProperty('causation')
   })
 
   it('preserves an explicit null organization for a tenant-scoped API key', async () => {

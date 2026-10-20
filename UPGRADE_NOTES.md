@@ -1183,6 +1183,135 @@ and change nothing; undoing a `.delete` runs the same check as a precaution. Unl
 first; the same undo then works again. No schema, route or permission changes. Undoing a tag
 delete is not covered by this change.
 
+### Causation foundation: run the new migrations before rolling the app
+
+Every audited write now records **why** it happened (a user, an API key, a workflow, a business
+rule, an undo, …) next to a correlation id shared by the whole request, job or automation run.
+Spec: [`2026-10-08-insights-causation-and-explain`](.ai/specs/2026-10-08-insights-causation-and-explain.md).
+
+**Action for operators — migrate first.** The entities now map new nullable columns
+(`action_logs.cause_kind`/`cause_id`/`correlation_id`/`caused_by_log_id`,
+`rule_execution_logs.run_id`/`rule_version`/`rule_definition_hash`/`causation_json`,
+`api_keys.causation_json`), so the new application version fails on these tables until the
+migrations have run. Run `yarn db:migrate` (or your deployment's migration step) **before** new pods
+serve traffic.
+
+- The column migrations (`Migration20261008080137_*` in `audit_logs`, `business_rules`, `api_keys`)
+  are metadata-only `ALTER TABLE`s that run with `set local lock_timeout = '5s'`, so they give up
+  instead of queueing every write behind them. On a busy table a lock timeout is expected: retry the
+  migration.
+- The index migrations (`Migration20261008080138_*` in `audit_logs`, `business_rules`) are
+  non-transactional and use `CREATE INDEX CONCURRENTLY`, dropping a possibly INVALID index from an
+  interrupted build first, so a retried deploy is safe.
+- `yarn mercato auth sync-role-acls` is **not** needed for the causation foundation itself (Phase 1
+  adds no ACL features). The "Why?" explain core below adds features and **does** need it.
+
+**Action for standalone apps.** The API catch-all dispatcher must open the request's causation
+scope. If your app's `src/app/api/[...slug]/route.ts` predates this release, wrap the handler call
+(the create-app template already does):
+
+```ts
+import { runWithRequestCausation } from '@open-mercato/shared/lib/causation/server'
+
+const runHandler = () => runWithCacheTenant(
+  auth?.tenantId ?? null,
+  () => runWithRequestCausation(auth, () => handler(req, handlerContext)),
+)
+```
+
+Without it writes still succeed, but each command falls back to the authenticated principal as its
+cause and gets its own correlation id instead of sharing the request's.
+
+**Behavior changes:**
+
+- `rule_execution_logs.entity_id` for a rule triggered by a CRUD event is now the record id from
+  the event payload instead of `'unknown'`.
+- `startWorkflow` ignores `metadata.causation` supplied by the caller; the server sets it.
+- A caller-provided `context.causation` passed to the action log is always discarded, and the undo
+  trace row no longer inherits the undone entry's causation — it records the undo itself.
+- `ActionLogService.log` is now called as `log(payload, em, causation)` (the `em` may be
+  `undefined`), and `markUndone` accepts an optional fourth `causation` argument. **Action for module
+  authors:** a DI override or a test double of `actionLogService` must accept (and may ignore) the
+  optional extra argument.
+- Audit list responses gain `causeKind`, `causeId`, `correlationId` and `causedByLogId`, and the list
+  and CSV export accept `causeKind`/`causeId`/`correlationId` filters. Callers without
+  `audit_logs.view_tenant` receive `causeId`/`causedByLogId` as `null` for `user`/`agent` causes.
+
+**Kill switch.** Set `OM_CAUSATION=off` to stop capturing and propagating causation: new rows keep
+the cause columns `null` and the request, queue and workflow paths behave as before (a caller's
+`context.causation` and a client's workflow `metadata.causation` are still discarded).
+
+### Insights "Why?" explainer: regenerate and sync role ACLs
+
+The new `insights` module explains why a record value is what it is, from audit history and the
+recorded causation (`GET /api/insights/explain`, `/api/insights/explain/descriptors`,
+`/api/insights/explain/log`, CLI `yarn mercato insights explain:coverage`). Spec:
+[`2026-10-08-insights-causation-and-explain`](.ai/specs/2026-10-08-insights-causation-and-explain.md).
+
+**Action for operators.**
+
+- Run `yarn generate`. Modules contribute explain support through the new `insights.explain.ts`
+  convention file, aggregated into `insights-explain.generated.ts`; until the generator has run,
+  every explain request answers `404 not_found` because no resource is registered.
+- Run `yarn mercato auth sync-role-acls`. The module adds `insights.explain.view` (granted by default
+  to `superadmin`, `admin` and `employee`) and `insights.explain.access_detail` (granted through
+  `insights.*` to `superadmin` and `admin`). New tenants receive them from `setup.ts`; existing
+  tenants receive nothing until this command runs.
+- Optional: `OM_INSIGHTS_EXPLAIN_SCAN_MAX` (default `500`, capped at `5000`) bounds how many audit
+  rows one explain request reads.
+
+**Action for module authors.** To make a resource explainable, export
+`explainConfig = defineExplainConfig({ version: 1, ... })` from `insights.explain.ts`
+(`@open-mercato/shared/modules/insights/explain`) and run `yarn generate`. Every resource, cause
+resolver and reference resolver MUST declare a non-empty `requiredFeatures` list — declarations
+without one are skipped with a warning. A collection reads its child rows only when it declares
+`itemResourceKinds`. A DI override or test double of `actionLogService` used by explain must also
+provide the new read methods (`findFieldHistory`, `findHistoryEntryById`, `findLogScopes`, and for
+the coverage CLI `countHistoryByCause` and `findResourceIdsWithHistory`).
+
+**Behavior notes.** Explain never caches responses. Feature checks (resource, field, custom-field,
+audit visibility and resolver features) are evaluated at the organization of the explained record,
+so a feature granted by a role limited to another organization does not apply. Cause and reference
+resolvers are queried only within the record's organization; a tenant-level detail (no organization,
+other than a code identifier such as an AI tool id) is shown only to tenant-wide viewers. Past values
+and actor identities of other users stay hidden without `audit_logs.view_tenant`.
+
+**Action for API consumers.** In `GET /api/insights/explain/access`, `detail.rolesThatWouldGrant`
+(the tenant roles that would grant the requested features) is now included only for callers who
+also hold `auth.roles.list`; for other `insights.explain.access_detail` holders the field is
+omitted. Treat it as optional.
+
+### CrudForm renders the field spot family `crud-form:<entityId>:field:<fieldId>:after`
+
+`CrudForm` now renders the declared spot `crud-form:<entityId>:field:<fieldId>:after` at the end of
+every field of an **edit** form (a record id is present) when at least one widget is registered for
+that form's field-spot prefix: an exact key such as `crud-form:customers.deal:field:status:after` or a
+pattern that names the `:field:` segment such as `crud-form:customers.deal:field:*:after`. Widgets
+receive `{ entityId, recordId, fieldId, resourceKind? }` (`CrudFormFieldInjectionContext`). Spec:
+[`2026-10-08-insights-causation-and-explain`](.ai/specs/2026-10-08-insights-causation-and-explain.md)
+(Phase 4b).
+
+**Action for module authors.** A widget that was already registered on a
+`crud-form:…:field:…:after` key never rendered before this release and **starts rendering now**;
+remove the registration or gate the widget if that is not intended. Broad wildcards are unaffected:
+`crud-form:*` (for example the record-locks widget) keeps matching every form-level spot and never
+resolves into a field spot, and forms without field registrations render exactly as before. Hosts
+outside `CrudForm` can use `hasInjectionWidgetsForSpotPrefix(prefix)`
+(`@open-mercato/shared/modules/widgets/injection-loader`) or `useHasInjectionWidgetsForSpotPrefix`
+(`@open-mercato/ui/backend/injection/useHasInjectionWidgetsForSpotPrefix`) to apply the same rule. The
+context `CrudForm` passes to its form-level spots gains `injectionSpotId`.
+
+**Insights field "Why?".** The `insights` module adds an "Explain fields" switch to the header of the
+customers deal, person and company edit forms and a "?" button after each explainable field, shown only
+while the switch is on (remembered per browser and form). `GET /api/insights/explain/descriptors` field
+descriptors gain `currentPath`. The kill switch is the feature toggle `insights_field_explain` (default
+on), created by `seedDefaults` for new tenants when `feature_toggles` is enabled. Existing installations
+do not get the row automatically and the UI treats a missing toggle as enabled; to turn the feature off,
+create the global boolean toggle `insights_field_explain` with default `false` (or set a tenant override).
+
+**Action for operators.** Run `yarn generate` so the generated module facts mark the `fieldAfter`
+surface as bound.
+
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
 Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).

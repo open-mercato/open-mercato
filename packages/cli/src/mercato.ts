@@ -46,6 +46,7 @@ import { createDevEnvReloader, watchDevEnvFiles } from './lib/dev-env-reload'
 import { quotePostgresIdentifier } from './lib/db/identifiers'
 import { getRegisteredDevSupervisorManifest } from './lib/dev-supervisor-manifest'
 import { buildNextDevArgs } from './lib/next-dev-bundler'
+import { runCliCommandWithCausation } from './lib/cli-causation'
 // Lazy-imported to avoid pulling in `testcontainers` (devDependency) at startup
 const lazyIntegration = () => import('./lib/testing/integration')
 import type { ChildProcess } from 'node:child_process'
@@ -132,6 +133,11 @@ const TURBOPACK_CORRUPTION_PATTERNS = [
 const DEV_COLD_START_RETRY_DELAY_MS = 1500
 
 const BUILTIN_CLI_MODULE_IDS = new Set(['queue', 'generate', 'deploy', 'db', 'server', 'test'])
+
+function runModuleCliCommand<T>(moduleId: string, commandName: string, runCommand: () => T): T {
+  if (BUILTIN_CLI_MODULE_IDS.has(moduleId)) return runCommand()
+  return runCliCommandWithCausation(moduleId, commandName, runCommand)
+}
 
 function collectNestedErrors(error: unknown, seen = new Set<unknown>()): ErrorWithCause[] {
   if (!error || seen.has(error)) {
@@ -712,7 +718,7 @@ async function handleDirectEjectCommand(args: string[]): Promise<number> {
 }
 
 // Helper to run a CLI command directly (without spawning a process)
-async function runModuleCommand(
+export async function runModuleCommand(
   allModules: Module[],
   moduleName: string,
   commandName: string,
@@ -737,7 +743,7 @@ async function runModuleCommand(
     }
   }
 
-  await resolved.command.run(args)
+  await runModuleCliCommand(moduleName, commandName, () => resolved.command.run(args))
   return true
 }
 
@@ -2783,7 +2789,7 @@ export async function run(argv = process.argv) {
     : rest
   console.log(`🚀 Running ${modName}:${cmdName} ${loggedArgs.join(' ')}`)
   try {
-    await cmd.run(rest)
+    await runModuleCliCommand(modName, cmdName, () => cmd.run(rest))
     if (modName !== 'deploy' || cmdName !== 'railway') {
       const ms = Date.now() - started
       console.log(`⏱️ Done in ${ms}ms`)

@@ -1,12 +1,14 @@
-import { type APIRequestContext } from '@playwright/test'
-import { apiRequest } from '@open-mercato/core/helpers/integration/api'
+import { expect, type APIRequestContext } from '@playwright/test'
+import { apiRequest, withCredentialIsolatedRequest } from '@open-mercato/core/helpers/integration/api'
+import { createRoleFixture, setRoleAclFeatures } from '@open-mercato/core/helpers/integration/authFixtures'
 import { createDictionaryFixture } from '@open-mercato/core/helpers/integration/dictionariesFixtures'
-import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { expectId, getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 
 export const ACTIONS_PATH = '/api/audit_logs/audit-logs/actions'
 export const UNDO_PATH = '/api/audit_logs/audit-logs/actions/undo'
 export const REDO_PATH = '/api/audit_logs/audit-logs/actions/redo'
 export const EXPORT_PATH = '/api/audit_logs/audit-logs/actions/export'
+export const API_KEYS_PATH = '/api/api_keys/keys'
 
 // The dictionaries entry-create command logs under this resource kind. A
 // dictionary entry create is the cheapest auditable, undoable + redoable action
@@ -26,7 +28,14 @@ export type ActionLogItem = {
   undoToken: string | null
   createdAt: string
   updatedAt: string
+  causeKind?: string | null
+  causeId?: string | null
+  correlationId?: string | null
+  causedByLogId?: string | null
+  context?: Record<string, unknown> | null
 }
+
+export type ActionLogCausationFrame = { kind: string; id?: string | null; ref?: string | null }
 
 export type ActionLogListResponse = {
   items: ActionLogItem[]
@@ -142,4 +151,107 @@ export async function exportActionLogs(
 export function parseCsv(body: string): { header: string; dataLines: string[] } {
   const lines = body.split('\n').filter((line, index, all) => !(line === '' && index === all.length - 1))
   return { header: lines[0] ?? '', dataLines: lines.slice(1) }
+}
+
+/** Lists every action-log row recorded for one dictionary entry, newest first. */
+export async function listEntryActionLogs(
+  request: APIRequestContext,
+  token: string,
+  entryId: string,
+): Promise<ActionLogItem[]> {
+  const { status, body } = await listActionLogs(request, token, {
+    resourceKind: DICTIONARY_ENTRY_RESOURCE_KIND,
+    resourceId: entryId,
+  })
+  expect(status, 'action log list should return 200').toBe(200)
+  return body?.items ?? []
+}
+
+/** Reads the server-written causation frames from an action log's context. */
+export function readCausationFrames(item: ActionLogItem): ActionLogCausationFrame[] {
+  const causation = item.context?.causation
+  if (!causation || typeof causation !== 'object' || Array.isArray(causation)) return []
+  const frames = (causation as { frames?: unknown }).frames
+  if (!Array.isArray(frames)) return []
+  return frames.filter((frame): frame is ActionLogCausationFrame => (
+    Boolean(frame) && typeof frame === 'object' && typeof (frame as { kind?: unknown }).kind === 'string'
+  ))
+}
+
+function dictionaryEntryPath(dictionaryId: string, entryId: string): string {
+  return `/api/dictionaries/${encodeURIComponent(dictionaryId)}/entries/${encodeURIComponent(entryId)}`
+}
+
+export type DictionaryEntryPatch = {
+  dictionaryId: string
+  entryId: string
+  data: Record<string, unknown>
+  headers?: Record<string, string>
+}
+
+/** Updates a dictionary entry with a staff session token (`dictionaries.entries.update`). */
+export async function patchDictionaryEntry(
+  request: APIRequestContext,
+  token: string,
+  patch: DictionaryEntryPatch,
+): Promise<{ status: number; text: string }> {
+  const response = await apiRequest(request, 'PATCH', dictionaryEntryPath(patch.dictionaryId, patch.entryId), {
+    token,
+    data: patch.data,
+    headers: patch.headers,
+  })
+  return { status: response.status(), text: await response.text() }
+}
+
+/**
+ * Updates a dictionary entry authenticated only by an API key. The request runs in
+ * a cookie-free context: the shared `request` fixture carries the admin session
+ * cookie, which would otherwise win over the API key.
+ */
+export async function patchDictionaryEntryWithApiKey(
+  apiKeySecret: string,
+  patch: DictionaryEntryPatch,
+): Promise<{ status: number; text: string }> {
+  return withCredentialIsolatedRequest(async (isolatedRequest) => {
+    const response = await apiRequest(isolatedRequest, 'PATCH', dictionaryEntryPath(patch.dictionaryId, patch.entryId), {
+      token: '',
+      data: patch.data,
+      headers: { ...(patch.headers ?? {}), Authorization: `ApiKey ${apiKeySecret}` },
+    })
+    return { status: response.status(), text: await response.text() }
+  })
+}
+
+/** Creates a role that may read and write dictionaries, for API-key fixtures. */
+export async function createDictionaryWriterRole(
+  request: APIRequestContext,
+  token: string,
+  name: string,
+): Promise<string> {
+  const roleId = await createRoleFixture(request, token, { name })
+  await setRoleAclFeatures(request, token, {
+    roleId,
+    features: ['dictionaries.view', 'dictionaries.manage'],
+    organizations: null,
+  })
+  return roleId
+}
+
+/** Creates an API key bound to one role in the caller's organization. */
+export async function createApiKeyForRole(
+  request: APIRequestContext,
+  token: string,
+  input: { name: string; roleId: string },
+): Promise<{ id: string; secret: string }> {
+  const { organizationId } = getTokenScope(token)
+  const response = await apiRequest(request, 'POST', API_KEYS_PATH, {
+    token,
+    data: { name: input.name, roles: [input.roleId], organizationId },
+  })
+  const body = await readJsonSafe<{ id?: string; secret?: string }>(response)
+  expect(response.status(), 'POST /api/api_keys/keys should return 201').toBe(201)
+  return {
+    id: expectId(body?.id, 'API key create response should include id'),
+    secret: expectId(body?.secret, 'API key create response should include secret'),
+  }
 }

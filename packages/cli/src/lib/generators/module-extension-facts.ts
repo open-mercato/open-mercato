@@ -134,6 +134,8 @@ const FRAMEWORK_HOSTS: ModuleExtensionHostFact[] = [
   frameworkHost('framework.integration-detail-fallback', 'integrations.detail:tabs', 'integration', ['render-widget']),
   frameworkHost('framework.backend-mutation', 'backend-mutation:global', 'generic', ['headless-widget']),
   frameworkHost('framework.crud-form-wildcard', 'crud-form:*', 'crud-form', ['field-widget', 'lifecycle-handler']),
+  frameworkHost('framework.backend.access-denied-after', 'backend:access-denied:after', 'generic', ['render-widget']),
+  frameworkHost('framework.version-history.entry-after', 'version-history:entry:after', 'generic', ['render-widget']),
 ]
 
 function frameworkHost(
