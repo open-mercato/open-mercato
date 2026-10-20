@@ -10,6 +10,7 @@ import {
 } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import {
@@ -1026,56 +1027,40 @@ const deleteCompanyCommand: CommandHandler<
       const id = requireId(input, 'Company id required')
       const baseEm = (ctx.container.resolve('em') as EntityManager).fork()
       const snapshot = await loadCompanySnapshot(baseEm, id)
-      const entity = await baseEm.findOne(CustomerEntity, { id, deletedAt: null })
-      const record = assertFound(entity, 'Company not found')
-      ensureTenantScope(ctx, record.tenantId)
-      ensureOrganizationScope(ctx, record.organizationId)
 
-      const dependentScope = {
-        organizationId: record.organizationId,
-        tenantId: record.tenantId,
-      }
-      const personLinks = await baseEm.count(CustomerPersonCompanyLink, {
-        company: record,
-        deletedAt: null,
-        ...dependentScope,
-      })
-      const dealLinks = await baseEm.count(CustomerDealCompanyLink, {
-        company: record,
-      })
-      const directPeople = await baseEm.count(CustomerPersonProfile, {
-        company: record,
-        ...dependentScope,
-      })
-      if (personLinks > 0 || dealLinks > 0 || directPeople > 0) {
-        const { translate } = await resolveTranslations()
-        throw buildCompanyHasDependentsError(translate, { personLinks, dealLinks, directPeople })
-      }
+      const { record, profile, labelAssignments } = await baseEm.transactional(async (em) => {
+        // Lock the entity row first, before any dependent check or child
+        // cleanup, so a concurrent insert of a child row (label assignment,
+        // person link, deal link, direct person, etc.) serializes behind
+        // this transaction instead of racing the final delete with a 409
+        // FOREIGN_KEY_VIOLATION. See issue #7613.
+        const entity = await em.findOne(CustomerEntity, { id, deletedAt: null }, { lockMode: LockMode.PESSIMISTIC_WRITE })
+        const record = assertFound(entity, 'Company not found')
+        ensureTenantScope(ctx, record.tenantId)
+        ensureOrganizationScope(ctx, record.organizationId)
 
-      const profile = await baseEm.findOne(CustomerCompanyProfile, { entity: record })
-      let labelAssignments: LabelAssignmentRestoreSnapshot[] = []
-
-      await baseEm.transactional(async (em) => {
-        const recheckPersonLinks = await em.count(CustomerPersonCompanyLink, {
+        const dependentScope = {
+          organizationId: record.organizationId,
+          tenantId: record.tenantId,
+        }
+        const personLinks = await em.count(CustomerPersonCompanyLink, {
           company: record,
           deletedAt: null,
           ...dependentScope,
         })
-        const recheckDealLinks = await em.count(CustomerDealCompanyLink, {
+        const dealLinks = await em.count(CustomerDealCompanyLink, {
           company: record,
         })
-        const recheckDirectPeople = await em.count(CustomerPersonProfile, {
+        const directPeople = await em.count(CustomerPersonProfile, {
           company: record,
           ...dependentScope,
         })
-        if (recheckPersonLinks > 0 || recheckDealLinks > 0 || recheckDirectPeople > 0) {
+        if (personLinks > 0 || dealLinks > 0 || directPeople > 0) {
           const { translate } = await resolveTranslations()
-          throw buildCompanyHasDependentsError(translate, {
-            personLinks: recheckPersonLinks,
-            dealLinks: recheckDealLinks,
-            directPeople: recheckDirectPeople,
-          })
+          throw buildCompanyHasDependentsError(translate, { personLinks, dealLinks, directPeople })
         }
+
+        const profile = await em.findOne(CustomerCompanyProfile, { entity: record })
 
         await em.nativeUpdate(CustomerPersonProfile, { company: record }, { company: null })
         // Soft-deleted person links keep their `company_entity_id` foreign key, so the hard
@@ -1098,7 +1083,7 @@ const deleteCompanyCommand: CommandHandler<
           await em.nativeDelete(CustomFieldValue, { entityId: COMPANY_ENTITY_ID, recordId: profile.id })
         }
         await em.nativeDelete(CustomFieldValue, { entityId: CUSTOMER_ENTITY_ID, recordId: record.id })
-        labelAssignments = await removeEntityLabelAssignments(em, record)
+        const labelAssignments = await removeEntityLabelAssignments(em, record)
         const txEntity = await findOneWithDecryption(
           em,
           CustomerEntity,
@@ -1107,6 +1092,7 @@ const deleteCompanyCommand: CommandHandler<
           { tenantId: record.tenantId, organizationId: record.organizationId },
         )
         if (txEntity) em.remove(txEntity)
+        return { record, profile, labelAssignments }
       })
 
       const indexDeletes: QueryIndexEventEntry[] = []
