@@ -112,6 +112,7 @@
   "ledger.errors.journalEntryLineNotOneSided": "Cada línea del asiento contable debe tener exactamente un lado (debe o haber) mayor que cero.",
   "ledger.errors.journalEntryNotBalanced": "El asiento contable no está cuadrado: el total del debe debe ser igual al total del haber.",
   "ledger.errors.journalEntryNotFound": "Asiento contable no encontrado.",
+  "ledger.errors.journalEntryTooFewLines": "Un asiento contable requiere al menos dos líneas.",
   "ledger.errors.ledgerAccountNotFound": "Cuenta contable no encontrada.",
   "ledger.errors.noFiscalPeriodForOperationDate": "Ningún periodo fiscal cubre esta fecha de operación. Cree uno antes de contabilizar.",
   "ledger.errors.organizationRequired": "Se requiere el contexto de la organización",
