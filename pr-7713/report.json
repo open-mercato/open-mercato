@@ -1,0 +1,90 @@
+{
+  "runId": "issue-7702-2026-10-20",
+  "mode": "pr",
+  "target": {
+    "prNumber": 7713,
+    "title": "fix(ui): keep DataTable column headers visible while scrolling (#7702)",
+    "branch": "fix/issue-7702-sticky-table-header",
+    "headSha": "38f2b5b0a0a12a8b3eee718e7990daa0d2885037"
+  },
+  "verdict": "PARTIAL",
+  "environment": {
+    "baseUrl": "http://127.0.0.1:59950",
+    "role": "admin",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright"
+  },
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P1",
+      "action": "People: filter20 synthetic records, select100 per page, scroll rows300px",
+      "expected": "Header remains at viewport top and opaque",
+      "observed": "Header y234 equals scroll viewport y234;20/20 filtered records; Name sort returns200",
+      "result": "PASS",
+      "screenshot": "people-full-app.png"
+    },
+    {
+      "step": 2,
+      "priority": "P1",
+      "action": "Companies: filter20 synthetic records, select100 per page, scroll rows300px",
+      "expected": "Header remains at viewport top and opaque",
+      "observed": "Header y233 equals scroll viewport y233;20/20 filtered records; Name sort returns200",
+      "result": "PASS",
+      "screenshot": "companies-full-app.png"
+    },
+    {
+      "step": 3,
+      "priority": "P1",
+      "action": "Scroll actual pages vertically and horizontally180px, then sort",
+      "expected": "Header/body remain aligned; Name and Actions remain pinned",
+      "observed": "Both pages scroll83px; header remains visible at y151; pinned columns and sort work",
+      "result": "PASS",
+      "screenshot": "people-full-app.png"
+    },
+    {
+      "step": 4,
+      "priority": "P1",
+      "action": "Component fixture: app-bar clipping, embedded/padded panels, table-bottom clamp, sort/resize/reorder",
+      "expected": "Original header stays visible and interactive without changing scroll ownership",
+      "observed": "37/37 scrolling/control observations pass; clipped header y61, padded panel y282, resize+90px and reorder pass",
+      "result": "PASS",
+      "screenshot": "controls-scrolled.png"
+    },
+    {
+      "step": 5,
+      "priority": "P1",
+      "action": "Component fixture: dark theme and390px viewport",
+      "expected": "Readable opaque header; narrow viewport columns remain reachable",
+      "observed": "6/6 dark/narrow observations pass; desktop pinning and narrow ordinary horizontal scroll retained",
+      "result": "PASS",
+      "screenshot": "dark-virtual-scrolled.png"
+    },
+    {
+      "step": 6,
+      "priority": "P1",
+      "action": "Observe normal initial table loading on actual routes",
+      "expected": "Table loading state renders while data resolves",
+      "observed": "Initial accessibility snapshots captured Loading data and column headers before the settled view",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 7,
+      "priority": "P1",
+      "action": "Exercise empty, forced-error and no-permission route states",
+      "expected": "Existing route/table boundary states remain usable",
+      "observed": "Not exercised in this scoped run",
+      "result": "not exercised",
+      "screenshot": null
+    }
+  ],
+  "hasUiTest": false,
+  "notes": [
+    "All changed-behavior checks passed on the real component and both actual routes. Complete route-state matrix remains unexercised; no QA approval granted.",
+    "Actual pages allow only83px outer scroll; clipping beneath the61px app bar is proved by the component fixture.",
+    "Two earlier QA harness attempts failed on hydration timing and an omitted bearer token in a supplemental read; each deleted40/40 fixtures. Final run deleted40/40. No fixtures remain.",
+    "Disposable environment passed cold and warm readiness and was stopped after verification.",
+    "Full local monorepo test gate remains red for the disclosed create-app harness limits; required GitHub CI is pending."
+  ]
+}
