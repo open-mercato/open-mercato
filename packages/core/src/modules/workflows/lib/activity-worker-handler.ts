@@ -34,6 +34,7 @@ import './activity-registry-bootstrap'
 import type { ActivityContext } from './activity-executor'
 import { SUB_WORKFLOW_SIGNAL_NAME } from './activity-executor'
 import { getActivityType, type ActivityExecuteDeps } from './activity-registry'
+import { runInWorkflowCausationFrame } from './workflow-causation'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows').child({ component: 'activity-worker' })
@@ -61,7 +62,10 @@ export async function executeRegistryActivity(
     )
   }
   const runActivity = entry.executeAsync ?? entry.execute
-  return await runActivity(payload.activityConfig, activityContext, deps)
+  return await runInWorkflowCausationFrame(
+    { instance: activityContext.workflowInstance, stepInstanceId: activityContext.stepInstanceId },
+    () => runActivity(payload.activityConfig, activityContext, deps),
+  )
 }
 
 /**

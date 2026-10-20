@@ -3,6 +3,8 @@
 import * as React from 'react'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import type { VersionHistoryEntry } from './types'
+import { InjectionSpot } from '../injection/InjectionSpot'
+import { VERSION_HISTORY_ENTRY_AFTER_INJECTION_SPOT_ID } from '../injection/spotIds'
 import { getVersionHistoryActionLabel, getVersionHistoryStatusLabel } from './labels'
 import {
   ChangedFieldsTable,
@@ -10,6 +12,12 @@ import {
   extractChangeRows,
   formatDate,
 } from '@open-mercato/core/modules/audit_logs/lib/display-helpers'
+
+export type VersionHistoryEntryInjectionContext = {
+  logId: string
+  resourceKind: string | null
+  resourceId: string | null
+}
 
 export type VersionHistoryDetailProps = {
   entry: VersionHistoryEntry
@@ -23,6 +31,10 @@ export function VersionHistoryDetail({ entry, t }: VersionHistoryDetailProps) {
   const changeRows = React.useMemo(
     () => extractChangeRows(entry.changes, entry.snapshotBefore),
     [entry.changes, entry.snapshotBefore],
+  )
+  const entryInjectionContext = React.useMemo<VersionHistoryEntryInjectionContext>(
+    () => ({ logId: entry.id, resourceKind: entry.resourceKind ?? null, resourceId: entry.resourceId ?? null }),
+    [entry.id, entry.resourceKind, entry.resourceId],
   )
   const hasContext = !!entry.context && typeof entry.context === 'object' && Object.keys(entry.context).length > 0
   const snapshots = React.useMemo(() => {
@@ -65,6 +77,10 @@ export function VersionHistoryDetail({ entry, t }: VersionHistoryDetailProps) {
             <dd className="break-words text-sm">{statusLabel}</dd>
           </div>
         </dl>
+      </section>
+
+      <section className="empty:hidden">
+        <InjectionSpot spotId={VERSION_HISTORY_ENTRY_AFTER_INJECTION_SPOT_ID} context={entryInjectionContext} />
       </section>
 
       <ChangedFieldsTable changeRows={changeRows} noneLabel={noneLabel} t={t} />

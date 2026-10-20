@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/core'
 import { runWithCacheTenant, type CacheStrategy } from '@open-mercato/cache'
 import type { EventBus } from '@open-mercato/events'
@@ -8,6 +9,15 @@ import type { RuleEvaluationContext } from './rule-evaluator'
 import type { ActionContext, ActionExecutionOutcome } from './action-executor'
 import { ruleEngineContextSchema, ruleDiscoveryOptionsSchema, directRuleExecutionContextSchema, ruleIdExecutionContextSchema } from '../data/validators'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  getAmbientCausation,
+  isCausationEnabled,
+  isUuid,
+  toIdentifierOnlyCausation,
+  withCausationFrame,
+  type CausationEnvelope,
+} from '@open-mercato/shared/lib/causation/server'
+import { computeRuleDefinitionHash } from './definition-hash'
 
 const logger = createLogger('business_rules').child({ component: 'rule-engine' })
 
@@ -75,6 +85,7 @@ export interface RuleExecutionResult {
   executionTime: number
   error?: string
   logId?: string  // Database log ID (if logged)
+  runId?: string
 }
 
 /**
@@ -278,6 +289,7 @@ export interface DirectRuleExecutionResult {
   executionTime: number
   error?: string
   logId?: string
+  runId?: string
 }
 
 /**
@@ -469,6 +481,7 @@ export async function executeSingleRule(
   options: RuleEngineExecutionOptions = {}
 ): Promise<RuleExecutionResult> {
   const startTime = Date.now()
+  const runId = randomUUID()
 
   try {
     // Wrap execution in timeout
@@ -501,6 +514,7 @@ export async function executeSingleRule(
             actionsExecuted: null,
             executionTime,
             error: result.error,
+            runId,
           })
 
           await emitRuleExecutionFailed(options.eventBus, {
@@ -520,6 +534,7 @@ export async function executeSingleRule(
           executionTime,
           error: result.error,
           logId,
+          runId,
         }
       }
 
@@ -541,8 +556,9 @@ export async function executeSingleRule(
           em: em as any,
         }
 
-        // Execute actions
-        actionsExecuted = await actionExecutor.executeActions(actions, actionContext)
+        actionsExecuted = await runInRuleCausationFrame(rule, runId, () =>
+          actionExecutor.executeActions(actions, actionContext),
+        )
       }
 
       const executionTime = Date.now() - startTime
@@ -557,6 +573,7 @@ export async function executeSingleRule(
           conditionResult: result.conditionsPassed,
           actionsExecuted,
           executionTime,
+          runId,
         })
       }
 
@@ -566,6 +583,7 @@ export async function executeSingleRule(
         actionsExecuted,
         executionTime,
         logId,
+        runId,
       }
     }
 
@@ -591,6 +609,7 @@ export async function executeSingleRule(
         actionsExecuted: null,
         executionTime,
         error: enhancedError,
+        runId,
       })
 
       await emitRuleExecutionFailed(options.eventBus, {
@@ -610,8 +629,13 @@ export async function executeSingleRule(
       executionTime,
       error: enhancedError,
       logId,
+      runId,
     }
   }
+}
+
+function runInRuleCausationFrame<T>(rule: BusinessRule, runId: string, run: () => Promise<T>): Promise<T> {
+  return withCausationFrame({ kind: 'business_rule', id: rule.id, ref: runId }, run)
 }
 
 /**
@@ -789,6 +813,7 @@ export async function executeRuleById(
     executionTime: result.executionTime,
     error: result.error,
     logId: result.logId,
+    runId: result.runId,
   }
 }
 
@@ -901,6 +926,7 @@ export async function executeRuleByRuleId(
     executionTime: result.executionTime,
     error: result.error,
     logId: result.logId,
+    runId: result.runId,
   }
 }
 
@@ -999,13 +1025,23 @@ interface LogExecutionOptions {
   actionsExecuted: ActionExecutionOutcome | null
   executionTime: number
   error?: string
+  runId?: string | null
+}
+
+function resolveRuleVersion(rule: BusinessRule): number | null {
+  return typeof rule.version === 'number' && Number.isInteger(rule.version) ? rule.version : null
+}
+
+function captureRuleCausation(): CausationEnvelope | null {
+  if (!isCausationEnabled()) return null
+  return toIdentifierOnlyCausation(getAmbientCausation())
 }
 
 export async function logRuleExecution(
   em: EntityManager,
   options: LogExecutionOptions
 ): Promise<string> {
-  const { rule, context, conditionResult, actionsExecuted, executionTime, error } = options
+  const { rule, context, conditionResult, actionsExecuted, executionTime, error, runId } = options
 
   const executionResult: 'SUCCESS' | 'FAILURE' | 'ERROR' = error
     ? EXECUTION_RESULT_ERROR
@@ -1038,6 +1074,10 @@ export async function logRuleExecution(
     tenantId: context.tenantId,
     organizationId: context.organizationId,
     executedBy: context.executedBy || null,
+    runId: isUuid(runId) ? runId : null,
+    ruleVersion: resolveRuleVersion(rule),
+    ruleDefinitionHash: computeRuleDefinitionHash(rule),
+    causationJson: captureRuleCausation(),
   })
 
   await em.persist(log).flush()

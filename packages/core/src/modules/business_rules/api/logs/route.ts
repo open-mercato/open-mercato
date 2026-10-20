@@ -39,6 +39,7 @@ const logListItemSchema = z.object({
   tenantId: z.string().uuid(),
   organizationId: z.string().uuid().nullable(),
   executedBy: z.string().nullable(),
+  runId: z.string().uuid().nullable(),
 })
 
 const logListResponseSchema = z.object({
@@ -152,6 +153,7 @@ export async function GET(req: Request) {
     tenantId: log.tenantId,
     organizationId: log.organizationId ?? null,
     executedBy: log.executedBy ?? null,
+    runId: log.runId ?? null,
   }))
 
   const totalPages = Math.max(1, Math.ceil(count / pageSize))

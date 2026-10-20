@@ -1,5 +1,6 @@
 import { OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, ManyToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import type { CausationEnvelope } from '@open-mercato/shared/lib/causation/types'
 
 export type RuleType = 'GUARD' | 'VALIDATION' | 'CALCULATION' | 'ACTION' | 'ASSIGNMENT'
 export type ExecutionResult = 'SUCCESS' | 'FAILURE' | 'ERROR'
@@ -99,6 +100,11 @@ export class BusinessRule {
 @Index({ name: 'rule_execution_logs_entity_idx', properties: ['entityType', 'entityId'] })
 @Index({ name: 'rule_execution_logs_result_idx', properties: ['executionResult', 'executedAt'] })
 @Index({ name: 'rule_execution_logs_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({
+  name: 'rule_execution_logs_run_idx',
+  expression:
+    'create index "rule_execution_logs_run_idx" on "rule_execution_logs" ("tenant_id", "run_id") where "run_id" is not null',
+})
 export class RuleExecutionLog {
   [OptionalProps]?: 'executedAt'
 
@@ -140,6 +146,18 @@ export class RuleExecutionLog {
 
   @Property({ name: 'executed_by', type: 'varchar', length: 50, nullable: true })
   executedBy?: string | null
+
+  @Property({ name: 'run_id', type: 'uuid', nullable: true })
+  runId?: string | null
+
+  @Property({ name: 'rule_version', type: 'integer', nullable: true })
+  ruleVersion?: number | null
+
+  @Property({ name: 'rule_definition_hash', type: 'text', nullable: true })
+  ruleDefinitionHash?: string | null
+
+  @Property({ name: 'causation_json', type: 'jsonb', nullable: true })
+  causationJson?: CausationEnvelope | null
 }
 
 /**

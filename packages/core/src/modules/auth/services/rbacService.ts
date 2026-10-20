@@ -1,7 +1,7 @@
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { getCurrentCacheTenant, runWithCacheTenant } from '@open-mercato/cache'
-import { UserAcl, RoleAcl, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { UserAcl, RoleAcl, User, UserRole, Role } from '@open-mercato/core/modules/auth/data/entities'
 import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -9,15 +9,155 @@ import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth
 import { buildOrgScopeUserCacheTag, buildOrgScopeTenantCacheTag } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import {
   authorizeFeatures,
+  isAclFeatureRemoved,
   resolveEffectiveFeatures,
 } from '@open-mercato/shared/security/featurePolicy'
 import { filterGrantsByEnabledModules } from '@open-mercato/shared/security/enabledModulesRegistry'
-import { resolveRoleOrganizationScope, roleAclAllowsOrganization } from './roleOrganizationScope'
+import {
+  resolveRoleOrganizationScope,
+  roleAclAllowsOrganization,
+  type RoleOrganizationScope,
+} from './roleOrganizationScope'
 
 interface AclData {
   isSuperAdmin: boolean
   features: string[]
   organizations: string[] | null
+}
+
+export const ACCESS_EXPLANATION_REASONS = [
+  'missing_feature',
+  'organization_out_of_scope',
+  'user_acl_override',
+  'module_disabled',
+  'feature_removed',
+] as const
+
+export type AccessExplanationReason = (typeof ACCESS_EXPLANATION_REASONS)[number]
+
+export type AccessExplanationSource = 'super_admin' | 'user_acl' | 'roles' | 'api_key' | 'none'
+
+export type AccessExplanationScope = {
+  tenantId: string | null
+  organizationId: string | null
+}
+
+export type AccessFeatureExplanation = {
+  feature: string
+  granted: boolean
+  reason: AccessExplanationReason | null
+}
+
+export type AccessRoleGrant = {
+  roleId: string
+  roleName: string | null
+  isSuperAdmin: boolean
+  organizations: string[] | null
+  appliesToOrganization: boolean
+  grantedFeatures: string[]
+}
+
+export type AccessUserAclGrant = {
+  isSuperAdmin: boolean
+  organizations: string[] | null
+  grantedFeatures: string[]
+}
+
+export type AccessExplanationDetail = {
+  principal: 'user' | 'api_key'
+  source: AccessExplanationSource
+  organizationId: string | null
+  organizationAllowed: boolean
+  aclOrganizations: string[] | null
+  features: AccessFeatureExplanation[]
+  userAcl: AccessUserAclGrant | null
+  roles: AccessRoleGrant[]
+  rolesThatWouldGrant: AccessRoleGrant[]
+  grantedOrganizationIds: string[] | null
+}
+
+export type AccessExplanation = {
+  decision: 'granted' | 'denied'
+  required: AccessFeatureExplanation[]
+  reasons: AccessExplanationReason[]
+  confidence: 'proven' | 'inferred'
+  consistentWithFreshRead: boolean
+  detail: AccessExplanationDetail | null
+}
+
+export type AccessExplanationOptions = {
+  detail?: boolean
+}
+
+const API_KEY_PRINCIPAL_PREFIX = 'api_key:'
+
+function readEntityReferenceId(value: unknown): string | null {
+  if (typeof value === 'string' && value.length > 0) return value
+  if (value && typeof value === 'object' && 'id' in value) {
+    const id = value.id
+    return typeof id === 'string' && id.length > 0 ? id : null
+  }
+  return null
+}
+
+function uniqueIds(values: Iterable<string | null>): string[] {
+  const ids = new Set<string>()
+  for (const value of values) if (value) ids.add(value)
+  return Array.from(ids)
+}
+
+function grantedFeatureSubset(required: readonly string[], grants: readonly string[], unrestricted: boolean): string[] {
+  return required.filter((feature) => authorizeFeatures([feature], { grantedFeatures: grants, unrestricted }))
+}
+
+function explainFeaturePolicy(feature: string): AccessExplanationReason | null {
+  if (authorizeFeatures([feature], { grantedFeatures: [], unrestricted: true })) return null
+  return isAclFeatureRemoved(feature) ? 'feature_removed' : 'module_disabled'
+}
+
+function collectAccessReasons(
+  features: readonly AccessFeatureExplanation[],
+  granted: boolean,
+  userAclReplacesGrantingRole: boolean,
+): AccessExplanationReason[] {
+  const present = new Set<AccessExplanationReason>()
+  for (const entry of features) if (entry.reason) present.add(entry.reason)
+  if (!granted && userAclReplacesGrantingRole) present.add('user_acl_override')
+  return ACCESS_EXPLANATION_REASONS.filter((reason) => present.has(reason))
+}
+
+function resolveAccessSource(params: {
+  isSuperAdmin: boolean
+  isApiKey: boolean
+  hasUserAcl: boolean
+  roleCount: number
+}): AccessExplanationSource {
+  if (params.isSuperAdmin) return 'super_admin'
+  if (params.isApiKey) return 'api_key'
+  if (params.hasUserAcl) return 'user_acl'
+  return params.roleCount > 0 ? 'roles' : 'none'
+}
+
+function toAccessRoleGrant(
+  acl: Pick<RoleAcl, 'isSuperAdmin' | 'featuresJson' | 'organizationsJson'>,
+  role: { id: string; name: string | null },
+  required: readonly string[],
+  roleScope: RoleOrganizationScope,
+): AccessRoleGrant {
+  const isSuperAdmin = acl.isSuperAdmin === true
+  return {
+    roleId: role.id,
+    roleName: role.name,
+    isSuperAdmin,
+    organizations: Array.isArray(acl.organizationsJson) ? [...acl.organizationsJson] : null,
+    appliesToOrganization: roleAclAllowsOrganization(acl, roleScope),
+    grantedFeatures: grantedFeatureSubset(required, Array.isArray(acl.featuresJson) ? acl.featuresJson : [], isSuperAdmin),
+  }
+}
+
+function compareRoleGrants(left: AccessRoleGrant, right: AccessRoleGrant): number {
+  const byName = (left.roleName ?? '').localeCompare(right.roleName ?? '')
+  return byName !== 0 ? byName : left.roleId.localeCompare(right.roleId)
 }
 
 async function resolveRoleOrganizationScopeWithEntityManager(
@@ -1122,5 +1262,309 @@ export class RbacService {
       || acl.organizations.includes('__all__')
     if (!organizationAllowed) return []
     return resolveEffectiveFeatures(acl.isSuperAdmin ? ['*'] : acl.features)
+  }
+
+  /**
+   * Explains `userHasAllFeatures(userId, features, scope)`.
+   *
+   * The decision is evaluated on the same cache-backed `loadAcl` projection and
+   * `authorizeFeatures` policy that the route and page guards use, so it always equals
+   * what `userHasAllFeatures` returns at that moment — the explanation describes the
+   * decision the guards actually make. The RBAC cache is tag-invalidated on every user,
+   * role, ACL and organization-hierarchy change; a cache-bypassing re-evaluation
+   * (`userHasAllFeaturesWithEntityManager`) cross-checks it, and a disagreement (a stale
+   * cache window) lowers `confidence` to `inferred`. Per-user ACL presence, role grants
+   * and organization reach are always read fresh.
+   *
+   * Reasons: `feature_removed` / `module_disabled` (policy, from `authorizeFeatures`),
+   * `organization_out_of_scope` (the evaluated organization is outside the principal's
+   * ACL organizations, or the feature is granted only in other organizations, per
+   * `resolveFeatureOrganizationAccess`), `missing_feature`, and `user_acl_override` when a
+   * per-user ACL replaces role grants and one of the principal's roles, applicable at the
+   * evaluated organization, would grant a denied feature.
+   */
+  async explainAccess(
+    userId: string,
+    features: readonly string[],
+    scope: AccessExplanationScope,
+    options: AccessExplanationOptions = {},
+  ): Promise<AccessExplanation> {
+    const required = Array.from(new Set(features))
+    const acl = await this.loadAcl(userId, scope)
+    const organizationAllowed = acl.isSuperAdmin
+      || !acl.organizations
+      || !scope.organizationId
+      || acl.organizations.includes(scope.organizationId)
+      || acl.organizations.includes('__all__')
+    const granted = required.length === 0 || authorizeFeatures(required, {
+      grantedFeatures: acl.features,
+      unrestricted: acl.isSuperAdmin,
+      scopeAllowed: organizationAllowed,
+    })
+    const em = this.em.fork()
+    const isApiKey = userId.startsWith(API_KEY_PRINCIPAL_PREFIX)
+    const tenantId = scope.tenantId || await this.resolvePrincipalTenantId(em, userId)
+    let organizationCandidates: FeatureOrganizationCandidate[] | null = null
+    const loadOrganizationCandidates = async (): Promise<FeatureOrganizationCandidate[]> => {
+      if (!tenantId) return []
+      if (!organizationCandidates) organizationCandidates = await this.loadTenantOrganizationCandidates(em, tenantId)
+      return organizationCandidates
+    }
+
+    const policyExplained: AccessFeatureExplanation[] = required.map((feature) => {
+      const policyReason = explainFeaturePolicy(feature)
+      if (policyReason) return { feature, granted: false, reason: policyReason }
+      if (!organizationAllowed) return { feature, granted: false, reason: 'organization_out_of_scope' }
+      const featureGranted = authorizeFeatures([feature], { grantedFeatures: acl.features, unrestricted: acl.isSuperAdmin })
+      return { feature, granted: featureGranted, reason: featureGranted ? null : 'missing_feature' }
+    })
+    const featureExplanations = await this.refineOrganizationReasons({
+      userId,
+      features: policyExplained,
+      tenantId,
+      organizationId: scope.organizationId,
+      loadOrganizationCandidates,
+    })
+
+    const userAcl = !isApiKey && tenantId
+      ? await findOneWithDecryption(em, UserAcl, { user: userId, tenantId }, undefined, { tenantId, organizationId: null })
+      : null
+    let principalRoles: AccessRoleGrant[] | null = null
+    const loadRoles = async (): Promise<AccessRoleGrant[]> => {
+      if (principalRoles) return principalRoles
+      if (!tenantId) return []
+      const roleScope = await resolveRoleOrganizationScope(this.organizationHierarchyService, tenantId, scope.organizationId)
+      principalRoles = await this.loadPrincipalRoleGrants(em, userId, tenantId, scope.organizationId, required, roleScope)
+      return principalRoles
+    }
+    const deniedFeatures = featureExplanations
+      .filter((entry) => entry.reason === 'missing_feature' || entry.reason === 'organization_out_of_scope')
+      .map((entry) => entry.feature)
+    const userAclReplacesGrantingRole = !granted
+      && Boolean(userAcl)
+      && !acl.isSuperAdmin
+      && deniedFeatures.length > 0
+      && (await loadRoles()).some((role) => (
+        role.appliesToOrganization && role.grantedFeatures.some((feature) => deniedFeatures.includes(feature))
+      ))
+    const reasons = collectAccessReasons(featureExplanations, granted, userAclReplacesGrantingRole)
+    const freshGranted = required.length === 0
+      || await this.userHasAllFeaturesWithEntityManager(this.em.fork(), userId, [...required], scope)
+    const consistentWithFreshRead = freshGranted === granted
+
+    let detail: AccessExplanationDetail | null = null
+    if (options.detail) {
+      const roles = await loadRoles()
+      const featureAccess = tenantId ? await this.resolveFeatureOrganizationAccess(userId, required, { tenantId }) : null
+      detail = {
+        principal: isApiKey ? 'api_key' : 'user',
+        source: resolveAccessSource({
+          isSuperAdmin: acl.isSuperAdmin,
+          isApiKey,
+          hasUserAcl: Boolean(userAcl),
+          roleCount: roles.length,
+        }),
+        organizationId: scope.organizationId,
+        organizationAllowed,
+        aclOrganizations: acl.organizations ? [...acl.organizations] : null,
+        features: featureExplanations,
+        userAcl: userAcl
+          ? {
+            isSuperAdmin: userAcl.isSuperAdmin === true,
+            organizations: Array.isArray(userAcl.organizationsJson) ? [...userAcl.organizationsJson] : null,
+            grantedFeatures: grantedFeatureSubset(
+              required,
+              Array.isArray(userAcl.featuresJson) ? userAcl.featuresJson : [],
+              userAcl.isSuperAdmin === true,
+            ),
+          }
+          : null,
+        roles,
+        rolesThatWouldGrant: tenantId
+          ? await this.findRolesGrantingFeatures(tenantId, required, { organizationId: scope.organizationId })
+          : [],
+        grantedOrganizationIds: !featureAccess || featureAccess.unrestricted
+          ? null
+          : featureAccess.filterOrganizationIds(await loadOrganizationCandidates()),
+      }
+    }
+
+    return {
+      decision: granted ? 'granted' : 'denied',
+      required: featureExplanations,
+      reasons,
+      confidence: consistentWithFreshRead ? 'proven' : 'inferred',
+      consistentWithFreshRead,
+      detail,
+    }
+  }
+
+  /**
+   * Lists the tenant's roles whose ACL grants every feature in `features` (wildcard
+   * aware; super-admin roles included; removed or disabled features are never granted),
+   * with their organization applicability at `options.organizationId`. Deleted roles and
+   * role ACLs are skipped. Reads are fresh (no cache).
+   */
+  async findRolesGrantingFeatures(
+    tenantId: string | null,
+    features: readonly string[],
+    options: { organizationId?: string | null } = {},
+  ): Promise<AccessRoleGrant[]> {
+    const required = Array.from(new Set(features))
+    if (!tenantId || required.length === 0) return []
+    const em = this.em.fork()
+    const roleAcls = await findWithDecryption(
+      em,
+      RoleAcl,
+      { tenantId, deletedAt: null },
+      undefined,
+      { tenantId, organizationId: null },
+    )
+    const granting = roleAcls.filter((acl) => authorizeFeatures(required, {
+      grantedFeatures: Array.isArray(acl.featuresJson) ? acl.featuresJson : [],
+      unrestricted: acl.isSuperAdmin === true,
+    }))
+    const roleIds = uniqueIds(granting.map((acl) => readEntityReferenceId(acl.role)))
+    if (roleIds.length === 0) return []
+    const roles = await findWithDecryption(
+      em,
+      Role,
+      { id: { $in: roleIds }, tenantId, deletedAt: null },
+      undefined,
+      { tenantId, organizationId: null },
+    )
+    const namesById = new Map(roles.map((role) => [String(role.id), typeof role.name === 'string' ? role.name : null]))
+    const roleScope = await resolveRoleOrganizationScope(this.organizationHierarchyService, tenantId, options.organizationId ?? null)
+    const result: AccessRoleGrant[] = []
+    for (const acl of granting) {
+      const roleId = readEntityReferenceId(acl.role)
+      if (!roleId || !namesById.has(roleId)) continue
+      result.push(toAccessRoleGrant(acl, { id: roleId, name: namesById.get(roleId) ?? null }, required, roleScope))
+    }
+    return result.sort(compareRoleGrants)
+  }
+
+  private async resolvePrincipalTenantId(em: EntityManager, userId: string): Promise<string | null> {
+    if (userId.startsWith(API_KEY_PRINCIPAL_PREFIX)) {
+      const key = await findOneWithDecryption(em, ApiKey, { id: userId.slice(API_KEY_PRINCIPAL_PREFIX.length), deletedAt: null })
+      return key?.tenantId ?? null
+    }
+    const user = await findOneWithDecryption(em, User, { id: userId })
+    return user?.tenantId ?? null
+  }
+
+  private async loadTenantOrganizationCandidates(em: EntityManager, tenantId: string): Promise<FeatureOrganizationCandidate[]> {
+    const organizations = await findWithDecryption(
+      em,
+      Organization,
+      { tenant: tenantId, deletedAt: null } as FilterQuery<Organization>,
+      { fields: ['id', 'ancestorIds'] },
+      { tenantId, organizationId: null },
+    )
+    return organizations.map((organization) => ({
+      id: String(organization.id),
+      ancestorIds: Array.isArray(organization.ancestorIds)
+        ? organization.ancestorIds.filter((ancestorId): ancestorId is string => typeof ancestorId === 'string')
+        : [],
+    }))
+  }
+
+  /**
+   * A feature missing at the evaluated organization but granted to the principal in
+   * another organization of the tenant is reported as `organization_out_of_scope`.
+   */
+  private async refineOrganizationReasons(params: {
+    userId: string
+    features: AccessFeatureExplanation[]
+    tenantId: string | null
+    organizationId: string | null
+    loadOrganizationCandidates: () => Promise<FeatureOrganizationCandidate[]>
+  }): Promise<AccessFeatureExplanation[]> {
+    const { tenantId, organizationId } = params
+    if (!tenantId || !organizationId || !params.features.some((entry) => entry.reason === 'missing_feature')) {
+      return params.features
+    }
+    const candidates = await params.loadOrganizationCandidates()
+    return Promise.all(params.features.map(async (entry): Promise<AccessFeatureExplanation> => {
+      if (entry.reason !== 'missing_feature') return entry
+      const access = await this.resolveFeatureOrganizationAccess(params.userId, [entry.feature], { tenantId })
+      const grantedElsewhere = !access.unrestricted
+        && access.filterOrganizationIds(candidates).some((candidateId) => candidateId !== organizationId)
+      return grantedElsewhere ? { ...entry, reason: 'organization_out_of_scope' } : entry
+    }))
+  }
+
+  private async loadPrincipalRoleIds(
+    em: EntityManager,
+    userId: string,
+    tenantId: string,
+    organizationId: string | null,
+  ): Promise<string[]> {
+    if (userId.startsWith(API_KEY_PRINCIPAL_PREFIX)) {
+      const key = await findOneWithDecryption(em, ApiKey, { id: userId.slice(API_KEY_PRINCIPAL_PREFIX.length), deletedAt: null })
+      if (!key || (key.expiresAt && key.expiresAt.getTime() < Date.now())) return []
+      const roleIds = Array.isArray(key.rolesJson) ? key.rolesJson : []
+      return uniqueIds(roleIds.map((roleId) => (typeof roleId === 'string' && roleId.length > 0 ? roleId : null)))
+    }
+    const links = await findWithDecryption(
+      em,
+      UserRole,
+      { user: userId, role: { tenantId } },
+      { populate: ['role'] },
+      { tenantId, organizationId },
+    )
+    return uniqueIds(links.map((link) => readEntityReferenceId(link.role)))
+  }
+
+  /**
+   * The principal's roles in the tenant with what each grants of `required` and whether
+   * its organization restriction applies at the evaluated organization. Mirrors the role
+   * reads of `loadAcl`, read fresh.
+   */
+  private async loadPrincipalRoleGrants(
+    em: EntityManager,
+    userId: string,
+    tenantId: string,
+    organizationId: string | null,
+    required: readonly string[],
+    roleScope: RoleOrganizationScope,
+  ): Promise<AccessRoleGrant[]> {
+    const roleIds = await this.loadPrincipalRoleIds(em, userId, tenantId, organizationId)
+    if (roleIds.length === 0) return []
+    const roleAcls = await findWithDecryption(
+      em,
+      RoleAcl,
+      { tenantId, role: { $in: roleIds } },
+      undefined,
+      { tenantId, organizationId: null },
+    )
+    const roles = await findWithDecryption(
+      em,
+      Role,
+      { id: { $in: roleIds }, tenantId },
+      undefined,
+      { tenantId, organizationId: null },
+    )
+    const namesById = new Map(roles.map((role) => [String(role.id), typeof role.name === 'string' ? role.name : null]))
+    const grants: AccessRoleGrant[] = []
+    const rolesWithAcl = new Set<string>()
+    for (const acl of roleAcls) {
+      const roleId = readEntityReferenceId(acl.role)
+      if (!roleId) continue
+      rolesWithAcl.add(roleId)
+      grants.push(toAccessRoleGrant(acl, { id: roleId, name: namesById.get(roleId) ?? null }, required, roleScope))
+    }
+    for (const roleId of roleIds) {
+      if (rolesWithAcl.has(roleId)) continue
+      grants.push({
+        roleId,
+        roleName: namesById.get(roleId) ?? null,
+        isSuperAdmin: false,
+        organizations: null,
+        appliesToOrganization: true,
+        grantedFeatures: [],
+      })
+    }
+    return grants.sort(compareRoleGrants)
   }
 }

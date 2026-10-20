@@ -43,9 +43,18 @@ import {
   setTokenPendingTransition,
   touchToken,
 } from './execution-token'
+import { runInWorkflowCausationFrame } from './workflow-causation'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows')
+
+function executeGuardRuleInWorkflowFrame(
+  em: EntityManager,
+  instance: WorkflowInstance,
+  options: Parameters<typeof ruleEngine.executeRuleByRuleId>[1],
+): ReturnType<typeof ruleEngine.executeRuleByRuleId> {
+  return runInWorkflowCausationFrame({ instance }, () => ruleEngine.executeRuleByRuleId(em, options))
+}
 
 /**
  * Translate a resolved failure handling into the fields the executor acts on.
@@ -966,7 +975,7 @@ async function evaluatePreConditions(
     let allowed = true
 
     for (const condition of preConditions) {
-      const result = await ruleEngine.executeRuleByRuleId(em, {
+      const result = await executeGuardRuleInWorkflowFrame(em, instance, {
         ruleId: condition.ruleId,  // String identifier
         data: {
           workflowInstanceId: instance.id,
@@ -1103,7 +1112,7 @@ async function evaluatePostConditions(
     let allowed = true
 
     for (const condition of postConditions) {
-      const result = await ruleEngine.executeRuleByRuleId(em, {
+      const result = await executeGuardRuleInWorkflowFrame(em, instance, {
         ruleId: condition.ruleId,  // String identifier
         data: {
           workflowInstanceId: instance.id,

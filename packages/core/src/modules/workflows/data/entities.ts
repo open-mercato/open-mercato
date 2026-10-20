@@ -7,6 +7,7 @@
 import { OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 import type { WorkflowRunOutcome } from '../lib/run-outcome'
+import type { CausationEnvelope } from '@open-mercato/shared/lib/causation/types'
 
 export type { WorkflowRunOutcome }
 
@@ -261,6 +262,11 @@ export interface WorkflowInstanceMetadata {
    * writing metadata directly. See `lib/step-through.ts`.
    */
   stepThrough?: WorkflowInstanceStepThrough | null
+  /**
+   * Server-derived origin causation (who/what started this run). Engine-owned:
+   * `startWorkflow` sets it last, so caller-supplied metadata can never override it.
+   */
+  causation?: CausationEnvelope | null
 }
 
 // ============================================================================
