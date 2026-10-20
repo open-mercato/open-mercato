@@ -3,23 +3,33 @@
 // `setupInitialTenant`). Without a map, `TenantDataEncryptionService` finds no active scope
 // and silently writes the organization's mapped fields as plaintext. Seed the same default
 // maps the init organization gets whenever a new organization is created.
+//
+// `persistent: false` so this runs INLINE as part of the `directory.organizations.create`
+// request (ephemeral subscribers always run inline, even on a persistent emit — see
+// packages/events/AGENTS.md § Persistent delivery: single-delivery). A `persistent: true`
+// subscriber here would only run in the events worker under single-delivery (the default),
+// so every record written to the new organization before the worker drains the job would be
+// plaintext forever (#7591's bug, reproduced one layer deeper). The sibling
+// `seed-organization-encryption-maps-retry.ts` subscriber is the idempotent, worker-dispatched
+// backstop for when this inline run throws — inline handler errors are logged and swallowed,
+// with no retry of their own (see the same AGENTS.md section).
 
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
-import { upsertEncryptionMaps, invalidateEncryptionMapScopes } from '@open-mercato/core/modules/entities/cli'
+import { upsertEncryptionMaps, invalidateEncryptionMapScopes } from '@open-mercato/core/modules/entities/lib/encryption-maps'
 
 const logger = createLogger('entities')
 
 export const metadata = {
   event: 'directory.organization.created',
-  persistent: true,
+  persistent: false,
   id: 'entities:seed-organization-encryption-maps',
 }
 
-type ResolverContext = {
+export type ResolverContext = {
   resolve: <T = unknown>(name: string) => T
 }
 

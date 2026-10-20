@@ -86,6 +86,57 @@ test.describe('TC-ENTITIES-010: a newly-created organization gets the init organ
     }
   })
 
+  test('the real event bus delivers the seeding subscriber inline on a persistent directory.organization.created emit, before any worker drains the queue', async () => {
+    // Regression guard for the #7629 review finding: a `persistent: true` subscriber would be
+    // skipped inline under single-delivery (the default) and would only run once an events
+    // worker drains the queue — reopening #7591's plaintext-write window for every record
+    // created in between. `seed-organization-encryption-maps.ts` is `persistent: false`
+    // specifically so it runs inline. This test goes through the real, module-registered
+    // `eventBus` (not the subscriber handler directly) and asserts the maps already exist the
+    // moment `emit()` resolves — no worker involved — on a `persistent: true` emit, exactly
+    // how `directory.organizations.create` emits `organizationCrudEvents`.
+    test.setTimeout(150_000)
+    const tenantId = randomUUID()
+    const organizationId = randomUUID()
+
+    try {
+      await bootstrapFromAppRoot(runtimeAppRoot)
+      const container = await createRequestContainer()
+      const eventBus = container.resolve('eventBus') as {
+        emit(event: string, payload: unknown, options?: Record<string, unknown>): Promise<void>
+      }
+
+      const expectedEntityIds = getDefaultEncryptionMaps(getModules())
+        .filter((map) => map.keyScope !== 'system')
+        .map((map) => map.entityId)
+        .sort()
+      expect(expectedEntityIds.length).toBeGreaterThan(0)
+
+      await eventBus.emit(
+        'directory.organization.created',
+        { id: organizationId, tenantId, organizationId },
+        { tenantId, organizationId, persistent: true },
+      )
+
+      const rows = await withDatabase(async (client) => {
+        const result = await client.query<{ entity_id: string }>(
+          `select entity_id
+             from encryption_maps
+            where tenant_id = $1
+              and organization_id = $2
+              and deleted_at is null
+            order by entity_id asc`,
+          [tenantId, organizationId],
+        )
+        return result.rows
+      })
+
+      expect(rows.map((row) => row.entity_id).sort()).toEqual(expectedEntityIds)
+    } finally {
+      await deleteMaps(tenantId)
+    }
+  })
+
   test('is idempotent when the organization-created event is redelivered', async () => {
     test.slow()
     const tenantId = randomUUID()

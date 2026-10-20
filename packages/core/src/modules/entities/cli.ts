@@ -1,9 +1,14 @@
-import { getCliModules, getDefaultEncryptionMaps, type Module, type ModuleCli } from '@open-mercato/shared/modules/registry'
-import type { ModuleEncryptionMap } from '@open-mercato/shared/modules/encryption'
+import { getDefaultEncryptionMaps, type ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CacheStrategy } from '@open-mercato/cache/types'
 import { CustomEntity, CustomFieldDef, EncryptionMap } from './data/entities'
-import { upsertCanonicalEncryptionMap } from './lib/encryption-maps'
+import {
+  upsertCanonicalEncryptionMap,
+  resolveEncryptionMapModules,
+  upsertEncryptionMapSpecs,
+  upsertEncryptionMaps,
+  invalidateEncryptionMapScopes,
+} from './lib/encryption-maps'
 import {
   installCustomEntitiesFromModules,
   getAggregatedCustomEntityConfigs,
@@ -258,16 +263,10 @@ const addField: ModuleCli = {
   },
 }
 
-async function resolveEncryptionMapModules(): Promise<Module[]> {
-  const cliModules = getCliModules()
-  if (cliModules.length > 0) return cliModules
-  try {
-    const { getModules } = await import('@open-mercato/shared/lib/modules/registry')
-    return getModules()
-  } catch {
-    return []
-  }
-}
+// Re-exported for backward compatibility: callers importing these from `./cli` keep working.
+// The canonical definitions live in `./lib/encryption-maps` (kept lean so the subscriber that
+// seeds a new organization's maps does not pull in this whole CLI module's dependency graph).
+export { upsertEncryptionMapSpecs, upsertEncryptionMaps, invalidateEncryptionMapScopes }
 
 /**
  * Entity ids whose encryption map is declared in module code with `keyScope: 'system'`.
@@ -283,71 +282,6 @@ async function getSystemScopedEntityIds(): Promise<Set<string>> {
       .filter((map) => map.keyScope === 'system')
       .map((map) => map.entityId),
   )
-}
-
-// Idempotently upsert a specific set of encryption-map specs for one (tenant, org) scope. Exported so
-// upgrade actions can backfill a newly-added encrypted entity for pre-existing tenants (whose maps were
-// seeded once at tenant creation and never re-run) without depending on the full CLI module registry.
-export async function upsertEncryptionMapSpecs(
-  em: EntityManager,
-  tenantId: string,
-  organizationId: string | null,
-  specs: ModuleEncryptionMap[],
-  logger: (msg: string) => void = () => {},
-  onMaterializedScope?: (scope: { entityId: string; tenantId: string; organizationId: string | null }) => void | Promise<void>,
-): Promise<Array<{ entityId: string; tenantId: string; organizationId: string | null }>> {
-  const materializedScopes: Array<{ entityId: string; tenantId: string; organizationId: string | null }> = []
-  for (const spec of specs) {
-    if (spec.keyScope === 'system') {
-      logger(`Skipping ${spec.entityId}: system-scoped map, resolved from module code rather than a tenant row.`)
-      continue
-    }
-    await upsertCanonicalEncryptionMap(em, {
-      entityId: spec.entityId,
-      tenantId,
-      organizationId,
-      fields: spec.fields,
-      isActive: true,
-    })
-    const materializedScope = { entityId: spec.entityId, tenantId, organizationId }
-    materializedScopes.push(materializedScope)
-    await onMaterializedScope?.(materializedScope)
-    logger(`🔒 Seeded encryption map for ${spec.entityId} ✨`)
-  }
-  return materializedScopes
-}
-
-// Exported so other modules (e.g. the directory subscriber that seeds maps for a
-// newly-created organization) can seed the default module encryption maps for one
-// (tenant, org) scope without duplicating the CLI's module-resolution logic.
-export async function upsertEncryptionMaps(
-  em: EntityManager,
-  tenantId: string,
-  organizationId: string | null,
-  logger: (msg: string) => void,
-  onMaterializedScope?: (scope: { entityId: string; tenantId: string; organizationId: string | null }) => void | Promise<void>,
-) {
-  return upsertEncryptionMapSpecs(
-    em,
-    tenantId,
-    organizationId,
-    getDefaultEncryptionMaps(await resolveEncryptionMapModules()),
-    logger,
-    onMaterializedScope,
-  )
-}
-
-export async function invalidateEncryptionMapScopes(
-  encryptionService: Pick<TenantDataEncryptionService, 'invalidateMap'>,
-  scopes: ReadonlyArray<{ entityId: string; tenantId: string | null; organizationId: string | null }>,
-): Promise<void> {
-  const seen = new Set<string>()
-  for (const scope of scopes) {
-    const key = `${scope.entityId}\u0000${scope.tenantId ?? ''}\u0000${scope.organizationId ?? ''}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    await encryptionService.invalidateMap(scope.entityId, scope.tenantId, scope.organizationId)
-  }
 }
 
 const seedEncryptionMaps: ModuleCli = {

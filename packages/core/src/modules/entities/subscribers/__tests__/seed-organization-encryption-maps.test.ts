@@ -46,9 +46,14 @@ describe('entities/seed-organization-encryption-maps subscriber', () => {
     else process.env.TENANT_DATA_ENCRYPTION = originalEnv
   })
 
-  it('declares the directory.organization.created event as persistent', () => {
+  it('declares the directory.organization.created event as ephemeral (inline delivery)', () => {
+    // Must stay `persistent: false` so this subscriber runs inline, before the
+    // directory.organizations.create request returns — a persistent-marked subscriber only
+    // runs in the events worker under single-delivery (the default), reopening #7591's
+    // plaintext-write window. See the sibling `*-retry.ts` subscriber for the persistent
+    // backstop.
     expect(metadata.event).toBe('directory.organization.created')
-    expect(metadata.persistent).toBe(true)
+    expect(metadata.persistent).toBe(false)
   })
 
   it('seeds the default encryption maps for the new organization scope and invalidates the cache', async () => {
