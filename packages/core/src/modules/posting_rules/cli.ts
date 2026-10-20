@@ -1,7 +1,18 @@
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
+import type { AwilixContainer } from 'awilix'
+import type { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { CommandBus } from '@open-mercato/shared/lib/commands'
+import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import {
+  postingRulesLockFiscalPeriodSchema,
+  reconcileCostRingSchema,
+  type PostingRulesLockFiscalPeriodInput,
+  type ReconcileCostRingInput,
+} from './data/validators'
+import type { ReconcileCostRingResult } from './commands/reconcileCostRing'
+import type { PostingRulesLockFiscalPeriodResult } from './commands/lockFiscalPeriod'
 import { FiscalPeriod } from '../ledger/data/entities'
 import type { PostJournalEntryResult } from '../ledger/commands/postJournalEntry'
 import { Currency } from '../currencies/data/entities'
@@ -235,4 +246,133 @@ const devSeedDefaults: ModuleCli = {
   },
 }
 
-export default [devPostCostEntry, devSeedDefaults]
+function systemCommandContext(container: AwilixContainer, organizationId: string): CommandRuntimeContext {
+  return {
+    container,
+    auth: null,
+    organizationScope: null,
+    selectedOrganizationId: organizationId,
+    organizationIds: [organizationId],
+    systemActor: true,
+  }
+}
+
+function reportCommandError(commandName: string, err: unknown): void {
+  if (isCrudHttpError(err)) {
+    console.error(`${commandName} failed (${err.status}): ${String(err.body.error ?? err.message)}`)
+    const details = Object.fromEntries(Object.entries(err.body).filter(([key]) => key !== 'error'))
+    if (Object.keys(details).length > 0) console.error(JSON.stringify(details, null, 2))
+  } else {
+    console.error(`${commandName} failed:`, err instanceof Error ? err.message : err)
+  }
+  process.exitCode = 1
+}
+
+const CLI_FLAG_BY_FIELD: Record<string, string> = {
+  tenantId: 'tenant',
+  organizationId: 'org',
+  periodId: 'period',
+}
+
+function reportInvalidArgs(usageLine: string, error: z.ZodError): void {
+  for (const issue of error.issues) {
+    console.error(`  --${CLI_FLAG_BY_FIELD[String(issue.path[0])] ?? String(issue.path[0])}: ${issue.message}`)
+  }
+  console.error(usageLine)
+  process.exitCode = 1
+}
+
+const stringArg = (value: string | boolean | undefined): string | undefined =>
+  typeof value === 'string' ? value : undefined
+
+const RECONCILE_USAGE = 'Usage: yarn mercato posting_rules reconcile-cost-ring --tenant <id> --org <id> [--period <fiscal period id>]'
+
+/**
+ * `yarn mercato posting_rules reconcile-cost-ring --tenant <id> --org <id> [--period <id>]`
+ *
+ * Runs the repair sweeper `posting_rules.reconcileCostRing` through the
+ * command bus as a system actor (the spec's "scheduled / CLI-invoked"
+ * entry point, and the manual catch-up run after enabling the module).
+ * Prints the counts and every line that could not be reclassified. Exits
+ * non-zero when the run is rejected or when any line could not be
+ * reclassified.
+ */
+const reconcileCostRingCli: ModuleCli = {
+  command: 'reconcile-cost-ring',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const parsed = reconcileCostRingSchema.safeParse({
+      tenantId: stringArg(args.tenant),
+      organizationId: stringArg(args.org),
+      periodId: stringArg(args.period) ?? null,
+    })
+    if (!parsed.success) {
+      reportInvalidArgs(RECONCILE_USAGE, parsed.error)
+      return
+    }
+    const input = parsed.data
+    const container = await createRequestContainer()
+    try {
+      const commandBus = container.resolve('commandBus') as CommandBus
+      const { result } = await commandBus.execute<ReconcileCostRingInput, ReconcileCostRingResult>(
+        'posting_rules.reconcileCostRing',
+        { input, ctx: systemCommandContext(container, input.organizationId) },
+      )
+      console.log(
+        `Reconciliation finished: ${result.entriesInspected} entries inspected, ` +
+          `${result.linesReclassified} lines reclassified, ${result.failures.length} lines not reclassified.`,
+      )
+      for (const failure of result.failures) {
+        console.error(`  entry ${failure.entryId} line ${failure.lineId}: ${failure.error}`)
+      }
+      if (result.failures.length > 0) process.exitCode = 1
+    } catch (err) {
+      reportCommandError('reconcile-cost-ring', err)
+    } finally {
+      await (container as { dispose?: () => Promise<void> }).dispose?.()
+    }
+  },
+}
+
+const LOCK_USAGE = 'Usage: yarn mercato posting_rules lock-fiscal-period --tenant <id> --org <id> --period <fiscal period id>'
+
+/**
+ * `yarn mercato posting_rules lock-fiscal-period --tenant <id> --org <id> --period <id>`
+ *
+ * Runs the period-close guard `posting_rules.lockFiscalPeriod` through the
+ * command bus as a system actor (the spec's "an ops runbook or CLI script"
+ * caller). Refuses, with the offending entry and line ids, while the period
+ * still has unreclassified zespół 4 lines; otherwise delegates to
+ * `ledger.lockFiscalPeriod`. Exits non-zero on any refusal or error.
+ */
+const lockFiscalPeriodCli: ModuleCli = {
+  command: 'lock-fiscal-period',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const parsed = postingRulesLockFiscalPeriodSchema.safeParse({
+      tenantId: stringArg(args.tenant),
+      organizationId: stringArg(args.org),
+      periodId: stringArg(args.period),
+    })
+    if (!parsed.success) {
+      reportInvalidArgs(LOCK_USAGE, parsed.error)
+      return
+    }
+    const input = parsed.data
+    const container = await createRequestContainer()
+    try {
+      const commandBus = container.resolve('commandBus') as CommandBus
+      const { result } = await commandBus.execute<PostingRulesLockFiscalPeriodInput, PostingRulesLockFiscalPeriodResult>(
+        'posting_rules.lockFiscalPeriod',
+        { input, ctx: systemCommandContext(container, input.organizationId) },
+      )
+      console.log(`Fiscal period ${result.fiscalPeriodId} locked (updatedAt ${result.updatedAt}).`)
+    } catch (err) {
+      reportCommandError('lock-fiscal-period', err)
+    } finally {
+      await (container as { dispose?: () => Promise<void> }).dispose?.()
+    }
+  },
+}
+
+export default [devPostCostEntry, devSeedDefaults, reconcileCostRingCli, lockFiscalPeriodCli]
