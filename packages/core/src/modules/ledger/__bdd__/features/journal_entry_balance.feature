@@ -1,10 +1,7 @@
 Feature: Journal entry balance invariant
   As an accountant who relies on the ledger to never record an unbalanced entry
-  I want an entry to be refused before it can affect the books at all when
-  its lines are not balanced, or when a line has both (or neither) side
-  populated
-  So that "SUM(debit) = SUM(credit)" (art. 15 ust. 1 Ustawy o rachunkowości)
-  can never be violated
+  I want an entry to be refused before it can affect the books at all when its lines are not balanced, or when a line has both (or neither) side populated
+  So that "SUM(debit) = SUM(credit)" (art. 15 ust. 1 Ustawy o rachunkowości) can never be violated
 
   Scenario: An entry whose debits and credits do not sum to the same total is rejected
     When I attempt to post an entry with lines:

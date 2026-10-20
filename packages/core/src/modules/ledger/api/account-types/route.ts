@@ -79,19 +79,17 @@ const listQuerySchema = z.object({
   page: z.coerce.number().min(1).default(1),
   pageSize: z.coerce.number().min(1).max(100).default(50),
   search: z.string().optional(),
-  sortField: z.enum(['slug', 'name', 'createdAt', 'updatedAt']).optional(),
+  sortField: z.enum(['number', 'name', 'createdAt', 'updatedAt']).optional(),
   sortDir: z.enum(['asc', 'desc']).optional(),
   normalBalance: z.enum(['DEBIT', 'CREDIT']).optional(),
-  parentAccountTypeId: z.uuid().optional(),
   accountGroupId: z.uuid().optional(),
 }).loose()
 
 type LedgerAccountTypeRow = {
   id: string
-  slug: string
+  number: string
   name: string
   normalBalance: string
-  parentAccountTypeId: string | null
   accountGroupId: string | null
   createdAt: string | null
   updatedAt: string | null
@@ -101,10 +99,9 @@ type LedgerAccountTypeRow = {
 
 const toRow = (accountType: LedgerAccountType): LedgerAccountTypeRow => ({
   id: String(accountType.id),
-  slug: String(accountType.slug),
+  number: String(accountType.number),
   name: String(accountType.name),
   normalBalance: String(accountType.normalBalance),
-  parentAccountTypeId: accountType.parentAccountTypeId ?? null,
   accountGroupId: accountType.accountGroupId ?? null,
   createdAt: accountType.createdAt ? accountType.createdAt.toISOString() : null,
   updatedAt: accountType.updatedAt ? accountType.updatedAt.toISOString() : null,
@@ -127,7 +124,6 @@ export async function GET(req: Request) {
     sortField: url.searchParams.get('sortField') ?? undefined,
     sortDir: url.searchParams.get('sortDir') ?? undefined,
     normalBalance: url.searchParams.get('normalBalance') ?? undefined,
-    parentAccountTypeId: url.searchParams.get('parentAccountTypeId') ?? undefined,
     accountGroupId: url.searchParams.get('accountGroupId') ?? undefined,
   })
   if (!parsed.success) {
@@ -139,7 +135,7 @@ export async function GET(req: Request) {
   const organizationScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
   const organizationId = organizationScope?.selectedId ?? auth.orgId ?? null
 
-  const { id, page, pageSize, search, sortField, sortDir, normalBalance, parentAccountTypeId, accountGroupId } =
+  const { id, page, pageSize, search, sortField, sortDir, normalBalance, accountGroupId } =
     parsed.data
   let filter: Record<string, unknown> = {
     tenantId: auth.tenantId,
@@ -163,17 +159,16 @@ export async function GET(req: Request) {
     filter = mergeIdFilter(filter, parseIdsParam(rawIds), { idsParamProvided: true })
   }
   if (normalBalance) filter.normalBalance = normalBalance
-  if (parentAccountTypeId) filter.parentAccountTypeId = parentAccountTypeId
   if (accountGroupId) filter.accountGroupId = accountGroupId
   if (search) {
     filter.$or = [
-      { slug: { $ilike: `%${escapeLikePattern(search)}%` } },
+      { number: { $ilike: `%${escapeLikePattern(search)}%` } },
       { name: { $ilike: `%${escapeLikePattern(search)}%` } },
     ]
   }
 
   const fieldMap: Record<string, string> = {
-    slug: 'slug',
+    number: 'number',
     name: 'name',
     createdAt: 'createdAt',
     updatedAt: 'updatedAt',
@@ -200,10 +195,9 @@ export const DELETE = crud.DELETE
 
 const ledgerAccountTypeListItemSchema = z.object({
   id: z.uuid(),
-  slug: z.string(),
+  number: z.string(),
   name: z.string(),
   normalBalance: z.enum(['DEBIT', 'CREDIT']),
-  parentAccountTypeId: z.uuid().nullable(),
   accountGroupId: z.uuid().nullable(),
   createdAt: z.string().nullable(),
   updatedAt: z.string().nullable(),
@@ -224,12 +218,12 @@ export const openApi = createLedgerCrudOpenApi({
     schema: ledgerAccountTypeUpdateSchema,
     responseSchema: defaultOkResponseSchema,
     description:
-      'Updates an existing account type by id. `normalBalance` and `accountGroupId` cannot be changed once an account of this type has posted entries.',
+      'Updates an existing account type by id. `number`, `normalBalance` and `accountGroupId` cannot be changed once an account of this type has posted entries; the name stays editable. In a Polish group the number must be three digits starting with the group code.',
   },
   del: {
     schema: z.object({ id: z.string().uuid() }),
     responseSchema: defaultOkResponseSchema,
     description:
-      'Soft-deletes an account type by id. Blocked while an account of this type has posted entries, or another type still names it as parent.',
+      'Soft-deletes an account type by id. Blocked while an account of this type has posted entries or an account still uses it.',
   },
 })

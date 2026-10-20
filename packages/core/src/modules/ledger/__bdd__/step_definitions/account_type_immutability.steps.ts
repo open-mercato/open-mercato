@@ -7,16 +7,11 @@
 // exactly once, the same way requiring them from a real route handler
 // would.
 //
-// Was previously blocked on `#generated/entities.ids.generated` not
-// existing in this checkout — that file is now present (see
-// `../README.md`'s "Verification status" section), so these scenarios
-// are wired up the same way `fiscal_period_locking.steps.ts` and the
-// other already-passing feature files are.
 import { Given, When, Then } from '@cucumber/cucumber'
 import assert from 'node:assert'
 import '../../commands/ledgerAccountTypes'
 import '../../commands/ledgerAccounts'
-import { LedgerAccount, LedgerAccountType, JournalEntryLine } from '../../data/entities'
+import { LedgerAccount, LedgerAccountGroup, LedgerAccountType, JournalEntryLine } from '../../data/entities'
 import {
   activeEmOrNew,
   buildCommandContext,
@@ -28,6 +23,7 @@ import {
   captureRejection,
   setActiveEm,
   activeLedgerAccountIdOrThrow,
+  setActiveLedgerAccountId,
 } from '../support/world'
 
 let em: FakeEntityManager
@@ -41,10 +37,9 @@ function seedAccountType(target: FakeEntityManager, normalBalance: string): stri
     id,
     organizationId: ORG_ID,
     tenantId: TENANT_ID,
-    slug: `type-under-test-${id.slice(0, 8)}`,
+    number: `type-under-test-${id.slice(0, 8)}`,
     name: 'Type under test',
     normalBalance,
-    parentAccountTypeId: null,
     accountGroupId: null,
     deletedAt: null,
   })
@@ -57,9 +52,8 @@ function seedAccountOfType(target: FakeEntityManager, typeId: string): string {
     id,
     organizationId: ORG_ID,
     tenantId: TENANT_ID,
-    slug: `account-under-test-${id.slice(0, 8)}`,
+    number: `account-under-test-${id.slice(0, 8)}`,
     accountTypeId: typeId,
-    parentAccountId: null,
     deletedAt: null,
   })
   return id
@@ -91,7 +85,7 @@ Given('a ledger account of a type with normal balance {string} has no posted ent
   seedAccountOfType(em, accountTypeId)
 })
 
-When('I try to change that account type\'s normalBalance to {string}', async function (newNormalBalance: string) {
+When('I try to change that account type\'s normal balance to {string}', async function (newNormalBalance: string) {
   outcome = null
   rejection = null
   const ctx = buildCommandContext(em)
@@ -139,4 +133,89 @@ Then('the change is rejected because the account has posted entries', function (
   const err = rejection as { status?: number; body?: { error?: string } }
   assert.strictEqual(err.status, 409)
   assert.match(String(err.body?.error), /posted entries/i)
+})
+
+// Number freeze (PR #6340 review, item 4): a type or account number cannot
+// change once postings exist, while the type's name stays editable. The
+// fixtures use a PL group so the numbers are valid under the numbering rule
+// and the freeze, not the rule, is what rejects the change.
+function seedPolishType(target: FakeEntityManager, number: string): string {
+  const groupId = newId()
+  target.seed(LedgerAccountGroup, {
+    id: groupId,
+    organizationId: ORG_ID,
+    tenantId: TENANT_ID,
+    jurisdiction: 'PL',
+    code: number.charAt(0),
+    name: `Zespół ${number.charAt(0)}`,
+  })
+  const id = newId()
+  target.seed(LedgerAccountType, {
+    id,
+    organizationId: ORG_ID,
+    tenantId: TENANT_ID,
+    number,
+    name: 'Koszty',
+    normalBalance: 'DEBIT',
+    accountGroupId: groupId,
+    deletedAt: null,
+  })
+  return id
+}
+
+Given('a Polish account type numbered {string} has an account with a posted entry', function (number: string) {
+  em = setActiveEm(new FakeEntityManager())
+  accountTypeId = seedPolishType(em, number)
+  const accountId = newId()
+  em.seed(LedgerAccount, {
+    id: accountId,
+    organizationId: ORG_ID,
+    tenantId: TENANT_ID,
+    number: `${number}-1`,
+    accountTypeId,
+    deletedAt: null,
+  })
+  seedPostedLineFor(em, accountId)
+})
+
+Given('an account numbered {string} of a Polish account type has a posted entry', function (number: string) {
+  em = setActiveEm(new FakeEntityManager())
+  const typeNumber = number.split('-')[0]
+  accountTypeId = seedPolishType(em, typeNumber)
+  const accountId = newId()
+  em.seed(LedgerAccount, {
+    id: accountId,
+    organizationId: ORG_ID,
+    tenantId: TENANT_ID,
+    number,
+    accountTypeId,
+    deletedAt: null,
+  })
+  seedPostedLineFor(em, accountId)
+  setActiveLedgerAccountId(accountId)
+})
+
+When('I try to change that type\'s number to {string}', async function (number: string) {
+  outcome = null
+  rejection = await captureRejection(async () => {
+    outcome = await executeCommand('ledger.updateLedgerAccountType', { id: accountTypeId, number }, buildCommandContext(em))
+  })
+})
+
+When('I rename that type to {string}', async function (name: string) {
+  outcome = null
+  rejection = await captureRejection(async () => {
+    outcome = await executeCommand('ledger.updateLedgerAccountType', { id: accountTypeId, name }, buildCommandContext(em))
+  })
+})
+
+When('I try to change that account\'s number to {string}', async function (number: string) {
+  outcome = null
+  rejection = await captureRejection(async () => {
+    outcome = await executeCommand(
+      'ledger.updateLedgerAccount',
+      { id: activeLedgerAccountIdOrThrow(), number },
+      buildCommandContext(em),
+    )
+  })
 })

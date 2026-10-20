@@ -27,9 +27,9 @@ function normalizeAccountTypeOption(item: unknown, fallbackLabel: string): CrudF
   if (!isRecord(item)) return null
   const id = toStringOrNull(item.id)
   if (!id) return null
-  const slug = toStringOrNull(item.slug)
+  const number = toStringOrNull(item.number)
   const name = toStringOrNull(item.name)
-  const label = name && slug ? `${name} (${slug})` : name ?? slug ?? fallbackLabel
+  const label = name && number ? `${name} (${number})` : name ?? number ?? fallbackLabel
   return { value: id, label }
 }
 
@@ -62,7 +62,12 @@ function normalizeAccountOption(item: unknown, fallbackLabel: string): CrudField
   if (!isRecord(item)) return null
   const id = toStringOrNull(item.id)
   if (!id) return null
-  return { value: id, label: toStringOrNull(item.slug) ?? fallbackLabel }
+  // An account has no name of its own — `description` plays that role (the
+  // default chart of accounts stores "Kasa", "Budynki i lokale" there).
+  const number = toStringOrNull(item.number)
+  const description = toStringOrNull(item.description)
+  const label = number && description ? `${number} — ${description}` : number ?? description ?? fallbackLabel
+  return { value: id, label }
 }
 
 export async function loadLedgerAccountOptions(

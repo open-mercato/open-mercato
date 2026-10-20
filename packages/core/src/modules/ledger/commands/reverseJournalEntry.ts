@@ -7,7 +7,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
-import { conflict, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { badRequest, conflict, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/translate'
 import { JournalEntry, JournalEntryLine } from '../data/entities'
@@ -17,6 +17,34 @@ import { isComposedPostingCall, runPostJournalEntry, withPostingTransaction, typ
 import { emitLedgerEvent } from '../events'
 
 type Scope = { organizationId: string; tenantId: string }
+
+/** `YYYY-MM-DD` of a date column value, whether it surfaces as a `Date` or a string. */
+function dayOf(value: Date | string): string {
+  return value instanceof Date ? value.toISOString().slice(0, 10) : String(value).slice(0, 10)
+}
+
+/**
+ * A reversal restates an earlier entry, so its `operationDate` may not
+ * precede the entry it reverses (equal is allowed: same-day correction).
+ * Compared on `operationDate`, the business event date (art. 20 ust. 1 UoR),
+ * not on the posting timestamp. Runs before anything is written, so a
+ * rejection consumes no sequence number.
+ */
+function requireReversalNotBeforeOriginal(
+  original: JournalEntry,
+  input: ReverseJournalEntryInput,
+  translate: TranslateWithFallbackFn,
+): void {
+  if (dayOf(input.operationDate) < dayOf(original.operationDate)) {
+    throw badRequest(
+      translate(
+        'ledger.errors.reversalDateBeforeOriginal',
+        'The reversal date cannot be earlier than the date of the entry it reverses ({{originalDate}}).',
+        { originalDate: dayOf(original.operationDate) },
+      ),
+    )
+  }
+}
 
 /**
  * Loads the original entry and its lines, scoped to the caller's
@@ -158,7 +186,8 @@ const reverseJournalEntryCommand: CommandHandler<ReverseJournalEntryInput, PostJ
 
     const result = await withPostingTransaction(ctx, async (em) => {
       const { entry: original, lines: originalLines } = await loadOriginalEntry(em, input.journalEntryId, scope, translate)
-      const core = buildReversalCore(original, originalLines, input, translate)
+      requireReversalNotBeforeOriginal(original, input, translate)
+      const core = { ...buildReversalCore(original, originalLines, input, translate), postedBy: ctx.auth?.sub ?? null }
       // Reuses `postJournalEntry`'s own validated path — same fiscal-period
       // lock check (against the reversal's own `operationDate`), same
       // atomic sequence allocation, same balanced-entry persistence.

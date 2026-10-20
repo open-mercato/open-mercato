@@ -146,7 +146,7 @@ test.describe('TC-GL-001: journal-entries list/filter/403', () => {
         {
           organizationId,
           tenantId,
-          slug: randomSlug('qa-gl-001-type'),
+          number: randomSlug('qa-gl-001-type'),
           name: 'QA TC-GL-001 Account Type',
           normalBalance: 'DEBIT',
         },
@@ -155,13 +155,13 @@ test.describe('TC-GL-001: journal-entries list/filter/403', () => {
       cashAccountId = await createAccountFixture(
         request,
         superadminToken,
-        { organizationId, tenantId, slug: randomSlug('qa-gl-001-cash'), accountTypeId },
+        { organizationId, tenantId, number: randomSlug('qa-gl-001-cash'), accountTypeId },
         { headers },
       );
       revenueAccountId = await createAccountFixture(
         request,
         superadminToken,
-        { organizationId, tenantId, slug: randomSlug('qa-gl-001-revenue'), accountTypeId },
+        { organizationId, tenantId, number: randomSlug('qa-gl-001-revenue'), accountTypeId },
         { headers },
       );
 
