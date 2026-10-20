@@ -5,7 +5,7 @@ import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
-import { CrudHttpError, conflict, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, conflict, forbidden, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/translate'
@@ -44,27 +44,35 @@ type PairWrite = {
 }
 
 /**
- * Resolves the acting scope from the runtime context, falling back to the
- * input's explicit `tenantId`/`organizationId` only when `ctx.auth` carries
- * none. This command is only ever called in-process by a trusted
- * hard-dependency consumer (`posting_rules`, `fixed_assets`), never through an
- * HTTP route, so there is no end-user-facing "target org" a caller could
- * smuggle in through the input.
+ * Resolves the acting scope. With `ctx.auth` the scope is the context's own:
+ * the tenant from `ctx.auth.tenantId` and the SELECTED organization
+ * (`ctx.selectedOrganizationId`, else `ctx.auth.orgId` — see
+ * `financial-command-implementation-checklist` item 3). An input
+ * `tenantId`/`organizationId` is never used then: one that names a different
+ * scope is rejected, and a context missing either part is rejected rather
+ * than completed from the input.
  *
- * The fallback is needed because a `systemActor` caller — `posting_rules`'
- * `reclassify.ts` engine "posts on nobody's behalf" — runs with
- * `ctx.auth: null`, so a ctx-only scope would 404 every real call. It follows
- * the precedent of `warranty_claims`' systemActor subscriber, which passes its
- * own already-resolved scope as an explicit input field.
- *
- * Honors the SELECTED organization (`ctx.selectedOrganizationId`), not just
- * `ctx.auth.orgId` — see `financial-command-implementation-checklist` item 3.
+ * The input scope is read only when `ctx.auth` is absent: a `systemActor`
+ * caller — `posting_rules`' `reclassify.ts` engine "posts on nobody's behalf"
+ * — runs with `ctx.auth: null`, so a ctx-only scope would 404 every real call.
+ * It follows the precedent of `warranty_claims`' systemActor subscriber, which
+ * passes its own already-resolved scope as an explicit input field. The
+ * organization falls back to `ctx.selectedOrganizationId` there, and
+ * `ensureOrganizationScope` rejects an input organization that differs from it.
  */
 function resolveScope(ctx: CommandRuntimeContext, input: { tenantId?: string; organizationId?: string }): Scope {
-  const tenantId = ctx.auth?.tenantId ?? input.tenantId ?? null
-  const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? input.organizationId ?? null
+  const auth = ctx.auth
+  const tenantId = auth ? auth.tenantId ?? null : input.tenantId ?? null
+  const organizationId = auth
+    ? ctx.selectedOrganizationId ?? auth.orgId ?? null
+    : input.organizationId ?? ctx.selectedOrganizationId ?? null
   if (!tenantId || !organizationId) {
     throw notFound('journal_entry_line_dimensions: tenant/organization scope required')
+  }
+  if (auth) {
+    const tenantDiffers = input.tenantId !== undefined && input.tenantId !== tenantId
+    const organizationDiffers = input.organizationId !== undefined && input.organizationId !== organizationId
+    if (tenantDiffers || organizationDiffers) throw forbidden()
   }
   return { tenantId, organizationId }
 }

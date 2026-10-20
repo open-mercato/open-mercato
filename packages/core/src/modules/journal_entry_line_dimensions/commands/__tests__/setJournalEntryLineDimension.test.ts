@@ -233,6 +233,17 @@ function makeCtx(em: any, tenantId: string, organizationId: string): CommandRunt
   }
 }
 
+async function withStrictOrganizationScope<T>(run: () => Promise<T>): Promise<T> {
+  const previous = process.env.OM_ENFORCE_ORG_SCOPE_STRICT
+  process.env.OM_ENFORCE_ORG_SCOPE_STRICT = 'true'
+  try {
+    return await run()
+  } finally {
+    if (previous === undefined) delete process.env.OM_ENFORCE_ORG_SCOPE_STRICT
+    else process.env.OM_ENFORCE_ORG_SCOPE_STRICT = previous
+  }
+}
+
 function getHandler(): CommandHandler {
   const handler = commandRegistry.get('journal_entry_line_dimensions.dimensions.set')
   if (!handler) throw new Error('command not registered')
@@ -439,15 +450,99 @@ describe('journal_entry_line_dimensions.dimensions.set', () => {
       expect(dimensionRows).toEqual([])
     })
 
-    it('prefers the ctx scope over a different scope smuggled in through the input', async () => {
+    it('lets a system actor whose ctx selects the same organization pass OM_ENFORCE_ORG_SCOPE_STRICT', async () => {
       const { em, dimensionRows } = makeFakeEm({})
+      const ctx: CommandRuntimeContext = { ...systemCtx(em), selectedOrganizationId: ORG_A }
 
-      await getHandler().execute(
-        { ...baseInput, tenantId: TENANT_B, organizationId: ORG_B },
-        makeCtx(em, TENANT_A, ORG_A),
+      await withStrictOrganizationScope(() =>
+        getHandler().execute({ ...baseInput, tenantId: TENANT_A, organizationId: ORG_A }, ctx),
       )
 
       expect(dimensionRows.map((r) => [r.tenantId, r.organizationId])).toEqual([[TENANT_A, ORG_A]])
+    })
+
+    it('rejects a system actor whose input organization differs from the ctx-selected one, writing nothing', async () => {
+      const { em, dimensionRows } = makeFakeEm({})
+      const ctx: CommandRuntimeContext = { ...systemCtx(em), selectedOrganizationId: ORG_B }
+
+      await expect(
+        getHandler().execute({ ...baseInput, tenantId: TENANT_A, organizationId: ORG_A }, ctx),
+      ).rejects.toMatchObject({ status: 403 })
+      expect(dimensionRows).toEqual([])
+    })
+
+    it('under OM_ENFORCE_ORG_SCOPE_STRICT rejects a system actor that selects no organization in ctx', async () => {
+      const { em, dimensionRows } = makeFakeEm({})
+
+      await expect(
+        withStrictOrganizationScope(() =>
+          getHandler().execute({ ...baseInput, tenantId: TENANT_A, organizationId: ORG_A }, systemCtx(em)),
+        ),
+      ).rejects.toMatchObject({ status: 403 })
+      expect(dimensionRows).toEqual([])
+    })
+  })
+
+  describe('authenticated scope (ctx.auth present)', () => {
+    it('accepts an input scope equal to the ctx scope', async () => {
+      const { em, dimensionRows } = makeFakeEm({})
+
+      await getHandler().execute({ ...baseInput, tenantId: TENANT_A, organizationId: ORG_A }, makeCtx(em, TENANT_A, ORG_A))
+
+      expect(dimensionRows.map((r) => [r.tenantId, r.organizationId])).toEqual([[TENANT_A, ORG_A]])
+    })
+
+    it('rejects an input organizationId other than the ctx organization, writing nothing', async () => {
+      const { em, dimensionRows } = makeFakeEm({})
+
+      await expect(
+        getHandler().execute({ ...baseInput, organizationId: ORG_B }, makeCtx(em, TENANT_A, ORG_A)),
+      ).rejects.toMatchObject({ status: 403 })
+      expect(dimensionRows).toEqual([])
+    })
+
+    it('rejects an input tenantId other than the ctx tenant, writing nothing', async () => {
+      const { em, dimensionRows } = makeFakeEm({})
+
+      await expect(
+        getHandler().execute({ ...baseInput, tenantId: TENANT_B }, makeCtx(em, TENANT_A, ORG_A)),
+      ).rejects.toMatchObject({ status: 403 })
+      expect(dimensionRows).toEqual([])
+    })
+
+    it('does not complete a ctx without an organization from the input organizationId', async () => {
+      const { em, dimensionRows } = makeFakeEm({})
+      const ctx: CommandRuntimeContext = {
+        ...makeCtx(em, TENANT_A, ORG_A),
+        auth: { sub: 'user-1', tenantId: TENANT_A, orgId: null },
+        selectedOrganizationId: null,
+      }
+
+      await expect(
+        getHandler().execute({ ...baseInput, tenantId: TENANT_A, organizationId: ORG_A }, ctx),
+      ).rejects.toMatchObject({ status: 404 })
+      expect(dimensionRows).toEqual([])
+    })
+
+    it('does not complete a ctx without a tenant from the input tenantId', async () => {
+      const { em, dimensionRows } = makeFakeEm({})
+      const ctx: CommandRuntimeContext = {
+        ...makeCtx(em, TENANT_A, ORG_A),
+        auth: { sub: 'user-1', tenantId: null, orgId: ORG_A },
+      }
+
+      await expect(
+        getHandler().execute({ ...baseInput, tenantId: TENANT_A, organizationId: ORG_A }, ctx),
+      ).rejects.toMatchObject({ status: 404 })
+      expect(dimensionRows).toEqual([])
+    })
+
+    it('passes OM_ENFORCE_ORG_SCOPE_STRICT for a caller writing into its own organization', async () => {
+      const { em, dimensionRows } = makeFakeEm({})
+
+      await withStrictOrganizationScope(() => getHandler().execute(baseInput, makeCtx(em, TENANT_A, ORG_A)))
+
+      expect(dimensionRows.map((r) => r.dimensionId)).toEqual(['cc-new'])
     })
   })
 
