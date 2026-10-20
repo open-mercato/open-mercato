@@ -639,6 +639,43 @@ actually checked (see Data Models).
   The `lastCheck*` fields on `Contractor` stay as the latest GUS/VIES
   result for the list view, copied from the newest history row.
 
+**Bank account numbers are validated by one shared function, IBAN and
+NRB, format and checksum.** `validateBankAccountNumber(raw)` lives in
+`packages/shared/src/lib/bank-accounts/accountNumber.ts`, so any module
+can use it; this module calls it in `createContractorBankAccount` and
+`updateContractorBankAccount` and rejects an invalid number with `400`
+and a field error.
+
+```ts
+validateBankAccountNumber(raw: string):
+  | { valid: true; normalized: string; format: 'NRB' | 'IBAN'; countryCode: string }
+  | { valid: false; error: 'FORMAT' | 'COUNTRY_LENGTH' | 'CHECKSUM' }
+```
+
+- **Normalization:** spaces and dashes removed, letters upper-cased.
+- **NRB:** exactly 26 digits. It is the Polish IBAN without its `PL`
+  prefix, so it is checked as `PL` + the 26 digits.
+- **IBAN:** two letters, two check digits, then the country's BBAN; the
+  length must match the country's entry in the ISO 13616 IBAN registry
+  (`COUNTRY_LENGTH` otherwise).
+- **Checksum:** ISO 7064 MOD 97-10 — the first four characters moved to
+  the end, letters replaced by numbers (A = 10 … Z = 35), and the
+  result modulo 97 must equal 1 (`CHECKSUM` otherwise). Odoo's
+  `base_iban` uses the same rule (see Literature & Prior Art).
+- **Stored form:** always the IBAN form (`PL` + 26 digits for a Polish
+  account), so the same account typed as NRB or as IBAN normalizes to
+  one value and one lookup hash. The whitelist client strips `PL` before
+  calling the Ministry, whose check endpoint takes the 26-digit number.
+- **Only IBAN and NRB in Phase 1.** An account from a country outside
+  the IBAN registry fails with `FORMAT`; such accounts are out of scope
+  (see Out of scope).
+- **Reusable for Cash & Bank.** `BankAccount.accountNumber` in
+  `2026-09-10-cash-bank-management.md` (#6055) is free text today
+  ("IBAN or local format"); that module can call the same function
+  without any dependency on `contractors`, because the function lives in
+  `shared`. Whether it does is that spec's decision; this document only
+  places the validator where both can reach it.
+
 ### Alternatives considered
 
 | Alternative | Why Rejected |
@@ -980,7 +1017,10 @@ contractorLookupByNip(params: {
 - `createContractorBankAccount` / `updateContractorBankAccount` —
   standard CRUD; `isPrimary: true` on one account automatically
   unsets it on any other account for the same contractor (single
-  invariant enforced in the command, not left to the client). After
+  invariant enforced in the command, not left to the client). Both
+  commands validate and normalize `accountNumber` with
+  `validateBankAccountNumber` (IBAN/NRB, checksum; `400` otherwise, see
+  Design decisions, 2026-10-20). After
   saving a new account, or a changed `accountNumber`, the command
   enqueues `workers/verifyContractorBankAccount.ts` (background whitelist
   check; a negative answer only sets the warning status, see Design
@@ -1348,6 +1388,9 @@ contractor. **Response shape** (list): includes `updatedAt` per row,
 same rationale as `GET /api/contractors` above.
 
 - **Create body**: `{ accountNumber, isPrimary? }`.
+- **Response 400** (create/update, added 2026-10-20): `accountNumber`
+  fails `validateBankAccountNumber` — a field error with `FORMAT`,
+  `COUNTRY_LENGTH` or `CHECKSUM`.
 
 ### `POST /api/contractors/:id/bank-accounts/:bankAccountId/verify`
 
@@ -1450,6 +1493,7 @@ exactly as `sales.order-approval` and
 | `data/entities.ts` | Create | `Contractor`, `ContractorBankAccount`, `ContractorVerificationCheck` (append-only history, added 2026-10-20) |
 | `migrations/MigrationXXXXXXXXXXXXXX.ts` | Create | Tables for the three entities above, plus the partial indexes `contractor_bank_account_one_primary_uq` and the `nip_hash` uniqueness index scoped `where deleted_at is null` (see Design decisions) and the history indexes (see Data Models) |
 | `api/contractors/[id]/verification-checks/route.ts` | Create | Read-only verification history list (added 2026-10-20) |
+| `packages/shared/src/lib/bank-accounts/accountNumber.ts` | Create | `validateBankAccountNumber` — IBAN/NRB format, ISO 13616 length, MOD 97-10 checksum, normalization to the IBAN form; shared so Cash & Bank can reuse it (added 2026-10-20) |
 | `encryption.ts` | Create | `defaultEncryptionMaps` for `contractors:contractor` (incl. `nip` → `nip_hash`) and `contractors:contractor_bank_account` |
 | `di.ts` | Create | Registers `contractorBankWhitelistCheck` (`checkBankAccountWhitelist`) and `contractorLookupByNip` (read-only, `nipHash` lookup, no PII) for cross-module resolution — see DI Registrar |
 | `acl.ts` | Create | Three `contractors.*` features (`.view`/`.manage`/`.approve`) |
@@ -1522,6 +1566,12 @@ exactly as `sales.order-approval` and
   `NOT_APPROVED` — never reaching the live API client — when
   `approvalStatus` is `PENDING_APPROVAL` or `REJECTED`, and proceeds
   normally once `APPROVED`.
+- `validateBankAccountNumber` (added 2026-10-20): a valid NRB and the
+  same account as `PL` IBAN, with spaces or dashes, normalize to the
+  same value; one changed digit fails with `CHECKSUM`; a German IBAN of
+  the wrong length fails with `COUNTRY_LENGTH`; a number that is neither
+  fails with `FORMAT`; `createContractorBankAccount` returns `400` with a
+  field error for each.
 - Verification history (added 2026-10-20): every live whitelist call,
   GUS/VIES lookup and on-demand VIES check writes exactly one
   `ContractorVerificationCheck` row with `requestId` and `checkedAt` from
@@ -1733,6 +1783,9 @@ independently of AP, which does not yet exist.
   keeps its own append-only history of every check, with the Ministry's
   `requestId` (see Design decisions, 2026-10-20); AP links a payment to a
   check by storing that `requestId` on `PaymentBatchLine`.
+- **Bank accounts outside the IBAN registry** (added 2026-10-20) —
+  e.g. a US account number with a routing number. Phase 1 accepts only
+  IBAN and NRB (see Design decisions, 2026-10-20).
 - **Multi-step or threshold-based vendor approval.** Phase 2,
   deferred unless the team later decides the Phase 1 one-step version
   (confirmed in scope, 2026-09-08) isn't sufficient — see Design
@@ -2339,3 +2392,10 @@ New section Design decisions (2026-10-20); every item below is decided.
   Queries / API, API Contracts, Backend Pages, File Manifest, Testing
   Strategy, Risks (unkeyed hash without a pepper), Tenant isolation,
   Migration, Compliance Matrix and Out of scope updated.
+- **Account number validation.** One shared
+  `validateBankAccountNumber` in `packages/shared/src/lib/bank-accounts/`
+  (IBAN/NRB, ISO 13616 length, MOD 97-10, stored in IBAN form), called
+  by both bank-account commands (`400` on failure); noted as reusable for
+  Cash & Bank's `BankAccount.accountNumber` (#6055). Non-IBAN accounts
+  out of scope. Commands, API Contracts, File Manifest, Testing Strategy,
+  Out of scope updated.
