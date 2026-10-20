@@ -197,6 +197,7 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager)
     const { findApiKeyBySecret } = await import('@open-mercato/core/modules/api_keys/services/apiKeyService')
+    const { isSessionBoundApiKey, resolveApiKeyRoleIds } = await import('@open-mercato/core/modules/api_keys/services/sessionKeyRoles')
     const { Role, RoleAcl, User } = await import('@open-mercato/core/modules/auth/data/entities')
     const { Organization, Tenant } = await import('@open-mercato/core/modules/directory/data/entities')
 
@@ -206,9 +207,8 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
       return null
     }
 
-    const roleIds = Array.isArray(record.rolesJson)
-      ? record.rolesJson.filter((value): value is string => typeof value === 'string' && value.length > 0)
-      : []
+    const isSessionBoundKey = isSessionBoundApiKey(record)
+    const roleIds = await resolveApiKeyRoleIds(em, record)
     const roles = roleIds.length
       ? await em.find(Role, { id: { $in: roleIds }, deletedAt: null })
       : []
@@ -257,14 +257,8 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
     // creator's concrete organization when validating the wider key scope.
     // Keep every session marker fail-closed so a malformed session key cannot
     // fall back to the regular key path and escape its user/scope binding.
-    const isSessionBoundKey = Boolean(
-      record.sessionToken
-      || record.sessionUserId
-      || record.sessionSecretEncrypted
-      || record.opencodeSessionId
-    )
     const actualUserId = isSessionBoundKey
-      ? record.sessionUserId ?? null
+      ? record.sessionUserId?.trim() || null
       : record.createdBy ?? null
 
     if (isSessionBoundKey && !actualUserId) {
@@ -319,7 +313,9 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
       keyName: record.name,
       ...(actualUserId ? { userId: actualUserId } : {}),
     }
-    cache.setSuccess(secret, auth, record.expiresAt ? record.expiresAt.getTime() : null)
+    if (!isSessionBoundKey) {
+      cache.setSuccess(secret, auth, record.expiresAt ? record.expiresAt.getTime() : null)
+    }
     return auth
   } catch (err) {
     // A transient DB failure (pool exhausted, `max_connections` reached, DB

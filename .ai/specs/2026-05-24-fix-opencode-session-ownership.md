@@ -50,3 +50,70 @@ The chat route persisted `(sessionUserId, tenantId, organizationId)` on the api_
 ## Local validation note
 
 The repository's jest configuration on the implementing machine sets `ignoreDeprecations: '6.0'` while the installed TypeScript is 5.9.3 (which accepts only `'5.0'`). This produces `TS5103` on every package's test runner and is unrelated to the changes in this fix. The diff was reviewed manually; CI should validate the test runs once the runner is on a TS version that accepts `'6.0'`, or after the project bumps `ignoreDeprecations` to `'5.0'`.
+
+
+## Session role revocation follow-up (#7599, 2026-10-18)
+
+### Problem and solution
+
+Session ownership alone does not constrain the roles snapshotted when the key was issued.
+Session-bound keys now authorize only the intersection of `rolesJson` and the owner's current,
+nondeleted `UserRole` memberships in the key's tenant. The related user and role must also remain
+nondeleted and in that tenant. Roles added after issuance do not widen an existing key.
+Any of `sessionToken`, `sessionUserId`, `sessionSecretEncrypted`, or `opencodeSessionId` marks a
+session-bound key; a missing or blank owner, missing tenant, or mismatched evaluated tenant grants
+no roles. Independent API keys continue using their own assigned role policy.
+
+### Architecture and cache policy
+
+`api_keys/services/sessionKeyRoles.ts` centralizes marker detection and the issued/current role
+intersection through `findWithDecryption`. RBAC uses it for ordinary ACL resolution, exact
+transaction-EntityManager resolution, and feature-specific organization grants. Authentication
+uses the same intersection before projecting role names and the superadmin flag.
+The API-key principal service uses it when projecting role IDs for role-based resource shares.
+Business-rule API calls resolve the same intersection before minting their temporary child key,
+so a stored session-key profile cannot convert a revoked role into independent access.
+
+Session-derived authentication, ACL, and feature-organization results bypass cross-request caches.
+The optional Directory organization-scope cache also bypasses session-bound keys; request-local
+memoization remains intact. Each worker reads current memberships on its next request, so role
+removal does not depend on process-local invalidation messages reaching other workers. Ordinary
+keys retain their existing cache policy. Existing last-used write debouncing remains enabled.
+
+### Migration & Backward Compatibility
+
+Endpoint URLs, token formats, response fields, database schema, event IDs, ACL IDs, and DI keys
+are unchanged. This fixes revoked-role authorization; it intentionally removes privileges from
+already-issued session keys immediately after the membership change commits. Still-held issued
+roles remain usable, and a newly granted role requires a new session key. No migration or stored-key
+rewrite is needed. Operators must deploy and restart every application/worker process that can
+resolve these credentials; old running code continues authorizing snapshots until replaced.
+No deprecation bridge is required because no existing public shape or identifier is removed.
+
+### Risks and validation
+
+- **High — stale grants:** validate cold and warm ACLs, feature-organization projections, raw
+  authentication superadmin flags, and independently warmed worker caches. Live membership reads
+  prevent session projections from surviving a committed removal.
+- **High — scope drift:** tenant/owner mismatch, deleted memberships, deleted roles, and malformed
+  session markers deny grants; test these independently from ordinary API-key policy.
+- **Medium — request cost:** session requests perform live membership queries and repeat secret
+  verification. Keep ordinary-key caches and last-used write debouncing. No new services or events.
+- **Residual risk:** authorization already evaluated by an in-flight request is not retroactively
+  cancelled; the next request revalidates. Staff deactivation and infrastructure-key fallback are
+  separate issues (#7223 and #5173). Rolling back reintroduces snapshot-based authorization.
+
+Coverage: `rbacService.session-role-revocation.test.ts` covers cold/warm authorization and scope
+projections, old cached entries, exact-EM isolation, role ceilings, tenant isolation, deleted links
+and roles, malformed owners, and ordinary-key compatibility. `server.apiKeyCache.test.ts` covers
+repeated authentication before/after revocation, removal of the raw superadmin flag, surviving
+roles, and unchanged ordinary-key caching. `organizationScopeCache.test.ts` covers the opt-in
+cross-request scope cache. Component integration coverage exercises issuance, authentication,
+and independently warmed RBAC services together; persistence is simulated, not a live database.
+`api_keys/services/__tests__/principalService.test.ts` covers share-role projection after revocation,
+issuance ceilings, and independent keys. Business-rule action tests verify temporary child keys
+receive only still-held issued roles and that an empty intersection stops before any API call.
+
+### Changelog
+
+- 2026-10-18: Add live session-key role revalidation and cache-bypass design for #7599.

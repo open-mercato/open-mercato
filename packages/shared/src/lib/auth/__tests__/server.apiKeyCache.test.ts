@@ -7,6 +7,7 @@ const emFind = jest.fn()
 const emFindOne = jest.fn()
 const emPersist = jest.fn()
 const emFlush = jest.fn()
+const findWithDecryption = jest.fn()
 
 jest.mock('next/headers', () => ({
   cookies: async () => ({ get: () => undefined }),
@@ -32,6 +33,11 @@ jest.mock('@open-mercato/core/modules/auth/data/entities', () => ({
   Role: class {},
   RoleAcl: class {},
   User: class {},
+  UserRole: class {},
+}))
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: (...args: unknown[]) => findWithDecryption(...args),
 }))
 
 jest.mock('@open-mercato/core/modules/directory/data/entities', () => ({
@@ -57,6 +63,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
     })
     emFind.mockResolvedValue([])
     emFindOne.mockResolvedValue(null)
+    findWithDecryption.mockResolvedValue([])
     emPersist.mockReturnValue(undefined)
     emFlush.mockResolvedValue(undefined)
     const { resetSharedApiKeyAuthCacheForTests } = await import('@open-mercato/shared/lib/auth/apiKeyAuthCache')
@@ -91,6 +98,65 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
     expect(second).toEqual(first)
     expect(third).toEqual(first)
     expect(findApiKeyBySecret).toHaveBeenCalledTimes(1)
+    expect(findWithDecryption).not.toHaveBeenCalled()
+    expect(emFlush).toHaveBeenCalledTimes(1)
+  })
+
+  it('immediately removes revoked session roles and super-admin status while retaining issued roles still held', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const { getSharedApiKeyAuthCache } = await import('@open-mercato/shared/lib/auth/apiKeyAuthCache')
+    const { Role, RoleAcl, User } = await import('@open-mercato/core/modules/auth/data/entities')
+    const secret = 'session-role-revocation-secret'
+    let currentRoleIds = ['role-super', 'role-reader']
+    findApiKeyBySecret.mockResolvedValue({
+      id: 'key-session-revocation',
+      name: 'session role revocation',
+      tenantId: 'tenant-1',
+      organizationId: null,
+      rolesJson: ['role-super', 'role-reader'],
+      sessionToken: 'sess_role_revocation',
+      sessionUserId: 'session-user-1',
+      createdBy: 'session-user-1',
+      expiresAt: new Date(Date.now() + 120 * 60_000),
+    })
+    findWithDecryption.mockImplementation(async () => currentRoleIds.map((roleId) => ({ role: { id: roleId } })))
+    emFindOne.mockImplementation(async (entity: unknown) => entity === User ? {
+      id: 'session-user-1',
+      tenantId: 'tenant-1',
+      organizationId: null,
+    } : null)
+    emFind.mockImplementation(async (entity: unknown, where: Record<string, unknown>) => {
+      if (entity === Role) {
+        const roleIds = (where.id as { $in: string[] }).$in
+        return roleIds.map((roleId) => ({
+          id: roleId,
+          name: roleId === 'role-super' ? 'superadmin' : roleId === 'role-reader' ? 'employee' : 'new-role',
+        }))
+      }
+      if (entity === RoleAcl && (where.role as { $in: string[] }).$in.includes('role-super')) {
+        return [{ isSuperAdmin: true, organizationsJson: null }]
+      }
+      return []
+    })
+
+    await expect(getAuthFromRequest(buildRequest(secret))).resolves.toMatchObject({
+      roles: ['superadmin', 'employee'],
+      isSuperAdmin: true,
+    })
+    await expect(getAuthFromRequest(buildRequest(secret))).resolves.toMatchObject({ isSuperAdmin: true })
+
+    currentRoleIds = ['role-reader', 'role-new']
+
+    for (const requestNumber of [1, 2]) {
+      await expect(getAuthFromRequest(buildRequest(secret))).resolves.toMatchObject({
+        roles: ['employee'],
+        isSuperAdmin: false,
+        userId: 'session-user-1',
+      })
+      expect(getSharedApiKeyAuthCache().get(secret)).toBeUndefined()
+      expect(findApiKeyBySecret).toHaveBeenCalledTimes(2 + requestNumber)
+    }
+    expect(findWithDecryption).toHaveBeenCalledTimes(4)
     expect(emFlush).toHaveBeenCalledTimes(1)
   })
 
@@ -306,7 +372,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
     ).resolves.toBeNull()
   })
 
-  it('fails closed when a row has session markers but no bound session user', async () => {
+  it.each([null, '', ' '])('fails closed when a row has session markers and owner %p', async (sessionUserId) => {
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     findApiKeyBySecret.mockResolvedValue({
       id: 'key-malformed-session',
@@ -315,7 +381,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
       organizationId: null,
       rolesJson: [],
       sessionToken: 'sess_missing_user',
-      sessionUserId: null,
+      sessionUserId,
       sessionSecretEncrypted: null,
       opencodeSessionId: null,
       createdBy: 'creator-1',
