@@ -187,6 +187,10 @@ export type JournalEntryPostCore = {
   documentType?: string | null
   documentNumber?: string | null
   documentDate?: Date | null
+  /** Set by the command from the caller's session (`auth.sub`); never part
+   * of `postJournalEntrySchema`, so a caller cannot supply it (art. 14 ust. 4
+   * UoR: the person responsible for the entry). */
+  postedBy?: string | null
   description: string
   type?: JournalEntryType
   currencyId: string
@@ -291,6 +295,7 @@ export async function runPostJournalEntry(
     documentType: input.documentType ?? null,
     documentNumber: input.documentNumber ?? null,
     documentDate: input.documentDate ?? null,
+    postedBy: input.postedBy ?? null,
     description: input.description,
     type: input.type ?? 'NORMAL',
     currencyId: input.currencyId,
@@ -435,7 +440,9 @@ const postJournalEntryCommand: CommandHandler<PostJournalEntryInput, PostJournal
     ensureOrganizationScope(ctx, input.organizationId)
 
     const { translate } = await resolveTranslations()
-    const result = await withPostingTransaction(ctx, (em) => runPostJournalEntry(em, input, translate))
+    const result = await withPostingTransaction(ctx, (em) =>
+      runPostJournalEntry(em, { ...input, postedBy: ctx.auth?.sub ?? null }, translate),
+    )
 
     // Emitted after commit, per the spec — this is the only way another
     // module (e.g. Posting Rules Engine) may react to a posting. Only
