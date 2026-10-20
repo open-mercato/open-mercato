@@ -5,6 +5,8 @@ const findWithDecryptionMock = jest.fn()
 const canUseChannelThreadFallbackMock = jest.fn(async () => true)
 const resolveMessageChannelThreadAccessMock = jest.fn()
 const delegateComposeToSenderMock = jest.fn()
+const resolveReplyParentMessageMock = jest.fn()
+const canPostToChannelThreadMock = jest.fn(async () => true)
 
 jest.mock('@open-mercato/cache', () => ({
   runWithCacheTenant: async <T>(_tenantId: string | null, callback: () => Promise<T> | T) => callback(),
@@ -26,7 +28,8 @@ jest.mock('@open-mercato/core/modules/messages/lib/routeHelpers', () => ({
   resolveMessageContext: (...args: unknown[]) => resolveMessageContextMock(...args),
   canUseMessageEmailFeature: (...args: unknown[]) => canUseMessageEmailFeatureMock(...args),
   canUseChannelThreadFallback: (...args: unknown[]) => canUseChannelThreadFallbackMock(...args),
-  canPostToChannelThread: jest.fn(async () => true),
+  canPostToChannelThread: (...args: unknown[]) => canPostToChannelThreadMock(...args),
+  resolveReplyParentMessage: (...args: unknown[]) => resolveReplyParentMessageMock(...args),
 }))
 
 jest.mock('@open-mercato/core/modules/messages/lib/channelThreadAccess', () => ({
@@ -41,6 +44,13 @@ jest.mock('@open-mercato/core/modules/messages/lib/composeSenderDelegation', () 
 
 jest.mock('@open-mercato/core/modules/messages/lib/message-types-registry', () => ({
   getMessageType: jest.fn(),
+}))
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({
+    translate: (_key: string, fallback: string) => fallback,
+    t: (_key: string, fallback: string) => fallback,
+  }),
 }))
 
 import { GET, POST } from '@open-mercato/core/modules/messages/api/route'
@@ -426,5 +436,123 @@ describe('messages /api/messages GET cache', () => {
     expect(await response.json()).toEqual(cachedPayload)
     expect(cache.set).not.toHaveBeenCalled()
     expect(findWithDecryptionMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('messages /api/messages POST reply parent', () => {
+  const parentMessageId = '3f9a6c2e-1d4b-4e8a-9c7f-5b2d8e1a6c40'
+  const parentThreadId = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d'
+  let commandBus: { execute: jest.Mock }
+
+  function composeRequest(extra: Record<string, unknown>) {
+    return new Request('http://localhost', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'default',
+        recipients: [{ userId: otherUserId, type: 'to' }],
+        subject: 'Re: Subject',
+        body: 'Body',
+        parentMessageId,
+        ...extra,
+      }),
+    })
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    commandBus = {
+      execute: jest.fn(async () => ({
+        result: { id: messageId, threadId: parentThreadId, externalEmail: null, recipientUserIds: [otherUserId] },
+      })),
+    }
+    resolveMessageContextMock.mockResolvedValue({
+      ctx: {
+        auth: { orgId: organizationId },
+        container: { resolve: (name: string) => (name === 'commandBus' ? commandBus : null) },
+      },
+      scope: { tenantId, organizationId, userId },
+    })
+    canPostToChannelThreadMock.mockResolvedValue(true)
+  })
+
+  it('resolves the parent the client sent in the caller scope before composing', async () => {
+    resolveReplyParentMessageMock.mockResolvedValue({
+      status: 'readable',
+      message: { id: parentMessageId, threadId: parentThreadId },
+    })
+
+    const response = await POST(composeRequest({}))
+
+    expect(response.status).toBe(201)
+    expect(resolveReplyParentMessageMock).toHaveBeenCalledWith(
+      expect.anything(),
+      { tenantId, organizationId, userId },
+      parentMessageId,
+    )
+    expect(commandBus.execute.mock.calls[0][1].input.parentMessageId).toBe(parentMessageId)
+  })
+
+  it.each([
+    ['an internal message', {}],
+    ['a draft', { isDraft: true }],
+  ])('refuses a parent the caller cannot read on %s, writing nothing', async (_label, extra) => {
+    resolveReplyParentMessageMock.mockResolvedValue({ status: 'forbidden' })
+
+    const response = await POST(composeRequest(extra))
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual({ error: 'Access denied' })
+    expect(commandBus.execute).not.toHaveBeenCalled()
+    expect(delegateComposeToSenderMock).not.toHaveBeenCalled()
+  })
+
+  it('answers an unknown, deleted or out-of-scope parent with 404, writing nothing', async () => {
+    resolveReplyParentMessageMock.mockResolvedValue({ status: 'not_found' })
+
+    const response = await POST(composeRequest({}))
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: 'The message you are replying to was not found' })
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('refuses before delegating a mailbox send onto an unreadable parent', async () => {
+    resolveReplyParentMessageMock.mockResolvedValue({ status: 'forbidden' })
+
+    const response = await POST(composeRequest({
+      visibility: 'public',
+      recipients: [],
+      externalEmail: 'client@example.com',
+      senderChannelId: '22222222-2222-4222-8222-222222222222',
+    }))
+
+    expect(response.status).toBe(403)
+    expect(delegateComposeToSenderMock).not.toHaveBeenCalled()
+    expect(canPostToChannelThreadMock).not.toHaveBeenCalled()
+  })
+
+  it('applies the channel posting gate to the thread of the parent it resolved', async () => {
+    resolveReplyParentMessageMock.mockResolvedValue({
+      status: 'readable',
+      message: { id: parentMessageId, threadId: parentThreadId },
+    })
+    canPostToChannelThreadMock.mockResolvedValue(false)
+
+    const response = await POST(composeRequest({
+      visibility: 'public',
+      recipients: [],
+      externalEmail: 'client@example.com',
+    }))
+
+    expect(response.status).toBe(403)
+    expect(canPostToChannelThreadMock).toHaveBeenCalledWith(expect.anything(), expect.anything(), parentThreadId)
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('does not resolve anything when no parent is named', async () => {
+    const response = await POST(composeRequest({ parentMessageId: undefined }))
+
+    expect(response.status).toBe(201)
+    expect(resolveReplyParentMessageMock).not.toHaveBeenCalled()
   })
 })

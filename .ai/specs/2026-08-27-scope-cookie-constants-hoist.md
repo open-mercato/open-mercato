@@ -22,7 +22,9 @@ It is a separate PR at the maintainer's request, because it touches a surface li
 - **Bridged (re-export only)**: `packages/core/src/modules/directory/constants.ts`,
   `packages/core/src/modules/directory/utils/scopeCookies.ts`
 - **Copies removed**: `packages/shared/src/lib/auth/server.ts` (all three values, plus its
-  private `readCookieFromHeader` / `decodeCookieValue`),
+  private `readCookieFromHeader` / `decodeCookieValue`; the `auth_token` decode that #7413
+  routed through the latter now calls `decodeScopeCookieValue`, the same decode-or-raw
+  fallback),
   `packages/shared/src/lib/crud/factory.ts` (`SELECTED_ORG_COOKIE`),
   `packages/core/src/modules/directory/utils/organizationScope.ts` (two inlined cookie-name
   literals), `apps/mercato/src/app/(backend)/backend/[...slug]/page.tsx` and its byte-identical
@@ -304,6 +306,11 @@ note on the record.
   `exports`, per `.ai/lessons/new-shared-deep-import-paths-should-get-explicit-export.md`
   (review on #5715). Corrected the two statements that said the wildcard made a
   `package.json` change unnecessary, and added the lesson to the Compliance Matrix.
+- Merged `develop`. The textual merge was clean but did not compile: #7413 made the
+  dispatcher's `auth_token` decode in `lib/auth/server.ts` call the private
+  `decodeCookieValue`, which this change removes. It now calls `decodeScopeCookieValue`,
+  which behaves identically (percent-decode, raw text on a malformed escape, so `verifyJwt`
+  rejects the token instead of the request throwing).
 
 ### 2026-10-11
 

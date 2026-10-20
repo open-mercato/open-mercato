@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import {
   MCP_DEFAULT_PORT,
@@ -8,6 +10,7 @@ import {
   deriveMcpHealthUrl,
   isFastMcpCrash,
   isKeyRotationOutput,
+  looksLikeMissingAiAssistantModule,
   looksLikeMissingKeyOwner,
   looksLikePermissionError,
   looksLikeUninitializedDatabase,
@@ -15,6 +18,7 @@ import {
   nextMcpRestartDelayMs,
   resolveMcpKeyFilePath,
   resolveMcpPort,
+  shouldRetryMcpProvisioning,
   shouldStartMcp,
 } from '../dev-mcp.mjs'
 
@@ -125,4 +129,34 @@ test('looksLikeMissingKeyOwner detects the owner-not-found throw', () => {
   // "Run mercato init" is an owner-resolution failure, not a bare DB-not-ready signal.
   assert.equal(looksLikeUninitializedDatabase(['Run "mercato init" first']), false)
   assert.equal(looksLikeMissingKeyOwner(['connect ECONNREFUSED 127.0.0.1:5432']), false)
+})
+
+test('looksLikeMissingAiAssistantModule matches the CLI missing-module output only', () => {
+  assert.equal(looksLikeMissingAiAssistantModule(['❌ Module not found: "ai_assistant"']), true)
+  assert.equal(looksLikeMissingAiAssistantModule(['Module not found: "customers"']), false)
+  assert.equal(looksLikeMissingAiAssistantModule(['Module not found: "ai_assistant_x"']), false)
+  assert.equal(looksLikeMissingAiAssistantModule(['Module not found: "ai_assistants"']), false)
+  assert.equal(looksLikeMissingAiAssistantModule(["Error: Cannot find module 'x' code: 'MODULE_NOT_FOUND'"]), false)
+  assert.equal(looksLikeMissingAiAssistantModule(['connect ECONNREFUSED 127.0.0.1:5432']), false)
+})
+
+test('shouldRetryMcpProvisioning stops for a missing ai_assistant module and keeps retrying transient failures', () => {
+  assert.equal(shouldRetryMcpProvisioning(['❌ Module not found: "ai_assistant"']), false)
+  assert.equal(shouldRetryMcpProvisioning(['connect ECONNREFUSED 127.0.0.1:5432']), true)
+  assert.equal(shouldRetryMcpProvisioning(['error: relation "api_keys" does not exist']), true)
+  assert.equal(shouldRetryMcpProvisioning([]), true)
+})
+
+test('dev runner returns without retrying when ai_assistant is missing, in root and template copies', () => {
+  const here = path.dirname(fileURLToPath(import.meta.url))
+  for (const file of [
+    path.resolve(here, '..', 'dev.mjs'),
+    path.resolve(here, '..', '..', 'packages', 'create-app', 'template', 'scripts', 'dev.mjs'),
+  ]) {
+    const source = readFileSync(file, 'utf8')
+    const guard = source.indexOf('if (!shouldRetryMcpProvisioning(capturedLines))')
+    const retry = source.indexOf('nextMcpKeyRetryDelayMs(attempt)')
+    assert.ok(guard > 0 && guard < retry, file)
+    assert.match(source.slice(guard, retry), /return false/, file)
+  }
 })

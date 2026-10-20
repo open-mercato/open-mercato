@@ -395,7 +395,7 @@ export async function resolveAuthFromRequestDetailed(req: Request): Promise<Auth
   if (authHeader.toLowerCase().startsWith('bearer ')) token = authHeader.slice(7).trim()
   if (!token) {
     const match = cookieHeader.match(/(?:^|;\s*)auth_token=([^;]+)/)
-    if (match) token = decodeURIComponent(match[1])
+    if (match) token = decodeScopeCookieValue(match[1]) ?? undefined
   }
   if (token) {
     try {
