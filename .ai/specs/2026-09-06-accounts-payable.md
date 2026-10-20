@@ -787,7 +787,12 @@ async seedDefaults({ em, tenantId, organizationId }) {
   GL's `postJournalEntry` requires on every entry; VendorInvoice's own
   `currencyId` is the obvious, and only, source for it here),
   `referenceType: 'accounts_payable:vendor_invoice'`,
-  `referenceId: invoice.id`, `operationDate: invoice.invoiceDate`,
+  `referenceId: invoice.id`, **`contractorSnapshot` on the CR
+  (liability) line** (added 2026-10-20 — `{ source: 'vendor_invoice',
+  contractorId: invoice.vendorId, name, taxId }` with `name`/`taxId`
+  copied from `vendorSnapshot`, no bank account; keys defined in
+  `2026-08-18-general-ledger-core-engine.md`; the DR lines carry none),
+  `operationDate: invoice.invoiceDate`,
   `documentType: 'external_foreign'` (a vendor invoice is a dowód
   zewnętrzny obcy — received from the contractor, not issued by this
   organization — art. 20 ust. 2 pkt 1 Ustawy o rachunkowości),
@@ -970,7 +975,12 @@ document itself (for a received e-invoice, the seller's name and tax id as
 printed on it, which is the right point-in-time copy). This module never
 reads `contractors` to build it, so the one-way dependency is unchanged.
 `vendorId` stays the source of truth; the snapshot is only for rendering,
-and this module does not check that the two agree.
+and this module does not check that the two agree. **Foreign supplier
+(decided 2026-10-20):** `taxId` is stored exactly as printed (a VAT-UE
+number or a local tax id); Contractor Registry's `contractorLookupByNip`
+returns no match for it without an error (#5955), and nothing here
+normalizes or rejects it. `postVendorInvoice` copies `name`/`taxId` into
+`JournalEntryLine.contractorSnapshot` on the liability line.
 
 **Read access for other modules (added 2026-10-08, Phase 2).** Nothing in
 this document lets another module read `VendorInvoice`, and reading its
@@ -1922,3 +1932,16 @@ changes what `postVendorInvoice` sends downstream.
   Source: Multi-Currency (#6190) Design decision 15, which moved this command
   out of `fx_revaluation` so that the owning module's pipeline writes its own
   entity. Not yet reviewed by a maintainer.
+
+### 2026-10-20 — `contractorSnapshot` on the invoice entry; foreign tax id
+
+- **`postVendorInvoice` writes `JournalEntryLine.contractorSnapshot`** on
+  the CR (liability) line: `{ source: 'vendor_invoice', contractorId,
+  name, taxId }` from `vendorId` and `vendorSnapshot`, with no bank
+  account (keys defined in GL #5663). Until now GL said AP fills the
+  snapshot, but no AP command listed it among the fields it passes.
+- **Foreign supplier:** `vendorSnapshot.taxId` stays as printed;
+  Contractor Registry's NIP lookup finds no match for it, without an
+  error (#5955, Design decisions 2026-10-20).
+- The payment-side snapshot is written by `markPaymentBatchSent` in
+  `2026-09-06-accounts-payable-payments.md`.

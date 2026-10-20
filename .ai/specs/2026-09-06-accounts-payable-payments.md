@@ -279,6 +279,84 @@ routes live under their own module's prefix" convention, the same way
 API Contracts. An external contract change caused by the split,
 documented explicitly, not glossed over.
 
+### Design decisions (2026-10-20 — aligned with Contractor Registry #5955)
+
+Contractor Registry (#5955, Design decisions 2026-10-20) changed the
+contract of `contractorBankWhitelistCheck`: it now returns a
+payment-eligibility result `{ eligible, reasons, status, checkedAt,
+requestId, accountNumberLast4, currencyCode }` instead of throwing, and
+it adds an account `purpose` and an informational `currencyCode`. This
+document consumes that contract as follows. Every item is decided.
+
+**Each registry reason maps to its own error code, instead of one
+`WHITELIST_CHECK_FAILED`.** `confirmPaymentBatch` calls the check once
+per line and confirms only when every line is `eligible`. A line that is
+not gets the codes below, all of them at once, so the clerk sees
+everything that is wrong with a batch in one response:
+
+| From `contractors` | Error code in this module |
+|---|---|
+| reason `NOT_APPROVED` | `VENDOR_NOT_APPROVED` |
+| reason `VERIFICATION_FAILED` | `VENDOR_VERIFICATION_FAILED` |
+| reason `ACCOUNT_INACTIVE` | `VENDOR_ACCOUNT_INACTIVE` |
+| reason `WHITELIST_NEGATIVE` | `VENDOR_ACCOUNT_NOT_WHITELISTED` |
+| reason `WHITELIST_UNAVAILABLE` | `WHITELIST_UNAVAILABLE` |
+| `422 CONTRACTOR_BANK_ACCOUNT_NOT_SETTLEMENT` | `VENDOR_ACCOUNT_NOT_SETTLEMENT` |
+| service missing (`tryResolve` → `undefined`) or any unexpected exception | `CONTRACTORS_UNAVAILABLE` |
+
+The fail-closed policy is unchanged: a missing service is still a
+blocked batch, now with its own code.
+
+**The evidence stored per line is the registry's own result:
+`whitelistCheckResult = { status, checkedAt, requestId,
+accountNumberLast4 }`.** `requestId` and `checkedAt` are the Ministry's
+`requestId`/`requestDateTime`, passed through by #5955 (which now
+returns them; until 2026-10-20 the registry contract had no `requestId`,
+so this field had no source). `accountNumberLast4` is the masked part
+of the account that was checked, so the posting can name the account
+without reading the encrypted number. `status` is one of `WHITELISTED`
+or `NOT_APPLICABLE` (a vendor without a Polish NIP, which the Ministry's
+list cannot contain) — a line is stored only when it was eligible. The
+registry keeps its own history of the same check; `requestId` links the
+two.
+
+**Only `SETTLEMENT` accounts are payment targets.** The account picker
+on the batch page lists a vendor's accounts with `purpose=SETTLEMENT`
+only, and if a `VAT` account still reaches confirmation, the registry
+refuses it and the line fails with `VENDOR_ACCOUNT_NOT_SETTLEMENT`.
+A VAT account is never paid to directly.
+
+**A currency mismatch between the batch and the account is a warning,
+not a block.** When the account's `currencyCode` (returned by the check)
+is set and differs from the ISO code of the batch's currency
+(`currencies.Currency.code` for `PaymentBatch.currency_id`, read
+tenant/organization-scoped), `confirmPaymentBatch` still confirms and
+returns `warnings: [{ code: 'CURRENCY_MISMATCH', vendorInvoiceId,
+batchCurrencyCode, accountCurrencyCode }]`; the batch page shows the
+same warning when the line is added. Not a block, because the
+registry's `currencyCode` is informational (what the vendor declared)
+and banks convert; the clerk decides. With `currencyCode` `null`, or the
+`currencies` module unable to resolve the code, no warning is produced.
+
+**A foreign vendor's tax id stays as printed.** Nothing here changes
+`VendorInvoice.vendorSnapshot.taxId` for a foreign supplier: it keeps
+the seller's tax id from the document (a VAT-UE number or a local id),
+and `contractorLookupByNip` returning no match for it is a normal
+answer (see the sibling document).
+
+**This module writes `JournalEntryLine.contractorSnapshot` on the
+payment entry.** `markPaymentBatchSent` passes, on each DR line (one
+per invoice), the snapshot defined in GL #5663 with `source: 'payment'`:
+`contractorId` (the batch's `vendor_id`), `name` and `taxId` (from the
+invoice's `vendorSnapshot`, read decrypted; for a Polish vendor `taxId`
+is its NIP), `bankAccountMasked` (`'****'` + the line's
+`whitelistCheckResult.accountNumberLast4` — the account actually paid
+to) and `whitelistCheck` (`{ status, checkedAt, requestId }` from the
+line's `whitelistCheckResult`, i.e. the live check this module holds when
+it posts). The invoice entry's snapshot (`source: 'vendor_invoice'`,
+name and tax id, no account) is written by `postVendorInvoice` in the
+sibling document.
+
 ### Alternatives considered
 
 | Alternative | Why Rejected |
@@ -331,7 +409,8 @@ documented explicitly, not glossed over.
   remaining invoice amount, no partial payments, see Out of scope),
   `whitelistCheckResult` (nullable `json` — the result of the live
   VAT-whitelist verification at `confirmPaymentBatch` time: `status`,
-  `checkedAt`, `requestId` — **without** the account number, see
+  `checkedAt`, `requestId`, `accountNumberLast4` (added 2026-10-20) —
+  **without** the account number, see
   Design decisions and Encryption below), its own
   `organizationId`/`tenantId`.
 
@@ -420,7 +499,8 @@ to provide.
 
 **This module needs no `encryption.ts` of its own.**
 `PaymentBatchLine.whitelistCheckResult` stores only the verification
-result (`status`/`checkedAt`/`requestId`), deliberately without the
+result (`status`/`checkedAt`/`requestId`, plus since 2026-10-20 the
+last four digits `accountNumberLast4`), deliberately without the
 bank account number — that's already encrypted on
 `ContractorBankAccount.accountNumber` in `contractors/encryption.ts`
 (see Design decisions). No other field on `PaymentBatch`/
@@ -474,7 +554,13 @@ async seedDefaults({ em, tenantId, organizationId }) {
   `contractors` **is** an optional peer here, unlike `ledger`/
   `accounts_payable`). A missing module, or a failed live check,
   **blocks confirmation of the entire batch**; the module never
-  treats a missing result as "assume WHITELISTED".
+  treats a missing result as "assume WHITELISTED". **Updated
+  2026-10-20:** a line passes only when the result is `eligible`; each
+  registry reason maps to its own error code (see Design decisions,
+  2026-10-20); an eligible line stores `whitelistCheckResult = { status,
+  checkedAt, requestId, accountNumberLast4 }`; a currency mismatch
+  between the batch and the account's `currencyCode` produces a
+  `CURRENCY_MISMATCH` warning, not a block.
 - `markPaymentBatchSent` — `CONFIRMED` → `SENT`. Resolves `commandBus`
   from the container and calls `ledger.postJournalEntry` with one DR
   line **per invoice in the batch** (resolved 2026-09-08, maintainer
@@ -494,6 +580,10 @@ async seedDefaults({ em, tenantId, organizationId }) {
   maintainer review; `PaymentBatch` previously had no currency column
   to post with), `referenceType:
   'accounts_payable_payments:payment_batch'`, `referenceId: batch.id`.
+  **Added 2026-10-20:** each DR line carries `contractorSnapshot` with
+  `source: 'payment'` — `contractorId`, `name`, `taxId`,
+  `bankAccountMasked` and `whitelistCheck` (keys defined in GL #5663;
+  values per Design decisions, 2026-10-20); the CR line carries none.
   **Does not execute a real bank transfer** — see Out of scope. Sets
   `postedJournalEntryId` (idempotency guard, mirroring
   `postVendorInvoice`). **Posting date (added 2026-10-15):** the command
@@ -578,6 +668,13 @@ deliberately different mechanisms, not by oversight:
   because it's a hard legal blocker (VAT whitelist/MPP), not a UX
   convenience. This module never treats a missing result as "assume
   WHITELISTED" — always as "I can't verify, so I block" (fail-closed).
+  Since 2026-10-20 the call returns an eligibility result (`eligible`,
+  `reasons[]`, `status`, `checkedAt`, `requestId`, `accountNumberLast4`,
+  `currencyCode`); the mapping of reasons to this module's error codes is
+  in Design decisions, 2026-10-20. This module still reads no PII from
+  `contractors`: the snapshot's name and tax id come from
+  `VendorInvoice.vendorSnapshot`, the account from the check's
+  `accountNumberLast4`.
 
 ### Backend Pages (`backend/accounts_payable_payments/`)
 
@@ -589,6 +686,12 @@ deliberately different mechanisms, not by oversight:
   plain, toggle-like state transition, not an approve/reject decision,
   so `useGuardedMutation` is the right pattern here, unlike invoice
   approval in the sibling document) and "Send" (`markPaymentBatchSent`).
+  **Added 2026-10-20:** the bank-account picker for a line lists the
+  vendor's accounts with `purpose=SETTLEMENT` and `isActive=true` only
+  (through `contractors`' bank-account list route); the page shows the
+  `CURRENCY_MISMATCH` warning when a line's account currency differs from
+  the batch's, and lists each failed line's error codes after a refused
+  confirmation.
 
 ## Data Models
 
@@ -706,12 +809,20 @@ no corresponding route — the `DELETE` route above closes that gap.
 
 Custom write route (mapped to `update`).
 
-- **Response 200**: `{ id, status: 'CONFIRMED' }`.
-- **Response 422 `WHITELIST_CHECK_FAILED`**: `{ code:
-  'WHITELIST_CHECK_FAILED', failedLines: { vendorInvoiceId, reason
-  }[] }` — at least one line failed the live VAT-whitelist
-  verification (or the `contractors` module is unavailable — see
-  Cross-module integration, fail-closed).
+- **Response 200**: `{ id, status: 'CONFIRMED', warnings: { code:
+  'CURRENCY_MISMATCH', vendorInvoiceId, batchCurrencyCode,
+  accountCurrencyCode }[] }` (`warnings` added 2026-10-20, empty when
+  none).
+- **Response 422 `PAYMENT_BATCH_NOT_ELIGIBLE`** (**changed 2026-10-20**,
+  replaces `WHITELIST_CHECK_FAILED`): `{ code:
+  'PAYMENT_BATCH_NOT_ELIGIBLE', failedLines: { paymentBatchLineId,
+  vendorInvoiceId, codes: ('VENDOR_NOT_APPROVED' |
+  'VENDOR_VERIFICATION_FAILED' | 'VENDOR_ACCOUNT_INACTIVE' |
+  'VENDOR_ACCOUNT_NOT_WHITELISTED' | 'WHITELIST_UNAVAILABLE' |
+  'VENDOR_ACCOUNT_NOT_SETTLEMENT' | 'CONTRACTORS_UNAVAILABLE')[] }[] }` —
+  at least one line is not eligible (mapping in Design decisions,
+  2026-10-20; `CONTRACTORS_UNAVAILABLE` is the fail-closed case). The
+  batch stays `DRAFT`.
 - **Response 403**: caller lacks `accounts_payable_payments.payments.execute`.
 
 ### `POST /api/accounts_payable_payments/payments/:id/send`
@@ -809,8 +920,26 @@ through the module configuration screen.
   `contractorBankWhitelistCheck` returns `WHITELISTED` for both); send
   it; assert a balanced `JournalEntry` on the liability/bank account.
 - Confirm a batch when one line fails VAT-whitelist verification;
-  assert a `422 WHITELIST_CHECK_FAILED` response, the batch stays
-  `DRAFT`.
+  assert a `422 PAYMENT_BATCH_NOT_ELIGIBLE` response with
+  `VENDOR_ACCOUNT_NOT_WHITELISTED` for that line, the batch stays
+  `DRAFT` (updated 2026-10-20).
+- Reason mapping (added 2026-10-20): a mocked result with each of the
+  five reasons yields its mapped code; a result with two reasons yields
+  both codes on the line; a `422 CONTRACTOR_BANK_ACCOUNT_NOT_SETTLEMENT`
+  yields `VENDOR_ACCOUNT_NOT_SETTLEMENT`; an unexpected exception yields
+  `CONTRACTORS_UNAVAILABLE`.
+- Evidence (added 2026-10-20): after confirmation each line's
+  `whitelistCheckResult` equals the mocked `{ status, checkedAt,
+  requestId, accountNumberLast4 }`; a `NOT_APPLICABLE` result for a
+  vendor without a NIP is stored as such and does not block.
+- Currency warning (added 2026-10-20): an `EUR` batch and an account
+  with `currencyCode: 'USD'` confirm with one `CURRENCY_MISMATCH`
+  warning; `currencyCode: null` gives none.
+- Payment snapshot (added 2026-10-20): after `markPaymentBatchSent`
+  each DR line's `contractorSnapshot` has `source: 'payment'`, the
+  invoice's `vendorSnapshot` name and tax id (a foreign tax id
+  unchanged), `bankAccountMasked` `'****'` + the stored last four digits
+  and the stored `whitelistCheck`; the CR line has none.
 - Confirm a batch when the `contractors` module is disabled (a
   module-decoupling test, see `packages/core/AGENTS.md` → Testing
   with Disabled Modules); assert fail-closed — the batch does **not**
@@ -1277,3 +1406,29 @@ change to behaviour or schema. Not yet reviewed by a maintainer.
 - Extended the "Read contract for other modules" paragraph (added
   2026-10-12) with `PaymentBatch.sentOn`.
 - Not yet reviewed by a maintainer.
+
+### 2026-10-20 — aligned with Contractor Registry (#5955) and GL (#5663)
+
+- New section Design decisions (2026-10-20), every item decided.
+- **Reason mapping.** The registry's eligibility `reasons[]` map one to
+  one to this module's codes (`VENDOR_NOT_APPROVED`,
+  `VENDOR_VERIFICATION_FAILED`, `VENDOR_ACCOUNT_INACTIVE`,
+  `VENDOR_ACCOUNT_NOT_WHITELISTED`, `WHITELIST_UNAVAILABLE`), plus
+  `VENDOR_ACCOUNT_NOT_SETTLEMENT` and `CONTRACTORS_UNAVAILABLE`. The
+  confirm route's `422 WHITELIST_CHECK_FAILED` becomes
+  `422 PAYMENT_BATCH_NOT_ELIGIBLE` with `codes[]` per failed line.
+- **`requestId` from the contract.** `whitelistCheckResult` is the
+  registry's `{ status, checkedAt, requestId }` plus
+  `accountNumberLast4`; #5955 now returns `requestId`.
+- **Only `SETTLEMENT` accounts** are payment targets (picker filter;
+  `VENDOR_ACCOUNT_NOT_SETTLEMENT` otherwise).
+- **Currency warning** `CURRENCY_MISMATCH` on confirmation when the
+  account's informational `currencyCode` differs from the batch's
+  currency; never a block.
+- **Foreign vendor:** `vendorSnapshot.taxId` stays as printed.
+- **`contractorSnapshot` on the payment entry:** written by
+  `markPaymentBatchSent` on each DR line (`source: 'payment'`, name, tax
+  id, masked account paid to, whitelist check); keys defined in #5663.
+- Entities, Encryption, Commands, Cross-module integration, Backend
+  Pages, API Contracts and Testing Strategy updated. The sibling
+  document writes the invoice-side snapshot.
