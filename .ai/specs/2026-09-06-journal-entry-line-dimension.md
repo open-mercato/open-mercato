@@ -485,7 +485,7 @@ import type { ModuleInfo } from '@open-mercato/shared/modules/registry'
 
 export const metadata: ModuleInfo = {
   name: 'journal_entry_line_dimensions',
-  title: 'Journal Entry Line Dimension',
+  title: 'Journal Entry Line Dimensions',
   version: '0.1.0',
   description:
     'Analytical dimension tags (Phase 1: cost centre) on a journal entry line.',
@@ -535,8 +535,11 @@ no structural change needed.
   context carries no `auth`, i.e. for a trusted in-process `systemActor`
   caller such as the Posting Rules engine (`ctx.auth: null`), and never
   override a context that has one — the same shape `warranty_claims`'
-  system-actor subscriber uses for `create_vendor_recovery`. Implementation: `prepare()` loads the
-  existing rows for that pair (`{ before: existingRows }`). `execute`
+  system-actor subscriber uses for `create_vendor_recovery`. Implementation: the handler sets
+  `prepareSnapshotInsideTransaction`, so the command bus runs `prepare()`
+  inside the write transaction, right after the pair's advisory lock
+  (step 4), on the transaction's own EntityManager; it loads the existing
+  rows for that pair (`{ before: existingRows }`). `execute`
   (1) parses the input; (2) loads the `ledger.JournalEntryLine` by id
   under the caller's tenant and organization
   (`findOneWithDecryption`, because `ledger:journal_entry_line` has an
@@ -548,8 +551,9 @@ no structural change needed.
   share`) — the lookup and lock mode `postJournalEntry` uses
   (`requireCoveringUnlockedFiscalPeriod`, #6340), so a concurrent period
   lock, which takes the conflicting `for update` lock, serializes with
-  this write — and rejects with a translated error when that period
-  `isLocked` or no period covers the date; (4) in the same transaction
+  this write — and rejects with a translated `422` (the status ledger
+  uses for the same condition) when that period `isLocked` or no period
+  covers the date; (4) in the same transaction
   takes the advisory lock on the pair (see Risks), loads the pair's
   existing rows and rejects when any of them has a `writer` other than
   the input's, then hard-deletes the existing rows
@@ -717,12 +721,16 @@ packages/core/src/modules/journal_entry_line_dimensions/
 ├── setup.ts
 ├── i18n/
 │   ├── en.json                     (rejection messages: line not found, locked or missing period, written by another writer)
-│   └── pl.json
+│   ├── pl.json
+│   ├── de.json
+│   ├── es.json
+│   └── ko.json
 ├── data/
 │   ├── entities.ts                 (JournalEntryLineDimension)
 │   └── validators.ts               (DIMENSION_TYPES, setJournalEntryLineDimensionSchema)
-├── data/migrations/
-│   └── ...                         (create table + index + unique constraint)
+├── migrations/
+│   ├── ...                         (create table + index + unique constraint)
+│   └── .snapshot-open-mercato.json
 └── commands/
     └── setJournalEntryLineDimension.ts
 ```
@@ -879,7 +887,10 @@ packages/core/src/modules/journal_entry_line_dimensions/
   constraint + `ON CONFLICT DO NOTHING` alone only prevents an
   *identical* row from being inserted twice.
 - **Residual risk**: none for correctness; the lock is held only for
-  the one short delete-then-insert.
+  the one short delete-then-insert. The undo snapshot (`prepare`) is
+  read under the same lock, inside the same transaction, so undo
+  restores exactly the rows this call replaced, never a set a concurrent
+  call wrote in between.
 
 ### Cascading failures & side effects
 
@@ -1298,3 +1309,14 @@ heads (#5663, #6015, #6014) before editing:
   #6015, #6014 and #5663; review-history markers and "earlier draft"
   narrative removed from the design sections, the history living in this
   Changelog only.
+
+### 2026-10-20 — aligned with the #6708 implementation
+
+- File Manifest: migrations live in `migrations/` (repo convention) with
+  the module's `.snapshot-open-mercato.json`; i18n ships en, pl, de, es
+  and ko. The `index.ts` snippet's title is plural, like the module.
+- Commands: a locked or missing fiscal period is a `422`, the status
+  ledger uses for the same condition.
+- Commands and Risks: `prepare()` runs inside the write transaction
+  under the pair's advisory lock (`prepareSnapshotInsideTransaction`), so
+  undo cannot restore a set a concurrent call wrote in between.
