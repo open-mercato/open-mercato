@@ -5,8 +5,7 @@ import Link from 'next/link'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-
-type SettingsResponse = { clearingAccountId: string | null }
+import { unwrapSettingsResult } from '../lib/settingsResponse'
 
 /**
  * Shown while `PostingRulesSettings.clearingAccountId` is unset. Until an
@@ -27,9 +26,10 @@ export function ClearingAccountBanner({ clearingAccountId }: { clearingAccountId
   React.useEffect(() => {
     if (clearingAccountId !== undefined) return
     let cancelled = false
-    apiCall<SettingsResponse>('/api/posting_rules/settings')
+    apiCall('/api/posting_rules/settings')
       .then((response) => {
-        if (!cancelled && response.ok && response.result) setFetched(response.result.clearingAccountId ?? null)
+        const settings = response.ok ? unwrapSettingsResult(response.result) : null
+        if (!cancelled && settings) setFetched(settings.clearingAccountId)
       })
       .catch(() => undefined)
     return () => {

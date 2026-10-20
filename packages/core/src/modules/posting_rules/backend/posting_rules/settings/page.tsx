@@ -11,13 +11,7 @@ import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { loadClass4AccountOptions, loadClass5AccountOptions } from '../../lib/optionLoaders'
 import { ClearingAccountBanner } from '../../../components/ClearingAccountBanner'
-
-type PostingRulesSettingsData = {
-  settingsId: string
-  clearingAccountId: string | null
-  unallocatedCostAccountId: string | null
-  updatedAt: string | null
-}
+import { buildSettingsPatch, unwrapSettingsResult, type PostingRulesSettingsData } from '../../../lib/settingsResponse'
 
 // A single-row settings resource (one `PostingRulesSettings` row per
 // organization, upserted — never created/listed like a normal CRUD
@@ -36,10 +30,11 @@ export default function PostingRulesSettingsPage() {
     let cancelled = false
     async function load() {
       try {
-        const response = await apiCall<PostingRulesSettingsData>('/api/posting_rules/settings')
+        const response = await apiCall('/api/posting_rules/settings')
         if (cancelled) return
-        if (response.ok && response.result) {
-          setSettings(response.result)
+        const loaded = response.ok ? unwrapSettingsResult(response.result) : null
+        if (loaded) {
+          setSettings(loaded)
         } else {
           setError(t('posting_rules.settings.error.load', 'Failed to load posting rules settings'))
         }
@@ -153,21 +148,19 @@ export default function PostingRulesSettingsPage() {
           }}
           submitLabel={t('posting_rules.settings.action.save', 'Save changes')}
           onSubmit={async (values) => {
-            const payload = {
-              clearingAccountId: values.clearingAccountId ? String(values.clearingAccountId) : null,
-              unallocatedCostAccountId: values.unallocatedCostAccountId ? String(values.unallocatedCostAccountId) : null,
-            }
+            const payload = buildSettingsPatch(settings, values)
 
-            const response = await apiCall<PostingRulesSettingsData>('/api/posting_rules/settings', {
+            const response = await apiCall('/api/posting_rules/settings', {
               method: 'PATCH',
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify(payload),
             })
-            if (!response.ok || !response.result) {
+            const saved = response.ok ? unwrapSettingsResult(response.result) : null
+            if (!saved) {
               throw new Error(t('posting_rules.settings.error.save', 'Failed to save posting rules settings'))
             }
 
-            setSettings(response.result)
+            setSettings(saved)
             flash(t('posting_rules.settings.success.save', 'Posting rules settings saved'), 'success')
           }}
         />
