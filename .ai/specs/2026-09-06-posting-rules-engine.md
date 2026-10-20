@@ -1473,6 +1473,7 @@ or residual risk.
   (#5663's own page); no workaround exists inside this module alone.
   Residual risk: medium until that UI change lands.
 - **Period-close guard race (lock vs. posting).** `posting_rules.lockFiscalPeriod` runs `findUnreclassifiedEntries(periodId)` and then, in a separate transaction, `ledger.lockFiscalPeriod`. A zespół 4 source posting that commits into the period after the finder has read and before the ledger lock takes its `for update` row lock is not seen by the guard, so the period is locked with an unreclassified line; that line's reclassification is then rejected (locked period) and stays in the sweeper's failure list until the period is unlocked. Severity: medium (Invariant 4 can be violated by timing; no wrong amount is posted, but that period's functional P&L is incomplete). Affected area: closing a period while postings into it are still arriving. Mitigation: none inside this module — closing the window needs `ledger.lockFiscalPeriod` to join the guard's transaction (honour `ctx.transactionalEm`, so the guard can take the period row's `for update` lock before running the finder), or a lock that `postJournalEntry` also takes; both are changes to `ledger`. Operationally, lock a period only after postings into it have stopped, and run `reconcile-cost-ring --period <id>` after locking to detect a missed line. Residual risk: low to medium until `ledger` supports a composed lock.
+- **The default chart's account 490-1 is a reclassification source unless it is the configured clearing account.** The default chart of accounts (#6439) creates type `490` in group 4 with account `490-1`, so it classifies as zespół 4; the engine excludes it only when it is `PostingRulesSettings.clearingAccountId`. If an admin configures a different clearing account, postings to 490-1 are reclassified like any other zespół 4 cost. Severity: medium. Affected area: tenants that imported the default chart. Mitigation: the enablement runbook says to use 490-1 as the clearing account when the default chart is used. Residual risk: low.
 
 ## Out of scope
 
@@ -1851,3 +1852,9 @@ The guard's finder and `ledger.lockFiscalPeriod` run in separate
 transactions, so a posting that commits between them is not seen. Closing
 the window needs a change to `ledger`, which #6340 does not make; the Risks
 entry gives the operational mitigation. Not yet reviewed by a maintainer.
+
+### 2026-10-20 (cont.) — account 490-1 of the default chart recorded in Risks
+
+The default chart of accounts (#6439) ships `490-1` in group 4; it is
+excluded from the source set only as the configured clearing account. Not
+yet reviewed by a maintainer.
