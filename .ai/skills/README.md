@@ -271,7 +271,7 @@ mkdir -p .ai/skills/my-skill
 
 2. Create `SKILL.md` with frontmatter and instructions
 3. Add optional `scripts/`, `references/`, `assets/` as needed
-4. Register it in one tier of `tiers.json`, add its row to the tier table above, and run `node scripts/validate-skills-tiers.mjs`
+4. Register it in one tier of `tiers.json`, add its row to the tier table above, bump that tier's count in the "Tiers" table, add it to `om-help/references/skills-catalog.md`, and run `node scripts/validate-skills-tiers.mjs`
 5. Test the skill by invoking it
 
 ### Writing Effective Descriptions
