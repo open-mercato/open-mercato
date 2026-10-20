@@ -962,11 +962,19 @@ rows would destroy the evidence that a payment was checked.
   such rows. The flag makes the person acknowledge that evidence still
   inside the default period is being destroyed; rows already past the
   period need no flag.
-- **Every anonymization is audited.** Each successful call writes an
-  entry to the command audit log with the acting user, the contractor,
-  the number of rows cleared and the value of `confirmWithinRetention` —
-  also when no row was cleared. A call rejected with `422` changes
-  nothing and is not an anonymization.
+- **Every attempt is audited, cleared or refused.** Each call that
+  passes the ACL check writes one audit entry with the acting user, the
+  contractor and the value of `confirmWithinRetention`, plus:
+  - `outcome: 'cleared'` and `clearedRows` on success (also when no row
+    was cleared);
+  - `outcome: 'refused'` and `rowsWithinRetention` on a
+    `422 CONTRACTOR_HISTORY_WITHIN_RETENTION`.
+  The refusal entry is written in its own transaction, independently of
+  the request, so it is not rolled back with the refused call — an
+  attempt to destroy evidence still inside the retention period leaves a
+  trace even though nothing in the history changes. The same
+  separate-transaction rule the history itself uses (see "Written outside
+  the caller's transaction").
 - **The only update the history ever receives.** Both paths only turn
   the two columns from a value to `null`; no path writes any other
   column or deletes a row, so the append-only rule above still holds for
@@ -1472,9 +1480,11 @@ input that does not validate returns `[]`, not an error.
   `contractors.erase`; idempotent (a second call changes nothing). Rows
   younger than `verificationHistoryRetentionYears` require
   `confirmWithinRetention: true` (`422
-  CONTRACTOR_HISTORY_WITHIN_RETENTION` otherwise, nothing changed); every
-  successful call writes an audit entry (acting user, contractor, rows
-  cleared, the flag). The
+  CONTRACTOR_HISTORY_WITHIN_RETENTION` otherwise, nothing changed in the
+  history); every call writes one audit entry — acting user, contractor,
+  the flag, and either `outcome: 'cleared'` with `clearedRows` or
+  `outcome: 'refused'` with `rowsWithinRetention`; the refusal entry is
+  written in its own transaction and survives the `422`. The
   daily `workers/expireVerificationHistory.ts` does the same for rows
   whose `checkedAt` is older than `verificationHistoryRetentionYears`
   (see Design decisions, 2026-10-20).
@@ -1949,13 +1959,15 @@ Added 2026-10-20. Custom write route (mutation guard registry, mapped to
 - **Request body**: `{ confirmWithinRetention?: boolean }` (default
   `false`).
 - **Response 200**: `{ contractorId, clearedRows: number,
-  confirmWithinRetention: boolean }`. An audit entry with the acting
-  user, the contractor, `clearedRows` and the flag is written for every
-  `200`.
+  confirmWithinRetention: boolean }`. An audit entry (`outcome:
+  'cleared'`, acting user, contractor, `clearedRows`, the flag) is
+  written for every `200`.
 - **Response 422 `CONTRACTOR_HISTORY_WITHIN_RETENTION`**: `{ code,
   rowsWithinRetention: number }` — at least one row is younger than
   `verificationHistoryRetentionYears` and `confirmWithinRetention` is not
-  `true`. Nothing is changed.
+  `true`. Nothing in the history is changed; an audit entry (`outcome:
+  'refused'`, acting user, contractor, `rowsWithinRetention`, the flag)
+  is written in its own transaction and is kept.
 - **Response 403**: caller lacks `contractors.erase`.
 
 The retention setting `contractors.verificationHistoryRetentionYears` is
@@ -2167,9 +2179,16 @@ exactly as `sales.order-approval` and
     every row still has its digits and hash;
   - a contractor whose rows are all older than the period → cleared
     without the flag;
-  - every `200` writes exactly one audit entry with the acting user, the
-    contractor id, `clearedRows` and the flag value, including a call
-    with `clearedRows: 0`; a `422` writes none and changes nothing;
+  - every `200` writes exactly one audit entry with `outcome:
+    'cleared'`, the acting user, the contractor id, `clearedRows` and the
+    flag value, including a call with `clearedRows: 0`;
+  - a refusal leaves an audit entry and changes nothing in the history:
+    a call without the flag on a contractor with recent rows returns
+    `422`, writes exactly one audit entry with `outcome: 'refused'`, the
+    acting user, the contractor id, `rowsWithinRetention` and
+    `confirmWithinRetention: false`, the entry is still there after the
+    request has ended, and every history row keeps its digits and hash;
+  - a `403` (no `contractors.erase`) writes no anonymization audit entry;
   - the setting accepts 30 (no upper limit) and rejects 5;
   - no code path deletes a history row or changes any other column;
   - AP's `whitelistCheckResult` and GL's `contractorSnapshot` are not
@@ -2405,8 +2424,11 @@ verification history"):
   examined. **Severity**: Medium. **Affected area**: the evidence of
   which account was checked. **Mitigation**: rows still inside the
   retention period are cleared only with an explicit
-  `confirmWithinRetention: true`, and every anonymization is audited
-  (who, contractor, rows, flag); the command needs a
+  `confirmWithinRetention: true`, and every attempt is audited (who,
+  contractor, flag, `cleared` with the rows cleared or `refused` with
+  the rows within retention — a refusal entry is kept even though the
+  request fails, so repeated attempts to clear recent evidence are
+  visible); the command needs a
   separate feature (`contractors.erase`, admin only by default), is in
   the command audit log, and leaves `requestId`, status and date, so
   the Ministry's own record of the request can still be referred to;
@@ -3237,3 +3259,15 @@ New section Design decisions (2026-10-20); every item below is decided.
   history. Art. 70 § 2 (suspension) and § 3 (interruption), checked in
   the same consolidated text (Dz. U. z 2026 r. poz. 622), can extend the
   limitation period, which is why the setting has no upper limit.
+
+### 2026-10-20 (cont. — refused anonymization attempts are audited)
+
+- `anonymizeContractorHistory` writes an audit entry for every attempt
+  that passes the ACL check: `outcome: 'cleared'` with `clearedRows`, or
+  `outcome: 'refused'` with `rowsWithinRetention` on
+  `422 CONTRACTOR_HISTORY_WITHIN_RETENTION`; both with the acting user,
+  the contractor and `confirmWithinRetention`. The refusal entry is
+  written in its own transaction and is not rolled back with the `422`.
+  Design decisions, Commands, API Contracts, Risks and Testing Strategy
+  (new case: a refusal leaves an audit entry and changes nothing in the
+  history) updated.
