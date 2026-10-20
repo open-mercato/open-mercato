@@ -53,6 +53,7 @@ import type { TaskQuickActionInput } from './task-quick-action'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { findWorkflowDefinition } from './find-definition'
 import { validateAgainstPorts } from './port-contract'
+import { runInWorkflowCausationFrame } from './workflow-causation'
 import type { WorkflowIoContract } from '../data/validators'
 
 const logger = createLogger('workflows')
@@ -1172,24 +1173,28 @@ async function handleSubWorkflowStep(
       childContext = coerced
     }
 
+    const parentCausationTarget = { instance, stepInstanceId: stepInstance.id }
+
     // Start child workflow with parent metadata
-    const childInstance = await startWorkflow(em, {
-      workflowId: subWorkflowId,
-      version,
-      initialContext: childContext,
-      correlationKey: instance.correlationKey || undefined,
-      metadata: {
-        ...instance.metadata,
-        labels: {
-          ...instance.metadata?.labels,
-          parentInstanceId: instance.id,
-          parentStepId: stepDef.stepId,
-          parentStepInstanceId: stepInstance.id,
+    const childInstance = await runInWorkflowCausationFrame(parentCausationTarget, () =>
+      startWorkflow(em, {
+        workflowId: subWorkflowId,
+        version,
+        initialContext: childContext,
+        correlationKey: instance.correlationKey || undefined,
+        metadata: {
+          ...instance.metadata,
+          labels: {
+            ...instance.metadata?.labels,
+            parentInstanceId: instance.id,
+            parentStepId: stepDef.stepId,
+            parentStepInstanceId: stepInstance.id,
+          },
         },
-      },
-      tenantId: instance.tenantId,
-      organizationId: instance.organizationId,
-    })
+        tenantId: instance.tenantId,
+        organizationId: instance.organizationId,
+      }),
+    )
 
     // Log sub-workflow invocation event
     await logStepEvent(em, {
@@ -1208,9 +1213,11 @@ async function handleSubWorkflowStep(
     })
 
     // Execute child workflow synchronously
-    const result = await executeWorkflow(em, container, childInstance.id, {
-      userId: context.userId,
-    })
+    const result = await runInWorkflowCausationFrame(parentCausationTarget, () =>
+      executeWorkflow(em, container, childInstance.id, {
+        userId: context.userId,
+      }),
+    )
 
     // Handle child workflow result
     if (result.status === 'COMPLETED') {

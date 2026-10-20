@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { CAUSATION_MAX_TEXT_LENGTH, CAUSE_KINDS } from '@open-mercato/shared/lib/causation/types'
 
 export const uuid = z.string().uuid()
 
@@ -33,6 +34,25 @@ export const actionLogCreateSchema = baseScopeSchema.extend({
   context: recordLike,
 })
 
+const actionLogCauseFilterFields = {
+  causeKind: z.enum(CAUSE_KINDS).optional(),
+  causeId: z.string().min(1).max(CAUSATION_MAX_TEXT_LENGTH).optional(),
+  correlationId: uuid.optional(),
+}
+
+function requireCauseKindForCauseId(
+  value: { causeKind?: string; causeId?: string },
+  ctx: z.RefinementCtx,
+): void {
+  if (value.causeId !== undefined && value.causeKind === undefined) {
+    ctx.addIssue({ code: 'custom', path: ['causeId'], message: 'causeId requires causeKind' })
+  }
+}
+
+export const actionLogCauseFilterSchema = z
+  .object(actionLogCauseFilterFields)
+  .superRefine(requireCauseKindForCauseId)
+
 export const actionLogListSchema = z.object({
   tenantId: uuid.optional(),
   organizationId: uuid.optional(),
@@ -55,7 +75,25 @@ export const actionLogListSchema = z.object({
   pageSize: z.number().int().positive().max(200).default(50),
   before: z.date().optional(),
   after: z.date().optional(),
+  ...actionLogCauseFilterFields,
 })
+
+export const actionLogListQuerySchema = actionLogListSchema.superRefine(requireCauseKindForCauseId)
+
+function readOptionalSearchParam(searchParams: URLSearchParams, key: string): string | undefined {
+  const value = searchParams.get(key)
+  if (value === null) return undefined
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : undefined
+}
+
+export function parseActionLogCauseFilterParams(searchParams: URLSearchParams) {
+  return actionLogCauseFilterSchema.safeParse({
+    causeKind: readOptionalSearchParam(searchParams, 'causeKind'),
+    causeId: readOptionalSearchParam(searchParams, 'causeId'),
+    correlationId: readOptionalSearchParam(searchParams, 'correlationId'),
+  })
+}
 
 export const accessLogCreateSchema = baseScopeSchema.extend({
   resourceKind: z.string().min(1),
@@ -80,5 +118,6 @@ export const accessLogListSchema = z.object({
 
 export type ActionLogCreateInput = z.infer<typeof actionLogCreateSchema>
 export type ActionLogListQuery = z.infer<typeof actionLogListSchema>
+export type ActionLogCauseFilter = z.infer<typeof actionLogCauseFilterSchema>
 export type AccessLogCreateInput = z.infer<typeof accessLogCreateSchema>
 export type AccessLogListQuery = z.infer<typeof accessLogListSchema>

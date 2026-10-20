@@ -18,9 +18,14 @@ import {
   type TelemetrySpanAttributes,
 } from '@open-mercato/shared/lib/telemetry/runtime'
 import { groupableCode } from '@open-mercato/shared/lib/telemetry/error-code'
+import { withCausationFrame, type CausationFrame } from '@open-mercato/shared/lib/causation/server'
 import type { SyncRun } from '../data/entities'
 
 const logger = createLogger('data_sync').child({ component: 'sync-engine' })
+
+export function buildSyncRunCausationFrame(runId: string, direction: 'import' | 'export'): CausationFrame {
+  return { kind: 'sync_run', id: runId, meta: { direction } }
+}
 
 /**
  * A run that finished with failed items. Raised so a partial success is one
@@ -644,7 +649,7 @@ export function createSyncEngine(deps: EngineDeps) {
     })
   }
 
-  return {
+  const runners = {
     async runImport(runId: string, batchSize: number, scope: SyncScope): Promise<void> {
       const run = await syncRunService.getRun(runId, scope)
       if (!run) {
@@ -1095,6 +1100,20 @@ export function createSyncEngine(deps: EngineDeps) {
       }
 
       await finalizeRun(run.id, 'completed', scope, undefined, operationalTelemetry)
+    },
+  }
+
+  return {
+    runImport(runId: string, batchSize: number, scope: SyncScope): Promise<void> {
+      return withCausationFrame(buildSyncRunCausationFrame(runId, 'import'), () =>
+        runners.runImport(runId, batchSize, scope),
+      )
+    },
+
+    runExport(runId: string, batchSize: number, scope: SyncScope): Promise<void> {
+      return withCausationFrame(buildSyncRunCausationFrame(runId, 'export'), () =>
+        runners.runExport(runId, batchSize, scope),
+      )
     },
   }
 }

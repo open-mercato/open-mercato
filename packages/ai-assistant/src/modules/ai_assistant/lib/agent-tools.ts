@@ -221,6 +221,7 @@ function adaptToolToAiSdk(
   mutation: MutationInterceptorOptions | null,
   container?: AwilixContainer,
   effectiveMutationPolicy?: 'read-only' | 'confirm-required' | 'destructive-confirm-required',
+  agentId?: string,
 ): Tool<unknown, unknown> {
   const safeSchema = toSafeZodSchema(tool.inputSchema as ZodType)
   const handlerContext = buildToolHandlerContext(ctx, container, tool)
@@ -284,7 +285,7 @@ function adaptToolToAiSdk(
           container: freshContainer as unknown as McpToolContext['container'],
         }
         const { executeTool } = await import('./tool-executor')
-        const execResult = await executeTool(tool.name, args, freshContext)
+        const execResult = await executeTool(tool.name, args, freshContext, { agentId })
         if (!execResult.success) {
           throw new Error(execResult.error || 'Tool execution failed')
         }
@@ -402,6 +403,7 @@ export async function resolveAiAgentTools(
         mutationOptions,
         input.container,
         effectiveMutationPolicy,
+        agent.id,
       )
     } catch (error) {
       logger.error('Failed to adapt tool for agent', { toolName, agentId: agent.id, err: error })
