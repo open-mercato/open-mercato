@@ -503,8 +503,9 @@ platform-wide catalogues, and gives both index readers the matching NULL branch.
 |---------|--------|----------------|
 | Function signatures | `reindexEntity`, `createPresenterEnricher`, `TokenSearchStrategy.search` — all unchanged | ✓ No change |
 | Stored scope | The projection of a **declared** tenant-global entity type is written under `tenant_id = NULL, organization_id = NULL` instead of the caller's tenant and organization | ⚠ Deliberate behaviour change, declared types only |
-| Read scope | Both index readers match `tenant_id = X OR (tenant_id IS NULL AND entity_type IN <declared>)` instead of `tenant_id = X` | ⚠ Deliberate behaviour change, declared types only |
-| Coverage / purge scope | `entity_index_coverage` rows, `purgeOrphans`, the force purge, the vector purge and the vectorize payloads all follow the projection to the null tenant AND null organization for declared types | ⚠ Consequential, same set |
+| Read scope | Both index readers match `tenant_id = X OR (tenant_id IS NULL AND entity_type IN <declared>)` instead of `tenant_id = X`; `TokenSearchStrategy` also matches `organization_id IN <selected> OR (organization_id IS NULL AND tenant_id IS NULL AND entity_type IN <declared>)`, and `SearchService` keeps an organization-less result only for a declared type | ⚠ Deliberate behaviour change, declared types only |
+| Coverage / purge scope | `entity_index_coverage` rows, `purgeOrphans` and the force purge follow the projection to the null tenant AND null organization for declared types; a sweep of a declared type also retires the projections, tokens and coverage rows earlier sweeps stamped with a caller scope | ⚠ Consequential, same set |
+| Vector scope | `query_index.vectorize_one`, the force reindex's `query_index.vectorize_purge` and `removeOrphans` keep the caller's tenant and organization: the vector consumers need a real tenant | ✓ No change |
 | Job scope | `entity_index_jobs` keeps the caller's tenant and organization | ✓ No change |
 | Import paths, type definitions, event IDs, API routes, DB schema, DI names, ACL features, notification IDs, CLI commands, generated files | No change | ✓ n/a |
 
@@ -528,10 +529,11 @@ conjunct is the only thing separating the two. Reader and writer MUST move toget
 reader-only change publishes whatever an unscoped reindex left behind, and a writer-only
 change makes catalogues unfindable for everyone.
 
-**Migration path**: reindex each declared catalogue once. `entity_indexes` self-heals
-through the upsert; leftover per-tenant `search_tokens` rows are duplicates of public
-catalogue text and can be deleted. See [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md)
-`0.9.0 → 0.9.1`.
+**Migration path**: reindex each declared catalogue once. The sweep writes the canonical
+`(NULL, NULL)` rows and then retires the rows earlier sweeps stamped with a caller scope -
+projections, tokens and coverage. A stamped projection does not self-heal through the
+upsert: its organization is part of the unique key, so it is a different row. See
+[`UPGRADE_NOTES.md`](UPGRADE_NOTES.md) `0.9.0 → 0.9.1` for the equivalent manual cleanup.
 
 ## Data Sync Start Control Applicability (2026-09-02)
 

@@ -8,25 +8,32 @@ unique key is `(entity_type, entity_id, organization_id_coalesced)`. The increme
 writer already files that row under `tenant_id = NULL` — `resolveQueryIndexRecordScope()`
 calls the shape `global` and requires an explicitly null scope for it — but neither
 reader has a NULL branch on the tenant axis, so the row is invisible to everyone. The
-sweep writer disagreed with the incremental one and stamped the caller's tenant, which
-made the catalogue visible to exactly one tenant: whichever reindexed last. Every other
-tenant got a search hit with no presenter, which the dialog renders as a raw record id.
+sweep writer disagreed with the incremental one and stamped the caller's scope. Without an
+organization (the CLI) that moved the one row into the caller's tenant, so the last tenant
+to reindex took the catalogue from every other, whose leftover tokens then produced hits
+with no presenter; with one (`/api/query_index/reindex`) it wrote a separate copy keyed by
+that organization, which only that organization could read and nothing kept current.
 
-This aligns the two writers on `tenant_id = NULL` for entity types declared through
-`registerTenantGlobalEntityTypes()`, and gives both readers the matching NULL branch —
-gated on that declaration, never on the NULL alone.
+This aligns the two writers on `tenant_id = NULL, organization_id = NULL` for entity types
+declared through `registerTenantGlobalEntityTypes()`, gives the readers the matching NULL
+branch on both axes — gated on that declaration, never on the NULL alone — and retires the
+rows earlier sweeps stamped. Vector work keeps the caller's scope.
 
 ## Overview
 
 - **Changed**: `packages/core/src/modules/query_index/lib/reindexer.ts` — the projection
-  scope of a declared catalogue is `null` rather than the caller's tenant
+  scope of a declared catalogue is `null` rather than the caller's tenant and organization;
+  vector work keeps the caller's scope; a sweep retires the rows earlier sweeps stamped
+- **Changed**: `packages/core/src/modules/query_index/lib/stale.ts` — adds
+  `retireScopedCatalogueRows()`; `lib/coverage.ts` adds `deleteScopedCoverageForEntity()`
 - **Changed**: `packages/search/src/lib/presenter-enricher.ts` — `fetchDocsBatch()` gains
   the tenant NULL branch
 - **Changed**: `packages/search/src/strategies/token.strategy.ts` — `search()` gains the
-  same branch
+  same branch on the tenant axis and a declaration-gated one on the organization axis
+- **Changed**: `packages/search/src/service.ts` — the organization filter keeps an
+  organization-less result for a declared type only
 - **Not touched**: the `entity_indexes` unique constraint (no migration — see
-  *Rejected alternatives*), `tenant-global.ts` itself, the incremental write path,
-  `resolveQueryIndexRecordScope()`, the organization axis of either reader,
+  *Rejected alternatives*), the incremental write path, `resolveQueryIndexRecordScope()`,
   `jobScope`, and every entity type that is not declared a catalogue
 
 Builds on `.ai/specs/2026-08-28-tenant-scoped-reindex-of-tenant-less-tables.md`, which
@@ -115,16 +122,16 @@ the strategy — so it never reaches a row the caller was not being offered.
 `reindexEntity()` derives one value and routes the projection through it:
 
 ```ts
-const writesGlobalProjection = !hasTenantCol && isTenantGlobalEntityType(entityType)
+const writesGlobalProjection = !hasTenantCol && !hasOrgCol && isTenantGlobalEntityType(entityType)
 const projectionTenantId = writesGlobalProjection ? null : tenantId
+const projectionOrganizationId = writesGlobalProjection ? null : organizationId
 ```
 
-It reaches `scopeOverrides`, the pre-sweep force purge, `purgeOrphans`,
-`vectorService.removeOrphans`, the coverage buckets and deltas, and the
-`query_index.vectorize_one` / `vectorize_purge` payloads — everything that names the
-scope the rows are written to. It deliberately does **not** reach `jobScope`, which
-records who asked for the sweep: two tenants reindexing the catalogue must stay two job
-rows rather than one blocking the other behind the active-job guard.
+It reaches `scopeOverrides`, the pre-sweep force purge, `purgeOrphans` and the coverage
+buckets and deltas — everything that names the scope the rows are written to. It
+deliberately does **not** reach `jobScope`, which records who asked for the sweep: two
+tenants reindexing the catalogue must stay two job rows rather than one blocking the other
+behind the active-job guard. Nor does it reach vector work (§6).
 
 Coverage moving with the rows is not incidental. `refreshCoverageSnapshot` counts index
 rows within a scope; leaving coverage under the caller's tenant while the rows went to
@@ -138,6 +145,39 @@ such pair: the source table has no tenant column, so every writer resolves the s
 record to the same null scope, and the existing key already holds exactly the one row
 that is wanted. See *Rejected alternatives* for why widening the key does not fix the
 defect on its own either.
+
+### 4. Organization axis — selected-organization searches
+
+`SearchService` passes the selected organization even for a superadmin, and
+`TokenSearchStrategy` filtered `organization_id IN (<selected>)` while `SearchService`'s own
+filter dropped every result with no organization. A canonical catalogue row has none, so a
+selected-organization search returned no catalogue hit. Both filters now keep the
+organization-less row for a declared type only: the strategy adds
+`OR (organization_id IS NULL AND tenant_id IS NULL AND entity_type IN <declared>)`, narrowed
+to the fully unscoped row, and the service keeps an organization-less result whose entity
+type is declared. Every other organization-less result is still dropped.
+
+### 5. Retiring the rows earlier sweeps stamped
+
+A row an earlier sweep stamped with a caller's organization is a different key under
+`(entity_type, entity_id, organization_id_coalesced)`, so the upsert never rewrites it and
+`purgeOrphans`, scoped to the canonical row, never selects it: it survives every later
+sweep, even the deletion of its source record, and is served beside the canonical row.
+Nothing writes a scoped row for a declared type any more, so every one is residue. After
+the canonical rows are written and orphans purged, a sweep of a declared type calls
+`retireScopedCatalogueRows()` — scoped projections, then scoped tokens with no surviving
+projection in their own scope — and, once per run, `deleteScopedCoverageForEntity()`.
+Records the run failed to rebuild keep their old rows, as in `purgeOrphans`, and a
+partitioned run retires only its own slice.
+
+### 6. Vector work keeps the caller's scope
+
+`query_index.vectorize_one`, the force reindex's `query_index.vectorize_purge` and
+`removeOrphans` are filed under the caller's tenant and organization, as before this
+change. Their consumers need a real tenant — `vector_upsert` looks a missing one up in the
+source table, which has no `tenant_id` column, and returns before enqueueing;
+`vector_purge` returns at once for a null tenant — and nothing defines a shared vector
+across dispatch, storage and reads.
 
 ## Rejected alternatives
 
@@ -160,27 +200,51 @@ deployment — nothing writes a catalogue row under NULL that a sweep does not i
 overwrite — and on an existing one it would expose whatever a previous unscoped reindex
 happened to leave under NULL. The two are one change.
 
-**Give `TokenSearchStrategy` an organization NULL branch as well.** Out of scope, and
-flagged rather than done. Catalogue token rows carry `organization_id = NULL` and the
-strategy filters `organization_id IN (...)` with no NULL branch, so an organization-scoped
-caller never reaches them — before or after this change. Only callers whose scope resolves
-to "all organizations" (a super-admin, or an unrestricted role with the all-organizations
-selection) see catalogue results at all, and they are exactly the callers who see the raw
-UUID today. Widening the organization axis would change *who* can see a catalogue record,
-which is a visibility decision on its own evidence, not part of a scope-correctness fix.
+**Leave the organization axis alone.** An earlier revision of this spec rejected the
+organization branch, on the claim that an organization-scoped caller could not reach a
+catalogue record before this change either. That was wrong: the reindex API always
+supplies the caller's organization, the old sweep stamped it, and token searches in that
+organization found the record. Moving the projection to the null scope without the
+organization branch would have removed catalogue hits from every selected-organization
+search. §4 adds it.
 
 ## Testing
 
-- `packages/search/src/__tests__/tenant-global-read-scope.test.ts` — 10 cases. Both
-  readers are asserted in one file because they are only correct together: a hit the
-  strategy returns and the enricher cannot resolve is the defect. The predicate tree is
-  recorded structurally, so the assertions pin the *shape* — an OR whose NULL branch is
-  conjoined with an entity-type list — rather than a compiled string.
+- `packages/search/src/__tests__/tenant-global-read-scope.test.ts` — both readers are
+  asserted in one file because they are only correct together: a hit the strategy returns
+  and the enricher cannot resolve is the defect. The predicate tree is recorded
+  structurally, so the assertions pin the *shape* — an OR whose NULL branch is conjoined
+  with an entity-type list — rather than a compiled string. Includes the organization
+  branch and its negative control.
+- `packages/search/src/__tests__/service.test.ts` — `SearchService` keeps an
+  organization-less hit for a declared type and drops one for a private tenant-less type.
+- `packages/search/src/__tests__/tenant-global-vector-dispatch.test.ts` — a declared
+  reindex wired to the real `vector_upsert` / `vector_purge` subscribers; asserts the work
+  they queue, not the payload.
 - `packages/core/src/modules/query_index/__tests__/reindexer-tenant-global-projection.test.ts`
-  — 10 cases: the stamp, the purge, the coverage accounting, the reset baseline, the
-  force purge, plus the job scope staying with the caller and ordinary tenant-scoped
-  entities being untouched.
+  — the stamp, the purge, the coverage accounting, the reset baseline, the force purge,
+  the retirement (order, exclusions, partitions), the vector scope, the job scope staying
+  with the caller and ordinary tenant-scoped entities being untouched.
+- `packages/core/src/modules/query_index/__integration__/TC-QIDX-5723-tenant-global-catalogue.spec.ts`
+  — against the real stack: starts from an organization-stamped projection with its token
+  and coverage row, reindexes, then updates and deletes the source; and finds a reindexed
+  catalogue record through `GET /api/search/search` with an organization selected.
 - **Not vacuous.** Against the unmodified sources, 4 of 10 reader cases and 6 of 10
   writer cases fail. The remainder are deliberate negative controls (no widening for a
   private tenant-less type, the organization predicate unchanged, ordinary entities
   unchanged) and say so in their own comments.
+
+## Changelog
+
+### 2026-10-20
+
+- Addressed the 2026-10-16 review on #5723: the organization axis (§4), retiring the rows
+  earlier sweeps stamped (§5), vector work keeping the caller's scope (§6), telemetry for the
+  column-probe failure, and an inferred expression-builder type in the presenter enricher.
+  Corrected the TL;DR and the rejected alternative that claimed organization-scoped callers
+  never reached catalogue records before this change.
+- Merged current `develop` through #5722; the upgrade notes moved to `0.9.0 → 0.9.1`.
+
+### 2026-08-28
+
+- Initial version.

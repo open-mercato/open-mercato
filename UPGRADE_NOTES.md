@@ -257,56 +257,67 @@ the message does not resolve in scope (previously `no_channel_link` with reason
 ### Platform-wide catalogues are indexed once, under the null tenant
 
 An entity type declared through `registerTenantGlobalEntityTypes()` is a catalogue every
-tenant reads, and its source table has no `tenant_id` column to scope it by. A
-tenant-scoped reindex used to stamp such rows with the caller's tenant. Since
-`entity_indexes` is unique on `(entity_type, entity_id, organization_id_coalesced)` — and
-these tables have no `organization_id` either — there is one row per record for every
-tenant to share, so the last tenant to reindex took the catalogue from the previous one
-and every other tenant's search hits lost their presenter, title and URL.
+tenant reads, and its source table has neither a `tenant_id` nor an `organization_id`
+column to scope it by. A tenant-scoped reindex used to stamp such rows with the caller's
+tenant, and with the caller's organization when it had one. `entity_indexes` is unique on
+`(entity_type, entity_id, organization_id_coalesced)`, so what that did depended on the
+path. A reindex without an organization (the CLI) wrote the same key as the event path's
+null-scope row and moved that one row into its own tenant: the last tenant to reindex took
+the catalogue from every other, whose leftover tokens then produced hits with no presenter,
+title or URL. A reindex with one (`/api/query_index/reindex` always supplies it) wrote a
+separate copy keyed by that organization, readable there and nowhere else, which only that
+organization's next reindex refreshed - the event path writes the null-scope row.
 
 `reindexEntity()` now writes the projection of a declared catalogue under
 `tenant_id = NULL, organization_id = NULL`, which is already where the event path files it
 (`resolveQueryIndexRecordScope()` resolves a table with neither scope column to a null
-scope and requires the payload to say so). Both halves matter: the reachable path
-(`/api/query_index/reindex`) always supplies a real organization, so widening only the
-tenant would have left the organization predicate re-narrowing the same row to one
-organization — the catalogue would still not be findable by anyone else, and
-`(NULL, orgA)` / `(NULL, orgB)` / `(NULL, NULL)` would be three rows for one record. Both
-readers in `@open-mercato/search` gained
-the matching branch: `tenant_id = <tenant> OR (tenant_id IS NULL AND entity_type IN
-<declared catalogues>)`. The entity-type conjunct is load-bearing — a table with neither
-scope column is stored under the null tenant whether it is a catalogue or private data,
-so an unqualified NULL branch would publish `directory:tenant`, `auth:user_role` and
-their kind to every tenant. A declaration this module cannot honour — a declared type
-whose table carries `organization_id` but no `tenant_id` — is now refused with
-`declared-global-but-org-scoped` rather than silently taking the ordinary branch, so
-`writesGlobalProjection` and `loadQueryIndexRowScope()`'s `kind: 'global'` mean the same
-thing.
+scope and requires the payload to say so). The readers in `@open-mercato/search` gained the
+matching declaration-gated branch on both axes:
+
+- tenant, in `TokenSearchStrategy` and the presenter enricher: `tenant_id = <tenant> OR
+  (tenant_id IS NULL AND entity_type IN <declared catalogues>)`;
+- organization, in `TokenSearchStrategy`: `organization_id IN <selected> OR
+  (organization_id IS NULL AND tenant_id IS NULL AND entity_type IN <declared catalogues>)`,
+  and `SearchService` keeps an organization-less result only for a declared type.
+  `SearchService` passes the selected organization even for a superadmin, so without this
+  a selected-organization search dropped every catalogue hit.
+
+The entity-type conjunct is load-bearing: a table with neither scope column is stored under
+the null scope whether it is a catalogue or private data, so an unqualified NULL branch would
+publish `directory:tenant`, `auth:user_role` and their kind to every tenant. A declared type
+whose table carries `organization_id` but no `tenant_id` is refused with
+`declared-global-but-org-scoped`, so `writesGlobalProjection` and
+`loadQueryIndexRowScope()`'s `kind: 'global'` mean the same thing.
+
+Only the projection moves. Vector work for a declared catalogue keeps the caller's scope -
+`query_index.vectorize_one`, the force reindex's `query_index.vectorize_purge` and
+`removeOrphans` - because the vector consumers need a real tenant and nothing defines a
+shared vector; its vectors stay filed per tenant, as before.
 
 **Action for module authors.** None beyond the declaration the previous note describes.
-An entity type that is not declared is unaffected in both readers and both writers.
+An entity type that is not declared is unaffected in every reader and writer.
 
-**Action for operators.** Reindex each declared catalogue once after upgrading. Two
-residues are worth knowing about, and neither is dangerous:
+**Action for operators.** Reindex each declared catalogue once after upgrading
+(`feature_toggles:feature_toggle`, plus any type your modules declare). The sweep writes
+the canonical rows, then retires every row an earlier sweep stamped with a caller scope,
+whichever tenant stamped it: the projections, their `search_tokens` and their
+`entity_index_coverage` rows. Until then an organization that reindexed before the upgrade
+can be served its old copy alongside the canonical one. The equivalent manual cleanup,
+safe to run once the canonical rows exist, per declared entity type:
 
-- `entity_indexes` self-heals. The upsert's conflict target does not include the tenant,
-  so the reindex rewrites the existing row's `tenant_id` to NULL rather than adding one.
-- `search_tokens` does not. Its writer deletes by `tenant_id is not distinct from
-  <tenant>`, so the per-tenant copies written before this release stay behind. They are
-  duplicates of public catalogue text, not a leak, but they can be removed:
-
-  ```sql
-  DELETE FROM search_tokens
-   WHERE entity_type = 'feature_toggles:feature_toggle'
-     AND tenant_id IS NOT NULL;
-  ```
-
-  Run it after the reindex has written the null-tenant copies, and repeat per declared
-  entity type. Until it is run there is one observable symptom: `TokenSearchStrategy`
-  groups by `(entity_type, entity_id, organization_id)`, so the leftover rows share a
-  group with the new null-tenant ones and `count(*)` double-counts. `score` can therefore
-  exceed 1 and the catalogue ranks above where it should. Harmless, and it disappears with
-  the `DELETE`.
+```sql
+DELETE FROM entity_indexes
+ WHERE entity_type = 'feature_toggles:feature_toggle'
+   AND (tenant_id IS NOT NULL OR organization_id IS NOT NULL);
+DELETE FROM search_tokens
+ WHERE entity_type = 'feature_toggles:feature_toggle'
+   AND (tenant_id IS NOT NULL OR organization_id IS NOT NULL);
+DELETE FROM entity_index_coverage
+ WHERE entity_type = 'feature_toggles:feature_toggle'
+   AND (tenant_id IS NOT NULL
+        OR (organization_id IS NOT NULL
+            AND organization_id <> '00000000-0000-0000-0000-000000000000'));
+```
 
 ### A tenant-scoped reindex of a table with no `tenant_id` column is refused
 
