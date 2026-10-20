@@ -1375,9 +1375,13 @@ Sales Invoice → GL Posting) — full quotes in Problem Statement.
 `sales.SalesOrder.exchangeRate`/`SalesInvoice`'s absence of it verified
 directly against `packages/core/src/modules/sales/data/entities.ts`
 (lines 374–377, 626, 1412), not only via secondhand spec references.
-Contractor Registry (`docs/contractor-registry`) checked directly —
-zero currency-relevant content beyond unrelated VIES ("VAT Information
-Exchange System"). Journal Entry Line Dimension (#5972) listed "Currency"
+Contractor Registry (`docs/contractor-registry`) checked directly. Since
+2026-10-20 (#5955) it has one currency field: `currencyCode` on
+`ContractorBankAccount`, an optional ISO 4217 code with no FK to
+`currencies`, purely informational (Accounts Payable Payments uses it
+only to warn on a mismatch with the batch currency). Nothing in it
+converts, revalues or blocks, so it adds nothing this document has to
+handle. Journal Entry Line Dimension (#5972) listed "Currency"
 as a dimension type when this was checked; since 2026-10-13 its Phase 1
 carries `CostCenter` only, because a currency tag would duplicate
 `JournalEntry.currencyId`. Nothing in this document relied on it. `accounts_payable`, `ledger`, and
@@ -1813,3 +1817,10 @@ PRs only. Not yet reviewed by a maintainer.
   contract for `fx_revaluation` is added.
 - The AP route path in Design decision 15 is now the one defined in the AP spec.
 Not yet reviewed by a maintainer.
+
+### 2026-10-20 — Contractor Registry currency note corrected
+
+- The Literature Step 1 sentence said Contractor Registry had no
+  currency-relevant content. Since #5955's 2026-10-20 decisions it has
+  `ContractorBankAccount.currencyCode` (optional ISO 4217 text, no FK,
+  informational). Sentence corrected; nothing in this design changes.
