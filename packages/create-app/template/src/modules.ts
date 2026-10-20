@@ -121,6 +121,11 @@ export const enabledModules: ModuleEntry[] = [
   // Tracked in TEMPLATE_COMMENTED_MODULES (scripts/template-sync.ts) as a
   // deliberate divergence, not drift.
   // { id: 'ledger', from: '@open-mercato/core' },
+  // Journal Entry Line Dimensions — tags on posted ledger lines. Requires
+  // ledger, so it stays disabled here while ledger is. Tracked in
+  // TEMPLATE_COMMENTED_MODULES (scripts/template-sync.ts) as a deliberate
+  // divergence, not drift.
+  // { id: 'journal_entry_line_dimensions', from: '@open-mercato/core' },
   { id: 'planner', from: '@open-mercato/core' },
   { id: 'resources', from: '@open-mercato/core' },
   { id: 'staff', from: '@open-mercato/core' },

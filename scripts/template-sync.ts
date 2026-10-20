@@ -347,6 +347,14 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // deliberate divergence, not drift.
   // { id: 'ledger', from: '@open-mercato/core' },`,
   },
+  journal_entry_line_dimensions: {
+    source: `  { id: 'journal_entry_line_dimensions', from: '@open-mercato/core' },`,
+    template: `  // Journal Entry Line Dimensions — tags on posted ledger lines. Requires
+  // ledger, so it stays disabled here while ledger is. Tracked in
+  // TEMPLATE_COMMENTED_MODULES (scripts/template-sync.ts) as a deliberate
+  // divergence, not drift.
+  // { id: 'journal_entry_line_dimensions', from: '@open-mercato/core' },`,
+  },
   forms: {
     source: `  // Audit-grade questionnaire/form primitive — versioned definitions, append-only
   // submissions, role-sliced rendering, public runner + portal + embed surfaces.
