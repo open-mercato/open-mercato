@@ -91,6 +91,8 @@
   "posting_rules.settings.field.placeholder": "Ninguna",
   "posting_rules.settings.field.unallocatedCostAccount": "Cuenta de costes no asignados",
   "posting_rules.settings.group.details": "Cuentas",
+  "posting_rules.settings.hint.noClass4Accounts": "No hay ninguna cuenta de la clase 4 en el plan de cuentas. Cree primero la cuenta de compensación (490) como cuenta de un tipo de cuenta del grupo 4.",
+  "posting_rules.settings.hint.noClass5Accounts": "No hay ninguna cuenta de la clase 5 en el plan de cuentas. El plan predeterminado solo incluye unas pocas; añada las cuentas de costes por función que necesite su empresa.",
   "posting_rules.settings.loading": "Cargando la configuración de las reglas de contabilización…",
   "posting_rules.settings.page.title": "Configuración de las reglas de contabilización",
   "posting_rules.settings.success.save": "Configuración de las reglas de contabilización guardada"

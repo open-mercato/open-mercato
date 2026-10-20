@@ -91,6 +91,8 @@
   "posting_rules.settings.field.placeholder": "없음",
   "posting_rules.settings.field.unallocatedCostAccount": "미배분 원가 계정",
   "posting_rules.settings.group.details": "계정",
+  "posting_rules.settings.hint.noClass4Accounts": "계정과목표에 클래스 4 계정이 없습니다. 먼저 그룹 4의 계정 유형에 속한 계정으로 정산 계정(490)을 만드세요.",
+  "posting_rules.settings.hint.noClass5Accounts": "계정과목표에 클래스 5 계정이 없습니다. 기본 계정과목표에는 몇 개만 포함되어 있으니 회사에 필요한 기능별 원가 계정을 추가하세요.",
   "posting_rules.settings.loading": "전기 규칙 설정을 불러오는 중…",
   "posting_rules.settings.page.title": "전기 규칙 설정",
   "posting_rules.settings.success.save": "전기 규칙 설정을 저장했습니다"
