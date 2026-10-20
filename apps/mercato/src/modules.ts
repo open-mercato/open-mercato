@@ -110,6 +110,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'search', from: '@open-mercato/search' },
   { id: 'currencies', from: '@open-mercato/core' },
   { id: 'ledger', from: '@open-mercato/core' },
+  { id: 'journal_entry_line_dimensions', from: '@open-mercato/core' },
   { id: 'planner', from: '@open-mercato/core' },
   { id: 'resources', from: '@open-mercato/core' },
   { id: 'staff', from: '@open-mercato/core' },
