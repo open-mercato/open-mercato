@@ -2733,3 +2733,92 @@ Source: email from Mateusz Duda (Financial Controller, incro) of 2026-10-16, ans
 - The JPK_KR_PD and tax engines specs were renamed in their cross-references on the #7524 branch. The integration contracts and accounting package specs belong to #7070 and still use SPEC-012 and SPEC-013 in their headings; renaming them is a change to that PR. Older Changelog entries here and in the other specs keep the original numbers.
 - Row for the move of the first two specs now links #7524 instead of "PR to be opened".
 
+
+### 2026-10-20 (cont. — contractor bank accounts and verification evidence: #5955, #5962, #5663 aligned)
+
+A customer implementation needed the contractor registry to hold
+bank-account currency, IBAN/NRB validation, verification history with a
+request id, EU VAT numbers with VIES on demand, reversible deactivation
+and full-value search under encryption. Sibling specs were read in full
+first (AP #5962, Cash & Bank #6055, Multi-Currency #6190, Tax #6168, GL
+#5663, this document): none designed any of these for the contractor.
+Decisions were then written into Contractor Registry (Design decisions
+2026-10-20), AP Payments/Invoices and GL.
+
+- **Literature (Fowler, Hay, Kieso) — Unverified this pass.** The PDFs
+  could not be opened from this session (macOS denied access to the
+  folder they are in), so no full-text search was run and no absence is
+  claimed. What is already verified (2026-09-12, quoted in #5955's
+  Literature section): Fowler, *Analysis Patterns*, §2.1 "Party", says
+  parties "have bank accounts" and nothing more about them; Hay Ch.3
+  "Parties" (pp.23-24) is about the PERSON/ORGANIZATION → PARTY
+  generalization. Nothing verified in any of the three on bank-account
+  structure, number validation or registry verification. Run the
+  full-text check before citing any of them on these topics.
+- **Ministry of Finance whitelist API — Confirmed** (`wl-api.mf.gov.pl`,
+  2026-10-20): check responses carry `accountAssigned`,
+  `requestDateTime`, `requestId`; search responses (single and batch, at
+  most 30 identifiers) carry `requestDateTime` and `requestId`. The
+  list is queried by NIP or REGON.
+- **VIES request identifier — Unverified.** #5955 stores it when VIES
+  returns one and `null` otherwise; when VIES returns it was not checked.
+- **Odoo 18 — Confirmed, partially comparable.** `res.partner.bank`:
+  `acc_number`, stored `sanitized_acc_number`, optional `currency_id`,
+  `active` (default `True`), `allow_out_payment`,
+  `unique(sanitized_acc_number, partner_id)`. `base_iban`: per-country
+  length template plus mod 97, only for accounts of type IBAN. No
+  registry evidence on the account.
+- **ERPNext — Comparable, checksum Unverified.** Bank Account can belong
+  to a Supplier/Customer; IBAN separate ("Leave it empty when the
+  country does not use IBAN"); one intended default. The documentation
+  does not state an IBAN checksum.
+- **Comarch ERP Optima — Confirmed** (pomoc.comarch.pl, 2025): "Historia
+  weryfikacji rachunków bankowych" with "Data sprawdzenia", "NIP", "W
+  Wykazie", "Identyfikator wyszukiwania – unikalny identyfikator
+  otrzymany po sprawdzeniu"; serial operation "Zweryfikuj status VAT i
+  rachunki bankowe". The closest precedent for #5955's
+  `ContractorVerificationCheck`. An "import accounts from the VAT list"
+  button appeared only in search-result summaries — Unverified.
+- **Comarch ERP XL — Unverified**, no public page found.
+- **Code fact used by the design.** `hashForLookup`
+  (`packages/shared/src/lib/encryption/aes.ts`) is HMAC-SHA256 with the
+  installation pepper (`LOOKUP_HASH_PEPPER`, falling back to the
+  tenant-data encryption keys), prefixed `v2:`; with no key configured
+  it falls back to an unkeyed SHA-256. `hashField` in an encryption map
+  writes it. #5955 already used it for `nip_hash`; the account number now
+  uses the same mechanism.
+
+**Inconsistencies between the specs and how they were resolved:**
+
+1. AP stored `requestId` from the whitelist check, the registry did not
+   return it → #5955 returns `{ status, checkedAt, requestId }` from the
+   Ministry's response.
+2. AP said GUS/VIES verification blocks payment, but only called the
+   whitelist check, which gated on approval only → #5955 returns
+   `eligible` + `reasons[]`; `VERIFICATION_FAILED` (status `FAILED`)
+   blocks, `PENDING`/`NOT_APPLICABLE` do not; AP maps each reason to its
+   own code (`PAYMENT_BATCH_NOT_ELIGIBLE` replaces
+   `WHITELIST_CHECK_FAILED`).
+3. GL's snapshot named a "Biała Lista verification status" the registry
+   did not have → GL defines the keys; the status is the check result
+   as of posting held by the payment module.
+4. GL said the registry encrypts the bank account "on the `Contractor`
+   entity" → corrected to `ContractorBankAccount`.
+5. GL said AP writes `contractorSnapshot`, no AP command did → AP's
+   `postVendorInvoice` (name + tax id) and `markPaymentBatchSent` (name,
+   tax id, masked account paid to, whitelist check) write it.
+6. AP's evidence kept no trace of which number was checked → the
+   registry's history keeps the last four digits and the lookup hash;
+   AP's line keeps the last four digits.
+7. AP's `vendorSnapshot.taxId` may be foreign, the registry was NIP-only
+   → the registry gains `euVatNumber`; the NIP lookup returns `null`
+   for a foreign id without an error; AP keeps it as printed.
+8. Cash & Bank's own `BankAccount` has currency and `isActive`, the
+   contractor's account had neither → `currencyCode` (informational) and
+   reversible `isActive` on `ContractorBankAccount`; the IBAN/NRB
+   validator lives in `shared` so Cash & Bank can reuse it.
+
+**Not resolved here, recorded:** AP checks the whitelist at
+`confirmPaymentBatch` and posts at `markPaymentBatchSent`, possibly on a
+later day; neither spec says what happens when the two dates differ,
+while the legal test is the day the transfer is ordered.
