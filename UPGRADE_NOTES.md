@@ -24,6 +24,36 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### `customers`, `portal`, and `workflows` now declare their full runtime module dependencies (#7587)
+
+`customers`'s `setup.ts` imports `FeatureToggle` from `feature_toggles` and `./cli` seeds customer
+and currency dictionaries via `Dictionary`/`DictionaryEntry` from `dictionaries`; `portal`'s
+`setup.ts` imports `FeatureToggle` from `feature_toggles`; `workflows`'s `setup.ts` resolves the
+business-rule discovery cache and `lib/seeds.ts` imports `BusinessRule`, both from
+`business_rules`. None of these modules declared the dependency in `requires`, so an app enabling
+one of them without its undeclared dependencies previously passed `yarn generate` and the
+migrations cleanly and only failed during tenant setup (`mercato init` / `yarn reinstall`) with an
+opaque MikroORM error such as `Metadata for entity Dictionary not found` — the same silent-failure
+class as `catalog` (#6517) and `auth` → `api_keys` (#7444).
+
+`customers` now declares `requires: ['progress', 'dictionaries', 'feature_toggles']`, `portal` now
+declares `requires: ['customer_accounts', 'feature_toggles']`, and `workflows` now declares
+`requires: ['business_rules']`. The existing generator-enforced dependency check now covers all
+three. If your `src/modules.ts` enables one of them without its new dependencies, `yarn generate`
+now fails fast instead of shipping the silent setup failure:
+
+```
+Module dependency check failed:
+- Module "customers" requires: dictionaries, feature_toggles
+```
+
+**Action for module authors:** add the missing module ids to `src/modules.ts` (e.g.
+`{ id: 'dictionaries', from: '@open-mercato/core' }`, `{ id: 'feature_toggles', from:
+'@open-mercato/core' }`, `{ id: 'business_rules', from: '@open-mercato/core' }` as applicable),
+then re-run `yarn generate`. `apps/mercato/src/modules.ts` and the `create-app` template already
+enable the full default module set, so this repo's own apps and freshly scaffolded apps are
+unaffected.
+
 ### Portal form submissions are limited to the caller's own `customer` subject (#7224)
 
 `POST /api/forms/form-submissions` now answers `403 { error: "SUBJECT_FORBIDDEN" }` unless
@@ -234,6 +264,56 @@ Notification `linkHref` and action `href` values were checked only for a leading
 - `NotificationHandlerContext.navigate(href)` in client notification handlers ignores hrefs that do not pass the same check.
 - The predicate is available to other packages as `isSafeNotificationHref` from `@open-mercato/shared/modules/notifications/safeHref` (still re-exported from the notifications module's `lib/safeHref`). Custom delivery strategies receive the stored notification entity; pass `linkHref` and action hrefs through `toSafeNotificationHref` from `@open-mercato/core/modules/notifications/lib/safeHref` before sending them out.
 - Valid `/backend/...` paths need no action.
+### EUDR statement undos refuse to remove or reopen read-only statements (#7506)
+
+Undoing an `eudr.statements.create` through `POST /api/audit_logs/audit-logs/actions/undo` used to
+soft-delete the statement whatever had happened to it since. It now refuses in the same cases
+`eudr.statements.delete` refuses, answering `409 { "error": "<localized message>", "code": "<key>" }`
+and changing nothing:
+
+- the statement is archived (`code: "eudr.errors.archivedReadOnly"`);
+- the statement is available and its amendment window has elapsed (`code: "eudr.errors.amendWindowElapsed"`);
+- the statement is available and another statement references it (`code: "eudr.errors.referencedDownstream"`).
+
+Undoing an `eudr.statements.update` that would change the statement's status refuses the same way
+when the statement is currently in one of those states, so an undo can no longer move an archived
+or protected available statement back to an earlier status (and then make it removable). This
+includes undoing the update that archived the statement; archived statements stay read-only.
+Undos that leave the status unchanged, or start from a deletable state, behave as before.
+
+This is a bug fix that narrows undo behaviour. There is no schema or API-shape change, and explicit
+`eudr.statements.delete` responses are unchanged.
+
+**Action for API clients:** match undo refusals on `code`, not on `error`.
+### Akeneo imports bound media and response sizes and store media through the attachment upload path
+
+The Akeneo client used to read every response body in full with no deadline once headers arrived.
+The importer then wrote media straight to disk, outside the attachment size limit and the tenant
+quota. Now:
+
+- Media go through the shared attachment upload path. A file above `OM_ATTACHMENT_MAX_UPLOAD_MB`
+  (default 25 MB) stops downloading at the limit. SVG/HTML/XML (active content) and executables are
+  rejected. All three are skipped: the product imports without the file and a `warn` integration log
+  entry with code `sync_akeneo.media_rejected` is written (linked to the product, not to a sync run).
+- Imported media reserve and count against `OM_ATTACHMENT_TENANT_QUOTA_MB` (default 512 MB). When
+  the quota is full, the product's import fails and is listed in the sync run.
+- Media are stored with the partition's configured storage driver (no longer always `local`), with a
+  sanitized file name, a sniffed MIME type and the byte size actually received. Downloads of one
+  product's media run one at a time.
+- `OM_INTEGRATION_AKENEO_REQUEST_TIMEOUT_MS` (default 30 000 ms) now covers the whole response,
+  including reading the body. That includes media downloads.
+- JSON and OAuth token responses above the new `OM_INTEGRATION_AKENEO_MAX_RESPONSE_BYTES` (default
+  32 MiB) fail the request with `AkeneoResponseTooLargeError`. Error bodies quoted in thrown
+  messages are truncated to 64 KiB.
+- Removing media that Akeneo no longer lists now goes through `attachmentService.releaseScoped()`: the
+  row is deleted before the stored bytes, and media another record still uses are kept.
+- `downloadMediaFile()` returns `contentLength` as the number of bytes received, not the remote
+  `Content-Length` header.
+
+**Action for operators:** large catalogs may hit the tenant quota on import, so raise
+`OM_ATTACHMENT_TENANT_QUOTA_MB` if needed. Raise `OM_INTEGRATION_AKENEO_REQUEST_TIMEOUT_MS` if large
+media time out on slow links. Check the integration log for `sync_akeneo.media_rejected` warnings
+after the first sync.
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
