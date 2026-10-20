@@ -2140,6 +2140,12 @@ exactly as `sales.order-approval` and
   checksum) can be recovered from its hash by trying every value; an
   account number is harder but not safe. Accepted as a deployment
   requirement shared with every other hashed column in the platform.
+  Even with a pepper, NIPs and IBAN/NRB numbers have low entropy (a NIP
+  is ten digits with a checksum, a Polish account number starts with a
+  published bank code and carries check digits) and the one pepper is
+  shared by every tenant of the installation, so anyone holding the
+  pepper and a copy of the database can recover them by enumeration,
+  and the same value hashes identically in every tenant.
 
 ### Cascading failures & side effects
 
@@ -2894,3 +2900,11 @@ New section Design decisions (2026-10-20); every item below is decided.
   into steps 1–10; the implementation guide is synced (three entities,
   the flow's eligibility result, deactivation versus soft delete,
   history and VAT-account pitfalls).
+
+### 2026-10-20 (cont. — Risks: low entropy of hashed identifiers)
+
+- Risks & Impact Review: the unkeyed-hash risk now also states that NIPs
+  and IBAN/NRB numbers have low entropy and that the one pepper is
+  shared by all tenants of an installation (enumeration with the pepper
+  and a database copy; identical hashes across tenants). No design
+  change.
