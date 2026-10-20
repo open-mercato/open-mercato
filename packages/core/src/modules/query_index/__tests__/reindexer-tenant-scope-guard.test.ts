@@ -1,4 +1,5 @@
 import { registerLoggerExtension, type LoggerExtensionRecord } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { reindexEntity } from '../lib/reindexer'
 import {
   isTenantGlobalEntityType,
@@ -7,8 +8,31 @@ import {
   resetTenantGlobalEntityTypes,
 } from '../lib/tenant-global'
 
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: jest.fn(() => undefined),
+}))
+
+const mockGetTelemetryRuntime = getTelemetryRuntime as jest.MockedFunction<typeof getTelemetryRuntime>
+
 /** Thrown by the stub the moment the reindexer gets PAST the guard. */
 class ReachedSweep extends Error {}
+
+/** An entity manager whose `information_schema` probe fails with `message`. */
+function createProbeFailingEm(message: string) {
+  const chain: Record<string | symbol, unknown> = new Proxy({}, {
+    get(_target, prop: string | symbol) {
+      if (prop === 'execute' || prop === 'executeTakeFirst') {
+        return async () => { throw new Error(message) }
+      }
+      if (prop === 'then') return undefined
+      return () => chain
+    },
+  })
+  return {
+    getKysely: () => ({ selectFrom: () => chain }),
+    getMetadata: () => ({ find: (className: string) => ({ tableName: className }), getAll: () => [] }),
+  }
+}
 
 /**
  * A kysely-shaped stub that answers the `information_schema.columns` probe and
@@ -200,6 +224,38 @@ describe('reindexEntity refuses a tenant-scoped sweep it cannot scope', () => {
     }
 
     const result = await reindexEntity(em, { entityType: 'billing:plan', tenantId: TENANT })
+
+    expect(result.refused).toBe('column-probe-failed')
+  })
+
+  // A catch that records an error must also reach the error funnel; a telemetry backend
+  // that throws must not turn the fail-closed refusal into a failed job.
+  it('reports a failed column probe through telemetry with a stable code', async () => {
+    const reportError = jest.fn()
+    mockGetTelemetryRuntime.mockReturnValueOnce({ reportError } as never)
+
+    const result = await reindexEntity(createProbeFailingEm('current transaction is aborted') as never, {
+      entityType: 'auth:user_role',
+      tenantId: TENANT,
+    })
+
+    expect(result.refused).toBe('column-probe-failed')
+    expect(reportError).toHaveBeenCalledWith(expect.any(Error), {
+      module: 'query_index',
+      code: 'query_index.column_probe_failed',
+      attributes: { table: expect.any(String) },
+    })
+  })
+
+  it('still refuses when the telemetry backend itself throws', async () => {
+    mockGetTelemetryRuntime.mockReturnValueOnce({
+      reportError: () => { throw new Error('exporter unavailable') },
+    } as never)
+
+    const result = await reindexEntity(createProbeFailingEm('statement timeout') as never, {
+      entityType: 'auth:user_role',
+      tenantId: TENANT,
+    })
 
     expect(result.refused).toBe('column-probe-failed')
   })
