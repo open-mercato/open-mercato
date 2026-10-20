@@ -4,7 +4,7 @@ import { login } from '@open-mercato/core/helpers/integration/auth'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { deleteCatalogProductIfExists } from '@open-mercato/core/helpers/integration/catalogFixtures'
 
-test.describe('TC-CAT-038: Markdown editor opens content with code blocks', () => {
+test.describe('TC-CAT-042: Markdown editor opens content with code blocks', () => {
   test('product description with fenced and tagged code blocks loads in rich-text mode', async ({ page, request }) => {
     test.slow()
     const stamp = Date.now()

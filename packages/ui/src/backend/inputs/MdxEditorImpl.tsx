@@ -62,6 +62,7 @@ type MdxEditorImplProps = {
 // on blur to avoid re-rendering the whole form on every keystroke.
 export default function MdxEditorImpl({ value = '', onChange }: MdxEditorImplProps) {
   const editorRef = React.useRef<MDXEditorMethods>(null)
+  const containerRef = React.useRef<HTMLDivElement>(null)
   const latestRef = React.useRef<string>(value)
   const typingRef = React.useRef(false)
   const { resolvedTheme } = useTheme()
@@ -84,13 +85,27 @@ export default function MdxEditorImpl({ value = '', onChange }: MdxEditorImplPro
   }, [onChange])
 
   return (
-    <div className="w-full overflow-hidden rounded-md border border-input bg-background" onBlur={commit}>
+    <div
+      ref={containerRef}
+      data-testid="mdx-editor-container"
+      className="w-full overflow-hidden rounded-md border border-input bg-background"
+      onBlur={commit}
+    >
       <MDXEditor
         ref={editorRef}
         markdown={value ?? ''}
         onChange={(markdown) => {
           typingRef.current = true
           latestRef.current = markdown
+          // Some toolbar controls (code block language select, delete) move focus out of
+          // the editor before this callback runs, so the `blur` that would normally
+          // trigger `commit` fires first and finds `typingRef` still false. Once that
+          // happens no further blur arrives to retry, so the edit is silently dropped.
+          // If focus has already left the editor by the time we get here, there is no
+          // more blur coming — flush immediately instead of waiting for one.
+          if (containerRef.current && !containerRef.current.contains(document.activeElement)) {
+            commit()
+          }
         }}
         className={cn('om-mdx-editor', resolvedTheme === 'dark' && 'dark-theme')}
         contentEditableClassName="om-mdx-prose"
