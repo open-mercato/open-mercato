@@ -166,6 +166,25 @@ AI_RUNTIME_BASEURL_ALLOWLIST=openrouter.ai,http://localhost:11434
 Update the allowlist before upgrading when tenants saved a local or self-hosted base URL: once that
 saved value is ignored, prompts go to the provider's default endpoint instead.
 
+### Staff: customer support tickets (helpdesk) need a per-organization seed and a portal ACL sync
+
+New tenants get everything from `setup.ts`. **Existing** tenants must run, once per organization:
+
+```bash
+yarn mercato staff seed-support-defaults --tenant <tenantId> --org <organizationId>
+yarn mercato customer_accounts sync-customer-role-acls
+```
+
+- `seed-support-defaults` is safe to re-run. It creates the "Customer support" fallback project and the fallback routing rule when they are missing. It seeds the default support ticket categories only in the run that creates the organization's support-category dictionary; once that dictionary exists, a re-run never re-adds a category an admin deleted. Without the fallback project and rule, a portal customer cannot file a ticket because there is no project to route it to.
+- `sync-customer-role-acls` grants the new portal features to the default customer roles: `portal.support_tickets.view` (buyer, viewer) and `portal.support_tickets.manage` (buyer). It is additive and never creates roles. Add `--tenant <tenantId>` to limit it to one tenant.
+- No staff (`acl.ts`) features were added, so `yarn mercato auth sync-role-acls` is not required for this change.
+
+Additive surfaces that third-party code can use. Existing code needs no changes:
+
+- New injection spot `staff.time_tracking.settings:tabs` on the Time Tracking Settings page, with `placement: { kind: 'tab' }` and context `{ moduleId, canManage, settings, onSettingsSaved }`. A tab saves its own changes. It builds each write from `context.settings` and reports the stored result through `onSettingsSaved`.
+- Task comments have an optional `visibility` field (`'internal' | 'customer'`, default `'internal'`). It was added to `staffTimeTaskCommentCreateSchema` and `staffTimeTaskCommentUpdateSchema` as an optional field. `staffTimeTaskCommentUpdateSchema` still requires `body`. The task comment `PUT` route validates against the new `staffTimeTaskCommentUpdateRequestSchema`, which also accepts a visibility-only change.
+- `TimeTrackingBuiltInSettings` has an optional `support: { referencePrefix }` group, stored as the `support.referencePrefix` setting key (default `SUP`). If a settings `PUT` omits it, the stored prefix is kept.
+
 ### `GET /api/attachments` without paging returns at most the newest 100 attachments (#3816)
 
 `GET /api/attachments?entityId=…&recordId=…` used to load, decrypt and return every attachment of the
@@ -353,24 +372,6 @@ quota. Now:
 media time out on slow links. Check the integration log for `sync_akeneo.media_rejected` warnings
 after the first sync.
 
-### Staff: customer support tickets (helpdesk) need a per-organization seed and a portal ACL sync
-
-New tenants get everything from `setup.ts`. **Existing** tenants must run, once per organization:
-
-```bash
-yarn mercato staff seed-support-defaults --tenant <tenantId> --org <organizationId>
-yarn mercato customer_accounts sync-customer-role-acls
-```
-
-- `seed-support-defaults` is safe to re-run. It creates the "Customer support" fallback project and the fallback routing rule when they are missing. It seeds the default support ticket categories only in the run that creates the organization's support-category dictionary; once that dictionary exists, a re-run never re-adds a category an admin deleted. Without the fallback project and rule, a portal customer cannot file a ticket because there is no project to route it to.
-- `sync-customer-role-acls` grants the new portal features to the default customer roles: `portal.support_tickets.view` (buyer, viewer) and `portal.support_tickets.manage` (buyer). It is additive and never creates roles. Add `--tenant <tenantId>` to limit it to one tenant.
-- No staff (`acl.ts`) features were added, so `yarn mercato auth sync-role-acls` is not required for this change.
-
-Additive surfaces that third-party code can use. Existing code needs no changes:
-
-- New injection spot `staff.time_tracking.settings:tabs` on the Time Tracking Settings page, with `placement: { kind: 'tab' }` and context `{ moduleId, canManage, settings, onSettingsSaved }`. A tab saves its own changes. It builds each write from `context.settings` and reports the stored result through `onSettingsSaved`.
-- Task comments have an optional `visibility` field (`'internal' | 'customer'`, default `'internal'`). It was added to `staffTimeTaskCommentCreateSchema` and `staffTimeTaskCommentUpdateSchema` as an optional field. `staffTimeTaskCommentUpdateSchema` still requires `body`. The task comment `PUT` route validates against the new `staffTimeTaskCommentUpdateRequestSchema`, which also accepts a visibility-only change.
-- `TimeTrackingBuiltInSettings` has an optional `support: { referencePrefix }` group, stored as the `support.referencePrefix` setting key (default `SUP`). If a settings `PUT` omits it, the stored prefix is kept.
 ### Integration and bundle ids must not end in `__oauth_grant`
 
 The new OAuth2 grant core in `integrations` stores each tenant-level grant as an
