@@ -116,7 +116,7 @@ test('purgeAppBuildCaches: removes configured manifests and legacy directory in 
 })
 
 test('runGreenfieldDev and runClassicGreenfieldDev: source invokes purgeAppBuildCaches before any build:packages stage', async () => {
-  const here = path.dirname(new URL(import.meta.url).pathname)
+  const here = path.dirname(fileURLToPath(import.meta.url))
   const devMjs = fs.readFileSync(path.resolve(here, '..', 'dev.mjs'), 'utf8')
 
   for (const fnName of ['runGreenfieldDev', 'runClassicGreenfieldDev']) {
@@ -134,7 +134,7 @@ test('runGreenfieldDev and runClassicGreenfieldDev: source invokes purgeAppBuild
 })
 
 test('greenfield dev scripts never purge app build caches after launching runtime warmup', async () => {
-  const here = path.dirname(new URL(import.meta.url).pathname)
+  const here = path.dirname(fileURLToPath(import.meta.url))
   const rootDevMjs = fs.readFileSync(path.resolve(here, '..', 'dev.mjs'), 'utf8')
   const templateDevMjs = fs.readFileSync(
     path.resolve(here, '..', '..', 'packages', 'create-app', 'template', 'scripts', 'dev.mjs'),
@@ -165,7 +165,7 @@ test('greenfield dev scripts never purge app build caches after launching runtim
 })
 
 test('runtime warmup scripts do not remove Next or Turbopack caches between warmup requests', async () => {
-  const here = path.dirname(new URL(import.meta.url).pathname)
+  const here = path.dirname(fileURLToPath(import.meta.url))
   const runtimeSources = [
     path.resolve(here, '..', '..', 'apps', 'mercato', 'scripts', 'dev.mjs'),
     path.resolve(here, '..', '..', 'packages', 'create-app', 'template', 'scripts', 'dev-runtime.mjs'),
@@ -180,7 +180,7 @@ test('runtime warmup scripts do not remove Next or Turbopack caches between warm
 })
 
 test('dev wrappers own shutdown notice and suppress duplicate runtime notices', async () => {
-  const here = path.dirname(new URL(import.meta.url).pathname)
+  const here = path.dirname(fileURLToPath(import.meta.url))
   const wrapperSources = [
     path.resolve(here, '..', 'dev.mjs'),
     path.resolve(here, '..', '..', 'packages', 'create-app', 'template', 'scripts', 'dev.mjs'),

@@ -213,8 +213,8 @@ test('runConsolidatedWatch wires one fs.watch per discovered package and trigger
 
     fs.writeFileSync(path.join(root, 'packages/alpha/src/change.ts'), '')
     fs.writeFileSync(path.join(root, 'packages/bravo/src/change.ts'), '')
-    watchers.find((watcher) => watcher.dir.includes('/alpha/src')).onChange('change', 'change.ts')
-    watchers.find((watcher) => watcher.dir.includes('/bravo/src')).onChange('change', 'change.ts')
+    watchers.find((watcher) => watcher.dir.endsWith(path.join('alpha', 'src'))).onChange('change', 'change.ts')
+    watchers.find((watcher) => watcher.dir.endsWith(path.join('bravo', 'src'))).onChange('change', 'change.ts')
     await Promise.race([
       secondBuildSeen,
       new Promise((resolve) => setTimeout(resolve, 600)),

@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test, { after } from 'node:test'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
   DESIGN_SYSTEM_ACTIVATION_ENTRY,
   EXAMPLE_ACTIVATION_ENTRY,
@@ -73,7 +73,7 @@ function stageInstalledPackages(appDir: string): void {
       path.join(installedDir, 'package.json'),
       `${JSON.stringify({ name: manifest.name, version: manifest.version, main: manifest.main }, null, 2)}\n`,
     )
-    fs.symlinkSync(distDir, path.join(installedDir, 'dist'), 'dir')
+    fs.symlinkSync(distDir, path.join(installedDir, 'dist'), process.platform === 'win32' ? 'junction' : 'dir')
     staged += 1
   }
 
@@ -107,9 +107,9 @@ function scaffoldApp(): { targetRoot: string; appDir: string } {
 }
 
 async function createGenerator(appDir: string): Promise<() => Promise<void>> {
-  const { createResolver } = await import(path.join(REPO_ROOT, 'packages', 'cli', 'src', 'lib', 'resolver.ts'))
+  const { createResolver } = await import(pathToFileURL(path.join(REPO_ROOT, 'packages', 'cli', 'src', 'lib', 'resolver.ts')).href)
   const generators = await import(
-    path.join(REPO_ROOT, 'packages', 'cli', 'src', 'lib', 'generators', 'index.ts')
+    pathToFileURL(path.join(REPO_ROOT, 'packages', 'cli', 'src', 'lib', 'generators', 'index.ts')).href
   )
 
   return async () => {
