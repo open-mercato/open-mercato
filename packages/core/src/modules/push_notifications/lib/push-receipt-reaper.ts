@@ -6,6 +6,8 @@ import {
   supportsReceiptChecking,
 } from '@open-mercato/core/modules/communication_channels/lib/push-adapter'
 import type { CommunicationChannel } from '@open-mercato/core/modules/communication_channels/data/entities'
+import type { UserDevice } from '@open-mercato/core/modules/devices/data/entities'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { PushNotificationDelivery } from '../data/entities'
 import { softDeleteUnregisteredDevice } from './push-delivery'
@@ -60,6 +62,16 @@ function isReceiptChecked(delivery: PushNotificationDelivery): boolean {
   return (delivery.providerResponse as { receiptChecked?: unknown } | null | undefined)?.receiptChecked === true
 }
 
+/**
+ * A `DeviceNotRegistered` receipt only proves the token the delivery targeted is dead. The device may
+ * have re-registered a fresh token in place since then, so it is pruned only while its current token
+ * still ends with the delivery's `token_snapshot`.
+ */
+function stillHoldsDeadToken(device: UserDevice | undefined, delivery: PushNotificationDelivery): device is UserDevice {
+  if (!device?.pushToken || !delivery.tokenSnapshot) return false
+  return device.pushToken.slice(-delivery.tokenSnapshot.length) === delivery.tokenSnapshot
+}
+
 function markReceiptChecked(delivery: PushNotificationDelivery, unregistered: boolean): void {
   delivery.providerResponse = {
     ...(delivery.providerResponse ?? {}),
@@ -75,11 +87,13 @@ function markReceiptChecked(delivery: PushNotificationDelivery, unregistered: bo
  * For each `sent` delivery old enough to have a receipt, group ticket ids by provider, and for every
  * provider whose adapter implements the optional `PushReceiptChecker` capability, poll receipts using
  * the same channel credentials as the send path. A `DeviceNotRegistered` receipt is routed through the
- * SAME `softDeleteUnregisteredDevice` contract the synchronous path uses — no separate deletion path.
+ * SAME `softDeleteUnregisteredDevice` contract the synchronous path uses — no separate deletion path —
+ * but only for a device that is still active and still holds the dead token (see `stillHoldsDeadToken`).
  * `MessageRateExceeded` and other transient receipt errors resolve the receipt but never kill the token.
+ * The returned `unregistered` count is the number of devices queued for deactivation.
  *
- * Idempotent: each resolved row is marked (`providerResponse.receiptChecked`) so it is never re-polled,
- * and `devices.deactivate` is itself idempotent, so an overlapping tick cannot double-delete.
+ * Each resolved row is marked (`providerResponse.receiptChecked`) so it is never re-polled, and each
+ * device is deactivated at most once per sweep.
  */
 export async function checkPushReceipts(
   em: EntityManager,
@@ -132,6 +146,7 @@ export async function checkPushReceipts(
     credentialsService = undefined
   }
   const ChannelRef = resolve('CommunicationChannel') as EntityName<CommunicationChannel>
+  const DeviceRef = resolve('UserDevice') as EntityName<UserDevice>
 
   let checked = 0
   let unregistered = 0
@@ -179,29 +194,56 @@ export async function checkPushReceipts(
       continue
     }
 
+    const unregisteredDeviceIds = new Set<string>()
+    for (const outcome of outcomes) {
+      if (!outcome.unregistered) continue
+      for (const delivery of byTicket.get(outcome.ticketId) ?? []) unregisteredDeviceIds.add(delivery.userDeviceId)
+    }
+    const devicesById = new Map<string, UserDevice>()
+    if (unregisteredDeviceIds.size > 0) {
+      const devices = await findWithDecryption(
+        em,
+        DeviceRef,
+        { id: { $in: [...unregisteredDeviceIds] }, tenantId: scope.tenantId, deletedAt: null },
+        undefined,
+        { tenantId: scope.tenantId },
+      )
+      for (const device of devices) devicesById.set(device.id, device)
+    }
+
     // Persist the receipt-checked marks first, then run the device deactivations AFTER the flush so a
     // command that reads on the same EntityManager can never discard the pending scalar marks.
-    const toDeactivate: Array<{ id: string; tenantId: string; userId: string; organizationId: string | null }> = []
+    const toDeactivate = new Map<string, { id: string; tenantId: string; userId: string; organizationId: string | null }>()
     for (const outcome of outcomes) {
       const deliveries = byTicket.get(outcome.ticketId)
       if (!deliveries) continue
       for (const delivery of deliveries) {
         markReceiptChecked(delivery, outcome.unregistered)
         checked += 1
-        if (outcome.unregistered) {
-          delivery.lastError = DEVICE_UNREGISTERED
-          toDeactivate.push({
-            id: delivery.userDeviceId,
-            tenantId: delivery.tenantId,
-            userId: delivery.userId,
-            organizationId: delivery.organizationId ?? null,
+        if (!outcome.unregistered) continue
+        delivery.lastError = DEVICE_UNREGISTERED
+        const device = devicesById.get(delivery.userDeviceId)
+        if (!stillHoldsDeadToken(device, delivery)) {
+          logger.info('Push receipt reported an unregistered token the device no longer holds; device kept', {
+            tenantId: scope.tenantId,
+            deliveryId: delivery.id,
+            userDeviceId: delivery.userDeviceId,
+            reason: device ? 'token_rotated' : 'device_inactive',
           })
-          unregistered += 1
+          continue
         }
+        if (toDeactivate.has(device.id)) continue
+        toDeactivate.set(device.id, {
+          id: device.id,
+          tenantId: device.tenantId,
+          userId: device.userId,
+          organizationId: device.organizationId ?? null,
+        })
+        unregistered += 1
       }
     }
     await em.flush()
-    for (const input of toDeactivate) {
+    for (const input of toDeactivate.values()) {
       await softDeleteUnregisteredDevice(resolve, input)
     }
   }
