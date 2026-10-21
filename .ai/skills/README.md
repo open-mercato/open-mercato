@@ -72,10 +72,10 @@ The default `yarn install-skills` ships the **core** tier plus the entire extern
 | `design` | opt-in | 1 | Figma-side design workflow skills. Opt-in — presumes Figma tooling. |
 | `automation` | opt-in | 2 | PR/issue automation skills. Opt-in; agent-driven workflows. |
 | `security` | opt-in | 2 | Security audit skills. Opt-in. |
-| `analysis` | opt-in | 3 | Business/engagement analysis skills (app specs, platform gap analysis) and the draft accessibility review. Opt-in. |
+| `analysis` | opt-in | 1 | Draft accessibility review (WCAG 2.2 AA). Opt-in. |
 | `migration` | opt-in | 3 | One-shot, version-pinned migrations. Install only when needed. |
 | `infra` | opt-in | 2 | Rare, special-case skills. |
-| external | always | 26 | Shared pipeline skills from [open-mercato/skills](https://github.com/open-mercato/skills), installed via `npx skills add` and refreshed via `npx skills update` (skip with `--no-external`). |
+| external | always | 28 | Shared pipeline skills from [open-mercato/skills](https://github.com/open-mercato/skills), installed via `npx skills add` and refreshed via `npx skills update` (skip with `--no-external`). |
 
 Run `yarn install-skills --list` at any time to see tier definitions, current memberships, and which tiers are installed locally.
 
@@ -223,7 +223,7 @@ Skills below are grouped by tier in the same order as `.ai/skills/tiers.json`. E
 
 These skills are installed from [open-mercato/skills](https://github.com/open-mercato/skills) into `.agents/skills/`; their descriptions are maintained upstream. They read `.ai/agentic.config.json`, `.ai/trackers/github.md`, the root docs, and any repo-local override under `.ai/skills/<name>/`.
 
-`om-approve-merge-pr`, `om-auto-continue-pr`, `om-auto-continue-pr-loop`, `om-auto-create-pr`, `om-auto-create-pr-loop`, `om-auto-fix-issue`, `om-auto-review-pr`, `om-auto-update-changelog`, `om-auto-qa-pr`, `om-check-and-commit`, `om-code-review`, `om-fix`, `om-followup-issue-from-pr`, `om-integration-tests`, `om-merge-buddy`, `om-open-pr`, `om-prepare-issue`, `om-prepare-test-env`, `om-review-prs`, `om-root-cause`, `om-setup-agent-pipeline`, `om-spec-writing`, `om-auto-fix-pr`, `om-close-fixed-issues`, `om-verify-in-repo`, `om-pr-autopilot`
+`om-approve-merge-pr`, `om-auto-continue-pr`, `om-auto-continue-pr-loop`, `om-auto-create-pr`, `om-auto-create-pr-loop`, `om-auto-fix-issue`, `om-auto-review-pr`, `om-auto-update-changelog`, `om-auto-qa-pr`, `om-check-and-commit`, `om-code-review`, `om-fix`, `om-followup-issue-from-pr`, `om-integration-tests`, `om-merge-buddy`, `om-open-pr`, `om-prepare-issue`, `om-prepare-test-env`, `om-review-prs`, `om-root-cause`, `om-setup-agent-pipeline`, `om-spec-writing`, `om-auto-fix-pr`, `om-close-fixed-issues`, `om-verify-in-repo`, `om-pr-autopilot`, `om-app-spec-writing`, `om-gap-analysis`
 
 ### security
 
@@ -234,12 +234,8 @@ These skills are installed from [open-mercato/skills](https://github.com/open-me
 
 ### analysis
 
-Moved here from [open-mercato/skills](https://github.com/open-mercato/skills) — they are engagement/project-oriented rather than pipeline-agnostic. Authored by Maciej Gren.
-
 | Skill | When to use |
 |-------|-------------|
-| `om-app-spec-writing` | Write and review a business-level App Spec — domain model, workflows with ROI, user stories with failure paths, platform gap analysis in atomic commits, and a phased rollout — BEFORE any feature spec or code exists. One level above `om-spec-writing`, which decomposes the finished App Spec into feature specs. Use when the user says "create an app spec", "define business requirements", "what should we build". |
-| `om-gap-analysis` | Grounded platform gap analysis at engagement scale — turn a folder of client docs into an Epic/Story tree where every coverage verdict is re-run by executable gates against a validated checkout of the platform, scored in atomic commits, license-tier-tagged, and synthesized into a client-facing summary + backlog. Verifies coverage against the platform's code; it does not author requirements or specs. |
 | `om-wcag-guardian` | **DRAFT, not for PR enforcement — run only when explicitly asked.** Designs accessibility contracts and reviews UI-impacting changes against WCAG 2.2 AA and the EN 301 549 supplement with verified evidence (components, flows, styles, themes, accessible text, frontend dependencies, message or document templates, sanitizers, importers or exporters). |
 
 ### migration
