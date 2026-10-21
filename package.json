@@ -200,7 +200,7 @@
     "jest-environment-jsdom": "^30.4.1",
     "openapi-typescript": "^7.13.0",
     "pkg-pr-new": "0.0.88",
-    "storybook": "10.6.0",
+    "storybook": "10.6.2",
     "ts-jest": "^29.4.12",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
