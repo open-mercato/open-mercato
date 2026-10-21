@@ -15,6 +15,7 @@ jest.mock("@open-mercato/ui/backend/utils/serverErrors", () => ({
 }));
 
 import {
+  pickEnrichmentNamespaces,
   toTrimmedOrNull,
   parseNumericInput,
   toPositiveNumberOrNull,
@@ -188,5 +189,25 @@ describe("normalizeProductConversionInputs", () => {
     ];
     const result = normalizeProductConversionInputs(rows, "dup");
     expect(result[0].isActive).toBe(true);
+  });
+});
+
+describe("pickEnrichmentNamespaces", () => {
+  it("keeps only underscore-prefixed response enrichment namespaces", () => {
+    const inventoryProfile = { defaultUom: "pcs", defaultStrategy: "fifo" };
+    expect(
+      pickEnrichmentNamespaces({
+        id: "p-1",
+        title: "Widget",
+        _: "ignored",
+        _wms: { inventoryProfile },
+        _example: { priority: "high" },
+      }),
+    ).toEqual({ _wms: { inventoryProfile }, _example: { priority: "high" } });
+  });
+
+  it("returns an empty object for a missing record", () => {
+    expect(pickEnrichmentNamespaces(undefined)).toEqual({});
+    expect(pickEnrichmentNamespaces(null)).toEqual({});
   });
 });

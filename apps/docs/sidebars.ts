@@ -143,6 +143,7 @@ const sidebars: SidebarsConfig = {
             "user-guide/akeneo-pim",
             "user-guide/checkout",
             "user-guide/stripe-payments",
+            "user-guide/tpay-payments",
             "user-guide/payment-transactions",
           ],
         },
@@ -371,6 +372,7 @@ const sidebars: SidebarsConfig = {
           items: [
             "framework/modules/overview",
             "framework/modules/reference-example-module",
+            "framework/modules/publishing-custom-modules",
             {
               type: "category",
               label: "Core Modules",
@@ -511,6 +513,7 @@ const sidebars: SidebarsConfig = {
           label: "Security",
           items: [
             "framework/security/rate-limiting",
+            "framework/security/cross-site-login",
           ],
         },
         {

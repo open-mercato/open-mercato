@@ -140,6 +140,33 @@ describe('LinkTemplateForm locale decimal separator (issue #5828)', () => {
     expect(amountInput.value).toBe('25,99')
   })
 
+  describe('redisplaying a saved amount (issue #6309)', () => {
+    it('shows loaded fixed and compare-at prices with the locale comma, not a dot', () => {
+      renderPricingSection({ pricingMode: 'fixed', fixedPriceAmount: 1234.56, fixedPriceOriginalAmount: 1500.5 })
+      expect((screen.getByPlaceholderText('150') as HTMLInputElement).value).toBe('1234,56')
+      expect((screen.getByPlaceholderText('200') as HTMLInputElement).value).toBe('1500,5')
+    })
+
+    it('shows loaded custom-amount bounds with the locale comma', () => {
+      renderPricingSection({ pricingMode: 'custom_amount', customAmountMin: 10.5, customAmountMax: 500.25 })
+      expect((screen.getByPlaceholderText('10') as HTMLInputElement).value).toBe('10,5')
+      expect((screen.getByPlaceholderText('500') as HTMLInputElement).value).toBe('500,25')
+    })
+
+    it('shows a loaded price list amount with the locale comma', () => {
+      render(
+        <PriceListEditor
+          value={[{ id: 'item-1', description: 'Item', amount: 25.99, currencyCode: 'USD' }]}
+          onChange={jest.fn()}
+        />,
+      )
+      const amountInput = screen.getByLabelText(
+        'checkout.linkTemplateForm.priceList.aria.amount',
+      ) as HTMLInputElement
+      expect(amountInput.value).toBe('25,99')
+    })
+  })
+
   describe('toSubmittedAmount (converts the raw typed text to a number at submit time)', () => {
     it('parses a comma-decimal value', () => {
       expect(toSubmittedAmount('110,70', 'pl-PL')).toBe(110.7)

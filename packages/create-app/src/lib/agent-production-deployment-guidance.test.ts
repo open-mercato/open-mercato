@@ -61,7 +61,7 @@ test('standalone production requests route to one TLS-first secrets-safe guide',
   assert.match(guide, /do not.{0,80}(?:perform|claim).{0,80}live deployment/i)
 })
 
-test('OMH-238 enforces the production-readiness routing and safety contract', () => {
+test('OMH-240 enforces the production-readiness routing and safety contract', () => {
   const cases = JSON.parse(read('agentic/shared/ai/harness/cases.json')) as Array<{
     id: string
     owner: { path: string }
@@ -69,7 +69,7 @@ test('OMH-238 enforces the production-readiness routing and safety contract', ()
     requiredDecisions: string[]
     forbiddenPatterns: string[]
   }>
-  const productionCase = cases.find(({ id }) => id === 'OMH-238')
+  const productionCase = cases.find(({ id }) => id === 'OMH-240')
   assert.ok(productionCase)
   assert.equal(productionCase.owner.path, '.ai/guides/production-deployment.md')
   assert.deepEqual(productionCase.context.required, ['AGENTS.md', '.ai/guides/production-deployment.md'])

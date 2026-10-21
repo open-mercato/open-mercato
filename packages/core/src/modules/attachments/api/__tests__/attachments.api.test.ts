@@ -59,6 +59,10 @@ const mockDataEngine = {
 
 let mockAttachmentQuotaService: any = null
 const mockAttachmentQuotaRecoveryScheduler = jest.fn(async () => {})
+let mockRateLimiterService: {
+  consume: jest.Mock
+  trustProxyDepth: number
+} | null = null
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
@@ -67,12 +71,13 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
       if (k === 'dataEngine') return mockDataEngine
       if (k === 'attachmentQuotaService') return mockAttachmentQuotaService
       if (k === 'attachmentQuotaRecoveryScheduler') return mockAttachmentQuotaRecoveryScheduler
+      if (k === 'rateLimiterService') return mockRateLimiterService
       return null
     },
   }),
 }))
 
-const defaultAuth = () => ({ orgId: 'org', tenantId: 't1', roles: ['admin'] })
+const defaultAuth = () => ({ sub: 'user-1', orgId: 'org', tenantId: 't1', roles: ['admin'] })
 const mockGetAuthFromRequest = jest.fn(defaultAuth)
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({ getAuthFromRequest: (...args: unknown[]) => mockGetAuthFromRequest(...args) }))
 
@@ -163,10 +168,33 @@ describe('attachments API', () => {
     mockEm.getKysely.mockReturnValue(buildUsageKysely(0))
     mockAttachmentQuotaService = null
     mockAttachmentQuotaRecoveryScheduler.mockClear()
+    mockRateLimiterService = null
     mockRequestOcrProcessing.mockReset()
     mockRequestOcrProcessing.mockImplementation(async () => {})
     delete process.env.OPENMERCATO_DEFAULT_ATTACHMENT_OCR_ENABLED
     delete process.env.OPENAI_API_KEY
+  })
+
+  it('rejects uploads when the per-tenant/user rate limit is exceeded', async () => {
+    mockRateLimiterService = {
+      trustProxyDepth: 0,
+      consume: jest.fn(async () => ({
+        allowed: false,
+        remainingPoints: 0,
+        msBeforeNext: 12_000,
+        consumedPoints: 30,
+      })),
+    }
+    const { POST: upload } = await loadHandlers()
+    const file = new File([new Uint8Array([1, 2, 3])], 'doc.pdf', { type: 'application/pdf' })
+    const req = new Request('http://x/api/attachments', { method: 'POST', body: fdWith(file) as any })
+    const res = await upload(req)
+    expect(res.status).toBe(429)
+    expect(mockRateLimiterService.consume).toHaveBeenCalledWith(
+      't1:user-1',
+      expect.objectContaining({ keyPrefix: 'attachments_upload', points: 100, duration: 60 }),
+    )
+    expect(mockEm.create).not.toHaveBeenCalled()
   })
 
   it('rejects disallowed extension', async () => {
@@ -592,6 +620,35 @@ describe('attachments API', () => {
       expect.objectContaining({ entityId: 'example:todo', recordId: 'r1' }),
       expect.objectContaining({ limit: 2, offset: 12 }),
     )
+  })
+
+  it('caps an unpaginated record list at the page-size ceiling (#3816)', async () => {
+    const { GET: list } = await loadHandlers()
+    mockEm.find.mockResolvedValue([])
+    const req = new Request('http://x/api/attachments?entityId=example:todo&recordId=r1')
+    const res = await list(req)
+    expect(res.status).toBe(200)
+    const payload = await res.json()
+    expect(payload).toEqual({ items: [] })
+    expect(mockEm.count).not.toHaveBeenCalled()
+    expect(mockEm.find).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({ entityId: 'example:todo', recordId: 'r1' }),
+      expect.objectContaining({ limit: 100, orderBy: { createdAt: 'DESC', id: 'DESC' } }),
+    )
+  })
+
+  it('caps the list when only one of page and pageSize is supplied (#3816)', async () => {
+    const { GET: list } = await loadHandlers()
+    mockEm.find.mockResolvedValue([])
+    for (const query of ['page=3', 'pageSize=5']) {
+      mockEm.find.mockClear()
+      const res = await list(new Request(`http://x/api/attachments?entityId=example:todo&recordId=r1&${query}`))
+      expect(res.status).toBe(200)
+      const options = mockEm.find.mock.calls[0]?.[2] as { limit?: number } | undefined
+      expect(typeof options?.limit).toBe('number')
+      expect(options!.limit!).toBeLessThanOrEqual(100)
+    }
   })
 
   it('rejects superadmin uploads with no organization selected using a 400 with a clear message instead of a 401 (#3764)', async () => {

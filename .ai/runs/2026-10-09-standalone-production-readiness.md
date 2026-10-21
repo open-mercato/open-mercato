@@ -84,3 +84,9 @@ Publish one provider-neutral, TLS-first production-readiness checklist and make 
 
 - [x] 4.1 Run the required documentation, create-app, harness, release, and repository gates — 5b2b3e461
 - [x] 4.2 Complete review/autofix and publish sanitized evidence — 2e5cf2ea8
+
+### Phase 5: October 21 PR follow-up
+
+- [ ] 5.1 Merge current develop, preserve upstream harness cases, and reconcile production coverage as OMH-240
+- [ ] 5.2 Document the readiness scanner in the canonical production checklist
+- [ ] 5.3 Validate the merged documentation and harness surfaces, review, and publish the existing PR

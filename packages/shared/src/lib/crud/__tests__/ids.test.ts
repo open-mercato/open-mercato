@@ -1,4 +1,11 @@
-import { MAX_IDS_PER_REQUEST, mergeIdFilter, parseIdsParam, isIdsParamProvided } from '@open-mercato/shared/lib/crud/ids'
+import {
+  MAX_IDS_PER_REQUEST,
+  mergeIdFilter,
+  parseIdsParam,
+  isIdsParamProvided,
+  isUuidListParam,
+  splitIdListParam,
+} from '@open-mercato/shared/lib/crud/ids'
 
 describe('crud ids helpers', () => {
   const idA = '550e8400-e29b-41d4-a716-446655440001'
@@ -167,5 +174,31 @@ describe('crud ids helpers', () => {
     expect(mergeIdFilter({ tenantId: 't1' } as any, [], { idsParamProvided: false })).toEqual({
       tenantId: 't1',
     })
+  })
+
+  it('splitIdListParam trims entries and drops empty ones', () => {
+    expect(splitIdListParam(` ${idA} ,, ${idB} ,`)).toEqual([idA, idB])
+    expect(splitIdListParam(undefined)).toEqual([])
+    expect(splitIdListParam(['not', 'a', 'string'])).toEqual([])
+  })
+
+  it('isUuidListParam accepts absent, empty, and all-UUID lists', () => {
+    expect(isUuidListParam(undefined)).toBe(true)
+    expect(isUuidListParam('')).toBe(true)
+    expect(isUuidListParam(` ${idA}, ${idB.toUpperCase()} `)).toBe(true)
+    expect(isUuidListParam('00000000-0000-0000-0000-000000000000')).toBe(true)
+  })
+
+  it('isUuidListParam rejects malformed and mixed lists', () => {
+    expect(isUuidListParam('not-a-uuid')).toBe(false)
+    expect(isUuidListParam(`${idA},not-a-uuid`)).toBe(false)
+    expect(isUuidListParam(`${idA}0`)).toBe(false)
+    expect(isUuidListParam(`{${idA}}`)).toBe(false)
+  })
+
+  it('isUuidListParam fails closed on non-string values', () => {
+    expect(isUuidListParam(['not-a-uuid'])).toBe(false)
+    expect(isUuidListParam([idA])).toBe(false)
+    expect(isUuidListParam(null)).toBe(false)
   })
 })

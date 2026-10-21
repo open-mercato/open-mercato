@@ -764,7 +764,19 @@ async function resolveUpload(em: EntityManager, runId: string | undefined, curso
   return null
 }
 
+async function personExists(em: EntityManager, personId: string, scope: TenantScope): Promise<boolean> {
+  const matches = await em.count(CustomerEntity, {
+    id: personId,
+    kind: 'person',
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    deletedAt: null,
+  })
+  return matches > 0
+}
+
 async function resolveExistingPersonId(params: {
+  em: EntityManager
   externalIdMappingService: ExternalIdMappingService
   externalId: string | null | undefined
   email: string | null | undefined
@@ -778,7 +790,7 @@ async function resolveExistingPersonId(params: {
       params.externalId,
       params.scope,
     )
-    if (mappedLocalId) return mappedLocalId
+    if (mappedLocalId && await personExists(params.em, mappedLocalId, params.scope)) return mappedLocalId
   }
 
   if (!params.email) return null
@@ -866,6 +878,7 @@ async function processRow(params: {
     }
   }
   const existingId = await resolveExistingPersonId({
+    em: params.em,
     externalIdMappingService: params.externalIdMappingService,
     externalId,
     email: payload.values.primaryEmail,
@@ -885,6 +898,21 @@ async function processRow(params: {
     }
   }
 
+  const rememberPersonIdentity = async (personId: string): Promise<void> => {
+    if (externalId) {
+      await params.externalIdMappingService.storeExternalIdMapping(
+        'sync_excel',
+        'customers.person',
+        personId,
+        externalId,
+        params.scope,
+      )
+    }
+    if (payload.values.primaryEmail && !params.emailDedupeIndex.has(payload.values.primaryEmail)) {
+      params.emailDedupeIndex.set(payload.values.primaryEmail, personId)
+    }
+  }
+
   try {
     if (existingId) {
       const updateInput = {
@@ -897,6 +925,8 @@ async function processRow(params: {
         ctx: params.commandContext,
       })
 
+      await rememberPersonIdentity(existingId)
+
       await upsertPrimaryAddress({
         entityId: existingId,
         addressValues: payload.addressValues,
@@ -905,19 +935,6 @@ async function processRow(params: {
         commandContext: params.commandContext,
         em: params.em,
       })
-
-      if (externalId) {
-        await params.externalIdMappingService.storeExternalIdMapping(
-          'sync_excel',
-          'customers.person',
-          existingId,
-          externalId,
-          params.scope,
-        )
-      }
-      if (payload.values.primaryEmail && !params.emailDedupeIndex.has(payload.values.primaryEmail)) {
-        params.emailDedupeIndex.set(payload.values.primaryEmail, existingId)
-      }
 
       return {
         externalId: externalId ?? sourceIdentifier,
@@ -941,6 +958,8 @@ async function processRow(params: {
       ctx: params.commandContext,
     })
 
+    await rememberPersonIdentity(commandResult.result.entityId)
+
     await upsertPrimaryAddress({
       entityId: commandResult.result.entityId,
       addressValues: payload.addressValues,
@@ -949,19 +968,6 @@ async function processRow(params: {
       commandContext: params.commandContext,
       em: params.em,
     })
-
-    if (externalId) {
-      await params.externalIdMappingService.storeExternalIdMapping(
-        'sync_excel',
-        'customers.person',
-        commandResult.result.entityId,
-        externalId,
-        params.scope,
-      )
-    }
-    if (payload.values.primaryEmail && !params.emailDedupeIndex.has(payload.values.primaryEmail)) {
-      params.emailDedupeIndex.set(payload.values.primaryEmail, commandResult.result.entityId)
-    }
 
     return {
       externalId: externalId ?? sourceIdentifier,
