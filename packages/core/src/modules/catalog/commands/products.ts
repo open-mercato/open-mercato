@@ -62,6 +62,7 @@ import type {
 } from "../data/types";
 import {
   cloneJson,
+  commandScopeWhere,
   ensureOrganizationScope,
   ensureSameScope,
   ensureTenantScope,
@@ -1165,11 +1166,12 @@ async function resolveOptionSchemaTemplateForRemoval(
 async function loadProductSnapshot(
   em: EntityManager,
   id: string,
+  scopeWhere: Record<string, unknown> = {},
 ): Promise<ProductSnapshot | null> {
   const record = await findOneWithDecryption(
     em,
     CatalogProduct,
-    { id, deletedAt: null },
+    { id, deletedAt: null, ...scopeWhere },
     { populate: ["optionSchemaTemplate"] },
   );
   if (!record) return null;
@@ -1747,7 +1749,7 @@ const updateProductCommand: CommandHandler<
   async prepare(input, ctx) {
     const id = requireId(input, "Product id is required");
     const em = ctx.container.resolve("em") as EntityManager;
-    const snapshot = await loadProductSnapshot(em, id);
+    const snapshot = await loadProductSnapshot(em, id, commandScopeWhere(ctx));
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId);
       ensureOrganizationScope(ctx, snapshot.organizationId);
@@ -1782,6 +1784,7 @@ const updateProductCommand: CommandHandler<
     const record = await findOneWithDecryption(em, CatalogProduct, {
       id: parsed.id,
       deletedAt: null,
+      ...commandScopeWhere(ctx),
     });
     if (!record)
       throw new CrudHttpError(404, {
@@ -2279,7 +2282,7 @@ const deleteProductCommand: CommandHandler<
   async prepare(input, ctx) {
     const id = requireId(input, "Product id is required");
     const em = ctx.container.resolve("em") as EntityManager;
-    const snapshot = await loadProductSnapshot(em, id);
+    const snapshot = await loadProductSnapshot(em, id, commandScopeWhere(ctx));
     if (!snapshot) return {};
     ensureTenantScope(ctx, snapshot.tenantId);
     ensureOrganizationScope(ctx, snapshot.organizationId);
@@ -2295,7 +2298,7 @@ const deleteProductCommand: CommandHandler<
     const record = await findOneWithDecryption(
       em,
       CatalogProduct,
-      { id },
+      { id, ...commandScopeWhere(ctx) },
       { populate: ["optionSchemaTemplate"] },
     );
     if (!record) {
@@ -2456,17 +2459,21 @@ const deleteProductCommand: CommandHandler<
       em.persist(record);
     }
     applyProductSnapshot(em, record, before);
-    await withAtomicFlush(
-      em,
-      [
-        () => em.flush(),
-        () => restoreOffersFromSnapshot(em, record, before.offers),
-        () => syncCategoryAssignments(em, record, before.categoryIds),
-        () => syncProductTags(em, record, before.tags),
-        ...buildProductDeleteChildrenRestorePhases(em, owner, childrenPlan),
-      ],
-      { transaction: true },
-    );
+    try {
+      await withAtomicFlush(
+        em,
+        [
+          () => em.flush(),
+          () => restoreOffersFromSnapshot(em, record, before.offers),
+          () => syncCategoryAssignments(em, record, before.categoryIds),
+          () => syncProductTags(em, record, before.tags),
+          ...buildProductDeleteChildrenRestorePhases(em, owner, childrenPlan),
+        ],
+        { transaction: true },
+      );
+    } catch (error) {
+      await rethrowProductUniqueConstraint(error);
+    }
     const restoredPrices = await loadRestoredPricesForHistory(
       em,
       owner,
