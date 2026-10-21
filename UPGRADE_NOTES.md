@@ -353,6 +353,23 @@ quota. Now:
 media time out on slow links. Check the integration log for `sync_akeneo.media_rejected` warnings
 after the first sync.
 
+### Integration and bundle ids must not end in `__oauth_grant`
+
+The new OAuth2 grant core in `integrations` stores each tenant-level grant as an
+`integration_credentials` row with the id `<integrationId>__oauth_grant`, and reserves that suffix
+so grant secrets never leave the grant service:
+
+- `GET` and `PUT /api/integrations/:id/credentials` answer `404` for any id ending in
+  `__oauth_grant`, even when an integration with that id is registered.
+- `integrationCredentialsService.resolve()` and `resolveUpdatedAt()` no longer fall through to a
+  `bundleId` ending in `__oauth_grant`; they return the child's own credentials or `null`.
+
+No first-party integration or bundle id ends in the suffix, and every other id behaves as before.
+
+**Action for module authors:** rename any integration or bundle id your module registers that ends
+in `__oauth_grant`. To build a provider on OAuth2 grants, see the
+[OAuth2 grants guide](apps/docs/docs/framework/modules/integrations-oauth-grants.mdx).
+
 ### Outbound webhook delivery timeout now covers the response body (#7226)
 
 A webhook's `timeoutMs` used to stop at the response headers; it now also covers reading the receiver's response body. A receiver that sends its status and headers but does not finish the body in time is classified by its status, with the body received so far: a cut-off 2xx is recorded as `delivered` with no error message, so its `responseBody` may be incomplete. The stored `responseBody` is now at most 4096 UTF-8 bytes (previously 4096 UTF-16 code units), cut on a character boundary, and the connection is closed once 4096 bytes have been read or the timeout fires. `responseStatus` and `responseHeaders` are recorded as soon as the headers arrive, so a connection that fails mid-body keeps them. `responseStatus`, `responseHeaders` and `responseBody` are cleared when an attempt starts, so the previous attempt's response is no longer shown once a new attempt begins.
