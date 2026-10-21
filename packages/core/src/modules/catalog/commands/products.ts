@@ -291,6 +291,14 @@ const PRODUCT_DELETE_CACHE_ALIASES: readonly string[] = [
   "catalog.optionschema",
 ];
 
+// catalog.products.update can create, edit, or remove offers (the `offers` field),
+// and its undo restores the pre-update offer set — both must invalidate the offers
+// list cache alongside the product cache alias (issue #7721).
+const PRODUCT_UPDATE_CACHE_ALIASES: readonly string[] = [
+  "catalog.product",
+  "catalog.offer",
+];
+
 const productCrudEvents: CrudEventsConfig<CatalogProduct> = {
   module: "catalog",
   entity: "product",
@@ -2188,6 +2196,7 @@ const updateProductCommand: CommandHandler<
           after,
         } satisfies ProductUndoPayload,
       },
+      context: { cacheAliases: [...PRODUCT_UPDATE_CACHE_ALIASES] },
     };
   },
   undo: async ({ logEntry, ctx }) => {
