@@ -723,6 +723,79 @@ describe('Queue - local strategy', () => {
     }
   })
 
+  test('close stops dispatching the running batch and keeps its unstarted jobs queued', async () => {
+    const baseDir = path.join(tmp, 'shutdown-backlog')
+    const producer = createQueue<{ value: number }>('shutdown-backlog', 'local', { baseDir })
+    const consumer = createQueue<{ value: number }>('shutdown-backlog', 'local', { baseDir })
+    const restarted = createQueue<{ value: number }>('shutdown-backlog', 'local', { baseDir })
+    const invoked: number[] = []
+    let markStarted!: () => void
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve
+    })
+
+    try {
+      await producer.enqueue({ value: 1 })
+      await producer.enqueue({ value: 2 })
+      await producer.enqueue({ value: 3 })
+
+      const processing = consumer.process(async (job, ctx) => {
+        invoked.push(job.payload.value)
+        if (job.payload.value !== 1) return
+        markStarted()
+        await new Promise<void>((resolve) => {
+          ctx.signal?.addEventListener('abort', () => resolve(), { once: true })
+        })
+      })
+      await within(started, 800)
+      await within(consumer.close(), 1000)
+      await within(processing, 1000)
+
+      expect(invoked).toEqual([1])
+      await expect(producer.getJobCounts()).resolves.toMatchObject({ waiting: 2, completed: 1 })
+
+      const resumed: number[] = []
+      await restarted.process((job) => {
+        resumed.push(job.payload.value)
+      }, { limit: 10 })
+      expect(resumed).toEqual([2, 3])
+    } finally {
+      await consumer.close()
+      await restarted.close()
+      await producer.close()
+    }
+  })
+
+  test('a close that races the initial batch leaves no polling interval behind', async () => {
+    const baseDir = path.join(tmp, 'shutdown-startup-race')
+    const producer = createQueue<{ value: number }>('shutdown-startup-race', 'local', { baseDir })
+    const consumer = createQueue<{ value: number }>('shutdown-startup-race', 'local', { baseDir })
+    const setIntervalSpy = jest.spyOn(global, 'setInterval')
+    let markStarted!: () => void
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve
+    })
+
+    try {
+      await producer.enqueue({ value: 1 })
+      const processing = consumer.process(async (_job, ctx) => {
+        markStarted()
+        await new Promise<void>((resolve) => {
+          ctx.signal?.addEventListener('abort', () => resolve(), { once: true })
+        })
+      })
+      await within(started, 800)
+      await within(consumer.close(), 1000)
+
+      await expect(within(processing, 1000)).resolves.toEqual({ processed: -1, failed: -1, lastJobId: undefined })
+      expect(setIntervalSpy).not.toHaveBeenCalled()
+    } finally {
+      setIntervalSpy.mockRestore()
+      await consumer.close()
+      await producer.close()
+    }
+  })
+
   test('idle continuous workers do not poll at the queued-work default interval', async () => {
     jest.useFakeTimers()
     const baseDir = path.join(tmp, 'idle-default')

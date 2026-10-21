@@ -450,8 +450,8 @@ export default async function handle(job, ctx) {
 
 ### 5. Stop Long-Running Jobs on Shutdown
 
-On SIGTERM/SIGINT the worker closes its queues, and closing waits for the jobs that are still
-running. A job that takes minutes therefore holds every deploy or restart until the process is
+On SIGTERM/SIGINT the worker closes all of its queues at once, and closing waits for the jobs that
+are still running. A job that takes minutes therefore holds every deploy or restart until the process is
 killed, and is then cut off mid-run. `ctx.signal` is aborted the moment closing starts: check it
 between units of work, finish what is in flight, and return.
 
@@ -464,8 +464,9 @@ export default async function handle(job, ctx) {
 }
 ```
 
-Return normally rather than throwing: the job completes, so it is not redelivered as stalled to
-the next worker. Make sure the next run can continue where this one stopped.
+Returning normally acknowledges the whole job: it is not redelivered, as it would be when cut off
+mid-run. Persist where you stopped (or enqueue the remainder) before returning, so the next run can
+continue. Jobs that had not started when the shutdown began stay queued for the next worker.
 
 ## Built-in Workers
 

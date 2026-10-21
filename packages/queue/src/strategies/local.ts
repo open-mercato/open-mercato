@@ -491,6 +491,7 @@ export function createLocalQueue<T = unknown>(
       inFlightJobIds.add(job.id)
     }
 
+    const batchSignal = shutdownController.signal
     let processed = 0
     let failed = 0
     let lastJobId: string | undefined
@@ -500,6 +501,7 @@ export function createLocalQueue<T = unknown>(
 
     try {
       for (const job of jobsToProcess) {
+        if (batchSignal.aborted) break
         const attemptNumber = (job.attemptCount ?? 0) + 1
         try {
           await runJobInTrace(name, job.metadata, () =>
@@ -508,7 +510,7 @@ export function createLocalQueue<T = unknown>(
                 jobId: job.id,
                 attemptNumber,
                 queueName: name,
-                signal: shutdownController.signal,
+                signal: batchSignal,
               })
             )
           )
@@ -680,6 +682,7 @@ export function createLocalQueue<T = unknown>(
 
     // Start continuous polling mode (like BullMQ Worker)
     if (shutdownController.signal.aborted) shutdownController = new AbortController()
+    const runSignal = shutdownController.signal
     activeHandler = handler
 
     try {
@@ -688,6 +691,10 @@ export function createLocalQueue<T = unknown>(
     } catch (error) {
       await close()
       throw error
+    }
+
+    if (runSignal.aborted) {
+      return { processed: -1, failed: -1, lastJobId: undefined }
     }
 
     pollingTimer = setInterval(() => {

@@ -55,14 +55,16 @@ function registerShutdownHandlers(): void {
     logger.info('Received signal, shutting down gracefully', { signal })
 
     let hasError = false
-    for (const queue of managedQueues) {
-      try {
-        await queue.close()
-      } catch (error) {
-        hasError = true
-        logger.error('Error during shutdown', { err: error })
-      }
-    }
+    await Promise.all(
+      Array.from(managedQueues).map(async (queue) => {
+        try {
+          await queue.close()
+        } catch (error) {
+          hasError = true
+          logger.error('Error during shutdown', { err: error })
+        }
+      }),
+    )
 
     managedQueues.clear()
     for (const hook of managedShutdownHooks) {
