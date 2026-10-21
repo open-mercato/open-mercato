@@ -126,4 +126,54 @@ test.describe('TC-CHKT-044: Link/template save rejects providers whose required 
       await deleteCheckoutEntityIfExists(request, token, 'links', unaffectedLinkId)
     }
   })
+
+  test('template changes preserve payer requirements on a linked provider override', async ({ request }) => {
+    let token: string | null = null
+    let templateId: string | null = null
+    let linkId: string | null = null
+    try {
+      token = await getAuthToken(request)
+      const template = await postCheckout(request, token, 'templates', {
+        ...createFixedTemplateInput(),
+        customerFieldsSchema: DEFAULT_CUSTOMER_FIELDS,
+      })
+      expect(template.status).toBe(201)
+      templateId = template.body?.id ?? null
+      expect(templateId).toBeTruthy()
+      const link = await postCheckout(request, token, 'links', {
+        name: `Linked payer regression ${Date.now()}`,
+        templateId,
+      })
+      expect(link.status).toBe(201)
+      linkId = link.body?.id ?? null
+      expect(linkId).toBeTruthy()
+      expect((await updateLink(request, token, linkId!, {
+        gatewayProviderKey: PAYER_REQUIRED_PROVIDER,
+        status: 'active',
+      })).status()).toBe(200)
+
+      expect((await updateTemplate(request, token, templateId!, {
+        collectCustomerDetails: false,
+        title: 'Synced title',
+      })).status()).toBe(200)
+
+      const detail = await apiRequest(request, 'GET', `/api/checkout/links/${linkId}`, { token })
+      expect(detail.status()).toBe(200)
+      const record = await readJsonSafe<{ collectCustomerDetails: boolean; customerFieldsSchema: unknown; gatewayProviderKey: string; status: string; title: string }>(detail)
+      expect(record).toMatchObject({
+        collectCustomerDetails: true,
+        gatewayProviderKey: PAYER_REQUIRED_PROVIDER,
+        status: 'active',
+        title: 'Synced title',
+      })
+      expect(record?.customerFieldsSchema).toEqual(DEFAULT_CUSTOMER_FIELDS)
+      expect((await updateLink(request, token, linkId!, { name: 'Renamed safely' })).status()).toBe(200)
+      expect((await updateLink(request, token, linkId!, { status: 'inactive' })).status()).toBe(200)
+      const inactive = await apiRequest(request, 'GET', `/api/checkout/links/${linkId}`, { token })
+      expect(await readJsonSafe(inactive)).toMatchObject({ status: 'inactive' })
+    } finally {
+      await deleteCheckoutEntityIfExists(request, token, 'links', linkId)
+      await deleteCheckoutEntityIfExists(request, token, 'templates', templateId)
+    }
+  })
 })

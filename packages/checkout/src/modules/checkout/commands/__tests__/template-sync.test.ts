@@ -1,4 +1,9 @@
 import {
+  clearPaymentGatewayDescriptors,
+  registerPaymentGatewayDescriptor,
+} from '@open-mercato/shared/modules/payment_gateways/types'
+import { DEFAULT_CHECKOUT_CUSTOMER_FIELDS } from '../../lib/defaults'
+import {
   buildSelectiveLinkedCustomFieldUpdates,
   buildSelectiveLinkedLinkSnapshot,
   type CheckoutLinkSnapshot,
@@ -76,6 +81,57 @@ function createLinkSnapshot(overrides: Partial<CheckoutLinkSnapshot> = {}): Chec
 }
 
 describe('template link sync helpers', () => {
+  beforeEach(() => {
+    clearPaymentGatewayDescriptors()
+    registerPaymentGatewayDescriptor({ providerKey: 'payer_required', label: 'Payer required', requiresPayerFields: ['email', 'name'] })
+  })
+
+  afterEach(() => clearPaymentGatewayDescriptors())
+
+  it.each(['active', 'draft'] as const)('preserves required payer collection on a %s link while syncing unrelated fields', (status) => {
+    const before = createTemplateSnapshot({ customerFieldsSchema: DEFAULT_CHECKOUT_CUSTOMER_FIELDS })
+    const after = { ...before, collectCustomerDetails: false, title: 'Updated title' }
+    const link = createLinkSnapshot({ ...before, gatewayProviderKey: 'payer_required', status })
+
+    const result = buildSelectiveLinkedLinkSnapshot(link, before, after)
+
+    expect(result.changed).toBe(true)
+    expect(result.snapshot).toMatchObject({ collectCustomerDetails: true, gatewayProviderKey: 'payer_required', status, title: 'Updated title' })
+    expect(result.snapshot.customerFieldsSchema).toEqual(DEFAULT_CHECKOUT_CUSTOMER_FIELDS)
+  })
+
+  it.each(['optional', 'removed', 'renamed'])('preserves the schema when a required field becomes %s', (change) => {
+    const before = createTemplateSnapshot({ customerFieldsSchema: DEFAULT_CHECKOUT_CUSTOMER_FIELDS })
+    const customerFieldsSchema = DEFAULT_CHECKOUT_CUSTOMER_FIELDS.flatMap((field) => {
+      if (field.key !== 'email') return [field]
+      if (change === 'removed') return []
+      return [{ ...field, ...(change === 'optional' ? { required: false } : { key: 'otherEmail' }) }]
+    })
+    const link = createLinkSnapshot({ ...before, gatewayProviderKey: 'payer_required' })
+
+    const result = buildSelectiveLinkedLinkSnapshot(link, before, { ...before, customerFieldsSchema })
+
+    expect(result.changed).toBe(false)
+    expect(result.snapshot.customerFieldsSchema).toEqual(DEFAULT_CHECKOUT_CUSTOMER_FIELDS)
+  })
+
+  it('does not propagate a provider that requires fields the link has overridden', () => {
+    const before = createTemplateSnapshot({ customerFieldsSchema: DEFAULT_CHECKOUT_CUSTOMER_FIELDS })
+    const link = createLinkSnapshot({ ...before, collectCustomerDetails: false })
+    const result = buildSelectiveLinkedLinkSnapshot(link, before, { ...before, gatewayProviderKey: 'payer_required', gatewaySettings: { updated: true } })
+
+    expect(result.changed).toBe(false)
+    expect(result.snapshot.gatewayProviderKey).toBe('mock')
+    expect(result.snapshot.gatewaySettings).toEqual({})
+  })
+
+  it('still propagates customer settings for a provider without payer requirements', () => {
+    const before = createTemplateSnapshot()
+    const result = buildSelectiveLinkedLinkSnapshot(createLinkSnapshot(), before, { ...before, collectCustomerDetails: false })
+    expect(result.changed).toBe(true)
+    expect(result.snapshot.collectCustomerDetails).toBe(false)
+  })
+
   it('updates only fields that still match the previous template snapshot', () => {
     const before = createTemplateSnapshot({
       title: 'Old title',

@@ -304,7 +304,9 @@ const updateLinkCommand: CommandHandler<Record<string, unknown>, { ok: true; slu
     )
     const descriptorService = ctx.container.resolve('paymentGatewayDescriptorService') as PaymentGatewayDescriptorService
     await ensureGatewayProviderConfigured(nextValues.gatewayProviderKey ?? null, descriptorService, scope)
-    ensurePayerFieldsCollected(nextValues)
+    const isStatusOnlyDeactivation = parsed.status === 'inactive'
+      && Object.keys(rawInput).every((key) => key === 'id' || key === 'status')
+    if (!isStatusOnlyDeactivation) ensurePayerFieldsCollected(nextValues)
     if (isCheckoutLinkPublic(nextValues.status) && !nextValues.gatewayProviderKey) {
       throw new CrudHttpError(422, { error: 'A payment gateway must be configured before this link can be published' })
     }
