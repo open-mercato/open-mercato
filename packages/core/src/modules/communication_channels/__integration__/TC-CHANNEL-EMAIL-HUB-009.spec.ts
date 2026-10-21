@@ -9,7 +9,7 @@ import {
 } from '@open-mercato/core/helpers/integration/communicationChannelsFixtures'
 
 /**
- * TC-CHANNEL-EMAIL-HUB-007 — the profile channels table does not offer
+ * TC-CHANNEL-EMAIL-HUB-009 — the profile channels table does not offer
  * "Set as primary" on a disconnected channel.
  *
  * The row menu omits actions a channel cannot take. A disconnected channel stays
@@ -41,7 +41,7 @@ async function rowMenuItems(page: Page, displayName: string): Promise<string[]> 
   return labels
 }
 
-test.describe('TC-CHANNEL-EMAIL-HUB-007: set-primary row action follows channel status', () => {
+test.describe('TC-CHANNEL-EMAIL-HUB-009: set-primary row action follows channel status', () => {
   test('a disconnected channel row has no "Set as primary" action', async ({ page, request }) => {
     test.slow()
     const stamp = Date.now()
