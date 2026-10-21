@@ -2,7 +2,6 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { buildChanges, requireId, parseWithCustomFields, setCustomFieldsIfAny, emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { ForeignKeyConstraintViolationException } from '@mikro-orm/core'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CatalogOffer, CatalogProduct, CatalogProductPrice, CatalogProductVariant, CatalogPriceKind } from '../data/entities'
@@ -24,8 +23,6 @@ import {
   ensureSameTenant,
   ensureTenantScope,
   extractUndoPayload,
-  getErrorConstraint,
-  getErrorMessage,
   requireVariant,
   requireProduct,
   requireOffer,
@@ -108,23 +105,6 @@ const PRICE_CHANGE_KEYS = [
   'startsAt',
   'endsAt',
 ] as const satisfies readonly string[]
-
-const PRICE_VARIANT_FOREIGN_KEY = 'catalog_product_variant_prices_variant_id_foreign'
-
-async function flushPriceWrite(em: EntityManager): Promise<void> {
-  try {
-    await em.flush()
-  } catch (error) {
-    if (
-      error instanceof ForeignKeyConstraintViolationException &&
-      (getErrorConstraint(error) === PRICE_VARIANT_FOREIGN_KEY ||
-        getErrorMessage(error).includes(PRICE_VARIANT_FOREIGN_KEY))
-    ) {
-      throw new CrudHttpError(404, { error: 'Catalog variant not found' })
-    }
-    throw error
-  }
-}
 
 async function resolveSnapshotAssociations(
   em: EntityManager,
@@ -427,7 +407,7 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
       updatedAt: now,
     })
     em.persist(record)
-    await flushPriceWrite(em)
+    await em.flush()
     await setCustomFieldsIfAny({
       dataEngine: ctx.container.resolve('dataEngine'),
       entityId: E.catalog.catalog_product_price,
@@ -742,7 +722,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     if (Object.prototype.hasOwnProperty.call(parsed, 'endsAt')) {
       record.endsAt = parsed.endsAt ?? null
     }
-    await flushPriceWrite(em)
+    await em.flush()
     if (custom && Object.keys(custom).length) {
       await setCustomFieldsIfAny({
         dataEngine: ctx.container.resolve('dataEngine'),

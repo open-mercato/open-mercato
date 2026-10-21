@@ -285,7 +285,7 @@ test.describe('TC-CAT-UNDO-005 variant create undo removes the variant prices', 
     }
   })
 
-  test('a price create that loses the race against the variant removal fails as not found and leaves no price', async ({
+  test('a price create that loses the race against the variant removal is rejected and leaves no price', async ({
     request,
   }) => {
     const stamp = `${Date.now()}${Math.floor(Math.random() * 1000)}`
@@ -319,7 +319,8 @@ test.describe('TC-CAT-UNDO-005 variant create undo removes the variant prices', 
         },
       )
       const racedBody = await readJsonSafe<Item>(racedCreate)
-      expect(racedCreate.status(), `raced price create: ${JSON.stringify(racedBody)}`).toBe(404)
+      expect(racedCreate.status(), `raced price create: ${JSON.stringify(racedBody)}`).toBe(409)
+      expect(racedBody?.code, 'raced price create error code').toBe('FOREIGN_KEY_VIOLATION')
 
       const retry = await apiRequest(request, 'POST', '/api/catalog/prices', { token, data: priceInput })
       expect(retry.status(), 'retried price create').toBe(404)

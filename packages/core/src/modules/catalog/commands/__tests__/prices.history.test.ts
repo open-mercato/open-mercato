@@ -64,9 +64,6 @@ jest.mock('../shared', () => ({
   ensureSameTenant: jest.fn(),
   ensureTenantScope: jest.fn(),
   extractUndoPayload: jest.requireActual('@open-mercato/shared/lib/commands/undo').extractUndoPayload,
-  getErrorConstraint: (error: { constraint?: unknown }) =>
-    typeof error.constraint === 'string' ? error.constraint : null,
-  getErrorMessage: (error: { message?: unknown }) => (typeof error.message === 'string' ? error.message : ''),
   requireVariant: jest.fn(),
   requireProduct: jest.fn().mockResolvedValue(FAKE_PRODUCT),
   requireOffer: jest.fn(),
@@ -487,66 +484,5 @@ describe('catalog price commands record omnibus price history', () => {
     expect(invalidatedTags(harness)).toEqual(
       expect.arrayContaining([productTag(FAKE_PRODUCT.id), productTag(OTHER_PRODUCT.id)]),
     )
-  })
-})
-
-describe('catalog price writers whose variant is removed concurrently', () => {
-  const VARIANT = {
-    id: '55555555-5555-4555-8555-555555555555',
-    tenantId: TENANT_ID,
-    organizationId: ORG_ID,
-    product: FAKE_PRODUCT,
-  }
-
-  function foreignKeyViolation(constraint: string): Error {
-    const { ForeignKeyConstraintViolationException } = jest.requireActual('@mikro-orm/core')
-    const driverError = Object.assign(
-      new Error(`insert or update on table "catalog_product_variant_prices" violates foreign key constraint "${constraint}"`),
-      { constraint },
-    )
-    return new ForeignKeyConstraintViolationException(driverError)
-  }
-
-  beforeEach(() => {
-    const { requireVariant } = jest.requireMock('../shared') as { requireVariant: jest.Mock }
-    requireVariant.mockReset()
-    requireVariant.mockResolvedValue(VARIANT)
-  })
-
-  it('reports a missing variant instead of a server error when the variant disappears before the insert commits', async () => {
-    const harness = buildHarness()
-    harness.commandEm.flush.mockRejectedValueOnce(foreignKeyViolation('catalog_product_variant_prices_variant_id_foreign'))
-
-    await expect(
-      commandById('catalog.prices.create').execute(
-        { variantId: VARIANT.id, priceKindId: FAKE_PRICE_KIND.id, currencyCode: 'EUR', unitPriceNet: 100 },
-        harness.ctx,
-      ),
-    ).rejects.toMatchObject({ status: 404, body: { error: 'Catalog variant not found' } })
-    expect(harness.historyRows).toEqual([])
-  })
-
-  it('reports a missing variant when an update re-targets a variant that disappears before the write commits', async () => {
-    findOneWithDecryption.mockResolvedValue(buildPriceRecord())
-    const harness = buildHarness()
-    harness.commandEm.flush.mockRejectedValueOnce(foreignKeyViolation('catalog_product_variant_prices_variant_id_foreign'))
-
-    await expect(
-      commandById('catalog.prices.update').execute({ id: PRICE_ID, variantId: VARIANT.id }, harness.ctx),
-    ).rejects.toMatchObject({ status: 404, body: { error: 'Catalog variant not found' } })
-    expect(harness.historyRows).toEqual([])
-  })
-
-  it('rethrows foreign key violations that do not concern the variant', async () => {
-    const harness = buildHarness()
-    const failure = foreignKeyViolation('catalog_product_variant_prices_price_kind_id_foreign')
-    harness.commandEm.flush.mockRejectedValueOnce(failure)
-
-    await expect(
-      commandById('catalog.prices.create').execute(
-        { variantId: VARIANT.id, priceKindId: FAKE_PRICE_KIND.id, currencyCode: 'EUR', unitPriceNet: 100 },
-        harness.ctx,
-      ),
-    ).rejects.toBe(failure)
   })
 })
