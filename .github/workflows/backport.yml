@@ -23,7 +23,8 @@ jobs:
     if: >-
       github.event.pull_request.merged == true &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      (github.event.action == 'closed' || startsWith(github.event.label.name, 'backport '))
+      ((github.event.action == 'closed' && contains(join(github.event.pull_request.labels.*.name, '|'), 'backport ')) ||
+       (github.event.action == 'labeled' && startsWith(github.event.label.name, 'backport ')))
 
     steps:
       - name: Mint the release token

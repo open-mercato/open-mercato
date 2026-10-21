@@ -26,8 +26,10 @@ permissions:
   contents: read
   id-token: write  # required for npm provenance attestation
 
+# One release at a time across every line: each run reads npm's `latest` before publishing, so two
+# lines released together could both resolve `latest` and move it backwards.
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
 jobs:
@@ -57,6 +59,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
+          # The line's current tip, not the dispatch SHA: "Re-run jobs" replays the dispatch SHA,
+          # which predates a bump commit an earlier attempt already pushed to the line.
+          ref: ${{ github.ref_name }}
           fetch-depth: 0  # every v* tag: the next version is chosen from them
 
       - name: Setup Node.js

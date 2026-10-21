@@ -51,6 +51,24 @@ test('release bumps the line before building and builds exactly the bump commit'
   assert.doesNotMatch(source, /git push/, 'Release writes to GitHub only through scripts/release-line.mjs')
 })
 
+test('release starts from the line tip so a re-run picks up an earlier bump commit', () => {
+  const { parsed } = readWorkflow(releasePath)
+  const checkout = parsed.jobs.release.steps.find((step) => step.name === 'Checkout code')
+
+  assert.equal(
+    checkout.with.ref,
+    '${{ github.ref_name }}',
+    'Re-run jobs replays the dispatch SHA; building from it after a pushed bump commit fails the non-forced branch move',
+  )
+})
+
+test('release runs one line at a time so `latest` never moves backwards', () => {
+  const { parsed } = readWorkflow(releasePath)
+
+  assert.equal(parsed.concurrency.group, 'release', 'Two lines published together could both resolve `latest`')
+  assert.equal(parsed.concurrency['cancel-in-progress'], false)
+})
+
 test('release publishes under the dist-tag the line resolved, then tags', () => {
   const { source } = readWorkflow(releasePath)
 
@@ -123,6 +141,14 @@ test('backport never runs with secrets on a fork event and pins its action', () 
   const copied = new RegExp(parsed.jobs.backport.steps.find((step) => step.with?.copy_labels_pattern).with.copy_labels_pattern)
   assert.ok(copied.test('bug') && copied.test('priority-high') && copied.test('risk-low'))
   assert.ok(!copied.test('qa-approved'), 'QA approval vouched for main, not the line; it must not be copied')
+})
+
+test('backport runs only for PRs carrying a backport label', () => {
+  const { parsed } = readWorkflow(backportPath)
+  const condition = parsed.jobs.backport.if
+
+  assert.match(condition, /github\.event\.action == 'closed' && contains\(join\(github\.event\.pull_request\.labels\.\*\.name, '\|'\), 'backport '\)/)
+  assert.match(condition, /github\.event\.action == 'labeled' && startsWith\(github\.event\.label\.name, 'backport '\)/)
 })
 
 test('CI runs on release lines so backports never merge untested', () => {

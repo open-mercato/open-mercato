@@ -58,7 +58,7 @@ const repoRoot = process.env.OM_RELEASE_ROOT
 const TRUNK = 'main'
 const REGISTRY_PROBE = '@open-mercato/shared'
 const RELEASE_BODY_LIMIT = 125000
-const BOOKKEEPING_LABELS = ['skip-changelog', 'skip-qa', 'priority-high', 'risk-low']
+const BOOKKEEPING_LABELS = ['refactor', 'review', 'skip-changelog', 'skip-qa', 'priority-high', 'risk-low']
 
 const fail = (message) => {
   console.error(`release-line: ${message}`)
@@ -266,7 +266,7 @@ async function announce() {
       parentSha: trunkSha,
       title: `docs(changelog): add the ${version} entry`,
       body: `Carries the \`${version}\` changelog entry released from \`${releaseBranchFor(version)}\` back to ${TRUNK}.`,
-      labels: ['documentation', 'skip-changelog', 'skip-qa', 'priority-medium', 'risk-low'],
+      labels: ['documentation', 'review', 'skip-changelog', 'skip-qa', 'priority-medium', 'risk-low'],
     })
   }
   emit({ released: created, changelogPr })
