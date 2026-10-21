@@ -24,6 +24,32 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### `yarn mercato <module> <command>` exits with the code the command signalled (#5936)
+
+The CLI's module-command dispatcher discarded the executed command's exit signal: unless the command *threw*, the process exited `0`. A command that detected a failure and signalled it the idiomatic Node way — assigning `process.exitCode` without throwing — reported success to the shell, so `$?` lied to every script, CI step and `&&` chain built around the CLI. The dispatcher now wraps the command in the CLI's existing `runWithCapturedExitCode` helper and returns the captured code, which is what the built-in `umes inspect` and `umes check` commands already did.
+
+No command, flag, or output line changes — the `🚀 Running …`, `⏱️ Done in …ms` and `💥 Failed: …` lines are byte-identical, so anything parsing CLI output is unaffected, and `BACKWARD_COMPATIBILITY.md` §13 (CLI Commands) is not touched. What changes is the process **exit status** on paths that were previously reported as success.
+
+**The first-party commands whose observable exit status changes** are the ones that already set `process.exitCode` on their failure paths, each of which writes an error to stderr immediately before doing so:
+
+| command family | now exits non-zero when |
+|---|---|
+| `mercato auth setup` | `2` for an invalid `--orgSlug`, missing required arguments, a rejected password policy, or a required derived-user password; `1` for an existing org slug or an existing user |
+| `mercato gateway_stripe …` | `1` for a missing Stripe env preset, or any error while applying it |
+| `mercato sync_akeneo …` | `1` for a missing Akeneo env preset, or any error while applying it |
+| `mercato ai_assistant mcp:ensure-api-key` | `1` when required arguments are missing |
+| `mercato ai_assistant test-tools` | `1` when the tool test report contains at least one failure |
+| `mercato tillio configure-from-env` | `1` for missing `--tenantId`/`--organizationId`, a blocked provisioning result, or any error while applying the env preset |
+| `mercato seeds encrypt` / `decrypt` / `load` | `1` for missing `--in`/`--out`, or a scope that cannot be resolved for `load` |
+| `mercato agent_orchestrator eval` | `2` for missing required arguments or an invalid `--repeat`; `1` or `2` when `--gate` is set and the gate cannot run or fails |
+| `mercato agent_orchestrator token-usage` | `2` for missing `--dir`/`--agent`, an unknown agent id, a directory with no `AGENT.md`, or a manifest with no baked token usage |
+| `mercato scheduler run` | `1` when the schedule id is missing or no schedule with that id exists |
+| `mercato catalog omnibus:backfill` | `2` when the command options fail validation |
+| `mercato gateway_tpay configure-from-env` | `1` for a missing Tpay env preset, or any error while applying it |
+
+Concretely: `mercato auth setup --orgSlug 'Bad Slug!'` printed a validation error and exited `0` before; it now exits `2`.
+
+**Action for operators:** audit any bootstrap, deployment or CI script that chains CLI invocations with `&&`, checks `$?`, or uses `set -e`. A script of the shape `yarn mercato auth setup … && yarn mercato entities install …` that has been silently tolerating a swallowed failure will now stop at the first step. That is the intended behaviour — the failure was always real — but the stop is new, so plan for it rather than discovering it during an upgrade. Custom module commands are affected the same way: one that assigns `process.exitCode` without throwing now propagates it, and one that signals failure by throwing keeps working exactly as before.
 ### `customers`, `portal`, and `workflows` now declare their full runtime module dependencies (#7587)
 
 `customers`'s `setup.ts` imports `FeatureToggle` from `feature_toggles` and `./cli` seeds customer
@@ -158,6 +184,58 @@ variant media, sales channel offer media, the warranty claim attachments tab and
 line picker for AI assessment) still use the unpaginated form, so they show at most the newest 100
 attachments of a record and any count derived from them stops at 100.
 
+### A tenant-scoped reindex of a table with no `tenant_id` column is refused
+
+`reindexEntity()` applied its tenant predicate only when the source table had a
+`tenant_id` column, and silently dropped it otherwise — while still stamping every
+swept row with the caller's tenant. A tenant-scoped reindex of a tenant-less table
+therefore read every tenant's rows and filed them under whichever tenant ran it, and
+both index readers (`TokenSearchStrategy.search()`, the presenter enricher) match
+`tenant_id` exactly with no NULL branch, so those rows were served as that tenant's
+own. That combination is now refused: `reindexEntity()` returns an empty result and
+logs *"Refusing tenant-scoped reindex of a table with no tenant_id column"*. A
+`tenantId` of `null` or `undefined` is unaffected — it stamps no tenant, so it never
+crossed a boundary.
+
+**Action for module authors.** If a reindex of one of your entity types starts
+returning 0 with that warning, exactly one of two things is true:
+
+1. The table holds per-tenant rows and is missing its `tenant_id` column. Its index
+   was cross-tenant before this release. Add the column, or index the entity through
+   the event path only.
+2. The table is a platform-wide catalogue every tenant is meant to read. Declare it
+   during module registration (a module's `di.ts` is the usual place), before any
+   reindex job runs:
+
+   ```ts
+   import { registerTenantGlobalEntityTypes } from '@open-mercato/core/modules/query_index/lib/tenant-global'
+
+   registerTenantGlobalEntityTypes('billing:plan')
+   ```
+
+   Forgetting the call fails closed: the entity type keeps being refused, and the
+   warning names it. `feature_toggles:feature_toggle` is registered by the platform
+   and needs no action.
+
+**Action for operators.** Existing index rows are not touched — this stops new
+cross-tenant rows being written, it does not clean up old ones. A deployment that has
+run a tenant-scoped reindex of a tenant-less entity type should delete the
+`entity_indexes` and `search_tokens` rows for those entity types and let the event
+path refile the ones that still matter. Entity types whose table has no `tenant_id`
+column, and which are not catalogues, are the ones to check first. Delete the matching
+`entity_index_coverage` rows in the same pass: the guard returns before
+`refreshCoverageSnapshot()`, so a coverage row written by an earlier tenant-scoped run
+is never refreshed again and the indexer status page keeps reporting a stale
+base/indexed pair for that entity type.
+
+A refused sweep is now reported as one. `reindexEntity()` returns
+`refused: 'no-tenant-column' | 'column-probe-failed'`, the reindex subscriber writes it
+into `indexer_status_logs` at `level: 'warn'` with the reason, and the CLI prints
+`reindex REFUSED, nothing was indexed`. Previously a refusal was byte-identical to a
+successful zero-row sweep on all three surfaces, so a module author who forgot the
+`registerTenantGlobalEntityTypes()` call saw a green completion on the one screen built
+to answer "why is this entity type not indexed".
+
 ### Login and portal session routes reject cross-site browser requests with `403` (#7239)
 
 `POST /api/auth/login`, `POST /api/auth/session/refresh`, `POST /api/customer_accounts/login`,
@@ -254,57 +332,78 @@ the message does not resolve in scope (previously `no_channel_link` with reason
 `message not found`). Code that switches exhaustively over the result, or treated
 `no_channel_link` as "message missing", should handle `not_found` alongside it.
 
-### A tenant-scoped reindex of a table with no `tenant_id` column is refused
+### Forms: the participant PDF holds only the answers the participant's role can read (#7229)
 
-`reindexEntity()` applied its tenant predicate only when the source table had a
-`tenant_id` column, and silently dropped it otherwise — while still stamping every
-swept row with the caller's tenant. A tenant-scoped reindex of a tenant-less table
-therefore read every tenant's rows and filed them under whichever tenant ran it, and
-both index readers (`TokenSearchStrategy.search()`, the presenter enricher) match
-`tenant_id` exactly with no NULL branch, so those rows were served as that tenant's
-own. That combination is now refused: `reindexEntity()` returns an empty result and
-logs *"Refusing tenant-scoped reindex of a table with no tenant_id column"*. A
-`tenantId` of `null` or `undefined` is unaffected — it stamps no tenant, so it never
-crossed a boundary.
+`GET /api/forms/public/submissions/:id/pdf` (access token or portal session) now applies the same
+role slice as the JSON read of the submission, and every response carries
+`cache-control: private, no-store`. A participant whose role can read every field still gets the
+canonical stored snapshot; any other participant gets an uncached, role-filtered copy
+(`submission-<id>-v<n>-participant.pdf`) that is never stored or linked. The staff route
+`GET /api/forms/submissions/:id/pdf` is unchanged.
 
-**Action for module authors.** If a reindex of one of your entity types starts
-returning 0 with that warning, exactly one of two things is true:
+**Action for module authors:** code that serves `PdfSnapshotService.ensureSnapshot(...)` to a request
+principal should call `readSnapshotForViewer({ organizationId, tenantId, submissionId, viewerRole })`
+instead. `ensureSnapshot` / `readSnapshot` still return the full canonical snapshot.
+### Notification hrefs must resolve to the application origin (#7240)
 
-1. The table holds per-tenant rows and is missing its `tenant_id` column. Its index
-   was cross-tenant before this release. Add the column, or index the entity through
-   the event path only.
-2. The table is a platform-wide catalogue every tenant is meant to read. Declare it
-   during module registration (a module's `di.ts` is the usual place), before any
-   reindex job runs:
+Notification `linkHref` and action `href` values were checked only for a leading `/`, so values such as `/\evil.example` or `/<TAB>/evil.example` passed and browsers resolved them to another host. They are now parsed as URLs and must stay on the application origin.
 
-   ```ts
-   import { registerTenantGlobalEntityTypes } from '@open-mercato/core/modules/query_index/lib/tenant-global'
+- The create APIs (`POST /api/notifications`, `/api/notifications/batch`, `/api/notifications/role`, `/api/notifications/feature`) answer `400`, and `notificationService.create*` throws, for an href that contains a backslash or a control character, resolves to another origin, or has a path starting with `//`.
+- Notifications stored before the upgrade with such hrefs are served with `linkHref: null` and the action `href` omitted: in the list, the portal list, live events, the action endpoint and push data. Email action links fall back to the panel link.
+- A stored delivery-config `panelPath` with such characters is ignored and the default panel path is used; the rest of the stored delivery config is kept. Saving the settings with such a `panelPath` answers `400`.
+- `NotificationHandlerContext.navigate(href)` in client notification handlers ignores hrefs that do not pass the same check.
+- The predicate is available to other packages as `isSafeNotificationHref` from `@open-mercato/shared/modules/notifications/safeHref` (still re-exported from the notifications module's `lib/safeHref`). Custom delivery strategies receive the stored notification entity; pass `linkHref` and action hrefs through `toSafeNotificationHref` from `@open-mercato/core/modules/notifications/lib/safeHref` before sending them out.
+- Valid `/backend/...` paths need no action.
+### EUDR statement undos refuse to remove or reopen read-only statements (#7506)
 
-   registerTenantGlobalEntityTypes('billing:plan')
-   ```
+Undoing an `eudr.statements.create` through `POST /api/audit_logs/audit-logs/actions/undo` used to
+soft-delete the statement whatever had happened to it since. It now refuses in the same cases
+`eudr.statements.delete` refuses, answering `409 { "error": "<localized message>", "code": "<key>" }`
+and changing nothing:
 
-   Forgetting the call fails closed: the entity type keeps being refused, and the
-   warning names it. `feature_toggles:feature_toggle` is registered by the platform
-   and needs no action.
+- the statement is archived (`code: "eudr.errors.archivedReadOnly"`);
+- the statement is available and its amendment window has elapsed (`code: "eudr.errors.amendWindowElapsed"`);
+- the statement is available and another statement references it (`code: "eudr.errors.referencedDownstream"`).
 
-**Action for operators.** Existing index rows are not touched — this stops new
-cross-tenant rows being written, it does not clean up old ones. A deployment that has
-run a tenant-scoped reindex of a tenant-less entity type should delete the
-`entity_indexes` and `search_tokens` rows for those entity types and let the event
-path refile the ones that still matter. Entity types whose table has no `tenant_id`
-column, and which are not catalogues, are the ones to check first. Delete the matching
-`entity_index_coverage` rows in the same pass: the guard returns before
-`refreshCoverageSnapshot()`, so a coverage row written by an earlier tenant-scoped run
-is never refreshed again and the indexer status page keeps reporting a stale
-base/indexed pair for that entity type.
+Undoing an `eudr.statements.update` that would change the statement's status refuses the same way
+when the statement is currently in one of those states, so an undo can no longer move an archived
+or protected available statement back to an earlier status (and then make it removable). This
+includes undoing the update that archived the statement; archived statements stay read-only.
+Undos that leave the status unchanged, or start from a deletable state, behave as before.
 
-A refused sweep is now reported as one. `reindexEntity()` returns
-`refused: 'no-tenant-column' | 'column-probe-failed'`, the reindex subscriber writes it
-into `indexer_status_logs` at `level: 'warn'` with the reason, and the CLI prints
-`reindex REFUSED, nothing was indexed`. Previously a refusal was byte-identical to a
-successful zero-row sweep on all three surfaces, so a module author who forgot the
-`registerTenantGlobalEntityTypes()` call saw a green completion on the one screen built
-to answer "why is this entity type not indexed".
+This is a bug fix that narrows undo behaviour. There is no schema or API-shape change, and explicit
+`eudr.statements.delete` responses are unchanged.
+
+**Action for API clients:** match undo refusals on `code`, not on `error`.
+### Akeneo imports bound media and response sizes and store media through the attachment upload path
+
+The Akeneo client used to read every response body in full with no deadline once headers arrived.
+The importer then wrote media straight to disk, outside the attachment size limit and the tenant
+quota. Now:
+
+- Media go through the shared attachment upload path. A file above `OM_ATTACHMENT_MAX_UPLOAD_MB`
+  (default 25 MB) stops downloading at the limit. SVG/HTML/XML (active content) and executables are
+  rejected. All three are skipped: the product imports without the file and a `warn` integration log
+  entry with code `sync_akeneo.media_rejected` is written (linked to the product, not to a sync run).
+- Imported media reserve and count against `OM_ATTACHMENT_TENANT_QUOTA_MB` (default 512 MB). When
+  the quota is full, the product's import fails and is listed in the sync run.
+- Media are stored with the partition's configured storage driver (no longer always `local`), with a
+  sanitized file name, a sniffed MIME type and the byte size actually received. Downloads of one
+  product's media run one at a time.
+- `OM_INTEGRATION_AKENEO_REQUEST_TIMEOUT_MS` (default 30 000 ms) now covers the whole response,
+  including reading the body. That includes media downloads.
+- JSON and OAuth token responses above the new `OM_INTEGRATION_AKENEO_MAX_RESPONSE_BYTES` (default
+  32 MiB) fail the request with `AkeneoResponseTooLargeError`. Error bodies quoted in thrown
+  messages are truncated to 64 KiB.
+- Removing media that Akeneo no longer lists now goes through `attachmentService.releaseScoped()`: the
+  row is deleted before the stored bytes, and media another record still uses are kept.
+- `downloadMediaFile()` returns `contentLength` as the number of bytes received, not the remote
+  `Content-Length` header.
+
+**Action for operators:** large catalogs may hit the tenant quota on import, so raise
+`OM_ATTACHMENT_TENANT_QUOTA_MB` if needed. Raise `OM_INTEGRATION_AKENEO_REQUEST_TIMEOUT_MS` if large
+media time out on slow links. Check the integration log for `sync_akeneo.media_rejected` warnings
+after the first sync.
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
