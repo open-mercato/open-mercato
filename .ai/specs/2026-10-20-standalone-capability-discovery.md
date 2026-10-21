@@ -362,7 +362,7 @@ classDiagram
 
 ### State diagram: `agentic/capabilities.json` convention
 
-This diagram shows how the convention goes from a proposal to FROZEN.
+This diagram shows the release stages of the `agentic/capabilities.json` file format: proposed, experimental for one minor, then frozen (after that, only new optional fields).
 
 ```mermaid
 stateDiagram-v2
@@ -383,16 +383,6 @@ stateDiagram-v2
 | Frozen, add optional field | "FROZEN after release. Only new optional fields are permitted." |
 
 </details>
-
-## Kept outside STE
-
-These parts stay outside STE because they protect a decision, an identifier or a record:
-
-- The Q2 rationale cell (Resolved assumptions) keeps long sentences. They protect the ⚠ NEEDS HUMAN CONFIRMATION decision and the `build.mjs:80-90` evidence.
-- The `import` row of the entry-point resolution table keeps one long rule. It protects the exact resolution rules (`types` condition, wildcard, 3 hops, `dist` failure).
-- The seed inventory list in Phase 2 step 5 keeps the full list of 11 domains in one sentence. It protects the seed scope.
-- The Changelog lines from 2026-10-20 stay as written. They are a historical record of #7699.
-- The JSON example and the TypeScript example stay unchanged. They are code.
 
 ## Changelog
 
