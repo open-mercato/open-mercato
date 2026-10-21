@@ -48,6 +48,8 @@ import * as React from 'react'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { CrudForm, type CrudField, type CrudFormGroup } from '../CrudForm'
+import type { CustomFieldDefDto } from '../utils/customFieldDefs'
+import polishCheckout from '../../../../checkout/src/modules/checkout/i18n/pl.json'
 
 describe('CrudForm custom field loading', () => {
   const fields: CrudField[] = [{ id: 'name', label: 'Name', type: 'text' }]
@@ -78,6 +80,74 @@ describe('CrudForm custom field loading', () => {
         entitySettings: {},
       },
     })
+  })
+
+  it.each(['pl', 'en'] as const)('localizes persisted custom-field metadata in %s and preserves custom text and values', async (locale) => {
+    const entityId = 'checkout:checkout_link'
+    const definition: CustomFieldDefDto = {
+      entityId,
+      key: 'delivery_timeline',
+      kind: 'text',
+      label: 'Delivery timeline',
+      description: 'When the customer should expect the next step, call, or deliverable.',
+      fieldset: 'service_package',
+      group: { code: 'details', title: 'Before you pay', hint: 'Group hint' },
+    }
+    buildFormFieldFromCustomFieldDefMock.mockImplementation((field: CustomFieldDefDto) => ({
+      id: `cf_${field.key}`,
+      label: field.label ?? field.key,
+      description: field.description,
+      type: 'text',
+    }))
+    fetchCustomFieldFormStructureMock.mockResolvedValue({
+      fields: [],
+      definitions: [definition, { ...definition, key: 'custom_note', label: 'Our custom note', description: 'Our custom hint' }],
+      metadata: {
+        fieldsetsByEntity: {
+          [entityId]: [{
+            code: 'service_package',
+            label: 'Service package',
+            description: 'Customer-facing details for consulting, services, and appointment-style links.',
+          }],
+        },
+      },
+    })
+    const onSubmit = jest.fn()
+    const dict = locale === 'pl' ? { ...polishCheckout, 'Group hint': 'Wskazówka sekcji' } : {}
+    renderWithProviders(
+      <CrudForm
+        embedded
+        entityId={entityId}
+        fields={[]}
+        groups={[{ id: 'custom', kind: 'customFields' }]}
+        initialValues={{ cf_delivery_timeline: 'Tomorrow', cf_custom_note: 'Unchanged' }}
+        onSubmit={onSubmit}
+      />,
+      { locale, dict },
+    )
+    const label = locale === 'pl' ? 'Termin realizacji' : 'Delivery timeline'
+    await screen.findByText(label)
+    const input = screen.getByDisplayValue('Tomorrow')
+    expect(input).toHaveValue('Tomorrow')
+    expect(screen.getByRole('combobox')).toHaveTextContent(locale === 'pl' ? 'Pakiet usług' : 'Service package')
+    expect(screen.getByText(locale === 'pl'
+      ? 'Informacje dla klientów dotyczące konsultacji, usług i płatności za wizyty.'
+      : 'Customer-facing details for consulting, services, and appointment-style links.')).toBeInTheDocument()
+    expect(screen.getByText(locale === 'pl' ? 'Przed płatnością' : 'Before you pay')).toBeInTheDocument()
+    expect(screen.getByText(locale === 'pl' ? 'Wskazówka sekcji' : 'Group hint')).toBeInTheDocument()
+    expect(screen.getByText(locale === 'pl'
+      ? 'Kiedy klient może oczekiwać kolejnego kroku, rozmowy lub efektów usługi.'
+      : 'When the customer should expect the next step, call, or deliverable.')).toBeInTheDocument()
+    expect(screen.getByText('Our custom note')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('Unchanged')).toBeInTheDocument()
+    expect(screen.getByText('Our custom hint')).toBeInTheDocument()
+    fireEvent.change(input, { target: { value: 'Next week' } })
+    fireEvent.submit(input.closest('form')!)
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ cf_delivery_timeline: 'Next week', cf_custom_note: 'Unchanged' }),
+      undefined,
+    ))
+    expect(definition.label).toBe('Delivery timeline')
   })
 
   it('does not reload custom field definitions when entityIds contents stay the same across rerenders', async () => {
