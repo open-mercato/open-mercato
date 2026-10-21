@@ -303,8 +303,142 @@ Integration tests: none, because there is no HTTP surface and no UI surface. The
 | Root `AGENTS.md` (no direct coupling between modules; soft-optional resolve) | The index only refers to entry points that exist and gives the `usage` hint. It adds no runtime coupling. | Compliant |
 | `.ai/specs/AGENTS.md` (integration coverage) | No HTTP path and no UI path. Each step lists generator, build, scaffold or harness tests. | Compliant |
 
+## Graphs
+
+A subagent made these DDD graphs from the text of this spec. Each node and each edge maps to a sentence in this spec (see the trace tables). The architecture flowchart above already shows the build pipeline, so this section has no separate context map.
+
+### Domain model: capability declaration
+
+This diagram shows the capability declaration, its entry points and owner, and the DI registration fact that a `di` entry point resolves against.
+
+```mermaid
+classDiagram
+  class CapabilitiesFile {
+    <<entity>>
+    capabilities
+  }
+  class CapabilityDeclaration {
+    <<aggregate root>>
+    id
+    title
+    solves
+    entryPoints
+    usage
+    stability
+    replacedBy
+    seeAlso
+  }
+  class EntryPoint {
+    <<value object>>
+    kind
+  }
+  class Owner {
+    <<value object>>
+    kind
+    id
+    package
+  }
+  class ModuleDiRegistrationFact {
+    <<entity>>
+    token
+    registrationKind
+    providerSymbol
+    lifetime
+    injectionMode
+    source
+    summary
+  }
+  CapabilitiesFile "1" *-- "*" CapabilityDeclaration : capabilities
+  CapabilityDeclaration "1" *-- "1..4" EntryPoint : entryPoints
+  CapabilityDeclaration --> Owner : owner in emitted index
+  CapabilityDeclaration ..> CapabilityDeclaration : replacedBy
+  EntryPoint ..> ModuleDiRegistrationFact : kind di resolves token
+```
+
+<details><summary>Trace</summary>
+
+| Item | Source sentence |
+|---|---|
+| CapabilitiesFile (`agentic/capabilities.json`) with `capabilities` | "A module or a package declares the problems that it solves in `agentic/capabilities.json`", and the JSON example. |
+| CapabilityDeclaration and its attributes | The `CapabilityDeclaration` field table. `replacedBy`: "`deprecated` requires `replacedBy` (a capability id)." |
+| EntryPoint with `kind` | "`entryPoints`: 1–4 entries of the kinds in the resolution table." |
+| Owner with `kind`, `id`, `package` | "Each emitted `capabilities.json` entry also has `owner: { kind: 'module' \| 'package', id, package }`." |
+| ModuleDiRegistrationFact and its attributes | "`ModuleDiRegistrationFact` (`module-facts.ts:240`) has these fields…" and "`ModuleDiRegistrationFact` gets `summary?: string` (v2 only)." |
+| EntryPoint to ModuleDiRegistrationFact | "`di`: `token` is in the `diRegistrations` of the owning module." |
+
+</details>
+
+### Process map: reuse check in a standalone app
+
+This diagram shows the reuse check that a coding agent does at the spec gate before it scaffolds new behavior.
+
+```mermaid
+flowchart LR
+  T(["Work request"]) --> G[["Spec gate in root AGENTS.md"]]
+  A(["Coding agent"]) --> C1["Search guides/capabilities.json for the verb phrase of the task"]
+  G --> C1
+  C1 --> S1[["guides/capabilities.json"]]
+  S1 --> C2["Read the one owner file that matches"]
+  C2 --> S2[["guides/capabilities/{owner}.md"]]
+  S2 --> P1>"If a capability matches, use the entry point"]
+  P1 --> E1{{"Decision reuse-installed recorded"}}
+  S2 --> P2>"If the capability does not fit, write the reason in the plan"]
+  P2 --> E2{{"Reason recorded in plan"}}
+  S2 --> P3>"If the agent builds a parallel implementation without a reason line"]
+  P3 --> E3{{"Harness case failed"}}
+```
+
+<details><summary>Trace</summary>
+
+| Item | Source sentence |
+|---|---|
+| Work request, spec gate | "A work request gets to the spec gate in the root `AGENTS.md` (`AGENTS.md.template:94`)." |
+| Coding agent | "The consumer is a coding agent in a standalone app." |
+| Search `guides/capabilities.json` | "Before `spec-first` or `om-module-scaffold`, the agent searches `guides/capabilities.json` for the verb phrase of the task." |
+| Read the owner file | "Then it reads the one owner file that matches." |
+| Use the entry point, `reuse-installed` | "If a capability matches, the agent uses the entry point (decision `reuse-installed`)." |
+| Reason in the plan | "Alternatively, it writes in the plan why the capability does not fit." |
+| Harness case failed | "If the agent builds a parallel implementation without that line, the harness case fails." |
+
+</details>
+
+### State diagram: the `agentic/capabilities.json` convention
+
+This diagram shows how the `agentic/capabilities.json` convention goes from a proposal to an experimental surface, and then becomes FROZEN.
+
+```mermaid
+stateDiagram-v2
+  [*] --> Proposed
+  Proposed --> Experimental : release [Q2 confirmed]
+  Experimental --> Experimental : make schema stricter
+  Experimental --> Frozen : one minor ends
+  Frozen --> Frozen : add new optional field
+```
+
+<details><summary>Trace</summary>
+
+| Item | Source sentence |
+|---|---|
+| Proposed | "This spec proposes the convention and the output locations. A maintainer must approve them before implementation." |
+| Proposed to Experimental [Q2 confirmed] | "Ship it as experimental for one minor. The merge waits for confirmation of Q2." |
+| Make schema stricter | "During that minor, the team can make the schema stricter before it freezes." |
+| Experimental to Frozen | "The release notes mark the surface experimental for one minor." |
+| Add new optional field | "FROZEN after release. Only new optional fields are permitted." |
+
+</details>
+
+## Kept outside STE
+
+These parts stay outside STE because they protect a decision, an identifier or a record:
+
+- The Q2 rationale cell (Resolved assumptions) keeps long sentences. They protect the ⚠ NEEDS HUMAN CONFIRMATION decision and the `build.mjs:80-90` evidence.
+- The `import` row of the entry-point resolution table keeps one long rule. It protects the exact resolution rules (`types` condition, wildcard, 3 hops, `dist` failure).
+- The seed inventory list in Phase 2 step 5 keeps the full list of 11 domains in one sentence. It protects the seed scope.
+- The Changelog lines from 2026-10-20 stay as written. They are a historical record of #7699.
+- The JSON example and the TypeScript example stay unchanged. They are code.
+
 ## Changelog
 
 - 2026-10-20: Initial draft (autonomous run, design-only).
 - 2026-10-20: Applied fresh-context review: DI summary routed through `ownedContracts` metadata with a v2 gate; `workflow-step` replaced by `workflow`; `import` resolution defined against the specifier's package with wildcard, `types` and re-export rules; per-owner capability files for scaffold filtering; package discovery through `resolver.discoverPackages()`; shipped-only `seeAlso`; harness id-pattern widening; reference corrections.
-- 2026-10-21: Experimental STE variant made with `ste-simplify` (about 80% ASD-STE100). The content and the decisions are the same as in #7699.
+- 2026-10-21: Experimental STE variant made with `ste-simplify` (about 80% ASD-STE100). The content and the decisions are the same as in #7699. DDD graphs added.
