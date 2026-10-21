@@ -30,7 +30,9 @@
       "om-auto-fix-pr",
       "om-close-fixed-issues",
       "om-verify-in-repo",
-      "om-pr-autopilot"
+      "om-pr-autopilot",
+      "om-auto-sec-report",
+      "om-auto-sec-report-pr"
     ]
   },
   "tiers": {
@@ -67,10 +69,6 @@
         "om-auto-publish-pr",
         "om-auto-qa-scenarios"
       ]
-    },
-    "security": {
-      "description": "Security audit skills. Opt-in.",
-      "skills": ["om-auto-sec-report", "om-auto-sec-report-pr"]
     },
     "analysis": {
       "description": "Business/engagement analysis skills (app specs, platform gap analysis) and the draft accessibility review. Opt-in.",
