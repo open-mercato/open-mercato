@@ -48,8 +48,8 @@ test.describe('TC-CHANNEL-EMAIL-HUB-009: set-primary row action follows channel 
     let adminToken: string | null = null
     let liveChannel: string | null = null
     let disconnectedChannel: string | null = null
-    const liveName = `HUB-007 live ${stamp}`
-    const disconnectedName = `HUB-007 gone ${stamp}`
+    const liveName = `HUB-009 live ${stamp}`
+    const disconnectedName = `HUB-009 gone ${stamp}`
     try {
       adminToken = await getAuthToken(request, 'admin')
       const seedingAvailable = await isChannelSeedingAvailable(request, adminToken)
