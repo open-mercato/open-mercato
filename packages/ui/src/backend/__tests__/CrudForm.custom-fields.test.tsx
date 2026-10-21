@@ -49,6 +49,7 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { CrudForm, type CrudField, type CrudFormGroup } from '../CrudForm'
 import type { CustomFieldDefDto } from '../utils/customFieldDefs'
+import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import polishCheckout from '../../../../checkout/src/modules/checkout/i18n/pl.json'
 
 describe('CrudForm custom field loading', () => {
@@ -113,8 +114,9 @@ describe('CrudForm custom field loading', () => {
       },
     })
     const onSubmit = jest.fn()
-    const dict = locale === 'pl' ? { ...polishCheckout, 'Group hint': 'Wskazówka sekcji' } : {}
-    renderWithProviders(
+    const polishDictionary = { ...polishCheckout, 'Group hint': 'Wskazówka sekcji' }
+    const dict = locale === 'pl' ? polishDictionary : {}
+    const form = (
       <CrudForm
         embedded
         entityId={entityId}
@@ -122,8 +124,10 @@ describe('CrudForm custom field loading', () => {
         groups={[{ id: 'custom', kind: 'customFields' }]}
         initialValues={{ cf_delivery_timeline: 'Tomorrow', cf_custom_note: 'Unchanged' }}
         onSubmit={onSubmit}
-      />,
-      { locale, dict },
+      />
+    )
+    const { rerender } = renderWithProviders(
+      <I18nProvider locale={locale} dict={dict}>{form}</I18nProvider>,
     )
     const label = locale === 'pl' ? 'Termin realizacji' : 'Delivery timeline'
     await screen.findByText(label)
@@ -147,6 +151,16 @@ describe('CrudForm custom field loading', () => {
       expect.objectContaining({ cf_delivery_timeline: 'Next week', cf_custom_note: 'Unchanged' }),
       undefined,
     ))
+    const nextLocale = locale === 'pl' ? 'en' : 'pl'
+    rerender(
+      <I18nProvider locale={nextLocale} dict={nextLocale === 'pl' ? polishDictionary : {}}>
+        {form}
+      </I18nProvider>,
+    )
+    expect(await screen.findByText(nextLocale === 'pl' ? 'Termin realizacji' : 'Delivery timeline')).toBeInTheDocument()
+    expect(screen.getByRole('combobox')).toHaveTextContent(nextLocale === 'pl' ? 'Pakiet usług' : 'Service package')
+    expect(screen.getByDisplayValue('Next week')).toBeInTheDocument()
+    expect(fetchCustomFieldFormStructureMock).toHaveBeenCalledTimes(1)
     expect(definition.label).toBe('Delivery timeline')
   })
 
