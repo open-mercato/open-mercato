@@ -55,5 +55,5 @@ be resolved to RGBA in both modes (e.g. a `var()` reference).
 - Code Connect mappings: `packages/ui/figma/*.figma.tsx`
   (`yarn ds:code-connect:check` parses tokenless; publish is
   Organization/Enterprise-gated, manual).
-- Figma-side workflow skill: `.ai/skills/om-figma-design-with-ds/`.
+- Figma-side workflow skill: `om-figma-design-with-ds` (shared skill from open-mercato/skills; this repo's override is `.ai/skills/om-figma-design-with-ds/SKILL.md`).
 - Spec: `.ai/specs/2026-07-05-ds-tokens-figma-sync-and-code-connect.md`.
