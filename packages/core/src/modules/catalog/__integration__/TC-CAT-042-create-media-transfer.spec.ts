@@ -12,6 +12,8 @@ import { deleteCatalogProductIfExists } from '@open-mercato/core/helpers/integra
  * Verifies:
  * - media uploaded on the create form is transferred from the draft record to the created product
  * - a failed transfer no longer reports plain success: the user gets a warning naming how many files were left behind
+ * - a transfer request that never gets a response keeps the created product and warns instead of rolling it back
+ * - a transfer the server acknowledges for fewer files than requested is reported as incomplete
  *
  * Batching itself (more than 100 media items) is covered by the unit tests of
  * `transferAttachmentsInChunks` and `transferDraftMedia`.
@@ -135,5 +137,34 @@ test.describe('TC-CAT-042: product create transfers uploaded media', () => {
 
     await expect(page.getByText('Product created, but 2 of 2 media files could not be attached.')).toBeVisible();
     expect(await listProductAttachmentIds(request, token!, productId)).toEqual([]);
+  });
+
+  test('keeps the product and warns when the transfer request fails in transit', async ({ page, request }) => {
+    await openCreateForm(page, `QA Media Transfer Network ${uniqueStamp()}`);
+    const uploaded = await uploadMedia(page, 2);
+    attachmentIds.push(...uploaded);
+    await page.route('**/api/attachments/transfer', (route) => route.abort('failed'));
+
+    const productId = await submitAndReadProductId(page);
+    productIds.push(productId);
+
+    await expect(page.getByText('Product created, but 2 of 2 media files could not be attached.')).toBeVisible();
+    const product = await apiRequest(request, 'GET', `/api/catalog/products?id=${encodeURIComponent(productId)}`, { token: token! });
+    expect(product.status(), 'created product should still be readable').toBe(200);
+    expect(((await readJsonSafe<{ items?: AttachmentRow[] }>(product))?.items ?? []).map((item) => item.id)).toEqual([productId]);
+  });
+
+  test('warns when the server acknowledges fewer media files than requested', async ({ page }) => {
+    await openCreateForm(page, `QA Media Transfer Short ${uniqueStamp()}`);
+    const uploaded = await uploadMedia(page, 2);
+    attachmentIds.push(...uploaded);
+    await page.route('**/api/attachments/transfer', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, updated: 1 }) }),
+    );
+
+    const productId = await submitAndReadProductId(page);
+    productIds.push(productId);
+
+    await expect(page.getByText('Product created, but 1 of 2 media files could not be attached.')).toBeVisible();
   });
 });

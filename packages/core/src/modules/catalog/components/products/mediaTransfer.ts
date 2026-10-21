@@ -32,5 +32,9 @@ export async function transferDraftMedia({
     fromRecordId: draftId,
     toRecordId: recordId,
   })
-  return { requestedCount: attachmentIds.length, failedCount: result.failedIds.length, errors: result.errors }
+  return {
+    requestedCount: attachmentIds.length,
+    failedCount: result.failedIds.length + result.unconfirmedCount,
+    errors: result.errors,
+  }
 }

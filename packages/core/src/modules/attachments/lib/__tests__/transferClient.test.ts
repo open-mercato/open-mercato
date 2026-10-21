@@ -52,7 +52,7 @@ describe('transferAttachmentsInChunks', () => {
     expect(sentIds(0)).toEqual(ids.slice(0, 100))
     expect(sentIds(1)).toEqual(ids.slice(100))
     expect(apiCallMock.mock.calls[0]?.[0]).toBe('/api/attachments/transfer')
-    expect(result).toEqual({ transferredCount: 101, failedIds: [], errors: [] })
+    expect(result).toEqual({ transferredCount: 101, failedIds: [], unconfirmedCount: 0, errors: [] })
   })
 
   it('reports the ids of a failed chunk and still transfers the remaining chunks', async () => {
@@ -70,6 +70,67 @@ describe('transferAttachmentsInChunks', () => {
     expect(result.transferredCount).toBe(1)
     expect(result.failedIds).toEqual(ids.slice(0, 100))
     expect(result.errors).toEqual(['Invalid payload'])
+  })
+
+  it('keeps transferring after a chunk request rejects with a network error', async () => {
+    apiCallMock
+      .mockResolvedValueOnce(okResponse(100))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(okResponse(1))
+    const ids = buildIds(201)
+
+    const result = await transferAttachmentsInChunks({
+      entityId: 'catalog:catalog_product',
+      attachmentIds: ids,
+      fromRecordId: 'draft-1',
+      toRecordId: 'product-1',
+    })
+
+    expect(apiCallMock).toHaveBeenCalledTimes(3)
+    expect(sentIds(2)).toEqual(ids.slice(200))
+    expect(result).toEqual({
+      transferredCount: 101,
+      failedIds: ids.slice(100, 200),
+      unconfirmedCount: 0,
+      errors: ['Failed to fetch'],
+    })
+  })
+
+  it.each([
+    ['an expired session', Object.assign(new Error('Unauthorized'), { name: 'UnauthorizedError' })],
+    ['a cancelled request', Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' })],
+  ])('stops sending chunks after %s and reports the remaining ids without throwing', async (_label, error) => {
+    apiCallMock.mockResolvedValueOnce(okResponse(100)).mockRejectedValueOnce(error)
+    const ids = buildIds(201)
+
+    const result = await transferAttachmentsInChunks({
+      entityId: 'catalog:catalog_product',
+      attachmentIds: ids,
+      fromRecordId: 'draft-1',
+      toRecordId: 'product-1',
+    })
+
+    expect(apiCallMock).toHaveBeenCalledTimes(2)
+    expect(result.transferredCount).toBe(100)
+    expect(result.failedIds).toEqual(ids.slice(100))
+    expect(result.errors).toEqual([error.message])
+  })
+
+  it('counts ids the server did not acknowledge as unconfirmed', async () => {
+    apiCallMock
+      .mockResolvedValueOnce(okResponse(99))
+      .mockResolvedValueOnce(okResponse(100))
+      .mockResolvedValueOnce({ ok: true, status: 200, result: null, response: {} as Response, cacheStatus: null } as never)
+    const ids = buildIds(201)
+
+    const result = await transferAttachmentsInChunks({
+      entityId: 'catalog:catalog_product',
+      attachmentIds: ids,
+      fromRecordId: 'draft-1',
+      toRecordId: 'product-1',
+    })
+
+    expect(result).toEqual({ transferredCount: 199, failedIds: [], unconfirmedCount: 2, errors: [] })
   })
 
   it('omits fromRecordId when it is not provided', async () => {

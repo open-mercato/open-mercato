@@ -64,6 +64,36 @@ describe('transferDraftMedia', () => {
     expect(result).toEqual({ requestedCount: 101, failedCount: 1, errors: ['Failed to transfer attachments'] })
   })
 
+  it('resolves with the media left on the draft when a later batch request rejects', async () => {
+    apiCallMock
+      .mockResolvedValueOnce(response(true, { ok: true, updated: 100 }))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+    const result = await transferDraftMedia({
+      entityId: 'catalog:catalog_product',
+      draftId: 'draft-1',
+      recordId: 'product-1',
+      mediaItems: buildMediaItems(101),
+    })
+
+    expect(result).toEqual({ requestedCount: 101, failedCount: 1, errors: ['Failed to fetch'] })
+  })
+
+  it('reports media the server did not move as failed when a batch is acknowledged short', async () => {
+    apiCallMock
+      .mockResolvedValueOnce(response(true, { ok: true, updated: 99 }))
+      .mockResolvedValueOnce(response(true, { ok: true, updated: 1 }))
+
+    const result = await transferDraftMedia({
+      entityId: 'catalog:catalog_product_variant',
+      draftId: 'draft-1',
+      recordId: 'variant-1',
+      mediaItems: buildMediaItems(101),
+    })
+
+    expect(result).toEqual({ requestedCount: 101, failedCount: 1, errors: [] })
+  })
+
   it('skips the request when there is no draft or no media', async () => {
     await expect(
       transferDraftMedia({ entityId: 'catalog:catalog_product', draftId: null, recordId: 'product-1', mediaItems: buildMediaItems(2) }),
