@@ -370,7 +370,7 @@ No first-party integration or bundle id ends in the suffix, and every other id b
 in `__oauth_grant`. To build a provider on OAuth2 grants, see the
 [OAuth2 grants guide](apps/docs/docs/framework/modules/integrations-oauth-grants.mdx).
 
-### Scheduler undo and redo respect the active-schedule cap and keep the run state (#ISSUE)
+### Scheduler undo and redo respect the active-schedule cap, the cap is atomic, and update undo keeps the run state (#7760, #4781)
 
 Undoing a `scheduler.jobs.update` that disabled a schedule, undoing a `scheduler.jobs.delete` of an
 enabled schedule, and redoing an undone enabled `scheduler.jobs.create` all make a schedule active
@@ -380,20 +380,22 @@ that creating or enabling a schedule already applied. At the cap,
 `422 { error: "Active scheduled job limit reached for this tenant (<max>)." }` (translated) and the
 schedule is left unchanged. Before this release they answered `200` and the tenant went over its cap.
 
+Every write that makes a schedule active (create, enable, the restores above, and
+`SchedulerService.register` / `update` / `enable`) now counts and writes inside one transaction that
+holds a per-tenant advisory lock. Concurrent activations that compete for the last free slot get one
+`201`/`200` and `422` for the rest; before, several could pass and the tenant went over its cap.
+
 Undoing a `scheduler.jobs.update` no longer copies `lastRunAt` and `nextRunAt` back from the snapshot.
 `lastRunAt` keeps the last recorded run. `nextRunAt` is kept when the undo leaves the schedule type,
 value and timezone unchanged, and is recomputed from the restored values otherwise. Before, a job
 that ran between the update and the undo got a past `nextRunAt` back and the local scheduler ran it
 again straight away.
 
-**Action for integrators:** none. A script that undoes or redoes schedule changes for a tenant at its
-cap must free a slot first (disable or delete another schedule).
-
-**Backward compatibility** (recorded here because `BACKWARD_COMPATIBILITY.md` is at its agent-context
-byte budget): intentional narrowing of the undo/redo handlers of the `scheduler.jobs.*` commands, to
-the limit their `execute` handlers already enforce, regression-tested in
-`jobs.undo-active-limit.test.ts`, `jobs.undo.test.ts` and `TC-SCHED-010`. Command IDs, route URLs,
-request and response schemas, event IDs, ACL features, DI names and database schema are unchanged.
+**Action for integrators:** a script that undoes or redoes schedule changes for a tenant at its cap
+must free a slot first (disable or delete another schedule); retrying without one returns the same
+`422`. No other change is needed. Command IDs, route URLs, request and response schemas, event IDs,
+ACL features, DI names and database schema are unchanged. Compatibility analysis and migration:
+[`.ai/specs/2026-10-22-scheduler-active-cap-undo-redo.md`](.ai/specs/2026-10-22-scheduler-active-cap-undo-redo.md).
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
 

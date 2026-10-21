@@ -31,6 +31,9 @@ import {
  * answers 422, so the spec does not depend on the configured limit or on the
  * schedules already present in the tenant.
  *
+ * Concurrent undos and creates that compete for the last free slot are decided
+ * one at a time, so exactly one of them wins and the tenant never goes over.
+ *
  * Endpoints covered:
  *   - POST   /api/scheduler/jobs
  *   - PUT    /api/scheduler/jobs
@@ -44,6 +47,7 @@ import {
  */
 
 const MAX_FILLERS = 250
+const RACE_CONTENDERS = 3
 
 type ErrorBody = { error?: string }
 
@@ -94,6 +98,12 @@ async function fillToCap(request: APIRequestContext, token: string, fillers: str
   throw new Error(`[internal] Active-schedule cap not reached after ${MAX_FILLERS} creates`)
 }
 
+async function freeOneSlot(request: APIRequestContext, token: string, fillers: string[]): Promise<void> {
+  const freedSlotId = fillers.pop() ?? null
+  const response = await apiRequest(request, 'DELETE', SCHEDULER_JOBS_PATH, { token, data: { id: freedSlotId } })
+  expect(response.status(), 'freeing one slot returns 200').toBe(200)
+}
+
 async function expectCapRefusal(response: APIResponse, capMessage: string, context: string): Promise<void> {
   const body = await readJsonSafe<ErrorBody>(response)
   expect(response.status(), `${context} is refused with 422 (body: ${JSON.stringify(body)})`).toBe(422)
@@ -132,9 +142,7 @@ test.describe('TC-SCHED-010: undo/redo respect the tenant active-schedule cap', 
       await expectCapRefusal(await undoByToken(request, token, disableOperation.undoToken), capMessage, 'update undo at the cap')
       expect((await getScheduleJobById(request, token, jobId))?.isEnabled, 'schedule stays disabled').toBe(false)
 
-      const freedSlotId = fillers.pop() ?? null
-      const freeSlotResponse = await apiRequest(request, 'DELETE', SCHEDULER_JOBS_PATH, { token, data: { id: freedSlotId } })
-      expect(freeSlotResponse.status(), 'freeing one slot returns 200').toBe(200)
+      await freeOneSlot(request, token, fillers)
       await undoOk(request, token, disableOperation.undoToken, 'update undo below the cap')
       expect((await getScheduleJobById(request, token, jobId))?.isEnabled, 'schedule re-enabled below the cap').toBe(true)
     } finally {
@@ -203,6 +211,60 @@ test.describe('TC-SCHED-010: undo/redo respect the tenant active-schedule cap', 
       expect(await getScheduleJobById(request, token, jobId), 'schedule stays deleted').toBeNull()
     } finally {
       await cleanup(request, token, [jobId, ...fillers])
+    }
+  })
+
+  test('concurrent restores and creates competing for the last free slot have a single winner', async ({ request }) => {
+    test.setTimeout(300_000)
+    let token: string | null = null
+    const contenderIds: string[] = []
+    const fillers: string[] = []
+    try {
+      token = await getAuthToken(request, 'admin')
+      const authToken = token
+      const undoTokens: string[] = []
+      for (let index = 0; index < RACE_CONTENDERS; index += 1) {
+        const { id } = await createFixture(request, authToken)
+        contenderIds.push(id)
+        await settleAuditClock()
+        const disableResponse = await apiRequest(request, 'PUT', SCHEDULER_JOBS_PATH, {
+          token: authToken,
+          data: { id, isEnabled: false },
+        })
+        expect(disableResponse.status(), 'contender disable returns 200').toBe(200)
+        undoTokens.push(expectOperation(disableResponse, 'contender disable').undoToken)
+      }
+
+      const capMessage = await fillToCap(request, authToken, fillers)
+      await freeOneSlot(request, authToken, fillers)
+
+      const undoResponses = await Promise.all(undoTokens.map((undoToken) => undoByToken(request, authToken, undoToken)))
+      const undoStatuses = undoResponses.map((response) => response.status())
+      expect(undoStatuses.filter((status) => status === 200), `one concurrent undo wins (statuses: ${undoStatuses})`).toHaveLength(1)
+      for (const response of undoResponses.filter((candidate) => candidate.status() !== 200)) {
+        await expectCapRefusal(response, capMessage, 'concurrent losing undo')
+      }
+      const contenders = await Promise.all(contenderIds.map((id) => getScheduleJobById(request, authToken, id)))
+      expect(contenders.filter((job) => job?.isEnabled).length, 'exactly one contender re-enabled').toBe(1)
+
+      await freeOneSlot(request, authToken, fillers)
+      const createResponses = await Promise.all(
+        Array.from({ length: RACE_CONTENDERS }, () => apiRequest(request, 'POST', SCHEDULER_JOBS_PATH, {
+          token: authToken,
+          data: fixturePayload(uniqueScheduleName('TC-SCHED-010 race')),
+        })),
+      )
+      for (const response of createResponses) {
+        const body = await readJsonSafe<{ id?: string }>(response)
+        if (response.status() === 201 && body?.id) fillers.push(body.id)
+      }
+      const createStatuses = createResponses.map((response) => response.status())
+      expect(createStatuses.filter((status) => status === 201), `one concurrent create wins (statuses: ${createStatuses})`).toHaveLength(1)
+      for (const response of createResponses.filter((candidate) => candidate.status() !== 201)) {
+        await expectCapRefusal(response, capMessage, 'concurrent losing create')
+      }
+    } finally {
+      await cleanup(request, token, [...contenderIds, ...fillers])
     }
   })
 

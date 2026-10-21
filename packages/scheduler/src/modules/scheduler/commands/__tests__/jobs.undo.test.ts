@@ -40,6 +40,12 @@ function makeEm(schedule: Record<string, unknown> | null) {
     persist: jest.fn(),
     remove: jest.fn().mockReturnValue({ flush: removeFlush }),
     flush: jest.fn().mockResolvedValue(undefined),
+    isInTransaction: jest.fn().mockReturnValue(false),
+    begin: jest.fn().mockResolvedValue(undefined),
+    commit: jest.fn().mockResolvedValue(undefined),
+    rollback: jest.fn().mockResolvedValue(undefined),
+    getTransactionContext: jest.fn().mockReturnValue(undefined),
+    getConnection: jest.fn().mockReturnValue({ execute: jest.fn().mockResolvedValue([]) }),
     count: jest.fn().mockResolvedValue(0),
     create: jest.fn((_entity: unknown, data: Record<string, unknown>) => {
       created.push(data)
