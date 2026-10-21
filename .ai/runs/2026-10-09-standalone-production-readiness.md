@@ -87,6 +87,14 @@ Publish one provider-neutral, TLS-first production-readiness checklist and make 
 
 ### Phase 5: October 21 PR follow-up
 
-- [ ] 5.1 Merge current develop, preserve upstream harness cases, and reconcile production coverage as OMH-240
-- [ ] 5.2 Document the readiness scanner in the canonical production checklist
+- [x] 5.1 Merge current develop, preserve upstream harness cases, and reconcile production coverage as OMH-240 — 71c9fa4b8
+- [x] 5.2 Document the readiness scanner in the canonical production checklist — 10290f032
 - [ ] 5.3 Validate the merged documentation and harness surfaces, review, and publish the existing PR
+
+## October 21 follow-up evidence
+
+- Merged `origin/develop` at `e9bdaac5f` as `71c9fa4b8`, preserving upstream OMH-238 (Customers calendar) and OMH-239 (module tooling) and moving production readiness to OMH-240. Existing historical evidence above refers to the original OMH-238 identity and the then-current 238-case catalog.
+- Added the scanner repository link to the canonical production-readiness page in `10290f032`, accurately distinguishing read-only local review from deployed-environment checks. No scanner package installation is suggested.
+- Runner: local. Immutable dependency installation completed with warnings (optional `better-sqlite3` native build failed); focused production/catalog/schema/count checks pass 15/15, source-link inventory regeneration/check passes, and agent-instruction budgets pass.
+- Package build, generation, second package build, and i18n synchronization pass. Documentation build/tests passed 23/23; a final build with the committed scanner section is running. Create-app suite and remaining configured gates are running.
+- Publication requires operator approval under the cockpit Guard before pushing to `feat/standalone-production-readiness`; local commits and review are prepared first.
