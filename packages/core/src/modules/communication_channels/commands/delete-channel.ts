@@ -5,7 +5,12 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { extractUndoPayload as extractSharedUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CommunicationChannel } from '../data/entities'
-import { assertChannelRestorable } from '../lib/channel-restore'
+import {
+  captureChannelRestoreRecord,
+  parseChannelRestoreRecord,
+  restoreDeletedChannel,
+  type ChannelRestoreRecord,
+} from '../lib/channel-restore'
 import { pushUnregister } from './push-unregister'
 import { emitCommunicationChannelsEvent } from '../events'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -28,7 +33,7 @@ export type DeleteChannelResult =
   | { status: 'noop'; reason: string }
   | { status: 'not_owner'; reason: string }
 
-export interface DeleteChannelUndoSnapshot {
+export interface DeleteChannelUndoSnapshot extends ChannelRestoreRecord {
   channelId: string
   // Optional only for back-compat with any pre-existing log entries; new
   // snapshots always set it so the undo lookup stays tenant-scoped.
@@ -109,6 +114,7 @@ const deleteChannelCommand: CommandHandler<DeleteChannelInput, DeleteChannelResu
       }
     }
 
+    const restoreRecord = await captureChannelRestoreRecord(em, channel)
     channel.deletedAt = new Date()
     channel.isPrimary = false
     await em.flush()
@@ -133,7 +139,7 @@ const deleteChannelCommand: CommandHandler<DeleteChannelInput, DeleteChannelResu
     return {
       status: 'deleted',
       channelId: channel.id,
-      undo: { channelId: channel.id, tenantId: channel.tenantId },
+      undo: { channelId: channel.id, tenantId: channel.tenantId, ...restoreRecord },
     }
   },
   // Persist the undo snapshot into the action log. Without this, the command bus
@@ -153,19 +159,7 @@ const deleteChannelCommand: CommandHandler<DeleteChannelInput, DeleteChannelResu
     const snapshot = extractSnapshotFromLog(logEntry)
     if (!snapshot || !snapshot.tenantId) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    // Re-find WITHOUT the `deletedAt: null` filter — the row we are restoring is
-    // soft-deleted. Tenant-scoped to avoid cross-tenant resolution by bare id.
-    const channel = await findOneWithDecryption(
-      em,
-      CommunicationChannel,
-      { id: snapshot.channelId, tenantId: snapshot.tenantId },
-      undefined,
-      { tenantId: snapshot.tenantId, organizationId: null },
-    )
-    if (!channel) return
-    await assertChannelRestorable(em, channel)
-    channel.deletedAt = null
-    await em.flush()
+    await restoreDeletedChannel(em, { ...snapshot, tenantId: snapshot.tenantId })
   },
 }
 
@@ -182,6 +176,7 @@ export function extractUndoPayload(value: unknown): DeleteChannelUndoSnapshot | 
   return {
     channelId: obj.channelId,
     tenantId: typeof obj.tenantId === 'string' ? obj.tenantId : undefined,
+    ...parseChannelRestoreRecord(obj),
   }
 }
 

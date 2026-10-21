@@ -1,7 +1,12 @@
+jest.mock('@open-mercato/shared/lib/db/advisoryLock', () => ({
+  withAdvisoryXactLock: jest.fn((em: unknown, _key: string, fn: (txEm: unknown) => Promise<unknown>) => fn(em)),
+}))
+
 import deleteChannelCommand, {
   COMMUNICATION_CHANNELS_DELETE_CHANNEL_COMMAND_ID,
   extractUndoPayload,
 } from '../delete-channel'
+import { withAdvisoryXactLock } from '@open-mercato/shared/lib/db/advisoryLock'
 
 // Push teardown is a best-effort side effect gated on organizationId; stub it so
 // these tests stay focused on the soft-delete + undo behavior.
@@ -47,9 +52,10 @@ describe('deleteChannelCommand input validation', () => {
 })
 
 describe('deleteChannelCommand behaviour', () => {
-  function makeCtxWithChannel(channel: Record<string, unknown> | null) {
+  function makeCtxWithChannel(channel: Record<string, unknown> | null, siblings: Array<Record<string, unknown>> = []) {
     const em = {
       findOne: jest.fn(async () => channel),
+      find: jest.fn(async () => siblings),
       flush: jest.fn(async () => undefined),
     }
     return {
@@ -91,11 +97,56 @@ describe('deleteChannelCommand behaviour', () => {
     expect(result).toMatchObject({
       status: 'deleted',
       channelId: channel.id,
-      undo: { channelId: channel.id, tenantId: validInput.scope.tenantId },
+      undo: { channelId: channel.id, tenantId: validInput.scope.tenantId, unidentifiedSiblingIds: [] },
     })
     expect(em.flush).toHaveBeenCalledTimes(1)
     expect(channel.deletedAt).toBeInstanceOf(Date)
     expect(channel.isPrimary).toBe(false)
+  })
+
+  it('records the live identifier-less rows of the provider in the undo snapshot', async () => {
+    const sibling = '55555555-5555-4555-8555-555555555555'
+    const channel = {
+      id: validInput.channelId,
+      userId: validInput.userId,
+      tenantId: validInput.scope.tenantId,
+      providerKey: 'discord',
+      channelType: 'chat',
+      externalIdentifier: null,
+      isPrimary: false,
+      deletedAt: null as Date | null,
+    }
+    const { ctx, em } = makeCtxWithChannel(channel, [{ id: sibling }])
+    const result = await deleteChannelCommand.execute(validInput, ctx)
+    expect(result).toMatchObject({ status: 'deleted', undo: { unidentifiedSiblingIds: [sibling] } })
+    expect(em.find).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        tenantId: validInput.scope.tenantId,
+        userId: validInput.userId,
+        providerKey: 'discord',
+        externalIdentifier: null,
+        deletedAt: null,
+        id: { $ne: validInput.channelId },
+      }),
+      undefined,
+    )
+  })
+
+  it('records no siblings for a channel that carries an identifier', async () => {
+    const channel = {
+      id: validInput.channelId,
+      userId: validInput.userId,
+      tenantId: validInput.scope.tenantId,
+      providerKey: 'gmail',
+      externalIdentifier: 'owner@example.com',
+      isPrimary: false,
+      deletedAt: null as Date | null,
+    }
+    const { ctx, em } = makeCtxWithChannel(channel, [{ id: 'unused' }])
+    const result = await deleteChannelCommand.execute(validInput, ctx)
+    expect(result).toMatchObject({ status: 'deleted', undo: { unidentifiedSiblingIds: [] } })
+    expect(em.find).not.toHaveBeenCalled()
   })
 
   it('skips push teardown when organizationId is null', async () => {
@@ -199,7 +250,11 @@ describe('deleteChannelCommand undo against a newer connection', () => {
     return { ...deletedChannel(), id: OTHER_ID, createdAt: new Date('2026-02-02T00:00:00Z'), deletedAt: null, ...overrides }
   }
 
-  async function runUndo(channel: Record<string, unknown>, active: Array<Record<string, unknown>>) {
+  async function runUndo(
+    channel: Record<string, unknown>,
+    active: Array<Record<string, unknown>>,
+    record: { unidentifiedSiblingIds?: string[] } = {},
+  ) {
     const em = {
       findOne: jest.fn(async () => channel),
       find: jest.fn(async () => active),
@@ -213,7 +268,7 @@ describe('deleteChannelCommand undo against a newer connection', () => {
         input: { channelId: validInput.channelId } as never,
         ctx,
         logEntry: {
-          commandPayload: { undo: { channelId: validInput.channelId, tenantId: validInput.scope.tenantId } },
+          commandPayload: { undo: { channelId: validInput.channelId, tenantId: validInput.scope.tenantId, ...record } },
         } as never,
       })
       .then(
@@ -263,6 +318,60 @@ describe('deleteChannelCommand undo against a newer connection', () => {
     const { outcome } = await runUndo(channel, [activeChannel()])
     expect(outcome).toMatchObject({ status: 409 })
     expect(channel.deletedAt).toBeInstanceOf(Date)
+  })
+
+  it('refuses to restore once connect adopted an older identifier-less row of the provider', async () => {
+    const channel = deletedChannel()
+    const { em, outcome } = await runUndo(
+      channel,
+      [activeChannel({ createdAt: new Date('2026-01-15T00:00:00Z'), externalIdentifier: 'bot-1234' })],
+      { unidentifiedSiblingIds: [OTHER_ID] },
+    )
+    expect(outcome).toMatchObject({ status: 409 })
+    expect(channel.deletedAt).toBeInstanceOf(Date)
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('restores next to an older row that already carried an identifier at delete time', async () => {
+    const channel = deletedChannel()
+    const { outcome } = await runUndo(
+      channel,
+      [activeChannel({ createdAt: new Date('2026-01-15T00:00:00Z'), externalIdentifier: 'bot-1234' })],
+      { unidentifiedSiblingIds: [] },
+    )
+    expect(outcome).toBeNull()
+    expect(channel.deletedAt).toBeNull()
+  })
+
+  it('treats an older identified row as adopted when the undo entry predates the delete-time record', async () => {
+    const channel = deletedChannel()
+    const { outcome } = await runUndo(channel, [
+      activeChannel({ createdAt: new Date('2026-01-15T00:00:00Z'), externalIdentifier: 'bot-1234' }),
+    ])
+    expect(outcome).toMatchObject({ status: 409 })
+    expect(channel.deletedAt).toBeInstanceOf(Date)
+  })
+
+  it('checks and restores under the connection lock of the channel owner', async () => {
+    const lock = withAdvisoryXactLock as jest.Mock
+    lock.mockClear()
+    const channel = deletedChannel()
+    await runUndo(channel, [])
+    expect(lock).toHaveBeenCalledTimes(1)
+    expect(lock).toHaveBeenCalledWith(
+      expect.anything(),
+      `communication_channels:connection:${validInput.scope.tenantId}:${validInput.userId}`,
+      expect.any(Function),
+    )
+    expect(channel.deletedAt).toBeNull()
+  })
+
+  it('leaves a channel that is no longer deleted untouched', async () => {
+    const channel = deletedChannel({ deletedAt: null })
+    const { em, outcome } = await runUndo(channel, [activeChannel()])
+    expect(outcome).toBeNull()
+    expect(em.find).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
   })
 
   it('restores an identifier-less channel next to the same provider in another organization', async () => {
@@ -336,5 +445,17 @@ describe('extractUndoPayload', () => {
     expect(
       extractUndoPayload({ status: 'deleted', channelId: 'unused', undo: { channelId: 'ch-7', tenantId: 't-1' } }),
     ).toEqual({ channelId: 'ch-7', tenantId: 't-1' })
+  })
+
+  it('reads the delete-time sibling record and drops a malformed one', () => {
+    expect(extractUndoPayload({ channelId: 'ch-7', tenantId: 't-1', unidentifiedSiblingIds: ['ch-8'] })).toEqual({
+      channelId: 'ch-7',
+      tenantId: 't-1',
+      unidentifiedSiblingIds: ['ch-8'],
+    })
+    expect(extractUndoPayload({ channelId: 'ch-7', tenantId: 't-1', unidentifiedSiblingIds: [42] })).toEqual({
+      channelId: 'ch-7',
+      tenantId: 't-1',
+    })
   })
 })

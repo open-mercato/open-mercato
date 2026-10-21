@@ -1,3 +1,7 @@
+jest.mock('@open-mercato/shared/lib/db/advisoryLock', () => ({
+  withAdvisoryXactLock: jest.fn((em: unknown, _key: string, fn: (txEm: unknown) => Promise<unknown>) => fn(em)),
+}))
+
 import adminDeleteChannelCommand, {
   COMMUNICATION_CHANNELS_ADMIN_DELETE_CHANNEL_COMMAND_ID,
   extractUndoPayload,
@@ -47,9 +51,10 @@ describe('adminDeleteChannelCommand input validation', () => {
 })
 
 describe('adminDeleteChannelCommand behaviour', () => {
-  function makeCtxWithChannel(channel: Record<string, unknown> | null) {
+  function makeCtxWithChannel(channel: Record<string, unknown> | null, siblings: Array<Record<string, unknown>> = []) {
     const em = {
       findOne: jest.fn(async () => channel),
+      find: jest.fn(async () => siblings),
       flush: jest.fn(async () => undefined),
     }
     return {
@@ -86,6 +91,30 @@ describe('adminDeleteChannelCommand behaviour', () => {
     expect(em.flush).not.toHaveBeenCalled()
   })
 
+  it('records the live identifier-less shared inboxes of the provider in the undo snapshot', async () => {
+    const sibling = '55555555-5555-4555-8555-555555555555'
+    const channel = {
+      id: validInput.channelId,
+      userId: null as string | null,
+      tenantId: validInput.scope.tenantId,
+      organizationId: null as string | null,
+      credentialsRef: null as string | null,
+      providerKey: 'imap',
+      channelType: 'email',
+      externalIdentifier: null as string | null,
+      isPrimary: false,
+      deletedAt: null as Date | null,
+    }
+    const { ctx, em } = makeCtxWithChannel(channel, [{ id: sibling }])
+    const result = await adminDeleteChannelCommand.execute(validInput, ctx)
+    expect(result).toMatchObject({ status: 'deleted', undo: { unidentifiedSiblingIds: [sibling] } })
+    expect(em.find).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ userId: null, providerKey: 'imap', externalIdentifier: null, deletedAt: null }),
+      undefined,
+    )
+  })
+
   it('soft-deletes a tenant-wide (userId=null) channel, clears isPrimary, and returns an undo snapshot', async () => {
     const channel = {
       id: validInput.channelId,
@@ -103,7 +132,7 @@ describe('adminDeleteChannelCommand behaviour', () => {
     expect(result).toMatchObject({
       status: 'deleted',
       channelId: channel.id,
-      undo: { channelId: channel.id, tenantId: validInput.scope.tenantId },
+      undo: { channelId: channel.id, tenantId: validInput.scope.tenantId, unidentifiedSiblingIds: [] },
     })
     expect(em.flush).toHaveBeenCalledTimes(1)
     expect(channel.deletedAt).toBeInstanceOf(Date)

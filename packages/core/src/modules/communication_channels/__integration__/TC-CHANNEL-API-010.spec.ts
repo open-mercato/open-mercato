@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto'
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
@@ -44,7 +45,7 @@ type Fixture = {
 }
 
 async function createChannelOwner(request: APIRequestContext, label: string): Promise<Fixture> {
-  const stamp = `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`
+  const stamp = `${Date.now()}-${randomInt(1_000_000)}`
   const fixture: Fixture = {
     adminToken: null,
     roleId: null,
