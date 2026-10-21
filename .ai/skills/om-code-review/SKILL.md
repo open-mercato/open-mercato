@@ -33,6 +33,10 @@ Classify each changed file by Open Mercato layer: API route, entity, validator, 
 
 The shared skill's UI Performance Gate applies with these Open Mercato specifics: run `yarn check:client-boundaries` when the diff touches web routes, providers, or the app shell (the "use client" boundary ledger — see the Frontend Architecture Contract at `.ai/skills/om-spec-writing/references/frontend-architecture-contract.md`); watch for backend pages that turn server components into client components, route entry points that import heavy editors/calendars/graphs eagerly instead of dynamic islands, and global providers importing route-specific SDKs. `om-ds-guardian` and `om-backend-ui-design` (local skills) define the DS/UI conventions the diff must follow.
 
+## Release lines and backports
+
+Policy: `.ai/docs/pr-workflow.md` § Release lines and backports. Report as **blocker**: a hand-edited `version` in any workspace manifest, a hand-edited released `# X.Y.Z` `CHANGELOG.md` entry, a feature or refactor labelled `backport release/v*`, or a hand-written PR that targets `release/v*` directly — except PRs opened by the Backport workflow (labelled `backport`) and a can't-wait hotfix carrying `backport main`. For a PR whose base is `release/vX.Y.x`, review the diff against that line's code rather than `main`'s — a clean cherry-pick into a different context is the dangerous case. Flag (as **minor**) a missing category label, and a `priority-high`/`priority-extreme` bug fix or security fix that touches code which already exists on the newest line without a `backport release/vX.Y.x` label.
+
 ## Severity taxonomy
 
 This repo historically reports findings as **Critical / High / Medium / Low**; the shared skill uses **blocker / major / minor / nit**. They map 1:1 in that order. Use the shared skill's labels in the verdict (callers consume blocker/major) and classify by these repo rules:
