@@ -3,7 +3,7 @@
 | Field | Value |
 |-------|-------|
 | **Status** | Proposed |
-| **Created** | 2026-08-10 (version 1), 2026-10-07 (version 4) |
+| **Created** | 2026-08-10 (version 1), 2026-10-07 (version 4), 2026-10-21 (version 4.2) |
 | **Related** | `packages/core/src/modules/planner`, `resources`, `staff`, `customers`, `catalog`, `checkout`; `.ai/specs/2026-07-15-staff-member-directory.md`; `.ai/specs/implemented/2026-05-08-staff-decouple-from-core.md` |
 
 Where the required spec sections are: Overview and Problem Statement — sections 1–3; User Stories —
@@ -46,7 +46,7 @@ If a product wants to see a meeting on the occupancy timeline, it creates a rese
 registers the calendar as an occupancy source, so meetings count as busy time without being copied
 (section 20).
 
-**One store of occupancy.** An open pull request on the platform makes the calendar's event types
+**One store of occupancy.** A platform pull request (#6688, merged to `develop`) makes the calendar's event types
 configurable and shows it with a "visit" type in the `example` module: a visit assigns a staff
 member and a resource, takes advisory locks per subject, reads planner's availability and rechecks
 clashes among calendar events inside one transaction. That example is a second, small occupancy
@@ -54,8 +54,9 @@ engine, and once both exist a doctor could be double-booked between a calendar v
 reservation, with neither engine seeing the other. This specification proposes that `bookings` is
 the single store of occupancy on the platform:
 
-- as soon as calendar events can carry staff and resources, `bookings` registers the calendar as an
-  occupancy source (section 20), so reservations see visits;
+- as soon as calendar events can carry staff and resources, the calendar is registered as an
+  occupancy source (section 20), so reservations see visits — warning or blocking by the source's
+  severity;
 - the visit check of the example is the proof of concept whose role `bookings` takes over: the
   calendar's own guard consults the module's occupancy service (section 12) instead of keeping its
   own engine;
@@ -267,17 +268,18 @@ reason; the reason is stored on the reservation (section 9).
 ### Phase 3 — services and pools
 
 **A service is a product from `catalog`.** It says how long it takes, which roles of people it
-needs and which types of resources. A reservation of a service takes all of them at once — a
-dentist, an assistant and a surgery — and is free only when every one of them is free
-(section 16).
+needs and which types of resources. A reservation holds zero or more services, as lines run one
+after another in its window; it takes everything they need at once — a dentist, an assistant and a
+surgery — and is free only when every one of them is free (section 16). Services can also be
+defined in code by a product module and seeded into each organization (section 16).
 
 **Pools instead of concrete subjects.** A participant can be "any dentist" or "any surgery"
 instead of one named subject. Roles come from `staff`, resource types from `resources`. The
 module picks a free subject from the pool by round robin; the user can still pick one by hand
 (section 17).
 
-**Price.** A reservation of a service carries its price from the catalog pricing, so a visit can
-be charged.
+**Price.** Each service line carries its price from the catalog pricing and the reservation the
+total, so a visit can be charged.
 
 **Definition of a day.** A day can run between other hours than midnight to midnight — for
 example 15:00 to 11:00 for hotel nights. A room is then a resource, booked by name or from a pool
@@ -301,7 +303,8 @@ a rebuild.
 **A rules engine** — configuring conditions and actions per client, without code.
 
 **Qualification matching** — checking whether a subject meets the target's requirements, beyond
-the role a pool asks for.
+the role a pool asks for. Not built in; a product narrows a pool with the requirement's allowed
+subjects (section 16) or adds a write check (section 20).
 
 **Cascading moves** — moving one reservation does not move the chain of the next ones.
 
@@ -438,7 +441,8 @@ row, so that a commitment gets its dates.
 undo a mistaken close, so that the timeline shows what really happened.
 - only the transitions of 7.1 are offered; any other is refused with a clear message,
 - closing frees the slot at once; reopening a completed or no-show reservation is checked like a
-  new placement and can be refused under `reject`,
+  new placement and can be refused under `reject`, and in every mode by a `blocking` product
+  source (section 20),
 - a cancel can be undone by the user who made it, from the message that confirms it or from the
   audit log, or by an administrator; otherwise cancelled is final, has no "Reopen", and the screen
   says that a restart is a new reservation.
@@ -501,6 +505,9 @@ screens and writes without forking it, so that my product fits its business.
   catalog,
 - a product rule on a mutation guard, a command interceptor or a "before" lifecycle event can
   refuse a write with its own message,
+- an occupancy source registered by a module, or a set of sources an application builds through
+  `overrides.di` in `modules.ts`, decides the write and shows in the conflict read; a `blocking`
+  source refuses in every mode, a `warning` one warns (section 20),
 - a replaced reservation bar or card renders in place of the built-in one.
 
 **US-E2** As a module author, I want to ask which subjects are busy in a range, so that my module
@@ -539,6 +546,20 @@ doctor and a room together.
 **US-G1** As an administrator, I want to make a catalog product bookable by giving it a duration,
 a price basis and the people and things it needs, so that staff book the service, not its parts.
 - the section is edited on the product screen; a product without it is not bookable.
+
+**US-G5** As a receptionist, I want one visit to hold several services — a check-up and a
+cleaning — so that the patient has one appointment with one price.
+- the lines run one after another in one window; the duration is their sum and the total the sum of
+  their prices,
+- what the lines need is merged: one dentist for both, not two,
+- removing a line shortens the visit by that line and drops the people only it needed.
+
+**US-G6** As the author of a product module, I want to define my services in code and have them
+seeded into each organization, so that a new clinic starts with its services ready.
+- a new tenant's organization gets them at setup, an existing one on `mercato seed:defaults`, and
+  an organization added later when the module subscribes to its creation,
+- seeding twice creates nothing twice,
+- a service an administrator made, changed or removed is left as the administrator left it.
 
 **US-G2** As a receptionist, I want to book a service and let the module pick a free dentist and a
 free surgery, so that I do not search for them by hand.
@@ -751,8 +772,8 @@ conflict detection do not branch on the subject type.
 ### Providers
 
 A provider is a plugin that translates between the module and one registry. The module asks it
-four questions in phase 1, and a fifth from phase 3 — which subjects belong to a role or a type
-(section 17):
+four questions in phase 1, and two more from phase 3 — which subjects belong to a role or a type
+(section 17), and which role or type has a given name, for services defined in code (section 16):
 
 - **create a new subject** — the plugin writes a record in its registry and returns the
   identifier,
@@ -919,20 +940,23 @@ Some tables are exceptions, each for its own reason. `bookings_settings` has no 
 (7.5). `bookings_idempotency_keys`, `bookings_reported_conflicts` and `bookings_scan_state` are the
 module's bookkeeping, not records anyone edits: their rows are removed for real when what they
 record is gone or has expired (sections 4, 9), and they have no last change date used for locking.
-`bookings_holidays` and `bookings_conflict_policy_exceptions` are removed for real as well: the
-settings screen sends each list whole and the save replaces the stored rows, so a holiday removed
+`bookings_holidays`, `bookings_conflict_policy_exceptions` and `bookings_source_severities` are
+removed for real as well: the settings screen sends each list whole and the save replaces the stored rows, so a holiday removed
 and added again for the same date never meets a soft-deleted twin under its unique index.
-`bookings_pool_cursors` (phase 3) is bookkeeping of the same kind.
+`bookings_pool_cursors` (phase 3) is bookkeeping of the same kind. `bookings_booking_services`
+(phase 3) is removed for real too: a reservation's lines are saved whole and replaced on each save
+(section 16).
 
-The two proof records — the confirmed warnings on a reservation (phase 2) and the consent proof of a
-page request (phase 4) — are the only `jsonb` in the module: each is a snapshot that is written
-once, read whole and never queried by its parts, the shape `checkout` keeps for its consent proof.
+Three snapshots — the confirmed warnings on a reservation (phase 2), the requirement copy on a
+service line (phase 3) and the consent proof of a page request (phase 4) — are the only `jsonb` in
+the module: each is written once, read whole and never queried by its parts, the shape `checkout`
+keeps for its consent proof.
 
 Table names start with the module name and are plural, as everywhere in Open Mercato:
 `bookings_bookings`, `bookings_participants`, `bookings_targets`, `bookings_settings`,
 `bookings_subjects`, `bookings_subject_categories`, `bookings_holidays`,
-`bookings_conflict_policy_exceptions` in phase 1; `bookings_services`, `bookings_service_requirements` and
-`bookings_pool_cursors` in phase 3 (sections 16, 17); `bookings_pages` and
+`bookings_conflict_policy_exceptions`, `bookings_source_severities` in phase 1; `bookings_services`, `bookings_service_requirements`,
+`bookings_booking_services` and `bookings_pool_cursors` in phase 3 (sections 16, 17); `bookings_pages` and
 `bookings_page_requests` in phase 4 (section 19); `bookings_idempotency_keys`,
 `bookings_reported_conflicts` and `bookings_scan_state` in phase 1 (sections 4, 9, 7.5).
 
@@ -960,9 +984,11 @@ migration of meaning, adding a table is not.
 | last reported warning | the state at the last signal: the number of working days left, 0 on the expected start day itself, or "overdue"; empty when nothing was reported |
 | note | free text; a preferred date range, when there is one, is written here — a field of its own may come later |
 | override reason | phase 2: why a user wrote it despite the warnings, and which warnings they confirmed |
-| service, service name | phase 3: the service it books and a copy of its name (section 16) |
-| price | phase 3: unit price, currency, price kind and total, copied when it is made (section 16) |
+| services | phase 3: zero or more lines in `bookings_booking_services`, each with its service, a copy of its name, its duration and its price (section 16) |
+| price | phase 3: the total of its lines, net and gross, their currency, and whether a line had no price; empty with no line (section 16) |
+| duration adjustment | phase 3: the manual change of the duration over the sum of its lines; zero by default (section 16) |
 | page, confirmation | phase 4: the public page it came from, and awaiting, confirmed, declined or expired; empty for reservations made by staff (section 19) |
+| payment link | phase 4: the id of its current `checkout` payment link; cleared by a change after confirmation, so a transaction on an older link does not mark it paid (section 19) |
 | paid | phase 4: when the payment link was paid (section 19) |
 
 **A reservation without dates is a normal state.** A commitment that has no window yet — in the
@@ -1061,7 +1087,7 @@ proposes one (see Limits above), and the user can always change it.
 | reservation | which one it belongs to |
 | subject | pointer to a row in the subjects list (section 6) |
 | role | performer, place, supporting equipment |
-| requirement | phase 3: which service requirement it fills, when the reservation books a service (section 16) |
+| requirement | phase 3: the merge key of the requirement it fills — participant role, source, reference — when the reservation books services (section 16) |
 | picked automatically | phase 3: whether the module picked it from a pool (section 17) |
 
 The role comes from a closed list. The phase 1 screen always writes "performer". The
@@ -1206,6 +1232,17 @@ category and its mode, unique per organization and category. A missing row means
 most 200; an exception for a category that does not exist is refused with 400 `unknown_category`.
 A column holding "the other categories" could not have grown a third mode; the table can.
 
+`bookings_source_severities` — one row per product occupancy source whose severity the organization
+changes (section 20): the source id and `warning` or `blocking`, unique per organization and source.
+A missing row means the source's default. The built-in sources are not listed: their kinds keep the
+rules of section 9. The settings screen shows one line per product source of the availability
+service — the service the application runs, not every registered one — in the conflict
+policy section, and saves the list whole: the save replaces the stored rows, so a row of a source
+that left the set stays and does nothing until the next save drops it. An unknown or built-in
+source id is refused with 400 `unknown_source`; at most 100 rows. The rows have no last change date
+of their own: like the policy exceptions, they are saved with the conflict policy section, which
+the settings row's last change date guards against a concurrent edit.
+
 `bookings_scan_state` — the scan's own bookkeeping, one row per organization and per time zone in
 use there (section 9): the last local date processed in that zone.
 Nobody edits it, so it has no last change date used for locking. It is kept off the settings row on
@@ -1267,7 +1304,10 @@ Every read named in section 12 and every scan step has its index:
 | `bookings_subject_categories` | (tenant, organization, lower(name)) unique over non-deleted rows | one spelling per category |
 | `bookings_holidays` | (tenant, organization, date) unique | the working calendar |
 | `bookings_conflict_policy_exceptions` | (tenant, organization, category) unique | the policy of a write |
+| `bookings_source_severities` | (tenant, organization, source id) unique | the severity of a product source in a write |
 | `bookings_settings` | (tenant, organization) unique | one row per organization |
+| `bookings_booking_services` | (reservation, position) unique | phase 3: a reservation's lines in order |
+| `bookings_services` | (tenant, organization, product) unique over non-deleted rows; (tenant, organization, definition key) unique where the key is set, deleted rows included | phase 3: one definition per product; the seed's lookup by key (section 16) |
 | `bookings_idempotency_keys` | (scope, key) unique; (tenant, organization, created at) | the duplicate check; the clean-up on insert and on the hourly tick |
 
 The timeline read costs a fixed number of queries per view: one page of rows, one query for their
@@ -1536,7 +1576,7 @@ so the dispatcher sees the effect at once, without waiting for the scan.
 
 In every mode, inside the write's transaction, under the locks, before the commit (below). Under
 `reject` and `confirm` that is the only place a refusal can still happen. Under `advisory` nothing
-is refused, but computing there costs nothing extra — the locks are already held — and it makes the
+is refused except by a `blocking` interval of a product source (section 20), and computing there costs nothing extra — the locks are already held — and it makes the
 list in the response exact: a conflict computed after the commit would no longer be under the lock,
 and a parallel write could change it in between. Conflicts with unavailability are computed in the
 same step and returned in the response; they never block, except as warnings to confirm under
@@ -1562,6 +1602,7 @@ An organization setting, not a rule in code.
 
 ```
 advisory   the write goes through, the conflict is shown and reported    ← default
+           (a `blocking` product source still refuses, section 20)
 reject     a write that creates a conflict fails
 ```
 
@@ -1569,6 +1610,8 @@ reject     a write that creates a conflict fails
 window never blocks, in both directions — under `advisory` and `reject` it warns, under the
 `confirm` mode of phase 2 it asks for a confirmation — a reservation is not lost because of an inspection, and
 an inspection is not lost because of a reservation. A breakdown does not ask about the schedule.
+One exception, in every mode: a `blocking` interval of a product's occupancy source (section 20)
+fails the write with 409 `booking_conflict`, the conflict's severity `blocking`.
 
 When dispatching equipment a person decides, hence `advisory` as the default. When booking visits
 a second person for the same slot must be refused, hence the second mode.
@@ -1585,7 +1628,7 @@ Splitting by reservation type, not subject, does not change the data model and c
 overlap                  two open reservations of one subject          by mode: warns, needs confirmation, or blocks
 unavailability           a reservation in a window from planner        warns; needs confirmation under confirm
 outside_working_hours    phase 2: outside the subject's hours (18)     warns; needs confirmation under confirm
-product kinds            registered by a product as a conflict kind (20)  the product's rule decides
+product kinds            from a product's occupancy source (20)         by its severity: warns (confirm under confirm), or blocks in every mode
 ```
 
 An overlap is shown in one of two ways, because they ask different things of the dispatcher. A
@@ -1601,6 +1644,7 @@ The two modes of phase 1 keep their meaning:
 
 ```
 advisory   the write goes through, warnings are shown and reported            phase 1
+           (a `blocking` product source still refuses, section 20)
 reject     an overlap fails; every other warning only warns                   phase 1
 confirm    a write with any warning goes through only when a user confirms     phase 2
            them, with a reason
@@ -1608,9 +1652,9 @@ confirm    a write with any warning goes through only when a user confirms     p
 
 When a reservation has participants under different modes, the strictest applies, in the order
 advisory, confirm, reject. Under reject, warnings other than an overlap still only warn — reject
-does not inherit confirm. "Any warning" under confirm means the module's own kinds and those a
-product registered; intervals from an occupancy source (section 20) only warn in every mode and
-are never part of the list to confirm.
+does not inherit confirm. "Any warning" under confirm means the module's own kinds and the
+`warning` intervals of a product's occupancy source (section 20); a `blocking` interval is never
+confirmed, it refuses the write in every mode.
 
 Under `confirm` a write that produces warnings fails with their list. The user, who must hold
 `bookings.override_conflict`, confirms that exact list and gives a reason; the write carries the
@@ -1919,7 +1963,29 @@ store dates as instants anyway.
 
 Drawing is based on `vis-timeline`. It is a new production dependency, and we choose it
 consciously, because it gives everything from the list above out of the box, including the hourly
-scale that phase 2 needs. We checked the alternative: adding a row layout,
+scale that phase 2 needs. The choice is verified, not theoretical: we have already built the full
+timeline on it — subject rows across days, dragging and resizing bars, zooming — in a client
+project on Open Mercato.
+
+We compared it with the timeline libraries a resource axis could stand on, as of October 2026
+(npm and the projects' repositories):
+
+| | `vis-timeline` (chosen) | `react-calendar-timeline` | `react-big-schedule` | `planby` | FullCalendar resource timeline |
+|---|---|---|---|---|---|
+| Licence | Apache-2.0 or MIT — we take MIT, as Open Mercato | MIT | MIT | custom; redistribution forbidden | Premium: paid commercial or non-commercial |
+| Last release | 8.5.4, August 2026 | 0.30 only as beta; last stable 0.28, 2022 | 9.0.3, October 2026 | 2.1.0, August 2026 | 6.1.22, October 2026 |
+| React and design system | imperative library behind one adapter file, styled with our tokens | React components | React components | React, Emotion styles | own renderer, React wrapper |
+| Dragging and resizing bars | both | move; resize per item | both, through `react-dnd` | some features only in the paid edition | both |
+| Time zones | through `moment` | through `dayjs` | through `dayjs` | through `date-fns` 2 | built in |
+| New dependencies, not yet in Open Mercato | `moment`, `vis-data`, `vis-util`, `@egjs/hammerjs`, `propagating-hammerjs`, `keycharm`, `xss`, `component-emitter` (`uuid` is already in the tree) | `dayjs`, `interactjs` and three small ones | `dayjs`, `react-dnd` with its backend, `rrule` | `@emotion/*`, `date-fns` 2 next to Open Mercato's 4 | the premium packages |
+| Performance with thousands of bars | measured in the client project | not measured | not measured | not measured | not measured |
+
+`planby` and FullCalendar Premium are ruled out by their licences, and `react-calendar-timeline`
+has had no stable release for years. `react-big-schedule` is the one real alternative; it is a
+React component, but it is untried here and brings its own date library too. `vis-timeline` brings
+the most new packages, `moment` among them — in maintenance mode and a second date library next to
+`date-fns` — and that is its weak point; it is contained by lazy loading and the one adapter file
+below. We checked the alternative: adding a row layout,
 dragging of existing bars and zooming next to the calendar library from `ui` is a timeline engine
 written from scratch — more code than the whole component on `vis-timeline`.
 
@@ -1974,8 +2040,11 @@ timeline, on the same reads.
 It is built on the ready calendar view of `@open-mercato/ui`. The two reasons that rule it out for
 the timeline do not hold here: the view shows one subject, so it needs no row per subject, and
 reservations are not recurring entries — the server sends ready instants, so the browser expands
-nothing. What remains is showing those instants in their target's zone rather than the viewer's,
-and here the component falls short today: it takes a time zone, but uses it only to format the
+nothing. What remains is showing those instants in the view's zone rather than the viewer's. A
+view has one zone: a target's view uses the target's zone, a subject's view the subject's zone.
+Entries of targets in another zone sit at their true instants in the view's zone and carry their
+own zone on the label, so a 09:00 London visit and a 09:00 Warsaw visit of the same doctor never land
+on the same slot. Here the component falls short today: it takes a time zone, but uses it only to format the
 times on labels; it puts entries into days by the browser's local date. A visit at 23:30 in Warsaw
 would then sit on the next day for a viewer in London.
 
@@ -1984,12 +2053,48 @@ passes its zone only to the toolbar, the calendar underneath never receives it a
 from the package, and both the grid and the recurrence expansion bucket by local date getters. The
 change threads the zone into the calendar, buckets entries by it, falls back to the browser's zone
 when none is given — so existing callers see no difference — and exports the calendar. It is
-additive and comes with its own tests. Moving a reservation in this
-view goes through the same move command as on the timeline.
+additive and comes with its own tests. The same change lets a caller drag an existing entry,
+through the drag-and-drop addon that ships inside the calendar package `ui` already depends on — no
+new dependency; without a drag handler the view behaves as today. The calendar library knows no
+zones: bucketing by a zone means it draws shifted local times. So the view converts back before it
+calls the handler: a drop is read as a wall time in the view's zone, and the handler receives an
+instant, also across a clock change. In `bookings` the toolbar's zone switch is hidden, because the
+view's zone follows from what it shows. Moving a reservation in
+this view goes through the same move command as on the timeline.
 
-The calendar of `customers` is the other candidate. It is not chosen for now, because its entries
-are customer interactions that require a customer, and a reservation of an excavator for a site
-has none. Its meetings can still count as occupancy through an occupancy source (section 20).
+This makes the `ui` schedule view the common base of the platform's calendars: `planner` uses it
+today, `bookings` from phase 2. What it gains is generic — a zone, a drag handler that receives
+instants, and the exported calendar — so any module can use it, the `customers` calendar included.
+Business logic stays in each module. In `bookings` the view is extended through the module's
+extension points (section 20): an injection spot on its toolbar and the replaceable reservation
+card, the same ones as on the timeline.
+
+**The `customers` calendar was checked as the base.** It is the platform's richest calendar, so we
+looked at it first:
+
+```
+lives in               the customers module: the grids — day and week, month, agenda, the
+                       event block — about 1,100 lines, typed to the CRM's own calendar item;
+                       the rest, several thousand lines, is the CRM screen, editor and settings
+                       logic; only general helpers come from ui
+rows per subject       none — one person's day, week and month; resources only as a field
+                       of an event
+dragging               only drawing a new range; an existing event cannot be moved or resized
+time zone              the grid shows the browser's zone; the zone is chosen per event in the
+                       editor
+entries                customer interactions, which need a customer; a reservation of an
+                       excavator for a site has none
+```
+
+For the timeline it lacks what the timeline needs, as the `ui` view does. For the calendar view,
+extracting its grids into `ui` means untying about 1,100 lines from the CRM's item type and teaching
+them zones and moving existing entries — features they do not have — while `ui` already holds a
+shared view that `planner` uses and that gains exactly those features here. So the shared base is
+the `ui` schedule view. The `customers` calendar is not moved in this work: it keeps its behaviour
+untouched, and moving it is the `customers` maintainers' change to make. Its meetings can still count as occupancy
+through an occupancy source (section 20). Moving the `customers` calendar onto the same `ui` view
+is possible once the view has these additions; it would be its own change, owned by that module,
+proposed as a follow-up issue (section 21).
 
 ### Three levels of use
 
@@ -2035,8 +2140,11 @@ calendar read                phase 2: reservations of one subject or one target 
                              with the working windows of the subject (sections 11, 18)
 services                     phase 3: the booking definition of a catalog product and its
                              requirements, through the factory (section 16)
-free slots read              phase 3: starts at which a service has every requirement free,
-                             on a grid, at most ninety days (section 17)
+free slots read              phase 3: starts at which one service, or several in order, have
+                             every merged requirement free, on a grid, at most ninety days
+                             (sections 16, 17)
+service lines                phase 3: the reservation's write input takes its lines as an ordered
+                             list; the reservation's answers return them (section 16)
 pages                        phase 4: booking pages through the factory (section 19)
 confirm / decline            phase 4: commands on a request from a page; not undoable (section 19)
 public routes                phase 4: page, services, free slots and request, without login,
@@ -2105,13 +2213,16 @@ paging                                page, pageSize, total rows
 The conflict object, the same in every answer:
 
 ```
-kind          overlap | unavailability | outside_working_hours | a validator's kind
+kind          overlap | unavailability | outside_working_hours | a product source's kind (20)
 subjectId     the participant it concerns
 window        from, to — the overlapping part
 other         for overlap: the other reservation's id, its target's id and name
               for unavailability: the window's from, to and, where the rule has one, its reason
 severity      warning | blocking
 confirmable   true when the mode is confirm and a confirmation can lift it (phase 2)
+source        for a product source's conflict: the source id (20)
+unknown       true when the source could not tell; then kind is the source's and window the
+              range asked
 ```
 
 Errors carry a stable `code` next to the translated message:
@@ -2120,7 +2231,8 @@ Errors carry a stable `code` next to the translated message:
 400 invalid_input            schema failed; the field errors are in details
 400 subject_inactive         a participant is not in use
 404 not_found                the record does not exist in this organization
-409 booking_conflict         reject mode refused an overlap; details.conflicts is the list above
+409 booking_conflict         reject mode refused an overlap, or a `blocking` product source refused
+                             the write in any mode (20); details.conflicts is the list above
 409 confirmation_required    phase 2, confirm mode; details.conflicts is the list to confirm
 409 settings_required        a write or the timeline read needs saved settings that do not exist yet (7.5)
 409 idempotency_key_reused   the key was used with another payload (section 4)
@@ -2137,8 +2249,19 @@ Errors carry a stable `code` next to the translated message:
 409 category_in_use          deleting a category used by subjects or a policy exception
 409 subject_already_added    adding a registry record that is already on the list (section 6)
 409 provider_record_orphaned the registry record was created but our row was not; details carry its id
+400 unknown_source           a source severity for an unknown or built-in source (7.5)
+422 service_unit_mismatch    phase 3: a line in another duration unit than the reservation's (16)
+422 service_day_mismatch     phase 3: a line with another definition of a day (16)
+422 service_currency_mismatch phase 3: a line priced in another currency (16)
+422 requirements_conflict    phase 3: merged allowed subjects leave nobody, or a hand-picked
+                             participant falls outside them; details name the requirement (16)
+422 duration_too_short       phase 3: removing a line would leave less than one unit (16)
+409 booking_paid             phase 4: a change to the lines of a paid reservation (16)
+422 price_incomplete         phase 4: confirming with payment a reservation with no complete total (19)
 403 forbidden                the user lacks the feature the action needs (section 12, permissions)
 409 pool_exhausted           phase 3: no free member for a requirement; details name it (section 17)
+422 strategy_failed          phase 3: a requirement names an unregistered strategy, or its strategy
+                             threw or returned an invalid pick; details name the requirement (17, 20)
 409 slot_taken               phase 4: the slot was taken a moment earlier (section 19)
 ```
 
@@ -2180,6 +2303,14 @@ the target. It counts only open reservations. It does not add unavailability —
 information, asked from the provider plugins (section 6). It answers in bulk, without paging, and
 the date range is capped at 366 days — a longer question is rejected, so the answer has a bound.
 
+The question may carry the caller's entity manager; a caller inside a transaction that holds this
+module's locks — an occupancy source during a write (section 20) — passes its own, so the read does
+not wait for a second connection.
+
+The occupancy service says what is booked. The availability service (section 20) says what else
+makes a subject busy. Both are in the container; a module that only needs "what is booked" uses the
+first.
+
 ### Undo
 
 Commands are undone by the platform's command mechanism: each one saves the state before the
@@ -2201,6 +2332,9 @@ the screens rely on:
 
 Undo is a write like any other — in reject mode it goes through the
 same overlap check, so it will not restore a conflict that a normal write would not let through.
+It also asks the occupancy sources with the restored windows, and a `blocking` interval refuses it
+in every mode (section 20). The undo of a compound Save is one entry, so it is refused whole when
+any restored change is refused.
 For the same reason undo is refused with 400 `subject_inactive` when one of the reservation's
 subjects was taken out of use in the meantime: an undo must not bring back what a new write could
 not create.
@@ -2219,7 +2353,8 @@ which slot, with what — so the screen can show it instead of saying "could not
 In confirm mode (phase 2) a write with warnings fails with 409 `confirmation_required`, the same
 list and each item marked `confirmable`; the screen asks for the reason and sends the write again
 with the confirmed list (section 9). Reject keeps its phase 1 behaviour in every phase: only an
-overlap fails, with 409 `booking_conflict`.
+overlap fails, with 409 `booking_conflict`. In every mode a `blocking` interval of a product source
+fails the same way, its conflict marked with severity `blocking` and its source (section 20).
 
 ### Things that are easy to forget
 
@@ -2253,7 +2388,8 @@ bookings.settings.updated                                        after each save
 
 "Not marked for the browser" means only that: every event still reaches server-side subscribers,
 other processes and, when persistent, the queue; the browser mark adds delivery to the browser on
-top.
+top. The reservation events are emitted persistent, so a persistent subscriber in another module —
+an external calendar (section 20) — gets the queue's retries.
 
 `bookings.booking.changed` carries a list of reservation ids, the subject ids, the affected window,
 the status when a single reservation changed, and the kind of change — a write, a Save of the edit mode, a coverage day turning over, a planner
@@ -2398,8 +2534,9 @@ This table is also the definition of done: until a row has coverage, the module 
 | categories | a category used only by a policy exception cannot be deleted |
 | timeline read | response shape: rows, bars, windows, calendar state; paging by rows; category filter; "only conflicts" leaves only rows with a conflict; "hide unavailable" drops subjects with an unavailability window inside the requested range; a reservation with two participants gives a bar in each of their rows; conflict computed on read; completed and no-show bars returned, cancelled ones not; a subject not in use returned only with a bar in the range; rows sorted by category, then name, uncategorised last; overlaps labelled "several targets" before "same target"; only subjects of the own organization |
 | "unplaced" list | reservations without dates, paged, own organization only |
-| settings | a read with no row returns the defaults and creates nothing; the first save creates the row; write and read; rejection of an invalid time zone; a threshold outside 0–250 rejected; no weekday left as a working day rejected; a first save without a zone gives 400 `time_zone_required`; before the zone is chosen, creating a target or a subject, every reservation write and the timeline read answer 409 `settings_required` while lists still work, and the scan skips the organization; more than 1000 holidays or 200 exceptions rejected; an exception for an unknown category gives 400 `unknown_category`; holidays: one per date, a second entry for the same date refused; a policy exception per category, a missing one meaning the default; another organization's settings are not visible |
-| occupancy sources | a registered source's intervals show on the timeline and give warnings only, in every mode; they take no locks, create no notifications and are not returned by the occupancy service |
+| settings | a read with no row returns the defaults and creates nothing; the first save creates the row; write and read; rejection of an invalid time zone; a threshold outside 0–250 rejected; no weekday left as a working day rejected; a first save without a zone gives 400 `time_zone_required`; before the zone is chosen, creating a target or a subject, every reservation write and the timeline read answer 409 `settings_required` while lists still work, and the scan skips the organization; more than 1000 holidays or 200 exceptions rejected; an exception for an unknown category gives 400 `unknown_category`; holidays: one per date, a second entry for the same date refused; a policy exception per category, a missing one meaning the default; another organization's settings are not visible; a source severity for an unknown or built-in source gives 400 `unknown_source`, more than 100 are rejected, and the screen lists only the product sources of the service in use |
+| occupancy sources | a registered source's intervals show on the timeline and in the conflict read; a `warning` source warns, and under `reject` still only warns; a `blocking` source refuses the write in every mode with its kind named; the organization's severity setting overrides the source's default; an `unknown` answer lets a staff write pass with a warning, also from a `blocking` source; a source that throws answers `unknown` and is logged; the built-in `unknown` of a team gives no warning; the source's intervals are not returned by the occupancy service and create no notifications; an interval carrying the booking id of a reservation of this module, also a cancelled one, is ignored; intervals are clipped to the range, and one ending before it starts or for a subject not asked about is dropped; a cancel, an unplace and a resize that shortens a reservation pass under a `blocking` interval that landed on it later, and a move refused by it names only the added time; a participant swap in an unchanged window is refused when the joining subject is blocked; a target change that shifts the window onto a `blocking` interval is refused; when the whole service throws, its product sources count as `unknown` and the overlap still refuses under `reject`; a `blocking` interval refuses under `advisory` too, with 409 `booking_conflict` and severity `blocking`; a compound Save with a refused middle change keeps the others, and the change after it is checked without it; an undo onto a `blocking` interval is refused, and the undo of a compound Save is refused whole; reopening a completed or no-show reservation, and undoing a cancel, onto a `blocking` interval are refused |
+| availability override | a `blocking` product source that marks one doctor busy on Monday: registered by a module, it refuses a write on that Monday and shows in the conflict read and on the timeline; built into the set through `overrides.di` in `modules.ts`, it does the same (free slots and the automatic pick: phase 3 rows); a set built without `unavailability` lets a write into a leave pass with no warning, and the timeline and the scan no longer show or report that leave; a service built from an empty list still detects and, under `reject`, refuses an overlap; `null` on the key makes a write and the conflict read fail with the internal error; with an override in both a module's `di.ts` and `modules.ts`, the one in `modules.ts` wins; registering a built-in id is ignored with one logged error and does not throw, so the module's other registrations stay; registering the same id twice keeps the first, silently |
 | time zones | a reservation's days resolved in its target's zone, a window's in its subject's, never the browser's; a Monday leave in Lisbon does not conflict with a Tuesday visit in Warsaw; a Monday HR leave lands on Monday for a subject in Auckland; two visits on one date in Kiritimati and Honolulu are both found by the widened query; coverage "today" is the target's; both clock-change cases; the date library is imported only in its adapter |
 | coverage gap, read | working days counted from the calendar (free days, holidays); today counts when it is a working day; the expected start day gives 0 days, not overdue; the day after gives "overdue"; a reservation placed after its expected start shows "starts N working days late"; the same result on the server and in the browser |
 | reconciliation scan | signal when the day count entered the threshold; a second run the same day emits no second one; an overdue reservation signals once; each target zone of an organization is processed once per its own local date and a late tick does not skip a day; a target eight hours ahead of the organization gets its new day within an hour of its own midnight; a conflict from a window with no event is detected; a conflict reported yesterday and unchanged is not reported again; a leave approved at 10:00 and a reservation placed into it at 11:00 — reported by the write, dismissed — is not reported again by the scan; a window written beyond the horizon is reported on the day it enters it; a conflict reported by a write beyond the horizon and dismissed is neither removed by the scan nor reported again when it enters the horizon; an HR leave that clashes is reported by the subscriber within seconds and not again by the scan; a planner editor rule, which emits no event, is reported by the next scan; a window beyond the horizon is not scanned; a settings save is not refused because the scan ran in between |
@@ -2425,16 +2562,18 @@ Phases 2–4 bring their rows with their code:
 | minutes (2) | end = start + minutes, across a free day too; two visits on one day conflict only when hours overlap; a visit conflicts with a working-day reservation on the same day; an all-day leave blocks the whole day of a visit |
 | working hours (2) | a reservation outside the hours warns with `outside_working_hours` and never blocks; a subject with no availability rules is not checked; a working-day reservation warns only on a day with no hours |
 | buffers (2) | the category's buffer extends occupancy for conflicts and is not a reservation; from phase 3, a service buffer wins over the category's (tested with services) |
-| confirm mode (2) | a write with warnings fails with 409 `confirmation_required` and the list; a confirmation with the same list and a reason passes and stores both; a confirmation with a stale list fails with the new one; without `bookings.override_conflict` it is rejected; an overlap under reject is never confirmed; under reject an unavailability conflict still only warns, as in phase 1 |
-| calendar view (2) | reservations of one subject put into days in their targets' zones, not the viewer's — a 23:30 Warsaw visit stays on its day for a London viewer; the ui calendar without a zone behaves as before; moving in the view goes through the move command |
-| services (3) | a product without a definition is not bookable; a reservation of a service gets participants from every requirement, its duration and its price copy; per-unit price times duration; changing the definition does not touch made reservations |
-| pools (3) | round robin over free members in a stable order; a busy member is skipped; a count of two gives two different members; no free member fails with the requirement named; two parallel writes for the last free member — only one gets it; a hand-picked busy member gives a normal conflict |
+| confirm mode (2) | a write with warnings fails with 409 `confirmation_required` and the list; a confirmation with the same list and a reason passes and stores both; a confirmation with a stale list fails with the new one; without `bookings.override_conflict` it is rejected; an overlap under reject is never confirmed; under reject an unavailability conflict still only warns, as in phase 1; a `warning` product source and an `unknown` answer are on the list to confirm, a `blocking` one never is; a resize that shortens a reservation a mirrored meeting landed on passes with no confirmation; a mirror interval shifted by a minute does not ask again, a second interval from the same source in the window does |
+| calendar view (2) | reservations put into days in the view's zone — the subject's for a subject, the target's for a target — not the viewer's: a 23:30 Warsaw visit stays on its day for a London viewer; a doctor's 09:00 London and 09:00 Warsaw visits sit an hour apart in the doctor's view, each labelled with its zone; the ui calendar without a zone behaves as before; moving in the view goes through the move command; dragging an existing entry works only when the caller passes a drag handler, and the `planner` schedule, which passes none, behaves as before; in a Warsaw view a visit dropped on 10:00 by a London viewer becomes 10:00 Warsaw, also on the day the clocks change; the toolbar injection spot and the replaced reservation card render in the calendar view |
+| services (3) | a product without a definition is not bookable; a reservation of a service gets participants from every requirement, its duration and its price copy; per-unit price times duration; changing the definition does not touch made reservations, also when a line is added or removed afterwards, because lines carry their own requirement copy |
+| services from code (3) | a seed creates each defined service with its requirements in a new organization, through the service commands, with its key and checksum; a second seed creates nothing; a changed definition updates an untouched service; a service an administrator edited is left and the skip is logged; a deleted one is not recreated; a definition removed from code leaves its service; a product found by SKU and by handle; a role or resource type found by name ignoring case through its provider plugin, and by id from a definition built from the seed's context; a missing or ambiguous reference — the same role name in two teams — skips that service only, with a warning; a SKU and a handle that find different products skip it; a product an administrator already made bookable on screen is left and the skip logged; a renamed definition key whose product already has a seeded service is skipped, not duplicated; a seeded service an administrator took out of use stays out of use after a seed with a changed definition; a SKU moved to another product skips the service; two seeds at once leave one service and the rest of the hook runs; an administrator's save between the seed's read and write makes the seed's update fail and counts as a change; the checksum of a freshly seeded row computed from the row equals the stored one; a subscriber on `directory.organization.created` seeds a new organization of an existing tenant; another organization is not touched; `overrides.setup.seedDefaults: false` on the product module's entry seeds nothing; `mercato seed:defaults` seeds an existing organization |
+| service lines (3) | a reservation with no line behaves as in phase 1; two lines give a window of their summed durations and a total of their summed prices; a check-up and a cleaning that both need a dentist get one dentist, two dentists when one line asks for two, two when one asks for a performer and the other for an assistant from the same staff role; allowed subjects intersect, and an empty intersection gives 422 `requirements_conflict`; differing strategies take the earlier line's; two fixed-list requirements with different lists stay two participants; removing the last line clears the merge keys and a new first line matches the participants again; a line added to an awaiting request from a page keeps it awaiting and restarts its waiting time; a line in another unit, day definition or currency is refused with its code; removing a line shortens the window, keeps the manual adjustment, refuses a result below one unit, and drops the participants only that line needed; removing the last line keeps window and participants; a resize of a one-line hotel stay to four nights charges four, and with two lines it changes the adjustment and marks the card; a line with no price marks the total incomplete; net and gross totals are summed separately; adding a line to a paid reservation gives 409 `booking_paid`, and so do a line-duration change and an undo restoring other lines, while a move or resize of a paid one changes only the adjustment and no line total; a line that narrows allowed subjects replaces an automatically picked participant outside them and refuses a hand-picked one with 422 `requirements_conflict`; the first line on a phase-1 reservation in working days with a hand-picked dentist keeps that dentist as its dentist, adds the line's duration to the existing one, and a line in minutes is refused; a count that drops removes the unticked participants, or the last added when none are named; adding a line onto a busy end is refused under `reject` like a resize; reordering changes neither window nor participants; one save is one undo entry that restores lines, window and participants; the buffer is the largest of the lines', once; the free slots read for two services in order lists only starts where the merged requirements are free for the summed duration |
+| pools (3) | round robin over free members in a stable order; a busy member is skipped; a count of two gives two different members; no free member fails with the requirement named; two parallel writes for the last free member — only one gets it; a hand-picked busy member gives a normal conflict; a registered strategy named by a requirement is used instead of round robin; a strategy that returns a member outside the free list, or too few, fails the write; a requirement naming an unregistered strategy fails with the requirement named; a member a product source marks busy, `warning` or `blocking`, or `unknown`, is never picked |
 | definition of a day (3) | three nights from 1 June are 1 June 15:00 to 4 June 11:00; a stay leaving at 11:00 and one arriving at 15:00 do not conflict |
-| free slots (3) | only starts where every requirement has a free member; the grid and the ninety-day cap; computed on committed data |
-| pages (4) | slots respect lead time, horizon and grid; a public free slots call longer than fourteen days is rejected; a request holds its slot; a slot taken a second earlier gives "just taken"; `planner` unreadable gives no slots; rate limit and origin check; the same request twice gives one reservation; a reused key with other details is refused and returns nothing of the first request; the organization comes from the page, never from the request |
+| free slots (3) | only starts where every requirement has a free member; the grid and the ninety-day cap; computed on committed data; a start hidden by a product source, and the same start refused by a write when the source is `blocking`, also when the source comes from `overrides.di` in `modules.ts`; every start the read returns unmarked is accepted by a write under `reject` on unchanged data, with no product write check registered; a start only a member with an `unknown` source could fill is returned marked, and is absent from the public page |
+| pages (4) | slots respect lead time, horizon and grid; a public free slots call longer than fourteen days is rejected; a request holds its slot; a slot taken a second earlier gives "just taken"; so does a slot that a `warning` interval or an `unknown` answer of a product source reached before the request, under every mode, while a team whose built-in unavailability is unknown passes; `planner` unreadable gives no slots; rate limit and origin check; the same request twice gives one reservation; a reused key with other details is refused and returns nothing of the first request; the organization comes from the page, never from the request |
 | confirmation (4) | confirm and decline; an unconfirmed request expires on time through its delayed job, and through the hourly safety net when the job is lost; "close to expiring" notifies staff; changing time or person of an unpaid request sets it back to awaiting and restarts the waiting time — the old expiry job does nothing; a paid reservation moved by staff stays confirmed and the customer gets an e-mail |
 | customer (4) | an anonymous request links to no person and creates none, whatever e-mail is typed; its provisional target is absent from the target list and picker; at confirmation staff see the matching targets and attach, create or leave unlinked; attaching moves the reservation and soft-deletes the provisional target; decline and expiry soft-delete it; in all three cases the soft-deleted target's name is replaced with the fixed marker in the same transaction; with the account option the target is linked to the logged-in person at once; contact fields are stored encrypted with the consent proof; after the page's retention the clearing job empties them — with the scheduler off too — and a test then reads the request, the soft-deleted target, the audit entries of the request, confirm and decline commands and of the expiry, and the staff notifications, and finds neither the name nor the e-mail nor the phone; a clearing job that runs after the retention was lengthened puts itself back |
-| payment (4) | confirming with payment on creates a checkout link for the reservation's total; a completed transaction marks it paid |
+| payment (4) | confirming with payment on creates a checkout link for the reservation's gross total; an incomplete total, or no line, refuses the confirm with 422 `price_incomplete`; a completed transaction marks it paid; a change after confirmation supersedes the sent link at once and sets it inactive after the commit, retrying while `checkout` refuses the edit during a payment; a transaction completing on a superseded link, or with another amount or currency than the current gross total, does not mark it paid; the new confirmation sends a link for the new gross total |
 
 ## 14. Translations, logs, deployment
 
@@ -2615,6 +2754,8 @@ to the catalog table, the same rule as everywhere else (section 15).
 | buffer | optional time after each reservation, in minutes (section 18) |
 | day | optional definition of a day for the unit `days` (section 18) |
 | in use | whether new reservations of this service can be made |
+| definition key | for a service seeded from code: the stable key of its definition; empty for one made on screen |
+| seed checksum | for a seeded service: the checksum of the definition as the last seed wrote it |
 
 `bookings_service_requirements`
 
@@ -2626,6 +2767,7 @@ to the catalog table, the same rule as everywhere else (section 15).
 | reference | the role or the resource type, when the source is one of them |
 | allowed subjects | an optional list that narrows the source to chosen subjects |
 | count | how many subjects of this kind the service needs; one by default |
+| strategy | the picking strategy for this requirement's pool; `round_robin` by default (sections 17, 20) |
 
 A dental check-up is three rows: one performer from the role "dentist", one performer from the
 role "assistant", one place from the resource type "surgery". A hotel night is one row: one place
@@ -2643,46 +2785,227 @@ through the form extension host that `catalog` already declares for it (`crud-fo
 reservations, and the user does not leave the product to make it bookable. The section saves
 through the module's own commands.
 
-### A reservation of a service
+### Services defined in code
 
-A reservation gets two new optional columns: the service, and a copy of the service name taken
-when the reservation is made. A reservation without a service stays valid — everything from
-phase 1 works as before.
+A product module — a clinic, a hotel — can ship its services in code, so a new organization starts
+with them instead of an administrator entering each one:
 
-When a reservation of a service is made:
+```ts
+import { defineBookableService } from '@open-mercato/core/modules/bookings/lib/services'
 
-1. the duration is copied from the service; the user can change it on this reservation,
-2. each requirement turns into participants with the requirement's role — chosen by the user,
-   or picked from the pool by the module (section 17),
+export const checkup = defineBookableService({
+  key: 'clinic.checkup',
+  product: { sku: 'CHECKUP' },
+  duration: { value: 30, unit: 'minutes' },
+  priceBasis: 'per_reservation',
+  buffer: 10,
+  requirements: [
+    { role: 'performer', source: 'staff_role', reference: { name: 'Dentist' } },
+    { role: 'place', source: 'resource_type', reference: { name: 'Surgery' }, strategy: 'round_robin' },
+  ],
+})
+```
+
+The definition is typed and covers every column of the two tables: the product, the duration and
+its unit, the price basis, the buffer, the definition of a day, and each requirement with its
+role, source, reference, allowed subjects, count and picking strategy (section 17).
+
+**References.** A product is found by its SKU or its handle, each unique in an organization in
+`catalog`; when a definition gives both, they must find the same product. Roles in `staff` and
+resource types in `resources` have no stable code, only a name, and a role's name is not unique
+across teams. So a requirement finds its role or type by name, ignoring case, among the
+organization's non-deleted ones, through the provider plugin of its source (section 6): the
+`resources` plugin through the query engine, the `staff` plugin through the `staff` directory
+service this module relies on (proposed in `.ai/specs/2026-07-15-staff-member-directory.md`, not
+on `develop` yet), which gets one more read-only method for it — the organization's team roles with
+their names — because the module never reads `staff` through the query engine (section 5). A module that created the role or type
+itself passes its id instead: a definition can be a function of the seed's context, returning the
+definition with `reference: { id }`. A reference that finds nothing or more than one — two teams
+each with a "Dentist" — skips that service with a logged warning naming the key and the reference;
+the other services are seeded. So a module that seeds services seeds its products, roles and
+resource types first, in the same hook, and a role an administrator renames later no longer
+matches, which only skips that service on the next seed.
+
+**Seeding.** The product module calls `seedBookableServices(ctx, [checkup, cleaning])` from its own
+`seedDefaults` in `setup.ts`. The platform runs that hook when a tenant is set up — for its first
+organization — during onboarding, and on `mercato seed:defaults` for every existing organization.
+An organization added later to an existing tenant gets no `seedDefaults`; a product module that
+wants it seeded at once calls the same function from a subscriber on
+`directory.organization.created`. The function writes through the module's service commands — the
+same commands as the product screen — inside the organization's scope, with no user, so the audit
+log shows the seed and the module's events fire. It is idempotent: it looks a service up by
+definition key in the organization, deleted rows included, and then by product.
+
+The checksum is taken over what the seed writes, after references are resolved: the product id,
+the duration and its unit, the price basis, the buffer, the definition of a day, and each
+requirement in order with its role, source, reference id, allowed subject ids, count and strategy.
+It leaves out `in use` and custom fields. The same function computes it from a stored row, so the
+two are comparable. A seed's update writes only the fields the checksum covers, so a service an
+administrator took out of use stays out of use; a create sets `in use`. When a resolved product id
+differs from the row's — a SKU moved to another product in `catalog` — the seed skips the service
+and logs it rather than moving the service onto another product. Two seeds running at once — on
+onboarding and `mercato seed:defaults` — can meet on the unique key; the one that loses treats it
+as "row exists", logs and goes on, so one service never aborts the rest of the hook.
+
+```
+no row with the key or product      create it, with the key and its checksum
+a row for the product, no key       made on screen by an administrator: leave it, log the skip
+a row for the product, another key  another definition owns that product: leave it, log the skip.
+                                    A definition key is permanent; renaming it makes a new
+                                    definition, which then meets this row
+row unchanged since the last seed   the checksum computed from the row equals the one stored at
+                                    the last seed: update it to the new definition and store the
+                                    new checksum; nothing to do when the definition did not change
+row changed by an administrator     the checksums differ: leave it, log the skip for that
+                                    organization
+row deleted by an administrator     leave it deleted
+definition gone from the code       nothing; the seeded service stays as it is
+```
+
+The seed's update carries the row's last change date as read, under the same optimistic locking as
+a screen save. When an administrator saves in between, the update fails with a conflict, and the
+seed counts the row as changed by an administrator.
+
+**Precedence.** An administrator's change wins over the code: once a seeded service is edited on
+screen, later seeds leave it alone. The code wins only over its own earlier version. An
+application decides whether a product module seeds at all, through the platform's standard
+override of setup hooks in `modules.ts` (`overrides.setup.seedDefaults: false` on that module's
+entry). To ship other definitions, it turns that seed off and seeds its own from its own module;
+two seeds that write the same keys would overwrite each other on every run, so one seed owns a
+key. Changing a definition never touches reservations already made (7.5).
+
+### A reservation of services
+
+A reservation holds zero or more services, as lines. A visit for a check-up and a cleaning is one
+reservation with two lines, not two reservations and not a bundle product made for that
+combination. A reservation with no line stays valid — everything from phase 1 works as before.
+
+`bookings_booking_services` — one row per line:
+
+| Column | What it holds |
+|---|---|
+| reservation | the reservation the line belongs to |
+| position | the order of the line in the visit, from 1 |
+| service | the service it books |
+| service name | a copy of the name, taken when the line is added |
+| duration | the line's duration, copied from the service and changeable on the line, in the reservation's unit |
+| requirements | a copy of the service's requirements taken when the line is added — role, source, reference, allowed subjects, count, strategy — written once and read whole |
+| price | unit price net and gross, currency, price kind and line total net and gross, copied when the line is added; empty when the product has no price that applies |
+
+The requirement copy is the third write-once snapshot of the module next to the two proofs of 7.1,
+so it is `jsonb` for the same reason. It makes a reservation independent of later changes to the
+service: adding or removing a line merges the copies on the lines, never today's definitions (7.5).
+The lines are saved whole with the reservation and replaced on each save, so their rows are removed
+for real, like the holidays (7).
+
+**One window, one after another.** The lines run one after another inside the reservation's single
+window. The reservation's duration is the sum of the lines' durations plus a manual adjustment,
+zero until a user changes the total by hand; its buffer (section 18) is the largest buffer of its
+lines and comes once, after the window. All lines of a reservation share one duration unit —
+minutes, working days or days — one definition of a day for the unit `days` (section 18; a
+service's definition of a day applies, not its subject category's), and one currency; a line that
+differs is refused with 422 `service_unit_mismatch`, `service_day_mismatch` or
+`service_currency_mismatch`. The total is the sum of the line totals, net and gross; a line with
+no price marks the total incomplete instead of counting as zero.
+
+**Requirements merge.** The reservation needs the requirement copies of all its lines, merged, in
+line order. Two requirements merge when they ask for the same participant role from the same source
+and reference: the merged one takes the larger count, not the sum, the allowed subjects both lines
+accept — their intersection, or all when neither narrows them — and the strategy of the earlier
+line. An intersection that leaves nobody is refused with 422 `requirements_conflict`. A check-up
+needs a dentist and a surgery, a cleaning a dentist, a hygienist and a surgery: the visit needs one
+dentist, one hygienist and one surgery. Requirements with a different participant role stay
+separate even when they point at the same staff role — a performer and an assistant both from
+"Dentist" are two people. For the source "a fixed list of subjects" the list itself is the
+reference: two such requirements merge only when their lists are equal as sets, order ignored, so a surgery from {A, B}
+and an X-ray room {R} stay two places. Each participant row records the merge key of the
+requirement it fills — participant role, source and reference — not a row of one service, so removing a line never
+orphans a participant another line still needs (section 17).
+
+**Everyone for the whole window.** Every participant is busy for the whole window, also one needed
+by one line only: the hygienist above is booked for the check-up too. Booking a participant only
+for its own line's part of the window is not in this version; it needs a window per participant
+and changes the conflict engine, so it is left for later.
+
+When a reservation of services is made:
+
+1. each line copies its duration from its service; the user can change it on the line,
+2. each merged requirement turns into participants with the requirement's role — chosen by the
+   user, or picked from the pool by the module (section 17),
 3. the reservation is free only when every participant is free in the window. This needs no new
    rule: the engine already counts each participant separately, and a reservation is in conflict
    when at least one participant is (7.2). The locks are taken in every mode, in a fixed order, as
    for any reservation with several participants (section 9).
 
-Changing the service definition later does not touch reservations already made — the same rule
-as for settings (7.5).
+**Changing the lines later.** The lines are part of the reservation's write input — the form's save
+and the create and update commands take the whole list, in order (section 12). One save is one
+command, one undo entry and one `bookings.booking.updated` event. The card and the timeline bar show
+the lines in order, so a reservation reads as the several things it is.
 
-One reservation holds one service. A visit with two services is either two reservations or one
-bundle product in the catalog with its own requirements.
+```
+remove a line    the duration loses that line's duration and keeps the manual adjustment; the start
+                 stays and the end moves earlier; a total below one unit is refused with 422
+                 `duration_too_short`; a merged requirement no remaining line needs removes its
+                 participants; a count that drops removes the participants the user unticks in
+                 the form, or, when the write names none, those added last
+remove the last  the reservation keeps its window and participants and becomes one without
+line             services: no price, the adjustment folded into its duration, and the
+                 participants' merge keys cleared, so a later first line matches them again
+add a line       the duration grows by the line's, the end moves later; the write is checked like
+                 a resize (section 9, section 20); a new or larger requirement adds participants,
+                 chosen or picked. After the merge, existing participants are checked against the
+                 merged allowed subjects: one outside them is replaced by a pick when it was
+                 picked automatically, otherwise the write is refused with 422
+                 `requirements_conflict` naming it
+first line on a  the line must match the reservation's duration unit and definition of a day, or
+reservation      the write is refused with `service_unit_mismatch` or `service_day_mismatch`; the
+without lines    duration so far becomes the manual adjustment, so the visit grows by the line.
+                 Participants added by hand, which carry no merge key, are matched first: one with
+                 the requirement's participant role that belongs to its source and reference gets
+                 its key and fills it, so the line does not add a second dentist
+reorder lines    nothing else changes: the window and the participants stay
+change a line's  the reservation's duration changes by the difference; the line total is
+duration         recomputed from the line's copied unit price
+resize on the    with one line, the line's duration follows, and so does a per-unit total — a
+timeline or form fourth hotel night costs a fourth night; with several lines, the manual adjustment
+                 takes the change, the line totals stay, and the card shows that the duration
+                 differs from its lines
+```
+
+A reservation that is paid (phase 4) keeps its lines and their totals: adding or removing a line,
+changing a line's duration, and an undo that would restore other lines are refused with 409
+`booking_paid`. A move or a resize of a paid reservation, which staff may still make (section 19),
+changes only the manual adjustment and never recomputes a line total, and the card shows that the
+duration differs from what was paid. So a paid total never changes silently; an extra service is a
+new reservation. A
+line added to an unpaid request from a page is a change after the request like any other (section
+19): an awaiting request stays awaiting and a confirmed one goes back to it, the customer gets the
+proposed change, its waiting time restarts, a payment link already sent is set inactive, and staff
+confirm it in a separate step.
+
+Changing a service's definition later does not touch reservations already made — the same rule as
+for settings (7.5).
 
 ### Price
 
-When a reservation of a service is made, the module loads the product's price rows from `catalog`
-and lets the catalog pricing service pick the one that applies — that service selects among rows
-it is given, it does not look products up — and stores a copy on the reservation: the unit price, the currency, the price kind and the
-total. A copy, because the catalog price changes later and a reservation keeps the price it was
-made at. A reservation without a service has no price. Charging the customer — a payment link
-through `checkout` — is phase 4 (section 19).
+When a line is added, the module loads its product's price rows from `catalog` and lets the catalog
+pricing service pick the one that applies — that service selects among rows it is given, it does
+not look products up — and stores a copy on the line: the unit price net and gross, the currency,
+the price kind and the line total net and gross. A copy, because the catalog price changes later
+and a reservation keeps the price it was made at. The reservation's total is the sum of its line
+totals, net and gross separately, in their one currency, so lines whose price kinds display net
+and gross never mix. A reservation with no line has no price. Charging the customer — a payment link through
+`checkout` — is phase 4 (section 19).
 
-The service's price basis decides the total. Per reservation: the total is the price. Per unit:
-the total is the price times the duration in the service's unit — three hotel nights are three
-times the night price, two rental days twice the day price. Changing the duration recomputes the
-total from the copied unit price, not from today's catalog.
+Each line's service price basis decides its total. Per reservation: the line total is the price.
+Per unit: the price times the line's duration in the service's unit — three hotel nights are three
+times the night price, two rental days twice the day price. Changing a line's duration recomputes
+its total from its copied unit price, not from today's catalog.
 
 ### When the catalog module is disabled
 
-Reservations of services stay, with the copied name and price. New reservations of a service
-cannot be made, and the booking section is not injected anywhere.
+Reservations of services stay, with their copied lines and prices. New lines cannot be added, and
+the booking section is not injected anywhere.
 
 ## 17. Pools and automatic picking
 
@@ -2711,8 +3034,11 @@ A provider that has no roles or types answers with an empty pool.
 The user can always pick a member by hand. When they do not, the module picks, on the server, in
 the write command:
 
-1. the candidates are the members free in the window: no overlapping open reservation, no
-   unavailability window and — in phase 2 and later — inside working hours,
+1. the candidates are the members free in the window, its buffer included (section 18): no
+   overlapping open reservation, which the module counts itself, and nothing the availability
+   service (section 20) marks busy — by default no unavailability window and, in phase 2 and
+   later, inside working hours; other modules add their own sources of busy time, and an
+   application can replace the set of sources (section 20),
 2. among them the module takes the next one after the one picked last time for this pool, in a
    stable order of members — round robin,
 3. a requirement with a count of two takes two different members; one subject never fills two
@@ -2735,7 +3061,7 @@ taken too, because a pick that hands the same dentist to two visits is wrong in 
 
 ### When nobody is free
 
-The write fails with an error that names the requirement and the window. The module does not
+The write fails with 409 `pool_exhausted`, naming the requirement and the window. The module does not
 pick a busy member and report a conflict instead — a pick is a promise that the subject is free.
 The user can still choose a busy member by hand; then the normal conflict rules apply.
 
@@ -2748,10 +3074,36 @@ a cascading move (section 4).
 
 ### Free slots
 
-The same rules give one more read: **free slots** for a service in a date range, on a grid —
+The same availability service gives one more read: **free slots** for a service, or several
+services in order as one visit (section 16), in a date range, on a grid —
 the starts at which every requirement has a free member. Staff use it to find the first free
 date; the public page uses it as its only source of slots (section 19). It runs on the committed
 state of the database, never on the search index, and the range is capped at ninety days.
+
+### One question in three places
+
+"Is this subject free in this window" is asked in three places, and all three ask the
+availability service (section 20), next to the module's own overlap count:
+
+```
+free slots read       which starts have a free member for every requirement
+automatic pick        which member of the pool is free
+write (under locks)   which conflicts the window gives, and whether one of them blocks
+```
+
+The reads are stricter than the write. Free slots and the automatic pick take only windows with
+no conflict of any kind: an unavailability window or a doctor's meeting hides the slot, although
+under `advisory` it would only warn. The write applies the conflict mode and each kind's severity
+(section 9), so a user who picks a busy member by hand gets a warning, not a refusal, where the
+mode allows it.
+
+No path keeps its own copy of the rules. A rule checked only in a command interceptor would show
+a slot that the write then refuses. So a product rule that makes a subject busy — a doctor's
+meetings in an external calendar, a machine's maintenance plan — is an occupancy source of the
+availability service (section 20), not an interceptor. A slot shown is a slot the write accepts,
+unless the data behind it changes first — another reservation, a new unavailability window, a new
+busy interval from a source — or a product's write check refuses it (section 20, Writes). A slot marked `unknown` is offered to staff only, who pick the member
+by hand.
 
 ## 18. Time: minutes, working hours and the definition of a day
 
@@ -2843,7 +3195,10 @@ Phase 4.
 A page where a customer books a service without calling: they pick the service, optionally the
 person, a free slot, and leave their details. Staff confirm the request. It works the way payment
 links in `checkout` work — staff create a page, get a link and share it — and the way public booking
-tools like cal.com and Calendly work for the customer.
+tools like cal.com and Calendly work for the customer. A request books one service, so it makes a
+reservation with one line; staff can add lines to it before confirming, which is a change of time
+the customer is asked about (section 16). Several services
+chosen by the customer are left for later.
 
 It is a second entry next to the staff screens, not a reversal of the module. Everything a staff
 write does — conflicts, pools, the working calendar, price — applies the same way.
@@ -2917,15 +3272,22 @@ store of keys, not two.
 
 ### Changes after the request
 
-Changing the time, the person or the room of an awaiting or confirmed request that is not paid sets
-it back to awaiting, because the customer agreed to something else. The waiting time starts again
-from that change: the module puts two new delayed jobs on the queue, and the old ones find a
-newer version of the request and do nothing. The customer gets an e-mail with the proposed change.
+Changing the time, the person, the room or the service lines of an awaiting or confirmed request
+that is not paid sets it back to awaiting, because the customer agreed to something else. The
+waiting time starts again from that change: the module puts two new delayed jobs on the queue, and
+the old ones find a newer version of the request and do nothing. The customer gets an e-mail with
+the proposed change. The request keeps the id of its current payment link, and the change clears
+it, so a link already sent is superseded at once. After the commit the module also sets that link
+inactive through `checkout`'s link update command; `checkout` refuses the edit while a customer is
+in the middle of paying, so the module retries on the queue until it passes. A transaction that
+completes on a superseded link never marks the request paid; staff see it and decide. Confirming
+again creates a new link for the current gross total.
 
 A paid reservation stays confirmed when staff move it: setting it back to awaiting would leave a
-customer who paid with an unconfirmed visit. The customer gets an e-mail with the new details. When
-the change alters the total — a longer stay — the difference is shown to staff and is not charged
-or refunded by the module (see Payment).
+customer who paid with an unconfirmed visit. The customer gets an e-mail with the new details. Its
+service lines and their totals do not change (section 16); when the duration now differs from what
+was paid — a longer stay — the difference is shown to staff and is not charged or refunded by the
+module (see Payment).
 
 ### Who writes
 
@@ -2952,7 +3314,12 @@ writes the reservation and the request; it does not create or change anything in
 - the idempotency key from phase 1, scoped to the page (section 4), so a double submit gives one
   request and a reused key with other details is refused,
 - the slot is checked again in the write transaction, under the pool locks (17); a slot taken a
-  second earlier gives a clear "this slot was just taken" instead of a second booking,
+  second earlier gives a clear "this slot was just taken" instead of a second booking. The recheck
+  uses the read rule of section 17, not the write rule: any interval of any source, of any
+  severity, or an `unknown` answer of a product source makes the member busy, with the same
+  answer; `planner` unreadable at the recheck gives the same answer; the built-in `unknown` of a
+  team keeps the rule of section 6 — a customer can
+  neither land on a doctor's meeting that only warns nor be asked to confirm (section 20),
 - the free slots read on the public route covers at most fourteen days per call; the page moves
   through the horizon week by week. The cost of one call is bounded: one bulk read of the
   occupancy and the windows of the pool members over those days, then the grid computed in memory
@@ -3043,9 +3410,12 @@ The e-mails sent to the customer leave the platform and are outside this clearin
 
 ### Payment
 
-With payment on, confirming a request creates a payment link in `checkout` for the price of the
-reservation (section 16) and sends it to the customer. A completed transaction marks the
-reservation paid. A paid reservation cannot be set back to awaiting. Refunds and extra charges are
+With payment on, confirming a request creates a payment link in `checkout` for the gross total of
+the reservation (section 16) and sends it to the customer. A reservation whose total is incomplete —
+a line with no price, or no line at all — cannot be confirmed with payment: the confirm is refused
+with 422 `price_incomplete`. A completed transaction marks the reservation paid, unless it came
+through a superseded link or its amount or currency differs from the reservation's gross total at
+that moment; then staff see the difference and decide. A paid reservation cannot be set back to awaiting. Refunds and extra charges are
 not part of this module — they stay in `checkout` and the payment gateways.
 
 ### Not in phase 4
@@ -3084,27 +3454,286 @@ only on the registry.
   shared write path calls the guards and runs the "before" events itself, with the same payload a
   factory route would give. The events are `bookings.booking.creating`, `.updating` and the like,
   where a subscriber can veto with a status and a message. This is where a clinic adds "a child
-  patient needs a guardian" or a product adds qualification matching (section 4) — without changing
-  the engine. A product rule that blocks is a business rule, so it blocks in every mode. All three
-  run before the module's transaction and hold none of its locks, so a slow product check never
-  holds a subject's lock. A product rule that must see the final state inside the transaction needs
-  the transactional pre-write hook the platform is adding to its command bus (proposed in the open
-  pull request for configurable calendar event types); the module adopts it when it lands and does
-  not invent its own.
+  patient needs a guardian" — a check on the reservation itself, not on when a subject is busy.
+  Busy time — an external calendar, a maintenance plan — is an occupancy source of the
+  availability service instead (below), so free slots and the automatic pick see it too (section
+  17). A product rule that blocks is a business rule, so it blocks in every mode. All three run
+  before the module's transaction and hold none of its locks, so a slow product check never holds a
+  subject's lock. A product rule that must see the final state inside the transaction uses the
+  command context's transactional pre-write hook (`beforeTransactionalWrite` on
+  `CommandRuntimeContext`, merged to `develop` with the configurable calendar event types, #6688);
+  the module's commands call it the way the calendar's commands do, and the module does not invent
+  its own.
+
+### Availability
+
+"Is this subject busy in this range, and why" has one answer. Free slots, the automatic pick, every
+write that changes occupancy (section 9), the conflict read, the timeline read, the scan and the
+planner subscriber all build it the same way; none of them keeps its own copy of the rules
+(section 17):
+
+```
+the module's own reservations      overlap, with buffers (18)      always counted, cannot be removed
++ the occupancy sources            unavailability, working hours,  asked through the availability
+                                   a product's own                 service, a set that can be replaced
+```
+
+The module counts its own reservations itself, on every path, before it asks any source. They are
+not a source: the overlap under `reject` and the locks stand on them (section 9), so no
+replacement of the service can drop them. Everything else comes from the availability service.
+The occupancy service (section 12) answers a narrower question — which reservations a subject has.
+
+**Occupancy sources.** The availability service is a set of sources. Each one answers, for a list
+of subjects and a range, which intervals are not free, in bulk, with no paging:
+
+```
+id          stable and public: 'unavailability', 'working_hours', or a product's own
+kind        the conflict kind every interval of the source gives, with its label
+severity    warning or blocking, the source's default; the organization can change it (7.5)
+intervals   per subject: a list of { from, to, label, booking id }, or "unknown" when the
+            source cannot tell; booking id is set only on an interval that mirrors one
+            reservation of this module, with that reservation's own window
+```
+
+The question carries the scope, the subjects and the range, the entity manager to read with, the
+occupancy service bound to that entity manager, and `resolve` for any other service of the request
+container. A source answers per subject and time only; a rule that depends on the target or the
+reservation's fields is a write check (Writes, above).
+
+A write asks after it has flushed its change inside the transaction, so the occupancy service
+already returns the changed reservations at their new windows. A compound Save applies its changes
+in the order sent (section 11); each runs in its own savepoint, is checked against the state the
+earlier accepted ones leave, and is released when accepted or rolled back to when refused. Built in:
+
+```
+source            what it returns                                kind                    severity
+unavailability    windows from the provider plugins (6)          unavailability          warning (9)
+working_hours     phase 2: time outside the subject's hours      outside_working_hours   warning (9)
+```
+
+The built-in kinds keep the rules of section 9; their severity is not a setting. A product adds
+its own sources the same way: the `customers` calendar's meetings, busy time mirrored from an
+external calendar, a person's hours in another system, a machine's maintenance plan.
+
+Rules that count reservations — "at most six visits a day" — are not sources: the day they close
+is busy for the seventh reservation only, not for the six that fill it, and an interval cannot say
+that. They are left for later as an additive, optional field of the interval (section 4,
+capacity). Until then a product enforces such a limit as a write check, at the known cost that a
+slot can be shown and then refused.
+
+**What a severity does.** The reads treat every interval as busy, whatever its severity: the slot is
+hidden and the automatic pick skips the subject. The write applies it. A `blocking` interval refuses,
+in every mode, any write on the list of section 9 (Writes that change occupancy) that adds
+occupancy onto it — a target change that shifts the window and an undo that reopens a cancel
+included — and only for the time that write adds. The added time is counted per subject: the
+subject's new window minus what it occupied in this reservation before the write. A closed,
+cancelled or unplaced reservation occupies nothing, so a reopen, the undo of a cancel and a place
+add the whole window, and so does a joining subject. A write that closes, cancels, unplaces or only frees time is never refused by a
+product source, so a reservation that busy time landed on later can always be repaired. A
+product source's `warning` interval behaves like an unavailability window: it warns, and under
+`confirm` it needs a confirmation (section 9) — but, like a `blocking` one, only for the added
+time, so a repair is never stricter under a warning than under a block. The same holds for an
+`unknown` answer. Under
+`confirm` the intervals of a product source are compared by kind, subject, source and their number,
+not by their exact window, so a mirror that shifts by a minute does not ask for a second
+confirmation, and a second meeting in the same window does.
+
+**When a source cannot tell.** For a product source, an `unknown` answer hides the subject from the
+public page and from the automatic pick — a pool whose every member is `unknown` fails the pick
+with `pool_exhausted`, and staff pick by hand — and a public request counts it as busy (section 19). A
+public request rechecks with the read rule, so for it a `warning` interval is busy too. In the staff's free slots such a subject is not free: a
+start only it could fill is returned marked `unknown`, and the user picks it by hand. Its row on the
+timeline is marked. A write by staff passes with a warning that names the source, and under
+`confirm` that warning is on the list to confirm. This holds for a `blocking` source too: an
+integration that is down must not stop an organization from booking, and the reservation it would
+have refused shows as a conflict once the source answers again. The built-in `unavailability`
+answering `unknown` for a team keeps the rule of section 6: the row is marked, the write gets no
+warning, and the automatic pick may take the team.
+
+**When a source fails.** The engine clips intervals to the range and drops an interval whose end
+is not after its start and one for a subject not asked about. A
+source that throws answers `unknown` for every subject asked, and the error is logged with its id.
+
+**Inside the write.** The sources run in the write transaction, under the subject and target locks,
+with the transaction's entity manager — never the container's, which would wait for a second
+connection while the first holds the locks. A source that reads this module's reservations does so
+through the occupancy service, which takes the caller's entity manager (section 12) and, after the
+flush, already returns the changed reservations at their new windows. Such a count is stable
+for the locked subjects and target only; a limit across the whole organization — fifty visits a day
+in the clinic — can be passed by two parallel writes for different doctors. A source that reads
+another module's data gets no promise at all: a busy interval written there a moment later is not
+seen by this write, and the next conflict read shows it. Because a source runs under the locks, it
+reads only from the database, in bulk, and calls no external API. An undo that restores dates is a
+write like any other: it asks the sources with the restored windows, and a `blocking` interval
+refuses it (section 12).
+
+**Its own intervals.** The engine drops every source interval that carries a booking id, without
+looking the id up; a source sets it only on an interval that mirrors a reservation of this module,
+and the module's own table is the truth about its reservations. So a reservation mirrored to an external calendar never
+conflicts with its own copy, also in the moment after a cancel and before the mirror catches up.
+
+**On the screen and in the scan.** The timeline read returns the intervals of every source in the
+set, with their kind and severity, so the pure engine in the browser (section 9) shows the same
+conflicts while a bar is dragged; the server still decides on save. A source left out of the set is
+not asked anywhere: its intervals are neither shown nor counted, on any screen or in the scan. The
+scan and the planner subscriber ask only the built-in sources of the set, so a product source costs
+them nothing; when the set has no `unavailability`, the public page does not read planner and its
+"planner unreadable gives no slots" rule (section 19) does not apply. The built-in kinds are
+reported and notified as in section 9. A product source's intervals show on the
+timeline and in the conflict read and are not reported by the scan; a product that wants to notify
+does so from its own module.
+
+**Picking strategies.** A strategy gets the free members of the pool in a stable order, the count
+the requirement asks for, the pool's pointer and the question's entity manager. It returns that many
+distinct members from the list it was given and the new pointer; the module checks both and moves
+the pointer in the same transaction (section 17). A strategy that needs more — "least booked this
+week" — reads it through the occupancy service. A service requirement names its strategy;
+`round_robin` is the default and is always registered. A requirement naming a strategy that is not
+registered, or a strategy that throws, returns a member outside the list or too few, fails the
+write with 422 `strategy_failed` and the requirement named, and the pointer does not move.
+
+**How to extend and override it.**
+
+```
+what                          how                                          who
+add a source                  registerBookingsOccupancySource(source)      a module, from its di.ts
+add a strategy                registerBookingsPickingStrategy(strategy)    a module, from its di.ts
+replace or remove a source,   replace the DI key `bookingsAvailabilityService`  an application, in
+change the whole set          with a service built from its own list            src/di.ts or modules.ts
+                                                                                (modules.ts wins)
+fixed                         the module's own reservations, round_robin   nobody
+```
+
+A module calls the register functions from its `di.ts`, which runs for every request container. A
+second call with a known id is ignored silently, like `registerCatalogPricingResolver` — ids are
+compared, not objects. A built-in id is ignored too, with one logged error per process; the call
+never throws, so it cannot take down the rest of the module's `di.ts`. Two modules that each add a
+source under their own ids do not erase each other.
+
+Strategies are added, not replaced: an application that wants another rule registers its own
+strategy under a new id and names it in its service requirements, and `round_robin` stays as the
+default for the rest. Replacing a strategy under an existing id would change the picks of every
+pool that names it, without the pool's author knowing.
+
+The DI key holds a `BookingsAvailabilityService`: it answers the question and exposes the list of
+its sources. The exported factory builds one from a list: `createBookingsAvailabilityService({
+sources })`; `listBookingsOccupancySources()` returns the built-in sources and the registered ones.
+The module registers its own default as a scoped factory, so the list is read after every module's
+`di.ts` has run. A hand-written replacement must answer the question and list its sources. The
+overlap, the dropping of mirrors and the severities stay in the engine, so a replacement cannot
+bypass them. When the service itself throws, the engine asks directly only the built-in sources the
+service lists — none when listing fails too — treats its product sources as `unknown` and logs the
+key, so a source the application removed never comes back.
+Removing a source means building the service from a list without it. The import path assumes the
+module lives in `packages/core` (section 21). `lib/availability` is safe for the browser — the
+factory and the list import no ORM or server-only code, and a source gets its entity manager from
+the question — because `modules.ts` is also loaded in the browser. An application whose sources
+need server-only code builds the set in `src/di.ts` instead. The example is the application's
+`src/modules.ts`, where `ModuleEntry` is declared; it removes `working_hours`, which exists from
+phase 2:
+
+```ts
+import { asFunction } from 'awilix'
+import type { DiBindingOverrideDefinition } from '@open-mercato/shared/modules/overrides'
+import {
+  createBookingsAvailabilityService,
+  listBookingsOccupancySources,
+} from '@open-mercato/core/modules/bookings/lib/availability'
+
+export const enabledModules: ModuleEntry[] = [
+  {
+    id: 'bookings',
+    from: '@open-mercato/core',
+    overrides: {
+      di: {
+        bookingsAvailabilityService: {
+          register(container, key) {
+            container.register({
+              [key]: asFunction(() =>
+                createBookingsAvailabilityService({
+                  sources: listBookingsOccupancySources().filter((source) => source.id !== 'working_hours'),
+                }),
+              ).scoped(),
+            })
+          },
+        } satisfies DiBindingOverrideDefinition,
+      },
+    },
+  },
+]
+```
+
+The rules of the key:
+
+- do not set the key to `null`: the platform unregisters it — the request container's unregister
+  re-registers the key as `undefined` — and every read and write that needs the service fails with
+  an internal error naming the key. To drop every product
+  source, build the service from an empty list,
+- the container is built per request, so this scoped registration is built per request too; the
+  service keeps no state between requests, and the round-robin pointer lives in its table (17).
+
+Precedence is the platform's: the module's own registration, then each later module's `di.ts` in
+the order of `modules.ts`, then the application's `src/di.ts`, then `overrides.di` in `modules.ts`,
+then a programmatic override. The last one wins.
+
+Public and stable from the release that ships each (section 23): from phase 1 the DI key, the
+factory, the list function, `registerBookingsOccupancySource`, the source type, the id
+`unavailability`, and the id `working_hours` reserved — its source ships in phase 2; from phase 3 `registerBookingsPickingStrategy`, the strategy
+type and `round_robin`. An organization that does not want a product source at all needs an
+application that builds the set without it; the setting only chooses its severity.
+
+### An external calendar, without changing this module
+
+A standalone module — Google Calendar, say — needs no change in `bookings`. Each thing it must do
+maps to a mechanism above:
+
+```
+link a person to a calendar    its own table: subject id (provider and external id, section 6) →
+                               the user or staff member and their calendar account; the account's
+                               tokens in the platform's per-user integration credentials
+read busy time                 its own sync mirrors busy time into its own table — never a call to
+                               the calendar inside a write
+count it                       registerBookingsOccupancySource over that table; severity
+                               `warning` by default, `blocking` when the organization sets it (7.5)
+write the reservation out      persistent subscribers on every event of a reservation's life:
+                               bookings.booking.created, .placed, .unplaced, .moved, .resized,
+                               .updated, .cancelled, .deleted, and in phase 4 .requested,
+                               .confirmed, .declined, .expired; the subscriber reads the
+                               reservation by id and creates, moves or removes the external
+                               event. A status change other than cancel — completed, no-show,
+                               reopen — rides .updated with the status (12). A compound Save emits
+                               .moved or .resized per applied change; the undo of a create emits .deleted, any other undo
+                               .updated with the restored state (12)
+```
+
+The hard cases:
+
+- **its own copy** — the external event carries the booking id, the mirror stores it, and the engine
+  drops it (above), so editing a reservation never conflicts with its own event,
+- **no personal data out** — the external event carries the time and a link back, not the target's
+  name, so a patient's name (7.4) does not leave the platform through it and a renamed target needs
+  no resync,
+- **retries and duplicates** — the external event is keyed by booking id in the platform's external
+  id mappings. The calendar module stores what it last wrote — window, participants, status — and
+  skips a reservation that still matches it; comparing the content, not `updatedAt`, also catches an
+  undo that restores an older state. A failed call is retried by the queue; a retry or a duplicate
+  event does nothing,
+- **the calendar is down** — the mirror stops refreshing. The source answers `unknown` for a subject
+  whose mirror is older than the module's own limit, which hides it from the public page and lets
+  staff book with a warning (above),
+- **the slot is taken in between** — busy time can land in the external calendar after the write
+  checked the mirror, or the calendar can refuse the event. The reservation stands: this module is
+  the truth about it, and it never moves a reservation on its own. The calendar module records the
+  clash, and the next conflict read shows it once the mirror has it; notifying is the calendar
+  module's job.
 
 ### Domain registries
 
 - **providers** of subjects (section 6),
-- **occupancy sources**: another module can feed busy intervals of a subject into the engine, next
-  to reservations and unavailability. Meetings from the `customers` calendar can be one — the module
-  then sees a doctor's meeting as occupancy without copying it. A source is read-only input: its
-  intervals are shown on the timeline and give conflicts that only warn, in every mode; they take
-  no locks, so they never decide a write under `reject` or `confirm`; the scan does not report them
-  and they create no notifications; the occupancy service does not return them, because it answers
-  for reservations only. Taking part in locks and notifications needs the source's module to
-  promise the same consistency as reservations, and that is left for when a source needs it,
-- **picking strategies** for pools (section 17),
-- **conflict kinds**: a product can add its own kind of conflict with its own label and severity.
+- **occupancy sources** of the availability service (above),
+- **picking strategies** for pools (section 17, and Availability above),
+- **conflict kinds**: a product source declares its kind and label with the source; there is no
+  separate register (Availability above).
 
 ### Screens
 
@@ -3112,8 +3741,8 @@ only on the registry.
   hosts: a product adds fields and sections,
 - **tables** — reservations, unplaced reservations, targets, subjects, services, pages — as table
   extension hosts: columns, row actions, bulk actions, filters,
-- **injection spots** on the timeline toolbar, the timeline row header, the reservation card and each
-  step of the public page,
+- **injection spots** on the timeline toolbar, the timeline row header, the calendar view's toolbar
+  (phase 2), the reservation card and each step of the public page,
 - **component replacement** for the reservation bar, the reservation card, the subject row header and
   the steps of the public page. A product replaces how a visit looks without touching how it is
   stored.
@@ -3123,6 +3752,47 @@ configuration of the same reservation: its services, its custom fields, its vali
 replaced components.
 
 ## 21. What changed and what we do not know yet
+
+### Changes in version 4.2
+
+Answering the review of 21 October on this pull request, which asks the module to be a base that
+other booking systems extend without changing it.
+
+**Availability you can replace (point 2).** "Is this subject busy" has one answer, built the same
+way by free slots, the automatic pick, every write under the locks, the conflict read, the timeline
+and the scan. The module counts its own reservations itself; everything else comes from occupancy
+sources of an availability service. A module adds a source; an application replaces or removes
+sources by replacing the service through `overrides.di` in `modules.ts`, with the platform's
+precedence, an example and tests for reads and writes. A source is `warning` or `blocking`; the
+organization chooses for each product source. A `blocking` interval refuses in every mode, only the
+writes that add time onto it. Picking strategies are added the same way (9, 12, 13, 17, 20, 23, 25).
+
+**An external calendar without changing the module (point 5).** Section 20 walks through a Google
+Calendar module built only on public contracts: per-person accounts in its own table, busy time
+mirrored into its own table and counted as an occupancy source, reservation events written out by
+persistent subscribers, its own copy dropped by booking id, retries keyed by booking id, `unknown`
+when the calendar is down, and what happens when a slot is taken in between (12, 20, 25).
+
+**Several services in one reservation (point 1).** A reservation holds zero or more service lines
+that run one after another in its window. Durations and prices add up; requirements merge, so one
+dentist serves both lines. Removing a line shortens the visit and drops the people only it needed
+(4, 7, 12, 13, 16, 22).
+
+**Services defined in code (point 4).** `defineBookableService` and `seedBookableServices` let a
+product module ship its services and seed them from `seedDefaults`, through the module's commands,
+idempotently by a definition key, with a checksum of what it writes. An administrator's change wins
+over later seeds; an application turns a module's seed off through `modules.ts`. Roles are found
+by name through a third read-only method of the `staff` directory service (4, 6, 7, 13, 16, 22, 23).
+
+**The calendar view and the timeline library (point 3).** The calendar view of phase 2 is built on
+the shared `ui` schedule view, which `planner` already uses; the zone and the drag it gains serve
+every caller. The `customers` calendar was checked as a base and why it is not used is written down.
+The timeline stays on `vis-timeline`, already proven in a client project on Open Mercato; a
+comparison with four alternatives — licence, releases, React and design system, dragging and
+resizing, time zones, new dependencies, performance — is in section 11 (11, 20, 23).
+
+**Left for later, on purpose.** Rules that count reservations, such as a daily limit, and booking a
+participant only for its own line's part of a visit (16, 20).
 
 ### Changes in version 4.1
 
@@ -3216,11 +3886,13 @@ to move.
 **A conflict can be rejected.** The behaviour is a setting: advisory or reject, advisory by
 default. The mode has a default for the organization and exceptions for chosen subject
 categories; with several participants the stricter one applies. Rejection applies only to
-overlapping reservations; a conflict with unavailability always only warns.
+overlapping reservations and to a `blocking` product source (section 20); a conflict with
+unavailability always only warns.
 
 **Conflict detection moved from the background to the response of a reservation write.** Under
 advisory it is computed after the commit, under reject the overlap check runs before the commit,
-in the transaction. A window write is handled by a separate conflict read called from the screen,
+in the transaction. *Superseded in version 4: every mode computes in the transaction, under the
+locks (section 9).* A window write is handled by a separate conflict read called from the screen,
 and by the scan.
 
 **The daily scan is the source of truth for unavailability changes.** Rule-change events, where
@@ -3286,8 +3958,14 @@ cover five languages.
 
 ### What we do not know yet
 
-- Whether the maintainers accept `vis-timeline` as a new production dependency. The review
-  recommends yes; the decision is theirs.
+- Whether the maintainers accept `vis-timeline` as a new production dependency. It is already
+  proven in a client project on Open Mercato and compared with four alternatives in section 11; if
+  the maintainers have another library in mind, we will evaluate it.
+- Whether moving the `customers` calendar onto the shared `ui` schedule view (section 11) is enough
+  as a follow-up issue owned by `customers`, or should be part of this work.
+- Whether a dedicated override domain for the module's occupancy sources is wanted in `modules.ts`,
+  so an application could switch one source off by id. Today it builds the set without it through
+  `overrides.di` (section 20); a new domain is a change to `shared`, so it is the maintainers' call.
 - Planner's zone semantics are in flight (issue #5862, pull request #5868). Whether #5868 merges
   before phase 1, which semantics planner settles on — rules read in UTC, or in their declared
   zone — and whether the read method of section 5 should become the zone-aware expander the issue's
@@ -3353,8 +4031,12 @@ after any step, and what is not built yet is simply not there.
 6. **Reservation commands.** Create, update, save, place, unplace, move, resize, change status,
    apply changes; the idempotency table; the target and subject locks, the conflict policy and the
    "before" events inside the shared write path; the reported-conflicts table; undo.
+   The availability service of section 20 with its built-in sources, the source register function,
+   the factory and the source severities; the write asks it under the locks, after the flush, with
+   the transaction's entity manager.
 7. **Reads.** The timeline read with row paging and the unplaced list's first page, the conflict
-   read, the unplaced list, the occupancy service in the container; response enrichers applied by
+   read and the timeline read through the availability service, returning every source's intervals
+   with kind and severity, the unplaced list, the occupancy service in the container; response enrichers applied by
    hand on the hand-written reads.
 8. **Scan and notifications.** The paged organization-restricted recipient resolution in
    `notifications`, with its tests; the planner rule subscriber; the system scheduler entry, the worker on `bookings-scan`, the
@@ -3378,14 +4060,19 @@ after any step, and what is not built yet is simply not there.
 2. Working windows in the planner read method; `outside_working_hours` (18).
 3. Buffers on categories (18).
 4. The `confirm` mode, `bookings.override_conflict`, the confirmation dialog (9).
-5. Zone-aware day bucketing in the `ui` calendar view, then the calendar screen (11).
+5. Zone-aware day bucketing, the optional drag handler and the export of the calendar in the `ui`
+   schedule view; then the calendar screen with its toolbar injection spot (11, 20).
 6. Hourly scale on the timeline; second participant on the form.
 
 ### Phase 3: services and pools
 
-1. Service tables and the booking section injected into the product form (16).
-2. Price copy on the reservation (16).
-3. The fifth provider question, pool members, cursors and picking under locks (17).
+1. Service tables and the booking section injected into the product form (16); services defined in
+   code — `defineBookableService`, `seedBookableServices`, the definition key and the checksum, the
+   sixth provider question and the `staff` directory method that lists team roles by name (6, 16).
+2. Service lines on the reservation: the lines table, merging of requirements, the write input and
+   the card; price copy per line and the total (16).
+3. The fifth provider question, pool members, cursors and picking under locks (17); the strategy
+   registry with `round_robin` and `registerBookingsPickingStrategy` (20).
 4. The free slots read (17).
 5. The unit `days` and the definition of a day (18).
 
@@ -3410,7 +4097,9 @@ release, under the rules of `BACKWARD_COMPATIBILITY.md`:
 | ACL features | `bookings.view`, `bookings.manage_bookings`, `bookings.manage_settings`, and those of later phases | frozen |
 | notification types | `bookings.conflict`, `bookings.coverage_gap`, `bookings.request`, `bookings.request_expiring` | frozen |
 | widget spot ids and extension hosts | every host in the module's `extension-points.ts` (section 20) | frozen |
-| DI keys | `bookingsOccupancyService`, the provider registry | stable |
+| DI keys | `bookingsOccupancyService`, `bookingsAvailabilityService`, the provider registry | stable |
+| availability contract | `createBookingsAvailabilityService`, `listBookingsOccupancySources`, `registerBookingsOccupancySource`, `registerBookingsPickingStrategy`, the source and strategy types, the ids `unavailability`, `working_hours` and `round_robin`, the import path `lib/availability` (section 20) | stable from the phase that ships each part (strategies: phase 3); only optional fields added, so an existing source or strategy keeps compiling |
+| services in code | `defineBookableService`, `seedBookableServices`, the definition type, the import path `lib/services`, the rule that an administrator's change wins over a later seed (section 16) | stable from phase 3; only optional fields added |
 | queue and scheduler | the `bookings-scan` queue, the `bookings-requests` queue (phase 4) and the fixed UUID of the scheduler entry | stable |
 | API routes | the routes of section 12 | stable; fields only added |
 | database | `bookings_*` tables | additive only |
@@ -3425,7 +4114,8 @@ Five changes touch modules that already exist. Each is additive:
   members or teams of an organization with a search, and look them up by their own ids, returning
   name, card link, schedule id, role ids and whether they are active. The proposed directory spec
   of `staff` defines one method, keyed by user ids, for another consumer; these two sit next to it
-  on the same service. No entity, route or permission of
+  on the same service. Phase 3 adds a third, also read-only: the organization's team roles with
+  their names and, when set, their teams, for services defined in code (section 16). No entity, route or permission of
   `staff` changes, and nothing in `staff` learns about reservations.
 
 - **`planner`**: a new optional method on the availability service it already registers. No
@@ -3433,8 +4123,9 @@ Five changes touch modules that already exist. Each is additive:
 - **`customers`**: the declaration of the spot `detail:customers.person:tabs`, which the person page
   already renders and other modules already use. Declaring it changes nothing at run time; it only
   puts the spot into the catalog and freezes its id.
-- **`ui`** (phase 2): the calendar view puts entries into days by the zone it is given. Without a
-  zone it keeps today's behaviour, so no existing caller changes.
+- **`ui`** (phase 2): the calendar view puts entries into days by the zone it is given, and can let the
+  caller drag an existing entry. Without a zone, and without a drag handler, it keeps today's
+  behaviour, so no existing caller changes.
 
 There is no deprecation: nothing is renamed or removed. The rename of the module from `reservations`
 to `bookings` happened before any release, in text only.
@@ -3525,7 +4216,8 @@ Risks of phase 1 come first; later phases are marked.
 - **Affected area**: double bookings across the calendar and reservations
 - **Mitigation**: the calendar becomes an occupancy source of `bookings`, and the calendar's guard
   is proposed to consult the occupancy service (section 1).
-- **Residual risk**: until both sides are wired, a visit warns in `bookings` but a reservation does
+- **Residual risk**: until both sides are wired, a visit warns or blocks in `bookings`, by its
+  source's severity, but a reservation does
   not stop a visit.
 
 #### `staff` moves and the build breaks
@@ -3557,6 +4249,39 @@ Risks of phase 1 come first; later phases are marked.
   asserts it runs inside a transaction (sections 9, 17).
 - **Residual risk**: under `advisory` two overlapping writes both pass — by design, the conflict is
   shown and reported.
+
+#### A slow occupancy source holds the locks
+- **Scenario**: a product source runs a heavy query, or calls an external calendar, inside the
+  write transaction; every write for its subjects waits behind it.
+- **Severity**: Medium
+- **Affected area**: reservation writes, pools, public pages
+- **Mitigation**: the contract says a source reads the database in bulk and calls no external API;
+  external busy time is mirrored by the source module's own sync first (section 20); the write
+  logs the time each source took, by source id.
+- **Residual risk**: the contract cannot be enforced in code; a badly written source slows the
+  writes of its organization until it is fixed or removed from the set.
+
+#### A blocking source is down
+- **Scenario**: an organization sets its external calendar to `blocking`; the calendar's sync
+  stops, or the source throws, and the source answers `unknown`.
+- **Severity**: Medium
+- **Affected area**: staff writes; public pages
+- **Mitigation**: staff can still book, with a warning naming the source, and under `confirm` only
+  with a confirmation; the public page and the automatic pick treat the subject as busy, so no
+  customer books into an unknown slot (section 20). Failing open for staff is chosen on purpose: an
+  integration that is down must not stop an organization from booking.
+- **Residual risk**: a staff write made while the source was down can stand on a slot the calendar
+  had busy; the conflict read shows it once the source answers again.
+
+#### A busy interval appears after the check
+- **Scenario**: a product source reads another module's data — an external calendar mirror — and a
+  busy interval lands there just after the write checked it.
+- **Severity**: Low
+- **Affected area**: reservation writes with product sources
+- **Mitigation**: the next conflict read and the timeline show the clash; the source's module can
+  notify from its own sync (section 20).
+- **Residual risk**: for that moment the reservation stands on a slot that is no longer free; the
+  module never moves it on its own.
 
 #### A double submit creates two reservations
 - **Scenario**: a user clicks save twice, or a public request is retried by the browser.
@@ -3694,10 +4419,18 @@ Risks of phase 1 come first; later phases are marked.
   (section 13).
 - **Residual risk**: none accepted.
 
-## 26. Final compliance report — 2026-10-14
+## 26. Final compliance report — 2026-10-21
 
 This is a proposal, not an implementation. The report checks the design against the rules of the
 core repository; each row is verified again against the code of each phase.
+
+Re-checked for version 4.2 against `develop`: the availability override uses the platform's own
+`overrides.di` in `modules.ts` and its precedence (`packages/shared/src/lib/di/container.ts`,
+`packages/shared/src/modules/overrides.ts`); the source and strategy registries follow
+`registerCatalogPricingResolver`; the external calendar relies on the existing per-user integration
+credentials, external id mappings and persistent event subscribers; seeding services uses the
+standard `seedDefaults` hook, its `modules.ts` override and `mercato seed:defaults`. The new public
+surface is listed in section 23.
 
 ### Files reviewed
 - `AGENTS.md` (root)
@@ -3768,6 +4501,16 @@ Ready for review as a design of phase 1 and a plan of phases 2–4. Each phase r
 against its code.
 
 ## Changelog
+
+### 2026-10-21
+- Version 4.2, answering the review of 21 October. Availability as one answer built from the
+  module's reservations and replaceable occupancy sources, with `warning` and `blocking` severity,
+  an organization setting, overrides through `overrides.di` in `modules.ts`, an example and tests
+  (sections 9, 12, 13, 17, 20, 23, 25). An external calendar module walked through on public
+  contracts only (20). Several service lines in one reservation (16). Services defined in code and
+  seeded idempotently (16). The calendar view on the shared `ui` schedule view, the `customers`
+  calendar checked, `vis-timeline` kept and compared with four alternatives (11). Section 21 lists
+  the changes.
 
 ### 2026-10-14
 - Version 4.1, answering the review of 8 October: a soft-deleted provisional target loses the
