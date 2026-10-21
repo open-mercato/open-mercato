@@ -576,3 +576,7 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 ## Discord AI Proposals (2026-10-13)
 
 [Waiver](UPGRADE_NOTES.md#discord-proposals)
+
+## Attachment Transfer Id Limit (2026-10-21)
+
+✗ BREAKING request shape under the [exception](.ai/specs/2026-10-21-attachments-transfer-max-ids.md#migration--backward-compatibility): `POST /api/attachments/transfer` answers `400` for more than 100 `attachmentIds` (#7672).

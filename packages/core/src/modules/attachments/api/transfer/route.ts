@@ -13,7 +13,7 @@ import {
 
 const transferSchema = z.object({
   entityId: z.string().min(1),
-  attachmentIds: z.array(z.string().uuid()).min(1),
+  attachmentIds: z.array(z.string().uuid()).min(1).max(100),
   fromRecordId: z.string().min(1).optional(),
   toRecordId: z.string().min(1),
 })
