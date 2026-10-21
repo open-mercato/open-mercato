@@ -1,8 +1,15 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { buildChanges, requireId, parseWithCustomFields, setCustomFieldsIfAny, emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import {
+  buildChanges,
+  requireId,
+  parseWithCustomFields,
+  setCustomFieldsIfAny,
+  emitCrudSideEffects,
+  emitCrudUndoSideEffects,
+} from '@open-mercato/shared/lib/commands/helpers'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { UniqueConstraintViolationException } from '@mikro-orm/core'
+import { LockMode, UniqueConstraintViolationException } from '@mikro-orm/core'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -45,7 +52,7 @@ import {
   getErrorMessage,
 } from './shared'
 import { SalesTaxRate } from '@open-mercato/core/modules/sales/data/entities'
-import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
+import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 
 const variantCrudEvents: CrudEventsConfig = {
   module: 'catalog',
@@ -56,6 +63,21 @@ const variantCrudEvents: CrudEventsConfig = {
     organizationId: ctx.identifiers.organizationId,
     tenantId: ctx.identifiers.tenantId,
   }),
+}
+
+const variantPriceCrudEvents: CrudEventsConfig = {
+  module: 'catalog',
+  entity: 'price',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+}
+
+const variantPriceCrudIndexer: CrudIndexerConfig = {
+  entityType: E.catalog.catalog_product_price,
 }
 
 type VariantSnapshot = {
@@ -747,31 +769,49 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
+    const variantScope = { tenantId: record.tenantId, organizationId: record.organizationId }
     let priceSnapshots: VariantPriceSnapshot[] = []
+    let variantLocked = false
     await withAtomicFlush(
       em,
       [
         async () => {
-          priceSnapshots = await loadVariantPriceSnapshots(em.fork({ keepTransactionContext: true }), record.id, {
-            tenantId: record.tenantId,
-            organizationId: record.organizationId,
-          })
+          const locked = await findOneWithDecryption(
+            em,
+            CatalogProductVariant,
+            { id: record.id },
+            { lockMode: LockMode.PESSIMISTIC_WRITE },
+            variantScope,
+          )
+          if (!locked) return
+          variantLocked = true
+          priceSnapshots = await loadVariantPriceSnapshots(em.fork({ keepTransactionContext: true }), record.id, variantScope)
           if (priceSnapshots.length) {
             await em.nativeDelete(CatalogProductPrice, { id: { $in: priceSnapshots.map((price) => price.id) } })
           }
         },
         () => {
-          em.remove(record)
+          if (variantLocked) em.remove(record)
         },
       ],
       { transaction: true }
     )
+    if (!variantLocked) return
     await capturePriceHistoryEntries(em, priceSnapshots, 'delete', {
       metadata: { undoneCommand: 'catalog.variants.create' },
       cache: resolveOmnibusCache(ctx.container),
     })
-    await resetVariantPriceCustomFields(ctx.container.resolve('dataEngine') as DataEngine, priceSnapshots)
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await resetVariantPriceCustomFields(dataEngine, priceSnapshots)
     for (const price of priceSnapshots) {
+      await emitCrudUndoSideEffects({
+        dataEngine,
+        action: 'deleted',
+        entity: price,
+        identifiers: { id: price.id, organizationId: price.organizationId, tenantId: price.tenantId },
+        events: variantPriceCrudEvents,
+        indexer: variantPriceCrudIndexer,
+      })
       await invalidateCrudCache(
         ctx.container,
         'catalog.price',

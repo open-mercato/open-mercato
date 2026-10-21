@@ -1,4 +1,4 @@
-export {}
+import { LockMode } from '@mikro-orm/core'
 
 const registerCommand = jest.fn()
 
@@ -60,6 +60,7 @@ const findWithDecryption = jest.fn()
 const setCustomFieldsIfAny = jest.fn()
 const buildCustomFieldResetMap = jest.fn()
 const invalidateCrudCache = jest.fn()
+const emitCrudUndoSideEffects = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/commands', () => ({ registerCommand }))
 
@@ -75,7 +76,7 @@ jest.mock('@open-mercato/shared/lib/commands/helpers', () => ({
   parseWithCustomFields: jest.fn((_schema: unknown, raw: unknown) => ({ parsed: raw, custom: {} })),
   setCustomFieldsIfAny: (...args: unknown[]) => setCustomFieldsIfAny(...args),
   emitCrudSideEffects: jest.fn().mockResolvedValue(undefined),
-  emitCrudUndoSideEffects: jest.fn().mockResolvedValue(undefined),
+  emitCrudUndoSideEffects: (...args: unknown[]) => emitCrudUndoSideEffects(...args),
 }))
 
 jest.mock('@open-mercato/shared/lib/crud/cache', () => ({
@@ -92,7 +93,8 @@ jest.mock('@open-mercato/shared/lib/commands/customFieldSnapshots', () => ({
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: (...args: unknown[]) => findWithDecryption(...args),
-  findOneWithDecryption: jest.fn().mockResolvedValue(null),
+  findOneWithDecryption: (em: { findOne: jest.Mock }, entity: unknown, where: unknown, options: unknown) =>
+    em.findOne(entity, where, options),
 }))
 
 jest.mock('#generated/entities.ids.generated', () => ({
@@ -253,6 +255,8 @@ beforeEach(() => {
   buildCustomFieldResetMap.mockReset()
   invalidateCrudCache.mockReset()
   invalidateCrudCache.mockResolvedValue(undefined)
+  emitCrudUndoSideEffects.mockReset()
+  emitCrudUndoSideEffects.mockResolvedValue(undefined)
   buildCustomFieldResetMap.mockImplementation((before?: Row) =>
     before ? Object.fromEntries(Object.keys(before).map((key) => [key, null])) : {},
   )
@@ -352,5 +356,54 @@ describe('catalog.variants.create undo', () => {
     expect(harness.historyRows).toEqual([])
     expect(setCustomFieldsIfAny).not.toHaveBeenCalled()
     expect(invalidateCrudCache).not.toHaveBeenCalled()
+    expect(emitCrudUndoSideEffects).not.toHaveBeenCalled()
+  })
+
+  it('locks the variant row inside the transaction before reading its prices', async () => {
+    const harness = buildHarness()
+
+    await createCommand.undo({ logEntry: variantCreateLog(), ctx: harness.ctx })
+
+    const lockCallIndex = harness.em.findOne.mock.calls.findIndex(
+      ([, filter, options]) => (filter as Row)?.id === VARIANT_ID && (options as Row)?.lockMode === LockMode.PESSIMISTIC_WRITE,
+    )
+    expect(lockCallIndex).toBeGreaterThanOrEqual(0)
+    const lockOrder = harness.em.findOne.mock.invocationCallOrder[lockCallIndex]
+    expect(harness.em.begin.mock.invocationCallOrder[0]).toBeLessThan(lockOrder)
+    expect(lockOrder).toBeLessThan(findWithDecryption.mock.invocationCallOrder[0])
+  })
+
+  it('leaves prices alone when the variant disappears before it can be locked', async () => {
+    const harness = buildHarness()
+    harness.em.findOne.mockImplementation(async (_entity: unknown, filter: Row, options?: Row) =>
+      options?.lockMode ? null : filter?.id === VARIANT_ID ? { ...VARIANT_RECORD } : null,
+    )
+
+    await createCommand.undo({ logEntry: variantCreateLog(), ctx: harness.ctx })
+
+    expect(findWithDecryption).not.toHaveBeenCalled()
+    expect(harness.em.nativeDelete).not.toHaveBeenCalled()
+    expect(harness.em.remove).not.toHaveBeenCalled()
+    expect(harness.priceIds()).toEqual([VARIANT_PRICE_ID, PRODUCT_PRICE_ID])
+    expect(emitCrudUndoSideEffects).not.toHaveBeenCalled()
+  })
+
+  it('queues a price deleted event and query-index removal for every removed variant price', async () => {
+    const harness = buildHarness()
+
+    await createCommand.undo({ logEntry: variantCreateLog(), ctx: harness.ctx })
+
+    expect(emitCrudUndoSideEffects).toHaveBeenCalledTimes(1)
+    const [call] = emitCrudUndoSideEffects.mock.calls[0] as [Row]
+    expect(call).toMatchObject({
+      action: 'deleted',
+      entity: expect.objectContaining({ id: VARIANT_PRICE_ID }),
+      identifiers: { id: VARIANT_PRICE_ID, organizationId: ORG_ID, tenantId: TENANT_ID },
+      events: expect.objectContaining({ module: 'catalog', entity: 'price', persistent: true }),
+      indexer: { entityType: 'catalog:catalog_product_price' },
+    })
+    expect(emitCrudUndoSideEffects.mock.invocationCallOrder[0]).toBeGreaterThan(
+      harness.em.commit.mock.invocationCallOrder[0],
+    )
   })
 })
