@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 152 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 153 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -202,3 +202,5 @@ This catalog indexes 152 focused lessons. Route the task first, then read only r
 
 - [Credit the author, not the merger, when generating a changelog](lessons/credit-the-author-not-the-merger-in-a-changelog.md) — area:spec-pr,ai-workflow; module:platform; topic:data-integrity,generated-files
 - [Write Open Mercato specifications in English](lessons/write-open-mercato-specifications-in-english.md) — area:spec-pr,ai-workflow; module:platform; topic:specifications,documentation-language
+
+- [Measure visible checkbox content in layout tests](lessons/measure-visible-checkbox-content-in-layout-tests.md) — area:testing,backend-ui; module:checkout,ui; topic:testing,layout,checkbox
