@@ -29,17 +29,22 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs, promisify } from 'node:util'
 import {
+  changelogEntryDate,
   changelogSection,
   dropUnreleased,
   ensureChangelogEntry,
   highestLatest,
   insertChangelogEntry,
+  isMinorRelease,
   newestLineTag,
   nextMinorVersion,
   planRelease,
+  previousMinorRelease,
   releaseBranchFor,
   resolveStableDistTag,
   stampManifestVersion,
+  stampUpgradeWindow,
+  upgradeCompanionSkill,
   type ChangelogSection,
 } from './lib/release-line.mts'
 import { createGithubClient, type GithubClient } from './lib/github-api.mts'
@@ -73,6 +78,8 @@ const repoRoot = process.env.OM_RELEASE_ROOT
   : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const TRUNK = 'main'
 const RELEASE_BODY_LIMIT = 125000
+const UPGRADE_NOTES = 'UPGRADE_NOTES.md'
+const COMPANION_SKILL_DIRS = ['.ai/skills', 'packages/create-app/agentic/shared/ai/skills']
 const BOOKKEEPING_LABELS = ['refactor', 'review', 'skip-changelog', 'skip-qa', 'priority-high', 'risk-low']
 
 function fail(message: string): never {
@@ -231,6 +238,32 @@ async function isReleased(tag: string): Promise<boolean> {
   return github().hasRelease(tag)
 }
 
+// A minor must ship with the upgrade companions the repository contract requires (the
+// `UPGRADE_NOTES.md` window from the previous minor and the companion skill on both agent
+// surfaces), dated with the release date. Checked before anything is committed or tagged.
+function stampMinorUpgradeWindow(version: string, tags: readonly string[], date: string) {
+  if (!isMinorRelease(version)) return
+  const from = previousMinorRelease(version, tags)
+  if (!from) return
+  const window = `${from} → ${version}`
+  const skill = upgradeCompanionSkill(from, version)
+  const missing: string[] = []
+  const notes = existsSync(abs(UPGRADE_NOTES)) ? readText(UPGRADE_NOTES) : ''
+  const stamped = stampUpgradeWindow(notes, from, version, date)
+  if (stamped.matches !== 1) missing.push(`exactly one "## ${window} (…)" window in ${UPGRADE_NOTES} (found ${stamped.matches})`)
+  for (const dir of COMPANION_SKILL_DIRS) {
+    if (!existsSync(abs(`${dir}/${skill}/SKILL.md`))) missing.push(`${dir}/${skill}/SKILL.md`)
+  }
+  if (missing.length > 0) {
+    fail(
+      `${version} is a minor release and needs its upgrade companions before it ships: ${missing.join('; ')}. ` +
+        `Add them on main (om-auto-update-changelog drafts them) and backport them to ${releaseBranchFor(version)}.`,
+    )
+  }
+  write(UPGRADE_NOTES, stamped.text)
+  log(`upgrade window ${window} dated ${date}`)
+}
+
 async function prepare() {
   const branch = flags.branch ?? process.env.GITHUB_REF_NAME ?? ''
   const manifestVersion = readManifest('package.json').version
@@ -273,6 +306,8 @@ async function prepare() {
   const entry = ensureChangelogEntry(changelog, version, today(), notes)
   write('CHANGELOG.md', entry.text)
   log(`changelog entry: ${entry.source}`)
+  const releaseDate = changelogEntryDate(changelogSection(entry.text, version)?.heading ?? '') ?? today()
+  stampMinorUpgradeWindow(version, tags, releaseDate)
 
   let sha = head
   if (!dryRun) {
@@ -336,10 +371,18 @@ async function announce() {
   const trunkSha = (await gh.getBranchSha(TRUNK)) ?? fail(`cannot resolve ${TRUNK}`)
   const trunkChangelog = await gh.readFile('CHANGELOG.md', trunkSha)
   const carried = insertChangelogEntry(trunkChangelog, version, `${section.heading}\n\n${section.body}\n`)
+  changed.clear()
+  if (carried !== trunkChangelog) changed.set('CHANGELOG.md', carried)
+  const releaseDate = changelogEntryDate(section.heading)
+  const tags = git('tag', '--list', 'v*').split('\n').filter(Boolean)
+  const from = isMinorRelease(version) ? previousMinorRelease(version, tags) : null
+  if (from && releaseDate) {
+    const trunkNotes = await gh.readFile(UPGRADE_NOTES, trunkSha)
+    const stamped = stampUpgradeWindow(trunkNotes, from, version, releaseDate)
+    if (stamped.text !== trunkNotes) changed.set(UPGRADE_NOTES, stamped.text)
+  }
   let changelogPr = ''
-  if (carried !== trunkChangelog) {
-    changed.clear()
-    changed.set('CHANGELOG.md', carried)
+  if (changed.size > 0) {
     changelogPr = await openBookkeepingPr(gh, {
       branch: `chore/changelog-v${version}`,
       parentSha: trunkSha,

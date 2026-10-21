@@ -8,6 +8,7 @@ import path from 'node:path'
 import test from 'node:test'
 import { createGithubClient, type FetchLike } from '../lib/github-api.mts'
 import {
+  changelogEntryDate,
   changelogSection,
   dropUnreleased,
   ensureChangelogEntry,
@@ -16,9 +17,11 @@ import {
   newestLineTag,
   nextMinorVersion,
   planRelease,
+  previousMinorRelease,
   releaseBranchFor,
   resolveStableDistTag,
   stampManifestVersion,
+  stampUpgradeWindow,
 } from '../lib/release-line.mts'
 
 const scriptPath = path.resolve('scripts/release-line.mts')
@@ -109,6 +112,23 @@ test('stamping changes only the version and keeps the manifest format', () => {
   const source = '{\n  "name": "@open-mercato/x",\n  "version": "0.9.0",\n  "private": false\n}\n'
   assert.equal(stampManifestVersion(source, '0.9.0'), source)
   assert.equal(stampManifestVersion(source, '0.10.0'), source.replace('0.9.0', '0.10.0'))
+})
+
+test('a minor upgrade window starts at the previous minor, never a patch', () => {
+  assert.equal(previousMinorRelease('0.10.0', ['v0.8.0', 'v0.9.0', 'v0.9.1', 'v0.9.2']), '0.9.0')
+  assert.equal(previousMinorRelease('1.0.0', ['v0.9.0', 'v0.10.0', 'v0.10.3']), '0.10.0')
+  assert.equal(previousMinorRelease('0.1.0', []), null)
+})
+
+test('the upgrade window is dated with the release date, once', () => {
+  const notes = '# Upgrade notes\n\n## 0.9.0 → 0.10.0 (Unreleased)\n\n- Do this.\n\n## 0.8.0 → 0.9.0 (2026-10-09)\n'
+  const stamped = stampUpgradeWindow(notes, '0.9.0', '0.10.0', '2026-11-20')
+  assert.equal(stamped.matches, 1)
+  assert.match(stamped.text, /^## 0\.9\.0 → 0\.10\.0 \(2026-11-20\)$/m)
+  assert.match(stamped.text, /^## 0\.8\.0 → 0\.9\.0 \(2026-10-09\)$/m, 'older windows are untouched')
+  assert.equal(stampUpgradeWindow(notes, '0.9.1', '0.10.0', 'x').matches, 0)
+  assert.equal(changelogEntryDate('# 0.10.0 (2026-11-20)'), '2026-11-20')
+  assert.equal(changelogEntryDate('# Unreleased'), null)
 })
 
 const CHANGELOG = '# 0.9.0 (2026-10-09)\n\n## Highlights\n\nBig.\n\n---\n\n# 0.8.0 (2026-09-01)\n\n- Old.\n'
@@ -309,8 +329,42 @@ test('prepare --dry-run bumps a released line to its next patch under latest-X.Y
   assert.match(fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8'), /^# 0\.9\.1 \(2026-10-21\)/)
 })
 
+function addUpgradeCompanions(root: string, from: string, to: string, marker: string) {
+  fs.writeFileSync(path.join(root, 'UPGRADE_NOTES.md'), `# Upgrade notes\n\n## ${from} → ${to} (${marker})\n\n- Do this.\n`)
+  for (const dir of ['.ai/skills', 'packages/create-app/agentic/shared/ai/skills']) {
+    const skillDir = path.join(root, dir, `om-auto-upgrade-${from}-to-${to}`)
+    fs.mkdirSync(skillDir, { recursive: true })
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), `---\nname: om-auto-upgrade-${from}-to-${to}\n---\n`)
+  }
+}
+
+test('prepare refuses a minor whose upgrade companions are missing', async () => {
+  const { root, git } = fixtureRepo('0.10.0')
+  git('tag', 'v0.9.0')
+  git('tag', 'v0.9.1')
+  const result = await runLine(root, ['prepare', '--dry-run', '--branch', 'release/v0.10.x', '--latest', '0.9.1', '--released', 'none', '--published', 'none', '--date', '2026-11-20'])
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /0\.10\.0 is a minor release and needs its upgrade companions/)
+  assert.match(result.stderr, /"## 0\.9\.0 → 0\.10\.0 \(…\)" window/)
+  assert.match(result.stderr, /om-auto-upgrade-0\.9\.0-to-0\.10\.0\/SKILL\.md/)
+})
+
+test('prepare dates a curated minor upgrade window with the date its changelog entry carries', async () => {
+  const { root, git } = fixtureRepo('0.10.0')
+  addUpgradeCompanions(root, '0.9.0', '0.10.0', 'Unreleased')
+  fs.writeFileSync(path.join(root, 'CHANGELOG.md'), `# 0.10.0 (2026-11-18)\n\n- Curated.\n\n${CHANGELOG}`)
+  git('add', '.')
+  git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'companions')
+  git('tag', 'v0.9.0')
+  const result = await runLine(root, ['prepare', '--dry-run', '--branch', 'release/v0.10.x', '--latest', '0.9.0', '--released', 'none', '--published', 'none', '--date', '2026-11-20'])
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(result.outputs.changelog, 'existing')
+  assert.match(fs.readFileSync(path.join(root, 'UPGRADE_NOTES.md'), 'utf8'), /^## 0\.9\.0 → 0\.10\.0 \(2026-11-18\)$/m)
+})
+
 test('prepare --dry-run ships a fresh line as committed and moves latest', async () => {
   const { root, git } = fixtureRepo('0.10.0')
+  addUpgradeCompanions(root, '0.9.0', '0.10.0', 'Unreleased')
   git('tag', 'v0.9.0')
   const result = await runLine(root, ['prepare', '--dry-run', '--branch', 'release/v0.10.x', '--latest', '0.9.0', '--released', 'none', '--published', 'none', '--date', '2026-10-21'])
   assert.equal(result.status, 0, result.stderr)

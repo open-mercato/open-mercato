@@ -204,3 +204,50 @@ export function insertChangelogEntry(changelog: string, version: string, entry: 
   lines.splice(at, 0, ...block)
   return lines.join('\n')
 }
+
+const UPGRADE_WINDOW = /^## (\d+\.\d+\.\d+) → (\d+\.\d+\.\d+) \(([^)]*)\)$/
+
+export function isMinorRelease(version: string): boolean {
+  const parsed = parseStableVersion(version)
+  return parsed !== null && parsed[2] === 0
+}
+
+// The release a minor's upgrade window starts from: the newest x.y.0 tagged below it. Patches of
+// older lines carry no window, so they never count.
+export function previousMinorRelease(version: string, tags: readonly string[]): string | null {
+  return (
+    tags
+      .map((tag) => tag.trim())
+      .filter((tag) => tag.startsWith('v') && isMinorRelease(tag.slice(1)) && compareStableVersions(tag, version) < 0)
+      .sort(compareStableVersions)
+      .at(-1)
+      ?.slice(1) ?? null
+  )
+}
+
+export function upgradeCompanionSkill(from: string, to: string): string {
+  return `om-auto-upgrade-${from}-to-${to}`
+}
+
+export function changelogEntryDate(heading: string): string | null {
+  return /^# \S+ \((\d{4}-\d{2}-\d{2})\)$/.exec(heading.trim())?.[1] ?? null
+}
+
+// A minor ships with an `UPGRADE_NOTES.md` window `from → to` whose marker is the release date the
+// changelog entry carries. Stamping it at release time keeps the two in step however long the
+// line was stabilised. Returns how many windows matched, so callers can insist on exactly one.
+export function stampUpgradeWindow(
+  notes: string,
+  from: string,
+  to: string,
+  date: string,
+): { text: string; matches: number } {
+  let matches = 0
+  const lines = notes.split('\n').map((line) => {
+    const window = UPGRADE_WINDOW.exec(line)
+    if (!window || window[1] !== from || window[2] !== to) return line
+    matches += 1
+    return `## ${from} → ${to} (${date})`
+  })
+  return { text: lines.join('\n'), matches }
+}

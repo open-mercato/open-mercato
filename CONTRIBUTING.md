@@ -180,7 +180,12 @@ All four act as the **Open Mercato Assistant** GitHub App, so the PRs, commits a
 
 ### Step by step: ship the next minor
 
-1. **Curate the notes (optional).** Add a leading `# Unreleased` section to `CHANGELOG.md` on `main` (`om-auto-update-changelog` drafts it); the cut hands it to the new line. Without it, the minor ships with generated notes.
+1. **Prepare the upgrade companions (required) and the notes.** On `main`, before the cut (`om-auto-update-changelog` drafts all of it):
+   - an `UPGRADE_NOTES.md` window `## 0.9.0 → 0.10.0 (Unreleased)` — it starts at the previous minor, never a patch; Release replaces the marker with the release date;
+   - the companion skill `om-auto-upgrade-0.9.0-to-0.10.0` in `.ai/skills/` and, byte-identical, in `packages/create-app/agentic/shared/ai/skills/`, registered under `migration` in both `tiers.json` files;
+   - optionally a leading `# Unreleased` section in `CHANGELOG.md`; the cut hands it to the new line. Without it, the minor ships with generated notes.
+
+   Release refuses to tag a minor without the window and both skill files. Anything added after the cut reaches the line through a backport.
 2. **Rehearse the cut.** Actions → **Release cut** → from `main` → tick `dry_run`. The summary names the new line (`release/v0.10.x`) and the version `main` moves to (`0.11.0`).
 3. **Cut.** Run **Release cut** without `dry_run`. It creates `release/v0.10.x` and opens `chore(release): open 0.11.0 on main`.
 4. **Merge the bump PR** `chore(release): open 0.11.0 on main`. Features keep landing on `main`; the line takes only backports from here.
@@ -217,7 +222,7 @@ Release resolves the entry in this order:
 2. a leading `# Unreleased` on the line — renamed to `# X.Y.Z (date)` (Release cut moved it there from `main`, so curated notes for a minor survive and never ship twice);
 3. otherwise **GitHub's generated release notes** since the previous tag on that line, grouped by category label via [`.github/release.yml`](.github/release.yml).
 
-Patches usually ship with the generated notes, so **every PR needs a category label** (`feature`, `bug`, `security`, `enterprise`, `refactor`, `dependencies`, `documentation`) — it decides the PR's section. Bookkeeping PRs carry `skip-changelog`. Patch releases carry no `UPGRADE_NOTES.md` window or upgrade companion skill; minors do, as before.
+Patches usually ship with the generated notes, so **every PR needs a category label** (`feature`, `bug`, `security`, `enterprise`, `refactor`, `dependencies`, `documentation`) — it decides the PR's section. Bookkeeping PRs carry `skip-changelog`. Patch releases carry no `UPGRADE_NOTES.md` window or upgrade companion skill. A minor must have both (see *ship the next minor*, step 1); Release dates the window with the release date and carries that date back to `main` with the changelog entry.
 
 ### Rules for contributors and agents
 
