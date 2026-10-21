@@ -74,13 +74,20 @@ jobs:
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      # Commits through the GitHub API with RELEASE_TOKEN, which sits on the `release/v*`
+      # Commits through the GitHub API as the release app, which sits on the `release/v*`
       # ruleset's bypass list. The npm dist-tag lookup fails closed: if the registry cannot be
       # read the release stops rather than risk moving `latest` backwards.
+      - name: Mint the release token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
       - name: Bump the release line
         id: prepare
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: node scripts/release-line.mjs prepare ${{ inputs.dry_run && '--dry-run' || '' }}
 
       - name: Check out the bump commit
@@ -127,11 +134,20 @@ jobs:
 
       # Tags after publishing: the bump commit already pins the version in git, and an untagged
       # version is what lets a re-run finish a half-published release instead of skipping it.
+      # App tokens live one hour and the build can take most of that, so mint a fresh one.
+      - name: Mint a fresh release token
+        id: announce-token
+        if: steps.publish.outputs.published == 'true'
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
       - name: Tag, GitHub Release and changelog PR
         id: announce
         if: steps.publish.outputs.published == 'true'
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GH_TOKEN: ${{ steps.announce-token.outputs.token }}
           VERSION: ${{ steps.prepare.outputs.version }}
           SHA: ${{ steps.prepare.outputs.sha }}
           DIST_TAG: ${{ steps.prepare.outputs.distTag }}

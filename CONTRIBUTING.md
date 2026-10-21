@@ -215,8 +215,8 @@ Curate a minor's notes as a leading `# Unreleased` section on `main` before the 
 
 ### One-time setup (maintainers)
 
-1. **`RELEASE_TOKEN` secret** (required): a fine-grained PAT or GitHub App token for this repository only, with **Contents, Pull requests, Issues and Workflows: read & write**. `GITHUB_TOKEN` is not enough — PRs it opens trigger no CI, and it cannot bypass the ruleset below. Prefer a bot account (a personal token cannot approve its own PRs) and set a renewal reminder.
-2. **Ruleset `release lines`** (Settings → Rules → New branch ruleset), target `release/v*`: bypass list = the token owner (and admins), mode *Always*; Restrict creations ✅, Restrict deletions ✅, Block force pushes ✅, Restrict updates ❌; Require a pull request ✅ (1 approval); Require status checks ✅ with the CI jobs, "Do not require status checks on creation" ✅; Require signed commits ❌.
+1. **Release GitHub App** (required) — **Open Mercato Assistant**, owned by the `open-mercato` org and installed on this repository only, with repository permissions **Contents, Pull requests, Issues and Workflows: read & write** (webhook off). The release workflows mint a one-hour token from it on every run (`actions/create-github-app-token`), so nothing expires and no personal account is involved. Store its **Client ID** as the repository variable `RELEASE_APP_CLIENT_ID` and a generated **private key** as the secret `RELEASE_APP_PRIVATE_KEY`. `GITHUB_TOKEN` is not enough — PRs it opens trigger no CI, and it cannot bypass the ruleset below. PRs the app opens are authored by the app, so any maintainer can approve them.
+2. **Ruleset `release lines`** (Settings → Rules → New branch ruleset), target `release/v*`: bypass list = the **Open Mercato Assistant** app (and admins), mode *Always*; Restrict creations ✅, Restrict deletions ✅, Block force pushes ✅, Restrict updates ❌; Require a pull request ✅ (1 approval); Require status checks ✅ with the CI jobs, "Do not require status checks on creation" ✅; Require signed commits ❌.
 3. **`production` environment** with required reviewers (already gates Release).
 
 ## Helpful Resources

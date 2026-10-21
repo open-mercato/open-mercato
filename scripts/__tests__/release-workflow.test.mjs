@@ -102,10 +102,13 @@ test('release cut runs only from main and only by hand', () => {
   assert.doesNotMatch(source, /publish-packages|npm publish/, 'Cutting a line never releases anything')
 })
 
-test('workflows that open PRs use RELEASE_TOKEN so CI runs on them', () => {
+test('workflows that open PRs use a release app token so CI runs on them', () => {
   for (const file of [releasePath, cutPath, backportPath]) {
     const { source } = readWorkflow(file)
-    assert.match(source, /secrets\.RELEASE_TOKEN/, `${path.basename(file)} must use RELEASE_TOKEN`)
+    assert.match(source, /uses: actions\/create-github-app-token@[0-9a-f]{40} /, `${path.basename(file)} must mint an app token from a SHA-pinned action`)
+    assert.match(source, /client-id: \$\{\{ vars\.RELEASE_APP_CLIENT_ID \}\}/)
+    assert.match(source, /private-key: \$\{\{ secrets\.RELEASE_APP_PRIVATE_KEY \}\}/)
+    assert.doesNotMatch(source, /secrets\.RELEASE_TOKEN|github\.token/, `${path.basename(file)} must not fall back to a PAT or GITHUB_TOKEN`)
   }
 })
 

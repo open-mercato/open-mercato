@@ -1,8 +1,9 @@
 // The GitHub REST calls the release-line workflows make (scripts/release-line.mjs).
 //
 // Commits go through the git data API rather than `git push`, so a token that may write the
-// branch (RELEASE_TOKEN, on the `release/v*` ruleset's bypass list) is all a run needs. A PR
-// opened with the workflow's own GITHUB_TOKEN triggers no CI, so callers pass RELEASE_TOKEN.
+// branch (the release GitHub App's token, on the `release/v*` ruleset's bypass list) is all a
+// run needs. A PR opened with the workflow's own GITHUB_TOKEN triggers no CI, so callers pass
+// the app token.
 // Every call is re-run safe: existing branches, PRs, labels and releases are reused.
 
 const DEFAULT_API = 'https://api.github.com'

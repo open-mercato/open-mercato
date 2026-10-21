@@ -38,12 +38,21 @@ jobs:
         with:
           node-version: '24.19.0'
 
-      # RELEASE_TOKEN (CONTRIBUTING.md § Releasing → One-time setup) creates the line under the
+      # The release app (CONTRIBUTING.md § Releasing → One-time setup) creates the line under the
       # `release/v*` ruleset and opens a main PR that CI actually runs on; GITHUB_TOKEN can do neither.
+      # A dry run touches no API, so it needs no app token.
+      - name: Mint the release token
+        if: ${{ !inputs.dry_run }}
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
       - name: Cut the release line
         id: cut
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: node scripts/release-line.mjs cut ${{ inputs.dry_run && '--dry-run' || '' }}
 
       - name: Write workflow summary
