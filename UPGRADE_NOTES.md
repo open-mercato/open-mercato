@@ -371,6 +371,22 @@ Additive surfaces that third-party code can use. Existing code needs no changes:
 - New injection spot `staff.time_tracking.settings:tabs` on the Time Tracking Settings page, with `placement: { kind: 'tab' }` and context `{ moduleId, canManage, settings, onSettingsSaved }`. A tab saves its own changes. It builds each write from `context.settings` and reports the stored result through `onSettingsSaved`.
 - Task comments have an optional `visibility` field (`'internal' | 'customer'`, default `'internal'`). It was added to `staffTimeTaskCommentCreateSchema` and `staffTimeTaskCommentUpdateSchema` as an optional field. `staffTimeTaskCommentUpdateSchema` still requires `body`. The task comment `PUT` route validates against the new `staffTimeTaskCommentUpdateRequestSchema`, which also accepts a visibility-only change.
 - `TimeTrackingBuiltInSettings` has an optional `support: { referencePrefix }` group, stored as the `support.referencePrefix` setting key (default `SUP`). If a settings `PUT` omits it, the stored prefix is kept.
+### Integration and bundle ids must not end in `__oauth_grant`
+
+The new OAuth2 grant core in `integrations` stores each tenant-level grant as an
+`integration_credentials` row with the id `<integrationId>__oauth_grant`, and reserves that suffix
+so grant secrets never leave the grant service:
+
+- `GET` and `PUT /api/integrations/:id/credentials` answer `404` for any id ending in
+  `__oauth_grant`, even when an integration with that id is registered.
+- `integrationCredentialsService.resolve()` and `resolveUpdatedAt()` no longer fall through to a
+  `bundleId` ending in `__oauth_grant`; they return the child's own credentials or `null`.
+
+No first-party integration or bundle id ends in the suffix, and every other id behaves as before.
+
+**Action for module authors:** rename any integration or bundle id your module registers that ends
+in `__oauth_grant`. To build a provider on OAuth2 grants, see the
+[OAuth2 grants guide](apps/docs/docs/framework/modules/integrations-oauth-grants.mdx).
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
